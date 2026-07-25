@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { ObjectId } from 'mongodb';
 import { evaluateAsset, type AuditDeps } from './checks.ts';
+import { resolveThumbPath } from '../../fs/xmp.ts';
 import type { ImageDoc } from '../run-stage.ts';
 
 const statOrNull = async (p: string) => {
@@ -70,8 +71,11 @@ async function writeOriginal() {
   await writeFile(path.join(root, 'a/b/p.dng'), 'raw');
 }
 async function writeThumb(bytes = 'thumb') {
-  await mkdir(path.join(root, 'a/b/.maple/thumbs'), { recursive: true });
-  await writeFile(path.join(root, 'a/b/.maple/thumbs/abc123.avif'), bytes);
+  // Path-keyed off the source basename, matching what the audit resolves —
+  // NOT the asset's maple_id (#2220 follow-up).
+  const thumbPath = resolveThumbPath(path.join(root, 'a/b/p.dng'));
+  await mkdir(path.dirname(thumbPath), { recursive: true });
+  await writeFile(thumbPath, bytes);
 }
 async function writePreview() {
   await mkdir(path.join(root, 'a/b/.maple/previews'), { recursive: true });

@@ -35,6 +35,7 @@ import { renderImageThumbToFileViaPool } from '../thumbs/imgdecode-pool.ts';
 import { extractVideoPosterJpeg } from '../thumbs/video-poster.ts';
 import { THUMB_AVIF_QUALITY, THUMB_LONG_EDGE_PX } from '../thumbs/render.ts';
 import { finalizeAvifRender } from '../thumbs/validate-avif.ts';
+import { isThumbFresh, writeThumbMeta } from '../thumbs/thumb-meta.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('thumbnailer');
@@ -66,11 +67,11 @@ let _failed = 0;
 /**
  * Generate (or refresh) the on-disk thumbnail AVIF for an asset.
  *
- * `thumbPathOverride` lets the caller supply a content-addressed cache path
- * (e.g. `<lib>/<fileinfo[0].path>/.maple/thumbs/<maple_id>.avif`) instead of
- * the legacy basename-keyed `resolveThumbPath(absPath)`. When undefined the
- * legacy path is used, preserving behaviour for callers that haven't been
- * swept to the new resolver yet.
+ * `thumbPathOverride` lets a caller that has already resolved the destination
+ * pass it in (the `thumb` stage does, via `resolveThumbPathForAsset`). When
+ * undefined this derives the same location itself with
+ * `resolveThumbPath(absPath)` — both are the one path-keyed name every reader
+ * computes, so the two agree by construction.
  */
 export async function generateThumb(absPath: string, thumbPathOverride?: string): Promise<void> {
   const ext = path.extname(absPath).toLowerCase();
@@ -86,17 +87,15 @@ export async function generateThumb(absPath: string, thumbPathOverride?: string)
     return;
   }
 
-  // Apple, Web, and the lazy fs-thumbs route all write to the same path —
-  // don't clobber a thumb that already covers the source's mtime.
-  try {
-    const [thumbStat, srcStat] = await Promise.all([fs.stat(thumbPath), fs.stat(absPath)]);
-    if (thumbStat.size > 0 && thumbStat.mtimeMs >= srcStat.mtimeMs) {
-      _cached++;
-      logTotals();
-      return;
-    }
-  } catch {
-    // Thumb missing (or source vanished — that will fail downstream anyway).
+  // Apple, Web, and the lazy fs-thumbs route all write to the same path — don't
+  // clobber a thumb that already covers this source revision. Uses the SAME
+  // predicate `/api/fs/thumb` serves from (`thumbs/thumb-meta.ts`), so whichever
+  // side renders first, the other recognises the result instead of redoing it.
+  const srcStat = await fs.stat(absPath).catch(() => null);
+  if (srcStat !== null && (await isThumbFresh(thumbPath, srcStat))) {
+    _cached++;
+    logTotals();
+    return;
   }
 
   // Metadata-only stub images (eip/braw/afphoto/ai) and audio have no still
@@ -129,6 +128,10 @@ export async function generateThumb(absPath: string, thumbPathOverride?: string)
   });
 
   if (ok) {
+    // Stamp the source revision this thumb was rendered from. Without this the
+    // serving route treats the file as stale and re-decodes the source on the
+    // first request — the whole point of rendering it here.
+    if (srcStat !== null) await writeThumbMeta(thumbPath, srcStat);
     _rendered++;
   } else {
     _failed++;

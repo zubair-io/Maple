@@ -22,7 +22,7 @@
 // resolved and rejected if they fall outside any allowed root.
 
 import { Elysia, t } from 'elysia';
-import { stat, readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, mkdir } from 'node:fs/promises';
 import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { unlink } from 'node:fs/promises';
@@ -36,6 +36,7 @@ import { THUMB_AVIF_QUALITY, THUMB_LONG_EDGE_PX } from '../thumbs/render.ts';
 import { ffmpegBinary, extractVideoPosterJpeg } from '../thumbs/video-poster.ts';
 import { child as childLogger } from '../log.ts';
 import { resolveJailedFile, sourceETag, notModifiedResponse } from './fs-jail.ts';
+import { isThumbFresh, writeThumbMeta } from '../thumbs/thumb-meta.ts';
 
 const log = childLogger('fs-thumbs');
 
@@ -137,7 +138,6 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
     // this file is the source changing.
     const thumbPath = resolveThumbPath(real);
 
-    const rawMtimeMs = rawStat.mtimeMs;
     const etag = sourceETag(rawStat);
     const cacheControl = 'private, max-age=3600';
 
@@ -147,41 +147,13 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
     const cached304 = notModifiedResponse(headers['if-none-match'], etag, cacheControl);
     if (cached304) return cached304;
 
-    let thumbStat: Awaited<ReturnType<typeof stat>> | null = null;
-    try {
-      thumbStat = await stat(thumbPath);
-    } catch {
-      thumbStat = null;
-    }
-
-    // Freshness MUST consider both the RAW mtime and the RAW size.
-    // The ETag composes both, so a stale-but-matching-mtime overwrite
-    // with a different size produces a fresh ETag — without the size
-    // gate here, the cached thumb would be reused and we'd serve
-    // stale JPEG bytes under the new ETag. The sidecar .meta file
-    // records the (mtimeMs, size) pair that produced the cached thumb.
-    let cachedMeta: { mtimeMs: number; size: number } | null = null;
-    if (thumbStat !== null) {
-      try {
-        const raw = await readFile(`${thumbPath}.meta`, 'utf8');
-        const parsed = JSON.parse(raw) as { mtimeMs?: number; size?: number };
-        if (typeof parsed.mtimeMs === 'number' && typeof parsed.size === 'number') {
-          cachedMeta = { mtimeMs: parsed.mtimeMs, size: parsed.size };
-        }
-      } catch {
-        // Missing or unreadable meta — treat as stale and regenerate.
-        cachedMeta = null;
-      }
-    }
-
-    const fresh =
-      thumbStat !== null &&
-      thumbStat.mtimeMs >= rawMtimeMs &&
-      cachedMeta !== null &&
-      cachedMeta.mtimeMs === rawMtimeMs &&
-      cachedMeta.size === rawStat.size;
-
-    if (fresh) {
+    // Freshness considers both the source mtime AND size, via the `.meta`
+    // sidecar every thumb writer emits (`thumbs/thumb-meta.ts`): the ETag
+    // composes both, so a mtime-preserving overwrite that changes size yields a
+    // fresh ETag, and without the size gate a stale thumb would be served under
+    // it. Shared with the `thumb` stage — when only this route wrote sidecars,
+    // every stage-rendered thumb read as stale and was needlessly re-decoded.
+    if (await isThumbFresh(thumbPath, rawStat)) {
       try {
         const bytes = await readFile(thumbPath);
         set.headers['Content-Type'] = 'image/avif';
@@ -273,20 +245,9 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
       }
     }
 
-    // Write the sidecar meta so the next request can verify the cache
-    // entry corresponds to the current (mtime, size) of the RAW. Best-
-    // effort: a failed meta write only forces a regenerate next time.
-    try {
-      await writeFile(
-        `${thumbPath}.meta`,
-        JSON.stringify({ mtimeMs: rawMtimeMs, size: rawStat.size }),
-      );
-    } catch (err) {
-      log.warn(
-        { thumbPath, err: err instanceof Error ? err.message : err },
-        'meta write failed; cache will regenerate on next request',
-      );
-    }
+    // Record what source revision this thumb corresponds to, so the next
+    // request (from here OR from any other reader) can trust it.
+    await writeThumbMeta(thumbPath, rawStat);
 
     // Read the freshly written file back to serve. Cheap (thumbs <100 KB).
     let bytes: Buffer;

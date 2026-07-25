@@ -90,10 +90,10 @@ async function mkTree(): Promise<string> {
 
 /** Register `root` as a library (so `sweepOrphanedCaches`' previews sweep can
  * resolve a library id for it) and bust the app's own in-memory
- * `loadLibraryRoots()` cache so it picks up the fresh insert. Previews are
- * path-keyed and library-scoped now (see `cachePathForAsset`'s doc), unlike
- * thumbs' DB-wide `maple_id` uniqueness — every previews test below needs a
- * registered library, thumbs-only tests don't. */
+ * `loadLibraryRoots()` cache so it picks up the fresh insert. BOTH tiers are
+ * path-keyed and library-scoped now (see `cachePathForAsset`'s doc), so every
+ * test that expects a delete decision needs a registered library — with no
+ * resolvable library id the sweep scans but never deletes. */
 async function registerLibrary(root: string): Promise<ObjectId> {
   const libraryId = new ObjectId();
   await db!.collection('folders').insertOne({
@@ -148,64 +148,65 @@ async function agePast(p: string): Promise<void> {
 }
 
 describe('sweepOrphanedCaches', () => {
-  test('unlinks legacy sha256_prefix16-keyed thumb and keeps known maple_id-keyed thumb', async () => {
+  // The retired `<maple_id>` naming MUST be reaped even though the asset still
+  // carries that maple_id (it remains the thumb ETag). A liveness check against
+  // the DB would keep one stale file per asset forever — see cache-gc's module
+  // doc. The live path-keyed thumb in the same directory must survive.
+  test('reaps a retired maple_id-keyed thumb and keeps the live path-keyed one', async () => {
     if (!mongoReachable) return;
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    const { sha256Prefix16 } = await import('../fs/xmp.ts');
     const root = await mkTree();
     try {
-      // Legacy-key thumbs are only recognized as the pano pre-seed scheme
-      // (and thus verifiably dead vs. verifiably live) once the library
-      // resolves — see `isOrphanThumb`'s doc.
-      await registerLibrary(root);
-      const knownThumb = path.join(root, '.maple', 'thumbs', `${KNOWN_ID}.jpg`);
-      const legacyThumb = path.join(root, '.maple', 'thumbs', `${LEGACY_KEY}.jpg`);
-      await writeJpg(knownThumb);
-      await writeJpg(legacyThumb);
-      await agePast(knownThumb);
-      await agePast(legacyThumb);
-
+      const libraryId = await registerLibrary(root);
+      await insertLiveAsset(libraryId, '', 'live.dng');
+      // Asset keeps its maple_id — proving the reap is not "maple_id is gone".
       await db!
         .collection('assets')
         .insertOne({ _id: new ObjectId(), maple_id: KNOWN_ID } as never);
 
-      const result = await sweepOrphanedCaches(root);
-      expect(result).toEqual({ scanned: 2, deleted: 1, skipped_recent: 0 });
+      const retiredThumb = path.join(root, '.maple', 'thumbs', `${KNOWN_ID}.jpg`);
+      const liveThumb = path.join(root, '.maple', 'thumbs', `${sha256Prefix16('live.dng')}.jpg`);
+      const deadKeyThumb = path.join(root, '.maple', 'thumbs', `${LEGACY_KEY}.jpg`);
+      for (const f of [retiredThumb, liveThumb, deadKeyThumb]) {
+        await writeJpg(f);
+        await agePast(f);
+      }
 
-      // Known file remains.
-      const s = await stat(knownThumb);
-      expect(s.size).toBeGreaterThan(0);
-      // Legacy file gone.
-      await expect(stat(legacyThumb)).rejects.toThrow();
+      const result = await sweepOrphanedCaches(root);
+      expect(result).toEqual({ scanned: 3, deleted: 2, skipped_recent: 0 });
+
+      // The thumb whose stem hashes a live filename in this directory survives.
+      expect((await stat(liveThumb)).size).toBeGreaterThan(0);
+      // Retired scheme, and a path-key matching no live file, both reaped.
+      await expect(stat(retiredThumb)).rejects.toThrow();
+      await expect(stat(deadKeyThumb)).rejects.toThrow();
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  test('unlinks orphaned .avif thumb and keeps known .avif thumb (thumb stage v3 format)', async () => {
+  // Same rule for the .avif tier the thumb stage actually writes.
+  test('reaps a retired .avif thumb and keeps the live path-keyed .avif', async () => {
     if (!mongoReachable) return;
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    const { sha256Prefix16 } = await import('../fs/xmp.ts');
     const root = await mkTree();
     try {
-      await registerLibrary(root);
-      const knownThumb = path.join(root, '.maple', 'thumbs', `${KNOWN_ID}.avif`);
-      const legacyThumb = path.join(root, '.maple', 'thumbs', `${LEGACY_KEY}.avif`);
-      await writeAvif(knownThumb);
-      await writeAvif(legacyThumb);
-      await agePast(knownThumb);
-      await agePast(legacyThumb);
-
-      await db!
-        .collection('assets')
-        .insertOne({ _id: new ObjectId(), maple_id: KNOWN_ID } as never);
+      const libraryId = await registerLibrary(root);
+      await insertLiveAsset(libraryId, '', 'live.dng');
+      const retiredThumb = path.join(root, '.maple', 'thumbs', `${KNOWN_ID}.avif`);
+      const liveThumb = path.join(root, '.maple', 'thumbs', `${sha256Prefix16('live.dng')}.avif`);
+      for (const f of [retiredThumb, liveThumb]) {
+        await writeAvif(f);
+        await agePast(f);
+      }
 
       const result = await sweepOrphanedCaches(root);
       expect(result).toEqual({ scanned: 2, deleted: 1, skipped_recent: 0 });
 
-      // Known file remains.
-      const s = await stat(knownThumb);
-      expect(s.size).toBeGreaterThan(0);
-      // Legacy file gone.
-      await expect(stat(legacyThumb)).rejects.toThrow();
+      expect((await stat(liveThumb)).size).toBeGreaterThan(0);
+      await expect(stat(retiredThumb)).rejects.toThrow();
     } finally {
       await rm(root, { recursive: true, force: true });
     }

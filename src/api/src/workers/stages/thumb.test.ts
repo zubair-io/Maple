@@ -5,10 +5,10 @@ import * as path from 'node:path';
 import sharp from 'sharp';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import thumbStage from './thumb.ts';
-import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
+import { resolveThumbPath, resolveThumbPathForAsset, sha256Prefix16 } from '../../fs/xmp.ts';
 import * as videoPosterModule from '../../thumbs/video-poster.ts';
 
-// --- shared test-DB harness for the maple_id-keyed path block below ---
+// --- shared test-DB harness for the path-keyed cache-path block below ---
 const TEST_DB = `maple_test_thumb_stage_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
@@ -133,7 +133,7 @@ describe('thumb handler — bitmap path', () => {
     const result = await thumbStage.handler(doc as never, {} as never);
 
     // The stage no longer persists `thumb_path` — it returns { wrote: true }
-    // and the thumb lives at the content-addressed location, recomputed on read.
+    // and the thumb lives at the path-keyed location, recomputed on read.
     expect(result).toEqual({ wrote: true });
     const thumbPath = resolveThumbPathForAsset(
       doc as never,
@@ -156,7 +156,7 @@ describe('thumb handler — bitmap path', () => {
       const file = path.join(dir, 'IMG_3087.MOV');
       await writeFile(file, Buffer.from('not really a video, just bytes'));
 
-      // Unique maple_id — the thumb cache path is keyed on it.
+      // Distinct filename — the thumb cache path is keyed on the basename.
       const doc = makeDoc(file, libraryId, dir, null, '9'.repeat(32));
       const result = await thumbStage.handler(doc as never, {} as never);
       expect((result as { skip: string }).skip).toBe('no-video-decoder');
@@ -179,12 +179,12 @@ describe('thumb handler — bitmap path', () => {
   it("returns { skip: 'stub-file' } for a .eip stub and writes no thumb", async () => {
     // Stub images have no decoder on any host, so unlike video this skip is
     // permanently extension-based. Without it `copyImageAsThumb` would copy the
-    // raw bytes to `<id>.avif` and the thumb route would serve 200 image/avif
+    // raw bytes to `<key>.avif` and the thumb route would serve 200 image/avif
     // with non-image bytes (broken <img> in the grid).
     const file = path.join(dir, 'IMG_3087.eip');
     await writeFile(file, Buffer.from('not really an image, just bytes'));
 
-    // Unique maple_id — the thumb cache path is keyed on it.
+    // Distinct filename — the thumb cache path is keyed on the basename.
     const doc = makeDoc(file, libraryId, dir, null, '9'.repeat(32));
     const result = await thumbStage.handler(doc as never, {} as never);
     expect((result as { skip: string }).skip).toBe('stub-file');
@@ -303,7 +303,7 @@ describe('thumb handler — bitmap path', () => {
   });
 });
 
-describe('thumb handler — content-addressed cache path', () => {
+describe('thumb handler — path-keyed cache path', () => {
   let mongo: MongoClient | null = null;
   let mongoReachable = false;
   let db: Db | null = null;
@@ -313,7 +313,7 @@ describe('thumb handler — content-addressed cache path', () => {
     mongo = await tryConnect();
     mongoReachable = mongo !== null;
     if (!mongoReachable) {
-      console.log('[thumb.test] skipping content-addressed block: MongoDB unreachable');
+      console.log('[thumb.test] skipping path-keyed block: MongoDB unreachable');
       return;
     }
     db = mongo!.db(TEST_DB);
@@ -337,7 +337,7 @@ describe('thumb handler — content-addressed cache path', () => {
     }
   });
 
-  it('uses <lib>/<fileinfo[0].path>/.maple/thumbs/<maple_id>.avif when the doc has maple_id + fileinfo', async () => {
+  it('writes the path-keyed name /api/fs/thumb reads, not a maple_id-keyed one', async () => {
     if (!mongoReachable) return; // soft pass
 
     // Set up a library at our tmp dir, with a sub-folder containing the JPEG.
@@ -376,7 +376,7 @@ describe('thumb handler — content-addressed cache path', () => {
     const doc = {
       ...makeDoc(file, libId, dir, null, mapleId),
       // Override to point fileinfo[0] at the vacation subdir explicitly so
-      // the content-addressed thumb path lives there.
+      // the thumb lands in that folder's .maple/.
       fileinfo: [
         {
           path: 'vacation',
@@ -389,11 +389,18 @@ describe('thumb handler — content-addressed cache path', () => {
 
     const result = await thumbStage.handler(doc as never, {} as never);
     expect(result).toEqual({ wrote: true });
-    // The thumb is written to the content-addressed location even though the
-    // path is no longer persisted on the asset.
-    const expected = path.join(dir, 'vacation', '.maple', 'thumbs', `${mapleId}.avif`);
+    // The thumb must land at the name a path-only reader computes — this is
+    // the agreement that was broken while the stage was maple_id-keyed.
+    const expected = resolveThumbPath(file);
+    expect(expected).toBe(
+      path.join(dir, 'vacation', '.maple', 'thumbs', `${sha256Prefix16('IMG_001.jpg')}.avif`),
+    );
     const s = await stat(expected);
     expect(s.size).toBeGreaterThan(0);
+    // And explicitly NOT at the old content-addressed name.
+    await expect(
+      stat(path.join(dir, 'vacation', '.maple', 'thumbs', `${mapleId}.avif`)),
+    ).rejects.toThrow();
   });
 });
 

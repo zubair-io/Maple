@@ -1,9 +1,9 @@
 /**
  * Pure-path-math tests for the cache-path resolvers in `xmp.ts`. No Mongo, no
- * filesystem. Thumbs stay content-addressed (`library_root, fileinfo[0].path,
- * maple_id`); previews are path-keyed instead (`library_root,
- * fileinfo[0].path, fileinfo[0].filename, suffix`) — see `cachePathForAsset`'s
- * doc for why.
+ * filesystem. BOTH tiers are path-keyed off the source's own filename — thumbs
+ * as `sha256_prefix16(filename)`, previews as `<filename>.<suffix>` — so every
+ * resolver names a file that can be found from a path alone, with no DB lookup.
+ * See `resolveThumbPathForAsset`'s doc for why thumbs are not content-addressed.
  *
  * The skip-when-Mongo-unreachable pattern from `libraries.cache.test.ts` is
  * not needed here.
@@ -11,7 +11,13 @@
 import { describe, test, expect } from 'bun:test';
 import { ObjectId } from 'mongodb';
 import * as path from 'node:path';
-import { resolveThumbPathForAsset, cachePathForAsset, xmpSidecarPath } from './xmp.ts';
+import {
+  resolveThumbPath,
+  resolveThumbPathForAsset,
+  cachePathForAsset,
+  sha256Prefix16,
+  xmpSidecarPath,
+} from './xmp.ts';
 
 const LIB_ID = new ObjectId('1234567890abcdef12345678');
 const LIB_ROOT = '/srv/library';
@@ -73,26 +79,47 @@ describe('xmpSidecarPath', () => {
 });
 
 describe('resolveThumbPathForAsset', () => {
-  test('composes <lib>/<fileinfo[0].path>/.maple/thumbs/<maple_id>.avif', () => {
-    const result = resolveThumbPathForAsset(makeAsset({}), libs());
-    expect(result).toBe(
-      path.join(LIB_ROOT, 'vacation', '2024', '.maple', 'thumbs', `${MAPLE_ID}.avif`),
-    );
+  // THE load-bearing assertion: the DB-side resolver and the bare-path resolver
+  // must name the same file. When they disagreed (`maple_id` vs basename hash)
+  // the `thumb` stage wrote one name and `/api/fs/thumb` looked for the other,
+  // so every browse/timeline request re-decoded a source that already had a
+  // valid thumb sitting in the same directory — 2.6s vs 1.3ms per image.
+  test('agrees with resolveThumbPath for the same file', () => {
+    const abs = path.join(LIB_ROOT, 'vacation', '2024', 'IMG_001.dng');
+    expect(resolveThumbPathForAsset(makeAsset({}), libs())).toBe(resolveThumbPath(abs));
   });
 
-  test('fileinfo[0].path === "" → <lib>/.maple/thumbs/<maple_id>.avif (file at library root)', () => {
+  test('composes <lib>/<fileinfo[0].path>/.maple/thumbs/<sha256_prefix16(filename)>.avif', () => {
+    const result = resolveThumbPathForAsset(makeAsset({}), libs());
+    const key = sha256Prefix16('IMG_001.dng');
+    expect(result).toBe(path.join(LIB_ROOT, 'vacation', '2024', '.maple', 'thumbs', `${key}.avif`));
+  });
+
+  test('fileinfo[0].path === "" → <lib>/.maple/thumbs/<key>.avif (file at library root)', () => {
     const result = resolveThumbPathForAsset(makeAsset({ fileinfoPath: '' }), libs());
-    expect(result).toBe(path.join(LIB_ROOT, '.maple', 'thumbs', `${MAPLE_ID}.avif`));
+    expect(result).toBe(
+      path.join(LIB_ROOT, '.maple', 'thumbs', `${sha256Prefix16('IMG_001.dng')}.avif`),
+    );
   });
 
   test('POSIX path split: "a/b/c" → segments joined via path.join (never raw "/" in result)', () => {
     const result = resolveThumbPathForAsset(makeAsset({ fileinfoPath: 'a/b/c' }), libs());
-    expect(result).toBe(path.join(LIB_ROOT, 'a', 'b', 'c', '.maple', 'thumbs', `${MAPLE_ID}.avif`));
+    const key = sha256Prefix16('IMG_001.dng');
+    expect(result).toBe(path.join(LIB_ROOT, 'a', 'b', 'c', '.maple', 'thumbs', `${key}.avif`));
   });
 
-  test('returns null when maple_id is missing', () => {
+  // Was "returns null when maple_id is missing". Path-keying removed that
+  // dependency, so a not-yet-hashed row now resolves instead of being skipped.
+  test('resolves without a maple_id (no longer part of the key)', () => {
     const result = resolveThumbPathForAsset(makeAsset({ maple_id: null }), libs());
-    expect(result).toBeNull();
+    expect(result).toBe(resolveThumbPathForAsset(makeAsset({}), libs()));
+    expect(result).not.toBeNull();
+  });
+
+  test('the key is the filename, so two names in one folder do not collide', () => {
+    const a = resolveThumbPathForAsset(makeAsset({ filename: 'IMG_001.dng' }), libs());
+    const b = resolveThumbPathForAsset(makeAsset({ filename: 'IMG_001 copy.dng' }), libs());
+    expect(a).not.toBe(b);
   });
 
   test('returns null when library_id is not in the libraries map', () => {
@@ -119,10 +146,18 @@ describe('resolveThumbPathForAsset', () => {
 });
 
 describe('cachePathForAsset', () => {
-  test('thumbs kind composes <lib>/<fileinfo[0].path>/.maple/thumbs/<maple_id>.avif', () => {
+  test('thumbs kind delegates to the path-keyed resolveThumbPathForAsset', () => {
     const result = cachePathForAsset(makeAsset({}), libs(), 'thumbs');
+    expect(result).toBe(resolveThumbPathForAsset(makeAsset({}), libs()));
     expect(result).toBe(
-      path.join(LIB_ROOT, 'vacation', '2024', '.maple', 'thumbs', `${MAPLE_ID}.avif`),
+      path.join(
+        LIB_ROOT,
+        'vacation',
+        '2024',
+        '.maple',
+        'thumbs',
+        `${sha256Prefix16('IMG_001.dng')}.avif`,
+      ),
     );
   });
 
@@ -167,9 +202,10 @@ describe('cachePathForAsset', () => {
     );
   });
 
-  test('thumbs still return null when maple_id is missing (content-addressed)', () => {
+  test('thumbs resolve without a maple_id — it is not part of the key', () => {
     const result = cachePathForAsset(makeAsset({ maple_id: null }), libs(), 'thumbs');
-    expect(result).toBeNull();
+    expect(result).toBe(cachePathForAsset(makeAsset({}), libs(), 'thumbs'));
+    expect(result).not.toBeNull();
   });
 
   test('returns null when fileinfo is absent', () => {

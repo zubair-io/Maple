@@ -203,10 +203,10 @@ export async function planAndPlace(args: {
  *
  * Covers BOTH cache-keying schemes so reclamation is robust regardless of which
  * one produced the files:
- *   - content-addressed (current stages): `thumbs/<maple_id>.avif`,
- *     `previews/<maple_id>_<size>.jpg`
- *   - legacy basename-keyed: `thumbs/<sha256Prefix16(filename)>.avif`,
+ *   - path-keyed (current): `thumbs/<sha256Prefix16(filename)>.avif`,
  *     `previews/<basename_no_ext>_<size>.jpg`
+ *   - retired content-addressed: `thumbs/<maple_id>.avif`,
+ *     `previews/<maple_id>_<size>.jpg`
  * Thumbs also drops the `.jpg` form of each — the thumb stage's v3 format
  * migration means either extension can be sitting at the old path depending
  * on when it was last rendered. Best-effort — a cache that won't unlink is

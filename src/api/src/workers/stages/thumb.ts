@@ -7,13 +7,14 @@
  * FFI path bakes it during preview extraction; imgdecode child calls
  * sharp's .rotate() inline.
  *
- * Cache-path resolution (post content-addressing migration PR 3):
- *   - if the image doc has both `maple_id` and `fileinfo[0]`, write to the
- *     content-addressed location: `<lib>/<fileinfo[0].path>/.maple/thumbs/
- *     <maple_id>.jpg`;
- *   - otherwise fall back to the legacy basename-keyed location via
- *     `resolveThumbPath(absPath)`. Legacy rows survive until the upcoming GC
- *     sweep retires their orphans.
+ * Cache-path resolution: the ONE path-keyed location every reader computes —
+ * `<lib>/<fileinfo[0].path>/.maple/thumbs/<sha256_prefix16(filename)>.avif`,
+ * via `resolveThumbPathForAsset`, which is just `resolveThumbPath` applied to
+ * the asset's primary absolute path. Writing anywhere else is what made
+ * `/api/fs/thumb` re-decode every source from scratch: it computes the
+ * path-keyed name, so a `maple_id`-keyed file in the same directory was
+ * invisible to it. See `resolveThumbPathForAsset` for why path-keying is the
+ * right call for a UI over a local filesystem.
  *
  * dependsOn: ["exif"]
  *   — thumb needs EXIF orientation to produce an upright image. The legacy
@@ -86,7 +87,15 @@ const thumbStage = defineStage({
   // with the new bytes + `image/avif` Content-Type. Old `.jpg` files become
   // orphans — `cache-gc.ts`/`dedupe.ts`/`restructure-fs.ts` recognize both
   // extensions so they still get reaped.
-  targetVersion: 3,
+  // v4 — cache key changed from `maple_id` back to the path-keyed
+  // `sha256_prefix16(filename)` that every reader (notably `/api/fs/thumb`)
+  // actually computes. Bump so every asset re-renders at the name readers look
+  // for; until it lands, the browse/timeline grids re-decode each source on
+  // first request despite a valid thumb already sitting in the same directory.
+  // The old `<maple_id>.avif` files are deliberately NOT renamed — they orphan
+  // out via cache-gc, same as the v3 `.jpg` files did. `resetCfThumbSyncVersion`
+  // cascades as before so R2 picks up the re-render.
+  targetVersion: 4,
   dependsOn: ['exif'],
   // Reads the original file — an ENOENT means it vanished from disk, so the
   // runner tags `missing_since` for the missing-reaper.
@@ -155,11 +164,11 @@ const thumbStage = defineStage({
     // An ENOENT here (original gone) is tagged `missing_since` by the runner
     // — this stage sets `tagsMissingOnEnoent` — for the missing-reaper.
     await generateThumb(absPath, thumbPath);
-    // The thumb now lives on disk at the content-addressed path. We do NOT
-    // persist that path on the asset: readers recompute it from (library root,
-    // fileinfo[0].path, maple_id) via `resolveThumbPathForAsset`, so a stored
-    // `thumb_path` would be dead, redundant data. `{ wrote: true }` marks the
-    // stage done without patching any asset field.
+    // We do NOT persist the path on the asset: every reader derives it from the
+    // source path alone via `resolveThumbPath`, so a stored `thumb_path` would
+    // be dead, redundant data — and a DB field is exactly the dependency
+    // path-keying exists to avoid. `{ wrote: true }` marks the stage done
+    // without patching any asset field.
     await resetCfThumbSyncVersion(image._id);
     return { wrote: true };
   },

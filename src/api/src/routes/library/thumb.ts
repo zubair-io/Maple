@@ -165,12 +165,11 @@ export const thumbRoutes = new Elysia().get(
       });
     }
 
-    // Resolve thumb path.
+    // Resolve thumb path. Path-keyed off the primary location's filename, so
+    // it's the same file `/api/fs/thumb` and the `thumb` stage use — `maple_id`
+    // stays the ETag (a content validator) but is no longer the cache key.
     const libs = await loadLibraryRoots();
-    const thumbPath = resolveThumbPathForAsset(
-      { maple_id: asset.maple_id as string, fileinfo: asset.fileinfo as never },
-      libs,
-    );
+    const thumbPath = resolveThumbPathForAsset({ fileinfo: asset.fileinfo as never }, libs);
     if (!thumbPath) {
       set.status = 404;
       return { error: 'Cannot resolve thumbnail path for this asset' };

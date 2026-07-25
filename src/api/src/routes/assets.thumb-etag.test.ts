@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { closeDb } from '../db/client.ts';
 import { assetsRoutes } from './assets.ts';
+import { resolveThumbPath } from '../fs/xmp.ts';
 
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 // Shared DB name across all etag tests in this process so the
@@ -73,8 +74,10 @@ describe('GET /api/assets/:id/thumb — ETag', () => {
       color_label: '',
       indexed_at: 'now',
     } as never);
-    // Stage the thumb at the content-addressed path the route will look at.
-    const thumbPath = join(tmp, '.maple', 'thumbs', `${mapleId}.avif`);
+    // Stage the thumb at the path-keyed location the route resolves. NOTE the
+    // ETag is still the maple_id — it is a content validator, independent of the
+    // cache filename, which is keyed on the basename (#2220 follow-up).
+    const thumbPath = resolveThumbPath(rawPath);
     await mkdir(dirname(thumbPath), { recursive: true });
     await writeFile(thumbPath, Buffer.from([0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70]));
     // Invalidate the library cache so the route's loadLibraryRoots picks
