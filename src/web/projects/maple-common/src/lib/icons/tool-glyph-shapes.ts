@@ -35,6 +35,7 @@ export type ToolIconName =
   | 'tool-vibrance'
   | 'tool-saturation'
   | 'tool-hsl'
+  | 'tool-bw'
   | 'tool-clarity'
   | 'tool-texture'
   | 'tool-dehaze'
@@ -146,6 +147,13 @@ export const TOOL_ICON_SHAPES: Record<ToolIconName, readonly IconShape[]> = {
     c(10, 8, 1.4),
     c(7.2, 11.4, 1.4),
   ],
+  // Disc split down the middle with the left half hatched — the conventional
+  // monochrome mark (#276). Shares the r-4.8 disc and the centre divider with
+  // Contrast, which is the closest neighbour in the set; the three chords are
+  // what separate them, and they read as "one half rendered without colour"
+  // rather than Contrast's clean tonal split. Chords stop 0.7 short of the
+  // divider and clear the outline's inner stroke edge (r 4.0) on the left.
+  'tool-bw': [c(8, 8, 4.8), p('M8 3.2v9.6'), p('M5 5.6h2.3M4.3 8h3M5 10.4h2.3')],
 
   // ── Effects ─────────────────────────────────────────────────────────────
   // Faceted diamond with a midline: local contrast snapping the midtones.

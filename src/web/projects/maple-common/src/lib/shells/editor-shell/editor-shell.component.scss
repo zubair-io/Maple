@@ -428,6 +428,40 @@
   }
 }
 
+// B&W panel (#276) on phone — same shared chip selector + drag bar + value
+// chip as tablet/desktop (`.bw-panel` below), plus the toggle control, floats
+// above the dock like the phone curve panel above.
+.phone-bw-panel {
+  @extend %phone-flyout-panel;
+  @extend %mpl-theme-bridge;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 0;
+
+  .bw-panel-sliders {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+  }
+
+  app-value-chip {
+    pointer-events: none;
+  }
+
+  .hsl-panel-chips {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  app-drag-bar {
+    width: 100%;
+  }
+}
+
 // Left filmstrip rail (tablet+). editor-filmstrip is a vertical strip; it fills
 // this rounded, glass-clipped anchor from below the header pill to the bottom
 // edge, clear of the centered control card. (#1564)
@@ -595,6 +629,104 @@
 
   app-drag-bar {
     width: 100%;
+  }
+}
+
+// ── B&W panel (#276 — glass card hosting the Black & White toggle + the
+// shared chip selector / drag bar / value chip driving the 8 gray-mixer
+// weights) ───────────────────────────────────────────────────────────────
+// Same anchor + theme-bridge rationale as `.hsl-panel` above — bwMix reuses
+// the identical `app-sub-param-row` / `app-drag-bar` / `app-value-chip` trio.
+.bw-panel {
+  @extend %dock-side-panel;
+  @extend %mpl-theme-bridge;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 0;
+
+  .bw-panel-sliders {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    transition: opacity 0.15s ease;
+
+    // De-emphasise + disable interaction while Black & White is Off — the
+    // 8 gray-mixer weights are inert until the toggle is On (#276).
+    &--inactive {
+      opacity: 0.4;
+      pointer-events: none;
+    }
+  }
+
+  app-value-chip {
+    pointer-events: none;
+  }
+
+  .hsl-panel-chips {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  app-drag-bar {
+    width: 100%;
+  }
+}
+
+// Black & White toggle control (#276) — shared by the tablet/desktop
+// `.bw-panel` and the phone `.phone-bw-panel`. Track + thumb switch built
+// from `--pro-*` tokens (no external toggle component in maple-common),
+// mirroring the visual language of the top-bar's icon toggle buttons.
+.bw-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 0 16px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--pro-text);
+  font: inherit;
+
+  &-track {
+    position: relative;
+    width: 34px;
+    height: 20px;
+    border-radius: 10px;
+    background: var(--pro-glass-border);
+    transition: background 0.15s ease;
+    flex-shrink: 0;
+  }
+
+  &-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--pro-text);
+    transition: transform 0.15s ease;
+  }
+
+  &-label {
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  &--on {
+    .bw-toggle-track {
+      background: var(--pro-accent);
+    }
+    .bw-toggle-thumb {
+      transform: translateX(14px);
+      background: #fff;
+    }
   }
 }
 

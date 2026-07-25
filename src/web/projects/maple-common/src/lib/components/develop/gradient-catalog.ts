@@ -38,6 +38,10 @@ const TOOL_GRADIENTS: Record<ToolId, GradientValue> = {
   vibrance: 'linear-gradient(90deg, #6e675e 0%, #4a9fc4 100%)',
   saturation: 'linear-gradient(90deg, #6e675e 0%, #c4493a 100%)',
   hsl: 'linear-gradient(90deg, #c4493a 0%, #e8a33d 33%, #3fae6a 66%, #3b6fb0 100%)',
+  // Black & white (#276) — grayscale ramp, distinct from HSL's hue-band
+  // ramp above (the two are mutually exclusive views on the same 8-band
+  // Oklab stage).
+  bwMix: 'linear-gradient(90deg, #0b0a08 0%, #6e675e 50%, #f2efe9 100%)',
 
   // Effects group
   clarity: 'linear-gradient(90deg, #4a443b 0%, #a8a097 100%)',

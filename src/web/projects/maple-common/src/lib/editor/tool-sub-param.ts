@@ -63,7 +63,9 @@ export interface ToolSubParam {
 // Vignette joined
 // at #1109, grain at #1110, split tone at #1111 (Balance leads — the
 // schema-declared primary drag-bar field). HSL joined at #1112 with 24
-// sub-params across 3 rows (Hue/Sat/Lum × 8 bands); Hue Red leads.
+// sub-params across 3 rows (Hue/Sat/Lum × 8 bands); Hue Red leads. bwMix
+// joined at #276 with the 8 gray-mixer weights — the same hue-band order
+// as HSL's rows, since both drive the identical 8-band Oklab partition.
 const SUB_PARAMS: Partial<Record<ToolId, readonly ToolSubParam[]>> = {
   hsl: [
     // Hue row (bands Red → Magenta)
@@ -228,6 +230,22 @@ const SUB_PARAMS: Partial<Record<ToolId, readonly ToolSubParam[]>> = {
       id: 'lumMagenta',
       label: 'L Magenta',
       field: 'luminanceAdjustmentMagenta',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+  ],
+  bwMix: [
+    { id: 'bwRed', label: 'Red', field: 'grayMixerRed', mapping: 'anchored', decimals: 0 },
+    { id: 'bwOrange', label: 'Orange', field: 'grayMixerOrange', mapping: 'anchored', decimals: 0 },
+    { id: 'bwYellow', label: 'Yellow', field: 'grayMixerYellow', mapping: 'anchored', decimals: 0 },
+    { id: 'bwGreen', label: 'Green', field: 'grayMixerGreen', mapping: 'anchored', decimals: 0 },
+    { id: 'bwAqua', label: 'Aqua', field: 'grayMixerAqua', mapping: 'anchored', decimals: 0 },
+    { id: 'bwBlue', label: 'Blue', field: 'grayMixerBlue', mapping: 'anchored', decimals: 0 },
+    { id: 'bwPurple', label: 'Purple', field: 'grayMixerPurple', mapping: 'anchored', decimals: 0 },
+    {
+      id: 'bwMagenta',
+      label: 'Magenta',
+      field: 'grayMixerMagenta',
       mapping: 'anchored',
       decimals: 0,
     },

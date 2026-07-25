@@ -113,6 +113,15 @@ export class XmpSerializerService {
       parts.push(`papp:ToneCurveMode="${this._escapeAttr(model.toneCurveMode)}"`);
     }
 
+    // Black & white toggle (#276) — ACR/Lightroom-compatible `crs:` key,
+    // default 'Off'. Emit only "True" on non-default so pre-#276 sidecars
+    // stay byte-identical, mirroring the Rust (`xmp/mod.rs`) and Swift
+    // writers. The 8 gray-mixer weights are plain numeric fields, already
+    // emitted above by `_adjustmentParts` via `ADJUSTMENT_FIELDS`.
+    if (model.blackWhite === 'On') {
+      parts.push('crs:ConvertToGrayscale="True"');
+    }
+
     // Crop / straighten (#277, spec § 01 invariant 3). Emit the full group
     // only when non-identity. CropAngle is independent — a pure straighten
     // with no rect trim emits angle but no HasCrop/rect fields. Mirrors the

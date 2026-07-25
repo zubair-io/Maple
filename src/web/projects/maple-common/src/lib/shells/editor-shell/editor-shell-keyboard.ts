@@ -9,7 +9,7 @@
 // NOT ported here — A's `0` already does something else (clear rating, see
 // below), and that binding is real, working, and came first in this shell.
 import type { EditorShellComponent } from './editor-shell.component';
-import { TOOLS_IN_GROUP, type ToolGroup, type ToolId, groupOf } from '../../editor/tool-model';
+import { type ToolGroup, type ToolId, groupOf, visibleToolsInGroup } from '../../editor/tool-model';
 
 /** Cycle the armed tool within its group; shift cycles the group. Verbatim
  * port of the S5 editor's `_nudgeTool` (`editor.component.ts`). */
@@ -21,7 +21,14 @@ function nudgeTool(shell: EditorShellComponent, direction: 1 | -1, byGroup: bool
     shell.onGroupChange(next);
     return;
   }
-  const tools: readonly ToolId[] = TOOLS_IN_GROUP[groupOf(shell.editorState.armedTool())];
+  // visibleToolsInGroup (#276) drops `hsl` from the cycle order while Black
+  // & White is On — its surface is hidden (dock entry + panel), so cycling
+  // must never land the armed tool there.
+  const blackWhiteOn = shell.editorState.currentAdjustment()?.blackWhite === 'On';
+  const tools: readonly ToolId[] = visibleToolsInGroup(
+    groupOf(shell.editorState.armedTool()),
+    blackWhiteOn,
+  );
   const i = tools.indexOf(shell.editorState.armedTool());
   const next = tools[(i + direction + tools.length) % tools.length];
   shell.onToolChange(next);

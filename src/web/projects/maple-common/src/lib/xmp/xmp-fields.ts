@@ -170,6 +170,20 @@ export const ADJUSTMENT_FIELDS: XmpFieldMapping<NumericAdjustmentKey>[] = [
   numericField('crs:LuminanceAdjustmentBlue', 'luminanceAdjustmentBlue'),
   numericField('crs:LuminanceAdjustmentPurple', 'luminanceAdjustmentPurple'),
   numericField('crs:LuminanceAdjustmentMagenta', 'luminanceAdjustmentMagenta'),
+  // ---- B&W gray-mixer 8-band fields (ticket #276) ----
+  // Scene-linear Oklab, same 8 hue-band partition as the HSL fields above;
+  // range -100..+100. Drive luminance per band when `crs:ConvertToGrayscale`
+  // is "True" (the toggle field itself is enum-serialized separately in
+  // XmpSerializerService, mirroring the other `crs:`/`papp:` enum fields —
+  // it doesn't fit the numeric-field shape here). ACR-compatible crs: keys.
+  numericField('crs:GrayMixerRed', 'grayMixerRed'),
+  numericField('crs:GrayMixerOrange', 'grayMixerOrange'),
+  numericField('crs:GrayMixerYellow', 'grayMixerYellow'),
+  numericField('crs:GrayMixerGreen', 'grayMixerGreen'),
+  numericField('crs:GrayMixerAqua', 'grayMixerAqua'),
+  numericField('crs:GrayMixerBlue', 'grayMixerBlue'),
+  numericField('crs:GrayMixerPurple', 'grayMixerPurple'),
+  numericField('crs:GrayMixerMagenta', 'grayMixerMagenta'),
 ];
 
 /** WhiteBalance preset — serialized as a string attribute, not a number. */

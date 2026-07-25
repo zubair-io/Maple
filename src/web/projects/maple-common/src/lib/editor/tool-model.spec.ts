@@ -2,10 +2,12 @@ import { describe, it, expect } from 'vitest';
 
 import {
   ALL_TOOLS,
+  TOOLS_IN_GROUP,
   defaultDisplayValue,
   displayRange,
   displayValueFromInternal,
   internalValueFromDisplay,
+  visibleToolsInGroup,
   type ToolId,
 } from './tool-model';
 
@@ -46,10 +48,12 @@ describe('displayRange (sourced from generated ADJUSTMENT_RANGES)', () => {
   }
 
   it('returns null for stub tools', () => {
-    // hsl / crop are stubs pending their own specs; presets is wired but
-    // value-less. No range, so the drag-bar and value chip treat them
-    // identically (no phantom track, no misleading midpoint value).
-    for (const tool of ['hsl', 'crop', 'presets'] as const) {
+    // hsl / bwMix have no single primary drag-bar field (multi-sub-param
+    // panels instead, #1112 / #276); crop is a stub pending its own spec;
+    // presets is wired but value-less. No range, so the drag-bar and value
+    // chip treat them identically (no phantom track, no misleading
+    // midpoint value).
+    for (const tool of ['hsl', 'bwMix', 'crop', 'presets'] as const) {
       expect(displayRange(tool)).toBeNull();
     }
   });
@@ -96,9 +100,9 @@ describe('value mapping (internal -100..100 ↔ display)', () => {
 
   it('range-less tools map to 0, never a misleading midpoint', () => {
     // With no DISPLAY_RANGE entry the mapping is identity, so the chip
-    // reads 0 for hsl / crop / presets. (The S5 effects all left the
-    // gated set: #1109 / #1110 / #1111.)
-    for (const tool of ['hsl', 'crop', 'presets'] as const) {
+    // reads 0 for hsl / bwMix / crop / presets. (The S5 effects all left
+    // the gated set: #1109 / #1110 / #1111.)
+    for (const tool of ['hsl', 'bwMix', 'crop', 'presets'] as const) {
       expect(displayValueFromInternal(tool, 0)).toBe(0);
       expect(internalValueFromDisplay(tool, 0)).toBe(0);
     }
@@ -140,6 +144,28 @@ describe('value mapping (internal -100..100 ↔ display)', () => {
         const d = displayValueFromInternal(tool, v);
         expect(internalValueFromDisplay(tool, d)).toBeCloseTo(v, 6);
       }
+    }
+  });
+});
+
+describe('visibleToolsInGroup (#276 — HSL surface hides while Black & White is On)', () => {
+  it('returns the full color list, including hsl, when Black & White is Off', () => {
+    expect(visibleToolsInGroup('color', false)).toEqual(TOOLS_IN_GROUP.color);
+    expect(visibleToolsInGroup('color', false)).toContain('hsl');
+    expect(visibleToolsInGroup('color', false)).toContain('bwMix');
+  });
+
+  it('drops hsl (but keeps bwMix) from the color list when Black & White is On', () => {
+    const visible = visibleToolsInGroup('color', true);
+    expect(visible).not.toContain('hsl');
+    expect(visible).toContain('bwMix');
+    expect(visible).toEqual(TOOLS_IN_GROUP.color.filter((t) => t !== 'hsl'));
+  });
+
+  it('is a no-op for every non-color group regardless of Black & White state', () => {
+    for (const group of ['light', 'effects', 'detail'] as const) {
+      expect(visibleToolsInGroup(group, true)).toEqual(TOOLS_IN_GROUP[group]);
+      expect(visibleToolsInGroup(group, false)).toEqual(TOOLS_IN_GROUP[group]);
     }
   });
 });

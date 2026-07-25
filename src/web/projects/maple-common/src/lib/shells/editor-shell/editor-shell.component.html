@@ -134,6 +134,7 @@
           [activeTool]="activeTool()"
           [curveOpen]="curveOpen()"
           [presetsOpen]="presetsOpen()"
+          [blackWhiteOn]="blackWhiteOn()"
           (groupChange)="onGroupChange($event)"
           (toolChange)="onToolChange($event)"
           (curvePanelToggle)="onCurvePanelToggle()"
@@ -187,6 +188,41 @@
             <app-drag-bar />
           </div>
         }
+
+        <!-- B&W panel (#276) — glass card hosting the Black & White toggle
+             plus the shared chip selector + drag bar + value chip driving
+             the 8 gray-mixer weights. Same (tool, subParam) arming
+             machinery as the HSL panel above. -->
+        @if (bwMixArmed()) {
+          <div class="bw-panel">
+            <button
+              class="bw-toggle"
+              [class.bw-toggle--on]="blackWhiteOn()"
+              role="switch"
+              [attr.aria-checked]="blackWhiteOn()"
+              aria-label="Black & White"
+              data-testid="bw-toggle"
+              (click)="onBlackWhiteToggle()"
+            >
+              <span class="bw-toggle-track">
+                <span class="bw-toggle-thumb"></span>
+              </span>
+              <span class="bw-toggle-label">Black &amp; White</span>
+            </button>
+            <div
+              class="bw-panel-sliders"
+              [class.bw-panel-sliders--inactive]="!blackWhiteOn()"
+              [attr.aria-disabled]="!blackWhiteOn()"
+              data-testid="bw-panel-sliders"
+            >
+              <app-value-chip />
+              <div class="hsl-panel-chips">
+                <app-sub-param-row />
+              </div>
+              <app-drag-bar />
+            </div>
+          </div>
+        }
       </div>
 
       <!-- ── Tablet/desktop bottom control card ─────────────────── -->
@@ -195,12 +231,12 @@
            armTool('crop') would otherwise show alongside — the crop toolbar
            (in the dock-side panel above) is the only control surface while
            armed, matching the S5 editor swapping its drag-bar area for the
-           crop toolbar. Hidden while HSL is armed for the same reason: HSL
-           has no single primary drag-bar field (24 sub-params,
-           control-card.component.ts's SLIDER_TOOLS deliberately excludes
-           it), so the HSL panel above is the only control surface while
-           armed. -->
-      @if (!cropArmed() && !hslArmed()) {
+           crop toolbar. Hidden while HSL or bwMix is armed for the same
+           reason: neither has a single primary drag-bar field
+           (control-card.component.ts's SLIDER_TOOLS deliberately excludes
+           both), so their own panel above is the only control surface
+           while armed. -->
+      @if (!cropArmed() && !hslArmed() && !bwMixArmed()) {
         <div class="control-card-anchor">
           <pro-control-card [activeGroup]="activeGroup()" (groupChange)="onGroupChange($event)" />
         </div>
@@ -209,10 +245,11 @@
       <!-- ── Phone CARD editor (#1807): flyout card + bottom dock ──── -->
 
       <!-- Flyout slider card — floats above the dock, closeable. Hidden
-           while Crop/HSL is armed for the same reason as the tablet/desktop
-           control card above: both own the phone flyout anchor while armed
-           (crop/HSL panels below), so the group slider card can't also show. -->
-      @if (!cropArmed() && !hslArmed()) {
+           while Crop/HSL/bwMix is armed for the same reason as the
+           tablet/desktop control card above: all three own the phone
+           flyout anchor while armed (crop/HSL/B&W panels below), so the
+           group slider card can't also show. -->
+      @if (!cropArmed() && !hslArmed() && !bwMixArmed()) {
         <div class="phone-card-anchor">
           <pro-control-card
             [activeGroup]="activeGroup()"
@@ -263,6 +300,40 @@
         </div>
       }
 
+      <!-- B&W panel (#276) — same toggle + shared chip selector/drag bar/
+           value chip as tablet/desktop, floats above the dock like the
+           phone curve panel. -->
+      @if (bwMixArmed()) {
+        <div class="phone-bw-panel">
+          <button
+            class="bw-toggle"
+            [class.bw-toggle--on]="blackWhiteOn()"
+            role="switch"
+            [attr.aria-checked]="blackWhiteOn()"
+            aria-label="Black & White"
+            data-testid="bw-toggle"
+            (click)="onBlackWhiteToggle()"
+          >
+            <span class="bw-toggle-track">
+              <span class="bw-toggle-thumb"></span>
+            </span>
+            <span class="bw-toggle-label">Black &amp; White</span>
+          </button>
+          <div
+            class="bw-panel-sliders"
+            [class.bw-panel-sliders--inactive]="!blackWhiteOn()"
+            [attr.aria-disabled]="!blackWhiteOn()"
+            data-testid="bw-panel-sliders"
+          >
+            <app-value-chip />
+            <div class="hsl-panel-chips">
+              <app-sub-param-row />
+            </div>
+            <app-drag-bar />
+          </div>
+        </div>
+      }
+
       <!-- Bottom horizontal tool dock -->
       <div class="phone-dock-anchor">
         <pro-tool-dock
@@ -270,6 +341,7 @@
           [activeGroup]="activeGroup()"
           [activeTool]="activeTool()"
           [curveOpen]="curveOpen()"
+          [blackWhiteOn]="blackWhiteOn()"
           [presetsOpen]="presetsOpen()"
           (groupChange)="onPhoneDockGroupChange($event)"
           (toolChange)="onPhoneToolChange($event)"

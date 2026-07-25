@@ -33,9 +33,18 @@
 // so a hue/sat/lum edit writes the identical `AdjustmentModel` field on both
 // editors. HSL has no single primary drag-bar field (24 sub-params across
 // 3 rows), so — like Crop — it does not appear in the control card's living-
-// slider grid; the control card hides entirely while HSL is armed.
-// Presets, Curve, Crop, and HSL all share the same panel anchor and are
-// mutually exclusive (see `onPresetsPanelToggle`/`onCurvePanelToggle`/
+// slider grid; the control card hides entirely while HSL is armed. HSL's
+// dock entry, tool-list membership, and panel are all hidden while Black &
+// White is On (#276) — see `blackWhiteOn`/`bwMixArmed` below.
+// B&W panel (#276): glass card that opens while the bwMix dock entry is
+// armed — same shared chip selector + drag bar + value chip as HSL, hosting
+// the 8 gray-mixer weights, plus an explicit toggle control for
+// `model.blackWhite` (`onBlackWhiteToggle`). Routed through
+// `EditorStateService.setBlackWhite` so the toggle is undoable. The 8
+// sliders are de-emphasised (not disabled — still previewable) while the
+// toggle is Off, since they're inert until B&W is On.
+// Presets, Curve, Crop, HSL, and bwMix all share the same panel anchor and
+// are mutually exclusive (see `onPresetsPanelToggle`/`onCurvePanelToggle`/
 // `onToolChange`) — the phone equivalents (`onPhone*`) close the flyout
 // control card first, then delegate to the same shared handler, so the
 // exclusion holds identically on phone.
@@ -101,13 +110,8 @@ import {
   onCanvasPointerDown as scrubOnCanvasPointerDown,
   cleanupScrub,
 } from './editor-shell-scrub';
-import {
-  type ToolGroup,
-  type ToolId,
-  TOOL_GROUP_DISPLAY,
-  TOOL_DISPLAY,
-  displayRange,
-} from '../../editor/tool-model';
+import { type ToolGroup, type ToolId } from '../../editor/tool-model';
+import { hudEyebrowText, hudValueLabel, hudProgressFraction } from './editor-shell-hud';
 
 /** Chrome visibility states driven by idle timer + scrub. */
 type ChromeState = 'full' | 'receded' | 'scrubbing';
@@ -171,6 +175,18 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
         this.editorState.bind(id);
       }
     });
+
+    // Safety net (#276): if HSL is ever the armed tool while Black & White
+    // is On — however that combination arose (a preset apply, undo/redo
+    // landing on such a state, a race with the toggle click) — re-arm
+    // bwMix. The HSL surface (dock entry + panel) is hidden while B&W is
+    // On, so leaving `hsl` armed would point the drag bar / sub-param row
+    // at a tool with no visible way to reach it.
+    effect(() => {
+      if (this.blackWhiteOn() && this.editorState.armedTool() === 'hsl') {
+        this.editorState.armTool('bwMix');
+      }
+    });
   }
 
   // ── Page unload (preserved) ────────────────────────────────────────────
@@ -217,8 +233,23 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
    *  arms the tool in the first place. */
   readonly noiseArmed = computed<boolean>(() => this.editorState.armedTool() === 'noise');
 
-  /** Armed tool has a sub-param panel (chip selector + drag bar + chip). */
+  /** Armed tool has a sub-param panel (chip selector + drag bar + chip).
+   *  bwMix deliberately does NOT join this: it needs the Black & White
+   *  toggle above the same three controls, so it mounts its own block in
+   *  the template. Adding it here would render both blocks at once. */
   readonly subParamPanelArmed = computed<boolean>(() => this.hslArmed() || this.noiseArmed());
+
+  /** True while the bwMix (Black & White) tool is armed (#276) — mounts the
+   *  B&W panel (toggle + chip selector + drag bar + value chip) next to the
+   *  dock, the same shared multi-param editing surface as HSL. */
+  readonly bwMixArmed = computed<boolean>(() => this.editorState.armedTool() === 'bwMix');
+
+  /** True while Black & White is On for the focused asset (#276) — drives
+   *  hiding the HSL dock entry (`ToolDockComponent`'s `blackWhiteOn` input)
+   *  and de-emphasising the B&W panel's 8 gray-mixer sliders when Off. */
+  readonly blackWhiteOn = computed<boolean>(
+    () => this.editorState.currentAdjustment()?.blackWhite === 'On',
+  );
 
   /** True when the viewport is tablet/desktop (≥768px). */
   readonly isTabletPlus = signal<boolean>(false);
@@ -264,25 +295,15 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
 
   // HUD state
   readonly hudVisible = signal<boolean>(false);
-  readonly hudEyebrow = computed<string>(() => {
-    const g = this.editorState.armedGroup();
-    const t = this.editorState.armedTool();
-    return `${TOOL_GROUP_DISPLAY[g]} · ${TOOL_DISPLAY[t]}`;
-  });
-  readonly hudValueText = computed<string>(() => {
-    const v = this.editorState.armedDisplayValue();
-    const tool = this.editorState.armedTool();
-    const r = displayRange(tool);
-    if (!r) return String(Math.round(v));
-    const step = r[1] <= 4 ? 0.01 : 1;
-    const decimals = step < 0.1 ? 2 : step < 1 ? 1 : 0;
-    const formatted = v.toFixed(decimals);
-    return v > 0 ? `+${formatted}` : formatted;
-  });
-  readonly hudProgress = computed<number>(() => {
-    const v = this.editorState.armedInternalValue(); // [-100, +100]
-    return (v + 100) / 200; // map to [0, 1]
-  });
+  readonly hudEyebrow = computed<string>(() =>
+    hudEyebrowText(this.editorState.armedGroup(), this.editorState.armedTool()),
+  );
+  readonly hudValueText = computed<string>(() =>
+    hudValueLabel(this.editorState.armedDisplayValue(), this.editorState.armedTool()),
+  );
+  readonly hudProgress = computed<number>(() =>
+    hudProgressFraction(this.editorState.armedInternalValue()),
+  );
 
   private _hudFadeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -360,16 +381,17 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
     this.editorState.haptic('switch');
   }
 
-  /** Arm a specific dock tool (Crop — #1813 — or HSL — epic #1807 slice 4).
-   *  Matches the S5 editor's pill row (`ToolPillRowComponent.select`):
-   *  tapping always arms; exiting crop is an explicit action (the crop
-   *  toolbar's Done button), not a second tap on the dock entry — HSL has no
-   *  such action and simply stays armed until another tool is picked. Crop,
-   *  HSL, Curve, and Presets share the same panel anchor and are mutually
-   *  exclusive — arming Crop or HSL closes the curve and presets panels so
-   *  no two can ever render on top of each other (the newly-armed tool wins). */
+  /** Arm a specific dock tool (Crop — #1813 — HSL — epic #1807 slice 4 — or
+   *  bwMix — #276). Matches the S5 editor's pill row
+   *  (`ToolPillRowComponent.select`): tapping always arms; exiting crop is
+   *  an explicit action (the crop toolbar's Done button), not a second tap
+   *  on the dock entry — HSL/bwMix have no such action and simply stay
+   *  armed until another tool is picked. Crop, HSL, bwMix, Curve, and
+   *  Presets share the same panel anchor and are mutually exclusive —
+   *  arming Crop, HSL, or bwMix closes the curve and presets panels so no
+   *  two can ever render on top of each other (the newly-armed tool wins). */
   onToolChange(tool: ToolId): void {
-    if (tool === 'crop' || tool === 'hsl') {
+    if (tool === 'crop' || tool === 'hsl' || tool === 'bwMix') {
       this.curveOpen.set(false);
       this.presetsOpen.set(false);
     }
@@ -377,14 +399,23 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
     this.editorState.haptic('switch');
   }
 
-  /** Toggle the curve panel. No-op while Crop or HSL is armed: both own the
-   *  shared panel anchor, so Curve can't open over either. Opening Curve also
-   *  closes Presets, since they share the same anchor too (the mutual-
-   *  exclusion half that keeps the panels from overlapping — the other
-   *  halves are `onToolChange` closing curve/presets when Crop/HSL arms, and
-   *  `onPresetsPanelToggle` closing curve when Presets opens). */
+  /** Toggle Black & White On/Off for the focused asset (#276) — the B&W
+   *  panel's toggle control. Routed entirely through
+   *  `EditorStateService.setBlackWhite`, which owns the commit/undo write
+   *  and the HSL-armed re-arm safety net. */
+  onBlackWhiteToggle(): void {
+    this.editorState.setBlackWhite(this.blackWhiteOn() ? 'Off' : 'On');
+  }
+
+  /** Toggle the curve panel. No-op while Crop, HSL, or bwMix is armed: all
+   *  three own the shared panel anchor, so Curve can't open over any of
+   *  them. Opening Curve also closes Presets, since they share the same
+   *  anchor too (the mutual-exclusion half that keeps the panels from
+   *  overlapping — the other halves are `onToolChange` closing
+   *  curve/presets when Crop/HSL/bwMix arms, and `onPresetsPanelToggle`
+   *  closing curve when Presets opens). */
   onCurvePanelToggle(): void {
-    if (this.cropArmed() || this.hslArmed()) return;
+    if (this.cropArmed() || this.hslArmed() || this.bwMixArmed()) return;
     this.presetsOpen.set(false);
     this.curveOpen.update((v) => !v);
   }
@@ -440,11 +471,11 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
     this.editorState.haptic('switch');
   }
 
-  /** Toggle the presets panel (#1815). No-op while Crop or HSL is armed, and
-   *  closes Curve if open — same shared-anchor mutual exclusion as
-   *  Curve/Crop/HSL. */
+  /** Toggle the presets panel (#1815). No-op while Crop, HSL, or bwMix is
+   *  armed, and closes Curve if open — same shared-anchor mutual exclusion
+   *  as Curve/Crop/HSL/bwMix. */
   onPresetsPanelToggle(): void {
-    if (this.cropArmed() || this.hslArmed()) return;
+    if (this.cropArmed() || this.hslArmed() || this.bwMixArmed()) return;
     this.curveOpen.set(false);
     this.presetsOpen.update((v) => !v);
   }
