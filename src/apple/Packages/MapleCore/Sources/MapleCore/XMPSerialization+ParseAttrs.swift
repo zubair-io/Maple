@@ -212,7 +212,9 @@ extension _XMPParserDelegate {
         case "papp:ColorLabel":
             if let label = ColorLabel(rawValue: value) { culling.colorLabel = label }
         case "papp:Hidden": culling.hidden = XMPParser.parseHiddenAttribute(value)
-        default: _xmpApplyHSLAttribute(key: key, value: value, model: &model)
+        default:
+            _xmpApplyHSLAttribute(key: key, value: value, model: &model)
+            _xmpApplyBlackWhiteAttribute(key: key, value: value, model: &model)
         }
     }
 

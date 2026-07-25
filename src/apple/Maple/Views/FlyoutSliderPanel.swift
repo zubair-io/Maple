@@ -21,7 +21,7 @@ struct FlyoutSliderPanel: View {
     /// Wired, slider-backed tools in the armed group — same filter the
     /// LivingSliderGrid uses, laid out single-column here.
     private var wiredTools: [Tool] {
-        Tool.tools(in: state.armedGroup)
+        state.visibleTools(in: state.armedGroup)
             .filter { $0.isWired && ToolValueMapping.displayRange(for: $0) != nil }
     }
 
@@ -36,6 +36,8 @@ struct FlyoutSliderPanel: View {
                 // HSL band chips + per-band Hue/Sat/Lum sliders replace the
                 // group stack while HSL is armed (#274) — HSL carries no
                 // single primary field, so this is its whole control surface.
+                // `armedTool` can never be `.hsl` while Black & White is on
+                // (#276) — EditorState normalises it to `.bwMix`.
                 HSLSection(state: state)
             } else {
                 // Sub-param chip row for multi-param tools.

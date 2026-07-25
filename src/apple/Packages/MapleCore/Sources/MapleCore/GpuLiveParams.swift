@@ -202,6 +202,21 @@ extension PipelineRenderer {
         p.hsl_lum_purple   = Float(model.luminanceAdjustmentPurple)
         p.hsl_lum_magenta  = Float(model.luminanceAdjustmentMagenta)
 
+        // Black & white mix (#276) — same 8-band Oklab stage as the HSL
+        // fields above; `bw_active` non-zero switches it into its
+        // monochrome path (chroma forced to zero, `bw_mix_*` become the
+        // per-band luminance weights). Lives at the struct TAIL (append-
+        // only ABI, same convention as brightness / vignette / etc.).
+        p.bw_active       = model.blackWhite == .on ? 1 : 0
+        p.bw_mix_red      = Float(model.grayMixerRed)
+        p.bw_mix_orange   = Float(model.grayMixerOrange)
+        p.bw_mix_yellow   = Float(model.grayMixerYellow)
+        p.bw_mix_green    = Float(model.grayMixerGreen)
+        p.bw_mix_aqua     = Float(model.grayMixerAqua)
+        p.bw_mix_blue     = Float(model.grayMixerBlue)
+        p.bw_mix_purple   = Float(model.grayMixerPurple)
+        p.bw_mix_magenta  = Float(model.grayMixerMagenta)
+
         // REAL sharpen + NR — run IN the scene-linear chain (replacing the post-AgX
         // Metal kernels), the sanctioned convergence divergence.
         p.sharpen_amount = Float(model.sharpenAmount)

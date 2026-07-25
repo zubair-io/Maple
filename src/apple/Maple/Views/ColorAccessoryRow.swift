@@ -35,8 +35,35 @@ struct ColorAccessoryRow: View {
         )
     }
 
+    /// Black & white mix toggle (#276). Routes through
+    /// `EditorState.setBlackWhite(_:)` rather than writing
+    /// `session.model.blackWhite` directly — that method commits an undo
+    /// snapshot and re-arms off `.hsl` if it was the armed tool (`.hsl`
+    /// disappears from the Color pill row the moment B&W engages).
+    private var blackWhiteBinding: Binding<Bool> {
+        Binding(
+            get: { session.model.blackWhite == .on },
+            set: { state.setBlackWhite($0 ? .on : .off) }
+        )
+    }
+
     var body: some View {
         HStack(spacing: 12) {
+            // Black & white mix (#276) — shown only while the B&W Mix tool
+            // is armed; the eight gray-mixer sliders are meaningless (and
+            // pipeline-forced inert) until this is on.
+            if state.armedTool == .bwMix {
+                Toggle(isOn: blackWhiteBinding) {
+                    Text("Black & White")
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(MapleTokens.textMuted)
+                }
+                .toggleStyle(.switch)
+                .fixedSize()
+                .accessibilityIdentifier("editor-bw-toggle")
+                .accessibilityLabel("Convert to black and white")
+            }
+
             HStack(spacing: 6) {
                 Text("Profile")
                     .font(.system(size: 11, weight: .regular))

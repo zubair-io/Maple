@@ -74,6 +74,15 @@ final class RawCoreBridgeTests: XCTestCase {
             luminanceAdjustmentBlue: -36,
             luminanceAdjustmentPurple: 37,
             luminanceAdjustmentMagenta: -38,
+            blackWhite: .on,
+            grayMixerRed: 41,
+            grayMixerOrange: -42,
+            grayMixerYellow: 43,
+            grayMixerGreen: -44,
+            grayMixerAqua: 45,
+            grayMixerBlue: -46,
+            grayMixerPurple: 47,
+            grayMixerMagenta: -48,
             highlightRecovery: .blend,
             autoExposure: .off
         )
@@ -133,6 +142,17 @@ final class RawCoreBridgeTests: XCTestCase {
         XCTAssertEqual(stripped.luminanceAdjustmentBlue, d.luminanceAdjustmentBlue)
         XCTAssertEqual(stripped.luminanceAdjustmentPurple, d.luminanceAdjustmentPurple)
         XCTAssertEqual(stripped.luminanceAdjustmentMagenta, d.luminanceAdjustmentMagenta)
+        // Black & white mix (#276) — same `hsl` stage as the 24 bands
+        // above, run by both decode and chain.
+        XCTAssertEqual(stripped.blackWhite, d.blackWhite)
+        XCTAssertEqual(stripped.grayMixerRed, d.grayMixerRed)
+        XCTAssertEqual(stripped.grayMixerOrange, d.grayMixerOrange)
+        XCTAssertEqual(stripped.grayMixerYellow, d.grayMixerYellow)
+        XCTAssertEqual(stripped.grayMixerGreen, d.grayMixerGreen)
+        XCTAssertEqual(stripped.grayMixerAqua, d.grayMixerAqua)
+        XCTAssertEqual(stripped.grayMixerBlue, d.grayMixerBlue)
+        XCTAssertEqual(stripped.grayMixerPurple, d.grayMixerPurple)
+        XCTAssertEqual(stripped.grayMixerMagenta, d.grayMixerMagenta)
         // Vignette (#1109) — vignette stage, run by both decode and chain.
         // amount 0 short-circuits the stage; feather rides to its 50 default.
         XCTAssertEqual(stripped.vignetteAmount, d.vignetteAmount)

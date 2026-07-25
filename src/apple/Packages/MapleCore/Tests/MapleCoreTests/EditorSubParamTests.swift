@@ -151,13 +151,38 @@ final class EditorSubParamTests: XCTestCase {
 
     func testEveryOtherToolIsSingleParam() {
         // Crop stays a stub. Vignette joined the multi-param set at
-        // #1109, grain at #1110, split tone at #1111, HSL at #274.
+        // #1109, grain at #1110, split tone at #1111, HSL at #274, B&W
+        // Mix at #276.
         for tool in Tool.allCases
         where tool != .noise && tool != .sharpen && tool != .vignette && tool != .grain
-            && tool != .splitTone && tool != .hsl {
+            && tool != .splitTone && tool != .hsl && tool != .bwMix {
             XCTAssertTrue(tool.subParams.isEmpty, "\(tool) should be single-param")
             XCTAssertFalse(tool.isMultiParam)
             XCTAssertNil(tool.defaultSubParamId)
+        }
+    }
+
+    func testBwMixDeclaresEightBands() {
+        // #276 — B&W Mix joined the multi-param set: the drag bar drives
+        // grayMixerRed (first sub-param); the other seven bands ride the
+        // sub-param row, in the same order as the HSL bands (#274).
+        let subs = Tool.bwMix.subParams
+        XCTAssertEqual(subs.map(\.id),
+                       ["red", "orange", "yellow", "green", "aqua", "blue", "purple", "magenta"])
+        XCTAssertEqual(subs.map(\.label),
+                       ["Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta"])
+        // B&W and HSL are two modes of ONE 8-band kernel, so their band
+        // ids must stay in lockstep with the shared `HSLBand.all` table
+        // (raw-core's `HUE_CENTERS_DEG` order) — the pipeline indexes both
+        // by position.
+        XCTAssertEqual(subs.map(\.id), HSLBand.all.map(\.id))
+        XCTAssertEqual(subs.map(\.label), HSLBand.all.map(\.label))
+        XCTAssertTrue(Tool.bwMix.isMultiParam)
+        XCTAssertEqual(Tool.bwMix.defaultSubParamId, "red")
+        XCTAssertEqual(subs[0].range, AdjustmentModel.grayMixerRedRange)
+        XCTAssertEqual(subs[7].range, AdjustmentModel.grayMixerMagentaRange)
+        for sub in subs {
+            XCTAssertEqual(sub.defaultDisplayValue, 0, accuracy: 1e-9)
         }
     }
 

@@ -1306,6 +1306,19 @@ extension PipelineRenderer {
         params.hsl_lum_blue     = Float(model.luminanceAdjustmentBlue)
         params.hsl_lum_purple   = Float(model.luminanceAdjustmentPurple)
         params.hsl_lum_magenta  = Float(model.luminanceAdjustmentMagenta)
+        // Black & white mix (#276) — same 8-band Oklab stage as the HSL
+        // fields above; `bw_active` non-zero switches it into its
+        // monochrome path (chroma forced to zero, `bw_mix_*` become the
+        // per-band luminance weights).
+        params.bw_active       = model.blackWhite == .on ? 1 : 0
+        params.bw_mix_red      = Float(model.grayMixerRed)
+        params.bw_mix_orange   = Float(model.grayMixerOrange)
+        params.bw_mix_yellow   = Float(model.grayMixerYellow)
+        params.bw_mix_green    = Float(model.grayMixerGreen)
+        params.bw_mix_aqua     = Float(model.grayMixerAqua)
+        params.bw_mix_blue     = Float(model.grayMixerBlue)
+        params.bw_mix_purple   = Float(model.grayMixerPurple)
+        params.bw_mix_magenta  = Float(model.grayMixerMagenta)
         // Target display primaries (#1337): 0 = sRGB (legacy-compatible default).
         // Phase 2 (#1338) will set this from the user-facing settings toggle.
         params.target_primaries = 0

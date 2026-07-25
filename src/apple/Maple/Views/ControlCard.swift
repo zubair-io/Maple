@@ -43,6 +43,8 @@ struct ControlCard: View {
                     .padding(.bottom, 12)
             } else if state.armedTool == .hsl {
                 // 8-band HSL panel replaces the slider grid (#274).
+                // `armedTool` can never be `.hsl` while Black & White is
+                // on (#276) — EditorState normalises it to `.bwMix`.
                 HSLSection(state: state)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 14)
