@@ -466,6 +466,35 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
+  // ── AUTO / RESET (epic #1370, restored by #2244) ──────────────────────
+  // Both are global image actions, so they live in the top bar next to
+  // undo/info/export rather than in the tool dock (a `role="navigation"`
+  // tool switcher). They were unreachable between the canvas-first redesign
+  // and #2244: their only host was `DevelopToolbarComponent`, which the
+  // retired S5 detail panel mounted.
+
+  /** True once an asset is loaded — both controls need one to act on. */
+  readonly hasFocusedAsset = computed<boolean>(() => this.state.focusedAssetId() != null);
+
+  /** AUTO is unavailable without an asset and while an analysis is running. */
+  readonly autoDisabled = computed<boolean>(
+    () => !this.hasFocusedAsset() || this.editorState.autoInFlight(),
+  );
+
+  /** Analyse the RAW and apply AUTO's exposure (+ `autoExposure: 'Off'`, the
+   *  epic's load-bearing AE contract) as one undo entry. */
+  onAuto(): void {
+    const id = this.state.focusedAssetId();
+    if (id == null) return;
+    void this.editorState.applyAuto(id);
+  }
+
+  /** Sliders → factory defaults, WB → As Shot, profile → Auto; crop kept. */
+  onResetAll(): void {
+    if (!this.hasFocusedAsset()) return;
+    this.editorState.resetAll();
+  }
+
   // ── Current adjustment (for histogram) ────────────────────────────────
   readonly currentAdj = computed(() => {
     const id = this.state.focusedAssetId();
