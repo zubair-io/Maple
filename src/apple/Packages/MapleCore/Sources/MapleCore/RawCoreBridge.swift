@@ -117,6 +117,15 @@
 //     carrying it is what makes the seconds-scale run a ONE-TIME cost per
 //     setting: downstream slider ticks reuse the denoised decode. Default
 //     0 short-circuits the stage.
+//   * `lensProfileEnable` / `lensCorrectionDistortion` /
+//     `lensCorrectionCa` / `lensCorrectionVignetting` (#376) — the DNG's
+//     own OpcodeList3 lens corrections, resampled into the demosaiced
+//     buffer before DCP inside the Rust decode product. There is no
+//     Metal per-tick equivalent (and deliberately no WGSL one either —
+//     both GPU chains consume the already-corrected decode), so the same
+//     KEPT/cache-key story as `chromaPrefilter` applies: changing a scale
+//     re-decodes. The defaults (On / 100 / 100 / 100) apply the vendor's
+//     correction exactly as it was applied before these fields existed.
 //
 // **WB contract** (the previously load-bearing source of magenta-cast
 // bugs): the strip forces the FFI decode to a fixed reference state
