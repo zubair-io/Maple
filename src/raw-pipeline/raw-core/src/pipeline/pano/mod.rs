@@ -221,7 +221,17 @@ fn develop_scene_linear_for_pano(
     let mut applied_opcodes = Vec::new();
     if let Some((list, aa)) = list3 {
         stage("pano_opcode_list3", || {
-            applied_opcodes = opcode_apply::apply_opcode_list3(&mut camera_rgb, list, *aa);
+            // Pano ingest always wants the vendor's corrections at full
+            // strength: the stitcher's reprojection residuals and seam
+            // matching are specified against geometrically-corrected,
+            // vignette-flattened frames (#1159), so the per-image user
+            // scales (#376) deliberately do not reach this path.
+            applied_opcodes = opcode_apply::apply_opcode_list3(
+                &mut camera_rgb,
+                list,
+                *aa,
+                opcode_apply::LensCorrectionScales::FULL,
+            );
         });
         dump_after("pano_00a_opcode_list3", &camera_rgb);
     }

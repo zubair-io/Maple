@@ -213,6 +213,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
                 &mut camera_rgb,
                 list,
                 scaled_aa,
+                crate::pipeline::pano::opcode_apply::LensCorrectionScales::from_model(model),
             );
         });
         dump_after("00a_opcode_list3", &camera_rgb);

@@ -87,7 +87,15 @@
 /// TypeScript mirrors that the platform rendered-output caches key on (Web thumb
 /// cache #1927; Apple `RenderedPreviewCache` #1928). Bump by exactly one, in the
 /// same commit as the output-changing pipeline edit.
-pub const PIPELINE_OUTPUT_VERSION: u32 = 1;
+/// Bump lineage:
+/// - 1 — initial canonical epoch (#1926).
+/// - 2 — `FixVignetteRadial` (DNG `OpcodeList3` id 3) is now parsed and
+///   applied (#376). A RAW carrying that opcode previously rendered with
+///   the correction silently skipped as an unknown id, so the same
+///   `(RAW, sidecar)` pair produces different pixels. The three
+///   `lens_correction_*` scales added alongside it default to full
+///   strength and do not, on their own, change any output.
+pub const PIPELINE_OUTPUT_VERSION: u32 = 2;
 
 #[cfg(test)]
 mod tests {

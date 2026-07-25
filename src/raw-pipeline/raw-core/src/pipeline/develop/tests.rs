@@ -420,3 +420,114 @@ fn develop_applies_opcode_list3_corrections_at_preview_quality_without_panicking
     assert_eq!(preview.width, raw.width / 2);
     assert_eq!(preview.height, raw.height / 2);
 }
+
+/// Opcode geometry must be resolution-independent (#376, guarding the
+/// #2024 class of bug).
+///
+/// Opcode coordinates are expressed against the full-sensor `ActiveArea`,
+/// but the decode runs at several divisors — `effective_quality_divisor`
+/// halves Bayer buffers at `Preview` while X-Trans and LinearRgb stay
+/// full-res — so the rect has to be rescaled to whatever buffer the
+/// demosaic actually produced. #2024 was the crash flavour of getting that
+/// wrong; this is the *silent* flavour: a rect that is scaled but
+/// mis-scaled still runs without panicking and just puts the correction in
+/// the wrong place, which the color harness cannot see because
+/// `maple-cli batch` renders at exactly one quality.
+///
+/// A `FixVignetteRadial` gain is the probe rather than a warp because a
+/// gain is directly measurable per pixel: every develop stage between the
+/// opcode and the returned scene-linear buffer is a per-pixel linear
+/// operation once the spatial stages and the global auto-exposure anchor
+/// are disabled, so `corrected / uncorrected` at a given pixel *is* the
+/// opcode's gain. Comparing that ratio at matching NORMALIZED positions
+/// across two decode resolutions is exactly the invariant a mis-scaled
+/// rect breaks.
+#[test]
+fn opcode_geometry_is_identical_across_decode_resolutions() {
+    use crate::test_support::synth_chart::SyntheticColorChart;
+    use crate::types::adjustment::{AutoExposureMode, HighlightRecoveryMode};
+
+    let chart = SyntheticColorChart::default();
+    let mut raw = crate::decode::decode_bytes(&chart.write_to_bytes(), "dng")
+        .expect("synthetic chart must decode");
+
+    // Neutralise everything that would break "ratio == gain": the global
+    // auto-exposure anchor (a scene-dependent scalar that differs between
+    // the corrected and uncorrected renders), the non-linear highlight
+    // reconstruction, and the spatial NR / sharpen kernels.
+    let model = AdjustmentModel {
+        auto_exposure: AutoExposureMode::Off,
+        highlight_recovery: HighlightRecoveryMode::Off,
+        nr_color: 0.0,
+        nr_luminance: 0.0,
+        sharpen_amount: 0.0,
+        ..AdjustmentModel::default()
+    };
+
+    let develop = |raw: &_, quality| {
+        develop_scene_linear_from_raw_with_quality(raw, &model, quality).unwrap()
+    };
+    let base_full = develop(&raw, RenderQuality::Full);
+    let base_preview = develop(&raw, RenderQuality::Preview);
+    assert_eq!(
+        base_preview.width * 2,
+        base_full.width,
+        "this fixture must actually decode at two different resolutions, \
+         otherwise the test proves nothing"
+    );
+
+    // A strong, purely radial gain so a mis-scaled rect shows up as a
+    // large ratio error rather than a rounding-level one.
+    let k0 = 0.9f64;
+    raw.opcode_list3 = Some((
+        crate::pipeline::pano::opcodes::OpcodeList3 {
+            opcodes: vec![
+                crate::pipeline::pano::opcodes::PanoOpcode::FixVignetteRadial(
+                    crate::pipeline::pano::opcodes::FixVignetteRadialOpcode {
+                        k: [k0, 0.0, 0.0, 0.0, 0.0],
+                        center_x: 0.5,
+                        center_y: 0.5,
+                    },
+                ),
+            ],
+            skipped_unknown: 0,
+        },
+        crate::pipeline::pano::opcodes::ActiveAreaRect::full(raw.width, raw.height),
+    ));
+    let corrected_full = develop(&raw, RenderQuality::Full);
+    let corrected_preview = develop(&raw, RenderQuality::Preview);
+
+    // Each resolution is checked against the gain the opcode's own
+    // coordinate system predicts *at that resolution's pixel grid*. The
+    // two grids do not land on identical normalized positions (a half
+    // preview-pixel of rounding is a whole full-res pixel), so comparing
+    // the two measured ratios to each other would just be measuring that
+    // quantization; comparing each to its own closed form is both exact
+    // and the stronger statement — a rect scaled by the wrong divisor
+    // fails its own prediction immediately.
+    let check = |label: &str, base: &crate::image::Image, corr: &crate::image::Image| {
+        let (bw, bh) = (base.width as f64, base.height as f64);
+        // Opcode geometry: centre at Lerp(0, dim, 0.5), t normalized so
+        // t = 1 at the farthest corner of the (here full-frame) rect.
+        let (cx, cy) = (0.5 * bw, 0.5 * bh);
+        let r2 = cx * cx + cy * cy;
+        for (u, v) in [(0.5, 0.5), (0.25, 0.5), (0.5, 0.8), (0.15, 0.15)] {
+            let col = ((bw - 1.0) * u).round();
+            let row = ((bh - 1.0) * v).round();
+            let i = row as usize * base.width as usize + col as usize;
+            let ratio = corr.pixels[i][1] as f64 / base.pixels[i][1] as f64;
+
+            let (dx, dy) = (col - cx, row - cy);
+            let t = ((dx * dx + dy * dy) / r2).min(1.0);
+            let expected = 1.0 + k0 * t;
+            assert!(
+                (ratio - expected).abs() < 2e-3,
+                "{label} gain at pixel ({col},{row}) of {bw}x{bh}: expected \
+                 {expected:.6}, got {ratio:.6} — the ActiveArea rect is \
+                 anchored to the wrong resolution"
+            );
+        }
+    };
+    check("full-res", &base_full, &corrected_full);
+    check("preview", &base_preview, &corrected_preview);
+}
