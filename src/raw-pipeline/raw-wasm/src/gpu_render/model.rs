@@ -204,6 +204,20 @@ pub(super) fn build_full_chain_inputs(
             model.luminance_adjustment_purple,
             model.luminance_adjustment_magenta,
         ],
+        // Black & white mix (#276) — same band order as the three HSL
+        // groups above. Omitting these would leave the web GPU live path
+        // rendering in colour while the CPU refine pass rendered mono.
+        bw_mix: [
+            model.gray_mixer_red,
+            model.gray_mixer_orange,
+            model.gray_mixer_yellow,
+            model.gray_mixer_green,
+            model.gray_mixer_aqua,
+            model.gray_mixer_blue,
+            model.gray_mixer_purple,
+            model.gray_mixer_magenta,
+        ],
+        bw_active: model.black_white == raw_core::types::BlackWhiteMode::On,
         sharpen_amount: model.sharpen_amount,
         sharpen_radius: model.sharpen_radius,
         sharpen_detail: model.sharpen_detail,
