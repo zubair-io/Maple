@@ -10,6 +10,7 @@ import {
   foldPage,
   folderNameFor,
   monthKey,
+  monthKeyForCapturedAt,
 } from './timeline-view.utils';
 
 function makeResult(id: string, absPath: string, capturedAt: string | null): SearchResult {
@@ -148,5 +149,22 @@ describe('monthKey', () => {
   it('formats a stable, unique key per year/month', () => {
     expect(monthKey(2026, 5)).toBe('2026-5');
     expect(monthKey(2026, 5)).not.toBe(monthKey(2025, 5));
+  });
+});
+
+describe('monthKeyForCapturedAt', () => {
+  it('buckets a UTC capture date into its year/month key', () => {
+    expect(monthKeyForCapturedAt('2026-05-20T00:00:00.000Z')).toBe(monthKey(2026, 5));
+    // Uses UTC fields, so a late-UTC timestamp does not slide into the next
+    // month for a reader in a positive-offset zone.
+    expect(monthKeyForCapturedAt('2026-05-31T23:59:59.000Z')).toBe(monthKey(2026, 5));
+  });
+
+  it('returns null for a missing or unparseable date rather than a NaN key', () => {
+    expect(monthKeyForCapturedAt(null)).toBeNull();
+    expect(monthKeyForCapturedAt('')).toBeNull();
+    // Would otherwise yield 'NaN-NaN', which `dropMonth` could never match —
+    // leaking that month's queued thumb requests.
+    expect(monthKeyForCapturedAt('not-a-date')).toBeNull();
   });
 });

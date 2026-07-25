@@ -42,6 +42,21 @@ describe('browseRoots memoisation', () => {
     expect(second).toBe(first);
   });
 
+  // The burst this memo exists for (a grid opening) all arrives before the first
+  // resolve settles. Caching only the settled value would let each concurrent
+  // caller run its own `realpath` and hand back a DIFFERENT array; sharing the
+  // in-flight promise makes them one attempt with one result object.
+  it('coalesces concurrent callers onto a single resolve', async () => {
+    const root = await realpath(await mkdtemp(path.join(tmpdir(), 'maple-roots-conc-')));
+    process.env.MAPLE_ROOTS = root;
+
+    const [a, b, c] = await Promise.all([browseRoots(), browseRoots(), browseRoots()]);
+
+    expect(a).toEqual([root]);
+    expect(b).toBe(a);
+    expect(c).toBe(a);
+  });
+
   it('re-resolves when MAPLE_ROOTS changes', async () => {
     const a = await realpath(await mkdtemp(path.join(tmpdir(), 'maple-roots-a-')));
     const b = await realpath(await mkdtemp(path.join(tmpdir(), 'maple-roots-b-')));

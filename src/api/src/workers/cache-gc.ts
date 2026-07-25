@@ -283,7 +283,19 @@ async function sweepCacheDir(
       continue;
     }
 
-    if (await unlinkSafe(ctx, fullPath)) ctx.counters.deleted += 1;
+    if (await unlinkSafe(ctx, fullPath)) {
+      ctx.counters.deleted += 1;
+      // Reap the freshness sidecar with the artefact it describes
+      // (`thumbs/thumb-meta.ts`). It CANNOT be swept as an entry in its own
+      // right: `path.extname('<key>.avif.meta')` is `.meta`, leaving the stem
+      // `<key>.avif`, which matches no live-key shape — so a `.meta` in
+      // `allowedExts` would make `isOrphanThumb` condemn sidecars of perfectly
+      // live thumbs (jules review, PR #2252). Deliberately NOT counted in
+      // `deleted`: it was never `scanned`, and an attachment is not an
+      // independent orphan. `unlinkSafe` treats the ENOENT this hits for every
+      // preview (which has no sidecar) as an uncounted no-op.
+      await unlinkSafe(ctx, `${fullPath}.meta`);
+    }
   }
 }
 

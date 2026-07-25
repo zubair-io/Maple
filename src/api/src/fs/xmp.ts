@@ -129,11 +129,10 @@ export function resolveThumbPath(rawAbsPath: string): string {
   return path.join(folder, '.maple', 'thumbs', `${key}.avif`);
 }
 
-/** Cache kind: derived thumbnail, or display-resolution rendered preview. */
-export type CacheKind = 'thumbs' | 'previews';
-
-/** Trailing args of the `cachePathFor*` resolvers: one tuple so `suffix` is
- * required for `previews` and rejected for `thumbs` in a single signature. */
+/** Trailing args of the `cachePathFor*` resolvers — which derived artefact
+ * (`thumbs` = thumbnail, `previews` = display-resolution render) plus, for
+ * previews only, its `suffix`. One tuple rather than a `kind` + optional
+ * `suffix` pair so the requirement is expressed in a single signature. */
 type CacheKindArgs = ['thumbs'] | ['previews', string];
 
 /**
