@@ -6,7 +6,6 @@ import { NgTemplateOutlet, DecimalPipe } from '@angular/common';
 import { LibraryStateService } from '../../state/library-state.service';
 import { MapleIconComponent, MapleIconName } from '../../icons/maple-icon.component';
 import { SidebarEntry } from '../../models/folder';
-import { parseAddress } from '../../addressing/maple-address';
 
 @Component({
   selector: 'app-folder-tree',
@@ -26,23 +25,12 @@ export class FolderTreeComponent {
 
   onFolderClick(node: SidebarEntry, e: MouseEvent): void {
     e.stopPropagation();
-    if (node.absPath || node.id.includes(':')) {
-      // FS-walk or M2 addressed folder — load this directory's contents into
-      // the grid AND attach its subdirs as tree children in one shot.
-      // After M2, node.id is `slug:relPath`; derive relPath from it.
-      let relPath = node.absPath ?? '';
-      if (!relPath && node.id.includes(':')) {
-        try {
-          relPath = parseAddress(node.id).relPath;
-        } catch {
-          /* ignore */
-        }
-      }
-      this.state.openSelfHostedSubfolder(relPath, node.id);
-      this.state.setFolderOpen(node.id, true);
-      return;
-    }
-    this.state.selectedSourceId.set(node.id);
+    // FS-walk / M2-addressed folders load this directory's contents into the
+    // grid AND attach its subdirs as tree children in one shot; smart/album/
+    // legacy roots are a plain id select. `selectSidebarEntry` mirrors this
+    // branch so the phone source-picker drawer (which only has the id, not
+    // the node) shares the same selection path (#2280).
+    this.state.selectSidebarEntry(node.id);
   }
 
   onChevronClick(node: SidebarEntry, e: MouseEvent): void {

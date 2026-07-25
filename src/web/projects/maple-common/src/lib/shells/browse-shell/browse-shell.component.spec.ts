@@ -18,7 +18,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { signal } from '@angular/core';
 
 import { BrowseShellComponent } from './browse-shell.component';
@@ -27,6 +27,7 @@ import { API_BASE_URL } from '../../api/api-base-url.token';
 import { STORAGE_KEYS } from '../../util/typed-storage';
 import { provideLibrarySource } from '../../addressing/library-source-provider';
 import { LibraryStateService } from '../../state/library-state.service';
+import { LayoutService, type MapleLayout } from '../../layout-service';
 import type { Asset } from '../../models/asset';
 
 // This spec constructs the real BrowsePreferencesService (via
@@ -40,7 +41,12 @@ const clearPrefKeys = (): void => {
 beforeEach(clearPrefKeys);
 afterEach(clearPrefKeys);
 
-function setupHosted() {
+// `layout` stubs `LayoutService.layout` as a plain signal — same shape as
+// the real service's `Signal<MapleLayout>` — so specs can drive the
+// tablet/desktop/phone structural branches without touching `window.innerWidth`.
+// Defaults to 'desktop' so the pre-existing (layout-agnostic) tests above
+// keep exercising the same DOM shape they always have.
+function setupHosted(layout: MapleLayout = 'desktop') {
   TestBed.configureTestingModule({
     providers: [
       provideRouter([]),
@@ -49,11 +55,12 @@ function setupHosted() {
       provideLibrarySource,
       { provide: LIBRARY_BACKEND, useValue: 'hosted' },
       { provide: API_BASE_URL, useValue: '/api' },
+      { provide: LayoutService, useValue: { layout: signal<MapleLayout>(layout) } },
     ],
   });
 }
 
-function setupSelfHosted() {
+function setupSelfHosted(layout: MapleLayout = 'desktop') {
   TestBed.configureTestingModule({
     providers: [
       provideRouter([]),
@@ -62,6 +69,7 @@ function setupSelfHosted() {
       provideLibrarySource,
       { provide: LIBRARY_BACKEND, useValue: 'self-hosted' },
       { provide: API_BASE_URL, useValue: '/api' },
+      { provide: LayoutService, useValue: { layout: signal<MapleLayout>(layout) } },
     ],
   });
 }
@@ -255,5 +263,154 @@ describe('BrowseShellComponent — onEditMetadata regression (#1666)', () => {
     expect(component.batchMetaDialogVisible()).toBe(true);
     expect(component.batchMetaAssetSnapshots()).toHaveLength(1);
     expect(component.batchMetaAssetSnapshots()[0]!.address).toBe('photos:2026/IMG_0003.dng');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BrowseShell fluid — source sidebar drawer + toolbar overflow (#2280)
+//
+// The source sidebar is an inline pane at tablet+ and an overlay drawer
+// (`app-source-picker-drawer`) at phone width; the toolbar's action pills
+// collapse into a kebab menu below the desktop breakpoint. Both switches key
+// off `LayoutService.layout()`, stubbed per-test via `setupSelfHosted(layout)`.
+// ---------------------------------------------------------------------------
+
+describe('BrowseShellComponent — responsive layout (#2280)', () => {
+  let http: HttpTestingController;
+
+  beforeEach(() => {
+    const observerStub = class {
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    };
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = observerStub;
+    (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver = observerStub;
+  });
+
+  afterEach(() => {
+    try {
+      http.verify();
+    } catch {
+      // Swallow stray expectations from heavy child components.
+    }
+  });
+
+  function createAndFlush(layout: MapleLayout) {
+    setupSelfHosted(layout);
+    const fixture = TestBed.createComponent(BrowseShellComponent);
+    http = TestBed.inject(HttpTestingController);
+    fixture.detectChanges();
+    http.match(() => true).forEach((r) => r.flush([]));
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('renders the inline source sidebar (not the hamburger) at desktop', () => {
+    const fixture = createAndFlush('desktop');
+
+    expect(fixture.nativeElement.querySelector('[data-testid="source-sidebar"]')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-testid="source-drawer-toggle"]')).toBeNull();
+  });
+
+  it('renders the inline source sidebar at tablet too', () => {
+    const fixture = createAndFlush('tablet');
+
+    expect(fixture.nativeElement.querySelector('[data-testid="source-sidebar"]')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-testid="source-drawer-toggle"]')).toBeNull();
+  });
+
+  it('hides the inline sidebar and renders the hamburger at phone width', () => {
+    const fixture = createAndFlush('phone');
+
+    expect(fixture.nativeElement.querySelector('[data-testid="source-sidebar"]')).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="source-drawer-toggle"]'),
+    ).not.toBeNull();
+  });
+
+  it('opens the source-picker drawer when the hamburger is tapped', () => {
+    const fixture = createAndFlush('phone');
+    const component = fixture.componentInstance;
+
+    expect(component.sourceDrawerOpen()).toBe(false);
+    expect(fixture.nativeElement.querySelector('[data-testid="source-picker-drawer"]')).toBeNull();
+
+    (
+      fixture.nativeElement.querySelector(
+        '[data-testid="source-drawer-toggle"]',
+      ) as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+
+    expect(component.sourceDrawerOpen()).toBe(true);
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="source-picker-drawer"]'),
+    ).not.toBeNull();
+  });
+
+  it('routes a drawer source selection through the same handler the inline tree uses', () => {
+    const fixture = createAndFlush('phone');
+    const state = TestBed.inject(LibraryStateService);
+    const selectSpy = vi.spyOn(state, 'selectSidebarEntry');
+
+    fixture.componentInstance.onDrawerSourceSelected('smart:all');
+
+    expect(selectSpy).toHaveBeenCalledWith('smart:all');
+    expect(selectSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the inline action pills (no kebab) at desktop width', () => {
+    const fixture = createAndFlush('desktop');
+
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="toolbar-overflow-toggle"]'),
+    ).toBeNull();
+    expect(fixture.nativeElement.querySelector('[aria-label="Copy settings"]')).not.toBeNull();
+  });
+
+  it('collapses the action pills into a kebab menu below the desktop breakpoint', () => {
+    const fixture = createAndFlush('tablet');
+    const component = fixture.componentInstance;
+
+    const toggle = fixture.nativeElement.querySelector(
+      '[data-testid="toolbar-overflow-toggle"]',
+    ) as HTMLButtonElement;
+    expect(toggle).not.toBeNull();
+    // Pills aren't in the DOM until the menu is opened.
+    expect(fixture.nativeElement.querySelector('[aria-label="Copy settings"]')).toBeNull();
+    expect(component.overflowMenuOpen()).toBe(false);
+
+    toggle.click();
+    fixture.detectChanges();
+
+    expect(component.overflowMenuOpen()).toBe(true);
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="toolbar-overflow-menu"]'),
+    ).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('[aria-label="Copy settings"]')).not.toBeNull();
+  });
+
+  it('closes the overflow menu after an action pill inside it is clicked', () => {
+    const fixture = createAndFlush('tablet');
+    const component = fixture.componentInstance;
+    const state = TestBed.inject(LibraryStateService);
+
+    // Copy Settings is disabled without a focused asset — a disabled
+    // button doesn't dispatch a click event at all, so give it one to
+    // exercise the real click → bubble-to-menu-container path.
+    state.focusedAssetId.set('asset-1');
+    component.overflowMenuOpen.set(true);
+    fixture.detectChanges();
+
+    const copyBtn = fixture.nativeElement.querySelector(
+      '[aria-label="Copy settings"]',
+    ) as HTMLButtonElement;
+    expect(copyBtn).not.toBeNull();
+    expect(copyBtn.disabled).toBe(false);
+    copyBtn.click();
+    fixture.detectChanges();
+
+    expect(component.overflowMenuOpen()).toBe(false);
   });
 });

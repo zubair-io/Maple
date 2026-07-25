@@ -1,22 +1,37 @@
 <div class="w-full h-full bg-bg overflow-hidden flex flex-col font-sans">
   <!-- Toolbar -->
   <div
-    class="flex items-center h-11 bg-surface border-b-[0.5px] border-border px-3 flex-shrink-0 gap-2"
+    class="toolbar flex items-center h-11 bg-surface border-b-[0.5px] border-border px-3 flex-shrink-0 gap-2"
   >
-    <!-- Sidebar toggle -->
-    <button
-      type="button"
-      class="chrome-btn flex h-8 w-8 items-center justify-center rounded-md border-[0.5px] border-transparent bg-transparent cursor-pointer transition-colors duration-[120ms] hover:bg-surface-hover hover:border-border"
-      [class.is-active]="state.sidebarVisible()"
-      [title]="(state.sidebarVisible() ? 'Hide' : 'Show') + ' sidebar  ⌥⌘S'"
-      (click)="state.toggleSidebar()"
-    >
-      <maple-icon
-        name="sidebar"
-        [size]="14"
-        [color]="state.sidebarVisible() ? 'var(--color-text-main)' : 'var(--color-text-muted)'"
-      />
-    </button>
+    @if (layout() === 'phone') {
+      <!-- Phone: the inline sidebar is replaced by the source-picker
+           overlay drawer (#2280); this hamburger opens it. -->
+      <button
+        type="button"
+        data-testid="source-drawer-toggle"
+        class="chrome-btn flex h-8 w-8 items-center justify-center rounded-md border-[0.5px] border-transparent bg-transparent cursor-pointer transition-colors duration-[120ms] hover:bg-surface-hover hover:border-border"
+        title="Open sources"
+        aria-label="Open sources"
+        (click)="openSourceDrawer()"
+      >
+        <maple-icon name="sidebar" [size]="14" color="var(--color-text-muted)" />
+      </button>
+    } @else {
+      <!-- Sidebar toggle -->
+      <button
+        type="button"
+        class="chrome-btn flex h-8 w-8 items-center justify-center rounded-md border-[0.5px] border-transparent bg-transparent cursor-pointer transition-colors duration-[120ms] hover:bg-surface-hover hover:border-border"
+        [class.is-active]="state.sidebarVisible()"
+        [title]="(state.sidebarVisible() ? 'Hide' : 'Show') + ' sidebar  ⌥⌘S'"
+        (click)="state.toggleSidebar()"
+      >
+        <maple-icon
+          name="sidebar"
+          [size]="14"
+          [color]="state.sidebarVisible() ? 'var(--color-text-main)' : 'var(--color-text-muted)'"
+        />
+      </button>
+    }
 
     <!-- View-mode segmented control (Self-Hosted only — Timeline depends on
          the Mongo-side EXIF index that Hosted doesn't have). -->
@@ -66,7 +81,7 @@
     <!-- Search input (Self-Hosted only — Hosted has no server-side index) -->
     @if (state.backend === 'self-hosted') {
       <div
-        class="flex items-center gap-2 h-8 px-3 rounded-md bg-input-bg border-[0.5px] border-border min-w-[220px] max-w-[340px] flex-[0_1_300px] focus-within:border-text-muted"
+        class="toolbar-search flex items-center gap-2 h-8 px-3 rounded-md bg-input-bg border-[0.5px] border-border focus-within:border-text-muted"
       >
         <maple-icon name="search" [size]="14" color="var(--color-text-muted)" />
         <input
@@ -101,6 +116,41 @@
 
     <div class="flex-1"></div>
 
+    <!-- Action pills: inline row at desktop; collapsed into a kebab menu
+         below the desktop breakpoint (#2280). Same handlers either way —
+         see the `actionPills` template below. -->
+    @if (layout() === 'desktop') {
+      <ng-container *ngTemplateOutlet="actionPills" />
+    } @else {
+      <div class="toolbar-overflow relative">
+        <button
+          type="button"
+          data-testid="toolbar-overflow-toggle"
+          class="chrome-btn flex h-8 w-8 items-center justify-center rounded-md border-[0.5px] border-transparent bg-transparent cursor-pointer transition-colors duration-[120ms] hover:bg-surface-hover hover:border-border"
+          [class.is-active]="overflowMenuOpen()"
+          title="More actions"
+          aria-label="More actions"
+          aria-haspopup="menu"
+          [attr.aria-expanded]="overflowMenuOpen()"
+          (click)="toggleOverflowMenu()"
+        >
+          <maple-icon name="ellipsis-horizontal" [size]="14" color="var(--color-text-muted)" />
+        </button>
+        @if (overflowMenuOpen()) {
+          <div
+            class="toolbar-overflow-menu"
+            role="menu"
+            data-testid="toolbar-overflow-menu"
+            (click)="closeOverflowMenu()"
+          >
+            <ng-container *ngTemplateOutlet="actionPills" />
+          </div>
+        }
+      </div>
+    }
+  </div>
+
+  <ng-template #actionPills>
     <!-- Edit Metadata (self-hosted only; requires ≥1 selected) -->
     @if (state.backend === 'self-hosted') {
       <button
@@ -196,21 +246,26 @@
       <maple-icon name="export" [size]="11" />
       <span>Export{{ state.selectedCount() > 1 ? ' (' + state.selectedCount() + ')' : '' }}</span>
     </button>
-  </div>
+  </ng-template>
 
   <!-- Body -->
   <div class="flex-1 flex min-h-0 min-w-0 bg-bg">
-    <!-- Left: sidebar (folder tree). Search is a top-level destination
-         (the /search route), not an in-sidebar field — the sidebar
-         search pill + its anchored overlay were removed in #692. -->
-    <div
-      class="flex-shrink-0 overflow-hidden relative transition-[width] duration-[220ms] ease-default flex flex-col"
-      [style.width]="state.sidebarVisible() ? '220px' : '0px'"
-    >
-      <div class="flex-1 min-h-0 overflow-hidden">
-        <app-folder-tree />
+    <!-- Left: sidebar (folder tree) — inline pane at tablet+; on phone the
+         source-picker overlay drawer (below) replaces it. Search is a
+         top-level destination (the /search route), not an in-sidebar field
+         — the sidebar search pill + its anchored overlay were removed in
+         #692. -->
+    @if (layout() !== 'phone') {
+      <div
+        class="source-sidebar flex-shrink-0 overflow-hidden relative transition-[width] duration-[220ms] ease-default flex flex-col"
+        data-testid="source-sidebar"
+        [style.width]="state.sidebarVisible() ? null : '0px'"
+      >
+        <div class="flex-1 min-h-0 overflow-hidden">
+          <app-folder-tree />
+        </div>
       </div>
-    </div>
+    }
 
     <!-- Center: asset grid (Folder mode) or timeline (Timeline mode) -->
     <div class="flex-1 flex flex-col min-w-0">
@@ -235,6 +290,18 @@
     </div>
   </div>
 </div>
+
+<!-- Phone: source-picker overlay drawer, replacing the inline sidebar
+     (#2280). Selecting a source or tapping search reuses the same
+     handlers the inline tree / toolbar search already call. -->
+@if (layout() === 'phone') {
+  <app-source-picker-drawer
+    [(isOpen)]="sourceDrawerOpen"
+    [sourceTree]="state.sidebarTree()"
+    (sourceSelected)="onDrawerSourceSelected($event)"
+    (searchPillTap)="onDrawerSearchPillTap()"
+  />
+}
 
 <app-library-picker-modal />
 
