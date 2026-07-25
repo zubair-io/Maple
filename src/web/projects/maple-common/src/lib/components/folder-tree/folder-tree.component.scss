@@ -31,7 +31,21 @@
 
 /* @keyframes are not Tailwind-expressible. */
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Section header rows — the top "Library" bar, the FOLDERS/Photos Library
+   section headers, subheaders (e.g. "Albums"), and the Timeline row — share
+   one fixed height so the sidebar's header rhythm is uniform, matching the
+   28px (h-7) row height already used for .tree-row. Tailwind's utilities on
+   these rows express horizontal padding but the rows previously relied on
+   variable vertical padding for height, so the height is pinned here instead
+   of via a utility class. */
+.section-bar {
+  height: 28px;
+  box-sizing: border-box;
 }
 
 /* Tree-row hover background + selected colors. We can't express the
