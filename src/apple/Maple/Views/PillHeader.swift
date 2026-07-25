@@ -1,9 +1,10 @@
 // PillHeader.swift — Pro Editor Canvas-first (A2, #1555).
 //
 // Frosted-glass content-width pill at the top of the canvas.  Contains,
-// left → right: back chevron, filename, before/after toggle (only while
-// the session is dirty), undo (tap) / redo (long-press), info, share,
-// zoom-percent readout, GPU/CPU render-path indicator.
+// left → right: back chevron, filename, live RGB histogram chip,
+// before/after toggle (only while the session is dirty), undo (tap) /
+// redo (long-press), info, share, zoom-percent readout, GPU/CPU
+// render-path indicator.
 //
 // Replaces the full-width `EditorHeader` treatment from the old vertical
 // editor.  The Info button plumbs the editor's `onInfo` closure (the
@@ -27,6 +28,22 @@ struct PillHeader: View {
             identifierPrefix: "editor",
             onBack: onBack
         ) {
+            // Live RGB histogram chip (#1583) — 70×30, between the filename and
+            // the before/after toggle, per the canvas-first design pill. Shares
+            // `MiniHistogram` with the 56pt inspector block, so the curves and
+            // the (debounced, off-render-path) data loading cannot drift; only
+            // the chrome below is editor-specific.
+            MiniHistogram(session: state.session)
+                .frame(width: 70, height: 30)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .background(ProTokens.panel, in: RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(ProTokens.border, lineWidth: 0.5)
+                )
+                .allowsHitTesting(false)
+                .accessibilityIdentifier("editor-pill-histogram")
+
             // Before/after toggle — shown only when there are edits
             if showBeforeAfter {
                 Button {
