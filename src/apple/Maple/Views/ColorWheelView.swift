@@ -67,7 +67,7 @@ struct ColorWheelView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label)
         .accessibilityValue(
-            "Hue \(Int(hue.rounded())) degrees, saturation \(Int(saturation.rounded()))"
+            "Hue \(Int(hue.rounded())) degrees, saturation \(Int(saturation.rounded())) percent"
         )
         .accessibilityAdjustableAction { direction in
             switch direction {
@@ -80,9 +80,17 @@ struct ColorWheelView: View {
 
     // MARK: - Layers
 
+    /// `AngularGradient` sweeps CLOCKWISE from 3 o'clock, but
+    /// `ColorWheelGeometry` reads the puck angle COUNTER-clockwise from the
+    /// same origin (it negates `dy` for SwiftUI's downward y). Feeding the
+    /// stops in DESCENDING hue order flips the visual sweep to match, so the
+    /// colour the user drags onto is the hue the model receives — without it,
+    /// the bottom of the wheel paints green while the geometry there reports
+    /// 270° (purple). The web wheel gets the same result from
+    /// `conic-gradient(from -90deg, …)` with descending stops.
     private var hueRing: some View {
         let stops = stride(from: 0.0, through: 360.0, by: 30.0).map {
-            Color(hue: $0 / 360.0, saturation: 1, brightness: 1)
+            Color(hue: (360.0 - $0) / 360.0, saturation: 1, brightness: 1)
         }
         return AngularGradient(gradient: Gradient(colors: stops), center: .center)
             .clipShape(Circle())
