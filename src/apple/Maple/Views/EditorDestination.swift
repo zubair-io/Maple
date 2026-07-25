@@ -16,7 +16,18 @@ import MapleCore
 struct EditorDestination: View {
     let asset: AssetRef
     @Binding var sessions: [AssetRef.ID: EditSession]
+    /// Zoom-to-open wiring (#1489). Set only by `HeroZoomEditorOverlay`;
+    /// `nil` on the pushed path, which behaves exactly as before.
+    var heroZoom: EditorHeroZoom? = nil
+    /// Overrides the NavigationStack pop when this destination is presented
+    /// as an overlay instead of pushed — the hero presentation has to run
+    /// its close animation before it is torn down, which `dismiss()` would
+    /// skip straight past.
+    var onClose: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
+
+    /// Leave — the hero close when we're an overlay, the stack pop otherwise.
+    private var closeAction: () -> Void { onClose ?? { dismiss() } }
 
     @State private var state: EditorState?
 
@@ -32,9 +43,10 @@ struct EditorDestination: View {
             if let state {
                 EditorView(
                     state: state,
-                    onDismiss: { dismiss() },
+                    onDismiss: closeAction,
                     onShare: {},
-                    onInfo: { showInfo.toggle() }
+                    onInfo: { showInfo.toggle() },
+                    heroZoom: heroZoom
                 )
                 .sheet(isPresented: $showInfo) {
                     NavigationStack {
@@ -53,7 +65,7 @@ struct EditorDestination: View {
                 Color.clear
             }
         }
-        .stackBackSwipe { dismiss() }
+        .stackBackSwipe(onBack: closeAction)
         .task(id: asset.id) {
             // Build (or reuse) the EditSession + EditorState. `EditSession.init`
             // is synchronous — sidecar / as-shot WB load lazily on first render
