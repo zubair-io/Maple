@@ -163,18 +163,10 @@ struct MobileControlBar: View {
     }
 
     /// Resets all wired tools in the armed group to their canonical defaults,
-    /// one undo boundary — mirrors FlyoutSliderPanel.resetActiveGroup().
+    /// one undo boundary — shared with ControlCard and FlyoutSliderPanel via
+    /// `EditorState.resetGroup` (it also reaches HSL's 24 bands, #274).
     private func resetActiveGroup() {
-        let tools = wiredTools
-        guard !tools.isEmpty else { return }
-        state.commit()
-        for tool in tools {
-            ToolValueMapping.apply(
-                ToolValueMapping.defaultDisplayValue(for: tool),
-                to: &state.session.model,
-                tool: tool
-            )
-        }
+        state.resetGroup(state.armedGroup)
     }
 }
 

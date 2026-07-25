@@ -413,6 +413,37 @@ public final class EditorState {
         }
     }
 
+    /// Reset every tool in `group` to its canonical default as a SINGLE
+    /// undo boundary: commit once up front, then batch-apply defaults
+    /// without arming each tool (arming per tool would spawn extra
+    /// crop-session transitions and undo entries).
+    ///
+    /// Tools with a tool-level display range reset through
+    /// `ToolValueMapping` exactly as before. Tools that have NO
+    /// tool-level range but do declare sub-params — HSL is the only one
+    /// (#274), with 24 band fields and no primary — reset every declared
+    /// sub-param instead; otherwise "Reset Color" would silently leave
+    /// all 24 HSL fields set. Multi-param tools that DO have a
+    /// tool-level range keep their existing primary-only semantics.
+    public func resetGroup(_ group: ToolGroup) {
+        let tools = Tool.tools(in: group).filter(\.isWired)
+        guard !tools.isEmpty else { return }
+        commit()
+        for tool in tools {
+            if ToolValueMapping.displayRange(for: tool) != nil {
+                ToolValueMapping.apply(
+                    ToolValueMapping.defaultDisplayValue(for: tool),
+                    to: &session.model,
+                    tool: tool
+                )
+            } else {
+                for sub in tool.subParams {
+                    session.model[keyPath: sub.keyPath] = sub.defaultDisplayValue
+                }
+            }
+        }
+    }
+
     /// Reset to the snapshot at session open (clears all sliders).
     public func resetAll() {
         session.resetToOriginal()

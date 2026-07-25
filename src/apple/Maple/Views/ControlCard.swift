@@ -110,22 +110,12 @@ private struct RegularCardHeader: View {
         }
     }
 
-    /// Resets all wired tools in the armed group to their canonical defaults.
-    /// Commits ONCE up front so the whole group reset is a single undo boundary,
-    /// then batch-applies each tool's default WITHOUT arming it — arming per
-    /// tool would spawn extra crop-session transitions and undo entries.
+    /// Resets all wired tools in the armed group to their canonical defaults
+    /// as one undo boundary. Lives in `EditorState.resetGroup` so the flyout
+    /// panel, the mobile bar and this card can't drift apart about what a
+    /// group reset covers (it also reaches HSL's 24 band fields, #274).
     private func resetActiveGroup() {
-        let tools = Tool.tools(in: state.armedGroup)
-            .filter { $0.isWired && ToolValueMapping.displayRange(for: $0) != nil }
-        guard !tools.isEmpty else { return }
-        state.commit()
-        for tool in tools {
-            ToolValueMapping.apply(
-                ToolValueMapping.defaultDisplayValue(for: tool),
-                to: &state.session.model,
-                tool: tool
-            )
-        }
+        state.resetGroup(state.armedGroup)
     }
 }
 
