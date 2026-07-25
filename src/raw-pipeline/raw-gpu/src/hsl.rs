@@ -83,7 +83,7 @@ fn raised_cosine_weight(delta_deg: f32, half_width_deg: f32) -> f32 {
 /// two [f32; 4] (= two vec4<f32>): index [0] = bands 0–3, [1] = bands 4–7.
 /// This gives exact C layout compatibility with `bytemuck::bytes_of`.
 ///
-/// Total: 6 × [f32;4] (96 bytes) + 4 × u32 (16 bytes) = 112 bytes.
+/// Total: 8 × [f32;4] (128 bytes) + 4 × u32 (16 bytes) = 144 bytes.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct HslGpuParams {
@@ -93,13 +93,17 @@ struct HslGpuParams {
     sat_delta: [[f32; 4]; 2],
     /// Per-band luminance shift: [bands 0-3], [bands 4-7].
     lum_shift: [[f32; 4]; 2],
+    /// Per-band black & white luminance weight (#276): [bands 0-3], [4-7].
+    bw_mix: [[f32; 4]; 2],
     chroma_gate_c0: f32,
     count: u32,
     /// 1 when ALL 24 sliders are at default — the WGSL kernel's bit-exact
     /// passthrough flag, mirroring raw-core's `HslParams::is_identity` (see
     /// the `Params.is_identity` comment in `hsl.wgsl`).
     is_identity: u32,
-    _pad1: u32,
+    /// 1 when black & white conversion is armed (#276). Mutually exclusive
+    /// with `is_identity`, which raw-core also forces off in that case.
+    bw_active: u32,
 }
 
 // ── Oklab helpers (CPU oracle) ────────────────────────────────────────────────
@@ -194,11 +198,14 @@ pub fn apply_hsl(
     hue: &[f32; NUM_BANDS],
     sat: &[f32; NUM_BANDS],
     lum: &[f32; NUM_BANDS],
+    bw_mix_sliders: &[f32; NUM_BANDS],
+    bw_active: bool,
 ) {
     // Hoist params exactly as raw-core does (the is_identity flag let us skip early).
     let mut hue_rad = [0.0f32; NUM_BANDS];
     let mut sat_delta = [0.0f32; NUM_BANDS];
     let mut lum_shift = [0.0f32; NUM_BANDS];
+    let mut bw_mix = [0.0f32; NUM_BANDS];
     let mut is_identity = true;
     for i in 0..NUM_BANDS {
         if hue[i].abs() >= 1e-3 {
@@ -213,6 +220,20 @@ pub fn apply_hsl(
             lum_shift[i] = lum[i] / 100.0;
             is_identity = false;
         }
+        if bw_mix_sliders[i].abs() >= 1e-3 {
+            bw_mix[i] = bw_mix_sliders[i] / 100.0;
+        }
+    }
+    if bw_active {
+        // Monochrome takes over the whole stage and is never identity —
+        // raw-core's `bw_apply_pixel`, over this oracle's flat buffer.
+        for px in buf.chunks_exact_mut(4) {
+            let out = bw_pixel([px[0], px[1], px[2]], &bw_mix);
+            px[0] = out[0];
+            px[1] = out[1];
+            px[2] = out[2];
+        }
+        return;
     }
     if is_identity {
         return;
@@ -299,6 +320,49 @@ pub fn apply_hsl(
     }
 }
 
+/// Per-pixel black & white conversion (#276) — `raw_core::stages::hsl::bw_apply_pixel`
+/// verbatim, using this oracle's own Oklab round-trip. Same band partition
+/// and chroma gate as the colour path; the eight weights drive L only and
+/// the output chroma is zero for every pixel.
+#[inline]
+fn bw_pixel(rgb: [f32; 3], bw_mix: &[f32; NUM_BANDS]) -> [f32; 3] {
+    let lab = rec2020_to_oklab(rgb);
+    let (l, a, b) = (lab[0], lab[1], lab[2]);
+    let c = (a * a + b * b).sqrt();
+
+    let delta_mix = if c < CHROMA_GATE_C0 {
+        0.0
+    } else {
+        let chroma_gate = smoothstep_cpu(CHROMA_GATE_C0, 2.0 * CHROMA_GATE_C0, c);
+        let hue_deg = {
+            let h = b.atan2(a).to_degrees();
+            if h < 0.0 {
+                h + 360.0
+            } else {
+                h
+            }
+        };
+        let mut w_shape = [0.0f32; NUM_BANDS];
+        let mut w_sum = 0.0f32;
+        for band in 0..NUM_BANDS {
+            let delta = circular_delta_deg(hue_deg, HUE_CENTERS_DEG[band]);
+            w_shape[band] = raised_cosine_weight(delta, BAND_HALF_WIDTH_DEG);
+            w_sum += w_shape[band];
+        }
+        if w_sum < 1e-6 {
+            0.0
+        } else {
+            let w_norm_scale = chroma_gate / w_sum;
+            (0..NUM_BANDS)
+                .filter(|&band| w_shape[band] >= 1e-6)
+                .map(|band| bw_mix[band] * w_shape[band] * w_norm_scale)
+                .sum()
+        }
+    };
+
+    oklab_to_rec2020([l * (1.0 + delta_mix), 0.0, 0.0])
+}
+
 /// Reinhard-style smooth compression — `raw_core::stages::hsl::hsl_soft_compress`
 /// verbatim (the WGSL kernel mirrors the same fn).
 #[inline]
@@ -343,14 +407,22 @@ pub struct HslPass {
     pub hue: [f32; NUM_BANDS],
     pub sat: [f32; NUM_BANDS],
     pub lum: [f32; NUM_BANDS],
+    /// Black & white per-band luminance weights (#276), read only when
+    /// `bw_active`.
+    pub bw_mix: [f32; NUM_BANDS],
+    /// Black & white conversion armed (#276).
+    pub bw_active: bool,
 }
 
 impl HslPass {
-    /// Returns true when all 24 sliders are at their default (0), meaning
-    /// the pass is a bit-identical no-op. The live chain uses this to gate
-    /// pass inclusion.
+    /// Returns true when all 24 sliders are at their default (0) and black
+    /// & white conversion is off, meaning the pass is a bit-identical
+    /// no-op. The live chain uses this to gate pass inclusion — so the
+    /// `bw_active` term is what keeps a monochrome render from being
+    /// dropped out of the chain entirely.
     pub fn is_noop(&self) -> bool {
-        self.hue.iter().all(|v| v.abs() < 1e-3)
+        !self.bw_active
+            && self.hue.iter().all(|v| v.abs() < 1e-3)
             && self.sat.iter().all(|v| v.abs() < 1e-3)
             && self.lum.iter().all(|v| v.abs() < 1e-3)
     }
@@ -361,6 +433,7 @@ impl HslPass {
         let mut hue_rad_flat = [0.0f32; 8];
         let mut sat_delta_flat = [0.0f32; 8];
         let mut lum_shift_flat = [0.0f32; 8];
+        let mut bw_mix_flat = [0.0f32; 8];
         for i in 0..NUM_BANDS {
             if self.hue[i].abs() >= 1e-3 {
                 hue_rad_flat[i] = self.hue[i] / 100.0 * HSL_HUE_MAX_RAD;
@@ -371,6 +444,9 @@ impl HslPass {
             if self.lum[i].abs() >= 1e-3 {
                 lum_shift_flat[i] = self.lum[i] / 100.0;
             }
+            if self.bw_mix[i].abs() >= 1e-3 {
+                bw_mix_flat[i] = self.bw_mix[i] / 100.0;
+            }
         }
         let pack = |v: &[f32; 8]| -> [[f32; 4]; 2] {
             [[v[0], v[1], v[2], v[3]], [v[4], v[5], v[6], v[7]]]
@@ -379,10 +455,11 @@ impl HslPass {
             hue_rad: pack(&hue_rad_flat),
             sat_delta: pack(&sat_delta_flat),
             lum_shift: pack(&lum_shift_flat),
+            bw_mix: pack(&bw_mix_flat),
             chroma_gate_c0: CHROMA_GATE_C0,
             count: pixel_count,
             is_identity: u32::from(self.is_noop()),
-            _pad1: 0,
+            bw_active: u32::from(self.bw_active),
         }
     }
 }

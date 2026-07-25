@@ -33,6 +33,10 @@ struct Params {
     // Per-band luminance shift: lum_slider/100.
     lum_shift_0: vec4<f32>,
     lum_shift_1: vec4<f32>,
+    // Per-band black & white luminance weight: gray_mixer_slider/100 (#276).
+    // Read only when `bw_active` is set.
+    bw_mix_0: vec4<f32>,
+    bw_mix_1: vec4<f32>,
     // Chroma gate lower threshold (raw-core's CHROMA_GATE_C0 = 0.05).
     chroma_gate_c0: f32,
     // Number of RGBA pixels in this dispatch.
@@ -44,7 +48,11 @@ struct Params {
     // runs every pass) would gamut-compress pixels that arrive already outside
     // Rec.2020, where the CPU stage is a pure passthrough.
     is_identity: u32,
-    _pad1: u32,
+    // 1 when black & white conversion is armed (#276). Takes over the whole
+    // kernel: the hue/sat/lum arrays are ignored, the gray mixer drives L,
+    // and every pixel leaves with zero Oklab chroma. Mirrors raw-core's
+    // `HslParams::bw_active`, which likewise forces `is_identity` off.
+    bw_active: u32,
 };
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -173,6 +181,61 @@ fn hsl_bisect_gamut_hull(l: f32, a_hat: f32, b_hat: f32, c_high: f32) -> f32 {
     return lo;
 }
 
+// ── Black & white conversion (#276) ───────────────────────────────────────────
+//
+// Line-for-line mirror of raw-core's `stages::hsl::bw_apply_pixel`: same band
+// partition and chroma gate as the colour path, but the eight mixer weights
+// drive L only and the output chroma is zero for EVERY pixel (the ticket's
+// "saturation forced to 0"). No gamut work is needed — an Oklab colour with
+// a = b = 0 maps to a neutral Rec.2020 triple and `1 + delta_mix` is bounded
+// to [0, 2] by the ±100 slider range.
+
+fn bw_pixel(rgb: vec3<f32>) -> vec3<f32> {
+    let lab = rec2020_to_oklab(rgb);
+    let l = lab.x;
+    let a = lab.y;
+    let b = lab.z;
+    let c = sqrt(a * a + b * b);
+    let c0 = params.chroma_gate_c0;
+
+    var delta_mix = 0.0;
+    // Below the gate the hue angle is meaningless — no band may claim this
+    // pixel. It keeps its L and loses its (negligible) chroma.
+    if (c >= c0) {
+        let chroma_gate = smoothstep_fn(c0, 2.0 * c0, c);
+
+        var hue = atan2(b, a);
+        if (hue < 0.0) {
+            hue = hue + TWO_PI;
+        }
+
+        var w: array<f32, 8>;
+        var w_sum = 0.0;
+        for (var band = 0u; band < 8u; band = band + 1u) {
+            w[band] = raised_cosine(circular_delta(hue, CENTERS[band]));
+            w_sum = w_sum + w[band];
+        }
+
+        if (w_sum >= 1e-6) {
+            var bw_mix: array<f32, 8>;
+            bw_mix[0] = params.bw_mix_0.x; bw_mix[1] = params.bw_mix_0.y;
+            bw_mix[2] = params.bw_mix_0.z; bw_mix[3] = params.bw_mix_0.w;
+            bw_mix[4] = params.bw_mix_1.x; bw_mix[5] = params.bw_mix_1.y;
+            bw_mix[6] = params.bw_mix_1.z; bw_mix[7] = params.bw_mix_1.w;
+
+            let w_norm_scale = chroma_gate / w_sum;
+            for (var band = 0u; band < 8u; band = band + 1u) {
+                if (w[band] < 1e-6) {
+                    continue;
+                }
+                delta_mix = delta_mix + bw_mix[band] * w[band] * w_norm_scale;
+            }
+        }
+    }
+
+    return oklab_to_rec2020(vec3<f32>(l * (1.0 + delta_mix), 0.0, 0.0));
+}
+
 // ── Main kernel ───────────────────────────────────────────────────────────────
 
 @compute @workgroup_size(64)
@@ -188,6 +251,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     // All-defaults: bit-exact passthrough (raw-core's `p.is_identity` return).
     if (params.is_identity != 0u) {
         output_buf[i] = p;
+        return;
+    }
+
+    // Black & white takes over the whole stage (#276) — mirrors the
+    // `p.bw_active` branch at the top of raw-core's `apply_pixel`.
+    if (params.bw_active != 0u) {
+        output_buf[i] = vec4<f32>(bw_pixel(rgb), p.a);
         return;
     }
 
