@@ -109,6 +109,10 @@ extension AdjustmentModel {
         case chromaPrefilter = "chroma_prefilter"
         case hotPixelSuppression = "hot_pixel_suppression"
         case deepDenoise = "deep_denoise"
+        case lensProfileEnable = "lens_profile_enable"
+        case lensCorrectionDistortion = "lens_correction_distortion"
+        case lensCorrectionCa = "lens_correction_ca"
+        case lensCorrectionVignetting = "lens_correction_vignetting"
     }
 
     // MARK: - Range constants (canonical, generated)
@@ -271,6 +275,12 @@ extension AdjustmentModel {
     public static let chromaPrefilterRange: ClosedRange<Double> = 0.0...100.0
     /// BM3D deep denoise strength (#1105, tone/zoom design spec § 3.2). Two-stage collaborative filtering, input-referred inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:DeepDenoise`. Part of the decoded-image cache key.
     public static let deepDenoiseRange: ClosedRange<Double> = 0.0...100.0
+    /// Geometric-distortion correction strength (#376) — the DNG `WarpRectilinear` component common to all three planes. 100 (default) applies the vendor's authored warp in full; 0 leaves the frame undistorted-as-shot. XMP key `crs:LensProfileDistortionScale`. Part of the decoded-image cache key.
+    public static let lensCorrectionDistortionRange: ClosedRange<Double> = 0.0...100.0
+    /// Lateral chromatic-aberration correction strength (#376) — each plane's DNG `WarpRectilinear` deviation from the green reference plane. Has no effect on a DNG carrying a single coefficient set (no CA encoded). XMP key `crs:LensProfileChromaticAberrationScale`. Part of the decoded-image cache key.
+    public static let lensCorrectionCaRange: ClosedRange<Double> = 0.0...100.0
+    /// Vignetting / lens-shading correction strength (#376) — the DNG `FixVignetteRadial` and `GainMap` gain opcodes. XMP key `crs:LensProfileVignettingScale`. Part of the decoded-image cache key.
+    public static let lensCorrectionVignettingRange: ClosedRange<Double> = 0.0...100.0
 
     // MARK: - Pipeline-output version (canonical, generated)
 
@@ -281,7 +291,7 @@ extension AdjustmentModel {
     /// AdjustmentModel value without a load-time converter. Fold it
     /// into every rendered-output cache key so a single bump
     /// invalidates stale entries across all platforms.
-    public static let pipelineOutputVersion: UInt32 = 1
+    public static let pipelineOutputVersion: UInt32 = 2
 }
 
 // MARK: - Copy / paste / sync groups (#944, canonical, generated)
