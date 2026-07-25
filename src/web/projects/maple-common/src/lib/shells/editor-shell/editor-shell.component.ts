@@ -83,6 +83,7 @@ import { BottomSheetComponent } from '../bottom-sheet.component';
 import { ExportDialogComponent } from '../../export/export-dialog.component';
 import { TabBarVisibilityService } from '../tab-bar-visibility.service';
 import { editRouteCommands, viewRouteCommands } from '../../addressing/route-address';
+import { AdjustmentClipboardService } from '../../editor/copy-paste/adjustment-clipboard.service';
 import { applyRouteAddress as applyEditorRouteAddress } from './editor-shell-route';
 import { handleEditorKeydown } from './editor-shell-keyboard';
 import {
@@ -142,6 +143,9 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   state = inject(LibraryStateService);
   canvasSvc = inject(ImageCanvasService);
   editorState = inject(EditorStateService);
+  /** Public: read by `editor-shell-keyboard.ts` (⌘C copies the open
+   *  image's settings — see the extraction note above `handleEditorKeydown`). */
+  clipboard = inject(AdjustmentClipboardService);
   /** Public: read by `editor-shell-chrome.ts` (extracted to stay under the
    *  per-file LOC budget — see that module's header comment). */
   ngZone = inject(NgZone);

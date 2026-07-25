@@ -1,0 +1,75 @@
+@if (visible()) {
+  <div
+    class="psd-backdrop"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Paste settings"
+    (click)="onBackdropClick()"
+  >
+    <div class="psd-card" (click)="$event.stopPropagation()">
+      <!-- Header -->
+      <div class="psd-header">
+        <span class="psd-title">Paste Settings…</span>
+        <button type="button" class="psd-close" aria-label="Close" (click)="onCancel()">✕</button>
+      </div>
+
+      <div class="psd-body">
+        <p class="psd-summary">
+          Paste from
+          <strong>{{ sourceLabel() }}</strong>
+          onto {{ targetCount() }} {{ targetCount() === 1 ? 'photo' : 'photos' }}.
+        </p>
+
+        <div class="psd-select-row">
+          <button
+            type="button"
+            class="psd-link-btn"
+            [disabled]="allSelected()"
+            (click)="selectAll()"
+          >
+            Select all
+          </button>
+          <span class="psd-select-sep">·</span>
+          <button
+            type="button"
+            class="psd-link-btn"
+            [disabled]="noneSelected()"
+            (click)="selectNone()"
+          >
+            Select none
+          </button>
+        </div>
+
+        <div class="psd-group-list">
+          @for (group of groups; track group.id) {
+            <label class="psd-group-row">
+              <!-- Explicit aria-label: the wrapping <label> gives a visual
+                   association but the accessibility tree exposed these as
+                   unnamed "on" checkboxes without it. -->
+              <input
+                type="checkbox"
+                class="psd-checkbox"
+                [attr.aria-label]="group.label"
+                [checked]="isChecked(group.id)"
+                (change)="toggleGroup(group.id)"
+              />
+              <span>{{ group.label }}</span>
+            </label>
+          }
+        </div>
+      </div>
+
+      <div class="psd-footer">
+        <button type="button" class="psd-btn psd-btn-ghost" (click)="onCancel()">Cancel</button>
+        <button
+          type="button"
+          class="psd-btn psd-btn-primary"
+          [disabled]="noneSelected()"
+          (click)="onPasteClick()"
+        >
+          Paste{{ noneSelected() ? '' : ' (' + targetCount() + ')' }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

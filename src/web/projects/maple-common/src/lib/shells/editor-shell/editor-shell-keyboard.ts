@@ -67,6 +67,20 @@ export function handleEditorKeydown(shell: EditorShellComponent, e: KeyboardEven
     return;
   }
 
+  // ⌘C / Ctrl+C — copy the open image's develop settings into the app
+  // clipboard (#944), so "copy from the image you're editing" works
+  // without going back to Browse. Paste happens from the Browse toolbar /
+  // shortcuts against a multi-selection — there is no paste target here.
+  if (meta && !e.altKey && (e.key === 'c' || e.key === 'C')) {
+    const id = shell.editorState.imageId();
+    const model = shell.editorState.currentAdjustment();
+    if (id != null && model != null) {
+      shell.clipboard.copyFrom(id, shell.assetName(), model);
+    }
+    e.preventDefault();
+    return;
+  }
+
   // [ / ] — cycle the armed tool within its group; Shift cycles the group.
   // Mirrors the S5 editor's `_nudgeTool`.
   if (e.key === '[' || e.key === ']') {

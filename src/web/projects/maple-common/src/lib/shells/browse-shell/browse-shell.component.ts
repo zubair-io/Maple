@@ -39,6 +39,13 @@ import { PanoDialogComponent } from '../../pano/pano-dialog.component';
 import { BatchMetadataPanelComponent } from '../../batch-metadata/batch-metadata-panel.component';
 import { BatchMetadataService } from '../../batch-metadata/batch-metadata.service';
 import type { AssetMetadataSnapshot } from '../../batch-metadata/batch-metadata.types';
+import { PasteSettingsDialogComponent } from '../../editor/copy-paste/paste-settings-dialog.component';
+import { AdjustmentClipboardService } from '../../editor/copy-paste/adjustment-clipboard.service';
+import {
+  ALL_ADJUSTMENT_GROUP_IDS,
+  buildGroupPatch,
+  type AdjustmentGroupId,
+} from '../../editor/copy-paste/adjustment-groups';
 
 @Component({
   selector: 'browse-shell',
@@ -57,6 +64,7 @@ import type { AssetMetadataSnapshot } from '../../batch-metadata/batch-metadata.
     TimelineViewComponent,
     PanoDialogComponent,
     BatchMetadataPanelComponent,
+    PasteSettingsDialogComponent,
   ],
   templateUrl: './browse-shell.component.html',
   styleUrl: './browse-shell.component.scss',
@@ -67,6 +75,7 @@ export class BrowseShellComponent implements OnInit, OnDestroy {
   private router = inject(Router);
   private route = inject(ActivatedRoute);
   private readonly svc = inject(BatchMetadataService);
+  private readonly clipboard = inject(AdjustmentClipboardService);
 
   /** True when the pano options dialog is open. */
   readonly panoDialogVisible = signal(false);
@@ -85,6 +94,27 @@ export class BrowseShellComponent implements OnInit, OnDestroy {
 
   /** True when ≥1 asset is selected (enables "Edit Metadata…" button). */
   readonly canEditMetadata = computed(() => this.state.selectedCount() >= 1);
+
+  // ── Copy / paste / sync develop settings (#944) ───────────────────────────
+  /** True when the selective-paste dialog is open. */
+  readonly pasteDialogVisible = signal(false);
+
+  /** True when a focused asset exists to copy settings from. */
+  readonly canCopySettings = computed(() => this.state.focusedAssetId() !== null);
+
+  /** True when the clipboard has contents and ≥1 asset is selected to paste onto. */
+  readonly canPasteSettings = computed(
+    () => this.clipboard.hasContents() && this.state.selectedCount() >= 1,
+  );
+
+  /** True when a focused asset exists and ≥2 assets are selected (sync needs
+   * at least one OTHER asset besides the focused source). */
+  readonly canSyncSettings = computed(
+    () => this.state.focusedAssetId() !== null && this.state.selectedCount() >= 2,
+  );
+
+  /** Clipboard source's filename, for the selective-paste dialog header. */
+  readonly clipboardSourceLabel = computed(() => this.clipboard.entry()?.sourceLabel ?? '');
 
   private fetchSnapshotsSub: Subscription | null = null;
 
@@ -200,6 +230,65 @@ export class BrowseShellComponent implements OnInit, OnDestroy {
     }
   }
 
+  // ── Copy / paste / sync develop settings (#944) ───────────────────────────
+
+  /** Copy the focused asset's full develop settings into the app clipboard. */
+  onCopySettings(): void {
+    const id = this.state.focusedAssetId();
+    if (id == null) return;
+    const label = this.state.focusedAsset()?.filename ?? id;
+    const model = this.state.adjustmentFor(id)();
+    this.clipboard.copyFrom(id, label, model);
+  }
+
+  /** Paste every clipboard group onto every selected asset. */
+  onPasteSettings(): void {
+    this._pasteToSelection(ALL_ADJUSTMENT_GROUP_IDS);
+  }
+
+  onOpenPasteDialog(): void {
+    if (!this.clipboard.hasContents()) return;
+    this.pasteDialogVisible.set(true);
+  }
+
+  onPasteDialogDismiss(): void {
+    this.pasteDialogVisible.set(false);
+  }
+
+  onPasteDialogConfirm(groups: readonly AdjustmentGroupId[]): void {
+    this._pasteToSelection(groups);
+    this.pasteDialogVisible.set(false);
+  }
+
+  /**
+   * Apply the focused asset's own current settings across the rest of the
+   * multi-selection — no prior copy step. Writes to `selection minus
+   * focused` only; the source asset is never re-written.
+   */
+  onSyncSettings(): void {
+    const focusedId = this.state.focusedAssetId();
+    if (focusedId == null) return;
+    const model = this.state.adjustmentFor(focusedId)();
+    const patch = buildGroupPatch(model, ALL_ADJUSTMENT_GROUP_IDS);
+    if (Object.keys(patch).length === 0) return;
+    for (const id of this.state.selectedAssetIds()) {
+      if (id === focusedId) continue;
+      this.state.updateAdjustment(id, patch);
+    }
+  }
+
+  /** Build the clipboard's group patch and write it onto every currently
+   * selected asset — the shared tail of "paste all" and selective paste. */
+  private _pasteToSelection(groups: readonly AdjustmentGroupId[]): void {
+    const entry = this.clipboard.entry();
+    if (!entry) return;
+    const patch = buildGroupPatch(entry.model, groups);
+    if (Object.keys(patch).length === 0) return;
+    for (const id of this.state.selectedAssetIds()) {
+      this.state.updateAdjustment(id, patch);
+    }
+  }
+
   ngOnInit(): void {
     // Self-Hosted: kick off folder enumeration once the browse page mounts.
     // Lives here (not on the root App component) so it runs AFTER the
@@ -308,6 +397,27 @@ export class BrowseShellComponent implements OnInit, OnDestroy {
     // ⌘⌥S / Ctrl+Alt+S — toggle sidebar
     if ((e.metaKey || e.ctrlKey) && e.altKey && (e.key === 's' || e.key === 'S')) {
       this.state.toggleSidebar();
+      e.preventDefault();
+      return;
+    }
+
+    // Copy / paste / selective-paste develop settings (#944). Checked in
+    // this order so ⌘⇧V (selective) doesn't also fire the bare ⌘V branch.
+    // Suppressed while the selective-paste dialog is up so ⌘V can't fire a
+    // full paste behind the open dialog.
+    const meta = (e.metaKey || e.ctrlKey) && !this.pasteDialogVisible();
+    if (meta && !e.altKey && (e.key === 'c' || e.key === 'C')) {
+      this.onCopySettings();
+      e.preventDefault();
+      return;
+    }
+    if (meta && e.shiftKey && (e.key === 'v' || e.key === 'V')) {
+      this.onOpenPasteDialog();
+      e.preventDefault();
+      return;
+    }
+    if (meta && !e.shiftKey && !e.altKey && (e.key === 'v' || e.key === 'V')) {
+      this.onPasteSettings();
       e.preventDefault();
       return;
     }
