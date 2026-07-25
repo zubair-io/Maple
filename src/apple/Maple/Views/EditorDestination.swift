@@ -38,6 +38,15 @@ struct EditorDestination: View {
     /// editor's lifetime, so the show/hide choice survives re-renders.
     @State private var showInfo = false
 
+    // The Info sheet renders `DetailPanel` → `InfoPanelView` across a
+    // `.sheet` boundary, which does NOT inherit custom `EnvironmentKey`
+    // values from the presenter — so the enrichment (#2212) and histogram
+    // (#633) cloud clients arrive `nil` inside the sheet and the
+    // description / OCR / transcript section stays blank. Read them here
+    // and re-inject onto the sheet content below.
+    @Environment(\.cloudAssetDetailClient) private var detailClient
+    @Environment(\.cloudHistogramClient) private var histogramClient
+
     var body: some View {
         Group {
             if let state {
@@ -59,6 +68,8 @@ struct EditorDestination: View {
                                 }
                             }
                     }
+                    .environment(\.cloudAssetDetailClient, detailClient)
+                    .environment(\.cloudHistogramClient, histogramClient)
                     .presentationDetents([.medium, .large])
                 }
             } else {
