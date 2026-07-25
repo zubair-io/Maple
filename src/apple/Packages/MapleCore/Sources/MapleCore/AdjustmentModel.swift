@@ -8,68 +8,16 @@
 //   • `AdjustmentModel`                          — per-image develop knobs
 //   • `CullingState`, `CullFlag`                 — culling + IPTC keywords
 //
+// The nested value types the model carries live in their own files:
+// `Crop.swift` and `ToneCurve.swift` (both split off in #366, when the
+// point-curve fields pushed this file back against the budget).
+//
 // The XMP read/write surface lives next door in `XMPSerialization.swift`
 // (`XMPParser` + `XMPSerializer`); the split happened during #632 once the
 // extra `dc:subject` handling pushed this file past `CONTRIBUTING.md`'s
 // 600-line hard budget.
 
 import Foundation
-
-// MARK: - HighlightRecoveryMode
-
-// MARK: - Crop
-
-/// Geometry (crop + straighten) per spec § 3.12 / ticket #277. Mirror of
-/// `raw_core::types::Crop`. Coordinates are normalised to `[0, 1]` against
-/// the display-oriented image dimensions (post-EXIF rotation).
-///
-/// The XMP wire format is gated by `crs:HasCrop` — the serializer emits the
-/// `crs:Crop*` group only when `isIdentity` is false, and the parser
-/// silently drops a stale `crs:Crop*` rect when the marker is absent.
-public struct Crop: Codable, Sendable, Equatable, Hashable {
-    public var top: Double
-    public var left: Double
-    public var bottom: Double
-    public var right: Double
-    /// Straighten rotation in degrees, positive = clockwise (reference-renderer convention).
-    public var angle: Double
-
-    public init(
-        top: Double = 0,
-        left: Double = 0,
-        bottom: Double = 1,
-        right: Double = 1,
-        angle: Double = 0
-    ) {
-        self.top = top
-        self.left = left
-        self.bottom = bottom
-        self.right = right
-        self.angle = angle
-    }
-
-    /// Identity (full frame, no rotation).
-    public static let identity = Crop()
-
-    /// True when the crop is the full-frame, zero-rotation identity. Used
-    /// by the XMP serializer to omit the `crs:Crop*` group entirely.
-    public var isIdentity: Bool {
-        top == 0 && left == 0 && bottom == 1 && right == 1 && angle == 0
-    }
-
-    /// True when the rect (ignoring rotation) is well-formed: every edge
-    /// in `[0, 1]` with `right > left` and `bottom > top`. Inverted or
-    /// empty rects per spec § 3.12 are invalid and the renderer falls back
-    /// to identity.
-    public var rectIsValid: Bool {
-        (0...1).contains(top)
-            && (0...1).contains(left)
-            && (0...1).contains(bottom)
-            && (0...1).contains(right)
-            && right > left
-            && bottom > top
-    }
-}
 
 // MARK: - HighlightRecoveryMode
 
@@ -202,9 +150,9 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     // Parametric tone curve — PV2012-style four-region sliders (ticket #273).
     // Synthesises a piecewise-cubic over the canonical region split points
     // (¼, ½, ¾) and applies post-`scene_tone_controls`, pre-`vibrance` in
-    // the Rust core. Identity at all-zero. Per-channel point curves
-    // (`crs:ToneCurvePV2012*`) are not yet mirrored on Swift — that lands
-    // in a follow-up PR alongside the curve-widget UI.
+    // the Rust core. Identity at all-zero. The per-channel POINT curves
+    // (`crs:ToneCurvePV2012*`) are the `toneCurve*` fields further down;
+    // their sidecar round-trip lands in #365.
     public var parametricHighlights: Double  // -100..100, default 0
     public var parametricLights: Double      // -100..100, default 0
     public var parametricDarks: Double       // -100..100, default 0
@@ -325,6 +273,20 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     // field when `papp:Profile` is absent.
     public var profile: Profile
 
+    // Per-channel point curves (#273 slice 1; schema/codegen in #366).
+    // Each is a `ToneCurve` of `(x, y)` control points in `[0, 1]`
+    // authoring space, identity when empty — so a default model renders
+    // bit-identically to the pre-tone-curve pipeline. `toneCurveLuma`
+    // applies channels-uniformly via the Rec.2020 luma weights; the R/G/B
+    // curves apply per the core's tone-curve mode. Sidecar round-trip is
+    // #365 and the curve editor is #367; the fields land here first so
+    // both have a canonical Swift home. Field order mirrors
+    // `raw_core::types::AdjustmentModel`.
+    public var toneCurveLuma: ToneCurve   // default .identity (empty)
+    public var toneCurveRed: ToneCurve    // default .identity (empty)
+    public var toneCurveGreen: ToneCurve  // default .identity (empty)
+    public var toneCurveBlue: ToneCurve   // default .identity (empty)
+
     /// Decode-time chroma pre-filter (#1104, tone/zoom design § 3.1).
     /// Luma-guided sparse cross-bilateral on opponent chroma, baked into
     /// the Rust decode product (post-DCP, pre auto-exposure) — there is
@@ -421,6 +383,10 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         autoExposure: AutoExposureMode = .on,
         look: Look = .default,
         profile: Profile = .auto,
+        toneCurveLuma: ToneCurve = .identity,
+        toneCurveRed: ToneCurve = .identity,
+        toneCurveGreen: ToneCurve = .identity,
+        toneCurveBlue: ToneCurve = .identity,
         chromaPrefilter: Double = 0,
         hotPixelSuppression: HotPixelSuppressionMode = .off,
         deepDenoise: Double = 0,
@@ -491,6 +457,10 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         self.autoExposure = autoExposure
         self.look = look
         self.profile = profile
+        self.toneCurveLuma = toneCurveLuma
+        self.toneCurveRed = toneCurveRed
+        self.toneCurveGreen = toneCurveGreen
+        self.toneCurveBlue = toneCurveBlue
         self.chromaPrefilter = chromaPrefilter
         self.hotPixelSuppression = hotPixelSuppression
         self.deepDenoise = deepDenoise

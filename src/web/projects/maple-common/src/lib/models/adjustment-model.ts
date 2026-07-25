@@ -8,7 +8,10 @@
 // `WhiteBalancePreset` enum is promoted into the canonical schema (#119).
 // `Crop` is also hand-written here because it's a nested struct rather than
 // a flat slider — see `raw-core::types::adjustment::schema` for the design
-// note that excludes it from `ADJUSTMENT_SCHEMA`.
+// note that excludes it from `ADJUSTMENT_SCHEMA`. `ToneCurve` follows the
+// same generated-fields / hand-written-type split (#366): the generated
+// module declares the four `toneCurve*` members and their identity
+// defaults and imports the interface back from here.
 
 import {
   GeneratedAdjustmentModel,
@@ -37,6 +40,40 @@ export type WhiteBalancePreset =
   | 'Fluorescent'
   | 'Flash'
   | 'Custom';
+
+/**
+ * A single control point on a {@link ToneCurve}: `[x, y]` in the curve
+ * editor's `[0, 1]` × `[0, 1]` authoring domain. A tuple, mirroring
+ * `raw_core::types::ToneCurvePoint = (f32, f32)`.
+ */
+export type ToneCurvePoint = [number, number];
+
+/**
+ * A user-authored point curve (#273). Mirror of
+ * `raw_core::types::ToneCurve`. Control points are sorted by `x` at use
+ * time — neither this type nor the raw-core original assumes input order.
+ *
+ * **The empty curve is identity**: it short-circuits the evaluator to a
+ * pass-through, which is what keeps a default model bit-identical to the
+ * pre-tone-curve pipeline output on every platform.
+ *
+ * The `[0, 255]` PV2012 XMP encoding is applied at the sidecar boundary
+ * (#365), never on this type. Hand-written here rather than generated
+ * because a nested value type is not something the flat `ADJUSTMENT_SCHEMA`
+ * table can describe; the generated module carries the four `toneCurve*`
+ * FIELDS and imports this interface for their type (#366).
+ */
+export interface ToneCurve {
+  points: ToneCurvePoint[];
+}
+
+export function defaultToneCurve(): ToneCurve {
+  return { points: [] };
+}
+
+export function isIdentityToneCurve(c: ToneCurve): boolean {
+  return c.points.length === 0;
+}
 
 /**
  * Geometry (crop + straighten) per spec § 3.12 / ticket #277. Mirror of
@@ -122,6 +159,14 @@ export function defaultAdjustmentModel(): AdjustmentModel {
   };
 }
 
+/** Structural guard so the nested curve fields are recognised without a
+ *  hand-kept key list that could drift from the generated schema (#366).
+ *  Exported for the other model-walking call sites (the GPU live fast-path
+ *  gate), which must not reference-compare a curve either. */
+export function isToneCurveValue(v: unknown): v is ToneCurve {
+  return typeof v === 'object' && v !== null && Array.isArray((v as ToneCurve).points);
+}
+
 export function isDefaultAdjustment(m: AdjustmentModel): boolean {
   const d = defaultAdjustmentModel();
   // `crop` is a nested object; compare by deep value before falling back to
@@ -129,6 +174,12 @@ export function isDefaultAdjustment(m: AdjustmentModel): boolean {
   if (!isIdentityCrop(m.crop)) return false;
   return (Object.keys(d) as Array<keyof AdjustmentModel>).every((k) => {
     if (k === 'crop') return true;
+    // Point curves (#366) are nested objects too: strict equality would
+    // report every model as edited. Default is the identity (empty) curve.
+    if (isToneCurveValue(d[k])) {
+      const value = m[k];
+      return isToneCurveValue(value) && isIdentityToneCurve(value);
+    }
     // Parse-state, not an adjustment (#1780): a pristine pre-#1756 sidecar
     // parses to wbScaleVersion 1 with every slider at default — that must
     // not read as "has edits".
