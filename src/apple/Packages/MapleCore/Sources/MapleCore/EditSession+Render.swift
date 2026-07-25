@@ -208,6 +208,14 @@ extension EditSession {
         }
         isRendering = true
         renderPhase = phase
+        // #1153: BM3D is the one develop stage that runs for seconds, and it
+        // reports real per-reference-row progress. Publish it for the
+        // determinate editor indicator only while it is actually engaged —
+        // `deepDenoise == 0` short-circuits the stage, so there would be
+        // nothing to show.
+        let deepDenoiseEngaged = model.deepDenoise > 0
+        if deepDenoiseEngaged { deepDenoiseProgress.start() }
+        defer { if deepDenoiseEngaged { deepDenoiseProgress.stop() } }
         let asset = self.asset
         // #1781: adopt the decode-exported WB slider frame BEFORE capturing
         // the model + anchor (this snapshot is also the freshness read).

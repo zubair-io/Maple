@@ -72,14 +72,19 @@ struct LivingSliderRow: View {
     private var valueBinding: Binding<Double> {
         Binding(
             get: {
-                if let sub = armedSub {
-                    return state.session.model[keyPath: sub.keyPath]
-                }
+                // `armedDisplayValue` (not the raw model read) so a parked
+                // commit-on-release value shows on the thumb while the
+                // decode stays untouched (#1153).
+                if armedSub != nil { return state.armedDisplayValue }
                 return ToolValueMapping.currentDisplayValue(state.session.model, tool: tool)
             },
             set: { newVal in
                 if state.armedTool != tool { state.arm(tool: tool) }
                 if armedSub != nil {
+                    // `LivingSlider` has no drag-start hook; `beginGesture`
+                    // is idempotent, so opening the gesture from the first
+                    // write is safe and `onCommit` closes it (#1153).
+                    state.beginGesture()
                     state.setArmedDisplayValue(newVal)
                 } else {
                     ToolValueMapping.apply(newVal, to: &state.session.model, tool: tool)
@@ -97,7 +102,12 @@ struct LivingSliderRow: View {
             defaultValue: defaultValue,
             gradient: GradientCatalog.stops(for: tool),
             displayValue: displayString,
-            onCommit: { state.commit() }
+            // Drag release: close the gesture (flushing any deferred
+            // decode-product value) and record the undo boundary.
+            onCommit: {
+                state.endGesture()
+                state.commit()
+            }
         )
     }
 }
