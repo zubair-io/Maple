@@ -10,6 +10,7 @@
 use crate::types::Crop;
 
 use super::rect_in_pixels;
+use super::sample::Sample;
 
 pub(super) fn rotate_and_slice_f32_rgba(
     rgba: &[f32],
@@ -51,12 +52,15 @@ pub(super) fn rotate_and_slice_f32_rgba(
     (rect_w, rect_h, out)
 }
 
-pub(super) fn rotate_and_slice_u8_rgb(
-    rgb: &[u8],
+/// Bilinear inverse-warp for interleaved integer RGB at either display depth
+/// (#943). The interpolation itself runs in f32 for both, so the only
+/// depth-specific step is the narrowing round in [`Sample::from_f32_rounded`].
+pub(super) fn rotate_and_slice_rgb<T: Sample>(
+    rgb: &[T],
     w: u32,
     h: u32,
     crop: &Crop,
-) -> (u32, u32, Vec<u8>) {
+) -> (u32, u32, Vec<T>) {
     let (rect_x, rect_y, rect_w, rect_h) = rect_in_pixels(crop, w, h);
     let sw = w as f32;
     let sh = h as f32;
@@ -69,13 +73,13 @@ pub(super) fn rotate_and_slice_u8_rgb(
     };
     let dw = rect_w as usize;
     let dh = rect_h as usize;
-    let mut out = vec![0u8; dw * dh * 3];
+    let mut out = vec![T::default(); dw * dh * 3];
     for yp in 0..dh {
         for xp in 0..dw {
             let dx = (rect_x as f32) + (xp as f32) + 0.5;
             let dy = (rect_y as f32) + (yp as f32) + 0.5;
             let (sx, sy) = inverse_rotate(dx, dy, &params);
-            let sample = sample_rgb_u8(rgb, w, h, sx - 0.5, sy - 0.5);
+            let sample = sample_rgb(rgb, w, h, sx - 0.5, sy - 0.5);
             let di = (yp * dw + xp) * 3;
             out[di] = sample[0];
             out[di + 1] = sample[1];
@@ -139,8 +143,11 @@ fn sample_rgba(rgba: &[f32], w: u32, h: u32, sx: f32, sy: f32) -> [f32; 4] {
     out
 }
 
+/// Bilinear sample into a packed integer RGB buffer at fractional `(sx, sy)`
+/// pixel coordinates. Out-of-bounds reads return the "empty corner" black the
+/// spec acknowledges large rotations may expose.
 #[inline]
-fn sample_rgb_u8(rgb: &[u8], w: u32, h: u32, sx: f32, sy: f32) -> [u8; 3] {
+fn sample_rgb<T: Sample>(rgb: &[T], w: u32, h: u32, sx: f32, sy: f32) -> [T; 3] {
     let wi = w as i32;
     let hi = h as i32;
     let x0 = sx.floor() as i32;
@@ -148,7 +155,7 @@ fn sample_rgb_u8(rgb: &[u8], w: u32, h: u32, sx: f32, sy: f32) -> [u8; 3] {
     let x1 = x0 + 1;
     let y1 = y0 + 1;
     if x1 < 0 || y1 < 0 || x0 >= wi || y0 >= hi {
-        return [0, 0, 0];
+        return [T::default(); 3];
     }
     let fx = sx - (x0 as f32);
     let fy = sy - (y0 as f32);
@@ -156,7 +163,11 @@ fn sample_rgb_u8(rgb: &[u8], w: u32, h: u32, sx: f32, sy: f32) -> [u8; 3] {
         let xi = xi.clamp(0, wi - 1) as usize;
         let yi = yi.clamp(0, hi - 1) as usize;
         let idx = (yi * (w as usize) + xi) * 3;
-        [rgb[idx] as f32, rgb[idx + 1] as f32, rgb[idx + 2] as f32]
+        [
+            rgb[idx].to_f32(),
+            rgb[idx + 1].to_f32(),
+            rgb[idx + 2].to_f32(),
+        ]
     };
     let p00 = sample(x0, y0);
     let p10 = sample(x1, y0);
@@ -166,10 +177,10 @@ fn sample_rgb_u8(rgb: &[u8], w: u32, h: u32, sx: f32, sy: f32) -> [u8; 3] {
     let w10 = fx * (1.0 - fy);
     let w01 = (1.0 - fx) * fy;
     let w11 = fx * fy;
-    let mut out = [0u8; 3];
+    let mut out = [T::default(); 3];
     for c in 0..3 {
         let v = p00[c] * w00 + p10[c] * w10 + p01[c] * w01 + p11[c] * w11;
-        out[c] = v.round().clamp(0.0, 255.0) as u8;
+        out[c] = T::from_f32_rounded(v);
     }
     out
 }
