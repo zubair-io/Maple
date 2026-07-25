@@ -23,7 +23,7 @@
 //! not hop to the main actor synchronously.
 
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+use std::sync::RwLock;
 
 use raw_core::stages::bm3d;
 
@@ -37,12 +37,23 @@ use raw_core::stages::bm3d;
 pub type MapleDeepDenoiseProgressFn =
     Option<unsafe extern "C" fn(fraction: f32, pass: u32, user: *mut c_void)>;
 
-/// The registered callback, stored as a raw address. `AtomicUsize` rather
-/// than `AtomicPtr` because a function pointer is not a data pointer;
-/// 0 means "no callback".
-static CALLBACK: AtomicUsize = AtomicUsize::new(0);
-/// The opaque user pointer handed back to the callback.
-static CALLBACK_USER: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
+/// A registered callback together with the user pointer it was registered
+/// with. The two travel as ONE value: held in separate atomics, a `forward`
+/// racing a re-registration could read the new function pointer with the old
+/// user pointer (or the reverse) and hand a callback someone else's context.
+#[derive(Clone, Copy)]
+struct Registration {
+    callback: unsafe extern "C" fn(f32, u32, *mut c_void),
+    /// The opaque host pointer, carried as a `usize` so `Registration` stays
+    /// `Send + Sync` — `*mut c_void` is neither, and this static is shared
+    /// across the render threads that drive `forward`.
+    user: usize,
+}
+
+/// The registration, or `None` when the host has not registered (or has
+/// cleared). `RwLock` rather than a pair of atomics for the reason above,
+/// mirroring `bm3d::PROGRESS_SINK`, whose read path this one shadows.
+static REGISTRATION: RwLock<Option<Registration>> = RwLock::new(None);
 
 /// Register (or clear) the deep-denoise progress callback.
 ///
@@ -60,55 +71,85 @@ pub unsafe extern "C" fn maple_set_deep_denoise_progress(
     callback: MapleDeepDenoiseProgressFn,
     user: *mut c_void,
 ) {
-    let address = callback.map_or(0usize, |f| f as usize);
-    CALLBACK_USER.store(user, Ordering::Release);
-    CALLBACK.store(address, Ordering::Release);
-    bm3d::set_progress_sink((address != 0).then_some(forward as bm3d::ProgressSink));
+    let registration = callback.map(|f| Registration {
+        callback: f,
+        user: user as usize,
+    });
+    // Scoped so the write guard is released before `set_progress_sink` — that
+    // call takes bm3d's own lock, and holding two registry locks at once is
+    // how a lock-order inversion gets introduced later.
+    {
+        let mut guard = REGISTRATION
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *guard = registration;
+    }
+    bm3d::set_progress_sink(
+        registration
+            .is_some()
+            .then_some(forward as bm3d::ProgressSink),
+    );
 }
 
 /// raw-core sink → the registered C callback.
 fn forward(pass: &'static str, fraction: f32) {
-    let address = CALLBACK.load(Ordering::Acquire);
-    if address == 0 {
+    // Copy the pair out under ONE guard, then drop it before calling: the
+    // callback must never run with the lock held, or a host that re-registers
+    // from inside it self-deadlocks. Same read shape as `bm3d::PROGRESS_SINK`.
+    let registration = *REGISTRATION
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let Some(Registration { callback, user }) = registration else {
         return;
-    }
+    };
     let overall = bm3d::overall_fraction(pass, fraction);
     let pass_index = if pass == bm3d::PASS_2 { 2 } else { 1 };
-    let user = CALLBACK_USER.load(Ordering::Acquire);
-    // SAFETY: `address` was stored from a live `MapleDeepDenoiseProgressFn`
-    // by `maple_set_deep_denoise_progress`, whose contract requires the
-    // pointer (and `user`) to stay valid until the callback is cleared.
-    let callback: unsafe extern "C" fn(f32, u32, *mut c_void) = unsafe {
-        std::mem::transmute::<usize, unsafe extern "C" fn(f32, u32, *mut c_void)>(address)
-    };
-    unsafe { callback(overall, pass_index, user) };
+    // SAFETY: `callback` and `user` were registered together by
+    // `maple_set_deep_denoise_progress`, whose contract requires both to stay
+    // valid until the callback is cleared. Reading them as one value is what
+    // guarantees they are still the pair the host registered.
+    unsafe { callback(overall, pass_index, user as *mut c_void) };
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::AtomicU32;
+    use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
     static SEEN_TICKS: AtomicU32 = AtomicU32::new(0);
     static LAST_FRACTION_BITS: AtomicU32 = AtomicU32::new(0);
     static LAST_PASS: AtomicU32 = AtomicU32::new(0);
+    static LAST_USER: AtomicUsize = AtomicUsize::new(0);
 
-    unsafe extern "C" fn record(fraction: f32, pass: u32, _user: *mut c_void) {
+    /// The host context this test registers — its address is what every tick
+    /// must carry back, proving the callback and its user pointer are
+    /// delivered as the pair they were registered as.
+    static HOST_CONTEXT: u32 = 0xC0FFEE;
+
+    unsafe extern "C" fn record(fraction: f32, pass: u32, user: *mut c_void) {
         SEEN_TICKS.fetch_add(1, Ordering::Relaxed);
         LAST_FRACTION_BITS.store(fraction.to_bits(), Ordering::Relaxed);
         LAST_PASS.store(pass, Ordering::Relaxed);
+        LAST_USER.store(user as usize, Ordering::Relaxed);
     }
 
     /// Registration installs the raw-core sink, ticks arrive with an
-    /// overall fraction and a 1-based pass index, and clearing stops them.
-    /// One test because the registry is process-global.
+    /// overall fraction, a 1-based pass index and the registered user
+    /// pointer, and clearing stops them. One test because the registry is
+    /// process-global.
     #[test]
     fn registered_callback_receives_overall_fraction_then_stops() {
-        unsafe { maple_set_deep_denoise_progress(Some(record), std::ptr::null_mut()) };
+        let context = &HOST_CONTEXT as *const u32 as *mut c_void;
+        unsafe { maple_set_deep_denoise_progress(Some(record), context) };
 
         forward(bm3d::PASS_1, 0.5);
         assert_eq!(SEEN_TICKS.load(Ordering::Relaxed), 1);
         assert_eq!(LAST_PASS.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            LAST_USER.load(Ordering::Relaxed),
+            context as usize,
+            "the tick must carry the user pointer registered alongside the callback"
+        );
         assert!(
             (f32::from_bits(LAST_FRACTION_BITS.load(Ordering::Relaxed)) - 0.25).abs() < 1e-6,
             "pass 1 at 50% is 25% overall"
