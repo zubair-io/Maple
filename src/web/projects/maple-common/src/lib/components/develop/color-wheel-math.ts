@@ -60,9 +60,12 @@ export function wheelToPos(value: WheelValue): WheelPos {
   return { x: (radius * Math.cos(rad) + 1) / 2, y: (radius * Math.sin(rad) + 1) / 2 };
 }
 
-/** Arrow-key step sizes — one degree of hue, one point of saturation. */
-export const HUE_STEP_DEG = 1;
-export const SAT_STEP = 1;
+/** Arrow-key step sizes — one degree of hue, one point of saturation.
+ *  Module-private: `nudgeWheel` is the only consumer, and the keyboard
+ *  contract it implements is pinned by `color-wheel-math.spec.ts` through
+ *  `nudgeWheel` itself rather than through the step constants. */
+const HUE_STEP_DEG = 1;
+const SAT_STEP = 1;
 
 /**
  * Apply an arrow-key nudge. Left/Right rotate the hue, Up/Down grow and
