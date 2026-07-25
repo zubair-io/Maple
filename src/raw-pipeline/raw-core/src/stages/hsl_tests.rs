@@ -332,6 +332,86 @@ fn very_low_chroma_is_unchanged() {
     }
 }
 
+// ── Band-boundary smoothness (#274 acceptance: "no banding") ──────────
+
+/// A fine hue sweep at fixed L and chroma must produce an output that
+/// varies *smoothly* with input hue — the band windows are raised
+/// cosines with per-pixel normalization, so there is no step at any band
+/// edge. Banding would show up as a discontinuity: one 0.25° step whose
+/// output jump is far larger than its neighbours'.
+///
+/// The assertion is on the SECOND difference of the output signal (the
+/// same shape as the `banding_check.py` CI gate, #1627): for a C¹ signal
+/// sampled on a uniform grid, `|f(i+1) - 2·f(i) + f(i-1)|` stays at the
+/// curvature scale, whereas a hard band edge spikes it. The bound is
+/// expressed as a multiple of the largest first difference so the test
+/// stays scale-free rather than pinned to a magic Oklab delta.
+///
+/// Run with the most aggressive per-band settings that still stay clear
+/// of the gamut hull, so the soft-knee (which is itself C¹, but only
+/// after the knee) doesn't dominate the measurement.
+#[test]
+fn hue_sweep_has_no_band_boundary_discontinuity() {
+    // Alternating ±60 across the eight bands maximises the gradient at
+    // every band boundary — adjacent bands pull in opposite directions.
+    let mut hue = zero_bands();
+    let mut sat = zero_bands();
+    let mut lum = zero_bands();
+    for band in 0..BANDS {
+        let sign = if band % 2 == 0 { 1.0 } else { -1.0 };
+        hue[band] = 60.0 * sign;
+        sat[band] = 60.0 * sign;
+        lum[band] = 60.0 * sign;
+    }
+    let params = hsl_params(&hue, &sat, &lum);
+
+    // 1440 samples = 0.25° steps around the full hue circle, at a chroma
+    // well above the gate ramp (so the gate is a constant 1.0 and the
+    // only thing varying is the band mixture) and comfortably inside the
+    // Rec.2020 hull at L = 0.5.
+    const STEPS: usize = 1440;
+    const C_IN: f32 = 0.06;
+    let outputs: Vec<[f32; 3]> = (0..STEPS)
+        .map(|i| {
+            let h = (i as f32) * (360.0 / STEPS as f32);
+            let rad = h.to_radians();
+            let rgb = crate::color::oklab::oklab_to_rec2020([
+                0.5,
+                C_IN * rad.cos(),
+                C_IN * rad.sin(),
+            ]);
+            apply_pixel(rgb, &params)
+        })
+        .collect();
+
+    // Work per channel on the circular sweep.
+    for channel in 0..3 {
+        let f = |i: usize| outputs[i % STEPS][channel];
+        let first_diff_max = (0..STEPS)
+            .map(|i| (f(i + 1) - f(i)).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(
+            first_diff_max > 0.0,
+            "channel {channel}: sweep is constant — the stage did nothing"
+        );
+        let (worst_index, worst_second_diff) = (0..STEPS)
+            .map(|i| (i, (f(i + STEPS + 1) - 2.0 * f(i + STEPS) + f(i + STEPS - 1)).abs()))
+            .fold((0usize, 0.0_f32), |acc, x| if x.1 > acc.1 { x } else { acc });
+        // A raised-cosine partition sampled at 0.25° has curvature far
+        // below its own slope; a hard band edge would put the second
+        // difference at or above the first-difference scale. 0.25× leaves
+        // ample headroom for the smooth case while still failing loudly
+        // on a step.
+        assert!(
+            worst_second_diff < 0.25 * first_diff_max,
+            "channel {channel}: hue-band discontinuity at sample {worst_index} \
+             ({:.3}°): second difference {worst_second_diff:.3e} vs max first \
+             difference {first_diff_max:.3e}",
+            worst_index as f32 * (360.0 / STEPS as f32)
+        );
+    }
+}
+
 // ── Raised-cosine isolation test ──────────────────────────────────────
 
 /// `raised_cosine_weight(0, hw) == 1.0` and `raised_cosine_weight(hw, hw) == 0.0`
