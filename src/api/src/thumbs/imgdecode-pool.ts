@@ -44,8 +44,12 @@ export interface ImgDecodeWorker {
  * a real child process. */
 export type ImgDecodeWorkerFactory = () => ImgDecodeWorker;
 
+/** `resolve` accepts either result shape — `render` replies carry `error`,
+ * `validate` replies carry `reason` (matching `AvifValidationResult`'s own
+ * field name in `thumbs/validate-avif.ts`) — narrowed to whichever the caller
+ * that created this pending entry actually awaits. */
 interface PendingCall {
-  resolve: (result: { ok: boolean; error?: string }) => void;
+  resolve: (result: { ok: boolean; error?: string } | { ok: boolean; reason?: string }) => void;
   reject: (err: Error) => void;
 }
 
@@ -77,23 +81,32 @@ class ImgDecodePool {
     ext: string,
     format?: 'avif' | 'jpeg',
   ): Promise<{ ok: boolean; error?: string }> {
-    const id = this.nextId++;
-    return new Promise<{ ok: boolean; error?: string }>((resolve, reject) => {
-      let w: ImgDecodeWorker;
-      try {
-        w = this.ensureWorker();
-      } catch (e) {
-        reject(e instanceof Error ? e : new Error(String(e)));
-        return;
-      }
-      this.pending.set(id, { resolve, reject });
-      try {
-        w.postMessage({ type: 'render', id, srcPath, outPath, maxPx, quality, ext, format });
-      } catch (e) {
-        this.pending.delete(id);
-        reject(e instanceof Error ? e : new Error(String(e)));
-      }
-    });
+    return this.dispatch((id) => ({
+      type: 'render',
+      id,
+      srcPath,
+      outPath,
+      maxPx,
+      quality,
+      ext,
+      format,
+    }));
+  }
+
+  /**
+   * Decode `filePath` in full and confirm it's a genuine, complete AVIF at
+   * or under `expectedLongEdgePx` — see `thumbs/avif-checks.ts` for the
+   * actual check semantics, which run inside the child (#2257: this used to
+   * be an in-parent `sharp(filePath)` call in `thumbs/validate-avif.ts`,
+   * adding a full pixel decode of a freshly-written, possibly-malformed
+   * file directly to the HTTP server's process). Resolves with
+   * `{ ok, reason? }`. Rejects on child spawn failure or crash — same
+   * contract as `renderImageThumbToFile`. */
+  validateAvif(
+    filePath: string,
+    expectedLongEdgePx: number,
+  ): Promise<{ ok: boolean; reason?: string }> {
+    return this.dispatch((id) => ({ type: 'validate', id, filePath, expectedLongEdgePx }));
   }
 
   /**
@@ -103,6 +116,41 @@ class ImgDecodePool {
    * (2-second poll in the child) is only a backstop. Mirrors `ffi-pool.ts`.
    */
   shutdown(): void {
+    this.rejectAllPendingAndDropWorker(new Error('imgdecode-pool: shutting down'));
+  }
+
+  // ── internals ────────────────────────────────────────────────────────────
+
+  /** Shared by `renderImageThumbToFile` and `validateAvif`: assign an id,
+   * register the pending call, and post `buildMessage(id)` to the child.
+   * Both callers only differ in the message shape and the result type each
+   * awaits — the ensure/register/post/error-handling mechanics are identical. */
+  private dispatch<TResult>(
+    buildMessage: (id: number) => Record<string, unknown>,
+  ): Promise<TResult> {
+    const id = this.nextId++;
+    return new Promise<TResult>((resolve, reject) => {
+      let w: ImgDecodeWorker;
+      try {
+        w = this.ensureWorker();
+      } catch (e) {
+        reject(e instanceof Error ? e : new Error(String(e)));
+        return;
+      }
+      this.pending.set(id, { resolve: resolve as PendingCall['resolve'], reject });
+      try {
+        w.postMessage(buildMessage(id));
+      } catch (e) {
+        this.pending.delete(id);
+        reject(e instanceof Error ? e : new Error(String(e)));
+      }
+    });
+  }
+
+  /** Shared by `shutdown` and the child's `error` listener: drain every
+   * pending call with `err`, terminate the (possibly already-dead) worker,
+   * and clear it so the next request spawns a fresh child. */
+  private rejectAllPendingAndDropWorker(err: Error): void {
     const calls = [...this.pending.values()];
     this.pending.clear();
     try {
@@ -111,10 +159,8 @@ class ImgDecodePool {
       // best-effort
     }
     this.worker = null;
-    for (const p of calls) p.reject(new Error('imgdecode-pool: shutting down'));
+    for (const p of calls) p.reject(err);
   }
-
-  // ── internals ────────────────────────────────────────────────────────────
 
   private ensureWorker(): ImgDecodeWorker {
     if (this.worker) return this.worker;
@@ -133,26 +179,20 @@ class ImgDecodePool {
 
     w.addEventListener('message', (event) => {
       const msg = event.data as ImgDecodeResponse;
-      if (!msg || msg.type !== 'render') return;
+      if (!msg || (msg.type !== 'render' && msg.type !== 'validate')) return;
       const p = this.pending.get(msg.id);
       if (!p) return;
       this.pending.delete(msg.id);
-      p.resolve({ ok: msg.ok, error: msg.error });
+      if (msg.type === 'render') p.resolve({ ok: msg.ok, error: msg.error });
+      else p.resolve({ ok: msg.ok, reason: msg.reason });
     });
 
     w.addEventListener('error', (event) => {
       // An unexpected child exit: reject ALL pending calls and drop the worker
       // so the next request spawns a fresh child.
-      const err = new Error('imgdecode-pool: worker errored — ' + (event.message ?? 'unknown'));
-      const calls = [...this.pending.values()];
-      this.pending.clear();
-      try {
-        this.worker?.terminate();
-      } catch {
-        // best-effort
-      }
-      this.worker = null;
-      for (const p of calls) p.reject(err);
+      this.rejectAllPendingAndDropWorker(
+        new Error('imgdecode-pool: worker errored — ' + (event.message ?? 'unknown')),
+      );
     });
 
     this.worker = w;
@@ -206,6 +246,23 @@ export function renderImageThumbToFileViaPool(
   format?: 'avif' | 'jpeg',
 ): Promise<{ ok: boolean; error?: string }> {
   return imgdecodePool().renderImageThumbToFile(srcPath, outPath, maxPx, quality, ext, format);
+}
+
+/**
+ * Convenience wrapper: decode-validate `filePath` via the shared imgdecode
+ * child pool. This is the function that replaces the old in-parent
+ * `sharp(filePath)` call in `thumbs/validate-avif.ts#validateAvifOutput`
+ * (#2257) — the actual check logic (`thumbs/avif-checks.ts#checkAvifOutput`)
+ * now only ever runs inside the child.
+ *
+ * Rejects on child crash or spawn failure. Never loads sharp in the parent
+ * process.
+ */
+export function validateAvifViaPool(
+  filePath: string,
+  expectedLongEdgePx: number,
+): Promise<{ ok: boolean; reason?: string }> {
+  return imgdecodePool().validateAvif(filePath, expectedLongEdgePx);
 }
 
 export type { ImgDecodePool };

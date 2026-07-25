@@ -11,34 +11,43 @@
  * resize bug, a source silently mis-decoded) can still finish writing and get
  * renamed into place looking like a good cache entry.
  *
- * `validateAvifOutput` closes that gap with a real decode. `publishValidatedAvif`
- * is the write-side half: given bytes already encoded to a private temp path,
- * it validates them and only then renames into the real cache path — the same
- * write-to-temp-then-rename idiom as `fs/xmp.ts`'s `writeXmpWithPrecondition`,
- * gated on decode success rather than only on the write itself succeeding. On
- * failure it removes the temp file, so nothing invalid is ever left where a
- * reader expects a good cache entry.
+ * `validateAvifOutput` closes that gap with a real decode — dispatched to the
+ * isolated `imgdecode` child via `validateAvifViaPool` (#2257). It used to run
+ * `sharp(filePath)` directly in THIS (the API parent) process, which added a
+ * full pixel decode to every concurrent request while the thumb/preview
+ * stages were running (~300ms measured on an SMB-backed library) and, worse,
+ * ran a decode of a freshly-written, possibly-malformed file — exactly the
+ * input most likely to trip a libheif/libvips crash — inside the HTTP server
+ * (see `imgdecode-pool.ts`'s "Why off-PROCESS" module doc). The actual check
+ * semantics (format/dimensions/orientation/colourspace/full-decode) now live
+ * in `thumbs/avif-checks.ts`, imported only by the child
+ * (`imgdecode.child.ts`) — this file stays importable from the parent
+ * without pulling sharp (and libvips/libheif) into its address space.
+ *
+ * `publishValidatedAvif` is the write-side half: given bytes already encoded
+ * to a private temp path, it validates them and only then renames into the
+ * real cache path — the same write-to-temp-then-rename idiom as
+ * `fs/xmp.ts`'s `writeXmpWithPrecondition`, gated on decode success rather
+ * than only on the write itself succeeding. On failure (a failed check, OR a
+ * dispatch failure — the child failed to spawn, or crashed mid-decode) it
+ * removes the temp file, so nothing invalid — and nothing merely unverified —
+ * is ever left where a reader expects a good cache entry.
  */
 
 import * as fs from 'node:fs/promises';
-import sharp from 'sharp';
 import type { Logger } from 'pino';
+import { validateAvifViaPool } from './imgdecode-pool.ts';
+import type { AvifValidationResult } from './avif-checks.ts';
 
-/** AVIF encoders can round dimensions by a pixel or two during resize — this
- * is slack on the upper bound, not a target every output must hit exactly
- * (a source smaller than the tier's target is never upscaled). */
-const DIMENSION_TOLERANCE_PX = 4;
-
-/** sharp reports AVIF's container format as `"heif"` (AVIF is a HEIF
- * profile, not a distinct sharp format) — `compression: "av1"` is what
- * actually distinguishes an AVIF from a HEIC/HEVC file within that family.
- * (sharp's `mediaType` metadata field — the more obvious `"image/avif"`
- * check — isn't populated by the libheif build this repo's pinned sharp
- * version (0.34.5, libheif 1.20.2) ships; verified empirically against the
- * exact pinned version rather than a newer one that happened to be cached
- * locally.) */
-const EXPECTED_FORMAT = 'heif';
-const EXPECTED_COMPRESSION = 'av1';
+// Re-exported (not redefined) so the parent-side public surface keeps this
+// name: `AvifValidationResult` is the one shape both the child's pure
+// predicate (`avif-checks.ts#checkAvifOutput`) and this dispatcher return —
+// a second, separately-declared copy here would be an ambiguous duplicate
+// export of the same name across two modules for no reason. Type-only, so
+// this does NOT create the sharp-in-the-parent import this file's module doc
+// warns against, and no cycle: `avif-checks.ts` has no import of anything
+// that leads back here.
+export type { AvifValidationResult };
 
 export type AvifTier = 'preview' | 'thumb';
 
@@ -48,124 +57,38 @@ export interface AvifValidationContext {
   tier: AvifTier;
 }
 
-export type AvifValidationResult = { ok: true } | { ok: false; reason: string };
-
 function errMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
 /**
- * Decode `filePath` and confirm it's a genuine, complete, correctly-sized
- * AVIF matching this pipeline's encode conventions. Checks run cheapest
- * (metadata-only) to most expensive (a full pixel decode) — see the
- * ordering note inline below for why that order is load-bearing, not
- * incidental:
+ * Decode `filePath` via the isolated imgdecode child and confirm it's a
+ * genuine, complete, correctly-sized AVIF matching this pipeline's encode
+ * conventions — see `thumbs/avif-checks.ts#checkAvifOutput` for the actual
+ * check semantics (format/dimensions/orientation/colourspace/full-decode,
+ * cheapest-first).
  *
- *  1. Format: `format`/`compression` must report `heif`/`av1` — sharp's way
- *     of saying "this is genuinely AVIF," not e.g. a HEIC file or non-image
- *     bytes with an `.avif` extension.
- *  2. Dimensions: both the width and height must be within
- *     `DIMENSION_TOLERANCE_PX` of `expectedLongEdgePx` — an upper bound
- *     only, since `fit: 'inside', withoutEnlargement: true` (this pipeline's
- *     resize contract) legitimately leaves a source smaller than the target
- *     un-upscaled.
- *  3. Orientation: every encoder in this pipeline bakes EXIF orientation
- *     into pixels at encode time (raw-ffi's `bake_orientation`, sharp's
- *     `.rotate()`) and never carries an orientation tag forward — see
- *     `thumbs/apply-orientation.ts`'s module doc. A tag other than `1` here
- *     means some path landed a cache entry that still depends on a tag no
- *     reader (server route, Apple, web) applies.
- *  4. Colour characteristics: this pipeline's AVIF outputs are untagged
- *     sRGB by convention (`raw-core`'s `avif::encode` doc: "color-managed
- *     viewers assume sRGB for untagged AVIF", and neither encode path calls
- *     `.withIccProfile()` / `.toColorspace()`). An embedded ICC profile, or
- *     a decoded colourspace other than sRGB, means the encoder attached (or
- *     interpreted) something this pipeline never asked for.
- *  5. Integrity: a full pixel decode must succeed. `.metadata()` alone is
- *     NOT sufficient — it can return a plausible width/height read straight
- *     from the AVIF's meta/header box even when the `mdat` pixel payload is
- *     truncated (verified empirically: a header-intact AVIF sliced to a
- *     third of its real length still returns full metadata with no error).
- *     Catching a truncated/corrupt encode requires forcing a real decode of
- *     the pixel data, not just parsing the header. Deliberately LAST: it's
- *     the only check that pulls the full image into memory, so every cheap
- *     metadata-only check — especially the dimension bound — must reject
- *     first for a wildly-oversized input (see the inline comment below).
+ * A dispatch failure — the child failed to spawn, or crashed while decoding
+ * this specific (possibly poison) file — is caught here and reported as a
+ * validation failure rather than thrown, so callers (`publishValidatedAvif`)
+ * uniformly discard the temp file and never publish on either kind of
+ * failure. This mirrors how `indexer/thumbnailer.ts#renderBitmapThumbToFile`
+ * treats a `renderImageThumbToFileViaPool` rejection: caught, logged, and
+ * turned into "this attempt failed," never allowed to propagate as an
+ * unhandled rejection out of the stage.
  */
 export async function validateAvifOutput(
   filePath: string,
   expectedLongEdgePx: number,
 ): Promise<AvifValidationResult> {
-  // `failOn: 'warning'` is sharp's own strictest setting (its default) —
-  // explicit here because we're validating OUR OWN freshly-encoded output,
-  // the opposite intent of `SHARP_INPUT_OPTS`'s `failOn: 'none'` used
-  // elsewhere in this pipeline for decoding third-party source files. One
-  // instance, reused below for both `.metadata()` and `.raw().toBuffer()`.
-  const image = sharp(filePath, { failOn: 'warning' });
-
-  let meta: sharp.Metadata;
   try {
-    meta = await image.metadata();
+    const result = await validateAvifViaPool(filePath, expectedLongEdgePx);
+    return result.ok
+      ? { ok: true }
+      : { ok: false, reason: result.reason ?? 'validation failed with no reason reported' };
   } catch (e) {
-    return { ok: false, reason: `metadata decode failed: ${errMessage(e)}` };
+    return { ok: false, reason: `validation dispatch failed: ${errMessage(e)}` };
   }
-
-  if (meta.format !== EXPECTED_FORMAT || meta.compression !== EXPECTED_COMPRESSION) {
-    return {
-      ok: false,
-      reason: `unexpected format "${meta.format ?? 'unknown'}"/compression "${meta.compression ?? 'unknown'}" (expected ${EXPECTED_FORMAT}/${EXPECTED_COMPRESSION})`,
-    };
-  }
-
-  // Every check below this point is metadata-only (no pixel decode) — they
-  // run BEFORE the full pixel decode at the bottom of this function
-  // deliberately: `copyImageAsThumb`'s fallback can hand this validator
-  // arbitrary bytes that happen to parse as a genuine (if huge) AVIF, and a
-  // resize bug is exactly the class of thing this validator exists to catch.
-  // Checking declared dimensions first means a wildly-oversized image is
-  // rejected on its cheap header read rather than fully decoded into memory
-  // first — see jules review on PR #2011/#2014.
-  const { width, height, orientation, space, hasProfile } = meta;
-  if (!width || !height) {
-    return { ok: false, reason: 'metadata missing width/height' };
-  }
-  const maxAllowed = expectedLongEdgePx + DIMENSION_TOLERANCE_PX;
-  if (width > maxAllowed || height > maxAllowed) {
-    return {
-      ok: false,
-      reason: `dimensions ${width}x${height} exceed expected long edge ${expectedLongEdgePx} (+${DIMENSION_TOLERANCE_PX}px tolerance)`,
-    };
-  }
-
-  if (orientation !== undefined && orientation !== 1) {
-    return {
-      ok: false,
-      reason: `unexpected orientation tag ${orientation} — this pipeline bakes rotation into pixels and writes no orientation tag`,
-    };
-  }
-
-  if (hasProfile) {
-    return {
-      ok: false,
-      reason:
-        'unexpected embedded ICC profile — this pipeline writes untagged sRGB AVIF by convention',
-    };
-  }
-  if (space !== 'srgb') {
-    return { ok: false, reason: `unexpected colourspace "${space}" (expected srgb)` };
-  }
-
-  try {
-    // Full pixel decode, result discarded — see point 5 in the doc comment
-    // above for why `.metadata()` alone can't be trusted to catch
-    // truncation. Deliberately the LAST and most expensive check, now that
-    // every metadata-only check (including the dimension bound) has passed.
-    await image.raw().toBuffer();
-  } catch (e) {
-    return { ok: false, reason: `pixel decode failed (truncated or corrupt): ${errMessage(e)}` };
-  }
-
-  return { ok: true };
 }
 
 /**
