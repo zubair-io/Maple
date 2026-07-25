@@ -547,6 +547,8 @@ fn render_chain_to_f32_second_render_is_zero_alloc() {
         hsl_hue: [0.0; 8],
         hsl_sat: [0.0; 8],
         hsl_lum: [0.0; 8],
+        bw_mix: [0.0; 8],
+        bw_active: false,
         sharpen_amount: 0.0,
         sharpen_radius: 1.0,
         sharpen_detail: 25.0,
