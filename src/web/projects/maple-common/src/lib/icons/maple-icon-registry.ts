@@ -12,7 +12,7 @@
 import { circle, path, rect, sharpRect, type IconShape } from './icon-shape';
 import { TOOL_ICON_SHAPES, type ToolIconName } from './tool-glyph-shapes';
 
-export type { IconShape, ShapeBase } from './icon-shape';
+export type { IconShape } from './icon-shape';
 export type { ToolIconName } from './tool-glyph-shapes';
 
 export type MapleIconName =
