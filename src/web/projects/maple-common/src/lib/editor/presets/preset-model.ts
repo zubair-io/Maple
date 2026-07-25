@@ -84,6 +84,8 @@ export const ENUM_FIELD_VALUES: Readonly<Record<string, readonly string[]>> = {
   tone_curve_mode: ['PerChannel', 'RatioPreserving'],
   // Hot/dead-pixel suppression (#1106) — decode-product enum field.
   hot_pixel_suppression: ['Off', 'On'],
+  // Black & white toggle (#276) — 8-band Oklab stage's monochrome mode.
+  black_white: ['Off', 'On'],
 };
 
 // ── Capture (save-preset) ─────────────────────────────────────────────────

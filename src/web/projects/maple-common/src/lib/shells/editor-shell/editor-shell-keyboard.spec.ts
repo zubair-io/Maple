@@ -22,6 +22,7 @@
 import { signal } from '@angular/core';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { ToolGroup, ToolId } from '../../editor/tool-model';
+import type { AdjustmentModel } from '../../models/adjustment-model';
 import { handleEditorKeydown } from './editor-shell-keyboard';
 import type { EditorShellComponent } from './editor-shell.component';
 
@@ -69,6 +70,7 @@ describe('handleEditorKeydown (epic #1807 slice 5 parity)', () => {
       armedTool: ReturnType<typeof signal<ToolId>>;
       armedToolAcceptsValueEdits: () => boolean;
       armedInternalValue: () => number;
+      currentAdjustment: () => Partial<AdjustmentModel> | null;
       commit: ReturnType<typeof vi.fn>;
       setArmedInternalValue: ReturnType<typeof vi.fn>;
       undo: ReturnType<typeof vi.fn>;
@@ -103,6 +105,7 @@ describe('handleEditorKeydown (epic #1807 slice 5 parity)', () => {
         armedTool: signal<ToolId>('exposure'),
         armedToolAcceptsValueEdits: () => true,
         armedInternalValue: () => 0,
+        currentAdjustment: () => ({ blackWhite: 'Off' }),
         commit: vi.fn(),
         setArmedInternalValue: vi.fn(),
         undo: vi.fn(),
@@ -198,6 +201,23 @@ describe('handleEditorKeydown (epic #1807 slice 5 parity)', () => {
     shell.editorState.armedGroup.set('light');
     dispatch(makeKeyEvent('[', { shift: true }));
     expect(shell.onGroupChange).toHaveBeenCalledWith('detail');
+  });
+
+  it(']  never cycles onto hsl while Black & White is On (#276)', () => {
+    shell.editorState.currentAdjustment = () => ({ blackWhite: 'On' });
+    shell.editorState.armedTool.set('saturation'); // color group, just before hsl
+    dispatch(makeKeyEvent(']'));
+    expect(shell.onToolChange).toHaveBeenCalledTimes(1);
+    // Next after saturation in the full list would be hsl — with B&W on it
+    // must skip straight to bwMix.
+    expect(shell.onToolChange.mock.calls[0][0]).toBe('bwMix');
+  });
+
+  it(']  cycles onto hsl normally while Black & White is Off', () => {
+    shell.editorState.currentAdjustment = () => ({ blackWhite: 'Off' });
+    shell.editorState.armedTool.set('saturation');
+    dispatch(makeKeyEvent(']'));
+    expect(shell.onToolChange.mock.calls[0][0]).toBe('hsl');
   });
 
   // ── Existing A shortcuts keep working ────────────────────────────────────

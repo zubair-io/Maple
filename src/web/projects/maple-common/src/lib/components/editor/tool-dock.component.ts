@@ -1,12 +1,19 @@
 // ToolDockComponent — glass icon dock, vertical on tablet/desktop, horizontal
 // on phone (#1535, phone dock: #1807).
-// Icons: Light · Color · HSL · Curve · Effects · Detail · Crop · Presets ·
-// Optics · Mask · Heal (Crop also has a phone-only horizontal entry).
+// Icons: Light · Color · HSL · B&W · Curve · Effects · Detail · Crop ·
+// Presets · Optics · Mask · Heal (Crop also has a phone-only horizontal
+// entry).
 // Light / Color / Effects / Detail switch the active ToolGroup.
 // Curve opens the tone-curve panel (M2 #1540).
 // HSL arms the HSL tool directly (canvas-first HSL port, epic #1807 slice 4;
 // reuses SubParamRowComponent/DragBarComponent/ValueChipComponent verbatim
-// from the S5 editor, #1112).
+// from the S5 editor, #1112). HSL's entry is hidden entirely while Black &
+// White is On (`blackWhiteOn` input, #276) — its 24 sliders are inert then,
+// so the dock shouldn't offer a way to arm it.
+// B&W arms the bwMix tool directly (#276) — same shared multi-param arming
+// machinery as HSL, hosting the Black & White toggle + 8 gray-mixer weights.
+// Always visible regardless of `blackWhiteOn`, since it's the surface that
+// owns the toggle.
 // Crop arms the Crop tool directly (#1813 — canvas-first crop port; reuses
 // CropSessionService/CropOverlayComponent/CropToolbarComponent from the S5
 // editor, #638). The phone dock's Crop entry is the same tool, now enabled
@@ -63,6 +70,12 @@ const DOCK_ENTRIES: DockEntry[] = [
   // editor's HSL pill uses, so a hue/sat/lum edit writes the identical
   // AdjustmentModel field on both editors.
   { id: 'hsl', icon: 'tool-hsl', label: 'HSL', tool: 'hsl' },
+  // B&W: arms the bwMix tool directly (#276 — Black & White toggle + 8
+  // gray-mixer weights). Mounts the same shared chip selector + drag bar +
+  // value chip HSL uses, plus an explicit toggle control for
+  // `model.blackWhite`. Placed right after HSL — the two tools are mutually
+  // exclusive views onto the same 8-hue-band Oklab stage.
+  { id: 'bwMix', icon: 'tool-bw', label: 'B&W', tool: 'bwMix' },
   // Curve: enabled in #1540 (web M2 — tone curve + WB pad)
   { id: 'curve', icon: 'tool-contrast', label: 'Curve', panel: true },
   { id: 'effects', icon: 'tool-vignette', label: 'Effects', group: 'effects' },
@@ -114,9 +127,10 @@ const DOCK_ENTRIES: DockEntry[] = [
   { id: 'crop', icon: 'tool-crop', label: 'Crop', tool: 'crop', orientations: ['horizontal'] },
 ];
 
-/** Tools that have their own dock entry (currently just Crop) — a group
- *  entry must NOT show active while one of these is armed, even though the
- *  tool lives inside that group (Crop is in `detail`). */
+/** Tools that have their own dock entry (Crop, HSL, bwMix) — a group entry
+ *  must NOT show active while one of these is armed, even though the tool
+ *  lives inside that group (Crop is in `detail`; HSL and bwMix are in
+ *  `color`). */
 const DOCK_TOOL_IDS = new Set<ToolId>(
   DOCK_ENTRIES.map((e) => e.tool).filter((t): t is ToolId => t != null),
 );
@@ -146,6 +160,10 @@ export class ToolDockComponent {
   orientation = input<DockOrientation>('vertical');
   /** True when the presets panel is open (#1815). */
   presetsOpen = input<boolean>(false);
+  /** True while Black & White is On (#276) — hides the HSL dock entry
+   *  entirely, since HSL's 24 sliders are inert while B&W drives the same
+   *  8-band Oklab stage instead. */
+  blackWhiteOn = input<boolean>(false);
   /** Fired when the user taps an enabled group entry. */
   groupChange = output<ToolGroup>();
   /** Fired when the user taps a specific-tool entry (e.g. Crop). */
@@ -155,10 +173,14 @@ export class ToolDockComponent {
   /** Fired when user taps the Presets entry (toggle, #1815). */
   presetsPanelToggle = output<void>();
 
-  /** Entries visible for the current orientation. */
+  /** Entries visible for the current orientation, with the HSL entry
+   *  dropped entirely while Black & White is On (#276). */
   readonly entries = computed<DockEntry[]>(() => {
     const axis = this.orientation();
-    return DOCK_ENTRIES.filter((e) => (e.orientations ?? BOTH_ORIENTATIONS).includes(axis));
+    const hideHsl = this.blackWhiteOn();
+    return DOCK_ENTRIES.filter((e) => (e.orientations ?? BOTH_ORIENTATIONS).includes(axis)).filter(
+      (e) => !(hideHsl && e.id === 'hsl'),
+    );
   });
 
   /** Whether a given `panel: true` entry's panel is currently open — keyed
