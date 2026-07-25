@@ -30,11 +30,17 @@ export function monthKey(year: number, month: number): string {
 }
 
 /** The month bucket a search hit folds into, or `null` when it carries no
- * capture date (the caller always queries with `hasCapturedAt: true`, so this
- * is defensive — `foldPage` skips the same rows). */
+ * usable capture date (the caller always queries with `hasCapturedAt: true`, so
+ * this is defensive — `foldPage` skips the same rows).
+ *
+ * Rejects an unparseable date rather than letting `getUTCFullYear()` return NaN
+ * and yielding a `"NaN-NaN"` key. That key would look like any other to
+ * `_visibleMonths` and to the thumb loader, so `dropMonth` could never match it
+ * and its queued requests would never be reclaimed. */
 export function monthKeyForCapturedAt(capturedAt: string | null): string | null {
   if (!capturedAt) return null;
   const d = new Date(capturedAt);
+  if (Number.isNaN(d.getTime())) return null;
   return monthKey(d.getUTCFullYear(), d.getUTCMonth() + 1);
 }
 

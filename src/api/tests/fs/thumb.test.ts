@@ -120,18 +120,29 @@ describe('/api/fs/thumb — input validation (no FFI required)', () => {
     expect(r.status).toBe(400);
   });
 
-  // The route has no `size` param any more (#2220) — the tier is fixed. A
-  // stale client still sending one must be served normally rather than
-  // rejected, since Elysia drops query params absent from the schema; that
-  // backward compatibility is what makes the removal deployable without a
-  // coordinated client release.
+  // The route has no `size` param any more (#2220) — the tier is fixed. A stale
+  // client still sending one must be served normally rather than rejected, since
+  // Elysia drops query params absent from the schema; that backward
+  // compatibility is what makes the removal deployable without a coordinated
+  // client release.
+  //
+  // Uses an unsupported extension deliberately, so this stays in the no-FFI
+  // section (a `.dng` would drive the route into the native render path and make
+  // this depend on libraw being built). It also sharpens the assertion: the old
+  // code validated `size` BEFORE the jail/extension gate, so an out-of-range
+  // value used to 400 here. Reaching 415 — identically with and without the
+  // param — proves the value is now inert rather than merely tolerated.
   it('ignores a legacy size param instead of rejecting it', async () => {
     const app = await buildApp();
-    const fakeRaw = path.join(tmp, 'ignored.dng');
-    await fs.writeFile(fakeRaw, Buffer.from([0]));
-    const url = `http://localhost/api/fs/thumb?path=${encodeURIComponent(fakeRaw)}&size=999999`;
-    const r = await app.handle(new Request(url));
-    expect(r.status).not.toBe(400);
+    const txtPath = path.join(tmp, 'legacy-size.txt');
+    await fs.writeFile(txtPath, 'hello');
+    const base = `http://localhost/api/fs/thumb?path=${encodeURIComponent(txtPath)}`;
+
+    const withLegacySize = await app.handle(new Request(`${base}&size=999999`));
+    const without = await app.handle(new Request(base));
+
+    expect(withLegacySize.status).toBe(415);
+    expect(withLegacySize.status).toBe(without.status);
   });
 });
 
