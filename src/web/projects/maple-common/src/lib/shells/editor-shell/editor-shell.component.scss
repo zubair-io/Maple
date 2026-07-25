@@ -80,6 +80,14 @@
     backdrop-filter: var(--pro-glass-blur-heavy);
     -webkit-backdrop-filter: var(--pro-glass-blur-heavy);
   }
+
+  // Phone: the pill is content-width but capped at the viewport, and every
+  // control except the filename is `flex-shrink: 0` — so the AUTO/RESET pair
+  // (#2244) comes straight out of the filename's budget. A tighter gap buys
+  // that width back and keeps the name legible rather than a bare ellipsis.
+  @media (max-width: 767px) {
+    gap: 4px;
+  }
 }
 
 .top-btn {
@@ -136,6 +144,58 @@
     display: block;
     width: 100%;
     height: 100%;
+  }
+}
+
+// AUTO / RESET (#2244) — text rather than glyph: the pill's `revert` icon
+// already means "reset this group" on the control card, and an icon-only AUTO
+// has no established glyph. Uppercase micro-type matches the pill's zoom /
+// render-path readouts.
+.top-text-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 0.5px solid var(--pro-border);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--pro-text-muted);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background 120ms ease-out,
+    color 120ms ease-out,
+    border-color 120ms ease-out;
+  -webkit-appearance: none;
+  appearance: none;
+  outline: none;
+
+  &:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--pro-text);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  // AUTO while its analysis is in flight — the WASM probe decode takes long
+  // enough on a 100MP RAW that the button needs to say so.
+  &.top-text-btn--busy {
+    color: var(--pro-accent);
+    border-color: var(--pro-accent);
+    opacity: 1;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--pro-accent);
+    outline-offset: 2px;
   }
 }
 
