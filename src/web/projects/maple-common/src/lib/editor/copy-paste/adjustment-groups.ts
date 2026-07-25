@@ -63,9 +63,16 @@ const GENERATED_KEYS = Object.keys(
 /**
  * Build the `Partial<AdjustmentModel>` patch that copying `source`'s
  * `groups` onto another asset should write. Fields the TS model doesn't
- * mirror (`temperature_seen`, `tint_seen`, `tone_curve_luma/red/green/blue`,
- * …) are skipped silently, exactly like `buildApplyPatch` skips unknown
- * preset keys.
+ * mirror (`temperature_seen`, `tint_seen`, …) are skipped silently, exactly
+ * like `buildApplyPatch` skips unknown preset keys.
+ *
+ * Structured fields are skipped too: the four `tone_curve_*` point curves
+ * (#366) are `ToneCurve` objects, and `PresetFields` — the map
+ * `buildApplyPatch` clamps and validates — is a flat scalar map on both the
+ * client and the API validator. Same guard, same reason, as
+ * `capturePresetFields`. Point-curve copy waits on the curve editor (#367);
+ * `crop`, the other structured field, is carried explicitly below because
+ * `geometry` is a real group today.
  */
 export function buildGroupPatch(
   source: AdjustmentModel,
@@ -82,9 +89,10 @@ export function buildGroupPatch(
   const denseFields: PresetFields = {};
   for (const camelKey of GENERATED_KEYS) {
     const snakeKey = camelToSnakeField(camelKey);
-    if (selectedFieldNames.has(snakeKey)) {
-      denseFields[snakeKey] = source[camelKey];
-    }
+    if (!selectedFieldNames.has(snakeKey)) continue;
+    const value = source[camelKey];
+    if (typeof value === 'object') continue; // ToneCurve — see doc above.
+    denseFields[snakeKey] = value;
   }
 
   const patch: Partial<AdjustmentModel> = buildApplyPatch(denseFields);
