@@ -253,6 +253,48 @@ final class MergedTimelineSourceTests: XCTestCase {
         XCTAssertEqual(merged.count, 1)
     }
 
+    /// Key-priority guard: `id` is a LAST-RESORT tier. Two cloud rows that
+    /// share a content-hash `id` but carry *different* cloudIdentifiers are
+    /// distinct iCloud assets and must NOT be collapsed by the bare-id tier —
+    /// the higher-priority cloudIdentifier outranks a shared `id`.
+    func testPlainIDDoesNotCollapseRowsWithDifferingCloudIdentifiers() {
+        let cloudLibraryA = [
+            ImageRef(id: "shared-hash", displayName: "a.heic", cloudIdentifier: "icloud-A")
+        ]
+        let cloudLibraryB = [
+            ImageRef(id: "shared-hash", displayName: "b.heic", cloudIdentifier: "icloud-B")
+        ]
+        let merged = MergedTimelineSource.merge(
+            localStreams: [], cloudStreams: [cloudLibraryA, cloudLibraryB])
+        XCTAssertEqual(
+            merged.count, 2, "differing cloudIdentifiers outrank a shared content-hash id")
+    }
+
+    /// The local↔cloud `id` fallback fires only when the cloud row is keyless.
+    /// A keyless cloud row whose `id` equals a PhotoKit local's `id` syncs; a
+    /// cloud row carrying a (non-matching) cloudIdentifier must not fall
+    /// through to a bare-id match.
+    func testLocalIDFallbackOnlyForKeylessCloudRow() {
+        let photoKit = [ImageRef(id: "content-1", displayName: "p.heic")]
+
+        let keylessCloud = [ImageRef(id: "content-1", displayName: "c.heic")]
+        let syncedMerge = MergedTimelineSource.merge(
+            localStreams: [photoKit], cloudStreams: [keylessCloud])
+        XCTAssertEqual(syncedMerge.count, 1)
+        guard case .synced = syncedMerge[0] else {
+            XCTFail("keyless cloud row with matching id should sync, got \(syncedMerge[0])")
+            return
+        }
+
+        let keyedCloud = [
+            ImageRef(id: "content-1", displayName: "c.heic", cloudIdentifier: "icloud-Z")
+        ]
+        let unmatchedMerge = MergedTimelineSource.merge(
+            localStreams: [photoKit], cloudStreams: [keyedCloud])
+        XCTAssertEqual(
+            unmatchedMerge.count, 2, "a keyed cloud row must not fall through to a bare-id match")
+    }
+
     /// Duplicates WITHIN a single stream must not collapse — only matches
     /// *across* distinct streams do. This mirrors the pre-N-way pairwise
     /// behavior (`testDoesNotCrashOnDuplicateLocalIDs`) generalized to the
