@@ -135,6 +135,26 @@ public enum GradientCatalog {
         GradientStop(t: 1.0, hex: 0xC4493A), // accent red (saturated)
     ]
 
+    /// HSL — a hue sweep across the band palette. Matches the web
+    /// `GRADIENTS.hsl` entry stop-for-stop so both platforms' HSL tracks
+    /// read the same. Used as the fall-back for any HSL sub-param whose
+    /// band has no swatch-derived track of its own.
+    public static let hsl: [GradientStop] = [
+        GradientStop(t: 0.0, hex: 0xC4493A),  // red
+        GradientStop(t: 0.33, hex: 0xE8A33D), // orange
+        GradientStop(t: 0.66, hex: 0x3FAE6A), // green
+        GradientStop(t: 1.0, hex: 0x3B6FB0),  // blue
+    ]
+
+    /// Per-band HSL track: neutral grey → the band's own swatch, so the
+    /// three sliders of the armed band carry that band's colour.
+    public static func hslStops(for band: HSLBand) -> [GradientStop] {
+        [
+            GradientStop(t: 0.0, hex: 0x6E675E), // textDim (neutral)
+            GradientStop(t: 1.0, hex: band.swatch),
+        ]
+    }
+
     // MARK: Effects group
 
     /// Clarity — flat haze → micro-contrast crisp.
@@ -204,8 +224,8 @@ public enum GradientCatalog {
 
     /// Returns the gradient stops for `tool` (using its primary gradient),
     /// or the tool-level entry for a sub-param's parent when the sub-param
-    /// does not define its own gradient. Returns `nil` for non-wired tools
-    /// (`.hsl`, `.crop`, `.presets`) that carry no slider track.
+    /// does not define its own gradient. Returns `nil` for tools that carry
+    /// no slider track of their own (`.crop`, `.presets`, `.splitTone`).
     public static func stops(for tool: Tool) -> [GradientStop]? {
         switch tool {
         case .exposure:       return exposure
@@ -229,7 +249,8 @@ public enum GradientCatalog {
         case .colorNR:        return colorNR
         case .captureSharpen: return captureSharpen
         case .captureSigma:   return captureSigma
-        case .hsl, .crop, .presets, .splitTone:
+        case .hsl:            return hsl
+        case .crop, .presets, .splitTone:
             return nil
         }
     }
@@ -262,6 +283,17 @@ public enum GradientCatalog {
         case .splitTone:
             // Sub-params use colour wheels, not gradient tracks
             return nil
+        case .hsl:
+            // "hueRed", "satOrange", "lumMagenta", … — each sub-param
+            // carries its own band's swatch track. Unknown ids fall back
+            // to the tool-level hue sweep.
+            return HSLBand.all
+                .first { band in
+                    HSLChannel.allCases.contains {
+                        Tool.hslSubParamId(channel: $0, band: band) == id
+                    }
+                }
+                .map(hslStops(for:)) ?? hsl
         default:
             // Single-param tools have no sub-params; fall back to the
             // tool-level entry.

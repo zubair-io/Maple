@@ -104,8 +104,13 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     ///
     /// The S5 effects pills are all real pipeline stages now — vignette
     /// (#1109), grain (#1110), splitTone (#1111) left the #952 stub list
-    /// as their stages landed. HSL (#636) and Crop (#638) remain stubs
-    /// pending their own specs.
+    /// as their stages landed. HSL left it at #274: the 8-band Oklab
+    /// stage is live in raw-core and the pill drives its 24 sub-params
+    /// through `HSLSection` (it has no single primary drag-bar field, so
+    /// `displayRange` stays nil and the sub-param path carries every
+    /// edit). Crop (#638) remains a stub — its model field and pipeline
+    /// math exist, but it is edited through the canvas overlay rather
+    /// than the drag bar.
     ///
     /// Presets left the stub list at #1115: the pill opens the presets
     /// sheet/popover (see EditorView) instead of carrying a drag-bar
@@ -113,7 +118,7 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     /// it (the scrub/reset guards also check `displayRange`).
     public var isWired: Bool {
         switch self {
-        case .hsl, .crop:
+        case .crop:
             return false
         default:
             return true

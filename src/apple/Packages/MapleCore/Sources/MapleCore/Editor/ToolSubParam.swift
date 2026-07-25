@@ -99,9 +99,14 @@ extension Tool {
     /// (§3.1) — join the `noise` list data-only when their pipeline
     /// stages land. Vignette joined at #1109, grain at #1110, split tone
     /// at #1111 (Balance leads — it is the schema-declared primary
-    /// drag-bar field, and the legacy splitTone drag bar drove it).
+    /// drag-bar field, and the legacy splitTone drag bar drove it). HSL
+    /// joined at #274 with 24 sub-params (Hue/Sat/Lum × 8 bands); its
+    /// catalog is built from the shared `HSLBand.all` table in
+    /// `HSLBand.swift` rather than spelled out here.
     public var subParams: [ToolSubParam] {
         switch self {
+        case .hsl:
+            return Self.hslSubParams
         case .splitTone:
             return [
                 ToolSubParam(id: "balance", label: "Balance",

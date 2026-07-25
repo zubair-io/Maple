@@ -84,10 +84,11 @@ final class EditorStateTests: XCTestCase {
     func testStubToolWriteIsNoOp() {
         let state = EditorState(session: makeSession())
         state.arm(tool: .crop)
-        // No crop field on AdjustmentModel yet — write must not crash
-        // and must not mutate any field. HSL / Crop / Presets are stubs
-        // pending their own specs; the S5 effects all left the #952 stub
-        // list as their stages landed (#1109 / #1110 / #1111).
+        // Crop is edited through the canvas overlay, not the drag bar, so
+        // a drag-bar write must not crash and must not mutate any field.
+        // Crop / Presets are the remaining non-value stubs; the S5 effects
+        // left the #952 list as their stages landed (#1109 / #1110 /
+        // #1111), and HSL left it at #274.
         let before = state.session.model
         state.setArmedDisplayValue(50)
         XCTAssertEqual(state.session.model, before)
@@ -120,6 +121,54 @@ final class EditorStateTests: XCTestCase {
         state.setArmedDisplayValue(40)
         XCTAssertEqual(session.model.splitToneHighlightSaturation, 40, accuracy: 1e-9)
         XCTAssertEqual(session.model.splitToneBalance, 25, accuracy: 1e-9)
+    }
+
+    func testHSLAcceptsSubParamEdits() {
+        // #274: HSL is wired but has NO tool-level display range — every
+        // edit goes through one of its 24 sub-params. Arming the tool
+        // must land on `hueRed` and the value pipe must accept writes.
+        let session = makeSession()
+        let state = EditorState(session: session)
+
+        state.arm(tool: .hsl)
+        XCTAssertNil(ToolValueMapping.displayRange(for: .hsl))
+        XCTAssertEqual(state.armedSubParamId, "hueRed")
+        XCTAssertTrue(state.armedToolAcceptsValueEdits)
+
+        state.setArmedDisplayValue(40)
+        XCTAssertEqual(session.model.hueAdjustmentRed, 40, accuracy: 1e-9)
+
+        state.arm(subParamId: "satAqua")
+        state.setArmedDisplayValue(-25)
+        XCTAssertEqual(session.model.saturationAdjustmentAqua, -25, accuracy: 1e-9)
+
+        state.arm(subParamId: "lumMagenta")
+        state.setArmedDisplayValue(60)
+        XCTAssertEqual(session.model.luminanceAdjustmentMagenta, 60, accuracy: 1e-9)
+
+        // Resetting the armed pair clears only that band/channel.
+        state.resetArmedTool()
+        XCTAssertEqual(session.model.luminanceAdjustmentMagenta, 0, accuracy: 1e-9)
+        XCTAssertEqual(session.model.hueAdjustmentRed, 40, accuracy: 1e-9)
+        XCTAssertEqual(session.model.saturationAdjustmentAqua, -25, accuracy: 1e-9)
+    }
+
+    func testHSLInternalValueMapsAnchoredAcrossFullRange() {
+        // The drag bar's ±100 internal scale maps 1:1 onto the ±100 field
+        // range for every HSL sub-param (anchored at the 0 default), so a
+        // wheel nudge or a drag lands on the value the chip shows.
+        let session = makeSession()
+        let state = EditorState(session: session)
+        state.arm(tool: .hsl)
+        state.arm(subParamId: "hueGreen")
+
+        state.setArmedInternalValue(100)
+        XCTAssertEqual(session.model.hueAdjustmentGreen, 100, accuracy: 1e-9)
+        state.setArmedInternalValue(-100)
+        XCTAssertEqual(session.model.hueAdjustmentGreen, -100, accuracy: 1e-9)
+        state.setArmedInternalValue(0)
+        XCTAssertEqual(session.model.hueAdjustmentGreen, 0, accuracy: 1e-9)
+        XCTAssertEqual(state.armedInternalValue, 0, accuracy: 1e-9)
     }
 
     func testGrainIsWiredAndWritesThroughSubParams() {
@@ -369,7 +418,7 @@ final class EditorStateTests: XCTestCase {
         state.arm(tool: .contrast)
         state.wheelNudge(steps: 0, unit: 1, at: Date())
         XCTAssertFalse(state.canUndo, "zero steps must not open a snapshot")
-        state.arm(tool: .hsl) // stub — not wired
+        state.arm(tool: .crop) // stub — not wired
         state.wheelNudge(steps: 2, unit: 1, at: Date())
         XCTAssertFalse(state.canUndo)
         XCTAssertEqual(session.model, before)
@@ -441,17 +490,20 @@ final class EditorStateTests: XCTestCase {
         XCTAssertEqual(session.model.brightness, 0, accuracy: 1e-9)
     }
 
-    func testWiredToolsCoverTwentyThreeTools() {
+    func testWiredToolsCoverTwentyFourTools() {
         // The S5 effects all left the #952 stub list as their stages
-        // landed (vignette #1109, grain #1110, splitTone #1111). HSL
-        // (#636) / Crop (#638) remain stubs pending their own specs. Per
-        // #875: captureSharpen / captureSigma stay wired to the
+        // landed (vignette #1109, grain #1110, splitTone #1111). HSL left
+        // it at #274 — the 8-band Oklab stage is live and `HSLSection`
+        // drives its 24 sub-params. Crop (#638) remains a stub: it is
+        // edited through the canvas overlay, not the drag bar. Per #875:
+        // captureSharpen / captureSigma stay wired to the
         // captureSharpening* fields. Presets left the stub list at #1115 —
         // wired, but value-less (nil displayRange keeps its value pipe
         // inert). Brightness joined wired at #1108.
         let wired = Tool.allCases.filter { $0.isWired }
-        XCTAssertEqual(wired.count, 23)
-        XCTAssertFalse(Tool.hsl.isWired)
+        XCTAssertEqual(wired.count, 24)
+        XCTAssertTrue(Tool.hsl.isWired)
+        XCTAssertNil(ToolValueMapping.displayRange(for: .hsl))
         XCTAssertTrue(Tool.vignette.isWired)
         XCTAssertTrue(Tool.grain.isWired)
         XCTAssertTrue(Tool.splitTone.isWired)
@@ -546,7 +598,10 @@ final class EditorStateTests: XCTestCase {
         }
 
         // …presets (wired but value-less) and the gated stubs don't.
-        for tool in [Tool.presets, .hsl, .crop] {
+        // HSL is absent from this list on purpose: it is wired, has no
+        // tool-level display range, but always carries an armed sub-param
+        // — so it DOES accept value edits (see `testHSLAcceptsSubParamEdits`).
+        for tool in [Tool.presets, .crop] {
             state.arm(tool: tool)
             XCTAssertFalse(state.armedToolAcceptsValueEdits, "\(tool) must not accept value edits")
         }

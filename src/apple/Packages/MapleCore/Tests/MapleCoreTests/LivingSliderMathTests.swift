@@ -208,7 +208,7 @@ final class LivingSliderMathTests: XCTestCase {
 // MARK: - 2. GradientCatalogTests
 
 /// Every wired tool in the four ToolGroups must have a gradient entry.
-/// Non-wired tools (hsl, crop, presets) are intentionally absent.
+/// Track-less tools (crop, presets, splitTone) are intentionally absent.
 final class GradientCatalogTests: XCTestCase {
 
     /// Canonical list of wired, value-bearing tools (Tool.isWired == true,
@@ -246,10 +246,28 @@ final class GradientCatalogTests: XCTestCase {
 
     func testNonWiredToolsReturnNil() {
         // Tools that have no gradient track
-        let noGradient: [Tool] = [.hsl, .crop, .presets, .splitTone]
+        let noGradient: [Tool] = [.crop, .presets, .splitTone]
         for tool in noGradient {
             XCTAssertNil(GradientCatalog.stops(for: tool),
                 "Non-gradient tool .\(tool.rawValue) should return nil")
+        }
+    }
+
+    /// HSL (#274) has a tool-level hue sweep AND a per-band track for each
+    /// of its 24 sub-params, so a slider in `HSLSection` always resolves a
+    /// gradient. Each per-band track ends on that band's own swatch.
+    func testHSLResolvesATrackForEveryBandAndChannel() {
+        let toolLevel = GradientCatalog.stops(for: .hsl)
+        XCTAssertEqual(toolLevel?.count, 4)
+
+        for band in HSLBand.all {
+            for channel in HSLChannel.allCases {
+                let id = Tool.hslSubParamId(channel: channel, band: band)
+                let stops = GradientCatalog.stops(for: .hsl, subParamId: id)
+                XCTAssertEqual(stops?.count, 2, "no per-band track for \(id)")
+                XCTAssertEqual(stops?.last, GradientStop(t: 1.0, hex: band.swatch),
+                    "\(id) should end on the \(band.label) swatch")
+            }
         }
     }
 
