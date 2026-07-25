@@ -91,6 +91,16 @@ extension _XMPParserDelegate {
         case "crs:SplitToningHighlightHue":      model.splitToneHighlightHue       = d(value) ?? model.splitToneHighlightHue
         case "crs:SplitToningHighlightSaturation": model.splitToneHighlightSaturation = d(value) ?? model.splitToneHighlightSaturation
         case "crs:SplitToningBalance":           model.splitToneBalance            = d(value) ?? model.splitToneBalance
+        // Color Grading (#275) — the rest of the panel beyond the five
+        // `crs:SplitToning*` keys above (see `AdjustmentModel`'s doc).
+        case "crs:ColorGradeShadowLum":     model.colorGradeShadowLuminance    = d(value) ?? model.colorGradeShadowLuminance
+        case "crs:ColorGradeMidtoneHue":    model.colorGradeMidtoneHue         = d(value) ?? model.colorGradeMidtoneHue
+        case "crs:ColorGradeMidtoneSat":    model.colorGradeMidtoneSaturation  = d(value) ?? model.colorGradeMidtoneSaturation
+        case "crs:ColorGradeMidtoneLum":    model.colorGradeMidtoneLuminance   = d(value) ?? model.colorGradeMidtoneLuminance
+        case "crs:ColorGradeHighlightLum":  model.colorGradeHighlightLuminance = d(value) ?? model.colorGradeHighlightLuminance
+        case "crs:ColorGradeGlobalHue":     model.colorGradeGlobalHue          = d(value) ?? model.colorGradeGlobalHue
+        case "crs:ColorGradeGlobalSat":     model.colorGradeGlobalSaturation   = d(value) ?? model.colorGradeGlobalSaturation
+        case "crs:ColorGradeGlobalLum":     model.colorGradeGlobalLuminance    = d(value) ?? model.colorGradeGlobalLuminance
         case "crs:WhiteBalance":
             if let (t, ti) = wbPreset(value) {
                 model.temperature = t
