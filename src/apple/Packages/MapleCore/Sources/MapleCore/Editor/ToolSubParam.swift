@@ -51,6 +51,36 @@ public struct ToolSubParam: Identifiable, Equatable {
     public let defaultDisplayValue: Double
     /// Value-chip fraction digits (radius is sub-integer: "1.0").
     public let decimals: Int
+    /// DECODE-PRODUCT field: writing it invalidates the decoded buffer, so
+    /// the model write is held until the gesture ENDS instead of firing per
+    /// tick (spec § 3.1 / § 3.2 — "the UI commits on release, not per
+    /// tick"). `RawCoreBridge.stripAppleGPUStages` KEEPS these fields, so a
+    /// per-tick write would force a full re-decode — seconds of BM3D — on
+    /// every drag sample. `false` for the Metal-rerun sliders, which stay
+    /// on the per-tick path untouched.
+    public let commitsOnRelease: Bool
+
+    /// Designated initializer. `commitsOnRelease` defaults to `false` so the
+    /// pre-#1153 declarations read unchanged.
+    public init(
+        id: String,
+        label: String,
+        keyPath: WritableKeyPath<AdjustmentModel, Double>,
+        mapping: Mapping,
+        range: ClosedRange<Double>,
+        defaultDisplayValue: Double,
+        decimals: Int,
+        commitsOnRelease: Bool = false
+    ) {
+        self.id = id
+        self.label = label
+        self.keyPath = keyPath
+        self.mapping = mapping
+        self.range = range
+        self.defaultDisplayValue = defaultDisplayValue
+        self.decimals = decimals
+        self.commitsOnRelease = commitsOnRelease
+    }
 
     /// Internal `[-100, +100]` → display. Same math as the tool-level
     /// mapping families in `ToolValueMapping`, generalized per descriptor.
@@ -95,9 +125,10 @@ public struct ToolSubParam: Identifiable, Equatable {
 
 extension Tool {
     /// Ordered sub-params; empty for single-param tools. §10.0: the
-    /// Noise pill's future tiers — Deep (BM3D, #1105) and Prefilter
-    /// (§3.1) — join the `noise` list data-only when their pipeline
-    /// stages land. Vignette joined at #1109, grain at #1110, split tone
+    /// Noise pill's Deep (BM3D, §3.2) and Prefilter (§3.1) tiers joined at
+    /// #1153 — data-only, plus the `commitsOnRelease` flag their
+    /// decode-product placement forces.
+    /// Vignette joined at #1109, grain at #1110, split tone
     /// at #1111 (Balance leads — it is the schema-declared primary
     /// drag-bar field, and the legacy splitTone drag bar drove it). HSL
     /// joined at #274 with 24 sub-params (Hue/Sat/Lum × 8 bands); its
@@ -178,6 +209,23 @@ extension Tool {
                              range: AdjustmentModel.nrColorRange,
                              defaultDisplayValue: Self.defaults.nrColor,
                              decimals: 0),
+                // Tiers 3 and 1 of the § 3 noise architecture (#1153). Both
+                // live inside the DECODE PRODUCT, so both commit on release:
+                // Deep (BM3D, #1105) costs seconds per re-decode, Prefilter
+                // (#1104) rides the same decode. Order follows spec § 10.0:
+                // "Luminance, Color (existing NLM), Deep, Prefilter".
+                ToolSubParam(id: "deep", label: "Deep",
+                             keyPath: \.deepDenoise, mapping: .linear,
+                             range: AdjustmentModel.deepDenoiseRange,
+                             defaultDisplayValue: Self.defaults.deepDenoise,
+                             decimals: 0,
+                             commitsOnRelease: true),
+                ToolSubParam(id: "prefilter", label: "Prefilter",
+                             keyPath: \.chromaPrefilter, mapping: .linear,
+                             range: AdjustmentModel.chromaPrefilterRange,
+                             defaultDisplayValue: Self.defaults.chromaPrefilter,
+                             decimals: 0,
+                             commitsOnRelease: true),
             ]
         case .sharpen:
             return [
