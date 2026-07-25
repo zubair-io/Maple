@@ -135,9 +135,18 @@ interface SweepContext {
   libraryId: ObjectId | null;
 }
 
-/** Suffix of the thumb freshness sidecar (`thumbs/thumb-meta.ts`). Appended to
- * the WHOLE artefact filename (`<key>.avif.meta`), which is why it can't live in
- * `THUMB_EXTS` — see `reapStrandedSidecars`. */
+/**
+ * LEGACY state cleanup. Suffix of the thumb freshness sidecar
+ * (`<key>.avif.meta`) the pre-#2258 `.meta` protocol used to write
+ * (`thumbs/thumb-meta.ts`, since deleted). Nothing writes these any more —
+ * `/api/fs/thumb`'s cache-hit path is a single `readFile`, no sidecar, no
+ * per-read freshness check — but #2252 shipped and ran in production before
+ * #2258 removed it, so every install that has been running since has one
+ * `.meta` file per thumbnail already on disk. This sweep drains that
+ * pre-existing state; it is not part of any current write path. Appended to
+ * the WHOLE artefact filename, which is why it can't live in `THUMB_EXTS` —
+ * see `reapStrandedSidecars`.
+ */
 const SIDECAR_SUFFIX = '.meta';
 
 const THUMB_EXTS = new Set(['.jpg', '.avif']);
@@ -257,19 +266,23 @@ async function unlinkSafe(ctx: SweepContext, p: string): Promise<boolean> {
  * accept and how they judge one entry orphaned — everything else about
  * walking a cache directory is identical between them. */
 /**
- * Reap `.meta` sidecars whose artefact is gone.
+ * LEGACY state cleanup: reap `.meta` sidecars whose artefact is gone.
  *
- * The main loop deletes a sidecar with the file it describes, which covers
- * every orphan this GC itself creates. It cannot cover a sidecar STRANDED by
- * something else — a thumb deleted out of band, or an interrupted external
- * cleanup — because `.meta` is deliberately absent from `allowedExts` and so is
- * never scanned as an entry (jules review, PR #2252). Left alone those leak
- * forever, so sweep them here against the directory listing already in hand: a
- * sidecar is stranded iff no sibling of the same name minus `.meta` exists.
+ * Nothing writes `.meta` any more (see `SIDECAR_SUFFIX`'s doc comment) —
+ * this exists purely to drain what the pre-#2258 `.meta` protocol left
+ * behind on every install that ran #2252. The main loop below deletes a
+ * sidecar alongside the thumb it describes, which covers every orphan this
+ * GC itself creates. It cannot cover a sidecar STRANDED by something else —
+ * a thumb deleted out of band, or an interrupted external cleanup — because
+ * `.meta` is deliberately absent from `allowedExts` and so is never scanned
+ * as an entry (jules review, PR #2252). Left alone those leak forever, so
+ * sweep them here against the directory listing already in hand: a sidecar
+ * is stranded iff no sibling of the same name minus `.meta` exists.
  *
- * Reuses the recency window — a sidecar written moments ago belongs to a thumb
- * a stage is mid-publish on. Uncounted, like the attached case: a sidecar is
- * never independently `scanned`, so counting its deletion would not reconcile.
+ * Reuses the recency window — a sidecar written moments ago belongs to a
+ * thumb a stage is mid-publish on. Uncounted, like the attached case: a
+ * sidecar is never independently `scanned`, so counting its deletion would
+ * not reconcile.
  */
 async function reapStrandedSidecars(
   ctx: SweepContext,
@@ -321,15 +334,18 @@ async function sweepCacheDir(
 
     if (await unlinkSafe(ctx, fullPath)) {
       ctx.counters.deleted += 1;
-      // Reap the freshness sidecar with the artefact it describes
-      // (`thumbs/thumb-meta.ts`). It CANNOT be swept as an entry in its own
-      // right: `path.extname('<key>.avif.meta')` is `.meta`, leaving the stem
-      // `<key>.avif`, which matches no live-key shape — so a `.meta` in
-      // `allowedExts` would make `isOrphanThumb` condemn sidecars of perfectly
-      // live thumbs (jules review, PR #2252). Deliberately NOT counted in
-      // `deleted`: it was never `scanned`, and an attachment is not an
-      // independent orphan. `unlinkSafe` treats the ENOENT this hits for every
-      // preview (which has no sidecar) as an uncounted no-op.
+      // LEGACY state cleanup: reap the `.meta` freshness sidecar alongside
+      // the artefact it describes, if one exists (see `SIDECAR_SUFFIX`'s
+      // doc comment — nothing writes these any more, but #2252 shipped and
+      // every install running since has one per thumbnail). It CANNOT be
+      // swept as an entry in its own right: `path.extname('<key>.avif.meta')`
+      // is `.meta`, leaving the stem `<key>.avif`, which matches no
+      // live-key shape — so a `.meta` in `allowedExts` would make
+      // `isOrphanThumb` condemn sidecars of perfectly live thumbs (jules
+      // review, PR #2252). Deliberately NOT counted in `deleted`: it was
+      // never `scanned`, and an attachment is not an independent orphan.
+      // `unlinkSafe` treats the ENOENT this hits for every preview (which
+      // never had a sidecar) as an uncounted no-op.
       await unlinkSafe(ctx, `${fullPath}.meta`);
     }
   }
