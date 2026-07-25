@@ -11,6 +11,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import cfThumbSyncStage from './cf-thumb-sync.ts';
+import { resolveThumbPath } from '../../fs/xmp.ts';
 
 const TEST_DB = `maple_test_cf_thumb_sync_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
@@ -57,9 +58,11 @@ describe('cf-thumb-sync stage', () => {
   ) {
     const relDir = 'vacation';
     if (!opts?.noThumb) {
-      const thumbDir = path.join(dir, relDir, '.maple', 'thumbs');
-      await mkdir(thumbDir, { recursive: true });
-      await writeFile(path.join(thumbDir, `${mapleId}.avif`), Buffer.from('fake-avif-bytes'));
+      // Stage the fixture at the PATH-KEYED name the stage resolves — keyed on
+      // the basename, not `maple_id` (#2220 follow-up).
+      const thumbPath = resolveThumbPath(path.join(dir, relDir, filename));
+      await mkdir(path.dirname(thumbPath), { recursive: true });
+      await writeFile(thumbPath, Buffer.from('fake-avif-bytes'));
     }
     return {
       _id: new ObjectId(),
