@@ -36,6 +36,12 @@ pub mod export;
 pub mod id;
 pub mod preview;
 
+// BM3D deep-denoise progress bridge (#1153) — wasm-only: it hands raw-core's
+// stage progress to a JS callback the render worker re-broadcasts, and the
+// native-host build (the gpu_render parity test) has no JS to call into.
+#[cfg(target_arch = "wasm32")]
+pub mod deep_denoise_progress;
+
 #[cfg(feature = "gpu")]
 pub mod gpu;
 
