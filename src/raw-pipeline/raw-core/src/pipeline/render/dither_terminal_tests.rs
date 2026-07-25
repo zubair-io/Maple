@@ -47,48 +47,88 @@ fn stage_call_order(src: &str) -> Vec<&str> {
     out
 }
 
-/// The three display-encode chains this crate ships. Each entry is
-/// `(chain_name, stage_names_up_to_and_including_the_terminal_dither)`.
-/// The cutoff for each chain is documented at its `stage("dither...")`
-/// call site in `render/mod.rs` — everything after that line operates on
-/// the quantized `u8` buffer (orientation, crop), not on `Image` pixels.
-fn present_chains() -> Vec<(&'static str, Vec<&'static str>)> {
-    let src = include_str!("mod.rs");
+/// Slice one function body out of `src`, so a stage name appearing in one
+/// chain (e.g. "agx") doesn't get attributed to another chain's order.
+///
+/// Slicing on the `fn NAME(` signature is stable because each function named
+/// below is declared in the file it is looked up in — if one moves, the panic
+/// fires loudly rather than the test silently checking the wrong span.
+fn slice_fn<'a>(src: &'a str, name: &str) -> &'a str {
+    let start = src.find(&format!("fn {name}(")).unwrap_or_else(|| {
+        panic!(
+            "dither_terminal_tests: `fn {name}` not found — did it move? \
+             update this test's slicer"
+        )
+    });
+    // End at whichever comes first of the next top-level `pub fn ` / `fn `,
+    // or EOF. Taking the FIRST of the two matters: a private function
+    // followed by a public one must not swallow the private one's body.
+    let after_sig = &src[start + name.len()..];
+    let rest = &after_sig[1..];
+    let next_fn_rel = match (rest.find("\npub fn "), rest.find("\nfn ")) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (found, None) | (None, found) => found,
+    }
+    .map(|i| i + 1);
+    match next_fn_rel {
+        Some(rel) => &src[start..start + name.len() + rel],
+        None => &src[start..],
+    }
+}
 
-    // Slice each function body out of the shared source so a stage name
-    // appearing in one chain (e.g. "agx") doesn't get attributed to
-    // another chain's order. Slicing on the `pub fn NAME` signature is
-    // stable because these three functions are declared in this exact
-    // file (`render/mod.rs`) — if one moves, `expect` below fails loudly
-    // rather than silently checking the wrong span.
-    let slice_fn = |name: &str| -> &str {
-        let start = src
-            .find(&format!("fn {name}("))
-            .unwrap_or_else(|| panic!("dither_terminal_tests: `fn {name}` not found in mod.rs — did it move? update this test's slicer"));
-        // End at the next top-level `pub fn ` / `fn ` after this one, or EOF.
-        let after_sig = &src[start + name.len()..];
-        let next_fn_rel = after_sig[1..]
-            .find("\npub fn ")
-            .or_else(|| after_sig[1..].find("\nfn "))
-            .map(|i| i + 1);
-        match next_fn_rel {
-            Some(rel) => &src[start..start + name.len() + rel],
-            None => &src[start..],
-        }
+/// The colour chain every display-referred render runs, up to but NOT
+/// including a terminal quantize.
+///
+/// Since #943 the quantize is no longer inside this function: the depth is the
+/// caller's choice (8-bit for the canvas and JPEG/PNG, 16-bit for the TIFF
+/// master), so each terminal appends its own. `chain_is_depth_agnostic` below
+/// pins that separation, and every entry in [`present_chains`] re-attaches this
+/// prefix so each chain is still checked end to end.
+fn colour_chain() -> Vec<&'static str> {
+    stage_call_order(slice_fn(include_str!("mod.rs"), "render_display_scene"))
+}
+
+/// Every present display-encode chain this crate ships, as the full ordered
+/// stage list a render actually executes. Each entry is
+/// `(chain_name, stage_names_up_to_and_including_the_terminal_quantize)`.
+/// Everything after the quantize operates on the already-quantized integer
+/// buffer (orientation, crop), not on `Image` pixels.
+fn present_chains() -> Vec<(&'static str, Vec<&'static str>)> {
+    let render_src = include_str!("mod.rs");
+    let export_src = include_str!("export.rs");
+    let synthetic_src = include_str!("synthetic.rs");
+
+    // A depth terminal's own stages, appended to the shared colour chain, is
+    // the sequence a render of that depth really runs.
+    let terminal = |src: &'static str, name: &str| -> Vec<&'static str> {
+        let mut stages = colour_chain();
+        stages.extend(stage_call_order(slice_fn(src, name)));
+        stages
     };
 
     vec![
         (
-            "render_display_from_raw (RAW develop path)",
-            stage_call_order(slice_fn("render_display_from_raw")),
+            "render_display_from_raw (RAW develop path, 8-bit display terminal)",
+            terminal(render_src, "render_display_from_raw"),
+        ),
+        (
+            "export finish_eight (JPEG / PNG terminal)",
+            terminal(export_src, "finish_eight"),
+        ),
+        (
+            "export finish_sixteen (16-bit TIFF terminal)",
+            terminal(export_src, "finish_sixteen"),
         ),
         (
             "render_from_scene_linear (synthetic, no slider chain)",
-            stage_call_order(slice_fn("render_from_scene_linear")),
+            stage_call_order(slice_fn(synthetic_src, "render_from_scene_linear")),
         ),
         (
             "render_from_scene_linear_with_chain (synthetic, full slider chain)",
-            stage_call_order(slice_fn("render_from_scene_linear_with_chain")),
+            stage_call_order(slice_fn(
+                synthetic_src,
+                "render_from_scene_linear_with_chain",
+            )),
         ),
     ]
 }
@@ -99,6 +139,17 @@ fn present_chains() -> Vec<(&'static str, Vec<&'static str>)> {
 /// These may legitimately follow dither; they are excluded from "the last
 /// PIXEL-VALUE stage" this test asserts about.
 const BYTE_LEVEL_POST_DITHER_STAGES: &[&str] = &["apply_orientation", "crop"];
+
+/// The terminal quantize stage names, one per output depth.
+const QUANTIZE_STAGES: &[&str] = &[
+    "dither_and_quantize",
+    "dither_and_quantize_u16",
+    "synth_dither_and_quantize",
+];
+
+fn is_quantize(stage: &str) -> bool {
+    QUANTIZE_STAGES.contains(&stage)
+}
 
 #[test]
 fn dither_is_the_last_pixel_stage_in_every_present_chain() {
@@ -116,18 +167,15 @@ fn dither_is_the_last_pixel_stage_in_every_present_chain() {
             .last()
             .unwrap_or_else(|| panic!("{chain_name}: no pixel-value stages found"));
         assert!(
-            last == "dither_and_quantize" || last == "synth_dither_and_quantize",
+            is_quantize(last),
             "{chain_name}: last PIXEL-VALUE stage is {last:?}, expected the dither \
              terminal (#441) to be last. Full pixel-stage order: {pixel_stages:?} \
              (raw order incl. byte-level tail: {stages:?})"
         );
-        // Belt-and-suspenders: dither must appear EXACTLY once (a repeat
-        // would mean the buffer round-trips through 8-bit twice, doubling
-        // the dither noise amplitude).
-        let dither_count = stages
-            .iter()
-            .filter(|s| **s == "dither_and_quantize" || **s == "synth_dither_and_quantize")
-            .count();
+        // Belt-and-suspenders: the quantize must appear EXACTLY once (a repeat
+        // would mean the buffer round-trips through an integer depth twice,
+        // doubling the dither noise amplitude).
+        let dither_count = stages.iter().filter(|s| is_quantize(s)).count();
         assert_eq!(
             dither_count, 1,
             "{chain_name}: dither stage appears {dither_count} times, expected exactly 1"
@@ -136,20 +184,65 @@ fn dither_is_the_last_pixel_stage_in_every_present_chain() {
         // dither in the raw (unfiltered) order — i.e. dither is not
         // sandwiched between two byte-level stages, which would imply a
         // pixel-value stage sneaking in after orientation/crop.
-        let dither_idx = stages
-            .iter()
-            .position(|s| *s == "dither_and_quantize" || *s == "synth_dither_and_quantize")
-            .unwrap();
+        let dither_idx = stages.iter().position(|s| is_quantize(s)).unwrap();
         assert_eq!(
             dither_idx,
-            stages.len() - 1 - BYTE_LEVEL_POST_DITHER_STAGES
-                .iter()
-                .filter(|b| stages.contains(b))
-                .count(),
+            stages.len()
+                - 1
+                - BYTE_LEVEL_POST_DITHER_STAGES
+                    .iter()
+                    .filter(|b| stages.contains(b))
+                    .count(),
             "{chain_name}: dither is not immediately followed only by the known \
              byte-level tail. Full order: {stages:?}"
         );
     }
+}
+
+/// The shared colour chain must not quantize (#943).
+///
+/// Every terminal appends its own quantize at its own depth. If one ever crept
+/// back into the shared chain, the 16-bit export would silently become an
+/// 8-bit buffer widened into a 16-bit container — which is exactly the defect
+/// the depth split exists to prevent, and it would still pass every assertion
+/// above because the chain would end on a legitimate-looking quantize.
+#[test]
+fn the_shared_colour_chain_is_depth_agnostic() {
+    let chain = colour_chain();
+    assert!(
+        !chain.is_empty(),
+        "render_display_scene: found zero `stage(...)` calls — slicer regression?"
+    );
+    let quantizers: Vec<&str> = chain.iter().copied().filter(|s| is_quantize(s)).collect();
+    assert!(
+        quantizers.is_empty(),
+        "render_display_scene must leave the terminal depth to its callers, but it \
+         calls {quantizers:?}. Full chain: {chain:?}"
+    );
+}
+
+/// Both export depths must run the identical colour chain — that is what makes
+/// a 16-bit TIFF and the 8-bit canvas the same picture at different precision.
+#[test]
+fn both_export_depths_share_the_display_colour_chain() {
+    let chains = present_chains();
+    let find = |needle: &str| -> Vec<&'static str> {
+        chains
+            .iter()
+            .find(|(name, _)| name.contains(needle))
+            .map(|(_, stages)| stages.clone())
+            .unwrap_or_else(|| panic!("no chain matching {needle:?}"))
+    };
+    let eight = find("finish_eight");
+    let sixteen = find("finish_sixteen");
+    let display = find("render_display_from_raw");
+
+    // Strip each chain's own terminal; what remains must be identical.
+    let colour_prefix = |stages: Vec<&'static str>| -> Vec<&'static str> {
+        stages.into_iter().filter(|s| !is_quantize(s)).collect()
+    };
+    assert_eq!(colour_prefix(eight), colour_prefix(sixteen.clone()));
+    assert_eq!(colour_prefix(sixteen), colour_prefix(display));
 }
 
 #[test]

@@ -43,9 +43,12 @@
 mod axis_aligned;
 mod bilinear;
 mod rotate;
+mod sample;
 
 #[cfg(test)]
 mod tests;
+
+pub use sample::Sample;
 
 use crate::types::Crop;
 
@@ -106,10 +109,18 @@ pub fn apply_f32_rgba(rgba: &[f32], w: u32, h: u32, crop: &Crop) -> (u32, u32, V
 /// path that Apple / Web actually drive runs through `apply_f32_rgba` on
 /// the scene-linear buffer instead.
 pub fn apply_u8_rgb(rgb: &[u8], w: u32, h: u32, crop: &Crop) -> (u32, u32, Vec<u8>) {
+    apply_int_rgb(rgb, w, h, crop)
+}
+
+/// Apply the crop to an interleaved integer RGB buffer at either display
+/// depth (#943). [`apply_u8_rgb`] is the 8-bit alias kept for existing
+/// callers; the 16-bit export deliverable instantiates this directly, so the
+/// two depths cannot disagree about geometry.
+pub fn apply_int_rgb<T: Sample>(rgb: &[T], w: u32, h: u32, crop: &Crop) -> (u32, u32, Vec<T>) {
     debug_assert_eq!(
         rgb.len(),
         (w as usize) * (h as usize) * 3,
-        "RGB u8 buffer size mismatch ({}, expected {})",
+        "RGB buffer size mismatch ({}, expected {})",
         rgb.len(),
         (w as usize) * (h as usize) * 3,
     );
@@ -128,13 +139,13 @@ pub fn apply_u8_rgb(rgb: &[u8], w: u32, h: u32, crop: &Crop) -> (u32, u32, Vec<u
     };
 
     if snapped == OrthogonalSnap::Zero {
-        return axis_aligned::slice_u8_rgb(rgb, w, rect);
+        return axis_aligned::slice_rgb(rgb, w, rect);
     }
     if snapped != OrthogonalSnap::Off {
-        let (sw, sh, sliced) = axis_aligned::slice_u8_rgb(rgb, w, rect);
-        return rotate::orthogonal_u8_rgb(&sliced, sw, sh, snapped);
+        let (sw, sh, sliced) = axis_aligned::slice_rgb(rgb, w, rect);
+        return rotate::orthogonal_rgb(&sliced, sw, sh, snapped);
     }
-    bilinear::rotate_and_slice_u8_rgb(rgb, w, h, crop)
+    bilinear::rotate_and_slice_rgb(rgb, w, h, crop)
 }
 
 // ---------------------------------------------------------------------------
