@@ -49,11 +49,11 @@
 Replace `root-shell.component.spec.ts` body so it asserts the fork is gone:
 
 ```typescript
-import { ComponentFixture, TestBed } from "@angular/core/testing";
-import { provideRouter } from "@angular/router";
-import { RootShellComponent } from "./root-shell.component";
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
+import { RootShellComponent } from './root-shell.component';
 
-describe("RootShellComponent", () => {
+describe('RootShellComponent', () => {
   let fixture: ComponentFixture<RootShellComponent>;
 
   beforeEach(async () => {
@@ -65,11 +65,9 @@ describe("RootShellComponent", () => {
     fixture.detectChanges();
   });
 
-  it("always renders the pane router-outlet (no phone-tab fork)", () => {
-    expect(fixture.nativeElement.querySelector("router-outlet")).not.toBeNull();
-    expect(
-      fixture.nativeElement.querySelector("app-phone-tab-shell"),
-    ).toBeNull();
+  it('always renders the pane router-outlet (no phone-tab fork)', () => {
+    expect(fixture.nativeElement.querySelector('router-outlet')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('app-phone-tab-shell')).toBeNull();
   });
 });
 ```
@@ -84,13 +82,13 @@ Expected: FAIL (RootShell still imports/renders `app-phone-tab-shell`).
 In `root-shell.component.ts` remove the `LayoutService`/`PhoneTabShellComponent` imports and the `@if` branch. New template + class body:
 
 ```typescript
-import { ChangeDetectionStrategy, Component } from "@angular/core";
-import { RouterOutlet } from "@angular/router";
-import { UpdateToastComponent } from "../sw/update-toast.component";
-import { LanSwitchBannerComponent } from "../network/lan-switch-banner.component";
+import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { RouterOutlet } from '@angular/router';
+import { UpdateToastComponent } from '../sw/update-toast.component';
+import { LanSwitchBannerComponent } from '../network/lan-switch-banner.component';
 
 @Component({
-  selector: "app-root-shell",
+  selector: 'app-root-shell',
   standalone: true,
   imports: [RouterOutlet, UpdateToastComponent, LanSwitchBannerComponent],
   template: `
@@ -144,25 +142,25 @@ In `editor-shell-chrome.ts` `setupResponsive`, stop reading `window.innerWidth`.
 export function setupResponsive(
   shell: EditorShellComponent,
   state: ChromeRecedeState,
-  layout: () => "phone" | "tablet" | "desktop",
+  layout: () => 'phone' | 'tablet' | 'desktop',
 ): void {
   const update = () => {
     const wasDesktop = shell.isDesktop();
     const l = layout();
-    shell.isTabletPlus.set(l !== "phone");
-    shell.isDesktop.set(l === "desktop");
-    if (l === "desktop") {
+    shell.isTabletPlus.set(l !== 'phone');
+    shell.isDesktop.set(l === 'desktop');
+    if (l === 'desktop') {
       clearRecedeTimer(state);
-      shell.chromeState.set("full");
+      shell.chromeState.set('full');
     } else if (wasDesktop) {
-      shell.chromeState.set("full");
+      shell.chromeState.set('full');
       restartRecedeTimer(shell, state);
     }
   };
   // React to layout signal changes. The shell owns an effect that calls this.
   update();
   if (!shell.isDesktop()) {
-    shell.chromeState.set("full");
+    shell.chromeState.set('full');
     restartRecedeTimer(shell, state);
   }
 }
