@@ -334,7 +334,12 @@ public final class CloudTimelineViewModel {
   /// to keep older single-link callers working; `allPhassetLinks` /
   /// `allCloudIdentifiers` carry the full arrays used by
   /// `MergedTimelineSource.findLocalMatch`.
-  private static func searchAssetToImageRef(_ a: SearchAsset) -> ImageRef {
+  ///
+  /// Not `private` — `AllSourcesTimelineViewModel` (#2273) is a second
+  /// real caller that fans the same conversion out over many (server,
+  /// library) cloud streams instead of one, so this is shared rather than
+  /// duplicated.
+  static func searchAssetToImageRef(_ a: SearchAsset) -> ImageRef {
     // `parseTimelineISO8601` (MapleCloudKit, visible here via the module's
     // @_exported re-export) tries a fractional-seconds formatter first, then
     // whole-seconds. A bare `ISO8601DateFormatter()` — the previous code —

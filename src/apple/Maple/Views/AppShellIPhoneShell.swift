@@ -55,6 +55,8 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
     let cloudTimelineVM: CloudTimelineViewModel?
     let cloudTimelineThumbClient: CloudThumbClient?
     let cloudTimelineThumbCache: CloudThumbCache?
+    let allSourcesTimelineVM: AllSourcesTimelineViewModel?
+    let allSourcesTimelineThumbCache: CloudThumbCache?
     let isSearchActive: Bool
     let searchVM: SearchViewModel?
     let searchThumbClient: CloudThumbClient?
@@ -107,6 +109,8 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
             cloudTimelineVM: cloudTimelineVM,
             cloudTimelineThumbClient: cloudTimelineThumbClient,
             cloudTimelineThumbCache: cloudTimelineThumbCache,
+            allSourcesTimelineVM: allSourcesTimelineVM,
+            allSourcesTimelineThumbCache: allSourcesTimelineThumbCache,
             isSearchActive: isSearchActive,
             searchVM: searchVM,
             searchThumbClient: searchThumbClient,

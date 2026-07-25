@@ -37,6 +37,7 @@ struct AppShellSidebar: View {
     let sessionFor: @MainActor (URL) -> AuthSession
     let onRemoveCloudServer: (URL) -> Void
     let onLoadCloudFolders: (URL) async -> [CloudFolder]
+    let onSelectTimeline: () -> Void
 
     var body: some View {
         LibrarySidebar(
@@ -57,7 +58,8 @@ struct AppShellSidebar: View {
             onSignInCloudServer: onSignInCloudServer,
             sessionFor: sessionFor,
             onRemoveCloudServer: onRemoveCloudServer,
-            onLoadCloudFolders: onLoadCloudFolders
+            onLoadCloudFolders: onLoadCloudFolders,
+            onSelectTimeline: onSelectTimeline
         )
     }
 }

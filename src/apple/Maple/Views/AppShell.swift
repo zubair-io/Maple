@@ -238,6 +238,22 @@ struct AppShell: View {
     @State var cloudTimelineThumbClient: CloudThumbClient?
     @State var cloudTimelineThumbCache: CloudThumbCache?
 
+    /// Set when the user selects the sidebar's TIMELINE row (`.allSources`,
+    /// #2271/#2273); when non-nil the center column renders
+    /// `AllSourcesTimelineView` instead of `CloudTimelineView`/`BrowseGrid`.
+    /// Cleared on every other selection, same discipline as
+    /// `cloudTimelineVM`. Unlike the single-library timeline this VM
+    /// carries its OWN per-server thumb clients (`thumbClientsByHost`) —
+    /// a grid spanning several servers has no single fixed
+    /// `CloudThumbClient` to hand the center column, so there's no
+    /// `allSourcesTimelineThumbClient` counterpart to `cloudTimelineThumbClient`.
+    @State var allSourcesTimelineVM: AllSourcesTimelineViewModel?
+    /// Shared disk cache for the all-sources timeline's thumbs. One
+    /// instance for the VM's lifetime, same rationale as
+    /// `cloudTimelineThumbCache` — `CloudThumbCache` is host-keyed, so one
+    /// cache safely serves every connected server.
+    @State var allSourcesTimelineThumbCache: CloudThumbCache?
+
     /// Histogram client for the currently-open cloud asset (#633). Set
     /// when `openCloudAsset(_:server:)` builds the editor session — the
     /// AuthenticatedHTTPClient is reused with the existing
@@ -491,6 +507,15 @@ struct AppShell: View {
                 cloudHistogramClient = nil
                 cloudAssetDetailClient = nil
             }
+            // All-sources Timeline VM (#2271/#2273) is only meaningful while
+            // `.allSources` is selected — drop it on any other selection so
+            // the center column doesn't ghost-render it after the user picks
+            // a folder / library / Photos filter.
+            if case .allSources = newValue { /* keep */ }
+            else {
+                allSourcesTimelineVM = nil
+                allSourcesTimelineThumbCache = nil
+            }
             // Merged timeline only valid while a PhotoKit filter is active.
             if case .photosFilter = newValue { /* keep mergedCloudSource */ }
             else {
@@ -583,6 +608,8 @@ struct AppShell: View {
             cloudTimelineVM: cloudTimelineVM,
             cloudTimelineThumbClient: cloudTimelineThumbClient,
             cloudTimelineThumbCache: cloudTimelineThumbCache,
+            allSourcesTimelineVM: allSourcesTimelineVM,
+            allSourcesTimelineThumbCache: allSourcesTimelineThumbCache,
             isSearchActive: isSearchActive,
             searchVM: searchVM,
             searchThumbClient: searchThumbClient,
@@ -857,7 +884,8 @@ struct AppShell: View {
             },
             onLoadCloudFolders: { url in
                 await loadCloudFoldersFor(url)
-            }
+            },
+            onSelectTimeline: { openAllSourcesTimeline() }
         )
     }
 
@@ -880,6 +908,8 @@ struct AppShell: View {
             cloudTimelineVM: cloudTimelineVM,
             cloudTimelineThumbClient: cloudTimelineThumbClient,
             cloudTimelineThumbCache: cloudTimelineThumbCache,
+            allSourcesTimelineVM: allSourcesTimelineVM,
+            allSourcesTimelineThumbCache: allSourcesTimelineThumbCache,
             isSearchActive: isSearchActive,
             searchVM: searchVM,
             searchThumbClient: searchThumbClient,

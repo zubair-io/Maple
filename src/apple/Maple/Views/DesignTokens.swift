@@ -117,6 +117,22 @@ public struct MapleTokens {
         static let sectionGap: CGFloat    = 16
         /// Horizontal padding for section content (panel inset).
         static let panelInset: CGFloat    = 16
+        /// Fixed height for every sidebar section-header bar (TIMELINE,
+        /// per-server cloud headers, FOLDERS, PHOTOS LIBRARY, CONNECTIONS —
+        /// #2271). Previously each header sized itself intrinsically from
+        /// `.padding(.vertical, 6)` around the chevron + eyebrow-font label;
+        /// that rendered consistently ONLY because every header happened to
+        /// use the same icon/font/padding recipe. Promoting the height to a
+        /// named token makes that consistency explicit and gives a future
+        /// header (a different icon, a trailing control) one place to match
+        /// rather than a value to reverse-engineer.
+        ///
+        /// Value: measured render of the existing recipe — an 11pt
+        /// `chevron.down`/calendar glyph plus the 10pt `eyebrow` label inside
+        /// 6pt top/bottom padding — is ~26-28pt tall; 30pt keeps the prior
+        /// visual rhythm with a hair of breathing room rather than clipping
+        /// the taller of the two glyphs.
+        static let sectionHeaderHeight: CGFloat = 30
     }
 
     // MARK: - Motion
