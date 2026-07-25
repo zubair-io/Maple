@@ -80,6 +80,11 @@ enum GridDisplayMode {
 /// offered width, and `.clipShape` cleans up the overflow with rounded
 /// corners.
 struct ThumbnailImage: View {
+    /// Cell corner radius. Shared rather than inlined so the zoom-to-open
+    /// hero (#1489) starts at the radius the tile actually has and rounds it
+    /// away as it opens.
+    static let cornerRadius: CGFloat = 4
+
     let thumbnailData: Data?
     let displayMode: GridDisplayMode
 
@@ -105,7 +110,7 @@ struct ThumbnailImage: View {
                 }
             }
             .aspectRatio(1, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
     }
 
     /// Decode thumbnail bytes to a CGImage (format-agnostic via

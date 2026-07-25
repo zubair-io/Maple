@@ -53,6 +53,15 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     /// the armed tool (steps, unit-per-step). `nil` (legacy) lets the
     /// event pass through unhandled.
     var onWheelEditing: ((Int, Double) -> Void)? = nil
+    /// Interactive close driven by a pinch-in that STARTS at fit (#1489,
+    /// iOS only). At fit there is no zoom left to give back, so shrinking
+    /// further reads as "put it away" — the host stops feeding the zoom
+    /// model and reports live open-progress (1 → 0) here instead. `nil`
+    /// (every host that isn't hero-presented) leaves the pinch as a pure
+    /// zoom gesture, exactly as before.
+    var onCloseProgress: ((CGFloat) -> Void)? = nil
+    /// Release of an interactive close — `true` when it should commit.
+    var onCloseEnded: ((Bool) -> Void)? = nil
     /// True when the consumer has pixels to show — the leaf renders
     /// framed + gestured; otherwise the fallback shows.
     let canvasReady: Bool
@@ -93,6 +102,12 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     // short window after release (absorbing the movement into the baseline so a
     // deliberate continued pan resumes smoothly). Time-based → self-clearing.
     @State private var lastPinchEnd: Date?
+    // Whether this pinch began at fit — the precondition for it to be able to
+    // become an interactive close (#1489).
+    @State private var pinchStartedAtFit = false
+    // Latched once the gesture is read as a close, so a wobble back past
+    // magnification 1 can't flip a closing pinch into a zoom mid-flight.
+    @State private var closeGestureActive = false
     #endif
 
     var body: some View {
@@ -216,6 +231,7 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     private func pinchChangedLive(scale: CGFloat, location: CGPoint) {
         if !pinchActive {
             pinchActive = true
+            pinchStartedAtFit = !controller.isZoomedIn
             // Capture the start state in the model (magnification 1 → no change)
             // so the release commit + the live `gestureTransform` both anchor at
             // this focal + the start scale/pan.
@@ -223,6 +239,16 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
         }
         pinchLastCentroid = location
         pinchLastMag = scale
+        // Interactive close (#1489): pinching in from fit means there is no
+        // zoom left to give back, so the gesture drives the hero transition
+        // instead. Zoomed-in pinches are untouched — they shrink toward fit
+        // and STOP there (`CanvasZoomModel.pinchScale` clamps at fit), which
+        // is the "zoomed pinch-out returns to fit" half of the contract.
+        if closeGestureActive || (pinchStartedAtFit && onCloseProgress != nil && scale < 1) {
+            closeGestureActive = true
+            onCloseProgress?(HeroZoomGeometry.closeProgress(magnification: scale))
+            return
+        }
         // The would-be committed scale + pan, clamped to the same legal region
         // the release will use. The pan carries the focal anchor, so scaling the
         // frozen frame about its centre and offsetting by this pan reproduces the
@@ -246,17 +272,37 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
             controller.pinchEnded(magnification: scale)
             return
         }
+        // Interactive close (#1489): the zoom model never moved during this
+        // gesture, so release it at the start scale (magnification 1 resolves
+        // back to fit and snaps) and hand the decision to the presentation.
+        if closeGestureActive {
+            let commit = HeroZoomGeometry.shouldCommitClose(magnification: pinchLastMag)
+            controller.pinchEnded(magnification: 1.0)
+            resetPinchState()
+            lastPinchEnd = Date()   // same lingering-finger cooldown as a zoom release
+            onCloseEnded?(commit)
+            return
+        }
         // Commit the LAST displayed frame's magnification + centroid (not the
         // gesture-end scale, which drifts as the fingers lift) so the committed
         // scale/pan equals what was on screen — the transform reset is pop-free.
         controller.pinchChanged(magnification: pinchLastMag, location: pinchLastCentroid)
         controller.pinchEnded(magnification: pinchLastMag)
+        resetPinchState()
+        lastPinchEnd = Date()   // open the cooldown for the lingering finger
+    }
+
+    /// Clear the per-gesture pinch bookkeeping. Shared by the close-gesture
+    /// and zoom-commit release paths so neither can leave a latch set for the
+    /// next pinch.
+    private func resetPinchState() {
         pinchActive = false
+        pinchStartedAtFit = false
+        closeGestureActive = false
         gestureZoom = 1
         gestureCommittedPan = .zero
         pinchLastMag = 1
         liveZoomScale = nil
-        lastPinchEnd = Date()   // open the cooldown for the lingering finger
     }
     #endif
 
