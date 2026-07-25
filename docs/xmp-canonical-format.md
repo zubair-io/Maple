@@ -180,10 +180,25 @@ Lightroom does for `crs:` fields.
 | `luminanceAdjustmentBlue`      | `crs:LuminanceAdjustmentBlue`        | 0       |
 | `luminanceAdjustmentPurple`    | `crs:LuminanceAdjustmentPurple`      | 0       |
 | `luminanceAdjustmentMagenta`   | `crs:LuminanceAdjustmentMagenta`     | 0       |
+| `grayMixerRed`                 | `crs:GrayMixerRed`                   | 0       |
+| `grayMixerOrange`              | `crs:GrayMixerOrange`                | 0       |
+| `grayMixerYellow`              | `crs:GrayMixerYellow`                | 0       |
+| `grayMixerGreen`               | `crs:GrayMixerGreen`                 | 0       |
+| `grayMixerAqua`                | `crs:GrayMixerAqua`                  | 0       |
+| `grayMixerBlue`                | `crs:GrayMixerBlue`                  | 0       |
+| `grayMixerPurple`              | `crs:GrayMixerPurple`                | 0       |
+| `grayMixerMagenta`             | `crs:GrayMixerMagenta`               | 0       |
 
 **HSL band mapping** (#1112): All 24 `crs:Hue/Saturation/LuminanceAdjustment*` keys are
 ACR-compatible. All default to 0; any field equal to 0 is omitted on write.
 Range −100…+100. The stage runs in scene-linear Oklab after the saturation pass.
+
+**Black & white mix** (#276): The eight `crs:GrayMixer*` keys are the per-band
+luminance weights of the monochrome conversion, over the same eight hue bands
+and the same raised-cosine partition as the HSL block above. Range −100…+100,
+default 0, omitted on write when 0. They only affect the render while the
+`crs:ConvertToGrayscale` toggle below is `True`; a sidecar may carry a mix
+alongside a colour render without changing it.
 
 **Enum fields** (emit only when non-default, string-valued):
 
@@ -201,6 +216,13 @@ Range −100…+100. The stage runs in scene-linear Oklab after the saturation p
 - `papp:ToneCurveMode` — `PerChannel` (default) / `RatioPreserving`.
   Tone-curve application mode (#436). Case-insensitive on read. TS wiring
   added in #2214.
+- `crs:ConvertToGrayscale` — `False` (default) / `True`. Black & white
+  conversion (#276); ACR-compatible, so the toggle interchanges with
+  Lightroom along with the `crs:GrayMixer*` weights. Written as `True` only,
+  since `False` is the default and is omitted. Read accepts `true`/`false`
+  in any case plus `1`/`0`; an unrecognised spelling is a parse ERROR rather
+  than a silent `Off`, so a sidecar we do not understand is never rendered
+  in colour by mistake. While `True`, the 24 HSL keys above are inert.
 
 **Always-emitted attributes** (process-version signaling):
 
