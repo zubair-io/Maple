@@ -46,8 +46,14 @@ const baseRoutes: Routes = [
     path: 'search',
     loadComponent: () => import('./search-page.component').then((m) => m.SearchPageComponent),
   },
-  // Hosted settings surface lands in the responsive-Hosted ticket; redirect until then.
-  { path: 'settings', redirectTo: 'browse', pathMatch: 'full' },
+  // Hosted settings: Account is the only surface today (signed-in identity
+  // + sign-out) — see settings/account.component.ts for why it can't reuse
+  // Self Hosted's AccountComponent/SettingsShellComponent directly.
+  { path: 'settings', redirectTo: 'settings/account', pathMatch: 'full' },
+  {
+    path: 'settings/account',
+    loadComponent: () => import('./settings/account.component').then((m) => m.AccountComponent),
+  },
 ];
 
 export const routes: Routes = [...baseRoutes, { path: '**', redirectTo: '' }];

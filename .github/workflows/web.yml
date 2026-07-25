@@ -5,6 +5,9 @@
 #   web-build        — compiles the Angular app the way a release does
 #                      (`bun run build` == `ng build maple`); fails on any TS /
 #                      template compile error. Closes the gap that let #749 ship.
+#                      Also builds the Hosted app (`ng build maple-syrup`) in
+#                      the same job, so a Hosted-only compile break fails CI
+#                      too (#2283).
 #   web-test         — RUNS the `maple` app unit tests (`ng test maple`, the
 #                      @angular/build:unit-test / vitest runner). A build gate
 #                      catches type/template errors but NOT logic regressions,
@@ -120,6 +123,15 @@ jobs:
       - name: Production web build (ng build maple)
         working-directory: src/web
         run: bun run build
+
+      # Same gate for the Hosted app (`maple-syrup`) — it shares the WASM
+      # `pkg/` built above but has its own routes/app.config, so a Hosted-only
+      # compile break (e.g. #2283's `/settings` route) wouldn't otherwise fail
+      # CI. Same job as `ng build maple` so a Hosted build break fails the
+      # same gate.
+      - name: Production Hosted web build (ng build maple-syrup)
+        working-directory: src/web
+        run: bunx ng build maple-syrup
 
   web-test:
     name: web-test (ng test maple)
