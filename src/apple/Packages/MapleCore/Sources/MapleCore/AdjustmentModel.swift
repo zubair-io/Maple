@@ -219,15 +219,33 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     public var grainSize: Double             // 0..100, default 25
     public var grainRoughness: Double        // 0..100, default 50
 
-    // Split toning (§ 3.14). Primary drag-bar field for the Split Tone tool
-    // is `splitToneBalance` (the shadow/highlight blend point); the four
-    // hue/sat scalars are carried for XMP round-trip and a future dedicated
-    // hue/sat wheel. Hue is in degrees; saturation is `[0, 100]`.
+    // Color Grading (§ 3.14, #275) — supersedes Split Toning exactly as
+    // Lightroom's Color Grading panel superseded Split Toning: these five
+    // `splitTone*` fields ARE the Color Grading panel's shadow/highlight
+    // wheels and balance slider (same fields, same `crs:SplitToning*` XMP
+    // keys — ACR's own layout). Primary drag-bar field for the Color
+    // Grading tool is `splitToneBalance` (the shadow/highlight/midtone
+    // blend point). Hue is in degrees; saturation is `[0, 100]`.
     public var splitToneShadowHue: Double          // 0..360, default 0
     public var splitToneShadowSaturation: Double   // 0..100, default 0
     public var splitToneHighlightHue: Double       // 0..360, default 0
     public var splitToneHighlightSaturation: Double // 0..100, default 0
     public var splitToneBalance: Double            // -100..100, default 0
+
+    // Color Grading — the rest of the panel beyond the five `splitTone*`
+    // fields above: a midtone wheel, a per-zone luminance offset (shadow /
+    // midtone / highlight), and an unweighted global wheel that tints every
+    // tone. Hue is in degrees; saturation is `[0, 100]`; luminance offsets
+    // are `[-100, 100]`. XMP keys are ACR's `crs:ColorGrade*` namespace.
+    // See raw-core's `stages::color_grade` for the render math.
+    public var colorGradeShadowLuminance: Double     // -100..100, default 0
+    public var colorGradeMidtoneHue: Double          // 0..360, default 0
+    public var colorGradeMidtoneSaturation: Double   // 0..100, default 0
+    public var colorGradeMidtoneLuminance: Double    // -100..100, default 0
+    public var colorGradeHighlightLuminance: Double  // -100..100, default 0
+    public var colorGradeGlobalHue: Double           // 0..360, default 0
+    public var colorGradeGlobalSaturation: Double    // 0..100, default 0
+    public var colorGradeGlobalLuminance: Double     // -100..100, default 0
 
     // HSL per-band adjustments (#1112, tone/zoom design spec § 10.4).
     // Scene-linear Oklab, normalized raised-cosine partition of unity.
@@ -380,6 +398,14 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         splitToneHighlightHue: Double = 0,
         splitToneHighlightSaturation: Double = 0,
         splitToneBalance: Double = 0,
+        colorGradeShadowLuminance: Double = 0,
+        colorGradeMidtoneHue: Double = 0,
+        colorGradeMidtoneSaturation: Double = 0,
+        colorGradeMidtoneLuminance: Double = 0,
+        colorGradeHighlightLuminance: Double = 0,
+        colorGradeGlobalHue: Double = 0,
+        colorGradeGlobalSaturation: Double = 0,
+        colorGradeGlobalLuminance: Double = 0,
         hueAdjustmentRed: Double = 0,
         hueAdjustmentOrange: Double = 0,
         hueAdjustmentYellow: Double = 0,
@@ -463,6 +489,14 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         self.splitToneHighlightHue = splitToneHighlightHue
         self.splitToneHighlightSaturation = splitToneHighlightSaturation
         self.splitToneBalance = splitToneBalance
+        self.colorGradeShadowLuminance = colorGradeShadowLuminance
+        self.colorGradeMidtoneHue = colorGradeMidtoneHue
+        self.colorGradeMidtoneSaturation = colorGradeMidtoneSaturation
+        self.colorGradeMidtoneLuminance = colorGradeMidtoneLuminance
+        self.colorGradeHighlightLuminance = colorGradeHighlightLuminance
+        self.colorGradeGlobalHue = colorGradeGlobalHue
+        self.colorGradeGlobalSaturation = colorGradeGlobalSaturation
+        self.colorGradeGlobalLuminance = colorGradeGlobalLuminance
         self.hueAdjustmentRed = hueAdjustmentRed
         self.hueAdjustmentOrange = hueAdjustmentOrange
         self.hueAdjustmentYellow = hueAdjustmentYellow

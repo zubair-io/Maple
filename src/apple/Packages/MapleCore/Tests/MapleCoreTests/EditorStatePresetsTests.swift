@@ -96,8 +96,9 @@ final class EditorStatePresetsTests: XCTestCase {
             XCTAssertTrue(state.armedToolAcceptsValueEdits, "\(tool) should accept value edits")
         }
 
-        // …the S5 effects (#1109 / #1110 / #1111) joined the value-carrying set…
-        for tool in [Tool.vignette, .grain, .splitTone] {
+        // …the S5 effects (#1109 / #1110 / #1111, colour grading extended to
+        // four wheels at #275) joined the value-carrying set…
+        for tool in [Tool.vignette, .grain, .colorGrade] {
             state.arm(tool: tool)
             XCTAssertTrue(state.armedToolAcceptsValueEdits, "\(tool) should accept value edits")
         }

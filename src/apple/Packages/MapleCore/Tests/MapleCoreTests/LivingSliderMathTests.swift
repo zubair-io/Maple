@@ -208,19 +208,20 @@ final class LivingSliderMathTests: XCTestCase {
 // MARK: - 2. GradientCatalogTests
 
 /// Every wired tool in the four ToolGroups must have a gradient entry.
-/// Track-less tools (crop, presets, splitTone) are intentionally absent.
+/// Track-less tools (crop, presets, colorGrade, bwMix) are intentionally absent.
 final class GradientCatalogTests: XCTestCase {
 
     /// Canonical list of wired, value-bearing tools (Tool.isWired == true,
     /// ToolValueMapping.displayRange != nil or sub-params present).
-    /// splitTone is wired but uses colour wheels, not a gradient track —
-    /// so it is excluded from the gradient requirement.
+    /// colorGrade (#275, supersedes split tone) is wired but uses colour
+    /// wheels, not a gradient track — so it is excluded from the gradient
+    /// requirement.
     private let wiredGradientTools: [Tool] = [
         // Light
         .exposure, .brightness, .contrast, .highlights, .shadows, .whites, .blacks,
         // Color
         .temp, .tint, .vibrance, .saturation,
-        // Effects (excluding splitTone which uses hue/sat wheels)
+        // Effects (excluding colorGrade which uses hue/sat wheels)
         .clarity, .texture, .dehaze, .vignette, .grain,
         // Detail
         .sharpen, .noise, .colorNR, .captureSharpen, .captureSigma,
@@ -246,7 +247,7 @@ final class GradientCatalogTests: XCTestCase {
 
     func testNonWiredToolsReturnNil() {
         // Tools that have no gradient track
-        let noGradient: [Tool] = [.crop, .presets, .splitTone]
+        let noGradient: [Tool] = [.crop, .presets, .colorGrade]
         for tool in noGradient {
             XCTAssertNil(GradientCatalog.stops(for: tool),
                 "Non-gradient tool .\(tool.rawValue) should return nil")
@@ -334,12 +335,19 @@ final class GradientCatalogTests: XCTestCase {
         XCTAssertNotNil(GradientCatalog.stops(for: .noise, subParamId: "color"))
     }
 
-    func testSplitToneSubParamsReturnNil() {
-        // Split-tone sub-params use colour wheels, not gradient tracks
-        let splitToneIds = ["balance", "shadowHue", "shadowSat", "highlightHue", "highlightSat"]
-        for id in splitToneIds {
-            XCTAssertNil(GradientCatalog.stops(for: .splitTone, subParamId: id),
-                "splitTone sub-param '\(id)' should return nil")
+    func testColorGradeSubParamsReturnNil() {
+        // Color Grading (#275) sub-params use colour wheels, not gradient
+        // tracks.
+        let colorGradeIds = [
+            "balance",
+            "shadowHue", "shadowSat", "shadowLum",
+            "midtoneHue", "midtoneSat", "midtoneLum",
+            "highlightHue", "highlightSat", "highlightLum",
+            "globalHue", "globalSat", "globalLum",
+        ]
+        for id in colorGradeIds {
+            XCTAssertNil(GradientCatalog.stops(for: .colorGrade, subParamId: id),
+                "colorGrade sub-param '\(id)' should return nil")
         }
     }
 

@@ -39,6 +39,10 @@ struct FlyoutSliderPanel: View {
                 // `armedTool` can never be `.hsl` while Black & White is on
                 // (#276) — EditorState normalises it to `.bwMix`.
                 HSLSection(state: state)
+            } else if state.armedTool == .colorGrade {
+                // Color Grading's four wheels + luminance/balance sliders
+                // replace the sliders while it is armed — same swap as Crop.
+                ColorGradingPanel(state: state)
             } else {
                 // Sub-param chip row for multi-param tools.
                 let subs = state.armedSubParams

@@ -225,8 +225,10 @@ public enum GradientCatalog {
     /// Returns the gradient stops for `tool` (using its primary gradient),
     /// or the tool-level entry for a sub-param's parent when the sub-param
     /// does not define its own gradient. Returns `nil` for tools that carry
-    /// no slider track of their own (`.crop`, `.presets`, `.splitTone`,
-    /// `.bwMix`).
+    /// no slider track of their own (`.crop`, `.presets`), and for
+    /// `.bwMix` (#276) and `.colorGrade` (#275), which are wired but
+    /// render eight per-hue weights and colour wheels respectively
+    /// instead of a gradient track.
     public static func stops(for tool: Tool) -> [GradientStop]? {
         switch tool {
         case .exposure:       return exposure
@@ -251,11 +253,11 @@ public enum GradientCatalog {
         case .captureSharpen: return captureSharpen
         case .captureSigma:   return captureSigma
         case .hsl:            return hsl
-        // B&W Mix (#276) is wired but multi-band like splitTone — no
-        // single 2-stop gradient reads correctly for eight independent
-        // per-hue weights, so it's excluded from the gradient-track
-        // requirement, same as splitTone.
-        case .crop, .presets, .splitTone, .bwMix:
+        // B&W Mix (#276) is wired but multi-band — no single 2-stop
+        // gradient reads correctly for eight independent per-hue weights,
+        // so it's excluded from the gradient-track requirement, the same
+        // way colour grading is (#275: colour wheels, not a track).
+        case .crop, .presets, .colorGrade, .bwMix:
             return nil
         }
     }
@@ -268,7 +270,7 @@ public enum GradientCatalog {
     /// required, and the lookup is unambiguous across tools that share ids
     /// (e.g. both `.grain` and `.vignette` have a sub-param called `"amount"`).
     ///
-    /// Split-tone, grain, vignette, sharpen, and noise sub-params each map
+    /// Colour-grading, grain, vignette, sharpen, and noise sub-params each map
     /// to the parent tool's entry (they share the visual; finer per-sub-param
     /// gradients are a follow-up for A2).
     public static func stops(for tool: Tool, subParamId id: String) -> [GradientStop]? {
@@ -285,8 +287,8 @@ public enum GradientCatalog {
         case .noise:
             // "luminance", "color"
             return noise
-        case .splitTone:
-            // Sub-params use colour wheels, not gradient tracks
+        case .colorGrade:
+            // Sub-params use colour wheels, not gradient tracks (#275).
             return nil
         case .hsl:
             // "hueRed", "satOrange", "lumMagenta", … — each sub-param

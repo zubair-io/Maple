@@ -131,6 +131,16 @@ final class SceneLinearChainCacheTests: XCTestCase {
             ("splitToneHighlightHue", { $0.splitToneHighlightHue = 60 }),
             ("splitToneHighlightSaturation", { $0.splitToneHighlightSaturation = 30 }),
             ("splitToneBalance", { $0.splitToneBalance = 25 }),
+            // color grading (#275) — the rest of the panel beyond the five
+            // split-tone fields above; same post-AgX display-domain stage.
+            ("colorGradeShadowLuminance", { $0.colorGradeShadowLuminance = -20 }),
+            ("colorGradeMidtoneHue", { $0.colorGradeMidtoneHue = 180 }),
+            ("colorGradeMidtoneSaturation", { $0.colorGradeMidtoneSaturation = 45 }),
+            ("colorGradeMidtoneLuminance", { $0.colorGradeMidtoneLuminance = 10 }),
+            ("colorGradeHighlightLuminance", { $0.colorGradeHighlightLuminance = 15 }),
+            ("colorGradeGlobalHue", { $0.colorGradeGlobalHue = 300 }),
+            ("colorGradeGlobalSaturation", { $0.colorGradeGlobalSaturation = 60 }),
+            ("colorGradeGlobalLuminance", { $0.colorGradeGlobalLuminance = -25 }),
             // hsl 8-band hue/sat/lum (#1112)
             ("hueAdjustmentRed", { $0.hueAdjustmentRed = 30 }),
             ("hueAdjustmentOrange", { $0.hueAdjustmentOrange = 30 }),
