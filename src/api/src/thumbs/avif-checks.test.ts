@@ -51,8 +51,19 @@ async function encodeAvif(opts: {
  * successful raw decode, for the two colour/orientation edge cases the real
  * AV1 encoder can't actually produce (AVIF has no non-RGB colour mode, and
  * this sharp/libheif build never round-trips an orientation tag into AVIF —
- * confirmed empirically against the pinned sharp version). Restores the real
- * module in `finally`. */
+ * confirmed empirically against the pinned sharp version).
+ *
+ * Restores by re-registering the REAL module in `finally`, deliberately NOT via
+ * `mock.restore()`. On bun 1.3.14 `mock.restore()` does not undo
+ * `mock.module()` — it leaves the registry holding a broken entry, so a later
+ * `import('sharp')` in ANY sibling test file yields a module whose operations
+ * throw and whose statics (`sharp.cache`) are `undefined`. Measured both ways:
+ *
+ *   re-register real module -> real op OK, statics present
+ *   mock.restore()          -> real op FAILS, statics undefined
+ *
+ * So re-registering is what actually prevents the cross-file mock leak; swapping
+ * this for `mock.restore()` would introduce it (jules review, PR #2262). */
 async function withStubbedMetadata<T>(
   metadata: Record<string, unknown>,
   fn: (mod: typeof AvifChecksModule) => Promise<T>,
