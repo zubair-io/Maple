@@ -92,7 +92,7 @@ The expensive, model-independent work — decode, demosaic, DCP, the decode-time
 ```
 white_balance (delta) → scene_tone_controls → tone_curves → vibrance → saturation
   → hsl → clarity → texture → dehaze → local_adjustments → vignette → nr_luminance
-  → [view tail: agx → split_tone → grain]
+  → [view tail: agx → color_grade → grain]
 ```
 
 The per-tick chain deliberately omits `sharpen` and `nr_color` — those stay on the platform GPU path (Metal / WGSL compute) because sharpen at viewport size exceeds the 16 ms tick budget on CPU. The stage order matches `develop_scene_linear_from_raw_with_quality` exactly so the color-pipeline harness stays the single canonical metric.
@@ -115,7 +115,10 @@ scene-linear Rec.2020 (unbounded)
   │                              so hue is invariant) → outset matrix → Oklab hue-preserving
   │                              gamut compression to [0,1]³.  Contrast modulates the slope.
   │  → display-linear Rec.2020 [0,1]
-  ├─ split_tone (stages/split_tone.rs)   #1111; display-linear Oklab shadow/highlight tint
+  ├─ color_grade (stages/color_grade.rs) #275; display-linear Oklab three-zone tint
+  │                              (shadows / midtones / highlights, smoothstep-weighted on
+  │                              display luminance) plus an unweighted global wheel.
+  │                              Supersedes split toning (#1111).
   ├─ grain (stages/grain.rs)             #1110; display-linear deterministic hash noise
   ├─ display encode (view/encode.rs)     Rec.2020 → sRGB / display-P3 via the Oklab-aware
   │                              rec2020_to_srgb (#877), then srgb_gamma_encode.
@@ -174,11 +177,19 @@ Authoritative source: `ADJUSTMENT_SCHEMA` in `src/raw-pipeline/raw-core/src/type
 | Grain Amount          | `grain_amount`                    | 0 … 100        | 0       | grain (#1110)                                     |
 | Grain Size            | `grain_size`                      | 0 … 100        | 25      | grain                                             |
 | Grain Roughness       | `grain_roughness`                 | 0 … 100        | 50      | grain                                             |
-| Split-tone Shadow Hue | `split_tone_shadow_hue`           | 0 … 360°       | 0       | split_tone (#1111)                                |
-| Split-tone Shadow Sat | `split_tone_shadow_saturation`    | 0 … 100        | 0       | split_tone                                        |
-| Split-tone Hi Hue     | `split_tone_highlight_hue`        | 0 … 360°       | 0       | split_tone                                        |
-| Split-tone Hi Sat     | `split_tone_highlight_saturation` | 0 … 100        | 0       | split_tone                                        |
-| Split-tone Balance    | `split_tone_balance`              | -100 … +100    | 0       | split_tone                                        |
+| Grade Shadow Hue      | `split_tone_shadow_hue`           | 0 … 360°       | 0       | color_grade (#275)                                |
+| Grade Shadow Sat      | `split_tone_shadow_saturation`    | 0 … 100        | 0       | color_grade                                       |
+| Grade Shadow Lum      | `color_grade_shadow_luminance`    | -100 … +100    | 0       | color_grade                                       |
+| Grade Midtone Hue     | `color_grade_midtone_hue`         | 0 … 360°       | 0       | color_grade                                       |
+| Grade Midtone Sat     | `color_grade_midtone_saturation`  | 0 … 100        | 0       | color_grade                                       |
+| Grade Midtone Lum     | `color_grade_midtone_luminance`   | -100 … +100    | 0       | color_grade                                       |
+| Grade Hi Hue          | `split_tone_highlight_hue`        | 0 … 360°       | 0       | color_grade                                       |
+| Grade Hi Sat          | `split_tone_highlight_saturation` | 0 … 100        | 0       | color_grade                                       |
+| Grade Hi Lum          | `color_grade_highlight_luminance` | -100 … +100    | 0       | color_grade                                       |
+| Grade Global Hue      | `color_grade_global_hue`          | 0 … 360°       | 0       | color_grade                                       |
+| Grade Global Sat      | `color_grade_global_saturation`   | 0 … 100        | 0       | color_grade                                       |
+| Grade Global Lum      | `color_grade_global_luminance`    | -100 … +100    | 0       | color_grade                                       |
+| Grade Balance         | `split_tone_balance`              | -100 … +100    | 0       | color_grade                                       |
 
 Enum fields (defaults in **bold**): `wb_method` = **Cat16** (chromatic adaptation) / DiagonalRec2020 — selects the method the post-DCP _fallback_ white-balance stage uses; it has no effect on `wb_camera`'s camera-space gain, which is the primary path on calibrated images (see [White balance](#white-balance)); `highlight_recovery` = **ChromaticAdaptation** / OklabChromaReduction / …; `auto_exposure` = **On** / Off; `profile` = **Auto** / Neutral; `tone_curve_mode` = **PerChannel** / RatioPreserving; `hot_pixel_suppression` = **Off** / On.
 
@@ -188,7 +199,7 @@ Enum fields (defaults in **bold**): `wb_method` = **Cat16** (chromatic adaptatio
 
 `render_scene_linear_from_raw_with_quality` (and the `_sized`, `_f32`, and `_cancellable` variants in `pipeline/render/scene_linear.rs`) run the develop chain, pack to fp16/f32 RGBA, apply EXIF orientation, and hand the **scene-linear** buffer to the platform view transform. The cold-open fast phase routes through the cancellable sized entry so a slider tick during a long decode can unwind mid-stage (#951 — the ~8.5 s `nr_color` on a 100 MP frame is the freeze the cancel token interrupts).
 
-- **Apple**: on the default wgpu path (#1066), the f32 scene-linear buffer is uploaded to the GPU and the full view transform (AgX, split-tone, grain, display encode) plus sharpen/NR run as WGSL compute shaders, presenting via wgpu → CAMetalLayer — this present path has no CIImage filter chain. The CPU/Metal fallback (`MAPLE_GPU_LIVE=0`) runs the same Rust FFI view-transform chain to produce a 3-D LUT, then applies it via a `CIColorCubeWithColorSpace` filter (CoreImage) plus Metal kernels for sharpen/NR; the Rust core computes the color math, CoreImage applies it.
+- **Apple**: on the default wgpu path (#1066), the f32 scene-linear buffer is uploaded to the GPU and the full view transform (AgX, colour grading, grain, display encode) plus sharpen/NR run as WGSL compute shaders, presenting via wgpu → CAMetalLayer — this present path has no CIImage filter chain. The CPU/Metal fallback (`MAPLE_GPU_LIVE=0`) runs the same Rust FFI view-transform chain to produce a 3-D LUT, then applies it via a `CIColorCubeWithColorSpace` filter (CoreImage) plus Metal kernels for sharpen/NR; the Rust core computes the color math, CoreImage applies it.
 - **Web**: on WebGPU-capable browsers the live canvas defaults to the GPU live path (`WebLiveSession` / `render_bytes_gpu`) with the `render_bytes` WASM-CPU path as fallback; the canvas surface is tagged **display-P3**.
 
 `RenderQuality` selects the demosaic kernel: `Preview` (half-res Bayer, fast), `Full` (bilinear or Hamilton-Adams), `Amaze` (AMaZE / Markesteijn, export quality).
