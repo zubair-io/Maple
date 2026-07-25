@@ -88,16 +88,12 @@ export const metadataRoutes = new Elysia()
       return { error: 'Asset not found' };
     }
 
-    // Single per-file thumb (size param is render-target advisory only;
-    // the cache key no longer includes size — see fs/xmp.ts).
-    // Content-addressed cache key: requires `maple_id` + `fileinfo[0]`.
-    // The legacy basename-keyed fallback was retired in the
-    // drop-abs-path-2026-05-21 migration.
+    // Single per-file thumb at the one fixed tier — no size dimension in the
+    // cache key (see fs/xmp.ts). Path-keyed off the primary location's
+    // filename, so this resolves to the identical file `/api/fs/thumb` serves
+    // for the same image; `maple_id` is not involved.
     const libs = await loadLibraryRoots();
-    const thumbPath = resolveThumbPathForAsset(
-      { maple_id: info.maple_id ?? undefined, fileinfo: info.fileinfo },
-      libs,
-    );
+    const thumbPath = resolveThumbPathForAsset({ fileinfo: info.fileinfo }, libs);
     if (!thumbPath) {
       set.status = 404;
       return { error: 'Asset has no resolvable thumbnail location' };

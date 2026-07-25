@@ -194,51 +194,52 @@ function resolvePrimaryLocation(
 }
 
 /**
- * Resolve the thumbnail cache path for an asset using its content-addressed
- * `maple_id`. Composes:
+ * Resolve the thumbnail cache path for an indexed asset — the DB-side entry
+ * point to the SAME path-keyed location `resolveThumbPath` computes for a bare
+ * absolute path. Composes the asset's primary on-disk location into an absolute
+ * path, then defers entirely to `resolveThumbPath`:
  *
- *   <library_root>/<fileinfo[0].path>/.maple/thumbs/<maple_id>.avif
+ *   <library_root>/<fileinfo[0].path>/.maple/thumbs/<sha256_prefix16(filename)>.avif
  *
- * Returns `null` when any required input is missing:
- *   - `maple_id` not yet assigned (skeleton row before the hash stage runs)
- *   - `fileinfo[]` empty or absent (legacy row that hasn't been backfilled)
- *   - the primary entry's `library_id` is not in the `libraries` map (e.g.
- *     the library was unregistered)
+ * Deliberately path-keyed, NOT `maple_id`-keyed: Maple is a UI over a local
+ * filesystem, so a cache entry must resolve from a path alone — no DB lookup,
+ * no hash — and stay readable when the folder is copied elsewhere. Content
+ * addressing bought almost nothing back (the artefact lands in ONE folder, so
+ * copies elsewhere shared nothing) and cost a Mongo round-trip per read. This
+ * is why the `thumb` stage and `/api/fs/thumb` now agree on a filename.
+ * Trade-off: a rename orphans the thumb for one re-render; cache-gc reclaims it.
  *
- * Callers that fall back to the legacy basename-keyed path on null match the
- * pre-migration behaviour; PR 6 of the content-addressing migration removes
- * the legacy fallback once every row has `fileinfo[0]`.
+ * Returns `null` when `fileinfo[]` is empty/absent or the primary entry's
+ * `library_id` isn't in the `libraries` map (an unregistered library).
  */
 export function resolveThumbPathForAsset(
-  asset: Pick<AssetDoc, 'maple_id' | 'fileinfo'>,
+  asset: Pick<AssetDoc, 'fileinfo'>,
   libraries: ReadonlyMap<string, string>,
 ): string | null {
-  if (!asset.maple_id) return null;
   const loc = resolvePrimaryLocation(asset, libraries);
   if (!loc) return null;
-  return path.join(loc.root, ...loc.segments, '.maple', 'thumbs', `${asset.maple_id}.avif`);
+  return resolveThumbPath(path.join(loc.root, ...loc.segments, loc.filename));
 }
 
 /**
  * Resolve a thumbnail or preview cache path for an asset. Composes:
  *
- *   thumbs:   <library_root>/<fileinfo[0].path>/.maple/thumbs/<maple_id>.avif
+ *   thumbs:   <library_root>/<fileinfo[0].path>/.maple/thumbs/<sha256_prefix16(filename)>.avif
  *   previews: <library_root>/<fileinfo[0].path>/.maple/previews/<fileinfo[0].filename>.<suffix>
  *
- * Thumbs stay content-addressed (`maple_id`-keyed): `dedupe.ts` relies on that
- * so several on-disk locations of the same content share one cached thumb.
- * Previews are keyed off the source's own filename instead — no EXIF read or
- * hash needed to resolve one, at the cost of losing that same multi-location
- * sharing and not surviving a rename/move (both accepted trade-offs; a moved
- * file's stale preview is cleaned up by the missing-reaper/dedupe cache-removal
- * hook, with cache-gc's sweep as a backstop).
+ * BOTH tiers are keyed off the source's own filename — no EXIF read, no hash of
+ * the bytes, and no DB lookup needed to resolve either one. The cost is that
+ * neither survives a rename/move: a moved file's stale artefact is cleaned up
+ * by the missing-reaper/dedupe cache-removal hook, with cache-gc's sweep as a
+ * backstop. See `resolveThumbPathForAsset` for why thumbs are path-keyed rather
+ * than content-addressed.
  *
  * `suffix` semantics (including why it is REQUIRED for `previews`) and the
  * `null` semantics are as documented on `cachePathFor` and
  * `resolveThumbPathForAsset` respectively.
  */
 export function cachePathForAsset(
-  asset: Pick<AssetDoc, 'maple_id' | 'fileinfo'>,
+  asset: Pick<AssetDoc, 'fileinfo'>,
   libraries: ReadonlyMap<string, string>,
   ...[kind, suffix]: CacheKindArgs
 ): string | null {
