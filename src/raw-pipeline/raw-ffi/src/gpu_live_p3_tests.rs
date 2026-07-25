@@ -135,6 +135,18 @@ fn gpu_live_render_p3_primaries_marshals_correctly() {
                 model.luminance_adjustment_purple,
                 model.luminance_adjustment_magenta,
             ],
+            // Black & white mix (#276) — same band order.
+            bw_mix: [
+                model.gray_mixer_red,
+                model.gray_mixer_orange,
+                model.gray_mixer_yellow,
+                model.gray_mixer_green,
+                model.gray_mixer_aqua,
+                model.gray_mixer_blue,
+                model.gray_mixer_purple,
+                model.gray_mixer_magenta,
+            ],
+            bw_active: model.black_white == raw_core::types::BlackWhiteMode::On,
             clarity: model.clarity,
             texture: model.texture,
             dehaze: model.dehaze,
