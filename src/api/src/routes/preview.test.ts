@@ -18,6 +18,31 @@ import sharp from 'sharp';
 import { previewPathRoutes } from './preview.ts';
 import { setLibraryRootsForTests, invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import * as imgdecodePoolModule from '../thumbs/imgdecode-pool.ts';
+import { checkAvifOutput } from '../thumbs/avif-checks.ts';
+
+/**
+ * `validateAvifOutput` (called by every test below, via `publishStagedPreview`)
+ * dispatches to the isolated imgdecode child pool (#2257 — moved off the API
+ * process, same as the JPEG-transcode render call this file already stubs
+ * below). Stubbed file-wide, in a top-level (not per-describe) hook, to the
+ * real `checkAvifOutput` predicate in-process: still a genuine decode (every
+ * assertion here stays decode-verified, not asserted-by-mock), just without
+ * spawning a real child from this file — see the JPEG-body describe block's
+ * doc comment for why spawning real decode children from several test files
+ * destabilises the shared pool singleton under CI's constrained resources.
+ */
+let validateStubSpy: { mockRestore(): void } | null = null;
+
+beforeEach(() => {
+  validateStubSpy = spyOn(imgdecodePoolModule, 'validateAvifViaPool').mockImplementation(
+    (filePath: string, expectedLongEdgePx: number) => checkAvifOutput(filePath, expectedLongEdgePx),
+  );
+});
+
+afterEach(() => {
+  validateStubSpy?.mockRestore();
+  validateStubSpy = null;
+});
 
 /** A genuine, small, untagged-sRGB AVIF (≤ 1280 long edge) that passes the
  * #2014 `validateAvifOutput` gate — same encode shape as the render pipeline
