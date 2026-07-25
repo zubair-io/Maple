@@ -71,6 +71,17 @@ export const NUMERIC_FIELD_RANGES: Readonly<Record<string, readonly [number, num
   split_tone_highlight_hue: [0.0, 360.0],
   split_tone_highlight_saturation: [0.0, 100.0],
   split_tone_balance: [-100.0, 100.0],
+  // Colour grading (#275) — the rest of the Color Grading panel beyond the
+  // five `split_tone_*` sliders above, which are ACR's `crs:SplitToning*`
+  // shadow/highlight pairs and balance.
+  color_grade_shadow_luminance: [-100.0, 100.0],
+  color_grade_midtone_hue: [0.0, 360.0],
+  color_grade_midtone_saturation: [0.0, 100.0],
+  color_grade_midtone_luminance: [-100.0, 100.0],
+  color_grade_highlight_luminance: [-100.0, 100.0],
+  color_grade_global_hue: [0.0, 360.0],
+  color_grade_global_saturation: [0.0, 100.0],
+  color_grade_global_luminance: [-100.0, 100.0],
   // HSL 8-band per-channel adjustments (#1112) — range -100..+100.
   // Snake_case matches the raw-core schema (hue_adjustment_* etc.).
   hue_adjustment_red: [-100.0, 100.0],

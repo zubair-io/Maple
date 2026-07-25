@@ -82,25 +82,43 @@ describe('sub-param catalog', () => {
     expect(defaultSubParamId('grain')).toBe('amount');
   });
 
-  it('splitTone declares Balance + the hue/sat pairs (#1111)', () => {
-    const subs = subParamsFor('splitTone');
+  it('colorGrade declares Balance + four hue/sat/lum wheels (#275)', () => {
+    const subs = subParamsFor('colorGrade');
     expect(subs.map((s) => s.id)).toEqual([
       'balance',
       'shadowHue',
       'shadowSat',
+      'shadowLum',
+      'midtoneHue',
+      'midtoneSat',
+      'midtoneLum',
       'highlightHue',
       'highlightSat',
+      'highlightLum',
+      'globalHue',
+      'globalSat',
+      'globalLum',
     ]);
+    // Shadow / highlight hue+sat stay on the `splitTone*` fields — that is
+    // where ACR's own Color Grading panel stores them (crs:SplitToning*).
     expect(subs.map((s) => s.field)).toEqual([
       'splitToneBalance',
       'splitToneShadowHue',
       'splitToneShadowSaturation',
+      'colorGradeShadowLuminance',
+      'colorGradeMidtoneHue',
+      'colorGradeMidtoneSaturation',
+      'colorGradeMidtoneLuminance',
       'splitToneHighlightHue',
       'splitToneHighlightSaturation',
+      'colorGradeHighlightLuminance',
+      'colorGradeGlobalHue',
+      'colorGradeGlobalSaturation',
+      'colorGradeGlobalLuminance',
     ]);
-    expect(isMultiParam('splitTone')).toBe(true);
+    expect(isMultiParam('colorGrade')).toBe(true);
     // Balance leads — the schema-declared primary drag-bar field.
-    expect(defaultSubParamId('splitTone')).toBe('balance');
+    expect(defaultSubParamId('colorGrade')).toBe('balance');
   });
 
   it('hsl declares Hue/Sat/Lum × 8 bands in order (#1112)', () => {
@@ -208,7 +226,7 @@ describe('sub-param catalog', () => {
         tool === 'sharpen' ||
         tool === 'vignette' ||
         tool === 'grain' ||
-        tool === 'splitTone' ||
+        tool === 'colorGrade' ||
         tool === 'hsl' || // HSL wired at #1112: 24 sub-params
         tool === 'bwMix' // bwMix wired at #276: 8 gray-mixer sub-params
       )

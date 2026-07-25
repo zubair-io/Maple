@@ -82,6 +82,7 @@ import { ToolDockComponent } from '../../components/editor/tool-dock.component';
 import { ValueHudComponent } from '../../components/editor/value-hud.component';
 import { ToneCurveComponent } from '../../components/develop/tone-curve.component';
 import { WbPadComponent } from '../../components/develop/wb-pad.component';
+import { ColorGradingPanelComponent } from '../../components/develop/color-grading-panel.component';
 import { CropToolbarComponent } from '../../editor/crop-toolbar.component';
 import { PresetsPanelComponent } from '../../editor/presets/presets-panel.component';
 import { SubParamRowComponent } from '../../editor/sub-param-row.component';
@@ -129,6 +130,7 @@ type ChromeState = 'full' | 'receded' | 'scrubbing';
     ValueHudComponent,
     ToneCurveComponent,
     WbPadComponent,
+    ColorGradingPanelComponent,
     CropToolbarComponent,
     PresetsPanelComponent,
     SubParamRowComponent,
@@ -250,6 +252,13 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly blackWhiteOn = computed<boolean>(
     () => this.editorState.currentAdjustment()?.blackWhite === 'On',
   );
+
+  /** True while the Color Grading tool is armed (#275) — mounts the
+   *  four-wheel grading panel in the same shared anchor Crop/HSL/Curve/
+   *  Presets use. Like HSL it has no canvas overlay: the wheels and their
+   *  luminance/balance sliders are the whole surface, so the control card
+   *  hides while it is armed. */
+  readonly colorGradeArmed = computed<boolean>(() => this.editorState.armedTool() === 'colorGrade');
 
   /** True when the viewport is tablet/desktop (≥768px). */
   readonly isTabletPlus = signal<boolean>(false);
@@ -381,17 +390,18 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
     this.editorState.haptic('switch');
   }
 
-  /** Arm a specific dock tool (Crop — #1813 — HSL — epic #1807 slice 4 — or
-   *  bwMix — #276). Matches the S5 editor's pill row
-   *  (`ToolPillRowComponent.select`): tapping always arms; exiting crop is
-   *  an explicit action (the crop toolbar's Done button), not a second tap
-   *  on the dock entry — HSL/bwMix have no such action and simply stay
-   *  armed until another tool is picked. Crop, HSL, bwMix, Curve, and
-   *  Presets share the same panel anchor and are mutually exclusive —
-   *  arming Crop, HSL, or bwMix closes the curve and presets panels so no
-   *  two can ever render on top of each other (the newly-armed tool wins). */
+  /** Arm a specific dock tool (Crop — #1813 — HSL — epic #1807 slice 4 —
+   *  bwMix — #276 — or Color Grading — #275). Matches the S5 editor's pill
+   *  row (`ToolPillRowComponent.select`): tapping always arms; exiting crop
+   *  is an explicit action (the crop toolbar's Done button), not a second
+   *  tap on the dock entry — HSL/bwMix/Color Grading have no such action
+   *  and simply stay armed until another tool is picked. Crop, HSL, bwMix,
+   *  Color Grading, Curve, and Presets share the same panel anchor and are
+   *  mutually exclusive — arming Crop, HSL, bwMix, or Color Grading closes
+   *  the curve and presets panels so no two can ever render on top of each
+   *  other (the newly-armed tool wins). */
   onToolChange(tool: ToolId): void {
-    if (tool === 'crop' || tool === 'hsl' || tool === 'bwMix') {
+    if (tool === 'crop' || tool === 'hsl' || tool === 'bwMix' || tool === 'colorGrade') {
       this.curveOpen.set(false);
       this.presetsOpen.set(false);
     }
@@ -407,15 +417,16 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
     this.editorState.setBlackWhite(this.blackWhiteOn() ? 'Off' : 'On');
   }
 
-  /** Toggle the curve panel. No-op while Crop, HSL, or bwMix is armed: all
-   *  three own the shared panel anchor, so Curve can't open over any of
-   *  them. Opening Curve also closes Presets, since they share the same
-   *  anchor too (the mutual-exclusion half that keeps the panels from
-   *  overlapping — the other halves are `onToolChange` closing
-   *  curve/presets when Crop/HSL/bwMix arms, and `onPresetsPanelToggle`
-   *  closing curve when Presets opens). */
+  /** Toggle the curve panel. No-op while Crop, HSL, bwMix, or Color Grading
+   *  is armed: all four own the shared panel anchor, so Curve can't open
+   *  over any of them. Opening Curve also closes Presets, since they share
+   *  the same anchor too (the mutual-exclusion half that keeps the panels
+   *  from overlapping — the other halves are `onToolChange` closing
+   *  curve/presets when Crop/HSL/bwMix/Color Grading arms, and
+   *  `onPresetsPanelToggle` closing curve when Presets opens). */
   onCurvePanelToggle(): void {
-    if (this.cropArmed() || this.hslArmed() || this.bwMixArmed()) return;
+    if (this.cropArmed() || this.hslArmed() || this.bwMixArmed() || this.colorGradeArmed())
+      return;
     this.presetsOpen.set(false);
     this.curveOpen.update((v) => !v);
   }
@@ -471,11 +482,12 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
     this.editorState.haptic('switch');
   }
 
-  /** Toggle the presets panel (#1815). No-op while Crop, HSL, or bwMix is
-   *  armed, and closes Curve if open — same shared-anchor mutual exclusion
-   *  as Curve/Crop/HSL/bwMix. */
+  /** Toggle the presets panel (#1815). No-op while Crop, HSL, bwMix, or
+   *  Color Grading is armed, and closes Curve if open — same shared-anchor
+   *  mutual exclusion as Curve/Crop/HSL/bwMix/Color Grading. */
   onPresetsPanelToggle(): void {
-    if (this.cropArmed() || this.hslArmed() || this.bwMixArmed()) return;
+    if (this.cropArmed() || this.hslArmed() || this.bwMixArmed() || this.colorGradeArmed())
+      return;
     this.curveOpen.set(false);
     this.presetsOpen.update((v) => !v);
   }

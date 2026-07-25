@@ -1,0 +1,38 @@
+<!-- ColorGradingPanelComponent — four wheels + luminance + balance (#275) -->
+<div class="grading-panel" data-testid="color-grading-panel">
+  <div class="wheel-row">
+    @for (zone of zones; track zone.id) {
+      <div class="wheel-cell">
+        <pro-color-wheel
+          [label]="zone.label"
+          [hue]="valueOf(zone.hue)"
+          [saturation]="valueOf(zone.saturation)"
+          (wheelChange)="onWheelChange(zone, $event)"
+        />
+        <pro-living-slider
+          [attr.aria-label]="zone.label + ' luminance'"
+          label="Lum"
+          [value]="valueOf(zone.luminance)"
+          [min]="lumMin"
+          [max]="lumMax"
+          [bipolar]="true"
+          gradient="linear-gradient(90deg, #08070a 0%, #6e675e 50%, #f2efe9 100%)"
+          (valueChange)="onLuminanceChange(zone, $event)"
+          (resetRequest)="onLuminanceReset(zone)"
+        />
+      </div>
+    }
+  </div>
+
+  <pro-living-slider
+    aria-label="Colour grading balance"
+    label="Balance"
+    [value]="balance()"
+    [min]="balanceMin"
+    [max]="balanceMax"
+    [bipolar]="true"
+    gradient="linear-gradient(90deg, #3b6fb0 0%, #a8a097 50%, #c4493a 100%)"
+    (valueChange)="onBalanceChange($event)"
+    (resetRequest)="onBalanceReset()"
+  />
+</div>

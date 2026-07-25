@@ -1,8 +1,8 @@
 // ToolDockComponent — glass icon dock, vertical on tablet/desktop, horizontal
 // on phone (#1535, phone dock: #1807).
-// Icons: Light · Color · HSL · B&W · Curve · Effects · Detail · Crop ·
-// Presets · Optics · Mask · Heal (Crop also has a phone-only horizontal
-// entry).
+// Icons: Light · Color · HSL · B&W · Curve · Grade · Effects · Detail ·
+// Crop · Presets · Optics · Mask · Heal (Crop also has a phone-only
+// horizontal entry).
 // Light / Color / Effects / Detail switch the active ToolGroup.
 // Curve opens the tone-curve panel (M2 #1540).
 // HSL arms the HSL tool directly (canvas-first HSL port, epic #1807 slice 4;
@@ -78,6 +78,10 @@ const DOCK_ENTRIES: DockEntry[] = [
   { id: 'bwMix', icon: 'tool-bw', label: 'B&W', tool: 'bwMix' },
   // Curve: enabled in #1540 (web M2 — tone curve + WB pad)
   { id: 'curve', icon: 'tool-contrast', label: 'Curve', panel: true },
+  // Grade: arms the Color Grading tool (#275), which mounts the four-wheel
+  // panel. It supersedes the old Split Tone pill — there is exactly one
+  // colour-toning surface in the editor.
+  { id: 'colorGrade', icon: 'tool-color-grade', label: 'Grade', tool: 'colorGrade' },
   { id: 'effects', icon: 'tool-vignette', label: 'Effects', group: 'effects' },
   { id: 'detail', icon: 'tool-sharpen', label: 'Detail', group: 'detail' },
   // Crop: arms the Crop tool directly (#1813). Mounts the shared crop overlay

@@ -223,6 +223,16 @@
             </div>
           </div>
         }
+
+        <!-- Color Grading panel (#275) — four wheels (Shadows / Midtones /
+             Highlights / Global), each over its luminance slider, plus the
+             balance slider. Supersedes the Split Tone pill: this is the
+             editor's only colour-toning surface. -->
+        @if (colorGradeArmed()) {
+          <div class="color-grade-panel">
+            <pro-color-grading-panel />
+          </div>
+        }
       </div>
 
       <!-- ── Tablet/desktop bottom control card ─────────────────── -->
@@ -231,12 +241,12 @@
            armTool('crop') would otherwise show alongside — the crop toolbar
            (in the dock-side panel above) is the only control surface while
            armed, matching the S5 editor swapping its drag-bar area for the
-           crop toolbar. Hidden while HSL or bwMix is armed for the same
-           reason: neither has a single primary drag-bar field
-           (control-card.component.ts's SLIDER_TOOLS deliberately excludes
-           both), so their own panel above is the only control surface
-           while armed. -->
-      @if (!cropArmed() && !hslArmed() && !bwMixArmed()) {
+           crop toolbar. Hidden while HSL, bwMix or Color Grading is armed
+           for the same reason: none of them has a single primary drag-bar
+           field (control-card.component.ts's SLIDER_TOOLS deliberately
+           excludes all three), so their own panel above is the only
+           control surface while armed. -->
+      @if (!cropArmed() && !hslArmed() && !bwMixArmed() && !colorGradeArmed()) {
         <div class="control-card-anchor">
           <pro-control-card [activeGroup]="activeGroup()" (groupChange)="onGroupChange($event)" />
         </div>
@@ -245,11 +255,11 @@
       <!-- ── Phone CARD editor (#1807): flyout card + bottom dock ──── -->
 
       <!-- Flyout slider card — floats above the dock, closeable. Hidden
-           while Crop/HSL/bwMix is armed for the same reason as the
-           tablet/desktop control card above: all three own the phone
-           flyout anchor while armed (crop/HSL/B&W panels below), so the
-           group slider card can't also show. -->
-      @if (!cropArmed() && !hslArmed() && !bwMixArmed()) {
+           while Crop/HSL/bwMix/Color Grading is armed for the same reason
+           as the tablet/desktop control card above: all four own the phone
+           flyout anchor while armed (crop/HSL/B&W/Grade panels below), so
+           the group slider card can't also show. -->
+      @if (!cropArmed() && !hslArmed() && !bwMixArmed() && !colorGradeArmed()) {
         <div class="phone-card-anchor">
           <pro-control-card
             [activeGroup]="activeGroup()"
@@ -268,6 +278,13 @@
           <pro-tone-curve />
           <div class="curve-panel-divider"></div>
           <pro-wb-pad />
+        </div>
+      }
+      <!-- Color Grading panel (#275) — same content as tablet/desktop,
+           floats above the dock like the phone curve panel. -->
+      @if (colorGradeArmed()) {
+        <div class="phone-color-grade-panel">
+          <pro-color-grading-panel />
         </div>
       }
 

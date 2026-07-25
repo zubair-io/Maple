@@ -757,3 +757,19 @@
   border-radius: var(--pro-glass-radius-card-desktop);
   overflow-y: auto;
 }
+
+// Color Grading panel (#275) — the four-wheel surface. Shares the
+// dock-side glass card with the curve / HSL / presets panels; wider than
+// `.hsl-panel` because four wheels need the radius to aim a hue at.
+.color-grade-panel {
+  @extend %dock-side-panel;
+  @extend %mpl-theme-bridge;
+  width: 420px;
+}
+
+// Phone: same content, floating above the dock like the phone curve panel.
+.phone-color-grade-panel {
+  @extend %phone-flyout-panel;
+  @extend %mpl-theme-bridge;
+  overflow: hidden;
+}

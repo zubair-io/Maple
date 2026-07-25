@@ -1,0 +1,31 @@
+<!-- ColorWheelComponent — one colour-grading wheel (#275) -->
+<div class="wheel-widget">
+  <div
+    #wheelEl
+    class="wheel"
+    role="application"
+    tabindex="0"
+    [attr.aria-label]="ariaLabel()"
+    [attr.aria-valuetext]="valueLabel()"
+    [attr.data-testid]="'color-wheel-' + label().toLowerCase()"
+    (pointerdown)="onPointerDown($event)"
+    (dblclick)="onDoubleClick()"
+    (keydown)="onKeyDown($event)"
+  >
+    <!-- Hue ring under a centre-out desaturation fade. -->
+    <div class="wheel-hue" aria-hidden="true"></div>
+    <div class="wheel-fade" aria-hidden="true"></div>
+
+    <div
+      class="puck"
+      [style.left.%]="puckPos().x * 100"
+      [style.top.%]="(1 - puckPos().y) * 100"
+      aria-hidden="true"
+    ></div>
+  </div>
+
+  <div class="wheel-caption">
+    <span class="wheel-label">{{ label() }}</span>
+    <span class="wheel-value">{{ valueLabel() }}</span>
+  </div>
+</div>

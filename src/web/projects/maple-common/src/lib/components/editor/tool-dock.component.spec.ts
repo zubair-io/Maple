@@ -62,7 +62,7 @@ describe('ToolDockComponent — vertical (default) orientation', () => {
     expect(fixture.componentInstance.orientation()).toBe('vertical');
   });
 
-  it('renders the 12 tablet/desktop entries, including Crop/HSL/B&W/Presets', () => {
+  it('renders the 13 tablet/desktop entries, including Crop/HSL/B&W/Grade/Presets', () => {
     const fixture = render({});
     const labels = buttons(fixture).map((b) => b.getAttribute('aria-label'));
     expect(labels).toEqual([
@@ -71,6 +71,7 @@ describe('ToolDockComponent — vertical (default) orientation', () => {
       'HSL',
       'B&W',
       'Curve',
+      'Grade',
       'Effects',
       'Detail',
       'Crop',
@@ -91,6 +92,7 @@ describe('ToolDockComponent — vertical (default) orientation', () => {
       'Color',
       'B&W',
       'Curve',
+      'Grade',
       'Effects',
       'Detail',
       'Crop',
@@ -172,7 +174,7 @@ describe('ToolDockComponent — horizontal (phone) orientation', () => {
     expect(nativeEl(fixture).classList.contains('dock-host--horizontal')).toBe(true);
   });
 
-  it('renders exactly Light/Color/HSL/B&W/Curve/Effects/Detail/Presets/Crop, excluding Optics/Mask/Heal', () => {
+  it('renders exactly Light/Color/HSL/B&W/Curve/Grade/Effects/Detail/Presets/Crop, excluding Optics/Mask/Heal', () => {
     const fixture = render({ orientation: 'horizontal' });
     const labels = buttons(fixture).map((b) => b.getAttribute('aria-label'));
     expect(labels).toEqual([
@@ -181,6 +183,7 @@ describe('ToolDockComponent — horizontal (phone) orientation', () => {
       'HSL',
       'B&W',
       'Curve',
+      'Grade',
       'Effects',
       'Detail',
       'Presets',

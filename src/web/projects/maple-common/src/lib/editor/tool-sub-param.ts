@@ -60,12 +60,12 @@ export interface ToolSubParam {
 // Sub-param catalogs for the multi-param pills. §10.0: the Noise pill's
 // Deep (BM3D, §3.2) and Prefilter (§3.1) tiers joined at #1153 — data-only,
 // plus the `commitOnRelease` flag their decode-product placement forces.
-// Vignette joined
-// at #1109, grain at #1110, split tone at #1111 (Balance leads — the
-// schema-declared primary drag-bar field). HSL joined at #1112 with 24
-// sub-params across 3 rows (Hue/Sat/Lum × 8 bands); Hue Red leads. bwMix
-// joined at #276 with the 8 gray-mixer weights — the same hue-band order
-// as HSL's rows, since both drive the identical 8-band Oklab partition.
+// Vignette joined at #1109, grain at #1110, colour grading at #1111 and
+// extended to four wheels at #275 (Balance leads — the schema-declared
+// primary drag-bar field). HSL joined at #1112 with 24 sub-params across
+// 3 rows (Hue/Sat/Lum × 8 bands); Hue Red leads. bwMix joined at #276 with
+// the 8 gray-mixer weights — the same hue-band order as HSL's rows, since
+// both drive the identical 8-band Oklab partition.
 const SUB_PARAMS: Partial<Record<ToolId, readonly ToolSubParam[]>> = {
   hsl: [
     // Hue row (bands Red → Magenta)
@@ -265,7 +265,11 @@ const SUB_PARAMS: Partial<Record<ToolId, readonly ToolSubParam[]>> = {
       decimals: 0,
     },
   ],
-  splitTone: [
+  // Color grading (#275). Balance leads — the schema-declared primary
+  // drag-bar field — then the four wheels in tonal order, each hue / sat /
+  // lum. Shadow and highlight hue+sat are the `splitTone*` fields because
+  // that is where ACR's own Color Grading panel stores them.
+  colorGrade: [
     {
       id: 'balance',
       label: 'Balance',
@@ -288,6 +292,34 @@ const SUB_PARAMS: Partial<Record<ToolId, readonly ToolSubParam[]>> = {
       decimals: 0,
     },
     {
+      id: 'shadowLum',
+      label: 'Sh Lum',
+      field: 'colorGradeShadowLuminance',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    {
+      id: 'midtoneHue',
+      label: 'Mid Hue',
+      field: 'colorGradeMidtoneHue',
+      mapping: 'linear',
+      decimals: 0,
+    },
+    {
+      id: 'midtoneSat',
+      label: 'Mid Sat',
+      field: 'colorGradeMidtoneSaturation',
+      mapping: 'linear',
+      decimals: 0,
+    },
+    {
+      id: 'midtoneLum',
+      label: 'Mid Lum',
+      field: 'colorGradeMidtoneLuminance',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    {
       id: 'highlightHue',
       label: 'Hi Hue',
       field: 'splitToneHighlightHue',
@@ -299,6 +331,34 @@ const SUB_PARAMS: Partial<Record<ToolId, readonly ToolSubParam[]>> = {
       label: 'Hi Sat',
       field: 'splitToneHighlightSaturation',
       mapping: 'linear',
+      decimals: 0,
+    },
+    {
+      id: 'highlightLum',
+      label: 'Hi Lum',
+      field: 'colorGradeHighlightLuminance',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    {
+      id: 'globalHue',
+      label: 'Gl Hue',
+      field: 'colorGradeGlobalHue',
+      mapping: 'linear',
+      decimals: 0,
+    },
+    {
+      id: 'globalSat',
+      label: 'Gl Sat',
+      field: 'colorGradeGlobalSaturation',
+      mapping: 'linear',
+      decimals: 0,
+    },
+    {
+      id: 'globalLum',
+      label: 'Gl Lum',
+      field: 'colorGradeGlobalLuminance',
+      mapping: 'anchored',
       decimals: 0,
     },
   ],

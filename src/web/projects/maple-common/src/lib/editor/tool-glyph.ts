@@ -27,7 +27,7 @@ const TOOL_TO_ICON: Record<ToolId, MapleIconName> = {
   dehaze: 'tool-dehaze',
   vignette: 'tool-vignette',
   grain: 'tool-grain',
-  splitTone: 'tool-split-tone',
+  colorGrade: 'tool-color-grade',
   sharpen: 'tool-sharpen',
   noise: 'tool-noise',
   colorNR: 'tool-color-nr',
