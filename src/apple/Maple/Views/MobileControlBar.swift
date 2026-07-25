@@ -52,6 +52,9 @@ struct MobileControlBar: View {
 
             if state.armedTool == .crop {
                 CropToolbar(state: state)
+            } else if state.armedTool == .hsl {
+                // 8-band HSL panel replaces the group slider stack (#274).
+                HSLSection(state: state)
             } else {
                 let subs = state.armedSubParams
                 if subs.count > 1 {
