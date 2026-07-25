@@ -357,9 +357,18 @@ fn global_wheel_shifts_every_tone_equally() {
     let (a0, b0) = ab(0.05);
     let (a1, b1) = ab(0.5);
     let (a2, b2) = ab(0.95);
-    assert!((a0 - a1).abs() < 1e-5 && (a1 - a2).abs() < 1e-5, "Δa drifted");
-    assert!((b0 - b1).abs() < 1e-5 && (b1 - b2).abs() < 1e-5, "Δb drifted");
-    assert!(a0.abs() + b0.abs() > 0.01, "the global wheel must do something");
+    assert!(
+        (a0 - a1).abs() < 1e-5 && (a1 - a2).abs() < 1e-5,
+        "Δa drifted"
+    );
+    assert!(
+        (b0 - b1).abs() < 1e-5 && (b1 - b2).abs() < 1e-5,
+        "Δb drifted"
+    );
+    assert!(
+        a0.abs() + b0.abs() > 0.01,
+        "the global wheel must do something"
+    );
 }
 
 /// A per-zone luminance offset moves Oklab `L` in its own zone and only

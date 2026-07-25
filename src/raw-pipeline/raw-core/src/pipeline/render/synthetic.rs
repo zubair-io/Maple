@@ -48,7 +48,9 @@ pub fn render_from_scene_linear(
     stage("synth_agx", || agx::apply(&mut scene, model.contrast));
     dump_after("16_agx", &scene);
     // Colour grading (#275) — same display-linear position as the RAW path.
-    stage("synth_color_grade", || color_grade::apply_model(&mut scene, model));
+    stage("synth_color_grade", || {
+        color_grade::apply_model(&mut scene, model)
+    });
     dump_after("16a_color_grade", &scene);
     // Film grain (#1110) — same display-linear position as the RAW path.
     stage("synth_grain", || {
@@ -163,7 +165,9 @@ pub fn render_from_scene_linear_with_chain(
     stage("synth_agx", || agx::apply(&mut scene, model.contrast));
     dump_after("16_agx", &scene);
     // Colour grading (#275) — same display-linear position as the RAW path.
-    stage("synth_color_grade", || color_grade::apply_model(&mut scene, model));
+    stage("synth_color_grade", || {
+        color_grade::apply_model(&mut scene, model)
+    });
     dump_after("16a_color_grade", &scene);
     // Film grain (#1110) — same display-linear position as the RAW path.
     stage("synth_grain", || {
