@@ -512,6 +512,17 @@ private struct InfoPresentation: ViewModifier {
     let isRegular: Bool
     let session: EditSession?
 
+    // Sheet / popover content does NOT inherit custom `EnvironmentKey`
+    // values from the presenter the way an inline child does, so the
+    // cloud clients injected at the AppShell root (#633 histogram, #2212
+    // enrichment) arrive `nil` inside the presented `InfoPanelView` —
+    // leaving the description / OCR / transcript section blank on iPhone
+    // even for a Self-Hosted asset. Read them here (this modifier IS in
+    // the AppShell environment) and re-inject them onto the presented
+    // content below.
+    @Environment(\.cloudAssetDetailClient) private var detailClient
+    @Environment(\.cloudHistogramClient) private var histogramClient
+
     func body(content: Content) -> some View {
         if isRegular {
             content.popover(isPresented: $isPresented, arrowEdge: .bottom) {
@@ -523,6 +534,8 @@ private struct InfoPresentation: ViewModifier {
                 )
                     .frame(width: 320, height: 480)
                     .background(MapleTokens.sidebar)
+                    .environment(\.cloudAssetDetailClient, detailClient)
+                    .environment(\.cloudHistogramClient, histogramClient)
             }
         } else {
             #if os(iOS)
@@ -532,12 +545,16 @@ private struct InfoPresentation: ViewModifier {
                     isInsideSheet: false,
                     showsCullingAndHistogram: false
                 )
+                .environment(\.cloudAssetDetailClient, detailClient)
+                .environment(\.cloudHistogramClient, histogramClient)
                 .presentationDetents([.medium, .large])
             }
             #else
             content.popover(isPresented: $isPresented, arrowEdge: .bottom) {
                 InfoPanelView(session: session, isInsideSheet: false)
                     .frame(width: 320, height: 480)
+                    .environment(\.cloudAssetDetailClient, detailClient)
+                    .environment(\.cloudHistogramClient, histogramClient)
             }
             #endif
         }
