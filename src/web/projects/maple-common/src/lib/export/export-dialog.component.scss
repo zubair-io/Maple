@@ -1,7 +1,7 @@
 // export-dialog.component.scss — edited-image export options dialog (#943).
 // Follows the pano-dialog surface treatment so the two read as one family.
 
-@use '../dialog-chrome' as chrome;
+@use '../styles/dialog-chrome' as chrome;
 
 .export-backdrop {
   position: fixed;
