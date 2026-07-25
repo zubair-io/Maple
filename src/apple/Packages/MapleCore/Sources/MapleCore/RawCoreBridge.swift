@@ -79,6 +79,11 @@
 //   * the 24 HSL bands `hueAdjustment*` / `saturationAdjustment*` /
 //     `luminanceAdjustment*` (#1112) — the `hsl` stage; all-zero is a
 //     bit-identical stage skip on both the decode and the chain.
+//   * `blackWhite` + the 8 `grayMixer*` bands (#276) — the SAME `hsl`
+//     stage (`hsl::apply_model` reads all three HSL rows plus
+//     `black_white`/`gray_mixer_*` together), run by both the decode and
+//     the chain, so it double-applies unless zeroed/defaulted here exactly
+//     like the 24 HSL bands above.
 //   * `vignetteAmount`, `vignetteFeather` (#1109) — the `vignette` stage;
 //     amount 0 short-circuits it (feather returns to its 50 default).
 //   * `nrLuminance`                — chain applies it; default 0 → decode
@@ -181,6 +186,17 @@ public enum RawCoreBridge {
         m.luminanceAdjustmentBlue = d.luminanceAdjustmentBlue
         m.luminanceAdjustmentPurple = d.luminanceAdjustmentPurple
         m.luminanceAdjustmentMagenta = d.luminanceAdjustmentMagenta
+        // Black & white mix (#276) — same `hsl` stage as the 24 bands
+        // above; zeroed/defaulted here for the same double-apply reason.
+        m.blackWhite = d.blackWhite
+        m.grayMixerRed = d.grayMixerRed
+        m.grayMixerOrange = d.grayMixerOrange
+        m.grayMixerYellow = d.grayMixerYellow
+        m.grayMixerGreen = d.grayMixerGreen
+        m.grayMixerAqua = d.grayMixerAqua
+        m.grayMixerBlue = d.grayMixerBlue
+        m.grayMixerPurple = d.grayMixerPurple
+        m.grayMixerMagenta = d.grayMixerMagenta
         // Vignette (#1109) — scene-linear radial gain, run in both the decode
         // and the chain (after local adjustments, before the omitted sharpen).
         // Zeroing amount short-circuits the stage; feather rides back to its

@@ -225,7 +225,8 @@ public enum GradientCatalog {
     /// Returns the gradient stops for `tool` (using its primary gradient),
     /// or the tool-level entry for a sub-param's parent when the sub-param
     /// does not define its own gradient. Returns `nil` for tools that carry
-    /// no slider track of their own (`.crop`, `.presets`, `.splitTone`).
+    /// no slider track of their own (`.crop`, `.presets`, `.splitTone`,
+    /// `.bwMix`).
     public static func stops(for tool: Tool) -> [GradientStop]? {
         switch tool {
         case .exposure:       return exposure
@@ -250,7 +251,11 @@ public enum GradientCatalog {
         case .captureSharpen: return captureSharpen
         case .captureSigma:   return captureSigma
         case .hsl:            return hsl
-        case .crop, .presets, .splitTone:
+        // B&W Mix (#276) is wired but multi-band like splitTone — no
+        // single 2-stop gradient reads correctly for eight independent
+        // per-hue weights, so it's excluded from the gradient-track
+        // requirement, same as splitTone.
+        case .crop, .presets, .splitTone, .bwMix:
             return nil
         }
     }

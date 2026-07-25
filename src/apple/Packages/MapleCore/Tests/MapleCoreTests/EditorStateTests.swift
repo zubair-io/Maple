@@ -409,17 +409,18 @@ final class EditorStateTests: XCTestCase {
 
     // MARK: - Tool catalog sanity
 
-    func testTwentyFiveToolsExist() {
+    func testTwentySixToolsExist() {
         // 22 base tools + Capture Sharpening Amount / Sigma, relocated to
         // the Detail group when the Develop tab was removed (#875), +
-        // Brightness in Light (#1108 / #1102).
-        XCTAssertEqual(Tool.allCases.count, 25)
+        // Brightness in Light (#1108 / #1102), + B&W Mix in Color (#276).
+        XCTAssertEqual(Tool.allCases.count, 26)
     }
 
     func testToolGroupMembership() {
         // Light gained Brightness (#1108): 6 → 7.
         XCTAssertEqual(Tool.tools(in: .light).count, 7)
-        XCTAssertEqual(Tool.tools(in: .color).count, 5)
+        // Color gained B&W Mix (#276): 5 → 6.
+        XCTAssertEqual(Tool.tools(in: .color).count, 6)
         XCTAssertEqual(Tool.tools(in: .effects).count, 6)
         // Detail gained captureSharpen + captureSigma (#875): 5 → 7.
         XCTAssertEqual(Tool.tools(in: .detail).count, 7)
@@ -442,7 +443,7 @@ final class EditorStateTests: XCTestCase {
         XCTAssertEqual(session.model.brightness, 0, accuracy: 1e-9)
     }
 
-    func testWiredToolsCoverTwentyFourTools() {
+    func testWiredToolsCoverTwentyFiveTools() {
         // The S5 effects all left the #952 stub list as their stages
         // landed (vignette #1109, grain #1110, splitTone #1111), and HSL
         // left it at #274 — its 24 sub-params carry every edit. Crop
@@ -450,11 +451,17 @@ final class EditorStateTests: XCTestCase {
         // Per #875: captureSharpen / captureSigma stay wired to the
         // captureSharpening* fields. Presets left the stub list at #1115 —
         // wired, but value-less (nil displayRange keeps its value pipe
-        // inert). Brightness joined wired at #1108.
+        // inert). Brightness joined wired at #1108. B&W Mix (#276) joined
+        // wired — its eight sub-params drive the `grayMixer*` fields.
         let wired = Tool.allCases.filter { $0.isWired }
-        XCTAssertEqual(wired.count, 24)
+        XCTAssertEqual(wired.count, 25)
         XCTAssertTrue(Tool.hsl.isWired)
         XCTAssertNil(ToolValueMapping.displayRange(for: .hsl))
+        XCTAssertTrue(Tool.bwMix.isWired)
+        // Unlike HSL, B&W Mix DOES have a tool-level range: the drag bar
+        // drives `grayMixerRed`, its first sub-param.
+        XCTAssertEqual(ToolValueMapping.displayRange(for: .bwMix),
+                       AdjustmentModel.grayMixerRedRange)
         XCTAssertTrue(Tool.vignette.isWired)
         XCTAssertTrue(Tool.grain.isWired)
         XCTAssertTrue(Tool.splitTone.isWired)
@@ -465,134 +472,8 @@ final class EditorStateTests: XCTestCase {
         XCTAssertTrue(Tool.captureSigma.isWired)
     }
 
-    // MARK: - Presets (#1115)
-
-    private func preset(
-        _ fields: [String: PresetFieldValue],
-        name: String = "Test"
-    ) -> Preset {
-        Preset(id: "p1", name: name, fields: fields)
-    }
-
-    func testApplyPresetSparseMergesWithOneUndoEntry() {
-        let session = makeSession()
-        let state = EditorState(session: session)
-
-        // Pre-existing edit the preset must not clobber.
-        state.arm(tool: .exposure)
-        state.commit()
-        state.setArmedDisplayValue(1.5)
-
-        let ok = state.applyPreset(preset([
-            "contrast": .number(-50),
-            "saturation": .number(-100),
-        ]))
-        XCTAssertTrue(ok)
-        XCTAssertEqual(session.model.contrast, -50, accuracy: 1e-9)
-        XCTAssertEqual(session.model.saturation, -100, accuracy: 1e-9)
-        // Sparse merge: untouched fields keep their current values.
-        XCTAssertEqual(session.model.exposure, 1.5, accuracy: 1e-9)
-
-        // ONE undo entry: a single undo restores the full pre-apply state.
-        state.undo()
-        XCTAssertEqual(session.model.contrast, 0, accuracy: 1e-9)
-        XCTAssertEqual(session.model.saturation, 0, accuracy: 1e-9)
-        XCTAssertEqual(session.model.exposure, 1.5, accuracy: 1e-9)
-
-        // Redo replays the whole preset in one step.
-        state.redo()
-        XCTAssertEqual(session.model.contrast, -50, accuracy: 1e-9)
-        XCTAssertEqual(session.model.saturation, -100, accuracy: 1e-9)
-    }
-
-    func testApplyPresetClampsSkipsAndGuardsEnums() {
-        let session = makeSession()
-        let state = EditorState(session: session)
-
-        XCTAssertTrue(state.applyPreset(preset([
-            "exposure": .number(9.5),              // clamped to +4
-            "future_curve_strength": .number(0.5), // unknown → skipped
-            "profile": .string("Neutral"),         // known variant → applied
-            "look": .string("WarpDrive"),          // unknown variant → skipped
-        ])))
-        XCTAssertEqual(session.model.exposure, 4.0, accuracy: 1e-9)
-        XCTAssertEqual(session.model.profile, .neutral)
-        XCTAssertEqual(session.model.look, .default) // unchanged default
-    }
-
-    func testApplyPresetUnknownOnlyReturnsFalseAndPushesNoUndo() {
-        let session = makeSession()
-        let state = EditorState(session: session)
-        let before = session.model
-
-        XCTAssertFalse(state.applyPreset(preset(["future_only": .number(1)])))
-        XCTAssertEqual(session.model, before)
-        XCTAssertFalse(state.canUndo)
-    }
-
-    func testArmedToolAcceptsValueEditsGatesPresetsAndStubs() {
-        // `DragBar` disables hit-testing on this flag so its touch-down
-        // `commit()` can't push junk undo snapshots for tools without a
-        // value pipe (#1115 review).
-        let state = EditorState(session: makeSession())
-
-        // Value-carrying wired tools accept edits…
-        for tool in [Tool.exposure, .temp, .sharpen, .captureSigma] {
-            state.arm(tool: tool)
-            XCTAssertTrue(state.armedToolAcceptsValueEdits, "\(tool) should accept value edits")
-        }
-
-        // …the S5 effects (#1109 / #1110 / #1111) joined the value-carrying set…
-        for tool in [Tool.vignette, .grain, .splitTone] {
-            state.arm(tool: tool)
-            XCTAssertTrue(state.armedToolAcceptsValueEdits, "\(tool) should accept value edits")
-        }
-
-        // …presets (wired but value-less) and the gated stubs don't. HSL
-        // is absent on purpose — it has no tool-level range but always
-        // carries an armed sub-param, so it DOES accept edits (#274,
-        // covered by `EditorHSLTests`).
-        for tool in [Tool.presets, .crop] {
-            state.arm(tool: tool)
-            XCTAssertFalse(state.armedToolAcceptsValueEdits, "\(tool) must not accept value edits")
-        }
-    }
-
-    func testPresetsPillValuePipeIsInert() {
-        // Presets is wired (#1115) but value-less: drags and resets must
-        // not mutate the model NOR push junk undo entries.
-        let session = makeSession()
-        let state = EditorState(session: session)
-        let before = session.model
-
-        state.arm(tool: .presets)
-        state.setArmedDisplayValue(50)
-        state.resetArmedTool()
-
-        XCTAssertEqual(session.model, before)
-        XCTAssertEqual(state.armedDisplayValue, 0, accuracy: 1e-9)
-        XCTAssertFalse(state.canUndo)
-    }
-
-    func testCapturePresetFieldsIsSparse() {
-        let session = makeSession()
-        let state = EditorState(session: session)
-
-        XCTAssertTrue(state.capturePresetFields().isEmpty)
-
-        state.arm(tool: .exposure)
-        state.setArmedDisplayValue(1.25)
-        state.arm(tool: .noise)
-        state.setArmedDisplayValue(40)
-        session.model.profile = .neutral
-
-        XCTAssertEqual(state.capturePresetFields(), [
-            "exposure": .number(1.25),
-            "nr_luminance": .number(40),
-            "profile": .string("Neutral"),
-        ])
-    }
-
+    // Presets (#1115) tests → EditorStatePresetsTests.swift
     // Reset to factory defaults (#1372) and AUTO (#1379) tests →
     // EditorStateAutoResetTests.swift
+    // Black & white mix (#276) tests → EditorStateBlackWhiteTests.swift
 }

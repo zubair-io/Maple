@@ -12,6 +12,9 @@
 // would have pushed this file past `CONTRIBUTING.md`'s 600-line hard
 // budget.
 //
+// `BlackWhiteMode` lives in `AdjustmentModel+BlackWhite.swift` for the same
+// budget reason (#276).
+//
 // The nested value types the model carries live in their own files:
 // `Crop.swift` and `ToneCurve.swift` (both split off in #366, when the
 // point-curve fields pushed this file back against the budget).
@@ -256,6 +259,24 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     public var luminanceAdjustmentPurple: Double    // -100..100, default 0
     public var luminanceAdjustmentMagenta: Double   // -100..100, default 0
 
+    // Black & white mix (#276). `blackWhite` toggles the same 8-band Oklab
+    // stage the HSL sliders above run through into its monochrome path;
+    // the eight `grayMixer*` weights become per-hue-band luminance weights
+    // (chroma forced to zero) while it is `.on`. The 24 HSL sliders are
+    // inert while `blackWhite` is `.on`; `grayMixer*` is inert while it is
+    // `.off`. `BlackWhiteMode` lives in `AdjustmentModel+BlackWhite.swift`
+    // (budget split, matching `HighlightRecoveryMode` / `Look` / `Profile`
+    // pattern). XMP keys: `crs:ConvertToGrayscale`, `crs:GrayMixerRed`, etc.
+    public var blackWhite: BlackWhiteMode
+    public var grayMixerRed: Double         // -100..100, default 0
+    public var grayMixerOrange: Double      // -100..100, default 0
+    public var grayMixerYellow: Double      // -100..100, default 0
+    public var grayMixerGreen: Double       // -100..100, default 0
+    public var grayMixerAqua: Double        // -100..100, default 0
+    public var grayMixerBlue: Double        // -100..100, default 0
+    public var grayMixerPurple: Double      // -100..100, default 0
+    public var grayMixerMagenta: Double     // -100..100, default 0
+
     // Highlight recovery (Maple-proprietary)
     public var highlightRecovery: HighlightRecoveryMode
 
@@ -383,6 +404,15 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         luminanceAdjustmentBlue: Double = 0,
         luminanceAdjustmentPurple: Double = 0,
         luminanceAdjustmentMagenta: Double = 0,
+        blackWhite: BlackWhiteMode = .off,
+        grayMixerRed: Double = 0,
+        grayMixerOrange: Double = 0,
+        grayMixerYellow: Double = 0,
+        grayMixerGreen: Double = 0,
+        grayMixerAqua: Double = 0,
+        grayMixerBlue: Double = 0,
+        grayMixerPurple: Double = 0,
+        grayMixerMagenta: Double = 0,
         highlightRecovery: HighlightRecoveryMode = .chromaticAdaptation,
         autoExposure: AutoExposureMode = .on,
         look: Look = .default,
@@ -457,6 +487,15 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         self.luminanceAdjustmentBlue = luminanceAdjustmentBlue
         self.luminanceAdjustmentPurple = luminanceAdjustmentPurple
         self.luminanceAdjustmentMagenta = luminanceAdjustmentMagenta
+        self.blackWhite = blackWhite
+        self.grayMixerRed = grayMixerRed
+        self.grayMixerOrange = grayMixerOrange
+        self.grayMixerYellow = grayMixerYellow
+        self.grayMixerGreen = grayMixerGreen
+        self.grayMixerAqua = grayMixerAqua
+        self.grayMixerBlue = grayMixerBlue
+        self.grayMixerPurple = grayMixerPurple
+        self.grayMixerMagenta = grayMixerMagenta
         self.highlightRecovery = highlightRecovery
         self.autoExposure = autoExposure
         self.look = look

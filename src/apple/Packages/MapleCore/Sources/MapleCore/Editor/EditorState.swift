@@ -16,120 +16,6 @@
 
 import Foundation
 
-// MARK: - Tool model
-
-public enum ToolGroup: String, CaseIterable, Sendable, Hashable {
-    case light
-    case color
-    case effects
-    case detail
-
-    public var displayName: String {
-        switch self {
-        case .light:   return "Light"
-        case .color:   return "Color"
-        case .effects: return "Effects"
-        case .detail:  return "Detail"
-        }
-    }
-}
-
-/// 25 tools grouped per spec §2 "Groups & tools". Capture-sharpening
-/// Amount / Sigma (`captureSharpen` / `captureSigma`) joined the Detail
-/// group in #875 when the Develop tab — their only prior surface — was
-/// removed; they map directly to the `captureSharpening*` fields.
-/// Brightness (#1102 midtone-band gain) joined Light per tone-zoom spec
-/// §10.0 (#1108), placed directly after Exposure to match the
-/// scene_tone_controls pipeline order (exposure → brightness).
-/// Declaration order is presentation order (`tools(in:)` filters
-/// `allCases`).
-public enum Tool: String, CaseIterable, Sendable, Hashable {
-    // Light
-    case exposure, brightness, contrast, highlights, shadows, whites, blacks
-    // Color
-    case temp, tint, vibrance, saturation, hsl
-    // Effects
-    case clarity, texture, dehaze, vignette, grain, splitTone
-    // Detail
-    case sharpen, noise, colorNR, captureSharpen, captureSigma, crop, presets
-
-    public var group: ToolGroup {
-        switch self {
-        case .exposure, .brightness, .contrast, .highlights, .shadows, .whites, .blacks:
-            return .light
-        case .temp, .tint, .vibrance, .saturation, .hsl:
-            return .color
-        case .clarity, .texture, .dehaze, .vignette, .grain, .splitTone:
-            return .effects
-        case .sharpen, .noise, .colorNR, .captureSharpen, .captureSigma, .crop, .presets:
-            return .detail
-        }
-    }
-
-    public var displayName: String {
-        switch self {
-        case .exposure:   return "Exposure"
-        case .brightness: return "Brightness"
-        case .contrast:   return "Contrast"
-        case .highlights: return "Highlights"
-        case .shadows:    return "Shadows"
-        case .whites:     return "Whites"
-        case .blacks:     return "Blacks"
-        case .temp:       return "Temp"
-        case .tint:       return "Tint"
-        case .vibrance:   return "Vibrance"
-        case .saturation: return "Saturation"
-        case .hsl:        return "HSL"
-        case .clarity:    return "Clarity"
-        case .texture:    return "Texture"
-        case .dehaze:     return "Dehaze"
-        case .vignette:   return "Vignette"
-        case .grain:      return "Grain"
-        case .splitTone:  return "Split Tone"
-        case .sharpen:        return "Sharpen"
-        case .noise:          return "Noise"
-        case .colorNR:        return "Color NR"
-        case .captureSharpen: return "Deconv"
-        case .captureSigma:   return "Deconv σ"
-        case .crop:           return "Crop"
-        case .presets:        return "Presets"
-        }
-    }
-
-    /// True when this tool is wired to a *pipeline-applied*
-    /// `AdjustmentModel` field. Stub tools render in the pill row but
-    /// reject writes (the scrub guards in `setArmedDisplayValue` /
-    /// `resetArmedTool` short-circuit on `!isWired`) — follow-up tickets
-    /// track the missing work.
-    ///
-    /// The S5 effects pills are all real pipeline stages now — vignette
-    /// (#1109), grain (#1110), splitTone (#1111) left the #952 stub list
-    /// as their stages landed. HSL left it at #274: the 8-band Oklab
-    /// stage is live in raw-core and the pill drives its 24 sub-params
-    /// through `HSLSection` (it has no single primary drag-bar field, so
-    /// `displayRange` stays nil and the sub-param path carries every
-    /// edit). Crop (#638) remains a stub — its model field and pipeline
-    /// math exist, but it is edited through the canvas overlay rather
-    /// than the drag bar.
-    ///
-    /// Presets left the stub list at #1115: the pill opens the presets
-    /// sheet/popover (see EditorView) instead of carrying a drag-bar
-    /// value — `displayRange` stays nil, so the value pipe is inert for
-    /// it (the scrub/reset guards also check `displayRange`).
-    public var isWired: Bool {
-        switch self {
-        case .crop:
-            return false
-        default:
-            return true
-        }
-    }
-
-    public static func tools(in group: ToolGroup) -> [Tool] {
-        Self.allCases.filter { $0.group == group }
-    }
-}
-
 // MARK: - EditorState
 
 /// Transient UI state for the editor. Reads model state through an
@@ -142,7 +28,29 @@ public final class EditorState {
     /// The currently-armed (group, tool) — the next drag-bar gesture
     /// targets this tool. Persisted by callers via `cm.editor.armed`.
     public var armedGroup: ToolGroup
-    public var armedTool: Tool
+
+    /// Backing store for `armedTool`.
+    private var armedToolStorage: Tool
+
+    /// The currently-armed tool, normalised on read: `.hsl` is not a
+    /// reachable armed state while Black & White is on (#276 × #274).
+    ///
+    /// `setBlackWhite` re-arms `.bwMix` when the user flips the switch,
+    /// but the mode can also land straight on the model — a preset apply,
+    /// an undo, a sidecar load — and every one of those paths would
+    /// otherwise leave `.hsl` armed on a tool that no surface shows and
+    /// no gesture should edit: `HSLSection` renders on `armedTool == .hsl`
+    /// in four of the five control surfaces, and `DragBar` would happily
+    /// scrub a band field through `armedSubParamId`. Normalising here
+    /// makes the invariant total instead of chasing every writer.
+    public var armedTool: Tool {
+        get {
+            armedToolStorage == .hsl && session.model.blackWhite == .on
+                ? .bwMix
+                : armedToolStorage
+        }
+        set { armedToolStorage = newValue }
+    }
 
     /// Armed sub-param id for multi-param tools (#1108, spec §10.0);
     /// `nil` while a single-param tool is armed. Resolved on every
@@ -181,7 +89,7 @@ public final class EditorState {
         let memory = subParamMemory ?? .shared
         self.session = session
         self.armedGroup = armedGroup
-        self.armedTool = armedTool
+        self.armedToolStorage = armedTool
         self.subParamMemory = memory
         self.zoom = CanvasZoomController(session: session)
         self.armedSubParamId = Self.resolveSubParamId(
@@ -253,6 +161,51 @@ public final class EditorState {
         self.armedGroup = group
         if armedTool.group != group {
             arm(tool: Tool.tools(in: group).first ?? armedTool)
+        }
+    }
+
+    /// Tools visible in `group` given the current model state (#276).
+    /// Mirrors `Tool.tools(in:)` but additionally hides `.hsl` while Black
+    /// & White is engaged: the 24-band HSL panel is meaningless once the
+    /// image renders through the 8-band gray mixer instead (the pipeline
+    /// forces the HSL bands inert while `blackWhite == .on`, same as
+    /// `grayMixer*` is inert while it is `.off`). Views that render a
+    /// tool-pill row for a group must call this instead of
+    /// `Tool.tools(in:)` so the row reacts to the toggle.
+    public func visibleTools(in group: ToolGroup) -> [Tool] {
+        Tool.tools(in: group).filter { !($0 == .hsl && session.model.blackWhite == .on) }
+    }
+
+    /// True while the HSL 8-band surface may be rendered (#274 × #276).
+    ///
+    /// `StackedAdjustmentsPanel` pins `HSLSection` to the Color section
+    /// rather than keying it on the armed tool — HSL carries 24 fields
+    /// and no primary, so it is filtered out of the living-slider stack
+    /// and cannot inherit the Black & White gate from either
+    /// `visibleTools(in:)` or the `armedTool` normalisation. That one
+    /// surface asks here. Derived from `visibleTools(in:)` rather than
+    /// restating the rule, so the two can't drift.
+    public var showsHSLSurface: Bool {
+        visibleTools(in: .color).contains(.hsl)
+    }
+
+    /// Set the Black & White toggle (#276). Commits a snapshot first — the
+    /// toggle is a discrete on/off action (like the "As Shot" WB reset in
+    /// `ColorAccessoryRow`), not a continuous drag, so it gets its own undo
+    /// entry. When turning it ON while `.hsl` is the armed tool, arms
+    /// `.bwMix` instead — `.hsl` disappears from `visibleTools(in:)` the
+    /// moment B&W engages, so nothing should remain armed on a tool the
+    /// pill row no longer shows.
+    public func setBlackWhite(_ mode: BlackWhiteMode) {
+        commit()
+        // Read the armed tool BEFORE the model moves: once `blackWhite`
+        // is `.on`, `armedTool` normalises `.hsl` away on its own, so the
+        // test below would never fire and the storage would keep pointing
+        // at `.hsl` — flipping B&W back off would silently re-arm it.
+        let wasHSLArmed = armedTool == .hsl
+        session.model.blackWhite = mode
+        if mode == .on && wasHSLArmed {
+            arm(tool: .bwMix)
         }
     }
 

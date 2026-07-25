@@ -80,6 +80,12 @@ public enum AdjustmentGroupMerge {
             merged.profile = source.profile
         case .hotPixelSuppression:
             merged.hotPixelSuppression = source.hotPixelSuppression
+        case .blackWhite:
+            // #276. In the Color group, so a paste of Color from a
+            // monochrome source must convert the target too — without this
+            // case the mode falls through to `default` and the eight
+            // gray-mixer weights land on an image still rendering in colour.
+            merged.blackWhite = source.blackWhite
         default:
             break // wb_method, tone_curve_mode, capture_sharpening_radius — no Swift property.
         }

@@ -275,7 +275,7 @@ struct StackedAdjustmentsPanel: View {
 
     @ViewBuilder
     private func groupSectionBody(_ group: ToolGroup) -> some View {
-        let sliderTools = Tool.tools(in: group)
+        let sliderTools = state.visibleTools(in: group)
             .filter { $0.isWired && ToolValueMapping.displayRange(for: $0) != nil }
 
         VStack(spacing: 0) {
@@ -313,8 +313,10 @@ struct StackedAdjustmentsPanel: View {
             // HSL 8-band panel (#274). It sits inside the Color section
             // rather than in `sliderTools` because HSL carries 24 fields
             // and no single primary one, so it has no `displayRange` and
-            // is filtered out of the living-slider stack above.
-            if group == .color {
+            // is filtered out of the living-slider stack above — which is
+            // also why it needs the Black & White gate (#276) spelled out
+            // here rather than inheriting it from `visibleTools(in:)`.
+            if group == .color, state.showsHSLSurface {
                 HSLSection(state: state)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 8)

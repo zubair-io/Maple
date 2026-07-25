@@ -54,6 +54,8 @@ struct MobileControlBar: View {
                 CropToolbar(state: state)
             } else if state.armedTool == .hsl {
                 // 8-band HSL panel replaces the group slider stack (#274).
+                // `armedTool` can never be `.hsl` while Black & White is
+                // on (#276) — EditorState normalises it to `.bwMix`.
                 HSLSection(state: state)
             } else {
                 let subs = state.armedSubParams
@@ -148,7 +150,7 @@ struct MobileControlBar: View {
 
     /// Wired, slider-backed tools in the armed group.
     private var wiredTools: [Tool] {
-        Tool.tools(in: state.armedGroup)
+        state.visibleTools(in: state.armedGroup)
             .filter { $0.isWired && ToolValueMapping.displayRange(for: $0) != nil }
     }
 

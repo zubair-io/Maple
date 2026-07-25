@@ -38,6 +38,11 @@ public enum ToolValueMapping {
         case .vignette: return -100...100
         case .grain:    return 0...100
         case .splitTone: return -100...100
+        // B&W Mix (#276) — wired multi-param; the grid row's "unarmed"
+        // representation reads/writes the first-declared sub-param
+        // (grayMixerRed), same convention as vignette → amount,
+        // grain → amount, splitTone → balance.
+        case .bwMix:    return AdjustmentModel.grayMixerRedRange
         default:        return nil
         }
     }
@@ -123,6 +128,8 @@ public enum ToolValueMapping {
         case .vignette:   return model.vignetteAmount
         case .grain:      return model.grainAmount
         case .splitTone:  return model.splitToneBalance
+        // B&W Mix (#276) — first-declared sub-param, see `displayRange`.
+        case .bwMix:      return model.grayMixerRed
         // Stub tools — not wired.
         default:          return 0
         }
@@ -177,6 +184,8 @@ public enum ToolValueMapping {
         case .vignette:   model.vignetteAmount = value
         case .grain:      model.grainAmount = value
         case .splitTone:  model.splitToneBalance = value
+        // B&W Mix (#276) — first-declared sub-param, see `displayRange`.
+        case .bwMix:      model.grayMixerRed = value
         // Stub tools — no-op.
         default: break
         }
