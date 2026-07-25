@@ -80,6 +80,7 @@ import { DragBarComponent } from '../../editor/drag-bar.component';
 import { ValueChipComponent } from '../../editor/value-chip.component';
 import { InfoPanelComponent } from '../../info/info-panel.component';
 import { BottomSheetComponent } from '../bottom-sheet.component';
+import { ExportDialogComponent } from '../../export/export-dialog.component';
 import { TabBarVisibilityService } from '../tab-bar-visibility.service';
 import { editRouteCommands, viewRouteCommands } from '../../addressing/route-address';
 import { applyRouteAddress as applyEditorRouteAddress } from './editor-shell-route';
@@ -130,6 +131,7 @@ type ChromeState = 'full' | 'receded' | 'scrubbing';
     ValueChipComponent,
     InfoPanelComponent,
     BottomSheetComponent,
+    ExportDialogComponent,
   ],
   styleUrl: './editor-shell.component.scss',
   templateUrl: './editor-shell.component.html',
@@ -230,6 +232,9 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
    *  anchor (not the shared curve/crop/presets/HSL one), so it does not
    *  participate in that mutual-exclusion group. */
   readonly infoOpen = signal<boolean>(false);
+
+  /** Export options dialog (#943) — modal, so it has no anchor to share. */
+  readonly exportOpen = signal<boolean>(false);
 
   // Chrome recede (idle-timer/resize-observer/pointermove machinery lives in
   // editor-shell-chrome.ts, extracted to stay under the per-file LOC budget).

@@ -1,0 +1,160 @@
+@if (visible()) {
+  <div
+    class="export-backdrop"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Export image"
+    (click)="onBackdropClick()"
+  >
+    <div class="export-card" (click)="$event.stopPropagation()">
+      <!-- Header -->
+      <div class="export-header">
+        <span class="export-title">Export image</span>
+        @if (!busy()) {
+          <button type="button" class="export-close" aria-label="Close" (click)="onClose()">
+            ✕
+          </button>
+        }
+      </div>
+
+      <!-- Options form -->
+      @if (phase() === 'options') {
+        <div class="export-body">
+          <!-- Format -->
+          <div class="export-field">
+            <label class="export-label" for="export-format">Format</label>
+            <select
+              id="export-format"
+              class="export-select"
+              [value]="format()"
+              (change)="onFormatChange($any($event.target).value)"
+            >
+              @for (choice of formatChoices; track choice.value) {
+                <option [value]="choice.value">{{ choice.label }}</option>
+              }
+            </select>
+            @for (choice of formatChoices; track choice.value) {
+              @if (choice.value === format()) {
+                <p class="export-hint">{{ choice.detail }}</p>
+              }
+            }
+          </div>
+
+          <!-- Quality (JPEG only) -->
+          @if (qualityVisible()) {
+            <div class="export-field">
+              <label class="export-label" for="export-quality">
+                Quality <span class="export-value">{{ quality() }}</span>
+              </label>
+              <input
+                id="export-quality"
+                class="export-range"
+                type="range"
+                min="1"
+                max="100"
+                step="1"
+                [value]="quality()"
+                (input)="onQualityChange($any($event.target).value)"
+              />
+              <p class="export-hint">
+                Higher keeps more detail and makes a larger file. 90–95 is visually lossless on most
+                photographs.
+              </p>
+            </div>
+          }
+
+          <!-- Colour space -->
+          <div class="export-field">
+            <label class="export-label" for="export-color-space">Colour space</label>
+            <select
+              id="export-color-space"
+              class="export-select"
+              [value]="colorSpace()"
+              (change)="onColorSpaceChange($any($event.target).value)"
+            >
+              @for (choice of colorSpaceChoices; track choice.value) {
+                <option [value]="choice.value">{{ choice.label }}</option>
+              }
+            </select>
+            @for (choice of colorSpaceChoices; track choice.value) {
+              @if (choice.value === colorSpace()) {
+                <p class="export-hint">{{ choice.detail }}</p>
+              }
+            }
+          </div>
+
+          <!-- Size -->
+          <div class="export-field">
+            <label class="export-label" for="export-size">Size</label>
+            <select
+              id="export-size"
+              class="export-select"
+              [value]="maxSidePixels()"
+              (change)="onSizeChange($any($event.target).value)"
+            >
+              <option [value]="0">Full resolution</option>
+              @for (preset of sizePresets; track preset) {
+                <option [value]="preset">Long edge {{ preset }} px</option>
+              }
+            </select>
+            @if (outputSizeKnown()) {
+              <p class="export-hint">
+                Output: {{ outputSize().width }} × {{ outputSize().height }} px. Never upscales.
+              </p>
+            } @else {
+              <p class="export-hint">Never upscales beyond the original resolution.</p>
+            }
+          </div>
+        </div>
+
+        <div class="export-footer">
+          <button type="button" class="export-btn-secondary" (click)="onClose()">Cancel</button>
+          <button
+            type="button"
+            class="export-btn-primary"
+            [disabled]="asset() === null"
+            (click)="onExport()"
+          >
+            Export
+          </button>
+        </div>
+      }
+
+      <!-- Exporting -->
+      @if (phase() === 'exporting') {
+        <div class="export-body export-center">
+          <span class="export-muted">Rendering at full quality…</span>
+          <p class="export-hint">
+            Large images take a while — the export runs the high-quality demosaic, not the preview
+            one.
+          </p>
+        </div>
+      }
+
+      <!-- Done -->
+      @if (phase() === 'done') {
+        <div class="export-body export-center">
+          <span class="export-success">Exported {{ outcome()?.filename }}</span>
+          @if (outcome(); as result) {
+            <p class="export-hint">{{ result.width }} × {{ result.height }} px</p>
+          }
+        </div>
+        <div class="export-footer">
+          <button type="button" class="export-btn-primary" (click)="onClose()">Done</button>
+        </div>
+      }
+
+      <!-- Error -->
+      @if (phase() === 'error') {
+        <div class="export-body export-center">
+          <span class="export-error">Export failed</span>
+          <p class="export-hint">{{ errorMessage() }}</p>
+        </div>
+        <div class="export-footer">
+          <button type="button" class="export-btn-secondary" (click)="onClose()">Close</button>
+          <button type="button" class="export-btn-primary" (click)="onRetry()">Try again</button>
+        </div>
+      }
+    </div>
+  </div>
+}

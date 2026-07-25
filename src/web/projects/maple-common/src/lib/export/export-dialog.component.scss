@@ -1,0 +1,187 @@
+// export-dialog.component.scss — edited-image export options dialog (#943).
+// Follows the pano-dialog surface treatment so the two read as one family.
+
+.export-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.export-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 420px;
+  max-height: 90vh;
+  border-radius: 8px;
+  background: var(--color-surface);
+  border: 0.5px solid var(--color-border);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.export-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 0.5px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.export-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-main);
+  letter-spacing: -0.01em;
+}
+
+.export-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition:
+    background 120ms,
+    color 120ms;
+
+  &:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text-main);
+  }
+}
+
+.export-body {
+  padding: 16px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+}
+
+.export-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  padding: 28px 16px;
+}
+
+.export-field {
+  margin-bottom: 18px;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.export-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-main);
+  margin-bottom: 6px;
+}
+
+.export-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.export-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}
+
+.export-select {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--color-text-main);
+  background: var(--color-surface-hover);
+  border: 0.5px solid var(--color-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.export-range {
+  width: 100%;
+  accent-color: var(--color-accent, currentColor);
+  cursor: pointer;
+}
+
+.export-muted {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.export-success {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-main);
+  word-break: break-all;
+}
+
+.export-error {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-danger, #e05252);
+}
+
+.export-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 0.5px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.export-btn-primary,
+.export-btn-secondary {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 0.5px solid var(--color-border);
+  transition:
+    background 120ms,
+    opacity 120ms;
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+}
+
+.export-btn-primary {
+  background: var(--color-text-main);
+  color: var(--color-surface);
+  border-color: transparent;
+}
+
+.export-btn-secondary {
+  background: transparent;
+  color: var(--color-text-main);
+
+  &:hover:not(:disabled) {
+    background: var(--color-surface-hover);
+  }
+}

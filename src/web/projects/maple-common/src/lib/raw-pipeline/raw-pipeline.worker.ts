@@ -30,6 +30,7 @@ import {
   setLiveCanvas,
 } from './raw-pipeline.worker-handlers';
 import { markStart, markEnd, markScopeReadback } from './raw-pipeline.perf';
+import { handleExport } from './raw-pipeline.export-handler';
 
 // Forward worker console output to the main thread so Rust panic-hook messages
 // (which call console.error inside the worker) are visible in browser DevTools
@@ -102,6 +103,9 @@ addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
       return;
     case 'auto-adjust':
       await handleAutoAdjust(req);
+      return;
+    case 'export':
+      await handleExport(req);
       return;
     default:
       // Unknown request type — silently ignore (matches the prior early-return).
