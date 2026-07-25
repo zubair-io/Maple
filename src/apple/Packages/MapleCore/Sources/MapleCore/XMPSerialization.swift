@@ -146,6 +146,13 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
     var currentLi: String?
     var parsedKeywords: [String] = []
 
+    /// Point tone curves (#365) — the other nested construct in the schema.
+    /// Four `papp:SceneLinearToneCurve*` parents, each wrapping an `rdf:Seq`
+    /// of `"x, y"` `rdf:li` leaves. The walk lives in
+    /// `XMPSerialization+ToneCurves.swift`; this delegate just feeds it the
+    /// element / character events.
+    var toneCurves = ToneCurveWalker()
+
     init(model: AdjustmentModel, culling: CullingState) {
         self.model = model
         self.culling = culling
@@ -180,6 +187,11 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
         }
 
         let qual = qName ?? elementName
+        // Point tone curves (#365). Inside a curve subtree there are no Maple
+        // attributes to read, so the whole attribute walk below is skipped.
+        if toneCurves.start(qual) {
+            return
+        }
         if Self.isLocalName(qual, "subject") {
             inDCSubject = true
             parsedKeywords.removeAll(keepingCapacity: true)
@@ -233,6 +245,7 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
+        toneCurves.characters(string)
         guard inDCSubject, currentLi != nil else { return }
         currentLi! += string
     }
@@ -242,6 +255,7 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
                 namespaceURI: String?,
                 qualifiedName qName: String?) {
         let qual = qName ?? elementName
+        toneCurves.end(qual, into: &model)
         if inDCSubject {
             if Self.isLocalName(qual, "li"), let text = currentLi {
                 // Per IPTC convention keywords are non-empty; drop blanks.
@@ -532,10 +546,21 @@ public struct XMPSerializer {
     ) -> String {
         let attrs = _buildAttrs(model: model, culling: culling, omitWhiteBalance: omitWhiteBalance)
         let attrsStr = attrs.map { "\($0.0)=\"\($0.1)\"" }.joined(separator: "\n        ")
-        let (dcNamespace, keywordsBlock) = _buildKeywordsBlock(culling: culling)
+        let (dcNamespace, rawKeywordsBlock) = _buildKeywordsBlock(culling: culling)
+        // Point tone curves (#365) — the second nested child block. Children
+        // of `rdf:Description` sit at six spaces in this document shape (see
+        // `docs/xmp-canonical-format.md` § "Indentation"). Identity curves
+        // emit nothing, so a model with no authored curve keeps the
+        // pre-#365 bytes exactly.
+        let toneCurvesBlock = _buildToneCurvesBlock(
+            model: model, indent: "      ")
+        // Both blocks carry a leading newline when non-empty so they splice
+        // straight after the `rdf:Description` open tag's `>`.
+        let keywordsBlock = rawKeywordsBlock
+            + (toneCurvesBlock.isEmpty ? "" : "\n" + toneCurvesBlock)
 
         // Switch between self-closing and open/close `rdf:Description`
-        // forms based on whether there's nested content (keywords block).
+        // forms based on whether there's any nested content.
         if keywordsBlock.isEmpty {
             return """
             <?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzreSzNTczkc9d"?>
