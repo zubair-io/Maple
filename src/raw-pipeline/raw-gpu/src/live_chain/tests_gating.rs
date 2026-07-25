@@ -105,21 +105,38 @@ fn linear_rec2020_shape_skips_capture_sharpening_look_and_keeps_wb_gated() {
     );
 }
 
-/// Split-tone sub-param gating (#1111): hues / balance alone must NOT
-/// engage the pass — the gate is on the two saturations, mirroring the
-/// raw-core stage's zero-saturation short-circuit.
+/// Colour-grading sub-param gating (#275): hues / balance alone must NOT
+/// engage the pass — the gate is on every wheel's saturation AND
+/// luminance, mirroring the raw-core stage's identity short-circuit.
 #[test]
-fn split_tone_hues_balance_alone_do_not_engage_the_pass() {
+fn color_grade_hues_balance_alone_do_not_engage_the_pass() {
     let mut case = neutral_case();
-    case.model.split_tone_shadow_hue = 220.0; // saturations stay 0
+    case.model.split_tone_shadow_hue = 220.0; // saturations / lums stay 0
     case.model.split_tone_highlight_hue = 40.0;
+    case.model.color_grade_midtone_hue = 150.0;
+    case.model.color_grade_global_hue = 310.0;
     case.model.split_tone_balance = 80.0;
     let inputs = case.gpu_inputs();
     let passes = build_live_chain(&inputs, AirlightSource::Cpu([0.0; 3]));
     assert_eq!(
         passes.len(),
         VIEW_TAIL_PASS_COUNT,
-        "hues/balance without saturation must not add a split-tone pass"
+        "hues/balance without saturation or luminance must not add a colour-grade pass"
+    );
+}
+
+/// A luminance offset alone DOES engage the pass, even with every
+/// saturation at zero — the third slider per wheel is a real control.
+#[test]
+fn color_grade_luminance_alone_engages_the_pass() {
+    let mut case = neutral_case();
+    case.model.color_grade_midtone_luminance = -40.0;
+    let inputs = case.gpu_inputs();
+    let passes = build_live_chain(&inputs, AirlightSource::Cpu([0.0; 3]));
+    assert_eq!(
+        passes.len(),
+        VIEW_TAIL_PASS_COUNT + 1,
+        "a zone luminance offset must add the colour-grade pass"
     );
 }
 

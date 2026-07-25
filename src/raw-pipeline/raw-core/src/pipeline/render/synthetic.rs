@@ -11,8 +11,8 @@ use crate::{
     error::Result,
     image::{ColorSpace, Image},
     stages::{
-        clarity, dehaze, grain, hsl, noise_reduction, saturation, scene_tone_controls, sharpen,
-        split_tone, texture, vibrance, vignette,
+        clarity, color_grade, dehaze, grain, hsl, noise_reduction, saturation, scene_tone_controls,
+        sharpen, texture, vibrance, vignette,
     },
     view::{agx, encode},
     xmp::AdjustmentModel,
@@ -47,18 +47,9 @@ pub fn render_from_scene_linear(
     dump_after("00_synthetic_input", &scene);
     stage("synth_agx", || agx::apply(&mut scene, model.contrast));
     dump_after("16_agx", &scene);
-    // Split toning (#1111) — same display-linear position as the RAW path.
-    stage("synth_split_tone", || {
-        split_tone::apply(
-            &mut scene,
-            model.split_tone_shadow_hue,
-            model.split_tone_shadow_saturation,
-            model.split_tone_highlight_hue,
-            model.split_tone_highlight_saturation,
-            model.split_tone_balance,
-        )
-    });
-    dump_after("16a_split_tone", &scene);
+    // Colour grading (#275) — same display-linear position as the RAW path.
+    stage("synth_color_grade", || color_grade::apply_model(&mut scene, model));
+    dump_after("16a_color_grade", &scene);
     // Film grain (#1110) — same display-linear position as the RAW path.
     stage("synth_grain", || {
         grain::apply(
@@ -171,18 +162,9 @@ pub fn render_from_scene_linear_with_chain(
     dump_after("15_nr_color", &scene);
     stage("synth_agx", || agx::apply(&mut scene, model.contrast));
     dump_after("16_agx", &scene);
-    // Split toning (#1111) — same display-linear position as the RAW path.
-    stage("synth_split_tone", || {
-        split_tone::apply(
-            &mut scene,
-            model.split_tone_shadow_hue,
-            model.split_tone_shadow_saturation,
-            model.split_tone_highlight_hue,
-            model.split_tone_highlight_saturation,
-            model.split_tone_balance,
-        )
-    });
-    dump_after("16a_split_tone", &scene);
+    // Colour grading (#275) — same display-linear position as the RAW path.
+    stage("synth_color_grade", || color_grade::apply_model(&mut scene, model));
+    dump_after("16a_color_grade", &scene);
     // Film grain (#1110) — same display-linear position as the RAW path.
     stage("synth_grain", || {
         grain::apply(

@@ -90,7 +90,7 @@ use crate::residual_lut::ResidualLutPass;
 use crate::saturation::SaturationPass;
 use crate::scene_tone_controls::SceneToneControlsPass;
 use crate::sharpen::SharpenPass;
-use crate::split_tone::SplitTonePass;
+use crate::color_grade::{ColorGradePass, ColorGradeSliders};
 use crate::srgb_gamma::SrgbGammaPass;
 use crate::texture::TexturePass;
 use crate::tone_curves::{ToneCurveInputs, ToneCurvesPass};
@@ -162,14 +162,26 @@ pub struct FullChainInputs {
     pub grain_amount: f32,
     pub grain_size: f32,
     pub grain_roughness: f32,
-    /// Split toning (#1111): hues in degrees [0, 360], saturations [0, 100],
-    /// balance [-100, 100]. Display-linear Oklab tint — runs in the view
-    /// tail between agx and grain.
+    /// Colour grading (#275): hues in degrees [0, 360], saturations
+    /// [0, 100], luminances [-100, 100], balance [-100, 100].
+    /// Display-linear Oklab three-zone tint — runs in the view tail
+    /// between agx and grain. Shadow/highlight hue+sat and the balance
+    /// keep the `split_tone_*` names because they are ACR's
+    /// `crs:SplitToning*` sliders, exactly as ACR's Color Grading panel
+    /// stores them.
     pub split_tone_shadow_hue: f32,
     pub split_tone_shadow_saturation: f32,
     pub split_tone_highlight_hue: f32,
     pub split_tone_highlight_saturation: f32,
     pub split_tone_balance: f32,
+    pub color_grade_shadow_luminance: f32,
+    pub color_grade_midtone_hue: f32,
+    pub color_grade_midtone_saturation: f32,
+    pub color_grade_midtone_luminance: f32,
+    pub color_grade_highlight_luminance: f32,
+    pub color_grade_global_hue: f32,
+    pub color_grade_global_saturation: f32,
+    pub color_grade_global_luminance: f32,
     pub sharpen_amount: f32,
     pub sharpen_radius: f32,
     pub sharpen_detail: f32,
@@ -254,6 +266,35 @@ pub const PROFILE_ID_ACR_MATCH: u8 = 2;
 ///
 /// Returns `(prefix_passes, dehaze_and_suffix_passes)` where concatenating them
 /// in order is identical to a single full Vec — the canonical assembly artifact.
+/// Gather the thirteen colour-grading sliders off the chain inputs — the
+/// single place the `split_tone_*` / `color_grade_*` field split is
+/// resolved, shared by the full chain, the live chain and the gate.
+pub fn color_grade_sliders(inputs: &FullChainInputs) -> ColorGradeSliders {
+    ColorGradeSliders {
+        shadow: [
+            inputs.split_tone_shadow_hue,
+            inputs.split_tone_shadow_saturation,
+            inputs.color_grade_shadow_luminance,
+        ],
+        midtone: [
+            inputs.color_grade_midtone_hue,
+            inputs.color_grade_midtone_saturation,
+            inputs.color_grade_midtone_luminance,
+        ],
+        highlight: [
+            inputs.split_tone_highlight_hue,
+            inputs.split_tone_highlight_saturation,
+            inputs.color_grade_highlight_luminance,
+        ],
+        global: [
+            inputs.color_grade_global_hue,
+            inputs.color_grade_global_saturation,
+            inputs.color_grade_global_luminance,
+        ],
+        balance: inputs.split_tone_balance,
+    }
+}
+
 /// Passing `airlight` builds the `DehazePass` at the head of the suffix.
 pub fn build_full_chain_passes(inputs: &FullChainInputs, airlight: [f32; 3]) -> BoxedPasses {
     let (prefix, suffix) = build_split(inputs, airlight);
@@ -347,14 +388,10 @@ pub fn build_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses
             contrast: inputs.contrast,
         }));
     }
-    // Split toning (#1111) — display-linear Oklab tint, post-AgX, before
-    // grain (the render tail's 16a position).
-    suffix.push(Box::new(SplitTonePass {
-        shadow_hue: inputs.split_tone_shadow_hue,
-        shadow_sat: inputs.split_tone_shadow_saturation,
-        highlight_hue: inputs.split_tone_highlight_hue,
-        highlight_sat: inputs.split_tone_highlight_saturation,
-        balance: inputs.split_tone_balance,
+    // Colour grading (#275) — display-linear Oklab three-zone tint,
+    // post-AgX, before grain (the render tail's 16a position).
+    suffix.push(Box::new(ColorGradePass {
+        sliders: color_grade_sliders(inputs),
     }));
     // Film grain (#1110) — display-linear, post-AgX, before the target
     // gamut (the render tail's 16b position).

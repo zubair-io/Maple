@@ -224,6 +224,14 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
         split_tone_highlight_hue: p.split_tone_highlight_hue,
         split_tone_highlight_saturation: p.split_tone_highlight_saturation,
         split_tone_balance: p.split_tone_balance,
+        color_grade_shadow_luminance: p.color_grade_shadow_luminance,
+        color_grade_midtone_hue: p.color_grade_midtone_hue,
+        color_grade_midtone_saturation: p.color_grade_midtone_saturation,
+        color_grade_midtone_luminance: p.color_grade_midtone_luminance,
+        color_grade_highlight_luminance: p.color_grade_highlight_luminance,
+        color_grade_global_hue: p.color_grade_global_hue,
+        color_grade_global_saturation: p.color_grade_global_saturation,
+        color_grade_global_luminance: p.color_grade_global_luminance,
         // HSL 8-band adjustments (#1112).
         hsl_hue: [
             p.hsl_hue_red,
