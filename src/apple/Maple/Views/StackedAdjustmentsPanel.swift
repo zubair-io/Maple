@@ -304,6 +304,16 @@ struct StackedAdjustmentsPanel: View {
                 }
             }
             .padding(.vertical, 6)
+
+            // HSL 8-band panel (#274). It sits inside the Color section
+            // rather than in `sliderTools` because HSL carries 24 fields
+            // and no single primary one, so it has no `displayRange` and
+            // is filtered out of the living-slider stack above.
+            if group == .color {
+                HSLSection(state: state)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 8)
+            }
         }
     }
 

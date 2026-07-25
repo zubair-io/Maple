@@ -17,7 +17,10 @@ struct SubParamRow: View {
     @Bindable var state: EditorState
 
     var body: some View {
-        let subs = state.armedSubParams
+        // HSL declares 24 sub-params but owns its own two-axis selector
+        // (`HSLSection`: 8 band swatches × 3 channel sliders, #274) — a
+        // flat 24-chip row would neither fit the bar nor read as bands.
+        let subs = state.armedTool == .hsl ? [] : state.armedSubParams
         if subs.count > 1 {
             HStack(spacing: 6) {
                 ForEach(subs) { sub in
