@@ -178,20 +178,30 @@ extension _XMPParserDelegate {
         // Lightroom culling
         case "xmp:Rating":
             if let n = Int(value) { culling.stars = max(0, min(5, n)) }
-        // `xmp:Label` is read as the pick/reject FLAG on Apple, matching what
-        // this module's serializer writes ("Red" / "Rejected"). Interop note
-        // (#1656): the web parser instead reads Adobe's `xmp:Label` colour
-        // words ("Red", "Purple", …) as a COLOUR label, and prefers
-        // `papp:ColorLabel` over them when both are present. Apple must not
-        // copy that mapping — because the flag shares this attribute here,
-        // doing so would turn every Apple-authored pick into a red colour
-        // label. Colour labels are therefore read from `papp:ColorLabel`
-        // only, exactly like the API parser (`metadata-parser.ts`).
+        // Canonical cull flag (#2221). Matched case-sensitively against the
+        // bare lowercase vocabulary, exactly like `metadata-parser.ts` and
+        // `xmp-culling.ts` — a laxer match here would let a sidecar resolve
+        // to a flag on Apple and to unflagged on the other two.
+        case "papp:Flag":
+            switch value {
+            case "pick":   culling.flag = .pick;   cullFlagSeen = true
+            case "reject": culling.flag = .reject; cullFlagSeen = true
+            default:       break
+            }
+        // Legacy Apple cull-flag alias — read-only (#2221). Sidecars written
+        // before the canonical key carry `xmp:Label="Red"` for a pick and
+        // `xmp:Label="Rejected"` for a reject; `"Rejected"` matched nothing
+        // here, so every reject on disk silently decayed to `.none` on
+        // reload. Both spellings of each are accepted so no existing sidecar
+        // is stranded. Deliberately NOT a colour-label mapping (#1656): this
+        // attribute is overloaded in Apple-authored files, so reading Adobe
+        // colour words out of it would turn every legacy pick into red.
         case "xmp:Label":
+            guard !cullFlagSeen else { break }
             switch value.lowercased() {
-            case "red", "pick": culling.flag = .pick
-            case "reject":      culling.flag = .reject
-            default:            break
+            case "red", "pick":        culling.flag = .pick
+            case "reject", "rejected": culling.flag = .reject
+            default:                   break
             }
         // Colour label (#1656/#1657). Unknown values leave the label unset
         // rather than storing an out-of-vocabulary string, mirroring the
