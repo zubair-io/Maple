@@ -26,10 +26,12 @@ import { PREVIEW_LONG_EDGE_PX, PREVIEW_CACHE_SUFFIX } from '../../indexer/previe
 import { cachePathForAsset } from '../../fs/xmp.ts';
 import * as imgdecodePoolModule from '../../thumbs/imgdecode-pool.ts';
 import * as videoPosterModule from '../../thumbs/video-poster.ts';
+import { checkAvifOutput } from '../../thumbs/avif-checks.ts';
 
 let dir: string;
 let libraryId: ObjectId;
 let renderStubSpy: ReturnType<typeof spyOn> | null = null;
+let validateStubSpy: ReturnType<typeof spyOn> | null = null;
 
 /**
  * Replace ONLY the imgdecode subprocess boundary, transcoding in-process via
@@ -38,6 +40,11 @@ let renderStubSpy: ReturnType<typeof spyOn> | null = null;
  * shared pool singleton under CI's constrained resources. Everything else,
  * including `finalizeAvifRender`'s real decode-gate, stays production code, so
  * the artefacts asserted below are decode-verified rather than asserted-by-mock.
+ *
+ * `validateAvifOutput` dispatches to this same child pool too (#2257) — its
+ * `validateAvifViaPool` export gets the same treatment: stubbed to call the
+ * real `checkAvifOutput` predicate in-process instead of spawning a second
+ * real child from this file.
  *
  * Installed in `beforeAll`, not at module scope: a top-level install would
  * patch the shared namespace merely because this file was COLLECTED, which is
@@ -60,6 +67,10 @@ beforeAll(async () => {
     },
   );
 
+  validateStubSpy = spyOn(imgdecodePoolModule, 'validateAvifViaPool').mockImplementation(
+    (filePath: string, expectedLongEdgePx: number) => checkAvifOutput(filePath, expectedLongEdgePx),
+  );
+
   dir = await mkdtemp(path.join(os.tmpdir(), 'preview-stage-video-'));
   libraryId = new ObjectId();
   const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
@@ -69,6 +80,8 @@ beforeAll(async () => {
 afterAll(async () => {
   renderStubSpy?.mockRestore();
   renderStubSpy = null;
+  validateStubSpy?.mockRestore();
+  validateStubSpy = null;
   await rm(dir, { recursive: true, force: true });
   const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
   setLibraryRootsForTests(null);

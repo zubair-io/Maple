@@ -8,6 +8,7 @@ import previewStage from './preview.ts';
 import { PREVIEW_LONG_EDGE_PX, PREVIEW_CACHE_SUFFIX } from '../../indexer/previewer.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
 import * as imgdecodePoolModule from '../../thumbs/imgdecode-pool.ts';
+import { checkAvifOutput } from '../../thumbs/avif-checks.ts';
 
 /** `sharp(p).metadata()` with failure context. #2032's root cause was a
  * sibling file's leaked `generatePreview` module mock writing literal
@@ -68,6 +69,13 @@ const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
  * transcode remains covered by `imgdecode-pool.test.ts`'s own integration
  * test.
  *
+ * `validateAvifOutput` itself now ALSO dispatches to this same child pool
+ * (#2257, moving the decode-validation gate off the API process too) — so
+ * `validateAvifViaPool` gets the identical treatment as `render...ViaPool`
+ * here: stubbed to call the real `checkAvifOutput` predicate in-process
+ * (still a genuine decode, still decode-verified) rather than spawning a
+ * second real child from this file.
+ *
  * Patched via `spyOn` on the module namespace, NOT `mock.module`, and
  * restored in `afterAll`: #2032's root cause was precisely a sibling file's
  * `mock.module` fake (of `generatePreview`, in
@@ -84,6 +92,7 @@ const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
  * the same order-dependent-leak class this file exists to eliminate.
  */
 let renderStubSpy: { mockRestore(): void } | null = null;
+let validateStubSpy: { mockRestore(): void } | null = null;
 
 beforeAll(() => {
   renderStubSpy = spyOn(imgdecodePoolModule, 'renderImageThumbToFileViaPool').mockImplementation(
@@ -115,11 +124,17 @@ beforeAll(() => {
       }
     },
   );
+
+  validateStubSpy = spyOn(imgdecodePoolModule, 'validateAvifViaPool').mockImplementation(
+    (filePath: string, expectedLongEdgePx: number) => checkAvifOutput(filePath, expectedLongEdgePx),
+  );
 });
 
 afterAll(() => {
   renderStubSpy?.mockRestore();
   renderStubSpy = null;
+  validateStubSpy?.mockRestore();
+  validateStubSpy = null;
 });
 
 async function tryConnect(): Promise<MongoClient | null> {

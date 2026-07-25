@@ -25,7 +25,20 @@ export interface ImgRenderRequest {
   format?: 'avif' | 'jpeg';
 }
 
-export type ImgDecodeRequest = ImgRenderRequest;
+/** Decode `filePath` in full (format/dimensions/orientation/colourspace +
+ * a full pixel decode) and report whether it's a genuine, complete AVIF
+ * matching this pipeline's encode conventions. See `thumbs/avif-checks.ts`
+ * for the actual check semantics — this request just carries the two
+ * parameters that predicate needs across the IPC boundary (#2257: the
+ * validation decode used to run inline in the API parent process). */
+export interface ImgValidateRequest {
+  type: 'validate';
+  id: number;
+  filePath: string;
+  expectedLongEdgePx: number;
+}
+
+export type ImgDecodeRequest = ImgRenderRequest | ImgValidateRequest;
 
 export interface ImgRenderResponse {
   type: 'render';
@@ -34,4 +47,11 @@ export interface ImgRenderResponse {
   error?: string;
 }
 
-export type ImgDecodeResponse = ImgRenderResponse;
+export interface ImgValidateResponse {
+  type: 'validate';
+  id: number;
+  ok: boolean;
+  reason?: string;
+}
+
+export type ImgDecodeResponse = ImgRenderResponse | ImgValidateResponse;

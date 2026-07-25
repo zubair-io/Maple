@@ -19,24 +19,15 @@ import {
   type ImgDecodeWorker,
   type ImgDecodeWorkerFactory,
 } from './imgdecode-pool.ts';
+import type { ImgDecodeRequest } from './imgdecode-protocol.ts';
 
 // ── Fake worker ────────────────────────────────────────────────────────────
-
-interface PostedMsg {
-  type: string;
-  id: number;
-  srcPath: string;
-  outPath: string;
-  maxPx: number;
-  quality: number;
-  ext: string;
-}
 
 /** Controllable fake that records posted messages and exposes `respond` / `crash`. */
 class FakeImgDecodeWorker implements ImgDecodeWorker {
   static all: FakeImgDecodeWorker[] = [];
   terminated = false;
-  posted: PostedMsg[] = [];
+  posted: ImgDecodeRequest[] = [];
   private msgCb: ((e: { data: unknown }) => void) | null = null;
   private errCb: ((e: { message?: string }) => void) | null = null;
 
@@ -45,7 +36,7 @@ class FakeImgDecodeWorker implements ImgDecodeWorker {
   }
 
   postMessage(msg: unknown): void {
-    this.posted.push(msg as PostedMsg);
+    this.posted.push(msg as ImgDecodeRequest);
   }
 
   terminate(): void {
@@ -63,6 +54,13 @@ class FakeImgDecodeWorker implements ImgDecodeWorker {
     this.msgCb?.({ data: { type: 'render', id: last.id, ok, error } });
   }
 
+  /** Simulate a `validate` response (ok, or failed with `reason`) for the
+   * most-recently-posted request. */
+  respondValidate(ok: boolean, reason?: string): void {
+    const last = this.posted[this.posted.length - 1];
+    this.msgCb?.({ data: { type: 'validate', id: last.id, ok, reason } });
+  }
+
   /** Simulate an unexpected child exit (crash). */
   crash(message = 'boom'): void {
     this.errCb?.({ message });
@@ -76,6 +74,10 @@ function freshFactory(): { factory: ImgDecodeWorkerFactory; workers: FakeImgDeco
 
 function render(pool: ReturnType<typeof _createImgdecodePoolForTests>) {
   return pool.renderImageThumbToFile('/src.jpg', '/out.jpg', 512, 82, 'jpg');
+}
+
+function validate(pool: ReturnType<typeof _createImgdecodePoolForTests>) {
+  return pool.validateAvif('/out.avif', 1280);
 }
 
 // ── Unit tests ─────────────────────────────────────────────────────────────
@@ -194,6 +196,82 @@ describe('ImgDecodePool — crash isolation', () => {
   });
 });
 
+// ── validateAvif dispatch (#2257) ───────────────────────────────────────────
+//
+// Mirrors the render-dispatch coverage above: `validateAvif` is the AVIF
+// decode-validation gate (`thumbs/validate-avif.ts#validateAvifOutput`) moved
+// off the API process and onto this same isolated child.
+
+describe('ImgDecodePool — validateAvif dispatch', () => {
+  it('posts a validate request shape to the child', () => {
+    const { factory, workers } = freshFactory();
+    const pool = _createImgdecodePoolForTests({ workerFactory: factory });
+    void pool.validateAvif('/a/thumb.avif', 512);
+    expect(workers[0].posted[0]).toMatchObject({
+      type: 'validate',
+      filePath: '/a/thumb.avif',
+      expectedLongEdgePx: 512,
+    });
+  });
+
+  it('resolves { ok: true } when the child reports the file valid', async () => {
+    const { factory, workers } = freshFactory();
+    const pool = _createImgdecodePoolForTests({ workerFactory: factory });
+    const p = validate(pool);
+    workers[0].respondValidate(true);
+    await expect(p).resolves.toEqual({ ok: true, reason: undefined });
+  });
+
+  it('resolves { ok: false, reason } when the child rejects the file', async () => {
+    const { factory, workers } = freshFactory();
+    const pool = _createImgdecodePoolForTests({ workerFactory: factory });
+    const p = validate(pool);
+    workers[0].respondValidate(false, 'dimensions 2000x1000 exceed expected long edge 1280');
+    await expect(p).resolves.toEqual({
+      ok: false,
+      reason: 'dimensions 2000x1000 exceed expected long edge 1280',
+    });
+  });
+
+  it('shares the same child as render — no second process spawned', () => {
+    const { factory, workers } = freshFactory();
+    const pool = _createImgdecodePoolForTests({ workerFactory: factory });
+    void render(pool);
+    void validate(pool);
+    expect(workers.length).toBe(1);
+  });
+
+  it('rejects when the child fails to spawn', async () => {
+    const factory: ImgDecodeWorkerFactory = () => {
+      throw new Error('spawn ENOENT');
+    };
+    const pool = _createImgdecodePoolForTests({ workerFactory: factory });
+    await expect(pool.validateAvif('/a/thumb.avif', 512)).rejects.toThrow(/spawn ENOENT/);
+  });
+
+  it('rejects a pending validate call when the child crashes', async () => {
+    const { factory, workers } = freshFactory();
+    const pool = _createImgdecodePoolForTests({ workerFactory: factory });
+    const p = validate(pool);
+    workers[0].crash('segfault');
+    await expect(p).rejects.toThrow(/worker errored/);
+  });
+
+  it('crashing a validate call does not affect a fresh call after respawn', async () => {
+    const { factory, workers } = freshFactory();
+    const pool = _createImgdecodePoolForTests({ workerFactory: factory });
+
+    const first = validate(pool);
+    workers[0].crash('kaboom');
+    await expect(first).rejects.toThrow(/worker errored/);
+
+    const second = validate(pool);
+    expect(workers.length).toBe(2);
+    workers[1].respondValidate(true);
+    await expect(second).resolves.toEqual({ ok: true, reason: undefined });
+  });
+});
+
 // ── Integration test ───────────────────────────────────────────────────────
 
 describe('imgdecode child — integration', () => {
@@ -242,4 +320,44 @@ describe('imgdecode child — integration', () => {
     // a real AVIF file reports format:"heif" here.
     expect(meta.format).toBe('heif');
   }, 15_000 /* generous timeout for child spawn + render */);
+
+  it('validates a genuine AVIF via the real child (#2257)', async () => {
+    const out = path.join(dir, 'valid.avif');
+    const buf = await sharp({
+      create: { width: 64, height: 32, channels: 3, background: { r: 20, g: 40, b: 60 } },
+    })
+      .resize(256, 256, { fit: 'inside', withoutEnlargement: true })
+      .avif({ quality: 60, effort: 2 })
+      .toBuffer();
+    await writeFile(out, buf);
+
+    const { imgdecodePool, _resetImgdecodePoolForTests } = await import('./imgdecode-pool.ts');
+    _resetImgdecodePoolForTests();
+
+    const result = await imgdecodePool().validateAvif(out, 256);
+    expect(result.ok).toBe(true);
+  }, 15_000);
+
+  it('rejects a truncated AVIF via the real child, with a decode-based reason (#2257)', async () => {
+    const out = path.join(dir, 'truncated.avif');
+    // Large enough (and resized, matching this pipeline's real resize
+    // contract) that halving the buffer truncates the pixel payload while
+    // leaving the meta/header box intact — see `avif-checks.test.ts`'s
+    // "even though the header still parses" test for why a too-small source
+    // truncates the header itself instead and fails on metadata, not pixels.
+    const raw = Buffer.alloc(2000 * 1000 * 3);
+    for (let i = 0; i < raw.length; i++) raw[i] = i % 251;
+    const buf = await sharp(raw, { raw: { width: 2000, height: 1000, channels: 3 } })
+      .resize(1280, 1280, { fit: 'inside', withoutEnlargement: true })
+      .avif({ quality: 60, effort: 2 })
+      .toBuffer();
+    await writeFile(out, buf.subarray(0, Math.floor(buf.length / 2)));
+
+    const { imgdecodePool, _resetImgdecodePoolForTests } = await import('./imgdecode-pool.ts');
+    _resetImgdecodePoolForTests();
+
+    const result = await imgdecodePool().validateAvif(out, 1280);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/pixel decode failed/i);
+  }, 15_000);
 });
