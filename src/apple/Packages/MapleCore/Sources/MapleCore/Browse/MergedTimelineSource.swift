@@ -79,7 +79,7 @@ public enum MergedTimelineSource {
     public static func merge(
         localStreams: [[ImageRef]], cloudStreams: [[ImageRef]]
     ) -> [MergedTimelineCell] {
-        let local = localStreams.flatMap { $0 }
+        let local = dedupedAcrossStreams(localStreams)
         let cloud = dedupedAcrossStreams(cloudStreams)
 
         var matchedLocalKeys = Set<String>()
@@ -133,54 +133,103 @@ public enum MergedTimelineSource {
         }
     }
 
-    /// Folds N cloud streams into one deduped list, collapsing rows that
-    /// share a join key (cloudIdentifier → phassetLink → id) *across*
-    /// distinct streams — the first occurrence (in stream order) wins as
-    /// the surviving representative. Rows within a single stream are never
-    /// collapsed against each other; only a match against an *earlier*
-    /// stream folds a row away. This is what lets the same asset backed up
-    /// to two cloud libraries surface as one cell instead of two.
+    /// Folds N streams into one deduped list, collapsing rows that share a
+    /// join key (cloudIdentifier → phassetLink → id) *across* distinct
+    /// streams — the first occurrence (in stream order) wins as the surviving
+    /// representative, and it ABSORBS the join keys of every duplicate folded
+    /// into it (union of `allCloudIdentifiers` / `allPhassetLinks`). Absorbing
+    /// is load-bearing: a phassetLink or cloudIdentifier known only to a
+    /// dropped library must survive on the representative, otherwise a local
+    /// asset that would match only via that key fails to sync (spurious
+    /// `.cloudOnly` + `.localOnly` instead of `.synced`). Rows within a single
+    /// stream are never collapsed against each other; only a match against an
+    /// *earlier* stream folds a row away. Used for both the cloud streams and
+    /// the local (PhotoKit) streams.
     private static func dedupedAcrossStreams(_ streams: [[ImageRef]]) -> [ImageRef] {
-        var seenCloudIDs = Set<String>()
-        var seenPHIDs = Set<String>()
-        var seenIDs = Set<String>()
-        var deduped: [ImageRef] = []
+        var reps: [ImageRef] = []
+        var repByCloudID: [String: Int] = [:]  // committed keys → rep index
+        var repByPHID: [String: Int] = [:]
+        var repByID: [String: Int] = [:]  // keyless reps only
+
         for stream in streams {
-            // Keys learned from rows earlier in *this* stream must not
-            // retroactively fold together two rows of the same stream, so
-            // freeze the cross-stream registry at this stream's start and
-            // only merge new keys into it once the whole stream is done.
-            var streamCloudIDs = Set<String>()
-            var streamPHIDs = Set<String>()
-            var streamIDs = Set<String>()
+            // Buffer this stream's genuinely-new reps and the key-absorptions
+            // into earlier reps, then commit both to the cross-stream registry
+            // only at the stream boundary — so two rows of the *same* stream
+            // can never fold into one another (mirrors the pre-N-way pairwise
+            // behavior), while a row that matches an *earlier* stream folds in.
+            var newReps: [ImageRef] = []
+            var absorb: [Int: (cloud: Set<String>, phid: Set<String>)] = [:]
+
             for c in stream {
-                let cloudIDs = c.allCloudIdentifiers ?? c.cloudIdentifier.map { [$0] } ?? []
-                let phids = c.allPhassetLinks ?? c.phassetLink.map { [$0] } ?? []
-                // `id` is a LAST-RESORT join key (see the priority ladder in
-                // the doc comment above): consult it only for rows that carry
-                // neither a cloudIdentifier nor a phassetLink. A row with a
-                // higher-priority key must never be folded away by a bare
-                // content-hash `id` collision against a row whose
-                // authoritative identity (cloudIdentifier/phassetLink)
-                // differs — so keyed rows neither match on `id` nor seed the
-                // id index.
+                let (cloudIDs, phids) = joinKeys(of: c)
+                // `id` is a LAST-RESORT key (see the ladder in the doc above):
+                // consult it only for rows carrying neither a cloudIdentifier
+                // nor a phassetLink, so a bare content-hash `id` collision can
+                // never fold rows whose authoritative identity differs.
                 let isKeyless = cloudIDs.isEmpty && phids.isEmpty
-                let isDuplicateOfEarlierStream =
-                    cloudIDs.contains(where: seenCloudIDs.contains)
-                    || phids.contains(where: seenPHIDs.contains)
-                    || (isKeyless && seenIDs.contains(c.id))
-                if !isDuplicateOfEarlierStream {
-                    deduped.append(c)
+                let match =
+                    cloudIDs.lazy.compactMap { repByCloudID[$0] }.first
+                    ?? phids.lazy.compactMap { repByPHID[$0] }.first
+                    ?? (isKeyless ? repByID[c.id] : nil)
+                if let i = match {
+                    // Fold `c` into its earlier-stream representative, but
+                    // ABSORB its join keys so a phassetLink/cloudIdentifier
+                    // known only to this dropped library isn't lost — a local
+                    // that matches only via that key must still sync.
+                    absorb[i, default: ([], [])].cloud.formUnion(cloudIDs)
+                    absorb[i, default: ([], [])].phid.formUnion(phids)
+                } else {
+                    newReps.append(c)
                 }
-                streamCloudIDs.formUnion(cloudIDs)
-                streamPHIDs.formUnion(phids)
-                if isKeyless { streamIDs.insert(c.id) }
             }
-            seenCloudIDs.formUnion(streamCloudIDs)
-            seenPHIDs.formUnion(streamPHIDs)
-            seenIDs.formUnion(streamIDs)
+
+            // Commit absorbed keys into the surviving reps (rebuilding their
+            // key arrays) and into the registry.
+            for (i, extra) in absorb {
+                let (haveCloud, havePhid) = joinKeys(of: reps[i])
+                let mergedCloud = orderedUnion(haveCloud, extra.cloud)
+                let mergedPhid = orderedUnion(havePhid, extra.phid)
+                reps[i] = withJoinKeys(reps[i], cloud: mergedCloud, phid: mergedPhid)
+                for cid in extra.cloud where repByCloudID[cid] == nil { repByCloudID[cid] = i }
+                for phid in extra.phid where repByPHID[phid] == nil { repByPHID[phid] = i }
+            }
+            // Commit this stream's new reps and register every key they carry.
+            for c in newReps {
+                let idx = reps.count
+                reps.append(c)
+                let (cloudIDs, phids) = joinKeys(of: c)
+                for cid in cloudIDs where repByCloudID[cid] == nil { repByCloudID[cid] = idx }
+                for phid in phids where repByPHID[phid] == nil { repByPHID[phid] = idx }
+                if cloudIDs.isEmpty, phids.isEmpty, repByID[c.id] == nil { repByID[c.id] = idx }
+            }
         }
-        return deduped
+        return reps
+    }
+
+    /// The cloud-id and phid join keys a row carries, each falling back from
+    /// the `all*` array to the legacy singleton field.
+    private static func joinKeys(of ref: ImageRef) -> (cloud: [String], phid: [String]) {
+        let cloud = ref.allCloudIdentifiers ?? ref.cloudIdentifier.map { [$0] } ?? []
+        let phid = ref.allPhassetLinks ?? ref.phassetLink.map { [$0] } ?? []
+        return (cloud, phid)
+    }
+
+    /// `base` with every element of `add` not already present appended, sorted
+    /// for deterministic output. Preserves `base` order (a survivor's own keys
+    /// stay first).
+    private static func orderedUnion(_ base: [String], _ add: Set<String>) -> [String] {
+        base + add.subtracting(base).sorted()
+    }
+
+    /// A copy of `ref` with its join-key arrays replaced (empty → nil so the
+    /// non-array fallbacks still apply). All other fields are preserved.
+    private static func withJoinKeys(_ ref: ImageRef, cloud: [String], phid: [String]) -> ImageRef {
+        ImageRef(
+            id: ref.id, displayName: ref.displayName, url: ref.url,
+            scopeParentURL: ref.scopeParentURL, captureDate: ref.captureDate,
+            phassetLink: ref.phassetLink, cloudIdentifier: ref.cloudIdentifier,
+            allPhassetLinks: phid.isEmpty ? nil : phid,
+            allCloudIdentifiers: cloud.isEmpty ? nil : cloud)
     }
 
     /// Probe cloud-id matches first across every cloud_id this row carries,
