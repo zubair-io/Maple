@@ -129,8 +129,12 @@ struct StackedAdjustmentsPanel: View {
                 .tracking(0.8)
                 .foregroundStyle(ProTokens.textMuted)
             Spacer(minLength: 0)
+            // #2244: was `resetAll()` (revert to the session-open snapshot),
+            // which silently kept pre-existing sidecar edits. The epic's
+            // contract is factory defaults + As-Shot WB + Auto profile, crop
+            // preserved — the same action the pill header's RESET performs.
             Button {
-                state.resetAll()
+                state.resetToFactoryDefaults()
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.counterclockwise")
