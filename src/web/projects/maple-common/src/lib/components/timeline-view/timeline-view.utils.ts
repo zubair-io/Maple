@@ -29,6 +29,15 @@ export function monthKey(year: number, month: number): string {
   return `${year}-${month}`;
 }
 
+/** The month bucket a search hit folds into, or `null` when it carries no
+ * capture date (the caller always queries with `hasCapturedAt: true`, so this
+ * is defensive — `foldPage` skips the same rows). */
+export function monthKeyForCapturedAt(capturedAt: string | null): string | null {
+  if (!capturedAt) return null;
+  const d = new Date(capturedAt);
+  return monthKey(d.getUTCFullYear(), d.getUTCMonth() + 1);
+}
+
 /** Splits an absolute path into the folder name immediately under `prefix`.
  * A photo directly inside the scoped folder (no further subfolder) buckets
  * under '.'.

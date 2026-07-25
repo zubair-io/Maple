@@ -76,8 +76,27 @@ export const SYSTEM_DIRS = new Set<string>([
   'node_modules',
 ]);
 
+/**
+ * Memo for {@link browseRoots}, keyed on the raw `MAPLE_ROOTS` value so a test
+ * that repoints the jail still gets a fresh resolve. `/api/fs/thumb` calls
+ * `browseRoots()` once per request through `resolveJailedFile`, so without this
+ * a grid full of thumbnails pays one `realpath()` syscall per configured root
+ * per image to re-derive a value that cannot change between requests (#2219).
+ */
+let browseRootsMemo: { env: string | undefined; roots: string[] } | null = null;
+
 export async function browseRoots(): Promise<string[]> {
   const env = process.env.MAPLE_ROOTS;
+  // Explicit null check, NOT `browseRootsMemo?.env === env`: with no memo yet
+  // and MAPLE_ROOTS unset, that optional chain compares `undefined ===
+  // undefined` and reports a hit on an empty memo.
+  if (browseRootsMemo !== null && browseRootsMemo.env === env) return browseRootsMemo.roots;
+  const roots = await resolveBrowseRoots(env);
+  browseRootsMemo = { env, roots };
+  return roots;
+}
+
+async function resolveBrowseRoots(env: string | undefined): Promise<string[]> {
   if (!env || env.trim() === '') return ['/'];
   // Strip trailing slash unless the entry IS just "/" — `"/".replace(/\/$/, "")`
   // collapses to "" and then filter(Boolean) drops it, leaving an empty roots
