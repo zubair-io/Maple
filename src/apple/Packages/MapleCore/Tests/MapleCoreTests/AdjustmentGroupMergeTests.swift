@@ -143,6 +143,39 @@ final class AdjustmentGroupMergeTests: XCTestCase {
         XCTAssertEqual(merged.look, .neutral)
     }
 
+    /// #276. `black_white` is the one Color-group field that is an enum with
+    /// no numeric key path, so it reaches `applyFieldName`'s enum switch
+    /// rather than the keypath fast path. Without an explicit case it fell
+    /// through to `default` and was dropped, pasting the eight gray-mixer
+    /// weights onto a target that still rendered in colour — the mode and
+    /// its weights have to travel together or neither is meaningful.
+    func testBlackWhiteModeMovesWithColorGroupAlongsideItsWeights() {
+        var source = AdjustmentModel.default
+        source.blackWhite = .on // default is .off
+        source.grayMixerRed = 40
+        source.grayMixerBlue = -25
+
+        let target = AdjustmentModel.default
+        let merged = AdjustmentGroupMerge.merged(target, applying: source, groups: [.color])
+
+        XCTAssertEqual(merged.blackWhite, .on)
+        XCTAssertEqual(merged.grayMixerRed, 40)
+        XCTAssertEqual(merged.grayMixerBlue, -25)
+    }
+
+    /// The mirror direction: pasting Color from a colour source must clear a
+    /// monochrome target, since the group patch is dense (a paste overwrites
+    /// at the source's value even when that value is the schema default).
+    func testColorGroupClearsBlackWhiteOnTheTarget() {
+        let source = AdjustmentModel.default // blackWhite == .off
+        var target = AdjustmentModel.default
+        target.blackWhite = .on
+
+        let merged = AdjustmentGroupMerge.merged(target, applying: source, groups: [.color])
+
+        XCTAssertEqual(merged.blackWhite, .off)
+    }
+
     func testEnumValuedToneFieldMovesWithToneGroup() {
         var source = AdjustmentModel.default
         source.autoExposure = .off // default is .on

@@ -156,6 +156,16 @@ final class SceneLinearChainCacheTests: XCTestCase {
             ("luminanceAdjustmentBlue", { $0.luminanceAdjustmentBlue = 30 }),
             ("luminanceAdjustmentPurple", { $0.luminanceAdjustmentPurple = 30 }),
             ("luminanceAdjustmentMagenta", { $0.luminanceAdjustmentMagenta = 30 }),
+            // black & white mix (#276) — same `hsl` stage as the bands above.
+            ("blackWhite", { $0.blackWhite = .on }),
+            ("grayMixerRed", { $0.grayMixerRed = 30 }),
+            ("grayMixerOrange", { $0.grayMixerOrange = 30 }),
+            ("grayMixerYellow", { $0.grayMixerYellow = 30 }),
+            ("grayMixerGreen", { $0.grayMixerGreen = 30 }),
+            ("grayMixerAqua", { $0.grayMixerAqua = 30 }),
+            ("grayMixerBlue", { $0.grayMixerBlue = 30 }),
+            ("grayMixerPurple", { $0.grayMixerPurple = 30 }),
+            ("grayMixerMagenta", { $0.grayMixerMagenta = 30 }),
         ]
 
         for (label, mutate) in mutations {

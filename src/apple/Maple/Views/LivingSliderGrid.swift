@@ -25,7 +25,7 @@ struct LivingSliderGrid: View {
     }
 
     var body: some View {
-        let tools = Tool.tools(in: state.armedGroup)
+        let tools = state.visibleTools(in: state.armedGroup)
             .filter { $0.isWired && ToolValueMapping.displayRange(for: $0) != nil }
 
         ScrollView(.vertical, showsIndicators: false) {

@@ -169,6 +169,8 @@ extension XMPSerializer {
             attrs.append(("crs:SplitToningBalance", String(format: "%.0f", model.splitToneBalance)))
         }
         attrs += XMPSerializer.hslAttrs(model: model)
+        // Black & white mix (#276) — toggle + eight gray-mixer weights.
+        attrs += XMPSerializer.blackWhiteAttrs(model: model)
         if model.highlightRecovery != .chromaticAdaptation {
             attrs.append(("papp:HighlightRecoveryMode", model.highlightRecovery.rawValue))
         }

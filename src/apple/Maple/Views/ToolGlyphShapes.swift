@@ -106,6 +106,15 @@ enum ToolGlyphShapes {
                 .circle(cx: 10, cy: 8, r: 1.4),
                 .circle(cx: 7.2, cy: 11.4, r: 1.4),
             ]
+        // Disc split down the middle with the left half hatched — the
+        // conventional monochrome mark (#276). Shares the disc and divider
+        // with Contrast; the three chords are what separate them.
+        case .bwMix:
+            return [
+                .circle(cx: 8, cy: 8, r: 4.8),
+                .path("M8 3.2v9.6"),
+                .path("M5 5.6h2.3M4.3 8h3M5 10.4h2.3"),
+            ]
 
         // ── Effects ─────────────────────────────────────────────────────────
         // Faceted diamond with a midline — local contrast on the midtones.
