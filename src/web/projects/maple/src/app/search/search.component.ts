@@ -39,6 +39,7 @@ import {
   BatchMetadataService,
   BunApiBackendService,
   FilesystemBrowseService,
+  LayoutService,
   MapleIconComponent,
   SearchFacets,
   SearchParams,
@@ -97,6 +98,23 @@ export class SearchComponent implements OnInit, OnDestroy {
   private readonly fs = inject(FilesystemBrowseService);
   private readonly search = inject(SearchService);
   private readonly batchMetadataService = inject(BatchMetadataService);
+  private readonly layoutService = inject(LayoutService);
+
+  /** Breakpoint signal — the filter sidebar renders inline at desktop and
+   * collapses into a toggleable overlay below it (see `filtersOpen`). */
+  protected readonly layout = this.layoutService.layout;
+
+  /** Below desktop, the filter sidebar starts closed and is toggled by the
+   * "Filters" button; at desktop it's always shown regardless of this flag. */
+  readonly filtersOpen = signal(false);
+
+  toggleFilters(): void {
+    this.filtersOpen.update((v) => !v);
+  }
+
+  closeFilters(): void {
+    this.filtersOpen.set(false);
+  }
 
   // ── URL → params signal ──────────────────────────────────────────────────
   // Single source of truth. UI reads from these signals, mutations write to
