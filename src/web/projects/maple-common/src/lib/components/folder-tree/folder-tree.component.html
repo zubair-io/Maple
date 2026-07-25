@@ -1,46 +1,75 @@
-<div class="flex items-center pl-4 pr-3 pt-3 pb-1.5">
-  <span class="flex-1 text-[11px] font-semibold tracking-[0.04em] text-text-muted uppercase">Library</span>
+<div class="section-bar flex items-center pl-4 pr-3">
+  <span class="flex-1 text-[11px] font-semibold tracking-[0.04em] text-text-muted uppercase"
+    >Library</span
+  >
   <button
     class="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border-none bg-transparent p-0 text-[18px] leading-none text-text-muted transition-[background,color] duration-[120ms] hover:bg-bg-hover hover:text-text-main"
     type="button"
     title="Add a folder to your library"
     (click)="state.openLibraryPicker()"
     aria-label="Add folder"
-  >+</button>
+  >
+    +
+  </button>
 </div>
+
+<!-- Timeline section header — first-class, top-of-sidebar entry (Self-Hosted
+     only, same gate as the Timeline/Folder toolbar toggle: Timeline depends
+     on the server-side Mongo EXIF index that Hosted doesn't have). Clicking
+     it drives the same state.setViewMode('timeline') the toolbar toggle
+     uses, so the two controls can never disagree about the active mode. -->
+@if (state.backend === 'self-hosted') {
+  <div
+    class="section-bar tree-row mx-2 flex cursor-pointer items-center gap-1.5 rounded-md pl-2 pr-3 text-text-muted"
+    [class.selected]="state.viewMode() === 'timeline'"
+    (click)="state.setViewMode('timeline')"
+  >
+    <maple-icon
+      name="history"
+      [size]="12"
+      [color]="state.viewMode() === 'timeline' ? 'var(--color-primary)' : 'var(--color-text-muted)'"
+    />
+    <span class="flex-1 text-[10px] font-semibold uppercase tracking-[0.06em]">Timeline</span>
+  </div>
+}
 
 @for (section of state.sidebarTree(); track section.id) {
   @if (section.kind === 'section') {
     <!-- Legacy section header (only renders if a stale 'Folders' section
          slipped through; the live state has libraries at the top level). -->
-    <div class="mx-2 mt-1.5 flex cursor-pointer items-center gap-1.5 rounded-md py-1 pl-2 pr-3 hover:bg-bg-hover" (click)="state.toggleSection(section.id)">
+    <div
+      class="section-bar mx-2 flex cursor-pointer items-center gap-1.5 rounded-md pl-2 pr-3 hover:bg-bg-hover"
+      (click)="state.toggleSection(section.id)"
+    >
       <maple-icon
         [name]="state.sectionOpen()[section.id] ? 'chevron-down' : 'chevron-right'"
         [size]="10"
         color="var(--color-text-muted)"
         [strokeWidth]="2"
       />
-      <span class="flex-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-text-muted">{{ section.label }}</span>
+      <span class="flex-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-text-muted">{{
+        section.label
+      }}</span>
     </div>
 
     @if (state.sectionOpen()[section.id]) {
       <div class="mt-1">
         @for (child of section.children || []; track child.id) {
           @if (child.kind === 'folder') {
-            <ng-container
-              *ngTemplateOutlet="folderNode; context: { $implicit: child, level: 1 }"
-            />
+            <ng-container *ngTemplateOutlet="folderNode; context: { $implicit: child, level: 1 }" />
           }
         }
       </div>
     }
   } @else if (section.kind === 'folder') {
     <!-- Top-level library entry (the canonical case post-refactor). -->
-    <ng-container
-      *ngTemplateOutlet="folderNode; context: { $implicit: section, level: 0 }"
-    />
+    <ng-container *ngTemplateOutlet="folderNode; context: { $implicit: section, level: 0 }" />
   } @else if (section.kind === 'subheader') {
-    <div class="px-5 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.06em] text-text-muted">{{ section.label }}</div>
+    <div
+      class="section-bar flex items-center px-5 text-[10px] font-semibold uppercase tracking-[0.06em] text-text-muted"
+    >
+      {{ section.label }}
+    </div>
   } @else {
     <!-- Smart item or album row at the top level -->
     <div
@@ -57,9 +86,13 @@
             : 'var(--color-text-muted)'
         "
       />
-      <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ section.label }}</span>
+      <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{
+        section.label
+      }}</span>
       @if (section.count != null) {
-        <span class="font-mono text-[10px] tabular-nums text-text-muted">{{ section.count | number }}</span>
+        <span class="font-mono text-[10px] tabular-nums text-text-muted">{{
+          section.count | number
+        }}</span>
       }
     </div>
   }
@@ -83,11 +116,19 @@
   >
     <!-- Expand/collapse chevron, spinner, or spacer -->
     @if (canExpand) {
-      <div class="flex w-3 flex-shrink-0 items-center justify-center" (click)="onChevronClick(node, $event)">
+      <div
+        class="flex w-3 flex-shrink-0 items-center justify-center"
+        (click)="onChevronClick(node, $event)"
+      >
         @if (isLoading) {
-          <div class="chevron-spinner h-2 w-2 rounded-full border-[1.5px] border-border" aria-label="Loading"></div>
+          <div
+            class="chevron-spinner h-2 w-2 rounded-full border-[1.5px] border-border"
+            aria-label="Loading"
+          ></div>
         } @else if (hasError) {
-          <span class="text-[11px] leading-none text-error-text" [title]="node.childrenError">!</span>
+          <span class="text-[11px] leading-none text-error-text" [title]="node.childrenError"
+            >!</span
+          >
         } @else {
           <maple-icon
             [name]="isOpen ? 'chevron-down' : 'chevron-right'"
