@@ -66,23 +66,23 @@ pub fn predict_grain(
 }
 
 /// stages::color_grade::apply (#275) — the exact Oklab `(Δa, Δb, ΔL)`
-/// shift on a grey pixel at display luminance `yd`:
+/// shift on a pixel of Oklab lightness `l`:
 ///
-///   yb = Yd^exp2(-bal/100); wS = 1−smoothstep(0,½,yb); wH = smoothstep(½,1,yb)
+///   lb = L^exp2(-bal/100); wS = 1−smoothstep(0,Lmid,lb); wH = smoothstep(Lmid,1,lb)
 ///   (Δa, Δb, ΔL) = Σ_z w_z·offset_z + offset_global
 ///
 /// Used by the grey gates: a neutral pixel's post-stage Oklab `(a, b)`
 /// must equal exactly this shift (its pre-stage chroma is ~0) and its `L`
 /// must move by exactly `ΔL`.
 pub fn predict_color_grade(
-    yd: f32,
+    l: f32,
     sliders: &crate::stages::color_grade::ColorGradeSliders,
 ) -> [f32; 3] {
     let p = crate::stages::color_grade::color_grade_params(sliders);
     if p.is_identity {
         return [0.0; 3];
     }
-    crate::stages::color_grade::color_grade_shift(yd, &p)
+    crate::stages::color_grade::color_grade_shift(l, &p)
 }
 
 #[cfg(test)]
@@ -180,8 +180,7 @@ mod tests {
             color_grade::apply(&mut img, &sliders);
             let lab_after = rec2020_to_oklab(img.pixels[0]);
 
-            let yd = 0.2627 * v + 0.6780 * v + 0.0593 * v;
-            let predicted = predict_color_grade(yd, &sliders);
+            let predicted = predict_color_grade(lab_before[0], &sliders);
             for (comp, idx, name) in [(1usize, 0usize, "Δa"), (2, 1, "Δb"), (0, 2, "ΔL")] {
                 assert!(
                     (lab_after[comp] - lab_before[comp] - predicted[idx]).abs() < 1e-5,

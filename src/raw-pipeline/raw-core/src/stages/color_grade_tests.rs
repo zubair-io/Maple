@@ -23,6 +23,25 @@ fn grey_ramp(n: u32) -> Image {
     img
 }
 
+/// A neutral ramp whose Oklab LIGHTNESS is uniform across the samples —
+/// the axis the zone weights read. On a neutral pixel the forward Oklab
+/// transform collapses to a cube root, so cubing the parameter inverts it
+/// exactly.
+///
+/// The smoothness gate has to sweep uniformly in the zone axis: a ramp
+/// uniform in display-linear Y bunches lightness up near black, and the
+/// resulting sampling curvature would swamp the blend's own curvature and
+/// make the measurement meaningless.
+fn grey_ramp_uniform_lightness(n: u32) -> Image {
+    let mut img = Image::new(n, 1, ColorSpace::DisplayLinearRec2020);
+    for (i, p) in img.pixels.iter_mut().enumerate() {
+        let l = i as f32 / (n - 1) as f32;
+        let v = l * l * l;
+        *p = [v, v, v];
+    }
+    img
+}
+
 /// Strongly contrasting per-zone settings — the worst case for a visible
 /// band boundary, and the settings the smoothness test sweeps.
 fn contrasting_zones() -> ColorGradeSliders {
@@ -84,23 +103,23 @@ fn identity_holds_on_coloured_pixels() {
 // ── Zone weights ──────────────────────────────────────────────────────────
 
 /// The three zone weights are an exact partition of unity and each stays
-/// inside `[0, 1]`, for every luminance and every balance.
+/// inside `[0, 1]`, for every lightness and every balance.
 #[test]
 fn zone_weights_are_a_partition_of_unity() {
     for &bal in &[-100.0f32, -50.0, 0.0, 25.0, 100.0] {
         let exp = (-bal / 100.0).exp2();
         for i in 0..=200 {
-            let yd = i as f32 / 200.0;
-            let w = zone_weights(yd, exp);
+            let l = i as f32 / 200.0;
+            let w = zone_weights(l, exp);
             let sum = w[0] + w[1] + w[2];
             assert!(
                 (sum - 1.0).abs() < 1e-5,
-                "weights must sum to 1 at yd={yd}, bal={bal}: {sum} ({w:?})"
+                "weights must sum to 1 at L={l}, bal={bal}: {sum} ({w:?})"
             );
             for (z, &wz) in w.iter().enumerate() {
                 assert!(
                     (-1e-6..=1.0 + 1e-6).contains(&wz),
-                    "zone {z} weight out of range at yd={yd}, bal={bal}: {wz}"
+                    "zone {z} weight out of range at L={l}, bal={bal}: {wz}"
                 );
             }
         }
@@ -112,11 +131,40 @@ fn zone_weights_are_a_partition_of_unity() {
 #[test]
 fn each_zone_dominates_its_own_tonal_range() {
     let w_dark = zone_weights(0.0, 1.0);
-    let w_mid = zone_weights(0.5, 1.0);
+    let w_mid = zone_weights(MIDTONE_ANCHOR_L, 1.0);
     let w_light = zone_weights(1.0, 1.0);
     assert!(w_dark[0] > 0.99, "shadows must own black: {w_dark:?}");
     assert!(w_mid[1] > 0.99, "midtones must own mid-grey: {w_mid:?}");
     assert!(w_light[2] > 0.99, "highlights must own white: {w_light:?}");
+}
+
+/// The midtone anchor really is mid-grey's Oklab lightness — the constant
+/// the stage and the WGSL kernel both hard-code, checked against the real
+/// forward transform rather than trusted.
+#[test]
+fn midtone_anchor_is_mid_grey() {
+    let l = rec2020_to_oklab([0.18, 0.18, 0.18])[0];
+    assert!(
+        (l - MIDTONE_ANCHOR_L).abs() < 1e-3,
+        "MIDTONE_ANCHOR_L {MIDTONE_ANCHOR_L} drifted from Oklab L of mid-grey {l}"
+    );
+    let w = zone_weights(l, 1.0);
+    assert!(w[1] > 0.99, "mid-grey must be pure midtone: {w:?}");
+}
+
+/// The zones straddle the tone range AgX actually produces: a normally
+/// exposed frame's display-linear Y tops out well under 1, so pinning the
+/// zones to Oklab lightness (not linear Y) is what keeps real highlights
+/// out of the midtone zone. Display-linear 0.48 — what a +2 EV grey card
+/// renders to — must be highlight-dominant over midtone-only.
+#[test]
+fn realistic_highlights_reach_the_highlight_zone() {
+    let l = rec2020_to_oklab([0.478, 0.478, 0.478])[0];
+    let w = zone_weights(l, 1.0);
+    assert!(
+        w[2] > 0.4,
+        "a display-linear 0.478 tone must carry real highlight weight: {w:?}"
+    );
 }
 
 /// Balance shifts the crossover: positive balance pushes the shadow
@@ -124,9 +172,9 @@ fn each_zone_dominates_its_own_tonal_range() {
 /// mental model, carried over from split toning.
 #[test]
 fn balance_shifts_the_crossover() {
-    let yd = 0.4f32;
-    let pos = zone_weights(yd, (-100.0f32 / 100.0).exp2());
-    let neg = zone_weights(yd, (100.0f32 / 100.0).exp2());
+    let l = 0.4f32;
+    let pos = zone_weights(l, (-100.0f32 / 100.0).exp2());
+    let neg = zone_weights(l, (100.0f32 / 100.0).exp2());
     assert!(
         pos[0] < neg[0],
         "positive balance must shrink the shadow weight: {pos:?} vs {neg:?}"
@@ -141,7 +189,8 @@ fn balance_shifts_the_crossover() {
 
 /// Zones blend smoothly without banding, asserted numerically.
 ///
-/// Sweep a 512-step neutral luminance ramp through the real stage, take
+/// Sweep a 512-step neutral ramp — uniform in Oklab lightness, the axis
+/// the zone weights read — through the real stage, take
 /// the per-pixel Oklab `(Δa, Δb, ΔL)` the stage produced, and compare the
 /// series' second differences against its largest first difference. A C¹
 /// blend keeps `max|Δ²| ≪ max|Δ|`; a hard zone boundary makes the two
@@ -155,7 +204,7 @@ fn zone_blend_has_no_band_boundary_discontinuity() {
     const N: u32 = 512;
     const MAX_CURVATURE_RATIO: f32 = 0.25;
 
-    let mut img = grey_ramp(N);
+    let mut img = grey_ramp_uniform_lightness(N);
     let before: Vec<[f32; 3]> = img.pixels.iter().map(|p| rec2020_to_oklab(*p)).collect();
     apply(&mut img, &contrasting_zones());
     let after: Vec<[f32; 3]> = img.pixels.iter().map(|p| rec2020_to_oklab(*p)).collect();
@@ -195,7 +244,7 @@ fn zone_blend_stays_smooth_at_balance_rails() {
             balance: bal,
             ..contrasting_zones()
         };
-        let mut img = grey_ramp(N);
+        let mut img = grey_ramp_uniform_lightness(N);
         let before: Vec<f32> = img.pixels.iter().map(|p| rec2020_to_oklab(*p)[1]).collect();
         apply(&mut img, &sliders);
         let series: Vec<f32> = img
@@ -229,8 +278,7 @@ fn grey_shift_matches_closed_form() {
         let lab_after = rec2020_to_oklab(img.pixels[0]);
 
         let p = color_grade_params(&sliders);
-        let yd = 0.2627 * v + 0.6780 * v + 0.0593 * v;
-        let expected = color_grade_shift(yd, &p);
+        let expected = color_grade_shift(lab_before[0], &p);
 
         assert!(
             (lab_after[1] - lab_before[1] - expected[0]).abs() < 1e-5,
@@ -270,11 +318,11 @@ fn wheels_separate_by_luminance() {
         ..Default::default()
     };
 
-    let (a_dark, _) = tint(0.01, shadows_only);
-    let (a_dark_from_mid, _) = tint(0.01, mids_only);
-    let (a_mid, _) = tint(0.5, mids_only);
-    let (a_bright, _) = tint(0.99, highs_only);
-    let (a_bright_from_shadow, _) = tint(0.99, shadows_only);
+    let (a_dark, _) = tint(0.0005, shadows_only);
+    let (a_dark_from_mid, _) = tint(0.0005, mids_only);
+    let (a_mid, _) = tint(0.18, mids_only);
+    let (a_bright, _) = tint(0.999, highs_only);
+    let (a_bright_from_shadow, _) = tint(0.999, shadows_only);
 
     assert!(a_dark > 0.03, "shadow wheel must tint black (a={a_dark})");
     assert!(a_mid > 0.03, "midtone wheel must tint mid-grey (a={a_mid})");
@@ -283,8 +331,8 @@ fn wheels_separate_by_luminance() {
         "highlight wheel must tint white (a={a_bright})"
     );
     assert!(
-        a_dark_from_mid.abs() < 1e-3,
-        "midtone wheel must not reach black (a={a_dark_from_mid})"
+        a_dark_from_mid < 0.2 * a_mid,
+        "midtone wheel must fade out toward black (a={a_dark_from_mid} vs mid {a_mid})"
     );
     assert!(
         a_bright_from_shadow.abs() < 1e-3,
@@ -329,8 +377,8 @@ fn zone_luminance_lifts_only_its_own_zone() {
         apply(&mut img, &sliders);
         rec2020_to_oklab(img.pixels[0])[0] - before
     };
-    let dark = delta_l(0.01);
-    let bright = delta_l(0.99);
+    let dark = delta_l(0.0);
+    let bright = delta_l(0.999);
     assert!(
         (dark - COLOR_GRADE_LUMA_K * 0.8).abs() < 1e-3,
         "shadow lum must lift black by Kl·0.8: {dark}"
