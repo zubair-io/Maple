@@ -97,6 +97,17 @@ export const NUMERIC_FIELD_RANGES: Readonly<Record<string, readonly [number, num
   luminance_adjustment_blue: [-100.0, 100.0],
   luminance_adjustment_purple: [-100.0, 100.0],
   luminance_adjustment_magenta: [-100.0, 100.0],
+  // Black & white mix (#276) — the eight per-band luminance weights, over
+  // the same hue bands as the HSL block above. The `black_white` mode
+  // toggle is an enum and lives in STRING_FIELDS below.
+  gray_mixer_red: [-100.0, 100.0],
+  gray_mixer_orange: [-100.0, 100.0],
+  gray_mixer_yellow: [-100.0, 100.0],
+  gray_mixer_green: [-100.0, 100.0],
+  gray_mixer_aqua: [-100.0, 100.0],
+  gray_mixer_blue: [-100.0, 100.0],
+  gray_mixer_purple: [-100.0, 100.0],
+  gray_mixer_magenta: [-100.0, 100.0],
 };
 
 /** String-valued schema fields (enums on the clients), snake_case. */
@@ -109,6 +120,9 @@ export const STRING_FIELDS: ReadonlySet<string> = new Set([
   'tone_curve_mode',
   // Hot/dead-pixel suppression (#1106) — Off|On enum, decode-product field.
   'hot_pixel_suppression',
+  // Black & white conversion (#276) — Off|On enum; the eight
+  // `gray_mixer_*` weights it drives are numeric fields above.
+  'black_white',
 ]);
 
 export function isKnownNumericField(name: string): boolean {
