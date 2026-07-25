@@ -29,7 +29,11 @@ struct SearchView: View {
     var thumbCache: CloudThumbCache?
     /// Live query text, owned by the host's `.searchable` search field.
     @Binding var query: String
-    var onSelectAsset: (SearchAsset) -> Void = { _ in }
+    /// Result tap. The second argument is the tapped cell's zoom-to-open
+    /// source (#1489) — the thumbnail it is painting and the rect it occupies
+    /// — so the host can fly it into the editor. `nil` when the cell hadn't
+    /// loaded a thumbnail yet; the host opens with a plain fade instead.
+    var onSelectAsset: (SearchAsset, PhotoGridHeroSource?) -> Void = { _, _ in }
 
     @State private var scope: SearchScope = .all
     @State private var isStale: Bool = false
@@ -74,9 +78,9 @@ struct SearchView: View {
                         isStale: isStale,
                         hasQuery: true,
                         query: query,
-                        onTap: { asset in
+                        onTap: { asset, hero in
                             commitRecent()
-                            onSelectAsset(asset)
+                            onSelectAsset(asset, hero)
                         },
                         onLoadMore: { Task { await viewModel?.loadMore() } },
                         isLoadingMore: viewModel?.isLoadingMore ?? false,
