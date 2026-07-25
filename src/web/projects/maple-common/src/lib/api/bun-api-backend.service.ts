@@ -607,8 +607,12 @@ export class BunApiBackendService {
       );
   }
 
-  getThumb(assetId: string, size = '320x320'): Observable<Blob> {
-    return this.http.get(`${this.base}/assets/${assetId}/thumb?size=${size}`, {
+  /** `GET /api/assets/:id/thumb` — the single fixed thumb tier. Sent no `size`
+   * param: the route never read one (it resolves a per-asset cache path with no
+   * size dimension), so the `?size=320x320` this used to append was inert
+   * (#2220). */
+  getThumb(assetId: string): Observable<Blob> {
+    return this.http.get(`${this.base}/assets/${assetId}/thumb`, {
       responseType: 'blob',
     });
   }

@@ -98,8 +98,7 @@ actor ThumbnailProvider {
                 host: host,
                 absPath: absPath,
                 cache: cache,
-                client: client,
-                size: 512
+                client: client
             )
 
         case .photoKit(let localID):
@@ -186,14 +185,13 @@ private extension ThumbnailProvider {
         host: String,
         absPath: String,
         cache: CloudThumbCache,
-        client: CloudThumbClient,
-        size: Int
+        client: CloudThumbClient
     ) async -> Data? {
         if let cached = await cache.get(host: host, absPath: absPath) {
             return cached
         }
         do {
-            let bytes = try await client.thumb(absPath: absPath, size: size)
+            let bytes = try await client.thumb(absPath: absPath)
             await cache.put(host: host, absPath: absPath, bytes)
             return bytes
         } catch {

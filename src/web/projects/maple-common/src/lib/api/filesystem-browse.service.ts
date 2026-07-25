@@ -4,7 +4,8 @@
 // libraries from /api/folders are still the roots of the sidebar tree, but
 // once the user opens one we walk the directory tree directly via
 //   GET /api/fs/dir-fast?path=<abs>  → sub-dirs + RAW images at one level
-//   GET /api/fs/thumb?path=<abs>     → image/avif bytes (cached on disk by API)
+//   GET /api/fs/thumb?path=<abs>     → image/avif bytes at the fixed thumb
+//                                      tier (cached on disk by API)
 // instead of going through Mongo-keyed /api/folders/{id}/assets.
 //
 // `/dir-fast` is the pure-filesystem variant (no EXIF / asset_id / sidecars).
@@ -90,9 +91,14 @@ export class FilesystemBrowseService {
    * or an open-Web public deployment). NOT what `<img src>` uses today —
    * use {@link getThumbBlobUrl} for that, since /api/fs/thumb is auth-gated
    * and `<img>` requests bypass the HttpClient interceptor.
+   *
+   * No size parameter: `/api/fs/thumb` serves a single fixed tier (#2220). It
+   * used to accept `?size=` and ignore it — one cache file per source with an
+   * mtime-only freshness check meant any other size was served the 512 px file
+   * anyway. For the display-resolution tier use the preview endpoint.
    */
-  thumbUrl(absPath: string, size = 512): string {
-    const q = new URLSearchParams({ path: absPath, size: String(size) });
+  thumbUrl(absPath: string): string {
+    const q = new URLSearchParams({ path: absPath });
     return `${this.base}/fs/thumb?${q.toString()}`;
   }
 
@@ -101,12 +107,12 @@ export class FilesystemBrowseService {
    * the bearer) and return a `blob:` URL the grid can drop into <img src>.
    * Caches by absPath so re-renders / scroll-back don't re-fetch.
    */
-  getThumbBlobUrl(absPath: string, size = 512): Promise<string> {
+  getThumbBlobUrl(absPath: string): Promise<string> {
     const cached = this.thumbBlobCache.get(absPath);
     if (cached) return cached;
 
     const promise = firstValueFrom(
-      this.http.get(this.thumbUrl(absPath, size), { responseType: 'blob' }),
+      this.http.get(this.thumbUrl(absPath), { responseType: 'blob' }),
     ).then((blob) => URL.createObjectURL(blob));
 
     this.thumbBlobCache.set(absPath, promise);

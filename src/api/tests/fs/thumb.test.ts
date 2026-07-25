@@ -120,13 +120,18 @@ describe('/api/fs/thumb — input validation (no FFI required)', () => {
     expect(r.status).toBe(400);
   });
 
-  it('rejects an out-of-range size with 400', async () => {
+  // The route has no `size` param any more (#2220) — the tier is fixed. A
+  // stale client still sending one must be served normally rather than
+  // rejected, since Elysia drops query params absent from the schema; that
+  // backward compatibility is what makes the removal deployable without a
+  // coordinated client release.
+  it('ignores a legacy size param instead of rejecting it', async () => {
     const app = await buildApp();
     const fakeRaw = path.join(tmp, 'ignored.dng');
     await fs.writeFile(fakeRaw, Buffer.from([0]));
     const url = `http://localhost/api/fs/thumb?path=${encodeURIComponent(fakeRaw)}&size=999999`;
     const r = await app.handle(new Request(url));
-    expect(r.status).toBe(400);
+    expect(r.status).not.toBe(400);
   });
 });
 

@@ -33,7 +33,7 @@ import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
 import { isUndecodableFilename, isVideoFilename } from './media-types.ts';
 import { renderImageThumbToFileViaPool } from '../thumbs/imgdecode-pool.ts';
 import { extractVideoPosterJpeg } from '../thumbs/video-poster.ts';
-import { THUMB_AVIF_QUALITY } from '../thumbs/render.ts';
+import { THUMB_AVIF_QUALITY, THUMB_LONG_EDGE_PX } from '../thumbs/render.ts';
 import { finalizeAvifRender } from '../thumbs/validate-avif.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -58,8 +58,6 @@ const RAW_EXTS = new Set([
   '.raw',
   '.fff',
 ]);
-
-const THUMB_LONG_EDGE_PX = 512;
 
 let _rendered = 0;
 let _cached = 0;

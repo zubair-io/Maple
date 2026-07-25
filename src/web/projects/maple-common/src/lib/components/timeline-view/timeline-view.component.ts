@@ -65,12 +65,6 @@ import {
 // Page size for the single sorted /api/search query.
 const PAGE_SIZE = 200;
 
-/** Render target for the 140px timeline cells. Larger than needed, but the
- * on-disk thumb cache isn't size-keyed (`resolveThumbPath` ignores size), so
- * asking for less would just re-serve whatever the asset grid already wrote —
- * see the follow-up noted on #2219. */
-const THUMB_SIZE_PX = 512;
-
 interface RenderedYear {
   year: number;
   count: number;
@@ -136,7 +130,7 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
   // flight (#2219). Unbounded, a 200-row page saturated the browser's
   // HTTP/1.1 connection pool and starved every other /api/* call.
   private readonly thumbs = new TimelineThumbLoader(
-    (absPath) => this.fsBrowse.getThumbBlobUrl(absPath, THUMB_SIZE_PX),
+    (absPath) => this.fsBrowse.getThumbBlobUrl(absPath),
     (absPath, url) => this._years.update((years) => this._withThumbUrl(years, absPath, url)),
   );
 

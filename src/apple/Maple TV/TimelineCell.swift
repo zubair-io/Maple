@@ -61,7 +61,7 @@ private struct TimelineCellCard: View {
       TVRemoteImage(
         server: server,
         absPath: asset.abs_path,
-        kind: .thumb(size: 512),
+        kind: .thumb,
         thumbClient: thumbClient,
         thumbCache: thumbCache,
         contentMode: .fill,
