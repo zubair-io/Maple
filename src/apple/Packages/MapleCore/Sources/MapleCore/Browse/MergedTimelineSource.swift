@@ -156,16 +156,25 @@ public enum MergedTimelineSource {
             for c in stream {
                 let cloudIDs = c.allCloudIdentifiers ?? c.cloudIdentifier.map { [$0] } ?? []
                 let phids = c.allPhassetLinks ?? c.phassetLink.map { [$0] } ?? []
+                // `id` is a LAST-RESORT join key (see the priority ladder in
+                // the doc comment above): consult it only for rows that carry
+                // neither a cloudIdentifier nor a phassetLink. A row with a
+                // higher-priority key must never be folded away by a bare
+                // content-hash `id` collision against a row whose
+                // authoritative identity (cloudIdentifier/phassetLink)
+                // differs — so keyed rows neither match on `id` nor seed the
+                // id index.
+                let isKeyless = cloudIDs.isEmpty && phids.isEmpty
                 let isDuplicateOfEarlierStream =
                     cloudIDs.contains(where: seenCloudIDs.contains)
                     || phids.contains(where: seenPHIDs.contains)
-                    || seenIDs.contains(c.id)
+                    || (isKeyless && seenIDs.contains(c.id))
                 if !isDuplicateOfEarlierStream {
                     deduped.append(c)
                 }
-                cloudIDs.forEach { streamCloudIDs.insert($0) }
-                phids.forEach { streamPHIDs.insert($0) }
-                streamIDs.insert(c.id)
+                streamCloudIDs.formUnion(cloudIDs)
+                streamPHIDs.formUnion(phids)
+                if isKeyless { streamIDs.insert(c.id) }
             }
             seenCloudIDs.formUnion(streamCloudIDs)
             seenPHIDs.formUnion(streamPHIDs)
@@ -199,10 +208,13 @@ public enum MergedTimelineSource {
                 return (local, phid)
             }
         }
-        // Id pass — plain identity equality between the cloud row's own id
-        // and a local's id. `byPHID` is keyed on local ids, so this reuses
-        // that map directly.
-        if let local = byPHID[cloud.id] {
+        // Id pass — LAST-RESORT plain identity equality, only for a cloud row
+        // that carries neither a cloudIdentifier nor a phassetLink (honoring
+        // the key priority documented above). `byPHID` is keyed on local `id`
+        // (see the map build in `merge`), so a hit here means cloud.id ==
+        // local.id. A cloud row that DOES carry a higher-priority key which
+        // simply didn't match must not fall through to a bare-id match.
+        if cloudIDs.isEmpty, phids.isEmpty, let local = byPHID[cloud.id] {
             return (local, cloud.id)
         }
         return (nil, nil)
