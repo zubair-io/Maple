@@ -77,6 +77,20 @@ extension XMPSerializer {
         if culling.flag != .none {
             attrs.append(("xmp:Label", culling.flag == .pick ? "Red" : "Rejected"))
         }
+        // Color label (#1656) — emitted only when set, per spec § 01's
+        // culling table ("Only when set") and Adobe's absence-means-unset
+        // convention. The key is `papp:ColorLabel` with the lowercase
+        // vocabulary raw value, byte-identical to what the TS serializer
+        // writes and the API parser gates on, so a label authored here
+        // survives a round trip through Maple Hosted.
+        //
+        // Deliberately NOT also written to `xmp:Label`: this serializer
+        // already overloads that attribute for the pick/reject flag
+        // (`"Red"` / `"Rejected"`, just above), so a second writer would
+        // collide with it.
+        if let colorLabel = culling.colorLabel {
+            attrs.append(("papp:ColorLabel", colorLabel.rawValue))
+        }
         if let hidden = culling.hidden {  // tri-state: only emit when explicitly touched, never a default
             attrs.append(("papp:Hidden", hidden ? "true" : "false"))
         }

@@ -227,7 +227,9 @@ All emit together when `crop` is non-identity. `HasCrop="True"` signals crop dat
 - `xmp:Rating` — only emitted when > 0 (Adobe convention: absence = unrated).
 - `papp:Flag` — only emitted when not "unflagged". Values: `pick` or `reject`.
 - `papp:ColorLabel` — only emitted when set. Values: `red` / `orange` /
-  `yellow` / `green` / `blue`.
+  `yellow` / `green` / `blue` / `purple` (the six-color vocabulary
+  settled in #1657; this line still listed the pre-#1657 five when Apple
+  gained the field in #1656).
 - `papp:Hidden` — `"true"` or `"false"`. Explicit user override for the
   hidden-image feature; absence means no override (the effective hidden
   state falls back to the describe stage's nudity verdict — see
