@@ -35,7 +35,6 @@ import { renderImageThumbToFileViaPool } from '../thumbs/imgdecode-pool.ts';
 import { extractVideoPosterJpeg } from '../thumbs/video-poster.ts';
 import { THUMB_AVIF_QUALITY, THUMB_LONG_EDGE_PX } from '../thumbs/render.ts';
 import { finalizeAvifRender } from '../thumbs/validate-avif.ts';
-import { isThumbFresh, writeThumbMeta } from '../thumbs/thumb-meta.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('thumbnailer');
@@ -87,15 +86,21 @@ export async function generateThumb(absPath: string, thumbPathOverride?: string)
     return;
   }
 
-  // Apple, Web, and the lazy fs-thumbs route all write to the same path — don't
-  // clobber a thumb that already covers this source revision. Uses the SAME
-  // predicate `/api/fs/thumb` serves from (`thumbs/thumb-meta.ts`), so whichever
-  // side renders first, the other recognises the result instead of redoing it.
-  const srcStat = await fs.stat(absPath).catch(() => null);
-  if (srcStat !== null && (await isThumbFresh(thumbPath, srcStat))) {
-    _cached++;
-    logTotals();
-    return;
+  // Apple, Web, and the lazy fs-thumbs route all write to the same path —
+  // don't clobber a thumb that already covers the source's mtime. This is
+  // the O(changes) write-time freshness guard #2258 leans on: since the
+  // architecture forbids mutating originals in place (root CLAUDE.md
+  // principle 1), a thumb newer than its source is always still current, and
+  // no per-read staleness check is needed anywhere downstream.
+  try {
+    const [thumbStat, srcStat] = await Promise.all([fs.stat(thumbPath), fs.stat(absPath)]);
+    if (thumbStat.size > 0 && thumbStat.mtimeMs >= srcStat.mtimeMs) {
+      _cached++;
+      logTotals();
+      return;
+    }
+  } catch {
+    // Thumb missing (or source vanished — that will fail downstream anyway).
   }
 
   // Metadata-only stub images (eip/braw/afphoto/ai) and audio have no still
@@ -128,10 +133,6 @@ export async function generateThumb(absPath: string, thumbPathOverride?: string)
   });
 
   if (ok) {
-    // Stamp the source revision this thumb was rendered from. Without this the
-    // serving route treats the file as stale and re-decodes the source on the
-    // first request — the whole point of rendering it here.
-    if (srcStat !== null) await writeThumbMeta(thumbPath, srcStat);
     _rendered++;
   } else {
     _failed++;

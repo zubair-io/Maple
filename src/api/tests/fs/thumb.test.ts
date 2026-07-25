@@ -6,7 +6,13 @@
  *   - Path outside MAPLE_ROOTS jail  → 403
  *   - Cold render writes a thumbnail at the canonical .maple/ path
  *   - Warm read serves from cache (X-Thumb-Cache: hit) without rewriting
- *   - Touching the RAW invalidates the cache (cache-miss → regen)
+ *   - A cache hit is NOT invalidated by touching the RAW's mtime (#2258):
+ *     the architecture forbids mutating originals in place (root CLAUDE.md
+ *     principle 1), so there is no per-read source-staleness check any
+ *     more — invalidation happens at O(changes) elsewhere (the `discover`
+ *     watcher, `derivative-audit`, `generateThumb`'s own write-time mtime
+ *     guard), not here. This used to be a "regenerates when the raw is
+ *     newer" test; it now documents the opposite on purpose.
  *
  * Mirrors the bare-Elysia-app-handle test pattern from
  * `tests/auth/enforcement.test.ts`. Each test mounts only the routes it
@@ -225,8 +231,9 @@ describe('/api/fs/thumb — cache-hit (no FFI required)', () => {
     tmp = await fs.realpath(rawTmp);
     process.env.MAPLE_ROOTS = tmp;
     stagedRaw = path.join(tmp, 'fixture.dng');
-    // A near-empty file with .dng extension. The route only stat()s it and
-    // checks the extension; only on a cache miss would it call the FFI.
+    // A near-empty file with .dng extension. Irrelevant to the cache-hit
+    // fast path (#2258), which never inspects the source's extension or
+    // stat — only whether a file already sits at the hashed thumb path.
     await fs.writeFile(stagedRaw, Buffer.from([0xff, 0xd8, 0xff]));
 
     const { resolveThumbPath } = await import('../../src/fs/xmp.ts');
@@ -235,19 +242,6 @@ describe('/api/fs/thumb — cache-hit (no FFI required)', () => {
     // Bytes that look like a real AVIF (ISOBMFF ftyp box). The route doesn't
     // validate AVIF content — it just streams the file bytes.
     await fs.writeFile(cachedPath, Buffer.from([0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70]));
-    // Force the thumb's mtime to be AFTER the raw's mtime so the freshness
-    // check returns "fresh".
-    const rawStat = await fs.stat(stagedRaw);
-    const future = rawStat.mtimeMs / 1000 + 60;
-    await fs.utimes(cachedPath, future, future);
-    // The freshness check also requires a .meta sidecar recording the
-    // (mtimeMs, size) of the RAW that produced the cached thumb.
-    // Without it, the route treats the thumb as stale and falls
-    // through to the FFI regen path.
-    await fs.writeFile(
-      `${cachedPath}.meta`,
-      JSON.stringify({ mtimeMs: rawStat.mtimeMs, size: rawStat.size }),
-    );
   });
 
   afterAll(async () => {
@@ -270,10 +264,13 @@ describe('/api/fs/thumb — cache-hit (no FFI required)', () => {
     expect(body[7]).toBe(0x70);
   });
 
-  it('regenerates when the raw is newer than the cached thumb', async () => {
-    // Touch the raw to push its mtime past the thumb. The route must now
-    // see fresh=false. We only assert the cache decision: if no FFI is
-    // built we expect 503; if FFI is built we expect a successful regen.
+  it('still serves the cached thumb after the raw is touched — no per-read source-staleness check (#2258)', async () => {
+    // Push the raw's mtime well past the thumb's. Under the OLD `.meta`
+    // freshness protocol this test's inverse used to assert a forced
+    // regen; #2258 removes that check entirely (root CLAUDE.md principle
+    // 1: originals are never mutated, so a thumb once written never goes
+    // stale from a source edit) and this now documents the opposite: the
+    // fast path keeps serving the SAME cached bytes regardless.
     const thumbStat = await fs.stat(cachedPath);
     const future = thumbStat.mtimeMs / 1000 + 60;
     await fs.utimes(stagedRaw, future, future);
@@ -282,14 +279,7 @@ describe('/api/fs/thumb — cache-hit (no FFI required)', () => {
     const url = `http://localhost/api/fs/thumb?path=${encodeURIComponent(stagedRaw)}&size=256`;
     const r = await app.handle(new Request(url));
 
-    if (!ffiAvailable) {
-      // Without the native lib, the route returns 503 on a cache miss.
-      expect(r.status).toBe(503);
-      return;
-    }
-    // FFI is built but the staged "raw" is fake bytes — the FFI will
-    // either fail to decode (500) or produce an unrelated error. Either
-    // way, the route did NOT serve from cache.
-    expect(r.headers.get('X-Thumb-Cache')).not.toBe('hit');
+    expect(r.status).toBe(200);
+    expect(r.headers.get('X-Thumb-Cache')).toBe('hit');
   });
 });

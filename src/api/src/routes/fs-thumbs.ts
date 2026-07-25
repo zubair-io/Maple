@@ -3,14 +3,12 @@
 // GET /api/fs/thumb?path=<abs-path-to-raw>
 //   Returns an `image/avif` thumbnail for the image at `path`, rendered at the
 //   fixed `THUMB_LONG_EDGE_PX` tier. Caches the result on disk under
-//   `<dir>/.maple/thumbs/<sha256_prefix16(basename)>.avif`. Stale thumbs (older
-//   than the source) are regenerated.
+//   `<dir>/.maple/thumbs/<sha256_prefix16(basename)>.avif`.
 //
 //   There is deliberately NO `size` param (#2220). One cache file per source
-//   plus an mtime-only freshness check means any other requested size would be
-//   served whatever was written first — which is exactly what the old `size`
-//   param did, silently. The display-resolution tier is `/api/fs/preview`
-//   (`PREVIEW_LONG_EDGE_PX`).
+//   means any other requested size would be served whatever was written first
+//   — which is exactly what the old `size` param did, silently. The
+//   display-resolution tier is `/api/fs/preview` (`PREVIEW_LONG_EDGE_PX`).
 //
 // Lives in a separate file from `fs.ts` so the directory-listing endpoint
 // (parallel work) and the thumb endpoint can be edited independently.
@@ -18,15 +16,35 @@
 // Auth: this Elysia plugin must be `.use()`d AFTER `requireAuth` in
 // `index.ts` so callers must present a valid bearer.
 //
-// Jail: same `MAPLE_ROOTS` policy as `routes/fs.ts` — paths are realpath-
-// resolved and rejected if they fall outside any allowed root.
+// Cache HIT is ONE filesystem operation (#2258): `readFile(thumbPath)`,
+// computed from a non-realpath'd, string-math-only resolve of `?path=`. See
+// `tryServeCachedThumb` below for the full reasoning. The fast path DOES
+// apply the same decodable-extension allowlist as the miss path (imported
+// from `fs-jail.ts`, not duplicated — PR #2275 review, finding 3), since
+// that's pure string math too; what it skips is the symlink-resolving
+// MAPLE_ROOTS jail and the render dispatch, which live on the MISS path
+// (`resolveJailedFile`) and only run when no cached thumb was found there.
+//
+// The miss path re-checks the cache ONE more time, against the
+// realpath-resolved key, before rendering: a LEAF symlink (`/dir/link.jpg` ->
+// `/dir/real.jpg`) has a different basename than its target, so the two
+// resolutions can hash to different thumb paths for the same underlying
+// file. See `tryServeCachedThumb`'s doc comment for why that matters.
+//
+// Freshness: there is no source-mtime staleness check on a cache hit. The
+// architecture forbids mutating originals (root CLAUDE.md principle 1 — all
+// edits go to XMP sidecars), so a thumb, once written, never needs to be
+// invalidated by a source change; invalidation instead happens at
+// O(changes) in the `discover` watcher, `derivative-audit` reconciliation,
+// and `generateThumb`'s own write-time mtime guard (`indexer/thumbnailer.ts`)
+// — not on every read here.
 
 import { Elysia, t } from 'elysia';
 import { readFile, mkdir } from 'node:fs/promises';
 import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { unlink } from 'node:fs/promises';
-import { RAW_EXTENSIONS } from '../fs/browse.ts';
+import { RAW_EXTENSIONS, browseRoots, isUnderRoot } from '../fs/browse.ts';
 import { resolveThumbPath } from '../fs/xmp.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { VIDEO_EXTS } from '../indexer/media-types.ts';
@@ -35,10 +53,126 @@ import { applyExifOrientationInPlace } from '../thumbs/apply-orientation.ts';
 import { THUMB_AVIF_QUALITY, THUMB_LONG_EDGE_PX } from '../thumbs/render.ts';
 import { ffmpegBinary, extractVideoPosterJpeg } from '../thumbs/video-poster.ts';
 import { child as childLogger } from '../log.ts';
-import { resolveJailedFile, sourceETag, notModifiedResponse } from './fs-jail.ts';
-import { isThumbFresh, writeThumbMeta } from '../thumbs/thumb-meta.ts';
+import {
+  resolveJailedFile,
+  notModifiedResponse,
+  isDecodableRasterExt,
+  lowerExt,
+} from './fs-jail.ts';
+import { computeBodyETag } from '../runtime/http-etag.ts';
 
 const log = childLogger('fs-thumbs');
+
+// Unchanged from before #2258: one hour, revalidating. Not `immutable` — this
+// route serves a source-keyed URL (`?path=…`) with no revision token, so the
+// URL stays stable across a re-render; an `immutable` response against that
+// URL would risk pinning stale bytes in a client's HTTP cache for a year.
+const CACHE_CONTROL = 'private, max-age=3600';
+
+/**
+ * Build the 200 response for a thumb's bytes — shared by the cache-hit fast
+ * path and the miss/render path so the two agree on headers by construction
+ * rather than by copy-paste (fallow duplication gate).
+ */
+function serveThumbBytes(bytes: Buffer, etag: string, cacheStatus: 'hit' | 'miss'): Response {
+  const ab = bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+  return new Response(ab, {
+    status: 200,
+    headers: {
+      'Content-Type': 'image/avif',
+      'Cache-Control': CACHE_CONTROL,
+      ETag: etag,
+      'X-Thumb-Cache': cacheStatus,
+    },
+  });
+}
+
+/**
+ * Fast path for a cache hit (#2258): ONE filesystem operation
+ * (`readFile(thumbPath)`) to serve ~3 KB, replacing what used to cost five —
+ * `realpath(reqPath)`, `stat(source)`, `stat(thumbPath)`, and
+ * `readFile(thumb + '.meta')` in addition to the payload read itself.
+ * Measured ~194ms down to ~12ms on an SMB-mounted library, where each op is
+ * a network round trip.
+ *
+ * Containment is `path.resolve` + a prefix check — pure string math, zero
+ * I/O — NOT the symlink-resolving `realpath` jail `resolveJailedFile` runs.
+ * That's safe specifically because a HIT never reads `reqPath` itself: it
+ * reads the deterministic `<dir>/.maple/thumbs/<sha256(basename)>.avif`
+ * shape derived from it, a path a caller cannot steer to arbitrary bytes —
+ * at most it can cause an already-rendered thumb (never arbitrary source
+ * content) to be served from a path a real `realpath` resolve would have
+ * rejected. Symlink resolution and the full jail stay on the miss path,
+ * which DOES read arbitrary source bytes and so keeps every check unchanged.
+ *
+ * Called TWICE per request in general — this is deliberate, not a
+ * duplicated call site. First against the raw, non-realpath'd `?path=`
+ * (the fast path, above); if that misses, the miss path resolves symlinks
+ * via `resolveJailedFile` and calls this again against `real` BEFORE
+ * rendering. The two calls can derive DIFFERENT `resolveThumbPath()` keys
+ * for the exact same file: a LEAF symlink (`/dir/link.jpg` -> `/dir/real.jpg`)
+ * has a different basename than its target, and the hash is over the
+ * basename. Without the second call, a request through such a symlink would
+ * never see its own prior render (written under `real.jpg`'s key while this
+ * one keeps checking `link.jpg`'s key) and would re-decode from source on
+ * EVERY request — 100% miss rate, unbounded CPU, a DoS vector via a single
+ * symlinked filename. Directory-component symlinks don't have this problem:
+ * the basename is unchanged, so both calls hash identically. A normal
+ * (non-symlinked, or symlinked-only-in-a-parent-directory) request still
+ * resolves on the FIRST call, so this costs nothing on the common path.
+ *
+ * Also applies `isDecodableRasterExt` against `reqPath` itself — the SAME
+ * allowlist `resolveJailedFile` applies against `real`, imported rather than
+ * re-derived so the two cannot drift (PR #2275 review, finding 3: without
+ * this, `?path=/dir/note.txt` would 200 with cached bytes whenever
+ * `.maple/thumbs/<sha256(note.txt)>.avif` happened to exist, contradicting
+ * the route's documented 415 contract for non-raster extensions).
+ * Deliberately gated on the REQUESTED name, not a realpath-resolved one: a
+ * leaf symlink can have a different extension than its target
+ * (`link.txt` -> `photo.jpg`), and a caller asking for a `.txt` URL should
+ * get 415 regardless of what that name happens to point to — the miss path
+ * below still applies its own, authoritative post-realpath check before any
+ * render, so a `.txt`-named symlink to a real image is still decided there,
+ * unaffected by this fast-path gate.
+ *
+ * Returns null (never throws) on any miss — not absolute, outside
+ * MAPLE_ROOTS, unsupported extension, or no file at `thumbPath` — so the
+ * caller falls through to the existing miss path, which re-validates
+ * properly and produces the correct 400/403/415/404/500.
+ */
+async function tryServeCachedThumb(
+  reqPath: string,
+  ifNoneMatch: unknown,
+): Promise<Response | null> {
+  if (!path.isAbsolute(reqPath)) return null;
+
+  const roots = await browseRoots();
+  const resolved = path.resolve(reqPath);
+  if (!roots.some((r) => isUnderRoot(resolved, r))) return null;
+  if (!isDecodableRasterExt(lowerExt(resolved))) return null;
+
+  const thumbPath = resolveThumbPath(resolved);
+  let bytes: Buffer;
+  try {
+    bytes = await readFile(thumbPath);
+  } catch {
+    return null; // No cached thumb — fall through to the miss path.
+  }
+
+  // ETag from the bytes already in hand — free, no `stat(source)` round
+  // trip. The 304 short-circuit necessarily happens AFTER this read: the
+  // validator can't be known before the bytes are (acceptable at one op and
+  // ~3 KB — it still saves the transfer, the expensive half for the File
+  // Provider that keys its cache on this header).
+  const etag = computeBodyETag(bytes);
+  const cached304 = notModifiedResponse(ifNoneMatch, etag, CACHE_CONTROL);
+  if (cached304) return cached304;
+
+  return serveThumbBytes(bytes, etag, 'hit');
+}
 
 /**
  * Render a video's poster frame to `thumbPath` at `sizePx` (#2132).
@@ -71,7 +205,11 @@ async function renderVideoPosterThumb(
   const posterPath = `${thumbPath}.poster.${process.pid}.${randomBytes(8).toString('hex')}.jpg`;
   try {
     if (!(await extractVideoPosterJpeg(real, posterPath))) {
-      return { ok: false, status: 500, error: 'Could not extract a poster frame from this video' };
+      return {
+        ok: false,
+        status: 500,
+        error: 'Could not extract a poster frame from this video',
+      };
     }
     const result = await renderImageThumbToFileViaPool(
       posterPath,
@@ -82,7 +220,11 @@ async function renderVideoPosterThumb(
     );
     return result.ok
       ? { ok: true }
-      : { ok: false, status: 500, error: `imgdecode render failed: ${result.error ?? 'unknown'}` };
+      : {
+          ok: false,
+          status: 500,
+          error: `imgdecode render failed: ${result.error ?? 'unknown'}`,
+        };
   } catch (err) {
     return {
       ok: false,
@@ -101,25 +243,41 @@ async function renderVideoPosterThumb(
 
 export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
   '/thumb',
-  // Pre-existing CRITICAL complexity (RAW/sharp/PSD-HDR dispatch, ETag,
-  // cache-freshness, and FFI-vs-imgdecode branches all live in this one
-  // route handler). Out of scope to decompose here — this PR only adds
-  // one more extension branch (collapsed into `renderViaImgdecode` above
-  // to avoid growing it further). Worth splitting into smaller helpers
-  // as a dedicated follow-up.
+  // Pre-existing CRITICAL complexity (RAW/sharp/PSD-HDR dispatch, ETag, and
+  // FFI-vs-imgdecode branches all live in this one route handler). Out of
+  // scope to decompose here — this PR moves the cache-hit decision into
+  // `tryServeCachedThumb` above (which shrinks this handler rather than
+  // growing it) but otherwise leaves the render dispatch as-is. Worth
+  // splitting further as a dedicated follow-up.
   // fallow-ignore-next-line complexity
   async ({ query, headers, set }) => {
     const reqPath = query.path;
     const sizePx = THUMB_LONG_EDGE_PX;
+    const ifNoneMatch = headers['if-none-match'];
+
+    // ONE-op cache hit (#2258) — see `tryServeCachedThumb`'s doc comment.
+    // Everything below only runs on a miss.
+    const hit = await tryServeCachedThumb(reqPath, ifNoneMatch);
+    if (hit) return hit;
 
     // Shared absolute-path / realpath-jail / extension-gate / stat preamble
-    // (fs-jail.ts — also used by /api/fs/preview).
+    // (fs-jail.ts — also used by /api/fs/preview). Unchanged: this is the
+    // miss path, which DOES need to read arbitrary source bytes and so keeps
+    // the full symlink-resolving jail.
     const resolved = await resolveJailedFile(reqPath);
     if (!resolved.ok) {
       set.status = resolved.status;
       return { error: resolved.error };
     }
-    const { real, ext, stat: rawStat } = resolved;
+    const { real, ext } = resolved;
+
+    // Re-check the cache against the REALPATH-resolved key before
+    // rendering. See `tryServeCachedThumb`'s doc comment: a leaf symlink
+    // makes the fast-path key (above, derived from the raw `?path=`) and
+    // this route's render key (derived from `real`) disagree, so a miss on
+    // the raw path does NOT mean there's nothing cached for this file.
+    const realHit = await tryServeCachedThumb(real, ifNoneMatch);
+    if (realHit) return realHit;
 
     // Dispatch — RAW formats go through the FFI pipeline; sharp-native
     // bitmaps (JPG/HEIC/PNG/WEBP/TIFF/AVIF) and PSD/PSB/HDR (first decoded
@@ -133,43 +291,13 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
 
     // One thumb per source file (matches Apple ThumbnailDiskCache + web
     // MapleCacheService), rendered at the single fixed `THUMB_LONG_EDGE_PX`
-    // tier. The stale-check is mtime-based, which is sound precisely because
-    // the render target is now a constant: the only thing that can invalidate
-    // this file is the source changing.
+    // tier. Reaching here means BOTH cache checks missed — the fast path
+    // above (raw `?path=` key) and the realpath-resolved recheck just above
+    // (`real`'s key, the SAME key this line computes) — so the render below
+    // always proceeds unconditionally. No separate staleness check is
+    // needed beyond those two lookups: see the module doc for why a cached
+    // thumb is never considered stale once found.
     const thumbPath = resolveThumbPath(real);
-
-    const etag = sourceETag(rawStat);
-    const cacheControl = 'private, max-age=3600';
-
-    // If-None-Match short-circuit. The File Provider extension caches
-    // thumb bytes keyed on this ETag; matching ETag returns 304 with an
-    // empty body so the extension can reuse its in-memory copy.
-    const cached304 = notModifiedResponse(headers['if-none-match'], etag, cacheControl);
-    if (cached304) return cached304;
-
-    // Freshness considers both the source mtime AND size, via the `.meta`
-    // sidecar every thumb writer emits (`thumbs/thumb-meta.ts`): the ETag
-    // composes both, so a mtime-preserving overwrite that changes size yields a
-    // fresh ETag, and without the size gate a stale thumb would be served under
-    // it. Shared with the `thumb` stage — when only this route wrote sidecars,
-    // every stage-rendered thumb read as stale and was needlessly re-decoded.
-    if (await isThumbFresh(thumbPath, rawStat)) {
-      try {
-        const bytes = await readFile(thumbPath);
-        set.headers['Content-Type'] = 'image/avif';
-        set.headers['Cache-Control'] = cacheControl;
-        set.headers['ETag'] = etag;
-        set.headers['X-Thumb-Cache'] = 'hit';
-        return bytes;
-      } catch (err) {
-        // Fall through to regen if read fails (e.g. file disappeared
-        // between stat and readFile).
-        log.warn(
-          { thumbPath, err: err instanceof Error ? err.message : err },
-          'read of cached thumb failed; regenerating',
-        );
-      }
-    }
 
     // Ensure the cache dir exists before handing the path to either
     // renderer. Both write atomically (.tmp + rename) so the parent dir
@@ -245,11 +373,9 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
       }
     }
 
-    // Record what source revision this thumb corresponds to, so the next
-    // request (from here OR from any other reader) can trust it.
-    await writeThumbMeta(thumbPath, rawStat);
-
     // Read the freshly written file back to serve. Cheap (thumbs <100 KB).
+    // ETag is derived from these bytes (free — no `stat(source)` round
+    // trip), same as the cache-hit path, so the two agree on the scheme.
     let bytes: Buffer;
     try {
       bytes = await readFile(thumbPath);
@@ -260,21 +386,11 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
       };
     }
 
-    // Bun's `Response` body type narrowing — pass the raw bytes via the
-    // shared ArrayBuffer slice, which it accepts cleanly.
-    const ab = bytes.buffer.slice(
-      bytes.byteOffset,
-      bytes.byteOffset + bytes.byteLength,
-    ) as ArrayBuffer;
-    return new Response(ab, {
-      status: 200,
-      headers: {
-        'Content-Type': 'image/avif',
-        'Cache-Control': cacheControl,
-        ETag: etag,
-        'X-Thumb-Cache': 'miss',
-      },
-    });
+    const etag = computeBodyETag(bytes);
+    const cached304 = notModifiedResponse(ifNoneMatch, etag, CACHE_CONTROL);
+    if (cached304) return cached304;
+
+    return serveThumbBytes(bytes, etag, 'miss');
   },
   {
     // No `size`: the tier is fixed. Elysia drops query params absent from the

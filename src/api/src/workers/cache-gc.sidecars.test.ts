@@ -1,9 +1,14 @@
 /**
- * Regression tests for `sweepOrphanedCaches`' handling of the thumb freshness
- * sidecar (`<key>.avif.meta`, see `thumbs/thumb-meta.ts`). Split out of
- * `cache-gc.test.ts` to stay under the file-size budget, mirroring
- * `cache-gc.pano-preseed.test.ts`; has its own throwaway Mongo DB so it can run
- * standalone or alongside the main suite without name collisions.
+ * Regression tests for `sweepOrphanedCaches`' handling of the LEGACY thumb
+ * freshness sidecar (`<key>.avif.meta`). The `.meta` protocol that wrote
+ * these (`thumbs/thumb-meta.ts`) was removed in #2258 — nothing writes them
+ * any more — but #2252 shipped and ran in production first, so every
+ * install that has been running since has one `.meta` file per thumbnail
+ * already on disk. This suite covers draining that pre-existing state, not
+ * any current write path. Split out of `cache-gc.test.ts` to stay under the
+ * file-size budget, mirroring `cache-gc.pano-preseed.test.ts`; has its own
+ * throwaway Mongo DB so it can run standalone or alongside the main suite
+ * without name collisions.
  *
  * Sidecars are deliberately NOT swept as entries in their own right: the suffix
  * is appended to the whole artefact filename, so `path.extname('<key>.avif.meta')`
@@ -129,7 +134,11 @@ async function writeAvif(p: string): Promise<void> {
   await writeFile(p, Buffer.from([0x00, 0x00, 0x00, 0x1c])); // tiny AVIF-ish bytes
 }
 
-async function writeSidecar(thumbPath: string): Promise<void> {
+/** Write a LEGACY `.meta` sidecar — the shape the pre-#2258 `.meta`
+ * protocol used to write. Nothing in the current codebase writes this any
+ * more; the test writes it by hand to simulate state left behind by an
+ * older deployed version. */
+async function writeLegacySidecar(thumbPath: string): Promise<void> {
   await mkdir(path.dirname(thumbPath), { recursive: true });
   await writeFile(`${thumbPath}.meta`, JSON.stringify({ mtimeMs: 1, size: 1 }));
 }
@@ -144,8 +153,8 @@ function thumbsDir(root: string): string {
   return path.join(root, '.maple', 'thumbs');
 }
 
-describe('sweepOrphanedCaches — thumb .meta sidecars', () => {
-  test('reaps the sidecar alongside its thumb, and keeps a live thumb’s', async () => {
+describe('sweepOrphanedCaches — legacy thumb .meta sidecars', () => {
+  test('reaps the legacy sidecar alongside its thumb, and keeps a live thumb’s', async () => {
     if (!mongoReachable) return;
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
     const root = await mkTree();
@@ -157,7 +166,7 @@ describe('sweepOrphanedCaches — thumb .meta sidecars', () => {
       const live = path.join(thumbsDir(root), `${sha256Prefix16('live.dng')}.avif`);
       for (const f of [orphan, live]) {
         await writeAvif(f);
-        await writeSidecar(f);
+        await writeLegacySidecar(f);
         await agePast(f);
         await agePast(`${f}.meta`);
       }
@@ -178,7 +187,7 @@ describe('sweepOrphanedCaches — thumb .meta sidecars', () => {
     }
   });
 
-  test('reaps a stranded sidecar whose thumb is gone', async () => {
+  test('reaps a stranded legacy sidecar whose thumb is gone', async () => {
     if (!mongoReachable) return;
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
     const root = await mkTree();
@@ -188,7 +197,7 @@ describe('sweepOrphanedCaches — thumb .meta sidecars', () => {
 
       const live = path.join(thumbsDir(root), `${sha256Prefix16('live.dng')}.avif`);
       await writeAvif(live);
-      await writeSidecar(live);
+      await writeLegacySidecar(live);
       await agePast(live);
       await agePast(`${live}.meta`);
 
@@ -214,7 +223,7 @@ describe('sweepOrphanedCaches — thumb .meta sidecars', () => {
     }
   });
 
-  test('leaves a just-written stranded sidecar for the next pass', async () => {
+  test('leaves a just-written stranded legacy sidecar for the next pass', async () => {
     if (!mongoReachable) return;
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
     const root = await mkTree();
