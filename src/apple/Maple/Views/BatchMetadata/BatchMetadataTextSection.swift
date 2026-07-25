@@ -65,12 +65,46 @@ struct BatchMetadataTextSection: View {
                               value: Binding(get: { vm.touchedMetadata.headline     ?? "" },
                                             set: { vm.touchedMetadata.headline     = $0 }))
             keywordsField
+            colorLabelField
             hiddenField
             metadataTextField("Instructions",     placeholder: placeholder(.instructions),
                               value: Binding(get: { vm.touchedMetadata.instructions ?? "" },
                                             set: { vm.touchedMetadata.instructions = $0 }))
         }
         .padding(.bottom, 12)
+    }
+
+    // MARK: - Color label field
+
+    /// Color-label picker (#1656). Writes `touchedMetadata.colorLabel`, whose
+    /// outer Optional marks the field touched and whose inner value — nil
+    /// included — is applied to every selected photo, so "No label" is an
+    /// explicit clear rather than a no-op. Untouched, the picker displays the
+    /// selection's common label (nil when mixed, alongside the "(mixed)" hint).
+    private var colorLabelField: some View {
+        let colorLabelBinding = Binding<ColorLabel?>(
+            get: { vm.touchedMetadata.colorLabel ?? vm.commonColorLabel },
+            set: { vm.touchedMetadata.colorLabel = .some($0) }
+        )
+
+        return HStack {
+            Text("Color Label")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(width: 140, alignment: .leading)
+            Picker("Color Label", selection: colorLabelBinding) {
+                Text("No label").tag(Optional<ColorLabel>(nil))
+                ForEach(ColorLabel.allCases, id: \.self) { label in
+                    Text(label.rawValue.capitalized).tag(Optional(label))
+                }
+            }
+            .pickerStyle(.menu)
+            .accessibilityLabel("Color Label")
+            if vm.mixedFields.contains(.colorLabel) && vm.touchedMetadata.colorLabel == nil {
+                Text("(mixed)").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 16)
     }
 
     // MARK: - Hidden field
