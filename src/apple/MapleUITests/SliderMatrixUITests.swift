@@ -62,6 +62,57 @@ final class SliderMatrixUITests: XCTestCase {
     /// enough chroma signal without choking the pixel loop.
     private static let diffLongEdge: Int = 1024
 
+    /// Compile-time case filter, for local triage when the environment
+    /// variable can't be plumbed through. `xcodebuild` does NOT forward
+    /// plain (or `TEST_RUNNER_`-prefixed) env vars into the UI-test process
+    /// on this project's scheme, so a one-case run is otherwise a 90-minute
+    /// wait. Keep "" on main — CI must run the whole matrix.
+    static let hardcodedCaseFilter = ""
+
+    // MARK: - Canvas settle (#2277)
+
+    /// Overall budget for getting the canvas sentinel into a settled state.
+    /// Generous versus the old flat 60s wait because settling may span
+    /// several render cycles on a 100 MP fixture.
+    static let settleDeadline: TimeInterval = 90
+
+    /// The sentinel must exist continuously across this window to count as
+    /// settled — long enough to outlast the gap between a fast-phase
+    /// publish and the debounced refine that follows it (150 ms debounce,
+    /// see `docs/architecture.md` § two-phase rendering).
+    private static let settleWindow: TimeInterval = 1.0
+
+    /// Poll interval inside the settle window.
+    private static let settlePoll: TimeInterval = 0.1
+
+    /// Wait until `canvas` exists continuously for `settleWindow`, or the
+    /// `settleDeadline` expires. Returns false on timeout.
+    ///
+    /// A bare `exists == 1` wait is not enough: the sentinel is published
+    /// only between render cycles (see the call site), so a single match
+    /// can be a transient window that closes before the screenshot.
+    static func waitForSettledCanvas(_ canvas: XCUIElement) -> Bool {
+        let deadline = Date().addingTimeInterval(settleDeadline)
+        while Date() < deadline {
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { return false }
+            let expectation = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "exists == 1"), object: canvas)
+            guard XCTWaiter().wait(for: [expectation], timeout: remaining) == .completed else {
+                return false
+            }
+            // Up — now confirm it STAYS up for the whole window.
+            let checks = max(1, Int(settleWindow / settlePoll))
+            let stayedUp = (0..<checks).allSatisfy { _ in
+                Thread.sleep(forTimeInterval: settlePoll)
+                return canvas.exists
+            }
+            if stayedUp { return true }
+            // Flipped back to `canvas-rendering`; loop and wait again.
+        }
+        return false
+    }
+
     // MARK: - Fixture / reference resolution
 
     private static let fixtureExtensions = [
@@ -171,6 +222,16 @@ final class SliderMatrixUITests: XCTestCase {
 
             for downName in downPNGs.sorted() where downName.hasSuffix(".png") {
                 let caseName = String(downName.dropLast(".png".count))
+                // Optional subset filter, mirroring `FILTER=` in
+                // `src/scripts/test_color_pipeline.sh`. Substring match
+                // against "stem/case" — a full matrix run is ~90 min, so
+                // triaging one case needs a way in that isn't "wait 90
+                // minutes". Unset = run everything (CI behaviour).
+                let envFilter = ProcessInfo.processInfo.environment["MAPLE_UITEST_CASE_FILTER"]
+                let filter = (envFilter?.isEmpty == false) ? envFilter! : Self.hardcodedCaseFilter
+                if !filter.isEmpty, !"\(stem)/\(caseName)".contains(filter) {
+                    continue
+                }
                 let xmpURL = xmpDir.appendingPathComponent("\(caseName).xmp")
                 let refPNG = downDir.appendingPathComponent(downName)
                 guard fm.fileExists(atPath: xmpURL.path) else { continue }
@@ -251,17 +312,27 @@ final class SliderMatrixUITests: XCTestCase {
         app.launch()
         defer { app.terminate() }
 
-        // Wait for the refine pass.
+        // Wait for the refine pass — and require the sentinel to SETTLE
+        // before capturing (#2277).
+        //
+        // `FullImageView+VM.canvasAccessibilityID(isRendering:hasPreview:)`
+        // publishes `canvas-render-ready` ONLY while `!isRendering &&
+        // hasPreview`; the element stops existing the moment another render
+        // cycle begins. Screenshotting the instant the predicate first
+        // matches therefore races a follow-on render, and
+        // `XCUIElement.screenshot()` on a vanished element raises an
+        // UNRECOVERABLE XCTest failure — which aborted the entire 606-case
+        // matrix instead of costing the one case (observed ~17 cases in).
+        // Settling first also captures the quiesced render rather than an
+        // intermediate one, which is what the CIEDE2000 diff wants anyway.
         let canvas = app.otherElements["canvas-render-ready"]
-        let predicate = NSPredicate(format: "exists == 1")
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: canvas)
-        let waited = XCTWaiter().wait(for: [expectation], timeout: 60)
-        guard waited == .completed else {
+        guard Self.waitForSettledCanvas(canvas) else {
             return CaseResult(
                 stem: stem,
                 caseName: caseName,
                 metrics: nil,
-                failureReasons: ["canvas-render-ready timeout (60s)"]
+                failureReasons:
+                    ["canvas-render-ready never settled (\(Int(Self.settleDeadline))s)"]
             )
         }
 
@@ -269,14 +340,20 @@ final class SliderMatrixUITests: XCTestCase {
         // heuristic as MapleAppDriver). We replicate the logic inline
         // rather than build a Driver per case — Driver.launch() does its
         // own fixture validation that's redundant here.
-        let candidatePNG: Data = {
-            let frame = canvas.frame
+        //
+        // Every `canvas.screenshot()` below is gated on a fresh `exists`
+        // check (#2277): the screen-crop path needs no live element, so a
+        // sentinel that flips after settling degrades to the crop instead
+        // of failing the run. `frame` is read while the element is up.
+        let frame = canvas.frame
+        let candidatePNG: Data? = {
+            guard canvas.exists else { return nil }
             let elementSnap = canvas.screenshot().image
             let elementSize = elementSnap.size
             let tight =
                 elementSize.width  <= frame.width  * 1.1 &&
                 elementSize.height <= frame.height * 1.1
-            if tight {
+            if tight, canvas.exists {
                 return canvas.screenshot().pngRepresentation
             }
             let screen = XCUIScreen.main.screenshot().image
@@ -284,8 +361,25 @@ final class SliderMatrixUITests: XCTestCase {
             return cropped.tiffRepresentation
                 .flatMap { NSBitmapImageRep(data: $0) }
                 .flatMap { $0.representation(using: .png, properties: [:]) }
-                ?? canvas.screenshot().pngRepresentation
+        }() ?? {
+            // Sentinel vanished between settling and capture. The screen
+            // buffer is still there — crop it to the frame we captured
+            // while the element was up.
+            let screen = XCUIScreen.main.screenshot().image
+            let cropped = SliderMatrixUITests.crop(screen, to: frame)
+            return cropped.tiffRepresentation
+                .flatMap { NSBitmapImageRep(data: $0) }
+                .flatMap { $0.representation(using: .png, properties: [:]) }
         }()
+
+        guard let candidatePNG else {
+            return CaseResult(
+                stem: stem,
+                caseName: caseName,
+                metrics: nil,
+                failureReasons: ["canvas screenshot unavailable (sentinel flipped mid-capture)"]
+            )
+        }
 
         // Resize both to the common diff size + RGBA8 buffer + diff.
         let referenceData = try Data(contentsOf: referencePNG)
@@ -300,7 +394,12 @@ final class SliderMatrixUITests: XCTestCase {
                 stem: stem,
                 caseName: caseName,
                 metrics: nil,
-                failureReasons: ["resize size mismatch: \(cw)x\(ch) vs \(rw)x\(rh)"]
+                failureReasons: [
+                    "resize size mismatch: \(cw)x\(ch) vs \(rw)x\(rh) "
+                    + "[canvasFrame=\(Int(frame.width))x\(Int(frame.height)) "
+                    + "rawCandidate=\(NSBitmapImageRep(data: candidatePNG).map { "\($0.pixelsWide)x\($0.pixelsHigh)" } ?? "?") "
+                    + "rawReference=\(NSBitmapImageRep(data: referenceData).map { "\($0.pixelsWide)x\($0.pixelsHigh)" } ?? "?")]"
+                ]
             )
         }
 
