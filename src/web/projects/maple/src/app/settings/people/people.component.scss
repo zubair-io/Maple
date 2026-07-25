@@ -774,6 +774,7 @@
 @media (max-width: 767px) {
   .bulk-toolbar-wrap {
     bottom: 12px;
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }
 
