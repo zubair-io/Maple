@@ -315,7 +315,14 @@ pub(super) fn set_field(
         "crs:HasCrop" => {}             // consumed in the pre-pass
         "crs:CropConstrainToWarp" => {} // ACR compat — no Maple semantics
         "papp:WbScaleVersion" => {}     // consumed at document level in `parse` (#1780)
-        _ => {}                         // Slices 1-2-3-4 ignore everything else.
+        // Black & white mix (#276) — ACR-compatible `crs:ConvertToGrayscale`
+        // + `crs:GrayMixer*`, handled in the sibling module (600-LOC budget).
+        _ => {
+            if let Some(result) = super::black_white::set_field(key, value, v, m) {
+                return result;
+            }
+            // Slices 1-2-3-4 ignore everything else.
+        }
     }
     Ok(())
 }

@@ -255,6 +255,19 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
             p.hsl_lum_purple,
             p.hsl_lum_magenta,
         ],
+        // Black & white mix (#276) — same band order; a stale host leaves
+        // `bw_active` 0 = colour, bit-identical to pre-#276 output.
+        bw_mix: [
+            p.bw_mix_red,
+            p.bw_mix_orange,
+            p.bw_mix_yellow,
+            p.bw_mix_green,
+            p.bw_mix_aqua,
+            p.bw_mix_blue,
+            p.bw_mix_purple,
+            p.bw_mix_magenta,
+        ],
+        bw_active: p.bw_active != 0.0,
         sharpen_amount: p.sharpen_amount,
         sharpen_radius: p.sharpen_radius,
         sharpen_detail: p.sharpen_detail,

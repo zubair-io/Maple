@@ -257,6 +257,9 @@ pub fn serialize(model: &AdjustmentModel) -> String {
             out.push_str(&format!(r#" {key}="{rounded}""#));
         }
     }
+    // Black & white mix (#276) — see the sibling module for why this group
+    // is emitted here when the HSL sliders are not.
+    out.push_str(&black_white::serialize(model));
     // Crop / straighten (#277) — emitted only when non-identity. The rect
     // attributes (`crs:HasCrop` + four edges) are emitted only when the rect
     // itself differs from full-frame. `crs:CropAngle` is independent — it is
@@ -280,6 +283,8 @@ pub fn serialize(model: &AdjustmentModel) -> String {
     }
     out
 }
+
+mod black_white;
 
 #[cfg(test)]
 mod tests;

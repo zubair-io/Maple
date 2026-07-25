@@ -238,6 +238,11 @@ pub(crate) fn emit_ts(schema: &[FieldSpec]) -> String {
     // decode product (see raw-core::stages::hot_pixel).
     s.push_str("export type HotPixelSuppressionMode = 'Off' | 'On';\n\n");
 
+    // Black & white conversion (#276). `On` routes the 8-band Oklab stage
+    // into its monochrome path — the gray-mixer weights drive L and chroma
+    // is forced to zero — and makes the 24 HSL sliders inert.
+    s.push_str("export type BlackWhiteMode = 'Off' | 'On';\n\n");
+
     // Generated interface.
     s.push_str("export interface GeneratedAdjustmentModel {\n");
     for spec in schema {
@@ -323,6 +328,8 @@ pub(crate) fn emit_ts(schema: &[FieldSpec]) -> String {
                     // Hot/dead-pixel suppression (#1106). Off until a
                     // harness sweep shows enabling is free on clean fixtures.
                     "HotPixelSuppressionMode" => "Off",
+                    // Black & white mix (#276). Colour render by default.
+                    "BlackWhiteMode" => "Off",
                     other => panic!(
                         "codegen: no default mapping for enum `{}` — add one \
                          alongside the matching Rust `Default` impl",

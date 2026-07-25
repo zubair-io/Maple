@@ -224,5 +224,17 @@ pub(super) fn make_params(
         wb_frame_render_cct_warm: 0.0,
         wb_frame_render_fm_cold: [0.0; 9],
         wb_frame_render_fm_warm: [0.0; 9],
+        // Black & white mix (#276) — pass through from the model.
+        bw_active: f32::from(u8::from(
+            model.black_white == raw_core::types::BlackWhiteMode::On,
+        )),
+        bw_mix_red: model.gray_mixer_red,
+        bw_mix_orange: model.gray_mixer_orange,
+        bw_mix_yellow: model.gray_mixer_yellow,
+        bw_mix_green: model.gray_mixer_green,
+        bw_mix_aqua: model.gray_mixer_aqua,
+        bw_mix_blue: model.gray_mixer_blue,
+        bw_mix_purple: model.gray_mixer_purple,
+        bw_mix_magenta: model.gray_mixer_magenta,
     }
 }

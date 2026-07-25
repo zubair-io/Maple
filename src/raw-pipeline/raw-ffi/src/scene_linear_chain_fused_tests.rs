@@ -97,6 +97,15 @@ fn default_params() -> MapleAdjustmentParams {
         wb_frame_render_cct_warm: 0.0,
         wb_frame_render_fm_cold: [0.0; 9],
         wb_frame_render_fm_warm: [0.0; 9],
+        bw_active: 0.0,
+        bw_mix_red: 0.0,
+        bw_mix_orange: 0.0,
+        bw_mix_yellow: 0.0,
+        bw_mix_green: 0.0,
+        bw_mix_aqua: 0.0,
+        bw_mix_blue: 0.0,
+        bw_mix_purple: 0.0,
+        bw_mix_magenta: 0.0,
     }
 }
 

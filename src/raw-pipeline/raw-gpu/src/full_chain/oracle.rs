@@ -29,7 +29,7 @@ use crate::tone_curves::{CurveMode, ToneCurveInputs};
 use crate::FullChainInputs;
 
 use raw_core::image::{ColorSpace, Image};
-use raw_core::types::{ToneCurveMode, WbMethod};
+use raw_core::types::{BlackWhiteMode, ToneCurveMode, WbMethod};
 use raw_core::view::auto_profile::apply::apply_curve;
 use raw_core::view::auto_profile::curve::{ChannelCurve, ProfileCurve};
 use raw_core::view::auto_profile::lut::ColorLut;
@@ -179,6 +179,17 @@ impl Case {
                 self.model.luminance_adjustment_purple,
                 self.model.luminance_adjustment_magenta,
             ],
+            bw_mix: [
+                self.model.gray_mixer_red,
+                self.model.gray_mixer_orange,
+                self.model.gray_mixer_yellow,
+                self.model.gray_mixer_green,
+                self.model.gray_mixer_aqua,
+                self.model.gray_mixer_blue,
+                self.model.gray_mixer_purple,
+                self.model.gray_mixer_magenta,
+            ],
+            bw_active: self.model.black_white == BlackWhiteMode::On,
             clarity: self.model.clarity,
             texture: self.model.texture,
             dehaze: self.model.dehaze,
@@ -247,39 +258,7 @@ pub fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
     raw_core::stages::vibrance::apply(&mut img, case.model.vibrance);
     raw_core::stages::saturation::apply(&mut img, case.model.saturation);
     // HSL (#1112) — after saturation, before clarity (develop order, scene-linear).
-    raw_core::stages::hsl::apply(
-        &mut img,
-        &[
-            case.model.hue_adjustment_red,
-            case.model.hue_adjustment_orange,
-            case.model.hue_adjustment_yellow,
-            case.model.hue_adjustment_green,
-            case.model.hue_adjustment_aqua,
-            case.model.hue_adjustment_blue,
-            case.model.hue_adjustment_purple,
-            case.model.hue_adjustment_magenta,
-        ],
-        &[
-            case.model.saturation_adjustment_red,
-            case.model.saturation_adjustment_orange,
-            case.model.saturation_adjustment_yellow,
-            case.model.saturation_adjustment_green,
-            case.model.saturation_adjustment_aqua,
-            case.model.saturation_adjustment_blue,
-            case.model.saturation_adjustment_purple,
-            case.model.saturation_adjustment_magenta,
-        ],
-        &[
-            case.model.luminance_adjustment_red,
-            case.model.luminance_adjustment_orange,
-            case.model.luminance_adjustment_yellow,
-            case.model.luminance_adjustment_green,
-            case.model.luminance_adjustment_aqua,
-            case.model.luminance_adjustment_blue,
-            case.model.luminance_adjustment_purple,
-            case.model.luminance_adjustment_magenta,
-        ],
-    );
+    raw_core::stages::hsl::apply_model(&mut img, &case.model);
     raw_core::stages::clarity::apply(&mut img, case.model.clarity);
     raw_core::stages::texture::apply(&mut img, case.model.texture);
     raw_core::stages::dehaze::apply(&mut img, case.model.dehaze);

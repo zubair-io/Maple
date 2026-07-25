@@ -22,7 +22,7 @@
 // FieldKind and FieldSpec split into a sibling submodule to stay under the
 // 600-LOC hard budget (#1181).
 mod types;
-pub use types::{FieldKind, FieldSpec};
+pub use types::{band_field, FieldKind, FieldSpec};
 
 // The 24 HSL band entries live in a sibling submodule for the same reason
 // (#366 pushed this file past the budget); `ADJUSTMENT_SCHEMA` lists them
@@ -379,6 +379,25 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
     hsl::LUMINANCE_ADJUSTMENT_BLUE,
     hsl::LUMINANCE_ADJUSTMENT_PURPLE,
     hsl::LUMINANCE_ADJUSTMENT_MAGENTA,
+    // Black & white mix (#276). One mode toggle plus 8 per-band luminance
+    // weights over the SAME hue bands as the HSL block above. All weights
+    // range -100..100, default 0. ACR-compatible `crs:` keys.
+    FieldSpec {
+        name: "black_white",
+        kind: FieldKind::Enum,
+        range: (0.0, 0.0),
+        default_f32: 0.0,
+        enum_name: "BlackWhiteMode",
+        doc: "Black & white conversion mode (#276). 'On' routes the 8-band Oklab stage into its monochrome path — the gray-mixer weights drive L and chroma is forced to zero — and makes the 24 HSL sliders inert. XMP: crs:ConvertToGrayscale.",
+    },
+    band_field("gray_mixer_red", "B&W Red luminance weight (#276). Scales Oklab L on the Red band while black_white is On; ±100 ↔ scale ×2 / ×0. XMP: crs:GrayMixerRed."),
+    band_field("gray_mixer_orange", "B&W Orange luminance weight (#276). XMP: crs:GrayMixerOrange."),
+    band_field("gray_mixer_yellow", "B&W Yellow luminance weight (#276). XMP: crs:GrayMixerYellow."),
+    band_field("gray_mixer_green", "B&W Green luminance weight (#276). XMP: crs:GrayMixerGreen."),
+    band_field("gray_mixer_aqua", "B&W Aqua luminance weight (#276). XMP: crs:GrayMixerAqua."),
+    band_field("gray_mixer_blue", "B&W Blue luminance weight (#276). XMP: crs:GrayMixerBlue."),
+    band_field("gray_mixer_purple", "B&W Purple luminance weight (#276). XMP: crs:GrayMixerPurple."),
+    band_field("gray_mixer_magenta", "B&W Magenta luminance weight (#276). XMP: crs:GrayMixerMagenta."),
     FieldSpec {
         name: "highlight_recovery",
         kind: FieldKind::Enum,
@@ -482,3 +501,5 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_presence;

@@ -27,6 +27,8 @@ export type AutoExposureMode = 'Off' | 'On';
 
 export type HotPixelSuppressionMode = 'Off' | 'On';
 
+export type BlackWhiteMode = 'Off' | 'On';
+
 export interface GeneratedAdjustmentModel {
   /** White balance correlated color temperature in Kelvin. Range: [2000.0, 12000.0]. */
   temperature: number;
@@ -152,6 +154,24 @@ export interface GeneratedAdjustmentModel {
   luminanceAdjustmentPurple: number;
   /** HSL Magenta luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentMagenta. Range: [-100.0, 100.0]. */
   luminanceAdjustmentMagenta: number;
+  /** Black & white conversion mode (#276). 'On' routes the 8-band Oklab stage into its monochrome path — the gray-mixer weights drive L and chroma is forced to zero — and makes the 24 HSL sliders inert. XMP: crs:ConvertToGrayscale. */
+  blackWhite: BlackWhiteMode;
+  /** B&W Red luminance weight (#276). Scales Oklab L on the Red band while black_white is On; ±100 ↔ scale ×2 / ×0. XMP: crs:GrayMixerRed. Range: [-100.0, 100.0]. */
+  grayMixerRed: number;
+  /** B&W Orange luminance weight (#276). XMP: crs:GrayMixerOrange. Range: [-100.0, 100.0]. */
+  grayMixerOrange: number;
+  /** B&W Yellow luminance weight (#276). XMP: crs:GrayMixerYellow. Range: [-100.0, 100.0]. */
+  grayMixerYellow: number;
+  /** B&W Green luminance weight (#276). XMP: crs:GrayMixerGreen. Range: [-100.0, 100.0]. */
+  grayMixerGreen: number;
+  /** B&W Aqua luminance weight (#276). XMP: crs:GrayMixerAqua. Range: [-100.0, 100.0]. */
+  grayMixerAqua: number;
+  /** B&W Blue luminance weight (#276). XMP: crs:GrayMixerBlue. Range: [-100.0, 100.0]. */
+  grayMixerBlue: number;
+  /** B&W Purple luminance weight (#276). XMP: crs:GrayMixerPurple. Range: [-100.0, 100.0]. */
+  grayMixerPurple: number;
+  /** B&W Magenta luminance weight (#276). XMP: crs:GrayMixerMagenta. Range: [-100.0, 100.0]. */
+  grayMixerMagenta: number;
   /** Highlight reconstruction mode per spec § 3.3a. */
   highlightRecovery: HighlightRecoveryMode;
   /** Per-image auto-exposure mode (ticket #429). 'On' (default) anchors scene mid-gray to 0.18 before AgX; 'Off' is strict scene-referred. The `exposure` slider stacks additively in EV on top. */
@@ -241,6 +261,14 @@ export const ADJUSTMENT_RANGES = {
   luminanceAdjustmentBlue: [-100.0, 100.0] as const,
   luminanceAdjustmentPurple: [-100.0, 100.0] as const,
   luminanceAdjustmentMagenta: [-100.0, 100.0] as const,
+  grayMixerRed: [-100.0, 100.0] as const,
+  grayMixerOrange: [-100.0, 100.0] as const,
+  grayMixerYellow: [-100.0, 100.0] as const,
+  grayMixerGreen: [-100.0, 100.0] as const,
+  grayMixerAqua: [-100.0, 100.0] as const,
+  grayMixerBlue: [-100.0, 100.0] as const,
+  grayMixerPurple: [-100.0, 100.0] as const,
+  grayMixerMagenta: [-100.0, 100.0] as const,
   chromaPrefilter: [0.0, 100.0] as const,
   deepDenoise: [0.0, 100.0] as const,
 } as const;
@@ -310,6 +338,15 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     luminanceAdjustmentBlue: 0.0,
     luminanceAdjustmentPurple: 0.0,
     luminanceAdjustmentMagenta: 0.0,
+    blackWhite: 'Off',
+    grayMixerRed: 0.0,
+    grayMixerOrange: 0.0,
+    grayMixerYellow: 0.0,
+    grayMixerGreen: 0.0,
+    grayMixerAqua: 0.0,
+    grayMixerBlue: 0.0,
+    grayMixerPurple: 0.0,
+    grayMixerMagenta: 0.0,
     highlightRecovery: 'ChromaticAdaptation',
     autoExposure: 'On',
     look: 'Default',
@@ -427,6 +464,15 @@ export const ADJUSTMENT_GROUPS: readonly AdjustmentGroupSpec[] = [
       'luminance_adjustment_blue',
       'luminance_adjustment_purple',
       'luminance_adjustment_magenta',
+      'black_white',
+      'gray_mixer_red',
+      'gray_mixer_orange',
+      'gray_mixer_yellow',
+      'gray_mixer_green',
+      'gray_mixer_aqua',
+      'gray_mixer_blue',
+      'gray_mixer_purple',
+      'gray_mixer_magenta',
       'split_tone_shadow_hue',
       'split_tone_shadow_saturation',
       'split_tone_highlight_hue',

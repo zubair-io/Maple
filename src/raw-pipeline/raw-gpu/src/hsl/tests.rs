@@ -38,6 +38,8 @@ fn raw_core_hsl(
     hue: &[f32; NUM_BANDS],
     sat: &[f32; NUM_BANDS],
     lum: &[f32; NUM_BANDS],
+    bw_mix: &[f32; NUM_BANDS],
+    bw_active: bool,
 ) -> Vec<f32> {
     use raw_core::image::{ColorSpace, Image};
     let count = buf.len() / 4;
@@ -45,7 +47,7 @@ fn raw_core_hsl(
     for (i, chunk) in buf.chunks_exact(4).enumerate() {
         img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
     }
-    raw_core::stages::hsl::apply(&mut img, hue, sat, lum);
+    raw_core::stages::hsl::apply(&mut img, hue, sat, lum, bw_mix, bw_active);
     let mut out = Vec::with_capacity(buf.len());
     for (i, p) in img.pixels.iter().enumerate() {
         out.extend_from_slice(&[p[0], p[1], p[2], buf[i * 4 + 3]]);
@@ -139,7 +141,7 @@ fn wgsl_hsl_matches_raw_core_stage_within_1e_4() {
     ];
 
     for (hue, sat, lum) in &cases {
-        let reference = raw_core_hsl(&input, hue, sat, lum);
+        let reference = raw_core_hsl(&input, hue, sat, lum, &zero_bands(), false);
 
         let img = GpuImage::upload(&ctx, &input, count, 1);
         let runner = ChainRunner::new(&ctx, &img);
@@ -147,6 +149,8 @@ fn wgsl_hsl_matches_raw_core_stage_within_1e_4() {
             hue: *hue,
             sat: *sat,
             lum: *lum,
+            bw_mix: zero_bands(),
+            bw_active: false,
         }]);
 
         let max_diff = reference
@@ -178,9 +182,9 @@ fn local_oracle_matches_raw_core_stage_within_1e_6() {
     let mut lum = zero_bands();
     lum[3] = -40.0;
 
-    let reference = raw_core_hsl(&input, &hue, &sat, &lum);
+    let reference = raw_core_hsl(&input, &hue, &sat, &lum, &zero_bands(), false);
     let mut local = input.clone();
-    apply_hsl(&mut local, &hue, &sat, &lum);
+    apply_hsl(&mut local, &hue, &sat, &lum, &zero_bands(), false);
 
     let max_diff = reference
         .iter()
@@ -209,6 +213,8 @@ fn gpu_hsl_neutral_is_bit_exact() {
         hue: [100.0; NUM_BANDS],
         sat: [100.0; NUM_BANDS],
         lum: [100.0; NUM_BANDS],
+        bw_mix: zero_bands(),
+        bw_active: false,
     }]);
     for (i, (before, after)) in input.chunks_exact(4).zip(gpu.chunks_exact(4)).enumerate() {
         for c in 0..3 {
@@ -239,6 +245,8 @@ fn all_defaults_passes_through() {
         hue: zero_bands(),
         sat: zero_bands(),
         lum: zero_bands(),
+        bw_mix: zero_bands(),
+        bw_active: false,
     }]);
     // The WGSL returns rgb unchanged for C < C0 (neutrals), and applies zero
     // deltas for chromatic pixels → output should match input within float noise.
@@ -248,4 +256,173 @@ fn all_defaults_passes_through() {
             "all-defaults pixel {i}: {a:.6} → {b:.6}"
         );
     }
+}
+
+// ── Black & white mix (#276) ──────────────────────────────────────────────────
+
+/// Relative bound for the B&W GPU-vs-raw-core gate.
+///
+/// Measured worst case on Apple M-series Metal is 1.65e-4, on the most
+/// extreme operating point in the suite: the alternating ±80 mixer applied
+/// to a fully-saturated Rec.2020 primary (the single Red band at +100
+/// measures 1.44e-4). B&W scales Oklab `L` by up to 2, and
+/// `L` is roughly the cube root of luminance, so that pixel leaves at ~8×
+/// its input scene-linear value — which magnifies the one place the CPU and
+/// GPU genuinely differ, `f32::cbrt` vs WGSL's `pow(x, 1/3)`. Bound set at
+/// 2.5e-4 = 1.5× the measurement, leaving headroom for other GPU vendors'
+/// `pow` while still failing loudly on a real divergence. In display terms
+/// 1.44e-4 relative is well under a twentieth of an 8-bit code value.
+///
+/// One-way ratchet, like `test-fixtures/budgets.json`: lower it when the
+/// cube root gets more accurate, never raise it to make a run pass.
+const BW_PARITY_REL_BOUND: f32 = 2.5e-4;
+
+/// THE B&W PARITY GATE. A CPU-only monochrome path would silently diverge the
+/// GPU live path — `cargo test -p raw-core` cannot see it — so the WGSL
+/// `bw_pixel` branch is pinned against `raw_core::stages::hsl::apply` with
+/// black & white armed, across a flat mixer and several per-band mixes.
+#[test]
+fn wgsl_bw_matches_raw_core_stage_within_bound() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let input = scene_buffer();
+    let count = (input.len() / 4) as u32;
+
+    let cases: Vec<[f32; NUM_BANDS]> = vec![
+        // Flat mixer — pure desaturation.
+        zero_bands(),
+        // Single band pushed hard each way.
+        {
+            let mut m = zero_bands();
+            m[0] = 100.0;
+            m
+        },
+        {
+            let mut m = zero_bands();
+            m[5] = -100.0;
+            m
+        },
+        // Alternating ±80 — maximum gradient at every band boundary, the
+        // same stress the raw-core smoothness test uses.
+        std::array::from_fn(|band| if band % 2 == 0 { 80.0 } else { -80.0 }),
+    ];
+
+    // The bound is RELATIVE, unlike the colour gate above. B&W scales Oklab
+    // L by up to 2, and L is roughly the cube root of luminance, so a
+    // scene-linear 1.0 can leave at ~8.0 — an absolute 1e-4 there would be a
+    // 1.2e-5 relative bound, tighter than the CPU/GPU cube-root difference
+    // (Rust `f32::cbrt` vs WGSL `pow(x, 1/3)`) can meet. Normalising by the
+    // reference magnitude keeps the gate at the same 1e-4 strictness the
+    // colour gate applies at unit scale.
+    for mix in &cases {
+        let reference = raw_core_hsl(
+            &input,
+            &zero_bands(),
+            &zero_bands(),
+            &zero_bands(),
+            mix,
+            true,
+        );
+
+        let img = GpuImage::upload(&ctx, &input, count, 1);
+        let runner = ChainRunner::new(&ctx, &img);
+        let gpu = runner.run_blocking(&[&HslPass {
+            hue: zero_bands(),
+            sat: zero_bands(),
+            lum: zero_bands(),
+            bw_mix: *mix,
+            bw_active: true,
+        }]);
+
+        let (worst_i, max_rel) = reference
+            .iter()
+            .zip(&gpu)
+            .map(|(a, b)| (a - b).abs() / a.abs().max(1.0))
+            .enumerate()
+            .fold(
+                (0usize, 0.0_f32),
+                |acc, x| if x.1 > acc.1 { x } else { acc },
+            );
+        eprintln!(
+            "PARITY vs raw-core bw (mix={mix:?}): max rel diff = {max_rel:e} at lane \
+             {worst_i} (ref {:.6}, gpu {:.6})",
+            reference[worst_i], gpu[worst_i]
+        );
+        assert!(
+            max_rel < BW_PARITY_REL_BOUND,
+            "B&W GPU vs raw-core max rel diff {max_rel} exceeds {BW_PARITY_REL_BOUND} \
+             (mix {mix:?}, lane {worst_i}: ref {:.6} vs gpu {:.6})",
+            reference[worst_i],
+            gpu[worst_i]
+        );
+    }
+}
+
+/// The GPU output really is neutral — every pixel leaves with R == G == B.
+/// This is the "saturation forced to 0" half of the ticket, asserted on the
+/// device rather than inferred from the CPU stage.
+#[test]
+fn gpu_bw_output_is_neutral() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let input = scene_buffer();
+    let count = (input.len() / 4) as u32;
+    let img = GpuImage::upload(&ctx, &input, count, 1);
+    let runner = ChainRunner::new(&ctx, &img);
+    let gpu = runner.run_blocking(&[&HslPass {
+        hue: zero_bands(),
+        sat: zero_bands(),
+        lum: zero_bands(),
+        bw_mix: std::array::from_fn(|band| if band % 2 == 0 { 80.0 } else { -80.0 }),
+        bw_active: true,
+    }]);
+    // Relative spread: the residual is the Oklab round-trip's own asymmetry
+    // (the Rec.2020↔sRGB constants are 4-decimal, so their inverse is not an
+    // exact inverse), which scales with signal magnitude — a white pixel
+    // leaves at ~1e-4 absolute, a mid-grey at ~2e-5.
+    for (i, px) in gpu.chunks_exact(4).enumerate() {
+        let hi = px[0].max(px[1]).max(px[2]);
+        let spread = hi - px[0].min(px[1]).min(px[2]);
+        let rel = spread / hi.abs().max(1e-3);
+        assert!(
+            rel < 1e-3,
+            "pixel {i} is not neutral: {:?} (relative spread {rel:e})",
+            &px[0..3]
+        );
+    }
+}
+
+/// The local CPU oracle's B&W path matches raw-core's, so the parity gate
+/// above compares equal implementations rather than unrelated ones.
+#[test]
+fn local_oracle_bw_matches_raw_core_stage_within_1e_6() {
+    let input = scene_buffer();
+    let mix: [f32; NUM_BANDS] =
+        std::array::from_fn(|band| if band % 2 == 0 { 80.0 } else { -80.0 });
+
+    let reference = raw_core_hsl(
+        &input,
+        &zero_bands(),
+        &zero_bands(),
+        &zero_bands(),
+        &mix,
+        true,
+    );
+    let mut local = input.clone();
+    apply_hsl(
+        &mut local,
+        &zero_bands(),
+        &zero_bands(),
+        &zero_bands(),
+        &mix,
+        true,
+    );
+
+    let max_diff = reference
+        .iter()
+        .zip(&local)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0_f32, f32::max);
+    assert!(
+        max_diff < 1e-6,
+        "local B&W oracle vs raw-core stage diff {max_diff} exceeds 1e-6"
+    );
 }

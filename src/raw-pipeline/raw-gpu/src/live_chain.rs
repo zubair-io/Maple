@@ -57,9 +57,9 @@ use crate::capture_sharpening::CaptureSharpeningPass;
 use crate::clarity::ClarityPass;
 use crate::dehaze::{AirlightSource, DehazePass};
 use crate::display_encode::DisplayEncodePass;
+use crate::full_chain::hsl_pass_for;
 use crate::full_chain::{BoxedPasses, FullChainInputs, InputShape, PROFILE_ID_ACR_MATCH};
 use crate::grain::GrainPass;
-use crate::hsl::HslPass;
 use crate::noise_reduction::{NlmColorPass, NlmLumaPass};
 use crate::residual_lut::ResidualLutPass;
 use crate::saturation::SaturationPass;
@@ -274,14 +274,11 @@ pub fn build_live_split(
             saturation: inputs.saturation,
         }));
     }
-    // HSL (#1112) — gated when any of the 24 sliders is engaged (same
-    // predicate as raw-core's `hsl_params` is_identity flag: `abs() >= 1e-3`).
+    // HSL (#1112) / black & white (#276) — gated when any of the 24 sliders
+    // is engaged (same predicate as raw-core's `hsl_params` is_identity
+    // flag: `abs() >= 1e-3`) or B&W is armed.
     {
-        let hsl_pass = HslPass {
-            hue: inputs.hsl_hue,
-            sat: inputs.hsl_sat,
-            lum: inputs.hsl_lum,
-        };
+        let hsl_pass = hsl_pass_for(inputs);
         if !hsl_pass.is_noop() {
             prefix.push(Box::new(hsl_pass));
         }
@@ -467,13 +464,7 @@ fn active_mask(inputs: &FullChainInputs) -> u32 {
     if inputs.saturation.abs() >= SLIDER_EPS {
         m |= 1 << 5;
     }
-    if !(HslPass {
-        hue: inputs.hsl_hue,
-        sat: inputs.hsl_sat,
-        lum: inputs.hsl_lum,
-    }
-    .is_noop())
-    {
+    if !hsl_pass_for(inputs).is_noop() {
         m |= 1 << 15;
     }
     if inputs.clarity.abs() >= SLIDER_EPS {

@@ -289,6 +289,22 @@ pub struct MapleGpuLiveParams {
     /// All-zero ⇒ that side's FM absent.
     pub wb_frame_render_fm_cold: [f32; 9],
     pub wb_frame_render_fm_warm: [f32; 9],
+    // --- Black & white mix (#276) — the mode toggle plus 8 per-band
+    //     luminance weights over the SAME hue bands as `hsl_*`. Appended at
+    //     the struct tail per the offset-stable ABI convention: a stale host
+    //     leaves `bw_active` at 0 ⇒ colour render, bit-identical output. ---
+    /// 0 = colour (default), non-zero = black & white. Carried as f32 so the
+    /// host marshalling stays a single float assignment like every other
+    /// slider in this struct.
+    pub bw_active: f32,
+    pub bw_mix_red: f32,
+    pub bw_mix_orange: f32,
+    pub bw_mix_yellow: f32,
+    pub bw_mix_green: f32,
+    pub bw_mix_aqua: f32,
+    pub bw_mix_blue: f32,
+    pub bw_mix_purple: f32,
+    pub bw_mix_magenta: f32,
 }
 
 /// Internal handle state: the per-open session. Behind the opaque pointer.

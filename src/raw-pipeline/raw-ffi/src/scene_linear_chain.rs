@@ -206,6 +206,22 @@ pub struct MapleAdjustmentParams {
     /// All-zero ⇒ that side's FM absent.
     pub wb_frame_render_fm_cold: [f32; 9],
     pub wb_frame_render_fm_warm: [f32; 9],
+    // --- Black & white mix (#276) — the mode toggle plus 8 per-band
+    //     luminance weights over the SAME hue bands as `hsl_*`. Appended at
+    //     the struct tail per the offset-stable ABI convention: a stale host
+    //     leaves `bw_active` at 0 ⇒ colour render, bit-identical output. ---
+    /// 0 = colour (default), non-zero = black & white. Carried as f32 so the
+    /// host marshalling stays a single float assignment like every other
+    /// slider in this struct.
+    pub bw_active: f32,
+    pub bw_mix_red: f32,
+    pub bw_mix_orange: f32,
+    pub bw_mix_yellow: f32,
+    pub bw_mix_green: f32,
+    pub bw_mix_aqua: f32,
+    pub bw_mix_blue: f32,
+    pub bw_mix_purple: f32,
+    pub bw_mix_magenta: f32,
 }
 
 /// Run the cheap-stage scene-linear chain over a caller-provided fp16 RGBA
@@ -335,6 +351,20 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
     model.luminance_adjustment_blue = p.hsl_lum_blue;
     model.luminance_adjustment_purple = p.hsl_lum_purple;
     model.luminance_adjustment_magenta = p.hsl_lum_magenta;
+    // Black & white mix (#276) — a stale host leaves `bw_active` 0 = colour.
+    model.black_white = if p.bw_active != 0.0 {
+        raw_core::types::BlackWhiteMode::On
+    } else {
+        raw_core::types::BlackWhiteMode::Off
+    };
+    model.gray_mixer_red = p.bw_mix_red;
+    model.gray_mixer_orange = p.bw_mix_orange;
+    model.gray_mixer_yellow = p.bw_mix_yellow;
+    model.gray_mixer_green = p.bw_mix_green;
+    model.gray_mixer_aqua = p.bw_mix_aqua;
+    model.gray_mixer_blue = p.bw_mix_blue;
+    model.gray_mixer_purple = p.bw_mix_purple;
+    model.gray_mixer_magenta = p.bw_mix_magenta;
     model.look = raw_core::view::look::Look::from(p.look_mode);
 
     // Non-RAW WB contract (#1331 / #1734): for a non-RAW shape the uploaded
