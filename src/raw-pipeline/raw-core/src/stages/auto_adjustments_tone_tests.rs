@@ -133,6 +133,62 @@ fn anchors_are_ordered_and_straddle_mid_gray() {
 }
 
 // ---------------------------------------------------------------------------
+// The extracted transfers are the SHIPPING transfers
+// ---------------------------------------------------------------------------
+
+/// `whites_mult`, `blacks_crush_factor` and `blacks_lift_delta` were lifted out
+/// of `scene_tone_controls::apply`'s inner loops so this calibration inverts the
+/// shipping math instead of a hand-copied twin. Lifting them changed the render
+/// path, so it has to be BIT-identical, not merely close — a float refactor that
+/// reorders one multiply moves every pixel and the parity budgets with it.
+///
+/// This re-evaluates the pre-extraction expressions verbatim and demands exact
+/// equality across the slider range and the luma range the stage sees.
+#[test]
+fn extracted_transfers_are_bit_identical_to_the_inline_originals() {
+    use crate::stages::scene_tone_controls::{
+        blacks_crush_factor, blacks_lift_delta, whites_mult, B_CRUSH_EDGE, B_LIFT_EDGE, B_LIFT_MAX,
+        WHITES_MIN_GAIN,
+    };
+    // Local copy of the stage's private `smoothstep`, itself verbatim.
+    fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
+        let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    }
+
+    for i in 0..=400 {
+        let y = i as f32 * 0.02; // 0 … 8.0 scene-linear
+        for j in -100..=100 {
+            let slider = j as f32;
+
+            let w_amount = (slider / 200.0).max(-WHITES_MIN_GAIN);
+            let inline_whites = 1.0 + w_amount * smoothstep(0.5, 1.0, y);
+            assert_eq!(
+                whites_mult(y, w_amount),
+                inline_whites,
+                "whites y={y} s={slider}"
+            );
+
+            let b_amount = slider / 100.0;
+            let inline_crush = 1.0 + b_amount * (1.0 - smoothstep(0.0, B_CRUSH_EDGE, y));
+            assert_eq!(
+                blacks_crush_factor(y, b_amount),
+                inline_crush,
+                "blacks crush y={y} s={slider}"
+            );
+
+            let b_add_pos = B_LIFT_MAX * slider / 100.0;
+            let inline_lift = b_add_pos * (1.0 - smoothstep(0.0, B_LIFT_EDGE, y));
+            assert_eq!(
+                blacks_lift_delta(y, b_add_pos),
+                inline_lift,
+                "blacks lift y={y} s={slider}"
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Per-slider inversions land their anchor (undamped)
 // ---------------------------------------------------------------------------
 
