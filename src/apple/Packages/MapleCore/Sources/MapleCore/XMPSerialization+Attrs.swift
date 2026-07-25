@@ -264,6 +264,20 @@ extension XMPSerializer {
         if model.deepDenoise != 0 {
             attrs.append(("papp:DeepDenoise", fmtNum(model.deepDenoise)))
         }
+        // DNG-embedded lens corrections (#376) — ACR-compatible `crs:`
+        // keys, emitted only when the user moved off full strength so an
+        // untouched lens panel leaves the sidecar byte-identical. The
+        // master switch uses ACR's "0" spelling so Lightroom reads it back.
+        if model.lensProfileEnable != .on {
+            attrs.append(("crs:LensProfileEnable", "0"))
+        }
+        for (key, value) in [
+            ("crs:LensProfileDistortionScale", model.lensCorrectionDistortion),
+            ("crs:LensProfileChromaticAberrationScale", model.lensCorrectionCa),
+            ("crs:LensProfileVignettingScale", model.lensCorrectionVignetting),
+        ] where value.rounded() != 100 {
+            attrs.append((key, String(format: "%.0f", value)))
+        }
         // Crop / straighten (#277, spec § 01 invariant 3) — emit only when
         // non-identity. CropAngle is independent so a pure straighten emits
         // only the angle without the HasCrop/rect group.

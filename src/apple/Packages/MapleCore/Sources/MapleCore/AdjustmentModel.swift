@@ -95,6 +95,20 @@ public enum HotPixelSuppressionMode: String, Codable, Sendable, Hashable, CaseIt
     case on  = "On"
 }
 
+// MARK: - LensProfileEnable
+
+/// Master on/off for the lens corrections a DNG embeds in its
+/// `OpcodeList3` (#376). Mirrors
+/// `raw_core::types::adjustment::LensProfileEnable`. `off` overrides the
+/// three `lensCorrection*` scales; `on` (default) applies each family at
+/// its own scale, which is ACR's behaviour when the DNG carries a profile
+/// and a no-op on a RAW that carries none. XMP key
+/// `crs:LensProfileEnable`, written in ACR's "1"/"0" spelling.
+public enum LensProfileEnable: String, Codable, Sendable, Hashable, CaseIterable {
+    case off = "Off"
+    case on  = "On"
+}
+
 // MARK: - AutoExposureMode
 
 /// Auto-exposure mode (raw-core ticket #429; mirrored into Swift by #1387).
@@ -360,6 +374,26 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     /// whole `crs:Crop*` group. See `Crop` and spec § 3.12.
     public var crop: Crop          // default .identity
 
+    /// DNG-embedded lens corrections (#376). The vendor's distortion /
+    /// lateral-CA / vignetting corrections travel inside the DNG as
+    /// `OpcodeList3` opcodes and are resampled into the demosaiced buffer
+    /// before DCP — inside the Rust decode product, upstream of every
+    /// per-tick Metal stage. Like `chromaPrefilter` these are KEPT by
+    /// `stripAppleGPUStages`, so the #950 baked-model decode-cache key
+    /// carries them automatically: changing one correctly re-decodes.
+    /// XMP key `crs:LensProfileEnable`; `.on` (default) matches ACR.
+    public var lensProfileEnable: LensProfileEnable
+    /// Geometric-distortion strength — the `WarpRectilinear` component
+    /// common to all three planes. XMP `crs:LensProfileDistortionScale`.
+    public var lensCorrectionDistortion: Double  // 0..100, default 100
+    /// Lateral chromatic-aberration strength — each plane's
+    /// `WarpRectilinear` deviation from the green reference plane. XMP
+    /// `crs:LensProfileChromaticAberrationScale`.
+    public var lensCorrectionCa: Double          // 0..100, default 100
+    /// Vignetting / lens-shading strength — the `FixVignetteRadial` and
+    /// `GainMap` gain opcodes. XMP `crs:LensProfileVignettingScale`.
+    public var lensCorrectionVignetting: Double  // 0..100, default 100
+
     public init(
         temperature: Double = 6500,
         tint: Double = 0,
@@ -450,7 +484,11 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         chromaPrefilter: Double = 0,
         hotPixelSuppression: HotPixelSuppressionMode = .off,
         deepDenoise: Double = 0,
-        crop: Crop = .identity
+        crop: Crop = .identity,
+        lensProfileEnable: LensProfileEnable = .on,
+        lensCorrectionDistortion: Double = 100,
+        lensCorrectionCa: Double = 100,
+        lensCorrectionVignetting: Double = 100
     ) {
         self.temperature = temperature
         self.tint = tint
@@ -542,6 +580,10 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         self.hotPixelSuppression = hotPixelSuppression
         self.deepDenoise = deepDenoise
         self.crop = crop
+        self.lensProfileEnable = lensProfileEnable
+        self.lensCorrectionDistortion = lensCorrectionDistortion
+        self.lensCorrectionCa = lensCorrectionCa
+        self.lensCorrectionVignetting = lensCorrectionVignetting
     }
 
     public static let `default` = AdjustmentModel()

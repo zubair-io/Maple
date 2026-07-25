@@ -118,6 +118,11 @@ extension AdjustmentModel.FieldName {
         case .chromaPrefilter:              return \.chromaPrefilter
         // BM3D deep denoise (#1105) — numeric decode-product field.
         case .deepDenoise:                  return \.deepDenoise
+        // DNG lens corrections (#376) — numeric decode-product fields; the
+        // `.lensProfileEnable` master switch is the enum half, below.
+        case .lensCorrectionDistortion:     return \.lensCorrectionDistortion
+        case .lensCorrectionCa:             return \.lensCorrectionCa
+        case .lensCorrectionVignetting:     return \.lensCorrectionVignetting
         // Deprecated alias — no Swift property (see AdjustmentModel docs).
         case .captureSharpeningRadius:      return nil
         // Enum-valued / not in the Swift model. `.autoExposure` (#1387) /
@@ -125,7 +130,7 @@ extension AdjustmentModel.FieldName {
         // `.highlightRecovery`, they're captured and applied as a string
         // enum below instead.
         case .wbMethod, .highlightRecovery, .autoExposure, .look, .profile,
-             .toneCurveMode, .hotPixelSuppression, .blackWhite:
+             .toneCurveMode, .hotPixelSuppression, .blackWhite, .lensProfileEnable:
             return nil
         // Point curves (#366) — structured `ToneCurve` values, not scalars.
         // A preset `fields` map is flat (number | string | bool) on every
@@ -223,6 +228,11 @@ extension AdjustmentModel.FieldName {
         case .grayMixerMagenta:             return AdjustmentModel.grayMixerMagentaRange
         case .chromaPrefilter:              return AdjustmentModel.chromaPrefilterRange
         case .deepDenoise:                  return AdjustmentModel.deepDenoiseRange
+        // DNG lens corrections (#376) — 0..100 strengths; an out-of-range
+        // preset value clamps rather than amplifying the vendor's warp.
+        case .lensCorrectionDistortion:     return AdjustmentModel.lensCorrectionDistortionRange
+        case .lensCorrectionCa:             return AdjustmentModel.lensCorrectionCaRange
+        case .lensCorrectionVignetting:     return AdjustmentModel.lensCorrectionVignettingRange
         default:                            return nil
         }
     }
@@ -263,6 +273,10 @@ public enum PresetAdjustments {
             // Black & white mix (#276) — enum toggle field.
             case .blackWhite where model.blackWhite != defaults.blackWhite:
                 fields[field.rawValue] = .string(model.blackWhite.rawValue)
+            // DNG lens corrections master switch (#376) — enum
+            // decode-product field.
+            case .lensProfileEnable where model.lensProfileEnable != defaults.lensProfileEnable:
+                fields[field.rawValue] = .string(model.lensProfileEnable.rawValue)
             default:
                 break
             }
@@ -319,6 +333,10 @@ public enum PresetAdjustments {
             case .blackWhite:
                 guard let mode = BlackWhiteMode(rawValue: rawValue) else { continue }
                 merged.blackWhite = mode
+                applied += 1
+            case .lensProfileEnable:
+                guard let mode = LensProfileEnable(rawValue: rawValue) else { continue }
+                merged.lensProfileEnable = mode
                 applied += 1
             default:
                 continue

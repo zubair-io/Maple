@@ -364,6 +364,86 @@ final class XMPSerializationTests: XCTestCase {
                        "stripAppleGPUStages must keep the decode-baked hotPixelSuppression")
     }
 
+    // MARK: - DNG lens corrections (#376)
+
+    /// A fresh model applies the DNG's embedded corrections in full,
+    /// matching ACR when the file carries a profile.
+    func testLensCorrectionDefaultsAreFullStrength() {
+        let m = AdjustmentModel()
+        XCTAssertEqual(m.lensProfileEnable, .on)
+        XCTAssertEqual(m.lensCorrectionDistortion, 100)
+        XCTAssertEqual(m.lensCorrectionCa, 100)
+        XCTAssertEqual(m.lensCorrectionVignetting, 100)
+    }
+
+    /// `crs:LensProfileEnable` parses ACR's "1"/"0" spelling as well as
+    /// the True/False form other XMP writers use for boolean markers;
+    /// unknown values keep the default rather than failing the sidecar.
+    func testParseLensProfileEnable() throws {
+        for on in ["1", "true", "True", "On"] {
+            let (m, _) = try XMPParser.parse(xmp(attrs: "crs:LensProfileEnable=\"\(on)\""))
+            XCTAssertEqual(m.lensProfileEnable, .on, "\(on) must parse as on")
+        }
+        for off in ["0", "false", "False", "Off"] {
+            let (m, _) = try XMPParser.parse(xmp(attrs: "crs:LensProfileEnable=\"\(off)\""))
+            XCTAssertEqual(m.lensProfileEnable, .off, "\(off) must parse as off")
+        }
+        let (m, _) = try XMPParser.parse(xmp(attrs: #"crs:LensProfileEnable="Maybe""#))
+        XCTAssertEqual(m.lensProfileEnable, .on, "unknown value keeps the default")
+    }
+
+    func testParseLensCorrectionScales() throws {
+        let (m, _) = try XMPParser.parse(xmp(attrs: """
+            crs:LensProfileDistortionScale="80" \
+            crs:LensProfileChromaticAberrationScale="0" \
+            crs:LensProfileVignettingScale="55"
+            """))
+        XCTAssertEqual(m.lensCorrectionDistortion, 80)
+        XCTAssertEqual(m.lensCorrectionCa, 0)
+        XCTAssertEqual(m.lensCorrectionVignetting, 55)
+    }
+
+    /// The whole group round-trips, and an untouched lens panel writes
+    /// nothing so existing sidecars stay byte-identical.
+    func testLensCorrectionRoundTripAndDefaultOmission() throws {
+        var m = AdjustmentModel()
+        m.lensProfileEnable = .off
+        m.lensCorrectionDistortion = 80
+        m.lensCorrectionCa = 0
+        m.lensCorrectionVignetting = 55
+        let xml = XMPSerializer.serialize(model: m, culling: CullingState())
+        XCTAssertTrue(xml.contains(#"crs:LensProfileEnable="0""#))
+        XCTAssertTrue(xml.contains(#"crs:LensProfileDistortionScale="80""#))
+        XCTAssertTrue(xml.contains(#"crs:LensProfileChromaticAberrationScale="0""#))
+        XCTAssertTrue(xml.contains(#"crs:LensProfileVignettingScale="55""#))
+
+        let (m2, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m2.lensProfileEnable, .off)
+        XCTAssertEqual(m2.lensCorrectionDistortion, 80)
+        XCTAssertEqual(m2.lensCorrectionCa, 0)
+        XCTAssertEqual(m2.lensCorrectionVignetting, 55)
+
+        let defaultXml = XMPSerializer.serialize(model: AdjustmentModel(), culling: CullingState())
+        XCTAssertFalse(defaultXml.contains("crs:LensProfile"),
+                       "an untouched lens panel must not write any attribute")
+    }
+
+    /// The lens scales are decode-product parameters like
+    /// `chromaPrefilter`: `stripAppleGPUStages` must keep them so the
+    /// #950 baked-model decode-cache key re-decodes when one changes.
+    func testStripKeepsLensCorrections() {
+        var m = AdjustmentModel()
+        m.lensProfileEnable = .off
+        m.lensCorrectionDistortion = 20
+        m.lensCorrectionCa = 30
+        m.lensCorrectionVignetting = 40
+        let stripped = RawCoreBridge.stripAppleGPUStages(m)
+        XCTAssertEqual(stripped.lensProfileEnable, .off)
+        XCTAssertEqual(stripped.lensCorrectionDistortion, 20)
+        XCTAssertEqual(stripped.lensCorrectionCa, 30)
+        XCTAssertEqual(stripped.lensCorrectionVignetting, 40)
+    }
+
     // #1387's papp:AutoExposure coverage lives in the sibling file
     // XMPSerializationAutoExposureTests.swift — this file was already at
     // the 600-line hard budget (CONTRIBUTING.md), same split rationale as
