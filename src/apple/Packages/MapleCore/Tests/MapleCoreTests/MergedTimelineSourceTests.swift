@@ -201,4 +201,167 @@ final class MergedTimelineSourceTests: XCTestCase {
             return
         }
     }
+
+    // MARK: - N-way merge (#2272)
+
+    func testNWayEmptyStreamsProduceEmptyOutput() {
+        XCTAssertEqual(MergedTimelineSource.merge(localStreams: [], cloudStreams: []).count, 0)
+        XCTAssertEqual(
+            MergedTimelineSource.merge(localStreams: [[], []], cloudStreams: [[], [], []]).count,
+            0)
+    }
+
+    /// The core new capability: the same asset backed up to two different
+    /// cloud libraries must collapse to a single cell, not one per library.
+    func testMultiCloudDedupSameCloudIdentifier() {
+        let cloudLibraryA = [
+            ImageRef(id: "cloudA:1", displayName: "a.heic", cloudIdentifier: "icloud-XYZ")
+        ]
+        let cloudLibraryB = [
+            ImageRef(id: "cloudB:1", displayName: "b.heic", cloudIdentifier: "icloud-XYZ")
+        ]
+        let merged = MergedTimelineSource.merge(
+            localStreams: [], cloudStreams: [cloudLibraryA, cloudLibraryB])
+        XCTAssertEqual(merged.count, 1, "same cloudIdentifier across 2 cloud libraries must collapse to one cell")
+        guard case .cloudOnly(let r) = merged[0] else { XCTFail(); return }
+        // First-stream-wins: library A's row is the surviving representative.
+        XCTAssertEqual(r.id, "cloudA:1")
+    }
+
+    /// Multi-cloud dedup must also work via the phassetLink tier when
+    /// neither library populated a cloudIdentifier (e.g. iCloud Photos off).
+    func testMultiCloudDedupViaPhassetLink() {
+        let cloudLibraryA = [
+            ImageRef(id: "cloudA:1", displayName: "a.heic", phassetLink: "PHID_1")
+        ]
+        let cloudLibraryB = [
+            ImageRef(id: "cloudB:1", displayName: "b.heic", phassetLink: "PHID_1")
+        ]
+        let merged = MergedTimelineSource.merge(
+            localStreams: [], cloudStreams: [cloudLibraryA, cloudLibraryB])
+        XCTAssertEqual(merged.count, 1)
+    }
+
+    /// Multi-cloud dedup via the tertiary plain-id fallback, for two cloud
+    /// libraries that share neither a cloudIdentifier nor a phassetLink but
+    /// do derive the same content-hash `id`.
+    func testMultiCloudDedupViaPlainID() {
+        let cloudLibraryA = [ImageRef(id: "shared-hash", displayName: "a.heic")]
+        let cloudLibraryB = [ImageRef(id: "shared-hash", displayName: "b.heic")]
+        let merged = MergedTimelineSource.merge(
+            localStreams: [], cloudStreams: [cloudLibraryA, cloudLibraryB])
+        XCTAssertEqual(merged.count, 1)
+    }
+
+    /// Duplicates WITHIN a single stream must not collapse — only matches
+    /// *across* distinct streams do. This mirrors the pre-N-way pairwise
+    /// behavior (`testDoesNotCrashOnDuplicateLocalIDs`) generalized to the
+    /// cloud side, where a single malformed/duplicated cloud library must
+    /// not silently hide a row.
+    func testDuplicatesWithinOneCloudStreamDoNotCollapse() {
+        let cloudLibraryA = [
+            ImageRef(id: "dup-1", displayName: "first", cloudIdentifier: "icloud-XYZ"),
+            ImageRef(id: "dup-2", displayName: "second", cloudIdentifier: "icloud-XYZ"),
+        ]
+        let merged = MergedTimelineSource.merge(localStreams: [], cloudStreams: [cloudLibraryA])
+        XCTAssertEqual(merged.count, 2, "same-stream duplicates must remain separate cells")
+    }
+
+    /// Cross-device identity join across N streams: an asset present in
+    /// PhotoKit AND two cloud libraries collapses to exactly one `.synced`
+    /// cell.
+    func testSyncedAcrossPhotoKitAndTwoCloudLibraries() {
+        let photoKit = [
+            ImageRef(id: "PHID_DEVICE", displayName: "PHID_DEVICE", cloudIdentifier: "icloud-XYZ")
+        ]
+        let cloudLibraryA = [
+            ImageRef(id: "cloudA:1", displayName: "a.heic", cloudIdentifier: "icloud-XYZ")
+        ]
+        let cloudLibraryB = [
+            ImageRef(id: "cloudB:1", displayName: "b.heic", cloudIdentifier: "icloud-XYZ")
+        ]
+        let merged = MergedTimelineSource.merge(
+            localStreams: [photoKit], cloudStreams: [cloudLibraryA, cloudLibraryB])
+        XCTAssertEqual(merged.count, 1)
+        guard case .synced(let local, let cloud) = merged[0] else {
+            XCTFail("expected .synced, got \(merged[0])")
+            return
+        }
+        XCTAssertEqual(local.id, "PHID_DEVICE")
+        XCTAssertEqual(cloud.id, "cloudA:1")
+    }
+
+    /// `.cloudOnly` / `.localOnly` classification generalizes correctly
+    /// across several streams on each side.
+    func testCloudOnlyAndLocalOnlyClassificationAcrossNStreams() {
+        let photoKitA = [ImageRef(id: "L1", displayName: "L1")]
+        let photoKitB = [ImageRef(id: "L2", displayName: "L2")]
+        let cloudA = [ImageRef(id: "C1", displayName: "C1")]
+        let cloudB = [ImageRef(id: "C2", displayName: "C2")]
+        let merged = MergedTimelineSource.merge(
+            localStreams: [photoKitA, photoKitB], cloudStreams: [cloudA, cloudB])
+        XCTAssertEqual(merged.count, 4)
+        let kinds = merged.map { cell -> String in
+            switch cell {
+            case .localOnly: return "L"
+            case .cloudOnly: return "C"
+            case .synced: return "S"
+            }
+        }.sorted()
+        XCTAssertEqual(kinds, ["C", "C", "L", "L"])
+    }
+
+    /// Ordering must stay capture-date descending across every stream, not
+    /// just within one.
+    func testNWayOrderingIsCaptureDateDescendingAcrossAllStreams() {
+        let photoKit = [
+            ImageRef(id: "L_MID", displayName: "L_MID", captureDate: date("2024-06-01T00:00:00Z"))
+        ]
+        let cloudA = [
+            ImageRef(id: "C_NEWEST", displayName: "C_NEWEST", captureDate: date("2024-12-01T00:00:00Z")),
+            ImageRef(id: "C_OLDEST", displayName: "C_OLDEST", captureDate: date("2024-01-01T00:00:00Z")),
+        ]
+        let cloudB = [
+            ImageRef(id: "C_MID2", displayName: "C_MID2", captureDate: date("2024-06-15T00:00:00Z"))
+        ]
+        let merged = MergedTimelineSource.merge(
+            localStreams: [photoKit], cloudStreams: [cloudA, cloudB])
+        let ids = merged.map { MergedTimelineSource.renderID($0) }
+        XCTAssertEqual(ids, ["C_NEWEST", "C_MID2", "L_MID", "C_OLDEST"])
+    }
+
+    /// A `nil` capture date sinks to the bottom, generalized across streams —
+    /// preserves the pairwise tie/nil handling documented on `merge`.
+    func testNWayNilCaptureDateSinksToBottomAcrossStreams() {
+        let dated = ImageRef(id: "DATED", displayName: "DATED", captureDate: date("2024-06-01T00:00:00Z"))
+        let undated = ImageRef(id: "UNDATED", displayName: "UNDATED")
+        let merged = MergedTimelineSource.merge(
+            localStreams: [[dated]], cloudStreams: [[undated], []])
+        let ids = merged.map { MergedTimelineSource.renderID($0) }
+        XCTAssertEqual(ids, ["DATED", "UNDATED"])
+    }
+
+    /// Regression: the pairwise `merge(local:cloud:)` wrapper must match the
+    /// N-way engine bit-for-bit across every existing pairwise fixture,
+    /// including precedence-sensitive multi-key cases.
+    func testPairwiseWrapperMatchesNWayEngine() {
+        let l1 = ImageRef(id: "P1", displayName: "P1", captureDate: date("2024-03-15T10:00:00Z"))
+        let l2 = ImageRef(id: "B_PHID", displayName: "B_PHID", cloudIdentifier: "icloud-XYZ")
+        let l3 = ImageRef(id: "A_PHID", displayName: "A_PHID")
+        let c1 = ImageRef(id: "C1", displayName: "C1",
+                          captureDate: date("2024-03-15T10:00:00Z"),
+                          phassetLink: "P1")
+        let c2 = ImageRef(id: "fs:/lib/a.heic", displayName: "a.heic",
+                          phassetLink: "A_PHID",
+                          cloudIdentifier: "icloud-XYZ",
+                          allPhassetLinks: ["A_PHID"],
+                          allCloudIdentifiers: ["icloud-XYZ"])
+        let local = [l1, l2, l3]
+        let cloud = [c1, c2]
+
+        let pairwise = MergedTimelineSource.merge(local: local, cloud: cloud)
+        let nway = MergedTimelineSource.merge(localStreams: [local], cloudStreams: [cloud])
+        XCTAssertEqual(pairwise, nway)
+        XCTAssertFalse(pairwise.isEmpty)
+    }
 }
