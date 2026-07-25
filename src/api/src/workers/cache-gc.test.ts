@@ -221,6 +221,42 @@ describe('sweepOrphanedCaches', () => {
     }
   });
 
+  // A sidecar stranded by something OTHER than this GC (thumb deleted out of
+  // band) is never scanned as an entry, so without a dedicated pass it would
+  // leak forever. A sidecar whose thumb is still present must survive.
+  test('reaps a stranded .meta whose thumb is gone, keeps one whose thumb lives', async () => {
+    if (!mongoReachable) return;
+    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    const { sha256Prefix16 } = await import('../fs/xmp.ts');
+    const root = await mkTree();
+    try {
+      const libraryId = await registerLibrary(root);
+      await insertLiveAsset(libraryId, '', 'live.dng');
+
+      const live = path.join(root, '.maple', 'thumbs', `${sha256Prefix16('live.dng')}.avif`);
+      await writeAvif(live);
+      await writeFile(`${live}.meta`, JSON.stringify({ mtimeMs: 1, size: 1 }));
+      await agePast(live);
+      await agePast(`${live}.meta`);
+
+      // Sidecar with no artefact beside it.
+      const stranded = path.join(root, '.maple', 'thumbs', `${LEGACY_KEY}.avif.meta`);
+      await mkdir(path.dirname(stranded), { recursive: true });
+      await writeFile(stranded, JSON.stringify({ mtimeMs: 1, size: 1 }));
+      await agePast(stranded);
+
+      // Only the live .avif is scanned; sidecars never count either way.
+      const result = await sweepOrphanedCaches(root);
+      expect(result).toEqual({ scanned: 1, deleted: 0, skipped_recent: 0 });
+
+      await expect(stat(stranded)).rejects.toThrow();
+      expect((await stat(live)).size).toBeGreaterThan(0);
+      expect((await stat(`${live}.meta`)).size).toBeGreaterThan(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   // Same rule for the .avif tier the thumb stage actually writes.
   test('reaps a retired .avif thumb and keeps the live path-keyed .avif', async () => {
     if (!mongoReachable) return;
