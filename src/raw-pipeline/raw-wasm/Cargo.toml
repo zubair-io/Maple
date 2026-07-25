@@ -32,6 +32,11 @@ thiserror.workspace = true
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 uuid = { version = "1", features = ["js"] }
 getrandom = { version = "0.4", features = ["wasm_js"] }
+# `js_sys::Function` for the BM3D deep-denoise progress callback (#1153):
+# raw-core pushes stage progress into JS, which the render worker
+# re-broadcasts to the editor. Already in the tree transitively via
+# wasm-bindgen-futures / web-sys; this makes it nameable.
+js-sys = "0.3"
 wasm-bindgen-rayon = { version = "1.3", optional = true }
 rayon = { version = "1.10", optional = true }
 # Unconditional: we always want panic messages forwarded to the JS console so
