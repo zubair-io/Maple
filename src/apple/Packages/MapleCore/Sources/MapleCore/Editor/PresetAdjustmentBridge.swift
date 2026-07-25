@@ -20,6 +20,11 @@
 // until the Swift model gains them. `auto_exposure` (#1387) is now a Swift
 // enum field like `highlightRecovery` / `profile` — captured and applied
 // below, not routed through this passthrough list.
+//
+// The four `tone_curve_*` point curves (#366) map to nil for a different
+// reason: the Swift model DOES carry them, but a preset `fields` map is a
+// flat scalar map on every client, so a structured curve has nowhere to go.
+// Curve presets land with the curve editor (#367).
 
 import Foundation
 
@@ -101,6 +106,13 @@ extension AdjustmentModel.FieldName {
         // and applied as a string enum below instead.
         case .wbMethod, .highlightRecovery, .autoExposure, .look, .profile,
              .toneCurveMode, .hotPixelSuppression:
+            return nil
+        // Point curves (#366) — structured `ToneCurve` values, not scalars.
+        // A preset `fields` map is flat (number | string | bool) on every
+        // client, so curves are neither captured nor applied here; the web
+        // preset layer skips them for the same reason. Point-curve presets
+        // land with the curve editor (#367).
+        case .toneCurveLuma, .toneCurveRed, .toneCurveGreen, .toneCurveBlue:
             return nil
         }
     }
