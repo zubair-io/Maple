@@ -154,8 +154,8 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     // Synthesises a piecewise-cubic over the canonical region split points
     // (¼, ½, ¾) and applies post-`scene_tone_controls`, pre-`vibrance` in
     // the Rust core. Identity at all-zero. The per-channel POINT curves
-    // (`crs:ToneCurvePV2012*`) are the `toneCurve*` fields further down;
-    // their sidecar round-trip lands in #365.
+    // (`papp:SceneLinearToneCurve*`) are the `toneCurve*` fields further
+    // down; their sidecar round-trip landed in #365.
     public var parametricHighlights: Double  // -100..100, default 0
     public var parametricLights: Double      // -100..100, default 0
     public var parametricDarks: Double       // -100..100, default 0
@@ -281,9 +281,10 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     // authoring space, identity when empty — so a default model renders
     // bit-identically to the pre-tone-curve pipeline. `toneCurveLuma`
     // applies channels-uniformly via the Rec.2020 luma weights; the R/G/B
-    // curves apply per the core's tone-curve mode. Sidecar round-trip is
-    // #365 and the curve editor is #367; the fields land here first so
-    // both have a canonical Swift home. Field order mirrors
+    // curves apply per the core's tone-curve mode. Sidecar round-trip
+    // landed in #365 (nested `papp:SceneLinearToneCurve*` elements —
+    // `XMPSerialization+ToneCurves.swift`) and the curve editor is #367.
+    // Field order mirrors
     // `raw_core::types::AdjustmentModel`.
     public var toneCurveLuma: ToneCurve   // default .identity (empty)
     public var toneCurveRed: ToneCurve    // default .identity (empty)
