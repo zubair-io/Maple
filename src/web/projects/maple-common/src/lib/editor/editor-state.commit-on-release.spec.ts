@@ -13,7 +13,7 @@ import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
 
 import { EditorStateService } from './editor-state.service';
-import { LibraryStub } from './editor-state.test-helpers';
+import { makeLibraryStub, type LibraryStub } from './editor-state.test-helpers';
 import { LibraryStateService } from '../state/library-state.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 
@@ -24,7 +24,7 @@ describe('EditorStateService — commit-on-release sub-params (#1153)', () => {
   const ID = 'asset-1';
 
   beforeEach(() => {
-    lib = new LibraryStub();
+    lib = makeLibraryStub();
     TestBed.configureTestingModule({
       providers: [
         { provide: LibraryStateService, useValue: lib },
