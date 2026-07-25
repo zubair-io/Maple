@@ -44,10 +44,66 @@
 use rayon::prelude::*;
 
 use crate::image::Image;
+use crate::types::adjustment::{AdjustmentModel, LensProfileEnable};
 
 use super::opcodes::{
-    ActiveAreaRect, GainMapOpcode, OpcodeList3, PanoOpcode, WarpRectilinearOpcode,
+    ActiveAreaRect, FixVignetteRadialOpcode, GainMapOpcode, OpcodeList3, PanoOpcode,
+    WarpRectilinearOpcode,
 };
+
+/// User strength for each family of lens correction the DNG carries, as a
+/// `0..=1` fraction of the vendor's authored correction (#376). Mirrors
+/// ACR's `crs:LensProfile{Distortion,ChromaticAberration,Vignetting}Scale`
+/// trio, which is expressed `0..100` on the model.
+///
+/// Each field blends the corresponding opcode toward identity, and every
+/// blend is written so that a full-strength scale reproduces the
+/// vendor-authored math *bit-for-bit* (`1.0 * x + 0.0`), not merely to
+/// within rounding — the default model applies the corrections exactly as
+/// it did before this type existed, so the parity harness sees no
+/// perturbation.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LensCorrectionScales {
+    /// Geometric distortion — the warp component common to all planes.
+    pub distortion: f32,
+    /// Lateral chromatic aberration — each plane's warp *deviation* from
+    /// the green reference plane.
+    pub ca: f32,
+    /// Vignetting / lens shading — the `FixVignetteRadial` and `GainMap`
+    /// gain opcodes.
+    pub vignetting: f32,
+}
+
+impl LensCorrectionScales {
+    /// Apply every correction at the strength the vendor authored.
+    pub const FULL: Self = Self {
+        distortion: 1.0,
+        ca: 1.0,
+        vignetting: 1.0,
+    };
+
+    /// Apply nothing — every opcode is skipped.
+    pub const NONE: Self = Self {
+        distortion: 0.0,
+        ca: 0.0,
+        vignetting: 0.0,
+    };
+
+    /// Resolve the user's `AdjustmentModel` into `0..=1` fractions.
+    /// `lens_profile_enable == Off` is the master switch ACR writes as
+    /// `crs:LensProfileEnable="0"` and overrides the three scales.
+    pub fn from_model(model: &AdjustmentModel) -> Self {
+        if model.lens_profile_enable == LensProfileEnable::Off {
+            return Self::NONE;
+        }
+        let frac = |v: f32| v.clamp(0.0, 100.0) / 100.0;
+        Self {
+            distortion: frac(model.lens_correction_distortion),
+            ca: frac(model.lens_correction_ca),
+            vignetting: frac(model.lens_correction_vignetting),
+        }
+    }
+}
 
 /// Scale an `ActiveAreaRect` from raw-sensor coordinates into the
 /// coordinate space of a demosaiced buffer that may be a different
@@ -98,34 +154,48 @@ pub fn scale_active_area(
 }
 
 /// Apply a parsed `OpcodeList3` to a demosaiced linear image, in list
-/// order. Returns human-readable labels of what ran (for the ingest
-/// report / CLI surfacing).
+/// order, at the user's per-family strength. Returns human-readable labels
+/// of what ran (for the ingest report / CLI surfacing); an opcode the
+/// scales reduce to a no-op is skipped and not reported.
 pub fn apply_opcode_list3(
     image: &mut Image,
     list: &OpcodeList3,
     aa: ActiveAreaRect,
+    scales: LensCorrectionScales,
 ) -> Vec<String> {
     let mut applied = Vec::with_capacity(list.opcodes.len());
     for op in &list.opcodes {
         match op {
-            PanoOpcode::GainMap(gm) => {
-                apply_gain_map(image, gm, aa);
+            PanoOpcode::GainMap(gm) if scales.vignetting != 0.0 => {
+                apply_gain_map(image, gm, aa, scales.vignetting);
                 applied.push(format!(
                     "GainMap({}x{}x{})",
                     gm.points_v, gm.points_h, gm.map_planes
                 ));
             }
-            PanoOpcode::WarpRectilinear(w) => {
-                apply_warp_rectilinear(image, w, aa);
+            PanoOpcode::WarpRectilinear(w) if scales.distortion != 0.0 || scales.ca != 0.0 => {
+                apply_warp_rectilinear(image, w, aa, scales.distortion, scales.ca);
                 applied.push(format!("WarpRectilinear({} planes)", w.planes.len()));
             }
+            PanoOpcode::FixVignetteRadial(v) if scales.vignetting != 0.0 => {
+                apply_fix_vignette_radial(image, v, aa, scales.vignetting);
+                applied.push("FixVignetteRadial".to_string());
+            }
+            // Scaled to zero — the correction is exactly the identity, so
+            // skip the pass rather than resample/multiply by 1.
+            _ => {}
         }
     }
     applied
 }
 
 /// Multiply the gain lattice over the opcode's area rect, in place.
-pub fn apply_gain_map(image: &mut Image, gm: &GainMapOpcode, aa: ActiveAreaRect) {
+///
+/// `vignetting` blends each sampled gain toward 1.0 as `v·g + (1 − v)` —
+/// exact at both ends (`v = 1` reproduces `g` bit-for-bit; `v = 0` yields
+/// exactly 1.0). Bilinear lattice interpolation is affine, so blending the
+/// interpolated gain is identical to blending the lattice up front.
+pub fn apply_gain_map(image: &mut Image, gm: &GainMapOpcode, aa: ActiveAreaRect, vignetting: f32) {
     let width = image.width as usize;
     // Area rect ∩ active area, in ActiveArea-relative coordinates.
     let row_end = gm.bottom.min(aa.height) as usize;
@@ -166,7 +236,8 @@ pub fn apply_gain_map(image: &mut Image, gm: &GainMapOpcode, aa: ActiveAreaRect)
                 let px = &mut row_px[aa_left + col];
                 for p in plane_start..plane_end {
                     let map_plane = (p as u32).min(gm.map_planes - 1);
-                    px[p] *= sample_lattice(gm, grid_v, grid_h, map_plane);
+                    let gain = sample_lattice(gm, grid_v, grid_h, map_plane);
+                    px[p] *= vignetting.mul_add(gain, 1.0 - vignetting);
                 }
             }
         });
@@ -193,11 +264,67 @@ fn sample_lattice(gm: &GainMapOpcode, grid_v: f64, grid_h: f64, map_plane: u32) 
     top + (bot - top) * fv
 }
 
+/// The `WarpRectilinear` coefficient set that maps every position to
+/// itself: unit radial ratio, no tangential terms.
+const IDENTITY_WARP_KR: [f64; 4] = [1.0, 0.0, 0.0, 0.0];
+
+/// Blend one plane's warp toward the identity at the user's distortion /
+/// CA strengths (#376).
+///
+/// The source-position displacement `Δ(K) = warp_source(K) − position` is
+/// **affine in the coefficient set `K`** about the identity set (the radial
+/// ratio is linear in `kr`, the tangential terms are linear in `kt`), so
+/// blending coefficient sets once per plane is exactly equivalent to
+/// blending the per-pixel displacements — at zero per-pixel cost.
+///
+/// The blend splits the vendor's warp into the part common to every plane
+/// (geometric distortion, carried by the green reference set `g`) and each
+/// plane's deviation from it (lateral CA):
+///
+/// ```text
+/// Δ' = distortion·Δ(g) + ca·(Δ(p) − Δ(g))
+///    = ca·Δ(p) + (distortion − ca)·Δ(g)
+/// ```
+///
+/// The second form is the one evaluated here because it is exact at the
+/// default: with `distortion == ca == 1.0` every coefficient reduces to
+/// `1.0·p + 0.0·g + 0.0·identity`, i.e. `p` itself, bit-for-bit.
+fn blend_warp_toward_identity(
+    plane: &super::opcodes::WarpPlaneParams,
+    green: &super::opcodes::WarpPlaneParams,
+    distortion: f64,
+    ca: f64,
+) -> super::opcodes::WarpPlaneParams {
+    let common = distortion - ca;
+    let identity_weight = 1.0 - distortion;
+    super::opcodes::WarpPlaneParams {
+        kr: std::array::from_fn(|i| {
+            ca * plane.kr[i] + common * green.kr[i] + identity_weight * IDENTITY_WARP_KR[i]
+        }),
+        // The identity set has no tangential terms, so it contributes nothing.
+        kt: std::array::from_fn(|i| ca * plane.kt[i] + common * green.kt[i]),
+    }
+}
+
 /// Resample the active area through the rectilinear warp model:
 /// for each output pixel, evaluate the corrected→uncorrected mapping
 /// per plane and bilinear-sample the input. Pixels outside the active
 /// area pass through unchanged.
-pub fn apply_warp_rectilinear(image: &mut Image, warp: &WarpRectilinearOpcode, aa: ActiveAreaRect) {
+///
+/// `distortion` and `ca` are `0..=1` strengths (see
+/// [`LensCorrectionScales`]); both at 1.0 is the vendor-authored warp.
+pub fn apply_warp_rectilinear(
+    image: &mut Image,
+    warp: &WarpRectilinearOpcode,
+    aa: ActiveAreaRect,
+    distortion: f32,
+    ca: f32,
+) {
+    // Both families scaled off: the blended warp is exactly the identity
+    // and the resample would be a no-op — skip the whole pass.
+    if distortion == 0.0 && ca == 0.0 {
+        return;
+    }
     let width = image.width as usize;
     let (aa_w, aa_h) = (aa.width as f64, aa.height as f64);
     // Optical center in ActiveArea pixel coordinates: Lerp(0, dim, c),
@@ -215,9 +342,17 @@ pub fn apply_warp_rectilinear(image: &mut Image, warp: &WarpRectilinearOpcode, a
         return;
     }
     let inv_r = 1.0 / norm_radius;
-    // Per image plane, the coefficient set (N = 1 broadcasts).
+    // Per image plane, the coefficient set (N = 1 broadcasts), blended
+    // toward identity at the user's distortion / CA strengths. Plane 1
+    // (green) is the reference the distortion component is carried by;
+    // with N = 1 every plane already shares it, so `ca` has nothing to
+    // act on and the blend collapses to a pure distortion scale.
     let set_for = |p: usize| warp.planes[p.min(warp.planes.len() - 1)];
-    let plane_sets: [super::opcodes::WarpPlaneParams; 3] = [set_for(0), set_for(1), set_for(2)];
+    let green = set_for(1);
+    let (d, c) = (distortion as f64, ca as f64);
+    let plane_sets: [super::opcodes::WarpPlaneParams; 3] = std::array::from_fn(|p| {
+        blend_warp_toward_identity(&set_for(p), &green, d, c)
+    });
     let all_same = plane_sets[1] == plane_sets[0] && plane_sets[2] == plane_sets[0];
 
     let src = image.pixels.clone(); // gather source (warp can't run in place)
@@ -244,6 +379,72 @@ pub fn apply_warp_rectilinear(image: &mut Image, warp: &WarpRectilinearOpcode, a
                         out[p] =
                             bilinear_aa_ch(&src, width, aa_top, aa_left, aa_wu, aa_hu, sx, sy, p);
                     }
+                }
+            }
+        });
+}
+
+/// Apply a `FixVignetteRadial` opcode: multiply every plane by the radial
+/// gain `g(t) = 1 + k0·t + k1·t² + k2·t³ + k3·t⁴ + k4·t⁵`, where `t` is the
+/// squared center distance normalized so `t = 1` at the farthest corner of
+/// the active area (dng_sdk `dng_vignette_radial_function::Evaluate`).
+///
+/// Normalization matches [`apply_warp_rectilinear`] exactly — same
+/// `Lerp(0, dim, c)` center convention, same max-corner-distance radius,
+/// same `t ≤ 1` clamp — so a DNG carrying both opcodes has them anchored
+/// to one coordinate system.
+///
+/// Like [`apply_gain_map`], the multiplied result is **not** clamped:
+/// nothing before the view transform may clip (see the module docs).
+///
+/// `vignetting` is the `0..=1` user strength; the blend `1 + v·poly` is
+/// exact at both ends (`v = 1` reproduces the vendor gain bit-for-bit,
+/// `v = 0` yields exactly 1.0).
+pub fn apply_fix_vignette_radial(
+    image: &mut Image,
+    op: &FixVignetteRadialOpcode,
+    aa: ActiveAreaRect,
+    vignetting: f32,
+) {
+    if vignetting == 0.0 {
+        return;
+    }
+    let width = image.width as usize;
+    let (aa_w, aa_h) = (aa.width as f64, aa.height as f64);
+    let cx = op.center_x * aa_w;
+    let cy = op.center_y * aa_h;
+    let norm_radius_sq = f64::hypot(
+        cx.abs().max((aa_w - cx).abs()),
+        cy.abs().max((aa_h - cy).abs()),
+    )
+    .powi(2);
+    if norm_radius_sq <= 0.0 {
+        return;
+    }
+    let inv_r2 = 1.0 / norm_radius_sq;
+    let k = op.k;
+    let v = vignetting as f64;
+    let (aa_top, aa_left) = (aa.top as usize, aa.left as usize);
+    let aa_wu = aa.width as usize;
+
+    image
+        .pixels
+        .par_chunks_mut(width)
+        .skip(aa_top)
+        .take(aa.height as usize)
+        .enumerate()
+        .for_each(|(row, row_px)| {
+            let dy = row as f64 - cy;
+            let dy2 = dy * dy;
+            for col in 0..aa_wu {
+                let dx = col as f64 - cx;
+                let t = ((dx * dx + dy2) * inv_r2).min(1.0);
+                // Horner over t: k0·t + k1·t² + … + k4·t⁵.
+                let poly = t * (k[0] + t * (k[1] + t * (k[2] + t * (k[3] + t * k[4]))));
+                let gain = v.mul_add(poly, 1.0) as f32;
+                let px = &mut row_px[aa_left + col];
+                for lane in px.iter_mut() {
+                    *lane *= gain;
                 }
             }
         });

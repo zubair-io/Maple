@@ -115,6 +115,11 @@ pub use crop::Crop;
 mod render_enums;
 pub use render_enums::{Profile, ToneCurveMode, WbScaleVersion, WhiteBalancePreset};
 
+// LensProfileEnable split into its own submodule to stay under the
+// 600-LOC hard budget (#1181).
+mod lens_correction;
+pub use lens_correction::LensProfileEnable;
+
 /// Per-image develop settings.
 ///
 /// This struct's field order, types, and ranges are the canonical reference
@@ -427,6 +432,35 @@ pub struct AdjustmentModel {
     /// whole `crs:Crop*` group + `crs:HasCrop` marker per spec § 01 invariant 3.
     /// See [`Crop`] and `stages::crop` for the geometry math.
     pub crop: Crop,
+
+    // DNG-embedded lens corrections (#376). The vendor's own distortion /
+    // lateral-CA / vignetting corrections travel inside the DNG as
+    // `OpcodeList3` opcodes (`WarpRectilinear`, `FixVignetteRadial`,
+    // `GainMap`); these four fields scale them. They are **decode-product**
+    // parameters — the opcodes are resampled/multiplied into the demosaiced
+    // camera-RGB buffer before DCP, upstream of every per-tick GPU stage —
+    // so they belong to the same cache-key family as `chroma_prefilter`,
+    // `deep_denoise` and `hot_pixel_suppression`, and there is deliberately
+    // no WGSL/Metal mirror of them.
+    //
+    // Declared at the struct tail so schema additions stay append-only.
+    /// Master on/off for the DNG's embedded lens corrections. `Off`
+    /// overrides all three scales below. XMP key `crs:LensProfileEnable`.
+    pub lens_profile_enable: LensProfileEnable,
+    /// Geometric-distortion correction strength — the `WarpRectilinear`
+    /// component common to all three planes. XMP key
+    /// `crs:LensProfileDistortionScale`.
+    pub lens_correction_distortion: f32, // 0..100, default 100
+    /// Lateral chromatic-aberration correction strength — each plane's
+    /// `WarpRectilinear` deviation from the green reference plane. A DNG
+    /// carrying a single coefficient set encodes no CA, so this field has
+    /// no effect there. XMP key
+    /// `crs:LensProfileChromaticAberrationScale`.
+    pub lens_correction_ca: f32, // 0..100, default 100
+    /// Vignetting / lens-shading correction strength — the
+    /// `FixVignetteRadial` and `GainMap` gain opcodes. XMP key
+    /// `crs:LensProfileVignettingScale`.
+    pub lens_correction_vignetting: f32, // 0..100, default 100
 }
 
 impl Default for AdjustmentModel {
@@ -556,6 +590,15 @@ impl Default for AdjustmentModel {
             deep_denoise: 0.0,
             // Per-#277: geometry stage defaults to full-frame identity.
             crop: Crop::IDENTITY,
+            // Per-#376: the vendor's embedded corrections are authoritative,
+            // so they apply at full strength by default — matching ACR,
+            // which enables its lens profile whenever the DNG carries one.
+            // A RAW without `OpcodeList3` has nothing to scale, so these
+            // defaults are a no-op there.
+            lens_profile_enable: LensProfileEnable::On,
+            lens_correction_distortion: 100.0,
+            lens_correction_ca: 100.0,
+            lens_correction_vignetting: 100.0,
         }
     }
 }

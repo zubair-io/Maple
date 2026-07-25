@@ -86,6 +86,67 @@ fn parses_warp_rectilinear_multi_plane_and_center() {
     assert_eq!((w.center_x, w.center_y), (0.5, 0.45));
 }
 
+/// Serialize a FixVignetteRadial opcode body (big-endian): k0..k4 then
+/// the optical center, horizontal component first (dng_sdk order).
+fn vignette_radial_params(k: [f64; 5], cx: f64, cy: f64) -> Vec<u8> {
+    let mut p = Vec::new();
+    for v in k {
+        p.extend_from_slice(&v.to_be_bytes());
+    }
+    p.extend_from_slice(&cx.to_be_bytes());
+    p.extend_from_slice(&cy.to_be_bytes());
+    p
+}
+
+#[test]
+fn parses_fix_vignette_radial_coefficients_and_center() {
+    let k = [0.31, -0.12, 0.05, -0.02, 0.008];
+    let b = blob(&[opcode_entry(3, &vignette_radial_params(k, 0.5, 0.48))]);
+    let list = parse_opcode_list(&b).expect("parses");
+    assert_eq!(list.skipped_unknown, 0);
+    assert_eq!(list.opcodes.len(), 1);
+    let PanoOpcode::FixVignetteRadial(v) = &list.opcodes[0] else {
+        panic!("expected FixVignetteRadial, got {:?}", list.opcodes[0]);
+    };
+    assert_eq!(v.k, k);
+    // Center is (horizontal, vertical) in that stream order — a swap here
+    // would silently mirror the gain field on non-centered optics.
+    assert_eq!((v.center_x, v.center_y), (0.5, 0.48));
+}
+
+/// dng_sdk rejects any FixVignetteRadial whose parameter block is not
+/// exactly `kNumTerms * 8 + 16` = 56 bytes; we degrade the whole list to
+/// `None` (the module's malformed-blob policy) rather than guessing at a
+/// truncated coefficient set.
+#[test]
+fn fix_vignette_radial_with_wrong_param_length_rejects_the_list() {
+    let k = [0.31, -0.12, 0.05, -0.02, 0.008];
+    let mut short = vignette_radial_params(k, 0.5, 0.5);
+    short.truncate(48);
+    assert!(parse_opcode_list(&blob(&[opcode_entry(3, &short)])).is_none());
+
+    let mut long = vignette_radial_params(k, 0.5, 0.5);
+    long.extend_from_slice(&0.0f64.to_be_bytes());
+    assert!(parse_opcode_list(&blob(&[opcode_entry(3, &long)])).is_none());
+}
+
+/// A DNG may carry the vignette and the warp together; both must survive
+/// in list order (the DNG spec mandates in-order execution).
+#[test]
+fn parses_fix_vignette_radial_alongside_warp_in_list_order() {
+    let b = blob(&[
+        opcode_entry(
+            3,
+            &vignette_radial_params([0.2, 0.0, 0.0, 0.0, 0.0], 0.5, 0.5),
+        ),
+        opcode_entry(1, &warp_params(&[[1.0, -0.05, 0.0, 0.0, 0.0, 0.0]], 0.5, 0.5)),
+    ]);
+    let list = parse_opcode_list(&b).expect("parses");
+    assert_eq!(list.skipped_unknown, 0);
+    assert!(matches!(list.opcodes[0], PanoOpcode::FixVignetteRadial(_)));
+    assert!(matches!(list.opcodes[1], PanoOpcode::WarpRectilinear(_)));
+}
+
 #[test]
 fn unknown_opcode_ids_are_skipped_with_count_in_list_order() {
     let gains = vec![1.0f32; 4];
