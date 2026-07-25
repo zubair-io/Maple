@@ -329,8 +329,8 @@ fn grain_zero_amount_is_bit_identical() {
 // pipeline here.
 // ---------------------------------------------------------------------------
 
-/// Render the grey card with split toning set.
-fn render_grey_with_split_tone(
+/// Render the grey card with colour grading set.
+fn render_grey_with_color_grade(
     linear_value: f32,
     configure: impl FnOnce(&mut AdjustmentModel),
 ) -> (u32, u32, Vec<u8>) {
@@ -349,11 +349,13 @@ fn render_grey_with_split_tone(
 /// (a) Zero saturations leave the pipeline bit-identical, whatever the
 /// hues and balance say (neutral-preserving gate).
 #[test]
-fn split_tone_zero_saturation_is_bit_identical() {
-    let (_, _, base) = render_grey_with_split_tone(0.18, |_| {});
-    let (_, _, hued) = render_grey_with_split_tone(0.18, |m| {
+fn color_grade_zero_saturation_is_bit_identical() {
+    let (_, _, base) = render_grey_with_color_grade(0.18, |_| {});
+    let (_, _, hued) = render_grey_with_color_grade(0.18, |m| {
         m.split_tone_shadow_hue = 220.0;
         m.split_tone_highlight_hue = 40.0;
+        m.color_grade_midtone_hue = 150.0;
+        m.color_grade_global_hue = 310.0;
         m.split_tone_balance = 60.0;
     });
     assert_eq!(
@@ -364,14 +366,19 @@ fn split_tone_zero_saturation_is_bit_identical() {
 
 /// (b) An engaged warm-shadow tint moves a DARK grey card toward red
 /// (R > G > B) through the full pipeline, and a cool-highlight tint moves
-/// a BRIGHT card toward blue — the luminance split works end-to-end.
+/// a BRIGHT card toward blue — the zone split works end-to-end.
+///
+/// The bright card is exposed at +2 EV of mid-grey, which AgX renders to
+/// display-linear ~0.48. Under the Oklab-lightness zone axis that lands
+/// firmly in the highlight zone; under a display-linear-Y axis it would
+/// not, which is exactly why the stage keys on lightness (#275).
 #[test]
-fn split_tone_tints_in_the_predicted_direction() {
+fn color_grade_tints_in_the_predicted_direction() {
     let warm_shadows = |m: &mut AdjustmentModel| {
         m.split_tone_shadow_hue = 30.0; // Oklab ~red-orange direction
         m.split_tone_shadow_saturation = 80.0;
     };
-    let (w, h, dark) = render_grey_with_split_tone(0.05, warm_shadows);
+    let (w, h, dark) = render_grey_with_color_grade(0.05, warm_shadows);
     let n = (w * h) as usize;
     let (mut r, mut g, mut b) = (0f64, 0f64, 0f64);
     for i in 0..n {
@@ -388,7 +395,7 @@ fn split_tone_tints_in_the_predicted_direction() {
         m.split_tone_highlight_hue = 250.0; // Oklab ~blue direction
         m.split_tone_highlight_saturation = 80.0;
     };
-    let (w2, h2, bright) = render_grey_with_split_tone(0.75, cool_highlights);
+    let (w2, h2, bright) = render_grey_with_color_grade(0.75, cool_highlights);
     let n2 = (w2 * h2) as usize;
     let (mut r2, mut b2) = (0f64, 0f64);
     for i in 0..n2 {
@@ -405,9 +412,9 @@ fn split_tone_tints_in_the_predicted_direction() {
 /// card far more than a BRIGHT one (and vice versa is covered by the
 /// direction test above).
 #[test]
-fn split_tone_shadow_tint_fades_with_luminance() {
+fn color_grade_shadow_tint_fades_with_luminance() {
     let chroma_spread = |lv: f32| {
-        let (w, h, px) = render_grey_with_split_tone(lv, |m| {
+        let (w, h, px) = render_grey_with_color_grade(lv, |m| {
             m.split_tone_shadow_hue = 30.0;
             m.split_tone_shadow_saturation = 100.0;
         });
@@ -426,4 +433,57 @@ fn split_tone_shadow_tint_fades_with_luminance() {
         dark > bright + 2.0,
         "the shadow tint must concentrate in dark tones: dark spread {dark:.2} vs bright {bright:.2}"
     );
+}
+
+/// (d) The MIDTONE wheel — new at #275 — colours a mid-grey card and
+/// fades out toward both ends, so the three zones really are three.
+#[test]
+fn color_grade_midtone_wheel_owns_mid_grey() {
+    let spread = |lv: f32| {
+        let (w, h, px) = render_grey_with_color_grade(lv, |m| {
+            m.color_grade_midtone_hue = 30.0; // warm
+            m.color_grade_midtone_saturation = 100.0;
+        });
+        let n = (w * h) as usize;
+        let mut s = 0f64;
+        for i in 0..n {
+            s += px[i * 3] as f64 - px[i * 3 + 2] as f64;
+        }
+        s / n as f64
+    };
+    let mid = spread(0.18);
+    let dark = spread(0.01);
+    assert!(
+        mid > 4.0,
+        "the midtone wheel must colour a mid-grey card (R-B spread {mid:.2})"
+    );
+    assert!(
+        dark < 0.5 * mid,
+        "the midtone wheel must fade toward black: dark {dark:.2} vs mid {mid:.2}"
+    );
+}
+
+/// (e) The GLOBAL wheel — also new at #275 — tints every tone, so a dark
+/// and a bright card both move, unlike any zone wheel.
+#[test]
+fn color_grade_global_wheel_tints_every_tone() {
+    let spread = |lv: f32| {
+        let (w, h, px) = render_grey_with_color_grade(lv, |m| {
+            m.color_grade_global_hue = 30.0;
+            m.color_grade_global_saturation = 100.0;
+        });
+        let n = (w * h) as usize;
+        let mut s = 0f64;
+        for i in 0..n {
+            s += px[i * 3] as f64 - px[i * 3 + 2] as f64;
+        }
+        s / n as f64
+    };
+    for lv in [0.02f32, 0.18, 1.5] {
+        let d = spread(lv);
+        assert!(
+            d > 2.0,
+            "the global wheel must tint a {lv}-linear card too (R-B spread {d:.2})"
+        );
+    }
 }

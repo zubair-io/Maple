@@ -117,7 +117,10 @@ scene-linear Rec.2020 (unbounded)
   │  → display-linear Rec.2020 [0,1]
   ├─ color_grade (stages/color_grade.rs) #275; display-linear Oklab three-zone tint
   │                              (shadows / midtones / highlights, smoothstep-weighted on
-  │                              display luminance) plus an unweighted global wheel.
+  │                              Oklab lightness and anchored on mid-grey — AgX keeps a
+  │                              normally-exposed frame's display-linear Y well under 1, so a
+  │                              linear-Y split would file real highlights as midtones) plus
+  │                              an unweighted global wheel.
   │                              Supersedes split toning (#1111).
   ├─ grain (stages/grain.rs)             #1110; display-linear deterministic hash noise
   ├─ display encode (view/encode.rs)     Rec.2020 → sRGB / display-P3 via the Oklab-aware
