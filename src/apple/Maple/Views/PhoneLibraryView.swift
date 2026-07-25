@@ -62,6 +62,9 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
     var onMergePanorama: (() -> Void)? = nil
     /// M4: opens the batch metadata editor when the user taps "Edit Metadata…".
     var onEditMetadata: (() -> Void)? = nil
+    /// #944: app-level copy/paste/sync-adjustments clipboard, forwarded
+    /// through to BrowseGrid via AppShellIPhoneShell.
+    var clipboard: AdjustmentClipboard? = nil
 
     var body: some View {
         AppShellIPhoneShell(
@@ -90,7 +93,8 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
             onPrimeSession: onPrimeSession,
             onFullImageFallback: onFullImageFallback,
             onMergePanorama: onMergePanorama,
-            onEditMetadata: onEditMetadata
+            onEditMetadata: onEditMetadata,
+            clipboard: clipboard
         )
         // Tab-bar hide-on-push contract for the phone shell (#625/#791).
         // Fast Preview epic §1: a grid / cloud-result tap pushes `.preview`
