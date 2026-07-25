@@ -15,6 +15,7 @@ import {
 } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { NgTemplateOutlet } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
 import { LAST_SOURCE_KEY } from '../../state/library-fetch.service';
@@ -25,7 +26,9 @@ import {
   addressToRouteSegments,
   viewRouteCommands,
 } from '../../addressing/route-address';
+import { LayoutService } from '../../layout-service';
 import { FolderTreeComponent } from '../../components/folder-tree/folder-tree.component';
+import { SourcePickerDrawerComponent } from '../source-picker-drawer/source-picker-drawer.component';
 import { AssetGridComponent } from '../../components/asset-grid/asset-grid.component';
 import { DropZoneComponent } from '../../components/drop-zone/drop-zone.component';
 import { LoadingBannerComponent } from '../../components/loading-banner/loading-banner.component';
@@ -52,6 +55,7 @@ import {
   standalone: true,
   imports: [
     RouterLink,
+    NgTemplateOutlet,
     FolderTreeComponent,
     AssetGridComponent,
     DropZoneComponent,
@@ -65,6 +69,7 @@ import {
     PanoDialogComponent,
     BatchMetadataPanelComponent,
     PasteSettingsDialogComponent,
+    SourcePickerDrawerComponent,
   ],
   templateUrl: './browse-shell.component.html',
   styleUrl: './browse-shell.component.scss',
@@ -76,6 +81,42 @@ export class BrowseShellComponent implements OnInit, OnDestroy {
   private route = inject(ActivatedRoute);
   private readonly svc = inject(BatchMetadataService);
   private readonly clipboard = inject(AdjustmentClipboardService);
+  private readonly layoutService = inject(LayoutService);
+
+  /** Active breakpoint — drives the source sidebar (inline pane vs phone
+   * overlay drawer) and the toolbar action collapse. See `LayoutService`. */
+  protected readonly layout = this.layoutService.layout;
+
+  /** True while the phone source-picker drawer is open (#2280). */
+  readonly sourceDrawerOpen = signal(false);
+  openSourceDrawer(): void {
+    this.sourceDrawerOpen.set(true);
+  }
+  closeSourceDrawer(): void {
+    this.sourceDrawerOpen.set(false);
+  }
+
+  /** True while the toolbar's collapsed action menu (below the tablet
+   * breakpoint) is open. */
+  readonly overflowMenuOpen = signal(false);
+  toggleOverflowMenu(): void {
+    this.overflowMenuOpen.update((v) => !v);
+  }
+  closeOverflowMenu(): void {
+    this.overflowMenuOpen.set(false);
+  }
+
+  /** Selecting a source from the phone drawer shares the inline tree's
+   * FS-walk-vs-plain-id branch — see `LibraryStateService.selectSidebarEntry`. */
+  onDrawerSourceSelected(id: string): void {
+    this.state.selectSidebarEntry(id);
+  }
+
+  /** The drawer's search pill — same destination as the toolbar search's
+   * Enter key (#2280), just without a query to seed. */
+  onDrawerSearchPillTap(): void {
+    void this.router.navigate(['/search']);
+  }
 
   /** True when the pano options dialog is open. */
   readonly panoDialogVisible = signal(false);
