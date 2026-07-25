@@ -343,7 +343,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
     // BM3D deep denoise (#1105) — runs on the downsampled buffer here;
     // same position as the unsized variant. See that variant's comment.
     stage("sized_deep_denoise", || {
-        bm3d::apply_cancellable(&mut scene, model.deep_denoise, cancel, bm3d::env_progress())
+        bm3d::apply_cancellable(&mut scene, model.deep_denoise, cancel, bm3d::active_progress())
     });
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);

@@ -225,12 +225,12 @@ fn progress_is_reported_monotonically_for_both_passes() {
     let log = log.into_inner().unwrap();
     let p1: Vec<f32> = log
         .iter()
-        .filter(|(n, _)| *n == "pass 1/2")
+        .filter(|(n, _)| *n == super::PASS_1)
         .map(|&(_, f)| f)
         .collect();
     let p2: Vec<f32> = log
         .iter()
-        .filter(|(n, _)| *n == "pass 2/2")
+        .filter(|(n, _)| *n == super::PASS_2)
         .map(|&(_, f)| f)
         .collect();
     assert!(
@@ -252,6 +252,61 @@ fn progress_is_reported_monotonically_for_both_passes() {
     assert!(
         (p2.last().unwrap() - 1.0).abs() < 1e-6,
         "pass 2 must reach 100%"
+    );
+}
+
+/// The host bridges (#1153) fold a `(pass, fraction)` tick into one
+/// `[0, 1]` bar value; pass 1 owns the first half, pass 2 the second, and
+/// the sequence is monotone across the pass boundary.
+#[test]
+fn overall_fraction_spans_both_passes_monotonically() {
+    use super::{overall_fraction, PASS_1, PASS_2};
+    assert!((overall_fraction(PASS_1, 0.0) - 0.0).abs() < 1e-6);
+    assert!((overall_fraction(PASS_1, 1.0) - 0.5).abs() < 1e-6);
+    assert!((overall_fraction(PASS_2, 0.0) - 0.5).abs() < 1e-6);
+    assert!((overall_fraction(PASS_2, 1.0) - 1.0).abs() < 1e-6);
+    // Out-of-range input is clamped, never escapes [0, 1].
+    assert!((overall_fraction(PASS_2, 7.0) - 1.0).abs() < 1e-6);
+    assert!((overall_fraction(PASS_1, -3.0) - 0.0).abs() < 1e-6);
+    // An unknown label is treated as pass 1 (never over-reports).
+    assert!(overall_fraction("???", 1.0) <= 0.5);
+}
+
+/// A registered host sink receives the same ticks the borrowed `Progress`
+/// sink does, and clearing it stops delivery. Serialized against the other
+/// sink test by running both through one `#[test]` (the registry is
+/// process-global).
+#[test]
+fn registered_progress_sink_receives_ticks_until_cleared() {
+    use super::{set_progress_sink, PASS_1, PASS_2};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static TICKS: AtomicUsize = AtomicUsize::new(0);
+    static SAW_PASS_2: AtomicUsize = AtomicUsize::new(0);
+
+    fn sink(pass: &'static str, _fraction: f32) {
+        TICKS.fetch_add(1, Ordering::Relaxed);
+        if pass == PASS_2 {
+            SAW_PASS_2.fetch_add(1, Ordering::Relaxed);
+        }
+        assert!(pass == PASS_1 || pass == PASS_2, "unexpected pass label");
+    }
+
+    set_progress_sink(Some(sink));
+    let mut img = noisy_scene(32, 24, 0.02);
+    apply(&mut img, 50.0, super::active_progress());
+    set_progress_sink(None);
+    let engaged = TICKS.load(Ordering::Relaxed);
+    assert!(engaged > 0, "registered sink must receive ticks");
+    assert!(SAW_PASS_2.load(Ordering::Relaxed) > 0, "pass 2 must report");
+
+    // Cleared: a second run adds nothing.
+    let mut img2 = noisy_scene(32, 24, 0.02);
+    apply(&mut img2, 50.0, super::active_progress());
+    assert_eq!(
+        TICKS.load(Ordering::Relaxed),
+        engaged,
+        "a cleared sink must receive no further ticks"
     );
 }
 

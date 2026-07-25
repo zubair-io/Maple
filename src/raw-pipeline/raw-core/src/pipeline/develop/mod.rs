@@ -393,10 +393,11 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     // immediately after the chroma pre-filter, composing into the cached
     // decode product. No-op (bit-identical skip) at the default 0; the
     // heaviest stage in the chain when engaged, so it takes the cancel
-    // token and reports coarse progress through the MAPLE_PROFILE log
-    // (UI progress wiring is the editor-UI phase, #1108).
+    // token and reports per-reference-row progress through the shared
+    // dispatch — the MAPLE_PROFILE log plus whichever host sink is
+    // registered (the editor's determinate indicator, #1153).
     stage("deep_denoise", || {
-        bm3d::apply_cancellable(&mut scene, model.deep_denoise, cancel, bm3d::env_progress())
+        bm3d::apply_cancellable(&mut scene, model.deep_denoise, cancel, bm3d::active_progress())
     });
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);

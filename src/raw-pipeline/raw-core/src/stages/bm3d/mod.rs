@@ -69,6 +69,8 @@ mod transforms;
 #[cfg(test)]
 mod tests;
 
+use std::sync::RwLock;
+
 use rayon::prelude::*;
 
 use crate::cancel::CancelToken;
@@ -103,30 +105,75 @@ const HF_K: f32 = 0.15;
 /// Rec.2020 luma weights (same constants as the sibling stages).
 const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
 
-/// Progress sink: `(pass_name, fraction_done)`. The pipeline wires this
-/// to the `MAPLE_PROFILE` stderr log via [`env_progress`]; richer UI
-/// progress (determinate editor indicator) is the editor-UI phase's job —
-/// see #1108.
+/// Progress sink: `(pass_name, fraction_done)` where `fraction_done` is
+/// the fraction of THAT pass's reference rows completed. Two passes run
+/// per invocation ([`PASS_1`] then [`PASS_2`]), so an overall fraction is
+/// `(pass_index + fraction_done) / 2` — see [`overall_fraction`].
 pub type Progress<'a> = Option<&'a (dyn Fn(&'static str, f32) + Sync)>;
 
-/// `MAPLE_PROFILE`-gated progress logger (native only — wasm has neither
-/// env vars nor a useful stderr). Same env contract as
-/// `pipeline::stage`'s timing output.
+/// Pass labels handed to the [`Progress`] sink. Stable strings — the host
+/// progress bridges (#1153) map them to a pass index.
+pub const PASS_1: &str = "pass 1/2";
+/// See [`PASS_1`].
+pub const PASS_2: &str = "pass 2/2";
+
+/// Overall `[0, 1]` fraction from one `(pass_name, fraction)` tick. An
+/// unrecognized label is treated as pass 1 (the conservative, lower value).
+pub fn overall_fraction(pass: &str, fraction: f32) -> f32 {
+    let base = if pass == PASS_2 { 0.5 } else { 0.0 };
+    (base + fraction.clamp(0.0, 1.0) * 0.5).clamp(0.0, 1.0)
+}
+
+/// Host progress sink registered by an embedder (#1153): raw-ffi forwards
+/// to the Apple editor's poller, raw-wasm to a JS callback that posts out
+/// of the render worker. A bare `fn` pointer — `Send + Sync + 'static`
+/// without a `Box`, so the registry needs no unsafe and no allocation.
+pub type ProgressSink = fn(pass: &'static str, fraction: f32);
+
+static PROGRESS_SINK: RwLock<Option<ProgressSink>> = RwLock::new(None);
+
+/// Register (or clear, with `None`) the host progress sink. Process-global
+/// and idempotent: an embedder registers once at startup. The sink is
+/// called from the pass loop, so it must be cheap and non-blocking.
+pub fn set_progress_sink(sink: Option<ProgressSink>) {
+    let mut guard = PROGRESS_SINK
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *guard = sink;
+}
+
+/// `MAPLE_PROFILE` gate, read once (the sink is called per reference row —
+/// an `env::var_os` per tick would be gratuitous).
 #[cfg(not(target_arch = "wasm32"))]
-pub fn env_progress() -> Progress<'static> {
-    fn log_line(pass: &'static str, frac: f32) {
-        eprintln!("[raw-core] deep_denoise {pass:<10} {:>3.0}%", frac * 100.0);
+fn profile_logging_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var_os("MAPLE_PROFILE").is_some())
+}
+
+/// The single progress fan-out: the `MAPLE_PROFILE` stderr log (native
+/// only — wasm has neither env vars nor a useful stderr) plus the
+/// host-registered sink.
+fn dispatch_progress(pass: &'static str, fraction: f32) {
+    #[cfg(not(target_arch = "wasm32"))]
+    if profile_logging_enabled() {
+        eprintln!(
+            "[raw-core] deep_denoise {pass:<10} {:>3.0}%",
+            fraction * 100.0
+        );
     }
-    if std::env::var_os("MAPLE_PROFILE").is_some() {
-        Some(&log_line)
-    } else {
-        None
+    let sink = *PROGRESS_SINK
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(f) = sink {
+        f(pass, fraction);
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-pub fn env_progress() -> Progress<'static> {
-    None
+/// The [`Progress`] value the develop chain passes to [`apply_cancellable`]
+/// — the fan-out above. Always `Some`: the dispatch itself is what decides
+/// whether anything is emitted.
+pub fn active_progress() -> Progress<'static> {
+    Some(&dispatch_progress)
 }
 
 /// Non-cancellable wrapper — see [`apply_cancellable`].
@@ -199,7 +246,7 @@ pub fn apply_cancellable(
         sigmas,
         tau_sq,
         PassKind::Hard,
-        "pass 1/2",
+        PASS_1,
         progress,
         &cancelled,
     ) else {
@@ -213,7 +260,7 @@ pub fn apply_cancellable(
         sigmas,
         tau_sq,
         PassKind::Wiener { basic: &basic },
-        "pass 2/2",
+        PASS_2,
         progress,
         &cancelled,
     ) else {
