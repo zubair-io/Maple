@@ -3,9 +3,14 @@
 // Shared request preamble for the path-addressed `/api/fs/*` image routes
 // (`/api/fs/thumb`, `/api/fs/preview`): absolute-path validation, the
 // symlink-resolving MAPLE_ROOTS jail, the decodable-raster extension gate,
-// and the source stat — plus the mtime+size ETag/304 conditional-request
-// helpers both routes share. Extracted from fs-thumbs.ts so fs-previews.ts
+// and the source stat — plus the shared `notModifiedResponse` 304
+// conditional-request helper. Extracted from fs-thumbs.ts so fs-previews.ts
 // doesn't clone the whole dance (fallow duplication gate, PR #1907).
+//
+// `/api/fs/thumb`'s cache-hit path bypasses this entirely (#2258) — a hit is
+// ONE `readFile`, no realpath — and calls this preamble only on a miss,
+// where the full symlink-resolving jail matters because arbitrary source
+// bytes get read. `/api/fs/preview` still calls this on every request.
 //
 // Reads only — no writes happen here (the .oxlintrc.json fs-import
 // allowlist entry rests on that).
@@ -48,14 +53,30 @@ export type JailedFileError = { ok: false; status: number; error: string };
  * same line for the stage guards — but note this is an ALLOWLIST and that one
  * is a denylist, so the two cannot be collapsed and must be kept in step by
  * hand when a format is added.
+ *
+ * Exported (PR #2275 review, finding 3) so `fs-thumbs.ts`'s cache-hit fast
+ * path can apply the SAME allowlist before its one read, instead of growing
+ * a second copy that could silently drift — exactly the kind of divergence
+ * that caused #1999.
  */
-function isDecodableRasterExt(ext: string): boolean {
+export function isDecodableRasterExt(ext: string): boolean {
   return (
     RAW_EXTENSIONS.has(ext) ||
     SHARP_EXTENSIONS.has(ext) ||
     PSD_HDR_EXTENSIONS.has(ext) ||
     VIDEO_EXTS.has(`.${ext}`)
   );
+}
+
+/**
+ * Lowercased extension without the dot, or `''` for an extension-less name.
+ * Shared so every caller of `isDecodableRasterExt` derives its input the
+ * same way — `resolveJailedFile` (below, on the realpath'd name) and
+ * `fs-thumbs.ts`'s fast path (on the raw requested name) alike.
+ */
+export function lowerExt(p: string): string {
+  const dot = p.lastIndexOf('.');
+  return dot >= 0 ? p.slice(dot + 1).toLowerCase() : '';
 }
 
 /**
@@ -96,8 +117,7 @@ export async function resolveJailedFile(reqPath: string): Promise<JailedFile | J
     };
   }
 
-  const dot = real.lastIndexOf('.');
-  const ext = dot >= 0 ? real.slice(dot + 1).toLowerCase() : '';
+  const ext = lowerExt(real);
   if (!isDecodableRasterExt(ext)) {
     return { ok: false, status: 415, error: `Unsupported file extension: "${ext}"` };
   }
@@ -117,15 +137,6 @@ export async function resolveJailedFile(reqPath: string): Promise<JailedFile | J
   }
 
   return { ok: true, real, ext, stat: srcStat };
-}
-
-/**
- * Validator composing source mtime + size, so an mtime-preserved overwrite
- * that changes content (and therefore size) still produces a fresh ETag.
- */
-export function sourceETag(srcStat: JailedFile['stat']): string {
-  // `Number(...)`: the stat type unions BigIntStats, whose mtimeMs is bigint.
-  return `"${Math.floor(Number(srcStat.mtimeMs))}-${srcStat.size}"`;
 }
 
 /**
