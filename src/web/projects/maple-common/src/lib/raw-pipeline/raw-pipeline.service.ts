@@ -20,7 +20,6 @@ import type {
   CloseSessionRequest,
   ExportedFile,
   RawExportOptions,
-  ScopeSnapshot,
   WorkerResponse,
 } from './raw-pipeline.types';
 import { dispatchExport } from './raw-pipeline.export-request';
@@ -37,6 +36,7 @@ import type {
 } from './raw-pipeline.service-internals';
 export type { OpenedLiveSession, RenderedLiveSession } from './raw-pipeline.service-internals';
 import { markStart, markEnd } from './raw-pipeline.perf';
+import { handleWorkerMessage } from './raw-pipeline.worker-dispatch';
 
 @Injectable({ providedIn: 'root' })
 export class RawPipelineService implements OnDestroy {
@@ -50,19 +50,6 @@ export class RawPipelineService implements OnDestroy {
   private worker: Worker | null = null;
   private nextId = 1;
   private pending = new Map<number, PendingHandler>();
-
-  /** Pack a worker `ScopeSnapshot` reply into a `DecodedImage` for `currentPixels`. */
-  private scopeToDecoded(scope: ScopeSnapshot | undefined): DecodedImage | undefined {
-    if (!scope) return undefined;
-    return {
-      width: scope.width,
-      height: scope.height,
-      rgb: new Uint8Array(scope.rgb),
-      // The scopes ignore WB; these are placeholders (a readback has no As-Shot WB).
-      asShotTemperature: 6500,
-      asShotTint: 0,
-    };
-  }
 
   // T10: threaded-state signal. `null` = not yet reported by the worker.
   private readonly threadedSubject = new BehaviorSubject<boolean | null>(null);
@@ -93,92 +80,15 @@ export class RawPipelineService implements OnDestroy {
         type: 'module',
       });
       this.worker.addEventListener('message', (e: MessageEvent<WorkerResponse>) => {
-        const msg = e.data;
-        if (msg.type === 'worker-log') {
-          const prefix = '[raw-pipeline worker]';
-          if (msg.level === 'error') console.error(prefix, msg.text);
-          else if (msg.level === 'warn') console.warn(prefix, msg.text);
-          else console.log(prefix, msg.text);
-          return;
-        }
-        if (msg.type === 'status') {
-          this.threadedSubject.next(msg.threaded);
-          this.threadCountSubject.next(msg.threads);
-          return;
-        }
-        if (msg.type === 'deep-denoise-progress') {
-          this.deepDenoiseProgress.set({ pass: msg.pass, fraction: msg.fraction });
-          return;
-        }
-        const handler = this.pending.get(msg.id);
-        if (!handler) return;
-        this.pending.delete(msg.id);
-        // Any terminal reply ends the develop that emitted the ticks.
-        this.deepDenoiseProgress.set(null);
-        if (msg.type === 'decode-success' && handler.kind === 'legacy') {
-          handler.resolve({
-            width: msg.width,
-            height: msg.height,
-            nativeWidth: msg.nativeWidth,
-            nativeHeight: msg.nativeHeight,
-            rgb: new Uint8Array(msg.rgb),
-            asShotTemperature: msg.asShotTemperature,
-            asShotTint: msg.asShotTint,
-          });
-        } else if (msg.type === 'decode-error' && handler.kind === 'legacy') {
-          handler.reject(new Error(msg.message));
-        } else if (msg.type === 'decode-scene-linear-success' && handler.kind === 'scene-linear') {
-          handler.resolve({
-            width: msg.width,
-            height: msg.height,
-            nativeWidth: msg.nativeWidth,
-            nativeHeight: msg.nativeHeight,
-            fp16Rgba: new Uint16Array(msg.fp16Rgba),
-            asShotTemperature: msg.asShotTemperature,
-            asShotTint: msg.asShotTint,
-          });
-        } else if (msg.type === 'decode-scene-linear-error' && handler.kind === 'scene-linear') {
-          handler.reject(new Error(msg.message));
-        } else if (msg.type === 'open-session-success' && handler.kind === 'open-session') {
-          handler.resolve({
-            width: msg.width,
-            height: msg.height,
-            nativeWidth: msg.nativeWidth,
-            nativeHeight: msg.nativeHeight,
-            asShotTemperature: msg.asShotTemperature,
-            asShotTint: msg.asShotTint,
-            colorSpace: msg.colorSpace,
-            scopePixels: this.scopeToDecoded(msg.scope),
-          });
-        } else if (msg.type === 'render-session-success' && handler.kind === 'render-session') {
-          handler.resolve({
-            colorSpace: msg.colorSpace,
-            scopePixels: this.scopeToDecoded(msg.scope),
-          });
-        } else if (
-          msg.type === 'session-error' &&
-          (handler.kind === 'open-session' || handler.kind === 'render-session')
-        ) {
-          handler.reject(new Error(msg.message));
-        } else if (msg.type === 'auto-adjust-success' && handler.kind === 'auto-adjust') {
-          handler.resolve(msg.patch);
-        } else if (msg.type === 'auto-adjust-error' && handler.kind === 'auto-adjust') {
-          handler.reject(new Error(msg.message));
-        } else if (msg.type === 'export-success' && handler.kind === 'export') {
-          handler.resolve({
-            width: msg.width,
-            height: msg.height,
-            extension: msg.extension,
-            blob: msg.blob,
-          });
-        } else if (msg.type === 'export-error' && handler.kind === 'export') {
-          handler.reject(new Error(msg.message));
-        } else {
-          // Mismatched response type and handler kind — should never happen
-          // because ids are unique and the worker only emits success/error
-          // matching the request type. Reject defensively to avoid hangs.
-          handler.reject(new Error(`raw-pipeline: handler kind mismatch (${msg.type})`));
-        }
+        // Routing lives in `raw-pipeline.worker-dispatch.ts` (#2314) — this
+        // file kept every response kind's handling inline until it grew past
+        // the file-size budget. Pure code move: no behaviour change.
+        handleWorkerMessage(e.data, {
+          pending: this.pending,
+          threadedSubject: this.threadedSubject,
+          threadCountSubject: this.threadCountSubject,
+          deepDenoiseProgress: this.deepDenoiseProgress,
+        });
       });
       this.worker.addEventListener('error', (e) => {
         console.error('RawPipelineWorker error:', e.message);
