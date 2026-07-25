@@ -153,7 +153,12 @@ pub(crate) fn emit_swift(schema: &[FieldSpec]) -> String {
         PIPELINE_OUTPUT_VERSION,
     ));
 
-    s.push_str("}\n");
+    s.push_str("}\n\n");
+
+    // Copy/paste/sync groups (#944). Top-level type, not nested on
+    // `AdjustmentModel`: the selective-paste UI on both platforms needs it
+    // independently of any one model instance.
+    s.push_str(&crate::adjustment_groups::emit_swift());
     s
 }
 
@@ -352,10 +357,12 @@ pub(crate) fn emit_ts(schema: &[FieldSpec]) -> String {
          * stale entries across all platforms.\n */\n",
     );
     s.push_str(&format!(
-        "export const PIPELINE_OUTPUT_VERSION = {};\n",
+        "export const PIPELINE_OUTPUT_VERSION = {};\n\n",
         PIPELINE_OUTPUT_VERSION,
     ));
 
+    // Copy/paste/sync groups (#944) — same table Swift gets above.
+    s.push_str(&crate::adjustment_groups::emit_ts());
     s
 }
 

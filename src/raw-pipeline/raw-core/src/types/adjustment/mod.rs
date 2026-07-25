@@ -23,7 +23,9 @@ pub mod curves;
 pub mod schema;
 
 pub use curves::{ToneCurve, ToneCurvePoint};
-pub use schema::{FieldKind, FieldSpec, ADJUSTMENT_SCHEMA};
+pub use schema::{
+    AdjustmentGroup, FieldKind, FieldSpec, ADJUSTMENT_SCHEMA, NON_COPYABLE_FIELDS,
+};
 
 /// User-selectable display Look. Canonical definition lives in
 /// `crate::view::look` (the module that owns the LUT data and `apply`
