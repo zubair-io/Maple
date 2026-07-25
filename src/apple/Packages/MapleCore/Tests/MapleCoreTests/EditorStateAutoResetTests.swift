@@ -81,6 +81,44 @@ final class EditorStateAutoResetTests: XCTestCase {
         XCTAssertEqual(m.profile, .auto)
     }
 
+    /// #2244 — pins the difference between RESET and "revert to the model as
+    /// it was at session open". The editor's Reset control used to call the
+    /// latter (`EditSession.resetToOriginal()`); on an image that already
+    /// carried sidecar edits when the session opened, that silently restored
+    /// those edits instead of clearing them. The two agree only on a
+    /// pristine image, which is why the divergence went unnoticed.
+    func testResetToFactoryDefaultsIgnoresPreExistingSidecarEdits() {
+        // A session OPENED on an already-edited image: `originalModel` — the
+        // snapshot `resetToOriginal()` restores — is itself non-default.
+        var onDisk = AdjustmentModel.default
+        onDisk.exposure = -1.5
+        onDisk.contrast = 25
+        onDisk.saturation = 60
+        let session = EditSession(
+            asset: AssetRef(url: URL(fileURLWithPath: "/tmp/maple-reset-test.dng")),
+            model: onDisk,
+            culling: CullingState()
+        )
+        let state = EditorState(session: session)
+        XCTAssertEqual(session.originalModel.exposure, -1.5, accuracy: 1e-9,
+                       "precondition: the session-open snapshot carries edits")
+
+        state.resetToFactoryDefaults()
+
+        let m = state.session.model
+        XCTAssertEqual(m.exposure, AdjustmentModel.default.exposure, accuracy: 1e-9)
+        XCTAssertEqual(m.contrast, AdjustmentModel.default.contrast, accuracy: 1e-9)
+        XCTAssertEqual(m.saturation, AdjustmentModel.default.saturation, accuracy: 1e-9)
+        XCTAssertNotEqual(m.exposure, session.originalModel.exposure,
+                          "RESET must reach factory defaults, not the session-open snapshot")
+
+        // And the weaker action really would have kept them — the divergence
+        // this test exists to pin.
+        session.resetToOriginal()
+        XCTAssertEqual(state.session.model.exposure, -1.5, accuracy: 1e-9)
+        XCTAssertEqual(state.session.model.saturation, 60, accuracy: 1e-9)
+    }
+
     // MARK: - AUTO (#1379)
 
     func testApplyAutoAppliesExposureOnlyLeavingWBAndToneUntouched() async {

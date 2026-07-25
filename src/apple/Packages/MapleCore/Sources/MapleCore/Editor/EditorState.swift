@@ -444,10 +444,13 @@ public final class EditorState {
         }
     }
 
-    /// Reset to the snapshot at session open (clears all sliders).
-    public func resetAll() {
-        session.resetToOriginal()
-    }
+    // `resetAll()` — a thin wrapper over `session.resetToOriginal()`, i.e.
+    // "revert to the model as it was at session open" — was removed in #2244.
+    // It read like the epic's RESET but was strictly weaker: on an image that
+    // already carried sidecar edits it restored those edits rather than the
+    // factory defaults #1370 specifies, and it was the only reset the shipped
+    // UI called. The editor now calls `resetToFactoryDefaults()` below;
+    // `EditSession.resetToOriginal()` remains as a session-level primitive.
 
     // MARK: AUTO (#1379) — resetToFactoryDefaults() + applyAuto() → EditorState+AutoReset.swift
 
