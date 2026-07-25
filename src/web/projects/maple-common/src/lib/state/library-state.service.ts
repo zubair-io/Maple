@@ -290,6 +290,21 @@ export class LibraryStateService {
   }
 
   // ── XMP write flush ───────────────────────────────────────────────────────
+  /**
+   * Queue a sidecar write for `id` on the usual debounce.
+   *
+   * Every culling/adjustment mutator on this facade already calls through to
+   * the same place; this exposes it for callers that need the sidecar brought
+   * up to date without mutating anything first — export (#943) refreshes the
+   * `.xmp` next to the original so it describes the edit the exported file was
+   * rendered from. Routing through the facade also keeps such callers off
+   * `LibraryFetch`, whose dependency graph (`LibraryCache` → `LIBRARY_SOURCE`)
+   * would otherwise have to be satisfied everywhere they are mounted.
+   */
+  scheduleSidecarWrite(id: AssetId): void {
+    this.fetch_.scheduleSidecarWrite(id);
+  }
+
   flushPendingXmpWrites(): Promise<void> {
     return this.fetch_.flushPendingXmpWrites();
   }
