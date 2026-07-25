@@ -156,6 +156,14 @@ Lightroom does for `crs:` fields.
 | `splitToneHighlightHue`        | `crs:SplitToningHighlightHue`        | 0       |
 | `splitToneHighlightSaturation` | `crs:SplitToningHighlightSaturation` | 0       |
 | `splitToneBalance`             | `crs:SplitToningBalance`             | 0       |
+| `colorGradeShadowLuminance`    | `crs:ColorGradeShadowLum`            | 0       |
+| `colorGradeMidtoneHue`         | `crs:ColorGradeMidtoneHue`           | 0       |
+| `colorGradeMidtoneSaturation`  | `crs:ColorGradeMidtoneSat`           | 0       |
+| `colorGradeMidtoneLuminance`   | `crs:ColorGradeMidtoneLum`           | 0       |
+| `colorGradeHighlightLuminance` | `crs:ColorGradeHighlightLum`         | 0       |
+| `colorGradeGlobalHue`          | `crs:ColorGradeGlobalHue`            | 0       |
+| `colorGradeGlobalSaturation`   | `crs:ColorGradeGlobalSat`            | 0       |
+| `colorGradeGlobalLuminance`    | `crs:ColorGradeGlobalLum`            | 0       |
 | `hueAdjustmentRed`             | `crs:HueAdjustmentRed`               | 0       |
 | `hueAdjustmentOrange`          | `crs:HueAdjustmentOrange`            | 0       |
 | `hueAdjustmentYellow`          | `crs:HueAdjustmentYellow`            | 0       |
