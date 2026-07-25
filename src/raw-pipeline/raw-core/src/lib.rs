@@ -45,6 +45,12 @@ pub mod avif;
 
 pub mod tiff;
 
+/// ICC profiles for the export color spaces (#943).
+pub mod icc;
+
+/// Edited-image export — render + encode to a deliverable file (#943).
+pub mod export;
+
 /// Embedded-preview extraction shared by raw-ffi (native, file-based) and
 /// raw-wasm (browser, bytes-based) — see the module doc for why this lives
 /// here instead of forking per platform (#2010).
