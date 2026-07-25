@@ -39,6 +39,36 @@
         </div>
       }
 
+      <!-- AUTO (#1370 M2) — analyses the RAW and writes exposure +
+           autoExposure:'Off' as one undo entry. Lives in the top bar rather
+           than the tool dock because it is a global image action, not a tool
+           selection; the dock is a `role="navigation"` tool switcher. -->
+      <button
+        class="top-text-btn"
+        [class.top-text-btn--busy]="editorState.autoInFlight()"
+        title="Auto adjust"
+        aria-label="Auto adjust"
+        data-testid="editor-shell-auto"
+        [disabled]="autoDisabled()"
+        [attr.aria-busy]="editorState.autoInFlight() ? 'true' : null"
+        (click)="onAuto()"
+      >
+        AUTO
+      </button>
+
+      <!-- RESET (#1370 M1) — every develop slider to its factory default, WB
+           to camera As Shot, profile to Auto; crop/rotation untouched. -->
+      <button
+        class="top-text-btn"
+        title="Reset all adjustments"
+        aria-label="Reset all adjustments"
+        data-testid="editor-shell-reset"
+        [disabled]="!hasFocusedAsset()"
+        (click)="onResetAll()"
+      >
+        RESET
+      </button>
+
       <!-- Before/After split toggle -->
       <button
         class="top-icon-btn"
