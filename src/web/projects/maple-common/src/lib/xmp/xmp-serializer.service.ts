@@ -22,6 +22,7 @@ import {
   metadataNamespacePrefixes,
   METADATA_NAMESPACES,
 } from './xmp-metadata';
+import { toneCurveBlocks } from './xmp-tone-curves';
 
 @Injectable({ providedIn: 'root' })
 export class XmpSerializerService {
@@ -194,10 +195,20 @@ export class XmpSerializerService {
     const rightsUsage = metadataBlocks.filter((b) =>
       /^ {2}<(dc:rights|xmpRights:UsageTerms)>/.test(b),
     );
+    // Point tone curves (#365) — nested `papp:SceneLinearToneCurve*` blocks,
+    // emitted at this document's child indent (two spaces, matching the
+    // keywords block above). Identity curves emit nothing, so a model with
+    // no authored curve keeps the pre-#365 bytes exactly. They sit before
+    // the passthrough nodes so Maple-managed children stay grouped and any
+    // imported `crs:ToneCurvePV2012*` (which rides the passthrough pipe)
+    // keeps its position relative to the other unknown nodes.
+    const toneCurvesBlock = toneCurveBlocks(model, '  ');
+
     const childBlocks = [
       titleCreatorDesc.join('\n'),
       keywordsBlock,
       rightsUsage.join('\n'),
+      toneCurvesBlock,
       nestedNodes,
     ]
       .filter((b) => b.length > 0)
