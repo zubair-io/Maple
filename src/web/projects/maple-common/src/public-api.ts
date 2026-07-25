@@ -105,14 +105,10 @@ export * from './lib/shells/preview-shell/preview-shell.component';
 // S1c (#599) — phone bottom-sheet primitive (consumed by S4 Loupe / S5 Editor / S6 phone Detail).
 export * from './lib/shells/bottom-sheet.component';
 
-// Responsive-program S1a (#597) — phone-tier tab shell + the root shell
-// switcher that dispatches phone vs pane based on LayoutService.layout().
-export * from './lib/shells/tab-bar-visibility.service';
-export * from './lib/shells/phone-tab-shell.component';
+// Web responsive foundation (#2279) — the phone-tab shell fork is retired;
+// RootShellComponent always renders the pane router-outlet (see its header
+// comment).
 export * from './lib/shells/root-shell.component';
-export * from './lib/shells/phone-library-stub.component';
-export * from './lib/shells/phone-search-stub.component';
-export * from './lib/shells/phone-settings-stub.component';
 export * from './lib/shells/protocol-handler.component';
 
 // Service-worker app-update flow (background install + in-app toast + hard-nav
