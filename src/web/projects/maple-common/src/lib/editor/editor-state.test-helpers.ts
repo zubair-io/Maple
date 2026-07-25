@@ -9,13 +9,16 @@
 // signals and the adjustment model, which keeps it safe to sit alongside
 // library sources that the production build type-checks.
 
-import { signal, type Signal } from '@angular/core';
+import { signal, type Signal, type WritableSignal } from '@angular/core';
 
 import { defaultAdjustmentModel, type AdjustmentModel } from '../models/adjustment-model';
 
 export interface LibraryStub {
-  /** Minimal asset list — used by applyAuto to resolve the file extension. */
-  readonly assets: Signal<Array<{ id: string; filename: string }>>;
+  /**
+   * Minimal asset list — used by applyAuto to resolve the file extension.
+   * Writable: the stale-guard spec re-points it mid-test via `assets.set`.
+   */
+  readonly assets: WritableSignal<Array<{ id: string; filename: string }>>;
   /** #1153: every call is one model write, i.e. one re-render/decode kick. */
   updateCount: number;
   /** Test seam: stage decoded bytes for `id` (applyAuto's synchronous path). */
