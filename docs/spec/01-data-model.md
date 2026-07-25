@@ -191,9 +191,11 @@ The subset of `AdjustmentModel` that lives on `ImageAsset` as a fast path for gr
 | Field        | Type        | Default     | XMP                                         |
 | ------------ | ----------- | ----------- | ------------------------------------------- |
 | `rating`     | UInt8 (0–5) | `0`         | `xmp:Rating` attribute on `rdf:Description` |
-| `flag`       | enum        | `unflagged` | `xmp:Label` / `maple:Flag` attribute        |
-| `colorLabel` | enum?       | absent      | `xmp:Label` / `maple:ColorLabel` attribute  |
+| `flag`       | enum        | `unflagged` | `papp:Flag` attribute (see below)           |
+| `colorLabel` | enum?       | absent      | `papp:ColorLabel` / `xmp:Label` attribute   |
 | `keywords`   | `[String]`  | `[]`        | `dc:subject` nested element (see below)     |
+
+The flag and the colour label are separate fields with separate attributes. `xmp:Label` is Adobe's colour word and is read as a colour label only. Apple sidecars written before #2221 overloaded `xmp:Label` for the flag (`"Red"` for a pick, `"Rejected"` for a reject); the Apple parser still accepts those two spellings so existing files keep their flags, but nothing writes them any more, and `papp:Flag` wins whenever both appear. See `docs/xmp-canonical-format.md` § "Culling fields".
 
 ### Invariants
 

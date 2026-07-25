@@ -124,6 +124,10 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
     /// never clobbers it. Mirrors raw-core's `profile_seen` precedence
     /// (ticket #536).
     var profileSeen: Bool = false
+    /// Tracks whether the canonical `papp:Flag` attribute has been applied
+    /// so the legacy `xmp:Label` cull-flag alias never overrides it (#2221).
+    /// Same precedence shape as the two flags above.
+    var cullFlagSeen: Bool = false
     /// Document-level WB-scale authorship state (#1780): whether ANY
     /// element carried the Maple `papp:` namespace (declaration or
     /// attribute), and the explicit `papp:WbScaleVersion` stamp when one
@@ -228,6 +232,12 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
         if let profile = attributeDict["papp:Profile"] {
             applyAttribute(key: "papp:Profile", value: profile)
         }
+        // Pre-pass: the canonical `papp:Flag` cull flag wins over the legacy
+        // `xmp:Label` alias regardless of attribute iteration order, so a
+        // sidecar carrying both resolves to the canonical value (#2221).
+        if let flag = attributeDict["papp:Flag"] {
+            applyAttribute(key: "papp:Flag", value: flag)
+        }
         // Pre-pass: discover `crs:HasCrop` before applying the rect fields —
         // mirrors raw-core's two-pass crop gate. `crs:CropAngle` is always
         // applied regardless of HasCrop (pure straighten; spec § 01 inv 3).
@@ -238,7 +248,8 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
         for (rawKey, value) in attributeDict
             where rawKey != "crs:WhiteBalance"
                 && rawKey != "papp:CaptureSharpeningSigma"
-                && rawKey != "papp:Profile" {
+                && rawKey != "papp:Profile"
+                && rawKey != "papp:Flag" {
             applyAttribute(key: rawKey, value: value, hasCrop: hasCrop)
         }
         // Reset for the next rdf:Description (defensive — XMP normally
@@ -246,6 +257,7 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
         // idempotent across calls).
         captureSharpeningSigmaSeen = false
         profileSeen = false
+        cullFlagSeen = false
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
