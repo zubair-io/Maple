@@ -153,6 +153,11 @@ describe('EditorShellComponent — AUTO / RESET reachability (#2244)', () => {
               }),
             ),
             computeAutoAdjustments: vi.fn(() => autoPending),
+            // #1153 added this signal to the real service and the editor reads
+            // it to drive the determinate BM3D indicator. The stub has to carry
+            // it or the component throws on construction — this spec and that
+            // change landed against a main that did not yet contain the other.
+            deepDenoiseProgress: signal<{ pass: 1 | 2; fraction: number } | null>(null),
           },
         },
       ],
