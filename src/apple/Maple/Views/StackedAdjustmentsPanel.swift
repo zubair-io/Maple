@@ -38,7 +38,8 @@
 //   • `CropToolbar` surfaces via arm(tool: .crop) — the main canvas still
 //     handles the crop overlay; the panel just shows the "Crop" special-tool
 //     button.
-//   • `ToolGlyph.sfSymbol(for:)` for the special-tool buttons.
+//   • `ToolGlyph.icon(for:size:)` for the special-tool buttons that map to a
+//     real `Tool` case; SF Symbols still cover the disabled placeholders.
 //
 // Special tools: only `crop` and `presets` exist in the current `Tool` enum.
 // The spec also mentions Mask / Heal / Curve / Optics — those cases do NOT
@@ -159,7 +160,7 @@ struct StackedAdjustmentsPanel: View {
         HStack(spacing: 8) {
             // Crop — real Tool case, arms the crop overlay.
             SpecialToolButton(
-                symbol: ToolGlyph.sfSymbol(for: .crop),
+                icon: .tool(.crop),
                 label: "Crop",
                 isSelected: state.armedTool == .crop,
                 isEnabled: true
@@ -170,7 +171,7 @@ struct StackedAdjustmentsPanel: View {
 
             // Presets — real Tool case, opens the presets sheet/popover.
             SpecialToolButton(
-                symbol: ToolGlyph.sfSymbol(for: .presets),
+                icon: .tool(.presets),
                 label: "Presets",
                 isSelected: state.armedTool == .presets,
                 isEnabled: true
@@ -183,7 +184,7 @@ struct StackedAdjustmentsPanel: View {
             // --- Future special tools (no Tool case yet; disabled placeholders) ---
             // Mask — gated on a future `Tool.mask` case (not yet in the enum).
             SpecialToolButton(
-                symbol: "lasso",
+                icon: .symbol("lasso"),
                 label: "Mask",
                 isSelected: false,
                 isEnabled: false, // disabled: Tool.mask does not exist yet
@@ -193,7 +194,7 @@ struct StackedAdjustmentsPanel: View {
 
             // Heal — gated on a future `Tool.heal` case.
             SpecialToolButton(
-                symbol: "bandage",
+                icon: .symbol("bandage"),
                 label: "Heal",
                 isSelected: false,
                 isEnabled: false, // disabled: Tool.heal does not exist yet
@@ -327,65 +328,6 @@ struct StackedAdjustmentsPanel: View {
                 return abs(v - neutral) > 1e-6
             }
             .count
-    }
-}
-
-// MARK: - SpecialToolButton
-
-/// Small icon + label button used in the special-tools row at the top of
-/// the adjustments panel.  Renders disabled (dimmed, non-interactive) when
-/// `isEnabled` is false — used for tool cases not yet present in the enum.
-private struct SpecialToolButton: View {
-    let symbol: String
-    let label: String
-    let isSelected: Bool
-    let isEnabled: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: isEnabled ? action : {}) {
-            VStack(spacing: 3) {
-                ZStack {
-                    Circle()
-                        .fill(isSelected
-                              ? ProTokens.accent(0x28)
-                              : ProTokens.panel)
-                        .overlay(
-                            Circle().stroke(
-                                isSelected ? ProTokens.accent : ProTokens.border,
-                                lineWidth: 0.5
-                            )
-                        )
-                        .frame(width: 32, height: 32)
-
-                    Image(systemName: symbol)
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundStyle(
-                            isEnabled
-                                ? (isSelected ? ProTokens.accent : ProTokens.text)
-                                : ProTokens.textDim
-                        )
-                }
-                Text(label)
-                    .font(.system(size: 9, weight: isSelected ? .semibold : .regular))
-                    .foregroundStyle(
-                        isEnabled
-                            ? (isSelected ? ProTokens.accent : ProTokens.textMuted)
-                            : ProTokens.textDim
-                    )
-                    .lineLimit(1)
-            }
-            .frame(width: 46)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!isEnabled)
-        .accessibilityLabel(label)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        // Disabled placeholders (Mask/Heal) add no navigable value — keep them
-        // out of the a11y tree, matching ToolDock/MobileControlBar (Copilot #1680).
-        .accessibilityHidden(!isEnabled)
-        .opacity(isEnabled ? 1 : 0.40)
     }
 }
 
