@@ -29,6 +29,11 @@ pub use types::{FieldKind, FieldSpec};
 // in place so schema order still matches struct order.
 mod hsl;
 
+// Copy/paste/sync group → field mapping (#944). Sibling submodule for the
+// same 600-LOC budget reason as `types`.
+mod groups;
+pub use groups::{AdjustmentGroup, NON_COPYABLE_FIELDS};
+
 /// Canonical, ordered description of every codegen-eligible field on
 /// [`AdjustmentModel`].
 ///
