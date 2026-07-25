@@ -168,6 +168,32 @@ extension XMPSerializer {
         if model.splitToneBalance != 0 {
             attrs.append(("crs:SplitToningBalance", String(format: "%.0f", model.splitToneBalance)))
         }
+        // Color Grading (#275) — the rest of the panel beyond the five
+        // `crs:SplitToning*` keys above. Same omit-on-default convention.
+        if model.colorGradeShadowLuminance != 0 {
+            attrs.append(("crs:ColorGradeShadowLum", String(format: "%.0f", model.colorGradeShadowLuminance)))
+        }
+        if model.colorGradeMidtoneHue != 0 {
+            attrs.append(("crs:ColorGradeMidtoneHue", String(format: "%.0f", model.colorGradeMidtoneHue)))
+        }
+        if model.colorGradeMidtoneSaturation != 0 {
+            attrs.append(("crs:ColorGradeMidtoneSat", String(format: "%.0f", model.colorGradeMidtoneSaturation)))
+        }
+        if model.colorGradeMidtoneLuminance != 0 {
+            attrs.append(("crs:ColorGradeMidtoneLum", String(format: "%.0f", model.colorGradeMidtoneLuminance)))
+        }
+        if model.colorGradeHighlightLuminance != 0 {
+            attrs.append(("crs:ColorGradeHighlightLum", String(format: "%.0f", model.colorGradeHighlightLuminance)))
+        }
+        if model.colorGradeGlobalHue != 0 {
+            attrs.append(("crs:ColorGradeGlobalHue", String(format: "%.0f", model.colorGradeGlobalHue)))
+        }
+        if model.colorGradeGlobalSaturation != 0 {
+            attrs.append(("crs:ColorGradeGlobalSat", String(format: "%.0f", model.colorGradeGlobalSaturation)))
+        }
+        if model.colorGradeGlobalLuminance != 0 {
+            attrs.append(("crs:ColorGradeGlobalLum", String(format: "%.0f", model.colorGradeGlobalLuminance)))
+        }
         attrs += XMPSerializer.hslAttrs(model: model)
         // Black & white mix (#276) — toggle + eight gray-mixer weights.
         attrs += XMPSerializer.blackWhiteAttrs(model: model)

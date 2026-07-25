@@ -92,16 +92,26 @@ final class EditorSubParamTests: XCTestCase {
         XCTAssertEqual(subs[2].defaultDisplayValue, AdjustmentModel().grainRoughness)
     }
 
-    func testSplitToneDeclaresBalanceAndHueSatPairs() {
-        // #1111 — split tone joined the multi-param set. Balance leads:
-        // it is the schema-declared primary drag-bar field.
-        let subs = Tool.splitTone.subParams
-        XCTAssertEqual(subs.map(\.id),
-                       ["balance", "shadowHue", "shadowSat", "highlightHue", "highlightSat"])
-        XCTAssertTrue(Tool.splitTone.isMultiParam)
-        XCTAssertEqual(Tool.splitTone.defaultSubParamId, "balance")
+    func testColorGradeDeclaresBalanceLeadFollowedByFourWheelZones() {
+        // #1111 — split tone joined the multi-param set; #275 supersedes it
+        // with Color Grading: Balance leads (schema-declared primary
+        // drag-bar field), followed by shadow/midtone/highlight/global
+        // hue+saturation+luminance triples — 13 sub-params total.
+        let subs = Tool.colorGrade.subParams
+        XCTAssertEqual(subs.map(\.id), [
+            "balance",
+            "shadowHue", "shadowSat", "shadowLum",
+            "midtoneHue", "midtoneSat", "midtoneLum",
+            "highlightHue", "highlightSat", "highlightLum",
+            "globalHue", "globalSat", "globalLum",
+        ])
+        XCTAssertTrue(Tool.colorGrade.isMultiParam)
+        XCTAssertEqual(Tool.colorGrade.defaultSubParamId, "balance")
         XCTAssertEqual(subs[1].range, AdjustmentModel.splitToneShadowHueRange)
         XCTAssertEqual(subs[0].range, AdjustmentModel.splitToneBalanceRange)
+        XCTAssertEqual(subs[3].range, AdjustmentModel.colorGradeShadowLuminanceRange)
+        XCTAssertEqual(subs[4].range, AdjustmentModel.colorGradeMidtoneHueRange)
+        XCTAssertEqual(subs[12].range, AdjustmentModel.colorGradeGlobalLuminanceRange)
     }
 
     func testHSLDeclaresTwentyFourSubParamsChannelMajor() {
@@ -150,12 +160,12 @@ final class EditorSubParamTests: XCTestCase {
     }
 
     func testEveryOtherToolIsSingleParam() {
-        // Crop stays a stub. Vignette joined the multi-param set at
-        // #1109, grain at #1110, split tone at #1111, HSL at #274, B&W
-        // Mix at #276.
+        // Crop stays a stub. Vignette joined the multi-param set at #1109,
+        // grain at #1110, color grading (superseding split tone) at
+        // #1111/#275, HSL at #274, B&W Mix at #276.
         for tool in Tool.allCases
         where tool != .noise && tool != .sharpen && tool != .vignette && tool != .grain
-            && tool != .splitTone && tool != .hsl && tool != .bwMix {
+            && tool != .colorGrade && tool != .hsl && tool != .bwMix {
             XCTAssertTrue(tool.subParams.isEmpty, "\(tool) should be single-param")
             XCTAssertFalse(tool.isMultiParam)
             XCTAssertNil(tool.defaultSubParamId)
@@ -291,6 +301,41 @@ final class EditorSubParamTests: XCTestCase {
         // The sibling sub-param is untouched.
         XCTAssertEqual(state.session.model.nrLuminance, 0, accuracy: 1e-9)
         XCTAssertEqual(state.armedDisplayValue, 60, accuracy: 1e-9)
+    }
+
+    func testColorGradeEverySubParamRoutesToItsOwnField() {
+        // #275 — full 13-sub-param coverage, complementing the smaller
+        // smoke test in EditorStateTests. Each pill must write ONLY its own
+        // field; siblings stay untouched. Shadow/highlight hue+sat still
+        // route through the legacy `splitTone*` fields (ACR's own layout).
+        let state = makeState()
+        let expectations: [(id: String, keyPath: WritableKeyPath<AdjustmentModel, Double>, value: Double)] = [
+            ("balance", \.splitToneBalance, 25),
+            ("shadowHue", \.splitToneShadowHue, 30),
+            ("shadowSat", \.splitToneShadowSaturation, 60),
+            ("shadowLum", \.colorGradeShadowLuminance, -20),
+            ("midtoneHue", \.colorGradeMidtoneHue, 180),
+            ("midtoneSat", \.colorGradeMidtoneSaturation, 45),
+            ("midtoneLum", \.colorGradeMidtoneLuminance, 10),
+            ("highlightHue", \.splitToneHighlightHue, 210),
+            ("highlightSat", \.splitToneHighlightSaturation, 40),
+            ("highlightLum", \.colorGradeHighlightLuminance, 15),
+            ("globalHue", \.colorGradeGlobalHue, 300),
+            ("globalSat", \.colorGradeGlobalSaturation, 70),
+            ("globalLum", \.colorGradeGlobalLuminance, -35),
+        ]
+
+        state.arm(tool: .colorGrade)
+        for (id, keyPath, value) in expectations {
+            state.arm(subParamId: id)
+            state.setArmedDisplayValue(value)
+            XCTAssertEqual(state.session.model[keyPath: keyPath], value, accuracy: 1e-9,
+                "sub-param '\(id)' did not write its own field")
+        }
+        // Every field landed at its expected value with no cross-talk.
+        for (_, keyPath, value) in expectations {
+            XCTAssertEqual(state.session.model[keyPath: keyPath], value, accuracy: 1e-9)
+        }
     }
 
     func testInternalValuesMapThroughTheArmedSubParam() {

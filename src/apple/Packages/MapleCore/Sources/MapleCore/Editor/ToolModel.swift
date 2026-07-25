@@ -40,7 +40,7 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     // Color
     case temp, tint, vibrance, saturation, hsl, bwMix
     // Effects
-    case clarity, texture, dehaze, vignette, grain, splitTone
+    case clarity, texture, dehaze, vignette, grain, colorGrade
     // Detail
     case sharpen, noise, colorNR, captureSharpen, captureSigma, crop, presets
 
@@ -50,7 +50,7 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
             return .light
         case .temp, .tint, .vibrance, .saturation, .hsl, .bwMix:
             return .color
-        case .clarity, .texture, .dehaze, .vignette, .grain, .splitTone:
+        case .clarity, .texture, .dehaze, .vignette, .grain, .colorGrade:
             return .effects
         case .sharpen, .noise, .colorNR, .captureSharpen, .captureSigma, .crop, .presets:
             return .detail
@@ -77,7 +77,7 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
         case .dehaze:     return "Dehaze"
         case .vignette:   return "Vignette"
         case .grain:      return "Grain"
-        case .splitTone:  return "Split Tone"
+        case .colorGrade: return "Color Grading"
         case .sharpen:        return "Sharpen"
         case .noise:          return "Noise"
         case .colorNR:        return "Color NR"
@@ -95,8 +95,9 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     /// track the missing work.
     ///
     /// The S5 effects pills are all real pipeline stages now — vignette
-    /// (#1109), grain (#1110), splitTone (#1111) left the #952 stub list
-    /// as their stages landed. HSL left it at #274: the 8-band Oklab
+    /// (#1109), grain (#1110), colour grading (#1111, extended to four
+    /// wheels at #275) left the #952 stub list as their stages landed.
+    /// HSL left it at #274: the 8-band Oklab
     /// stage is live in raw-core and the pill drives its 24 sub-params
     /// through `HSLSection` (it has no single primary drag-bar field, so
     /// `displayRange` stays nil and the sub-param path carries every

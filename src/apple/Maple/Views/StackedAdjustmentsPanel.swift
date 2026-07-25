@@ -287,28 +287,37 @@ struct StackedAdjustmentsPanel: View {
                     .padding(.bottom, 4)
             }
 
-            // Sub-param row — shown when the armed tool (which belongs to this
-            // group) has multiple sub-params.
-            if group == state.armedGroup {
-                let subs = state.armedSubParams
-                if subs.count > 1 {
-                    SubParamRow(state: state)
-                        .padding(.horizontal, 0)
-                        .padding(.bottom, 4)
+            // Color Grading's four wheels + luminance/balance sliders
+            // replace the sub-param row + slider stack while it is armed —
+            // same custom-surface swap as Crop.
+            if group == state.armedGroup && state.armedTool == .colorGrade {
+                ColorGradingPanel(state: state)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+            } else {
+                // Sub-param row — shown when the armed tool (which belongs to
+                // this group) has multiple sub-params.
+                if group == state.armedGroup {
+                    let subs = state.armedSubParams
+                    if subs.count > 1 {
+                        SubParamRow(state: state)
+                            .padding(.horizontal, 0)
+                            .padding(.bottom, 4)
+                    }
                 }
-            }
 
-            // Sliders for every wired tool in the group (single column —
-            // the panel is itself ~320pt wide so two-column would be cramped).
-            VStack(spacing: 4) {
-                ForEach(sliderTools, id: \.self) { tool in
-                    LivingSliderRow(state: state, tool: tool)
-                        .contentShape(Rectangle())
-                        .onTapGesture { state.arm(tool: tool) }
-                        .padding(.horizontal, 14)
+                // Sliders for every wired tool in the group (single column —
+                // the panel is itself ~320pt wide so two-column would be cramped).
+                VStack(spacing: 4) {
+                    ForEach(sliderTools, id: \.self) { tool in
+                        LivingSliderRow(state: state, tool: tool)
+                            .contentShape(Rectangle())
+                            .onTapGesture { state.arm(tool: tool) }
+                            .padding(.horizontal, 14)
+                    }
                 }
+                .padding(.vertical, 6)
             }
-            .padding(.vertical, 6)
 
             // HSL 8-band panel (#274). It sits inside the Color section
             // rather than in `sliderTools` because HSL carries 24 fields

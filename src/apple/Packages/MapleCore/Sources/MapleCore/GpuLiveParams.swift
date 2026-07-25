@@ -175,6 +175,19 @@ extension PipelineRenderer {
         p.split_tone_highlight_saturation = Float(model.splitToneHighlightSaturation)
         p.split_tone_balance = Float(model.splitToneBalance)
 
+        // Color Grading (#275) — the rest of the panel beyond the five
+        // `split_tone_*` fields above (ACR's `crs:SplitToning*` shadow/
+        // highlight pairs and balance); struct tail per the same
+        // append-only ABI convention.
+        p.color_grade_shadow_luminance = Float(model.colorGradeShadowLuminance)
+        p.color_grade_midtone_hue = Float(model.colorGradeMidtoneHue)
+        p.color_grade_midtone_saturation = Float(model.colorGradeMidtoneSaturation)
+        p.color_grade_midtone_luminance = Float(model.colorGradeMidtoneLuminance)
+        p.color_grade_highlight_luminance = Float(model.colorGradeHighlightLuminance)
+        p.color_grade_global_hue = Float(model.colorGradeGlobalHue)
+        p.color_grade_global_saturation = Float(model.colorGradeGlobalSaturation)
+        p.color_grade_global_luminance = Float(model.colorGradeGlobalLuminance)
+
         // HSL 8-band adjustments (#1112) — scene-linear Oklab; the chain
         // runs after saturation / before clarity.
         p.hsl_hue_red      = Float(model.hueAdjustmentRed)

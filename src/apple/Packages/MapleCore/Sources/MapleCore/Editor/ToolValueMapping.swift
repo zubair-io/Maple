@@ -34,14 +34,14 @@ public enum ToolValueMapping {
         case .captureSigma:   return 0.5...2.0
         // S5 effects (#1109 / #1110 / #1111) — wired; drag bars drive
         // each tool's primary sub-param (vignetteAmount / grainAmount /
-        // splitToneBalance).
+        // splitToneBalance — Color Grading's primary field, #275).
         case .vignette: return -100...100
         case .grain:    return 0...100
-        case .splitTone: return -100...100
+        case .colorGrade: return -100...100
         // B&W Mix (#276) — wired multi-param; the grid row's "unarmed"
         // representation reads/writes the first-declared sub-param
         // (grayMixerRed), same convention as vignette → amount,
-        // grain → amount, splitTone → balance.
+        // grain → amount, colorGrade → balance.
         case .bwMix:    return AdjustmentModel.grayMixerRedRange
         default:        return nil
         }
@@ -127,7 +127,7 @@ public enum ToolValueMapping {
         // each tool's primary sub-param.
         case .vignette:   return model.vignetteAmount
         case .grain:      return model.grainAmount
-        case .splitTone:  return model.splitToneBalance
+        case .colorGrade: return model.splitToneBalance
         // B&W Mix (#276) — first-declared sub-param, see `displayRange`.
         case .bwMix:      return model.grayMixerRed
         // Stub tools — not wired.
@@ -183,7 +183,7 @@ public enum ToolValueMapping {
         // tool's primary sub-param.
         case .vignette:   model.vignetteAmount = value
         case .grain:      model.grainAmount = value
-        case .splitTone:  model.splitToneBalance = value
+        case .colorGrade: model.splitToneBalance = value
         // B&W Mix (#276) — first-declared sub-param, see `displayRange`.
         case .bwMix:      model.grayMixerRed = value
         // Stub tools — no-op.

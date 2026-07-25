@@ -1281,6 +1281,16 @@ extension PipelineRenderer {
         params.split_tone_highlight_hue = Float(model.splitToneHighlightHue)
         params.split_tone_highlight_saturation = Float(model.splitToneHighlightSaturation)
         params.split_tone_balance = Float(model.splitToneBalance)
+        // Color Grading (#275) — the rest of the panel beyond the five
+        // split_tone_* fields above, appended at the struct tail.
+        params.color_grade_shadow_luminance = Float(model.colorGradeShadowLuminance)
+        params.color_grade_midtone_hue = Float(model.colorGradeMidtoneHue)
+        params.color_grade_midtone_saturation = Float(model.colorGradeMidtoneSaturation)
+        params.color_grade_midtone_luminance = Float(model.colorGradeMidtoneLuminance)
+        params.color_grade_highlight_luminance = Float(model.colorGradeHighlightLuminance)
+        params.color_grade_global_hue = Float(model.colorGradeGlobalHue)
+        params.color_grade_global_saturation = Float(model.colorGradeGlobalSaturation)
+        params.color_grade_global_luminance = Float(model.colorGradeGlobalLuminance)
         // HSL 8-band adjustments (#1112)
         params.hsl_hue_red      = Float(model.hueAdjustmentRed)
         params.hsl_hue_orange   = Float(model.hueAdjustmentOrange)

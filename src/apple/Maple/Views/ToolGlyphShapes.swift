@@ -139,9 +139,14 @@ enum ToolGlyphShapes {
                 frame, dot(5.4, 5.6), dot(9.8, 4.9), dot(7.2, 7.8), dot(11.1, 8.4),
                 dot(5.9, 10.6), dot(9.4, 11.2),
             ]
-        // Frame cut in half with a tone marker in each band.
-        case .splitTone:
-            return [frame, .path("M2.6 8h10.8"), dot(8, 5.2), dot(8, 10.8)]
+        // Colour wheel with three zone pucks set around the centre — shadows,
+        // midtones and highlights, the three wheels the Color Grading panel
+        // stacks over the unweighted global one (#275). Reuses the r-4.8 disc
+        // the Light group's tonal glyphs are built on; the pucks are Grain's
+        // round-cap dot, so the mark stays inside the family while reading
+        // unmistakably as a wheel rather than a tonal band.
+        case .colorGrade:
+            return [.circle(cx: 8, cy: 8, r: 4.8), dot(8, 5.4), dot(5.8, 9.2), dot(10.2, 9.2)]
 
         // ── Detail ──────────────────────────────────────────────────────────
         // A single sharp peak rising off a flat baseline — edge acutance.

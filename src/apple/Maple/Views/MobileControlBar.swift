@@ -57,6 +57,9 @@ struct MobileControlBar: View {
                 // `armedTool` can never be `.hsl` while Black & White is
                 // on (#276) — EditorState normalises it to `.bwMix`.
                 HSLSection(state: state)
+            } else if state.armedTool == .colorGrade {
+                // Color Grading's four wheels replace the group slider stack.
+                ColorGradingPanel(state: state)
             } else {
                 let subs = state.armedSubParams
                 if subs.count > 1 {

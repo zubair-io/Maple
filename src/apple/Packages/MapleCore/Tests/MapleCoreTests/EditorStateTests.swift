@@ -94,14 +94,15 @@ final class EditorStateTests: XCTestCase {
         XCTAssertEqual(state.session.model, before)
     }
 
-    func testSplitToneIsWiredAndWritesThroughSubParams() {
-        // #1111: splitTone left the stub list — the drag bar drives
-        // `splitToneBalance` (the schema-declared primary), and the four
-        // hue/sat chips route the same value pipe.
+    func testColorGradeIsWiredAndWritesThroughSubParams() {
+        // #1111/#275: color grading (superseding split tone) left the stub
+        // list — the drag bar drives `splitToneBalance` (the schema-declared
+        // primary), and the wheel/luminance chips route the same value pipe.
+        // Full 13-sub-param coverage lives in `EditorSubParamTests`.
         let session = makeSession()
         let state = EditorState(session: session)
 
-        state.arm(tool: .splitTone)
+        state.arm(tool: .colorGrade)
         state.setArmedDisplayValue(25)
         XCTAssertEqual(session.model.splitToneBalance, 25, accuracy: 1e-9)
 
@@ -109,17 +110,9 @@ final class EditorStateTests: XCTestCase {
         state.setArmedDisplayValue(30)
         XCTAssertEqual(session.model.splitToneShadowHue, 30, accuracy: 1e-9)
 
-        state.arm(subParamId: "shadowSat")
-        state.setArmedDisplayValue(60)
-        XCTAssertEqual(session.model.splitToneShadowSaturation, 60, accuracy: 1e-9)
-
-        state.arm(subParamId: "highlightHue")
-        state.setArmedDisplayValue(210)
-        XCTAssertEqual(session.model.splitToneHighlightHue, 210, accuracy: 1e-9)
-
-        state.arm(subParamId: "highlightSat")
-        state.setArmedDisplayValue(40)
-        XCTAssertEqual(session.model.splitToneHighlightSaturation, 40, accuracy: 1e-9)
+        state.arm(subParamId: "midtoneLum")
+        state.setArmedDisplayValue(-20)
+        XCTAssertEqual(session.model.colorGradeMidtoneLuminance, -20, accuracy: 1e-9)
         XCTAssertEqual(session.model.splitToneBalance, 25, accuracy: 1e-9)
     }
 
@@ -445,14 +438,15 @@ final class EditorStateTests: XCTestCase {
 
     func testWiredToolsCoverTwentyFiveTools() {
         // The S5 effects all left the #952 stub list as their stages
-        // landed (vignette #1109, grain #1110, splitTone #1111), and HSL
-        // left it at #274 — its 24 sub-params carry every edit. Crop
-        // (#638) remains a stub: it is edited through the canvas overlay.
-        // Per #875: captureSharpen / captureSigma stay wired to the
-        // captureSharpening* fields. Presets left the stub list at #1115 —
-        // wired, but value-less (nil displayRange keeps its value pipe
-        // inert). Brightness joined wired at #1108. B&W Mix (#276) joined
-        // wired — its eight sub-params drive the `grayMixer*` fields.
+        // landed (vignette #1109, grain #1110, colorGrade #1111 —
+        // superseded split tone at #275), and HSL left it at #274 — its 24
+        // sub-params carry every edit. Crop (#638) remains a stub: it is
+        // edited through the canvas overlay. Per #875: captureSharpen /
+        // captureSigma stay wired to the captureSharpening* fields. Presets
+        // left the stub list at #1115 — wired, but value-less (nil
+        // displayRange keeps its value pipe inert). Brightness joined
+        // wired at #1108. B&W Mix (#276) joined wired — its eight
+        // sub-params drive the `grayMixer*` fields.
         let wired = Tool.allCases.filter { $0.isWired }
         XCTAssertEqual(wired.count, 25)
         XCTAssertTrue(Tool.hsl.isWired)
@@ -464,7 +458,7 @@ final class EditorStateTests: XCTestCase {
                        AdjustmentModel.grayMixerRedRange)
         XCTAssertTrue(Tool.vignette.isWired)
         XCTAssertTrue(Tool.grain.isWired)
-        XCTAssertTrue(Tool.splitTone.isWired)
+        XCTAssertTrue(Tool.colorGrade.isWired)
         XCTAssertFalse(Tool.crop.isWired)
         XCTAssertTrue(Tool.presets.isWired)
         XCTAssertNil(ToolValueMapping.displayRange(for: .presets))

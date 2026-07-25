@@ -69,6 +69,16 @@ extension AdjustmentModel.FieldName {
         case .splitToneHighlightHue:        return \.splitToneHighlightHue
         case .splitToneHighlightSaturation: return \.splitToneHighlightSaturation
         case .splitToneBalance:             return \.splitToneBalance
+        // Color Grading (#275) — the rest of the panel beyond the five
+        // `splitTone*` fields above.
+        case .colorGradeShadowLuminance:    return \.colorGradeShadowLuminance
+        case .colorGradeMidtoneHue:         return \.colorGradeMidtoneHue
+        case .colorGradeMidtoneSaturation:  return \.colorGradeMidtoneSaturation
+        case .colorGradeMidtoneLuminance:   return \.colorGradeMidtoneLuminance
+        case .colorGradeHighlightLuminance: return \.colorGradeHighlightLuminance
+        case .colorGradeGlobalHue:          return \.colorGradeGlobalHue
+        case .colorGradeGlobalSaturation:   return \.colorGradeGlobalSaturation
+        case .colorGradeGlobalLuminance:    return \.colorGradeGlobalLuminance
         // HSL 8-band per-channel adjustments (#1112).
         case .hueAdjustmentRed:             return \.hueAdjustmentRed
         case .hueAdjustmentOrange:          return \.hueAdjustmentOrange
@@ -167,6 +177,16 @@ extension AdjustmentModel.FieldName {
         case .splitToneHighlightSaturation:
             return AdjustmentModel.splitToneHighlightSaturationRange
         case .splitToneBalance:             return AdjustmentModel.splitToneBalanceRange
+        // Color Grading (#275) — the rest of the panel beyond the five
+        // `splitTone*` fields above.
+        case .colorGradeShadowLuminance:    return AdjustmentModel.colorGradeShadowLuminanceRange
+        case .colorGradeMidtoneHue:         return AdjustmentModel.colorGradeMidtoneHueRange
+        case .colorGradeMidtoneSaturation:  return AdjustmentModel.colorGradeMidtoneSaturationRange
+        case .colorGradeMidtoneLuminance:   return AdjustmentModel.colorGradeMidtoneLuminanceRange
+        case .colorGradeHighlightLuminance: return AdjustmentModel.colorGradeHighlightLuminanceRange
+        case .colorGradeGlobalHue:          return AdjustmentModel.colorGradeGlobalHueRange
+        case .colorGradeGlobalSaturation:   return AdjustmentModel.colorGradeGlobalSaturationRange
+        case .colorGradeGlobalLuminance:    return AdjustmentModel.colorGradeGlobalLuminanceRange
         // HSL 8-band per-channel adjustments (#1112).
         case .hueAdjustmentRed:             return AdjustmentModel.hueAdjustmentRedRange
         case .hueAdjustmentOrange:          return AdjustmentModel.hueAdjustmentOrangeRange

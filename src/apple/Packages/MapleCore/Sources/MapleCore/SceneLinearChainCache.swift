@@ -189,6 +189,13 @@ final class SceneLinearChainCache: @unchecked Sendable {
     ///  10. split_tone:     `splitToneShadowHue`, `splitToneShadowSaturation`,
     ///                      `splitToneHighlightHue`,
     ///                      `splitToneHighlightSaturation`, `splitToneBalance`
+    ///  10b. color_grade:  `colorGradeShadowLuminance`, `colorGradeMidtoneHue`,
+    ///                      `colorGradeMidtoneSaturation`,
+    ///                      `colorGradeMidtoneLuminance`,
+    ///                      `colorGradeHighlightLuminance`, `colorGradeGlobalHue`,
+    ///                      `colorGradeGlobalSaturation`, `colorGradeGlobalLuminance`
+    ///                      (#275 — the rest of the Color Grading panel beyond
+    ///                      the five `split_tone` fields above)
     ///  11. grain:          `grainAmount`, `grainSize`, `grainRoughness`
     ///  12. FFI params:     `decodedTemperature`, `decodedTint`, `skipAgX`
     ///  13. AgX flags:      `highlightRecovery`, `look`, `profile`
@@ -312,6 +319,17 @@ final class SceneLinearChainCache: @unchecked Sendable {
         h.combine(model.splitToneHighlightHue.bitPattern)
         h.combine(model.splitToneHighlightSaturation.bitPattern)
         h.combine(model.splitToneBalance.bitPattern)
+        // color_grade (#275) — the rest of the Color Grading panel beyond
+        // the five split_tone fields above. Same over-inclusive-is-safe
+        // rule: hashed unconditionally regardless of `skipAgX`.
+        h.combine(model.colorGradeShadowLuminance.bitPattern)
+        h.combine(model.colorGradeMidtoneHue.bitPattern)
+        h.combine(model.colorGradeMidtoneSaturation.bitPattern)
+        h.combine(model.colorGradeMidtoneLuminance.bitPattern)
+        h.combine(model.colorGradeHighlightLuminance.bitPattern)
+        h.combine(model.colorGradeGlobalHue.bitPattern)
+        h.combine(model.colorGradeGlobalSaturation.bitPattern)
+        h.combine(model.colorGradeGlobalLuminance.bitPattern)
         h.combine(model.grainAmount.bitPattern)
         h.combine(model.grainSize.bitPattern)
         h.combine(model.grainRoughness.bitPattern)
