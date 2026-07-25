@@ -91,7 +91,9 @@ The CoreImage implementation this section documented (`RAWDecodeEngine`, `CIFilt
 
 ### Adjustment Sliders
 
-25 tools in 4 groups (`Editor/EditorState.swift`, `Tool` enum). Every one maps to an `AdjustmentModel` field consumed by a named `raw-core` stage — there is no `CIFilter` mapping layer. Chain order is `white_balance` → `scene_tone_controls` → `tone_curves` → `vibrance` → `saturation` → `hsl` → `clarity` → `texture` → `dehaze` → `local_adjustments` → `vignette` → `nr_luminance` → AgX → `split_tone` → `grain` (`pipeline/scene_linear_chain.rs`).
+25 tools in 4 groups (`Editor/EditorState.swift`, `Tool` enum). Every one maps to an `AdjustmentModel` field consumed by a named `raw-core` stage — there is no `CIFilter` mapping layer. Chain order is `white_balance` → `scene_tone_controls` → `tone_curves` → `vibrance` → `saturation` → `hsl` → `clarity` → `texture` → `dehaze` → `local_adjustments` → `vignette` → `nr_luminance` → `agx` → `split_tone` → `grain` (`pipeline/scene_linear_chain.rs`).
+
+That per-tick chain **deliberately omits `sharpen` and `nr_color`**, which stay on the Apple GPU path as Metal compute pipelines — sharpen at viewport size alone costs ~33 ms on CPU, over the whole 16 ms tick budget. Both are still applied by the FFI decode, so they are real stages; they just do not run in the CPU chain.
 
 | Group   | Tool                                      | Range          | `raw-core` stage             | Status                                        |
 | ------- | ----------------------------------------- | -------------- | ---------------------------- | --------------------------------------------- |
@@ -109,8 +111,8 @@ The CoreImage implementation this section documented (`RAWDecodeEngine`, `CIFilt
 | Effects | Grain (amount, size, roughness)           | 0 … 100        | `grain`                      | Built (#1110)                                 |
 | Effects | Split Tone (5 sub-params)                 | varies         | `split_tone`                 | Built (#1111)                                 |
 | Detail  | Sharpen (amount, radius, detail, masking) | varies         | `sharpen`                    | Built                                         |
-| Detail  | Noise Reduction (luminance)               | 0 … 100        | `noise_reduction`            | Built                                         |
-| Detail  | Color NR                                  | 0 … 100        | `noise_reduction`            | Built                                         |
+| Detail  | Noise Reduction (luminance)               | 0 … 100        | `nr_luminance`               | Built                                         |
+| Detail  | Color NR                                  | 0 … 100        | `nr_color` (GPU only)        | Built                                         |
 | Detail  | Deconvolution (amount, σ)                 | varies         | `capture_sharpening`         | Built (#875)                                  |
 | Detail  | Crop / rotate                             | —              | `crop` (geometry)            | Built (#277, #638)                            |
 | Detail  | Presets                                   | —              | —                            | Built (#1115)                                 |
@@ -267,7 +269,7 @@ Adding an adjustment is a cross-platform change, not a local one. The pipeline i
 
 **`raw-core`** (`src/raw-pipeline/raw-core`) owns all color math — decode, demosaic, calibration, LUT generation, dehaze, deconvolution — and works in a scene-referred linear Rec.2020 D65 f32 space. Nothing clips before the single view transform (AgX + Auto Profile) at the end of the chain. It compiles once as a static library for Apple through the C FFI in `raw-ffi` (packaged as `RawPipeline.xcframework`), once as WebAssembly through `raw-wasm`, and once as a dylib for the API through `bun:ffi`.
 
-**The per-tick chain** is `apply_scene_linear_chain` (`pipeline/scene_linear_chain.rs`). It re-applies only the cheap, model-dependent stages in a fixed order — `white_balance` → `scene_tone_controls` → `tone_curves` → `vibrance` → `saturation` → `hsl` → `clarity` → `texture` → `dehaze` → `local_adjustments` → `vignette` → `nr_luminance` → AgX → `split_tone` → `grain`. Every stage in that list is also baked by the FFI decode, so `RawCoreBridge.swift` must strip each chain-handled field before decode or the adjustment applies twice (see the header comment there — #1916 closed the last gap of that kind).
+**The per-tick chain** is `apply_scene_linear_chain` (`pipeline/scene_linear_chain.rs`). It re-applies only the cheap, model-dependent stages in a fixed order — `white_balance` → `scene_tone_controls` → `tone_curves` → `vibrance` → `saturation` → `hsl` → `clarity` → `texture` → `dehaze` → `local_adjustments` → `vignette` → `nr_luminance` → `agx` → `split_tone` → `grain`. It deliberately omits `sharpen` and `nr_color`, which stay on the Apple GPU path for latency reasons. Every stage in that list is also baked by the FFI decode, so `RawCoreBridge.swift` must strip each chain-handled field before decode or the adjustment applies twice (see the header comment there — #1916 closed the last gap of that kind).
 
 **GPU paths** are idiomatic per platform but generated from the same source: a wgpu/WGSL live path on both Apple and web, with Metal compute kernels for the Apple refine pass. Both are gated against the Rust reference by the parity harness.
 
