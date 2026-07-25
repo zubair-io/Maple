@@ -82,6 +82,9 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
     var onMergePanorama: (() -> Void)? = nil
     /// M4: called when the user taps "Edit Metadata…" from PanoSelectionBar.
     var onEditMetadata: (() -> Void)? = nil
+    /// #944: app-level copy/paste/sync-adjustments clipboard, forwarded
+    /// through to BrowseGrid via AppShellCenterColumn.
+    var clipboard: AdjustmentClipboard? = nil
 
     var body: some View {
         // The LIBRARY drawer is hosted one level up, in `PhoneTabShell`, so it
@@ -121,7 +124,8 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
             onPrimeSession: onPrimeSession,
             onFullImageFallback: onFullImageFallback,
             onMergePanorama: onMergePanorama,
-            onEditMetadata: onEditMetadata
+            onEditMetadata: onEditMetadata,
+            clipboard: clipboard
         )
         .navigationTitle(libraryTitle)
         .navigationBarTitleDisplayMode(.inline)

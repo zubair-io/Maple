@@ -93,6 +93,10 @@ struct AppShellCenterColumn: View {
     /// Called when the user taps "Edit Metadata…" from the BrowseGrid
     /// multi-select action bar (M4, #1629). nil hides the button.
     var onEditMetadata: (() -> Void)? = nil
+    /// App-level copy/paste/sync-adjustments clipboard (#944). nil hides the
+    /// selection bar's paste/sync buttons and disables the ⌘C/⌘V shortcuts
+    /// (e.g. previews).
+    var clipboard: AdjustmentClipboard? = nil
 
     var body: some View {
         // The center column switches between the explorer grid (browse
@@ -195,7 +199,8 @@ struct AppShellCenterColumn: View {
                         onOpenEditor: onOpenEditor,
                         onPrimeSession: onPrimeSession,
                         onMergePanorama: onMergePanorama,
-                        onEditMetadata: onEditMetadata
+                        onEditMetadata: onEditMetadata,
+                        clipboard: clipboard
                     )
                 }
                 #else
@@ -208,7 +213,8 @@ struct AppShellCenterColumn: View {
                     onOpenEditor: onOpenEditor,
                     onPrimeSession: onPrimeSession,
                     onMergePanorama: onMergePanorama,
-                    onEditMetadata: onEditMetadata
+                    onEditMetadata: onEditMetadata,
+                    clipboard: clipboard
                 )
                 #endif
             }

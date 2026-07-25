@@ -81,6 +81,11 @@ struct AppShell: View {
     // re-render of AppShell while the sheet is open cannot rebuild the view model
     // and discard the user's in-progress edits. nil = sheet closed.
     @State private var batchMetadataVM: BatchMetadataViewModel?
+    /// App-level copy/paste/sync-adjustments clipboard (#944). Held here
+    /// (not created per-BrowseGrid-render) so it survives navigating in and
+    /// out of Browse / the editor for the lifetime of the app session —
+    /// matches the ticket's "session-scoped" contract.
+    @State private var adjustmentClipboard = AdjustmentClipboard()
     /// Non-nil when the Settings sheet should open on a specific tab.
     /// Set to `.pano` by the PanoMergeView "Configure in Settings → Pano"
     /// callback so the sheet lands directly on the Pano tab. (#1241)
@@ -636,7 +641,9 @@ struct AppShell: View {
             // M2 panorama merge (#1236).
             onMergePanorama: { openPanoramaMerge() },
             // M4 batch metadata editor (#1629).
-            onEditMetadata: { openBatchMetadata() }
+            onEditMetadata: { openBatchMetadata() },
+            // #944 copy/paste/sync adjustments.
+            clipboard: adjustmentClipboard
         )
         .sheet(isPresented: $showSettings, onDismiss: { settingsInitialTab = nil }) {
             SettingsView(initialTab: settingsInitialTab)
@@ -914,7 +921,8 @@ struct AppShell: View {
             onPrimeSession: { asset in ensureSession(for: asset) },
             onFullImageFallback: { mode = .browse },
             onMergePanorama: { openPanoramaMerge() },
-            onEditMetadata: { openBatchMetadata() }
+            onEditMetadata: { openBatchMetadata() },
+            clipboard: adjustmentClipboard
         )
         // M2: panorama merge sheet for iPhone — same sheet as Mac/iPad,
         // but presented over the tab shell instead of the pane shell.

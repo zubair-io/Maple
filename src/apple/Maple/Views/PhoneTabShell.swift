@@ -90,6 +90,9 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     var onMergePanorama: (() -> Void)? = nil
     /// M4: triggers batch metadata editor when the user taps "Edit Metadata…".
     var onEditMetadata: (() -> Void)? = nil
+    /// #944: app-level copy/paste/sync-adjustments clipboard, forwarded
+    /// through to BrowseGrid via PhoneLibraryView / AppShellIPhoneShell.
+    var clipboard: AdjustmentClipboard? = nil
 
     var body: some View {
         // The LIBRARY drawer wraps the whole tab view so it overlays the
@@ -161,7 +164,8 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     onPrimeSession: onPrimeSession,
                     onFullImageFallback: onFullImageFallback,
                     onMergePanorama: onMergePanorama,
-                    onEditMetadata: onEditMetadata
+                    onEditMetadata: onEditMetadata,
+                    clipboard: clipboard
                 )
               }
             }

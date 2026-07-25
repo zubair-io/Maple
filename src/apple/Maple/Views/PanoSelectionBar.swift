@@ -16,6 +16,21 @@ struct PanoSelectionBar: View {
     let onMerge: () -> Void
     /// Fired when the user taps "Edit Metadata…". nil hides the button.
     let onEditMetadata: (() -> Void)?
+    /// #944: pastes every adjustment group from the clipboard onto the
+    /// checked selection. nil hides the button (clipboard not wired).
+    var onPasteAdjustments: (() -> Void)? = nil
+    /// #944: opens the group-picker sheet for a selective paste. nil hides
+    /// the button.
+    var onPasteSelectedGroups: (() -> Void)? = nil
+    /// #944: applies the focused image's current edit across the rest of
+    /// the selection, no prior copy needed. nil hides the button.
+    var onSyncSettings: (() -> Void)? = nil
+    /// Enabled state for the two paste buttons — true when the clipboard
+    /// has contents AND at least one asset is checked.
+    var canPaste: Bool = false
+    /// Enabled state for "Sync Settings" — true when a focused image AND
+    /// at least one other checked asset are both present.
+    var canSync: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -63,6 +78,60 @@ struct PanoSelectionBar: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .accessibilityLabel("Edit metadata for \(vm.selectedIDs.count) selected images")
+                }
+
+                // Right: sync settings CTA (#944) — applies the focused image's
+                // current edit across the rest of the selection, no copy needed.
+                if let onSyncSettings {
+                    Button {
+                        onSyncSettings()
+                    } label: {
+                        Label("Sync Settings\u{2026}", systemImage: "arrow.triangle.2.circlepath")
+                            .font(.subheadline.weight(.medium))
+                    }
+                    .disabled(!canSync)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityLabel("Sync adjustments from the focused image to the rest of the selection")
+                    .accessibilityHint(canSync
+                        ? "Double tap to apply"
+                        : "Select a focused image plus at least one other image to enable")
+                }
+
+                // Right: paste-selected-groups CTA (#944) — opens the group
+                // picker sheet for a selective paste.
+                if let onPasteSelectedGroups {
+                    Button {
+                        onPasteSelectedGroups()
+                    } label: {
+                        Label("Paste Selected\u{2026}", systemImage: "list.bullet.clipboard")
+                            .font(.subheadline.weight(.medium))
+                    }
+                    .disabled(!canPaste)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityLabel("Paste selected adjustment groups onto the selected images")
+                    .accessibilityHint(canPaste
+                        ? "Double tap to choose which groups to paste"
+                        : "Copy adjustments and select at least one image to enable")
+                }
+
+                // Right: paste-adjustments CTA (#944) — pastes every group
+                // from the clipboard onto the checked selection.
+                if let onPasteAdjustments {
+                    Button {
+                        onPasteAdjustments()
+                    } label: {
+                        Label("Paste Adjustments", systemImage: "doc.on.clipboard")
+                            .font(.subheadline.weight(.medium))
+                    }
+                    .disabled(!canPaste)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityLabel("Paste all copied adjustments onto \(vm.selectedIDs.count) selected images")
+                    .accessibilityHint(canPaste
+                        ? "Double tap to apply"
+                        : "Copy adjustments and select at least one image to enable")
                 }
 
                 // Right: merge CTA

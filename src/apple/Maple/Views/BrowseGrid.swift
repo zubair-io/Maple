@@ -44,6 +44,11 @@ struct BrowseGrid: View {
     /// Fired when the user taps "Edit Metadata…" from the selection bar.
     /// `nil` hides the button; the bar itself is still shown when `onMergePanorama` is set.
     var onEditMetadata: (() -> Void)? = nil
+    /// App-level copy/paste/sync-adjustments clipboard (#944). `nil` hides
+    /// the selection bar's paste/sync buttons and disables the ⌘C/⌘V
+    /// keyboard shortcuts (e.g. previews, where nothing is wired to write
+    /// sidecars).
+    var clipboard: AdjustmentClipboard? = nil
     /// Cloud thumb infrastructure for merged mode. When nil (the default),
     /// cloud-only merged cells fall through to `ThumbnailLoader.shared`
     /// (same behaviour as the old MergedCellView's cloud-only path).
@@ -72,6 +77,11 @@ struct BrowseGrid: View {
 
     /// Thumbnail provider for normal (local) mode.
     @State private var localProvider = ThumbnailProvider.local()
+
+    /// Drives the selective-paste sheet (#944) — a toggle per
+    /// `AdjustmentGroup`, presented from the selection bar's "Paste
+    /// Selected Groups…" button.
+    @State private var showAdjustmentGroupPicker = false
 
     /// Thumbnail provider for merged mode. Built ONCE in `.task` when cloud infra
     /// is wired (not per body evaluation, per `ThumbnailProvider`'s "inject once
@@ -139,10 +149,40 @@ struct BrowseGrid: View {
             // Multi-select action bar — shown only when in select mode and an
             // onMergePanorama handler was wired (prevents showing in previews).
             if vm.isSelecting, let onMergePanorama {
-                PanoSelectionBar(vm: vm, onMerge: onMergePanorama, onEditMetadata: onEditMetadata)
+                PanoSelectionBar(
+                    vm: vm,
+                    onMerge: onMergePanorama,
+                    onEditMetadata: onEditMetadata,
+                    onPasteAdjustments: clipboard != nil ? { pasteAdjustments(groups: Set(AdjustmentGroup.allCases)) } : nil,
+                    onPasteSelectedGroups: clipboard != nil ? { showAdjustmentGroupPicker = true } : nil,
+                    onSyncSettings: clipboard != nil ? { syncSettings() } : nil,
+                    canPaste: (clipboard?.hasContents ?? false) && !vm.selectedIDs.isEmpty,
+                    canSync: canSyncSettings
+                )
             }
         }
-        .keyboardShortcuts(vm: vm, sessions: sessions)
+        .sheet(isPresented: $showAdjustmentGroupPicker) {
+            if let source = clipboard?.contents {
+                AdjustmentGroupPickerSheet(
+                    sourceName: source.sourceName,
+                    targetCount: vm.selectedIDs.count,
+                    onApply: { groups in
+                        pasteAdjustments(groups: groups)
+                        showAdjustmentGroupPicker = false
+                    },
+                    onCancel: { showAdjustmentGroupPicker = false }
+                )
+            }
+        }
+        .keyboardShortcuts(
+            vm: vm,
+            sessions: sessions,
+            // #944: ⌘C/⌘V are only claimed when a clipboard is wired
+            // (production always wires one; previews don't).
+            onCopyAdjustments: clipboard != nil ? { copyAdjustments() } : nil,
+            onPasteAdjustments: clipboard != nil
+                ? { pasteAdjustments(groups: Set(AdjustmentGroup.allCases)) } : nil
+        )
         .task {
             // Build the merged-mode cloud provider ONCE (not per body eval). The
             // host must be set when cloud infra is wired, else CloudThumbCache
@@ -261,6 +301,73 @@ struct BrowseGrid: View {
         case .synced:    return .synced
         case .cloudOnly: return .cloudOnly
         case .localOnly: return .localOnly
+        }
+    }
+
+    // MARK: - Copy / paste / sync adjustments (#944)
+
+    /// True once a focused image (`vm.selectedID`) AND at least one OTHER
+    /// checked asset are both present — "sync" needs a source plus at
+    /// least one distinct target.
+    private var canSyncSettings: Bool {
+        guard let sourceID = vm.selectedID else { return false }
+        return vm.selectedIDs.contains { $0 != sourceID }
+    }
+
+    /// Captures the focused image's current `AdjustmentModel` into
+    /// `clipboard`. Wired to ⌘C (`BrowseKeyboardShortcuts`).
+    ///
+    /// Resolves through `AdjustmentPasteApplier.resolveModel` rather than
+    /// reading `sessions[asset.id]` directly: Browse primes an `EditSession`
+    /// lazily, so a focused image the user has not opened this launch has no
+    /// live session and its real edit lives only in its sidecar. Reading the
+    /// session dict alone would silently copy a default (unedited) model.
+    private func copyAdjustments() {
+        guard let clipboard, let asset = vm.selectedAsset else { return }
+        let liveSessions = sessions
+        Task { @MainActor in
+            let model = await AdjustmentPasteApplier.resolveModel(
+                for: asset, sessions: liveSessions
+            )
+            clipboard.copy(model: model, sourceName: asset.displayName)
+        }
+    }
+
+    /// Writes `groups` from the clipboard onto every checked asset
+    /// (`vm.selectedIDs`). Wired to ⌘V, the selection bar's "Paste
+    /// Adjustments" button (full groups), and the selective-paste sheet's
+    /// Apply button (chosen groups).
+    private func pasteAdjustments(groups: Set<AdjustmentGroup>) {
+        guard let source = clipboard?.contents?.model else { return }
+        let targets = vm.selectedAssets
+        guard !targets.isEmpty else { return }
+        let liveSessions = sessions
+        Task { @MainActor in
+            await AdjustmentPasteApplier.apply(
+                source: source, groups: groups, to: targets, sessions: liveSessions
+            )
+        }
+    }
+
+    /// Applies the focused image's CURRENT edit (no prior copy needed)
+    /// across the rest of the multi-selection. The focused asset itself is
+    /// excluded from `targets` so it is never rewritten. Wired to the
+    /// selection bar's "Sync Settings" button.
+    private func syncSettings() {
+        guard let sourceAsset = vm.selectedAsset else { return }
+        let targets = vm.selectedAssets.filter { $0.id != sourceAsset.id }
+        guard !targets.isEmpty else { return }
+        let liveSessions = sessions
+        Task { @MainActor in
+            let sourceModel = await AdjustmentPasteApplier.resolveModel(
+                for: sourceAsset, sessions: liveSessions
+            )
+            await AdjustmentPasteApplier.apply(
+                source: sourceModel,
+                groups: Set(AdjustmentGroup.allCases),
+                to: targets,
+                sessions: liveSessions
+            )
         }
     }
 
@@ -452,6 +559,11 @@ private struct ErrorBanner: View {
 private struct BrowseKeyboardShortcuts: ViewModifier {
     let vm: BrowseViewModel
     let sessions: [AssetRef.ID: EditSession]
+    /// #944: ⌘C copies the focused image's adjustments; ⌘V pastes the
+    /// clipboard's adjustments onto every checked asset. `nil` leaves the
+    /// shortcut unclaimed (no clipboard wired — e.g. previews).
+    var onCopyAdjustments: (() -> Void)? = nil
+    var onPasteAdjustments: (() -> Void)? = nil
 
     func body(content: Content) -> some View {
         content
@@ -469,6 +581,19 @@ private struct BrowseKeyboardShortcuts: ViewModifier {
             .onKeyPress("p") { setFlag(.pick);   return .handled }
             .onKeyPress("x") { setFlag(.reject); return .handled }
             .onKeyPress("u") { setFlag(.none);   return .handled }
+            // #944: copy/paste adjustments — Command-modified, so these use
+            // the `KeyPress`-carrying overload to inspect `.modifiers`
+            // rather than the bare-key overload the shortcuts above use.
+            .onKeyPress("c", phases: .down) { press in
+                guard press.modifiers.contains(.command), let onCopyAdjustments else { return .ignored }
+                onCopyAdjustments()
+                return .handled
+            }
+            .onKeyPress("v", phases: .down) { press in
+                guard press.modifiers.contains(.command), let onPasteAdjustments else { return .ignored }
+                onPasteAdjustments()
+                return .handled
+            }
     }
 
     private func setStars(_ n: Int) {
@@ -491,8 +616,18 @@ private struct BrowseKeyboardShortcuts: ViewModifier {
 }
 
 private extension View {
-    func keyboardShortcuts(vm: BrowseViewModel, sessions: [AssetRef.ID: EditSession]) -> some View {
-        modifier(BrowseKeyboardShortcuts(vm: vm, sessions: sessions))
+    func keyboardShortcuts(
+        vm: BrowseViewModel,
+        sessions: [AssetRef.ID: EditSession],
+        onCopyAdjustments: (() -> Void)? = nil,
+        onPasteAdjustments: (() -> Void)? = nil
+    ) -> some View {
+        modifier(BrowseKeyboardShortcuts(
+            vm: vm,
+            sessions: sessions,
+            onCopyAdjustments: onCopyAdjustments,
+            onPasteAdjustments: onPasteAdjustments
+        ))
     }
 }
 
