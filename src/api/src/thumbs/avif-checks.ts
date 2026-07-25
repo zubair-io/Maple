@@ -1,9 +1,12 @@
 /**
  * Pure AVIF validation predicate — the actual decode-based checks, with no
  * knowledge of IPC, the imgdecode child, or the pool. `sharp` is imported
- * directly at module scope, so this module must ONLY ever be imported from
- * inside the isolated `imgdecode` child process (`imgdecode.child.ts`), never
- * from the API parent process. That split is what `thumbs/validate-avif.ts`
+ * directly at module scope, so no PRODUCTION code in the API parent process may
+ * import this module — `imgdecode.child.ts` is its only runtime consumer. (Tests
+ * import it freely to exercise the predicate directly; a test process loading
+ * sharp costs nothing that matters. `thumbs/validate-avif.ts` takes only an
+ * `import type` from here, which erases at compile time and loads nothing.)
+ * That split is what `thumbs/validate-avif.ts`
  * (the parent-side dispatcher) exists to enforce — see its module doc — and
  * is also why this file lives separately rather than folded back into it:
  * `validate-avif.ts` must be importable by the parent WITHOUT pulling sharp

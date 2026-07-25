@@ -55,3 +55,23 @@ export interface ImgValidateResponse {
 }
 
 export type ImgDecodeResponse = ImgRenderResponse | ImgValidateResponse;
+
+/**
+ * Narrow an IPC payload to a genuine `ImgDecodeRequest`.
+ *
+ * Lives here, with the wire format it validates, rather than in the child: it is
+ * pure and side-effect-free, so it is directly testable without importing the
+ * child (which registers a `process.on('message')` listener and loads sharp).
+ *
+ * Checks `type` against the known variants rather than trusting any object. An
+ * unrecognised or absent `type` must be IGNORED, not fall through to whichever
+ * dispatch branch happens to be last — before this was explicit, a malformed
+ * message reached the validate path and attempted a decode with undefined
+ * fields, producing noisy failures and real work for a request nobody made.
+ */
+export function coerceRequest(raw: unknown): ImgDecodeRequest | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const type = (raw as { type?: unknown }).type;
+  if (type !== 'render' && type !== 'validate') return null;
+  return raw as ImgDecodeRequest;
+}

@@ -26,7 +26,8 @@
  * request never ships pixel data back at all.
  */
 
-import type { ImgDecodeRequest, ImgDecodeResponse } from './imgdecode-protocol.ts';
+import type { ImgDecodeResponse } from './imgdecode-protocol.ts';
+import { coerceRequest } from './imgdecode-protocol.ts';
 import { installChildHardening } from '../runtime/child-process-worker.ts';
 
 // Lower CPU priority + orphan guard so the HTTP event loop wins under indexer
@@ -97,21 +98,14 @@ async function handleValidate(req: {
   }
 }
 
-/** Narrow an IPC payload to a genuine `ImgDecodeRequest` — split out of the
- * `message` listener below so that listener's own branching stays limited to
- * dispatching on `type`. */
-function coerceRequest(raw: unknown): ImgDecodeRequest | null {
-  return raw && typeof raw === 'object' ? (raw as ImgDecodeRequest) : null;
-}
-
 process.on('message', (raw: unknown) => {
   const req = coerceRequest(raw);
   if (!req) return;
 
   // Async: each request runs concurrently on sharp's libuv threadpool. The
-  // pending Map in the pool correlates replies back by `id`. Only two
-  // variants exist (the discriminated union in `imgdecode-protocol.ts`), so
-  // ruling out `render` leaves `validate` as the only remaining case.
+  // pending Map in the pool correlates replies back by `id`. `coerceRequest`
+  // has already rejected anything that is neither variant, so this is an
+  // exhaustive dispatch over the discriminated union, not a fallback.
   if (req.type === 'render') void handleRender(req);
   else void handleValidate(req);
 });
