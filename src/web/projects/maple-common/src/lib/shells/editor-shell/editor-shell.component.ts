@@ -111,6 +111,13 @@ import {
   onCanvasPointerDown as scrubOnCanvasPointerDown,
   cleanupScrub,
 } from './editor-shell-scrub';
+import {
+  type UndoLongPressState,
+  newUndoLongPressState,
+  onUndoPointerDown as undoOnPointerDown,
+  onUndoPointerUp as undoOnPointerUp,
+  onUndoPointerCancel as undoOnPointerCancel,
+} from './editor-shell-undo';
 import { type ToolGroup, type ToolId } from '../../editor/tool-model';
 import { hudEyebrowText, hudValueLabel, hudProgressFraction } from './editor-shell-hud';
 
@@ -332,10 +339,7 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
     this._clearHudTimer();
     this._chrome.resizeObserver?.disconnect();
     cleanupScrub(this, this._scrub);
-    if (this._undoLongPressTimer) {
-      clearTimeout(this._undoLongPressTimer);
-      this._undoLongPressTimer = null;
-    }
+    undoOnPointerCancel(this._undo);
     teardownPointerMove(this._chrome);
     // Editor-teardown persist trigger (#2018): leaving the editor (SPA
     // navigation, not just a hard tab close) is one of the write policy's
@@ -425,8 +429,7 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
    *  curve/presets when Crop/HSL/bwMix/Color Grading arms, and
    *  `onPresetsPanelToggle` closing curve when Presets opens). */
   onCurvePanelToggle(): void {
-    if (this.cropArmed() || this.hslArmed() || this.bwMixArmed() || this.colorGradeArmed())
-      return;
+    if (this.cropArmed() || this.hslArmed() || this.bwMixArmed() || this.colorGradeArmed()) return;
     this.presetsOpen.set(false);
     this.curveOpen.update((v) => !v);
   }
@@ -486,48 +489,26 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
    *  Color Grading is armed, and closes Curve if open — same shared-anchor
    *  mutual exclusion as Curve/Crop/HSL/bwMix/Color Grading. */
   onPresetsPanelToggle(): void {
-    if (this.cropArmed() || this.hslArmed() || this.bwMixArmed() || this.colorGradeArmed())
-      return;
+    if (this.cropArmed() || this.hslArmed() || this.bwMixArmed() || this.colorGradeArmed()) return;
     this.curveOpen.set(false);
     this.presetsOpen.update((v) => !v);
   }
 
   // ── Undo / redo (top bar) ──────────────────────────────────────────────
-  // Long-press → redo, tap → undo. Mirrors the S5 editor's header button
-  // (`editor-header.component.ts`) so both editors share the same gesture.
-  private _undoLongPressTimer: ReturnType<typeof setTimeout> | null = null;
-  private _undoLongPressed = false;
+  // Long-press → redo, tap → undo; gesture body in `editor-shell-undo.ts`
+  // (file-size budget), same shape as the scrub and chrome extractions.
+  private readonly _undo: UndoLongPressState = newUndoLongPressState();
 
-  /** Captures the pointer on the button itself (#1816 review) so a drag-off
-   *  release still delivers `pointerup` HERE rather than to whatever element
-   *  is now under the pointer — without capture, a press-drag-release
-   *  outside the button's bounds never fires `onUndoPointerUp`, so the
-   *  long-press timer never clears and redo() fires despite the pointer
-   *  having left the button. Guarded: not every pointer environment
-   *  implements `setPointerCapture` (e.g. jsdom in tests). */
   onUndoPointerDown(e: PointerEvent): void {
-    this._undoLongPressed = false;
-    const target = e.currentTarget as HTMLElement;
-    target.setPointerCapture?.(e.pointerId);
-    this._undoLongPressTimer = setTimeout(() => {
-      this._undoLongPressed = true;
-      this.editorState.redo();
-    }, 500);
+    undoOnPointerDown(this, this._undo, e);
   }
 
   onUndoPointerUp(): void {
-    if (this._undoLongPressTimer) {
-      clearTimeout(this._undoLongPressTimer);
-      this._undoLongPressTimer = null;
-    }
-    if (!this._undoLongPressed) this.editorState.undo();
+    undoOnPointerUp(this, this._undo);
   }
 
   onUndoPointerCancel(): void {
-    if (this._undoLongPressTimer) {
-      clearTimeout(this._undoLongPressTimer);
-      this._undoLongPressTimer = null;
-    }
+    undoOnPointerCancel(this._undo);
   }
 
   // ── AUTO / RESET (epic #1370, restored by #2244) ──────────────────────
