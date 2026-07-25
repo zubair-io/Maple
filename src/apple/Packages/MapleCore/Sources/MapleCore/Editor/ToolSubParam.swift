@@ -128,9 +128,14 @@ extension Tool {
     /// Noise pill's Deep (BM3D, §3.2) and Prefilter (§3.1) tiers joined at
     /// #1153 — data-only, plus the `commitsOnRelease` flag their
     /// decode-product placement forces.
-    /// Vignette joined at #1109, grain at #1110, split tone
-    /// at #1111 (Balance leads — it is the schema-declared primary
-    /// drag-bar field, and the legacy splitTone drag bar drove it). HSL
+    /// Vignette joined at #1109, grain at #1110, split tone at #1111.
+    /// Color Grading (#275) supersedes split tone: Balance
+    /// leads (it is the schema-declared primary drag-bar field, and the
+    /// legacy split-tone drag bar drove it), followed by the four wheel
+    /// zones — shadow / midtone / highlight / global — each contributing
+    /// a hue, a saturation, and a luminance offset. Shadow and highlight
+    /// hue/sat still read/write the `splitTone*` fields (ACR's own
+    /// layout, §275 design note); everything else is `colorGrade*`. HSL
     /// joined at #274 with 24 sub-params (Hue/Sat/Lum × 8 bands); its
     /// catalog is built from the shared `HSLBand.all` table in
     /// `HSLBand.swift` rather than spelled out here.
@@ -188,7 +193,7 @@ extension Tool {
                              defaultDisplayValue: Self.defaults.grayMixerMagenta,
                              decimals: 0),
             ]
-        case .splitTone:
+        case .colorGrade:
             return [
                 ToolSubParam(id: "balance", label: "Balance",
                              keyPath: \.splitToneBalance, mapping: .anchored,
@@ -205,6 +210,26 @@ extension Tool {
                              range: AdjustmentModel.splitToneShadowSaturationRange,
                              defaultDisplayValue: Self.defaults.splitToneShadowSaturation,
                              decimals: 0),
+                ToolSubParam(id: "shadowLum", label: "Sh Lum",
+                             keyPath: \.colorGradeShadowLuminance, mapping: .anchored,
+                             range: AdjustmentModel.colorGradeShadowLuminanceRange,
+                             defaultDisplayValue: Self.defaults.colorGradeShadowLuminance,
+                             decimals: 0),
+                ToolSubParam(id: "midtoneHue", label: "Mid Hue",
+                             keyPath: \.colorGradeMidtoneHue, mapping: .linear,
+                             range: AdjustmentModel.colorGradeMidtoneHueRange,
+                             defaultDisplayValue: Self.defaults.colorGradeMidtoneHue,
+                             decimals: 0),
+                ToolSubParam(id: "midtoneSat", label: "Mid Sat",
+                             keyPath: \.colorGradeMidtoneSaturation, mapping: .linear,
+                             range: AdjustmentModel.colorGradeMidtoneSaturationRange,
+                             defaultDisplayValue: Self.defaults.colorGradeMidtoneSaturation,
+                             decimals: 0),
+                ToolSubParam(id: "midtoneLum", label: "Mid Lum",
+                             keyPath: \.colorGradeMidtoneLuminance, mapping: .anchored,
+                             range: AdjustmentModel.colorGradeMidtoneLuminanceRange,
+                             defaultDisplayValue: Self.defaults.colorGradeMidtoneLuminance,
+                             decimals: 0),
                 ToolSubParam(id: "highlightHue", label: "Hi Hue",
                              keyPath: \.splitToneHighlightHue, mapping: .linear,
                              range: AdjustmentModel.splitToneHighlightHueRange,
@@ -214,6 +239,26 @@ extension Tool {
                              keyPath: \.splitToneHighlightSaturation, mapping: .linear,
                              range: AdjustmentModel.splitToneHighlightSaturationRange,
                              defaultDisplayValue: Self.defaults.splitToneHighlightSaturation,
+                             decimals: 0),
+                ToolSubParam(id: "highlightLum", label: "Hi Lum",
+                             keyPath: \.colorGradeHighlightLuminance, mapping: .anchored,
+                             range: AdjustmentModel.colorGradeHighlightLuminanceRange,
+                             defaultDisplayValue: Self.defaults.colorGradeHighlightLuminance,
+                             decimals: 0),
+                ToolSubParam(id: "globalHue", label: "Global Hue",
+                             keyPath: \.colorGradeGlobalHue, mapping: .linear,
+                             range: AdjustmentModel.colorGradeGlobalHueRange,
+                             defaultDisplayValue: Self.defaults.colorGradeGlobalHue,
+                             decimals: 0),
+                ToolSubParam(id: "globalSat", label: "Global Sat",
+                             keyPath: \.colorGradeGlobalSaturation, mapping: .linear,
+                             range: AdjustmentModel.colorGradeGlobalSaturationRange,
+                             defaultDisplayValue: Self.defaults.colorGradeGlobalSaturation,
+                             decimals: 0),
+                ToolSubParam(id: "globalLum", label: "Global Lum",
+                             keyPath: \.colorGradeGlobalLuminance, mapping: .anchored,
+                             range: AdjustmentModel.colorGradeGlobalLuminanceRange,
+                             defaultDisplayValue: Self.defaults.colorGradeGlobalLuminance,
                              decimals: 0),
             ]
         case .grain:
