@@ -13,64 +13,79 @@ import { signal, type Signal } from '@angular/core';
 
 import { defaultAdjustmentModel, type AdjustmentModel } from '../models/adjustment-model';
 
+export interface LibraryStub {
+  /** Minimal asset list — used by applyAuto to resolve the file extension. */
+  readonly assets: Signal<Array<{ id: string; filename: string }>>;
+  /** #1153: every call is one model write, i.e. one re-render/decode kick. */
+  updateCount: number;
+  /** Test seam: stage decoded bytes for `id` (applyAuto's synchronous path). */
+  primeBytes(id: string, bytes: Uint8Array): void;
+  /** Test seam: stage a camera As-Shot reading for `id`. */
+  setAsShot(id: string, wb: { temperature: number; tint: number }): void;
+  bytesFor(id: string): Uint8Array | undefined;
+  bytesForAsset(id: string): Promise<Uint8Array>;
+  adjustmentFor(id: string): Signal<AdjustmentModel>;
+  updateAdjustment(id: string, patch: Partial<AdjustmentModel>): void;
+  asShotWbFor(id: string): { temperature: number; tint: number } | undefined;
+}
+
 /**
  * Minimal LibraryStateService stand-in: holds the AdjustmentModel signal,
  * exposes `adjustmentFor`, and applies `updateAdjustment` patches in place
  * (mirroring the real store's behavior without standing up the API +
  * sidecar machinery).
+ *
+ * Built as a closure over its state rather than a class: most of this surface
+ * (`bytesFor`, `bytesForAsset`, `asShotWbFor`) is called by
+ * `EditorStateService` through the injected `LibraryStateService`, never by
+ * the specs directly, and only the state it captures is ever private.
  */
-export class LibraryStub {
-  private models = new Map<string, ReturnType<typeof signal<AdjustmentModel>>>();
-  private asShot = new Map<string, { temperature: number; tint: number }>();
+export function makeLibraryStub(): LibraryStub {
+  const models = new Map<string, ReturnType<typeof signal<AdjustmentModel>>>();
+  const asShot = new Map<string, { temperature: number; tint: number }>();
+  const bytesCache = new Map<string, Uint8Array>();
 
-  // Minimal asset list — used by applyAuto to resolve the file extension.
-  assets = signal([{ id: 'asset-1', filename: 'test.dng' }] as Array<{
-    id: string;
-    filename: string;
-  }>);
+  const ensure = (id: string): ReturnType<typeof signal<AdjustmentModel>> => {
+    const existing = models.get(id);
+    if (existing) return existing;
+    const created = signal(defaultAdjustmentModel());
+    models.set(id, created);
+    return created;
+  };
 
-  // Synchronous bytes cache (populated per-test for applyAuto).
-  private bytesCache = new Map<string, Uint8Array>();
+  return {
+    assets: signal([{ id: 'asset-1', filename: 'test.dng' }]),
 
-  primeBytes(id: string, bytes: Uint8Array): void {
-    this.bytesCache.set(id, bytes);
-  }
+    updateCount: 0,
 
-  bytesFor(id: string): Uint8Array | undefined {
-    return this.bytesCache.get(id);
-  }
+    primeBytes(id, bytes) {
+      bytesCache.set(id, bytes);
+    },
 
-  bytesForAsset(id: string): Promise<Uint8Array> {
-    const b = this.bytesCache.get(id);
-    return b ? Promise.resolve(b) : Promise.reject(new Error(`no bytes for ${id}`));
-  }
+    setAsShot(id, wb) {
+      asShot.set(id, wb);
+    },
 
-  ensure(id: string): void {
-    if (!this.models.has(id)) {
-      this.models.set(id, signal(defaultAdjustmentModel()));
-    }
-  }
+    bytesFor(id) {
+      return bytesCache.get(id);
+    },
 
-  adjustmentFor(id: string): Signal<AdjustmentModel> {
-    this.ensure(id);
-    return this.models.get(id)!.asReadonly();
-  }
+    bytesForAsset(id) {
+      const b = bytesCache.get(id);
+      return b ? Promise.resolve(b) : Promise.reject(new Error(`no bytes for ${id}`));
+    },
 
-  /** #1153: every call is one model write, i.e. one re-render/decode kick. */
-  updateCount = 0;
+    adjustmentFor(id) {
+      return ensure(id).asReadonly();
+    },
 
-  updateAdjustment(id: string, patch: Partial<AdjustmentModel>): void {
-    this.updateCount += 1;
-    this.ensure(id);
-    this.models.get(id)!.update((m) => ({ ...m, ...patch }));
-  }
+    updateAdjustment(id, patch) {
+      this.updateCount += 1;
+      ensure(id).update((m) => ({ ...m, ...patch }));
+    },
 
-  /** Test seam: stage a camera As-Shot reading for `id`. */
-  setAsShot(id: string, wb: { temperature: number; tint: number }): void {
-    this.asShot.set(id, wb);
-  }
-
-  asShotWbFor(id: string): { temperature: number; tint: number } | undefined {
-    return this.asShot.get(id);
-  }
+    asShotWbFor(id) {
+      return asShot.get(id);
+    },
+  };
 }
