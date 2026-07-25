@@ -85,6 +85,9 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
     /// M4: called when the user taps "Edit Metadata…" from BrowseGrid
     /// (forwarded from AppShellCenterColumn → BrowseGrid → PanoSelectionBar).
     var onEditMetadata: (() -> Void)? = nil
+    /// #944: app-level copy/paste/sync-adjustments clipboard, forwarded
+    /// through to BrowseGrid.
+    var clipboard: AdjustmentClipboard? = nil
 
     var body: some View {
         // In Browse mode the detail panel is suppressed entirely — the
@@ -198,7 +201,8 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
             onPreviewEdit: onPreviewEdit,
             onPreviewDismiss: onPreviewDismiss,
             onMergePanorama: onMergePanorama,
-            onEditMetadata: onEditMetadata
+            onEditMetadata: onEditMetadata,
+            clipboard: clipboard
         )
     }
 }
