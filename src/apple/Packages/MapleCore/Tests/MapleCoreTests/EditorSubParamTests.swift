@@ -85,12 +85,57 @@ final class EditorSubParamTests: XCTestCase {
         XCTAssertEqual(subs[0].range, AdjustmentModel.splitToneBalanceRange)
     }
 
+    func testHSLDeclaresTwentyFourSubParamsChannelMajor() {
+        // #274 — HSL joined the multi-param set with Hue/Sat/Lum × 8
+        // bands, declared channel-major so the ids match the web catalog
+        // in `tool-sub-param.ts` one for one.
+        let subs = Tool.hsl.subParams
+        XCTAssertEqual(subs.count, 24)
+        XCTAssertTrue(Tool.hsl.isMultiParam)
+        XCTAssertEqual(Tool.hsl.defaultSubParamId, "hueRed")
+        XCTAssertEqual(subs.prefix(8).map(\.id),
+                       ["hueRed", "hueOrange", "hueYellow", "hueGreen",
+                        "hueAqua", "hueBlue", "huePurple", "hueMagenta"])
+        XCTAssertEqual(subs.dropFirst(8).prefix(8).map(\.id),
+                       ["satRed", "satOrange", "satYellow", "satGreen",
+                        "satAqua", "satBlue", "satPurple", "satMagenta"])
+        XCTAssertEqual(subs.suffix(8).map(\.id),
+                       ["lumRed", "lumOrange", "lumYellow", "lumGreen",
+                        "lumAqua", "lumBlue", "lumPurple", "lumMagenta"])
+        XCTAssertEqual(subs.prefix(8).map(\.label),
+                       ["H Red", "H Orange", "H Yellow", "H Green",
+                        "H Aqua", "H Blue", "H Purple", "H Magenta"])
+        // All 24 are symmetric ±100 with a 0 default (the generated
+        // schema's ranges), so all take the anchored mapping.
+        for sub in subs {
+            XCTAssertEqual(sub.range, AdjustmentModel.hueAdjustmentRedRange)
+            XCTAssertEqual(sub.defaultDisplayValue, 0)
+            XCTAssertEqual(sub.mapping, .anchored)
+            XCTAssertEqual(sub.decimals, 0)
+        }
+    }
+
+    func testHSLSubParamsWriteTheirOwnBandField() {
+        // Each of the 24 descriptors must drive a DISTINCT model field —
+        // a copy-paste slip in the band table would otherwise route two
+        // bands at the same slider.
+        var model = AdjustmentModel()
+        let subs = Tool.hsl.subParams
+        for (index, sub) in subs.enumerated() {
+            model[keyPath: sub.keyPath] = Double(index + 1)
+        }
+        for (index, sub) in subs.enumerated() {
+            XCTAssertEqual(model[keyPath: sub.keyPath], Double(index + 1),
+                "\(sub.id) shares a field with another band")
+        }
+    }
+
     func testEveryOtherToolIsSingleParam() {
-        // HSL/crop stay stubs. Vignette joined the multi-param set at
-        // #1109, grain at #1110, split tone at #1111.
+        // Crop stays a stub. Vignette joined the multi-param set at
+        // #1109, grain at #1110, split tone at #1111, HSL at #274.
         for tool in Tool.allCases
         where tool != .noise && tool != .sharpen && tool != .vignette && tool != .grain
-            && tool != .splitTone {
+            && tool != .splitTone && tool != .hsl {
             XCTAssertTrue(tool.subParams.isEmpty, "\(tool) should be single-param")
             XCTAssertFalse(tool.isMultiParam)
             XCTAssertNil(tool.defaultSubParamId)
