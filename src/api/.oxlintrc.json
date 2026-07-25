@@ -158,6 +158,7 @@
         "src/thumbs/video-poster.ts",
         "src/thumbs/video-poster.test.ts",
         "src/workers/cache-gc.pano-preseed.test.ts",
+        "src/workers/cache-gc.sidecars.test.ts",
         "src/workers/cache-gc.test.ts",
         "src/workers/cache-gc.ts",
         "src/workers/dedupe.test.ts",
