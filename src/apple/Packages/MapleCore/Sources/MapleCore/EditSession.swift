@@ -3,15 +3,15 @@
 // Holds the current `AdjustmentModel`, undo/redo stacks, culling state,
 // and the storage that the render layer mutates. Observable for SwiftUI.
 //
-// This file owns ONLY the type declaration + stored state + the small
-// public lifecycle methods (init, beginEdit/undo/redo/resetToOriginal,
-// computed canvas math). The behaviour layers live in sibling files:
+// This file owns ONLY the type declaration + stored state + `init`.
+// The behaviour layers live in sibling files:
 //
 //   • EditSession+Render.swift    — two-phase scheduler, decode lifecycle,
 //                                   visible-region refine, export render
 //   • EditSession+Hydration.swift — cold-open path, sidecar load, preview
 //                                   seeds, native-size discovery
 //   • EditSession+DeepZoom.swift  — tile-manager wiring, visible-region API
+//   • EditSession+UndoRedo.swift  — the bounded undo/redo ring + reset
 //
 // Public API of `EditSession` (the symbols imported by callers) is
 // unchanged across the split — see issue #120 for the three-layer cut.
@@ -346,16 +346,12 @@ public final class EditSession {
 
     // MARK: Undo / redo
 
-    @ObservationIgnored private var undoStack: [AdjustmentModel] = []
-    @ObservationIgnored private var redoStack: [AdjustmentModel] = []
-    public var canUndo: Bool { !undoStack.isEmpty }
-    public var canRedo: Bool { !redoStack.isEmpty }
-
-    /// Ring-buffer cap on the undo/redo stacks. S5 Editor (#625) bounds
-    /// the editor's undo history to 32 entries per spec §4; older entries
-    /// roll off the bottom (FIFO drop on push). The same cap is honored
-    /// on `redo()` to keep the two stacks symmetric.
-    public static let undoStackCap: Int = 32
+    /// Storage only — the ring behaviour (`canUndo`/`canRedo`, `beginEdit`,
+    /// `undo`, `redo`, `resetToOriginal`, `undoStackCap`) lives in
+    /// `EditSession+UndoRedo.swift`. Internal rather than private so that
+    /// sibling file can reach them.
+    @ObservationIgnored var undoStack: [AdjustmentModel] = []
+    @ObservationIgnored var redoStack: [AdjustmentModel] = []
 
     // MARK: Internals (shared across EditSession+* extensions)
 
@@ -562,42 +558,9 @@ public final class EditSession {
         previewPersistTask?.cancel()
     }
 
-    // MARK: - Public lifecycle
-
-    /// Push the current model to the undo stack before a user gesture.
-    /// Trims to `undoStackCap` (FIFO) so the editor's history stays bounded.
-    public func beginEdit() {
-        undoStack.append(model)
-        if undoStack.count > Self.undoStackCap {
-            undoStack.removeFirst(undoStack.count - Self.undoStackCap)
-        }
-        redoStack.removeAll()
-    }
-
-    public func undo() {
-        guard let prev = undoStack.popLast() else { return }
-        redoStack.append(model)
-        if redoStack.count > Self.undoStackCap {
-            redoStack.removeFirst(redoStack.count - Self.undoStackCap)
-        }
-        model = prev
-    }
-
-    public func redo() {
-        guard let next = redoStack.popLast() else { return }
-        undoStack.append(model)
-        if undoStack.count > Self.undoStackCap {
-            undoStack.removeFirst(undoStack.count - Self.undoStackCap)
-        }
-        model = next
-    }
-
-    public func resetToOriginal() {
-        beginEdit()
-        model = originalModel
-    }
-
     // `setKeywords` + `flushPendingSidecarWrite` moved to
     // `EditSession+Lifecycle.swift` (file-size budget, #2009).
+    // `beginEdit` / `undo` / `redo` / `resetToOriginal` moved to
+    // `EditSession+UndoRedo.swift` (file-size budget, #1153).
 
 }
