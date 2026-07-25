@@ -41,6 +41,8 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
     let cloudTimelineVM: CloudTimelineViewModel?
     let cloudTimelineThumbClient: CloudThumbClient?
     let cloudTimelineThumbCache: CloudThumbCache?
+    let allSourcesTimelineVM: AllSourcesTimelineViewModel?
+    let allSourcesTimelineThumbCache: CloudThumbCache?
     let isSearchActive: Bool
     let searchVM: SearchViewModel?
     let searchThumbClient: CloudThumbClient?
@@ -180,6 +182,8 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
             cloudTimelineVM: cloudTimelineVM,
             cloudTimelineThumbClient: cloudTimelineThumbClient,
             cloudTimelineThumbCache: cloudTimelineThumbCache,
+            allSourcesTimelineVM: allSourcesTimelineVM,
+            allSourcesTimelineThumbCache: allSourcesTimelineThumbCache,
             isSearchActive: isSearchActive,
             searchVM: searchVM,
             searchThumbClient: searchThumbClient,

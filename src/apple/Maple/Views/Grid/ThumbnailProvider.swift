@@ -40,6 +40,13 @@ actor ThumbnailProvider {
     // MARK: - Dependencies
 
     private let thumbClient: CloudThumbClient?
+    /// Host (`URL.cacheHostKey`) → `CloudThumbClient`, for grids whose cells
+    /// span more than one Maple Cloud server (#2273's all-sources Timeline).
+    /// Empty for every other grid surface, which keeps exactly one fixed
+    /// `thumbClient` instead. `resolvedThumbClient(for:)` checks this map
+    /// first so a multi-host provider can still be given a single fallback
+    /// client if desired; today's two initializers never populate both.
+    private let thumbClientsByHost: [String: CloudThumbClient]
     private let thumbCache: CloudThumbCache?
 
     // MARK: - Init
@@ -67,12 +74,33 @@ actor ThumbnailProvider {
             "ThumbnailProvider cloud deps must be wired together — pass both or neither"
         )
         self.thumbClient = thumbClient
+        self.thumbClientsByHost = [:]
+        self.thumbCache = thumbCache
+    }
+
+    /// Multi-server variant (#2273): the aggregated all-sources Timeline can
+    /// show cells from several different connected Maple Cloud servers in
+    /// the SAME grid, so a single fixed `CloudThumbClient` (bound to one
+    /// server) can't serve every cell — resolve the client by host instead.
+    /// One shared `thumbCache` is correct here because `CloudThumbCache` is
+    /// already host-keyed (`CloudThumbCache.get(host:absPath:)`), so every
+    /// server can safely share the one disk cache.
+    init(thumbClientsByHost: [String: CloudThumbClient], thumbCache: CloudThumbCache) {
+        self.thumbClient = nil
+        self.thumbClientsByHost = thumbClientsByHost
         self.thumbCache = thumbCache
     }
 
     /// Convenience for local-only grid surfaces that need no cloud infrastructure.
     static func local() -> ThumbnailProvider {
         ThumbnailProvider()
+    }
+
+    /// Resolve the `CloudThumbClient` for a cloud thumb fetch. Checks the
+    /// per-host map first (multi-server provider), then falls back to the
+    /// single fixed client (every other provider).
+    private func resolvedThumbClient(for host: String) -> CloudThumbClient? {
+        thumbClientsByHost[host] ?? thumbClient
     }
 
     // MARK: - Public API
@@ -93,7 +121,7 @@ actor ThumbnailProvider {
             return await ThumbnailLoader.shared.load(for: ref, from: box?.source)
 
         case .cloudThumb(let absPath, let host):
-            guard let cache = thumbCache, let client = thumbClient else { return nil }
+            guard let cache = thumbCache, let client = resolvedThumbClient(for: host) else { return nil }
             return await Self.fetchCloudThumb(
                 host: host,
                 absPath: absPath,
@@ -136,8 +164,8 @@ actor ThumbnailProvider {
                 scopeParentURL: ref.scopeParentURL
             )
             return try? await imageSource.preview(for: imageRef)
-        case .cloudThumb(let absPath, _):
-            guard let client = thumbClient else { return nil }
+        case .cloudThumb(let absPath, let host):
+            guard let client = resolvedThumbClient(for: host) else { return nil }
             return try? await client.preview(absPath: absPath)
         case .photoKit(let localID):
             return await Self.fetchPhotoKitPreview(
