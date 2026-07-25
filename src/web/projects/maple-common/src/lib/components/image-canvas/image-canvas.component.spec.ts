@@ -111,7 +111,11 @@ describe('ImageCanvasComponent — two-phase live re-render (#846/#1101)', () =>
       providers: [
         XmpSerializerService,
         { provide: LibraryStateService, useValue: stateStub },
-        { provide: RawPipelineService, useValue: { decode: decodeSpy } },
+        {
+          provide: RawPipelineService,
+          // #1153: the canvas template reads the deep-denoise progress signal.
+          useValue: { decode: decodeSpy, deepDenoiseProgress: signal(null) },
+        },
       ],
     });
     // The REAL pan/zoom service (#1100): tiny and dependency-free, and the
@@ -384,6 +388,8 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
 
     const pipelineStub = {
       decode: decodeSpy,
+      // #1153: the canvas template reads the deep-denoise progress signal.
+      deepDenoiseProgress: signal(null),
       gpuLiveRenderEnabled: true,
       openLiveSession: openSessionSpy,
       renderLiveSession: renderSessionSpy,
