@@ -1,4 +1,7 @@
 // batch-metadata-confirm-dialog.component.scss
+// Footer buttons come from the shared dialog-chrome mixins.
+
+@use '../styles/dialog-chrome' as chrome;
 
 .bm-confirm-body {
   display: flex;
@@ -70,42 +73,5 @@
 }
 
 .bm-btn {
-  display: inline-flex;
-  align-items: center;
-  height: 30px;
-  padding: 0 14px;
-  border-radius: 5px;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    background 120ms,
-    border-color 120ms,
-    opacity 120ms;
-  border: 0.5px solid transparent;
-
-  &:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-  }
-
-  &-ghost {
-    background: transparent;
-    border-color: var(--color-border);
-    color: var(--color-text-main);
-
-    &:hover:not(:disabled) {
-      background: var(--color-surface-hover);
-    }
-  }
-
-  &-primary {
-    background: var(--color-accent, #0066cc);
-    color: #fff;
-    border-color: var(--color-accent, #0066cc);
-
-    &:hover:not(:disabled) {
-      opacity: 0.88;
-    }
-  }
+  @include chrome.dialog-button;
 }
