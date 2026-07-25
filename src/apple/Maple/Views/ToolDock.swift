@@ -193,8 +193,7 @@ private struct SpecialDockButton: View {
                         )
                         .frame(width: 36, height: 36)
 
-                    Image(systemName: ToolGlyph.sfSymbol(for: tool))
-                        .font(.system(size: 14, weight: .regular))
+                    ToolGlyph.icon(for: tool, size: 16)
                         .foregroundStyle(isSelected ? ProTokens.accent : ProTokens.text)
 
                     if isModified {
