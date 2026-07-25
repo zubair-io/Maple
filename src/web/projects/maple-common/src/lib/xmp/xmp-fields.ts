@@ -28,7 +28,14 @@ export type NumericAdjustmentKey = {
   [K in keyof AdjustmentModel]: AdjustmentModel[K] extends number ? K : never;
 }[keyof AdjustmentModel];
 
-const numericSerializer = (v: number): string => {
+/**
+ * Canonical numeric wire codec (`docs/xmp-canonical-format.md` § "Number
+ * formatting"): integers bare, non-integers rounded to two decimals with
+ * trailing zeros dropped. Exported because the nested point tone curves
+ * (#365) encode their control-point coordinates with the same codec even
+ * though they are element text rather than attribute values.
+ */
+export const numericSerializer = (v: number): string => {
   if (Number.isInteger(v)) return String(v);
   const rounded = Math.round(v * 100) / 100;
   return rounded.toString();
