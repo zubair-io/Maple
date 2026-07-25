@@ -29,12 +29,51 @@
 }
 
 @keyframes shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 // Load-more button hover only when not disabled (Tailwind's hover applies even
 // to disabled buttons unless we wrap in a not-disabled selector — keep it in CSS).
 .load-more-btn:hover:not(:disabled) {
   background: var(--color-surface-hover);
+}
+
+// Filter sidebar — inline pane at desktop (>1024px, matches LayoutService's
+// `desktop` tier), collapsible overlay below it. Width lives here (not as a
+// Tailwind utility) so the media query below can override it.
+.filters-aside {
+  width: 260px;
+}
+
+@media (max-width: 1023px) {
+  .filters-aside {
+    position: absolute;
+    inset-block: 0;
+    left: 0;
+    width: min(300px, 85vw);
+    z-index: 91;
+  }
+
+  .toolbar {
+    flex-wrap: wrap;
+    row-gap: 8px;
+    height: auto;
+    padding-block: 8px;
+  }
+}
+
+// Scrim behind the overlay filter panel — sits within the same `relative`
+// content row as `.filters-aside` (not viewport-fixed), so it covers the
+// results area but not the toolbar above it.
+.filters-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 90;
+  cursor: pointer;
 }
