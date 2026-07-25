@@ -86,6 +86,8 @@ export const ENUM_FIELD_VALUES: Readonly<Record<string, readonly string[]>> = {
   hot_pixel_suppression: ['Off', 'On'],
   // Black & white toggle (#276) — 8-band Oklab stage's monochrome mode.
   black_white: ['Off', 'On'],
+  // DNG lens corrections master switch (#376) — decode-product enum field.
+  lens_profile_enable: ['Off', 'On'],
 };
 
 // ── Capture (save-preset) ─────────────────────────────────────────────────
