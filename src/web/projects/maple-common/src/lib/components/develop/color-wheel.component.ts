@@ -39,6 +39,14 @@ export class ColorWheelComponent implements OnDestroy {
 
   private readonly wheelEl = viewChild.required<ElementRef<HTMLElement>>('wheelEl');
 
+  // Read by the template's `[style.left.%]` / `[style.top.%]` puck bindings.
+  // fallow's template reference scanner resolves `{{ }}` and `[attr.*]` but
+  // not the unit-suffixed style-binding form, so it cannot see those two uses
+  // and reports the member as dead (verified: rewriting the binding as plain
+  // `[style.left]` clears the finding). `[style.left.%]` is the idiomatic
+  // Angular form and is what `wb-pad.component.html` uses for the same puck,
+  // so the binding stays and the false positive is suppressed here.
+  // fallow-ignore-next-line unused-class-member
   readonly puckPos = computed(() => wheelToPos({ hue: this.hue(), saturation: this.saturation() }));
 
   readonly valueLabel = computed(
