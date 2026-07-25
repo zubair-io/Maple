@@ -20,6 +20,7 @@ import {
 
 export type { GeneratedAdjustmentModel } from '../generated/adjustment-model.generated';
 export type { HighlightRecoveryMode } from '../generated/adjustment-model.generated';
+export type { BlackWhiteMode } from '../generated/adjustment-model.generated';
 export {
   ADJUSTMENT_RANGES,
   defaultGeneratedAdjustmentModel,

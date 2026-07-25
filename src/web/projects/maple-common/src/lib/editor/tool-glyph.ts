@@ -21,6 +21,7 @@ const TOOL_TO_ICON: Record<ToolId, MapleIconName> = {
   vibrance: 'tool-vibrance',
   saturation: 'tool-saturation',
   hsl: 'tool-hsl',
+  bwMix: 'tool-bw',
   clarity: 'tool-clarity',
   texture: 'tool-texture',
   dehaze: 'tool-dehaze',

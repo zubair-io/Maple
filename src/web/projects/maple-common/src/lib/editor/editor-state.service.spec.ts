@@ -515,14 +515,14 @@ describe('EditorStateService', () => {
 
   describe('tool catalog', () => {
     it('verifies tool registry configuration', () => {
-      expect(ALL_TOOLS.length).toBe(23);
+      expect(ALL_TOOLS.length).toBe(24);
       expect(TOOLS_IN_GROUP.light.length).toBe(7);
-      expect(TOOLS_IN_GROUP.color.length).toBe(5);
+      expect(TOOLS_IN_GROUP.color.length).toBe(6);
       expect(TOOLS_IN_GROUP.effects.length).toBe(6);
       expect(TOOLS_IN_GROUP.detail.length).toBe(5);
 
       const wired = ALL_TOOLS.filter(isWired);
-      expect(wired.length).toBe(22);
+      expect(wired.length).toBe(23);
       expect(isWired('vignette')).toBe(true);
       expect(isWired('grain')).toBe(true);
       expect(isWired('splitTone')).toBe(true);

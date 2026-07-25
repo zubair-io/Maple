@@ -21,7 +21,11 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { LibraryStateService } from '../state/library-state.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import type { AssetId } from '../models/asset';
-import { type AdjustmentModel, defaultAdjustmentModel } from '../models/adjustment-model';
+import {
+  type AdjustmentModel,
+  type BlackWhiteMode,
+  defaultAdjustmentModel,
+} from '../models/adjustment-model';
 import { buildApplyPatch, type Preset } from './presets/preset-model';
 import {
   type ToolGroup,
@@ -341,6 +345,30 @@ export class EditorStateService {
       sub ? subParamDefaultDisplay(sub) : defaultDisplayValue(this.armedTool()),
     );
     this.haptic('reset');
+  }
+
+  // ── Black & white (#276) ──────────────────────────────────────────────────
+
+  /**
+   * Toggle Black & White mode as ONE undo entry — routed through the same
+   * `commit()` / `LibraryStateService.updateAdjustment` path as every other
+   * edit, so it is undoable and marks the session dirty exactly like a
+   * slider drag. Turning it On while HSL is armed re-arms `bwMix`: the HSL
+   * surface hides entirely while B&W is On (its 24 sliders are inert — see
+   * `visibleToolsInGroup` in tool-model.ts), so leaving `hsl` armed would
+   * point the drag bar / sub-param row at a tool with no visible dock entry
+   * or panel.
+   */
+  setBlackWhite(mode: BlackWhiteMode): void {
+    const id = this.imageId();
+    const adj = this.currentAdjustment();
+    if (id == null || !adj || adj.blackWhite === mode) return;
+    this.commit();
+    this.library.updateAdjustment(id, { blackWhite: mode });
+    if (mode === 'On' && this.armedTool() === 'hsl') {
+      this.armTool('bwMix');
+    }
+    this.haptic('switch');
   }
 
   // ── Presets (#1115, spec §10.7) ──────────────────────────────────────────

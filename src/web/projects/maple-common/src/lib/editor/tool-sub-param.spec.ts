@@ -163,6 +163,44 @@ describe('sub-param catalog', () => {
     expect(defaultSubParamId('hsl')).toBe('hueRed');
   });
 
+  it('bwMix declares the 8 gray-mixer bands in HSL order (#276)', () => {
+    const subs = subParamsFor('bwMix');
+    expect(subs.map((s) => s.id)).toEqual([
+      'bwRed',
+      'bwOrange',
+      'bwYellow',
+      'bwGreen',
+      'bwAqua',
+      'bwBlue',
+      'bwPurple',
+      'bwMagenta',
+    ]);
+    expect(subs.map((s) => s.label)).toEqual([
+      'Red',
+      'Orange',
+      'Yellow',
+      'Green',
+      'Aqua',
+      'Blue',
+      'Purple',
+      'Magenta',
+    ]);
+    expect(subs.map((s) => s.field)).toEqual([
+      'grayMixerRed',
+      'grayMixerOrange',
+      'grayMixerYellow',
+      'grayMixerGreen',
+      'grayMixerAqua',
+      'grayMixerBlue',
+      'grayMixerPurple',
+      'grayMixerMagenta',
+    ]);
+    expect(subs.every((s) => s.mapping === 'anchored')).toBe(true);
+    expect(subs.every((s) => s.decimals === 0)).toBe(true);
+    expect(isMultiParam('bwMix')).toBe(true);
+    expect(defaultSubParamId('bwMix')).toBe('bwRed');
+  });
+
   it('every other tool is single-param (crop pending its own spec)', () => {
     for (const tool of ALL_TOOLS) {
       if (
@@ -171,7 +209,8 @@ describe('sub-param catalog', () => {
         tool === 'vignette' ||
         tool === 'grain' ||
         tool === 'splitTone' ||
-        tool === 'hsl' // HSL wired at #1112: 24 sub-params
+        tool === 'hsl' || // HSL wired at #1112: 24 sub-params
+        tool === 'bwMix' // bwMix wired at #276: 8 gray-mixer sub-params
       )
         continue;
       expect(subParamsFor(tool as ToolId)).toEqual([]);
@@ -209,6 +248,13 @@ describe('ranges + defaults (sourced from the generated schema)', () => {
     expect(subParamDefaultDisplay(subParamById('sharpen', 'radius')!)).toBe(1);
     expect(subParamDefaultDisplay(subParamById('sharpen', 'detail')!)).toBe(25);
     expect(subParamDefaultDisplay(subParamById('sharpen', 'masking')!)).toBe(0);
+  });
+
+  it('pins bwMix ranges + defaults to the generated schema (#276)', () => {
+    for (const sub of subParamsFor('bwMix')) {
+      expect(subParamDisplayRange(sub)).toEqual([-100, 100]);
+      expect(subParamDefaultDisplay(sub)).toBe(0);
+    }
   });
 });
 
