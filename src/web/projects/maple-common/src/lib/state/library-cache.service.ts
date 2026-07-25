@@ -540,7 +540,7 @@ export class LibraryCache {
 
     // 1. Self-Hosted FS-walk: server renders + caches the JPEG.
     if (asset.absPath) {
-      const url = await this.fsBrowse.getThumbBlobUrl(asset.absPath, 512);
+      const url = await this.fsBrowse.getThumbBlobUrl(asset.absPath);
       this.cacheThumbnailUrl(asset.id, url);
       return;
     }

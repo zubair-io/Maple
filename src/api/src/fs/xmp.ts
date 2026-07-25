@@ -114,11 +114,9 @@ export async function ensureMapleDir(folderAbsPath: string): Promise<string> {
  * Convention (aligned with the desktop apps + web Hosted variant):
  *   <folder>/.maple/thumbs/<sha256_prefix16(basename)>.avif
  *
- * - Single thumb per RAW file (one file → one cache entry, no per-size
- *   variants). Re-rendering at a different render-target size overwrites
- *   the same on-disk file. Stale-check is mtime-based (raw mtime ≥ thumb
- *   mtime). Matches `MapleCacheService` on web and `ThumbnailDiskCache`
- *   on Apple.
+ * - Single thumb per RAW file at the fixed `THUMB_LONG_EDGE_PX` tier; callers
+ *   cannot request another size (#2220), so the mtime stale-check (raw ≥ thumb)
+ *   suffices. Matches web `MapleCacheService` / Apple `ThumbnailDiskCache`.
  * - Hash input is the basename (filename with extension) so `.maple/`
  *   travels with the photos: copy the folder elsewhere and the same
  *   thumb hash still resolves. Hashing the absolute path would make
@@ -131,39 +129,44 @@ export function resolveThumbPath(rawAbsPath: string): string {
   return path.join(folder, '.maple', 'thumbs', `${key}.avif`);
 }
 
-/** Cache kind: derived thumbnail, or full-size rendered preview. */
+/** Cache kind: derived thumbnail, or display-resolution rendered preview. */
 export type CacheKind = 'thumbs' | 'previews';
+
+/** Trailing args of the `cachePathFor*` resolvers: one tuple so `suffix` is
+ * required for `previews` and rejected for `thumbs` in a single signature. */
+type CacheKindArgs = ['thumbs'] | ['previews', string];
 
 /**
  * Resolve the on-disk cache path for an asset's derived artefact.
  *
- * Thumbs use the unified per-file convention from `resolveThumbPath`.
- * Previews are keyed off the source's own filename plus a `suffix` — the
- * canonical preview is a single, unversioned `<basename>.avif` overwritten in
- * place (#2017), NOT size- or version-keyed; the `suffix` mechanism only
- * additionally distinguishes co-located artefacts of a different kind (the
- * `histogram.json` sidecar).
+ * Thumbs use the unified per-file convention from `resolveThumbPath`; previews
+ * are keyed off the source's own filename plus a `suffix`:
  *
  *   thumbs:   <folder>/.maple/thumbs/<sha256_prefix16(basename)>.avif
  *   previews: <folder>/.maple/previews/<basename>.<suffix>
  *
- * `suffix` is the extension (e.g. `"avif"` for the canonical preview) — MUST
- * use the same `<basename-with-its-own-extension>.<suffix>` convention as
- * `cachePathForAsset`'s previews branch (not `<basename-no-ext>_<suffix>`):
- * `cleanPreviewsCacheForLocation` and `cache-gc.ts`'s previews sweep both
- * match on a live filename as a literal `.`-terminated prefix, so a legacy
- * (unindexed-fallback) preview generated here needs the identical prefix an
- * indexed one would have, or it's invisible to both cleanup paths and leaks
- * on disk forever (jules review, PR #2006).
+ * The canonical preview is a single, unversioned `<basename>.avif` overwritten
+ * in place (#2017), NOT size- or version-keyed; `suffix` only distinguishes
+ * co-located artefacts of a different kind (the `histogram.json` sidecar). It
+ * MUST use this `<basename-with-its-own-extension>.<suffix>` form (not
+ * `<basename-no-ext>_<suffix>`): `cleanPreviewsCacheForLocation` and
+ * `cache-gc.ts`'s previews sweep both match a live filename as a literal
+ * `.`-terminated prefix, so a legacy (unindexed-fallback) preview generated
+ * here needs the identical prefix an indexed one would have, or it is invisible
+ * to both cleanup paths and leaks on disk forever (jules review, PR #2006).
+ *
+ * `suffix` is REQUIRED for `previews` (#2220): the old `'full.jpg'` default was
+ * a tier nothing writes any more, reachable only by mistake and silently.
+ * (`'full.jpg'` stays in `preview-cache-cleanup.ts`'s `KNOWN_EXACT_SUFFIXES` —
+ * older files must stay reclaimable.) Ignored for `thumbs`: one fixed tier.
  */
-export function cachePathFor(assetAbsPath: string, kind: CacheKind, suffix?: string): string {
+export function cachePathFor(assetAbsPath: string, ...[kind, suffix]: CacheKindArgs): string {
   if (kind === 'thumbs') {
     return resolveThumbPath(assetAbsPath);
   }
   const folder = path.dirname(assetAbsPath);
   const filename = path.basename(assetAbsPath);
-  const s = suffix ?? 'full.jpg';
-  return path.join(folder, '.maple', 'previews', `${filename}.${s}`);
+  return path.join(folder, '.maple', 'previews', `${filename}.${suffix}`);
 }
 
 /**
@@ -228,27 +231,23 @@ export function resolveThumbPathForAsset(
  * hash needed to resolve one, at the cost of losing that same multi-location
  * sharing and not surviving a rename/move (both accepted trade-offs; a moved
  * file's stale preview is cleaned up by the missing-reaper/dedupe cache-removal
- * hook, with cache-gc's sweep as a backstop). `suffix` is the extension a
- * caller wants (e.g. `"avif"` for the canonical preview, `"histogram.json"`
- * for the histogram sidecar) since previews, unlike thumbs, live in the same
- * folder in more than one format.
+ * hook, with cache-gc's sweep as a backstop).
  *
- * Same `null` semantics as `resolveThumbPathForAsset` — see there for the
- * legacy-fallback rationale.
+ * `suffix` semantics (including why it is REQUIRED for `previews`) and the
+ * `null` semantics are as documented on `cachePathFor` and
+ * `resolveThumbPathForAsset` respectively.
  */
 export function cachePathForAsset(
   asset: Pick<AssetDoc, 'maple_id' | 'fileinfo'>,
   libraries: ReadonlyMap<string, string>,
-  kind: CacheKind,
-  suffix?: string,
+  ...[kind, suffix]: CacheKindArgs
 ): string | null {
   if (kind === 'thumbs') {
     return resolveThumbPathForAsset(asset, libraries);
   }
   const loc = resolvePrimaryLocation(asset, libraries);
   if (!loc) return null;
-  const s = suffix ?? 'full.jpg';
-  return path.join(loc.root, ...loc.segments, '.maple', 'previews', `${loc.filename}.${s}`);
+  return path.join(loc.root, ...loc.segments, '.maple', 'previews', `${loc.filename}.${suffix}`);
 }
 
 /**

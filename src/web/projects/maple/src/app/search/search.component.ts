@@ -477,7 +477,7 @@ export class SearchComponent implements OnInit, OnDestroy {
   private async loadThumb(vm: ResultViewModel): Promise<void> {
     if (vm.thumbUrl) return;
     try {
-      const url = await this.fs.getThumbBlobUrl(vm.abs_path, 512);
+      const url = await this.fs.getThumbBlobUrl(vm.abs_path);
       this.thumbCache.set(vm.abs_path, url);
       this.results.update((list) =>
         list.map((r) =>

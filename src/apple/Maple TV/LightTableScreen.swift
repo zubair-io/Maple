@@ -259,7 +259,7 @@ struct LightTableScreen: View {
     // glides in already-rendered instead of flickering from a loading tile
     // (holds the print "offscreen" — i.e. unspawned — until it's ready).
     await TVRemoteImage.prefetchThumb(
-      server: session.server, absPath: asset.abs_path, size: 512,
+      server: session.server, absPath: asset.abs_path,
       thumbClient: session.thumbClient, thumbCache: session.thumbCache)
     guard !Task.isCancelled else { return }
 
@@ -358,7 +358,7 @@ private struct PrintCard: View {
     TVRemoteImage(
       server: server,
       absPath: asset.abs_path,
-      kind: .thumb(size: 512),
+      kind: .thumb,
       thumbClient: thumbClient,
       thumbCache: thumbCache,
       // Keep the photo's original aspect ratio — no crop-to-fill. The print

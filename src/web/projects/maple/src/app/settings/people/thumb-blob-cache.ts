@@ -98,17 +98,15 @@ export class ThumbBlobCache {
     if (this.librarySource && address) {
       const [slug, ...rest] = address.split(':');
       const relPath = rest.join(':');
-      promise = this.librarySource
-        .thumbBlob({ slug: slug!, relPath })
-        .then((blob) => {
-          if (!blob) throw new Error('empty thumb blob');
-          return { url: URL.createObjectURL(blob), owned: true };
-        });
+      promise = this.librarySource.thumbBlob({ slug: slug!, relPath }).then((blob) => {
+        if (!blob) throw new Error('empty thumb blob');
+        return { url: URL.createObjectURL(blob), owned: true };
+      });
     } else if (absPath) {
       // Legacy path: fetch via /api/fs/thumb + bearer token, cache as blob.
-      // Match the size /browse asks for (512) so the same absPath key
-      // resolves to the same blob entry on both surfaces.
-      promise = this.fsBrowse.getThumbBlobUrl(absPath, 512).then((url) => ({ url, owned: false }));
+      // One fixed thumb tier server-side (#2220), so the same absPath key
+      // necessarily resolves to the same blob entry on every surface.
+      promise = this.fsBrowse.getThumbBlobUrl(absPath).then((url) => ({ url, owned: false }));
     } else if (apiAssetId) {
       promise = firstValueFrom(this.api.getThumb(apiAssetId)).then((b) => ({
         url: URL.createObjectURL(b),
