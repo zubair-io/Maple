@@ -433,12 +433,29 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
         // Lightroom culling
         case "xmp:Rating":
             if let n = Int(value) { culling.stars = max(0, min(5, n)) }
+        // `xmp:Label` is read as the pick/reject FLAG on Apple, matching what
+        // this module's serializer writes ("Red" / "Rejected"). Interop note
+        // (#1656): the web parser instead reads Adobe's `xmp:Label` colour
+        // words ("Red", "Purple", …) as a COLOUR label, and prefers
+        // `papp:ColorLabel` over them when both are present. Apple must not
+        // copy that mapping — because the flag shares this attribute here,
+        // doing so would turn every Apple-authored pick into a red colour
+        // label. Colour labels are therefore read from `papp:ColorLabel`
+        // only, exactly like the API parser (`metadata-parser.ts`).
         case "xmp:Label":
             switch value.lowercased() {
             case "red", "pick": culling.flag = .pick
             case "reject":      culling.flag = .reject
             default:            break
             }
+        // Colour label (#1656/#1657). Unknown values leave the label unset
+        // rather than storing an out-of-vocabulary string, mirroring the
+        // API parser's `VALID_COLOR_LABELS` membership gate. The match is
+        // case-sensitive on purpose: the wire vocabulary is lowercase on
+        // all three platforms, and case-folding here would accept a value
+        // the API would then reject.
+        case "papp:ColorLabel":
+            if let label = ColorLabel(rawValue: value) { culling.colorLabel = label }
         case "papp:Hidden": culling.hidden = XMPParser.parseHiddenAttribute(value)
         default: _xmpApplyHSLAttribute(key: key, value: value, model: &model)
         }
