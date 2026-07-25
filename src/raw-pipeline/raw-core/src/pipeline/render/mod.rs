@@ -16,11 +16,8 @@ use super::{
 };
 use crate::{
     error::Result,
-    image::{apply_orientation, ColorSpace, Image, RawImage},
-    stages::{
-        clarity, crop, dehaze, grain, hsl, noise_reduction, saturation, scene_tone_controls,
-        sharpen, split_tone, texture, vibrance, vignette,
-    },
+    image::{Image, RawImage},
+    stages::{grain, split_tone},
     types::adjustment::{AutoExposureMode, Profile},
     view::{acr_match, agx, auto_profile, encode},
     xmp::AdjustmentModel,
@@ -37,6 +34,19 @@ pub use auto_fit::{
 // Sized display render + `native_render_dims` (#1101) — size-budget split.
 mod sized;
 pub use sized::{native_render_dims, render_sized_from_raw_with_quality_and_source};
+
+// The orientation + crop tail, shared by the display and export depths (#943).
+mod finish;
+
+// Export render — the display chain at a caller-chosen depth / primaries (#943).
+mod export;
+pub use export::{render_export_from_raw, ExportDepth, ExportPixels};
+
+// Synthetic-input render entries — the view transform applied to an already
+// scene-linear buffer (#943 size-budget split); re-exported so `pipeline::{…}`
+// and `maple-cli synthetic` keep resolving them.
+mod synthetic;
+pub use synthetic::{render_from_scene_linear, render_from_scene_linear_with_chain};
 
 // Scene-linear (no-view-tail) render entries — fp16/f32 RGBA pack + orient
 // (#1170 size-budget split); re-exported so `pipeline::{…}` keeps resolving them.
@@ -116,10 +126,10 @@ pub fn render_from_raw_with_quality_and_source(
     render_display_from_raw(raw, model, quality, raw_source, None)
 }
 
-/// Shared body of the display-encoded entries: develop (full-res or
-/// early-downsample sized, per `max_long_edge`), then the view tail. Private
-/// to this module tree — the unsized wrapper above and the sized wrapper
-/// (`render/sized.rs`) pin the two supported shapes.
+/// Display-encoded entry: [`render_display_scene`] into sRGB primaries, then
+/// the 8-bit terminal quantize and the geometry tail. Private to this module
+/// tree — the unsized wrapper above and the sized wrapper (`render/sized.rs`)
+/// pin the two supported shapes.
 fn render_display_from_raw(
     raw: &RawImage,
     model: &AdjustmentModel,
@@ -127,6 +137,47 @@ fn render_display_from_raw(
     raw_source: Option<RawInput<'_>>,
     max_long_edge: Option<u32>,
 ) -> Result<(u32, u32, Vec<u8>)> {
+    let mut scene = render_display_scene(
+        raw,
+        model,
+        quality,
+        raw_source,
+        max_long_edge,
+        encode::TargetPrimaries::Srgb,
+    )?;
+    let (w, h) = (scene.width, scene.height);
+    let bytes = stage("dither_and_quantize", || {
+        encode::dither_and_quantize(&mut scene)
+    });
+    Ok(finish::apply_geometry(
+        &bytes,
+        w,
+        h,
+        raw.orientation,
+        &model.crop,
+    ))
+}
+
+/// Shared body of every display-referred render: develop (full-res or
+/// early-downsample sized, per `max_long_edge`), then the view tail up to and
+/// including the display encode. Returns the f32 display-ENCODED buffer, one
+/// step short of quantizing — the terminal depth is the caller's choice
+/// (8-bit for the canvas, 16-bit for a TIFF master, #943), and everything
+/// that determines colour has already happened by the time it returns. That
+/// is what makes export and canvas the same pixels rather than two pipelines
+/// that agree by inspection.
+///
+/// `target` selects the output primaries. Every pre-existing caller passes
+/// [`encode::TargetPrimaries::Srgb`], which is byte-for-byte the previous
+/// hard-coded `rec2020_to_srgb` behaviour.
+fn render_display_scene(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    raw_source: Option<RawInput<'_>>,
+    max_long_edge: Option<u32>,
+    target: encode::TargetPrimaries,
+) -> Result<Image> {
     // Section 0 (Auto Profile root-cause fix): when Profile=Auto and we
     // will actually fit a curve, force AutoExposureMode::Off so the fitted
     // curve owns the entire scene→JPEG brightness relationship. Otherwise
@@ -262,7 +313,9 @@ fn render_display_from_raw(
         )
     });
     dump_after("16b_grain", &scene);
-    stage("rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
+    stage("rec2020_to_srgb", || {
+        encode::rec2020_to_display(&mut scene, target)
+    });
     // Buffer is in display-linear sRGB primaries here. Gamma encoding
     // happens later in `srgb_gamma_encode`. Name reflects that —
     // "srgb_linear", not "post_srgb_encode" which would have implied a
@@ -309,257 +362,17 @@ fn render_display_from_raw(
     // the static Look LUT and the Auto Profile stage (`view::auto_profile`,
     // applied above) now owns per-image view-shaping. The `Look` enum
     // survives only for XMP back-compat (legacy `papp:Look` migrates to
-    // `papp:Profile`), so there is no per-pixel Look pass — dither +
-    // quantize is the only remaining step in the chain.
-    let bytes = stage("dither_and_quantize", || {
-        encode::dither_and_quantize(&mut scene)
-    });
-    // Apply EXIF orientation last — rotating/flipping sRGB u8 is cheap and
-    // keeps every upstream stage indifferent to sensor-vs-display framing.
-    let (w, h, bytes) = stage("apply_orientation", || {
-        apply_orientation(&bytes, scene.width, scene.height, raw.orientation)
-    });
-    // Crop / straighten (spec § 3.12, ticket #277): operates on the
-    // display-oriented u8 RGB buffer. Skip the allocation entirely when the
-    // crop is identity — invalid rects are also treated as identity.
-    let (w, h, bytes) = if model.crop.is_identity() {
-        (w, h, bytes)
-    } else {
-        stage("crop", || crop::apply_u8_rgb(&bytes, w, h, &model.crop))
-    };
-    // Both branches return the buffer at its actual rendered dimensions —
-    // `Full` matches the sensor, `Preview` is half-res in both axes
-    // (because of `demosaic::half_res`), and Apple/Web consumers handle
-    // the resolution gap via their lazy display transform (CIImage scale
-    // on Apple; texture upload on Web). Pixel-doubling here added ~300 MB
-    // of FFI traffic and 4× the allocator pressure on a 100 MP RAW for no
-    // extra information.
-    Ok((w, h, bytes))
-}
-
-/// Synthetic-input render: takes an already-scene-linear `Image` (the kind
-/// `synthetic_input::*` produces) and runs ONLY the view transform on it —
-/// AgX + Rec.2020→sRGB + u8 quantize. The develop chain (linearize,
-/// demosaic, DCP, scene-tone, …) is skipped because the input is already
-/// in the working colorspace by construction.
-///
-/// `MAPLE_STAGE_DUMP` is honoured: stages 16 (`16_agx`) and 17
-/// (`17_srgb_linear`) get written exactly like the RAW path, so the
-/// detectors in `src/scripts/{banding,hue_stability,halo}_check.py` can
-/// load and analyse them without caring whether the input was a real DNG
-/// or a synthetic ramp.
-///
-/// Used by `maple-cli synthetic --kind {neutral-ramp,hue-patch,halo-disk}`.
-///
-/// Synthetic inputs unconditionally run AgX — Auto Profile (#537) needs an
-/// embedded JPEG to fit against, which only exists when a RAW file is the
-/// source. `model.profile` is ignored on this path by design.
-pub fn render_from_scene_linear(
-    image: Image,
-    model: &AdjustmentModel,
-) -> Result<(u32, u32, Vec<u8>)> {
-    let mut scene = image;
-    scene.assert_space(ColorSpace::SceneLinearRec2020);
-    // Dump the pre-view-transform buffer too — gives the detectors a
-    // way to see exactly what entered AgX. Numbered `00` so it sorts
-    // before stages 16/17 in the dump dir.
-    dump_after("00_synthetic_input", &scene);
-    stage("synth_agx", || agx::apply(&mut scene, model.contrast));
-    dump_after("16_agx", &scene);
-    // Split toning (#1111) — same display-linear position as the RAW path.
-    stage("synth_split_tone", || {
-        split_tone::apply(
-            &mut scene,
-            model.split_tone_shadow_hue,
-            model.split_tone_shadow_saturation,
-            model.split_tone_highlight_hue,
-            model.split_tone_highlight_saturation,
-            model.split_tone_balance,
-        )
-    });
-    dump_after("16a_split_tone", &scene);
-    // Film grain (#1110) — same display-linear position as the RAW path.
-    stage("synth_grain", || {
-        grain::apply(
-            &mut scene,
-            model.grain_amount,
-            model.grain_size,
-            model.grain_roughness,
-        )
-    });
-    dump_after("16b_grain", &scene);
-    stage("synth_rec2020_to_srgb", || {
-        encode::rec2020_to_srgb(&mut scene)
-    });
-    dump_after("17_srgb_linear", &scene);
-    let (w, h) = (scene.width, scene.height);
-    stage("synth_srgb_gamma_encode", || {
-        encode::srgb_gamma_encode(&mut scene)
-    });
-    // No per-pixel Look pass — #443 retired the static Look LUT (see
-    // `render_from_raw_with_quality`); Auto Profile owns view-shaping.
-    let bytes = stage("synth_dither_and_quantize", || {
-        encode::dither_and_quantize(&mut scene)
-    });
-    Ok((w, h, bytes))
-}
-
-/// Synthetic-input render with the slider chain applied first. The detectors
-/// that probe slider artefacts (halo overshoot from clarity / dehaze /
-/// sharpen) need a path that runs those stages on a synthetic input. Mirrors
-/// the scene-linear stages that `develop_scene_linear_from_raw_with_quality`
-/// runs over real raws, but on a fresh `Image` rather than going through
-/// decode / demosaic / DCP / auto-exposure.
-///
-/// White-balance is skipped — the synthetic input is generated directly in
-/// the Rec.2020 working space at a known brightness, so running a WB delta
-/// over it would only muddy the artefact under test. Scene-tone-controls
-/// (exposure/brightness/highlights/shadows/whites/blacks) IS run (#1627
-/// banding-gate machinery needs exposure/shadows/blacks slider-extreme
-/// sweeps on gradient fixtures); it identity-short-circuits at the default
-/// model so every existing clarity/dehaze/sharpen/halo detector that calls
-/// this with a default-tone-controls model sees a byte-identical trace.
-/// Vibrance and saturation are kept (they scale around the achromatic axis,
-/// so they're no-ops on neutrals but DO affect saturated primaries the way
-/// a real pixel would see). Stage numbering matches the real RAW develop
-/// chain in `develop.rs`, with no dump for the skipped stage (so
-/// `06_white_balance` is absent from this trace by design).
-pub fn render_from_scene_linear_with_chain(
-    image: Image,
-    model: &AdjustmentModel,
-) -> Result<(u32, u32, Vec<u8>)> {
-    let mut scene = image;
-    scene.assert_space(ColorSpace::SceneLinearRec2020);
-    dump_after("00_synthetic_input", &scene);
-    // White-balance deliberately skipped — see doc-comment. Scene-tone-controls
-    // runs (identity no-op at the default model) so exposure/shadows/blacks
-    // slider-extreme sweeps (#1627) see their real pipeline effect.
-    stage("synth_scene_tone_controls", || {
-        scene_tone_controls::apply(&mut scene, model)
-    });
-    dump_after("07_scene_tone_controls", &scene);
-    stage("synth_vibrance", || {
-        vibrance::apply(&mut scene, model.vibrance)
-    });
-    dump_after("08_vibrance", &scene);
-    stage("synth_saturation", || {
-        saturation::apply(&mut scene, model.saturation)
-    });
-    dump_after("09_saturation", &scene);
-    // HSL 8-band (#1112) — same chain position as the real develop path
-    // (after saturation, before clarity). Identity short-circuit on
-    // all-default model. Added for the #1733 clamp audit: HSL's per-band
-    // SAT slider is a chroma-scaling stage like vibrance/saturation and
-    // needs the same banding-gate coverage (see `stages::hsl`'s
-    // `hsl_soft_compress` fix).
-    stage("synth_hsl", || {
-        hsl::apply(
-            &mut scene,
-            &[
-                model.hue_adjustment_red,
-                model.hue_adjustment_orange,
-                model.hue_adjustment_yellow,
-                model.hue_adjustment_green,
-                model.hue_adjustment_aqua,
-                model.hue_adjustment_blue,
-                model.hue_adjustment_purple,
-                model.hue_adjustment_magenta,
-            ],
-            &[
-                model.saturation_adjustment_red,
-                model.saturation_adjustment_orange,
-                model.saturation_adjustment_yellow,
-                model.saturation_adjustment_green,
-                model.saturation_adjustment_aqua,
-                model.saturation_adjustment_blue,
-                model.saturation_adjustment_purple,
-                model.saturation_adjustment_magenta,
-            ],
-            &[
-                model.luminance_adjustment_red,
-                model.luminance_adjustment_orange,
-                model.luminance_adjustment_yellow,
-                model.luminance_adjustment_green,
-                model.luminance_adjustment_aqua,
-                model.luminance_adjustment_blue,
-                model.luminance_adjustment_purple,
-                model.luminance_adjustment_magenta,
-            ],
-        )
-    });
-    dump_after("09b_hsl", &scene);
-    stage("synth_clarity", || {
-        clarity::apply(&mut scene, model.clarity)
-    });
-    dump_after("10_clarity", &scene);
-    stage("synth_texture", || {
-        texture::apply(&mut scene, model.texture)
-    });
-    dump_after("11_texture", &scene);
-    stage("synth_dehaze", || dehaze::apply(&mut scene, model.dehaze));
-    dump_after("12_dehaze", &scene);
-    // Vignette (#1109) — same chain position as develop (local_adjustments
-    // is absent on this synthetic path; vignette still precedes sharpen).
-    stage("synth_vignette", || {
-        vignette::apply(&mut scene, model.vignette_amount, model.vignette_feather)
-    });
-    dump_after("12c_vignette", &scene);
-    stage("synth_sharpen", || {
-        sharpen::apply(
-            &mut scene,
-            model.sharpen_amount,
-            model.sharpen_radius,
-            model.sharpen_detail,
-            model.sharpen_masking,
-        )
-    });
-    dump_after("13_sharpen", &scene);
-    stage("synth_nr_luminance", || {
-        noise_reduction::apply_luminance(&mut scene, model.nr_luminance, None, 100)
-    });
-    dump_after("14_nr_luminance", &scene);
-    stage("synth_nr_color", || {
-        noise_reduction::apply_color(&mut scene, model.nr_color, None, 100)
-    });
-    dump_after("15_nr_color", &scene);
-    stage("synth_agx", || agx::apply(&mut scene, model.contrast));
-    dump_after("16_agx", &scene);
-    // Split toning (#1111) — same display-linear position as the RAW path.
-    stage("synth_split_tone", || {
-        split_tone::apply(
-            &mut scene,
-            model.split_tone_shadow_hue,
-            model.split_tone_shadow_saturation,
-            model.split_tone_highlight_hue,
-            model.split_tone_highlight_saturation,
-            model.split_tone_balance,
-        )
-    });
-    dump_after("16a_split_tone", &scene);
-    // Film grain (#1110) — same display-linear position as the RAW path.
-    stage("synth_grain", || {
-        grain::apply(
-            &mut scene,
-            model.grain_amount,
-            model.grain_size,
-            model.grain_roughness,
-        )
-    });
-    dump_after("16b_grain", &scene);
-    stage("synth_rec2020_to_srgb", || {
-        encode::rec2020_to_srgb(&mut scene)
-    });
-    dump_after("17_srgb_linear", &scene);
-    let (w, h) = (scene.width, scene.height);
-    stage("synth_srgb_gamma_encode", || {
-        encode::srgb_gamma_encode(&mut scene)
-    });
-    // No per-pixel Look pass — #443 retired the static Look LUT (see
-    // `render_from_raw_with_quality`); Auto Profile owns view-shaping.
-    let bytes = stage("synth_dither_and_quantize", || {
-        encode::dither_and_quantize(&mut scene)
-    });
-    Ok((w, h, bytes))
+    // `papp:Profile`), so there is no per-pixel Look pass — quantize (the
+    // caller's, at the caller's depth) plus the geometry tail in
+    // `render::finish` are all that remain.
+    //
+    // The buffer is returned at its actual rendered dimensions — `Full`
+    // matches the sensor, `Preview` is half-res in both axes (because of
+    // `demosaic::half_res`), and Apple/Web consumers handle the resolution
+    // gap via their lazy display transform (CIImage scale on Apple; texture
+    // upload on Web). Pixel-doubling here added ~300 MB of FFI traffic and
+    // 4× the allocator pressure on a 100 MP RAW for no extra information.
+    Ok(scene)
 }
 
 // Tests live in the sibling `tests.rs` file so this module stays under

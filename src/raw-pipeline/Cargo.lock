@@ -2143,6 +2143,7 @@ version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
  "getrandom 0.4.2",
+ "image",
  "pollster",
  "raw-core",
  "raw-gpu",

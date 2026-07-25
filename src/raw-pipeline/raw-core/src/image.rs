@@ -408,19 +408,24 @@ impl ExifOrientation {
     }
 }
 
-/// Apply EXIF orientation to a packed-u8-RGB buffer. Returns `(new_w, new_h,
-/// rotated_bytes)`. The input buffer is unchanged; caller substitutes the
-/// returned triple. `Normal` is a cheap clone of the input.
+/// Apply EXIF orientation to a packed integer RGB buffer. Returns `(new_w,
+/// new_h, rotated_samples)`. The input buffer is unchanged; caller substitutes
+/// the returned triple. `Normal` is a cheap clone of the input.
 ///
 /// The per-orientation source mapping is derived so that applying the
 /// operation rotates the sensor frame into display orientation — the
 /// displayed-image convention used by EXIF-aware viewers.
-pub fn apply_orientation(
-    rgb: &[u8],
+///
+/// Generic over the sample type (#943) so the 8-bit display path and the
+/// 16-bit export deliverable share one implementation. This is pure index
+/// permutation — no arithmetic touches the samples — so widening cannot
+/// perturb the existing `u8` results.
+pub fn apply_orientation<T: Copy + Default>(
+    rgb: &[T],
     w: u32,
     h: u32,
     orient: ExifOrientation,
-) -> (u32, u32, Vec<u8>) {
+) -> (u32, u32, Vec<T>) {
     let (sw, sh) = (w as usize, h as usize);
     debug_assert_eq!(rgb.len(), sw * sh * 3, "RGB buffer size mismatch");
 
@@ -430,7 +435,7 @@ pub fn apply_orientation(
 
     let (new_w, new_h) = if orient.swaps_wh() { (h, w) } else { (w, h) };
     let (dw, dh) = (new_w as usize, new_h as usize);
-    let mut out = vec![0u8; dw * dh * 3];
+    let mut out = vec![T::default(); dw * dh * 3];
 
     for yp in 0..dh {
         for xp in 0..dw {

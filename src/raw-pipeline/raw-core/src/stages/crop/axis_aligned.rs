@@ -5,6 +5,8 @@
 //! no smoothing, no allocation beyond the destination buffer. Also used
 //! by the orthogonal-rotate path as the rect-extraction pre-step.
 
+use super::sample::Sample;
+
 pub(super) struct SliceRect {
     pub x: u32,
     pub y: u32,
@@ -29,13 +31,17 @@ pub(super) fn slice_f32_rgba(rgba: &[f32], src_w: u32, rect: SliceRect) -> (u32,
     (rect.w, rect.h, out)
 }
 
-pub(super) fn slice_u8_rgb(rgb: &[u8], src_w: u32, rect: SliceRect) -> (u32, u32, Vec<u8>) {
+/// Rect slice for interleaved integer RGB at either display depth (#943).
+///
+/// Pure data movement — the sample type never enters the arithmetic, so `u8`
+/// and `u16` share one implementation and stay byte-exact.
+pub(super) fn slice_rgb<T: Sample>(rgb: &[T], src_w: u32, rect: SliceRect) -> (u32, u32, Vec<T>) {
     let sw = src_w as usize;
     let rw = rect.w as usize;
     let rh = rect.h as usize;
     let rx = rect.x as usize;
     let ry = rect.y as usize;
-    let mut out = vec![0u8; rw * rh * 3];
+    let mut out = vec![T::default(); rw * rh * 3];
     for yy in 0..rh {
         let src_row_start = ((ry + yy) * sw + rx) * 3;
         let dst_row_start = yy * rw * 3;

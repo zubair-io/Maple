@@ -30,6 +30,9 @@ use wasm_bindgen::prelude::*;
 
 pub mod auto_adjustments;
 pub mod auto_tone;
+/// Edited-image export — full-res render + in-wasm encode, drained in chunks
+/// so a 100 MP deliverable never lands on the JS heap in one piece (#943).
+pub mod export;
 pub mod id;
 pub mod preview;
 

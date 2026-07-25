@@ -67,6 +67,11 @@ gpu = ["dep:raw-gpu", "dep:wasm-bindgen-futures", "dep:web-sys"]
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 pollster = "0.4"
 wgpu = "23"
+# Decodes the files `export_bytes` produces so the export-vs-canvas parity gate
+# (#943) can diff real pixels rather than trusting the encoder. Dev-only and
+# non-wasm-only, so the shipped bundle is unaffected — raw-core already carries
+# the same crate for its encoders.
+image.workspace = true
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
