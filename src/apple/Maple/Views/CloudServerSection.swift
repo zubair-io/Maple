@@ -110,8 +110,8 @@ struct CloudServerSection: View {
 
   /// Section header — same visual recipe as LibrarySidebar's
   /// SectionHeaderRow (chevron + uppercased sectionHeader font +
-  /// textMuted + 6pt vertical padding). Trailing: compact view-mode
-  /// toggle.
+  /// textMuted + the shared `MapleTokens.Spacing.sectionHeaderHeight`
+  /// fixed height, #2271). Trailing: compact view-mode toggle.
   @ViewBuilder
   private var header: some View {
     Button(action: {
@@ -130,7 +130,7 @@ struct CloudServerSection: View {
         Spacer()
       }
       .padding(.horizontal, MapleTokens.Spacing.rowHorizontal)
-      .padding(.vertical, 6)
+      .frame(height: MapleTokens.Spacing.sectionHeaderHeight, alignment: .leading)
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)

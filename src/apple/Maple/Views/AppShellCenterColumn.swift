@@ -43,6 +43,12 @@ struct AppShellCenterColumn: View {
     let cloudTimelineVM: CloudTimelineViewModel?
     let cloudTimelineThumbClient: CloudThumbClient?
     let cloudTimelineThumbCache: CloudThumbCache?
+    /// Non-nil while the sidebar's TIMELINE row (`.allSources`, #2271/#2273)
+    /// is selected — takes precedence over `cloudTimelineVM` (mutually
+    /// exclusive in practice; `librarySelection`'s `onChange` in `AppShell`
+    /// nils whichever one isn't current).
+    let allSourcesTimelineVM: AllSourcesTimelineViewModel?
+    let allSourcesTimelineThumbCache: CloudThumbCache?
     /// When true (and the search VM + thumb client/cache are present) the
     /// center column renders `CloudSearchView` instead of the grid /
     /// timeline. Takes precedence over the timeline branch but not the
@@ -157,7 +163,16 @@ struct AppShellCenterColumn: View {
                 onClose: onCloseSearch
             )
         } else {
-            if let vm = cloudTimelineVM,
+            if let allVM = allSourcesTimelineVM,
+               let thumbCache = allSourcesTimelineThumbCache {
+                AllSourcesTimelineView(
+                    vm: allVM,
+                    thumbCache: thumbCache,
+                    displayMode: browseDisplayMode,
+                    onSelectAsset: onSelectCloudAsset,
+                    onSelectLocalAsset: onSelectLocalAsset
+                )
+            } else if let vm = cloudTimelineVM,
                let thumbClient = cloudTimelineThumbClient,
                let thumbCache = cloudTimelineThumbCache {
                 CloudTimelineView(

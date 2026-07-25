@@ -67,6 +67,12 @@ struct LibrarySidebar: View {
     /// Lazily load the folders for a server (called from CloudServerSection's
     /// .task on first appearance).
     let onLoadCloudFolders: (URL) async -> [CloudFolder]
+    /// TIMELINE row tap (#2271/#2273) — opens the unified cross-source
+    /// Timeline (every library on every connected server, unioned with
+    /// PhotoKit). A navigating row, not a disclosure: it has no children of
+    /// its own, so tapping it just selects `.allSources` and lets the shell
+    /// load the aggregating view model.
+    let onSelectTimeline: () -> Void
 
     // Section-open state (mockup: chevron open/closed).
     @State private var showFolders = true
@@ -97,6 +103,8 @@ struct LibrarySidebar: View {
         VStack(alignment: .leading, spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    timelineRow
+                    separator
                     cloudServersSection
                     if !registry.servers.isEmpty { separator }
                     foldersSection
@@ -296,6 +304,39 @@ struct LibrarySidebar: View {
         }
     }
 
+    // MARK: - Timeline
+
+    /// TIMELINE — the first row in the sidebar (#2271), above the per-server
+    /// cloud sections. Unlike every other section header it's a NAVIGATING
+    /// row (tap selects `.allSources` directly) rather than a disclosure
+    /// group — Timeline has no children to expand, so a chevron would be
+    /// misleading. Styled to match `SectionHeaderRow` (uppercased eyebrow,
+    /// `textMuted`, same fixed height) with a calendar glyph standing in for
+    /// the chevron, and an active/highlighted background when it's the
+    /// current selection.
+    private var timelineRow: some View {
+        let isActive = selection == .allSources
+        return Button(action: onSelectTimeline) {
+            HStack(spacing: 6) {
+                Image(systemName: "calendar")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(isActive ? MapleTokens.primary : MapleTokens.textMuted)
+                Text("Timeline".uppercased())
+                    .font(MapleTokens.Typography.eyebrow)
+                    .tracking(1.4)
+                    .foregroundStyle(isActive ? MapleTokens.primary : MapleTokens.textMuted)
+                Spacer()
+            }
+            .padding(.horizontal, MapleTokens.Spacing.rowHorizontal)
+            .frame(height: MapleTokens.Spacing.sectionHeaderHeight, alignment: .leading)
+            .background(isActive ? MapleTokens.bgActive : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Timeline")
+        .accessibilityAddTraits(isActive ? [.isSelected] : [])
+    }
+
     // MARK: - Cloud servers
 
     @ViewBuilder
@@ -446,7 +487,7 @@ private struct SectionHeaderRow<Trailing: View>: View {
                 trailing()
             }
             .padding(.horizontal, MapleTokens.Spacing.rowHorizontal)
-            .padding(.vertical, 6)
+            .frame(height: MapleTokens.Spacing.sectionHeaderHeight, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -855,7 +896,8 @@ private struct _LibrarySidebarPreviewWrapper: View {
       onSignInCloudServer: { _ in },
       sessionFor: { AuthSession.preview(server: $0) },
       onRemoveCloudServer: { _ in },
-      onLoadCloudFolders: { _ in [] }
+      onLoadCloudFolders: { _ in [] },
+      onSelectTimeline: {}
     )
     .frame(width: 280, height: 700)
   }
