@@ -22,7 +22,7 @@ import { PREVIEW_CACHE_SUFFIX } from '../indexer/previewer.ts';
  * Every previews-cache suffix currently in real use, spelled out exactly.
  * The preview itself is a single, unversioned file per asset
  * (`PREVIEW_CACHE_SUFFIX`, now the bare `avif` extension — no size or version
- * token; thumbs are a separate, maple_id-keyed tier entirely). `full.jpg` is
+ * token; thumbs are a separate tier in a sibling folder). `full.jpg` is
  * `cachePathFor`/`cachePathForAsset`'s own default when no suffix is passed,
  * and `histogram.json` is the histogram sidecar (`routes/assets/histogram.ts`)
  * — both live in the same `previews/` folder and must be reclaimed with the
