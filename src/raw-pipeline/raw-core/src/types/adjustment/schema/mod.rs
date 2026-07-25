@@ -1,12 +1,18 @@
-//! Codegen-facing description of every scalar / enum field on
-//! [`super::AdjustmentModel`]. Flat const table (no proc-macro) for lean WASM
-//! builds. [`FieldKind`] and [`FieldSpec`] types live in `schema/types.rs`.
+//! Codegen-facing description of every scalar, enum, and point-curve field
+//! on [`super::AdjustmentModel`]. Flat const table (no proc-macro) for lean
+//! WASM builds. [`FieldKind`] and [`FieldSpec`] types live in
+//! `schema/types.rs`.
 //!
 //! `local_adjustments` (ticket #280) is intentionally absent — it is a
 //! `Vec<LocalAdjustment>` with its own schema; the drift test allow-lists it.
 //!
-//! Single source of truth for the develop-settings schema; Swift + TypeScript
-//! mirrors are hand-kept today, pending codegen (#118 / #119).
+//! Single source of truth for the develop-settings schema: `tools/codegen.sh`
+//! emits the Swift and TypeScript mirrors from this table (#118), and the
+//! `codegen-drift` CI job re-generates them to prove the committed copies
+//! match. Only the NESTED value types those fields carry — `Crop`,
+//! `ToneCurve` — stay hand-written per platform, because a flat table cannot
+//! describe them. `whiteBalancePreset` remains a hand-written web-only field
+//! pending #119.
 //!
 //! `F32`, `Enum`, and `ToneCurve` fields are captured — the four
 //! `tone_curve_*` point curves joined the table in #366, carried by the
