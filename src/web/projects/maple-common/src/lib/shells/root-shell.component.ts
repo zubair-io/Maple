@@ -1,38 +1,28 @@
-// root-shell.component.ts — responsive-program S1a (#597).
+// root-shell.component.ts — web responsive foundation (#2279).
 //
-// Top-level shell switcher. Reads LayoutService.layout(); on `phone` it
-// renders the bottom-tab phone shell, on `tablet` / `desktop` it falls
-// through to a plain <router-outlet /> which lets the existing pane
-// routes (BrowseShellComponent / EditorShellComponent) render.
+// Top-level shell. Always renders the pane `<router-outlet />` — the phone-
+// tab shell fork (S1a, #597) that switched on LayoutService.layout() is
+// retired; the pane shells (BrowseShell/EditorShell/PreviewShell/Settings)
+// are themselves made fluid (see the responsive-desktop plan). Every app
+// (`projects/maple`, `projects/maple-syrup`) wraps its root `<app-root>`
+// template in `<app-root-shell />` so the update-toast + LAN-switch banner
+// live in one place.
 //
-// Each app (`projects/maple`, `projects/maple-syrup`) wraps its root
-// `<app-root>` template in `<app-root-shell />` so the breakpoint logic
-// lives in one place. The shell does not duplicate route definitions —
-// the route table in each app stays the source of truth.
-//
-// Spec: docs/spec/responsive-program-s1-phone-shell.md §2.2.
+// Plan: docs/superpowers/plans/2026-07-25-web-responsive-desktop.md Task 1.
 
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
-import { LayoutService } from '../layout-service';
-import { PhoneTabShellComponent } from './phone-tab-shell.component';
 import { UpdateToastComponent } from '../sw/update-toast.component';
 import { LanSwitchBannerComponent } from '../network/lan-switch-banner.component';
 
 @Component({
   selector: 'app-root-shell',
   standalone: true,
-  imports: [RouterOutlet, PhoneTabShellComponent, UpdateToastComponent, LanSwitchBannerComponent],
-  // The update toast + LAN-switch banner render alongside both shell
-  // variants so they're offered no matter which breakpoint is active. The
-  // LAN-switch banner is a no-op on the Hosted build (see its LIBRARY_BACKEND
-  // gate) — safe to always mount here.
+  imports: [RouterOutlet, UpdateToastComponent, LanSwitchBannerComponent],
+  // The LAN-switch banner is a no-op on the Hosted build (see its
+  // LIBRARY_BACKEND gate) — safe to always mount here.
   template: `
-    @if (layout() === 'phone') {
-      <app-phone-tab-shell />
-    } @else {
-      <router-outlet />
-    }
+    <router-outlet />
     <maple-update-toast />
     <maple-lan-switch-banner />
   `,
@@ -46,7 +36,4 @@ import { LanSwitchBannerComponent } from '../network/lan-switch-banner.component
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class RootShellComponent {
-  private readonly layoutService = inject(LayoutService);
-  protected readonly layout = this.layoutService.layout;
-}
+export class RootShellComponent {}

@@ -1,7 +1,7 @@
 // editor-shell-parity.spec.ts — canvas-first editor (A) parity with the S5
 // editor (B), epic #1807 slice 5.
 //
-// B (`editor.component.ts` + `editor-header.component.ts`) ships three things
+// B (`editor.component.ts` + `editor-header.component.ts`) ships two things
 // A lacked entirely:
 //   - an Undo/Redo top-bar button (tap = undo, long-press 500ms = redo,
 //     disabled when there's nothing to undo/redo) — see
@@ -9,15 +9,11 @@
 //   - an Info button opening `InfoPanelComponent` as a bottom sheet on phone
 //     / a right-side pane on tablet+ — the same split
 //     `preview-shell.component.ts` already uses for its own Info surface.
-//   - hiding the phone bottom tab bar for the duration of the edit session
-//     via `TabBarVisibilityService` (`editor.component.ts`'s `ngOnInit` /
-//     `ngOnDestroy`).
 //
 // This spec proves the port: the SAME `EditorStateService.undo()`/`redo()`
-// this shell already binds via keyboard now also drive a real button, the
+// this shell already binds via keyboard now also drive a real button, and the
 // SAME `InfoPanelComponent` (`asset` / `insideSheet` inputs, `close` output)
-// B's header wires up now mounts here too, and `TabBarVisibilityService.hidden`
-// flips exactly like every other push-mode surface (Loupe, Preview, S5 Editor).
+// B's header wires up now mounts here too.
 //
 // Full template render, following the stubbing pattern shared by
 // editor-shell-crop.spec.ts / editor-shell-presets.spec.ts / editor-shell-hsl.spec.ts.
@@ -39,7 +35,6 @@ import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { CropSessionService } from '../../components/crop-overlay/crop-session.service';
 import { LIBRARY_BACKEND } from '../../api/library-backend.token';
-import { TabBarVisibilityService } from '../tab-bar-visibility.service';
 import { InfoPanelComponent } from '../../info/info-panel.component';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
 import type { Asset, AssetId } from '../../models/asset';
@@ -317,20 +312,6 @@ describe('EditorShellComponent — parity with the S5 editor (epic #1807 slice 5
       infoButton().click();
       fixture.detectChanges();
       expect(fixture.nativeElement.querySelector('.info-pane')).toBeNull();
-    });
-  });
-
-  // ── Phone tab-bar visibility ───────────────────────────────────────────
-
-  describe('TabBarVisibilityService', () => {
-    it('hides the phone tab bar on init and restores it on destroy', () => {
-      setup();
-      const tabBar = TestBed.inject(TabBarVisibilityService);
-
-      expect(tabBar.hidden()).toBe(true);
-
-      fixture.destroy();
-      expect(tabBar.hidden()).toBe(false);
     });
   });
 });
