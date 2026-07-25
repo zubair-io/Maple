@@ -16,6 +16,7 @@ import type {
   BlackWhiteMode,
   HighlightRecoveryMode,
   HotPixelSuppressionMode,
+  LensProfileEnable,
   Look,
   Profile,
   ToneCurveMode,
@@ -83,6 +84,10 @@ const KNOWN_ATTRIBUTES = new Set<string>([
   'papp:Profile',
   // Hot/dead-pixel suppression (#1106) — decode-product enum field.
   'papp:HotPixelSuppression',
+  // DNG lens corrections (#376) — master switch for the OpcodeList3
+  // corrections; parsed into the model and re-emitted by the serializer,
+  // so it must stay out of the passthrough bucket (double-emit otherwise).
+  'crs:LensProfileEnable',
   // Enum mode fields (#2214) — parsed into the model and re-emitted by the
   // serializer, so they must stay out of the passthrough bucket
   // (double-emit otherwise).
@@ -330,6 +335,25 @@ export class XmpParserService {
           v === 'on' ? 'On' : v === 'off' ? 'Off' : undefined;
         if (parsed !== undefined) {
           model.hotPixelSuppression = parsed;
+        }
+        continue;
+      }
+
+      // DNG lens corrections master switch (#376). ACR writes "1"/"0";
+      // the True/False spelling other XMP writers use for boolean `crs:`
+      // markers is accepted too, mirroring the Rust and Swift parsers.
+      // Unknown values are dropped so the field takes its default ('On')
+      // rather than blocking sidecar load.
+      if (name === 'crs:LensProfileEnable') {
+        const v = attr.value.toLowerCase();
+        const parsed: LensProfileEnable | undefined =
+          v === '1' || v === 'true' || v === 'on'
+            ? 'On'
+            : v === '0' || v === 'false' || v === 'off'
+              ? 'Off'
+              : undefined;
+        if (parsed !== undefined) {
+          model.lensProfileEnable = parsed;
         }
         continue;
       }

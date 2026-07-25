@@ -103,6 +103,14 @@ export class XmpSerializerService {
       parts.push(`papp:HotPixelSuppression="${this._escapeAttr(model.hotPixelSuppression)}"`);
     }
 
+    // DNG lens corrections master switch (#376) — enum field, default
+    // 'On'. Emit only when the user turned the corrections off, using
+    // ACR's "0" spelling so Lightroom reads it back. The three
+    // `crs:LensProfile*Scale` companions ride the numeric-field table.
+    if (model.lensProfileEnable === 'Off') {
+      parts.push(`crs:LensProfileEnable="0"`);
+    }
+
     // User white-balance method (#431; TS wiring #2214) — enum field,
     // default 'Cat16'. Emit only when non-default so pre-#431 sidecars
     // stay byte-identical.

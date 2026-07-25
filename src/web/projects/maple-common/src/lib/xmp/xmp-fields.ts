@@ -198,6 +198,16 @@ export const ADJUSTMENT_FIELDS: XmpFieldMapping<NumericAdjustmentKey>[] = [
   numericField('crs:GrayMixerBlue', 'grayMixerBlue'),
   numericField('crs:GrayMixerPurple', 'grayMixerPurple'),
   numericField('crs:GrayMixerMagenta', 'grayMixerMagenta'),
+  // ---- DNG lens corrections (#376) ----
+  // Per-family strength for the corrections a DNG carries in its
+  // OpcodeList3, as a percentage of the vendor's authored correction.
+  // ACR-compatible `crs:` keys; the master `crs:LensProfileEnable` switch
+  // is an enum and is handled alongside the other enum modes in the
+  // parser / serializer. Mirrors the Rust (`xmp/mod.rs`) and Swift
+  // (`XMPSerialization+Attrs.swift`) writers.
+  numericField('crs:LensProfileDistortionScale', 'lensCorrectionDistortion'),
+  numericField('crs:LensProfileChromaticAberrationScale', 'lensCorrectionCa'),
+  numericField('crs:LensProfileVignettingScale', 'lensCorrectionVignetting'),
 ];
 
 /** WhiteBalance preset — serialized as a string attribute, not a number. */
