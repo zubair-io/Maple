@@ -84,7 +84,11 @@ describe('ImageCanvasComponent — async byte-fetch gate (#1562)', () => {
       providers: [
         XmpSerializerService,
         { provide: LibraryStateService, useValue: stateStub },
-        { provide: RawPipelineService, useValue: { decode: decodeSpy } },
+        {
+          provide: RawPipelineService,
+          // #1153: the canvas template reads the deep-denoise progress signal.
+          useValue: { decode: decodeSpy, deepDenoiseProgress: signal(null) },
+        },
       ],
     });
     fixture = TestBed.createComponent(ImageCanvasComponent);

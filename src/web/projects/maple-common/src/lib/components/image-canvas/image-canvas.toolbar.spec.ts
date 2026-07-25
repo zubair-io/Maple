@@ -48,7 +48,14 @@ describe('ImageCanvasComponent — hideToolbar input (#1558)', () => {
       providers: [
         XmpSerializerService,
         { provide: LibraryStateService, useValue: stateStub },
-        { provide: RawPipelineService, useValue: { decode: vi.fn(() => new Promise(() => {})) } },
+        {
+          provide: RawPipelineService,
+          // #1153: the canvas template reads the deep-denoise progress signal.
+          useValue: {
+            decode: vi.fn(() => new Promise(() => {})),
+            deepDenoiseProgress: signal(null),
+          },
+        },
       ],
     });
     fixture = TestBed.createComponent(ImageCanvasComponent);

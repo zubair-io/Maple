@@ -45,6 +45,9 @@ export function onCanvasPointerDown(
   scrub.startInternal = shell.editorState.armedInternalValue();
 
   shell.editorState.commit();
+  // Commit-on-release sub-params (Noise → Deep / Prefilter, #1153) park their
+  // value for the duration of the gesture instead of re-developing per move.
+  shell.editorState.beginGesture();
   shell.scrubbing.set(true);
   shell.chromeState.set('scrubbing');
   shell.showHud();
@@ -74,6 +77,8 @@ function onScrubMove(shell: EditorShellComponent, scrub: ScrubGestureState, e: P
 }
 
 function onScrubUp(shell: EditorShellComponent, scrub: ScrubGestureState, _e: PointerEvent): void {
+  // Release is the commit point for deferred (decode-product) sub-params.
+  shell.editorState.endGesture();
   cleanupScrub(shell, scrub);
   shell.scheduleHudFade();
   shell.chromeState.set('full');
@@ -84,6 +89,7 @@ function onScrubUp(shell: EditorShellComponent, scrub: ScrubGestureState, _e: Po
  *  pointerup cleanup but do NOT commit the interrupted value — just restore
  *  chrome state and release the listeners. */
 function onScrubCancel(shell: EditorShellComponent, scrub: ScrubGestureState): void {
+  shell.editorState.cancelGesture();
   cleanupScrub(shell, scrub);
   shell.hudVisible.set(false);
   shell.chromeState.set('full');

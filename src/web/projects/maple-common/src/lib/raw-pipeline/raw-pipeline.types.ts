@@ -182,6 +182,24 @@ export interface WorkerLog {
   text: string;
 }
 
+/**
+ * #1153: a BM3D deep-denoise progress tick, broadcast (id 0) while a develop
+ * with `deepDenoise > 0` runs. The numbers come from raw-core's own
+ * per-reference-row stage progress, not from a timer.
+ *
+ * The develop is synchronous inside the worker, so no request/response can
+ * complete while it runs — hence a broadcast, and hence the push direction:
+ * an outgoing `postMessage` still reaches the (unblocked) main thread.
+ */
+export interface DeepDenoiseProgress {
+  id: 0;
+  type: 'deep-denoise-progress';
+  /** BM3D pass currently running: 1 (hard threshold) or 2 (Wiener). */
+  pass: 1 | 2;
+  /** Overall completion across BOTH passes, `[0, 1]`. */
+  fraction: number;
+}
+
 export type WorkerResponse =
   | DecodeSuccess
   | DecodeError
@@ -192,6 +210,7 @@ export type WorkerResponse =
   | SessionError
   | WorkerStatus
   | WorkerLog
+  | DeepDenoiseProgress
   | AutoAdjustSuccess
   | AutoAdjustError
   | ExportSuccess
