@@ -14,6 +14,13 @@
 // from. Both fields matter: an overwrite that preserves mtime but changes size
 // produces a fresh source ETag, so without the size check a stale thumb would
 // be served under a validator claiming it was current.
+//
+// Raw `node:fs` rather than `fs/mirrored.ts` (allowlisted in `.oxlintrc.json`):
+// this sidecar describes a derived, regenerable thumb, and every other writer in
+// that tier — `indexer/thumbnailer.ts`, `routes/fs-thumbs.ts`, `thumbs/render.ts`
+// — is raw for the same reason. Mirroring the sidecar while the thumb it
+// describes is not mirrored would be incoherent, and a mirror that lacks it just
+// re-renders once.
 
 import { stat, writeFile, readFile } from 'node:fs/promises';
 
