@@ -11,6 +11,7 @@ import { Component } from '@angular/core';
 
 import { MapleIconComponent, type MapleIconName } from './maple-icon.component';
 import { ICON_SHAPES } from './maple-icon-registry';
+import { TOOL_GLYPH_STROKE_WIDTH, TOOL_ICON_SHAPES, type ToolIconName } from './tool-glyph-shapes';
 
 @Component({
   selector: 'test-host',
@@ -191,6 +192,73 @@ describe('MapleIconComponent', () => {
       // Outer is the larger one.
       const radii = Array.from(circles).map((c) => Number(c.getAttribute('r')));
       expect(Math.max(...radii)).toBe(5.5);
+    });
+  });
+
+  // ---- Editor tool glyphs (#640) ----
+  // The tool set ships to a stricter contract than the chrome glyphs: 16×16,
+  // 1.6 stroke, round caps/joins, stroke-only. These tests assert the contract
+  // over the whole set rather than one test per drawing, so a new glyph — or an
+  // edit to an existing one — cannot quietly break the family.
+
+  describe('editor tool glyphs (#640)', () => {
+    const toolNames = Object.keys(TOOL_ICON_SHAPES) as ToolIconName[];
+
+    it('registers every tool glyph in the shared icon registry', () => {
+      expect(toolNames.length).toBe(23);
+      for (const name of toolNames) {
+        expect(ICON_SHAPES[name]).toBe(TOOL_ICON_SHAPES[name]);
+        expect(ICON_SHAPES[name].length).toBeGreaterThan(0);
+      }
+    });
+
+    it('draws stroke-only at the 1.6 weight, with no fills or opacity hints', () => {
+      for (const name of toolNames) {
+        for (const shape of TOOL_ICON_SHAPES[name]) {
+          expect(shape.filled ?? false).toBe(false);
+          expect(shape.opacity).toBeUndefined();
+          expect(shape.sharp ?? false).toBe(false);
+          expect(shape.strokeWidth).toBe(TOOL_GLYPH_STROKE_WIDTH);
+        }
+      }
+    });
+
+    it('keeps circle and rect primitives inside the padded 16×16 box', () => {
+      // Half a stroke (0.8) past the drawn edge is where the ink actually
+      // stops; the artwork leaves a further unit of clearance beyond that.
+      const half = TOOL_GLYPH_STROKE_WIDTH / 2;
+      for (const name of toolNames) {
+        for (const shape of TOOL_ICON_SHAPES[name]) {
+          if (shape.kind === 'circle') {
+            expect(shape.cx - shape.r - half).toBeGreaterThanOrEqual(1);
+            expect(shape.cy - shape.r - half).toBeGreaterThanOrEqual(1);
+            expect(shape.cx + shape.r + half).toBeLessThanOrEqual(15);
+            expect(shape.cy + shape.r + half).toBeLessThanOrEqual(15);
+          } else if (shape.kind === 'rect') {
+            expect(shape.x - half).toBeGreaterThanOrEqual(1);
+            expect(shape.y - half).toBeGreaterThanOrEqual(1);
+            expect(shape.x + shape.width + half).toBeLessThanOrEqual(15);
+            expect(shape.y + shape.height + half).toBeLessThanOrEqual(15);
+          }
+        }
+      }
+    });
+
+    it('renders a tool glyph with the artwork weight and round joins', () => {
+      const svg = render('tool-exposure');
+      const drawn = svg.querySelectorAll('path, circle, rect');
+      expect(drawn.length).toBe(TOOL_ICON_SHAPES['tool-exposure'].length);
+      for (const element of Array.from(drawn)) {
+        expect(element.getAttribute('stroke-width')).toBe(String(TOOL_GLYPH_STROKE_WIDTH));
+        expect(element.getAttribute('stroke-linecap')).toBe('round');
+        expect(element.getAttribute('stroke-linejoin')).toBe('round');
+        expect(element.getAttribute('fill')).toBe('none');
+      }
+    });
+
+    it('leaves the chrome glyphs on the component default weight', () => {
+      const svg = render('plus');
+      expect(svg.querySelector('path')?.getAttribute('stroke-width')).toBe('1.5');
     });
   });
 });

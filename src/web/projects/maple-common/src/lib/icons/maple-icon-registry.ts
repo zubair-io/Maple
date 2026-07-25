@@ -1,9 +1,19 @@
 // Shape data for every icon in MapleIconComponent.
 //
 // Default rendering: stroked outline, fill=none, color from the component's
-// `color` input, stroke-width from `strokeWidth`. A shape with `filled: true`
-// is filled with the same color and gets no stroke. `opacity` applies as-is
-// to the SVG primitive (sidebar/inspector use 0.3 for the filled panel hint).
+// `color` input, stroke-width from `strokeWidth` (or the shape's own
+// `strokeWidth`, when it carries one). A shape with `filled: true` is filled
+// with the same color and gets no stroke. `opacity` applies as-is to the SVG
+// primitive (sidebar/inspector use 0.3 for the filled panel hint).
+//
+// The 23 editor tool glyphs live in their own table — `tool-glyph-shapes.ts` —
+// because they are drawn to a stricter contract than the chrome set (#640).
+
+import { circle, path, rect, sharpRect, type IconShape } from './icon-shape';
+import { TOOL_ICON_SHAPES, type ToolIconName } from './tool-glyph-shapes';
+
+export type { IconShape, ShapeBase } from './icon-shape';
+export type { ToolIconName } from './tool-glyph-shapes';
 
 export type MapleIconName =
   | 'chevron-right'
@@ -55,81 +65,8 @@ export type MapleIconName =
   | 'album-stack'
   | 'keyword-hash'
   | 'person-circle'
-  // --- Tool glyphs (S5 Editor, #625). Placeholders — shapes are
-  // recognizable but designer-quality artwork is a follow-up. ---
-  | 'tool-exposure'
-  | 'tool-brightness'
-  | 'tool-contrast'
-  | 'tool-highlights'
-  | 'tool-shadows'
-  | 'tool-whites'
-  | 'tool-blacks'
-  | 'tool-temp'
-  | 'tool-tint'
-  | 'tool-vibrance'
-  | 'tool-saturation'
-  | 'tool-hsl'
-  | 'tool-clarity'
-  | 'tool-texture'
-  | 'tool-dehaze'
-  | 'tool-vignette'
-  | 'tool-grain'
-  | 'tool-split-tone'
-  | 'tool-sharpen'
-  | 'tool-noise'
-  | 'tool-color-nr'
-  | 'tool-crop'
-  | 'tool-presets';
-
-interface ShapeBase {
-  filled?: boolean;
-  opacity?: number;
-  /** Skip stroke-linecap/linejoin="round" so the shape renders with the
-   * SVG defaults (butt cap, miter join). Used by the grid icons whose
-   * 90° corners must stay sharp; rounded joins would visibly bevel the
-   * 3×3 / 4.5×4.5 cells. */
-  sharp?: boolean;
-  /** Override the SVG fill-rule. `evenodd` lets a single filled <path>
-   * combine an outer shape with inner cut-outs (e.g. `clear-circle-fill`'s
-   * filled disc with an X-shaped hole that knocks out the disc fill, so
-   * the X reads against the page background rather than being painted in
-   * `currentColor` over a same-colored disc). Only meaningful when
-   * `filled: true`. */
-  fillRule?: 'evenodd' | 'nonzero';
-}
-
-export type IconShape =
-  | (ShapeBase & { kind: 'path'; d: string })
-  | (ShapeBase & {
-      kind: 'rect';
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-      rx?: number;
-    })
-  | (ShapeBase & { kind: 'circle'; cx: number; cy: number; r: number });
-
-const rect = (x: number, y: number, width: number, height: number, rx?: number): IconShape => ({
-  kind: 'rect',
-  x,
-  y,
-  width,
-  height,
-  ...(rx !== undefined ? { rx } : {}),
-});
-
-const sharpRect = (x: number, y: number, width: number, height: number): IconShape => ({
-  kind: 'rect',
-  x,
-  y,
-  width,
-  height,
-  sharp: true,
-});
-
-const path = (d: string): IconShape => ({ kind: 'path', d });
-const circle = (cx: number, cy: number, r: number): IconShape => ({ kind: 'circle', cx, cy, r });
+  // --- Tool glyphs (S5 Editor). Final artwork in `tool-glyph-shapes.ts`. ---
+  | ToolIconName;
 
 export const ICON_SHAPES: Record<MapleIconName, readonly IconShape[]> = {
   'chevron-right': [path('M6 3l5 5-5 5')],
@@ -272,117 +209,8 @@ export const ICON_SHAPES: Record<MapleIconName, readonly IconShape[]> = {
   // Head circle + shoulder curve inside an outer face circle — person.
   'person-circle': [circle(8, 8, 5.5), circle(8, 6.5, 1.75), path('M4.5 12.5a3.5 3.5 0 017 0')],
 
-  // ── S5 Editor tool glyphs (#625) ─────────────────────────────────────────
-  // Sun with eight rays — exposure (lifts the EV; brightest icon in the
-  // group).
-  'tool-exposure': [
-    circle(8, 8, 2),
-    path(
-      'M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2' +
-        'M3.34 3.34l1.41 1.41M11.25 11.25l1.41 1.41' +
-        'M3.34 12.66l1.41-1.41M11.25 4.75l1.41-1.41',
-    ),
-  ],
-  // Smaller sun, four short rays — brightness (#1108; midtone-band gain,
-  // the gentler sibling of the exposure sun).
-  'tool-brightness': [circle(8, 8, 2.5), path('M8 2.5v2M8 11.5v2M2.5 8h2M11.5 8h2')],
-  // Half-filled circle — contrast.
-  'tool-contrast': [
-    circle(8, 8, 5.5),
-    {
-      kind: 'path',
-      d: 'M8 2.5A5.5 5.5 0 0 1 8 13.5Z',
-      filled: true,
-    },
-  ],
-  // Sun above a horizon line — highlights.
-  'tool-highlights': [
-    circle(8, 6, 2.5),
-    path('M2 12h12M5 6h-1M11 6h1M8 3v-1M5.5 8.5l-.7.7M10.5 8.5l.7.7'),
-  ],
-  // Crescent moon — shadows.
-  'tool-shadows': [path('M11 3a5.5 5.5 0 1 0 2 8 4.5 4.5 0 0 1-2-8Z')],
-  // Filled circle inside an outline — whites (push toward white).
-  'tool-whites': [circle(8, 8, 5.5), { kind: 'circle', cx: 8, cy: 8, r: 3, filled: true }],
-  // Outline circle — blacks.
-  'tool-blacks': [circle(8, 8, 5.5), circle(8, 8, 2.5)],
-  // Thermometer outline — temp.
-  'tool-temp': [path('M8 2v8.5'), circle(8, 12, 2), path('M6.5 5h3M6.5 8h3')],
-  // Palette swatches stacked — tint.
-  'tool-tint': [
-    path('M3.5 8a4.5 4.5 0 1 1 9 0c0 1.5-1.5 2-3 2s-1 1.5-2 1.5-4-.5-4-3.5Z'),
-    circle(5, 6.5, 0.6),
-    circle(8, 5, 0.6),
-    circle(11, 6.5, 0.6),
-  ],
-  // Half-filled drop — vibrance.
-  'tool-vibrance': [
-    path('M8 2.5S3.5 7 3.5 10A4.5 4.5 0 0 0 8 14.5 4.5 4.5 0 0 0 12.5 10C12.5 7 8 2.5 8 2.5Z'),
-    {
-      kind: 'path',
-      d: 'M8 14.5A4.5 4.5 0 0 0 12.5 10c0-3-4.5-7.5-4.5-7.5Z',
-      filled: true,
-    },
-  ],
-  // Solid drop — saturation.
-  'tool-saturation': [
-    {
-      kind: 'path',
-      d: 'M8 2.5S3.5 7 3.5 10A4.5 4.5 0 0 0 8 14.5 4.5 4.5 0 0 0 12.5 10C12.5 7 8 2.5 8 2.5Z',
-      filled: true,
-    },
-  ],
-  // Three stacked sliders — HSL (hue / sat / luminance).
-  'tool-hsl': [
-    path('M2 4h12M2 8h12M2 12h12'),
-    circle(5, 4, 1.5),
-    circle(10, 8, 1.5),
-    circle(7, 12, 1.5),
-  ],
-  // Diamond outline — clarity (midtone snap).
-  'tool-clarity': [path('M8 2l6 6-6 6-6-6 6-6Z'), path('M5 8h6')],
-  // Squiggle — texture.
-  'tool-texture': [path('M2 6c2-3 4 3 6 0s4 3 6 0M2 11c2-3 4 3 6 0s4 3 6 0')],
-  // Wind lines — dehaze.
-  'tool-dehaze': [path('M2 5h9a2 2 0 1 0-2-2M2 8h12M2 11h9a2 2 0 1 1-2 2')],
-  // Vignette = inner circle with dimmed outer ring.
-  'tool-vignette': [
-    rect(2, 2, 12, 12, 1.5),
-    { kind: 'circle', cx: 8, cy: 8, r: 4, opacity: 0.4 },
-    circle(8, 8, 5.5),
-  ],
-  // Grain — random dots.
-  'tool-grain': [
-    rect(2, 2, 12, 12, 1.5),
-    { kind: 'circle', cx: 5, cy: 5, r: 0.7, filled: true },
-    { kind: 'circle', cx: 9, cy: 4, r: 0.7, filled: true },
-    { kind: 'circle', cx: 12, cy: 7, r: 0.7, filled: true },
-    { kind: 'circle', cx: 4, cy: 9, r: 0.7, filled: true },
-    { kind: 'circle', cx: 7, cy: 11, r: 0.7, filled: true },
-    { kind: 'circle', cx: 11, cy: 12, r: 0.7, filled: true },
-    { kind: 'circle', cx: 8, cy: 7.5, r: 0.7, filled: true },
-  ],
-  // Split — left half filled.
-  'tool-split-tone': [
-    rect(2, 2, 12, 12, 1.5),
-    { kind: 'rect', x: 2, y: 2, width: 6, height: 12, filled: true },
-  ],
-  // Triangle (sharpen).
-  'tool-sharpen': [path('M8 2l5.5 11h-11L8 2Z')],
-  // Waveform — noise.
-  'tool-noise': [path('M2 8h2l1-4 2 8 2-6 2 4 1-2h2')],
-  // Wand-and-rays — color NR (denoising chroma).
-  'tool-color-nr': [
-    path('M3 13l8-8'),
-    circle(11, 5, 1.5),
-    path('M13 2v1.5M14.5 5H13M11 7.5V9M9.5 5H8'),
-  ],
-  // Crop frame.
-  'tool-crop': [path('M4 2v10h10M2 4h10v10'), circle(11, 5, 0.1)],
-  // Three stacked cards — presets.
-  'tool-presets': [
-    rect(2.5, 4.5, 11, 9, 1.5),
-    path('M4.5 4.5V3a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v1.5'),
-    path('M2.5 8h11'),
-  ],
+  // ── S5 Editor tool glyphs (#640) ─────────────────────────────────────────
+  // Final artwork, drawn as one family — see `tool-glyph-shapes.ts` for the
+  // drawing contract and the per-glyph notes.
+  ...TOOL_ICON_SHAPES,
 };
