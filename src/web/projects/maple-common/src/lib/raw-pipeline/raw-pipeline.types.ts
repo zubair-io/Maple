@@ -193,7 +193,9 @@ export type WorkerResponse =
   | WorkerStatus
   | WorkerLog
   | AutoAdjustSuccess
-  | AutoAdjustError;
+  | AutoAdjustError
+  | ExportSuccess
+  | ExportError;
 
 // ── Auto-adjust one-shot (#1379) ─────────────────────────────────────────────
 // Standalone decode + probe: the worker calls `compute_auto_adjustments_from_bytes`
@@ -247,6 +249,72 @@ export interface AutoAdjustError {
   message: string;
 }
 
+// ── Edited-image export (#943) ───────────────────────────────────────────────
+// Full-resolution render + encode, both inside the WASM module: only the
+// compressed file crosses the boundary, and it crosses in chunks that the
+// worker accumulates into a `Blob`. A 100 MP 16-bit TIFF is ~600 MB, so
+// handing JS a pixel buffer (or even one contiguous encoded `ArrayBuffer`)
+// would put the export one allocation away from an out-of-memory kill; a Blob
+// is backed by browser storage rather than the JS heap.
+
+/** Containers the export can be written to. Wire values match `raw-core`. */
+export type ExportFormat = 'jpeg' | 'tiff' | 'png';
+
+/** Output primaries. `display-p3` matches the canvas colour-space tag. */
+export type ExportColorSpace = 'srgb' | 'display-p3';
+
+/** The user-facing export settings. */
+export interface RawExportOptions {
+  format: ExportFormat;
+  /** JPEG quality, 1–100. Ignored by the lossless formats. */
+  quality: number;
+  colorSpace: ExportColorSpace;
+  /**
+   * Cap on the longest output edge in pixels. Omit (or 0) for native full
+   * resolution. Never upscales.
+   */
+  maxSidePixels?: number;
+}
+
+/** Ask the worker to render + encode a deliverable file. */
+export interface ExportRequest {
+  id: number;
+  type: 'export';
+  /** Transferable RAW bytes — consumed by the worker; do NOT re-use after posting. */
+  bytes: ArrayBuffer;
+  ext: string;
+  /** Sidecar XMP text, so the export reads the same edits the canvas showed. */
+  xmp?: string;
+  options: RawExportOptions;
+}
+
+/** Reply to `export`: the encoded file, as a Blob the caller can download. */
+export interface ExportSuccess {
+  id: number;
+  type: 'export-success';
+  /** Dimensions actually written, after resize / crop / orientation. */
+  width: number;
+  height: number;
+  /** Filename extension for the chosen format, without the dot. */
+  extension: string;
+  /** The encoded file. Already tagged with the format's MIME type. */
+  blob: Blob;
+}
+
+export interface ExportError {
+  id: number;
+  type: 'export-error';
+  message: string;
+}
+
+/** Main-thread view of a completed export. */
+export interface ExportedFile {
+  width: number;
+  height: number;
+  extension: string;
+  blob: Blob;
+}
+
 /** All request messages the raw-pipeline worker accepts. */
 export type WorkerRequest =
   | DecodeRequest
@@ -254,7 +322,8 @@ export type WorkerRequest =
   | OpenSessionRequest
   | RenderSessionRequest
   | CloseSessionRequest
-  | AutoAdjustRequest;
+  | AutoAdjustRequest
+  | ExportRequest;
 
 export interface DecodedImage {
   width: number;

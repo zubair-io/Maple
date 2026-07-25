@@ -3,7 +3,12 @@
 // Contains: public session result types (OpenedLiveSession, RenderedLiveSession)
 // and the pending-handler discriminated union used by RawPipelineService.
 
-import type { AutoAdjustPatch, DecodedImage, DecodedSceneLinearImage } from './raw-pipeline.types';
+import type {
+  AutoAdjustPatch,
+  DecodedImage,
+  DecodedSceneLinearImage,
+  ExportedFile,
+} from './raw-pipeline.types';
 
 /**
  * Result of opening a persistent GPU live session (epic #925, P4b-web / #1038):
@@ -70,5 +75,10 @@ export type PendingHandler =
   | {
       kind: 'auto-adjust';
       resolve: (patch: AutoAdjustPatch) => void;
+      reject: (err: Error) => void;
+    }
+  | {
+      kind: 'export';
+      resolve: (file: ExportedFile) => void;
       reject: (err: Error) => void;
     };

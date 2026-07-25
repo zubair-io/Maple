@@ -83,6 +83,7 @@
         [disabled]="state.focusedAssetId() === null"
         title="Export"
         aria-label="Export"
+        (click)="exportOpen.set(true)"
       >
         <maple-icon name="export" [size]="14" color="currentColor" />
       </button>
@@ -278,4 +279,11 @@
       />
     </app-bottom-sheet>
   }
+
+  <!-- Export options dialog (#943) -->
+  <app-export-dialog
+    [visible]="exportOpen()"
+    [asset]="state.focusedAsset()"
+    (dismiss)="exportOpen.set(false)"
+  />
 </div>

@@ -43,6 +43,12 @@ export * from './lib/api/imports-api.service';
 export * from './lib/api/pano.service';
 export * from './lib/pano/pano-dialog.component';
 
+// #943 — Edited-image export (render + encode + download, sidecar refreshed)
+export * from './lib/export/image-export.service';
+export * from './lib/export/export-dialog.component';
+export * from './lib/export/export-dialog.vm';
+export * from './lib/export/download-blob';
+
 // #1757 — Cloudflare R2 thumbnail-mirror operator config
 export * from './lib/api/cloudflare.service';
 

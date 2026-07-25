@@ -19,9 +19,12 @@ import type {
   OpenSessionRequest,
   RenderSessionRequest,
   CloseSessionRequest,
+  ExportedFile,
+  RawExportOptions,
   ScopeSnapshot,
   WorkerResponse,
 } from './raw-pipeline.types';
+import { dispatchExport } from './raw-pipeline.export-request';
 
 export type { AutoAdjustPatch } from './raw-pipeline.types';
 import { GPU_LIVE_RENDER_ENABLED } from './gpu-live-render.token';
@@ -142,6 +145,15 @@ export class RawPipelineService implements OnDestroy {
         } else if (msg.type === 'auto-adjust-success' && handler.kind === 'auto-adjust') {
           handler.resolve(msg.patch);
         } else if (msg.type === 'auto-adjust-error' && handler.kind === 'auto-adjust') {
+          handler.reject(new Error(msg.message));
+        } else if (msg.type === 'export-success' && handler.kind === 'export') {
+          handler.resolve({
+            width: msg.width,
+            height: msg.height,
+            extension: msg.extension,
+            blob: msg.blob,
+          });
+        } else if (msg.type === 'export-error' && handler.kind === 'export') {
           handler.reject(new Error(msg.message));
         } else {
           // Mismatched response type and handler kind — should never happen
@@ -538,6 +550,44 @@ export class RawPipelineService implements OnDestroy {
       });
       worker.postMessage(request, [buffer]);
     });
+  }
+
+  /**
+   * Render a RAW at export quality and encode it to a deliverable file (#943).
+   *
+   * Runs behind the same `decodeChain` gate as `decode()`: a full-resolution
+   * export is by far the largest thing the WASM heap ever holds, so it must not
+   * overlap another decode competing for the same 4 GiB address space.
+   *
+   * The reply is a `Blob` — the worker drains the encoded bytes out of the WASM
+   * heap in chunks, so neither thread ever holds a second copy of the file.
+   */
+  exportImage(
+    bytes: Uint8Array,
+    ext: string,
+    options: RawExportOptions,
+    xmp?: string,
+  ): Promise<ExportedFile> {
+    const run = () => this.exportOnce(bytes, ext, options, xmp);
+    const next = this.decodeChain.then(run, run);
+    this.decodeChain = next.catch(() => undefined);
+    return next;
+  }
+
+  private exportOnce(
+    bytes: Uint8Array,
+    ext: string,
+    options: RawExportOptions,
+    xmp: string | undefined,
+  ): Promise<ExportedFile> {
+    let worker: Worker;
+    try {
+      worker = this.ensureWorker();
+    } catch {
+      return Promise.reject(new Error('RawPipelineService: worker unavailable'));
+    }
+    const register = (id: number, handler: PendingHandler) => this.pending.set(id, handler);
+    return dispatchExport(worker, this.nextId++, register, bytes, ext, options, xmp);
   }
 
   ngOnDestroy(): void {
