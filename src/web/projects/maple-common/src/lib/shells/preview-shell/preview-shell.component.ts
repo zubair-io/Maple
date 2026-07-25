@@ -20,7 +20,6 @@ import {
   Component,
   HostListener,
   OnDestroy,
-  OnInit,
   computed,
   effect,
   inject,
@@ -44,7 +43,6 @@ import {
 } from '../../addressing/route-address';
 import { previewKeyAction } from './preview-shell-keyboard';
 import { FilmstripComponent } from '../../components/filmstrip/filmstrip.component';
-import { TabBarVisibilityService } from '../tab-bar-visibility.service';
 import { AuthService } from '../../auth/auth.service';
 import { API_BASE_URL } from '../../api/api-base-url.token';
 
@@ -66,12 +64,11 @@ const SWIPE_THRESHOLD_PX = 40;
   styleUrl: './preview-shell.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class PreviewShellComponent implements OnInit, OnDestroy {
+export class PreviewShellComponent implements OnDestroy {
   state = inject(LibraryStateService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private layoutService = inject(LayoutService);
-  private tabBar = inject(TabBarVisibilityService);
   private auth = inject(AuthService);
   private apiBase = inject(API_BASE_URL);
 
@@ -145,22 +142,16 @@ export class PreviewShellComponent implements OnInit, OnDestroy {
     this.applyRouteAddress();
   }
 
-  ngOnInit(): void {
-    this.tabBar.hidden.set(true);
-  }
-
   ngOnDestroy(): void {
     this.unsubThumb?.();
     this.unsubPreview?.();
-    this.tabBar.hidden.set(false);
   }
 
   goBack(): void {
-    // Phone has no `/browse` route — its equivalent surface is the `/library`
-    // tab (see root-shell.component.ts's phone tab bar); navigating to
-    // `/browse` there would leave the tab route entirely. Tablet/desktop use
-    // `/browse`. Reuses the same `isTabletPlus` breakpoint check the template
-    // already uses for the Info pane vs sheet split.
+    // `/library` is a redirect to `/browse` (web responsive foundation,
+    // #2279) — both breakpoints land on the same BrowseShell route.
+    // Reuses the same `isTabletPlus` breakpoint check the template already
+    // uses for the Info pane vs sheet split.
     void this.router.navigate([this.isTabletPlus() ? '/browse' : '/library']);
   }
   edit(): void {

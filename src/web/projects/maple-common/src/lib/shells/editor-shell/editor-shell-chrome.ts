@@ -6,8 +6,9 @@
 //
 // Chrome recede: dims to 30% after 3s idle; restores on pointer move
 // (180ms transition, driven by the `.chrome--receded` class in the SCSS).
-// Desktop (≥1100px) opts out of auto-recede — chrome stays full always.
+// Desktop (>1024px) opts out of auto-recede — chrome stays full always.
 import type { EditorShellComponent } from './editor-shell.component';
+import type { MapleLayout } from '../../layout-service';
 
 /** Idle timeout before chrome recedes (ms). Desktop: never recedes. */
 const RECEDE_IDLE_MS = 3000;
@@ -17,12 +18,11 @@ const RECEDE_IDLE_MS = 3000;
  *  directly on the component class. */
 export interface ChromeRecedeState {
   recedeTimer: ReturnType<typeof setTimeout> | null;
-  resizeObserver: ResizeObserver | null;
   pointerMoveBound: ((e: PointerEvent) => void) | null;
 }
 
 export function newChromeRecedeState(): ChromeRecedeState {
-  return { recedeTimer: null, resizeObserver: null, pointerMoveBound: null };
+  return { recedeTimer: null, pointerMoveBound: null };
 }
 
 export function restartRecedeTimer(shell: EditorShellComponent, state: ChromeRecedeState): void {
@@ -75,17 +75,23 @@ export function teardownPointerMove(state: ChromeRecedeState): void {
   }
 }
 
-/** Responsive breakpoint observer: flips `isTabletPlus`/`isDesktop` and
- *  manages the chrome-recede idle timer across breakpoint crossings.
- *  Desktop (≥1100px) opts out of auto-recede entirely. */
-export function setupResponsive(shell: EditorShellComponent, state: ChromeRecedeState): void {
-  if (typeof window === 'undefined') return;
+/** Responsive breakpoint observer: flips `isTabletPlus`/`isDesktop` from the
+ *  shared `LayoutService.layout()` signal and manages the chrome-recede idle
+ *  timer across breakpoint crossings. Desktop (`layout() === 'desktop'`,
+ *  >1024px) opts out of auto-recede entirely. The caller (the shell's
+ *  constructor `effect`) re-invokes this on every layout signal change —
+ *  this module has no window/ResizeObserver dependency of its own. */
+export function setupResponsive(
+  shell: EditorShellComponent,
+  state: ChromeRecedeState,
+  layout: () => MapleLayout,
+): void {
   const update = () => {
-    const w = window.innerWidth;
     const wasDesktop = shell.isDesktop();
-    shell.isTabletPlus.set(w >= 768);
-    shell.isDesktop.set(w >= 1100);
-    if (w >= 1100) {
+    const l = layout();
+    shell.isTabletPlus.set(l !== 'phone');
+    shell.isDesktop.set(l === 'desktop');
+    if (l === 'desktop') {
       // Desktop opts out of auto-recede — always full
       clearRecedeTimer(state);
       shell.chromeState.set('full');
@@ -96,12 +102,11 @@ export function setupResponsive(shell: EditorShellComponent, state: ChromeRecede
       restartRecedeTimer(shell, state);
     }
   };
-  state.resizeObserver = new ResizeObserver(update);
-  state.resizeObserver.observe(document.documentElement);
   update();
   // On initial phone/tablet load the idle recede timer must start even if
-  // the user never moves the pointer or resizes (the resize handler only
-  // (re)starts it when crossing back from desktop). Desktop opts out.
+  // the user never moves the pointer or the layout never crosses back from
+  // desktop (the branch above only (re)starts it on such a crossing).
+  // Desktop opts out.
   if (!shell.isDesktop()) {
     shell.chromeState.set('full');
     restartRecedeTimer(shell, state);

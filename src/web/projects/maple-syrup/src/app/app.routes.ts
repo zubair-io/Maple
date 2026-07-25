@@ -2,12 +2,10 @@ import { Routes } from '@angular/router';
 import {
   BrowseShellComponent,
   EditorShellComponent,
-  PhoneSettingsStubComponent,
   PreviewShellComponent,
   ProtocolHandlerComponent,
 } from '@maple-common';
 import { LandingComponent } from './landing/landing.component';
-import { LibraryPageComponent } from './library-page.component';
 
 // Hosted: `/` is the Landing page with two CTAs. Users enter Browse or the
 // Editor explicitly from there.
@@ -30,14 +28,14 @@ const baseRoutes: Routes = [
     children: [{ path: '**', component: PreviewShellComponent }],
   },
   { path: 'view', component: PreviewShellComponent },
-  // Responsive-program S1a (#597) / S2 (#623) / S5 (#625) / S7 (#622)
-  // — phone-tier tab routes shared with RootShellComponent. The Library
-  // tab renders the responsive grid; loupe redirects to Preview
-  // (S4 dropped per #619 — the Editor canvas IS the full-image view; the S5
-  // editor itself was retired once the canvas-first editor reached feature
-  // parity, epic #1807 — Preview's own Edit action reaches it via
-  // `/edit/:slug/**` above); search is the lazy-loaded S7 page.
-  { path: 'library', component: LibraryPageComponent },
+  // Web responsive foundation (#2279): the phone-tab shell fork is retired —
+  // BrowseShell is the single library surface at every width. `/library`
+  // is a legacy bookmark redirect; loupe redirects to Preview (S4 dropped
+  // per #619 — the Editor canvas IS the full-image view; the S5 editor
+  // itself was retired once the canvas-first editor reached feature parity,
+  // epic #1807 — Preview's own Edit action reaches it via `/edit/:slug/**`
+  // above); search is the lazy-loaded S7 page.
+  { path: 'library', redirectTo: 'browse', pathMatch: 'full' },
   { path: 'library/loupe/:id', redirectTo: 'view/:id' },
   // PWA `protocol_handlers` landing route — see manifest.webmanifest and
   // ProtocolHandlerComponent. The browser substitutes the entire
@@ -48,7 +46,8 @@ const baseRoutes: Routes = [
     path: 'search',
     loadComponent: () => import('./search-page.component').then((m) => m.SearchPageComponent),
   },
-  { path: 'settings', component: PhoneSettingsStubComponent },
+  // Hosted settings surface lands in the responsive-Hosted ticket; redirect until then.
+  { path: 'settings', redirectTo: 'browse', pathMatch: 'full' },
 ];
 
 export const routes: Routes = [...baseRoutes, { path: '**', redirectTo: '' }];
