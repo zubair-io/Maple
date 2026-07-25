@@ -17,6 +17,7 @@
 //! --exit-code` so hand-edits to `Generated/` files fail fast.
 
 mod adjustment;
+mod adjustment_groups;
 mod color_matrices;
 mod ui_tokens;
 
