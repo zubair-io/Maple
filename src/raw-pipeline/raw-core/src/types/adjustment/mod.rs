@@ -9,9 +9,8 @@
 //! Layout:
 //! - [`mod@self`] — the `AdjustmentModel` struct, its defaults, and the
 //!   `HighlightRecoveryMode` / `WhiteBalancePreset` enums.
-//! - [`schema`] — `FieldSpec` + `ADJUSTMENT_SCHEMA` codegen table (scalars
-//!   and enums only; tone-curve point lists are deliberately omitted, see
-//!   that module's docstring).
+//! - [`schema`] — `FieldSpec` + `ADJUSTMENT_SCHEMA` codegen table (scalars,
+//!   enums, and the four point-curve fields; see that module's docstring).
 //! - [`curves`] — the [`curves::ToneCurve`] point-curve type used by the
 //!   four per-channel `tone_curve_*` fields below.
 //!
@@ -154,11 +153,11 @@ pub use render_enums::{Profile, ToneCurveMode, WbScaleVersion, WhiteBalancePrese
 /// for Swift and TypeScript mirrors. The [`ADJUSTMENT_SCHEMA`] table in
 /// [`schema`] describes every scalar / enum field for codegen.
 ///
-/// **Tone-curve fields are excluded from the codegen schema** — Swift and
-/// TypeScript currently mirror these four `tone_curve_*` fields by hand
-/// (planned: extend `FieldKind` to carry a `ToneCurve` variant, see ticket
-/// #273 follow-up). Identity defaults (empty curve / zero parametric
-/// scalars) guarantee that adding these fields does not perturb the
+/// The four `tone_curve_*` fields ride the schema through the
+/// `FieldKind::ToneCurve` variant (#366): codegen emits the field
+/// references on Swift and TypeScript, while the `ToneCurve` value type is
+/// hand-written on each platform. Identity defaults (empty curve / zero
+/// parametric scalars) guarantee that these fields do not perturb the
 /// pixel-parity harness against the pre-tone-curve baseline.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AdjustmentModel {

@@ -6,6 +6,8 @@
 // default factory. Hand-written extensions (e.g. `WhiteBalancePreset`)
 // live alongside in `adjustment-model.ts` and augment this shape.
 
+import type { ToneCurve } from '../models/adjustment-model';
+
 export type HighlightRecoveryMode =
   | 'Off'
   | 'Blend'
@@ -160,6 +162,14 @@ export interface GeneratedAdjustmentModel {
   profile: Profile;
   /** Tone-curve application mode (ticket #436). 'PerChannel' applies the three R/G/B curves independently (hue shifts); 'RatioPreserving' folds them through Rec.2020 luma to preserve hue. */
   toneCurveMode: ToneCurveMode;
+  /** Luma point curve (#273). Applied in scene-linear channels-uniformly via the Rec.2020 luma weights, so hue is preserved by construction. Identity (empty) by default. */
+  toneCurveLuma: ToneCurve;
+  /** Red-channel point curve (#273). Applied per `toneCurveMode` — independently in 'PerChannel', or folded through Rec.2020 luma in 'RatioPreserving'. Identity (empty) by default. */
+  toneCurveRed: ToneCurve;
+  /** Green-channel point curve (#273). Applied per `toneCurveMode`. Identity (empty) by default. */
+  toneCurveGreen: ToneCurve;
+  /** Blue-channel point curve (#273). Applied per `toneCurveMode`. Identity (empty) by default. */
+  toneCurveBlue: ToneCurve;
   /** Decode-time chroma pre-filter strength (#1104, tone/zoom design spec § 3.1). Luma-guided sparse cross-bilateral on opponent chroma inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:ChromaPrefilter`. Part of the decoded-image cache key. Range: [0.0, 100.0]. */
   chromaPrefilter: number;
   /** Hot/dead-pixel suppression (#1106, tone/zoom design spec § 10.6). Pre-demosaic same-color-neighbor outlier replacement inside the decode product; 'Off' (default) skips the stage bit-identically. XMP key `papp:HotPixelSuppression`. Part of the decoded-image cache key. */
@@ -305,6 +315,10 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     look: 'Default',
     profile: 'Auto',
     toneCurveMode: 'PerChannel',
+    toneCurveLuma: { points: [] },
+    toneCurveRed: { points: [] },
+    toneCurveGreen: { points: [] },
+    toneCurveBlue: { points: [] },
     chromaPrefilter: 0.0,
     hotPixelSuppression: 'Off',
     deepDenoise: 0.0,

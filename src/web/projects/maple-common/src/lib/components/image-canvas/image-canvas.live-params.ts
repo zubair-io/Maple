@@ -24,12 +24,15 @@ import {
   type AdjustmentModel,
   defaultAdjustmentModel,
   isIdentityCrop,
+  isIdentityToneCurve,
+  isToneCurveValue,
 } from '../../models/adjustment-model';
 
 // Computed ONCE at module load (never per render tick): the canonical default model
 // and the list of fields the fast path CANNOT carry. Excluded from that list are the
 // 19 scalar params it packs, `whiteBalancePreset` (a UI label ridden by
-// temperature/tint), `crop` (a nested object, compared structurally below),
+// temperature/tint), `crop` and the four `toneCurve*` point curves (nested
+// objects, compared structurally below),
 // `wbScaleVersion` (parse-state, not an edit), and `sharpenAmount`/`nrColor` (checked
 // explicitly against the prefix's zero, since their defaults are non-zero).
 const DEFAULT_MODEL = defaultAdjustmentModel();
@@ -59,8 +62,12 @@ const FAST_PATH_OR_SPECIAL_KEYS = new Set<keyof AdjustmentModel>([
   'sharpenAmount',
   'nrColor',
 ]);
-const NON_FAST_PATH_KEYS = (Object.keys(DEFAULT_MODEL) as (keyof AdjustmentModel)[]).filter(
-  (k) => !FAST_PATH_OR_SPECIAL_KEYS.has(k),
+const SCHEMA_KEYS = Object.keys(DEFAULT_MODEL) as (keyof AdjustmentModel)[];
+// Point curves (#366) are nested objects like `crop`: reference equality would
+// report every model as edited, so they get their own structural check below.
+const TONE_CURVE_KEYS = SCHEMA_KEYS.filter((k) => isToneCurveValue(DEFAULT_MODEL[k]));
+const NON_FAST_PATH_KEYS = SCHEMA_KEYS.filter(
+  (k) => !FAST_PATH_OR_SPECIAL_KEYS.has(k) && !isToneCurveValue(DEFAULT_MODEL[k]),
 );
 
 /**
@@ -91,6 +98,13 @@ export function canUseLiveFastPath(model: AdjustmentModel): boolean {
   // `crop` is a nested object — compare structurally; a non-identity crop can't ride
   // the fast path.
   if (!isIdentityCrop(model.crop)) return false;
+  // Point curves (#366) are nested too. An identity (empty) curve is not an edit;
+  // an authored one is a prefix field the fast path would freeze, so it routes to
+  // the full path.
+  for (const k of TONE_CURVE_KEYS) {
+    const curve = model[k];
+    if (!isToneCurveValue(curve) || !isIdentityToneCurve(curve)) return false;
+  }
   // Every other non-scalar field must equal its default.
   for (const k of NON_FAST_PATH_KEYS) {
     if (model[k] !== DEFAULT_MODEL[k]) return false;

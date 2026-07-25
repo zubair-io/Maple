@@ -174,6 +174,10 @@ fn schema_matches_struct() {
         "look",
         "profile",
         "tone_curve_mode",
+        "tone_curve_luma",
+        "tone_curve_red",
+        "tone_curve_green",
+        "tone_curve_blue",
         "chroma_prefilter",
         "hot_pixel_suppression",
         "deep_denoise",
@@ -335,7 +339,8 @@ fn schema_exemption_allowlist() {
     assert!(
         ALLOWED.contains(&"local_adjustments"),
         "local_adjustments must remain on the schema-exemption allow-list \
-         until the codegen table grows a structured-field FieldKind variant"
+         (Vec<LocalAdjustment> with its own schema — unlike the tone-curve \
+         fields, which the FieldKind::ToneCurve variant covers since #366)"
     );
     assert!(
         ALLOWED.contains(&"inpaint_removals"),
@@ -495,6 +500,55 @@ fn tone_curve_mode_enum_spec_is_present() {
         .expect("tone_curve_mode missing from schema");
     assert!(matches!(entry.kind, FieldKind::Enum));
     assert_eq!(entry.enum_name, "ToneCurveMode");
+}
+
+/// Per-channel point curves (#273, codegen'd in #366). All four are
+/// `FieldKind::ToneCurve` entries sitting directly after `tone_curve_mode`,
+/// and every one of them is identity (empty) on a default model — the
+/// invariant that keeps a fresh `AdjustmentModel` bit-identical to the
+/// pre-tone-curve pipeline output.
+#[test]
+fn tone_curve_fields_present_in_schema() {
+    let names = [
+        "tone_curve_luma",
+        "tone_curve_red",
+        "tone_curve_green",
+        "tone_curve_blue",
+    ];
+    let m = AdjustmentModel::default();
+    let curves = [
+        &m.tone_curve_luma,
+        &m.tone_curve_red,
+        &m.tone_curve_green,
+        &m.tone_curve_blue,
+    ];
+    for (name, curve) in names.iter().zip(curves) {
+        let entry = ADJUSTMENT_SCHEMA
+            .iter()
+            .find(|s| s.name == *name)
+            .unwrap_or_else(|| panic!("{name} missing from ADJUSTMENT_SCHEMA"));
+        assert!(
+            matches!(entry.kind, FieldKind::ToneCurve),
+            "{name} should be a ToneCurve field"
+        );
+        assert_eq!(
+            entry.enum_name, "",
+            "{name} carries no enum name — the curve type is always ToneCurve"
+        );
+        assert!(
+            curve.is_identity(),
+            "AdjustmentModel::default().{name} must be the identity curve"
+        );
+    }
+    // Order: the four curves follow `tone_curve_mode` immediately, matching
+    // the struct's declaration order.
+    let mode_idx = ADJUSTMENT_SCHEMA
+        .iter()
+        .position(|s| s.name == "tone_curve_mode")
+        .expect("tone_curve_mode missing from schema");
+    for (offset, name) in names.iter().enumerate() {
+        assert_eq!(ADJUSTMENT_SCHEMA[mode_idx + 1 + offset].name, *name);
+    }
 }
 
 /// S5 effects fields (ticket #643): vignette / grain / split-tone scalars

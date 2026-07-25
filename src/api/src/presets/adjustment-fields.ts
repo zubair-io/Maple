@@ -19,6 +19,12 @@
  *     Variant-level validation deliberately stays client-side — enum
  *     variants evolve with the pipeline, and a downlevel server must not
  *     reject a preset written by an uplevel client (the passthrough rule).
+ *
+ * The schema's structured fields — the four `tone_curve_*` point curves
+ * (#366) — are not preset fields at all: a preset `fields` map is flat
+ * (`Record<string, number | string | boolean>`) and no client captures
+ * them. `adjustment-fields.test.ts` pins that exclusion so a future
+ * structured field can't quietly join them.
  */
 
 /** Canonical `[min, max]` range per numeric schema field (snake_case). */

@@ -21,11 +21,13 @@
 //!    as "pass-through" so a fresh `AdjustmentModel::default()` is
 //!    bit-identical to today's pipeline output.
 //!
-//! These types deliberately do NOT live in the [`crate::types::adjustment`]
-//! `ADJUSTMENT_SCHEMA` table: the schema is a flat const for the codegen
-//! pipeline and currently models only `F32 | Enum`. Codegen support for
-//! curve fields lands as a separate ticket (see #273 follow-up); for now,
-//! Swift and TypeScript mirror these fields by hand.
+//! The four `tone_curve_*` FIELDS are described in the
+//! [`crate::types::ADJUSTMENT_SCHEMA`] table by the `FieldKind::ToneCurve`
+//! variant (#366), so codegen emits the Swift `FieldName` cases and the TS
+//! interface members + identity defaults. The [`ToneCurve`] TYPE itself is
+//! hand-written on each platform (`ToneCurve.swift` on Apple,
+//! `models/adjustment-model.ts` on Web) — the same generated-fields /
+//! hand-written-type split the nested [`crate::types::Crop`] uses.
 
 /// A single control point on a [`ToneCurve`]. The pair `(x, y)` lives in
 /// the curve editor's `[0, 1]` authoring domain regardless of which family

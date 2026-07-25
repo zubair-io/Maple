@@ -8,23 +8,30 @@
 //! Single source of truth for the develop-settings schema; Swift + TypeScript
 //! mirrors are hand-kept today, pending codegen (#118 / #119).
 //!
-//! Only `F32` and `Enum` fields are captured. Tone-curve point lists are
-//! omitted (follow-up to #273; codegen needs a `FieldKind::ToneCurve`
-//! variant). `FieldKind` and `FieldSpec` are re-exported from `types.rs`.
+//! `F32`, `Enum`, and `ToneCurve` fields are captured — the four
+//! `tone_curve_*` point curves joined the table in #366, carried by the
+//! [`FieldKind::ToneCurve`] variant. `FieldKind` and `FieldSpec` are
+//! re-exported from `types.rs`.
 
 // FieldKind and FieldSpec split into a sibling submodule to stay under the
 // 600-LOC hard budget (#1181).
 mod types;
 pub use types::{FieldKind, FieldSpec};
 
+// The 24 HSL band entries live in a sibling submodule for the same reason
+// (#366 pushed this file past the budget); `ADJUSTMENT_SCHEMA` lists them
+// in place so schema order still matches struct order.
+mod hsl;
+
 /// Canonical, ordered description of every codegen-eligible field on
 /// [`AdjustmentModel`].
 ///
-/// Order matches the struct's field declaration order. Adding a scalar or
-/// enum field to the struct without adding a matching entry here (or vice
-/// versa) is a schema drift — the `schema_matches_struct` test below catches
-/// it. Tone-curve point lists are deliberately absent; see the module
-/// docstring.
+/// Order matches the struct's field declaration order. Adding a scalar,
+/// enum, or point-curve field to the struct without adding a matching entry
+/// here (or vice versa) is a schema drift — the `schema_matches_struct`
+/// test catches it. Structured payloads that are not codegen-eligible
+/// (`local_adjustments`, `inpaint_removals`, `crop`) stay out of the table
+/// and ride the drift test's allow-list instead.
 pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
     FieldSpec {
         name: "temperature",
@@ -336,198 +343,31 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
     // HSL 8-band hue/saturation/luminance (#1112, tone/zoom design § 10.4).
     // 24 `crs:` fields (ACR-compatible, Lightroom interop). All range -100..100,
     // default 0. Band order: Red, Orange, Yellow, Green, Aqua, Blue, Purple, Magenta.
-    FieldSpec {
-        name: "hue_adjustment_red",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "HSL Red hue adjustment (#1112, tone/zoom design spec § 10.4). Oklab hue rotation on the Red band; ±100 ↔ ±30° (pending ACR calibration). XMP: crs:HueAdjustmentRed.",
-    },
-    FieldSpec {
-        name: "hue_adjustment_orange",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "HSL Orange hue adjustment (#1112). XMP: crs:HueAdjustmentOrange.",
-    },
-    FieldSpec {
-        name: "hue_adjustment_yellow",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "HSL Yellow hue adjustment (#1112). XMP: crs:HueAdjustmentYellow.",
-    },
-    FieldSpec {
-        name: "hue_adjustment_green",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "HSL Green hue adjustment (#1112). XMP: crs:HueAdjustmentGreen.",
-    },
-    FieldSpec {
-        name: "hue_adjustment_aqua",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "HSL Aqua hue adjustment (#1112). XMP: crs:HueAdjustmentAqua.",
-    },
-    FieldSpec {
-        name: "hue_adjustment_blue",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "HSL Blue hue adjustment (#1112). XMP: crs:HueAdjustmentBlue.",
-    },
-    FieldSpec {
-        name: "hue_adjustment_purple",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "HSL Purple hue adjustment (#1112). XMP: crs:HueAdjustmentPurple.",
-    },
-    FieldSpec {
-        name: "hue_adjustment_magenta",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "HSL Magenta hue adjustment (#1112). XMP: crs:HueAdjustmentMagenta.",
-    },
-    FieldSpec {
-        name: "saturation_adjustment_red",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "HSL Red saturation adjustment (#1112). Scales Oklab chroma on the Red band; ±100 ↔ scale ×2 / ×0. XMP: crs:SaturationAdjustmentRed.",
-    },
-    FieldSpec {
-        name: "saturation_adjustment_orange",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "HSL Orange saturation adjustment (#1112). XMP: crs:SaturationAdjustmentOrange.",
-    },
-    FieldSpec {
-        name: "saturation_adjustment_yellow",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "HSL Yellow saturation adjustment (#1112). XMP: crs:SaturationAdjustmentYellow.",
-    },
-    FieldSpec {
-        name: "saturation_adjustment_green",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "HSL Green saturation adjustment (#1112). XMP: crs:SaturationAdjustmentGreen.",
-    },
-    FieldSpec {
-        name: "saturation_adjustment_aqua",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "HSL Aqua saturation adjustment (#1112). XMP: crs:SaturationAdjustmentAqua.",
-    },
-    FieldSpec {
-        name: "saturation_adjustment_blue",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "HSL Blue saturation adjustment (#1112). XMP: crs:SaturationAdjustmentBlue.",
-    },
-    FieldSpec {
-        name: "saturation_adjustment_purple",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "HSL Purple saturation adjustment (#1112). XMP: crs:SaturationAdjustmentPurple.",
-    },
-    FieldSpec {
-        name: "saturation_adjustment_magenta",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "HSL Magenta saturation adjustment (#1112). XMP: crs:SaturationAdjustmentMagenta.",
-    },
-    FieldSpec {
-        name: "luminance_adjustment_red",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "HSL Red luminance adjustment (#1112). Scales Oklab L on the Red band; ±100 ↔ scale ×2 / ×0. XMP: crs:LuminanceAdjustmentRed.",
-    },
-    FieldSpec {
-        name: "luminance_adjustment_orange",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "HSL Orange luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentOrange.",
-    },
-    FieldSpec {
-        name: "luminance_adjustment_yellow",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "HSL Yellow luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentYellow.",
-    },
-    FieldSpec {
-        name: "luminance_adjustment_green",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "HSL Green luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentGreen.",
-    },
-    FieldSpec {
-        name: "luminance_adjustment_aqua",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "HSL Aqua luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentAqua.",
-    },
-    FieldSpec {
-        name: "luminance_adjustment_blue",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "HSL Blue luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentBlue.",
-    },
-    FieldSpec {
-        name: "luminance_adjustment_purple",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "HSL Purple luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentPurple.",
-    },
-    FieldSpec {
-        name: "luminance_adjustment_magenta",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "HSL Magenta luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentMagenta.",
-    },
+    // The entries themselves live in `hsl.rs` (file-budget split, #366).
+    hsl::HUE_ADJUSTMENT_RED,
+    hsl::HUE_ADJUSTMENT_ORANGE,
+    hsl::HUE_ADJUSTMENT_YELLOW,
+    hsl::HUE_ADJUSTMENT_GREEN,
+    hsl::HUE_ADJUSTMENT_AQUA,
+    hsl::HUE_ADJUSTMENT_BLUE,
+    hsl::HUE_ADJUSTMENT_PURPLE,
+    hsl::HUE_ADJUSTMENT_MAGENTA,
+    hsl::SATURATION_ADJUSTMENT_RED,
+    hsl::SATURATION_ADJUSTMENT_ORANGE,
+    hsl::SATURATION_ADJUSTMENT_YELLOW,
+    hsl::SATURATION_ADJUSTMENT_GREEN,
+    hsl::SATURATION_ADJUSTMENT_AQUA,
+    hsl::SATURATION_ADJUSTMENT_BLUE,
+    hsl::SATURATION_ADJUSTMENT_PURPLE,
+    hsl::SATURATION_ADJUSTMENT_MAGENTA,
+    hsl::LUMINANCE_ADJUSTMENT_RED,
+    hsl::LUMINANCE_ADJUSTMENT_ORANGE,
+    hsl::LUMINANCE_ADJUSTMENT_YELLOW,
+    hsl::LUMINANCE_ADJUSTMENT_GREEN,
+    hsl::LUMINANCE_ADJUSTMENT_AQUA,
+    hsl::LUMINANCE_ADJUSTMENT_BLUE,
+    hsl::LUMINANCE_ADJUSTMENT_PURPLE,
+    hsl::LUMINANCE_ADJUSTMENT_MAGENTA,
     FieldSpec {
         name: "highlight_recovery",
         kind: FieldKind::Enum,
@@ -567,6 +407,41 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         default_f32: 0.0,
         enum_name: "ToneCurveMode",
         doc: "Tone-curve application mode (ticket #436). 'PerChannel' applies the three R/G/B curves independently (hue shifts); 'RatioPreserving' folds them through Rec.2020 luma to preserve hue.",
+    },
+    // Per-channel point curves (#273 slice 1, codegen'd in #366). Each is a
+    // `ToneCurve` — an ordered list of `(x, y)` control points in the curve
+    // editor's `[0, 1]` authoring domain, identity when empty.
+    FieldSpec {
+        name: "tone_curve_luma",
+        kind: FieldKind::ToneCurve,
+        range: (0.0, 0.0),
+        default_f32: 0.0,
+        enum_name: "",
+        doc: "Luma point curve (#273). Applied in scene-linear channels-uniformly via the Rec.2020 luma weights, so hue is preserved by construction. Identity (empty) by default.",
+    },
+    FieldSpec {
+        name: "tone_curve_red",
+        kind: FieldKind::ToneCurve,
+        range: (0.0, 0.0),
+        default_f32: 0.0,
+        enum_name: "",
+        doc: "Red-channel point curve (#273). Applied per `tone_curve_mode` — independently in 'PerChannel', or folded through Rec.2020 luma in 'RatioPreserving'. Identity (empty) by default.",
+    },
+    FieldSpec {
+        name: "tone_curve_green",
+        kind: FieldKind::ToneCurve,
+        range: (0.0, 0.0),
+        default_f32: 0.0,
+        enum_name: "",
+        doc: "Green-channel point curve (#273). Applied per `tone_curve_mode`. Identity (empty) by default.",
+    },
+    FieldSpec {
+        name: "tone_curve_blue",
+        kind: FieldKind::ToneCurve,
+        range: (0.0, 0.0),
+        default_f32: 0.0,
+        enum_name: "",
+        doc: "Blue-channel point curve (#273). Applied per `tone_curve_mode`. Identity (empty) by default.",
     },
     FieldSpec {
         name: "chroma_prefilter",

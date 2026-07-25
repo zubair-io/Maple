@@ -75,6 +75,18 @@ describe('canUseLiveFastPath (#1914)', () => {
     expect(canUseLiveFastPath({ ...fastPathBaseline(), parametricShadows: -25 })).toBe(false);
   });
 
+  // Point curves (#366) are nested objects: an identity curve is not an edit and
+  // must not knock the tick off the fast path, but an authored one must.
+  it('accepts identity point curves and rejects an authored one', () => {
+    expect(canUseLiveFastPath({ ...fastPathBaseline(), toneCurveRed: { points: [] } })).toBe(true);
+    expect(
+      canUseLiveFastPath({ ...fastPathBaseline(), toneCurveLuma: { points: [[0.4, 0.6]] } }),
+    ).toBe(false);
+    expect(
+      canUseLiveFastPath({ ...fastPathBaseline(), toneCurveBlue: { points: [[0.2, 0.1]] } }),
+    ).toBe(false);
+  });
+
   it('rejects a sharpen edit (any of the four sharpen sub-params)', () => {
     expect(canUseLiveFastPath({ ...fastPathBaseline(), sharpenAmount: 60 })).toBe(false);
     expect(canUseLiveFastPath({ ...fastPathBaseline(), sharpenRadius: 2 })).toBe(false);

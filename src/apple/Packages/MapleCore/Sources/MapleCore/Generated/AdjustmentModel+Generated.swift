@@ -7,6 +7,9 @@
 // hand-written in `AdjustmentModel.swift`; Apple's defaults
 // match raw-core's canonical values (per #326, sharpen converges
 // to the reference renderer's import baseline: 40 / 1.0 / 25 / 0).
+// Point-curve fields (#366) contribute a `FieldName` case and no
+// range; the `ToneCurve` value type is hand-written in
+// `ToneCurve.swift`.
 
 import Foundation
 
@@ -82,6 +85,10 @@ extension AdjustmentModel {
         case look = "look"
         case profile = "profile"
         case toneCurveMode = "tone_curve_mode"
+        case toneCurveLuma = "tone_curve_luma"
+        case toneCurveRed = "tone_curve_red"
+        case toneCurveGreen = "tone_curve_green"
+        case toneCurveBlue = "tone_curve_blue"
         case chromaPrefilter = "chroma_prefilter"
         case hotPixelSuppression = "hot_pixel_suppression"
         case deepDenoise = "deep_denoise"
