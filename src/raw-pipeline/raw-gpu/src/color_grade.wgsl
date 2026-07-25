@@ -34,10 +34,11 @@ struct Params {
 @group(0) @binding(1) var<storage, read> input_buf: array<vec4<f32>>;
 @group(0) @binding(2) var<storage, read_write> output_buf: array<vec4<f32>>;
 
-// Rec.2020 luma weights (the pipeline-wide constant).
-const LUMA_R: f32 = 0.2627;
-const LUMA_G: f32 = 0.6780;
-const LUMA_B: f32 = 0.0593;
+// Oklab L of display-linear mid-grey — the midtone zone's anchor.
+// Verbatim from raw_core::stages::color_grade::MIDTONE_ANCHOR_L; the
+// headless parity test pins the kernel to that stage, so a drift here
+// fails the gate rather than silently diverging the live path.
+const MIDTONE_ANCHOR_L: f32 = 0.564622;
 
 // Sign-preserving cube root (same helper as the vibrance/saturation kernels).
 fn cbrt_signed(x: f32) -> f32 {
@@ -67,14 +68,15 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
         return;
     }
     let p = input_buf[i];
+    let lab = rec2020_to_oklab(p.rgb);
 
-    // Balance-warped zone weights at the pixel's display luminance —
-    // mirrors raw-core's `zone_weights` float sequence. An exact partition
-    // of unity, C¹ at both hand-offs.
-    let yd = clamp(LUMA_R * p.r + LUMA_G * p.g + LUMA_B * p.b, 0.0, 1.0);
-    let yb = pow(yd, params.balance_exp);
-    let ws = 1.0 - smoothstep(0.0, 0.5, yb);
-    let wh = smoothstep(0.5, 1.0, yb);
+    // Balance-warped zone weights at the pixel's PRE-shift Oklab lightness
+    // — mirrors raw-core's `zone_weights` float sequence. An exact
+    // partition of unity, C¹ at both hand-offs.
+    let l = clamp(lab.x, 0.0, 1.0);
+    let lb = pow(l, params.balance_exp);
+    let ws = 1.0 - smoothstep(0.0, MIDTONE_ANCHOR_L, lb);
+    let wh = smoothstep(MIDTONE_ANCHOR_L, 1.0, lb);
     let wm = 1.0 - ws - wh;
 
     let shift = params.global.xyz
@@ -82,7 +84,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
         + wm * params.midtone.xyz
         + wh * params.highlight.xyz;
 
-    let lab = rec2020_to_oklab(p.rgb);
     let graded = vec3<f32>(
         clamp(lab.x + shift.z, 0.0, 1.0),
         lab.y + shift.x,
