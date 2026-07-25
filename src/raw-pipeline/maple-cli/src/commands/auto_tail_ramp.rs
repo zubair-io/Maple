@@ -53,7 +53,7 @@ mod imp {
     use raw_core::decode::decode_bytes;
     use raw_core::image::{ColorSpace, Image};
     use raw_core::pipeline::{develop_scene_linear_from_raw_with_quality, RenderQuality};
-    use raw_core::stages::{grain, split_tone};
+    use raw_core::stages::{color_grade, grain};
     use raw_core::types::adjustment::AutoExposureMode;
     use raw_core::view::auto_profile::apply_curve;
     use raw_core::view::auto_profile::apply_pipeline::{
@@ -186,14 +186,7 @@ mod imp {
             develop_scene_linear_from_raw_with_quality(&raw, &fit_model, RenderQuality::Full)
                 .map_err(|e| format!("develop error: {e}"))?;
         raw_core::view::agx::apply(&mut scene, fit_model.contrast);
-        split_tone::apply(
-            &mut scene,
-            fit_model.split_tone_shadow_hue,
-            fit_model.split_tone_shadow_saturation,
-            fit_model.split_tone_highlight_hue,
-            fit_model.split_tone_highlight_saturation,
-            fit_model.split_tone_balance,
-        );
+        color_grade::apply_model(&mut scene, fit_model);
         grain::apply(
             &mut scene,
             fit_model.grain_amount,

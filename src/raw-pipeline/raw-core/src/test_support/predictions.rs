@@ -131,7 +131,7 @@ pub fn predict_vibrance(scene: f32, _v_slider: f32) -> f32 {
 /// #1110, split toning #1111) live in the sibling `predictions_display`
 /// module — split out to stay under the 600-LOC file budget (#1170).
 /// Re-exported here so `predictions::*` glob consumers keep resolving them.
-pub use super::predictions_display::{predict_grain, predict_split_tone_ab, predict_vignette};
+pub use super::predictions_display::{predict_color_grade, predict_grain, predict_vignette};
 
 /// Predict the post-radial-gain value at a given normalised radius.
 /// `gain_values` is a flat 1-D LUT sampled along radius [0, 1].

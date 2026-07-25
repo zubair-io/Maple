@@ -19,7 +19,7 @@ use crate::image::{ColorSpace, Image, RawImage};
 use crate::pipeline::develop::develop_scene_linear_from_raw_with_quality;
 use crate::pipeline::develop_sized::develop_scene_linear_sized_from_raw_with_quality;
 use crate::pipeline::{stage, RenderQuality};
-use crate::stages::{grain, split_tone};
+use crate::stages::{color_grade, grain};
 use crate::types::adjustment::{AutoExposureMode, Profile};
 use crate::view::auto_profile::cache::CacheKey;
 use crate::view::auto_profile::curve::ProfileCurve;
@@ -101,15 +101,8 @@ fn develop_display_for_auto_fit(
         None => develop_scene_linear_from_raw_with_quality(raw, &auto_model, quality)?,
     };
     stage("agx", || agx::apply(&mut scene, auto_model.contrast));
-    stage("split_tone", || {
-        split_tone::apply(
-            &mut scene,
-            auto_model.split_tone_shadow_hue,
-            auto_model.split_tone_shadow_saturation,
-            auto_model.split_tone_highlight_hue,
-            auto_model.split_tone_highlight_saturation,
-            auto_model.split_tone_balance,
-        )
+    stage("color_grade", || {
+        color_grade::apply_model(&mut scene, &auto_model)
     });
     stage("grain", || {
         grain::apply(

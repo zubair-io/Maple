@@ -203,6 +203,14 @@ impl Case {
             split_tone_highlight_hue: self.model.split_tone_highlight_hue,
             split_tone_highlight_saturation: self.model.split_tone_highlight_saturation,
             split_tone_balance: self.model.split_tone_balance,
+            color_grade_shadow_luminance: self.model.color_grade_shadow_luminance,
+            color_grade_midtone_hue: self.model.color_grade_midtone_hue,
+            color_grade_midtone_saturation: self.model.color_grade_midtone_saturation,
+            color_grade_midtone_luminance: self.model.color_grade_midtone_luminance,
+            color_grade_highlight_luminance: self.model.color_grade_highlight_luminance,
+            color_grade_global_hue: self.model.color_grade_global_hue,
+            color_grade_global_saturation: self.model.color_grade_global_saturation,
+            color_grade_global_luminance: self.model.color_grade_global_luminance,
             sharpen_amount: self.model.sharpen_amount,
             sharpen_radius: self.model.sharpen_radius,
             sharpen_detail: self.model.sharpen_detail,
@@ -287,14 +295,7 @@ pub fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
     //     runs on both sides — even a neutral image must go through the view
     //     transform to become a display image. ---
     raw_core::view::agx::apply(&mut img, case.model.contrast);
-    raw_core::stages::split_tone::apply(
-        &mut img,
-        case.model.split_tone_shadow_hue,
-        case.model.split_tone_shadow_saturation,
-        case.model.split_tone_highlight_hue,
-        case.model.split_tone_highlight_saturation,
-        case.model.split_tone_balance,
-    );
+    raw_core::stages::color_grade::apply_model(&mut img, &case.model);
     raw_core::stages::grain::apply(
         &mut img,
         case.model.grain_amount,

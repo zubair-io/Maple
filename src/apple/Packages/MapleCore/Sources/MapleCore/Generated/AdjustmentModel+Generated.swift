@@ -56,6 +56,14 @@ extension AdjustmentModel {
         case splitToneHighlightHue = "split_tone_highlight_hue"
         case splitToneHighlightSaturation = "split_tone_highlight_saturation"
         case splitToneBalance = "split_tone_balance"
+        case colorGradeShadowLuminance = "color_grade_shadow_luminance"
+        case colorGradeMidtoneHue = "color_grade_midtone_hue"
+        case colorGradeMidtoneSaturation = "color_grade_midtone_saturation"
+        case colorGradeMidtoneLuminance = "color_grade_midtone_luminance"
+        case colorGradeHighlightLuminance = "color_grade_highlight_luminance"
+        case colorGradeGlobalHue = "color_grade_global_hue"
+        case colorGradeGlobalSaturation = "color_grade_global_saturation"
+        case colorGradeGlobalLuminance = "color_grade_global_luminance"
         case hueAdjustmentRed = "hue_adjustment_red"
         case hueAdjustmentOrange = "hue_adjustment_orange"
         case hueAdjustmentYellow = "hue_adjustment_yellow"
@@ -177,8 +185,24 @@ extension AdjustmentModel {
     public static let splitToneHighlightHueRange: ClosedRange<Double> = 0.0...360.0
     /// Split-tone highlight saturation (#1111); 0 disables the highlight tint.
     public static let splitToneHighlightSaturationRange: ClosedRange<Double> = 0.0...100.0
-    /// Split-tone balance — shifts the shadow/highlight crossover via exp2(bal/100) weight exponents (#1111). Primary drag-bar field for the Split Tone tool.
+    /// Colour-grading balance — warps the tonal axis via a Yd^exp2(-bal/100) remap, shifting the shadow/midtone/highlight crossovers (#275, formerly #1111). Primary drag-bar field for the Color Grading tool. XMP: crs:SplitToningBalance.
     public static let splitToneBalanceRange: ClosedRange<Double> = -100.0...100.0
+    /// Colour-grading shadow luminance offset (#275). XMP: crs:ColorGradeShadowLum.
+    public static let colorGradeShadowLuminanceRange: ClosedRange<Double> = -100.0...100.0
+    /// Colour-grading midtone hue in degrees (#275). XMP: crs:ColorGradeMidtoneHue.
+    public static let colorGradeMidtoneHueRange: ClosedRange<Double> = 0.0...360.0
+    /// Colour-grading midtone saturation (#275); 0 disables the midtone tint. XMP: crs:ColorGradeMidtoneSat.
+    public static let colorGradeMidtoneSaturationRange: ClosedRange<Double> = 0.0...100.0
+    /// Colour-grading midtone luminance offset (#275). XMP: crs:ColorGradeMidtoneLum.
+    public static let colorGradeMidtoneLuminanceRange: ClosedRange<Double> = -100.0...100.0
+    /// Colour-grading highlight luminance offset (#275). XMP: crs:ColorGradeHighlightLum.
+    public static let colorGradeHighlightLuminanceRange: ClosedRange<Double> = -100.0...100.0
+    /// Colour-grading global hue in degrees (#275) — the unweighted wheel that tints every tone. XMP: crs:ColorGradeGlobalHue.
+    public static let colorGradeGlobalHueRange: ClosedRange<Double> = 0.0...360.0
+    /// Colour-grading global saturation (#275); 0 disables the global tint. XMP: crs:ColorGradeGlobalSat.
+    public static let colorGradeGlobalSaturationRange: ClosedRange<Double> = 0.0...100.0
+    /// Colour-grading global luminance offset (#275). XMP: crs:ColorGradeGlobalLum.
+    public static let colorGradeGlobalLuminanceRange: ClosedRange<Double> = -100.0...100.0
     /// HSL Red hue adjustment (#1112, tone/zoom design spec § 10.4). Oklab hue rotation on the Red band; ±100 ↔ ±30° (pending ACR calibration). XMP: crs:HueAdjustmentRed.
     public static let hueAdjustmentRedRange: ClosedRange<Double> = -100.0...100.0
     /// HSL Orange hue adjustment (#1112). XMP: crs:HueAdjustmentOrange.

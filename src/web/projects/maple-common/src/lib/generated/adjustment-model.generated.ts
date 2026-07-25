@@ -104,8 +104,24 @@ export interface GeneratedAdjustmentModel {
   splitToneHighlightHue: number;
   /** Split-tone highlight saturation (#1111); 0 disables the highlight tint. Range: [0.0, 100.0]. */
   splitToneHighlightSaturation: number;
-  /** Split-tone balance — shifts the shadow/highlight crossover via exp2(bal/100) weight exponents (#1111). Primary drag-bar field for the Split Tone tool. Range: [-100.0, 100.0]. */
+  /** Colour-grading balance — warps the tonal axis via a Yd^exp2(-bal/100) remap, shifting the shadow/midtone/highlight crossovers (#275, formerly #1111). Primary drag-bar field for the Color Grading tool. XMP: crs:SplitToningBalance. Range: [-100.0, 100.0]. */
   splitToneBalance: number;
+  /** Colour-grading shadow luminance offset (#275). XMP: crs:ColorGradeShadowLum. Range: [-100.0, 100.0]. */
+  colorGradeShadowLuminance: number;
+  /** Colour-grading midtone hue in degrees (#275). XMP: crs:ColorGradeMidtoneHue. Range: [0.0, 360.0]. */
+  colorGradeMidtoneHue: number;
+  /** Colour-grading midtone saturation (#275); 0 disables the midtone tint. XMP: crs:ColorGradeMidtoneSat. Range: [0.0, 100.0]. */
+  colorGradeMidtoneSaturation: number;
+  /** Colour-grading midtone luminance offset (#275). XMP: crs:ColorGradeMidtoneLum. Range: [-100.0, 100.0]. */
+  colorGradeMidtoneLuminance: number;
+  /** Colour-grading highlight luminance offset (#275). XMP: crs:ColorGradeHighlightLum. Range: [-100.0, 100.0]. */
+  colorGradeHighlightLuminance: number;
+  /** Colour-grading global hue in degrees (#275) — the unweighted wheel that tints every tone. XMP: crs:ColorGradeGlobalHue. Range: [0.0, 360.0]. */
+  colorGradeGlobalHue: number;
+  /** Colour-grading global saturation (#275); 0 disables the global tint. XMP: crs:ColorGradeGlobalSat. Range: [0.0, 100.0]. */
+  colorGradeGlobalSaturation: number;
+  /** Colour-grading global luminance offset (#275). XMP: crs:ColorGradeGlobalLum. Range: [-100.0, 100.0]. */
+  colorGradeGlobalLuminance: number;
   /** HSL Red hue adjustment (#1112, tone/zoom design spec § 10.4). Oklab hue rotation on the Red band; ±100 ↔ ±30° (pending ACR calibration). XMP: crs:HueAdjustmentRed. Range: [-100.0, 100.0]. */
   hueAdjustmentRed: number;
   /** HSL Orange hue adjustment (#1112). XMP: crs:HueAdjustmentOrange. Range: [-100.0, 100.0]. */
@@ -237,6 +253,14 @@ export const ADJUSTMENT_RANGES = {
   splitToneHighlightHue: [0.0, 360.0] as const,
   splitToneHighlightSaturation: [0.0, 100.0] as const,
   splitToneBalance: [-100.0, 100.0] as const,
+  colorGradeShadowLuminance: [-100.0, 100.0] as const,
+  colorGradeMidtoneHue: [0.0, 360.0] as const,
+  colorGradeMidtoneSaturation: [0.0, 100.0] as const,
+  colorGradeMidtoneLuminance: [-100.0, 100.0] as const,
+  colorGradeHighlightLuminance: [-100.0, 100.0] as const,
+  colorGradeGlobalHue: [0.0, 360.0] as const,
+  colorGradeGlobalSaturation: [0.0, 100.0] as const,
+  colorGradeGlobalLuminance: [-100.0, 100.0] as const,
   hueAdjustmentRed: [-100.0, 100.0] as const,
   hueAdjustmentOrange: [-100.0, 100.0] as const,
   hueAdjustmentYellow: [-100.0, 100.0] as const,
@@ -314,6 +338,14 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     splitToneHighlightHue: 0.0,
     splitToneHighlightSaturation: 0.0,
     splitToneBalance: 0.0,
+    colorGradeShadowLuminance: 0.0,
+    colorGradeMidtoneHue: 0.0,
+    colorGradeMidtoneSaturation: 0.0,
+    colorGradeMidtoneLuminance: 0.0,
+    colorGradeHighlightLuminance: 0.0,
+    colorGradeGlobalHue: 0.0,
+    colorGradeGlobalSaturation: 0.0,
+    colorGradeGlobalLuminance: 0.0,
     hueAdjustmentRed: 0.0,
     hueAdjustmentOrange: 0.0,
     hueAdjustmentYellow: 0.0,

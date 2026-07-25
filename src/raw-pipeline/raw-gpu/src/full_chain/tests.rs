@@ -397,16 +397,9 @@ fn cpu_oracle_limit(input: &[f32], w: u32, h: u32, case: &Case, limit: usize) ->
     }
     stage_idx += 1;
 
-    // Stage 15: split tone
+    // Stage 15: colour grading
     if stage_idx <= limit {
-        raw_core::stages::split_tone::apply(
-            &mut img,
-            case.model.split_tone_shadow_hue,
-            case.model.split_tone_shadow_saturation,
-            case.model.split_tone_highlight_hue,
-            case.model.split_tone_highlight_saturation,
-            case.model.split_tone_balance,
-        );
+        raw_core::stages::color_grade::apply_model(&mut img, &case.model);
     }
     stage_idx += 1;
 
