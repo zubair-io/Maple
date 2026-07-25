@@ -117,6 +117,43 @@ export async function findDetailById(
   return toDetailDto(doc as AssetWithId, libs);
 }
 
+/**
+ * Single asset resolved by its library + library-relative path rather than by
+ * Mongo id.
+ *
+ * The Angular browse grid lists directories through `/api/fs/dir-fast`, a pure
+ * filesystem walk that deliberately carries no Mongo `_id` (that is the point
+ * of the "fast" variant). Its assets are keyed by the `slug:relPath` address,
+ * so the enrichment pane needs a way to reach the detail DTO from that address
+ * alone. Backs `GET /api/assets/by-address`.
+ *
+ * `relPath` is POSIX, library-root-relative, and includes the filename
+ * (`"vacation/2024/IMG_1.dng"`, or `"root.dng"` at the library root). Matching
+ * is scoped to `libraryId` so the same relative path in a different library
+ * never collides.
+ */
+export async function findDetailByAddress(
+  libraryId: ObjectId,
+  relPath: string,
+  dbOverride?: Db,
+): Promise<AssetDetailDto | null> {
+  const normalised = relPath.replace(/^\/+/, '');
+  const lastSlash = normalised.lastIndexOf('/');
+  // `fileinfo.path` holds the directory only ("" at the library root) and
+  // `fileinfo.filename` the basename — split the address the same way.
+  const dirPath = lastSlash === -1 ? '' : normalised.slice(0, lastSlash);
+  const filename = lastSlash === -1 ? normalised : normalised.slice(lastSlash + 1);
+  if (filename === '') return null;
+
+  const c = await coll(dbOverride);
+  const doc = await c.findOne({
+    fileinfo: { $elemMatch: { library_id: libraryId, path: dirPath, filename } },
+  });
+  if (!doc) return null;
+  const libs = await safeLoadLibraries(dbOverride);
+  return toDetailDto(doc as AssetWithId, libs);
+}
+
 /** Single asset, minimal info used by routes that drive FS / change-feed
  * side effects rather than shipping the full DTO. */
 export async function findCoreInfoById(

@@ -7,6 +7,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'bun:test';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import {
   findCoreInfoById,
+  findDetailByAddress,
   findDetailById,
   findListItems,
   hardDelete,
@@ -185,6 +186,54 @@ describe('assets.repo', () => {
       if (!db) return;
       const dto = await findDetailById(new ObjectId(), db);
       expect(dto).toBeNull();
+    });
+  });
+
+  describe('findDetailByAddress', () => {
+    it('resolves an asset by library id + relative path (nested dir)', async () => {
+      if (!db) return;
+      const libraryId = new ObjectId();
+      const id = await seedAsset(db, {
+        fileinfo: [
+          { path: 'vacation/2024', filename: 'IMG_1.dng', library_id: libraryId, deleted_at: null },
+        ],
+        description: 'a caption',
+        ocr_text: 'some words',
+      });
+      const dto = await findDetailByAddress(libraryId, 'vacation/2024/IMG_1.dng', db);
+      expect(dto).not.toBeNull();
+      expect(dto!.id).toBe(id.toHexString());
+      expect(dto!.description).toBe('a caption');
+      expect(dto!.ocr_text).toBe('some words');
+    });
+
+    it('resolves a file at the library root (empty dir path)', async () => {
+      if (!db) return;
+      const libraryId = new ObjectId();
+      const id = await seedAsset(db, {
+        fileinfo: [{ path: '', filename: 'root.dng', library_id: libraryId, deleted_at: null }],
+      });
+      const dto = await findDetailByAddress(libraryId, 'root.dng', db);
+      expect(dto!.id).toBe(id.toHexString());
+    });
+
+    it('returns null for a path that is not indexed', async () => {
+      if (!db) return;
+      const libraryId = new ObjectId();
+      await seedAsset(db, {
+        fileinfo: [{ path: '', filename: 'a.dng', library_id: libraryId, deleted_at: null }],
+      });
+      expect(await findDetailByAddress(libraryId, 'nope.dng', db)).toBeNull();
+    });
+
+    it('does not match the same relative path in a different library', async () => {
+      if (!db) return;
+      const libraryId = new ObjectId();
+      const otherLibrary = new ObjectId();
+      await seedAsset(db, {
+        fileinfo: [{ path: '', filename: 'a.dng', library_id: libraryId, deleted_at: null }],
+      });
+      expect(await findDetailByAddress(otherLibrary, 'a.dng', db)).toBeNull();
     });
   });
 

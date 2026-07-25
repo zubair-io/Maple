@@ -125,12 +125,23 @@ export class InfoEnrichmentComponent implements OnDestroy {
   protected readonly describeStale = computed(() => this.staleAfterRequeue().describe === true);
   protected readonly faceStale = computed(() => this.staleAfterRequeue().face === true);
 
-  /** API id of the asset currently fetched. Recomputed from the focused
-   * asset's local id via `state.apiIdFor`. */
-  private readonly apiAssetId = computed(() => {
+  /**
+   * How the focused asset's detail is addressed.
+   *
+   * Timeline / search assets carry a real Mongo id in `apiAssetIds`. Browse-grid
+   * assets do NOT: the grid lists through `/api/fs/dir-fast`, a pure-filesystem
+   * walk with no Mongo join, so their `Asset.id` is the `slug:relPath` address
+   * and the detail must be fetched by address instead.
+   *
+   * Before this fallback existed the id lookup simply missed and the whole
+   * enrichment pane silently rendered nothing for every grid asset.
+   */
+  private readonly detailRef = computed<{ kind: 'id' | 'address'; value: string } | null>(() => {
     const asset = this.state.focusedAsset();
     if (!asset) return null;
-    return this.state.apiIdFor(asset.id) ?? null;
+    const apiId = this.state.apiIdFor(asset.id);
+    if (apiId) return { kind: 'id', value: apiId };
+    return asset.id ? { kind: 'address', value: asset.id } : null;
   });
 
   // ── Lifecycle plumbing ───────────────────────────────────────────────
@@ -144,14 +155,14 @@ export class InfoEnrichmentComponent implements OnDestroy {
   constructor() {
     this.fetchWorkerStatus();
     effect(() => {
-      const apiId = this.apiAssetId();
+      const ref = this.detailRef();
       // Reset per-stage UI signals on focus change so stale state from
       // the previous asset doesn't leak through.
       this.lastClickError.set({});
       this.staleAfterRequeue.set({});
       this.detail.set(null);
       this.stopRefreshLoop();
-      if (apiId) this.fetchDetail(apiId);
+      if (ref) this.fetchDetail(ref);
     });
   }
 
@@ -185,9 +196,16 @@ export class InfoEnrichmentComponent implements OnDestroy {
     });
   }
 
-  private fetchDetail(apiId: string): void {
+  /** Resolve the right detail call for how this asset is addressed. */
+  private detailRequest(ref: { kind: 'id' | 'address'; value: string }) {
+    return ref.kind === 'id'
+      ? this.api.getAssetDetails(ref.value)
+      : this.api.getAssetDetailsByAddress(ref.value);
+  }
+
+  private fetchDetail(ref: { kind: 'id' | 'address'; value: string }): void {
     this.detailSub?.unsubscribe();
-    this.detailSub = this.api.getAssetDetails(apiId).subscribe({
+    this.detailSub = this.detailRequest(ref).subscribe({
       next: (d) => this.detail.set(d),
       error: () => {
         // Swallow — the section just stays empty.
@@ -221,8 +239,7 @@ export class InfoEnrichmentComponent implements OnDestroy {
    * expires without progress, we flag that stage's row as stale so the
    * user sees something other than a frozen "Pending" badge. */
   private startRefreshLoop(stage: ApiEnrichmentStage): void {
-    const apiId = this.apiAssetId();
-    if (!apiId) return;
+    if (!this.detailRef()) return;
     this.stopRefreshLoop();
     this.refreshBaseline = this.detail();
     this.refreshStage = stage;
@@ -236,12 +253,12 @@ export class InfoEnrichmentComponent implements OnDestroy {
         this.stopRefreshLoop();
         return;
       }
-      const id = this.apiAssetId();
-      if (!id) {
+      const ref = this.detailRef();
+      if (!ref) {
         this.stopRefreshLoop();
         return;
       }
-      this.api.getAssetDetails(id).subscribe({
+      this.detailRequest(ref).subscribe({
         next: (d) => {
           this.detail.set(d);
           if (detailChanged(this.refreshBaseline, d)) {
@@ -270,9 +287,9 @@ export class InfoEnrichmentComponent implements OnDestroy {
   /** Refetch the detail once after a manual override (no polling — the
    * field went directly to Mongo, so the next read is enough). */
   private refetchAfterMutation(): void {
-    const apiId = this.apiAssetId();
-    if (!apiId) return;
-    runInInjectionContext(this.injector, () => this.fetchDetail(apiId));
+    const ref = this.detailRef();
+    if (!ref) return;
+    runInInjectionContext(this.injector, () => this.fetchDetail(ref));
   }
 
   // ── Child event handlers ─────────────────────────────────────────────
