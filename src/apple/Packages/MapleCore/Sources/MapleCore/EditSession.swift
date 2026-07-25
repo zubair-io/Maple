@@ -206,6 +206,10 @@ public final class EditSession {
     @ObservationIgnored var previewIsThumbnailSeed: Bool = false
     public var renderPhase: RenderPhase = .fast
     public var isRendering: Bool = false
+    /// Determinate BM3D deep-denoise progress for the current render (#1153),
+    /// fed by raw-core's own stage ticks. `progress` is `nil` whenever the
+    /// stage is not running, which is what hides the indicator.
+    public let deepDenoiseProgress = DeepDenoiseProgressMonitor()
     /// Last render error, if any. Views can surface a banner when non-nil.
     public var renderError: Error?
     /// Last sidecar write error, if any. Views can surface a banner when non-nil.

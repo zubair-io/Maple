@@ -226,6 +226,9 @@ public final class EditorState {
     /// image only at fit). Arming any other tool clears crop-editing mode, so
     /// the next render publishes the cropped+straightened result.
     public func arm(tool: Tool) {
+        // A parked commit-on-release value belongs to the OLD armed pair —
+        // committing it now would land on the wrong field (#1153).
+        cancelGesture()
         let wasCropEditing = session.cropEditingActive
         self.armedTool = tool
         self.armedGroup = tool.group
@@ -259,6 +262,7 @@ public final class EditorState {
     public func arm(subParamId: String) {
         guard let sub = armedTool.subParams.first(where: { $0.id == subParamId })
         else { return }
+        cancelGesture()
         armedSubParamId = sub.id
         subParamMemory.remember(sub.id, for: armedTool)
     }
@@ -294,9 +298,12 @@ public final class EditorState {
     /// Live read of the armed (tool, subParam) pair's display-range value
     /// (e.g. `+0.25` EV for exposure, `5800` K for temp, `1.0` px for
     /// Sharpen · Radius).
+    /// Reads the DEFERRED value while a commit-on-release gesture parks one
+    /// (#1153), so the slider, drag bar and value chip track the finger even
+    /// though the model — and therefore the decode — has not moved.
     public var armedDisplayValue: Double {
         if let sub = armedSubParam {
-            return session.model[keyPath: sub.keyPath]
+            return deferredDisplayValue ?? session.model[keyPath: sub.keyPath]
         }
         return ToolValueMapping.currentDisplayValue(session.model, tool: armedTool)
     }
@@ -337,11 +344,62 @@ public final class EditorState {
     /// a no-op.
     public func setArmedDisplayValue(_ value: Double) {
         guard armedToolAcceptsValueEdits else { return }
+        if gestureActive, armedCommitsOnRelease {
+            deferredDisplayValue = value
+            return
+        }
         if let sub = armedSubParam {
             session.model[keyPath: sub.keyPath] = value
         } else {
             ToolValueMapping.apply(value, to: &session.model, tool: armedTool)
         }
+    }
+
+    // MARK: Commit-on-release (#1153)
+    //
+    // Decode-product sub-params (Noise → Deep / Prefilter) must not write the
+    // model per drag sample: `RawCoreBridge.stripAppleGPUStages` KEEPS those
+    // fields, so every write invalidates the decoded-buffer cache key and
+    // forces a full re-decode — seconds of BM3D. A gesture over one of them
+    // parks its display value here (the views read it through
+    // `armedDisplayValue`) and `endGesture()` performs the single real write.
+
+    /// In-flight, uncommitted display value; `nil` when nothing is deferred.
+    public private(set) var deferredDisplayValue: Double?
+    /// `true` between `beginGesture()` and `endGesture()`.
+    @ObservationIgnored private var gestureActive = false
+
+    /// `true` when writes from the armed pair are held until gesture end.
+    public var armedCommitsOnRelease: Bool { armedSubParam?.commitsOnRelease ?? false }
+
+    /// Mark the start of a continuous value gesture (drag bar, living
+    /// slider, canvas scrub). Inert for every per-tick tool; pairs with
+    /// `endGesture()`. IDEMPOTENT: `LivingSliderRow` has no drag-start hook
+    /// and calls this from its value setter, so a repeat must not discard
+    /// the value already parked by the same gesture.
+    public func beginGesture() {
+        guard !gestureActive else { return }
+        deferredDisplayValue = nil
+        gestureActive = true
+    }
+
+    /// Mark the end of a continuous value gesture and flush the parked
+    /// value, if any, as the single model write of the whole gesture.
+    public func endGesture() {
+        wheelFlushTask?.cancel()
+        let deferred = deferredDisplayValue
+        gestureActive = false
+        deferredDisplayValue = nil
+        guard let deferred else { return }
+        setArmedDisplayValue(deferred)
+    }
+
+    /// Abandon a gesture without committing its parked value (the armed
+    /// pair changed under it, or the gesture was interrupted).
+    public func cancelGesture() {
+        wheelFlushTask?.cancel()
+        gestureActive = false
+        deferredDisplayValue = nil
     }
 
     /// Convert the drag-bar's internal `[-100, +100]` value and apply
@@ -377,7 +435,34 @@ public final class EditorState {
         ) {
             commit()
         }
+        // A wheel has no "release", but a burst of detents is a gesture all
+        // the same — writing a decode-product field per detent would kick a
+        // re-decode per detent (#1153). Park the value and flush it when the
+        // detents stop, the same trailing-idle shape the burst's own undo
+        // coalescing already uses.
+        if armedCommitsOnRelease { beginGesture() }
         setArmedInternalValue(DragBarMath.clamp(armedInternalValue + Double(steps) * unit))
+        if armedCommitsOnRelease { scheduleWheelFlush() }
+    }
+
+    /// Trailing-idle delay after the last wheel detent before a parked
+    /// commit-on-release value is written. Shorter than `WheelNudgeBurst`'s
+    /// 0.5 s undo window so the decode starts before the burst is
+    /// considered over, long enough that a continuous scroll doesn't flush
+    /// mid-gesture.
+    private static let wheelFlushDelay = Duration.milliseconds(250)
+
+    /// The pending flush; cancelled and rescheduled on every detent, so only
+    /// the last one survives. `@ObservationIgnored` — bookkeeping only.
+    @ObservationIgnored private var wheelFlushTask: Task<Void, Never>?
+
+    private func scheduleWheelFlush() {
+        wheelFlushTask?.cancel()
+        wheelFlushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.wheelFlushDelay)
+            guard !Task.isCancelled, let self else { return }
+            self.endGesture()
+        }
     }
 
     /// Snapshot the current model for undo. Call on slider release /
@@ -405,6 +490,9 @@ public final class EditorState {
         // The guard skips wired-but-value-less tools (presets, #1115) so
         // they can't push junk undo entries.
         guard armedToolAcceptsValueEdits else { return }
+        // A reset is an explicit, discrete edit — it always writes through,
+        // even for a commit-on-release sub-param (#1153).
+        cancelGesture()
         commit()
         if let sub = armedSubParam {
             setArmedDisplayValue(sub.defaultDisplayValue)

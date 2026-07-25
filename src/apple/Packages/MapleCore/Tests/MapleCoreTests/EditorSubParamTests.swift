@@ -33,12 +33,31 @@ final class EditorSubParamTests: XCTestCase {
 
     // MARK: - Catalog
 
-    func testNoiseDeclaresLuminanceAndColor() {
+    func testNoiseDeclaresLuminanceColorDeepPrefilter() {
+        // #1153 — Deep (BM3D, §3.2) and Prefilter (§3.1) joined the Noise
+        // pill. Order follows spec §10.0.
         let subs = Tool.noise.subParams
-        XCTAssertEqual(subs.map(\.id), ["luminance", "color"])
-        XCTAssertEqual(subs.map(\.label), ["Luminance", "Color"])
+        XCTAssertEqual(subs.map(\.id), ["luminance", "color", "deep", "prefilter"])
+        XCTAssertEqual(subs.map(\.label), ["Luminance", "Color", "Deep", "Prefilter"])
         XCTAssertTrue(Tool.noise.isMultiParam)
         XCTAssertEqual(Tool.noise.defaultSubParamId, "luminance")
+        XCTAssertEqual(subs[2].range, AdjustmentModel.deepDenoiseRange)
+        XCTAssertEqual(subs[3].range, AdjustmentModel.chromaPrefilterRange)
+        // Both tiers ship OFF (spec §3.1 / §3.2 default 0).
+        XCTAssertEqual(subs[2].defaultDisplayValue, AdjustmentModel().deepDenoise)
+        XCTAssertEqual(subs[3].defaultDisplayValue, AdjustmentModel().chromaPrefilter)
+    }
+
+    func testOnlyDecodeProductNoiseTiersCommitOnRelease() {
+        // The decode-product pair defers its write; every other sub-param on
+        // every tool stays on the per-tick path.
+        let deferred = Tool.allCases
+            .flatMap { tool in
+                tool.subParams.filter(\.commitsOnRelease).map { "\(tool.rawValue).\($0.id)" }
+            }
+        XCTAssertEqual(deferred, ["noise.deep", "noise.prefilter"])
+        XCTAssertFalse(Tool.noise.subParams[0].commitsOnRelease)
+        XCTAssertFalse(Tool.noise.subParams[1].commitsOnRelease)
     }
 
     func testSharpenDeclaresAmountRadiusDetailMasking() {
@@ -340,6 +359,111 @@ final class EditorSubParamTests: XCTestCase {
         state.undo()
         XCTAssertEqual(state.session.model.nrLuminance, 0, accuracy: 1e-9)
         XCTAssertFalse(state.canUndo)
+    }
+
+    // MARK: - Commit on release (#1153)
+
+    func testCommitOnReleaseSubParamWritesOncePerGesture() {
+        let state = makeState()
+        state.arm(tool: .noise)
+        state.arm(subParamId: "deep")
+        XCTAssertTrue(state.armedCommitsOnRelease)
+
+        state.beginGesture()
+        // 40 drag samples — the shape a real drag produces.
+        for i in 1...40 { state.setArmedDisplayValue(Double(i)) }
+        // The model (and therefore the decoded-buffer cache key) has NOT moved…
+        XCTAssertEqual(state.session.model.deepDenoise, 0, accuracy: 1e-9)
+        // …but the slider tracks the finger.
+        XCTAssertEqual(state.armedDisplayValue, 40, accuracy: 1e-9)
+        XCTAssertEqual(state.deferredDisplayValue, 40)
+
+        state.endGesture()
+        XCTAssertEqual(state.session.model.deepDenoise, 40, accuracy: 1e-9)
+        XCTAssertNil(state.deferredDisplayValue)
+    }
+
+    func testPrefilterDefersWhileTheNlmTiersWriteThrough() {
+        let state = makeState()
+        state.arm(tool: .noise)
+        state.arm(subParamId: "prefilter")
+        state.beginGesture()
+        for i in 1...10 { state.setArmedDisplayValue(Double(i)) }
+        XCTAssertEqual(state.session.model.chromaPrefilter, 0, accuracy: 1e-9)
+        state.endGesture()
+        XCTAssertEqual(state.session.model.chromaPrefilter, 10, accuracy: 1e-9)
+
+        state.arm(subParamId: "luminance")
+        XCTAssertFalse(state.armedCommitsOnRelease)
+        state.beginGesture()
+        for i in 1...10 { state.setArmedDisplayValue(Double(i)) }
+        // Per-tick tools are untouched: the value lands immediately.
+        XCTAssertEqual(state.session.model.nrLuminance, 10, accuracy: 1e-9)
+        state.endGesture()
+        XCTAssertEqual(state.session.model.nrLuminance, 10, accuracy: 1e-9)
+    }
+
+    func testCancelledOrReArmedGestureDropsTheDeferredValue() {
+        let state = makeState()
+        state.arm(tool: .noise)
+        state.arm(subParamId: "deep")
+        state.beginGesture()
+        state.setArmedDisplayValue(70)
+        state.cancelGesture()
+        XCTAssertEqual(state.session.model.deepDenoise, 0, accuracy: 1e-9)
+
+        state.beginGesture()
+        state.setArmedDisplayValue(55)
+        state.arm(subParamId: "color") // arming elsewhere mid-gesture
+        state.endGesture()
+        XCTAssertEqual(state.session.model.deepDenoise, 0, accuracy: 1e-9)
+        XCTAssertEqual(state.session.model.nrColor, 25, accuracy: 1e-9)
+    }
+
+    func testBeginGestureIsIdempotentAndKeepsTheParkedValue() {
+        // `LivingSliderRow` has no drag-start hook and opens the gesture from
+        // its value setter, so a repeated begin must not discard the value.
+        let state = makeState()
+        state.arm(tool: .noise)
+        state.arm(subParamId: "deep")
+        state.beginGesture()
+        state.setArmedDisplayValue(30)
+        state.beginGesture()
+        XCTAssertEqual(state.deferredDisplayValue, 30)
+        state.endGesture()
+        XCTAssertEqual(state.session.model.deepDenoise, 30, accuracy: 1e-9)
+    }
+
+    func testWheelDetentsParkThenFlushOnceTheBurstStops() async throws {
+        // A wheel has no release event, so a burst of detents would otherwise
+        // kick one re-decode each. The value parks and lands once, on idle.
+        let state = makeState()
+        state.arm(tool: .noise)
+        state.arm(subParamId: "deep")
+        let t0 = Date()
+        for i in 0..<20 {
+            state.wheelNudge(steps: 1, unit: 1, at: t0.addingTimeInterval(Double(i) * 0.01))
+        }
+        XCTAssertEqual(state.session.model.deepDenoise, 0, accuracy: 1e-9)
+        XCTAssertNotNil(state.deferredDisplayValue)
+        let parked = try XCTUnwrap(state.deferredDisplayValue)
+        XCTAssertGreaterThan(parked, 0)
+
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertEqual(state.session.model.deepDenoise, parked, accuracy: 1e-9)
+        XCTAssertNil(state.deferredDisplayValue)
+    }
+
+    func testResetWritesThroughForACommitOnReleaseSubParam() {
+        let state = makeState()
+        state.arm(tool: .noise)
+        state.arm(subParamId: "deep")
+        state.beginGesture()
+        state.setArmedDisplayValue(60)
+        state.endGesture()
+        XCTAssertEqual(state.session.model.deepDenoise, 60, accuracy: 1e-9)
+        state.resetArmedTool()
+        XCTAssertEqual(state.session.model.deepDenoise, 0, accuracy: 1e-9)
     }
 
     // MARK: - Chip formatting

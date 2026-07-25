@@ -319,6 +319,27 @@ struct EditorView: View {
                 .frame(maxWidth: .infinity)
                 .allowsHitTesting(false)
             }
+
+            // ── LAYER 7 : deep-denoise (BM3D) progress ───────────────────
+            // DETERMINATE, driven by raw-core's own per-reference-row stage
+            // ticks (#1153) — the stage runs for seconds on a big RAW, so
+            // spec § 3.2 requires visible, real progress. Only present while
+            // the stage is actually engaged (Noise · Deep > 0).
+            if let denoise = state.session.deepDenoiseProgress.progress {
+                VStack(spacing: 8) {
+                    ProgressView(value: denoise.fraction)
+                        .progressViewStyle(.linear)
+                        .frame(maxWidth: 240)
+                        .accessibilityIdentifier("editor-deep-denoise-progress")
+                        .accessibilityValue(Text("\(Int(denoise.fraction * 100)) percent"))
+                    Text("Deep denoise \u{2014} pass \(denoise.pass) of 2")
+                        .font(.caption)
+                        .foregroundStyle(MapleTokens.textMuted)
+                }
+                .padding(20)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                .allowsHitTesting(false)
+            }
         }
         .overlay(alignment: .topTrailing) {
             // GPU frame-time HUD — validation-only (gpu build +

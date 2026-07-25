@@ -95,6 +95,10 @@ struct DragBar: View {
                     dragStartValue = internalValue
                     lastValue = internalValue
                     state.commit()   // undo snapshot at gesture start
+                    // Commit-on-release sub-params (Noise → Deep / Prefilter,
+                    // #1153) park their value for the gesture instead of
+                    // re-decoding per sample; inert for every other tool.
+                    state.beginGesture()
                 }
                 let sensitivity: DragSensitivity = state.fineMode ? .fine : .bar
                 let dv = DragBarMath.valueDelta(
@@ -110,6 +114,8 @@ struct DragBar: View {
             .onEnded { _ in
                 dragStartValue = nil
                 state.fineMode = false
+                // Release is the commit point for deferred sub-params.
+                state.endGesture()
             }
     }
 
