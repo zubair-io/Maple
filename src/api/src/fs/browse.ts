@@ -83,7 +83,7 @@ export const SYSTEM_DIRS = new Set<string>([
  * a grid full of thumbnails pays one `realpath()` syscall per configured root
  * per image to re-derive a value that cannot change between requests (#2219).
  */
-let browseRootsMemo: { env: string | undefined; roots: string[] } | null = null;
+let browseRootsMemo: { env: string | undefined; roots: Promise<string[]> } | null = null;
 
 export async function browseRoots(): Promise<string[]> {
   const env = process.env.MAPLE_ROOTS;
@@ -91,8 +91,19 @@ export async function browseRoots(): Promise<string[]> {
   // and MAPLE_ROOTS unset, that optional chain compares `undefined ===
   // undefined` and reports a hit on an empty memo.
   if (browseRootsMemo !== null && browseRootsMemo.env === env) return browseRootsMemo.roots;
-  const roots = await resolveBrowseRoots(env);
+  // Memoise the PROMISE, not the resolved value: the burst this exists to
+  // optimise (a grid opening, many thumb requests at once) all arrives before
+  // the first resolve, and caching only the settled value would let every one of
+  // them start its own `realpath` (jules review, PR #2252). Store before the
+  // first await so concurrent callers join this attempt.
+  const roots = resolveBrowseRoots(env);
   browseRootsMemo = { env, roots };
+  // A rejection must not be cached — the next call should retry rather than
+  // inherit a permanently-failed promise. (`resolveBrowseRoots` swallows
+  // per-root `realpath` failures today, so this is belt-and-braces.)
+  roots.catch(() => {
+    if (browseRootsMemo?.roots === roots) browseRootsMemo = null;
+  });
   return roots;
 }
 

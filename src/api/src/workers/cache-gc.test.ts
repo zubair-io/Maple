@@ -186,6 +186,41 @@ describe('sweepOrphanedCaches', () => {
     }
   });
 
+  // The `.meta` freshness sidecar must be reaped with the thumb it describes.
+  // It cannot be swept as an entry in its own right — `path.extname` leaves the
+  // stem `<key>.avif`, which matches no live-key shape, so putting `.meta` in
+  // THUMB_EXTS would condemn the sidecars of live thumbs.
+  test("reaps the .meta sidecar alongside the thumb, and keeps a live thumb's", async () => {
+    if (!mongoReachable) return;
+    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    const { sha256Prefix16 } = await import('../fs/xmp.ts');
+    const root = await mkTree();
+    try {
+      const libraryId = await registerLibrary(root);
+      await insertLiveAsset(libraryId, '', 'live.dng');
+
+      const orphan = path.join(root, '.maple', 'thumbs', `${LEGACY_KEY}.avif`);
+      const live = path.join(root, '.maple', 'thumbs', `${sha256Prefix16('live.dng')}.avif`);
+      for (const f of [orphan, live]) {
+        await writeAvif(f);
+        await writeFile(`${f}.meta`, JSON.stringify({ mtimeMs: 1, size: 1 }));
+        await agePast(f);
+        await agePast(`${f}.meta`);
+      }
+
+      // Only the two .avif files are scanned; sidecars ride along.
+      const result = await sweepOrphanedCaches(root);
+      expect(result).toEqual({ scanned: 2, deleted: 1, skipped_recent: 0 });
+
+      await expect(stat(orphan)).rejects.toThrow();
+      await expect(stat(`${orphan}.meta`)).rejects.toThrow();
+      expect((await stat(live)).size).toBeGreaterThan(0);
+      expect((await stat(`${live}.meta`)).size).toBeGreaterThan(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   // Same rule for the .avif tier the thumb stage actually writes.
   test('reaps a retired .avif thumb and keeps the live path-keyed .avif', async () => {
     if (!mongoReachable) return;
