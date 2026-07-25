@@ -11,7 +11,6 @@ import { Injectable, OnDestroy, inject, signal } from '@angular/core';
 import { BehaviorSubject, Observable } from 'rxjs';
 import type {
   AutoAdjustPatch,
-  AutoAdjustRequest,
   DecodedImage,
   DecodedSceneLinearImage,
   DecodeRequest,
@@ -25,6 +24,7 @@ import type {
   WorkerResponse,
 } from './raw-pipeline.types';
 import { dispatchExport } from './raw-pipeline.export-request';
+import { dispatchAutoAdjust } from './raw-pipeline.auto-adjust-request';
 
 export type { AutoAdjustPatch } from './raw-pipeline.types';
 import { GPU_LIVE_RENDER_ENABLED } from './gpu-live-render.token';
@@ -546,29 +546,8 @@ export class RawPipelineService implements OnDestroy {
     } catch {
       return Promise.reject(new Error('RawPipelineService: worker unavailable'));
     }
-    const id = this.nextId++;
-    // Copy the bytes off the caller's view before transferring (the view stays
-    // usable for a later decode / re-open), mirroring `decodeOnce`.
-    const buffer = bytes.buffer.slice(
-      bytes.byteOffset,
-      bytes.byteOffset + bytes.byteLength,
-    ) as ArrayBuffer;
-    const request: AutoAdjustRequest = { id, type: 'auto-adjust', bytes: buffer, ext, xmp };
-    // #1123: markStart/markEnd — see decodeOnce; a throw here must never strand
-    // `resolve`.
-    const autoAdjustStartMark = `maple:auto-adjust:${id}:start`;
-    markStart(autoAdjustStartMark);
-    return new Promise<AutoAdjustPatch>((resolve, reject) => {
-      this.pending.set(id, {
-        kind: 'auto-adjust',
-        resolve: (patch) => {
-          markEnd(autoAdjustStartMark, `maple:auto-adjust:${id}:end`, 'maple:auto-adjust');
-          resolve(patch);
-        },
-        reject,
-      });
-      worker.postMessage(request, [buffer]);
-    });
+    const register = (id: number, handler: PendingHandler) => this.pending.set(id, handler);
+    return dispatchAutoAdjust(worker, this.nextId++, register, bytes, ext, xmp);
   }
 
   /**
