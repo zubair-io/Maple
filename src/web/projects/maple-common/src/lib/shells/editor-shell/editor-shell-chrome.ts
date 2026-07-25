@@ -1,14 +1,15 @@
-// Chrome-recede + responsive-breakpoint observer for EditorShellComponent
-// (#1535). Extracted from the component to keep editor-shell.component.ts
-// under the per-file LOC budget. Operates on the live component via its
-// public surface; `import type` keeps this a type-only (no runtime)
-// dependency on the shell.
+// Chrome-recede machinery for EditorShellComponent (#1535). Extracted from
+// the component to keep editor-shell.component.ts under the per-file LOC
+// budget. Operates on the live component via its public surface; `import
+// type` keeps this a type-only (no runtime) dependency on the shell. The
+// breakpoint itself is a computed (`isTabletPlus`/`isDesktop`) on the shell,
+// derived from `LayoutService.layout()`; `setupResponsive` below only reacts
+// to it for the recede timer.
 //
 // Chrome recede: dims to 30% after 3s idle; restores on pointer move
 // (180ms transition, driven by the `.chrome--receded` class in the SCSS).
 // Desktop (>1024px) opts out of auto-recede — chrome stays full always.
 import type { EditorShellComponent } from './editor-shell.component';
-import type { MapleLayout } from '../../layout-service';
 
 /** Idle timeout before chrome recedes (ms). Desktop: never recedes. */
 const RECEDE_IDLE_MS = 3000;
@@ -75,40 +76,27 @@ export function teardownPointerMove(state: ChromeRecedeState): void {
   }
 }
 
-/** Responsive breakpoint observer: flips `isTabletPlus`/`isDesktop` from the
- *  shared `LayoutService.layout()` signal and manages the chrome-recede idle
- *  timer across breakpoint crossings. Desktop (`layout() === 'desktop'`,
- *  >1024px) opts out of auto-recede entirely. The caller (the shell's
- *  constructor `effect`) re-invokes this on every layout signal change —
- *  this module has no window/ResizeObserver dependency of its own. */
-export function setupResponsive(
-  shell: EditorShellComponent,
-  state: ChromeRecedeState,
-  layout: () => MapleLayout,
-): void {
-  const update = () => {
-    const wasDesktop = shell.isDesktop();
-    const l = layout();
-    shell.isTabletPlus.set(l !== 'phone');
-    shell.isDesktop.set(l === 'desktop');
-    if (l === 'desktop') {
-      // Desktop opts out of auto-recede — always full
-      clearRecedeTimer(state);
-      shell.chromeState.set('full');
-    } else if (wasDesktop) {
-      // Crossed back below the desktop breakpoint: restart the idle
-      // recede timer so chrome auto-recedes again on phone/tablet.
-      shell.chromeState.set('full');
-      restartRecedeTimer(shell, state);
-    }
-  };
-  update();
-  // On initial phone/tablet load the idle recede timer must start even if
-  // the user never moves the pointer or the layout never crosses back from
-  // desktop (the branch above only (re)starts it on such a crossing).
-  // Desktop opts out.
-  if (!shell.isDesktop()) {
+/** Chrome-recede reaction to the breakpoint. `isTabletPlus`/`isDesktop` are
+ *  computed straight off `LayoutService.layout()` on the shell (>1024px is
+ *  desktop); this function reads only `isDesktop()` and manages the auto-
+ *  recede idle timer + `chromeState`. Desktop opts out of auto-recede (clear
+ *  the timer, keep chrome full); phone/tablet restore full chrome and (re)
+ *  start the idle timer. The caller runs this inside an `effect()` that reads
+ *  `isDesktop()`, so it re-fires on every desktop↔non-desktop crossing — and
+ *  because a boolean computed only notifies on a value flip, phone↔tablet
+ *  resizes (which don't change `isDesktop()`) never restart the timer. It
+ *  writes only `chromeState` (never a signal it reads), so it cannot self-
+ *  trigger the effect. */
+export function setupResponsive(shell: EditorShellComponent, state: ChromeRecedeState): void {
+  if (shell.isDesktop()) {
+    // Desktop opts out of auto-recede — always full.
+    clearRecedeTimer(state);
     shell.chromeState.set('full');
-    restartRecedeTimer(shell, state);
+    return;
   }
+  // Phone/tablet: restore full chrome and (re)start the idle recede timer so
+  // chrome auto-recedes again (also covers the initial phone/tablet load and
+  // the desktop→non-desktop crossing).
+  shell.chromeState.set('full');
+  restartRecedeTimer(shell, state);
 }

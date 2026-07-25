@@ -148,11 +148,9 @@ export class PreviewShellComponent implements OnDestroy {
   }
 
   goBack(): void {
-    // `/library` is a redirect to `/browse` (web responsive foundation,
-    // #2279) — both breakpoints land on the same BrowseShell route.
-    // Reuses the same `isTabletPlus` breakpoint check the template already
-    // uses for the Info pane vs sheet split.
-    void this.router.navigate([this.isTabletPlus() ? '/browse' : '/library']);
+    // BrowseShell is the single library surface at every width (web
+    // responsive foundation, #2279 — `/library` now just redirects here).
+    void this.router.navigate(['/browse']);
   }
   edit(): void {
     const id = this.state.focusedAssetId();

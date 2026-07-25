@@ -197,12 +197,14 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
       }
     });
 
-    // Responsive breakpoints (web responsive foundation, #2279): derive
-    // isTabletPlus/isDesktop from the shared LayoutService signal instead of
-    // a private ResizeObserver on documentElement, so every shell agrees on
-    // the same 768/1024 thresholds. Re-runs on every layout crossing.
+    // Chrome-recede reaction to the breakpoint (web responsive foundation,
+    // #2279). `isDesktop`/`isTabletPlus` are computed straight off the shared
+    // LayoutService signal (above); this effect only reads `isDesktop()` and
+    // manages the auto-recede idle timer + `chromeState` side-effects. It
+    // writes `chromeState` (never a signal it reads), so it cannot self-
+    // trigger, and it re-runs only on a desktop↔non-desktop crossing.
     effect(() => {
-      setupResponsive(this, this._chrome, this.layoutService.layout);
+      setupResponsive(this, this._chrome);
     });
   }
 
@@ -276,9 +278,9 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly colorGradeArmed = computed<boolean>(() => this.editorState.armedTool() === 'colorGrade');
 
   /** True when LayoutService.layout() is tablet or desktop (≥768px). */
-  readonly isTabletPlus = signal<boolean>(false);
+  readonly isTabletPlus = computed<boolean>(() => this.layoutService.layout() !== 'phone');
   /** True when LayoutService.layout() is desktop (>1024px). Desktop opts out of recede. */
-  readonly isDesktop = signal<boolean>(false);
+  readonly isDesktop = computed<boolean>(() => this.layoutService.layout() === 'desktop');
 
   /** True when the curve panel (tone curve + WB pad) is open (#1540). */
   readonly curveOpen = signal<boolean>(false);
