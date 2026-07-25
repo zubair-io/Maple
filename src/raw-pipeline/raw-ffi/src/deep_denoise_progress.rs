@@ -78,8 +78,9 @@ fn forward(pass: &'static str, fraction: f32) {
     // SAFETY: `address` was stored from a live `MapleDeepDenoiseProgressFn`
     // by `maple_set_deep_denoise_progress`, whose contract requires the
     // pointer (and `user`) to stay valid until the callback is cleared.
-    let callback: unsafe extern "C" fn(f32, u32, *mut c_void) =
-        unsafe { std::mem::transmute::<usize, unsafe extern "C" fn(f32, u32, *mut c_void)>(address) };
+    let callback: unsafe extern "C" fn(f32, u32, *mut c_void) = unsafe {
+        std::mem::transmute::<usize, unsafe extern "C" fn(f32, u32, *mut c_void)>(address)
+    };
     unsafe { callback(overall, pass_index, user) };
 }
 

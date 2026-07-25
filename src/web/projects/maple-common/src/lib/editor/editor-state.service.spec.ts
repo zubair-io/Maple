@@ -5,79 +5,15 @@
 // and the wired-vs-stub catalog math.
 
 import { TestBed } from '@angular/core/testing';
-import { signal, type Signal } from '@angular/core';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import { EditorStateService, UNDO_STACK_CAP } from './editor-state.service';
+import { LibraryStub } from './editor-state.test-helpers';
 import { LibraryStateService } from '../state/library-state.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { ALL_TOOLS, TOOLS_IN_GROUP, defaultDisplayValue, groupOf, isWired } from './tool-model';
-import {
-  defaultAdjustmentModel,
-  defaultGeneratedAdjustmentModel,
-  type AdjustmentModel,
-} from '../models/adjustment-model';
+import { defaultGeneratedAdjustmentModel, type AdjustmentModel } from '../models/adjustment-model';
 import type { AutoAdjustPatch } from '../raw-pipeline/raw-pipeline.types';
-
-// Minimal LibraryStateService stand-in: holds the AdjustmentModel
-// signal, exposes `adjustmentFor`, and applies `updateAdjustment` patches
-// in place (mirroring the real store's behavior without standing up the
-// API + sidecar machinery).
-class LibraryStub {
-  private models = new Map<string, ReturnType<typeof signal<AdjustmentModel>>>();
-  private asShot = new Map<string, { temperature: number; tint: number }>();
-
-  // Minimal asset list — used by applyAuto to resolve the file extension.
-  assets = signal([{ id: 'asset-1', filename: 'test.dng' }] as Array<{
-    id: string;
-    filename: string;
-  }>);
-
-  // Synchronous bytes cache (populated per-test for applyAuto).
-  private bytesCache = new Map<string, Uint8Array>();
-
-  primeBytes(id: string, bytes: Uint8Array): void {
-    this.bytesCache.set(id, bytes);
-  }
-
-  bytesFor(id: string): Uint8Array | undefined {
-    return this.bytesCache.get(id);
-  }
-
-  bytesForAsset(id: string): Promise<Uint8Array> {
-    const b = this.bytesCache.get(id);
-    return b ? Promise.resolve(b) : Promise.reject(new Error(`no bytes for ${id}`));
-  }
-
-  ensure(id: string): void {
-    if (!this.models.has(id)) {
-      this.models.set(id, signal(defaultAdjustmentModel()));
-    }
-  }
-
-  adjustmentFor(id: string): Signal<AdjustmentModel> {
-    this.ensure(id);
-    return this.models.get(id)!.asReadonly();
-  }
-
-  /** #1153: every call is one model write, i.e. one re-render/decode kick. */
-  updateCount = 0;
-
-  updateAdjustment(id: string, patch: Partial<AdjustmentModel>): void {
-    this.updateCount += 1;
-    this.ensure(id);
-    this.models.get(id)!.update((m) => ({ ...m, ...patch }));
-  }
-
-  /** Test seam: stage a camera As-Shot reading for `id`. */
-  setAsShot(id: string, wb: { temperature: number; tint: number }): void {
-    this.asShot.set(id, wb);
-  }
-
-  asShotWbFor(id: string): { temperature: number; tint: number } | undefined {
-    return this.asShot.get(id);
-  }
-}
 
 // Fake RawPipelineService — returns a configurable auto-adjust patch.
 class PipelineStub {
@@ -270,75 +206,8 @@ describe('EditorStateService', () => {
       expect(adj.nrLuminance).toBe(80);
     });
 
-    it('commit-on-release sub-params write ONCE per gesture, at release (#1153)', () => {
-      svc.armTool('noise');
-      svc.armSubParam('deep');
-      expect(svc.armedCommitsOnRelease()).toBe(true);
-
-      lib.updateCount = 0;
-      svc.beginGesture();
-      // 40 pointer samples across the drag — the shape a real drag produces.
-      for (let i = 1; i <= 40; i++) svc.setArmedDisplayValue(i);
-      expect(lib.updateCount).toBe(0);
-      expect(lib.adjustmentFor(ID)().deepDenoise).toBe(0);
-      // ...but the drag bar still tracks the finger.
-      expect(svc.armedDisplayValue()).toBe(40);
-      expect(svc.hasDeferredValue()).toBe(true);
-
-      svc.endGesture();
-      expect(lib.updateCount).toBe(1);
-      expect(lib.adjustmentFor(ID)().deepDenoise).toBe(40);
-      expect(svc.hasDeferredValue()).toBe(false);
-    });
-
-    it('prefilter defers the same way; the NLM tiers still write per tick', () => {
-      svc.armTool('noise');
-      svc.armSubParam('prefilter');
-      lib.updateCount = 0;
-      svc.beginGesture();
-      for (let i = 1; i <= 10; i++) svc.setArmedDisplayValue(i);
-      expect(lib.updateCount).toBe(0);
-      svc.endGesture();
-      expect(lib.adjustmentFor(ID)().chromaPrefilter).toBe(10);
-      expect(lib.updateCount).toBe(1);
-
-      svc.armSubParam('luminance');
-      expect(svc.armedCommitsOnRelease()).toBe(false);
-      lib.updateCount = 0;
-      svc.beginGesture();
-      for (let i = 1; i <= 10; i++) svc.setArmedDisplayValue(i);
-      expect(lib.updateCount).toBe(10);
-      svc.endGesture();
-      expect(lib.updateCount).toBe(10);
-      expect(lib.adjustmentFor(ID)().nrLuminance).toBe(10);
-    });
-
-    it('a cancelled or re-armed gesture drops the deferred value unwritten', () => {
-      svc.armTool('noise');
-      svc.armSubParam('deep');
-      svc.beginGesture();
-      svc.setArmedDisplayValue(70);
-      svc.cancelGesture();
-      expect(lib.adjustmentFor(ID)().deepDenoise).toBe(0);
-
-      svc.beginGesture();
-      svc.setArmedDisplayValue(55);
-      svc.armSubParam('color'); // arming elsewhere mid-gesture
-      svc.endGesture();
-      expect(lib.adjustmentFor(ID)().deepDenoise).toBe(0);
-      expect(lib.adjustmentFor(ID)().nrColor).toBe(25);
-    });
-
-    it('reset writes through even for a commit-on-release sub-param', () => {
-      svc.armTool('noise');
-      svc.armSubParam('deep');
-      svc.beginGesture();
-      svc.setArmedDisplayValue(60);
-      svc.endGesture();
-      expect(lib.adjustmentFor(ID)().deepDenoise).toBe(60);
-      svc.resetArmedTool();
-      expect(lib.adjustmentFor(ID)().deepDenoise).toBe(0);
-    });
+    // The commit-on-release sub-params (#1153) have their own suite in
+    // `editor-state.commit-on-release.spec.ts`.
 
     it('remembers the armed sub-param per tool for the session (across tool switches and binds)', () => {
       svc.armTool('noise');
