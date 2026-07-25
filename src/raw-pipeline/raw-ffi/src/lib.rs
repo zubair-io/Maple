@@ -38,6 +38,10 @@ mod auto_profile;
 mod auto_tone;
 mod buffers;
 mod cancel;
+// BM3D deep-denoise progress bridge (#1153): the editor's determinate
+// indicator is fed by the stage's own per-row ticks, so raw-core's progress
+// sink gets a C callback registration here.
+mod deep_denoise_progress;
 mod error;
 // Epic #925 / P1b (#988): GPU parity FFI (`maple_gpu_exposure_parity`). Gated
 // behind the `gpu` feature so wgpu is absent from the default xcframework.
@@ -89,6 +93,9 @@ pub use auto_adjustments::MapleAutoAdjustments;
 pub use auto_tone::MapleAutoTone;
 pub use buffers::{MapleImageBuffer, MapleSceneLinearBuffer};
 pub use cancel::MapleCancelFlag;
+// #1153: cbindgen needs visibility on the callback typedef; the
+// `#[no_mangle]` registration entry is exported regardless.
+pub use deep_denoise_progress::{maple_set_deep_denoise_progress, MapleDeepDenoiseProgressFn};
 pub use handle::MapleRawHandle;
 pub use id::MapleFallbackIdHasher;
 pub use scene_linear_chain::MapleAdjustmentParams;
