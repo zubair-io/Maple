@@ -16,16 +16,20 @@ public actor CloudThumbClient {
     self.httpClient = httpClient
   }
 
-  /// Returns AVIF bytes for the thumbnail of `absPath` at the given size.
+  /// Returns AVIF bytes for the grid thumbnail of `absPath`.
+  ///
+  /// There is no `size` parameter: `/api/fs/thumb` serves ONE fixed tier
+  /// (#2220). It previously accepted `?size=` and ignored it — the server keeps
+  /// a single cache file per source image with an mtime-only freshness check,
+  /// so any other size was served those same bytes. Use ``preview(absPath:)``
+  /// for the ~1280px display tier.
+  ///
   /// Throws on non-2xx responses (caller surfaces the error or shows a
   /// placeholder cell).
-  public func thumb(absPath: String, size: Int = 512) async throws -> Data {
+  public func thumb(absPath: String) async throws -> Data {
     var c = URLComponents(url: server.appending(path: "/api/fs/thumb"),
                           resolvingAgainstBaseURL: false)!
-    c.queryItems = [
-      URLQueryItem(name: "path", value: absPath),
-      URLQueryItem(name: "size", value: "\(size)"),
-    ]
+    c.queryItems = [URLQueryItem(name: "path", value: absPath)]
     let (data, resp) = try await httpClient.data(for: URLRequest(url: c.url!))
     if let http = resp as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
       throw NSError(domain: "CloudThumbClient",

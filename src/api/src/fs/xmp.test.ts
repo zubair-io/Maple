@@ -133,11 +133,16 @@ describe('cachePathForAsset', () => {
     );
   });
 
-  test('previews without suffix arg → uses full.jpg suffix', () => {
+  // The `suffix ?? 'full.jpg'` default was removed in #2220: nothing writes a
+  // `full.jpg` any more, so the default could only be hit by mistake. `suffix`
+  // is now required for `previews` at the type level, which is what this
+  // asserts — the @ts-expect-error IS the test, and it fails to compile if the
+  // parameter ever goes back to being optional.
+  test('previews requires an explicit suffix', () => {
+    // @ts-expect-error - suffix is required for kind="previews"
     const result = cachePathForAsset(makeAsset({}), libs(), 'previews');
-    expect(result).toBe(
-      path.join(LIB_ROOT, 'vacation', '2024', '.maple', 'previews', 'IMG_001.dng.full.jpg'),
-    );
+    // No 'full.jpg' fallback remains at runtime either.
+    expect(result).not.toContain('full.jpg');
   });
 
   test('previews at library root (empty fileinfo[0].path) → no extra segments', () => {

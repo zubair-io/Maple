@@ -39,6 +39,20 @@ export { SHARP_EXTENSIONS } from '../fs/browse.ts';
  * `routes/fs-thumbs.ts` so the default lives in exactly one place. */
 export const THUMB_AVIF_QUALITY = 55;
 
+/** Long-edge render target for the `thumbs` cache tier, in pixels.
+ *
+ * A FIXED tier, not a per-request knob (#2220). `resolveThumbPath` has no size
+ * component — there is one thumb file per source image — and its freshness
+ * check is mtime-only, so a request for any other size would simply be served
+ * whatever was written first. `/api/fs/thumb` used to accept a `size` query
+ * param that did exactly that (silently returned the 512 px file), so the
+ * param was removed rather than left to mislead callers; the display tier is
+ * `PREVIEW_LONG_EDGE_PX` on `/api/fs/preview`.
+ *
+ * Shared with `indexer/thumbnailer.ts` and `routes/fs-thumbs.ts` so the tier
+ * lives in exactly one place. */
+export const THUMB_LONG_EDGE_PX = 512;
+
 /** Sharp's AVIF `effort` (0–9, higher = slower/smaller). 4 favors encode
  * throughput for the indexer backlog — effort has no effect on decode cost. */
 export const THUMB_AVIF_EFFORT = 4;

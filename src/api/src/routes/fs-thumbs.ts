@@ -1,9 +1,16 @@
 // src/api/src/routes/fs-thumbs.ts
 //
-// GET /api/fs/thumb?path=<abs-path-to-raw>&size=512
-//   Returns an `image/avif` thumbnail for a RAW file at `path`. Caches the
-//   result on disk under `<dir>/.maple/thumbs/<basename>_<size>.avif`. Stale
-//   thumbs (older than the RAW) are regenerated.
+// GET /api/fs/thumb?path=<abs-path-to-raw>
+//   Returns an `image/avif` thumbnail for the image at `path`, rendered at the
+//   fixed `THUMB_LONG_EDGE_PX` tier. Caches the result on disk under
+//   `<dir>/.maple/thumbs/<sha256_prefix16(basename)>.avif`. Stale thumbs (older
+//   than the source) are regenerated.
+//
+//   There is deliberately NO `size` param (#2220). One cache file per source
+//   plus an mtime-only freshness check means any other requested size would be
+//   served whatever was written first — which is exactly what the old `size`
+//   param did, silently. The display-resolution tier is `/api/fs/preview`
+//   (`PREVIEW_LONG_EDGE_PX`).
 //
 // Lives in a separate file from `fs.ts` so the directory-listing endpoint
 // (parallel work) and the thumb endpoint can be edited independently.
@@ -25,16 +32,12 @@ import { ffiPool } from '../ffi/ffi-pool.ts';
 import { VIDEO_EXTS } from '../indexer/media-types.ts';
 import { renderImageThumbToFileViaPool } from '../thumbs/imgdecode-pool.ts';
 import { applyExifOrientationInPlace } from '../thumbs/apply-orientation.ts';
-import { THUMB_AVIF_QUALITY } from '../thumbs/render.ts';
+import { THUMB_AVIF_QUALITY, THUMB_LONG_EDGE_PX } from '../thumbs/render.ts';
 import { ffmpegBinary, extractVideoPosterJpeg } from '../thumbs/video-poster.ts';
 import { child as childLogger } from '../log.ts';
 import { resolveJailedFile, sourceETag, notModifiedResponse } from './fs-jail.ts';
 
 const log = childLogger('fs-thumbs');
-
-const DEFAULT_SIZE_PX = 512;
-const MIN_SIZE_PX = 16;
-const MAX_SIZE_PX = 4096;
 
 /**
  * Render a video's poster frame to `thumbPath` at `sizePx` (#2132).
@@ -106,15 +109,7 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
   // fallow-ignore-next-line complexity
   async ({ query, headers, set }) => {
     const reqPath = query.path;
-    const sizeStr = query.size ?? String(DEFAULT_SIZE_PX);
-    const sizePx = Number.parseInt(sizeStr, 10);
-
-    if (!Number.isFinite(sizePx) || sizePx < MIN_SIZE_PX || sizePx > MAX_SIZE_PX) {
-      set.status = 400;
-      return {
-        error: `size must be an integer in [${MIN_SIZE_PX}, ${MAX_SIZE_PX}]`,
-      };
-    }
+    const sizePx = THUMB_LONG_EDGE_PX;
 
     // Shared absolute-path / realpath-jail / extension-gate / stat preamble
     // (fs-jail.ts — also used by /api/fs/preview).
@@ -135,13 +130,11 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
     const isVideo = VIDEO_EXTS.has(`.${ext}`);
     const renderViaImgdecode = !isVideo && !RAW_EXTENSIONS.has(ext);
 
-    // One thumb per RAW (matches Apple ThumbnailDiskCache + web
-    // MapleCacheService). The `size` query param controls the RENDER
-    // target — re-rendering at a different size overwrites the same
-    // cache entry. Stale-check is mtime-based, so a size change that
-    // happens after the cache file was written will look fresh until
-    // the RAW itself is touched. For browse-grid use, 512px is the
-    // pinned target so this is effectively cosmetic.
+    // One thumb per source file (matches Apple ThumbnailDiskCache + web
+    // MapleCacheService), rendered at the single fixed `THUMB_LONG_EDGE_PX`
+    // tier. The stale-check is mtime-based, which is sound precisely because
+    // the render target is now a constant: the only thing that can invalidate
+    // this file is the source changing.
     const thumbPath = resolveThumbPath(real);
 
     const rawMtimeMs = rawStat.mtimeMs;
@@ -323,9 +316,11 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
     });
   },
   {
+    // No `size`: the tier is fixed. Elysia drops query params absent from the
+    // schema, so already-deployed clients still sending `?size=512` keep
+    // working and get the same bytes they were getting before.
     query: t.Object({
       path: t.String({ minLength: 1 }),
-      size: t.Optional(t.String()),
     }),
   },
 );
