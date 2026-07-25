@@ -564,6 +564,42 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         enum_name: "",
         doc: "BM3D deep denoise strength (#1105, tone/zoom design spec § 3.2). Two-stage collaborative filtering, input-referred inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:DeepDenoise`. Part of the decoded-image cache key.",
     },
+    // DNG-embedded lens corrections (#376). Decode-product parameters —
+    // the OpcodeList3 opcodes are baked into the demosaiced camera-RGB
+    // buffer before DCP, so these belong to the same cache-key family as
+    // `chroma_prefilter` / `deep_denoise` / `hot_pixel_suppression`.
+    FieldSpec {
+        name: "lens_profile_enable",
+        kind: FieldKind::Enum,
+        range: (0.0, 0.0),
+        default_f32: 0.0,
+        enum_name: "LensProfileEnable",
+        doc: "Master on/off for the lens corrections a DNG embeds in its OpcodeList3 (#376). 'On' (default) applies each family at its own scale, matching ACR's behaviour when a profile is present; 'Off' overrides all three scales. XMP key `crs:LensProfileEnable`.",
+    },
+    FieldSpec {
+        name: "lens_correction_distortion",
+        kind: FieldKind::F32,
+        range: (0.0, 100.0),
+        default_f32: 100.0,
+        enum_name: "",
+        doc: "Geometric-distortion correction strength (#376) — the DNG `WarpRectilinear` component common to all three planes. 100 (default) applies the vendor's authored warp in full; 0 leaves the frame undistorted-as-shot. XMP key `crs:LensProfileDistortionScale`. Part of the decoded-image cache key.",
+    },
+    FieldSpec {
+        name: "lens_correction_ca",
+        kind: FieldKind::F32,
+        range: (0.0, 100.0),
+        default_f32: 100.0,
+        enum_name: "",
+        doc: "Lateral chromatic-aberration correction strength (#376) — each plane's DNG `WarpRectilinear` deviation from the green reference plane. Has no effect on a DNG carrying a single coefficient set (no CA encoded). XMP key `crs:LensProfileChromaticAberrationScale`. Part of the decoded-image cache key.",
+    },
+    FieldSpec {
+        name: "lens_correction_vignetting",
+        kind: FieldKind::F32,
+        range: (0.0, 100.0),
+        default_f32: 100.0,
+        enum_name: "",
+        doc: "Vignetting / lens-shading correction strength (#376) — the DNG `FixVignetteRadial` and `GainMap` gain opcodes. XMP key `crs:LensProfileVignettingScale`. Part of the decoded-image cache key.",
+    },
 ];
 
 #[cfg(test)]

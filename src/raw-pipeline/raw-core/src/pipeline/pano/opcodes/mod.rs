@@ -38,6 +38,10 @@
 //! sets), `N × 6 f64` (kr0, kr1, kr2, kr3, kt0, kt1), then `2 × f64`
 //! optical center (cx, cy) in normalized image coordinates.
 //!
+//! `FixVignetteRadial` (id 3) parameters: `5 × f64` (k0…k4), then `2 × f64`
+//! optical center (cx, cy) in normalized image coordinates — a fixed
+//! 56-byte block (dng_sdk `dng_vignette_radial_params::kNumTerms * 8 + 16`).
+//!
 //! ## Error policy
 //!
 //! Unknown opcode ids are **skipped with a count**, never an error —
@@ -55,7 +59,12 @@ use rawler::tags::DngTag;
 
 /// DNG opcode ids this module understands (DNG 1.4 § "Opcode Lists").
 const OPCODE_ID_WARP_RECTILINEAR: u32 = 1;
+const OPCODE_ID_FIX_VIGNETTE_RADIAL: u32 = 3;
 const OPCODE_ID_GAIN_MAP: u32 = 9;
+
+/// Number of radial coefficients in a `FixVignetteRadial` opcode
+/// (dng_sdk `dng_vignette_radial_params::kNumTerms`).
+const VIGNETTE_RADIAL_TERMS: usize = 5;
 
 /// `GainMap` opcode (id 9): a bilinearly-interpolated gain lattice
 /// multiplied over a pixel-area rectangle. All rectangle coordinates are
@@ -113,11 +122,26 @@ pub struct WarpRectilinearOpcode {
     pub center_y: f64,
 }
 
+/// `FixVignetteRadial` opcode (id 3): a radial gain applied about the
+/// optical center, `g(t) = 1 + k0·t + k1·t² + k2·t³ + k3·t⁴ + k4·t⁵` where
+/// `t` is the squared distance from the center normalized so `t = 1` at
+/// the farthest corner of the active area (dng_sdk
+/// `dng_vignette_radial_function::Evaluate`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FixVignetteRadialOpcode {
+    /// Radial gain coefficients k0…k4.
+    pub k: [f64; VIGNETTE_RADIAL_TERMS],
+    /// Optical center in normalized ActiveArea coordinates.
+    pub center_x: f64,
+    pub center_y: f64,
+}
+
 /// A parsed opcode this path knows how to apply, in list order.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PanoOpcode {
     GainMap(GainMapOpcode),
     WarpRectilinear(WarpRectilinearOpcode),
+    FixVignetteRadial(FixVignetteRadialOpcode),
 }
 
 /// A parsed `OpcodeList3`: the supported opcodes **in list order** (the
@@ -219,6 +243,11 @@ pub fn parse_opcode_list(bytes: &[u8]) -> Option<OpcodeList3> {
             }
             OPCODE_ID_WARP_RECTILINEAR => {
                 opcodes.push(PanoOpcode::WarpRectilinear(parse_warp_rectilinear(
+                    &mut cur, param_len,
+                )?));
+            }
+            OPCODE_ID_FIX_VIGNETTE_RADIAL => {
+                opcodes.push(PanoOpcode::FixVignetteRadial(parse_fix_vignette_radial(
                     &mut cur, param_len,
                 )?));
             }
@@ -331,6 +360,36 @@ fn parse_warp_rectilinear(cur: &mut Cursor<'_>, param_len: usize) -> Option<Warp
     }
     Some(WarpRectilinearOpcode {
         planes,
+        center_x,
+        center_y,
+    })
+}
+
+/// `FixVignetteRadial` (id 3): five radial gain coefficients plus the
+/// optical center, in a fixed-size block. dng_sdk rejects any other
+/// parameter length outright (`ThrowBadFormat`); we degrade to `None`,
+/// which the caller treats as a malformed list (module-level error policy).
+fn parse_fix_vignette_radial(
+    cur: &mut Cursor<'_>,
+    param_len: usize,
+) -> Option<FixVignetteRadialOpcode> {
+    // 5×f64 coefficients + 2×f64 center must exactly fill the block.
+    if param_len != VIGNETTE_RADIAL_TERMS * 8 + 16 {
+        return None;
+    }
+    let mut k = [0.0f64; VIGNETTE_RADIAL_TERMS];
+    for slot in k.iter_mut() {
+        *slot = cur.read_f64()?;
+    }
+    // dng_sdk reads the horizontal center first, then the vertical one —
+    // same order as `WarpRectilinear` above.
+    let center_x = cur.read_f64()?;
+    let center_y = cur.read_f64()?;
+    if !(k.iter().all(|v| v.is_finite()) && center_x.is_finite() && center_y.is_finite()) {
+        return None;
+    }
+    Some(FixVignetteRadialOpcode {
+        k,
         center_x,
         center_y,
     })
