@@ -5,6 +5,10 @@
 // 3. `.export-btn.has-selection` / `.no-selection` colour swaps — likewise.
 // 4. `.panel-right.is-hidden` removes the left border when the inspector is
 //    collapsed (otherwise the 0.5px line stays visible against the bg).
+// 5. Responsive rules (#2280) — source sidebar width, toolbar search width,
+//    toolbar wrap/scroll, and the overflow-menu popover. Breakpoints mirror
+//    `LayoutService` (768/1024 — see `layout-service.ts`); `@media` cutoffs
+//    are 767/1023 to match.
 
 :host {
   display: flex;
@@ -39,4 +43,72 @@
 
 .panel-right.is-hidden {
   border-left: none;
+}
+
+// ── Source sidebar (#2280) ───────────────────────────────────────────────
+// Inline pane at tablet+; the phone tier swaps it for the overlay drawer
+// (`app-source-picker-drawer`) instead, so this rule only ever applies at
+// tablet/desktop widths.
+.source-sidebar {
+  width: 240px;
+}
+@media (max-width: 1023px) {
+  .source-sidebar {
+    width: 196px;
+  }
+}
+
+// ── Toolbar (#2280) ──────────────────────────────────────────────────────
+.toolbar {
+  min-width: 0;
+}
+@media (max-width: 767px) {
+  .toolbar {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 2.75rem;
+    row-gap: 6px;
+  }
+}
+
+.toolbar-search {
+  min-width: 0;
+  flex: 0 1 300px;
+  max-width: 340px;
+}
+@media (max-width: 767px) {
+  .toolbar-search {
+    flex: 1 1 auto;
+    max-width: none;
+  }
+}
+
+// ── Toolbar overflow menu (#2280) ────────────────────────────────────────
+// Kebab-triggered dropdown holding the action pills below the desktop
+// breakpoint. Anchored to `.toolbar-overflow` (the kebab button's
+// `position: relative` wrapper).
+.toolbar-overflow {
+  position: relative;
+}
+.toolbar-overflow-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  min-width: 200px;
+  background: var(--color-surface);
+  border: 0.5px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+
+  // The pills were laid out for a horizontal row; stack + left-align them
+  // inside the menu instead of centering short labels in a wide button.
+  > button {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
