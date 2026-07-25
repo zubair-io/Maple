@@ -90,8 +90,7 @@ private struct ToolPillButton: View {
                                             lineWidth: 0.5)
                         )
                         .frame(width: 40, height: 40)
-                    Image(systemName: ToolGlyph.sfSymbol(for: tool))
-                        .font(.system(size: 16, weight: .regular))
+                    ToolGlyph.icon(for: tool, size: 18)
                         .foregroundStyle(isSelected
                                          ? MapleTokens.primary
                                          : MapleTokens.textMain)
