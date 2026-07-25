@@ -135,6 +135,56 @@
       </button>
     }
 
+    <!--
+      Copy / Paste / Sync develop settings (#944). Unlike the two buttons
+      above these are NOT gated on the Self Hosted backend: the write path
+      (`LibraryStateService.updateAdjustment` → `scheduleSidecarWrite`)
+      branches on the backend internally and supports Hosted's FS Access
+      writer too, and the ⌘C / ⌘V shortcuts are ungated — hiding the buttons
+      on Hosted would leave the shortcuts as the only affordance.
+    -->
+    <!-- Copy Settings — requires a focused asset. -->
+    <button
+      type="button"
+      class="export-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] border-[0.5px]"
+      [class.has-selection]="canCopySettings()"
+      [class.no-selection]="!canCopySettings()"
+      [disabled]="!canCopySettings()"
+      title="Copy the focused photo's develop settings  ⌘C"
+      aria-label="Copy settings"
+      (click)="onCopySettings()"
+    >
+      <span>Copy Settings</span>
+    </button>
+
+    <!-- Paste Settings — requires clipboard contents + ≥1 selected. -->
+    <button
+      type="button"
+      class="export-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] border-[0.5px]"
+      [class.has-selection]="canPasteSettings()"
+      [class.no-selection]="!canPasteSettings()"
+      [disabled]="!canPasteSettings()"
+      title="Choose which develop-setting groups to paste  ⌘⇧V"
+      aria-label="Paste settings"
+      (click)="onOpenPasteDialog()"
+    >
+      <span>Paste Settings…{{ canPasteSettings() ? ' (' + state.selectedCount() + ')' : '' }}</span>
+    </button>
+
+    <!-- Sync Settings — requires a focused asset + ≥2 selected. -->
+    <button
+      type="button"
+      class="export-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] border-[0.5px]"
+      [class.has-selection]="canSyncSettings()"
+      [class.no-selection]="!canSyncSettings()"
+      [disabled]="!canSyncSettings()"
+      title="Apply the focused photo's settings to the rest of the selection"
+      aria-label="Sync settings"
+      (click)="onSyncSettings()"
+    >
+      <span>Sync Settings{{ canSyncSettings() ? ' (' + state.selectedCount() + ')' : '' }}</span>
+    </button>
+
     <!-- Export -->
     <button
       type="button"
@@ -200,4 +250,13 @@
   [visible]="batchMetaDialogVisible()"
   [assetSnapshots]="batchMetaAssetSnapshots()"
   (dismiss)="onBatchMetaDismiss()"
+/>
+
+<!-- Selective paste dialog (#944) -->
+<app-paste-settings-dialog
+  [visible]="pasteDialogVisible()"
+  [targetCount]="state.selectedCount()"
+  [sourceLabel]="clipboardSourceLabel()"
+  (paste)="onPasteDialogConfirm($event)"
+  (dismiss)="onPasteDialogDismiss()"
 />
