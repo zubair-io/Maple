@@ -59,7 +59,7 @@ decode (rawler)  →  RawImage  (CFA mosaic, EXIF, DCP tags, AsShotNeutral, crop
   ├─ 22. clarity              (midtone local contrast, large-radius unsharp)
   ├─ 23. texture              (fine-detail local contrast, small-radius unsharp)
   ├─ 24. dehaze
-  ├─ 25. local_adjustments    (#280; masked region edits — empty by default)
+  ├─ 25. local_adjustments    (#280; masked region edits — empty by default; WGSL since #1698)
   ├─ 26. vignette             (#1109; scene-linear radial gain)
   ├─ 27. sharpen              (output sharpening; default amount 40)
   ├─ 28. nr_luminance         (luminance noise reduction)
