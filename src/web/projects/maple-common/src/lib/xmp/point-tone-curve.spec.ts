@@ -4,10 +4,11 @@
 // `CANONICAL_BLOCK` below is the cross-language parity artifact: the same
 // literal appears in the Rust suite (`raw-core/src/xmp/tests_tone_curves.rs`)
 // and the Swift suite (`ToneCurveXMPTests.swift`), and all three serializers
-// must produce it byte-for-byte from the same model at the same indent. Whole
-// *documents* still differ across the three writers (namespace URIs,
-// `x:xmptk`, attribute order), so the block is the unit of byte parity, not
-// the file.
+// must produce it byte-for-byte from the same model at the same indent. Rust
+// ships only a fragment serializer and never writes a whole document, which
+// is why the block rather than the file is this fixture's unit; whole-document
+// parity between the Swift and TypeScript writers is #1577's `xmp-canonical`
+// pair.
 //
 // The namespace decision this file pins: scene-linear point curves are
 // `papp:SceneLinearToneCurve*`, and Lightroom's display-referred
@@ -26,7 +27,7 @@ import type { AdjustmentModel, ToneCurvePoint } from '../models/adjustment-model
 /**
  * Child indent used by the parity fixture. Six spaces is the canonical depth
  * for children of `rdf:Description` per `docs/xmp-canonical-format.md`
- * § "Indentation"; this web writer nests its own children at two.
+ * § "Indentation", and since #1577 it is also what this writer emits.
  */
 const CANONICAL_INDENT = '      ';
 

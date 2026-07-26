@@ -9,6 +9,7 @@
 
 import type { XmpMetadata, CopyrightStatus } from './xmp.types';
 import { attrOf } from './xmp-dom-utils';
+import { DESCRIPTION_CHILD_INDENT } from './xmp-canonical';
 
 /** Axis selector for GPS encoding (picks the N/S vs E/W hemisphere suffix). */
 export type GpsAxis = 'lat' | 'lon';
@@ -81,26 +82,29 @@ export function escapeXmlText(value: string): string {
 /**
  * Build a lang-alt nested element:
  *   <prefix:Name><rdf:Alt><rdf:li xml:lang="x-default">text</rdf:li></rdf:Alt></prefix:Name>
- * Indentation mirrors the existing `dc:subject` block (2/3/4 spaces).
+ * Indentation is the canonical child indent plus two spaces per nesting level
+ * (#1577), matching the `dc:subject` keyword bag and the point tone curves.
  */
 export function langAltBlock(qname: string, text: string): string {
+  const indent = DESCRIPTION_CHILD_INDENT;
   return [
-    `  <${qname}>`,
-    '   <rdf:Alt>',
-    `    <rdf:li xml:lang="x-default">${escapeXmlText(text)}</rdf:li>`,
-    '   </rdf:Alt>',
-    `  </${qname}>`,
+    `${indent}<${qname}>`,
+    `${indent}  <rdf:Alt>`,
+    `${indent}    <rdf:li xml:lang="x-default">${escapeXmlText(text)}</rdf:li>`,
+    `${indent}  </rdf:Alt>`,
+    `${indent}</${qname}>`,
   ].join('\n');
 }
 
 /** Build an rdf:Seq nested element holding a single entry (v1 single-creator). */
 export function seqBlock(qname: string, text: string): string {
+  const indent = DESCRIPTION_CHILD_INDENT;
   return [
-    `  <${qname}>`,
-    '   <rdf:Seq>',
-    `    <rdf:li>${escapeXmlText(text)}</rdf:li>`,
-    '   </rdf:Seq>',
-    `  </${qname}>`,
+    `${indent}<${qname}>`,
+    `${indent}  <rdf:Seq>`,
+    `${indent}    <rdf:li>${escapeXmlText(text)}</rdf:li>`,
+    `${indent}  </rdf:Seq>`,
+    `${indent}</${qname}>`,
   ].join('\n');
 }
 
