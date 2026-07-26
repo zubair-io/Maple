@@ -5,11 +5,14 @@
 // GPU sessions, auto-adjust, export) plus two broadcast-only concerns bolted on
 // alongside it (T10 threaded-state, #1153 deep-denoise progress).
 //
-// Pure function over the incoming `WorkerResponse` plus the service's own mutable
-// state (the pending-handler registry, the threaded-state subjects, and the
-// deep-denoise progress signal) — `RawPipelineService.ensureWorker` wires this as
-// its `message` listener and keeps ownership of creating/tearing down the worker
-// itself. Pure code move: no behaviour change.
+// Side-effecting dispatcher, not a pure function: it logs to the console, pushes
+// onto the threaded-state subjects, writes the deep-denoise progress signal, and
+// settles entries in the pending-handler registry. Those effects are the point —
+// it takes the service's own mutable state as `ctx` rather than owning any, and
+// `RawPipelineService.ensureWorker` wires it as the `message` listener while
+// keeping ownership of creating/tearing down the worker itself.
+//
+// Extracted as a pure code move: no behaviour change.
 
 import type { BehaviorSubject } from 'rxjs';
 import type { WritableSignal } from '@angular/core';
