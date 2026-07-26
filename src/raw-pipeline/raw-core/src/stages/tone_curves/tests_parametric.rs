@@ -28,7 +28,7 @@
 
 #![cfg(test)]
 
-use super::evaluator::eval_curve_scene_linear;
+use super::evaluator::{eval_curve_scene_linear, REF_MAX};
 use super::parametric::{
     axis_to_authoring_x, build_parametric_curve_from_sliders, KNOT_COUNT, MAX_STOPS,
     REGION_CENTRES,
@@ -41,7 +41,7 @@ const REGION_NAMES: [&str; 4] = ["shadows", "darks", "lights", "highlights"];
 fn region_centre_scenes() -> [f32; 4] {
     let mut out = [0.0_f32; 4];
     for (slot, centre) in out.iter_mut().zip(REGION_CENTRES) {
-        *slot = axis_to_authoring_x(centre) * 4.0;
+        *slot = axis_to_authoring_x(centre) * REF_MAX;
     }
     out
 }
@@ -66,7 +66,7 @@ fn scene_sweep() -> Vec<f32> {
             let stops = -10.0 + (i as f32) * 14.5 / 1200.0;
             0.18_f32 * stops.exp2()
         })
-        .filter(|v| *v <= 4.0)
+        .filter(|v| *v <= REF_MAX)
         .collect()
 }
 
@@ -181,7 +181,7 @@ fn synthesised_curve_is_smooth_across_knot_boundaries() {
     for s in settings {
         let c = curve_of(s);
         let ys: Vec<f32> = (0..=N)
-            .map(|i| eval_curve_scene_linear(&c, i as f32 * 4.0 / N as f32))
+            .map(|i| eval_curve_scene_linear(&c, i as f32 * REF_MAX / N as f32))
             .collect();
         let d1: Vec<f32> = ys.windows(2).map(|w| w[1] - w[0]).collect();
         let d2: Vec<f32> = d1.windows(2).map(|w| w[1] - w[0]).collect();
@@ -302,6 +302,9 @@ fn the_region_centres_bracket_midgrey_and_diffuse_white() {
     // midgrey, highlights above diffuse white, darks and lights either
     // side of midgrey. Pre-#2318 every centre sat above diffuse white.
     let [shadows, darks, lights, highlights] = region_centre_scenes();
+    // The 4.0 here is two stops (2^2), not `REF_MAX` — it happens to share
+    // the value. The assertion is "shadows sits at least two stops below
+    // midgrey", so it must not follow the authoring domain if that changes.
     assert!(shadows < 0.18 / 4.0, "shadows centre at {shadows}");
     assert!(darks < 0.18 && darks > shadows, "darks centre at {darks}");
     assert!(lights > 0.18 && lights < 1.0, "lights centre at {lights}");
