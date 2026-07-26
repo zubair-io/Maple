@@ -275,7 +275,8 @@ final class SliderMatrixUITests: XCTestCase {
                 // triaging one case needs a way in that isn't "wait 90
                 // minutes". Unset = run everything (CI behaviour).
                 let envFilter = ProcessInfo.processInfo.environment["MAPLE_UITEST_CASE_FILTER"]
-                let filter = (envFilter?.isEmpty == false) ? envFilter! : Self.hardcodedCaseFilter
+                let filter = envFilter.flatMap { $0.isEmpty ? nil : $0 }
+                    ?? Self.hardcodedCaseFilter
                 if !filter.isEmpty, !"\(stem)/\(caseName)".contains(filter) {
                     continue
                 }
