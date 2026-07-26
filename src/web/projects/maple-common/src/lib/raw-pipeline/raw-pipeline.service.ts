@@ -26,7 +26,7 @@ import { dispatchExport } from './raw-pipeline.export-request';
 import { dispatchAutoAdjust } from './raw-pipeline.auto-adjust-request';
 
 export type { AutoAdjustPatch } from './raw-pipeline.types';
-import { GPU_LIVE_RENDER_ENABLED } from './gpu-live-render.token';
+import { GpuLiveRenderGate } from './gpu-live-render.gate';
 import { isNonRawExtension } from '../state/raw-extensions';
 import { decodeNonRawToRgb, decodeNonRawToSceneLinear } from './image-utils';
 import type {
@@ -41,11 +41,16 @@ import { handleWorkerMessage } from './raw-pipeline.worker-dispatch';
 @Injectable({ providedIn: 'root' })
 export class RawPipelineService implements OnDestroy {
   // Routes the legacy display-encoded `decode()` through the GPU live chain
-  // (`render_bytes_gpu`) when true (epic #925, P4b-web / #1029). Off by default
-  // → the WASM-CPU `render_bytes` path, byte-for-byte today. The worker further
-  // gates on whether the loaded bundle exports the GPU entry, so flag-on against
-  // a gpu-off WASM build still falls back to `render_bytes`.
-  private readonly gpuLiveRender = inject(GPU_LIVE_RENDER_ENABLED);
+  // (`render_bytes_gpu`) when true (epic #925, P4b-web / #1029). Off → the
+  // WASM-CPU `render_bytes` path, byte-for-byte today. The worker further
+  // gates on whether the loaded bundle exports the GPU entry, so flag-on
+  // against a gpu-off WASM build still falls back to `render_bytes`.
+  //
+  // #1062: read from `GpuLiveRenderGate` (build-time token AND the DB-backed
+  // operator setting) at REQUEST time rather than captured at construction, so
+  // an operator kill lands on the next decode / live-session open instead of
+  // needing a reload.
+  private readonly gate = inject(GpuLiveRenderGate);
 
   private worker: Worker | null = null;
   private nextId = 1;
@@ -182,7 +187,7 @@ export class RawPipelineService implements OnDestroy {
       // (this method) participates; the scene-linear WebGL2 path is unchanged.
       // The worker ignores it for sized requests (they are the editor's 2D
       // CPU fast/refine phases — the GPU path uses the persistent session).
-      gpu: this.gpuLiveRender,
+      gpu: this.gpuLiveRenderEnabled,
       maxLongEdge,
       qualityPreview,
     };
@@ -323,9 +328,11 @@ export class RawPipelineService implements OnDestroy {
   // worker (the wasm `&mut self` re-entrancy guard), so concurrent `render()` calls
   // can't trip "recursive use of an object detected".
 
-  /** Whether the GPU live-render path is enabled for this deployment (#1038). */
+  /** Whether the GPU live-render path is enabled right now (#1038, #1062):
+   * the build-time token AND the operator's DB-backed setting. Evaluated per
+   * call, so a runtime flip is picked up by the next image open. */
   get gpuLiveRenderEnabled(): boolean {
-    return this.gpuLiveRender;
+    return this.gate.enabled();
   }
 
   /**
