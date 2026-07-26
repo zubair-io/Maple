@@ -30,6 +30,7 @@ import { foldersCollection } from '../../db/client.ts';
 import { listPairedSidecars } from '../../fs/xmp.ts';
 import { moveToTrash, moveOutOfTrash } from '../../fs/trash.ts';
 import { composeSearchBlob } from '../../enrichment/search-blob.ts';
+import { classifyMediaType } from '../../indexer/media-types.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { meilisearchClient } from '../../enrichment/meilisearch-client.ts';
 import { assetsLog } from './_shared.ts';
@@ -315,16 +316,21 @@ export const trashRoutes = new Elysia()
         try {
           await meilisearchClient().upsert({
             id: info.maple_id,
-            searchBlob: composeSearchBlob({
-              place: info.place,
-              description: info.description,
-              ocrText: info.ocr_text,
-            }),
+            filename: restoredFilename,
+            searchBlob:
+              info.search_blob ??
+              composeSearchBlob({
+                place: info.place,
+                description: info.description,
+                ocrText: info.ocr_text,
+              }),
             description: info.description,
             ocrText: info.ocr_text,
             folderId: assetFolderId.toHexString(),
             capturedAt: info.exif?.captured_at ?? null,
             deletedAt: null,
+            mediaType: classifyMediaType(restoredFilename),
+            hidden: info.hidden === true,
           });
         } catch (err) {
           assetsLog.warn(

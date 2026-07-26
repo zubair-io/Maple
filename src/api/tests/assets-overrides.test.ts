@@ -84,7 +84,7 @@ beforeAll(async () => {
   await closeDb();
 
   const { assetsRoutes } = await import('../src/routes/assets.ts');
-  app = new Elysia().use(assetsRoutes);
+  app = new Elysia().use(assetsRoutes) as unknown as Elysia;
 });
 
 beforeEach(async () => {
@@ -175,6 +175,13 @@ describe('PUT /api/assets/:id/place', () => {
     // search_blob (description and ocr_text are still null). Sort is
     // pure alphabetical — "york" lands after "usa".
     expect(doc!.search_blob).toBe('brooklyn new usa york');
+    expect(doc!.stages.meili).toMatchObject({
+      version: 0,
+      attempts: 0,
+      last_error: null,
+      processed_at: null,
+      dead: false,
+    });
   });
 
   it('clears the place when null is sent', async () => {
@@ -224,6 +231,13 @@ describe('PUT /api/assets/:id/description', () => {
     expect(doc!.description).toBe('A red barn at sunset');
     // search_blob = sorted lowercase token bag.
     expect(doc!.search_blob).toBe('a at barn red sunset');
+    expect(doc!.stages.meili).toMatchObject({
+      version: 0,
+      attempts: 0,
+      last_error: null,
+      processed_at: null,
+      dead: false,
+    });
   });
 
   it('clears description when null is sent', async () => {

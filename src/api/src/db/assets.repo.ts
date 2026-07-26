@@ -264,6 +264,11 @@ export async function setPlaceOverride(
         search_blob: searchBlobUpdateExpression({
           placeSearchBlob: placeBlob,
         }),
+        'stages.meili.version': 0,
+        'stages.meili.attempts': 0,
+        'stages.meili.last_error': null,
+        'stages.meili.processed_at': null,
+        'stages.meili.dead': false,
       },
     },
   ]);
@@ -284,6 +289,11 @@ export async function setDescriptionOverride(
       $set: {
         description: text,
         search_blob: searchBlobUpdateExpression({ description: text }),
+        'stages.meili.version': 0,
+        'stages.meili.attempts': 0,
+        'stages.meili.last_error': null,
+        'stages.meili.processed_at': null,
+        'stages.meili.dead': false,
       },
     },
   ]);
