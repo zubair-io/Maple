@@ -274,7 +274,8 @@ export function blankEnrichment(ec: EnrichmentConfigResponse | null): Enrichment
 export function meilisearchFormToPatch(form: EnrichmentForm) {
   const key = form.meilisearch_api_key.trim();
   const taskTimeout = Number(form.meilisearch_task_timeout_seconds.trim());
-  const semanticRatio = Number(form.meilisearch_semantic_ratio.trim());
+  const semanticRatioText = form.meilisearch_semantic_ratio.trim();
+  const semanticRatio = semanticRatioText === '' ? Number.NaN : Number(semanticRatioText);
   const serviceRate = Number(form.service_search_rate_limit_per_minute.trim());
   return {
     meilisearch_url: form.meilisearch_url.trim() || null,
