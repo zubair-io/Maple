@@ -145,21 +145,21 @@ The AgX matrices, sigmoid coefficients, and LUT are derived by `src/scripts/deri
 
 Authoritative source: `ADJUSTMENT_SCHEMA` in `src/raw-pipeline/raw-core/src/types/adjustment/schema/mod.rs`. This table is single-sourced from there and mirrored to Swift / TypeScript by `tools/codegen.sh`.
 
-| Slider                | Field                             | Range          | Default | Stage                                             |
-| --------------------- | --------------------------------- | -------------- | ------- | ------------------------------------------------- |
-| Temperature           | `temperature`                     | 2000 … 12000 K | 6500    | wb_camera (calibrated) / white_balance (fallback) |
-| Tint                  | `tint`                            | -100 … +100    | 0       | wb_camera (calibrated) / white_balance (fallback) |
-| Exposure              | `exposure`                        | -4 … +4 EV     | 0       | scene_tone_controls (linear mult)                 |
-| Brightness            | `brightness`                      | -100 … +100    | 0       | scene_tone_controls (#1102)                       |
-| Contrast              | `contrast`                        | -100 … +100    | 0       | scene_tone_controls → AgX slope                   |
-| Highlights            | `highlights`                      | -100 … +100    | 0       | scene_tone_controls                               |
-| Shadows               | `shadows`                         | -100 … +100    | 0       | scene_tone_controls                               |
-| Whites                | `whites`                          | -100 … +100    | 0       | scene_tone_controls                               |
-| Blacks                | `blacks`                          | -100 … +100    | 0       | scene_tone_controls                               |
-| Parametric Highlights | `parametric_highlights`           | -100 … +100    | 0       | tone_curves (region centre +3 stops re midgrey)   |
-| Parametric Lights     | `parametric_lights`               | -100 … +100    | 0       | tone_curves (region centre +1 stop re midgrey)    |
-| Parametric Darks      | `parametric_darks`                | -100 … +100    | 0       | tone_curves (region centre -1 stop re midgrey)    |
-| Parametric Shadows    | `parametric_shadows`              | -100 … +100    | 0       | tone_curves (region centre -3 stops re midgrey)   |
+| Slider                | Field                   | Range          | Default | Stage                                             |
+| --------------------- | ----------------------- | -------------- | ------- | ------------------------------------------------- |
+| Temperature           | `temperature`           | 2000 … 12000 K | 6500    | wb_camera (calibrated) / white_balance (fallback) |
+| Tint                  | `tint`                  | -100 … +100    | 0       | wb_camera (calibrated) / white_balance (fallback) |
+| Exposure              | `exposure`              | -4 … +4 EV     | 0       | scene_tone_controls (linear mult)                 |
+| Brightness            | `brightness`            | -100 … +100    | 0       | scene_tone_controls (#1102)                       |
+| Contrast              | `contrast`              | -100 … +100    | 0       | scene_tone_controls → AgX slope                   |
+| Highlights            | `highlights`            | -100 … +100    | 0       | scene_tone_controls                               |
+| Shadows               | `shadows`               | -100 … +100    | 0       | scene_tone_controls                               |
+| Whites                | `whites`                | -100 … +100    | 0       | scene_tone_controls                               |
+| Blacks                | `blacks`                | -100 … +100    | 0       | scene_tone_controls                               |
+| Parametric Highlights | `parametric_highlights` | -100 … +100    | 0       | tone_curves (region centre +3 stops re midgrey)   |
+| Parametric Lights     | `parametric_lights`     | -100 … +100    | 0       | tone_curves (region centre +1 stop re midgrey)    |
+| Parametric Darks      | `parametric_darks`      | -100 … +100    | 0       | tone_curves (region centre -1 stop re midgrey)    |
+| Parametric Shadows    | `parametric_shadows`    | -100 … +100    | 0       | tone_curves (region centre -3 stops re midgrey)   |
 
 The four parametric region sliders share one synthesised curve. Their regions
 live on ACR's `[0, 100]` PV2012 axis, which Maple anchors to scene exposure:
@@ -170,39 +170,39 @@ region by half a stop and is inert at every other region's centre. The
 construction, the monotonicity bound and the reason the knots sit where they do
 are in `raw-core/src/stages/tone_curves/parametric.rs`; #368 calibrates the
 half-stop amplitude against ACR.
-| Vibrance              | `vibrance`                        | -100 … +100    | 0       | vibrance                                          |
-| Saturation            | `saturation`                      | -100 … +100    | 0       | saturation                                        |
-| Clarity               | `clarity`                         | -100 … +100    | 0       | clarity                                           |
-| Texture               | `texture`                         | -100 … +100    | 0       | texture                                           |
-| Dehaze                | `dehaze`                          | -100 … +100    | 0       | dehaze                                            |
-| Sharpen Amount        | `sharpen_amount`                  | 0 … 150        | **40**  | sharpen                                           |
-| Sharpen Radius        | `sharpen_radius`                  | 0.5 … 3.0      | 1.0     | sharpen                                           |
-| Sharpen Detail        | `sharpen_detail`                  | 0 … 100        | 25      | sharpen                                           |
-| Sharpen Masking       | `sharpen_masking`                 | 0 … 100        | 0       | sharpen                                           |
-| Capture Sharpening    | `capture_sharpening_amount`       | 0 … 100        | 0       | capture_sharpening (RL deconv)                    |
-| Capture Sharpen Sigma | `capture_sharpening_sigma`        | 0.5 … 2.0      | 1.0     | capture_sharpening                                |
-| NR Luminance          | `nr_luminance`                    | 0 … 100        | 0       | nr_luminance                                      |
-| NR Color              | `nr_color`                        | 0 … 100        | **25**  | nr_color                                          |
-| Chroma Pre-filter     | `chroma_prefilter`                | 0 … 100        | 0       | chroma_prefilter (#1104)                          |
-| Deep Denoise          | `deep_denoise`                    | 0 … 100        | 0       | deep_denoise / BM3D (#1105)                       |
-| Vignette Amount       | `vignette_amount`                 | -100 … +100    | 0       | vignette (#1109)                                  |
-| Vignette Feather      | `vignette_feather`                | 0 … 100        | 50      | vignette                                          |
-| Grain Amount          | `grain_amount`                    | 0 … 100        | 0       | grain (#1110)                                     |
-| Grain Size            | `grain_size`                      | 0 … 100        | 25      | grain                                             |
-| Grain Roughness       | `grain_roughness`                 | 0 … 100        | 50      | grain                                             |
-| Grade Shadow Hue      | `split_tone_shadow_hue`           | 0 … 360°       | 0       | color_grade (#275)                                |
-| Grade Shadow Sat      | `split_tone_shadow_saturation`    | 0 … 100        | 0       | color_grade                                       |
-| Grade Shadow Lum      | `color_grade_shadow_luminance`    | -100 … +100    | 0       | color_grade                                       |
-| Grade Midtone Hue     | `color_grade_midtone_hue`         | 0 … 360°       | 0       | color_grade                                       |
-| Grade Midtone Sat     | `color_grade_midtone_saturation`  | 0 … 100        | 0       | color_grade                                       |
-| Grade Midtone Lum     | `color_grade_midtone_luminance`   | -100 … +100    | 0       | color_grade                                       |
-| Grade Hi Hue          | `split_tone_highlight_hue`        | 0 … 360°       | 0       | color_grade                                       |
-| Grade Hi Sat          | `split_tone_highlight_saturation` | 0 … 100        | 0       | color_grade                                       |
-| Grade Hi Lum          | `color_grade_highlight_luminance` | -100 … +100    | 0       | color_grade                                       |
-| Grade Global Hue      | `color_grade_global_hue`          | 0 … 360°       | 0       | color_grade                                       |
-| Grade Global Sat      | `color_grade_global_saturation`   | 0 … 100        | 0       | color_grade                                       |
-| Grade Global Lum      | `color_grade_global_luminance`    | -100 … +100    | 0       | color_grade                                       |
-| Grade Balance         | `split_tone_balance`              | -100 … +100    | 0       | color_grade                                       |
+| Vibrance | `vibrance` | -100 … +100 | 0 | vibrance |
+| Saturation | `saturation` | -100 … +100 | 0 | saturation |
+| Clarity | `clarity` | -100 … +100 | 0 | clarity |
+| Texture | `texture` | -100 … +100 | 0 | texture |
+| Dehaze | `dehaze` | -100 … +100 | 0 | dehaze |
+| Sharpen Amount | `sharpen_amount` | 0 … 150 | **40** | sharpen |
+| Sharpen Radius | `sharpen_radius` | 0.5 … 3.0 | 1.0 | sharpen |
+| Sharpen Detail | `sharpen_detail` | 0 … 100 | 25 | sharpen |
+| Sharpen Masking | `sharpen_masking` | 0 … 100 | 0 | sharpen |
+| Capture Sharpening | `capture_sharpening_amount` | 0 … 100 | 0 | capture_sharpening (RL deconv) |
+| Capture Sharpen Sigma | `capture_sharpening_sigma` | 0.5 … 2.0 | 1.0 | capture_sharpening |
+| NR Luminance | `nr_luminance` | 0 … 100 | 0 | nr_luminance |
+| NR Color | `nr_color` | 0 … 100 | **25** | nr_color |
+| Chroma Pre-filter | `chroma_prefilter` | 0 … 100 | 0 | chroma_prefilter (#1104) |
+| Deep Denoise | `deep_denoise` | 0 … 100 | 0 | deep_denoise / BM3D (#1105) |
+| Vignette Amount | `vignette_amount` | -100 … +100 | 0 | vignette (#1109) |
+| Vignette Feather | `vignette_feather` | 0 … 100 | 50 | vignette |
+| Grain Amount | `grain_amount` | 0 … 100 | 0 | grain (#1110) |
+| Grain Size | `grain_size` | 0 … 100 | 25 | grain |
+| Grain Roughness | `grain_roughness` | 0 … 100 | 50 | grain |
+| Grade Shadow Hue | `split_tone_shadow_hue` | 0 … 360° | 0 | color_grade (#275) |
+| Grade Shadow Sat | `split_tone_shadow_saturation` | 0 … 100 | 0 | color_grade |
+| Grade Shadow Lum | `color_grade_shadow_luminance` | -100 … +100 | 0 | color_grade |
+| Grade Midtone Hue | `color_grade_midtone_hue` | 0 … 360° | 0 | color_grade |
+| Grade Midtone Sat | `color_grade_midtone_saturation` | 0 … 100 | 0 | color_grade |
+| Grade Midtone Lum | `color_grade_midtone_luminance` | -100 … +100 | 0 | color_grade |
+| Grade Hi Hue | `split_tone_highlight_hue` | 0 … 360° | 0 | color_grade |
+| Grade Hi Sat | `split_tone_highlight_saturation` | 0 … 100 | 0 | color_grade |
+| Grade Hi Lum | `color_grade_highlight_luminance` | -100 … +100 | 0 | color_grade |
+| Grade Global Hue | `color_grade_global_hue` | 0 … 360° | 0 | color_grade |
+| Grade Global Sat | `color_grade_global_saturation` | 0 … 100 | 0 | color_grade |
+| Grade Global Lum | `color_grade_global_luminance` | -100 … +100 | 0 | color_grade |
+| Grade Balance | `split_tone_balance` | -100 … +100 | 0 | color_grade |
 
 Enum fields (defaults in **bold**): `wb_method` = **Cat16** (chromatic adaptation) / DiagonalRec2020 — selects the method the post-DCP _fallback_ white-balance stage uses; it has no effect on `wb_camera`'s camera-space gain, which is the primary path on calibrated images (see [White balance](#white-balance)); `highlight_recovery` = **ChromaticAdaptation** / OklabChromaReduction / …; `auto_exposure` = **On** / Off; `profile` = **Auto** / Neutral; `tone_curve_mode` = **PerChannel** / RatioPreserving; `hot_pixel_suppression` = **Off** / On.
 
