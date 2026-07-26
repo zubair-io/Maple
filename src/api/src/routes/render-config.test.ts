@@ -1,15 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { Elysia } from "elysia";
-import { MongoClient, type Db } from "mongodb";
-import { closeDb } from "../db/client.ts";
-import { renderConfigRoutes } from "./render-config.ts";
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { Elysia } from 'elysia';
+import { MongoClient, type Db } from 'mongodb';
+import { closeDb } from '../db/client.ts';
+import { renderConfigRoutes } from './render-config.ts';
 
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
+const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 const TEST_DB = `maple_render_config_test_${process.pid}`;
 
 interface ResolvedBody {
   gpu_live_render_enabled: boolean;
-  source: { gpu_live_render_enabled: "db" | "default" };
+  source: { gpu_live_render_enabled: 'db' | 'default' };
 }
 
 async function tryConnect(): Promise<MongoClient | null> {
@@ -19,7 +19,7 @@ async function tryConnect(): Promise<MongoClient | null> {
   });
   try {
     await c.connect();
-    await c.db("admin").command({ ping: 1 });
+    await c.db('admin').command({ ping: 1 });
     return c;
   } catch {
     try {
@@ -29,7 +29,7 @@ async function tryConnect(): Promise<MongoClient | null> {
   }
 }
 
-describe("/api/render/config", () => {
+describe('/api/render/config', () => {
   let mongo: MongoClient | null = null;
   let db: Db | null = null;
 
@@ -56,31 +56,29 @@ describe("/api/render/config", () => {
   }
 
   async function getConfig(): Promise<ResolvedBody> {
-    const res = await app().handle(
-      new Request("http://localhost/api/render/config"),
-    );
+    const res = await app().handle(new Request('http://localhost/api/render/config'));
     expect(res.status).toBe(200);
     return (await res.json()) as ResolvedBody;
   }
 
   async function putConfig(body: unknown): Promise<Response> {
     return app().handle(
-      new Request("http://localhost/api/render/config", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
+      new Request('http://localhost/api/render/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       }),
     );
   }
 
-  it("GET returns the default (GPU live render on) on a fresh database", async () => {
+  it('GET returns the default (GPU live render on) on a fresh database', async () => {
     if (!db) return;
     const body = await getConfig();
     expect(body.gpu_live_render_enabled).toBe(true);
-    expect(body.source.gpu_live_render_enabled).toBe("default");
+    expect(body.source.gpu_live_render_enabled).toBe('default');
   });
 
-  it("PUT false kills GPU live render and GET reports it as db-sourced", async () => {
+  it('PUT false kills GPU live render and GET reports it as db-sourced', async () => {
     if (!db) return;
     const res = await putConfig({ gpu_live_render_enabled: false });
     expect(res.status).toBe(200);
@@ -89,28 +87,28 @@ describe("/api/render/config", () => {
 
     const body = await getConfig();
     expect(body.gpu_live_render_enabled).toBe(false);
-    expect(body.source.gpu_live_render_enabled).toBe("db");
+    expect(body.source.gpu_live_render_enabled).toBe('db');
   });
 
-  it("PUT true ramps it back on", async () => {
+  it('PUT true ramps it back on', async () => {
     if (!db) return;
     await putConfig({ gpu_live_render_enabled: false });
     await putConfig({ gpu_live_render_enabled: true });
     const body = await getConfig();
     expect(body.gpu_live_render_enabled).toBe(true);
-    expect(body.source.gpu_live_render_enabled).toBe("db");
+    expect(body.source.gpu_live_render_enabled).toBe('db');
   });
 
-  it("PUT null clears the saved value back to the default", async () => {
+  it('PUT null clears the saved value back to the default', async () => {
     if (!db) return;
     await putConfig({ gpu_live_render_enabled: false });
     await putConfig({ gpu_live_render_enabled: null });
     const body = await getConfig();
     expect(body.gpu_live_render_enabled).toBe(true);
-    expect(body.source.gpu_live_render_enabled).toBe("default");
+    expect(body.source.gpu_live_render_enabled).toBe('default');
   });
 
-  it("PUT with the field omitted leaves the saved value alone", async () => {
+  it('PUT with the field omitted leaves the saved value alone', async () => {
     if (!db) return;
     await putConfig({ gpu_live_render_enabled: false });
     const res = await putConfig({});
@@ -122,13 +120,10 @@ describe("/api/render/config", () => {
   it('persists to app_settings under _id "render"', async () => {
     if (!db) return;
     await putConfig({ gpu_live_render_enabled: false });
-    const doc = await db
-      .collection("app_settings")
-      .findOne({ _id: "render" as never });
+    const doc = await db.collection('app_settings').findOne({ _id: 'render' as never });
     expect(doc).not.toBeNull();
     expect(
-      (doc as { config: { gpu_live_render_enabled: boolean } }).config
-        .gpu_live_render_enabled,
+      (doc as { config: { gpu_live_render_enabled: boolean } }).config.gpu_live_render_enabled,
     ).toBe(false);
   });
 });
