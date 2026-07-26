@@ -25,6 +25,12 @@
 
 ## Task 1: Foundation — drop the shell fork
 
+> **✅ Already landed in #2279 — do not re-run this task.** The foundation slice merged to `main`
+> ahead of this plan doc: `RootShellComponent` now always renders `<router-outlet />`, the phone-tab
+> shell files and their public-API exports are deleted, `/library` redirects to `browse` in both
+> apps, and the Editor breakpoints are `LayoutService`-driven. This task is retained below as the
+> design record; **actionable implementation starts at Task 2.**
+
 **Closes:** epic child "Foundation: retire phone-tab fork, consolidate routes, unify Editor breakpoint".
 
 **Files:**
