@@ -1346,6 +1346,16 @@ extension PipelineRenderer {
         params.noise_profile_len = 0
         // ISO speed (PR #1709): 0 = unknown; Rust side maps 0 → 100 as a safe default.
         params.iso = iso
+        // Sharpen + chroma NR (#1043) — the chain runs both at their canonical
+        // scene-linear positions now that the post-AgX Metal kernels are gone,
+        // so the CPU fallback and the wgpu live chain apply the same stages in
+        // the same order. `RawCoreBridge.stripAppleGPUStages` keeps zeroing
+        // them in the DECODE model, so this is still the single application.
+        params.sharpen_amount = Float(model.sharpenAmount)
+        params.sharpen_radius = Float(model.sharpenRadius)
+        params.sharpen_detail = Float(model.sharpenDetail)
+        params.sharpen_masking = Float(model.sharpenMasking)
+        params.nr_color = Float(model.nrColor)
         // WB slider frame (#1781) — appended at the struct tail; absent
         // (`nil`, or a frame that reads !isPresent) leaves the zero-filled
         // legacy state.
@@ -1356,25 +1366,25 @@ extension PipelineRenderer {
     }
 
     /// Run the Rust per-tick scene-linear chain (white_balance → tone →
-    /// vibrance → saturation → clarity → texture → dehaze → nr_luminance
-    /// → AgX) over an already-decoded f32 RGBA buffer. Sharpen and
-    /// nr_color stay on the Apple GPU path (Metal compute kernels).
+    /// vibrance → saturation → clarity → texture → dehaze → vignette →
+    /// sharpen → nr_luminance → nr_color → AgX) over an already-decoded
+    /// f32 RGBA buffer.
     ///
     /// Input data layout: packed f32 RGBA, row-major, 16 bytes/pixel,
     /// `extendedLinearITUR_2020` colourspace, straight alpha.
     ///
     /// Output is the same dimensions / layout, post-AgX
     /// (`DisplayLinearRec2020`, [0,1]) when `params.skip_agx == 0`, or
-    /// scene-linear (`SceneLinearRec2020`) when `skip_agx != 0`. Caller
-    /// wraps it back into a `CIImage` for the optional sharpen +
-    /// nr_color Metal kernels.
+    /// scene-linear (`SceneLinearRec2020`) when `skip_agx != 0`. The
+    /// caller wraps it straight back into a `CIImage` — nothing runs
+    /// between this call and the display encode any more (#1043 retired
+    /// the post-AgX sharpen / nr_color Metal kernels).
     ///
     /// Architectural intent: the per-stage Metal kernel chain on the
-    /// Apple side (`MetalKernels.applyWhiteBalance` through
-    /// `applyAgXViewTransform`) was a duplicate implementation of the
-    /// canonical Rust pipeline. This entry calls the Rust functions
-    /// directly so Apple and Rust can never drift on the cheap-stage
-    /// chain — see `pipeline::apply_scene_linear_chain_f32` in raw-core.
+    /// Apple side was a duplicate implementation of the canonical Rust
+    /// pipeline. This entry calls the Rust functions directly so Apple
+    /// and Rust can never drift — see
+    /// `pipeline::apply_scene_linear_chain_f32` in raw-core.
     ///
     /// Migrated from fp16 to f32 in #487: the fp16 entry silently
     /// round-tripped the scene buffer through 16-bit precision every
