@@ -1,0 +1,57 @@
+<maple-settings-row
+  [expanded]="expanded()"
+  (toggle)="toggleExpanded()"
+  testid="gpu-live-render-row"
+>
+  <div class="wrow-summary" srow-summary>
+    <maple-settings-icon
+      [name]="expanded() ? 'chev-d' : 'chev-r'"
+      [size]="12"
+      [stroke]="2"
+      [color]="'#a8a29e'"
+    />
+    <span class="wrow-id">
+      <maple-settings-icon name="image" [size]="14" [color]="'#a8a29e'" />
+      <span class="mono">gpu-live-render</span>
+    </span>
+    <span class="status-pill">
+      <span class="status-dot" [style.background]="statusColor()"></span>
+      <span class="status-label" data-testid="gpu-live-status">{{ statusLabel() }}</span>
+    </span>
+    <span class="wrow-readout" data-testid="gpu-live-summary">{{ summaryLine() }}</span>
+    <span class="wrow-spacer"></span>
+  </div>
+
+  <div class="gpu-body">
+    <p class="gpu-desc">
+      Routes the browser editor's live render through the wgpu + WGSL GPU chain instead of the
+      threaded-CPU <span class="mono">render_bytes</span> path. Turning it off is the runtime kill
+      switch: no redeploy, no restart. Open clients pick the change up within a minute and switch
+      on the next image they open; a reload applies it instantly. Browsers without WebGPU, and any
+      browser whose GPU adapter fails, already fall back to the CPU path on their own.
+    </p>
+
+    @if (error(); as msg) {
+      <div class="gpu-error" data-testid="gpu-live-error">{{ msg }}</div>
+    }
+
+    @if (loading()) {
+      <p class="gpu-hint">Loading…</p>
+    } @else if (config(); as cfg) {
+      <label class="gpu-toggle">
+        <input
+          type="checkbox"
+          [checked]="cfg.gpu_live_render_enabled"
+          [disabled]="saving()"
+          data-testid="gpu-live-enabled"
+          (change)="setEnabled($any($event.target).checked)"
+        />
+        <span>Enabled — use the GPU live-render path in the web editor</span>
+      </label>
+
+      <p class="gpu-hint" data-testid="gpu-live-local">
+        This browser: {{ localGpuEnabled() ? 'GPU live render' : 'CPU fallback' }}
+      </p>
+    }
+  </div>
+</maple-settings-row>
