@@ -6,7 +6,7 @@
 // call, and the build-time token remains a hard floor.
 
 import { TestBed } from '@angular/core/testing';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import { GpuLiveRenderGate } from './gpu-live-render.gate';
 import { GPU_LIVE_RENDER_ENABLED } from './gpu-live-render.token';
@@ -32,14 +32,15 @@ describe('GpuLiveRenderGate (#1062)', () => {
     // The acceptance criterion: unset === today's behaviour (GPU on).
     const g = gate();
     expect(g.enabled()).toBe(true);
-    expect(g.hasOperatorValue()).toBe(false);
+    // …and constructing the gate must not itself write a cached value, or the
+    // "never seen one" state would be indistinguishable from an operator "on".
+    expect(TypedStorage.get<boolean>(STORAGE_KEYS.GPU_LIVE_RENDER_ENABLED)).toBeNull();
   });
 
   it('applying false kills the GPU path', () => {
     const g = gate();
     g.apply(false);
     expect(g.enabled()).toBe(false);
-    expect(g.hasOperatorValue()).toBe(true);
   });
 
   it('applying true ramps it back on', () => {
@@ -58,14 +59,18 @@ describe('GpuLiveRenderGate (#1062)', () => {
     TestBed.resetTestingModule();
     const fresh = gate();
     expect(fresh.enabled()).toBe(false);
-    expect(fresh.hasOperatorValue()).toBe(true);
   });
 
   it('warm-starts enabled from a cached true', () => {
     TypedStorage.set(STORAGE_KEYS.GPU_LIVE_RENDER_ENABLED, true);
     const g = gate();
     expect(g.enabled()).toBe(true);
-    expect(g.hasOperatorValue()).toBe(true);
+    // `enabled()` alone can't tell a warm start from the unset default, so
+    // prove the cached value was read: re-applying the same `true` is a no-op.
+    const write = vi.spyOn(TypedStorage, 'set');
+    g.apply(true);
+    expect(write).not.toHaveBeenCalled();
+    write.mockRestore();
   });
 
   it('a build-time token of false is a hard floor the setting cannot lift', () => {
@@ -77,11 +82,13 @@ describe('GpuLiveRenderGate (#1062)', () => {
     expect(g.enabled()).toBe(false);
   });
 
-  it('is idempotent — re-applying the same value is a no-op', () => {
+  it('is idempotent — re-applying the same value writes nothing new', () => {
     const g = gate();
+    const write = vi.spyOn(TypedStorage, 'set');
     g.apply(true);
-    expect(g.hasOperatorValue()).toBe(true);
     g.apply(true);
+    expect(write).toHaveBeenCalledTimes(1);
     expect(g.enabled()).toBe(true);
+    write.mockRestore();
   });
 });
