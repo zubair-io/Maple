@@ -525,6 +525,39 @@ describe('culling projection', () => {
     const patchScreenshot = resultScreenshot.patch as Record<string, unknown>;
     expect(patchScreenshot['is_screenshot']).toBe(true);
   });
+
+  // `is_screenshot` is a stills-only concept (#2325). The still-image control
+  // for these is the `isScreenshot=true` case above, which must keep passing.
+  test('a video with an explicit isScreenshot=true override still projects false', async () => {
+    const image = await writeVideoSidecar(
+      makeXmp('papp:IsScreenshot="true" xmlns:papp="http://ns.justmaple.app/photo/1.0/"'),
+    );
+    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
+    expect(result).toHaveProperty('patch');
+    if (!('patch' in result)) throw new Error('Expected patch result');
+    const patch = result.patch as Record<string, unknown>;
+
+    // The user's sidecar value is preserved verbatim — XMP is the contract
+    // and this is their data…
+    expect((patch['metadata_override'] as Record<string, unknown>)['is_screenshot']).toBe(true);
+    // …but the projected field that search, the facet counts, and the
+    // Photos/Screenshots filter read honours the stills-only invariant.
+    expect(patch['is_screenshot']).toBe(false);
+  });
+
+  test('a video with a stored vision verdict of true still projects false', async () => {
+    const image = await writeVideoSidecar(makeXmp('photoshop:City="Berlin"'));
+    const withVision = {
+      ...image,
+      vision: { is_screenshot: true, caption: 'a UI' },
+    } as unknown as ImageDoc;
+
+    const result = await sidecarMetadataIndexHandler(withVision, fakeCtx);
+    expect(result).toHaveProperty('patch');
+    if (!('patch' in result)) throw new Error('Expected patch result');
+    const patch = result.patch as Record<string, unknown>;
+    expect(patch['is_screenshot']).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
