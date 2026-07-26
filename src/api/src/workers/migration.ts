@@ -74,6 +74,10 @@ export interface StartMigrationOptions {
   batchSize?: number;
 }
 
+function resolveBatchSize(migration: Migration, defaultBatchSize: number): number {
+  return migration.preferredBatchSize ?? defaultBatchSize;
+}
+
 /** Run every enabled, not-yet-done migration for one bounded batch. Returns the
  * total items processed this tick (so the caller can record throughput).
  * Exported for tests; the interval loop calls it each tick. */
@@ -101,7 +105,7 @@ export async function runMigrationTickOnce(batchSize: number, nowIso: string): P
 
     let batch: { processed: number; errors: number };
     try {
-      batch = await migration.runBatch(migration.preferredBatchSize ?? batchSize);
+      batch = await migration.runBatch(resolveBatchSize(migration, batchSize));
     } catch (err) {
       await patchMigrationState(migration.id, {
         status: 'error',
