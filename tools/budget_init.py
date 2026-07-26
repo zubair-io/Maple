@@ -56,7 +56,7 @@ def main() -> int:
         # Skip per-fixture aggregates which look like "(N cases)"
         if case.startswith("("):
             continue
-        out[fixture][case] = {
+        entry = {
             "mean": headroom("mean", float(m["mean"])),
             "p95":  headroom("p95",  float(m["p95"])),
             "max":  headroom("max",  float(m["max"])),
@@ -65,6 +65,16 @@ def main() -> int:
                 headroom("bias", float(m["bG"])),
                 headroom("bias", float(m["bB"])),
             ),
+        }
+        # A case can be measured by more than one diff pass against a
+        # different reference resolution — test_color_pipeline.sh's neutral
+        # pass uses the `down` reference and its detail pass uses `full`, and
+        # a handful of sharpen_*/nr_* cases ship both. Those two rows carry
+        # different numbers under one budget key, so keep the ceiling that
+        # satisfies every pass rather than whichever row was read last (#814).
+        prior = out[fixture].get(case)
+        out[fixture][case] = entry if prior is None else {
+            k: max(prior[k], entry[k]) for k in entry
         }
     print(json.dumps({"version": 1, "fixtures": dict(sorted(out.items()))}, indent=2))
     return 0
