@@ -16,8 +16,10 @@ import type { WritableSignal } from '@angular/core';
 import type { DecodedImage, ScopeSnapshot, WorkerResponse } from './raw-pipeline.types';
 import type { PendingHandler } from './raw-pipeline.service-internals';
 
+// Module-local: this was a private method on `RawPipelineService` and has no
+// consumer outside this file. Exporting it would be dead surface area.
 /** Pack a worker `ScopeSnapshot` reply into a `DecodedImage` for `currentPixels`. */
-export function scopeToDecoded(scope: ScopeSnapshot | undefined): DecodedImage | undefined {
+function scopeToDecoded(scope: ScopeSnapshot | undefined): DecodedImage | undefined {
   if (!scope) return undefined;
   return {
     width: scope.width,
@@ -27,6 +29,149 @@ export function scopeToDecoded(scope: ScopeSnapshot | undefined): DecodedImage |
     asShotTemperature: 6500,
     asShotTint: 0,
   };
+}
+
+// Each `settle*` below owns exactly one `PendingHandler.kind` and returns whether
+// it recognised `msg`. A `false` return falls through to the shared mismatch
+// rejection in `settle`, which is what the original single if/else chain did when
+// no `(msg.type, handler.kind)` pair matched — the split is by handler kind only,
+// and every branch already tested that kind, so the outcomes are unchanged.
+
+type Settler<K extends PendingHandler['kind']> = (
+  msg: WorkerResponse,
+  handler: Extract<PendingHandler, { kind: K }>,
+) => boolean;
+
+const settleLegacy: Settler<'legacy'> = (msg, handler) => {
+  if (msg.type === 'decode-success') {
+    handler.resolve({
+      width: msg.width,
+      height: msg.height,
+      nativeWidth: msg.nativeWidth,
+      nativeHeight: msg.nativeHeight,
+      rgb: new Uint8Array(msg.rgb),
+      asShotTemperature: msg.asShotTemperature,
+      asShotTint: msg.asShotTint,
+    });
+    return true;
+  }
+  if (msg.type === 'decode-error') {
+    handler.reject(new Error(msg.message));
+    return true;
+  }
+  return false;
+};
+
+const settleSceneLinear: Settler<'scene-linear'> = (msg, handler) => {
+  if (msg.type === 'decode-scene-linear-success') {
+    handler.resolve({
+      width: msg.width,
+      height: msg.height,
+      nativeWidth: msg.nativeWidth,
+      nativeHeight: msg.nativeHeight,
+      fp16Rgba: new Uint16Array(msg.fp16Rgba),
+      asShotTemperature: msg.asShotTemperature,
+      asShotTint: msg.asShotTint,
+    });
+    return true;
+  }
+  if (msg.type === 'decode-scene-linear-error') {
+    handler.reject(new Error(msg.message));
+    return true;
+  }
+  return false;
+};
+
+const settleOpenSession: Settler<'open-session'> = (msg, handler) => {
+  if (msg.type === 'open-session-success') {
+    handler.resolve({
+      width: msg.width,
+      height: msg.height,
+      nativeWidth: msg.nativeWidth,
+      nativeHeight: msg.nativeHeight,
+      asShotTemperature: msg.asShotTemperature,
+      asShotTint: msg.asShotTint,
+      colorSpace: msg.colorSpace,
+      scopePixels: scopeToDecoded(msg.scope),
+    });
+    return true;
+  }
+  if (msg.type === 'session-error') {
+    handler.reject(new Error(msg.message));
+    return true;
+  }
+  return false;
+};
+
+const settleRenderSession: Settler<'render-session'> = (msg, handler) => {
+  if (msg.type === 'render-session-success') {
+    handler.resolve({
+      colorSpace: msg.colorSpace,
+      scopePixels: scopeToDecoded(msg.scope),
+    });
+    return true;
+  }
+  if (msg.type === 'session-error') {
+    handler.reject(new Error(msg.message));
+    return true;
+  }
+  return false;
+};
+
+const settleAutoAdjust: Settler<'auto-adjust'> = (msg, handler) => {
+  if (msg.type === 'auto-adjust-success') {
+    handler.resolve(msg.patch);
+    return true;
+  }
+  if (msg.type === 'auto-adjust-error') {
+    handler.reject(new Error(msg.message));
+    return true;
+  }
+  return false;
+};
+
+const settleExport: Settler<'export'> = (msg, handler) => {
+  if (msg.type === 'export-success') {
+    handler.resolve({
+      width: msg.width,
+      height: msg.height,
+      extension: msg.extension,
+      blob: msg.blob,
+    });
+    return true;
+  }
+  if (msg.type === 'export-error') {
+    handler.reject(new Error(msg.message));
+    return true;
+  }
+  return false;
+};
+
+/** Pick the settler for `handler.kind` and report whether it recognised `msg`. */
+function settleByKind(msg: WorkerResponse, handler: PendingHandler): boolean {
+  switch (handler.kind) {
+    case 'legacy':
+      return settleLegacy(msg, handler);
+    case 'scene-linear':
+      return settleSceneLinear(msg, handler);
+    case 'open-session':
+      return settleOpenSession(msg, handler);
+    case 'render-session':
+      return settleRenderSession(msg, handler);
+    case 'auto-adjust':
+      return settleAutoAdjust(msg, handler);
+    case 'export':
+      return settleExport(msg, handler);
+  }
+}
+
+/** Hand `msg` to the settler for `handler.kind`, rejecting if it goes unrecognised. */
+function settle(msg: WorkerResponse, handler: PendingHandler): void {
+  if (settleByKind(msg, handler)) return;
+  // Mismatched response type and handler kind — should never happen because ids
+  // are unique and the worker only emits success/error matching the request
+  // type. Reject defensively to avoid hangs.
+  handler.reject(new Error(`raw-pipeline: handler kind mismatch (${msg.type})`));
 }
 
 /** The service state one `handleWorkerMessage` call reads and/or updates. */
@@ -65,68 +210,5 @@ export function handleWorkerMessage(msg: WorkerResponse, ctx: WorkerDispatchCont
   ctx.pending.delete(msg.id);
   // Any terminal reply ends the develop that emitted the ticks.
   ctx.deepDenoiseProgress.set(null);
-  if (msg.type === 'decode-success' && handler.kind === 'legacy') {
-    handler.resolve({
-      width: msg.width,
-      height: msg.height,
-      nativeWidth: msg.nativeWidth,
-      nativeHeight: msg.nativeHeight,
-      rgb: new Uint8Array(msg.rgb),
-      asShotTemperature: msg.asShotTemperature,
-      asShotTint: msg.asShotTint,
-    });
-  } else if (msg.type === 'decode-error' && handler.kind === 'legacy') {
-    handler.reject(new Error(msg.message));
-  } else if (msg.type === 'decode-scene-linear-success' && handler.kind === 'scene-linear') {
-    handler.resolve({
-      width: msg.width,
-      height: msg.height,
-      nativeWidth: msg.nativeWidth,
-      nativeHeight: msg.nativeHeight,
-      fp16Rgba: new Uint16Array(msg.fp16Rgba),
-      asShotTemperature: msg.asShotTemperature,
-      asShotTint: msg.asShotTint,
-    });
-  } else if (msg.type === 'decode-scene-linear-error' && handler.kind === 'scene-linear') {
-    handler.reject(new Error(msg.message));
-  } else if (msg.type === 'open-session-success' && handler.kind === 'open-session') {
-    handler.resolve({
-      width: msg.width,
-      height: msg.height,
-      nativeWidth: msg.nativeWidth,
-      nativeHeight: msg.nativeHeight,
-      asShotTemperature: msg.asShotTemperature,
-      asShotTint: msg.asShotTint,
-      colorSpace: msg.colorSpace,
-      scopePixels: scopeToDecoded(msg.scope),
-    });
-  } else if (msg.type === 'render-session-success' && handler.kind === 'render-session') {
-    handler.resolve({
-      colorSpace: msg.colorSpace,
-      scopePixels: scopeToDecoded(msg.scope),
-    });
-  } else if (
-    msg.type === 'session-error' &&
-    (handler.kind === 'open-session' || handler.kind === 'render-session')
-  ) {
-    handler.reject(new Error(msg.message));
-  } else if (msg.type === 'auto-adjust-success' && handler.kind === 'auto-adjust') {
-    handler.resolve(msg.patch);
-  } else if (msg.type === 'auto-adjust-error' && handler.kind === 'auto-adjust') {
-    handler.reject(new Error(msg.message));
-  } else if (msg.type === 'export-success' && handler.kind === 'export') {
-    handler.resolve({
-      width: msg.width,
-      height: msg.height,
-      extension: msg.extension,
-      blob: msg.blob,
-    });
-  } else if (msg.type === 'export-error' && handler.kind === 'export') {
-    handler.reject(new Error(msg.message));
-  } else {
-    // Mismatched response type and handler kind — should never happen because ids
-    // are unique and the worker only emits success/error matching the request
-    // type. Reject defensively to avoid hangs.
-    handler.reject(new Error(`raw-pipeline: handler kind mismatch (${msg.type})`));
-  }
+  settle(msg, handler);
 }
