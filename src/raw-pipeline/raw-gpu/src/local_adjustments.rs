@@ -91,7 +91,7 @@ fn inv_extent(dim: u32) -> f32 {
 }
 
 /// A GPU-resident local-adjustments stage. Carries the layer stack in the flat
-/// wire (`layers_flat.len()` must be a multiple of [`LAYER_FLAT_LEN`]).
+/// wire, always a whole number of records — see [`LocalAdjustmentsPass::new`].
 ///
 /// The whole stack runs in ONE dispatch: the kernel loops layers in registers
 /// per pixel rather than making a full-image pass per layer, which is exactly
@@ -101,7 +101,29 @@ fn inv_extent(dim: u32) -> f32 {
 /// and no ping-pong.
 pub struct LocalAdjustmentsPass {
     /// Flat layer records; see `raw_core::types::local_adjustment::flat`.
-    pub layers_flat: Vec<f32>,
+    /// Invariant: length is an exact multiple of [`LAYER_FLAT_LEN`], enforced
+    /// by [`LocalAdjustmentsPass::new`], which is the only way to build one.
+    layers_flat: Vec<f32>,
+}
+
+impl LocalAdjustmentsPass {
+    /// Build the pass from a flat layer wire, dropping a trailing partial
+    /// record.
+    ///
+    /// The wire reaches this crate as a raw `(ptr, len)` pair across the FFI /
+    /// WASM boundary, so a truncated buffer is a host bug this crate cannot
+    /// rule out. `flat::layers_from_flat` documents the contract — "a trailing
+    /// partial layer is dropped rather than rejected" — and both it and
+    /// [`local_adjustments_are_active`] honour it via `chunks_exact`. Matching
+    /// them here keeps the GPU path degrading to the valid prefix, the way the
+    /// CPU path already does, instead of panicking the live render thread on a
+    /// length that renders fine everywhere else.
+    pub fn new(layers_flat: &[f32]) -> Self {
+        let whole = layers_flat.len() - layers_flat.len() % LAYER_FLAT_LEN;
+        Self {
+            layers_flat: layers_flat[..whole].to_vec(),
+        }
+    }
 }
 
 impl Pass for LocalAdjustmentsPass {
@@ -113,10 +135,10 @@ impl Pass for LocalAdjustmentsPass {
         dst: &wgpu::Buffer,
         dims: (u32, u32),
     ) {
-        assert!(
-            self.layers_flat.len() % LAYER_FLAT_LEN == 0,
-            "local-adjustment wire length must be a multiple of {LAYER_FLAT_LEN}, got {}",
-            self.layers_flat.len()
+        debug_assert_eq!(
+            self.layers_flat.len() % LAYER_FLAT_LEN,
+            0,
+            "constructor invariant: `new` truncates to whole records"
         );
         assert!(
             !self.layers_flat.is_empty(),
