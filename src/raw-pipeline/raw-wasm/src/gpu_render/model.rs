@@ -71,6 +71,10 @@ pub(super) fn stripped_prefix_model(
         clarity: 0.0,
         texture: 0.0,
         dehaze: 0.0,
+        // Local adjustments (#1698) are re-run by the GPU chain — clear the
+        // stack so the develop prefix short-circuits the stage. A non-empty
+        // value here would DOUBLE-APPLY: once in the prefix, once on the GPU.
+        local_adjustments: Vec::new(),
         // Vignette (#1109) is re-run by the GPU chain — zero the amount so the
         // develop prefix short-circuits the stage (a non-zero value here would
         // DOUBLE-APPLY: once in the prefix, once on the GPU). Feather is inert
@@ -172,6 +176,9 @@ pub(super) fn build_full_chain_inputs(
         clarity: model.clarity,
         texture: model.texture,
         dehaze: model.dehaze,
+        // Local adjustments (#1698) — serialized to the flat wire the GPU
+        // storage buffer binds directly.
+        local_adjustments: raw_core::types::layers_to_flat(&model.local_adjustments),
         vignette_amount: model.vignette_amount,
         vignette_feather: model.vignette_feather,
         grain_amount: model.grain_amount,

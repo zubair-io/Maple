@@ -132,6 +132,8 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
     model.sharpen_detail = p.sharpen_detail;
     model.sharpen_masking = p.sharpen_masking;
     model.nr_color = p.nr_color;
+    // Local adjustments (#1698) — see `read_local_adjustments`.
+    model.local_adjustments = crate::scene_linear_chain::read_local_adjustments(p);
 
     // Non-RAW WB contract (#1331 / #1734) — same D65-baseline delta as the fp16
     // sibling in `scene_linear_chain.rs` (see that file's doc comment for the
