@@ -63,7 +63,6 @@
 //! position to produce the airlight without leaving the device. The readback here
 //! is a HEADLESS test affordance, explicitly sanctioned for this milestone.
 
-use crate::acr_match_pass::AcrMatchPass;
 use crate::agx::AgxPass;
 use crate::auto_profile_curve::AutoProfileCurvePass;
 use crate::capture_sharpening::{CaptureSharpeningParams, CaptureSharpeningPass};
@@ -225,16 +224,6 @@ pub struct FullChainInputs {
     /// the default `PostDcpRec2020Fp16` is the historic value — all existing callers
     /// that leave it at zero-init preserve the current RAW behaviour exactly.
     pub input_shape: InputShape,
-    /// View-transform profile selection (#1722, epic #1710 slice 2). Drives
-    /// whether the view-tail uses AgX (default for `Auto`/`Neutral`) or the
-    /// fitted AcrMatch LUT. See [`PROFILE_ID_ACR_MATCH`].
-    ///
-    /// Stored as `u8` so raw-gpu does not need to import `raw_core::types::adjustment::Profile`
-    /// (which would create a circular crate dep). The discriminant mapping matches
-    /// `Profile`'s definition order: 0 = Auto, 1 = Neutral, 2 = AcrMatch.
-    /// C FFI / WASM callers that zero-initialise the struct get 0 (Auto), which
-    /// maps to AgX — identical to the pre-#1722 behaviour.
-    pub profile_id: u8,
     /// The frame's DNG NoiseProfile (`RawImage::noise_profile`), flat — empty
     /// when the file carries none. Feeds the NR stages' PER-PIXEL modulation
     /// (#1714): raw-core's CPU NLM scales `h` and the search radius per pixel off
@@ -273,11 +262,6 @@ pub enum InputShape {
     /// same stage subset as `LinearRec2020Fp16` runs.
     SrgbGammaEncoded8 = 2,
 }
-
-/// `profile_id` value for `Profile::AcrMatch` — the fitted ACR-match LUT
-/// transform (#1722). Used by [`build_split`] / [`build_live_split`] to
-/// switch the view-tail from AgX to AcrMatch.
-pub const PROFILE_ID_ACR_MATCH: u8 = 2;
 
 /// Where the scene-linear / view boundary sits in the assembled Vec, expressed
 /// as the count of passes that run BEFORE `dehaze` (the prefix whose output
@@ -415,14 +399,12 @@ pub fn build_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses
         noise_profile: inputs.noise_profile.clone(),
         iso: inputs.iso,
     }));
-    // View tail: AgX (default) or AcrMatch (#1722) depending on the profile.
-    if inputs.profile_id == PROFILE_ID_ACR_MATCH {
-        suffix.push(Box::new(AcrMatchPass));
-    } else {
-        suffix.push(Box::new(AgxPass {
-            contrast: inputs.contrast,
-        }));
-    }
+    // View tail: AgX for every profile. Auto and Neutral differ only in the
+    // Auto Profile tail layered on below; the AcrMatch branch that used to
+    // switch this to a baked LUT was retired in #2312.
+    suffix.push(Box::new(AgxPass {
+        contrast: inputs.contrast,
+    }));
     // Colour grading (#275) — display-linear Oklab three-zone tint,
     // post-AgX, before grain (the render tail's 16a position).
     suffix.push(Box::new(ColorGradePass {

@@ -101,7 +101,6 @@ fn render_chain_to_f32_second_render_is_zero_alloc() {
         // Web test always uses the RAW / full chain.
         input_shape: raw_gpu::InputShape::PostDcpRec2020Fp16,
         // AgX (default) — no profile selection in this test (#1722).
-        profile_id: 0,
         // No DNG NoiseProfile in this fixture — the flat NLM filter (#1714).
         noise_profile: Vec::new(),
         iso: 0,

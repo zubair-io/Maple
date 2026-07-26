@@ -233,12 +233,6 @@ pub struct MapleGpuLiveParams {
     //     CPU pre-pass). A stale host leaves this 0 = the historic RAW path;
     //     bit-exact. ---
     pub input_shape: u32,
-    // --- view-transform profile selection (#1722, epic #1710 slice 2).
-    //     Drives whether the view-tail uses AgX (0/1 = Auto/Neutral) or the
-    //     fitted AcrMatch LUT (2 = AcrMatch). Appended at the tail per the
-    //     append-only ABI convention; a stale host leaves this 0 = Auto (AgX)
-    //     — bit-identical to pre-#1722 output. ---
-    pub profile_id: u8,
     // --- WB slider frame (#1781) — the decode-exported `SliderFrame` data
     //     (`MapleSceneLinearBufferF32.wb_frame_*`, passed back verbatim by
     //     the host). When present (`wb_frame_scene_cct > 0`) AND a decoded

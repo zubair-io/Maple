@@ -415,7 +415,6 @@ pub(super) fn direct_raw_gpu(
         // RAW shape — full chain including WB (pre-#1331 default).
         input_shape: raw_gpu::InputShape::PostDcpRec2020Fp16,
         // Auto/AgX view tail (#1722 default, value 0).
-        profile_id: 0,
         // No DNG NoiseProfile in this fixture — the flat NLM filter (#1714).
         noise_profile: Vec::new(),
         iso: 0,

@@ -181,9 +181,9 @@ compute_input_hash() {
         # changes the lib and must not hash-skip.
         # Includes `*.bin` blobs (#1946): the baked LUT / profile-bundle files are
         # `include_bytes!`-embedded into the compiled libraries and are therefore
-        # real build inputs — `view/agx_lut.bin` and `view/acr_match_lut.bin` (the
-        # AgX + AcrMatch cube LUTs) and `color/profiles/profiles.bin` (the DCP
-        # bundle). A LUT- or profile-only regeneration touches no `.rs`/`.wgsl`
+        # real build inputs — `view/agx_lut.bin` (the AgX cube LUT) and
+        # `color/profiles/profiles.bin` (the DCP bundle). A LUT- or
+        # profile-only regeneration touches no `.rs`/`.wgsl`
         # file, so without hashing these a stale xcframework would ship — the same
         # bug class #1513 fixed for `.wgsl`, never extended to the `.bin` files.
         find "$RAW_PIPELINE_DIR/raw-core/src" \

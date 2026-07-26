@@ -140,6 +140,27 @@ describe('buildApplyPatch', () => {
       }),
     ).toEqual({ profile: 'Neutral' });
   });
+
+  /**
+   * The retired `AcrMatch` profile (#1722, removed in #2312) is not a known
+   * variant, so a preset written by an older client carrying it is skipped
+   * rather than applied. The sidecar path migrates it to `Auto` instead
+   * (raw-core `xmp/fields.rs`); a preset is a sparse patch, so skipping
+   * leaves the target image's own profile untouched, which is the safer
+   * of the two for a value that no longer names a real transform.
+   */
+  it('skips the retired AcrMatch profile', () => {
+    expect(buildApplyPatch({ profile: 'AcrMatch', saturation: 10 })).toEqual({ saturation: 10 });
+  });
+
+  it('applies every variant listed in ENUM_FIELD_VALUES', () => {
+    for (const [snakeKey, allowed] of Object.entries(ENUM_FIELD_VALUES)) {
+      const generatedKey = snakeToCamelField(snakeKey);
+      for (const variant of allowed) {
+        expect(buildApplyPatch({ [snakeKey]: variant })).toEqual({ [generatedKey]: variant });
+      }
+    }
+  });
 });
 
 describe('normalizePresetName', () => {
