@@ -154,9 +154,8 @@ pub fn apply_scene_linear_chain(
     } = *opts;
     use crate::image::{ColorSpace, Image};
     use crate::stages::{
-        clarity, color_grade, dehaze, grain, hsl, local_adjustments, noise_reduction,
-        saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance, vignette,
-        white_balance,
+        clarity, color_grade, dehaze, grain, hsl, local_adjustments, noise_reduction, saturation,
+        scene_tone_controls, sharpen, texture, tone_curves, vibrance, vignette, white_balance,
     };
     use crate::view::agx;
 
@@ -384,9 +383,8 @@ pub fn apply_scene_linear_chain_f32(
     } = *opts;
     use crate::image::{ColorSpace, Image};
     use crate::stages::{
-        clarity, color_grade, dehaze, grain, hsl, local_adjustments, noise_reduction,
-        saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance, vignette,
-        white_balance,
+        clarity, color_grade, dehaze, grain, hsl, local_adjustments, noise_reduction, saturation,
+        scene_tone_controls, sharpen, texture, tone_curves, vibrance, vignette, white_balance,
     };
     use crate::view::agx;
 
@@ -557,3 +555,8 @@ pub use encode_display::encode_display_srgb_f32;
 /// budget (#1181).
 #[cfg(test)]
 mod tests;
+
+/// Sharpen / nr_color in-chain coverage (#1043) — its own submodule for
+/// the same file-budget reason.
+#[cfg(test)]
+mod tests_spatial;

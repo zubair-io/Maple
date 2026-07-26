@@ -1259,7 +1259,7 @@ public actor ImageEditPipeline {
         // that the #661 `sceneLinearChainCache` would MISS anyway (a HIT
         // there is strictly cheaper: it skips the FFI entirely). Bounded to
         // `targetSize != nil` to match the #2042 input-cache gate below.
-        if !Self.fusedChainEncodeDisabled, let targetSize {
+        if !Self.fusedChainEncodeDisabled, targetSize != nil {
             let extent = scaled.extent
             let w = Int(extent.width.rounded())
             let h = Int(extent.height.rounded())
@@ -1430,7 +1430,7 @@ public actor ImageEditPipeline {
         // — it applies AFTER the encode either way, fused or not, so
         // applying it here to `fusedEncoded` matches
         // `applyAutoCubeIfEncoded`'s success branch exactly.
-        if !Self.fusedChainEncodeDisabled, let targetSize {
+        if !Self.fusedChainEncodeDisabled, targetSize != nil {
             let extent = scaled.extent
             let w = Int(extent.width.rounded())
             let h = Int(extent.height.rounded())
