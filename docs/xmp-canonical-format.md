@@ -6,6 +6,34 @@ the formatting choices that make that possible.
 
 Any deviation on either side is a bug.
 
+The two implementations of this document are
+`src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+Canonical.swift`
+and `src/web/projects/maple-common/src/lib/xmp/xmp-canonical.ts` (#1577). The
+zero-byte-diff gate is the shared golden literal duplicated between
+`XMPCanonicalFormatTests.swift` and `xmp-canonical.spec.ts`.
+
+## What the parity claim covers
+
+Byte identity holds for **the canonical document produced from a model both
+writers emit the same field set for**. It is deliberately not a claim about
+arbitrary round-tripped documents, because the two writers do not model the
+same things:
+
+- The TypeScript writer preserves unknown attributes and unknown nested nodes;
+  Apple's `XMPSerializer` has no passthrough at all (**#2233**). A sidecar
+  carrying foreign fields therefore cannot be byte-equal across the two.
+- `papp:Hidden` has no TypeScript writer, and `papp:WbMethod` /
+  `papp:ToneCurveMode` have no Apple model field (**#2216**).
+- The ~20 sliders Apple authors unconditionally are omitted at their defaults
+  by the web writer, so the two attribute sets converge only once those fields
+  are authored. The shared golden fixture sets every one of them to a
+  non-default value for exactly this reason.
+
+Everything else — envelope, namespace URIs and declaration order, indentation,
+attribute ordering, number formatting, nested-child shape and order — is
+identical, and a change to any of it must land on both sides and in this
+document in the same commit.
+
 ---
 
 ## File envelope
@@ -16,14 +44,15 @@ Every sidecar starts with:
 <?xpacket begin="\ufeff" id="W5M0MpCehiHzreSzNTczkc9d"?>
 <x:xmpmeta xmlns:x="adobe:ns:meta/">
   <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-    <rdf:Description
+    <rdf:Description rdf:about=""
       xmlns:xmp="http://ns.adobe.com/xap/1.0/"
       xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
-      xmlns:papp="http://ns.justmaple.com/maple-maple/1.0/"
-      xmlns:xmpMM="http://ns.adobe.com/xap/1.0/mm/"
-      <!-- sorted attributes here -->
-      <!-- or: /> for self-close -->
-      <!-- or: > ... </rdf:Description> if there are nested children -->
+      xmlns:papp="http://ns.justmaple.app/photo/1.0/"
+      <!-- conditional namespaces here, in the order: -->
+      <!--   dc, exif, photoshop, Iptc4xmpCore, xmpRights -->
+      <!-- then sorted attributes -->
+      <!-- then: /> for self-close -->
+      <!-- or:   > ... </rdf:Description> if there are nested children -->
 ```
 
 Ends with:
@@ -34,9 +63,37 @@ Ends with:
 <?xpacket end="w"?>
 ```
 
-Namespace declarations on `rdf:Description` are **always emitted in this exact
+The three core namespace declarations are **always emitted in this exact
 order** regardless of whether the namespace is used. They're structural; the
-canonical ordering is for fingerprinting stability.
+canonical ordering is for fingerprinting stability. The metadata namespaces
+below them are conditional — declared only when the payload uses them — and
+keep their fixed relative order.
+
+`rdf:about=""` rides on the `rdf:Description` open tag and is not part of the
+sorted attribute list. It is structural (RDF requires it, and every Adobe
+writer emits it), not payload.
+
+No `x:xmptk` toolkit attribute is written. A toolkit string names the
+producing platform, which is precisely what the canonical form must not depend
+on; the TypeScript writer emitted `Maple Hosted 0.1.0` before #1577 and Apple
+emitted none.
+
+### The `papp:` namespace URI
+
+`http://ns.justmaple.app/photo/1.0/`. Before #1577 the TypeScript writer and
+the API used that value while Apple used `http://ns.justmaple.app/1.0/`, and
+this document claimed a third (`http://ns.justmaple.com/maple-maple/1.0/`)
+that no writer has ever produced.
+
+Picking one is safe because **no parser on any platform resolves the URI**:
+raw-core's `xmp::parse` matches attribute names byte-wise (`papp:Profile`),
+Apple's `XMLParser` runs with namespace processing off so `attributeDict` is
+keyed on qualified names, and the TypeScript parser compares `attr.name`,
+which is also the qualified name. The `papp:` **prefix** is the discriminator
+everywhere — including the WB slider-scale authorship heuristic below, which
+is documented as keying on the prefix for this exact reason. Sidecars already
+on disk under the old Apple URI keep parsing unchanged and pick up the
+canonical URI the next time they are saved. Nothing rewrites them in place.
 
 The BOM (`\uFEFF`) inside `xpacket begin` is literal — do not strip it.
 
@@ -48,9 +105,13 @@ The BOM (`\uFEFF`) inside `xpacket begin` is literal — do not strip it.
 ## Indentation
 
 - 2 spaces per level.
-- `rdf:RDF` indented 2, `rdf:Description` indented 4, attributes on
-  `rdf:Description` indented 6, children of `rdf:Description` indented 6.
-- Nested element children indent 2 further per level.
+- `rdf:RDF` indented 2, `rdf:Description` indented 4, namespace declarations
+  and attributes on `rdf:Description` indented 6, children of
+  `rdf:Description` indented 6.
+- Nested element children indent 2 further per level. This is one ladder for
+  every child: the `dc:subject` keyword bag, the `papp:SceneLinearToneCurve*`
+  blocks, and the metadata `dc:title` / `dc:creator` / `dc:description` /
+  `dc:rights` / `xmpRights:UsageTerms` blocks (which used 2/3/4 before #1577).
 
 ## Attribute ordering on `rdf:Description`
 
@@ -60,12 +121,23 @@ Attributes are sorted by:
    - `xmp:` → 0
    - `crs:` → 1
    - `papp:` → 2
-   - `xmpMM:` → 3
+   - `dc:` → 3
+   - `exif:` → 4
+   - `photoshop:` → 5
+   - `Iptc4xmpCore:` → 6
+   - `xmpRights:` → 7
    - Anything else → 500 (unknown namespaces)
-2. **Then alphabetical** within each namespace.
+2. **Then alphabetical** within each namespace, by fully-qualified name.
 
 Unknown-namespace attributes (passthrough) sort after all known ones,
-alphabetically by fully-qualified name.
+alphabetically by fully-qualified name. Attribute names are ASCII XML NCNames,
+so Swift's string ordering and JavaScript's UTF-16 code-unit ordering agree.
+
+Attribute order carries no meaning on read: all three parsers resolve
+legacy-alias precedence (capture-sharpening sigma, `papp:Profile` over
+`papp:Look`, `papp:Flag` over `xmp:Label`) and the `crs:HasCrop` gate with
+explicit pre-passes rather than by relying on document order, so sorting is
+free.
 
 ## Attribute values
 
@@ -113,6 +185,16 @@ Identical on Swift and TypeScript:
   - `-0.1` → `"-0.1"`
 - NaN / Infinity: not allowed in sidecar values. Defaults substituted.
 
+Every numeric attribute goes through this codec — `numericSerializer` in
+TypeScript, `XMPSerializer.fmtNum` in Swift. Before #1577 the Swift writer used
+a per-field `%.0f` / `%.1f` / `%.2f`, which both diverged from the web writer
+(`"1.50"` vs `"1.5"`, `"2.0"` vs `"2"`) and quantized fractional slider values
+on every re-save.
+
+The one exception is the crop group, which formats at six decimals on both
+sides (`fmtCrop` / `_fmtCrop`): crop edges are normalized fractions of the
+frame, where two decimals would quantize the rect to whole percents.
+
 ## Number fields and defaults
 
 Fields emit **only when non-default** — reduces sidecar size and matches what
@@ -138,19 +220,21 @@ Lightroom does for `crs:` fields.
 | `clarity`                      | `crs:Clarity2012`                    | 0       |
 | `texture`                      | `crs:Texture`                        | 0       |
 | `dehaze`                       | `crs:Dehaze`                         | 0       |
-| `sharpenAmount`                | `crs:SharpenAmount`                  | 0       |
+| `sharpenAmount`                | `crs:Sharpness`                      | 40      |
 | `sharpenRadius`                | `crs:SharpenRadius`                  | 1.0     |
 | `sharpenDetail`                | `crs:SharpenDetail`                  | 25      |
 | `sharpenMasking`               | `crs:SharpenEdgeMasking`             | 0       |
+| `captureSharpeningAmount`      | `papp:CaptureSharpeningAmount`       | 0       |
+| `captureSharpeningSigma`       | `papp:CaptureSharpeningSigma`        | 1.0     |
 | `nrLuminance`                  | `crs:LuminanceSmoothing`             | 0       |
 | `nrColor`                      | `crs:ColorNoiseReduction`            | 25      |
 | `chromaPrefilter`              | `papp:ChromaPrefilter`               | 0       |
 | `deepDenoise`                  | `papp:DeepDenoise`                   | 0       |
 | `vignetteAmount`               | `crs:PostCropVignetteAmount`         | 0       |
-| `vignetteFeather`              | `crs:PostCropVignetteFeather`        | 0       |
+| `vignetteFeather`              | `crs:PostCropVignetteFeather`        | 50      |
 | `grainAmount`                  | `crs:GrainAmount`                    | 0       |
-| `grainSize`                    | `crs:GrainSize`                      | 0       |
-| `grainRoughness`               | `crs:GrainFrequency`                 | 0       |
+| `grainSize`                    | `crs:GrainSize`                      | 25      |
+| `grainRoughness`               | `crs:GrainFrequency`                 | 50      |
 | `splitToneShadowHue`           | `crs:SplitToningShadowHue`           | 0       |
 | `splitToneShadowSaturation`    | `crs:SplitToningShadowSaturation`    | 0       |
 | `splitToneHighlightHue`        | `crs:SplitToningHighlightHue`        | 0       |
@@ -237,6 +321,21 @@ alongside a colour render without changing it.
 - `crs:Version`
 - `crs:ProcessVersion`
 - `crs:HasSettings` (value `"True"`)
+
+Apple additionally authors white balance unconditionally on every save —
+`crs:WhiteBalance="Custom"`, `crs:Temperature`, `crs:Tint` and the
+`papp:WbScaleVersion` stamp — because its model has no white-balance preset
+field and the render contract depends on an explicit pair (#1883). The web
+writer omits all four while its preset is `As Shot`, since emitting the
+estimator's as-shot seed would demote the As-Shot sentinel into an authored
+target (#1892). Apple's `crs:WhiteBalance="Custom"` is the truthful label for
+an always-explicit pair and is what the web parser already infers from one; it
+reads back as a no-op on Apple.
+
+Apple also emits every remaining slider in the group above unconditionally,
+while the web writer omits those at their defaults. That is the one content
+difference left between the two writers for a shared model, and it is why the
+parity fixture authors all of them.
 
 ## Crop fields
 
@@ -359,6 +458,13 @@ sorted alphabetically by full name (including namespace prefix).
 Unknown nested elements inside `rdf:Description` go into `passthroughNodes` and
 re-emit **in original order** (masks, history, snapshots depend on ordering).
 
+The TypeScript writer implements both halves. Apple's has neither — its parser
+returns only `(AdjustmentModel, CullingState)` and its serializer rebuilds the
+document from those, so a Lightroom sidecar loses masks, history and snapshots
+on the first Apple edit. That predates this format and is tracked as **#2233**;
+it is also why the byte-parity claim above is scoped to documents without
+foreign fields.
+
 ## Version signaling
 
 Maple writes `crs:Version` and `crs:ProcessVersion` with the same value,
@@ -450,18 +556,33 @@ User-authored captions still round-trip via the existing free-text `description`
 ## Test contract
 
 Both parsers must produce the same `AdjustmentModel` from any valid input, and
-both serializers must produce the same bytes from any equal model. The test
-matrix:
+both serializers must produce the same bytes from any model whose field set
+they share (see "What the parity claim covers" above). What is in place today:
 
-1. **Self round-trip (Swift)**: Swift serialize → Swift parse → assert
-   AdjustmentModel equality
-2. **Self round-trip (TS)**: TS serialize → TS parse → assert equality
-3. **Cross round-trip**: Swift serialize → TS parse → TS serialize → Swift
-   parse → assert equality; bytes should also be identical
-4. **Fixture parse**: parse a real sidecar, re-emit,
-   byte-compare against the original (allowing only whitespace normalization)
-5. **Nested-mask survival**: a sidecar with 10 `crs:MaskGroupBasedCorrections`
-   entries; write → parse → write must be byte-equal
+1. **Cross-engine zero-byte diff** — `XMPCanonicalFormatTests.swift` and
+   `xmp-canonical.spec.ts` build the same fully-authored model and assert
+   their own serializer reproduces the same golden document, character for
+   character. The literal is duplicated verbatim in both files, the shape
+   #365 established for the tone-curve block. There is no build that runs
+   Swift and TypeScript in one process, so duplicating the literal is the
+   diff: a divergence on either platform fails that platform's suite.
+2. **Canonical invariants**, asserted separately from the golden so a
+   regression names itself: the `papp:` URI, namespace declaration order, the
+   absence of `x:xmptk`, namespace-priority-then-alphabetical attribute order,
+   and the single six-space child-indent ladder.
+3. **Legacy-layout parse** — a sidecar in the pre-#1577 Apple layout (old
+   `papp:` URI, `crs, xmp, papp` declaration order, no `rdf:about`, unsorted
+   attributes) parses to the expected model and culling on both platforms. On
+   Swift it is written to a real file in a temp directory and read back from
+   disk, per CLAUDE.md's no-mocks-for-sidecars rule.
+4. **Write → parse → write is a fixed point** on both platforms, through real
+   files on Swift.
+5. **Per-field round-trips** — the existing per-feature suites
+   (`keywords.spec.ts`, `cull-flag.spec.ts`, `ToneCurveXMPTests.swift`, …)
+   continue to cover each field's own semantics.
 
-Any canonical-format change requires updating both implementations **and** this
-document in the same commit.
+Still open: nested-mask survival cannot be tested cross-platform until Apple
+grows a passthrough (#2233).
+
+Any canonical-format change requires updating both implementations, both
+golden literals, **and** this document in the same commit.
