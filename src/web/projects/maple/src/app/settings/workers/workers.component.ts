@@ -516,6 +516,9 @@ export class WorkersComponent implements OnInit, OnDestroy {
       body.meilisearch_url = form.meilisearch_url.trim() || null;
       const key = form.meilisearch_api_key.trim();
       if (key.length > 0) body.meilisearch_api_key = key;
+      const serviceRate = Number(form.service_search_rate_limit_per_minute.trim());
+      body.service_search_rate_limit_per_minute =
+        Number.isInteger(serviceRate) && serviceRate > 0 ? serviceRate : null;
     }
     this.enrichmentApi.saveEnrichmentConfig(body).subscribe({
       next: (cfg) => {

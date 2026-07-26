@@ -9,7 +9,7 @@ const SECRET_BYTES = 32;
 const KEY_PATTERN = /^maple_sk_([a-f0-9]{16})_([A-Za-z0-9_-]{43})$/;
 const DUMMY_HASH = '0'.repeat(64);
 
-export const SERVICE_API_SCOPES = ['assets:search'] as const satisfies readonly ServiceApiScope[];
+const SERVICE_API_SCOPES = ['assets:search'] as const satisfies readonly ServiceApiScope[];
 
 function sha256(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');

@@ -96,9 +96,7 @@ import { flushPendingMirrorOps } from './fs/mirrored.ts';
 import { installMirrorQueueSink } from './workers/mirror/sink.ts';
 import { workerRoutes } from './workers/routes.ts';
 import { libraryRoutes } from './routes/library/index.ts';
-import { meilisearchClient, reconfigureMeilisearch } from './enrichment/meilisearch-client.ts';
-import { loadEnrichmentConfig } from './enrichment/enrichment-config.repo.ts';
-import { resolveEnrichmentConfig } from './enrichment/enrichment-config.resolve.ts';
+import { initializeHttpSearch } from './enrichment/meilisearch-http-bootstrap.ts';
 import {
   loadObservabilityConfig,
   resolveObservabilityConfig,
@@ -452,39 +450,7 @@ async function start(): Promise<void> {
       spawnWorker();
     }
 
-    try {
-      // Meilisearch search-side config. Configures the shared meilisearch
-      // client singleton used by the search route and other API-side consumers.
-      // The worker tier (start-workers.ts) also calls reconfigureMeilisearch
-      // for the meili stage; in the current single-process Task 1 arrangement
-      // they share the same singleton, so the last one to boot wins. The API
-      // search-side call here ensures the search route is always configured
-      // even when the worker tier is not running.
-      const resolvedMeili = resolveEnrichmentConfig(await loadEnrichmentConfig());
-      reconfigureMeilisearch(resolvedMeili.meilisearch_url, resolvedMeili.meilisearch_api_key);
-      const meili = meilisearchClient();
-      if (!meili.isConfigured()) {
-        log.info('Meilisearch URL unset (DB + MAPLE_MEILISEARCH_URL) — search sidecar disabled');
-      } else if (!(await meili.health())) {
-        log.warn(
-          'Meilisearch health check failed; search will fall back to Mongo $text until the service is reachable',
-        );
-      } else {
-        // The HTTP tier owns the consumer-facing contract even when the
-        // worker child is disabled. Apply settings here as well so enabling
-        // semantic search always registers the embedder.
-        await meili.ensureIndex();
-        log.info(
-          { semanticEnabled: meili.semanticConfigured() },
-          'Meilisearch search sidecar ready',
-        );
-      }
-    } catch (err) {
-      log.warn(
-        { err },
-        'Meilisearch search-side config failed; search will fall back to Mongo $text',
-      );
-    }
+    await initializeHttpSearch();
 
     try {
       // OpenTelemetry → SigNoz. The backend ships its own logs + traces over

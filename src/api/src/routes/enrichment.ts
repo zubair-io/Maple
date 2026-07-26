@@ -21,9 +21,11 @@ import {
   MAX_DESCRIBE_DAILY_CAP_USD,
   MAX_FACE_MIN_DETECTION_SIZE,
   MAX_NOMINATIM_RATE_LIMIT_PER_SEC,
+  MAX_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE,
   MIN_DESCRIBE_DAILY_CAP_USD,
   MIN_FACE_MIN_DETECTION_SIZE,
   MIN_NOMINATIM_RATE_LIMIT_PER_SEC,
+  MIN_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE,
   asDescribeProvider,
   loadEnrichmentConfig,
   saveEnrichmentConfig,
@@ -43,6 +45,7 @@ import {
   createMeilisearchClient,
   reconfigureMeilisearch,
 } from '../enrichment/meilisearch-client.ts';
+import { configureServiceSearchRateLimit } from '../enrichment/service-search-rate-limit.ts';
 
 const log = childLogger('enrichment:routes');
 
@@ -103,6 +106,7 @@ const ConfigBody = t.Object({
    * omitted (or empty string) leaves the saved key unchanged so a blank
    * field in the UI never wipes a key the operator can't see. */
   meilisearch_api_key: t.Optional(t.Union([t.String(), t.Null()])),
+  service_search_rate_limit_per_minute: t.Optional(t.Union([t.Number(), t.Null()])),
 });
 
 const TestBody = t.Object({
@@ -115,6 +119,17 @@ const TestMeiliBody = t.Object({
    * omitted the env var (`MAPLE_MEILISEARCH_API_KEY`) is used. */
   api_key: t.Optional(t.Union([t.String(), t.Null()])),
 });
+
+function serviceSearchRateError(value: number | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  const valid =
+    Number.isInteger(value) &&
+    value >= MIN_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE &&
+    value <= MAX_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE;
+  return valid
+    ? null
+    : `Invalid service_search_rate_limit_per_minute: must be an integer between ${MIN_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE} and ${MAX_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE}`;
+}
 
 /** Strip the secret Meilisearch API key from a resolved config before it
  * goes over HTTP, replacing it with a boolean "is a key set" indicator. The
@@ -283,6 +298,12 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
         const trimmed = body.meilisearch_api_key.trim();
         if (trimmed.length > 0) meiliApiKey = trimmed;
       }
+      const serviceSearchRateLimit = body.service_search_rate_limit_per_minute;
+      const serviceRateError = serviceSearchRateError(serviceSearchRateLimit);
+      if (serviceRateError) {
+        set.status = 400;
+        return { error: serviceRateError };
+      }
 
       await saveEnrichmentConfig({
         nominatim_url: url,
@@ -339,6 +360,9 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
           : {}),
         ...(meiliUrl !== undefined ? { meilisearch_url: meiliUrl } : {}),
         ...(meiliApiKey !== undefined ? { meilisearch_api_key: meiliApiKey } : {}),
+        ...(serviceSearchRateLimit !== undefined
+          ? { service_search_rate_limit_per_minute: serviceSearchRateLimit }
+          : {}),
       });
 
       // Re-resolve from DB to compute the effective config (in case env vars
@@ -386,6 +410,7 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
       // restart. This swap is synchronous and is the only part that must
       // happen before we return.
       reconfigureMeilisearch(resolved.meilisearch_url, resolved.meilisearch_api_key);
+      configureServiceSearchRateLimit(resolved.service_search_rate_limit_per_minute);
       if (resolved.meilisearch_url) {
         // Warm up the freshly-pointed-at instance — health-check + index
         // (re)creation — fire-and-forget. NOT awaited: a slow/unreachable

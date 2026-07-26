@@ -733,6 +733,27 @@
                           <span class="mono">MAPLE_MEILISEARCH_API_KEY</span>.
                         </div>
                       </div>
+                      <div class="field">
+                        <div class="field-label">Service search requests / minute</div>
+                        <div class="num-input">
+                          <input
+                            type="number"
+                            min="1"
+                            max="10000"
+                            [value]="enrichmentValue(s, 'service_search_rate_limit_per_minute')"
+                            (input)="
+                              setEnrichment(
+                                s,
+                                'service_search_rate_limit_per_minute',
+                                $any($event.target).value
+                              )
+                            "
+                          />
+                        </div>
+                        <div class="field-hint">
+                          Per service API key. Applies immediately without restarting Maple.
+                        </div>
+                      </div>
                     </div>
                   }
                 }

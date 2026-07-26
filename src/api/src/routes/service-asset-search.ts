@@ -1,5 +1,6 @@
-import { Elysia, t } from 'elysia';
-import type { Filter } from 'mongodb';
+import { Elysia } from 'elysia';
+import type { Collection, Filter } from 'mongodb';
+import { trustedProxyCount } from '../auth/rate_limit.ts';
 import { authenticateServiceApiKey, type ServiceApiIdentity } from '../auth/service-api-keys.ts';
 import { assetsCollection } from '../db/client.ts';
 import type { AssetDoc } from '../db/schema.ts';
@@ -8,13 +9,16 @@ import {
   type MeilisearchMediaType,
   type MeilisearchSearchResult,
 } from '../enrichment/meilisearch-client.ts';
+import {
+  consumeServiceSearchRateLimit,
+  resetServiceSearchRateLimitsForTests,
+} from '../enrichment/service-search-rate-limit.ts';
 import { AUDIO_EXTS, VIDEO_EXTS } from '../indexer/media-types.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('service-search');
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
-const DEFAULT_RATE_LIMIT = 60;
 
 type SearchMode = 'hybrid' | 'lexical';
 type FallbackReason =
@@ -23,100 +27,136 @@ type FallbackReason =
   | 'meilisearch_unavailable'
   | 'meilisearch_query_failed';
 
-const SearchBody = t.Object({
-  query: t.String({ minLength: 1, maxLength: 500 }),
-  mode: t.Optional(t.Union([t.Literal('hybrid'), t.Literal('lexical')])),
-  limit: t.Optional(t.Integer({ minimum: 1, maximum: MAX_LIMIT })),
-  includeHidden: t.Optional(t.Boolean()),
-  filters: t.Optional(
-    t.Object({
-      mediaTypes: t.Optional(
-        t.Array(t.Union([t.Literal('image'), t.Literal('video'), t.Literal('audio')]), {
-          minItems: 1,
-          maxItems: 3,
-        }),
-      ),
-    }),
-  ),
-});
-
-interface RateWindow {
-  startedAt: number;
-  count: number;
+interface SearchRequestBody {
+  query: string;
+  mode?: SearchMode;
+  limit?: number;
+  includeHidden?: boolean;
+  filters?: { mediaTypes?: MeilisearchMediaType[] };
 }
 
-const rateWindows = new Map<string, RateWindow>();
+function validMode(value: unknown): value is SearchMode | undefined {
+  return value === undefined || value === 'hybrid' || value === 'lexical';
+}
+
+function validLimit(value: unknown): value is number | undefined {
+  return (
+    value === undefined ||
+    (Number.isInteger(value) && (value as number) >= 1 && (value as number) <= MAX_LIMIT)
+  );
+}
+
+function validFilters(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!value || typeof value !== 'object') return false;
+  const mediaTypes = (value as Record<string, unknown>).mediaTypes;
+  if (mediaTypes === undefined) return true;
+  const allowed = new Set(['image', 'video', 'audio']);
+  return (
+    Array.isArray(mediaTypes) &&
+    mediaTypes.length >= 1 &&
+    mediaTypes.length <= 3 &&
+    mediaTypes.every((item) => typeof item === 'string' && allowed.has(item))
+  );
+}
+
+function requestRecord(body: unknown): Record<string, unknown> | null {
+  return body && typeof body === 'object' ? (body as Record<string, unknown>) : null;
+}
+
+function validQuery(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= 500;
+}
+
+function validHidden(value: unknown): value is boolean | undefined {
+  return value === undefined || typeof value === 'boolean';
+}
+
+function parseSearchBody(body: unknown): SearchRequestBody | null {
+  const candidate = requestRecord(body);
+  if (!candidate) return null;
+  if (!validQuery(candidate.query)) return null;
+  if (!validMode(candidate.mode)) return null;
+  if (!validLimit(candidate.limit)) return null;
+  if (!validHidden(candidate.includeHidden)) return null;
+  if (!validFilters(candidate.filters)) return null;
+  return candidate as unknown as SearchRequestBody;
+}
 
 export function _resetServiceSearchRateLimitsForTests(): void {
-  rateWindows.clear();
+  resetServiceSearchRateLimitsForTests();
 }
 
-function rateLimitPerMinute(): number {
-  const configured = Number(process.env.MAPLE_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE);
-  return Number.isFinite(configured) && configured > 0
-    ? Math.trunc(configured)
-    : DEFAULT_RATE_LIMIT;
-}
-
-function consumeRateLimit(keyId: string): { allowed: boolean; retryAfterSeconds: number } {
-  const now = Date.now();
-  const window = rateWindows.get(keyId);
-  if (!window || now - window.startedAt >= 60_000) {
-    rateWindows.set(keyId, { startedAt: now, count: 1 });
-    return { allowed: true, retryAfterSeconds: 0 };
-  }
-  if (window.count >= rateLimitPerMinute()) {
-    return {
-      allowed: false,
-      retryAfterSeconds: Math.max(1, Math.ceil((60_000 - (now - window.startedAt)) / 1000)),
-    };
-  }
-  window.count += 1;
-  return { allowed: true, retryAfterSeconds: 0 };
+function trustedForwardedProto(request: Request): string | null {
+  if (process.env.MAPLE_TRUSTED_PROXIES === undefined) return null;
+  const trust = trustedProxyCount();
+  if (trust < 1) return null;
+  const values = request.headers
+    .get('x-forwarded-proto')
+    ?.split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+  if (!values?.length) return null;
+  return values[Math.max(0, values.length - trust)] ?? null;
 }
 
 function isSecureServiceRequest(request: Request): boolean {
-  const forwarded = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim().toLowerCase();
-  if (forwarded) return forwarded === 'https';
   const url = new URL(request.url);
   if (url.protocol === 'https:') return true;
-  return url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1';
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1') {
+    return true;
+  }
+  return trustedForwardedProto(request) === 'https';
 }
 
 function regexEscape(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function mediaFilenameRegex(mediaTypes: MeilisearchMediaType[] | undefined): RegExp | null {
-  if (!mediaTypes || mediaTypes.length === 0 || mediaTypes.length === 3) return null;
-  const include = new Set(mediaTypes);
-  const video = [...VIDEO_EXTS].map((ext) => regexEscape(ext));
-  const audio = [...AUDIO_EXTS].map((ext) => regexEscape(ext));
+function imageFilenameRegex(
+  include: ReadonlySet<MeilisearchMediaType>,
+  video: string[],
+  audio: string[],
+): RegExp | null {
+  if (!include.has('image')) return null;
   if (include.size === 1 && include.has('image')) {
     return new RegExp(`^(?!.*(?:${[...video, ...audio].join('|')})$).*`, 'i');
   }
-  const extensions: string[] = [];
-  if (include.has('video')) extensions.push(...video);
-  if (include.has('audio')) extensions.push(...audio);
-  if (include.has('image')) {
-    // Mixed image + one non-image type is easiest to express as excluding the
-    // one media family that was not requested.
-    const excluded = include.has('video') ? audio : video;
-    return new RegExp(`^(?!.*(?:${excluded.join('|')})$).*`, 'i');
-  }
+  const excluded = include.has('video') ? audio : video;
+  return new RegExp(`^(?!.*(?:${excluded.join('|')})$).*`, 'i');
+}
+
+function mediaFilenameRegex(mediaTypes: MeilisearchMediaType[] | undefined): RegExp | null {
+  if (!mediaTypes || mediaTypes.length === 0 || mediaTypes.length === 3) return null;
+  const include = new Set(mediaTypes);
+  const video = [...VIDEO_EXTS].map(regexEscape);
+  const audio = [...AUDIO_EXTS].map(regexEscape);
+  const image = imageFilenameRegex(include, video, audio);
+  if (image) return image;
+  const extensions = [
+    ...(include.has('video') ? video : []),
+    ...(include.has('audio') ? audio : []),
+  ];
   return new RegExp(`(?:${extensions.join('|')})$`, 'i');
 }
 
 function mongoBaseFilter(
   includeHidden: boolean,
   mediaTypes: MeilisearchMediaType[] | undefined,
+  exactFilename?: RegExp,
 ): Filter<AssetDoc> {
   const entry: Record<string, unknown> = {
     deleted_at: { $in: [null] },
     missing_since: { $in: [null] },
   };
   const filenameRegex = mediaFilenameRegex(mediaTypes);
-  if (filenameRegex) entry.filename = filenameRegex;
+  if (filenameRegex && exactFilename) {
+    entry.$and = [{ filename: filenameRegex }, { filename: exactFilename }];
+  } else if (filenameRegex) {
+    entry.filename = filenameRegex;
+  } else if (exactFilename) {
+    entry.filename = exactFilename;
+  }
   return {
     deleted_at: { $in: [null] },
     ...(includeHidden ? {} : { hidden: { $ne: true } }),
@@ -134,7 +174,7 @@ async function mongoLexicalSearch(
   const base = mongoBaseFilter(includeHidden, mediaTypes);
   const exactFilename = new RegExp(`^${regexEscape(query)}$`, 'i');
   const exactRows = await coll
-    .find({ ...base, 'fileinfo.filename': exactFilename } as Filter<AssetDoc>)
+    .find(mongoBaseFilter(includeHidden, mediaTypes, exactFilename))
     .project<{ maple_id?: string }>({ maple_id: 1 })
     .limit(limit)
     .toArray();
@@ -143,31 +183,38 @@ async function mongoLexicalSearch(
     .filter((id): id is string => typeof id === 'string' && id.length > 0);
   const exactIds = new Set(ids);
 
-  if (ids.length < limit) {
-    try {
-      const textRows = await coll
-        .find({ ...base, $text: { $search: query } } as Filter<AssetDoc>)
-        .project<{ maple_id?: string; score?: number }>({
-          maple_id: 1,
-          score: { $meta: 'textScore' },
-        })
-        .sort({ score: { $meta: 'textScore' } })
-        .limit(limit)
-        .toArray();
-      for (const row of textRows) {
-        if (typeof row.maple_id === 'string' && !ids.includes(row.maple_id)) {
-          ids.push(row.maple_id);
-          if (ids.length >= limit) break;
-        }
-      }
-    } catch (err) {
-      log.warn(
-        { err: err instanceof Error ? err.message : String(err) },
-        'mongo text fallback failed; returning exact filename matches only',
-      );
-    }
-  }
+  if (ids.length < limit) await appendMongoTextMatches(coll, base, query, limit, ids);
   return { ids, estimatedTotal: ids.length, exactIds };
+}
+
+async function appendMongoTextMatches(
+  coll: Collection<AssetDoc>,
+  base: Filter<AssetDoc>,
+  query: string,
+  limit: number,
+  ids: string[],
+): Promise<void> {
+  try {
+    const rows = await coll
+      .find({ ...base, $text: { $search: query } } as Filter<AssetDoc>)
+      .project<{ maple_id?: string; score?: number }>({
+        maple_id: 1,
+        score: { $meta: 'textScore' },
+      })
+      .sort({ score: { $meta: 'textScore' } })
+      .limit(limit)
+      .toArray();
+    for (const row of rows) {
+      if (typeof row.maple_id !== 'string' || ids.includes(row.maple_id)) continue;
+      ids.push(row.maple_id);
+      if (ids.length >= limit) return;
+    }
+  } catch (error) {
+    log.warn(
+      { err: error instanceof Error ? error.message : String(error) },
+      'mongo text fallback failed; returning exact filename matches only',
+    );
+  }
 }
 
 function responseHits(result: MeilisearchSearchResult, exactIds: ReadonlySet<string> = new Set()) {
@@ -198,128 +245,180 @@ function audit(
   );
 }
 
-export const serviceAssetSearchRoutes = new Elysia({
-  name: 'serviceAssetSearchRoutes',
-}).post(
-  '/api/search/assets',
-  async ({ body, request, set }) => {
-    const startedAt = performance.now();
-    if (!isSecureServiceRequest(request)) {
-      set.status = 400;
-      return { error: 'tls_required' };
-    }
+function finishSearch(
+  identity: ServiceApiIdentity,
+  startedAt: number,
+  modeRequested: SearchMode,
+  modeUsed: SearchMode,
+  fallbackReason: FallbackReason | null,
+  result: MeilisearchSearchResult,
+  exactIds: ReadonlySet<string> = new Set(),
+) {
+  audit(identity, {
+    modeRequested,
+    modeUsed,
+    fallbackReason,
+    resultCount: result.ids.length,
+    durationMs: Math.round(performance.now() - startedAt),
+  });
+  return {
+    modeRequested,
+    modeUsed,
+    fallbackReason,
+    results: responseHits(result, exactIds),
+    total: result.estimatedTotal,
+  };
+}
 
-    const auth = await authenticateServiceApiKey(
-      request.headers.get('authorization'),
-      'assets:search',
-    );
-    if (!auth.ok) {
-      set.status = auth.status;
-      return { error: auth.reason };
-    }
-    const rate = consumeRateLimit(auth.identity.keyId);
-    if (!rate.allowed) {
-      set.status = 429;
-      set.headers['retry-after'] = String(rate.retryAfterSeconds);
-      return { error: 'rate_limit_exceeded', retryAfterSeconds: rate.retryAfterSeconds };
-    }
+type CompletedSearch = ReturnType<typeof finishSearch>;
 
-    const query = body.query.trim();
-    if (query.length === 0) {
-      set.status = 400;
-      return { error: 'query_must_not_be_empty' };
-    }
-    const modeRequested: SearchMode = body.mode ?? 'hybrid';
-    const limit = body.limit ?? DEFAULT_LIMIT;
-    const includeHidden = body.includeHidden ?? false;
-    const mediaTypes = body.filters?.mediaTypes;
-    const meili = meilisearchClient();
-    let fallbackReason: FallbackReason | null = null;
+interface SearchContext {
+  query: string;
+  modeRequested: SearchMode;
+  limit: number;
+  includeHidden: boolean;
+  mediaTypes: MeilisearchMediaType[] | undefined;
+}
 
-    if (meili.isConfigured()) {
-      if (modeRequested === 'hybrid' && meili.semanticConfigured()) {
-        try {
-          const result = await meili.search(query, {
-            semantic: true,
-            limit,
-            includeHidden,
-            mediaTypes,
-          });
-          audit(auth.identity, {
-            modeRequested,
-            modeUsed: 'hybrid',
-            fallbackReason: null,
-            resultCount: result.ids.length,
-            durationMs: Math.round(performance.now() - startedAt),
-          });
-          return {
-            modeRequested,
-            modeUsed: 'hybrid' as const,
-            fallbackReason: null,
-            results: responseHits(result),
-            total: result.estimatedTotal,
-          };
-        } catch (err) {
-          fallbackReason = 'semantic_embedder_unavailable';
-          log.warn(
-            {
-              keyId: auth.identity.keyId,
-              err: err instanceof Error ? err.message : String(err),
-            },
-            'hybrid query failed; retrying lexical',
-          );
-        }
-      } else if (modeRequested === 'hybrid') {
-        fallbackReason = 'semantic_not_configured';
-      }
+function searchContext(request: SearchRequestBody): SearchContext {
+  return {
+    query: request.query.trim(),
+    modeRequested: request.mode ?? 'hybrid',
+    limit: request.limit ?? DEFAULT_LIMIT,
+    includeHidden: request.includeHidden ?? false,
+    mediaTypes: request.filters?.mediaTypes,
+  };
+}
 
-      try {
-        const result = await meili.search(query, {
-          semantic: false,
-          limit,
-          includeHidden,
-          mediaTypes,
-        });
-        audit(auth.identity, {
-          modeRequested,
-          modeUsed: 'lexical',
-          fallbackReason,
-          resultCount: result.ids.length,
-          durationMs: Math.round(performance.now() - startedAt),
-        });
-        return {
-          modeRequested,
-          modeUsed: 'lexical' as const,
-          fallbackReason,
-          results: responseHits(result),
-          total: result.estimatedTotal,
-        };
-      } catch (err) {
-        fallbackReason = fallbackReason ?? 'meilisearch_query_failed';
-        log.warn(
-          { keyId: auth.identity.keyId, err: err instanceof Error ? err.message : String(err) },
-          'meilisearch lexical query failed; falling back to mongo',
-        );
-      }
-    } else {
-      fallbackReason = 'meilisearch_unavailable';
-    }
-
-    const result = await mongoLexicalSearch(query, limit, includeHidden, mediaTypes);
-    audit(auth.identity, {
-      modeRequested,
-      modeUsed: 'lexical',
-      fallbackReason,
-      resultCount: result.ids.length,
-      durationMs: Math.round(performance.now() - startedAt),
+async function tryHybridSearch(
+  meili: ReturnType<typeof meilisearchClient>,
+  context: SearchContext,
+  identity: ServiceApiIdentity,
+  startedAt: number,
+): Promise<{ response: CompletedSearch | null; fallback: FallbackReason | null }> {
+  if (context.modeRequested !== 'hybrid') return { response: null, fallback: null };
+  if (!meili.semanticConfigured()) {
+    return { response: null, fallback: 'semantic_not_configured' };
+  }
+  try {
+    const result = await meili.search(context.query, {
+      semantic: true,
+      limit: context.limit,
+      includeHidden: context.includeHidden,
+      mediaTypes: context.mediaTypes,
     });
     return {
-      modeRequested,
-      modeUsed: 'lexical' as const,
-      fallbackReason,
-      results: responseHits(result, result.exactIds),
-      total: result.estimatedTotal,
+      response: finishSearch(identity, startedAt, context.modeRequested, 'hybrid', null, result),
+      fallback: null,
     };
-  },
-  { body: SearchBody },
-);
+  } catch (error) {
+    log.warn(
+      { keyId: identity.keyId, err: error instanceof Error ? error.message : String(error) },
+      'hybrid query failed; retrying lexical',
+    );
+    return { response: null, fallback: 'semantic_embedder_unavailable' };
+  }
+}
+
+async function tryMeilisearchLexical(
+  meili: ReturnType<typeof meilisearchClient>,
+  context: SearchContext,
+  identity: ServiceApiIdentity,
+  startedAt: number,
+  fallback: FallbackReason | null,
+): Promise<CompletedSearch | null> {
+  try {
+    const result = await meili.search(context.query, {
+      semantic: false,
+      limit: context.limit,
+      includeHidden: context.includeHidden,
+      mediaTypes: context.mediaTypes,
+    });
+    return finishSearch(identity, startedAt, context.modeRequested, 'lexical', fallback, result);
+  } catch (error) {
+    log.warn(
+      { keyId: identity.keyId, err: error instanceof Error ? error.message : String(error) },
+      'meilisearch lexical query failed; falling back to mongo',
+    );
+    return null;
+  }
+}
+
+async function executeSearch(
+  request: SearchRequestBody,
+  identity: ServiceApiIdentity,
+  startedAt: number,
+) {
+  const context = searchContext(request);
+  const meili = meilisearchClient();
+  let fallbackReason: FallbackReason | null = null;
+
+  if (meili.isConfigured()) {
+    const hybrid = await tryHybridSearch(meili, context, identity, startedAt);
+    if (hybrid.response) return hybrid.response;
+    fallbackReason = hybrid.fallback;
+    const lexical = await tryMeilisearchLexical(
+      meili,
+      context,
+      identity,
+      startedAt,
+      fallbackReason,
+    );
+    if (lexical) return lexical;
+    fallbackReason = fallbackReason ?? 'meilisearch_query_failed';
+  } else {
+    fallbackReason = 'meilisearch_unavailable';
+  }
+
+  const result = await mongoLexicalSearch(
+    context.query,
+    context.limit,
+    context.includeHidden,
+    context.mediaTypes,
+  );
+  return finishSearch(
+    identity,
+    startedAt,
+    context.modeRequested,
+    'lexical',
+    fallbackReason,
+    result,
+    result.exactIds,
+  );
+}
+
+export const serviceAssetSearchRoutes = new Elysia({
+  name: 'serviceAssetSearchRoutes',
+}).post('/api/search/assets', async ({ body, request, set }) => {
+  const startedAt = performance.now();
+  if (!isSecureServiceRequest(request)) {
+    set.status = 400;
+    return { error: 'tls_required' };
+  }
+
+  const auth = await authenticateServiceApiKey(
+    request.headers.get('authorization'),
+    'assets:search',
+  );
+  if (!auth.ok) {
+    set.status = auth.status;
+    return { error: auth.reason };
+  }
+  const parsed = parseSearchBody(body);
+  if (!parsed) {
+    set.status = 400;
+    return { error: 'invalid_request_body' };
+  }
+  const rate = await consumeServiceSearchRateLimit(auth.identity.keyId);
+  if (!rate.allowed) {
+    set.status = 429;
+    set.headers['retry-after'] = String(rate.retryAfterSeconds);
+    return { error: 'rate_limit_exceeded', retryAfterSeconds: rate.retryAfterSeconds };
+  }
+
+  if (parsed.query.trim().length === 0) {
+    set.status = 400;
+    return { error: 'query_must_not_be_empty' };
+  }
+  return executeSearch(parsed, auth.identity, startedAt);
+});

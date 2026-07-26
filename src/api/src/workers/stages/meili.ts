@@ -20,11 +20,15 @@
 import { ObjectId } from 'mongodb';
 import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
-import { meilisearchClient, type MeilisearchClient } from '../../enrichment/meilisearch-client.ts';
+import {
+  meilisearchClient,
+  type MeilisearchAssetDoc,
+  type MeilisearchClient,
+} from '../../enrichment/meilisearch-client.ts';
 import { composeSearchBlob } from '../../enrichment/search-blob.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { peopleCollection } from '../../db/client.ts';
-import type { AssetFaceDoc, PersonDoc, VisionDoc } from '../../db/schema.ts';
+import type { AssetFaceDoc, FileInfo, PersonDoc, VisionDoc } from '../../db/schema.ts';
 import { classifyMediaType } from '../../indexer/media-types.ts';
 
 /** Auto-generated cluster names ("Person 1", "Person 12", …). These are
@@ -87,67 +91,88 @@ export function setMeilisearchClientForTests(client: MeilisearchClient | null): 
   _testClient = client;
 }
 
+type SearchableImage = ImageDoc & {
+  maple_id?: string;
+  ocr_text?: string;
+  transcript?: { text?: string };
+  vision?: VisionDoc | null;
+  is_screenshot?: boolean;
+};
+
+function nullIfMissing<T>(value: T | null | undefined): T | null {
+  return value === undefined ? null : value;
+}
+
+function searchBlobFor(image: SearchableImage, vision: VisionDoc | null, people: string[]): string {
+  return composeSearchBlob({
+    place: image.place,
+    description: image.description,
+    ocrText: nullIfMissing(image.ocr_text),
+    transcript: nullIfMissing(image.transcript?.text),
+    visionSubjects: nullIfMissing(vision?.subjects),
+    visionSetting: nullIfMissing(vision?.setting),
+    visionActivity: nullIfMissing(vision?.activity),
+    visionNotableObjects: nullIfMissing(vision?.notable_objects),
+    people,
+  });
+}
+
+function meilisearchDocument(
+  image: SearchableImage,
+  primary: FileInfo,
+  mapleId: string,
+  searchBlob: string,
+  vision: VisionDoc | null,
+  people: string[],
+): MeilisearchAssetDoc {
+  return {
+    id: mapleId,
+    filename: primary.filename,
+    searchBlob,
+    description: nullIfMissing(image.description),
+    ocrText: nullIfMissing(image.ocr_text),
+    folderId: primary.library_id.toHexString(),
+    capturedAt: nullIfMissing(image.exif?.captured_at),
+    deletedAt: null,
+    visionSceneType: nullIfMissing(vision?.scene_type),
+    visionActivity: nullIfMissing(vision?.activity),
+    visionSubjects: nullIfMissing(vision?.subjects),
+    isScreenshot: nullIfMissing(image.is_screenshot),
+    people: people.length === 0 ? null : people,
+    mediaType: classifyMediaType(primary.filename),
+    hidden: image.hidden === true,
+  };
+}
+
 export async function meiliHandler(image: ImageDoc, _ctx: StageContext): Promise<StageResult> {
-  const mapleId = (image as unknown as { maple_id?: string }).maple_id ?? '';
+  const searchable = image as SearchableImage;
+  const mapleId = searchable.maple_id ?? '';
   if (mapleId.length === 0) {
     return { skip: 'no-maple-id' };
+  }
+  const client = getClient();
+  const primary = client.isConfigured() ? assetPrimaryFileInfo(image as never) : null;
+  if (client.isConfigured() && !primary) {
+    if (client.tombstoneBatchOrThrow) await client.tombstoneBatchOrThrow([mapleId]);
+    else await client.tombstone(mapleId);
+    return { skip: 'no-resolvable-location' };
   }
 
   // Vision signals from the qwen3-vl describe stage — see schema.ts
   // §VisionDoc. Optional: `vision` is null on assets that haven't been
   // through the describe stage yet (paused on first boot, paid provider
   // without a key, etc.) — the blob simply omits them in that case.
-  const vision =
-    (
-      image as unknown as {
-        vision?: VisionDoc | null;
-      }
-    ).vision ?? null;
+  const vision = nullIfMissing(searchable.vision);
 
   // Named people on this asset — excludes auto-generated `Person N`
   // clusters and merged rows. `[]` when the asset has no assigned faces.
-  const peopleNames = await resolveAssetPeopleNames(image.faces ?? null);
+  const peopleNames = await resolveAssetPeopleNames(nullIfMissing(image.faces));
+  const blob = searchBlobFor(searchable, vision, peopleNames);
 
-  const blob = composeSearchBlob({
-    place: image.place,
-    description: image.description,
-    ocrText: (image as unknown as { ocr_text?: string }).ocr_text ?? null,
-    transcript: (image as unknown as { transcript?: { text?: string } }).transcript?.text ?? null,
-    visionSubjects: vision?.subjects ?? null,
-    visionSetting: vision?.setting ?? null,
-    visionActivity: vision?.activity ?? null,
-    visionNotableObjects: vision?.notable_objects ?? null,
-    people: peopleNames,
-  });
-
-  const isScreenshot = (image as unknown as { is_screenshot?: boolean }).is_screenshot ?? null;
-
-  const client = getClient();
-  if (client.isConfigured()) {
-    // Resolve folder id (== library id) from the primary fileinfo entry.
-    // Skip the Meili upsert if the row has no live fileinfo — the document
-    // can't be filtered by folder without it.
-    const primary = assetPrimaryFileInfo(image as never);
-    if (!primary) {
-      return { skip: 'no-resolvable-location' };
-    }
-    await client.upsertOrThrow({
-      id: mapleId,
-      filename: primary.filename,
-      searchBlob: blob,
-      description: image.description ?? null,
-      ocrText: (image as unknown as { ocr_text?: string }).ocr_text ?? null,
-      folderId: primary.library_id.toHexString(),
-      capturedAt: image.exif?.captured_at ?? null,
-      deletedAt: null,
-      visionSceneType: vision?.scene_type ?? null,
-      visionActivity: vision?.activity ?? null,
-      visionSubjects: vision?.subjects ?? null,
-      isScreenshot,
-      people: peopleNames.length > 0 ? peopleNames : null,
-      mediaType: classifyMediaType(primary.filename),
-      hidden: image.hidden === true,
-    });
+  if (client.isConfigured() && primary) {
+    await client.upsertOrThrow(
+      meilisearchDocument(searchable, primary, mapleId, blob, vision, peopleNames),
+    );
   }
 
   return { patch: { search_blob: blob } };

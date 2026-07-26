@@ -50,7 +50,6 @@ MAPLE_MEILISEARCH_SEMANTIC=true
 MAPLE_MEILISEARCH_EMBEDDER_URL=http://ollama.lan:11434
 MAPLE_MEILISEARCH_EMBEDDER_MODEL=nomic-embed-text
 MAPLE_MEILISEARCH_SEMANTIC_RATIO=0.5
-MAPLE_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE=60
 ```
 
 `MAPLE_MEILISEARCH_SEMANTIC_RATIO` is clamped to `0..1`: `0` is lexical-only,
@@ -60,7 +59,8 @@ provided. Direct Bun deployments must set it explicitly.
 
 The URL and Meilisearch API key may also be set under
 **Settings → Workers → meili**. Saved values override the environment. The
-embedder URL, model, semantic switch, and blend remain deployment settings.
+service-search request limit is configured there as a DB-backed runtime setting.
+The embedder URL, model, semantic switch, and blend remain deployment settings.
 
 At API startup Maple creates the `assets` index, applies settings, and
 registers the `caption` Ollama embedder. This happens in the HTTP tier even

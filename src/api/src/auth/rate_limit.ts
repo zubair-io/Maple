@@ -41,7 +41,7 @@ export function rateLimit(key: string, max: number, windowMs: number): boolean {
 /** Number of trusted reverse-proxy hops in front of the API (deploy topology).
  * Default 1 (the common self-hosted single-reverse-proxy setup). Set to 0 when
  * the API is directly internet-facing so X-Forwarded-For is never trusted. */
-function trustedProxyCount(): number {
+export function trustedProxyCount(): number {
   const n = Number(process.env.MAPLE_TRUSTED_PROXIES);
   return Number.isInteger(n) && n >= 0 ? n : 1;
 }
