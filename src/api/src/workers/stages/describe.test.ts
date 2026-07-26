@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -12,6 +12,7 @@ import {
 } from '../../enrichment/describe-providers/index.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
+import * as refileBackups from '../migration/refile-backups.ts';
 
 import { describeHandler, setDescribeDepsForTests, DESCRIBE_PROMPT_VERSION } from './describe.ts';
 import { VISION_DOC_JSON_SCHEMA } from '../../enrichment/describe-providers/parse-vision-json.ts';
@@ -574,5 +575,92 @@ describe('describeHandler — provider_info extras', () => {
     expect(meta.input_tokens).toBe('120');
     expect(meta.output_tokens).toBe('20');
     expect(meta.cost_usd).toBe(0.04);
+  });
+});
+
+describe('describeHandler — video is never a screenshot (#2325)', () => {
+  /** A video's poster frame reads as a UI to the VLM — a screen recording
+   * does every time. The verdict must not reach any of its three consumers. */
+  const SCREENSHOT_VISION = { ...VALID_VISION, is_screenshot: true };
+
+  it('writes is_screenshot false for a video even when the model says true', async () => {
+    const doc = await stageDoc(join(tmpRoot, 'clip.mov'));
+    setDescribeDepsForTests({
+      provider: mockProvider({
+        text: JSON.stringify(SCREENSHOT_VISION),
+        cost_usd: 0,
+        provider_info: {},
+      }),
+      systemPrompt: 'structured vision prompt',
+      model: 'qwen3-vl:8b',
+    });
+
+    const res = (await describeHandler(doc, fakeCtx)) as { patch: Record<string, unknown> };
+
+    expect(res.patch.is_screenshot).toBe(false);
+  });
+
+  it('also clamps the stored vision subdoc, so a sidecar re-index cannot resurrect it', async () => {
+    const doc = await stageDoc(join(tmpRoot, 'clip.mov'));
+    setDescribeDepsForTests({
+      provider: mockProvider({
+        text: JSON.stringify(SCREENSHOT_VISION),
+        cost_usd: 0,
+        provider_info: {},
+      }),
+      systemPrompt: 'structured vision prompt',
+      model: 'qwen3-vl:8b',
+    });
+
+    const res = (await describeHandler(doc, fakeCtx)) as {
+      patch: { vision: { is_screenshot: boolean; caption: string } };
+    };
+
+    expect(res.patch.vision.is_screenshot).toBe(false);
+    // The rest of the VisionDoc is passed through untouched.
+    expect(res.patch.vision.caption).toBe(VALID_VISION.caption);
+  });
+
+  it('never relocates a video into <year>/Screenshot on disk', async () => {
+    const doc = await stageDoc(join(tmpRoot, 'clip.mov'));
+    // The relocation is gated on backup origin, so give the doc a phasset
+    // link — otherwise this test would pass for the wrong reason.
+    (doc as unknown as { phasset_links: string[] }).phasset_links = ['SS/L0/001'];
+    const relocate = spyOn(refileBackups, 'relocateBackupScreenshot');
+
+    setDescribeDepsForTests({
+      provider: mockProvider({
+        text: JSON.stringify(SCREENSHOT_VISION),
+        cost_usd: 0,
+        provider_info: {},
+      }),
+      systemPrompt: 'structured vision prompt',
+      model: 'qwen3-vl:8b',
+    });
+
+    await describeHandler(doc, fakeCtx);
+
+    expect(relocate).not.toHaveBeenCalled();
+    relocate.mockRestore();
+  });
+
+  it('still honours a true verdict for a still image', async () => {
+    const doc = await stageDoc(join(tmpRoot, 'shot.png'));
+    setDescribeDepsForTests({
+      provider: mockProvider({
+        text: JSON.stringify(SCREENSHOT_VISION),
+        cost_usd: 0,
+        provider_info: {},
+      }),
+      systemPrompt: 'structured vision prompt',
+      model: 'qwen3-vl:8b',
+    });
+
+    const res = (await describeHandler(doc, fakeCtx)) as {
+      patch: { is_screenshot: boolean; vision: { is_screenshot: boolean } };
+    };
+
+    expect(res.patch.is_screenshot).toBe(true);
+    expect(res.patch.vision.is_screenshot).toBe(true);
   });
 });
