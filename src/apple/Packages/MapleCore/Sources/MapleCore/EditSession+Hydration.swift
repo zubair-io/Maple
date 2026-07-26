@@ -402,17 +402,17 @@ extension EditSession {
     /// thread (`.ips` signatures `Maple Exposure-2026-07-12-005424` /
     /// `…-015904`; 2/2 repro under `SliderMatrixUITests`). This file's
     /// nonisolated readers were the prime suspects the issue named. Two
-    /// instrumented runs in this pass could not reproduce it (environment
-    /// blocked — see PR for why), so this wrap is defensive hardening, not a
-    /// proven fix: the explicit `autoreleasepool` forces any autoreleased
-    /// object this call allocates (here: the `Data` read machinery and
-    /// `CIImage(data:)`'s decode-context bookkeeping) to drain deterministically
-    /// on THIS call's own pool frame, on the thread that created it — instead
-    /// of deferring the drain to whatever frame libdispatch's worker-thread
-    /// pool happens to close next, which can be a later, unrelated job if the
-    /// thread is reused before the outer pool pops.
+    /// instrumented runs in this pass could not reproduce it, so this wrap
+    /// is defensive hardening, not a proven fix: the explicit
+    /// `autoreleasepool` forces any autoreleased object this call allocates
+    /// (here: the `Data` read machinery and `CIImage(data:)`'s
+    /// decode-context bookkeeping) to drain deterministically on THIS
+    /// call's own pool frame, on the thread that created it — instead of
+    /// deferring the drain to whatever frame libdispatch's worker-thread
+    /// pool happens to close next, which can be a later, unrelated job if
+    /// the thread is reused before the outer pool pops.
     nonisolated static func readMapleSidecarPreview(from url: URL) -> CIImage? {
-        autoreleasepool {
+        return autoreleasepool {
             let preview = MapleSidecarPaths.previewURL(for: url)
             guard FileManager.default.fileExists(atPath: preview.path),
                 let data = try? Data(contentsOf: preview)
@@ -439,7 +439,7 @@ extension EditSession {
     /// note above; this downgrades #1909 to "hardened + monitoring" per its
     /// own DoD, not "fixed".
     nonisolated static func readEmbeddedPreview(from url: URL) -> CIImage? {
-        autoreleasepool {
+        return autoreleasepool {
             guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
             // `FromImageIfAbsent: false` means we only return the camera's
             // pre-baked preview. When a RAW has no embedded preview (rare, but
