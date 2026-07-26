@@ -333,11 +333,15 @@ pub fn build_live_split(
     if inputs.nr_luminance.abs() >= SLIDER_EPS {
         suffix.push(Box::new(NlmLumaPass {
             nr_luminance: inputs.nr_luminance,
+            noise_profile: inputs.noise_profile.clone(),
+            iso: inputs.iso,
         }));
     }
     if inputs.nr_color.abs() >= SLIDER_EPS {
         suffix.push(Box::new(NlmColorPass {
             nr_color: inputs.nr_color,
+            noise_profile: inputs.noise_profile.clone(),
+            iso: inputs.iso,
         }));
     }
 

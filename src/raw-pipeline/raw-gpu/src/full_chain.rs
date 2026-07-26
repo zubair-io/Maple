@@ -235,6 +235,17 @@ pub struct FullChainInputs {
     /// C FFI / WASM callers that zero-initialise the struct get 0 (Auto), which
     /// maps to AgX — identical to the pre-#1722 behaviour.
     pub profile_id: u8,
+    /// The frame's DNG NoiseProfile (`RawImage::noise_profile`), flat — empty
+    /// when the file carries none. Feeds the NR stages' PER-PIXEL modulation
+    /// (#1714): raw-core's CPU NLM scales `h` and the search radius per pixel off
+    /// this, so a GPU chain that doesn't carry it denoises differently from the
+    /// develop/export path on any profile-carrying RAW. Appended at the struct
+    /// tail per the append-only convention; empty = the flat filter, which is the
+    /// pre-#1714 GPU behaviour.
+    pub noise_profile: Vec<f32>,
+    /// `RawImage::iso`, paired with `noise_profile` (raw-core treats 0 as
+    /// "unknown" and zeroes the profile coefficients).
+    pub iso: u32,
 }
 
 /// How the GPU-resident image was produced. Drives which leading stages the live
@@ -396,9 +407,13 @@ pub fn build_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses
     }));
     suffix.push(Box::new(NlmLumaPass {
         nr_luminance: inputs.nr_luminance,
+        noise_profile: inputs.noise_profile.clone(),
+        iso: inputs.iso,
     }));
     suffix.push(Box::new(NlmColorPass {
         nr_color: inputs.nr_color,
+        noise_profile: inputs.noise_profile.clone(),
+        iso: inputs.iso,
     }));
     // View tail: AgX (default) or AcrMatch (#1722) depending on the profile.
     if inputs.profile_id == PROFILE_ID_ACR_MATCH {

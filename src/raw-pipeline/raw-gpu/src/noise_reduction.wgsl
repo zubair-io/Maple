@@ -22,6 +22,30 @@
 // since raw-core's box-sum forms the SAME local sum (no global prefix), the
 // plane-parity max abs diff is ~5e-8 — well under the 1e-4 gate.
 //
+// ## Per-pixel noise-profile modulation, and where its extra plane comes from
+//
+// With a DNG NoiseProfile present, raw-core does NOT filter with one global `h`:
+// per pixel it derives `var = s_coeff·L + o_coeff` from the Oklab L plane, takes
+// `scale = clamp(sqrt(var)/0.002366, 0.1, 10)`, and filters that pixel with
+// `local_h = h·scale` and a shrunk search radius `local_s = clamp(round(S·scale),
+// 1, S)` (`raw_core::stages::nlm::denoise_plane_cancellable`). Shot noise grows
+// with signal, so a bright pixel gets a wider kernel than a shadow pixel — the
+// whole point of the profile. The GPU used to push ONE `inv_norm` scalar per
+// dispatch, which is that math only for a frame of uniform brightness (#1714).
+//
+// The per-pixel `scale` is a full extra plane, and the accumulate kernel was
+// already at the 4-storage cap. Rather than add a 5th binding, we WIDEN the
+// `max_w` accumulator to `vec2<f32>` and carry the scale in its second lane:
+// `.x` = the running max weight (read-modify-written per shift, exactly as
+// before), `.y` = the pixel's `scale` (written once by `prepare_scale`, read-only
+// thereafter). Same four storage bindings — plane + acc + wsum + (max_w, scale) —
+// and the same dehaze-precedent packing `alloc_plane_vec2` already exists for.
+// `local_h` / `local_s` are re-derived from that scale in registers.
+//
+// The flat (no-profile) case is NOT a second code path: it is `scale ≡ 1`, which
+// makes `local_h = h` and `local_s = S` identically — so one kernel serves both
+// and the no-profile output is unchanged.
+//
 // ## Why the exp is `lerp(exp(-x_i), exp(-x_{i+1}), frac)`, not `exp(-x)`
 //
 // raw-core's weight is NOT `exp(-x)` — it is `fast_neg_exp`, a 512-entry LUT of
@@ -108,6 +132,45 @@ fn extract_channel(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_w
     ex_plane[i] = lab[ex_params.channel];
 }
 
+// ── Per-pixel scale prepare (the noise-profile modulation plane) ──────────────
+//
+// Mirrors the `use_dynamic` block of `raw_core::stages::nlm::denoise_plane_cancellable`:
+// from the Oklab L plane, `var = s_coeff · clamp(L, 0, 10) + o_coeff`, then
+// `scale = clamp(sqrt(max(var, 0)) / 0.002366, 0.1, 10)`. `dynamic == 0` (no DNG
+// NoiseProfile) writes `scale = 1`, which reproduces the flat `h` / full-`S`
+// filter exactly. Also seeds the `max_w` lane to 0, so the accumulator needs no
+// separate clear. 2 storage: L plane (read) + the packed (max_w, scale) plane.
+struct PrepareParams {
+    count: u32,
+    dynamic: u32,   // 0 = flat (scale ≡ 1), 1 = DNG NoiseProfile modulation
+    s_coeff: f32,   // noise-profile slope, luma- or chroma-combined
+    o_coeff: f32,   // noise-profile offset, ditto
+};
+
+// raw-core's reference sigma: the per-pixel sigma that maps to scale = 1, i.e.
+// the noise level the un-modulated `h` was tuned for.
+const NOISE_SIGMA_REF: f32 = 0.002366;
+
+@group(0) @binding(0) var<uniform> pr_params: PrepareParams;
+@group(0) @binding(1) var<storage, read> pr_l: array<f32>;
+@group(0) @binding(2) var<storage, read_write> pr_ms: array<vec2<f32>>;
+
+@compute @workgroup_size(64)
+fn prepare_scale(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
+    let i = gid.y * ng.x * 64u + gid.x;
+    if (i >= pr_params.count) {
+        return;
+    }
+    var scale = 1.0;
+    if (pr_params.dynamic != 0u) {
+        let local_l = clamp(pr_l[i], 0.0, 10.0);
+        let variance = pr_params.s_coeff * local_l + pr_params.o_coeff;
+        let sigma = sqrt(max(variance, 0.0));
+        scale = clamp(sigma / NOISE_SIGMA_REF, 0.1, 10.0);
+    }
+    pr_ms[i] = vec2<f32>(0.0, scale);
+}
+
 // ── Accumulate one shift (the per-shift NLM core) ─────────────────────────────
 //
 // For shift d = (dx, dy): each pixel p computes the patch-SSD against p+d by
@@ -116,29 +179,32 @@ fn extract_channel(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_w
 // and accumulates into acc/wsum/max_w (read-modify-write across shifts). The CPU
 // side pre-computes the valid pixel range [x_lo..x_hi]×[y_lo..y_hi] (mirroring
 // raw-core's isize max/min) and skips dispatching empty-range shifts; the shader
-// just bounds-checks. 4 storage: plane + acc + wsum + max_w.
+// just bounds-checks. The per-pixel `h` scaling and the per-pixel search-radius
+// gate come from the packed plane's `.y` lane (see the header). 4 storage: plane
+// + acc + wsum + (max_w, scale).
 struct AccumParams {
     width: u32,
     height: u32,
-    p: i32,         // patch radius
-    inv_norm: f32,  // 1 / (h² · (2P+1)²)
+    p: i32,   // patch radius
+    h: f32,   // filter strength BEFORE per-pixel modulation (`local_h = h · scale`)
     dx: i32,
     dy: i32,
     x_lo: i32,
     x_hi: i32,
     y_lo: i32,
     y_hi: i32,
+    s: i32,   // search radius — the ceiling the per-pixel `local_s` clamps to
     _pad0: u32,
-    _pad1: u32,
 };
 
 // Exactly four storage buffers — at the `downlevel_defaults()` cap. The uniform
 // `ac_params` at binding 0 does NOT count against the storage cap.
 @group(0) @binding(0) var<uniform> ac_params: AccumParams;
-@group(0) @binding(1) var<storage, read> ac_plane: array<f32>;       // storage 1
-@group(0) @binding(2) var<storage, read_write> ac_acc: array<f32>;   // storage 2
-@group(0) @binding(3) var<storage, read_write> ac_wsum: array<f32>;  // storage 3
-@group(0) @binding(4) var<storage, read_write> ac_maxw: array<f32>;  // storage 4
+@group(0) @binding(1) var<storage, read> ac_plane: array<f32>;            // storage 1
+@group(0) @binding(2) var<storage, read_write> ac_acc: array<f32>;        // storage 2
+@group(0) @binding(3) var<storage, read_write> ac_wsum: array<f32>;       // storage 3
+@group(0) @binding(4) var<storage, read_write> ac_ms: array<vec2<f32>>;   // storage 4
+                                                                         // (.x max_w, .y scale)
 
 @compute @workgroup_size(64)
 fn accumulate_shift(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
@@ -161,6 +227,25 @@ fn accumulate_shift(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_
     let dy = ac_params.dy;
     let wi = i32(w);
 
+    // Per-pixel noise-profile modulation (#1714). `scale` was computed once by
+    // `prepare_scale`; both the search-radius gate and the exp normaliser follow
+    // from it, exactly as raw-core's `local_s_plane` / `local_inv_norm_plane`.
+    let scale = ac_ms[idx].y;
+    // `local_s = clamp(round(S · scale), 1, S)`. WGSL `round` is half-to-EVEN
+    // while Rust's `f32::round` is half-AWAY-from-zero, and this value is a
+    // discrete shift gate — a one-ULP disagreement there changes which shifts a
+    // pixel sees, not just its weight. `S · scale` is non-negative, so the Rust
+    // rule is exactly "floor, then step up when the fraction reaches ½"; spelling
+    // it out that way also avoids the `x + 0.5` formulation's rounding trap at
+    // the largest float below ½.
+    let s_f = f32(ac_params.s) * scale;
+    let s_floor = floor(s_f);
+    let s_round = select(s_floor, s_floor + 1.0, s_f - s_floor >= 0.5);
+    let local_s = clamp(i32(s_round), 1, ac_params.s);
+    if (abs(dx) > local_s || abs(dy) > local_s) {
+        return;
+    }
+
     // Direct patch-SSD: Σ over [-p..p]² of (plane[q] - plane[q+d])².
     var ssd: f32 = 0.0;
     for (var oy: i32 = -p; oy <= p; oy = oy + 1) {
@@ -176,14 +261,20 @@ fn accumulate_shift(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_
         }
     }
 
-    let weight = fast_neg_exp(ssd * ac_params.inv_norm);
+    // `local_h = h · scale`, `inv_norm = 1 / (local_h² · patch_area)` — the same
+    // expression order raw-core evaluates, so the flat `scale = 1` case reduces
+    // to the pre-#1714 constant.
+    let local_h = ac_params.h * scale;
+    let patch_area = f32((2 * p + 1) * (2 * p + 1));
+    let inv_norm = 1.0 / (local_h * local_h * patch_area);
+    let weight = fast_neg_exp(ssd * inv_norm);
     let sx_c = x + dx;
     let sy_c = y + dy;
     let shifted = ac_plane[u32(sy_c * wi + sx_c)];
 
     ac_acc[idx] = ac_acc[idx] + weight * shifted;
     ac_wsum[idx] = ac_wsum[idx] + weight;
-    ac_maxw[idx] = max(ac_maxw[idx], weight);
+    ac_ms[idx].x = max(ac_ms[idx].x, weight);
 }
 
 // ── Finalize: out = (acc + mw·plane) / (wsum + mw), mw = max(max_w, 1e-12) ─────
@@ -191,8 +282,10 @@ fn accumulate_shift(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_
 // Buades' self-similarity correction: the centre pixel is added at the end with
 // weight = running max weight. Written IN PLACE into acc (acc becomes the
 // denoised plane) so the kernel stays at 4 storage: plane (read) + acc (rw) +
-// wsum (read) + max_w (read). Passthrough (wsum=max_w=0 in the border strip)
-// falls out of the `max(…,1e-12)` clamp → out = plane; no special case.
+// wsum (read) + (max_w, scale) (read — only the `.x` lane matters here).
+// Passthrough (wsum=max_w=0 in the border strip, and equally at any pixel whose
+// `local_s` gate skipped every shift) falls out of the `max(…,1e-12)` clamp →
+// out = plane; no special case.
 struct FinalizeParams {
     count: u32,
     _pad0: u32,
@@ -204,7 +297,7 @@ struct FinalizeParams {
 @group(0) @binding(1) var<storage, read> fin_plane: array<f32>;
 @group(0) @binding(2) var<storage, read_write> fin_acc: array<f32>;
 @group(0) @binding(3) var<storage, read> fin_wsum: array<f32>;
-@group(0) @binding(4) var<storage, read> fin_maxw: array<f32>;
+@group(0) @binding(4) var<storage, read> fin_ms: array<vec2<f32>>;
 
 @compute @workgroup_size(64)
 fn finalize(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
@@ -212,7 +305,7 @@ fn finalize(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgrou
     if (i >= fin_params.count) {
         return;
     }
-    let mw = max(fin_maxw[i], 1e-12);
+    let mw = max(fin_ms[i].x, 1e-12);
     let total_w = fin_wsum[i] + mw;
     let total_acc = fin_acc[i] + mw * fin_plane[i];
     fin_acc[i] = total_acc / total_w;

@@ -65,7 +65,7 @@ fn modest_plane(w: usize, h: usize) -> Vec<f32> {
 /// features + a small per-channel skew (so R:G:B is non-neutral and the Oklab a/b
 /// planes carry real, low-amplitude chroma for the color NR gate). Values stay
 /// well inside [0, 1].
-fn modest_image(w: usize, h: usize) -> Vec<f32> {
+pub(super) fn modest_image(w: usize, h: usize) -> Vec<f32> {
     let mut v = vec![0.0f32; w * h * 4];
     for y in 0..h {
         for x in 0..w {
@@ -92,32 +92,70 @@ fn modest_image(w: usize, h: usize) -> Vec<f32> {
     v
 }
 
+// ── Pass constructors ─────────────────────────────────────────────────────────
+
+/// A luma-NR pass with NO DNG NoiseProfile — the flat, un-modulated filter these
+/// gates cover, matching the `None` the raw-core references are called with. The
+/// per-pixel-modulated case is gated in the sibling `tests_profile.rs` (#1714).
+pub(super) fn luma_pass(amount: f32) -> NlmLumaPass {
+    NlmLumaPass {
+        nr_luminance: amount,
+        noise_profile: Vec::new(),
+        iso: 100,
+    }
+}
+
+/// The color-NR sibling of [`luma_pass`].
+pub(super) fn color_pass(amount: f32) -> NlmColorPass {
+    NlmColorPass {
+        nr_color: amount,
+        noise_profile: Vec::new(),
+        iso: 100,
+    }
+}
+
 // ── GPU drivers ────────────────────────────────────────────────────────────────
 
 /// Run the GPU NLM core on a raw f32 plane (no Oklab): upload `plane`, encode
 /// `encode_nlm_on_plane`, submit, read back. The plane-level parity driver.
-fn denoise_plane_gpu(
+pub(super) fn denoise_plane_gpu(
     ctx: &GpuContext,
     plane: &[f32],
+    guide: &[f32],
     w: u32,
     h: u32,
     params: NlmParams,
+    modulation: NoiseModulation,
 ) -> Vec<f32> {
-    let plane_buf = ctx
-        .device
-        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("nr-test-plane"),
-            contents: bytemuck::cast_slice(plane),
-            usage: wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_SRC
-                | wgpu::BufferUsages::COPY_DST,
-        });
+    let upload = |data: &[f32], label: &str| {
+        ctx.device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(label),
+                contents: bytemuck::cast_slice(data),
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_SRC
+                    | wgpu::BufferUsages::COPY_DST,
+            })
+    };
+    let plane_buf = upload(plane, "nr-test-plane");
+    let guide_buf = upload(guide, "nr-test-guide");
     let mut encoder = ctx
         .device
         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("nr-test-encoder"),
         });
-    let denoised = encode_nlm_on_plane(ctx, &mut encoder, &plane_buf, w, h, params);
+    // `guide` is raw-core's `l_plane` argument: the plane itself for luma NR, the
+    // separate L plane for a chroma plane.
+    let denoised = encode_nlm_on_plane(
+        ctx,
+        &mut encoder,
+        &plane_buf,
+        &guide_buf,
+        w,
+        h,
+        params,
+        modulation,
+    );
     let byte_len = (w as u64) * (h as u64) * std::mem::size_of::<f32>() as u64;
     ctx.queue.submit(Some(encoder.finish()));
     pollster::block_on(read_buffer_async(ctx, &denoised, byte_len)).expect("readback")
@@ -167,7 +205,7 @@ fn raw_core_nr_color(buf: &[f32], w: u32, h: u32, amount: f32) -> Vec<f32> {
 }
 
 /// Max abs diff between two flat buffers, plus the worst index.
-fn max_diff_at(a: &[f32], b: &[f32]) -> (f32, usize) {
+pub(super) fn max_diff_at(a: &[f32], b: &[f32]) -> (f32, usize) {
     let mut worst = 0.0f32;
     let mut worst_i = 0usize;
     for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
@@ -193,7 +231,15 @@ fn nlm_core_matches_denoise_plane_luma_params() {
     let plane = modest_plane(w, h);
     let params = luma_params(100.0);
     let reference = raw_core_denoise_plane(&plane, w, h, params);
-    let gpu = denoise_plane_gpu(&ctx, &plane, w as u32, h as u32, params);
+    let gpu = denoise_plane_gpu(
+        &ctx,
+        &plane,
+        &plane,
+        w as u32,
+        h as u32,
+        params,
+        NoiseModulation::from_profile(None, 100, false),
+    );
 
     let (max_diff, worst_i) = max_diff_at(&reference, &gpu);
     let (wx, wy) = (worst_i % w, worst_i / w);
@@ -219,7 +265,15 @@ fn nlm_core_matches_denoise_plane_chroma_params() {
     let plane = modest_plane(w, h);
     let params = chroma_params(100.0);
     let reference = raw_core_denoise_plane(&plane, w, h, params);
-    let gpu = denoise_plane_gpu(&ctx, &plane, w as u32, h as u32, params);
+    let gpu = denoise_plane_gpu(
+        &ctx,
+        &plane,
+        &plane,
+        w as u32,
+        h as u32,
+        params,
+        NoiseModulation::from_profile(None, 100, false),
+    );
 
     let (max_diff, worst_i) = max_diff_at(&reference, &gpu);
     let (wx, wy) = (worst_i % w, worst_i / w);
@@ -240,7 +294,15 @@ fn nlm_core_matches_denoise_plane_half_strength() {
     let plane = modest_plane(w, h);
     let params = luma_params(50.0);
     let reference = raw_core_denoise_plane(&plane, w, h, params);
-    let gpu = denoise_plane_gpu(&ctx, &plane, w as u32, h as u32, params);
+    let gpu = denoise_plane_gpu(
+        &ctx,
+        &plane,
+        &plane,
+        w as u32,
+        h as u32,
+        params,
+        NoiseModulation::from_profile(None, 100, false),
+    );
     let (max_diff, _) = max_diff_at(&reference, &gpu);
     eprintln!("PLANE PARITY (amount=50): max abs diff = {max_diff:e}");
     assert!(
@@ -261,7 +323,15 @@ fn nlm_core_border_and_interior_coverage_non_vacuous() {
     let plane = modest_plane(w, h);
     let params = luma_params(100.0);
     let reference = raw_core_denoise_plane(&plane, w, h, params);
-    let gpu = denoise_plane_gpu(&ctx, &plane, w as u32, h as u32, params);
+    let gpu = denoise_plane_gpu(
+        &ctx,
+        &plane,
+        &plane,
+        w as u32,
+        h as u32,
+        params,
+        NoiseModulation::from_profile(None, 100, false),
+    );
 
     // Border strip: raw-core passes it through unchanged; GPU must agree AND
     // reproduce the original value (passthrough), within 1e-4.
@@ -332,9 +402,7 @@ fn nlm_luma_pass_matches_raw_core_within_1e_4() {
         let (moved, _) = max_diff_at(&input, &reference);
         let img = GpuImage::upload(&ctx, &input, w as u32, h as u32);
         let runner = ChainRunner::new(&ctx, &img);
-        let gpu = runner.run_blocking(&[&NlmLumaPass {
-            nr_luminance: amount,
-        }]);
+        let gpu = runner.run_blocking(&[&luma_pass(amount)]);
         let (max_diff, worst_i) = max_diff_at(&reference, &gpu);
         let px = worst_i / 4;
         eprintln!(
@@ -376,7 +444,7 @@ fn nlm_color_pass_matches_raw_core_within_1e_4() {
         let (moved, _) = max_diff_at(&input, &reference);
         let img = GpuImage::upload(&ctx, &input, w as u32, h as u32);
         let runner = ChainRunner::new(&ctx, &img);
-        let gpu = runner.run_blocking(&[&NlmColorPass { nr_color: amount }]);
+        let gpu = runner.run_blocking(&[&color_pass(amount)]);
         let (max_diff, worst_i) = max_diff_at(&reference, &gpu);
         let px = worst_i / 4;
         eprintln!(
@@ -408,7 +476,7 @@ fn nlm_luma_zero_is_identity() {
     let input = modest_image(w, h);
     let img = GpuImage::upload(&ctx, &input, w as u32, h as u32);
     let runner = ChainRunner::new(&ctx, &img);
-    let gpu = runner.run_blocking(&[&NlmLumaPass { nr_luminance: 0.0 }]);
+    let gpu = runner.run_blocking(&[&luma_pass(0.0)]);
     assert_eq!(
         gpu, input,
         "nr_luminance=0 must pass the image through unchanged"
@@ -423,7 +491,7 @@ fn nlm_color_zero_is_identity() {
     let input = modest_image(w, h);
     let img = GpuImage::upload(&ctx, &input, w as u32, h as u32);
     let runner = ChainRunner::new(&ctx, &img);
-    let gpu = runner.run_blocking(&[&NlmColorPass { nr_color: 0.0 }]);
+    let gpu = runner.run_blocking(&[&color_pass(0.0)]);
     assert_eq!(
         gpu, input,
         "nr_color=0 must pass the image through unchanged"
@@ -443,10 +511,8 @@ fn nlm_flat_field_stays_flat() {
     let reference_c = raw_core_nr_color(&input, w as u32, h as u32, 100.0);
     let img = GpuImage::upload(&ctx, &input, w as u32, h as u32);
     let runner = ChainRunner::new(&ctx, &img);
-    let gpu_l = runner.run_blocking(&[&NlmLumaPass {
-        nr_luminance: 100.0,
-    }]);
-    let gpu_c = runner.run_blocking(&[&NlmColorPass { nr_color: 100.0 }]);
+    let gpu_l = runner.run_blocking(&[&luma_pass(100.0)]);
+    let gpu_c = runner.run_blocking(&[&color_pass(100.0)]);
     assert!(
         gpu_l.iter().all(|v| v.is_finite()),
         "luma NR produced non-finite output"
@@ -475,11 +541,8 @@ fn nlm_composes_as_one_pass_in_a_chain() {
     let img = GpuImage::upload(&ctx, &input, w as u32, h as u32);
     let runner = ChainRunner::new(&ctx, &img);
 
-    let solo = runner.run_blocking(&[&NlmLumaPass { nr_luminance: 80.0 }]);
-    let chained = runner.run_blocking(&[
-        &ExposurePass { ev: 0.0 },
-        &NlmLumaPass { nr_luminance: 80.0 },
-    ]);
+    let solo = runner.run_blocking(&[&luma_pass(80.0)]);
+    let chained = runner.run_blocking(&[&ExposurePass { ev: 0.0 }, &luma_pass(80.0)]);
     let (diff, _) = max_diff_at(&solo, &chained);
     assert!(
         diff < 1e-4,
@@ -487,10 +550,7 @@ fn nlm_composes_as_one_pass_in_a_chain() {
          — the stage does not compose as a clean src→dst Pass"
     );
 
-    let stacked = runner.run_blocking(&[
-        &NlmLumaPass { nr_luminance: 60.0 },
-        &NlmColorPass { nr_color: 60.0 },
-    ]);
+    let stacked = runner.run_blocking(&[&luma_pass(60.0), &color_pass(60.0)]);
     assert!(
         stacked.iter().all(|v| v.is_finite()),
         "luma-then-color NR produced non-finite output"
