@@ -418,26 +418,6 @@ export class LibraryStore {
   }
 
   /**
-   * Look up a full SidebarEntry by id (recursive). Used to resolve the
-   * FS-walk-vs-plain-id selection branch when only the id is known — e.g.
-   * the phone source-picker drawer, which emits row ids rather than full
-   * node objects. See `LibraryStateService.selectSidebarEntry`.
-   */
-  entryById(id: string): SidebarEntry | null {
-    const walk = (entries: SidebarEntry[]): SidebarEntry | null => {
-      for (const e of entries) {
-        if (e.id === id) return e;
-        if (e.children) {
-          const hit = walk(e.children);
-          if (hit) return hit;
-        }
-      }
-      return null;
-    };
-    return walk(this.sidebarTree());
-  }
-
-  /**
    * Walk the sidebar tree, applying `patcher` to the entry whose id matches
    * `targetId`. Returns a new tree (immutable update so the signal fires).
    */

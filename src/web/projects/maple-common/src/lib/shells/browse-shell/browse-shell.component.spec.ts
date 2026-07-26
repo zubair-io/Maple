@@ -349,15 +349,33 @@ describe('BrowseShellComponent — responsive layout (#2280)', () => {
     ).not.toBeNull();
   });
 
-  it('routes a drawer source selection through the same handler the inline tree uses', () => {
+  it('routes a drawer source selection through the shared selectSidebarEntry helper', () => {
     const fixture = createAndFlush('phone');
     const state = TestBed.inject(LibraryStateService);
-    const selectSpy = vi.spyOn(state, 'selectSidebarEntry');
+    const subfolderSpy = vi.spyOn(state, 'openSelfHostedSubfolder');
 
-    fixture.componentInstance.onDrawerSourceSelected('smart:all');
+    // A plain id (no ':' / no absPath in the tree) is a plain source select —
+    // the same branch FolderTreeComponent.onFolderClick takes for smart/album/
+    // legacy roots, now shared via `selectSidebarEntry`. No subfolder fetch.
+    fixture.componentInstance.onDrawerSourceSelected('legacy-root');
 
-    expect(selectSpy).toHaveBeenCalledWith('smart:all');
-    expect(selectSpy).toHaveBeenCalledTimes(1);
+    expect(state.selectedSourceId()).toBe('legacy-root');
+    expect(subfolderSpy).not.toHaveBeenCalled();
+  });
+
+  it('drawer selection of an addressed folder fetches its subfolder (FS-walk branch)', () => {
+    const fixture = createAndFlush('phone');
+    const state = TestBed.inject(LibraryStateService);
+    const subfolderSpy = vi.spyOn(state, 'openSelfHostedSubfolder');
+    const setFolderOpenSpy = vi.spyOn(state, 'setFolderOpen');
+
+    // An addressed id (`slug:relPath`) takes the FS-walk branch: load the
+    // directory's contents + expand it in the tree, in one shot.
+    fixture.componentInstance.onDrawerSourceSelected('lib:2026/trip');
+
+    expect(subfolderSpy).toHaveBeenCalledTimes(1);
+    expect(subfolderSpy.mock.calls[0]![1]).toBe('lib:2026/trip');
+    expect(setFolderOpenSpy).toHaveBeenCalledWith('lib:2026/trip', true);
   });
 
   it('shows the inline action pills (no kebab) at desktop width', () => {
@@ -371,7 +389,6 @@ describe('BrowseShellComponent — responsive layout (#2280)', () => {
 
   it('collapses the action pills into a kebab menu below the desktop breakpoint', () => {
     const fixture = createAndFlush('tablet');
-    const component = fixture.componentInstance;
 
     const toggle = fixture.nativeElement.querySelector(
       '[data-testid="toolbar-overflow-toggle"]',
@@ -379,12 +396,11 @@ describe('BrowseShellComponent — responsive layout (#2280)', () => {
     expect(toggle).not.toBeNull();
     // Pills aren't in the DOM until the menu is opened.
     expect(fixture.nativeElement.querySelector('[aria-label="Copy settings"]')).toBeNull();
-    expect(component.overflowMenuOpen()).toBe(false);
+    expect(fixture.nativeElement.querySelector('[data-testid="toolbar-overflow-menu"]')).toBeNull();
 
     toggle.click();
     fixture.detectChanges();
 
-    expect(component.overflowMenuOpen()).toBe(true);
     expect(
       fixture.nativeElement.querySelector('[data-testid="toolbar-overflow-menu"]'),
     ).not.toBeNull();
@@ -393,14 +409,18 @@ describe('BrowseShellComponent — responsive layout (#2280)', () => {
 
   it('closes the overflow menu after an action pill inside it is clicked', () => {
     const fixture = createAndFlush('tablet');
-    const component = fixture.componentInstance;
     const state = TestBed.inject(LibraryStateService);
 
     // Copy Settings is disabled without a focused asset — a disabled
     // button doesn't dispatch a click event at all, so give it one to
     // exercise the real click → bubble-to-menu-container path.
     state.focusedAssetId.set('asset-1');
-    component.overflowMenuOpen.set(true);
+    fixture.detectChanges();
+
+    const toggle = fixture.nativeElement.querySelector(
+      '[data-testid="toolbar-overflow-toggle"]',
+    ) as HTMLButtonElement;
+    toggle.click();
     fixture.detectChanges();
 
     const copyBtn = fixture.nativeElement.querySelector(
@@ -411,6 +431,6 @@ describe('BrowseShellComponent — responsive layout (#2280)', () => {
     copyBtn.click();
     fixture.detectChanges();
 
-    expect(component.overflowMenuOpen()).toBe(false);
+    expect(fixture.nativeElement.querySelector('[data-testid="toolbar-overflow-menu"]')).toBeNull();
   });
 });

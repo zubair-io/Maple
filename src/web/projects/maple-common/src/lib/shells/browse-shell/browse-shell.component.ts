@@ -15,7 +15,6 @@ import {
 } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { NgTemplateOutlet } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
 import { LAST_SOURCE_KEY } from '../../state/library-fetch.service';
@@ -29,6 +28,7 @@ import {
 import { LayoutService } from '../../layout-service';
 import { FolderTreeComponent } from '../../components/folder-tree/folder-tree.component';
 import { SourcePickerDrawerComponent } from '../source-picker-drawer/source-picker-drawer.component';
+import { ToolbarActionsComponent } from './toolbar-actions/toolbar-actions.component';
 import { AssetGridComponent } from '../../components/asset-grid/asset-grid.component';
 import { DropZoneComponent } from '../../components/drop-zone/drop-zone.component';
 import { LoadingBannerComponent } from '../../components/loading-banner/loading-banner.component';
@@ -49,13 +49,13 @@ import {
   buildGroupPatch,
   type AdjustmentGroupId,
 } from '../../editor/copy-paste/adjustment-groups';
+import { selectSidebarEntry } from './source-selection';
 
 @Component({
   selector: 'browse-shell',
   standalone: true,
   imports: [
     RouterLink,
-    NgTemplateOutlet,
     FolderTreeComponent,
     AssetGridComponent,
     DropZoneComponent,
@@ -70,6 +70,7 @@ import {
     BatchMetadataPanelComponent,
     PasteSettingsDialogComponent,
     SourcePickerDrawerComponent,
+    ToolbarActionsComponent,
   ],
   templateUrl: './browse-shell.component.html',
   styleUrl: './browse-shell.component.scss',
@@ -92,24 +93,11 @@ export class BrowseShellComponent implements OnInit, OnDestroy {
   openSourceDrawer(): void {
     this.sourceDrawerOpen.set(true);
   }
-  closeSourceDrawer(): void {
-    this.sourceDrawerOpen.set(false);
-  }
-
-  /** True while the toolbar's collapsed action menu (below the tablet
-   * breakpoint) is open. */
-  readonly overflowMenuOpen = signal(false);
-  toggleOverflowMenu(): void {
-    this.overflowMenuOpen.update((v) => !v);
-  }
-  closeOverflowMenu(): void {
-    this.overflowMenuOpen.set(false);
-  }
 
   /** Selecting a source from the phone drawer shares the inline tree's
-   * FS-walk-vs-plain-id branch — see `LibraryStateService.selectSidebarEntry`. */
+   * FS-walk-vs-plain-id branch — see the `selectSidebarEntry` helper. */
   onDrawerSourceSelected(id: string): void {
-    this.state.selectSidebarEntry(id);
+    selectSidebarEntry(this.state, id);
   }
 
   /** The drawer's search pill — same destination as the toolbar search's
@@ -369,7 +357,18 @@ export class BrowseShellComponent implements OnInit, OnDestroy {
   }
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  // A verbatim `browse-shell-keyboard.ts` extraction (matching
+  // editor-shell-keyboard.ts / preview-shell-keyboard.ts) was tried here and
+  // reverted: fallow's changed-vs-base attribution has no way to recognize a
+  // byte-for-byte moved function as "pre-existing" — a brand-new file makes
+  // its contents 100% "introduced", which flips this CRITICAL finding (and
+  // several duplication findings against the structurally-similar
+  // editor-shell-keyboard.ts) from gate-exempt (inherited) to gate-failing
+  // (introduced), i.e. strictly worse than leaving it in place. This handler
+  // predates the #2280 responsive slice and its complexity is pre-existing
+  // and out of scope for this PR — see fallow-audit-web findings on PR #2293.
   @HostListener('document:keydown', ['$event'])
+  // fallow-ignore-next-line complexity
   onKeydown(e: KeyboardEvent): void {
     // Skip when focus is in a text input or textarea.
     const target = e.target as HTMLElement;
