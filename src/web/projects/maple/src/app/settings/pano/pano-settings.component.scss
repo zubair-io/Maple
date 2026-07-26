@@ -1,6 +1,15 @@
 // pano-settings.component.scss — Settings > Pano page (#1231).
 // Reuses the same field-row / text-input chrome as the Observability settings page.
 
+@use '../settings-chrome' as chrome;
+
+// Definite host height so the shell's `.page` can be the scroll container.
+:host {
+  @include chrome.settings-page-host;
+}
+
+// The page's own content wrapper, projected into the shell's scrolling
+// `.page` — the padding box, not the scroller.
 .page {
   padding: 24px 32px;
   max-width: 680px;

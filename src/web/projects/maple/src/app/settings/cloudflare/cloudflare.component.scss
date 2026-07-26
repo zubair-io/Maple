@@ -1,6 +1,15 @@
 // cloudflare.component.scss — Settings > Cloudflare page (#1757).
 // Reuses the same field-row / text-input chrome as the Pano/Observability settings pages.
 
+@use '../settings-chrome' as chrome;
+
+// Definite host height so the shell's `.page` can be the scroll container.
+:host {
+  @include chrome.settings-page-host;
+}
+
+// The page's own content wrapper, projected into the shell's scrolling
+// `.page` — the padding box, not the scroller.
 .page {
   padding: 24px 32px;
   max-width: 680px;
