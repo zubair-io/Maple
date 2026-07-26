@@ -207,6 +207,53 @@ describe('POST /api/search/assets', () => {
     expect(meili.calls.map((call) => call.options.semantic)).toEqual([true, false]);
   });
 
+  it('reports the lexical failure when hybrid and lexical Meilisearch queries both fail', async () => {
+    if (!mongoReachable) return;
+    const meili = mockMeili({
+      search: async (_query, options) => {
+        throw new MeilisearchSearchError(
+          options.semantic ? 400 : 503,
+          JSON.stringify(
+            options.semantic
+              ? {
+                  message: 'Cannot find embedder with name `caption`.',
+                  code: 'invalid_search_embedder',
+                  type: 'invalid_request',
+                }
+              : {
+                  message: 'Meilisearch is unavailable.',
+                  code: 'service_unavailable',
+                  type: 'internal',
+                },
+          ),
+        );
+      },
+    });
+    setMeilisearchClientForTests(meili);
+
+    const response = await request({ query: 'fallback diagnostics' });
+    const body = (await response.json()) as {
+      modeUsed: string;
+      fallbackReason: string | null;
+      fallbackDetails: {
+        status: number | null;
+        code: string | null;
+        type: string | null;
+        message: string;
+      } | null;
+    };
+    expect(response.status).toBe(200);
+    expect(body.modeUsed).toBe('lexical');
+    expect(body.fallbackReason).toBe('meilisearch_query_failed');
+    expect(body.fallbackDetails).toEqual({
+      status: 503,
+      code: 'service_unavailable',
+      type: 'internal',
+      message: 'Meilisearch is unavailable.',
+    });
+    expect(meili.calls.map((call) => call.options.semantic)).toEqual([true, false]);
+  });
+
   it('preserves exact filename search during full Mongo fallback', async () => {
     if (!mongoReachable) return;
     const folder = new ObjectId();

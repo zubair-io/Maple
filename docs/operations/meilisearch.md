@@ -50,7 +50,8 @@ Open **Settings → Workers → meili** and configure:
 Semantic search reuses the Ollama URL configured under **Describe**. Meilisearch
 calls that URL directly, so it must be reachable from the Meilisearch host or
 container; `localhost` refers to the Meilisearch environment, not Maple's.
-Maple configures the current batch-capable Ollama `/api/embed` endpoint.
+The saved URL remains available if the Describe provider changes. Maple
+configures the current batch-capable Ollama `/api/embed` endpoint.
 
 These are database-backed runtime settings and apply without restarting Maple.
 The resolved settings are cached in Maple's in-memory Meilisearch client, so

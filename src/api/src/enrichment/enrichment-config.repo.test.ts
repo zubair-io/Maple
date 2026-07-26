@@ -292,6 +292,19 @@ describe('resolveEnrichmentConfig — pure logic', () => {
     expect(configured.source.meilisearch_embedder_model).toBe('db');
     expect(configured.source.meilisearch_semantic_ratio).toBe('db');
 
+    const paidDescribeProvider = resolveEnrichmentConfig(
+      {
+        nominatim_url: null,
+        geocode_worker_enabled: true,
+        describe_provider: 'openai',
+        describe_provider_url: 'http://remote-ollama.lan:11434',
+      },
+      {},
+    );
+    expect(paidDescribeProvider.describe_provider_url).toBe('http://remote-ollama.lan:11434');
+    expect(paidDescribeProvider.meilisearch_embedder_url).toBe('http://remote-ollama.lan:11434');
+    expect(paidDescribeProvider.source.meilisearch_embedder_url).toBe('db');
+
     const invalid = resolveEnrichmentConfig(
       { nominatim_url: null, geocode_worker_enabled: true, meilisearch_semantic_ratio: 2 },
       {},

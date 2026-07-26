@@ -52,9 +52,9 @@ export interface ResolvedEnrichmentConfig {
   // ── Describe worker (Phase 6) ────────────────────────────────────────
   describe_worker_enabled: boolean;
   describe_provider: DescribeProviderName;
-  /** Resolved provider URL. For Ollama defaults to `http://localhost:11434`;
-   * for paid providers this is `null` (their endpoints are hard-coded). */
-  describe_provider_url: string | null;
+  /** Shared Ollama URL used by Describe and semantic search. The selected
+   * Describe provider does not discard it. */
+  describe_provider_url: string;
   /** Resolved model id. Always populated — falls back to the provider's
    * built-in default. */
   describe_model: string;
@@ -225,23 +225,19 @@ export function resolveEnrichmentConfig(
     }
   }
 
-  // Provider URL is meaningful for Ollama only; for paid providers the
-  // resolved value is `null` and the field is hidden from the UI. We still
-  // honour env / DB for the Ollama case so a saved value persists across
-  // provider switches (re-selecting Ollama recovers the URL).
-  let describeUrl: string | null = null;
-  let describeUrlSource: ResolvedEnrichmentConfig['source']['describe_provider_url'] = 'unset';
-  if (describeProvider === 'ollama') {
-    if (db && db.describe_provider_url !== null && db.describe_provider_url !== undefined) {
-      describeUrl = db.describe_provider_url;
-      describeUrlSource = 'db';
-    } else if (env.MAPLE_DESCRIBE_PROVIDER_URL && env.MAPLE_DESCRIBE_PROVIDER_URL.length > 0) {
-      describeUrl = env.MAPLE_DESCRIBE_PROVIDER_URL;
-      describeUrlSource = 'env';
-    } else {
-      describeUrl = DEFAULT_DESCRIBE_OLLAMA_URL;
-      describeUrlSource = 'default';
-    }
+  // Keep the shared Ollama endpoint resolved even when a non-Ollama Describe
+  // provider is selected. Semantic search still needs it, and provider
+  // switches must not make the saved endpoint disappear from Settings.
+  let describeUrl = DEFAULT_DESCRIBE_OLLAMA_URL;
+  let describeUrlSource: ResolvedEnrichmentConfig['source']['describe_provider_url'] = 'default';
+  const savedDescribeUrl = db?.describe_provider_url?.trim();
+  const envDescribeUrl = env.MAPLE_DESCRIBE_PROVIDER_URL?.trim();
+  if (savedDescribeUrl) {
+    describeUrl = savedDescribeUrl;
+    describeUrlSource = 'db';
+  } else if (envDescribeUrl) {
+    describeUrl = envDescribeUrl;
+    describeUrlSource = 'env';
   }
 
   let describeModel = DEFAULT_DESCRIBE_MODELS[describeProvider];
@@ -356,7 +352,7 @@ export function resolveEnrichmentConfig(
   // Reuse Describe's resolved Ollama endpoint so a container/remote hostname
   // cannot silently drift between captioning and semantic search.
   const meilisearchEmbedderUrl = {
-    value: describeUrl ?? DEFAULT_DESCRIBE_OLLAMA_URL,
+    value: describeUrl,
     source:
       describeUrlSource === 'db' || describeUrlSource === 'env'
         ? describeUrlSource
