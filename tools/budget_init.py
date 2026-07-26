@@ -17,7 +17,7 @@ import re
 import sys
 from collections import defaultdict
 
-# Match a case row from calibrate_color_pipeline.sh's output:
+# Match a case row from src/scripts/test_color_pipeline.sh's output:
 #   test_0000    baseline                 8.32M    8.41 12.34 27.50  -0.0431 +0.0042 -0.0301
 # A FAIL row carries the breach reasons after the bias columns, e.g.
 #   FAIL test_0013 baseline  8.32M  9.10 ... -0.0301  mean 9.10>8.40, no-budget-entry
