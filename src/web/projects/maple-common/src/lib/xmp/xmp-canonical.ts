@@ -112,7 +112,11 @@ export function canonicalDocument(
   const body = children.length === 0 ? '/>' : `>\n${children}\n    </rdf:Description>`;
 
   return [
-    '<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>',
+    // The `begin` attribute carries a real U+FEFF byte-order mark, written as an
+    // explicit escape rather than a literal: this module defines the canonical
+    // bytes, and an invisible character here is one stray editor or formatter
+    // pass away from silently changing every sidecar Maple writes.
+    '<?xpacket begin="\uFEFF" id="W5M0MpCehiHzreSzNTczkc9d"?>',
     '<x:xmpmeta xmlns:x="adobe:ns:meta/">',
     '  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">',
     '    <rdf:Description rdf:about=""',
