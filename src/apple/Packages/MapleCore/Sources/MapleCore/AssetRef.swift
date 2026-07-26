@@ -64,6 +64,36 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     /// — is what makes sandboxed reads actually succeed. See Port 1 notes.
     public var scopeParentURL: URL?
 
+    /// Explicit backend tag set by the source adapter that constructed this
+    /// ref (#2299). Exists because a single ambient `ImageSource` cannot
+    /// correctly route every asset in a MIXED list — the unified Timeline
+    /// (`AllSourcesTimelineViewModel`) interleaves PhotoKit-local cells with
+    /// cloud cells from several different Maple Cloud servers in one
+    /// `[AssetRef]`, so "does the caller's one ambient source happen to be a
+    /// `PhotoKitSource`" is only ever correct for a single-source list (the
+    /// normal PhotoKit-filter browse). `PreviewViewVM.thumbnailSource`
+    /// consults this FIRST, before falling back to the ambient-source check,
+    /// so a PhotoKit ref resolves to `.photoKit(localID:)` even when the
+    /// ambient source is nil or belongs to a different asset in the same
+    /// list. `nil` (the default) means "resolve from the ambient source /
+    /// `primaryURL`," which is unchanged for every construction site that
+    /// doesn't opt in.
+    public enum ThumbnailProvenance: Sendable, Equatable, Hashable {
+        /// PHAsset-backed (no filesystem URL, no server). Must resolve via
+        /// `ThumbnailSource.photoKit(localID:)`.
+        case photoKit
+        /// Maple Cloud-backed, tagged with the OWNING server. Not consulted
+        /// by `thumbnailSource` (cloud refs already resolve via their own
+        /// `bytesProvider` regardless of the ambient source) — read instead
+        /// by `AppShell.ensureSession` when this ref becomes the shown
+        /// Preview asset, so its `EditSession` gets a real
+        /// `CloudSidecarStore` for the asset's ACTUAL server. A mixed
+        /// multi-server sibling list has no single ambient server to fall
+        /// back on the way a single-library flow does.
+        case cloud(server: URL)
+    }
+    public let thumbnailProvenance: ThumbnailProvenance?
+
     public var sidecarURL: URL? {
         primaryURL.map { SidecarPath.sidecarURL(for: $0) }
     }
@@ -235,6 +265,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
         self.stableID = url.path
         self.scopeParentURL = scopeParentURL
         self.explicitIsRaw = nil
+        self.thumbnailProvenance = nil
     }
 
     /// Construct an `AssetRef` for a source without a filesystem URL
@@ -246,11 +277,15 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     /// `explicitIsRaw` lets the source declare the format up front (e.g.
     /// PhotoKit's dataUTI on iCloud-resident HEIF) — without it the
     /// extension fallback or the magic-byte sniff at first byte fetch
-    /// classifies the asset.
+    /// classifies the asset. `thumbnailProvenance` tags the backend
+    /// explicitly (#2299) for callers that build a ref for a list that mixes
+    /// sources (PhotoKit + several cloud servers) and can't rely on a single
+    /// ambient `ImageSource` to route it correctly.
     public init(displayName: String,
                 hintExtension: String?,
                 stableID: String? = nil,
                 explicitIsRaw: Bool? = nil,
+                thumbnailProvenance: ThumbnailProvenance? = nil,
                 bytesProvider: @escaping BytesProvider) {
         self.id = UUID()
         self.primaryURL = nil
@@ -260,6 +295,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
         self.stableID = stableID
         self.scopeParentURL = nil
         self.explicitIsRaw = explicitIsRaw
+        self.thumbnailProvenance = thumbnailProvenance
     }
 
     public static func == (lhs: AssetRef, rhs: AssetRef) -> Bool {

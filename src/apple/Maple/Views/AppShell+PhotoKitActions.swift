@@ -112,6 +112,7 @@ extension AppShell {
             displayName: displayName,
             hintExtension: ext.isEmpty ? nil : ext,
             stableID: ref.id,
+            thumbnailProvenance: .photoKit,
             bytesProvider: { [source, ref] in
                 try await source.rawBytes(for: ref)
             }
