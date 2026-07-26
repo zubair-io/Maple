@@ -50,7 +50,12 @@
   width: 260px;
 }
 
-@media (max-width: 1023px) {
+// Cutoff is `1024px` (not `1023px`) so the overlay engages across the whole
+// non-desktop range: LayoutService classifies `<= 1024px` as tablet, and the
+// template drives the Filters toggle off `layout() !== 'desktop'`. At exactly
+// 1024px the template is in overlay mode, so the CSS must be too — otherwise
+// the pane renders inline while the toggle expects a drawer.
+@media (max-width: 1024px) {
   .filters-aside {
     position: absolute;
     inset-block: 0;
