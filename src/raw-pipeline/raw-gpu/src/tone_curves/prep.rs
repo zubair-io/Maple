@@ -83,10 +83,29 @@ pub(super) fn prepare_curve(points: &[(f32, f32)]) -> PreparedCurve {
     finalize_prepared_curve(pts)
 }
 
-/// Finalize from an already-authoring-domain knot slice (the parametric path's
-/// synthesised 5-knot array). Mirrors `evaluator::prepare_curve_from_slice`.
-pub(super) fn prepare_curve_from_slice(pts: &[(f32, f32)]) -> PreparedCurve {
-    finalize_prepared_curve(pts.to_vec())
+/// Build from knots whose tangents the caller already knows analytically (the
+/// parametric path — see [`build_parametric_curve`]). Mirrors
+/// `evaluator::prepare_curve_with_tangents`.
+fn prepare_curve_with_tangents(knots: Vec<(f32, f32)>, tangents: Vec<f32>) -> PreparedCurve {
+    assert_eq!(
+        knots.len(),
+        tangents.len(),
+        "prepare_curve_with_tangents: {} knots but {} tangents",
+        knots.len(),
+        tangents.len()
+    );
+    if knots.len() < 2 {
+        return PreparedCurve {
+            knots,
+            tangents: Vec::new(),
+        };
+    }
+    let slopes = segment_slopes(&knots);
+    let guarded = guard_tangents(&slopes, tangents);
+    PreparedCurve {
+        knots,
+        tangents: guarded,
+    }
 }
 
 /// Compute the Fritsch-Carlson tangents (with the slope-sign + radius-3
@@ -101,12 +120,7 @@ fn finalize_prepared_curve(knots: Vec<(f32, f32)>) -> PreparedCurve {
         };
     }
 
-    let mut slopes = Vec::with_capacity(n - 1);
-    for i in 0..n - 1 {
-        let dx = knots[i + 1].0 - knots[i].0;
-        let dy = knots[i + 1].1 - knots[i].1;
-        slopes.push(dy / dx);
-    }
+    let slopes = segment_slopes(&knots);
 
     let mut tangents = Vec::with_capacity(n);
     tangents.push(slopes[0]);
@@ -119,8 +133,22 @@ fn finalize_prepared_curve(knots: Vec<(f32, f32)>) -> PreparedCurve {
     }
     tangents.push(slopes[n - 2]);
 
-    for i in 0..n - 1 {
-        let m = slopes[i];
+    let tangents = guard_tangents(&slopes, tangents);
+    PreparedCurve { knots, tangents }
+}
+
+/// Mirrors `evaluator::segment_slopes`.
+fn segment_slopes(knots: &[(f32, f32)]) -> Vec<f32> {
+    knots
+        .windows(2)
+        .map(|w| (w[1].1 - w[0].1) / (w[1].0 - w[0].0))
+        .collect()
+}
+
+/// Mirrors `evaluator::guard_tangents`.
+fn guard_tangents(slopes: &[f32], tangents: Vec<f32>) -> Vec<f32> {
+    let mut tangents = tangents;
+    for (i, &m) in slopes.iter().enumerate() {
         if m.abs() < f32::EPSILON {
             tangents[i] = 0.0;
             tangents[i + 1] = 0.0;
@@ -135,8 +163,7 @@ fn finalize_prepared_curve(knots: Vec<(f32, f32)>) -> PreparedCurve {
             tangents[i + 1] = scale * beta * m;
         }
     }
-
-    PreparedCurve { knots, tangents }
+    tangents
 }
 
 /// Evaluate the prepared curve at scene-linear `v`. Line-for-line port of
@@ -196,34 +223,111 @@ fn eval_monotonic_cubic(curve: &PreparedCurve, x: f32) -> f32 {
         + h11 * dx * curve.tangents[i + 1]
 }
 
-/// Build the parametric 5-knot curve from the four region sliders, CPU-side.
-/// Line-for-line port of `mod::build_parametric_knots` (knot amplitude 0.25;
-/// the left-to-right cumulative-max monotonicity guard + `[0, 1]` clamp).
-pub(super) fn build_parametric_knots(
+// ---------------------------------------------------------------------------
+// Parametric region curve — line-for-line port of
+// `raw_core::stages::tone_curves::parametric` (#2318). The region model, the
+// derivation of the monotonicity bound and the reason the knots land on the
+// axis landmarks all live in that module's docs; this is transcription only.
+// ---------------------------------------------------------------------------
+
+const MIDGREY: f32 = 0.18;
+const AXIS_MIDTONE: f32 = 50.0;
+const AXIS_UNITS_PER_STOP: f32 = 12.5;
+const AXIS_MAX: f32 = 100.0;
+const SPLIT_SHADOW: f32 = 25.0;
+const SPLIT_MIDTONE: f32 = AXIS_MIDTONE;
+const SPLIT_HIGHLIGHT: f32 = 75.0;
+const AXIS_TOP: f32 = 105.924_14;
+const MAX_STOPS: f32 = 0.5;
+
+const REGION_CENTRES: [f32; 4] = [
+    SPLIT_SHADOW * 0.5,
+    (SPLIT_SHADOW + SPLIT_MIDTONE) * 0.5,
+    (SPLIT_MIDTONE + SPLIT_HIGHLIGHT) * 0.5,
+    (SPLIT_HIGHLIGHT + AXIS_MAX) * 0.5,
+];
+
+const SAMPLE_AXIS: [f32; 8] = [
+    REGION_CENTRES[0],
+    SPLIT_SHADOW,
+    REGION_CENTRES[1],
+    SPLIT_MIDTONE,
+    REGION_CENTRES[2],
+    SPLIT_HIGHLIGHT,
+    REGION_CENTRES[3],
+    (REGION_CENTRES[3] + AXIS_TOP) * 0.5,
+];
+
+/// Knots in the synthesised parametric curve (endpoints + [`SAMPLE_AXIS`]).
+/// Must stay `<= CURVE_CAP`; `to_slot` panics otherwise.
+pub(super) const PARAMETRIC_KNOT_COUNT: usize = SAMPLE_AXIS.len() + 2;
+
+fn axis_to_authoring_x(p: f32) -> f32 {
+    MIDGREY * ((p - AXIS_MIDTONE) / AXIS_UNITS_PER_STOP).exp2() / REF_MAX
+}
+
+fn region_amplitude(slider: f32) -> f32 {
+    slider.clamp(-100.0, 100.0) / 100.0 * MAX_STOPS
+}
+
+fn smoothstep(a: f32, b: f32, p: f32) -> (f32, f32) {
+    let t_raw = (p - a) / (b - a);
+    let t = t_raw.clamp(0.0, 1.0);
+    let value = t * t * (3.0 - 2.0 * t);
+    let slope = if t_raw <= 0.0 || t_raw >= 1.0 {
+        0.0
+    } else {
+        6.0 * t * (1.0 - t) / (b - a)
+    };
+    (value, slope)
+}
+
+fn region_windows(p: f32) -> ([f32; 4], [f32; 4]) {
+    let (s01, d01) = smoothstep(REGION_CENTRES[0], REGION_CENTRES[1], p);
+    let (s12, d12) = smoothstep(REGION_CENTRES[1], REGION_CENTRES[2], p);
+    let (s23, d23) = smoothstep(REGION_CENTRES[2], REGION_CENTRES[3], p);
+    let (s3t, d3t) = smoothstep(REGION_CENTRES[3], AXIS_TOP, p);
+    (
+        [1.0 - s01, s01 - s12, s12 - s23, s23 - s3t],
+        [-d01, d01 - d12, d12 - d23, d23 - d3t],
+    )
+}
+
+fn dot4(a: &[f32; 4], b: &[f32; 4]) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]
+}
+
+/// Build the parametric curve from the four region sliders, CPU-side. Port of
+/// `parametric::build_parametric_curve_from_sliders`.
+pub(super) fn build_parametric_curve(
     shadows: f32,
     darks: f32,
     lights: f32,
     highlights: f32,
-) -> [(f32, f32); 5] {
-    let s = shadows / 100.0;
-    let d = darks / 100.0;
-    let l = lights / 100.0;
-    let h = highlights / 100.0;
-    let knot_amplitude = 0.25;
-
-    let mut knots: [(f32, f32); 5] = [
-        (0.0, 0.0),
-        (0.25, 0.25 + s * knot_amplitude),
-        (0.5, 0.5 + (d + l) * 0.5 * knot_amplitude),
-        (0.75, 0.75 + h * knot_amplitude),
-        (1.0, 1.0),
+) -> PreparedCurve {
+    let amps = [
+        region_amplitude(shadows),
+        region_amplitude(darks),
+        region_amplitude(lights),
+        region_amplitude(highlights),
     ];
-    for i in 1..knots.len() {
-        let lo = knots[i - 1].1;
-        if knots[i].1 < lo {
-            knots[i].1 = lo;
-        }
-        knots[i].1 = knots[i].1.clamp(0.0, 1.0);
+
+    let mut knots: Vec<(f32, f32)> = Vec::with_capacity(PARAMETRIC_KNOT_COUNT);
+    let mut tangents: Vec<f32> = Vec::with_capacity(PARAMETRIC_KNOT_COUNT);
+
+    knots.push((0.0, 0.0));
+    tangents.push(amps[0].exp2());
+
+    for &p in &SAMPLE_AXIS {
+        let x = axis_to_authoring_x(p);
+        let (w, dw) = region_windows(p);
+        let gain = dot4(&amps, &w).exp2();
+        knots.push((x, x * gain));
+        tangents.push(gain * (1.0 + AXIS_UNITS_PER_STOP * dot4(&amps, &dw)));
     }
-    knots
+
+    knots.push((1.0, 1.0));
+    tangents.push(1.0);
+
+    prepare_curve_with_tangents(knots, tangents)
 }
