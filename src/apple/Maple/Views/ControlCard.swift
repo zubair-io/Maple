@@ -48,6 +48,12 @@ struct ControlCard: View {
                 HSLSection(state: state)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 14)
+            } else if state.armedTool == .toneCurve {
+                // Curve plot + four region sliders replace the slider grid
+                // (#367) — same no-primary-field shape as HSL.
+                ToneCurveSection(state: state)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 14)
             } else {
                 // Sub-param chip row for multi-param tools
                 let subs = state.armedSubParams

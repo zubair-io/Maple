@@ -29,6 +29,13 @@ struct IPhoneLegacyControlBar: View {
                 HSLSection(state: state)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 7)
+            } else if state.armedTool == .toneCurve {
+                // Curve plot + four region sliders replace the drag bar
+                // (#367): Tone Curve has eight fields and no single primary
+                // one, so the plot and the region sliders are its surface.
+                ToneCurveSection(state: state)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 7)
             } else {
                 DragBar(state: state)
                     .padding(.vertical, 7)

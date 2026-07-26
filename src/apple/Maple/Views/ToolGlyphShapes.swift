@@ -80,6 +80,14 @@ enum ToolGlyphShapes {
         // Mirror of Whites — pushing the black point down.
         case .blacks:
             return [.circle(cx: 8, cy: 8, r: 4.8), .path("M5.8 7L8 9.2l2.2-2.2")]
+        // Tone Curve — the S-curve rising across the plot's diagonal, with
+        // the two knots that shape it.
+        case .toneCurve:
+            return [
+                .path("M2.8 13.2C6.2 13.2 5.4 8 8 8s1.8-5.2 5.2-5.2"),
+                .circle(cx: 5.6, cy: 10.6, r: 1.1),
+                .circle(cx: 10.4, cy: 5.4, r: 1.1),
+            ]
 
         // ── Color ───────────────────────────────────────────────────────────
         // Thermometer, sat left of centre so the ticks balance the mass.

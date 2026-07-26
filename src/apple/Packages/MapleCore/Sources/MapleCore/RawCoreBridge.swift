@@ -75,6 +75,10 @@
 //   * `parametricHighlights`, `parametricLights`, `parametricDarks`,
 //     `parametricShadows` (#273) — the `tone_curves` stage, run by both
 //     decode and chain; all-zero is the identity short-circuit.
+//   * `toneCurveLuma`, `toneCurveRed`, `toneCurveGreen`, `toneCurveBlue`
+//     (#367) — the SAME `tone_curves` stage; the live chain reads them
+//     through `MapleGpuLiveParams.tone_curve_*_ptr`, so they double-apply
+//     unless zeroed here. The empty curve is the identity short-circuit.
 //   * `vibrance`, `saturation`, `clarity`, `texture`, `dehaze` (ditto)
 //   * the 24 HSL bands `hueAdjustment*` / `saturationAdjustment*` /
 //     `luminanceAdjustment*` (#1112) — the `hsl` stage; all-zero is a
@@ -153,6 +157,16 @@ public enum RawCoreBridge {
         m.parametricLights = d.parametricLights
         m.parametricDarks = d.parametricDarks
         m.parametricShadows = d.parametricShadows
+        // Per-channel POINT curves (#273 fields, wired to the UI at #367)
+        // — the SAME `tone_curves` stage as the four parametric scalars
+        // above, and the live wgpu chain now carries them through
+        // `MapleGpuLiveParams.tone_curve_*_ptr`. Left un-stripped they
+        // would bake into the decoded buffer and then be applied a second
+        // time by the chain, so they follow the parametric fields exactly.
+        m.toneCurveLuma = d.toneCurveLuma
+        m.toneCurveRed = d.toneCurveRed
+        m.toneCurveGreen = d.toneCurveGreen
+        m.toneCurveBlue = d.toneCurveBlue
         // Hue/sat/local-contrast/dehaze
         m.vibrance = d.vibrance
         m.saturation = d.saturation
