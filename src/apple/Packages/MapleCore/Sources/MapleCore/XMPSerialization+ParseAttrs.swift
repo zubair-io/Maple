@@ -170,7 +170,11 @@ extension _XMPParserDelegate {
             switch value.lowercased() {
             case "auto":     model.profile = .auto
             case "neutral":  model.profile = .neutral
-            case "acrmatch": model.profile = .acrMatch
+            // Legacy `AcrMatch` (#1722, retired in #2312) migrates to
+            // `.auto` — the profile that superseded it. Mirrors raw-core's
+            // arm in `xmp/fields.rs` so a sidecar written by the CLI (or by
+            // hand) reads the same on every platform.
+            case "acrmatch": model.profile = .auto
             default:         break
             }
         // Crop / straighten (#277, spec § 3.12). Rect fields gated by

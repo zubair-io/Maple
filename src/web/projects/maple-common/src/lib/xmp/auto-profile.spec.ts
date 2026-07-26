@@ -61,6 +61,19 @@ describe('XMP papp:Profile round-trip + papp:Look legacy migration (#562)', () =
     expect(model.profile).toBe('Neutral');
   });
 
+  // Legacy `papp:Profile="AcrMatch"` (#1722, retired in #2312) migrates to
+  // "Auto" — the profile that superseded it. The web parser's unknown-value
+  // fallback already lands there; this pins it so the three platforms agree
+  // (raw-core `xmp/fields.rs` and Apple `XMPSerialization+ParseAttrs.swift`
+  // both carry an explicit arm).
+  it('migrates retired papp:Profile="AcrMatch" into profile === "Auto"', () => {
+    const xml = makeSidecar(`papp:Profile="AcrMatch"`);
+
+    const { model } = parser.parseAdjustmentModel(xml);
+
+    expect(model.profile).toBe('Auto');
+  });
+
   it('migrates legacy papp:Look="Default" (no Profile) into profile === "Auto"', () => {
     const xml = makeSidecar(`papp:Look="Default"`);
 

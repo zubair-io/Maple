@@ -215,19 +215,6 @@ impl GpuContext {
         })
     }
 
-    /// The cached AcrMatch view-transform compute pipeline (#1722, epic #1710 slice 2).
-    ///
-    /// The kernel is a pure trilinear 3D-LUT lookup with the AgX log2 shaper
-    /// (no Oklab / matrices) — so, like `residual_lut.wgsl`, it compiles
-    /// standalone with no generated-color-matrix concat. Uses a 4-binding layout
-    /// (params uniform + src/dst storage + the baked-LUT storage buffer);
-    /// `layout: None` derives it from the WGSL bindings.
-    pub fn acr_match_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.acr_match_pipeline.get_or_init(|| {
-            compile_standalone(&self.device, "acr-match", include_str!("acr_match.wgsl"))
-        })
-    }
-
     /// The cached AgX view-transform compute pipeline (epic #925 P2 / #990).
     ///
     /// The kernel needs BOTH generated WGSL modules: the Oklab + Rec.2020/sRGB

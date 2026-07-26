@@ -222,7 +222,6 @@ pub(super) fn make_params(
         // RAW shape — the full chain runs (the pre-#1331 default, value 0).
         input_shape: 0,
         // Auto/AgX view tail (#1722 default, value 0).
-        profile_id: 0,
         // WB slider frame absent (#1781 default: zero-filled tail = the
         // legacy generic-CAT16 behaviour these parity tests calibrate).
         wb_frame_m_cold: [0.0; 9],

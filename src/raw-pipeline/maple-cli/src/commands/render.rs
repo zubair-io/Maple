@@ -90,7 +90,6 @@ pub fn run(
         ProfileChoice::Xmp => {}
         ProfileChoice::Auto => model.profile = raw_core::types::adjustment::Profile::Auto,
         ProfileChoice::Neutral => model.profile = raw_core::types::adjustment::Profile::Neutral,
-        ProfileChoice::AcrMatch => model.profile = raw_core::types::adjustment::Profile::AcrMatch,
     }
     // `DemosaicChoice::Full` (the default) routes through `render_path`
     // for byte-for-byte identity with the historical entry the parity
