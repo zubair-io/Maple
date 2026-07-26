@@ -174,6 +174,13 @@ describe('WorkersComponent', () => {
     // shape drains the request at teardown (no assertions run on it here).
     for (const r of http.match('/api/derivative-audit/status'))
       r.flush({ config: { enabled: true }, progress: {} });
+    // Rendering (GPU live-render, #1062) panel fetches the render config on
+    // init; drain it the same way.
+    for (const r of http.match('/api/render/config'))
+      r.flush({
+        gpu_live_render_enabled: true,
+        source: { gpu_live_render_enabled: 'default' },
+      });
     http.verify();
   });
 
