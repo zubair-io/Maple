@@ -44,11 +44,6 @@ export class GpuLiveRenderGate {
    */
   readonly enabled = computed(() => this.buildEnabled && (this.operatorEnabled() ?? true));
 
-  /** True once an operator value (fresh or cached) is in play — the settings
-   * page and diagnostics use this to distinguish "on by default" from
-   * "explicitly ramped on". */
-  readonly hasOperatorValue = computed(() => this.operatorEnabled() !== null);
-
   /**
    * Apply an operator value fetched from the API and cache it for the next
    * cold start. Idempotent: re-applying the same value writes nothing new and
