@@ -442,6 +442,12 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     }
   });
 
+  it('search errors use a useful message when Meilisearch returns an empty body', () => {
+    const error = new MeilisearchSearchError(500, '');
+    expect(error.details.message).toBe('Meilisearch search request failed');
+    expect(error.message).toBe('meilisearch search failed: Meilisearch search request failed');
+  });
+
   it('search() scrubs non-hex chars from folderId before injecting', async () => {
     const { fetchImpl, calls } = makeFakeFetch({
       routes: [
