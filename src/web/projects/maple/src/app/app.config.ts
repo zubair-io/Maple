@@ -14,6 +14,7 @@ import {
   LIBRARY_BACKEND,
   MapleErrorHandler,
   ObservabilityService,
+  RenderConfigService,
   authInterceptor,
   provideAuthBootstrap,
   provideLibrarySource,
@@ -58,5 +59,10 @@ export const appConfig: ApplicationConfig = {
     // Background app-update flow: detect a freshly-downloaded version, toast
     // the user, and hard-navigate onto the new build on the next route change.
     provideAppInitializer(() => inject(AppUpdateService).init()),
+    // #1062 — bring the DB-backed GPU live-render gate up. The gate itself has
+    // already warm-started from its localStorage cache synchronously; this
+    // initializer only kicks the background refresh + poll, so bootstrap is
+    // never blocked on the API.
+    provideAppInitializer(() => inject(RenderConfigService).init()),
   ],
 };

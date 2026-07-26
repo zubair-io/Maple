@@ -40,6 +40,10 @@ export const STORAGE_KEYS = {
   RECENT_QUERIES: 'cm.search.recent',
   /** Per-browser observability opt-in/opt-out (boolean). */
   OBSERVABILITY_ENABLED: 'cm.observabilityEnabled',
+  /** Last operator-set value of the DB-backed GPU live-render gate (boolean,
+   * #1062). Warm-start cache: read synchronously at startup so a kill flip
+   * this browser has already seen survives a reload with no network. */
+  GPU_LIVE_RENDER_ENABLED: 'cm.gpuLiveRenderEnabled',
 } as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS];

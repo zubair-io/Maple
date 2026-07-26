@@ -16,6 +16,10 @@ import type { DownloadProgress } from './filesystem-browse.service';
 // here for the method signatures below.
 import type { ObservabilityConfigResponse } from '../observability/observability-config.model';
 import type { NetworkConfigPatch, NetworkConfigResponse } from '../network/network-config.model';
+import type {
+  RenderConfigPatch,
+  RenderConfigResponse,
+} from '../raw-pipeline/render-config.model';
 
 export interface ApiFolder {
   id: string;
@@ -412,6 +416,22 @@ export class BunApiBackendService {
    * override back to auto-detection / the server's listen port. */
   saveNetworkConfig(body: NetworkConfigPatch): Observable<NetworkConfigResponse> {
     return this.http.put<NetworkConfigResponse>(`${this.base}/network/config`, body);
+  }
+
+  // --- Render runtime config (GPU live-render ramp/kill, #1062) -------------
+
+  /** Current effective render config + provenance (`db` vs the built-in
+   * default). Read by `RenderConfigService` at startup and on its poll, and by
+   * the Settings → Workers panel. */
+  getRenderConfig(): Observable<RenderConfigResponse> {
+    return this.http.get<RenderConfigResponse>(`${this.base}/render/config`);
+  }
+
+  /** Save the render config (patch semantics — an omitted field keeps its
+   * saved value, `null` clears back to the default) and get the re-resolved
+   * view back. */
+  saveRenderConfig(body: RenderConfigPatch): Observable<RenderConfigResponse> {
+    return this.http.put<RenderConfigResponse>(`${this.base}/render/config`, body);
   }
 
   // --- Mirror / backup locations (per library) -----------------------------
