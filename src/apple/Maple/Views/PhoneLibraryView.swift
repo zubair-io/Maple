@@ -64,6 +64,12 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
     let onOpenEditor: (AssetRef) -> Void
     let onPrimeSession: (AssetRef) -> Void
     let onFullImageFallback: () -> Void
+    /// Resolves the iPhone Preview sibling list for a Timeline-opened asset
+    /// (#2299) — the currently-loaded Timeline VM's ordered cells, with the
+    /// pushed `ref` itself spliced in at its own position. Empty-VM cases
+    /// (no Timeline active) return `[]`, so `.navigationDestination` below
+    /// falls back to `browseVM.assets` / `[ref]` as before.
+    let timelinePreviewSiblingAssets: (AssetRef) -> [AssetRef]
     /// M2: opens the panorama merge view when the user taps "Merge to Panorama…".
     var onMergePanorama: (() -> Void)? = nil
     /// M4: opens the batch metadata editor when the user taps "Edit Metadata…".
@@ -116,16 +122,35 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
                     PreviewDestination(
                         asset: ref,
                         // Snapshot the current folder's assets at push time so
-                        // the filmstrip + prev/next have the sibling list. Cloud
-                        // / search taps push a single-asset preview (their own
-                        // grids own the list); the local library flow carries
-                        // the full `browseVM.assets`.
-                        assets: browseVM.assets.contains(ref) ? browseVM.assets : [ref],
+                        // the filmstrip + prev/next have the sibling list. The
+                        // local library flow carries the full `browseVM.assets`;
+                        // a Timeline tap (#2299) leaves `browseVM` empty, so
+                        // fall back to that Timeline VM's own already-loaded
+                        // ordered cells (`timelinePreviewSiblingAssets` splices
+                        // `ref` itself in at its matching position). A search
+                        // result (neither) still degrades to the single-asset
+                        // `[ref]` `timelinePreviewSiblingAssets` returns when it
+                        // finds no sibling list either.
+                        assets: browseVM.assets.contains(ref)
+                            ? browseVM.assets
+                            : timelinePreviewSiblingAssets(ref),
                         source: browseVM.currentSource ?? cloudPreviewSource,
                         sessions: $sessions,
                         onClose: popPreviewWithoutAnimation,
                         onEdit: { asset in libraryPath.append(.edit(asset)) },
-                        onSelectionChanged: { asset in browseVM.selectedID = asset.id }
+                        onSelectionChanged: { asset in
+                            browseVM.selectedID = asset.id
+                            // Prime the REAL session (with a CloudSidecarStore
+                            // for a Timeline-sourced cloud sibling — see
+                            // `AssetRef.thumbnailProvenance` / `ensureSession`)
+                            // the moment a lazily-built sibling becomes the
+                            // shown asset, so a later Edit tap on it reuses a
+                            // fully-wired session instead of EditorDestination's
+                            // bare no-remote-store fallback. No-ops if a
+                            // session already exists (idempotent, matches
+                            // `onPrimeSession`'s existing BrowseGrid contract).
+                            onPrimeSession(asset)
+                        }
                     )
                 case .edit(let ref):
                     EditorDestination(asset: ref, sessions: $sessions)
