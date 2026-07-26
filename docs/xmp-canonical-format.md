@@ -19,9 +19,11 @@ writers emit the same field set for**. It is deliberately not a claim about
 arbitrary round-tripped documents, because the two writers do not model the
 same things:
 
-- The TypeScript writer preserves unknown attributes and unknown nested nodes;
-  Apple's `XMPSerializer` has no passthrough at all (**#2233**). A sidecar
-  carrying foreign fields therefore cannot be byte-equal across the two.
+- Both writers preserve unknown attributes and unknown nested nodes (#2233
+  brought Apple in line), but they capture the nodes differently — the
+  TypeScript parser takes the DOM's re-serialization, the Swift one slices the
+  source text — so a sidecar carrying foreign nested fields is preserved by
+  both without the preserved bytes being identical across the two.
 - `papp:Hidden` has no TypeScript writer, and `papp:WbMethod` /
   `papp:ToneCurveMode` have no Apple model field (**#2216**).
 - The ~20 sliders Apple authors unconditionally are omitted at their defaults
@@ -439,14 +441,12 @@ imported Lightroom sidecar keeps the curve intact for the round trip back.
 Real display-referred (post-AgX) tone-curve support — a pipeline slot plus the
 storage that goes with it — is tracked as **#2232**.
 
-Passthrough coverage differs by platform today. The TypeScript writer
-implements both halves (`PassthroughBucket.unknownAttributes` and
-`.unknownNodes`, the latter re-emitted verbatim from the source element's
-serialized form), so a Lightroom curve survives the Hosted/Self-Hosted write
-path byte-for-byte. Apple's `XMPSerializer` has **no passthrough at all** —
-neither attributes nor nested nodes — which predates this ticket and applies
-to every unmodelled field, not just tone curves; that gap is tracked as
-**#2233**. Rust ships only a fragment serializer (`xmp::serialize` for
+Both document writers implement passthrough. The TypeScript one has since P6
+(`PassthroughBucket.unknownAttributes` and `.unknownNodes`, the latter
+re-emitted from the source element's serialized form); Apple's grew the same
+two halves in **#2233** (`XMPPassthrough` in `XMPPassthrough.swift`), so a
+Lightroom curve now survives a read-modify-write on every platform that writes
+a whole sidecar. Rust ships only a fragment serializer (`xmp::serialize` for
 attributes, `xmp::serialize_tone_curves` for the curve block) and never writes
 a whole document, so it has nothing to preserve.
 
@@ -455,15 +455,39 @@ a whole document, so it has nothing to preserve.
 Unknown attributes on `rdf:Description` go into `passthroughFields` and re-emit
 sorted alphabetically by full name (including namespace prefix).
 
+"Unknown attribute" means unknown by NAME, not by namespace: `crs:RawFileName`
+is a passthrough attribute that still sorts alphabetically inside the `crs:`
+block, because the ordering rule above keys on the prefix. Only attributes in a
+namespace outside the eight ranked prefixes land in the trailing unknown group.
+
 Unknown nested elements inside `rdf:Description` go into `passthroughNodes` and
 re-emit **in original order** (masks, history, snapshots depend on ordering).
+Only the first line of a preserved node is re-indented onto the canonical
+ladder; its interior keeps the whitespace its author wrote, which is what makes
+the region byte-identical across a read-modify-write.
 
-The TypeScript writer implements both halves. Apple's has neither — its parser
-returns only `(AdjustmentModel, CullingState)` and its serializer rebuilds the
-document from those, so a Lightroom sidecar loses masks, history and snapshots
-on the first Apple edit. That predates this format and is tracked as **#2233**;
-it is also why the byte-parity claim above is scoped to documents without
-foreign fields.
+Both writers implement both halves. They capture nodes differently, and the
+difference is deliberate:
+
+- **TypeScript** takes `child.outerHTML` — the DOM's own re-serialization.
+- **Swift** slices the child's source text out of the document
+  (`XMPChildElementScanner`). `XMLParser` hands a start tag's attributes back
+  in an unordered `Dictionary`, so rebuilding a mask stack from SAX events
+  would reshuffle its attributes on every save and the sidecar would never
+  reach a fixed point; `XMLDocument`, which preserves order, is macOS-only and
+  Maple ships on iOS.
+
+One consequence of the source-slice capture: because a slice carries no
+inherited namespace context, the Swift parser also preserves foreign `xmlns:`
+declarations found on `rdf:Description`, minus the prefixes the canonical
+prelude declares itself. Without that, a preserved `<xmpMM:History>` would
+re-emit into a document where `xmpMM` is undeclared. The TypeScript parser
+drops every `xmlns:` attribute instead — an asymmetry tracked separately.
+
+Before **#2233** Apple had neither half: its parser returned only
+`(AdjustmentModel, CullingState)` and its serializer rebuilt the document from
+those, so a Lightroom sidecar lost masks, history and snapshots on the first
+Apple edit.
 
 ## Version signaling
 
@@ -581,8 +605,13 @@ they share (see "What the parity claim covers" above). What is in place today:
    (`keywords.spec.ts`, `cull-flag.spec.ts`, `ToneCurveXMPTests.swift`, …)
    continue to cover each field's own semantics.
 
-Still open: nested-mask survival cannot be tested cross-platform until Apple
-grows a passthrough (#2233).
+6. **Passthrough survival** — `XMPPassthroughTests.swift` drives a real
+   Lightroom-authored sidecar (mask group, snapshot stack, `xmpMM:History`,
+   `crs:ToneCurvePV2012`) through `XMPSidecarStore`'s debounced write path
+   using real files in a temp directory, and asserts every preserved region
+   comes back byte-identical, in source order, with the re-save a fixed point.
+   The web half is covered per-feature by `point-tone-curve.spec.ts` and
+   `xmp-metadata-roundtrip.spec.ts`.
 
 Any canonical-format change requires updating both implementations, both
 golden literals, **and** this document in the same commit.
