@@ -12,10 +12,12 @@
 //
 // What the parity claim covers, precisely: the canonical document for a model
 // both writers emit the same field set for. It is not whole-document equality
-// for arbitrary round-tripped sidecars — the web writer preserves unknown
-// attributes and nested nodes and Apple's has no passthrough at all (#2233),
-// so a document carrying foreign fields cannot be byte-equal across the two.
-// It also excludes `papp:Hidden` (no web writer) and default-valued sliders
+// for arbitrary round-tripped sidecars — both writers preserve unknown
+// attributes and nested nodes since #2233, but they capture the nodes
+// differently (the DOM's re-serialization on the web, a source slice on
+// Apple), so a document carrying foreign nested fields survives on both
+// without the preserved bytes matching each other. It also excludes
+// `papp:Hidden` (no web writer) and default-valued sliders
 // (Apple authors them unconditionally, the web writer omits them); the fixture
 // therefore sets every unconditionally-emitted field to a non-default value.
 
