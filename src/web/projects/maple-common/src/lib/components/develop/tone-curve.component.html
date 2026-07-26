@@ -1,36 +1,113 @@
-<!-- ToneCurveComponent — parametric tone curve (#1540) -->
-<div class="curve-widget">
+<!-- ToneCurveComponent — point curves + parametric regions (#367) -->
+<div class="curve-widget" data-testid="tone-curve-panel">
   <!-- Channel selector -->
-  <div class="channel-row" role="tablist" aria-label="Curve channel">
-    @for (ch of channels; track ch.id) {
+  <div class="channel-row" role="tablist" aria-label="Tone curve channel">
+    @for (tab of vm.tabs; track tab.id) {
       <button
+        type="button"
         class="ch-btn"
-        [class.ch-btn--active]="activeChannel() === ch.id && ch.id === 'luma'"
-        [disabled]="ch.id !== 'luma'"
-        [title]="ch.id !== 'luma' ? ch.label + ' — coming in #1542' : ch.label"
-        [attr.aria-label]="ch.label"
-        [attr.aria-selected]="activeChannel() === ch.id"
+        [class.ch-btn--active]="isActiveChannel(tab.id)"
         role="tab"
-        (click)="setChannel(ch.id)"
+        [attr.aria-selected]="isActiveChannel(tab.id)"
+        [attr.aria-label]="tab.label + ' tone curve'"
+        [attr.data-testid]="'tone-curve-channel-' + tab.id"
+        (click)="selectChannel(tab)"
       >
-        {{ ch.label }}
+        {{ tab.label }}
       </button>
     }
   </div>
 
-  <!-- Plot area -->
-  <canvas
-    #plotCanvas
+  <!-- Curve plot. Drag a knot to move it, click empty space to add one,
+       double-click or press Delete on a knot to remove it. -->
+  <svg
+    #plot
     class="curve-plot"
-    aria-label="Tone curve — drag control points to adjust"
+    [attr.viewBox]="'0 0 ' + vm.plotSize + ' ' + vm.plotSize"
+    preserveAspectRatio="none"
+    role="application"
+    [attr.aria-label]="
+      vm.activeTab().label +
+      ' tone curve, ' +
+      vm.knots().length +
+      ' control points. Drag a point to move it, click the plot to add one.'
+    "
+    data-testid="tone-curve-plot"
     (pointerdown)="onPlotPointerDown($event)"
-  ></canvas>
+  >
+    <!-- Luma histogram behind everything -->
+    @if (vm.histogramPath(); as hist) {
+      <path class="hist" [attr.d]="hist" />
+    }
 
-  <!-- Control-point labels (below plot) -->
-  <div class="region-labels" aria-hidden="true">
-    <span>Shadows</span>
-    <span>Darks</span>
-    <span>Lights</span>
-    <span>Highlights</span>
+    <!-- Quarter grid -->
+    @for (g of vm.gridLines; track g) {
+      <line class="grid" [attr.x1]="g" y1="0" [attr.x2]="g" [attr.y2]="vm.plotSize" />
+      <line class="grid" x1="0" [attr.y1]="g" [attr.x2]="vm.plotSize" [attr.y2]="g" />
+    }
+
+    <!-- Identity diagonal -->
+    <line class="identity" x1="0" [attr.y1]="vm.plotSize" [attr.x2]="vm.plotSize" y2="0" />
+
+    <!-- The curve itself -->
+    <path class="curve" [attr.d]="vm.curvePath()" [attr.stroke]="vm.activeTab().stroke" />
+
+    <!-- Control points -->
+    @for (knot of vm.knots(); track knot.index) {
+      <circle
+        class="knot"
+        [class.knot--pinned]="knot.pinned"
+        [attr.cx]="knot.cx"
+        [attr.cy]="knot.cy"
+        r="2.6"
+        tabindex="0"
+        role="slider"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        [attr.aria-valuenow]="((1 - knot.cy / vm.plotSize) * 100).toFixed(0)"
+        [attr.aria-label]="
+          vm.activeTab().label +
+          ' curve point ' +
+          (knot.index + 1) +
+          ' of ' +
+          vm.knots().length +
+          (knot.pinned ? ', endpoint' : '')
+        "
+        [attr.data-testid]="'tone-curve-knot-' + knot.index"
+        (dblclick)="onKnotDoubleClick(knot, $event)"
+        (keydown)="onKnotKeyDown(knot, $event)"
+      />
+    }
+  </svg>
+
+  <div class="plot-footer">
+    <span class="axis-label" aria-hidden="true">Shadows</span>
+    <button
+      type="button"
+      class="reset-btn"
+      [disabled]="vm.isIdentity()"
+      [attr.aria-label]="'Reset ' + vm.activeTab().label + ' curve'"
+      data-testid="tone-curve-reset-channel"
+      (click)="resetChannel()"
+    >
+      Reset curve
+    </button>
+    <span class="axis-label" aria-hidden="true">Highlights</span>
+  </div>
+
+  <!-- Parametric region sliders -->
+  <div class="parametric" data-testid="tone-curve-parametric">
+    @for (slider of vm.sliders; track slider.field) {
+      <pro-living-slider
+        [attr.data-testid]="'tone-curve-' + slider.field"
+        [label]="slider.label"
+        [value]="parametricValue(slider)"
+        [min]="vm.parametricMin"
+        [max]="vm.parametricMax"
+        [bipolar]="true"
+        (valueChange)="onParametricChange(slider, $event)"
+        (resetRequest)="onParametricReset(slider)"
+      />
+    }
   </div>
 </div>

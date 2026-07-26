@@ -31,6 +31,13 @@
   --pro-star: #ef9f27;
   --pro-ok: #62c172;
 
+  // ── Per-channel curve strokes (#367) ──────────────────────────────────
+  // Desaturated against the panel so an R curve reads as "the red channel"
+  // without competing with the accent. The Luma curve uses --pro-accent.
+  --pro-curve-r: #d1584a;
+  --pro-curve-g: #5aa361;
+  --pro-curve-b: #4f7fc4;
+
   // ── Glass material: phone/tablet (lighter blur) ───────────────────────
   --pro-glass-bg: rgba(18, 16, 14, 0.58);
   --pro-glass-blur: blur(26px) saturate(150%);
