@@ -10,6 +10,7 @@
 
 import {
   RemoteError,
+  requireFrames,
   type DescribeOptions,
   type DescribeProvider,
   type DescribeResult,
@@ -163,12 +164,6 @@ export class AnthropicProvider implements DescribeProvider {
     } finally {
       clearTimeout(timer);
     }
-  }
-}
-
-function requireFrames(frames: readonly Buffer[]): void {
-  if (frames.length === 0) {
-    throw new RemoteError('Describe requires at least one JPEG frame', false);
   }
 }
 

@@ -78,6 +78,18 @@ export interface DescribeProvider {
 }
 
 /**
+ * Shared guard for every provider's `describe()`: reject an empty frame
+ * list before spending a network round-trip. Every provider calls this
+ * first so the error message and classification stay identical across
+ * Ollama/Anthropic/OpenAI/Gemini instead of drifting per-file.
+ */
+export function requireFrames(frames: readonly Buffer[]): void {
+  if (frames.length === 0) {
+    throw new RemoteError('Describe requires at least one JPEG frame', false);
+  }
+}
+
+/**
  * Errors classify as either retryable (network / 5xx / timeout) or terminal
  * (4xx, malformed response). Mirrors `NominatimError` so the worker can
  * use a single classification path.
