@@ -103,11 +103,7 @@ async function loadState(
   reset: boolean,
 ): Promise<BackfillState> {
   if (reset) await states.deleteOne({ _id: STATE_ID });
-  let state = await states.findOne({ _id: STATE_ID });
-  if (state?.completed_at) {
-    await states.deleteOne({ _id: STATE_ID });
-    state = null;
-  }
+  const state = await states.findOne({ _id: STATE_ID });
   if (state) return state;
   const created = freshState(new Date().toISOString());
   await states.insertOne(created);
@@ -298,17 +294,37 @@ async function saveProgress(
         completed_at: complete ? updatedAt : null,
       },
       $inc: {
-        scanned: batch.scanned,
+        scanned: writeSucceeded ? batch.scanned : 0,
         upserted: writeSucceeded ? batch.docs.length : 0,
         tombstoned: writeSucceeded ? batch.tombstoneIds.length : 0,
-        skipped: batch.skipped,
-        errors:
-          batch.errors +
-          (writeSucceeded ? 0 : Math.max(1, batch.docs.length + batch.tombstoneIds.length)),
+        skipped: writeSucceeded ? batch.skipped : 0,
+        errors: writeSucceeded ? batch.errors : 0,
       },
     },
   );
   return { complete, updatedAt };
+}
+
+function completedResult(state: BackfillState): BackfillResult {
+  return {
+    scanned: 0,
+    upserted: 0,
+    tombstoned: 0,
+    skipped: 0,
+    errors: 0,
+    retryable: false,
+    complete: true,
+    nextCursor: null,
+    cumulative: {
+      scanned: state.scanned,
+      upserted: state.upserted,
+      tombstoned: state.tombstoned ?? 0,
+      skipped: state.skipped,
+      errors: state.errors,
+      startedAt: state.started_at,
+      updatedAt: state.updated_at,
+    },
+  };
 }
 
 export async function runMeilisearchBackfill(
@@ -319,6 +335,7 @@ export async function runMeilisearchBackfill(
   await client.ensureIndex();
   const states = (await getDb()).collection<BackfillState>('meilisearch_backfill_state');
   const state = await loadState(states, reset);
+  if (state.completed_at) return completedResult(state);
   const rows = await loadRows(state, batchSize);
   const batch = await prepareBatch(rows, state.cursor);
   let writeSucceeded = true;
@@ -339,9 +356,7 @@ export async function runMeilisearchBackfill(
   const complete = writeSucceeded && (await countRowsAfter(batch.lastCursor)) === 0;
   await saveProgress(states, state, batch, writeSucceeded, complete);
   const cumulative = await states.findOne({ _id: STATE_ID });
-  const writeErrors = writeSucceeded
-    ? 0
-    : Math.max(1, batch.docs.length + batch.tombstoneIds.length);
+  const writeErrors = writeSucceeded ? 0 : 1;
   return {
     scanned: batch.scanned,
     upserted: writeSucceeded ? batch.docs.length : 0,

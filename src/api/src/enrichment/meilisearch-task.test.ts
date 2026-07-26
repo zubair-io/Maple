@@ -89,6 +89,32 @@ describe('Meilisearch asynchronous tasks', () => {
     expect(client.upsertBatchOrThrow!([sampleDoc])).rejects.toThrow('task 43 failed');
   });
 
+  it('honors the configured asynchronous task timeout', async () => {
+    const { fetchImpl } = makeFakeFetch({
+      routes: [
+        {
+          method: 'POST',
+          pathPrefix: `/indexes/${ASSETS_INDEX}/documents`,
+          status: 202,
+          body: { taskUid: 44 },
+        },
+        {
+          method: 'GET',
+          pathPrefix: '/tasks/44',
+          body: { uid: 44, status: 'processing' },
+        },
+      ],
+    });
+    const client = createMeilisearchClient({
+      url: 'http://meili.local:7700',
+      fetchImpl,
+      taskPollIntervalMs: 0,
+      taskTimeoutMs: 0,
+    });
+
+    expect(client.upsertBatchOrThrow!([sampleDoc])).rejects.toThrow('task 44 timed out');
+  });
+
   it('reports semantic embedder health and raw index populations', async () => {
     const { fetchImpl } = makeFakeFetch({
       routes: [

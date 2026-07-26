@@ -457,10 +457,12 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
       complete: boolean;
       nextCursor: string | null;
       errors: number;
+      cumulative: { scanned: number; skipped: number; errors: number };
     };
     expect(failedBody.complete).toBe(false);
     expect(failedBody.nextCursor).toBeNull();
-    expect(failedBody.errors).toBe(2);
+    expect(failedBody.errors).toBe(1);
+    expect(failedBody.cumulative).toMatchObject({ scanned: 0, skipped: 0, errors: 0 });
     expect(meili.upserts).toHaveLength(0);
 
     meili.failBatch = false;
@@ -468,9 +470,16 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
     const retriedBody = (await retried.json()) as {
       complete: boolean;
       upserted: number;
+      cumulative: { scanned: number; upserted: number; skipped: number; errors: number };
     };
     expect(retriedBody.complete).toBe(true);
     expect(retriedBody.upserted).toBe(2);
+    expect(retriedBody.cumulative).toMatchObject({
+      scanned: 2,
+      upserted: 2,
+      skipped: 0,
+      errors: 0,
+    });
     expect(meili.upserts.map((doc) => doc.id).sort()).toEqual(['retry-a', 'retry-b']);
   });
 
@@ -504,6 +513,18 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
     expect(await backfillMeilisearchVectors.countRemaining()).toBe(0);
     const state = await db!.collection('meilisearch_backfill_state').findOne({ _id: 'assets' });
     expect(state?.completed_at).not.toBeNull();
+
+    // A confirming poll after completion is idempotent. Only an explicit
+    // reset may restart the library-wide sweep.
+    const upsertCount = meili.upserts.length;
+    expect(await backfillMeilisearchVectors.runBatch(1)).toEqual({
+      processed: 0,
+      errors: 0,
+    });
+    expect(meili.upserts).toHaveLength(upsertCount);
+    expect(await db!.collection('meilisearch_backfill_state').findOne({ _id: 'assets' })).toEqual(
+      state,
+    );
 
     const { resetMigrationState } = await import('../src/workers/migration-config.repo.ts');
     const { BACKFILL_MEILISEARCH_VECTORS_ID } = await import('../src/workers/migration/ids.ts');

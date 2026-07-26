@@ -6,6 +6,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test'
 import { MongoClient, type Db } from 'mongodb';
 import {
   DEFAULT_DESCRIBE_MODELS,
+  DEFAULT_MEILISEARCH_TASK_TIMEOUT_SECONDS,
   QWEN_VL_OLLAMA_TAG,
   loadEnrichmentConfig,
   saveEnrichmentConfig,
@@ -236,6 +237,25 @@ describe('resolveEnrichmentConfig — pure logic', () => {
     expect(dbWins.source.meilisearch_api_key).toBe('db');
   });
 
+  it('meilisearch task timeout resolves DB value or safe default', () => {
+    const defaultConfig = resolveEnrichmentConfig(null, {});
+    expect(defaultConfig.meilisearch_task_timeout_seconds).toBe(
+      DEFAULT_MEILISEARCH_TASK_TIMEOUT_SECONDS,
+    );
+    expect(defaultConfig.source.meilisearch_task_timeout_seconds).toBe('default');
+
+    const dbConfig = resolveEnrichmentConfig(
+      {
+        nominatim_url: null,
+        geocode_worker_enabled: true,
+        meilisearch_task_timeout_seconds: 900,
+      },
+      {},
+    );
+    expect(dbConfig.meilisearch_task_timeout_seconds).toBe(900);
+    expect(dbConfig.source.meilisearch_task_timeout_seconds).toBe('db');
+  });
+
   it('face_min_detection_size defaults to 0.06 when no DB row', () => {
     const r = resolveEnrichmentConfig(null, {});
     expect(r.face_min_detection_size).toBeCloseTo(0.06);
@@ -345,6 +365,12 @@ describe('saveEnrichmentConfig + loadEnrichmentConfig — Mongo round-trip', () 
     await saveEnrichmentConfig({ nominatim_rate_limit_per_sec: null });
     const c = await loadEnrichmentConfig();
     expect(c!.nominatim_rate_limit_per_sec).toBeNull();
+  });
+
+  it('meilisearch task timeout round-trips through save/load', async () => {
+    if (!mongoReachable) return;
+    await saveEnrichmentConfig({ meilisearch_task_timeout_seconds: 900 });
+    expect((await loadEnrichmentConfig())!.meilisearch_task_timeout_seconds).toBe(900);
   });
 
   it('maps legacy face_retinaface_* / face_mobilefacenet_* onto new keys at write time', async () => {

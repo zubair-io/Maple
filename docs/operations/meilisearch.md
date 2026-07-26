@@ -91,13 +91,14 @@ The response reports:
 - whether semantic search is enabled;
 - Meilisearch and embedder reachability;
 - configured embedder/model/blend;
-- indexed and vectorized document counts;
-- vector coverage against the live Mongo asset count;
+- raw live-Mongo, indexed, vectorized, and tombstoned document counts;
 - indexing activity and resumable backfill progress.
 
 `embedderConfigured`, `embedderReachable`, and `semantic.enabled` should all be
-`true`. During a backfill, partial vector coverage is expected: hybrid search
-continues to return lexical-only documents while embeddings catch up.
+`true`. Indexed/vectorized counts are index-wide populations and can include
+tombstones, so do not treat their ratio to the live-Mongo count as a coverage
+percentage. During a backfill, hybrid search continues to return lexical-only
+documents while embeddings catch up.
 
 ## Resumable backfill
 
@@ -106,9 +107,13 @@ index**. The migration worker sends bounded bulk tasks, stores a durable Mongo
 cursor, and reports processed, remaining, and error counts in that panel. It
 automatically disables itself when complete. Pause it with the toggle; use
 **Reset** to clear its cursor and intentionally restart from the beginning.
+For a slow or CPU-bound Ollama host, increase **Index task timeout** on the
+Meilisearch worker before starting the migration.
 
 The authenticated admin endpoint remains available for automation and
-troubleshooting. Repeat the request until `complete` is `true`:
+troubleshooting. Repeat the request until `complete` is `true`; subsequent
+polls remain complete and do not restart the sweep unless `reset=true` is
+explicitly supplied:
 
 ```sh
 curl -X POST \

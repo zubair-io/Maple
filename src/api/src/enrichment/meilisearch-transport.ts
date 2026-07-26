@@ -6,6 +6,10 @@ export interface MeilisearchTransportConfig {
   taskTimeoutMs: number;
 }
 
+/** Bulk embedding can be CPU-bound; allow ten minutes before retrying the
+ * same durable batch. Operators can tune this from Settings → Workers. */
+export const DEFAULT_MEILISEARCH_TASK_TIMEOUT_MS = 10 * 60 * 1000;
+
 export interface MeilisearchHttpResult<T> {
   ok: boolean;
   status: number;
