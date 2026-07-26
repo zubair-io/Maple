@@ -150,6 +150,7 @@ fn gpu_live_render_p3_primaries_marshals_correctly() {
             clarity: model.clarity,
             texture: model.texture,
             dehaze: model.dehaze,
+            local_adjustments: raw_core::types::layers_to_flat(&model.local_adjustments),
             vignette_amount: model.vignette_amount,
             vignette_feather: model.vignette_feather,
             grain_amount: model.grain_amount,

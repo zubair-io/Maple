@@ -254,6 +254,50 @@ pub struct MapleAdjustmentParams {
     pub sharpen_detail: f32,
     pub sharpen_masking: f32,
     pub nr_color: f32,
+    // --- local adjustments (#1698) — the vector-mask layer stack, in the flat
+    //     wire `raw_core::types::local_adjustment::flat` defines (24 f32 per
+    //     layer). Appended at the struct tail per the offset-stable ABI
+    //     convention: a stale host leaves the pointer NULL and the length 0,
+    //     which maps to an empty stack, and `local_adjustments::apply`
+    //     early-returns — bit-identical to pre-#1698 output.
+    //
+    //     This is the CPU twin of `MapleGpuLiveParams.local_adjustments_*`.
+    //     Both entries must carry it: the CPU chain is the GPU-live path's
+    //     fallback and its oracle, so a mask that rendered on one and not the
+    //     other would be a live-vs-fallback seam.
+    //
+    //     The pointed-to data must remain valid for the duration of the call;
+    //     the Rust side copies it out and does NOT free the pointer. ---
+    pub local_adjustments_ptr: *const f32,
+    /// Number of f32 elements at `local_adjustments_ptr`. Must be a multiple of
+    /// 24; a trailing partial record is dropped rather than rejected.
+    pub local_adjustments_len: usize,
+}
+
+/// Decode the local-adjustment layer stack (#1698) out of the C params. NULL or
+/// zero-length — every host with no masks, including one built against a
+/// pre-#1698 header — yields an empty Vec, which makes
+/// `local_adjustments::apply` early-return, so the output stays bit-identical
+/// to pre-#1698.
+///
+/// Shared by BOTH chain entries (`maple_apply_scene_linear_chain` and its f32
+/// sibling), which each build their own `AdjustmentModel` from the same params
+/// struct. One function rather than two copies: a field that only one of them
+/// decoded would render masks on the fp16 path and not the f32 one.
+///
+/// # Safety
+/// `p.local_adjustments_ptr` must be valid for `p.local_adjustments_len` `f32`
+/// reads, or null.
+pub(crate) unsafe fn read_local_adjustments(
+    p: &MapleAdjustmentParams,
+) -> Vec<raw_core::types::LocalAdjustment> {
+    if p.local_adjustments_ptr.is_null() || p.local_adjustments_len == 0 {
+        return Vec::new();
+    }
+    raw_core::types::layers_from_flat(std::slice::from_raw_parts(
+        p.local_adjustments_ptr,
+        p.local_adjustments_len,
+    ))
 }
 
 /// Run the cheap-stage scene-linear chain over a caller-provided fp16 RGBA
@@ -407,6 +451,7 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
     model.sharpen_detail = p.sharpen_detail;
     model.sharpen_masking = p.sharpen_masking;
     model.nr_color = p.nr_color;
+    model.local_adjustments = read_local_adjustments(p);
 
     // Non-RAW WB contract (#1331 / #1734): for a non-RAW shape the uploaded
     // buffer is ALREADY at the correct linear Rec.2020 D65 white point (the

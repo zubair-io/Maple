@@ -44,6 +44,8 @@ fn default_params() -> MapleAdjustmentParams {
         sharpen_detail: 25.0,
         sharpen_masking: 0.0,
         nr_color: 0.0,
+        local_adjustments_ptr: std::ptr::null(),
+        local_adjustments_len: 0,
         dehaze: 0.0,
         decoded_temperature: 5500.0,
         decoded_tint: 0.0,
