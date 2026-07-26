@@ -15,8 +15,12 @@
 // rather than compatibility, and existing sidecars written against the older
 // Swift URI keep parsing unchanged.
 
-/** Canonical `papp:` namespace URI — see the note above. */
-export const PAPP_NAMESPACE_URI = 'http://ns.justmaple.app/photo/1.0/';
+/**
+ * Canonical `papp:` namespace URI — see the note above. Deliberately not
+ * exported: the specs assert the literal string so a typo here is a test
+ * failure rather than a silently-agreeing constant.
+ */
+const PAPP_NAMESPACE_URI = 'http://ns.justmaple.app/photo/1.0/';
 
 /**
  * Namespace declarations emitted on every `rdf:Description`, in this exact
