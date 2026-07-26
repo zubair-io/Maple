@@ -37,85 +37,97 @@
  *                        Defaults to 1 (sequential execution mode).
  */
 
-import { Elysia } from 'elysia';
-import { swagger } from '@elysiajs/swagger';
-import { child as childLogger } from './log.ts';
-import { ensureJwtSecret } from './auth/jwt-bootstrap.ts';
-import { requestContext } from './middleware/request-context.ts';
-import { healthRoutes } from './routes/health.ts';
-import { networkPublicRoutes, networkSettingsRoutes } from './routes/network.ts';
-import { foldersRoutes } from './routes/folders.ts';
-import { assetsRoutes } from './routes/assets.ts';
-import { xmpPathRoutes } from './routes/xmp.ts';
-import { previewPathRoutes } from './routes/preview.ts';
-import { eventsRoutes } from './routes/events.ts';
-import { videoRoutes } from './routes/video.ts';
-import { authRoutes } from './routes/auth.ts';
-import { nativeCodeRedeemRoutes, nativeCodeIssueRoutes } from './routes/auth-native-code.ts';
-import { lanHandoffIssueRoutes, lanHandoffRedeemRoutes } from './routes/auth-lan-handoff.ts';
-import { accountRoutes } from './routes/auth-account.ts';
-import { authDeviceSessionRoutes } from './routes/auth-device-sessions.ts';
-import { fsRoutes } from './routes/fs.ts';
-import { fsThumbsRoutes } from './routes/fs-thumbs.ts';
-import { fsPreviewsRoutes } from './routes/fs-previews.ts';
-import { searchRoutes } from './routes/search.ts';
-import { jobsRoutes } from './routes/jobs.ts';
-import { importsRoutes } from './routes/imports.ts';
-import { enrichmentRoutes } from './routes/enrichment.ts';
-import { cloudflareRoutes } from './routes/cloudflare.ts';
-import { observabilityRoutes } from './routes/observability.ts';
-import { meilisearchBackfillRoutes } from './routes/admin-backfill-meilisearch.ts';
-import { adminMeilisearchStatusRoutes } from './routes/admin-meilisearch-status.ts';
-import { serviceApiKeyAdminRoutes } from './routes/service-api-keys.ts';
-import { serviceAssetSearchRoutes } from './routes/service-asset-search.ts';
-import { purgeSubthresholdFacesRoutes } from './routes/admin-purge-subthreshold-faces.ts';
-import { peopleRoutes } from './routes/people.ts';
-import { presetsRoutes } from './routes/presets.ts';
-import { panoRoutes } from './routes/pano.ts';
-import { geocodeReverseRoutes } from './routes/geocode-reverse.ts';
-import { batchMetadataRoutes } from './routes/batch-metadata.ts';
-import { backupIngestRoutes } from './routes/backup-ingest.ts';
-import { BACKUP_CHUNK_DIR, clearBackupChunkDir } from './backup/config.ts';
-import { uploadSessions } from './backup/upload-session.ts';
-import { backupStateRoutes } from './routes/backup-state.ts';
-import { backupExistsRoutes } from './routes/backup-exists.ts';
-import { backupSidecarRoutes } from './routes/backup-sidecar.ts';
-import { backupRenderedRoutes } from './routes/backup-rendered.ts';
-import { backupNotifyDeletedRoutes } from './routes/backup-notify-deleted.ts';
-import { changesRoutes } from './routes/changes.ts';
-import { mirrorRoutes } from './routes/mirror.ts';
-import { derivativeAuditRoutes } from './routes/derivative-audit.ts';
-import { assetsListRoutes } from './routes/assets-list.ts';
-import { photosRoutes } from './routes/photos.ts';
-import { displayRoutes } from './routes/display.ts';
-import { renderConfigRoutes } from './routes/render-config.ts';
-import { requireAuth } from './auth/middleware.ts';
-import { staticUiPlugin } from './routes/static_ui.ts';
-import { getDb, ensureIndexes, closeDb } from './db/client.ts';
-import { loadMirrorConfig } from './fs/mirror-config.ts';
-import { flushPendingMirrorOps } from './fs/mirrored.ts';
-import { installMirrorQueueSink } from './workers/mirror/sink.ts';
-import { workerRoutes } from './workers/routes.ts';
-import { libraryRoutes } from './routes/library/index.ts';
-import { initializeHttpSearch } from './enrichment/meilisearch-http-bootstrap.ts';
+import { Elysia } from "elysia";
+import { swagger } from "@elysiajs/swagger";
+import { child as childLogger } from "./log.ts";
+import { ensureJwtSecret } from "./auth/jwt-bootstrap.ts";
+import { requestContext } from "./middleware/request-context.ts";
+import { healthRoutes } from "./routes/health.ts";
+import {
+  networkPublicRoutes,
+  networkSettingsRoutes,
+} from "./routes/network.ts";
+import { foldersRoutes } from "./routes/folders.ts";
+import { assetsRoutes } from "./routes/assets.ts";
+import { xmpPathRoutes } from "./routes/xmp.ts";
+import { previewPathRoutes } from "./routes/preview.ts";
+import { eventsRoutes } from "./routes/events.ts";
+import { videoRoutes } from "./routes/video.ts";
+import { authRoutes } from "./routes/auth.ts";
+import {
+  nativeCodeRedeemRoutes,
+  nativeCodeIssueRoutes,
+} from "./routes/auth-native-code.ts";
+import {
+  lanHandoffIssueRoutes,
+  lanHandoffRedeemRoutes,
+} from "./routes/auth-lan-handoff.ts";
+import { accountRoutes } from "./routes/auth-account.ts";
+import { authDeviceSessionRoutes } from "./routes/auth-device-sessions.ts";
+import { fsRoutes } from "./routes/fs.ts";
+import { fsThumbsRoutes } from "./routes/fs-thumbs.ts";
+import { fsPreviewsRoutes } from "./routes/fs-previews.ts";
+import { searchRoutes } from "./routes/search.ts";
+import { jobsRoutes } from "./routes/jobs.ts";
+import { importsRoutes } from "./routes/imports.ts";
+import { enrichmentRoutes } from "./routes/enrichment.ts";
+import { cloudflareRoutes } from "./routes/cloudflare.ts";
+import { observabilityRoutes } from "./routes/observability.ts";
+import { meilisearchBackfillRoutes } from "./routes/admin-backfill-meilisearch.ts";
+import { adminMeilisearchStatusRoutes } from "./routes/admin-meilisearch-status.ts";
+import { serviceApiKeyAdminRoutes } from "./routes/service-api-keys.ts";
+import { serviceAssetSearchRoutes } from "./routes/service-asset-search.ts";
+import { purgeSubthresholdFacesRoutes } from "./routes/admin-purge-subthreshold-faces.ts";
+import { peopleRoutes } from "./routes/people.ts";
+import { presetsRoutes } from "./routes/presets.ts";
+import { panoRoutes } from "./routes/pano.ts";
+import { geocodeReverseRoutes } from "./routes/geocode-reverse.ts";
+import { batchMetadataRoutes } from "./routes/batch-metadata.ts";
+import { backupIngestRoutes } from "./routes/backup-ingest.ts";
+import { BACKUP_CHUNK_DIR, clearBackupChunkDir } from "./backup/config.ts";
+import { uploadSessions } from "./backup/upload-session.ts";
+import { backupStateRoutes } from "./routes/backup-state.ts";
+import { backupExistsRoutes } from "./routes/backup-exists.ts";
+import { backupSidecarRoutes } from "./routes/backup-sidecar.ts";
+import { backupRenderedRoutes } from "./routes/backup-rendered.ts";
+import { backupNotifyDeletedRoutes } from "./routes/backup-notify-deleted.ts";
+import { changesRoutes } from "./routes/changes.ts";
+import { mirrorRoutes } from "./routes/mirror.ts";
+import { derivativeAuditRoutes } from "./routes/derivative-audit.ts";
+import { assetsListRoutes } from "./routes/assets-list.ts";
+import { photosRoutes } from "./routes/photos.ts";
+import { displayRoutes } from "./routes/display.ts";
+import { renderConfigRoutes } from "./routes/render-config.ts";
+import { requireAuth } from "./auth/middleware.ts";
+import { staticUiPlugin } from "./routes/static_ui.ts";
+import { getDb, ensureIndexes, closeDb } from "./db/client.ts";
+import { loadMirrorConfig } from "./fs/mirror-config.ts";
+import { flushPendingMirrorOps } from "./fs/mirrored.ts";
+import { installMirrorQueueSink } from "./workers/mirror/sink.ts";
+import { workerRoutes } from "./workers/routes.ts";
+import { libraryRoutes } from "./routes/library/index.ts";
+import { initializeHttpSearch } from "./enrichment/meilisearch-http-bootstrap.ts";
 import {
   loadObservabilityConfig,
   resolveObservabilityConfig,
-} from './observability/observability-config.repo.ts';
-import { initOtel, shutdownOtel } from './otel.ts';
-import { getChangeFeedTailer } from './runtime/change-feed-tailer.ts';
-import { startEventLoopLagMonitor, stopEventLoopLagMonitor } from './runtime/diag-eventloop.ts';
+} from "./observability/observability-config.repo.ts";
+import { initOtel, shutdownOtel } from "./otel.ts";
+import { getChangeFeedTailer } from "./runtime/change-feed-tailer.ts";
+import {
+  startEventLoopLagMonitor,
+  stopEventLoopLagMonitor,
+} from "./runtime/diag-eventloop.ts";
 import {
   ChildProcessWorker,
   childScriptPath,
   DEFAULT_NATIVE_CHILD_NICE,
-} from './runtime/child-process-worker.ts';
-import { SERVER_PORT } from './runtime/server-port.ts';
+} from "./runtime/child-process-worker.ts";
+import { SERVER_PORT } from "./runtime/server-port.ts";
 
 const PORT = SERVER_PORT;
-const CORS_ORIGIN = process.env.MAPLE_CORS_ORIGIN ?? '*';
+const CORS_ORIGIN = process.env.MAPLE_CORS_ORIGIN ?? "*";
 
-const log = childLogger('server');
+const log = childLogger("server");
 
 // JWT secret bootstrap lives in `./auth/jwt-bootstrap.ts` (extracted to keep
 // this file under the line budget). `ensureJwtSecret()` is awaited in start().
@@ -140,20 +152,24 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // because the page becomes cross-origin-isolated only when *every* top-level
     // document response carries both headers.
     .onBeforeHandle(({ set }) => {
-      set.headers['Access-Control-Allow-Origin'] = CORS_ORIGIN;
-      set.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
-      set.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
-      set.headers['Cross-Origin-Opener-Policy'] = 'same-origin';
-      set.headers['Cross-Origin-Embedder-Policy'] = 'require-corp';
+      set.headers["Access-Control-Allow-Origin"] = CORS_ORIGIN;
+      set.headers["Access-Control-Allow-Methods"] =
+        "GET, POST, PUT, DELETE, OPTIONS";
+      set.headers["Access-Control-Allow-Headers"] =
+        "Content-Type, Authorization";
+      set.headers["Cross-Origin-Opener-Policy"] = "same-origin";
+      set.headers["Cross-Origin-Embedder-Policy"] = "require-corp";
     })
     // Mirror the isolation headers onto OPTIONS preflight too, so that any
     // cross-origin check counts them as present.
-    .options('/*', ({ headers, set }) => {
-      set.headers['Access-Control-Allow-Origin'] = CORS_ORIGIN;
-      set.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
-      set.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
-      set.headers['Cross-Origin-Opener-Policy'] = 'same-origin';
-      set.headers['Cross-Origin-Embedder-Policy'] = 'require-corp';
+    .options("/*", ({ headers, set }) => {
+      set.headers["Access-Control-Allow-Origin"] = CORS_ORIGIN;
+      set.headers["Access-Control-Allow-Methods"] =
+        "GET, POST, PUT, DELETE, OPTIONS";
+      set.headers["Access-Control-Allow-Headers"] =
+        "Content-Type, Authorization";
+      set.headers["Cross-Origin-Opener-Policy"] = "same-origin";
+      set.headers["Cross-Origin-Embedder-Policy"] = "require-corp";
       // Chrome's Private Network Access: only echo this back when the
       // browser's preflight actually asked for it — a page only sets this
       // header when it resolved the target to a private-network address in
@@ -163,8 +179,8 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
       // change did) would let ANY public webpage bypass PNA for every route,
       // not just the intentionally-public one — a meaningfully wider
       // exposure than the feature needs.
-      if (headers['access-control-request-private-network'] === 'true') {
-        set.headers['Access-Control-Allow-Private-Network'] = 'true';
+      if (headers["access-control-request-private-network"] === "true") {
+        set.headers["Access-Control-Allow-Private-Network"] = "true";
       }
       set.status = 204;
       return;
@@ -212,7 +228,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // loads (you can't reach /sign-in if the server demands a bearer to
     // serve index.html).
     .use(
-      new Elysia({ name: 'authedApi' })
+      new Elysia({ name: "authedApi" })
         .use(requireAuth)
         // PhotoKit-backup routes — chunked ingest, reconciliation/dedup
         // probes, sidecar + rendered-companion uploads, and deletion
@@ -266,21 +282,23 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
 
     // Native PKCE code issue (authed) — wrapped in its own sub-app so its
     // `requireAuth` scoped-derive stays contained (same isolation as authedApi).
-    .use(new Elysia({ name: 'authedNativeCode' }).use(nativeCodeIssueRoutes))
+    .use(new Elysia({ name: "authedNativeCode" }).use(nativeCodeIssueRoutes))
 
     // Web-to-web-LAN session handoff issue (authed) — wrapped in its own
     // sub-app so its `requireAuth` scoped-derive stays contained.
-    .use(new Elysia({ name: 'authedLanHandoff' }).use(lanHandoffIssueRoutes))
+    .use(new Elysia({ name: "authedLanHandoff" }).use(lanHandoffIssueRoutes))
 
     // Authenticated account self-service (#861): /me, step-up re-auth, credential
     // management. Wrapped so its `requireAuth` scoped-derive stays contained.
-    .use(new Elysia({ name: 'authedAccount' }).use(accountRoutes))
+    .use(new Elysia({ name: "authedAccount" }).use(accountRoutes))
 
     // Paired-device sessions (Maple TV pairing, milestone B, #2075): mint
     // (proof-of-refresh-token), list, step-up-gated revoke. Wrapped so its
     // `requireAuth` scoped-derive stays contained — same isolation as
     // authedAccount / authedNativeCode above.
-    .use(new Elysia({ name: 'authedDeviceSessions' }).use(authDeviceSessionRoutes))
+    .use(
+      new Elysia({ name: "authedDeviceSessions" }).use(authDeviceSessionRoutes),
+    )
 
     // OpenAPI spec + Scalar docs UI. Source-of-truth for HTTP DTOs that
     // web + apple clients codegen from (issue #131). Mounted outside the
@@ -293,14 +311,14 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     .use(
       swagger({
         // Scalar UI at /docs (human-readable), spec JSON at /openapi.json.
-        path: '/docs',
-        specPath: '/openapi.json',
+        path: "/docs",
+        specPath: "/openapi.json",
         documentation: {
           info: {
-            title: 'Maple API',
-            version: '0.1.0',
+            title: "Maple API",
+            version: "0.1.0",
             description:
-              'Maple Self Hosted HTTP API. See https://github.com/zubair-io/Maple/issues/131.',
+              "Maple Self Hosted HTTP API. See https://github.com/zubair-io/Maple/issues/131.",
           },
         },
       }),
@@ -342,21 +360,21 @@ async function start(): Promise<void> {
   await ensureJwtSecret();
   log.info(
     {
-      version: '0.1.0',
+      version: "0.1.0",
       port: PORT,
-      mongo_uri: process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017',
+      mongo_uri: process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017",
     },
-    'Maple Self Hosted starting',
+    "Maple Self Hosted starting",
   );
-  if (process.env.MAPLE_DEV === '1') {
+  if (process.env.MAPLE_DEV === "1") {
     log.info(
-      { dev_origin: process.env.MAPLE_DEV_ORIGIN ?? 'http://localhost:4200' },
-      'UI: proxying to dev origin',
+      { dev_origin: process.env.MAPLE_DEV_ORIGIN ?? "http://localhost:4200" },
+      "UI: proxying to dev origin",
     );
   }
-  if (process.env.MAPLE_DEV_AUTH === '1') {
+  if (process.env.MAPLE_DEV_AUTH === "1") {
     log.warn(
-      '*** MAPLE_DEV_AUTH=1 — passkey bypass enabled. /api/auth/dev-login is exposed. Do NOT set this in production.',
+      "*** MAPLE_DEV_AUTH=1 — passkey bypass enabled. /api/auth/dev-login is exposed. Do NOT set this in production.",
     );
   }
 
@@ -374,17 +392,20 @@ async function start(): Promise<void> {
     try {
       await getDb();
     } catch (err) {
-      log.warn({ err }, 'MongoDB not available — server continues, DB-bound routes will 503');
+      log.warn(
+        { err },
+        "MongoDB not available — server continues, DB-bound routes will 503",
+      );
       return;
     }
 
     try {
       await ensureIndexes();
-      log.info('DB ready');
+      log.info("DB ready");
     } catch (err) {
       log.error(
         { err },
-        'ensureIndexes failed — continuing without all indexes; affected routes may be slower until resolved',
+        "ensureIndexes failed — continuing without all indexes; affected routes may be slower until resolved",
       );
     }
 
@@ -397,7 +418,10 @@ async function start(): Promise<void> {
       // uploads) into the durable mirror_queue so the copy worker retries them.
       installMirrorQueueSink();
     } catch (err) {
-      log.error({ err }, 'mirror config load failed — mirroring inactive until reloaded');
+      log.error(
+        { err },
+        "mirror config load failed — mirroring inactive until reloaded",
+      );
     }
 
     try {
@@ -405,7 +429,7 @@ async function start(): Promise<void> {
       // clients see worker-emitted changes.
       await getChangeFeedTailer().start();
     } catch (err) {
-      log.error({ err }, 'change feed tailer failed to start');
+      log.error({ err }, "change feed tailer failed to start");
     }
 
     // Worker tier — spawned as a niced child process so the HTTP event loop can
@@ -426,30 +450,34 @@ async function start(): Promise<void> {
       try {
         const spawnedAt = Date.now();
         const w = new ChildProcessWorker(
-          childScriptPath(import.meta.url, './workers/worker-main.ts'),
-          { nice: DEFAULT_NATIVE_CHILD_NICE, label: 'worker' },
+          childScriptPath(import.meta.url, "./workers/worker-main.ts"),
+          { nice: DEFAULT_NATIVE_CHILD_NICE, label: "worker" },
         );
-        w.addEventListener('error', (e) => {
+        w.addEventListener("error", (e) => {
           const uptimeMs = Date.now() - spawnedAt;
           // Ran healthily then died → one-off, reset backoff. Died fast → grow it.
-          if (uptimeMs >= WORKER_HEALTHY_UPTIME_MS) workerRespawnMs = WORKER_RESPAWN_MIN_MS;
+          if (uptimeMs >= WORKER_HEALTHY_UPTIME_MS)
+            workerRespawnMs = WORKER_RESPAWN_MIN_MS;
           const delayMs = workerRespawnMs;
-          workerRespawnMs = Math.min(workerRespawnMs * 2, WORKER_RESPAWN_MAX_MS);
+          workerRespawnMs = Math.min(
+            workerRespawnMs * 2,
+            WORKER_RESPAWN_MAX_MS,
+          );
           log.error(
             { msg: e.message, uptimeMs, respawnInMs: delayMs },
-            'worker process died — respawning',
+            "worker process died — respawning",
           );
           _workerChild = null;
           if (!shuttingDown) setTimeout(spawnWorker, delayMs);
         });
         _workerChild = w;
-        log.info('worker process spawned');
+        log.info("worker process spawned");
       } catch (err) {
-        log.error({ err }, 'failed to spawn worker process');
+        log.error({ err }, "failed to spawn worker process");
       }
     }
-    if (process.env.MAPLE_INDEXER_AUTOSTART === '0') {
-      log.info('Worker process disabled (MAPLE_INDEXER_AUTOSTART=0)');
+    if (process.env.MAPLE_INDEXER_AUTOSTART === "0") {
+      log.info("Worker process disabled (MAPLE_INDEXER_AUTOSTART=0)");
     } else {
       spawnWorker();
     }
@@ -461,10 +489,15 @@ async function start(): Promise<void> {
       // OTLP/HTTP. Config is DB-backed (set it via the Settings → Observability
       // page or PUT /api/observability/config). initOtel is a no-op when
       // telemetry is disabled or no endpoint is configured.
-      const resolvedObs = resolveObservabilityConfig(await loadObservabilityConfig());
+      const resolvedObs = resolveObservabilityConfig(
+        await loadObservabilityConfig(),
+      );
       await initOtel(resolvedObs);
     } catch (err) {
-      log.warn({ err }, 'OpenTelemetry init failed; continuing without telemetry');
+      log.warn(
+        { err },
+        "OpenTelemetry init failed; continuing without telemetry",
+      );
     }
   })();
 
@@ -480,11 +513,11 @@ async function start(): Promise<void> {
   // process exit would be inconsistent with the rest of the boot.
   try {
     await clearBackupChunkDir();
-    log.info({ dir: BACKUP_CHUNK_DIR }, 'cleared backup chunk staging dir');
+    log.info({ dir: BACKUP_CHUNK_DIR }, "cleared backup chunk staging dir");
   } catch (err) {
     log.error(
       { err, dir: BACKUP_CHUNK_DIR },
-      'failed to clear backup chunk staging dir — backup uploads may be inconsistent until fixed',
+      "failed to clear backup chunk staging dir — backup uploads may be inconsistent until fixed",
     );
   }
 
@@ -494,11 +527,12 @@ async function start(): Promise<void> {
   // received_bytes == total) fall out of the upload loop entirely.
   try {
     const reset = await uploadSessions.resetAllInProgressBytes();
-    if (reset > 0) log.info({ count: reset }, 'reset in-progress upload sessions');
+    if (reset > 0)
+      log.info({ count: reset }, "reset in-progress upload sessions");
   } catch (err) {
     log.error(
       { err },
-      'failed to reset in-progress upload sessions — clients may see stale 409s until fixed',
+      "failed to reset in-progress upload sessions — clients may see stale 409s until fixed",
     );
   }
 
@@ -515,19 +549,19 @@ async function start(): Promise<void> {
 // Graceful shutdown.
 async function shutdown(signal: string): Promise<void> {
   shuttingDown = true;
-  log.info({ signal }, 'shutting down');
+  log.info({ signal }, "shutting down");
   // Stop the event-loop lag probe (no-op if it was never started).
   try {
     stopEventLoopLagMonitor();
   } catch (e) {
-    log.warn({ err: e }, 'error stopping event-loop lag monitor');
+    log.warn({ err: e }, "error stopping event-loop lag monitor");
   }
   // Stop the change-feed tailer first — its self-scheduling setTimeout
   // would otherwise keep the event loop alive after Mongo closes.
   try {
     getChangeFeedTailer().stop();
   } catch (e) {
-    log.warn({ err: e }, 'error stopping change feed tailer');
+    log.warn({ err: e }, "error stopping change feed tailer");
   }
   // Terminate the worker child process. Its own SIGTERM handler drains all
   // stages, discover, enrichment workers, job/import runners, and FFI pool
@@ -536,14 +570,14 @@ async function shutdown(signal: string): Promise<void> {
     _workerChild?.terminate();
     _workerChild = null;
   } catch (e) {
-    log.warn({ err: e }, 'error stopping worker process');
+    log.warn({ err: e }, "error stopping worker process");
   }
   // Flush + shut down the OpenTelemetry SDK so its batch exporters drain and
   // its timers stop keeping the event loop alive.
   try {
     await shutdownOtel();
   } catch (e) {
-    log.warn({ err: e }, 'error stopping OpenTelemetry SDK');
+    log.warn({ err: e }, "error stopping OpenTelemetry SDK");
   }
   // Drain any in-flight mirror replication so a backup copy isn't cut off
   // mid-write on shutdown. Best-effort + bounded — never block exit on it.
@@ -563,15 +597,15 @@ async function shutdown(signal: string): Promise<void> {
   process.exit(0);
 }
 
-process.on('SIGTERM', () => {
-  shutdown('SIGTERM').catch((e) => {
-    log.error({ err: e }, 'shutdown error');
+process.on("SIGTERM", () => {
+  shutdown("SIGTERM").catch((e) => {
+    log.error({ err: e }, "shutdown error");
     process.exit(1);
   });
 });
-process.on('SIGINT', () => {
-  shutdown('SIGINT').catch((e) => {
-    log.error({ err: e }, 'shutdown error');
+process.on("SIGINT", () => {
+  shutdown("SIGINT").catch((e) => {
+    log.error({ err: e }, "shutdown error");
     process.exit(1);
   });
 });
