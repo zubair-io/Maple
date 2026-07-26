@@ -176,9 +176,22 @@
 //!   composed f32 GPU chain now matches raw-core's full develop + view tail. What
 //!   remains: `look` (a no-op post-Auto-Profile-pivot — `view::look::apply` is
 //!   empty) and `dither_and_quantize` (the f32 → u8 display-OUTPUT step, P4b);
-//!   `auto_exposure` / `local_adjustments` stay CPU-side. Dehaze's airlight is
+//!   `auto_exposure` stays CPU-side. Dehaze's airlight is
 //!   sourced via a mid-chain GPU readback (a headless affordance; the live P4b
 //!   path needs an on-GPU reduction).
+//! - [`LocalAdjustmentsPass`] — the vector-mask rasterizer (#1698), develop's
+//!   12b slot between dehaze and vignette. The last scene-linear stage to reach
+//!   the GPU, and the one whose absence was visible: since #925 made the wgpu
+//!   chain the shipping default on both platforms, a linear or radial mask
+//!   rendered nothing on the live canvas until the debounced CPU refine pass
+//!   landed. One kernel rasterizes the mask and applies the layer's nine
+//!   controls weighted by it, looping the whole layer stack in registers so the
+//!   stage stays a single dispatch at three storage buffers. The per-pixel
+//!   CAT16 derivation is the one piece with no precedent among the other
+//!   passes: local temperature/tint are offsets from D65 scaled BY the mask
+//!   weight, so the adaptation matrix varies per pixel and cannot be hoisted
+//!   host-side the way [`WhiteBalancePass`]'s single matrix is. Parity-gated
+//!   directly vs `raw_core::stages::local_adjustments::apply`.
 //!
 //! **Headless only.** No platform display surface, no Swift, no web — the wgpu →
 //! `CAMetalLayer` (Apple) and wgpu → WebGPU-canvas (web) display paths are P1b
@@ -205,6 +218,7 @@ mod full_chain;
 mod image;
 mod live_chain;
 mod live_session;
+mod local_adjustments;
 mod noise_reduction;
 // Passthrough display proof (P1b / #988): wgpu → CAMetalLayer present. Apple-
 // only — `SurfaceTargetUnsafe::CoreAnimationLayer` is wgpu-gated on
@@ -279,6 +293,7 @@ pub use live_chain::{
     build_live_chain, build_live_split, chain_signature, dehaze_is_active, VIEW_TAIL_PASS_COUNT,
 };
 pub use live_session::LiveSession;
+pub use local_adjustments::{local_adjustments_are_active, LocalAdjustmentsPass, LAYER_FLAT_LEN};
 pub use noise_reduction::{NlmColorPass, NlmLumaPass};
 pub use residual_lut::{apply_residual_lut, residual_lut_flat_len, ResidualLutPass};
 pub use saturation::{apply_saturation, SaturationPass};
