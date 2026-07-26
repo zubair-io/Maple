@@ -426,6 +426,10 @@ extension AdjustmentGroup {
                 "chroma_prefilter",
                 "hot_pixel_suppression",
                 "deep_denoise",
+                "lens_profile_enable",
+                "lens_correction_distortion",
+                "lens_correction_ca",
+                "lens_correction_vignetting",
             ]
         case .effects:
             return [

@@ -260,6 +260,33 @@ pub fn serialize(model: &AdjustmentModel) -> String {
     // Black & white mix (#276) — see the sibling module for why this group
     // is emitted here when the HSL sliders are not.
     out.push_str(&black_white::serialize(model));
+    // DNG-embedded lens corrections (#376) — ACR-compatible `crs:` keys,
+    // emitted only when non-default so a sidecar that never touched the
+    // lens panel stays byte-identical. `crs:LensProfileEnable` uses ACR's
+    // "1"/"0" spelling; the three scales are whole-percent values, matching
+    // the integer format ACR writes.
+    if model.lens_profile_enable != LensProfileEnable::default() {
+        out.push_str(r#" crs:LensProfileEnable="0""#);
+    }
+    for (key, value) in [
+        (
+            "crs:LensProfileDistortionScale",
+            model.lens_correction_distortion,
+        ),
+        (
+            "crs:LensProfileChromaticAberrationScale",
+            model.lens_correction_ca,
+        ),
+        (
+            "crs:LensProfileVignettingScale",
+            model.lens_correction_vignetting,
+        ),
+    ] {
+        let rounded = value.round();
+        if rounded.is_finite() && rounded != 100.0 {
+            out.push_str(&format!(r#" {key}="{rounded}""#));
+        }
+    }
     // Crop / straighten (#277) — emitted only when non-identity. The rect
     // attributes (`crs:HasCrop` + four edges) are emitted only when the rect
     // itself differs from full-frame. `crs:CropAngle` is independent — it is
