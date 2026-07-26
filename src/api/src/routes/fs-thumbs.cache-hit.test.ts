@@ -44,6 +44,7 @@ import {
   mkdir,
   symlink,
 } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import sharp from 'sharp';
@@ -75,13 +76,19 @@ describe('GET /api/fs/thumb — cache hit is ONE fs op (#2258)', () => {
     tmp = null;
   });
 
-  it('performs exactly one readFile and no stat/realpath on a cache hit', async () => {
+  it('opens the thumb exactly once and never stats or realpaths on a cache hit', async () => {
     const rawPath = join(tmp!, 'a.jpg');
     await writeFile(rawPath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
     const thumbPath = resolveThumbPath(rawPath);
     await mkdir(dirname(thumbPath), { recursive: true });
     await writeFile(thumbPath, Buffer.from([1, 2, 3, 4, 5]));
 
+    // The hit path opens with `O_NOFOLLOW` rather than calling `readFile`
+    // (symlink refusal, PR #2275 review finding 3) — so the assertion is on
+    // `open`. The property under test is unchanged and is what matters on an
+    // SMB mount: ONE filesystem round trip for the bytes, and specifically no
+    // `stat` and no `realpath`, each of which cost ~12 ms there uncached.
+    const openSpy = spyOn(fsp, 'open');
     const readFileSpy = spyOn(fsp, 'readFile');
     const statSpy = spyOn(fsp, 'stat');
     const realpathSpy = spyOn(fsp, 'realpath');
@@ -91,12 +98,16 @@ describe('GET /api/fs/thumb — cache hit is ONE fs op (#2258)', () => {
       expect(res.status).toBe(200);
       expect(res.headers.get('X-Thumb-Cache')).toBe('hit');
 
-      expect(readFileSpy).toHaveBeenCalledTimes(1);
-      expect(readFileSpy).toHaveBeenCalledWith(thumbPath);
+      expect(openSpy).toHaveBeenCalledTimes(1);
+      expect(openSpy).toHaveBeenCalledWith(thumbPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+      // Nothing else touches the filesystem: no second read of the thumb, and
+      // above all no metadata round trips.
+      expect(readFileSpy).not.toHaveBeenCalled();
       expect(statSpy).not.toHaveBeenCalled();
       expect(realpathSpy).not.toHaveBeenCalled();
       expect(mkdirSpy).not.toHaveBeenCalled();
     } finally {
+      openSpy.mockRestore();
       readFileSpy.mockRestore();
       statSpy.mockRestore();
       realpathSpy.mockRestore();
@@ -206,5 +217,37 @@ describe('GET /api/fs/thumb — cache hit is ONE fs op (#2258)', () => {
 
     const res = await get(txtPath);
     expect(res.status).toBe(415);
+  });
+
+  it('refuses a symlink planted AT the thumb path instead of serving its target', async () => {
+    // Second half of PR #2275 review finding 3. Anything able to write inside
+    // `.maple/thumbs/` — a real concern on an untrusted or shared library
+    // mount — could point `<hash>.avif` at any readable file and have this
+    // route hand back its bytes as `image/avif`. `readFile` follows symlinks,
+    // so the fast path opens with `O_NOFOLLOW`; against a plain `readFile`
+    // this test fails with 200 and the secret as the body.
+    const secret = join(tmp!, 'not-an-image.txt');
+    await writeFile(secret, 'SUPER-SECRET-NOT-AN-IMAGE');
+
+    const src = join(tmp!, 'planted.jpg');
+    await writeFile(src, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+    const thumbPath = resolveThumbPath(src);
+    await mkdir(dirname(thumbPath), { recursive: true });
+    await symlink(secret, thumbPath);
+
+    // Render is stubbed to fail so the request cannot fall through into a real
+    // decode — this asserts the FAST path refused, rather than a re-render
+    // happening to overwrite the symlink first.
+    const renderSpy = spyOn(imgdecodePool, 'renderImageThumbToFileViaPool').mockResolvedValue({
+      ok: false,
+      error: 'stubbed',
+    });
+    try {
+      const res = await get(src);
+      expect(res.status).not.toBe(200);
+      expect(await res.text()).not.toContain('SUPER-SECRET');
+    } finally {
+      renderSpy.mockRestore();
+    }
   });
 });

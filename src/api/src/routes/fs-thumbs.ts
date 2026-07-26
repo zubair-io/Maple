@@ -40,7 +40,8 @@
 // — not on every read here.
 
 import { Elysia, t } from 'elysia';
-import { readFile, mkdir } from 'node:fs/promises';
+import { readFile, mkdir, open } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { unlink } from 'node:fs/promises';
@@ -155,11 +156,32 @@ async function tryServeCachedThumb(
   if (!isDecodableRasterExt(lowerExt(resolved))) return null;
 
   const thumbPath = resolveThumbPath(resolved);
+  // `O_NOFOLLOW` so a symlink AT the thumb path is refused rather than
+  // followed (PR #2275 review, finding 3's second half). Otherwise anything
+  // able to write inside `.maple/thumbs/` — a real concern for an untrusted or
+  // shared library mount — could point `<hash>.avif` at any readable file and
+  // have this route serve its bytes under `Content-Type: image/avif`.
+  //
+  // It is a flag on the open this function already performs, so it costs no
+  // extra syscall and the one-operation-per-hit property is unchanged; an
+  // `lstat` guard would have cost a second round trip, which on the SMB mount
+  // this whole change exists for is ~12 ms.
+  //
+  // Only the FINAL component is protected — directory components are still
+  // followed, which is deliberate: `.maple/` legitimately lives under
+  // symlinked library roots. `ELOOP` (and any other open error) falls through
+  // to the miss path, which re-renders the thumb from source and overwrites
+  // whatever was there, so a planted symlink self-heals rather than wedging.
   let bytes: Buffer;
   try {
-    bytes = await readFile(thumbPath);
+    const handle = await open(thumbPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      bytes = await handle.readFile();
+    } finally {
+      await handle.close();
+    }
   } catch {
-    return null; // No cached thumb — fall through to the miss path.
+    return null; // No cached thumb (or a symlink) — fall through to the miss path.
   }
 
   // ETag from the bytes already in hand — free, no `stat(source)` round
