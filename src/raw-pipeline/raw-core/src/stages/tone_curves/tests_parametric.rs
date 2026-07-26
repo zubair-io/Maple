@@ -187,6 +187,7 @@ fn synthesised_curve_is_smooth_across_knot_boundaries() {
         let d2: Vec<f32> = d1.windows(2).map(|w| w[1] - w[0]).collect();
         let max_d1 = d1.iter().fold(0.0_f32, |a, b| a.max(b.abs()));
         let max_d2 = d2.iter().fold(0.0_f32, |a, b| a.max(b.abs()));
+        eprintln!("SMOOTHNESS {s:?}: max|Δ²y|/max|Δy| = {}", max_d2 / max_d1);
         assert!(
             max_d2 <= 0.05 * max_d1,
             "slope break for {s:?}: max|Δ²y| = {max_d2}, max|Δy| = {max_d1}"

@@ -156,10 +156,20 @@ Authoritative source: `ADJUSTMENT_SCHEMA` in `src/raw-pipeline/raw-core/src/type
 | Shadows               | `shadows`                         | -100 … +100    | 0       | scene_tone_controls                               |
 | Whites                | `whites`                          | -100 … +100    | 0       | scene_tone_controls                               |
 | Blacks                | `blacks`                          | -100 … +100    | 0       | scene_tone_controls                               |
-| Parametric Highlights | `parametric_highlights`           | -100 … +100    | 0       | tone_curves                                       |
-| Parametric Lights     | `parametric_lights`               | -100 … +100    | 0       | tone_curves                                       |
-| Parametric Darks      | `parametric_darks`                | -100 … +100    | 0       | tone_curves                                       |
-| Parametric Shadows    | `parametric_shadows`              | -100 … +100    | 0       | tone_curves                                       |
+| Parametric Highlights | `parametric_highlights`           | -100 … +100    | 0       | tone_curves (region centre +3 stops re midgrey)   |
+| Parametric Lights     | `parametric_lights`               | -100 … +100    | 0       | tone_curves (region centre +1 stop re midgrey)    |
+| Parametric Darks      | `parametric_darks`                | -100 … +100    | 0       | tone_curves (region centre -1 stop re midgrey)    |
+| Parametric Shadows    | `parametric_shadows`              | -100 … +100    | 0       | tone_curves (region centre -3 stops re midgrey)   |
+
+The four parametric region sliders share one synthesised curve. Their regions
+live on ACR's `[0, 100]` PV2012 axis, which Maple anchors to scene exposure:
+axis 50 is midgrey and one stop is 12.5 axis units, so the default split points
+(25 / 50 / 75) fall at -2 stops, midgrey and +2 stops, and each slider's peak
+effect lands at the centre of its own region. A slider at `±100` moves its
+region by half a stop and is inert at every other region's centre. The
+construction, the monotonicity bound and the reason the knots sit where they do
+are in `raw-core/src/stages/tone_curves/parametric.rs`; #368 calibrates the
+half-stop amplitude against ACR.
 | Vibrance              | `vibrance`                        | -100 … +100    | 0       | vibrance                                          |
 | Saturation            | `saturation`                      | -100 … +100    | 0       | saturation                                        |
 | Clarity               | `clarity`                         | -100 … +100    | 0       | clarity                                           |
