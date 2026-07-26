@@ -12,9 +12,6 @@ import type {
   EnrichmentConfigResponse,
 } from '@maple-common';
 
-// Stub the WS events service so the component renders from a `workers-status`
-// frame (#674) without opening a real socket. The Subject lets each test push a
-// status update ({ status, counted }) deterministically.
 const wsFrames = new Subject<WorkersStatusUpdate>();
 const workerEventsStub: Pick<WorkerEventsService, 'workersStatus$'> = {
   workersStatus$: wsFrames.asObservable(),
@@ -118,6 +115,12 @@ const MOCK_ENRICHMENT: EnrichmentConfigResponse = {
   face_min_detection_size: 0.06,
   meilisearch_url: null,
   meilisearch_api_key_set: false,
+  meilisearch_task_timeout_seconds: 600,
+  meilisearch_semantic_enabled: false,
+  meilisearch_embedder_url: 'http://localhost:11434',
+  meilisearch_embedder_model: 'bge-m3',
+  meilisearch_semantic_ratio: 0.5,
+  service_search_rate_limit_per_minute: 60,
   source: {
     nominatim_url: 'unset',
     geocode_worker_enabled: 'default',
@@ -138,6 +141,12 @@ const MOCK_ENRICHMENT: EnrichmentConfigResponse = {
     face_min_detection_size: 'default',
     meilisearch_url: 'unset',
     meilisearch_api_key: 'unset',
+    meilisearch_task_timeout_seconds: 'default',
+    meilisearch_semantic_enabled: 'default',
+    meilisearch_embedder_url: 'default',
+    meilisearch_embedder_model: 'default',
+    meilisearch_semantic_ratio: 'default',
+    service_search_rate_limit_per_minute: 'default',
   },
 };
 
@@ -188,14 +197,7 @@ describe('WorkersComponent', () => {
   const MOCK_PRUNE = { hours: 24 };
 
   function initWithMock(): void {
-    // ngOnInit subscribes to the WS stream and fires four GETs: the one-shot
-    // HTTP status fallback (#674), the enrichment config, the missing-reaper
-    // prune window, and the performance config (#673). Push the status frame
-    // over the WS stub so it drives rendering; flush all four GETs (the status
-    // fallback is ignored once the WS frame lands) so
-    // HttpTestingController.verify() is satisfied at teardown.
     fixture.detectChanges();
-    // A counted frame is authoritative and suppresses the HTTP fallback.
     wsFrames.next({ status: MOCK_STATUS, counted: true });
     http.expectOne('/api/workers/status').flush(MOCK_STATUS);
     http.expectOne('/api/enrichment/config').flush(MOCK_ENRICHMENT);
@@ -205,11 +207,6 @@ describe('WorkersComponent', () => {
     fixture.detectChanges();
   }
 
-  /** Flush the one-shot GETs the side panels fire on init, so
-   * HttpTestingController.verify() is satisfied at teardown:
-   *   - Migrations panel (#748): the registry list.
-   *   - Imports group (#761): the library-label fetch + the job list.
-   *   - Backup (mirror) panel: the library list (a SECOND /api/folders) + queue status. */
   function flushPanelPolls(): void {
     http.expectOne('/api/workers/migration/migrations').flush({ migrations: [] });
     // Both the Imports group and the embedded Backup (mirror) panel fetch /api/folders.
@@ -371,9 +368,7 @@ describe('WorkersComponent', () => {
     fixture.detectChanges();
 
     const rows = fixture.nativeElement.querySelectorAll('[data-testid="worker-row"]');
-    // MOCK_STATUS has 4 stages (hash/preview/face-detect/describe); the uncounted
-    // cheap snapshot is replaced by the fallback, so all 4 render. (The `3`
-    // here predated the `preview` stage being added to MOCK_STATUS.)
+    // The cheap snapshot is replaced by the fallback, so all four stages render.
     expect(rows.length).toBe(4);
     const hashRow = Array.from<HTMLElement>(rows).find((r) => r.textContent?.includes('hash'))!;
     // Real configured value from the fallback, not the cheap snapshot's 0.

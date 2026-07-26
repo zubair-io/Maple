@@ -10,11 +10,15 @@ export async function initializeHttpSearch(): Promise<void> {
   try {
     const resolved = resolveEnrichmentConfig(await loadEnrichmentConfig());
     configureServiceSearchRateLimit(resolved.service_search_rate_limit_per_minute);
-    reconfigureMeilisearch(
-      resolved.meilisearch_url,
-      resolved.meilisearch_api_key,
-      resolved.meilisearch_task_timeout_seconds * 1000,
-    );
+    reconfigureMeilisearch({
+      url: resolved.meilisearch_url,
+      apiKey: resolved.meilisearch_api_key,
+      taskTimeoutMs: resolved.meilisearch_task_timeout_seconds * 1000,
+      semanticEnabled: resolved.meilisearch_semantic_enabled,
+      embedderUrl: resolved.meilisearch_embedder_url,
+      embedderModel: resolved.meilisearch_embedder_model,
+      semanticRatio: resolved.meilisearch_semantic_ratio,
+    });
     const client = meilisearchClient();
     if (!client.isConfigured()) {
       log.info('Meilisearch URL unset — search sidecar disabled');

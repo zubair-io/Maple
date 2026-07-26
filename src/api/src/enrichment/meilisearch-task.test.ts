@@ -122,7 +122,7 @@ describe('Meilisearch asynchronous tasks', () => {
         {
           method: 'GET',
           pathPrefix: `/indexes/${ASSETS_INDEX}/settings/embedders`,
-          body: { caption: { source: 'ollama', model: 'nomic-embed-text' } },
+          body: { caption: { source: 'ollama', model: 'bge-m3' } },
         },
         {
           method: 'GET',
