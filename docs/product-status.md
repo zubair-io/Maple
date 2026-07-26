@@ -196,7 +196,7 @@ The scopes and presets work shipped; the remaining gap is panel UI for curves, w
 | Feature                                           | Status      | Notes                                                                                                                              |
 | ------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | Panorama stitching                                | Built       | Rust `pano` crate + `RustPanoStitcher.swift`, `PanoMergeView.swift`. Spec backlog is milestone 08                                  |
-| Masking — linear and radial gradients             | Core only   | `types/local_adjustment/mod.rs`, `stages/local_adjustments/`, wired into the chain. No UI on either surface (#355 Apple, #356 web) |
+| Masking — linear and radial gradients             | Core only   | `types/local_adjustment/mod.rs`, `stages/local_adjustments/`, wired into the chain on both the CPU and the wgpu/WGSL live path (#1698). No UI on either surface (#355 Apple, #356 web) |
 | Masking — brush                                   | Not started | #360                                                                                                                               |
 | Masking — AI subject / sky                        | Not started | #361                                                                                                                               |
 | Masking — range (color / luminance / depth)       | Not started | #362                                                                                                                               |
