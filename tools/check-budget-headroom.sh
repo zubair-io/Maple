@@ -54,7 +54,10 @@ usage() {
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ALLOWLIST="$SCRIPT_DIR/budget-allowlist.txt"
+# Overridable so the self-test can point at a throwaway allowlist. An
+# unconditional assignment here silently ignored the override and made the
+# self-test read the real repo allowlist instead.
+ALLOWLIST="${ALLOWLIST:-$SCRIPT_DIR/budget-allowlist.txt}"
 
 # Mirrors check-file-budget.sh: strip inline `#` comments and surrounding space,
 # skip blanks and full-line comments.
@@ -71,7 +74,11 @@ is_allowlisted() {
 }
 
 is_source_path() {
+  # Paths are repo-relative, so a top-level `node_modules/x.ts` has no leading
+  # segment for `*/node_modules/*` to match — each pattern needs a bare form too.
   case "$1" in
+    node_modules/* | target/* | vendor/* | dist/* | .angular/* | \
+      .build/* | DerivedData/* | pkg/*) return 1 ;;
     */node_modules/* | */target/* | */vendor/* | */dist/* | */.angular/* | \
       */.build/* | */DerivedData/* | */pkg/*) return 1 ;;
   esac
@@ -99,7 +106,8 @@ lines_at_rev() {
 }
 
 run_check() {
-  local base="$1" merge_base violations=0 path head_lines base_lines
+  local base="$1" merge_base violations=0
+  local status path base_path head_lines base_lines
 
   # Compare against the merge base, not the branch tip, so commits that landed
   # on the base after this branch forked are not attributed to this PR.
@@ -108,7 +116,34 @@ run_check() {
     return 0
   fi
 
-  while IFS= read -r path; do
+  # `-z --name-status`, not `--name-only`, for two reasons:
+  #
+  #   * Renames. `--name-only` prints only the NEW path, which does not exist at
+  #     the merge base, so `git mv` on a large file measured it against 0 and
+  #     failed the PR — blocking exactly the move-and-split refactors this gate
+  #     exists to encourage. `--name-status` carries the old path, so a rename is
+  #     compared against the file it came from. A copy (C) has no single origin
+  #     and is genuinely a new large file, so it stays measured against 0.
+  #   * Quoting. Without `-z`, git C-quotes any path with non-ASCII bytes
+  #     (`"caf\303\251.ts"`), `read -r` keeps the literal quotes, `[[ -f ]]`
+  #     fails, and the file is skipped — a SILENT bypass of the whole gate.
+  #
+  # -z record shape: `STATUS\0path\0` and, for R/C, `STATUS\0old\0new\0`.
+  while IFS= read -r -d '' status; do
+    IFS= read -r -d '' path || break
+    case "$status" in
+      R*)
+        base_path="$path"
+        IFS= read -r -d '' path || break
+        ;;
+      C*)
+        # Copy: the source still exists, so the new path really is new content.
+        IFS= read -r -d '' path || break
+        base_path=''
+        ;;
+      *) base_path="$path" ;;
+    esac
+
     [[ -z "$path" ]] && continue
     is_source_path "$path" || continue
     # NOT `is_allowlisted ... && continue`: that compound evaluates to 1 for the
@@ -120,13 +155,17 @@ run_check() {
     head_lines="$(wc -l <"$path" | tr -d ' ')"
     (( head_lines > WARN_AT )) || continue
 
-    base_lines="$(lines_at_rev "$path" "$merge_base")"
+    if [[ -n "$base_path" ]]; then
+      base_lines="$(lines_at_rev "$base_path" "$merge_base")"
+    else
+      base_lines=0
+    fi
     (( head_lines > base_lines )) || continue
 
     printf 'ERROR %s — %s lines (was %s; headroom threshold: %s, hard limit: %s)\n' \
       "$path" "$head_lines" "$base_lines" "$WARN_AT" "$HARD_LIMIT" >&2
     violations=$((violations + 1))
-  done < <(git diff --name-only --diff-filter=ACMR "$merge_base"...HEAD)
+  done < <(git -c core.quotePath=false diff -z --name-status --diff-filter=ACMR "$merge_base"...HEAD)
 
   {
     echo ""
@@ -153,23 +192,35 @@ self_test() {
   git -C "$tmp" config user.email t@t.t
   git -C "$tmp" config user.name t
 
-  # Base: one already-large file, one small file.
+  # Base: one already-large file, one small file, and a large file that HEAD
+  # will merely rename.
   seq 1 580 | sed 's/^/\/\/ /' >"$tmp/big.ts"
   seq 1 100 | sed 's/^/\/\/ /' >"$tmp/small.ts"
+  seq 1 580 | sed 's/^/\/\/ /' >"$tmp/moved-from.ts"
   git -C "$tmp" add -A
   git -C "$tmp" commit -qm base
   git -C "$tmp" branch -q base-ref
 
   # Head: grow the small file past the threshold (must FAIL), shrink the big
-  # one (must pass), and add an untouched-by-us large file (must FAIL).
+  # one (must pass), add an untouched-by-us large file (must FAIL), rename a
+  # large file with no content change (must PASS — regression guard for the
+  # `--name-only` bug that measured the new path against 0), and add a large
+  # file whose name is non-ASCII (must FAIL — regression guard for the C-quoting
+  # bypass, where the quoted path failed `[[ -f ]]` and was skipped silently).
   seq 1 575 | sed 's/^/\/\/ /' >"$tmp/small.ts"
   seq 1 575 | sed 's/^/\/\/ /' >"$tmp/big.ts"
   seq 1 590 | sed 's/^/\/\/ /' >"$tmp/brand-new.ts"
+  seq 1 590 | sed 's/^/\/\/ /' >"$tmp/café.ts"
+  git -C "$tmp" mv moved-from.ts moved-to.ts
   git -C "$tmp" add -A
   git -C "$tmp" commit -qm head
 
+  # Empty allowlist, so the fixture is judged on its own terms rather than
+  # against whatever the real repo happens to exempt.
+  : >"$tmp/empty-allowlist.txt"
   local out
-  out="$(cd "$tmp" && ALLOWLIST=/nonexistent bash "$SCRIPT_DIR/check-budget-headroom.sh" base-ref 2>&1)" || true
+  out="$(cd "$tmp" && ALLOWLIST="$tmp/empty-allowlist.txt" \
+    bash "$SCRIPT_DIR/check-budget-headroom.sh" base-ref 2>&1)" || true
 
   assert_contains() {
     if ! grep -q "$1" <<<"$out"; then
@@ -184,9 +235,22 @@ self_test() {
     fi
   }
 
-  assert_contains 'ERROR small.ts'      # grown 100 -> 575, past threshold
-  assert_contains 'ERROR brand-new.ts'  # new file introduced above threshold
-  assert_absent 'ERROR big.ts'          # 580 -> 575, shrank: allowed
+  assert_contains 'ERROR small.ts'     # grown 100 -> 575, past threshold
+  assert_contains 'ERROR brand-new.ts' # new file introduced above threshold
+  assert_contains 'ERROR café.ts'      # non-ASCII path must not be skipped
+  assert_absent 'ERROR big.ts'         # 580 -> 575, shrank: allowed
+  assert_absent 'ERROR moved-to.ts'    # pure rename, no content change: allowed
+
+  # The allowlist override must actually take effect — if the script ignores it
+  # the fixture is silently judged against the real repo's allowlist.
+  local allowlisted_out
+  printf 'small.ts\n' >"$tmp/one-entry-allowlist.txt"
+  allowlisted_out="$(cd "$tmp" && ALLOWLIST="$tmp/one-entry-allowlist.txt" \
+    bash "$SCRIPT_DIR/check-budget-headroom.sh" base-ref 2>&1)" || true
+  if grep -q 'ERROR small.ts' <<<"$allowlisted_out"; then
+    echo "FAIL: ALLOWLIST override ignored — small.ts should have been exempt" >&2
+    failures=$((failures + 1))
+  fi
 
   if (( failures == 0 )); then
     echo "check-budget-headroom self-test: PASS"
