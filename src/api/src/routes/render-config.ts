@@ -14,12 +14,12 @@
  * handled.
  */
 
-import { Elysia, t } from 'elysia';
+import { Elysia, t } from "elysia";
 import {
   loadRenderConfig,
   resolveRenderConfig,
   saveRenderConfig,
-} from '../render/render-config.repo.ts';
+} from "../render/render-config.repo.ts";
 
 const ConfigBody = t.Object({
   /** Web GPU live-render ramp/kill. `null` clears back to the built-in
@@ -27,13 +27,13 @@ const ConfigBody = t.Object({
   gpu_live_render_enabled: t.Optional(t.Union([t.Boolean(), t.Null()])),
 });
 
-export const renderConfigRoutes = new Elysia({ prefix: '/api/render' })
-  .get('/config', async () => {
+export const renderConfigRoutes = new Elysia({ prefix: "/api/render" })
+  .get("/config", async () => {
     return resolveRenderConfig(await loadRenderConfig());
   })
 
   .put(
-    '/config',
+    "/config",
     async ({ body }) => {
       await saveRenderConfig({
         ...(body.gpu_live_render_enabled !== undefined

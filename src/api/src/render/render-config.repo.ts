@@ -17,10 +17,10 @@
  * threaded-CPU `render_bytes` fallback accordingly.
  */
 
-import { getDb } from '../db/client.ts';
+import { getDb } from "../db/client.ts";
 
-const COLL = 'app_settings';
-const DOC_ID = 'render';
+const COLL = "app_settings";
+const DOC_ID = "render";
 
 /**
  * Default for `gpu_live_render_enabled` when the operator has never saved a
@@ -49,7 +49,7 @@ interface RenderConfigDoc {
 export interface ResolvedRenderConfig {
   gpu_live_render_enabled: boolean;
   source: {
-    gpu_live_render_enabled: 'db' | 'default';
+    gpu_live_render_enabled: "db" | "default";
   };
 }
 
@@ -62,7 +62,9 @@ export interface ResolvedRenderConfig {
 export async function loadRenderConfig(): Promise<RenderConfig | null> {
   try {
     const db = await getDb();
-    const doc = await db.collection<RenderConfigDoc>(COLL).findOne({ _id: DOC_ID });
+    const doc = await db
+      .collection<RenderConfigDoc>(COLL)
+      .findOne({ _id: DOC_ID });
     return doc?.config ?? null;
   } catch {
     return null;
@@ -71,15 +73,19 @@ export async function loadRenderConfig(): Promise<RenderConfig | null> {
 
 /** Upsert. Partial patches are supported: only the fields you supply are
  * touched, the rest of the config doc is preserved. */
-export async function saveRenderConfig(patch: Partial<RenderConfig>): Promise<void> {
+export async function saveRenderConfig(
+  patch: Partial<RenderConfig>,
+): Promise<void> {
   const db = await getDb();
   const set: Record<string, unknown> = {
-    'config.updated_at': Date.now(),
+    "config.updated_at": Date.now(),
   };
   if (patch.gpu_live_render_enabled !== undefined) {
-    set['config.gpu_live_render_enabled'] = patch.gpu_live_render_enabled;
+    set["config.gpu_live_render_enabled"] = patch.gpu_live_render_enabled;
   }
-  await db.collection(COLL).updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
+  await db
+    .collection(COLL)
+    .updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
 }
 
 /**
@@ -87,11 +93,13 @@ export async function saveRenderConfig(patch: Partial<RenderConfig>): Promise<vo
  * row, `null`, a hand-edited non-boolean) falls back to the built-in default.
  * Pure function — no side effects, no env reads, easy to test.
  */
-export function resolveRenderConfig(db: RenderConfig | null): ResolvedRenderConfig {
+export function resolveRenderConfig(
+  db: RenderConfig | null,
+): ResolvedRenderConfig {
   const saved = db?.gpu_live_render_enabled;
-  const fromDb = typeof saved === 'boolean';
+  const fromDb = typeof saved === "boolean";
   return {
     gpu_live_render_enabled: fromDb ? saved : DEFAULT_GPU_LIVE_RENDER_ENABLED,
-    source: { gpu_live_render_enabled: fromDb ? 'db' : 'default' },
+    source: { gpu_live_render_enabled: fromDb ? "db" : "default" },
   };
 }
