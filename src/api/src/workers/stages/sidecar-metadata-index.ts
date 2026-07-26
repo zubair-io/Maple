@@ -33,6 +33,7 @@ import { parseYearMonth } from '../../metadata/override-resolver.ts';
 import type { MetadataOverride } from '../../db/schema.ts';
 import { coll, assetAbsPath } from '../../indexer/images.repo.ts';
 import { isLikelyScreenshot } from '../../indexer/screenshot.ts';
+import { isVideoFilename } from '../../indexer/media-types.ts';
 import { writeHiddenMarker, removeHiddenMarker } from '../../fs/hidden-marker.ts';
 import { cleanupR2ThumbForHiddenAsset } from '../../cloudflare/hidden-cleanup.ts';
 
@@ -137,19 +138,28 @@ export async function sidecarMetadataIndexHandler(
   patch['rating'] = override.rating ?? 0;
   patch['flag'] = override.flag === 'pick' ? 1 : override.flag === 'reject' ? -1 : 0;
   patch['color_label'] = override.color_label ?? '';
+  const primaryFile = image.fileinfo?.find((e) => !e.deleted_at);
+  const isVideo = !!primaryFile && isVideoFilename(primaryFile.filename);
+
   const nativeIsScreenshot = (() => {
     if (image.vision?.is_screenshot !== undefined && image.vision?.is_screenshot !== null) {
       return image.vision.is_screenshot;
     }
-    const primary = image.fileinfo?.find((e) => !e.deleted_at);
-    if (!primary) return false;
-    return isLikelyScreenshot(primary.filename, image.exif?.camera_make ?? null);
+    if (!primaryFile) return false;
+    return isLikelyScreenshot(primaryFile.filename, image.exif?.camera_make ?? null);
   })();
 
-  patch['is_screenshot'] =
+  const effectiveIsScreenshot =
     override.is_screenshot !== undefined && override.is_screenshot !== null
       ? override.is_screenshot
       : nativeIsScreenshot;
+
+  // `is_screenshot` is a stills-only concept (#2325). An explicit override
+  // stays in the sidecar untouched — XMP is the contract and it is the
+  // user's data — but the projected field that search, the facet counts, and
+  // the Photos/Screenshots filter read is clamped, so the invariant holds
+  // everywhere it is observable without discarding anything the user wrote.
+  patch['is_screenshot'] = isVideo ? false : effectiveIsScreenshot;
 
   // Hidden precedence: an explicit user override always wins. Absent an
   // override, the effective value is the prior hidden status.
