@@ -25,6 +25,7 @@ import { composeSearchBlob } from '../../enrichment/search-blob.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { peopleCollection } from '../../db/client.ts';
 import type { AssetFaceDoc, PersonDoc, VisionDoc } from '../../db/schema.ts';
+import { classifyMediaType } from '../../indexer/media-types.ts';
 
 /** Auto-generated cluster names ("Person 1", "Person 12", …). These are
  * placeholders, not real identities — folding them into the index would
@@ -132,6 +133,7 @@ export async function meiliHandler(image: ImageDoc, _ctx: StageContext): Promise
     }
     await client.upsertOrThrow({
       id: mapleId,
+      filename: primary.filename,
       searchBlob: blob,
       description: image.description ?? null,
       ocrText: (image as unknown as { ocr_text?: string }).ocr_text ?? null,
@@ -143,6 +145,8 @@ export async function meiliHandler(image: ImageDoc, _ctx: StageContext): Promise
       visionSubjects: vision?.subjects ?? null,
       isScreenshot,
       people: peopleNames.length > 0 ? peopleNames : null,
+      mediaType: classifyMediaType(primary.filename),
+      hidden: image.hidden === true,
     });
   }
 
@@ -172,10 +176,13 @@ const meiliStage = defineStage({
   // `Person N` clusters + merged rows) into both the search_blob and the
   // Meilisearch document's `people` searchable+filterable attribute.
   // Bumping re-indexes everything so v5 rows learn the people tokens.
-  targetVersion: 6,
-  // Only depends on always-on stages. When optional stages (face/ocr/describe/geocode)
-  // run later, meili won't automatically re-process to incorporate their outputs.
-  // Operator must bump meili.targetVersion or trigger a manual reset to refresh.
+  //
+  // v7: adds the highest-weight filename plus mediaType and hidden filter
+  // fields used by the Maple-owned service-search contract.
+  targetVersion: 7,
+  // Only depends on always-on stages so search is available early. Optional
+  // semantic sources explicitly invalidate this stage when their output
+  // changes (describe/OCR, geocode, transcript, people, sidecar metadata).
   dependsOn: ['exif', 'thumb'],
   defaults: {
     concurrency: 2,

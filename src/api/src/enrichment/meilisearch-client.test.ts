@@ -150,10 +150,7 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     expect(calls[1]!.method).toBe('PATCH');
     expect(calls[1]!.url).toContain(`/indexes/${ASSETS_INDEX}/settings`);
     expect(calls[1]!.body).toEqual({
-      // v2 — per-attribute weighting across the sources (place metadata,
-      // LLM caption, named people, OCR'd text). Order is the weighting
-      // order Meilisearch applies.
-      searchableAttributes: ['searchBlob', 'description', 'people', 'ocrText'],
+      searchableAttributes: ['filename', 'searchBlob', 'description', 'people', 'ocrText'],
       filterableAttributes: [
         'folderId',
         'deletedAt',
@@ -162,6 +159,8 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
         'visionSubjects',
         'isScreenshot',
         'people',
+        'mediaType',
+        'hidden',
       ],
       sortableAttributes: ['capturedAt'],
     });
@@ -356,7 +355,9 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     expect(body.q).toBe('Musum');
     expect(body.offset).toBe(0);
     expect(body.limit).toBe(50);
-    expect(body.filter).toBe('deletedAt IS NULL AND folderId = "0123456789abcdef01234567"');
+    expect(body.filter).toBe(
+      'deletedAt IS NULL AND (hidden IS NULL OR hidden = false) AND folderId = "0123456789abcdef01234567"',
+    );
   });
 
   it('search() with no folderId only filters deletedAt', async () => {
@@ -376,7 +377,7 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     });
     await client.search('Park');
     const body = calls[0]!.body as Record<string, unknown>;
-    expect(body.filter).toBe('deletedAt IS NULL');
+    expect(body.filter).toBe('deletedAt IS NULL AND (hidden IS NULL OR hidden = false)');
   });
 
   it('search() throws on transport error so the route can fall back', async () => {
@@ -435,7 +436,9 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
       folderId: 'abc" OR x=z --',
     });
     const body = calls[0]!.body as Record<string, unknown>;
-    expect(body.filter).toBe('deletedAt IS NULL AND folderId = "abc"');
+    expect(body.filter).toBe(
+      'deletedAt IS NULL AND (hidden IS NULL OR hidden = false) AND folderId = "abc"',
+    );
   });
 
   it('search() adds a hybrid block only when semantic is on AND requested', async () => {
@@ -501,7 +504,95 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     });
     const body = calls[0]!.body as Record<string, unknown>;
     // Quotes inside a name are escaped so the filter expression stays valid.
-    expect(body.filter).toBe('deletedAt IS NULL AND people IN ["Greyson", "Maya \\"Mae\\" Smith"]');
+    expect(body.filter).toBe(
+      'deletedAt IS NULL AND (hidden IS NULL OR hidden = false) AND people IN ["Greyson", "Maya \\"Mae\\" Smith"]',
+    );
+  });
+
+  it('search() supports media filters and explicit hidden inclusion', async () => {
+    const { fetchImpl, calls } = makeFakeFetch({
+      routes: [
+        {
+          method: 'POST',
+          pathPrefix: `/indexes/${ASSETS_INDEX}/search`,
+          status: 200,
+          body: { hits: [], estimatedTotalHits: 0 },
+        },
+      ],
+    });
+    const client = createMeilisearchClient({
+      url: 'http://meili.local:7700',
+      fetchImpl,
+    });
+    await client.search('installation', {
+      mediaTypes: ['video', 'audio', 'video'],
+      includeHidden: true,
+    });
+    const body = calls[0]!.body as Record<string, unknown>;
+    expect(body.filter).toBe('deletedAt IS NULL AND mediaType IN ["video", "audio"]');
+  });
+
+  it('search() returns ranking scores without dropping lexical-only hits', async () => {
+    const { fetchImpl } = makeFakeFetch({
+      routes: [
+        {
+          method: 'POST',
+          pathPrefix: `/indexes/${ASSETS_INDEX}/search`,
+          status: 200,
+          body: {
+            hits: [{ id: 'semantic', _rankingScore: 0.91 }, { id: 'exact-lexical' }],
+            estimatedTotalHits: 2,
+          },
+        },
+      ],
+    });
+    const client = createMeilisearchClient({
+      url: 'http://meili.local:7700',
+      fetchImpl,
+      semantic: true,
+    });
+    const result = await client.search('HVAC air conditioning installation', { semantic: true });
+    expect(result.ids).toEqual(['semantic', 'exact-lexical']);
+    expect(result.scores).toEqual({ semantic: 0.91 });
+  });
+
+  it('semanticStatus() reports live embedder and vector coverage inputs', async () => {
+    const { fetchImpl } = makeFakeFetch({
+      routes: [
+        { method: 'GET', pathPrefix: '/health', status: 200, body: { status: 'available' } },
+        {
+          method: 'GET',
+          pathPrefix: `/indexes/${ASSETS_INDEX}/settings/embedders`,
+          status: 200,
+          body: { caption: { source: 'ollama', model: 'nomic-embed-text' } },
+        },
+        {
+          method: 'GET',
+          pathPrefix: `/indexes/${ASSETS_INDEX}/stats`,
+          status: 200,
+          body: { numberOfDocuments: 10, numberOfEmbeddedDocuments: 7, isIndexing: true },
+        },
+        {
+          method: 'POST',
+          pathPrefix: `/indexes/${ASSETS_INDEX}/search`,
+          status: 200,
+          body: { hits: [], estimatedTotalHits: 0 },
+        },
+      ],
+    });
+    const client = createMeilisearchClient({
+      url: 'http://meili.local:7700',
+      fetchImpl,
+      semantic: true,
+    });
+    const status = await client.semanticStatus!();
+    expect(status.meilisearchReachable).toBe(true);
+    expect(status.embedderConfigured).toBe(true);
+    expect(status.embedderReachable).toBe(true);
+    expect(status.indexedDocumentCount).toBe(10);
+    expect(status.vectorizedDocumentCount).toBe(7);
+    expect(status.isIndexing).toBe(true);
+    expect(status.error).toBeNull();
   });
 
   it('isConfigured() reports true when URL is set via override', () => {

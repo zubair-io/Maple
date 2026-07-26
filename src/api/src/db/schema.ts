@@ -1275,6 +1275,27 @@ export interface RefreshTokenDoc {
 }
 
 // ---------------------------------------------------------------------------
+// Service API keys (Maple-owned machine-to-machine contracts)
+// ---------------------------------------------------------------------------
+
+export type ServiceApiScope = 'assets:search';
+
+export interface ServiceApiKeyDoc {
+  /** Public, non-secret lookup/audit identifier embedded in the key prefix. */
+  key_id: string;
+  /** Human label used to distinguish overlapping keys during rotation. */
+  name: string;
+  /** SHA-256 of the high-entropy secret. Plaintext is never persisted. */
+  secret_hash: string;
+  scopes: ServiceApiScope[];
+  created_at: string;
+  created_by: ObjectId;
+  expires_at: Date | null;
+  revoked_at: string | null;
+  last_used_at: string | null;
+}
+
+// ---------------------------------------------------------------------------
 // WebAuthn challenge (5-min TTL)
 // ---------------------------------------------------------------------------
 

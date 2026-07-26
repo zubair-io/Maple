@@ -85,6 +85,13 @@ export function isAudioFilename(filename: string): boolean {
   return AUDIO_EXTS.has(path.extname(filename).toLowerCase());
 }
 
+/** Stable coarse media class used by the Maple-owned asset-search contract. */
+export function classifyMediaType(filename: string): 'image' | 'video' | 'audio' {
+  if (isVideoFilename(filename)) return 'video';
+  if (isAudioFilename(filename)) return 'audio';
+  return 'image';
+}
+
 /**
  * True when `filename` is a format for which NO still frame can ever be
  * produced — a stub image (no decoder exists) or audio (no visual content at
