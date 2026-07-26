@@ -324,7 +324,11 @@ async function tryMeilisearchLexical(
   startedAt: number,
   fallback: FallbackReason | null,
   fallbackDetails: MeilisearchFailureDetails | null,
-): Promise<CompletedSearch | null> {
+): Promise<{
+  response: CompletedSearch | null;
+  fallback: FallbackReason | null;
+  details: MeilisearchFailureDetails | null;
+}> {
   try {
     const result = await meili.search(context.query, {
       semantic: false,
@@ -332,21 +336,34 @@ async function tryMeilisearchLexical(
       includeHidden: context.includeHidden,
       mediaTypes: context.mediaTypes,
     });
-    return finishSearch(
-      identity,
-      startedAt,
-      context.modeRequested,
-      'lexical',
+    return {
+      response: finishSearch(
+        identity,
+        startedAt,
+        context.modeRequested,
+        'lexical',
+        fallback,
+        result,
+        fallbackDetails,
+      ),
       fallback,
-      result,
-      fallbackDetails,
-    );
+      details: fallbackDetails,
+    };
   } catch (error) {
     log.warn(
       { keyId: identity.keyId, err: error instanceof Error ? error.message : String(error) },
       'meilisearch lexical query failed; falling back to mongo',
     );
-    return null;
+    const details =
+      error instanceof MeilisearchSearchError
+        ? error.details
+        : {
+            status: null,
+            code: null,
+            type: null,
+            message: error instanceof Error ? error.message : String(error),
+          };
+    return { response: null, fallback: 'meilisearch_query_failed', details };
   }
 }
 
@@ -373,8 +390,9 @@ async function executeSearch(
       fallbackReason,
       fallbackDetails,
     );
-    if (lexical) return lexical;
-    fallbackReason = fallbackReason ?? 'meilisearch_query_failed';
+    if (lexical.response) return lexical.response;
+    fallbackReason = lexical.fallback;
+    fallbackDetails = lexical.details;
   } else {
     fallbackReason = 'meilisearch_unavailable';
   }
