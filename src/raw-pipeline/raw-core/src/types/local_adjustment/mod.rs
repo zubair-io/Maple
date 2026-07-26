@@ -26,8 +26,10 @@
 //! the same XMP renders identically against full-res and downsampled
 //! buffers.
 
+pub mod flat;
 mod wire;
 
+pub use flat::{layers_from_flat, layers_to_flat, LAYER_FLAT_LEN};
 pub use wire::{decode_local_adjustments, encode_local_adjustments};
 
 /// A subset of `AdjustmentModel` that may be applied locally (within a mask).
