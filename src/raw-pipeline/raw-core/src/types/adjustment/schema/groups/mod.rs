@@ -247,6 +247,14 @@ const DETAIL_FIELDS: &[&str] = &[
     "chroma_prefilter",
     "hot_pixel_suppression",
     "deep_denoise",
+    // DNG-embedded lens corrections (#376) — decode-product parameters in
+    // the same cache-key family as `chroma_prefilter` / `deep_denoise` /
+    // `hot_pixel_suppression` above (see the struct doc comment on
+    // `lens_profile_enable`), so they travel with the same group.
+    "lens_profile_enable",
+    "lens_correction_distortion",
+    "lens_correction_ca",
+    "lens_correction_vignetting",
 ];
 
 /// Vignette (#1109) and grain (#1110).
