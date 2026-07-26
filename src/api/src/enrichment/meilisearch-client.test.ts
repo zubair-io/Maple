@@ -150,6 +150,7 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     expect(calls[1]!.method).toBe('PATCH');
     expect(calls[1]!.url).toContain(`/indexes/${ASSETS_INDEX}/settings`);
     expect(calls[1]!.body).toEqual({
+      embedders: null,
       searchableAttributes: ['filename', 'searchBlob', 'description', 'people', 'ocrText'],
       filterableAttributes: [
         'folderId',
@@ -164,9 +165,9 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
       ],
       sortableAttributes: ['capturedAt'],
     });
-    // Semantic switch OFF (default) — no embedders block, no
-    // experimental-features call.
-    expect((calls[1]!.body as Record<string, unknown>).embedders).toBeUndefined();
+    // Semantic switch OFF (default) — explicitly reset any previously
+    // configured embedder; omission would preserve it on a settings PATCH.
+    expect((calls[1]!.body as Record<string, unknown>).embedders).toBeNull();
     expect(calls.some((c) => c.url.includes('/experimental-features'))).toBe(false);
   });
 
