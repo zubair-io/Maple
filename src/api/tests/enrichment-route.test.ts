@@ -479,11 +479,17 @@ describe('PUT /api/enrichment/config — semantic search', () => {
     const reset = await put('/api/enrichment/config', {
       nominatim_url: null,
       geocode_worker_enabled: false,
+      meilisearch_embedder_url: null,
       meilisearch_embedder_model: '   ',
     });
+    expect(reset.status).toBe(200);
     expect(reset.body).toMatchObject({
+      meilisearch_embedder_url: 'http://localhost:11434',
       meilisearch_embedder_model: 'bge-m3',
-      source: { meilisearch_embedder_model: 'default' },
+      source: {
+        meilisearch_embedder_url: 'default',
+        meilisearch_embedder_model: 'default',
+      },
     });
   });
 

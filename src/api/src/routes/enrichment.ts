@@ -318,7 +318,9 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
         return { error: taskTimeoutError };
       }
       let meiliEmbedderUrl: string | null | undefined;
-      if (body.meilisearch_embedder_url !== undefined) {
+      if (body.meilisearch_embedder_url === null) {
+        meiliEmbedderUrl = null;
+      } else if (body.meilisearch_embedder_url !== undefined) {
         const validatedEmbedder = validateHttpUrl(body.meilisearch_embedder_url);
         if (
           validatedEmbedder &&
