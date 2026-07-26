@@ -72,12 +72,16 @@ export class GpuLiveRenderSettingsComponent {
     if (next) void this.renderConfig.refresh();
   }
 
+  /** The collapsed row states what this browser is ACTUALLY doing, not what the
+   * operator last saved: a deployment whose build-time token is hard-off runs
+   * on the CPU whatever the saved value says, and a "GPU" pill there would be a
+   * lie. The saved value is what the checkbox and the provenance readout show. */
   protected statusLabel(): string {
-    return this.checked() ? 'GPU' : 'CPU fallback';
+    return this.localGpuEnabled() ? 'GPU' : 'CPU fallback';
   }
 
   protected statusColor(): string {
-    return this.checked() ? 'var(--s-ok)' : 'var(--s-text-dim)';
+    return this.localGpuEnabled() ? 'var(--s-ok)' : 'var(--s-text-dim)';
   }
 
   /** One-line provenance readout for the collapsed header. */
@@ -89,17 +93,21 @@ export class GpuLiveRenderSettingsComponent {
       : 'Default (no value saved)';
   }
 
-  /** Flip the switch and persist immediately. On success the refresh pushes
-   * the new value through the gate, so this tab's next image open already
-   * takes the new path instead of waiting for the poll. */
+  /** Flip the switch and persist immediately. The PUT response IS the newly
+   * resolved config, so it is adopted directly rather than re-read: that pushes
+   * the new value through the gate — this tab's next image open already takes
+   * the new path instead of waiting for the poll — and cannot be lost to a
+   * poll GET that happened to be in flight across the save. */
   protected async setEnabled(next: boolean): Promise<void> {
     if (this.saving()) return;
     this.saving.set(true);
     this.error.set(null);
     this.pending.set(next);
     try {
-      await firstValueFrom(this.backend.saveRenderConfig({ gpu_live_render_enabled: next }));
-      await this.renderConfig.refresh();
+      const saved = await firstValueFrom(
+        this.backend.saveRenderConfig({ gpu_live_render_enabled: next }),
+      );
+      this.renderConfig.adopt(saved);
     } catch (e) {
       this.error.set(errorMessage(e));
     } finally {

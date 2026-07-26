@@ -4,6 +4,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   API_BASE_URL,
+  GPU_LIVE_RENDER_ENABLED,
   GpuLiveRenderGate,
   STORAGE_KEYS,
   TypedStorage,
@@ -97,17 +98,43 @@ describe('GpuLiveRenderSettingsComponent (#1062)', () => {
     expect(put.request.body).toEqual({ gpu_live_render_enabled: false });
     put.flush(config(false));
     await tick();
-
-    // The save pushes a refresh through RenderConfigService, so the gate this
-    // tab's editor reads is already off — no waiting for the next poll.
-    http.expectOne(CONFIG_URL).flush(config(false));
-    await tick();
     fixture.detectChanges();
+
+    // The PUT response IS the newly resolved config, so it goes straight into
+    // RenderConfigService — no second GET, and nothing for an in-flight poll to
+    // overwrite. The gate this tab's editor reads is already off.
+    http.expectNone(CONFIG_URL);
 
     expect(TestBed.inject(GpuLiveRenderGate).enabled()).toBe(false);
     expect(el().querySelector('[data-testid="gpu-live-local"]')?.textContent).toContain(
       'CPU fallback',
     );
+  });
+
+  it('reports CPU fallback when the build-time token is hard-off, whatever is saved', async () => {
+    // The token is the last-resort deploy switch; the DB value can never lift
+    // it. The row must say what this browser does, not what the operator saved,
+    // or an operator reads "GPU" off a deployment running entirely on the CPU.
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [GpuLiveRenderSettingsComponent],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: API_BASE_URL, useValue: '/api' },
+        { provide: GPU_LIVE_RENDER_ENABLED, useValue: false },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(GpuLiveRenderSettingsComponent);
+    http = TestBed.inject(HttpTestingController);
+    fixture.detectChanges();
+
+    await expandRow(config(true));
+    expect(el().querySelector('[data-testid="gpu-live-status"]')?.textContent).toContain(
+      'CPU fallback',
+    );
+    // …while the checkbox still shows the saved value it is editing.
+    expect(box().checked).toBe(true);
   });
 
   it('snaps the checkbox back and surfaces the error when the save fails', async () => {

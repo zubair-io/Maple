@@ -46,6 +46,13 @@ export class RenderConfigService implements OnDestroy {
   private started = false;
   /** Guards against overlapping refreshes when one request runs long. */
   private inFlight = false;
+  /**
+   * Bumped by every write. A refresh captures it before its GET and drops the
+   * response if it changed meanwhile: the poll can easily have read the config
+   * a moment BEFORE a save landed, and applying that stale read afterwards
+   * would silently flip the switch back under the operator.
+   */
+  private writeGeneration = 0;
 
   /**
    * App-initializer entry point. Returns synchronously — the refresh is
@@ -66,17 +73,34 @@ export class RenderConfigService implements OnDestroy {
   async refresh(): Promise<void> {
     if (this.inFlight) return;
     this.inFlight = true;
+    const generation = this.writeGeneration;
     try {
       const cfg = await firstValueFrom(this.api.getRenderConfig());
+      if (generation !== this.writeGeneration) return; // superseded by a save
       this.config.set(cfg);
       this.lastError.set(null);
       this.gate.apply(cfg.gpu_live_render_enabled);
     } catch (err) {
       // Signed out, offline, or a server blip. The gate keeps whatever it had.
+      if (generation !== this.writeGeneration) return;
       this.lastError.set(errorMessage(err));
     } finally {
       this.inFlight = false;
     }
+  }
+
+  /**
+   * Adopt the config a `PUT /api/render/config` just returned, as the settings
+   * page does after a save. Preferred over a follow-up `refresh()`: the write
+   * response IS the newly resolved config, so re-reading it costs a round trip
+   * and — because `refresh()` no-ops while the poll's GET is in flight — can
+   * silently leave this client on the value it had before the save.
+   */
+  adopt(cfg: RenderConfigResponse): void {
+    this.writeGeneration += 1;
+    this.config.set(cfg);
+    this.lastError.set(null);
+    this.gate.apply(cfg.gpu_live_render_enabled);
   }
 
   ngOnDestroy(): void {
