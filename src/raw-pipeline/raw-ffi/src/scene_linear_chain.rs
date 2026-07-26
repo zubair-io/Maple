@@ -3,10 +3,12 @@
 //! clarity → texture → dehaze → nr_luminance → AgX) into a single FFI
 //! call into the canonical Rust implementation.
 //!
-//! Sharpen + nr_color stay on the GPU (Metal compute) — they're too
-//! expensive on CPU to hit the per-tick budget. Everything else has CPU
-//! cost <2ms at viewport size and runs here so Rust is the single
-//! source of truth for those algorithms.
+//! Sharpen + nr_color used to stay on the Apple side's own Metal compute
+//! kernels because they're too expensive on CPU to hit the per-tick
+//! budget. Those kernels were deleted in #1043 (epic #925 P5b) — the
+//! wgpu/WGSL chain is the shipping GPU path now — so this chain carries
+//! them too, and Rust is the single source of truth for every stage in
+//! the chain rather than all-but-two.
 //!
 //! Caller-provided input and output buffers. Note: the FFI entry itself
 //! is a thin shim, but `raw_core::pipeline::apply_scene_linear_chain`
@@ -75,7 +77,7 @@ pub struct MapleAdjustmentParams {
     pub brightness: f32,
     /// Vignette amount — scene-linear radial EV gain, `[-100, 100]`
     /// (#1109, tone/zoom design § 10.1); negative darkens corners. Runs
-    /// after `local_adjustments`, before the (omitted) sharpen. Appended
+    /// after `local_adjustments`, before `sharpen`. Appended
     /// at the struct tail per the offset-stable ABI convention; an un-set
     /// tail field reads 0 = identity.
     pub vignette_amount: f32,
@@ -235,6 +237,23 @@ pub struct MapleAdjustmentParams {
     pub color_grade_global_hue: f32,
     pub color_grade_global_saturation: f32,
     pub color_grade_global_luminance: f32,
+    // --- sharpen + chroma NR (#1043) — the two spatial stages the chain
+    //     used to omit while the Apple shell re-applied them post-AgX with
+    //     its own Metal kernels. Those kernels are gone (epic #925 P5b), so
+    //     the chain now runs both at their canonical scene-linear positions
+    //     (`vignette` → `sharpen` → `nr_luminance` → `nr_color`), matching
+    //     `develop` and the wgpu/WGSL live chain. Appended at the struct
+    //     tail per the offset-stable ABI convention: a stale host leaves
+    //     every field 0, and both stages short-circuit at amount 0 — so
+    //     pre-#1043 callers keep bit-identical output. NOTE that 0 here is
+    //     deliberately NOT `AdjustmentModel::default()` (40 / 25): the
+    //     host must opt in explicitly, exactly as it does for every other
+    //     tail field. ---
+    pub sharpen_amount: f32,
+    pub sharpen_radius: f32,
+    pub sharpen_detail: f32,
+    pub sharpen_masking: f32,
+    pub nr_color: f32,
 }
 
 /// Run the cheap-stage scene-linear chain over a caller-provided fp16 RGBA
@@ -379,6 +398,15 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
     model.gray_mixer_purple = p.bw_mix_purple;
     model.gray_mixer_magenta = p.bw_mix_magenta;
     model.look = raw_core::view::look::Look::from(p.look_mode);
+    // Sharpen + chroma NR (#1043) — set EXPLICITLY from the params tail
+    // rather than left at `AdjustmentModel::default()` (40 / 25), so a host
+    // that predates the fields gets the identity short-circuit in both
+    // stages instead of a surprise sharpen at 40.
+    model.sharpen_amount = p.sharpen_amount;
+    model.sharpen_radius = p.sharpen_radius;
+    model.sharpen_detail = p.sharpen_detail;
+    model.sharpen_masking = p.sharpen_masking;
+    model.nr_color = p.nr_color;
 
     // Non-RAW WB contract (#1331 / #1734): for a non-RAW shape the uploaded
     // buffer is ALREADY at the correct linear Rec.2020 D65 white point (the
