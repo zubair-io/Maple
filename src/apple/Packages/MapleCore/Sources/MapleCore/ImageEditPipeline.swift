@@ -1,19 +1,26 @@
 // ImageEditPipeline.swift — scene-linear pipeline (spec § 02).
 //
 // Pipeline order (matches Rust `pipeline.rs:120-132`):
-//   1. RAW decode → Rust scene-linear FFI (Rec.2020 fp16)
-//   2. WhiteBalance kernel (live - decoded delta)
-//   3. SceneToneControls (exposure / highlights / shadows / whites / blacks)
-//   4. SceneVibrance (Oklab chroma boost with skin protection)
-//   5. SceneSaturation (Oklab uniform chroma scale)
-//   6. SceneClarity (40-px unsharp mask)
-//   7. SceneTexture (3-px unsharp mask)
-//   8. SceneDehaze (dark-channel + atmospheric-light + guided filter)
-//   9. SceneSharpen (3-iter Richardson-Lucy + edge-aware mix)
-//  10. SceneNRLuminance (Oklab roundtrip + blur on L)
-//  11. SceneNRColor (Oklab roundtrip + blur on a/b)
-//  12. AgX view transform (sole display-domain op)
-//  13. sRGB encode at the CIContext.createCGImage boundary
+//   1. RAW decode → Rust scene-linear FFI (Rec.2020 f32)
+//   2. The Rust per-tick scene-linear chain, in one FFI call —
+//      white_balance (live − decoded delta) → scene_tone_controls →
+//      tone_curves → vibrance → saturation → hsl → clarity → texture →
+//      dehaze → local_adjustments → vignette → sharpen → nr_luminance →
+//      nr_color → AgX → split_tone → grain
+//   3. Display encode (Rec.2020 → sRGB, Oklab gamut compression + gamma)
+//   4. Auto Profile cube, the last display-space op
+//
+// Steps 2 and 3 fuse into a single FFI round trip whenever the #661 chain
+// cache would miss (`applyChainAndEncodeViaFusedFFI`).
+//
+// There are no hand-written Apple render kernels left. Each numbered stage
+// above was once its own Metal compute kernel here; the cheap scene-linear
+// nine were retired when the Rust FFI gained `apply_scene_linear_chain`,
+// and #1043 (epic #925 P5b) retired the last two spatial ones — sharpen
+// and nr_color — which had been running post-AgX in display-linear rather
+// than at the canonical scene-linear position above. Render math now lives
+// only in Rust (CPU) and WGSL (GPU). See `MetalKernels.swift`, which
+// survives solely as the bundled AgX-LUT parity oracle.
 //
 // The legacy `applyFilters` / `process` chain that operated on AgX-baked
 // sRGB u8 in the wrong working space was deleted in Plan 2 v2 v5 once
