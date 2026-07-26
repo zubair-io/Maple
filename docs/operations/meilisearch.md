@@ -93,12 +93,13 @@ The response reports:
 `true`. Indexed/vectorized counts are index-wide populations and can include
 tombstones, so do not treat their ratio to the live-Mongo count as a coverage
 percentage. During a backfill, hybrid search continues to return lexical-only
-documents while embeddings catch up.
+documents while embeddings catch up. The migration does not need to finish
+before hybrid search works; completed vectors become usable incrementally.
 
 ## Resumable backfill
 
 In **Settings → Workers → Migration**, enable **Backfill semantic-search
-index**. The migration worker sends bounded bulk tasks, stores a durable Mongo
+index**. The migration worker sends 500-asset bulk tasks, stores a durable Mongo
 cursor, and reports processed, remaining, and error counts in that panel. It
 automatically disables itself when complete. Pause it with the toggle; use
 **Reset** to clear its cursor and intentionally restart from the beginning.
@@ -176,8 +177,11 @@ curl -X POST \
 ```
 
 The response contains ordered `assetId`/`score` entries, `modeRequested`,
-`modeUsed`, `fallbackReason`, and `total`. Hidden and deleted assets are
-excluded by default. Keys are individually revocable and expirable, scoped to
+`modeUsed`, `fallbackReason`, `fallbackDetails`, and `total`. On fallback,
+`fallbackDetails` contains the safe Meilisearch HTTP status, error code/type,
+and message—for example `invalid_search_embedder` when the configured embedder
+has not been registered. Hidden and deleted assets are excluded by default.
+Keys are individually revocable and expirable, scoped to
 `assets:search`, rate-limited, and logged by key ID/prefix without logging the
 secret or query. The endpoint accepts both HTTP and HTTPS so LAN integrations
 can connect directly; prefer HTTPS whenever requests cross an untrusted
@@ -197,7 +201,10 @@ Embedding capacity has three components:
   vectors, plus Meilisearch graph/index overhead;
 - temporary disk and CPU while Meilisearch processes backfill tasks.
 
-Start with a bounded backfill, watch the status endpoint and service memory,
-then increase `batchSize` only if indexing stays healthy. Keep the Meilisearch
-data volume backed up only for faster recovery; Mongo and XMP are the sources
-of truth, so a wiped search index can always be rebuilt.
+The Settings migration uses durable 500-asset tasks. Ollama inference is
+normally the limiting step; GPU acceleration and model throughput determine
+the completion time. For manual/admin backfills, start with a bounded batch,
+watch the status endpoint and service memory, then increase `batchSize` only if
+indexing stays healthy. Keep the Meilisearch data volume backed up only for
+faster recovery; Mongo and XMP are the sources of truth, so a wiped search
+index can always be rebuilt.
