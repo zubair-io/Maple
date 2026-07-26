@@ -17,9 +17,10 @@ pub(super) const REF_MAX: f32 = 4.0;
 /// and tangents pre-computed once, so the per-pixel evaluator does zero
 /// allocation.
 ///
-/// Build via [`prepare_curve`] (from a `ToneCurve`) or
-/// [`prepare_curve_from_slice`] (from a synthesised knot array, e.g. the
-/// parametric path's 5-knot polyline).
+/// Build via [`prepare_curve`] (from a `ToneCurve`, tangents estimated by
+/// Fritsch–Carlson) or [`prepare_curve_with_tangents`] (from a synthesised
+/// knot array whose analytic tangents the caller already knows — the
+/// parametric path).
 pub(super) struct PreparedCurve {
     /// Sorted, deduped, clamped knots. Length ≥ 0.
     pub(super) knots: Vec<ToneCurvePoint>,
@@ -28,7 +29,7 @@ pub(super) struct PreparedCurve {
     /// computed inside `finalize_prepared_curve` and folded into the
     /// tangents; they aren't needed after preparation, so we don't keep
     /// them around.
-    tangents: Vec<f32>,
+    pub(super) tangents: Vec<f32>,
 }
 
 impl PreparedCurve {
@@ -67,11 +68,44 @@ pub(super) fn prepare_curve(curve: &ToneCurve) -> PreparedCurve {
     finalize_prepared_curve(pts)
 }
 
-/// Same as [`prepare_curve`] but consumes a synthesised knot slice
-/// (already in authoring domain). Used by the parametric path, which
-/// builds its 5-knot array in-line.
-pub(super) fn prepare_curve_from_slice(pts: &[ToneCurvePoint]) -> PreparedCurve {
-    finalize_prepared_curve(pts.to_vec())
+/// Build a [`PreparedCurve`] from knots whose per-knot tangents are already
+/// known analytically. The parametric path uses this: its curve is a sampled
+/// closed-form function (see [`super::parametric`]), so the exact derivative
+/// at every knot is available and is strictly better than Fritsch–Carlson's
+/// chord-average estimate — the estimate biases the tangent at a knot where
+/// the sampled function's slope changes, and that bias is what pushed the
+/// old 5-knot parametric curve *below* the identity line on the segment
+/// adjacent to a lifted knot (#2318 defect 3).
+///
+/// The radius-3 monotonicity projection still runs: it is a total-function
+/// guard, not an assumption about the caller's tangents.
+///
+/// # Panics
+/// Panics when `tangents.len() != knots.len()` — a caller-side transcription
+/// slip, not a runtime condition.
+pub(super) fn prepare_curve_with_tangents(
+    knots: Vec<ToneCurvePoint>,
+    tangents: Vec<f32>,
+) -> PreparedCurve {
+    assert_eq!(
+        knots.len(),
+        tangents.len(),
+        "prepare_curve_with_tangents: {} knots but {} tangents",
+        knots.len(),
+        tangents.len()
+    );
+    if knots.len() < 2 {
+        return PreparedCurve {
+            knots,
+            tangents: Vec::new(),
+        };
+    }
+    let slopes = segment_slopes(&knots);
+    let guarded = guard_tangents(&slopes, tangents);
+    PreparedCurve {
+        knots,
+        tangents: guarded,
+    }
 }
 
 fn finalize_prepared_curve(knots: Vec<ToneCurvePoint>) -> PreparedCurve {
@@ -83,14 +117,7 @@ fn finalize_prepared_curve(knots: Vec<ToneCurvePoint>) -> PreparedCurve {
         };
     }
 
-    // Compute segment slopes.
-    let mut slopes = Vec::with_capacity(n - 1);
-    for i in 0..n - 1 {
-        let dx = knots[i + 1].0 - knots[i].0;
-        let dy = knots[i + 1].1 - knots[i].1;
-        // dx > 0 because `prepare_curve` dedups equal-x neighbours.
-        slopes.push(dy / dx);
-    }
+    let slopes = segment_slopes(&knots);
 
     // Compute per-knot tangents.
     let mut tangents = Vec::with_capacity(n);
@@ -107,11 +134,25 @@ fn finalize_prepared_curve(knots: Vec<ToneCurvePoint>) -> PreparedCurve {
     }
     tangents.push(slopes[n - 2]);
 
-    // Monotonicity guard: clamp each tangent so |t_i / m_k| ≤ 3 on the
-    // adjacent segments. Without this, the cubic Hermite can overshoot
-    // between knots even when each knot's tangent looks reasonable.
-    for i in 0..n - 1 {
-        let m = slopes[i];
+    let tangents = guard_tangents(&slopes, tangents);
+    PreparedCurve { knots, tangents }
+}
+
+/// Segment slopes `m_i = (y_{i+1} − y_i) / (x_{i+1} − x_i)`. `dx > 0` because
+/// every producer of a knot list dedups equal-x neighbours.
+fn segment_slopes(knots: &[ToneCurvePoint]) -> Vec<f32> {
+    knots
+        .windows(2)
+        .map(|w| (w[1].1 - w[0].1) / (w[1].0 - w[0].0))
+        .collect()
+}
+
+/// Monotonicity guard: clamp each tangent so `|t_i / m_k| ≤ 3` on the adjacent
+/// segments. Without this, the cubic Hermite can overshoot between knots even
+/// when each knot's tangent looks reasonable.
+fn guard_tangents(slopes: &[f32], tangents: Vec<f32>) -> Vec<f32> {
+    let mut tangents = tangents;
+    for (i, &m) in slopes.iter().enumerate() {
         if m.abs() < f32::EPSILON {
             tangents[i] = 0.0;
             tangents[i + 1] = 0.0;
@@ -126,9 +167,7 @@ fn finalize_prepared_curve(knots: Vec<ToneCurvePoint>) -> PreparedCurve {
             tangents[i + 1] = scale * beta * m;
         }
     }
-
-    let _ = slopes; // consumed into `tangents`; no need to keep after prep
-    PreparedCurve { knots, tangents }
+    tangents
 }
 
 /// Evaluate the curve at scene-linear value `v`. The authoring `[0, 1]`
@@ -225,7 +264,7 @@ mod tests {
     use super::*;
 
     fn prepared_from(knots: &[ToneCurvePoint]) -> PreparedCurve {
-        prepare_curve_from_slice(knots)
+        prepare_curve(&ToneCurve::new(knots.to_vec()))
     }
 
     #[test]
