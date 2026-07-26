@@ -4,7 +4,9 @@ import { authenticateServiceApiKey, type ServiceApiIdentity } from '../auth/serv
 import { assetsCollection } from '../db/client.ts';
 import type { AssetDoc } from '../db/schema.ts';
 import {
+  MeilisearchSearchError,
   meilisearchClient,
+  type MeilisearchFailureDetails,
   type MeilisearchMediaType,
   type MeilisearchSearchResult,
 } from '../enrichment/meilisearch-client.ts';
@@ -229,6 +231,7 @@ function finishSearch(
   modeUsed: SearchMode,
   fallbackReason: FallbackReason | null,
   result: MeilisearchSearchResult,
+  fallbackDetails: MeilisearchFailureDetails | null = null,
   exactIds: ReadonlySet<string> = new Set(),
 ) {
   audit(identity, {
@@ -242,6 +245,7 @@ function finishSearch(
     modeRequested,
     modeUsed,
     fallbackReason,
+    fallbackDetails,
     results: responseHits(result, exactIds),
     total: result.estimatedTotal,
   };
@@ -272,10 +276,16 @@ async function tryHybridSearch(
   context: SearchContext,
   identity: ServiceApiIdentity,
   startedAt: number,
-): Promise<{ response: CompletedSearch | null; fallback: FallbackReason | null }> {
-  if (context.modeRequested !== 'hybrid') return { response: null, fallback: null };
+): Promise<{
+  response: CompletedSearch | null;
+  fallback: FallbackReason | null;
+  details: MeilisearchFailureDetails | null;
+}> {
+  if (context.modeRequested !== 'hybrid') {
+    return { response: null, fallback: null, details: null };
+  }
   if (!meili.semanticConfigured()) {
-    return { response: null, fallback: 'semantic_not_configured' };
+    return { response: null, fallback: 'semantic_not_configured', details: null };
   }
   try {
     const result = await meili.search(context.query, {
@@ -287,13 +297,23 @@ async function tryHybridSearch(
     return {
       response: finishSearch(identity, startedAt, context.modeRequested, 'hybrid', null, result),
       fallback: null,
+      details: null,
     };
   } catch (error) {
     log.warn(
       { keyId: identity.keyId, err: error instanceof Error ? error.message : String(error) },
       'hybrid query failed; retrying lexical',
     );
-    return { response: null, fallback: 'semantic_embedder_unavailable' };
+    const details =
+      error instanceof MeilisearchSearchError
+        ? error.details
+        : {
+            status: null,
+            code: null,
+            type: null,
+            message: error instanceof Error ? error.message : String(error),
+          };
+    return { response: null, fallback: 'semantic_embedder_unavailable', details };
   }
 }
 
@@ -303,6 +323,7 @@ async function tryMeilisearchLexical(
   identity: ServiceApiIdentity,
   startedAt: number,
   fallback: FallbackReason | null,
+  fallbackDetails: MeilisearchFailureDetails | null,
 ): Promise<CompletedSearch | null> {
   try {
     const result = await meili.search(context.query, {
@@ -311,7 +332,15 @@ async function tryMeilisearchLexical(
       includeHidden: context.includeHidden,
       mediaTypes: context.mediaTypes,
     });
-    return finishSearch(identity, startedAt, context.modeRequested, 'lexical', fallback, result);
+    return finishSearch(
+      identity,
+      startedAt,
+      context.modeRequested,
+      'lexical',
+      fallback,
+      result,
+      fallbackDetails,
+    );
   } catch (error) {
     log.warn(
       { keyId: identity.keyId, err: error instanceof Error ? error.message : String(error) },
@@ -329,17 +358,20 @@ async function executeSearch(
   const context = searchContext(request);
   const meili = meilisearchClient();
   let fallbackReason: FallbackReason | null = null;
+  let fallbackDetails: MeilisearchFailureDetails | null = null;
 
   if (meili.isConfigured()) {
     const hybrid = await tryHybridSearch(meili, context, identity, startedAt);
     if (hybrid.response) return hybrid.response;
     fallbackReason = hybrid.fallback;
+    fallbackDetails = hybrid.details;
     const lexical = await tryMeilisearchLexical(
       meili,
       context,
       identity,
       startedAt,
       fallbackReason,
+      fallbackDetails,
     );
     if (lexical) return lexical;
     fallbackReason = fallbackReason ?? 'meilisearch_query_failed';
@@ -360,6 +392,7 @@ async function executeSearch(
     'lexical',
     fallbackReason,
     result,
+    fallbackDetails,
     result.exactIds,
   );
 }

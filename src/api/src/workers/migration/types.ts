@@ -22,6 +22,9 @@ export interface Migration {
   readonly title: string;
   /** UI blurb describing what the migration does. */
   readonly description: string;
+  /** Optional fixed batch size for work whose throughput profile differs
+   * materially from the generic file-I/O migrations. */
+  readonly preferredBatchSize?: number;
   /** How many items still need transforming. Drives both the Workers-UI
    * "pending" count and done-detection (0 ⇒ done). Must be cheap (a count
    * query), not a full scan. */
