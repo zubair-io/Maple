@@ -378,9 +378,9 @@ pub fn build_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses
     // buffer to bind, and an empty stack is a true no-op in raw-core too, so
     // there is no "always push it" form to compose.
     if local_adjustments_are_active(&inputs.local_adjustments) {
-        suffix.push(Box::new(LocalAdjustmentsPass {
-            layers_flat: inputs.local_adjustments.clone(),
-        }));
+        suffix.push(Box::new(LocalAdjustmentsPass::new(
+            &inputs.local_adjustments,
+        )));
     }
     // Vignette (#1109) — develop's 12c position: after local_adjustments,
     // before sharpen.
