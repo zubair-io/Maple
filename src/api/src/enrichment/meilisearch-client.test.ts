@@ -192,7 +192,7 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     >;
     expect(embedders).toBeDefined();
     expect(embedders.caption.source).toBe('ollama');
-    expect(embedders.caption.url).toBe('http://ollama.lan:11434/api/embeddings');
+    expect(embedders.caption.url).toBe('http://ollama.lan:11434/api/embed');
     expect(embedders.caption.model).toBe('custom-embedder');
     expect(typeof embedders.caption.documentTemplate).toBe('string');
     // searchable/filterable still carry the `people` attribute.
