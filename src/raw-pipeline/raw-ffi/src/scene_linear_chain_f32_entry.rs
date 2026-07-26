@@ -123,6 +123,15 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
     model.gray_mixer_purple = p.bw_mix_purple;
     model.gray_mixer_magenta = p.bw_mix_magenta;
     model.look = raw_core::view::look::Look::from(p.look_mode);
+    // Sharpen + chroma NR (#1043) — set EXPLICITLY from the params tail
+    // rather than left at `AdjustmentModel::default()` (40 / 25), so a host
+    // that predates the fields gets the identity short-circuit in both
+    // stages instead of a surprise sharpen at 40.
+    model.sharpen_amount = p.sharpen_amount;
+    model.sharpen_radius = p.sharpen_radius;
+    model.sharpen_detail = p.sharpen_detail;
+    model.sharpen_masking = p.sharpen_masking;
+    model.nr_color = p.nr_color;
 
     // Non-RAW WB contract (#1331 / #1734) — same D65-baseline delta as the fp16
     // sibling in `scene_linear_chain.rs` (see that file's doc comment for the
