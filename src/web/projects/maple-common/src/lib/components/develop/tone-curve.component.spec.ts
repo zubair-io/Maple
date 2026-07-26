@@ -140,6 +140,63 @@ describe('ToneCurveComponent (#367)', () => {
     });
   });
 
+  it('announces BOTH axes, so an x-only nudge changes what is spoken', () => {
+    // A knot is a 2-D control on a 1-D ARIA slider. ArrowLeft/ArrowRight move
+    // x, which `aria-valuenow` structurally cannot represent — without
+    // `aria-valuetext` the announced value is simply wrong after every
+    // horizontal nudge.
+    plot().dispatchEvent(pointer('pointerdown', 0.5, 0.5));
+    flushFrame();
+    window.dispatchEvent(new PointerEvent('pointerup'));
+    fixture.detectChanges();
+
+    const knot = (): Element =>
+      fixture.nativeElement.querySelector('[data-testid="tone-curve-knot-1"]');
+    expect(knot().getAttribute('aria-valuenow')).toBe('50');
+    expect(knot().getAttribute('aria-valuetext')).toBe('input 50%, output 50%');
+
+    knot().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    fixture.detectChanges();
+
+    // y is untouched, so aria-valuenow is unchanged — and valuetext is the
+    // only attribute carrying the edit the user just made.
+    expect(knot().getAttribute('aria-valuenow')).toBe('50');
+    expect(knot().getAttribute('aria-valuetext')).toBe('input 52%, output 50%');
+  });
+
+  it('nudges on arrows, deletes on Delete, and passes unhandled keys through', () => {
+    plot().dispatchEvent(pointer('pointerdown', 0.5, 0.5));
+    flushFrame();
+    window.dispatchEvent(new PointerEvent('pointerup'));
+    fixture.detectChanges();
+
+    const knot = (i: number): Element =>
+      fixture.nativeElement.querySelector(`[data-testid="tone-curve-knot-${i}"]`);
+    const press = (i: number, init: KeyboardEventInit): KeyboardEvent => {
+      const e = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
+      knot(i).dispatchEvent(e);
+      fixture.detectChanges();
+      return e;
+    };
+
+    // ArrowUp raises y by one step; Shift multiplies the step by four.
+    press(1, { key: 'ArrowUp' });
+    expect(lib.model().toneCurveLuma.points[1][1]).toBeCloseTo(0.5 + 1 / 64, 6);
+    press(1, { key: 'ArrowUp', shiftKey: true });
+    expect(lib.model().toneCurveLuma.points[1][1]).toBeCloseTo(0.5 + 5 / 64, 6);
+
+    // An unhandled key is left to the browser.
+    expect(press(1, { key: 'a' }).defaultPrevented).toBe(false);
+
+    // Endpoints are pinned: Delete neither removes them nor swallows the key.
+    expect(press(0, { key: 'Delete' }).defaultPrevented).toBe(false);
+    expect(lib.model().toneCurveLuma.points.length).toBe(3);
+
+    // A mid-curve knot deletes, collapsing back to the empty identity.
+    expect(press(1, { key: 'Delete' }).defaultPrevented).toBe(true);
+    expect(lib.model().toneCurveLuma.points).toEqual([]);
+  });
+
   // ── Point editing ───────────────────────────────────────────────────────
 
   it('authors a knot on the active channel from a pointer drag', () => {
