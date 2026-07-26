@@ -119,6 +119,12 @@ export const NUMERIC_FIELD_RANGES: Readonly<Record<string, readonly [number, num
   gray_mixer_blue: [-100.0, 100.0],
   gray_mixer_purple: [-100.0, 100.0],
   gray_mixer_magenta: [-100.0, 100.0],
+  // DNG lens corrections (#376) — per-family strengths applied to the
+  // `OpcodeList3` the RAW itself carries. The `lens_profile_enable` master
+  // switch is an enum and lives in STRING_FIELDS below.
+  lens_correction_distortion: [0.0, 100.0],
+  lens_correction_ca: [0.0, 100.0],
+  lens_correction_vignetting: [0.0, 100.0],
 };
 
 /** String-valued schema fields (enums on the clients), snake_case. */
@@ -134,6 +140,9 @@ export const STRING_FIELDS: ReadonlySet<string> = new Set([
   // Black & white conversion (#276) — Off|On enum; the eight
   // `gray_mixer_*` weights it drives are numeric fields above.
   'black_white',
+  // DNG lens-correction master switch (#376) — Off|On enum; the three
+  // `lens_correction_*` strengths it gates are numeric fields above.
+  'lens_profile_enable',
 ]);
 
 export function isKnownNumericField(name: string): boolean {
