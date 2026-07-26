@@ -19,7 +19,6 @@ import { Asset, AssetId, Flag, ColorLabel } from '../models/asset';
 import { AdjustmentModel } from '../models/adjustment-model';
 import { ApiFolder } from '../api/bun-api-backend.service';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
-import { parseAddress } from '../addressing/maple-address';
 import { LibraryStore } from './library-store.service';
 import { LibrarySelection } from './library-selection.service';
 import { LibraryCache } from './library-cache.service';
@@ -365,30 +364,5 @@ export class LibraryStateService {
 
   setFolderOpen(id: string, open: boolean): void {
     this.prefs.setFolderOpen(id, open);
-  }
-
-  /**
-   * Select a sidebar entry by id — FS-walk subfolder (fetch + expand) or a
-   * plain id select (smart collection, album, legacy root), mirroring
-   * `FolderTreeComponent.onFolderClick`'s branch so the inline tree
-   * (tablet+) and the phone source-picker drawer share one selection path
-   * instead of each re-implementing it (#2280).
-   */
-  selectSidebarEntry(id: string): void {
-    const absPath = this.store.entryById(id)?.absPath;
-    if (absPath || id.includes(':')) {
-      let relPath = absPath ?? '';
-      if (!relPath && id.includes(':')) {
-        try {
-          relPath = parseAddress(id).relPath;
-        } catch {
-          // Legacy id or unparseable — fall through with an empty relPath.
-        }
-      }
-      this.openSelfHostedSubfolder(relPath, id);
-      this.setFolderOpen(id, true);
-      return;
-    }
-    this.selectedSourceId.set(id);
   }
 }
