@@ -251,6 +251,13 @@ describe('meilisearchFormToPatch', () => {
     });
     expect(meilisearchFormToPatch(form)).not.toHaveProperty('meilisearch_api_key');
   });
+
+  it('resets a blank semantic blend to the backend default', () => {
+    const form = blankEnrichment(null);
+    form.meilisearch_semantic_ratio = ' ';
+
+    expect(meilisearchFormToPatch(form).meilisearch_semantic_ratio).toBeNull();
+  });
 });
 
 // ── Grouping / summary ──────────────────────────────────────────────────────

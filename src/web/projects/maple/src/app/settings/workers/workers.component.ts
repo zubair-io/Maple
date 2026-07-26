@@ -536,17 +536,15 @@ export class WorkersComponent implements OnInit, OnDestroy {
     });
   }
 
-  enrichmentValue(
-    stage: StageStatus,
-    field: keyof EnrichmentForm,
-  ): EnrichmentForm[keyof EnrichmentForm] {
-    return this.enrichmentForms()[stage.name]?.[field] ?? '';
+  enrichmentValue<K extends keyof EnrichmentForm>(stage: StageStatus, field: K): EnrichmentForm[K] {
+    const form = this.enrichmentForms()[stage.name] ?? blankEnrichment(this.enrichmentConfig());
+    return form[field];
   }
 
-  setEnrichment(
+  setEnrichment<K extends keyof EnrichmentForm>(
     stage: StageStatus,
-    field: keyof EnrichmentForm,
-    value: EnrichmentForm[keyof EnrichmentForm],
+    field: K,
+    value: EnrichmentForm[K],
   ): void {
     this.enrichmentForms.update((cur) => {
       const cur1 = cur[stage.name] ?? blankEnrichment(this.enrichmentConfig());
