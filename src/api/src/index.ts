@@ -65,6 +65,9 @@ import { enrichmentRoutes } from './routes/enrichment.ts';
 import { cloudflareRoutes } from './routes/cloudflare.ts';
 import { observabilityRoutes } from './routes/observability.ts';
 import { meilisearchBackfillRoutes } from './routes/admin-backfill-meilisearch.ts';
+import { adminMeilisearchStatusRoutes } from './routes/admin-meilisearch-status.ts';
+import { serviceApiKeyAdminRoutes } from './routes/service-api-keys.ts';
+import { serviceAssetSearchRoutes } from './routes/service-asset-search.ts';
 import { purgeSubthresholdFacesRoutes } from './routes/admin-purge-subthreshold-faces.ts';
 import { peopleRoutes } from './routes/people.ts';
 import { presetsRoutes } from './routes/presets.ts';
@@ -182,6 +185,10 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // (mirrors authRoutes' /invites sub-tree above), so it sits outside
     // the authedApi gate the same way.
     .use(cloudflareRoutes)
+    // Service-key management self-gates with owner auth; service search
+    // self-gates with a dedicated scoped API key rather than a user JWT.
+    .use(serviceApiKeyAdminRoutes)
+    .use(serviceAssetSearchRoutes)
     // Native PKCE code redeem (public) — the Apple shell exchanges its one-time
     // code for tokens here; no bearer (this is how the app first gets tokens).
     .use(nativeCodeRedeemRoutes)
@@ -242,6 +249,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
         .use(observabilityRoutes)
         .use(networkSettingsRoutes)
         .use(meilisearchBackfillRoutes)
+        .use(adminMeilisearchStatusRoutes)
         .use(purgeSubthresholdFacesRoutes)
         .use(peopleRoutes)
         .use(presetsRoutes)
@@ -460,6 +468,15 @@ async function start(): Promise<void> {
       } else if (!(await meili.health())) {
         log.warn(
           'Meilisearch health check failed; search will fall back to Mongo $text until the service is reachable',
+        );
+      } else {
+        // The HTTP tier owns the consumer-facing contract even when the
+        // worker child is disabled. Apply settings here as well so enabling
+        // semantic search always registers the embedder.
+        await meili.ensureIndex();
+        log.info(
+          { semanticEnabled: meili.semanticConfigured() },
+          'Meilisearch search sidecar ready',
         );
       }
     } catch (err) {

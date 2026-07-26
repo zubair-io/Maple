@@ -180,7 +180,10 @@ describe('sidecarMetadataIndexHandler — skip paths', () => {
     expect(result).not.toEqual({ skip: 'no-path' });
     expect('patch' in result).toBe(true);
     if ('patch' in result) {
-      expect(result.patch.metadata_override?.place_text?.city).toBe('Berkeley');
+      const override = result.patch.metadata_override as
+        | { place_text?: { city?: string } }
+        | undefined;
+      expect(override?.place_text?.city).toBe('Berkeley');
     }
   });
 
@@ -197,7 +200,10 @@ describe('sidecarMetadataIndexHandler — skip paths', () => {
     expect(result).not.toEqual({ skip: 'no-path' });
     expect('patch' in result).toBe(true);
     if ('patch' in result) {
-      expect(result.patch.metadata_override?.place_text?.city).toBe('Berkeley');
+      const override = result.patch.metadata_override as
+        | { place_text?: { city?: string } }
+        | undefined;
+      expect(override?.place_text?.city).toBe('Berkeley');
     }
   });
 });
@@ -213,6 +219,7 @@ describe('sidecarMetadataIndexHandler — patch path', () => {
     const result = await sidecarMetadataIndexHandler(image, fakeCtx);
 
     expect(result).toHaveProperty('patch');
+    expect((result as { invalidates?: string[] }).invalidates).toContain('meili');
     if (!('patch' in result)) throw new Error('Expected patch result');
     const patch = result.patch as Record<string, unknown>;
     const override = patch['metadata_override'] as Record<string, unknown>;

@@ -42,6 +42,7 @@ interface CapturedMeili {
   upserts: MeilisearchAssetDoc[];
   ensureCalls: number;
   configured: boolean;
+  failBatch: boolean;
 }
 
 function makeCapturingMeili(configured = true): CapturedMeili {
@@ -50,6 +51,7 @@ function makeCapturingMeili(configured = true): CapturedMeili {
     upserts,
     ensureCalls: 0,
     configured,
+    failBatch: false,
     client: {
       isConfigured: () => c.configured,
       semanticConfigured: () => false,
@@ -62,6 +64,10 @@ function makeCapturingMeili(configured = true): CapturedMeili {
       },
       upsertOrThrow: async (doc) => {
         upserts.push(doc);
+      },
+      upsertBatchOrThrow: async (docs) => {
+        if (c.failBatch) throw new Error('temporary batch failure');
+        upserts.push(...docs);
       },
       tombstone: async () => {},
       search: async () => ({ ids: [], estimatedTotal: 0 }),
@@ -87,6 +93,7 @@ beforeEach(async () => {
   if (!mongoReachable) return;
   await db!.collection('assets').deleteMany({});
   await db!.collection('people').deleteMany({});
+  await db!.collection('meilisearch_backfill_state').deleteMany({});
   setMeilisearchClientForTests(null);
 });
 
@@ -166,15 +173,15 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
     expect(body.error).toContain('not configured');
   });
 
-  it('upserts every asset with a non-empty searchBlob and reports counts', async () => {
+  it('upserts enriched and filename-only assets and reports counts', async () => {
     if (!mongoReachable) return;
     await db!.collection('assets').insertMany([
       makeRow('a', 'albany ny'),
       makeRow('b', 'new york ny park'),
       makeRow('c', 'san francisco ca'),
-      // Skipped: empty blob.
+      // Filename-only assets are still indexed for exact identifier search.
       makeRow('d', ''),
-      // Skipped: null place.
+      // A missing place is also valid when the filename is searchable.
       makeRow('e', null),
     ]);
     // Skipped: missing maple_id (legacy row).
@@ -228,17 +235,16 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
       skipped: number;
       errors: number;
     };
-    // 5 hit the Mongo cursor (a, b, c, legacy, g) — d and e have empty/
-    // missing search_blob and are filtered out by the find() predicate.
-    expect(body.scanned).toBe(5);
-    // Only those with both maple_id AND non-empty blob are upserted.
-    expect(body.upserted).toBe(4);
-    expect(body.skipped).toBe(1); // legacy row (no maple_id)
+    // All six stable assets are scanned; the legacy row without maple_id is
+    // excluded by the cursor query.
+    expect(body.scanned).toBe(6);
+    expect(body.upserted).toBe(6);
+    expect(body.skipped).toBe(0);
     expect(body.errors).toBe(0);
 
     // Confirm the captured upserts include the right ids and folderId.
     const ids = meili.upserts.map((u) => u.id).sort();
-    expect(ids).toEqual(['a', 'b', 'c', 'g']);
+    expect(ids).toEqual(['a', 'b', 'c', 'd', 'e', 'g']);
     for (const u of meili.upserts) {
       expect(u.folderId).toBe(FOLDER.toHexString());
     }
@@ -330,5 +336,89 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
     expect(tokens.has('albany')).toBe(true);
     expect(tokens.has('lacrosse')).toBe(true);
     expect(tokens.has('greyson')).toBe(true);
+  });
+
+  it('resumes from a durable cursor in bounded batches', async () => {
+    if (!mongoReachable) return;
+    await db!
+      .collection('assets')
+      .insertMany([
+        makeRow('batch-a', 'hvac installation'),
+        makeRow('batch-b', 'heat pump'),
+        makeRow('batch-c', 'air conditioning'),
+      ]);
+    const meili = makeCapturingMeili();
+    setMeilisearchClientForTests(meili.client);
+    const { meilisearchBackfillRoutes } =
+      await import('../src/routes/admin-backfill-meilisearch.ts');
+    const app = new Elysia().use(meilisearchBackfillRoutes);
+
+    const first = await app.handle(
+      new Request('http://localhost/api/admin/enrichment/backfill-meilisearch?batchSize=2', {
+        method: 'POST',
+      }),
+    );
+    const firstBody = (await first.json()) as {
+      complete: boolean;
+      nextCursor: string | null;
+      cumulative: { scanned: number };
+    };
+    expect(firstBody.complete).toBe(false);
+    expect(firstBody.nextCursor).not.toBeNull();
+    expect(firstBody.cumulative.scanned).toBe(2);
+
+    const second = await app.handle(
+      new Request('http://localhost/api/admin/enrichment/backfill-meilisearch?batchSize=2', {
+        method: 'POST',
+      }),
+    );
+    const secondBody = (await second.json()) as {
+      complete: boolean;
+      nextCursor: string | null;
+      cumulative: { scanned: number; upserted: number };
+    };
+    expect(secondBody.complete).toBe(true);
+    expect(secondBody.nextCursor).toBeNull();
+    expect(secondBody.cumulative.scanned).toBe(3);
+    expect(secondBody.cumulative.upserted).toBe(3);
+    expect(meili.upserts.map((doc) => doc.id).sort()).toEqual(['batch-a', 'batch-b', 'batch-c']);
+  });
+
+  it('retains the cursor and retries an idempotent batch after a write failure', async () => {
+    if (!mongoReachable) return;
+    await db!
+      .collection('assets')
+      .insertMany([
+        makeRow('retry-a', 'compressor installation'),
+        makeRow('retry-b', 'heat pump installed'),
+      ]);
+    const meili = makeCapturingMeili();
+    meili.failBatch = true;
+    setMeilisearchClientForTests(meili.client);
+    const { meilisearchBackfillRoutes } =
+      await import('../src/routes/admin-backfill-meilisearch.ts');
+    const app = new Elysia().use(meilisearchBackfillRoutes);
+    const url = 'http://localhost/api/admin/enrichment/backfill-meilisearch?batchSize=10';
+
+    const failed = await app.handle(new Request(url, { method: 'POST' }));
+    const failedBody = (await failed.json()) as {
+      complete: boolean;
+      nextCursor: string | null;
+      errors: number;
+    };
+    expect(failedBody.complete).toBe(false);
+    expect(failedBody.nextCursor).toBeNull();
+    expect(failedBody.errors).toBe(2);
+    expect(meili.upserts).toHaveLength(0);
+
+    meili.failBatch = false;
+    const retried = await app.handle(new Request(url, { method: 'POST' }));
+    const retriedBody = (await retried.json()) as {
+      complete: boolean;
+      upserted: number;
+    };
+    expect(retriedBody.complete).toBe(true);
+    expect(retriedBody.upserted).toBe(2);
+    expect(meili.upserts.map((doc) => doc.id).sort()).toEqual(['retry-a', 'retry-b']);
   });
 });

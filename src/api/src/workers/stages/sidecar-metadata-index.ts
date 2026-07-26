@@ -233,7 +233,10 @@ export async function sidecarMetadataIndexHandler(
     );
   }
 
-  return { patch };
+  // Effective hidden/screenshot/place metadata changes affect Meilisearch
+  // filters or semantic document text, so rebuild the document atomically
+  // with the metadata projection.
+  return { patch, invalidates: ['meili'] };
 }
 
 // ---------------------------------------------------------------------------

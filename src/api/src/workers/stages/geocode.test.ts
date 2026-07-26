@@ -92,6 +92,7 @@ describe('geocodeHandler — happy path', () => {
     expect(typeof patch.place.search_blob).toBe('string');
     expect(patch.place.lat).toBe(42.65);
     expect(patch.place.lon).toBe(-73.75);
+    expect((result as { invalidates?: string[] }).invalidates).toContain('meili');
   });
 
   it('uses cached place on second call for same coordinates', async () => {

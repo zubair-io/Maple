@@ -1,179 +1,194 @@
-# Operating Meilisearch alongside Maple
+# Operating hybrid asset search
 
-Maple's typo-tolerant photo search (Phase 7 of the indexer-enrichment
-roadmap) is powered by an optional Meilisearch sidecar. The sidecar
-deployment shape mirrors Nominatim: the operator runs Meilisearch
-elsewhere — a Proxmox VM, a Docker container on a NAS, or a separate
-host — and Maple is purely a client.
+Maple uses Meilisearch for lexical ranking and hybrid semantic search, with an
+Ollama embedding model managed by Meilisearch. MongoDB remains canonical.
+Meilisearch contains a rebuildable projection and can be lost or taken offline
+without losing asset metadata.
 
-When the sidecar is unconfigured or unreachable, the API falls back to
-the Mongo `$text` index from Phase 3. Search keeps working; users just
-lose typo tolerance (`Musum` → `Museum`, `Pak` → `Park`).
+When semantic embedding fails, Maple retries a lexical Meilisearch query. When
+Meilisearch itself is unavailable, Maple falls back to Mongo text search and
+exact filename matching. Every service-search response reports `modeUsed` and
+`fallbackReason`, so consumers can tell which path served it.
 
-## Minimum version
+## Requirements
 
-Use the latest stable v1.x release of Meilisearch. Maple is tested
-against v1.x and uses only documented v1 endpoints (`/health`,
-`/indexes`, `/indexes/<uid>/settings`, `/indexes/<uid>/documents`,
-`/indexes/<uid>/search`).
+- A current stable Meilisearch v1 release with hybrid search and embedders.
+- An Ollama service reachable **from the Meilisearch host**.
+- The `nomic-embed-text` model (or the model selected below) pulled in Ollama.
+- TLS between service consumers and Maple. Plain HTTP is accepted only on
+  loopback for local development.
 
-## Running the service
-
-Two common shapes:
-
-### Single binary
+Pull the default model:
 
 ```sh
-# https://www.meilisearch.com/docs/learn/getting_started/installation
-curl -L https://install.meilisearch.com | sh
-
-./meilisearch \
-  --http-addr 0.0.0.0:7700 \
-  --master-key "$(openssl rand -hex 32)" \
-  --db-path ./data.ms \
-  --env production
+ollama pull nomic-embed-text
 ```
 
-### Docker
+Run Meilisearch with a persistent data volume and production master key. For
+example:
 
 ```sh
 docker run -d \
   --name maple-meilisearch \
   -p 7700:7700 \
-  -e MEILI_MASTER_KEY="$(openssl rand -hex 32)" \
+  -e MEILI_MASTER_KEY='<long-random-secret>' \
   -e MEILI_ENV=production \
   -v maple-meili-data:/meili_data \
   getmeili/meilisearch:latest
 ```
 
-The master key is sensitive — keep it in your secrets manager. Maple
-sends it as a bearer token on every request.
+Keep both the Meilisearch key and Maple service keys in a secrets manager.
 
-## Pointing Maple at the sidecar
+## Maple configuration
 
-The URL and the API key can each be set from the Settings UI or via env vars.
-
-### From the Settings UI (no restart)
-
-Owners can set both at **Settings → Workers → meili** (Meilisearch URL + API
-key). The "Test connection" button health-checks the URL with the key you've
-typed (or the saved/env key) before you save. On save, Maple rebuilds the
-client and re-creates the index in the background — the running process
-(search route and the `meili` stage) picks up the change with no restart.
-
-Saved values are persisted in the `app_settings` Mongo doc and **take
-precedence over the env vars**. Clear the URL to fall back to the env var (or
-disable the sidecar when neither is set).
-
-The **API key is write-only** in the UI: it is never echoed back (the config
-endpoint reports only whether a key is set), and it is stored in the database
-in plaintext — so treat database access as equivalent to key access. Leaving
-the key field blank on save keeps the existing key; with no saved key the
-client falls back to `MAPLE_MEILISEARCH_API_KEY`.
-
-### From the environment
-
-Set env vars in Maple's `.env` (see `src/api/.env.example`):
+Set these values in `src/api/.env`:
 
 ```sh
 MAPLE_MEILISEARCH_URL=http://meili.lan:7700
-MAPLE_MEILISEARCH_API_KEY=your-master-key-or-search-key
+MAPLE_MEILISEARCH_API_KEY=<meilisearch-key>
+MAPLE_MEILISEARCH_SEMANTIC=true
+MAPLE_MEILISEARCH_EMBEDDER_URL=http://ollama.lan:11434
+MAPLE_MEILISEARCH_EMBEDDER_MODEL=nomic-embed-text
+MAPLE_MEILISEARCH_SEMANTIC_RATIO=0.5
+MAPLE_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE=60
 ```
 
-Restart the API. The boot log shows one of:
+`MAPLE_MEILISEARCH_SEMANTIC_RATIO` is clamped to `0..1`: `0` is lexical-only,
+`1` is semantic-only, and the default `0.5` balances both. The bundled Docker
+deployment turns the semantic switch on by default when a Meilisearch URL is
+provided. Direct Bun deployments must set it explicitly.
 
-```
-Meilisearch sidecar ready
-```
+The URL and Meilisearch API key may also be set under
+**Settings → Workers → meili**. Saved values override the environment. The
+embedder URL, model, semantic switch, and blend remain deployment settings.
 
-```
-Meilisearch URL unset (DB + MAPLE_MEILISEARCH_URL) — sidecar disabled
-```
+At API startup Maple creates the `assets` index, applies settings, and
+registers the `caption` Ollama embedder. This happens in the HTTP tier even
+when the background worker process is disabled.
 
-```
-Meilisearch health check failed; search will fall back to Mongo $text
-```
+The searchable projection includes:
 
-The third case is non-fatal — fix the URL (via the UI or env) or start the
-service; the next search request uses Meilisearch again with no restart.
+- filename, unified search text, description, named people, and OCR text;
+- transcript, vision subjects/setting/activity/objects in unified search text;
+- library, capture time, deletion state, hidden state, and media type;
+- vectors generated from unified text, description, and named people.
 
-## Index settings Maple expects
+Filename is the highest-priority searchable attribute so identifiers such as
+`IMG_4185.MOV` remain strong lexical matches while conceptual searches such as
+`HVAC air conditioning installation` can match descriptive or transcript text.
 
-Maple's boot path calls `ensureIndex()` to create the `assets` index
-(primary key `id`) and apply these settings on every start:
+## Verify configuration and coverage
 
-| Setting                | Value                       |
-| ---------------------- | --------------------------- |
-| `searchableAttributes` | `["searchBlob"]`            |
-| `filterableAttributes` | `["folderId", "deletedAt"]` |
-| `sortableAttributes`   | `["capturedAt"]`            |
+Use an owner/user access token:
 
-Typo tolerance is on by default in Meilisearch; we do not override it.
-The fields above mirror the document shape the geocode worker pushes:
-
-```json
-{
-  "id": "<asset.maple_id>",
-  "searchBlob": "<denormalised location text>",
-  "folderId": "<library hex objectid>",
-  "capturedAt": "2024-06-01T12:00:00.000Z",
-  "deletedAt": null
-}
+```sh
+curl -H 'Authorization: Bearer <maple-user-jwt>' \
+  https://maple.example/api/admin/enrichment/meilisearch-status
 ```
 
-`searchBlob` is identical to the `place.search_blob` field the Mongo
-text index already feeds on, so the two backends agree on what is
-searchable.
+The response reports:
 
-## Seeding the index
+- whether semantic search is enabled;
+- Meilisearch and embedder reachability;
+- configured embedder/model/blend;
+- indexed and vectorized document counts;
+- vector coverage against the live Mongo asset count;
+- indexing activity and resumable backfill progress.
 
-After standing up a fresh Meilisearch instance (or recovering from a
-data loss), backfill the index from Mongo:
+`embedderConfigured`, `embedderReachable`, and `semantic.enabled` should all be
+`true`. During a backfill, partial vector coverage is expected: hybrid search
+continues to return lexical-only documents while embeddings catch up.
+
+## Resumable backfill
+
+Backfill sends bounded bulk tasks and stores a durable Mongo cursor. Repeat the
+request until `complete` is `true`:
 
 ```sh
 curl -X POST \
-  -H "Authorization: Bearer <maple-jwt>" \
-  http://maple.lan:3000/api/admin/enrichment/backfill-meilisearch
+  -H 'Authorization: Bearer <maple-user-jwt>' \
+  'https://maple.example/api/admin/enrichment/backfill-meilisearch?batchSize=250'
 ```
 
-The route iterates every asset with a non-empty `place.search_blob` in
-batches of 1000 and upserts them to Meilisearch. It is idempotent — run
-it twice and you get the same index.
-
-The response includes `{ scanned, upserted, skipped, errors }` so you
-can confirm the population matches your Mongo asset count.
-
-## Verifying the round trip
-
-After the backfill, hit the search route with a typo to confirm
-Meilisearch is in the path:
+The response contains per-call and cumulative `scanned`, `upserted`, `skipped`,
+and `errors` counters plus `nextCursor`. A failed bulk write retains the cursor,
+so the next request retries the same batch. Use `reset=true` to intentionally
+restart from the beginning:
 
 ```sh
-curl -H "Authorization: Bearer <maple-jwt>" \
-  'http://maple.lan:3000/api/search?placeQuery=Musum'
+curl -X POST \
+  -H 'Authorization: Bearer <maple-user-jwt>' \
+  'https://maple.example/api/admin/enrichment/backfill-meilisearch?batchSize=250&reset=true'
 ```
 
-Without Meilisearch this returns 0 (the Mongo `$text` index does not
-support typo tolerance). With Meilisearch you should see your museum
-photos.
+Upserts are idempotent on `maple_id`. Once the initial backfill is complete,
+changes to description, transcript, OCR, people assignments/names, place,
+vision metadata, and sidecar-derived hidden metadata re-arm the Meilisearch
+stage automatically.
 
-## Recovering from outages
+## Maple-owned service API
 
-Stopping Meilisearch is non-destructive. Maple logs a warning per
-fallback search (look for `meilisearch query failed; falling back to
-mongo $text` in `enrichment:meilisearch` and `search` components) and
-keeps serving requests via the Mongo path.
+External consumers such as SugarMaple do not receive a Meilisearch key and do
+not query the sidecar directly. Create a dedicated, least-privilege Maple key
+using an owner JWT:
 
-When you bring Meilisearch back, the next request that lands on the
-search route uses it again — there is no need to restart Maple.
+```sh
+curl -X POST \
+  -H 'Authorization: Bearer <maple-owner-jwt>' \
+  -H 'X-Step-Up: <fresh-step-up-token>' \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"SugarMaple","scopes":["assets:search"]}' \
+  https://maple.example/api/admin/service-api-keys
+```
 
-If Meilisearch loses data (e.g. the `data.ms` volume was wiped), call
-the backfill route again to repopulate the index.
+The plaintext `maple_sk_…` key appears only in this creation response. Maple
+stores only its SHA-256 secret hash. List metadata or revoke a key with:
 
-## Privacy and PII
+```sh
+curl -H 'Authorization: Bearer <maple-owner-jwt>' \
+  https://maple.example/api/admin/service-api-keys
 
-Meilisearch contains the same `searchBlob` text the Mongo `$text`
-index does — public location names, addresses, country codes. It does
-NOT contain filenames, descriptions, EXIF, or face data. If a future
-phase widens the blob (for example to include LLM captions), review the
-privacy and exfiltration model before enabling.
+curl -X DELETE \
+  -H 'Authorization: Bearer <maple-owner-jwt>' \
+  -H 'X-Step-Up: <fresh-step-up-token>' \
+  https://maple.example/api/admin/service-api-keys/<key-id>
+```
+
+Search via the Maple-owned contract:
+
+```sh
+curl -X POST \
+  -H 'Authorization: Bearer <maple-service-key>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "query":"HVAC air conditioning installation",
+    "mode":"hybrid",
+    "limit":10,
+    "filters":{"mediaTypes":["video"]}
+  }' \
+  https://maple.example/api/search/assets
+```
+
+The response contains ordered `assetId`/`score` entries, `modeRequested`,
+`modeUsed`, `fallbackReason`, and `total`. Hidden and deleted assets are
+excluded by default. Keys are individually revocable and expirable, scoped to
+`assets:search`, rate-limited, and logged by key ID/prefix without logging the
+secret or query.
+
+## Outages, rollback, and sizing
+
+To roll back semantic search without interrupting lexical search, set
+`MAPLE_MEILISEARCH_SEMANTIC=false` and restart Maple. To bypass Meilisearch
+entirely, remove its URL; exact filename and Mongo lexical search remain.
+
+Embedding capacity has three components:
+
+- Ollama memory for the selected model and inference working set;
+- roughly `document_count × embedding_dimensions × 4` bytes of raw float
+  vectors, plus Meilisearch graph/index overhead;
+- temporary disk and CPU while Meilisearch processes backfill tasks.
+
+Start with a bounded backfill, watch the status endpoint and service memory,
+then increase `batchSize` only if indexing stays healthy. Keep the Meilisearch
+data volume backed up only for faster recovery; Mongo and XMP are the sources
+of truth, so a wiped search index can always be rebuilt.
