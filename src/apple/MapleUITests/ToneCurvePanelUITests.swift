@@ -4,9 +4,35 @@
 // Sibling of `MapleUITests.testCanvasMatchesGolden`, and deliberately the
 // other half of that pair: the canvas golden watches what the PIPELINE
 // produces, this one watches what the WIDGET looks like. Same harness, same
-// CIEDE2000 metric, same "first run records the baseline and fails with a
-// 'baseline written' message" contract — re-record by deleting
-// `MapleUITests/Goldens/tone-curve-plot-default.png` and re-running.
+// CIEDE2000 metric.
+//
+// ## Why no golden PNG is committed yet
+//
+// `Goldens/tone-curve-plot-default.png` is deliberately ABSENT. macOS element
+// screenshots composite from the SCREEN rather than from the app's own layer
+// tree, so a capture taken while any other window overlaps the plot bakes that
+// window into the baseline. The recording attempted for #367 was contaminated
+// exactly that way — a second Maple window's Light panel occluded the left
+// edge of the plot — and a contaminated golden is worse than none: it locks
+// the gate to a wrong image, and every later run then "passes" against it.
+//
+// So the pixel gate SKIPS while the baseline is missing, matching the
+// skip-pass convention the rest of this harness uses for absent fixtures (see
+// `MapleAppDriver.launch` and `src/scripts/test_color_pipeline.sh`). It does
+// NOT fall into `GoldenStore.compareOrRecord`'s first-run "baseline written"
+// FAILURE path, which is what the reviewer flagged: with fixtures present and
+// no PNG on disk, that path made every run fail by construction.
+// `testToneCurvePanelExposesItsControls` below is unconditional and carries
+// the real value in the meantime — it asserts the panel renders, is reachable
+// and is labelled, which is the regression most likely to actually happen.
+//
+// To record one: on a machine with no other UI-test session holding the
+// screen, and with no other window over the panel, delete the `XCTSkipIf`
+// guard's premise by running this test once — `compareOrRecord` writes the PNG
+// into the runner's container and fails with "baseline written". Open it,
+// confirm only the plot is in frame, then copy it to
+// `src/apple/MapleUITests/Goldens/` and commit. Re-record later by deleting
+// the PNG and repeating.
 //
 // The panel is reached by arming the Curve tool through the dock button
 // (`editor-dock-tool-toneCurve`), which is how a user reaches it in the
@@ -54,7 +80,21 @@ final class ToneCurvePanelUITests: XCTestCase {
         return app
     }
 
+    /// Name of the baseline this gate diffs against. Not committed yet — see
+    /// the file header for why, and for how to record one.
+    private static let goldenName = "tone-curve-plot-default"
+
     func testToneCurvePlotMatchesGolden() throws {
+        // Skipped BEFORE launching: with no baseline on disk there is nothing
+        // to diff against, and letting `compareOrRecord` take its first-run
+        // path here would both fail the run and write whatever happened to be
+        // on screen. See the file header.
+        try XCTSkipIf(
+            GoldenStore.loadGolden(name: Self.goldenName) == nil,
+            "no committed golden for \(Self.goldenName) — see this file's header "
+                + "for why it is absent and how to record one"
+        )
+
         let app = try launchWithCurveArmed()
 
         let plot = app.groups["editor-tone-curve-plot"]
@@ -69,7 +109,7 @@ final class ToneCurvePanelUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 2.0)
 
         try GoldenStore.compareOrRecord(
-            name: "tone-curve-plot-default",
+            name: Self.goldenName,
             candidate: plot.screenshot().pngRepresentation,
             budget: GoldenBudget(mean: 5, p95: 10, max: 40, bias: 0.05)
         )
