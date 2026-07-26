@@ -2,14 +2,15 @@
 
 // Reuse the exact settings design system (tokens + section/card atoms) so
 // this panel matches the rest of the Account page. Embedded inline after the
-// Passkeys section (not a standalone page) — neutralise the full-page host
-// behaviours from settings-vars so the panel sizes to its content.
+// Passkeys section (not a standalone page), so it takes `settings-vars` (the
+// tokens) but not `settings-page-host` (the full-height sizing) — it sizes to
+// its content. The background is cleared so it doesn't paint a second layer
+// over the page's.
 :host {
   @include chrome.settings-vars;
   @include chrome.settings-atoms;
 
   display: block;
-  min-height: 0;
   background: transparent;
 }
 

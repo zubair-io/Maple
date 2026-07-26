@@ -2,6 +2,7 @@
 
 :host {
   @include chrome.settings-vars;
+  @include chrome.settings-page-host;
 }
 :host {
   @include chrome.settings-atoms;

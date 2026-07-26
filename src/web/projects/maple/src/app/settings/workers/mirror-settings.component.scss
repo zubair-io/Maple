@@ -8,9 +8,9 @@
 
   display: block;
   // Embedded as the "Backup" group inside the Workers page (not a standalone
-  // page) — neutralise the full-page host behaviours from settings-vars so the
-  // panel sizes to its content and doesn't paint a second background layer.
-  min-height: 0;
+  // page), so it takes `settings-vars` (the tokens) but not
+  // `settings-page-host` (the full-height sizing) — it sizes to its content.
+  // The background is cleared so it doesn't paint a second layer.
   background: transparent;
 }
 
