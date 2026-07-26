@@ -1,7 +1,6 @@
 // WorkersComponent — `/settings/workers` (owner-gated).
-// Combined Workers + Enrichment surface per the v0.2 spec. One row per
-// pipeline stage, grouped Ingest / Enrich / Index. Clicking a row reveals
-// an inline panel with the generic stage runtime config (concurrency,
+// Combined Workers + Enrichment surface. Clicking a stage reveals
+// its runtime config (concurrency,
 // max-attempts) plus, for enrichment stages, the domain
 // config (Ollama URL + model, Nominatim URL + rate, face model dir +
 // download URLs). Pause replaces the old "Enable" checkbox; the spec
@@ -66,6 +65,7 @@ import {
   formatDate,
   parseClampedInt,
   runtimeFormToPatch,
+  meilisearchFormToPatch,
   blankRuntime,
   blankEnrichment,
   errorMessage,
@@ -514,17 +514,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
       body.face_recognizer_url = form.face_recognizer_url.trim() || null;
       body.face_recognizer_sha256 = form.face_recognizer_sha256.trim() || null;
     } else if (kind === 'meili') {
-      body.meilisearch_url = form.meilisearch_url.trim() || null;
-      const key = form.meilisearch_api_key.trim();
-      if (key.length > 0) body.meilisearch_api_key = key;
-      const taskTimeout = Number(form.meilisearch_task_timeout_seconds.trim());
-      body.meilisearch_task_timeout_seconds =
-        Number.isInteger(taskTimeout) && taskTimeout >= 30 && taskTimeout <= 3600
-          ? taskTimeout
-          : null;
-      const serviceRate = Number(form.service_search_rate_limit_per_minute.trim());
-      body.service_search_rate_limit_per_minute =
-        Number.isInteger(serviceRate) && serviceRate > 0 ? serviceRate : null;
+      Object.assign(body, meilisearchFormToPatch(form));
     }
     this.enrichmentApi.saveEnrichmentConfig(body).subscribe({
       next: (cfg) => {
@@ -546,11 +536,18 @@ export class WorkersComponent implements OnInit, OnDestroy {
     });
   }
 
-  enrichmentValue(stage: StageStatus, field: keyof EnrichmentForm): string {
+  enrichmentValue(
+    stage: StageStatus,
+    field: keyof EnrichmentForm,
+  ): EnrichmentForm[keyof EnrichmentForm] {
     return this.enrichmentForms()[stage.name]?.[field] ?? '';
   }
 
-  setEnrichment(stage: StageStatus, field: keyof EnrichmentForm, value: string): void {
+  setEnrichment(
+    stage: StageStatus,
+    field: keyof EnrichmentForm,
+    value: EnrichmentForm[keyof EnrichmentForm],
+  ): void {
     this.enrichmentForms.update((cur) => {
       const cur1 = cur[stage.name] ?? blankEnrichment(this.enrichmentConfig());
       return { ...cur, [stage.name]: { ...cur1, [field]: value } };

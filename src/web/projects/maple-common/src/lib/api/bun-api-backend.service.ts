@@ -786,6 +786,10 @@ export class BunApiBackendService {
      * `null` clears back to env; omitted/empty leaves the saved key alone. */
     meilisearch_api_key?: string | null;
     meilisearch_task_timeout_seconds?: number | null;
+    meilisearch_semantic_enabled?: boolean | null;
+    meilisearch_embedder_url?: string | null;
+    meilisearch_embedder_model?: string | null;
+    meilisearch_semantic_ratio?: number | null;
     service_search_rate_limit_per_minute?: number | null;
   }): Observable<EnrichmentConfigResponse> {
     return this.http.put<EnrichmentConfigResponse>(`${this.base}/enrichment/config`, body);
@@ -1146,6 +1150,14 @@ export interface EnrichmentConfigResponse {
   meilisearch_api_key_set: boolean;
   /** Maximum wait for one asynchronous Meilisearch indexing task. */
   meilisearch_task_timeout_seconds?: number;
+  /** DB-backed master switch for Maple-owned hybrid semantic search. */
+  meilisearch_semantic_enabled: boolean;
+  /** Ollama URL that Meilisearch uses to embed documents and queries. */
+  meilisearch_embedder_url: string;
+  /** Ollama embedding model used for documents and queries. */
+  meilisearch_embedder_model: string;
+  /** Hybrid vector/keyword blend in [0, 1]. */
+  meilisearch_semantic_ratio: number;
   /** Per-service-key request budget for POST /api/search/assets. */
   service_search_rate_limit_per_minute?: number;
   /** Set when face worker is enabled but the model files are missing — UI
@@ -1182,6 +1194,10 @@ export interface EnrichmentConfigResponse {
     meilisearch_url: 'db' | 'env' | 'unset';
     meilisearch_api_key: 'db' | 'env' | 'unset';
     meilisearch_task_timeout_seconds?: 'db' | 'default';
+    meilisearch_semantic_enabled: 'db' | 'default';
+    meilisearch_embedder_url: 'db' | 'default';
+    meilisearch_embedder_model: 'db' | 'default';
+    meilisearch_semantic_ratio: 'db' | 'default';
     service_search_rate_limit_per_minute?: 'db' | 'default';
   };
 }
