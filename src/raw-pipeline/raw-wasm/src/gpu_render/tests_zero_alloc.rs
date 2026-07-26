@@ -59,6 +59,7 @@ fn render_chain_to_f32_second_render_is_zero_alloc() {
         clarity: 0.0,
         texture: 0.0,
         dehaze: 0.0,
+        local_adjustments: Vec::new(),
         vignette_amount: 0.0,
         vignette_feather: 50.0,
         grain_amount: 0.0,

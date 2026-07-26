@@ -318,6 +318,18 @@ pub struct MapleGpuLiveParams {
     pub color_grade_global_hue: f32,
     pub color_grade_global_saturation: f32,
     pub color_grade_global_luminance: f32,
+    // --- local adjustments (#1698) — the vector-mask layer stack, in the flat
+    //     wire `raw_core::types::local_adjustment::flat` defines (24 f32 per
+    //     layer, which is also the GPU storage layout, so nothing is re-packed
+    //     between here and the bind group). Appended at the struct tail per the
+    //     offset-stable ABI convention: a stale host leaves the pointer NULL
+    //     and the length 0 ⇒ an empty stack ⇒ the pass is omitted and the
+    //     output is bit-identical to pre-#1698. The pointed-to data must stay
+    //     valid for the call; the Rust side copies it out and frees nothing. ---
+    pub local_adjustments_ptr: *const f32,
+    /// Number of f32 elements at `local_adjustments_ptr`. A multiple of 24; a
+    /// trailing partial record is dropped rather than rejected.
+    pub local_adjustments_len: usize,
 }
 
 /// Internal handle state: the per-open session. Behind the opaque pointer.

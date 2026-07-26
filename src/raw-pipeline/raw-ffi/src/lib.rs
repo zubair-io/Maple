@@ -147,6 +147,9 @@ mod render_tests;
 #[path = "scene_linear_chain_fused_tests.rs"]
 mod scene_linear_chain_fused_tests;
 #[cfg(test)]
+#[path = "scene_linear_chain_local_tests.rs"]
+mod scene_linear_chain_local_tests;
+#[cfg(test)]
 #[path = "scene_linear_chain_tests.rs"]
 mod scene_linear_chain_tests;
 #[cfg(test)]

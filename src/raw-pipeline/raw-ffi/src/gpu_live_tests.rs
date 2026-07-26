@@ -60,6 +60,10 @@ pub(super) fn cpu_reference(
     raw_core::stages::clarity::apply(&mut img, model.clarity);
     raw_core::stages::texture::apply(&mut img, model.texture);
     raw_core::stages::dehaze::apply(&mut img, model.dehaze);
+    // Local adjustments (#1698) — develop's 12b slot. Empty on the mild and
+    // aggressive models here, so this reference is unchanged for them; the
+    // sibling `gpu_live_local_adjustment_tests.rs` drives it non-empty.
+    raw_core::stages::local_adjustments::apply(&mut img, &model.local_adjustments);
     raw_core::stages::sharpen::apply(
         &mut img,
         model.sharpen_amount,
@@ -110,6 +114,52 @@ fn mild_model() -> AdjustmentModel {
         nr_color: 15.0,
         auto_exposure: raw_core::types::adjustment::AutoExposureMode::Off,
         ..AdjustmentModel::default()
+    }
+}
+
+/// A masked model (#1698): the mild model plus two local-adjustment layers, one
+/// feathered linear gradient carrying every wired control and one radial. This
+/// is the case that proves the vector-mask rasterizer runs on the live path —
+/// through the C ABI, in chain position, against the CPU pipeline.
+fn masked_model() -> AdjustmentModel {
+    use raw_core::types::{LocalAdjustment, Mask, PartialAdjustments, Point2};
+    AdjustmentModel {
+        local_adjustments: vec![
+            LocalAdjustment {
+                mask: Mask::Linear {
+                    start: Point2::new(0.1, 0.2),
+                    end: Point2::new(0.9, 0.8),
+                    feather: 0.5,
+                },
+                adjustments: PartialAdjustments {
+                    exposure: Some(0.5),
+                    contrast: Some(20.0),
+                    highlights: Some(-30.0),
+                    shadows: Some(25.0),
+                    whites: Some(10.0),
+                    blacks: Some(-15.0),
+                    saturation: Some(30.0),
+                    vibrance: Some(20.0),
+                    temperature: Some(1500.0),
+                    tint: Some(6.0),
+                },
+            },
+            LocalAdjustment {
+                mask: Mask::Radial {
+                    center: Point2::new(0.45, 0.55),
+                    radii: Point2::new(0.3, 0.2),
+                    angle: 0.5,
+                    feather: 0.6,
+                    invert: true,
+                },
+                adjustments: PartialAdjustments {
+                    exposure: Some(-0.4),
+                    saturation: Some(-25.0),
+                    ..Default::default()
+                },
+            },
+        ],
+        ..mild_model()
     }
 }
 
@@ -166,6 +216,7 @@ fn gpu_live_render_matches_cpu_within_tolerance() {
     for (name, model, wb_method) in [
         ("mild", mild_model(), WbMethod::Cat16),
         ("aggressive", aggressive_model(), WbMethod::Cat16),
+        ("masked", masked_model(), WbMethod::Cat16),
     ] {
         let arr = owned_arrays(&model, &curve, &lut);
         let params = make_params(&model, wb_method, lut_size, &arr);
@@ -329,6 +380,7 @@ pub(super) fn direct_raw_gpu(
         clarity: model.clarity,
         texture: model.texture,
         dehaze: model.dehaze,
+        local_adjustments: raw_core::types::layers_to_flat(&model.local_adjustments),
         vignette_amount: model.vignette_amount,
         vignette_feather: model.vignette_feather,
         grain_amount: model.grain_amount,
