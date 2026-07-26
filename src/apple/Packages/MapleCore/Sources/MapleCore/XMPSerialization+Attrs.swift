@@ -29,14 +29,23 @@ extension XMPSerializer {
         omitWhiteBalance: Bool = false
     ) -> [(String, String)] {
         let wbAttrs: [(String, String)] = omitWhiteBalance ? [] : [
-            // Fractional-preserving (fmtWb): normalized WB pairs are
+            // Preset name (#1577). Apple's model has no preset field — the
+            // parser resolves a named preset to a temperature/tint pair and
+            // keeps only the numbers — but this serializer always authors an
+            // explicit pair, which is exactly what ACR and the web writer
+            // label "Custom". Emitting it keeps the attribute set identical
+            // to the web writer's for an authored WB, and reads back as a
+            // no-op here (`wbPreset("Custom")` is nil, and the explicit
+            // Temperature/Tint below win regardless of attribute order).
+            ("crs:WhiteBalance",         "Custom"),
+            // Fractional-preserving (fmtNum): normalized WB pairs are
             // non-integer post-#1893/#1894 (a V3-authored −144 loads as a
             // fractional V5 pair), and the frame-hydrated as-shot
             // temperature is fractional too — integer rounding here
             // shifted the stored WB on every re-save, drifting the
             // rendered look.
-            ("crs:Temperature",          fmtWb(model.temperature)),
-            ("crs:Tint",                 fmtWb(model.tint)),
+            ("crs:Temperature",          fmtNum(model.temperature)),
+            ("crs:Tint",                 fmtNum(model.tint)),
             // WB scale stamp (#1780/#1875/#1893/#1894): every sidecar save
             // writes explicit Temperature/Tint, so the scale those numbers
             // are expressed in is always stamped alongside them. V1
@@ -49,31 +58,46 @@ extension XMPSerializer {
             // the sidecar.
             ("papp:WbScaleVersion",      String(model.wbScaleVersion == 1 ? 1 : 5)),
         ]
-        var attrs: [(String, String)] = wbAttrs + [
-            ("crs:Exposure2012",         fmtF(model.exposure)),
-            ("crs:Contrast2012",         String(format: "%.0f", model.contrast)),
-            ("crs:Highlights2012",       String(format: "%.0f", model.highlights)),
-            ("crs:Shadows2012",          String(format: "%.0f", model.shadows)),
-            ("crs:Whites2012",           String(format: "%.0f", model.whites)),
-            ("crs:Blacks2012",           String(format: "%.0f", model.blacks)),
-            ("crs:Vibrance",             String(format: "%.0f", model.vibrance)),
-            ("crs:Saturation",           String(format: "%.0f", model.saturation)),
-            ("crs:Clarity2012",          String(format: "%.0f", model.clarity)),
-            ("crs:Texture",              String(format: "%.0f", model.texture)),
-            ("crs:Dehaze",               String(format: "%.0f", model.dehaze)),
-            ("crs:Sharpness",            String(format: "%.0f", model.sharpenAmount)),
-            ("crs:SharpenRadius",        String(format: "%.1f", model.sharpenRadius)),
-            ("crs:SharpenDetail",        String(format: "%.0f", model.sharpenDetail)),
-            ("crs:SharpenEdgeMasking",   String(format: "%.0f", model.sharpenMasking)),
-            ("papp:CaptureSharpeningAmount", String(format: "%.0f", model.captureSharpeningAmount)),
+        var attrs: [(String, String)] = [
+            // Process-version signalling, always emitted (canonical format
+            // § "Always-emitted attributes"). The TS writer has emitted these
+            // since P6; #1577 brought Swift in line, which is also what tells
+            // Lightroom the sidecar carries develop settings at all.
+            ("crs:Version",              "11.0"),
+            ("crs:ProcessVersion",       "11.0"),
+            ("crs:HasSettings",          "True"),
+        ] + wbAttrs + [
+            // Every numeric attribute goes through `fmtNum`, the canonical
+            // wire codec — see `XMPSerialization+Helpers.swift`.
+            ("crs:Exposure2012",         fmtNum(model.exposure)),
+            ("crs:Contrast2012",         fmtNum(model.contrast)),
+            ("crs:Highlights2012",       fmtNum(model.highlights)),
+            ("crs:Shadows2012",          fmtNum(model.shadows)),
+            ("crs:Whites2012",           fmtNum(model.whites)),
+            ("crs:Blacks2012",           fmtNum(model.blacks)),
+            ("crs:Vibrance",             fmtNum(model.vibrance)),
+            ("crs:Saturation",           fmtNum(model.saturation)),
+            ("crs:Clarity2012",          fmtNum(model.clarity)),
+            ("crs:Texture",              fmtNum(model.texture)),
+            ("crs:Dehaze",               fmtNum(model.dehaze)),
+            ("crs:Sharpness",            fmtNum(model.sharpenAmount)),
+            ("crs:SharpenRadius",        fmtNum(model.sharpenRadius)),
+            ("crs:SharpenDetail",        fmtNum(model.sharpenDetail)),
+            ("crs:SharpenEdgeMasking",   fmtNum(model.sharpenMasking)),
+            ("papp:CaptureSharpeningAmount", fmtNum(model.captureSharpeningAmount)),
             // Canonical capture-sharpening write key (#456). Legacy
             // `papp:CaptureSharpeningRadius` is read-only — older sidecars
             // still parse, but new sidecars emit Sigma exclusively.
-            ("papp:CaptureSharpeningSigma", String(format: "%.1f", model.captureSharpeningSigma)),
-            ("crs:LuminanceSmoothing",   String(format: "%.0f", model.nrLuminance)),
-            ("crs:ColorNoiseReduction",  String(format: "%.0f", model.nrColor)),
-            ("xmp:Rating",               String(culling.stars)),
+            ("papp:CaptureSharpeningSigma", fmtNum(model.captureSharpeningSigma)),
+            ("crs:LuminanceSmoothing",   fmtNum(model.nrLuminance)),
+            ("crs:ColorNoiseReduction",  fmtNum(model.nrColor)),
         ]
+        // Star rating — Adobe's convention is that absence means unrated, so
+        // zero is omitted rather than written as `xmp:Rating="0"` (canonical
+        // format § "Culling fields"). Matches the TS writer.
+        if culling.stars > 0 {
+            attrs.append(("xmp:Rating", String(culling.stars)))
+        }
         // Cull flag (#2221). Canonical key is `papp:Flag` with the bare
         // lowercase `pick` / `reject` values — byte-identical to what the
         // TS serializer (`xmp-serializer.service.ts`) and the API
@@ -109,16 +133,16 @@ extension XMPSerializer {
         // users who never touch it. Key is `papp:Brightness`, NOT the ACR
         // PV2010 `crs:Brightness` (different semantics — see the parser).
         if model.brightness != 0 {
-            attrs.append(("papp:Brightness", String(format: "%.0f", model.brightness)))
+            attrs.append(("papp:Brightness", fmtNum(model.brightness)))
         }
         // Parametric tone-curve region sliders (#365) — Lightroom-compatible
         // PV2012 `crs:` keys, emit only when non-default (0) so sidecars
         // written before the tone-curve widget existed stay byte-identical.
-        // fmtWb is the canonical-format numeric codec (integers bare,
+        // fmtNum is the canonical-format numeric codec (integers bare,
         // fractions 2dp-trimmed — mirrors the TS `numericSerializer`);
         // widget drag values are not integer-quantized, so `%.0f` would
         // shift the stored curve on every re-save. The omit gate shares
-        // fmtWb's 2-decimal rounding — gating on the raw Double would emit
+        // fmtNum's 2-decimal rounding — gating on the raw Double would emit
         // `="0"` for values like 0.004 (PR #2192 review); non-finite values
         // are not representable in sidecars and are skipped.
         let parametricAttrs = [
@@ -130,7 +154,7 @@ extension XMPSerializer {
         for (key, value) in parametricAttrs {
             let rounded = (value * 100).rounded() / 100
             if rounded.isFinite && rounded != 0 {
-                attrs.append((key, fmtWb(value)))
+                attrs.append((key, fmtNum(value)))
             }
         }
         // S5 effects fields (#643) — emit only when non-default so sidecars
@@ -139,60 +163,60 @@ extension XMPSerializer {
         // vignetteAmount=0, vignetteFeather=50, grainAmount=0, grainSize=25,
         // grainRoughness=50, all split-tone scalars=0.
         if model.vignetteAmount != 0 {
-            attrs.append(("crs:PostCropVignetteAmount", String(format: "%.0f", model.vignetteAmount)))
+            attrs.append(("crs:PostCropVignetteAmount", fmtNum(model.vignetteAmount)))
         }
         if model.vignetteFeather != 50 {
-            attrs.append(("crs:PostCropVignetteFeather", String(format: "%.0f", model.vignetteFeather)))
+            attrs.append(("crs:PostCropVignetteFeather", fmtNum(model.vignetteFeather)))
         }
         if model.grainAmount != 0 {
-            attrs.append(("crs:GrainAmount", String(format: "%.0f", model.grainAmount)))
+            attrs.append(("crs:GrainAmount", fmtNum(model.grainAmount)))
         }
         if model.grainSize != 25 {
-            attrs.append(("crs:GrainSize", String(format: "%.0f", model.grainSize)))
+            attrs.append(("crs:GrainSize", fmtNum(model.grainSize)))
         }
         if model.grainRoughness != 50 {
-            attrs.append(("crs:GrainFrequency", String(format: "%.0f", model.grainRoughness)))
+            attrs.append(("crs:GrainFrequency", fmtNum(model.grainRoughness)))
         }
         if model.splitToneShadowHue != 0 {
-            attrs.append(("crs:SplitToningShadowHue", String(format: "%.0f", model.splitToneShadowHue)))
+            attrs.append(("crs:SplitToningShadowHue", fmtNum(model.splitToneShadowHue)))
         }
         if model.splitToneShadowSaturation != 0 {
-            attrs.append(("crs:SplitToningShadowSaturation", String(format: "%.0f", model.splitToneShadowSaturation)))
+            attrs.append(("crs:SplitToningShadowSaturation", fmtNum(model.splitToneShadowSaturation)))
         }
         if model.splitToneHighlightHue != 0 {
-            attrs.append(("crs:SplitToningHighlightHue", String(format: "%.0f", model.splitToneHighlightHue)))
+            attrs.append(("crs:SplitToningHighlightHue", fmtNum(model.splitToneHighlightHue)))
         }
         if model.splitToneHighlightSaturation != 0 {
-            attrs.append(("crs:SplitToningHighlightSaturation", String(format: "%.0f", model.splitToneHighlightSaturation)))
+            attrs.append(("crs:SplitToningHighlightSaturation", fmtNum(model.splitToneHighlightSaturation)))
         }
         if model.splitToneBalance != 0 {
-            attrs.append(("crs:SplitToningBalance", String(format: "%.0f", model.splitToneBalance)))
+            attrs.append(("crs:SplitToningBalance", fmtNum(model.splitToneBalance)))
         }
         // Color Grading (#275) — the rest of the panel beyond the five
         // `crs:SplitToning*` keys above. Same omit-on-default convention.
         if model.colorGradeShadowLuminance != 0 {
-            attrs.append(("crs:ColorGradeShadowLum", String(format: "%.0f", model.colorGradeShadowLuminance)))
+            attrs.append(("crs:ColorGradeShadowLum", fmtNum(model.colorGradeShadowLuminance)))
         }
         if model.colorGradeMidtoneHue != 0 {
-            attrs.append(("crs:ColorGradeMidtoneHue", String(format: "%.0f", model.colorGradeMidtoneHue)))
+            attrs.append(("crs:ColorGradeMidtoneHue", fmtNum(model.colorGradeMidtoneHue)))
         }
         if model.colorGradeMidtoneSaturation != 0 {
-            attrs.append(("crs:ColorGradeMidtoneSat", String(format: "%.0f", model.colorGradeMidtoneSaturation)))
+            attrs.append(("crs:ColorGradeMidtoneSat", fmtNum(model.colorGradeMidtoneSaturation)))
         }
         if model.colorGradeMidtoneLuminance != 0 {
-            attrs.append(("crs:ColorGradeMidtoneLum", String(format: "%.0f", model.colorGradeMidtoneLuminance)))
+            attrs.append(("crs:ColorGradeMidtoneLum", fmtNum(model.colorGradeMidtoneLuminance)))
         }
         if model.colorGradeHighlightLuminance != 0 {
-            attrs.append(("crs:ColorGradeHighlightLum", String(format: "%.0f", model.colorGradeHighlightLuminance)))
+            attrs.append(("crs:ColorGradeHighlightLum", fmtNum(model.colorGradeHighlightLuminance)))
         }
         if model.colorGradeGlobalHue != 0 {
-            attrs.append(("crs:ColorGradeGlobalHue", String(format: "%.0f", model.colorGradeGlobalHue)))
+            attrs.append(("crs:ColorGradeGlobalHue", fmtNum(model.colorGradeGlobalHue)))
         }
         if model.colorGradeGlobalSaturation != 0 {
-            attrs.append(("crs:ColorGradeGlobalSat", String(format: "%.0f", model.colorGradeGlobalSaturation)))
+            attrs.append(("crs:ColorGradeGlobalSat", fmtNum(model.colorGradeGlobalSaturation)))
         }
         if model.colorGradeGlobalLuminance != 0 {
-            attrs.append(("crs:ColorGradeGlobalLum", String(format: "%.0f", model.colorGradeGlobalLuminance)))
+            attrs.append(("crs:ColorGradeGlobalLum", fmtNum(model.colorGradeGlobalLuminance)))
         }
         attrs += XMPSerializer.hslAttrs(model: model)
         // Black & white mix (#276) — toggle + eight gray-mixer weights.
@@ -229,7 +253,7 @@ extension XMPSerializer {
         // non-default (0) so sidecars produced before the field existed
         // remain byte-identical for users who never touch it.
         if model.chromaPrefilter != 0 {
-            attrs.append(("papp:ChromaPrefilter", String(format: "%.0f", model.chromaPrefilter)))
+            attrs.append(("papp:ChromaPrefilter", fmtNum(model.chromaPrefilter)))
         }
         // Hot/dead-pixel suppression (#1106) — emit only when non-default
         // (`.off`), same convention.
@@ -238,7 +262,7 @@ extension XMPSerializer {
         }
         // BM3D deep denoise (#1105) — emit only when non-default (0).
         if model.deepDenoise != 0 {
-            attrs.append(("papp:DeepDenoise", String(format: "%.0f", model.deepDenoise)))
+            attrs.append(("papp:DeepDenoise", fmtNum(model.deepDenoise)))
         }
         // Crop / straighten (#277, spec § 01 invariant 3) — emit only when
         // non-identity. CropAngle is independent so a pure straighten emits

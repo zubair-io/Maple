@@ -267,8 +267,10 @@ final class XMPMetadataTests: XCTestCase {
 
         let xml = XMPSerializer.serialize(model: model, culling: culling, metadata: meta)
 
-        // Adjustment fields present.
-        XCTAssertTrue(xml.contains(#"crs:Exposure2012="1.50""#))
+        // Adjustment fields present. `"1.5"`, not `"1.50"`: since #1577 every
+        // numeric attribute goes through the canonical wire codec, which
+        // trims trailing zeros.
+        XCTAssertTrue(xml.contains(#"crs:Exposure2012="1.5""#))
         XCTAssertTrue(xml.contains(#"crs:Highlights2012="-30""#))
         // Culling present.
         XCTAssertTrue(xml.contains(#"xmp:Rating="4""#))
