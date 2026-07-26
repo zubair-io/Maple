@@ -12,6 +12,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import {
   ASSETS_INDEX,
   createMeilisearchClient,
+  MeilisearchSearchError,
   type MeilisearchAssetDoc,
 } from './meilisearch-client.ts';
 import { makeFakeFetch } from './meilisearch-test-harness.ts';
@@ -136,6 +137,7 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
       fetchImpl,
     });
     await client.ensureIndex();
+    await client.ensureIndex();
 
     // Two calls: POST /indexes (create) + PATCH /indexes/assets/settings
     expect(calls.length).toBe(2);
@@ -168,7 +170,7 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     expect(calls.some((c) => c.url.includes('/experimental-features'))).toBe(false);
   });
 
-  it('ensureIndex() registers the Ollama embedder + vectorStore when semantic on', async () => {
+  it('ensureIndex() registers the Ollama embedder without retired experimental flags', async () => {
     const { fetchImpl, calls } = makeFakeFetch();
     const client = createMeilisearchClient({
       url: 'http://meili.local:7700',
@@ -180,10 +182,7 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     });
     await client.ensureIndex();
 
-    // POST /indexes + PATCH /experimental-features + PATCH settings.
-    const exp = calls.find((c) => c.url.includes('/experimental-features'));
-    expect(exp).toBeDefined();
-    expect((exp!.body as Record<string, unknown>).vectorStore).toBe(true);
+    expect(calls.some((c) => c.url.includes('/experimental-features'))).toBe(false);
 
     const settings = calls.find((c) => c.url.includes('/settings'));
     expect(settings).toBeDefined();
@@ -201,14 +200,25 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     expect(filt).toContain('people');
   });
 
-  it('ensureIndex() tolerates a 404 on /experimental-features (GA build)', async () => {
+  it('ensureIndex() waits for the async settings task before reporting ready', async () => {
     const { fetchImpl, calls } = makeFakeFetch({
       routes: [
         {
+          method: 'POST',
+          pathPrefix: '/indexes',
+          status: 409,
+          body: { code: 'index_already_exists' },
+        },
+        {
           method: 'PATCH',
-          pathPrefix: '/experimental-features',
-          status: 404,
-          body: { code: 'not_found' },
+          pathPrefix: `/indexes/${ASSETS_INDEX}/settings`,
+          status: 202,
+          body: { taskUid: 12 },
+        },
+        {
+          method: 'GET',
+          pathPrefix: '/tasks/12',
+          body: { uid: 12, status: 'succeeded' },
         },
       ],
     });
@@ -217,9 +227,8 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
       fetchImpl,
       semantic: true,
     });
-    // Must not throw.
     await client.ensureIndex();
-    expect(calls.some((c) => c.url.includes('/settings'))).toBe(true);
+    expect(calls.some((c) => c.url.includes('/tasks/12'))).toBe(true);
   });
 
   it('semanticConfigured() reflects the switch AND configured state', () => {
@@ -261,6 +270,11 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
           status: 202,
           body: { taskUid: 1 },
         },
+        {
+          method: 'GET',
+          pathPrefix: '/tasks/1',
+          body: { uid: 1, status: 'succeeded' },
+        },
       ],
     });
     const client = createMeilisearchClient({
@@ -269,7 +283,7 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     });
     // Must not throw even though /indexes returned 409.
     await client.ensureIndex();
-    expect(calls.length).toBe(2);
+    expect(calls.length).toBe(3);
   });
 
   it('upsert() POSTs the doc array to /indexes/assets/documents', async () => {
@@ -395,14 +409,18 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     await expect(client.search('Albany')).rejects.toThrow(/meilisearch search failed/);
   });
 
-  it('search() throws on 5xx so the route can fall back', async () => {
+  it('search() exposes safe structured Meilisearch diagnostics', async () => {
     const { fetchImpl } = makeFakeFetch({
       routes: [
         {
           method: 'POST',
           pathPrefix: `/indexes/${ASSETS_INDEX}/search`,
-          status: 500,
-          body: { error: 'boom' },
+          status: 400,
+          body: {
+            message: 'Cannot find embedder with name `caption`.',
+            code: 'invalid_search_embedder',
+            type: 'invalid_request',
+          },
         },
       ],
     });
@@ -410,7 +428,18 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
       url: 'http://meili.local:7700',
       fetchImpl,
     });
-    await expect(client.search('Albany')).rejects.toThrow(/meilisearch search failed/);
+    try {
+      await client.search('Albany');
+      throw new Error('expected search to fail');
+    } catch (error) {
+      expect(error).toBeInstanceOf(MeilisearchSearchError);
+      expect((error as MeilisearchSearchError).details).toEqual({
+        status: 400,
+        code: 'invalid_search_embedder',
+        type: 'invalid_request',
+        message: 'Cannot find embedder with name `caption`.',
+      });
+    }
   });
 
   it('search() scrubs non-hex chars from folderId before injecting', async () => {
