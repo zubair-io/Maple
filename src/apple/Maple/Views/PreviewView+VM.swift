@@ -106,13 +106,28 @@ enum PreviewViewVM {
     /// `ImageSource.preview(for:)` intentionally returns nil, while the app-side
     /// PhotoKit backend supports size-aware display and zoom refinement.
     /// Other sources retain the shared `.local`/ThumbnailLoader route.
+    ///
+    /// Routing is INTRINSIC to the asset first (#2299): `asset.
+    /// thumbnailProvenance == .photoKit` routes to `.photoKit` regardless of
+    /// what `source` happens to be. This is load-bearing for a MIXED list —
+    /// the unified Timeline's iPhone Preview sibling list interleaves
+    /// PhotoKit-local cells with cloud cells from several servers, so there
+    /// is no single ambient `ImageSource` that's correct for every asset in
+    /// it (passing one `PhotoKitSource` as `source` would misroute the cloud
+    /// cells). The `source is PhotoKitSource` check is kept as a fallback for
+    /// refs that predate provenance tagging or come from a genuinely
+    /// single-source list (the normal PhotoKit-filter browse, where `source`
+    /// really is the one true backend for every asset) — never the ONLY
+    /// signal.
     static func thumbnailSource(
         for asset: AssetRef,
         source: (any ImageSource)?
     ) -> ThumbnailSource {
-        if asset.primaryURL == nil,
-           source is PhotoKitSource,
-           let localID = asset.stableID {
+        let isPhotoKitBacked: Bool = {
+            if case .photoKit = asset.thumbnailProvenance { return true }
+            return asset.primaryURL == nil && source is PhotoKitSource
+        }()
+        if isPhotoKitBacked, let localID = asset.stableID {
             return .photoKit(localID: localID)
         }
         return .local(asset, source: source.map(ImageSourceBox.init))

@@ -13,6 +13,7 @@
 // (threshold + horizontal dominance), and the image-source selection. UI
 // wiring (gestures, layout) is verified by building, not here.
 
+import Foundation
 import MapleCore
 import XCTest
 
@@ -131,6 +132,67 @@ final class PreviewViewVMTests: XCTestCase {
     XCTAssertNil(box?.source)
   }
 
+  // MARK: - thumbnailSource provenance (#2299)
+  //
+  // The unified Timeline's iPhone Preview sibling list mixes PhotoKit-local
+  // cells with cloud cells from several servers in one `[AssetRef]` — there
+  // is no single ambient `ImageSource` that's correct for every asset in it.
+  // `AssetRef.thumbnailProvenance` lets a PhotoKit-backed ref route to
+  // `.photoKit(localID:)` INTRINSICALLY, regardless of what the caller
+  // happens to pass as `source` (nil, or even some other asset's source).
+
+  private func makePhotoKitBackedAsset(stableID: String) -> AssetRef {
+    AssetRef(
+      displayName: "IMG_\(stableID).heic",
+      hintExtension: "heic",
+      stableID: stableID,
+      thumbnailProvenance: .photoKit,
+      bytesProvider: { Data() }
+    )
+  }
+
+  func testThumbnailSourceRoutesPhotoKitProvenanceToPhotoKitWithNilSource() {
+    let asset = makePhotoKitBackedAsset(stableID: "phasset-local-id-1")
+    let src = PreviewViewVM.thumbnailSource(for: asset, source: nil)
+    guard case let .photoKit(localID) = src else {
+      return XCTFail("expected .photoKit ThumbnailSource, got \(src)")
+    }
+    XCTAssertEqual(localID, "phasset-local-id-1")
+  }
+
+  func testThumbnailSourceRoutesPhotoKitProvenanceToPhotoKitEvenWithANonPhotoKitAmbientSource() {
+    // A non-PhotoKit `ImageSource` standing in for "the ambient source
+    // actually belongs to a DIFFERENT cell in a mixed list" (e.g. the
+    // unified Timeline's `browseVM.currentSource`, which is nil, or a cloud
+    // `CloudSource` if one were ever threaded through). Provenance must win
+    // regardless — the routing must NOT depend on `source is PhotoKitSource`.
+    let asset = makePhotoKitBackedAsset(stableID: "phasset-local-id-2")
+    let src = PreviewViewVM.thumbnailSource(for: asset, source: FakeNonPhotoKitImageSource())
+    guard case let .photoKit(localID) = src else {
+      return XCTFail("expected .photoKit ThumbnailSource, got \(src)")
+    }
+    XCTAssertEqual(localID, "phasset-local-id-2")
+  }
+
+  func testThumbnailSourceRoutesCloudProvenanceRefToLocal() {
+    // Cloud/file assets keep their current resolution — `.cloud(server:)`
+    // provenance is consulted by `AppShell.ensureSession` on activation, NOT
+    // by `thumbnailSource`, which still resolves a cloud ref through its own
+    // `bytesProvider` via the shared `.local` route.
+    let asset = AssetRef(
+      displayName: "IMG_3.dng",
+      hintExtension: "dng",
+      stableID: "fs:/library/IMG_3.dng",
+      thumbnailProvenance: .cloud(server: URL(string: "https://cloud.example.invalid")!),
+      bytesProvider: { Data() }
+    )
+    let src = PreviewViewVM.thumbnailSource(for: asset, source: nil)
+    guard case let .local(ref, _) = src else {
+      return XCTFail("expected .local ThumbnailSource, got \(src)")
+    }
+    XCTAssertEqual(ref.id, asset.id)
+  }
+
   // MARK: - filenameMaxWidth (spec §6)
 
   func testFilenameMaxWidthIsResponsiveToSizeClass() {
@@ -147,4 +209,19 @@ final class PreviewViewVMTests: XCTestCase {
     XCTAssertLessThanOrEqual(PreviewViewVM.filenameMaxWidth(isCompact: false), 200)
     XCTAssertLessThanOrEqual(PreviewViewVM.filenameMaxWidth(isCompact: true), 200)
   }
+}
+
+// MARK: - Test fixtures
+
+/// Minimal `ImageSource` conformance standing in for "some OTHER asset's
+/// source" in a mixed list (#2299) — every method is unreachable in these
+/// tests; only the TYPE (not `PhotoKitSource`) matters for the
+/// `source is PhotoKitSource` fallback check in `thumbnailSource`.
+private actor FakeNonPhotoKitImageSource: ImageSource {
+  func images() async throws -> [ImageRef] { [] }
+  func thumb(for ref: ImageRef) async throws -> Data? { nil }
+  func preview(for ref: ImageRef) async throws -> Data? { nil }
+  func rawBytes(for ref: ImageRef) async throws -> Data { Data() }
+  func writeXMP(_ sidecar: Sidecar, for ref: ImageRef) async throws {}
+  func search(_ query: SearchQuery) async throws -> [ImageRef]? { nil }
 }
