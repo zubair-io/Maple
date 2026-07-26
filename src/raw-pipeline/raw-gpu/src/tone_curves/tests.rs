@@ -240,6 +240,34 @@ fn cases() -> Vec<(&'static str, Case)> {
                 ratio_preserving: true,
             },
         ),
+        // #2318: the region model gives each slider its own window, so the
+        // opposing pairs a user actually sets have to survive the CPU->GPU
+        // transcription of the new analytic tangents. The first is the
+        // committed `test_0000/xmp/parametric_mixed.xmp` setting; the second
+        // is the worst case for the monotonicity bound (adjacent regions at
+        // full opposing deflection).
+        (
+            "parametric-mixed-fixture",
+            Case {
+                parametric: [-75.0, 50.0, -50.0, 75.0],
+                luma: vec![],
+                red: vec![],
+                green: vec![],
+                blue: vec![],
+                ratio_preserving: false,
+            },
+        ),
+        (
+            "parametric-opposing-extremes",
+            Case {
+                parametric: [100.0, -100.0, 100.0, -100.0],
+                luma: vec![],
+                red: vec![],
+                green: vec![],
+                blue: vec![],
+                ratio_preserving: false,
+            },
+        ),
     ]
 }
 
