@@ -453,8 +453,15 @@ impl GpuContext {
             .get_or_init(|| compile_nr(&self.device, "nr-extract", "extract_channel"))
     }
 
+    /// `prepare_scale`: the per-pixel noise-profile modulation plane (#1714).
+    /// 2 storage: the Oklab L plane + the packed (max_w, scale) plane.
+    pub fn nr_prepare_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.nr_prepare_pipeline
+            .get_or_init(|| compile_nr(&self.device, "nr-prepare-scale", "prepare_scale"))
+    }
+
     /// `accumulate_shift`: the per-shift NLM core (direct patch-SSD → weight →
-    /// acc/wsum/max_w). 4 storage: plane + acc + wsum + max_w.
+    /// acc/wsum/max_w). 4 storage: plane + acc + wsum + (max_w, scale).
     pub fn nr_accumulate_pipeline(&self) -> &wgpu::ComputePipeline {
         self.nr_accumulate_pipeline
             .get_or_init(|| compile_nr(&self.device, "nr-accumulate", "accumulate_shift"))
