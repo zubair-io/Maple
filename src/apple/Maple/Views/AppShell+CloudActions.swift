@@ -306,34 +306,6 @@ extension AppShell {
         }
     }
 
-    // MARK: - Cloud view mode
-
-    /// Current Timeline/Folder view mode for the selected cloud library,
-    /// read from the registry. Defaults to `.folder` for non-cloud
-    /// selections (the trailing toggle that reads this is hidden then).
-    /// Accessed during `body` so Observation re-tints the toggle when the
-    /// registry's `viewMode` changes.
-    var currentCloudViewMode: CloudViewMode {
-        if case .cloudLibrary(let serverID, _) = librarySelection {
-            return CloudServerRegistry.shared.viewMode(for: serverID)
-        }
-        return .folder
-    }
-
-    /// Switch the open cloud library between Timeline and Folder view.
-    /// Persists the choice to the registry, then re-routes the current
-    /// library through the new mode (mirrors what the sidebar toggle used
-    /// to do before it moved into the header — #782). `cloudCurrentPath`
-    /// preserves any subfolder the user had drilled into.
-    @MainActor
-    func setCloudViewMode(_ mode: CloudViewMode) {
-        guard case .cloudLibrary(let serverID, let folderID) = librarySelection else { return }
-        CloudServerRegistry.shared.setViewMode(mode, for: serverID)
-        loadCloudLibrary(serverID: serverID,
-                         folderID: folderID,
-                         libraryPath: cloudCurrentPath ?? "")
-    }
-
     // MARK: - Cloud search
 
     /// Toolbar magnifying-glass handler — flips the cloud search UI on/off.
