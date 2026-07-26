@@ -327,6 +327,8 @@ mod tests_modes;
 #[cfg(test)]
 mod tests_payloads;
 #[cfg(test)]
+mod tests_profile;
+#[cfg(test)]
 mod tests_tone_curves;
 #[cfg(test)]
 mod tests_wb_scale;
