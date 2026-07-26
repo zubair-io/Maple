@@ -53,6 +53,26 @@ function makeAsset(opts: {
   };
 }
 
+describe('sha256Prefix16 — cross-platform pinned vectors (#2254)', () => {
+  // Identical vectors are pinned in the Apple and Web siblings:
+  //   - src/apple/Packages/MapleCore/Tests/MapleCoreTests/ThumbnailDiskCacheKeyTests.swift
+  //   - src/web/projects/maple-common/src/lib/maple-cache/sha.spec.ts
+  // All three MUST agree on these exact hex strings, or `.maple/thumbs/`
+  // written by one layer becomes unreadable by the other two. This is the
+  // hash-function half of the parity gate; the path-agreement half lives in
+  // `resolveThumbPathForAsset`'s "agrees with resolveThumbPath" test below.
+  const cases: ReadonlyArray<readonly [filename: string, expected: string]> = [
+    ['IMG_0001.ARW', '8fd710b39cdc1a26'],
+    ['test.dng', 'b9011a0233accea2'],
+    ['IMG_1234.dng', '7ad25b268a071d01'],
+    ['photo.HEIC', 'db03400ba7adff45'],
+  ];
+
+  test.each(cases)('sha256Prefix16(%s) === %s', (filename, expected) => {
+    expect(sha256Prefix16(filename)).toBe(expected);
+  });
+});
+
 describe('xmpSidecarPath', () => {
   test('RAW/image uses stem-swap: IMG_1.ARW → IMG_1.xmp', () => {
     expect(xmpSidecarPath('/photos/IMG_1.ARW')).toBe('/photos/IMG_1.xmp');
