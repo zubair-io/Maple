@@ -130,7 +130,7 @@ fn auto_will_fit(model: &AdjustmentModel, bytes: &[u8], ext: &str) -> bool {
 #[path = "gpu_render/model.rs"]
 mod model;
 #[cfg(any(target_arch = "wasm32", test))]
-use model::{build_full_chain_inputs, stripped_prefix_model};
+use model::{build_full_chain_inputs, stripped_prefix_model, NoiseProfileInputs};
 
 /// The effective auto-exposure mode the stripped-prefix develop must use — the
 /// SAME one the CPU render uses (`auto_will_fit` → Off when Auto Profile fits,
@@ -328,6 +328,13 @@ pub(crate) fn chain_inputs_for_model(
         profile_curve_flat,
         residual_lut_size,
         residual_lut_data,
+        // The decoded frame's own noise characterisation drives the NR stages'
+        // per-pixel modulation on the GPU exactly as it does in `develop`
+        // (#1714) — both read `RawImage::{noise_profile, iso}`.
+        NoiseProfileInputs {
+            profile: raw_img.noise_profile.clone().unwrap_or_default(),
+            iso: raw_img.iso,
+        },
     )
 }
 

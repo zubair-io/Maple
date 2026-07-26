@@ -330,6 +330,18 @@ pub struct MapleGpuLiveParams {
     /// Number of f32 elements at `local_adjustments_ptr`. A multiple of 24; a
     /// trailing partial record is dropped rather than rejected.
     pub local_adjustments_len: usize,
+    // --- DNG NoiseProfile + ISO (#1714) — the `RawImage::{noise_profile, iso}`
+    //     pair the host already passes to the CPU chain via
+    //     `MapleSceneLinearChainParams`. The NR stages scale `h` and the search
+    //     radius PER PIXEL off these, so a GPU chain that can't see them
+    //     denoises differently from the exported frame. Appended at the tail
+    //     per the offset-stable ABI convention: null pointer / zero len ⇒ the
+    //     flat filter, bit-identical to pre-#1714 output. ---
+    /// Flat `(slope, offset)` pairs from the DNG NoiseProfile tag.
+    pub noise_profile_ptr: *const f32,
+    pub noise_profile_len: u32,
+    /// `RawImage::iso`. Zero is raw-core's "unknown ISO" sentinel.
+    pub iso: u32,
 }
 
 /// Internal handle state: the per-open session. Behind the opaque pointer.
