@@ -53,8 +53,11 @@ public struct XMPPassthrough: Sendable, Equatable {
         }
     }
 
-    /// Unknown attributes on `rdf:Description`, in source order. The canonical
-    /// attribute sort reorders them on write, so this order is informational.
+    /// Unknown attributes on `rdf:Description`, sorted by name. Source order
+    /// is unrecoverable — `XMLParser` hands a start tag's attributes back in a
+    /// `Dictionary` — and would be moot anyway, because the canonical
+    /// attribute sort reorders every attribute on write. Sorting here is what
+    /// makes the bucket itself deterministic run to run.
     public var unknownAttributes: [Attribute]
 
     /// Verbatim source text of unknown child elements of `rdf:Description`,
