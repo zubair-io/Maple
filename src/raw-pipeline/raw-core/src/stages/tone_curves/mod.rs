@@ -23,9 +23,10 @@
 //! invariant for a tone curve and is fixed at the interpolant level in
 //! [`evaluator::eval_monotonic_cubic`].
 //!
-//! Parametric curve: synthesises a piecewise-cubic over the four
-//! canonical PV2012 region split points (0.25 / 0.5 / 0.75 in the
-//! authoring domain). The luma-coupled application path mirrors
+//! Parametric curve: synthesises a monotone piecewise-cubic from the four
+//! PV2012 region sliders over a region axis anchored to scene exposure —
+//! see [`parametric`] for the region model, the closed-form gain profile
+//! and the monotonicity bound. The luma-coupled application path mirrors
 //! `scene_tone_controls`'s `highlights` step 2 — scale all three channels
 //! by `Y_new / Y_old` — so hue is preserved by construction. The
 //! per-channel `tone_curve_{red,green,blue}` paths default to a
@@ -36,12 +37,14 @@
 //! and Darktable citation.
 
 mod evaluator;
+mod parametric;
 
-use evaluator::{eval_curve_scene_linear, prepare_curve, prepare_curve_from_slice, PreparedCurve};
+use evaluator::{eval_curve_scene_linear, prepare_curve, PreparedCurve};
+use parametric::build_parametric_curve;
 
 use crate::{
     image::{ColorSpace, Image},
-    types::adjustment::{ToneCurve, ToneCurveMode, ToneCurvePoint},
+    types::adjustment::{ToneCurve, ToneCurveMode},
     xmp::AdjustmentModel,
 };
 
@@ -121,77 +124,14 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
 // Parametric region sliders → synthesised curve, luma-coupled apply
 // ---------------------------------------------------------------------
 
-/// Build a 5-knot parametric curve from the four region sliders. Knots
-/// live in `[0, 1]` authoring space at `(0.0, 0.25, 0.5, 0.75, 1.0)`.
-///
-/// Each region slider lives on a `[-100, 100]` scale; we normalise to
-/// `[-1, 1]` and scale the knot displacement by `0.25` so the maximum
-/// vertical excursion at any knot is ¼ of the authoring range — picked
-/// to match the perceptual feel of the reference renderer's PV2012
-/// parametric sliders on the calibration scenes (shadows lift up to
-/// `+0.25` at the 0.25 knot under shadows=+100).
-///
-/// The shadows / darks pair operates symmetrically around the 0.25 knot:
-/// shadows shifts the (0.25, 0.25) knot vertically; darks shifts the
-/// (0.5, 0.5) knot. Lights / highlights mirror this around the upper end.
-/// Endpoints stay pinned at (0, 0) and (1, 1) — the parametric curve does
-/// not extend the dynamic range.
-///
-/// **Monotonicity clamp.** Fritsch–Carlson interpolation requires the
-/// input knots to be monotonic in `y`. Conflicting slider combinations
-/// can synthesise non-monotonic knots — e.g. `shadows = +100` lifts the
-/// (0.25, _) knot toward 0.5 while `darks = -100, lights = -100` pulls
-/// the (0.5, _) knot down toward 0.25. We resolve by clamping each knot
-/// to the cumulative max so far: a later knot can never sit lower than
-/// the previous one. This preserves user intent within monotonic bounds —
-/// the earlier slider "wins" against the conflicting later one, which is
-/// the same behavior PV2012's reference parametric curve exhibits when
-/// pushed past its smooth region.
-fn build_parametric_knots(model: &AdjustmentModel) -> [ToneCurvePoint; 5] {
-    let s = model.parametric_shadows / 100.0;
-    let d = model.parametric_darks / 100.0;
-    let l = model.parametric_lights / 100.0;
-    let h = model.parametric_highlights / 100.0;
-
-    // Scale chosen to keep the curve smooth — at full +100 / -100 the
-    // knot moves by 0.25 in authoring space, which on the upper region
-    // corresponds to scene `1.0 → 2.0` and on the lower region to scene
-    // `1.0 → 0.0`. Beyond this the monotonic cubic begins to over-pull.
-    let knot_amplitude = 0.25;
-
-    let mut knots: [ToneCurvePoint; 5] = [
-        (0.0, 0.0),
-        (0.25, 0.25 + s * knot_amplitude),
-        (0.5, 0.5 + (d + l) * 0.5 * knot_amplitude),
-        (0.75, 0.75 + h * knot_amplitude),
-        (1.0, 1.0),
-    ];
-
-    // Monotonicity guard. Left-to-right cumulative-max pass: ensures
-    // each `y_i` is at least the previous `y_{i-1}`. Endpoints stay
-    // pinned at 0 and 1 by construction; only interior knots can move.
-    // Also clamps each knot into `[0, 1]` so the evaluator's authoring
-    // domain stays valid.
-    for i in 1..knots.len() {
-        let lo = knots[i - 1].1;
-        if knots[i].1 < lo {
-            knots[i].1 = lo;
-        }
-        knots[i].1 = knots[i].1.clamp(0.0, 1.0);
-    }
-
-    knots
-}
-
 /// Apply the synthesised parametric curve in scene-linear with luma
 /// coupling. Mirrors the per-pixel pattern from
 /// `scene_tone_controls::apply`'s `highlights` step 2 — scale all three
 /// channels by `Y_new / Y_old` — so hue is preserved by construction.
 fn apply_parametric_luma_coupled(img: &mut Image, model: &AdjustmentModel) {
-    let knots = build_parametric_knots(model);
-    // Prepare once — Fritsch–Carlson slopes + tangents are computed here,
-    // not per-pixel.
-    let prepared = prepare_curve_from_slice(&knots);
+    // Prepare once — the knots and their analytic tangents are computed
+    // here, not per-pixel.
+    let prepared = build_parametric_curve(model);
 
     for p in &mut img.pixels {
         let y_old = LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2];
@@ -338,3 +278,5 @@ fn eval_ratio_preserving(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_parametric;
