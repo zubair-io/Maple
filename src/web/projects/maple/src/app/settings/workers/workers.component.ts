@@ -53,6 +53,7 @@ import { SettingsIconComponent } from '../settings-icon.component';
 import { SettingsRowComponent } from '../settings-row.component';
 import { MirrorSettingsComponent } from './mirror-settings.component';
 import { DerivativeAuditSettingsComponent } from './derivative-audit-settings.component';
+import { GpuLiveRenderSettingsComponent } from './gpu-live-render-settings.component';
 import { FacePurgePanelComponent } from './face-purge-panel.component';
 import {
   FIXED_DESCRIBE_MODEL,
@@ -91,6 +92,7 @@ import {
     SettingsRowComponent,
     MirrorSettingsComponent,
     DerivativeAuditSettingsComponent,
+    GpuLiveRenderSettingsComponent,
     FacePurgePanelComponent,
   ],
   templateUrl: './workers.component.html',

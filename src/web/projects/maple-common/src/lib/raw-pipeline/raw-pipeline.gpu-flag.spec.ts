@@ -14,6 +14,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { RawPipelineService } from './raw-pipeline.service';
 import { GPU_LIVE_RENDER_ENABLED } from './gpu-live-render.token';
+import { GpuLiveRenderGate } from './gpu-live-render.gate';
+import { STORAGE_KEYS, TypedStorage } from '../util/typed-storage';
 import type { DecodeRequest, DecodeSuccess } from './raw-pipeline.types';
 
 /** Minimal Worker stub — captures the posted request, replays a reply. */
@@ -74,7 +76,12 @@ describe('RawPipelineService — GPU live-render flag routing (#1029)', () => {
     });
   }
 
-  beforeEach(() => install());
+  beforeEach(() => {
+    // #1062: the gate warm-starts from localStorage, so clear any cached
+    // operator value — these cases exercise the build-time token alone.
+    TypedStorage.remove(STORAGE_KEYS.GPU_LIVE_RENDER_ENABLED);
+    install();
+  });
 
   afterEach(() => {
     Object.defineProperty(globalThis, 'Worker', {
@@ -143,6 +150,31 @@ describe('RawPipelineService — GPU live-render flag routing (#1029)', () => {
     const decoded = await promise;
     expect(decoded.rgb).toBeInstanceOf(Uint8Array);
     expect(decoded.rgb.length).toBe(3);
+  });
+
+  it('an operator kill mid-session lands on the NEXT decode (#1062)', async () => {
+    // The flag is read per request, not captured at construction, so a flip
+    // arriving on the config poll does not need a reload to take effect.
+    TestBed.configureTestingModule({});
+    const service = TestBed.inject(RawPipelineService);
+    const gate = TestBed.inject(GpuLiveRenderGate);
+
+    const first = service.decode(new Uint8Array([0x44]), 'dng');
+    await Promise.resolve();
+    const sentBefore = workerStub.postMessage.mock.calls[0][0] as DecodeRequest;
+    expect(sentBefore.gpu).toBe(true);
+    replyOnePixel(workerStub, sentBefore.id);
+    await first;
+
+    gate.apply(false);
+    expect(service.gpuLiveRenderEnabled).toBe(false);
+
+    const second = service.decode(new Uint8Array([0x44]), 'dng');
+    await Promise.resolve();
+    const sentAfter = workerStub.postMessage.mock.calls[1][0] as DecodeRequest;
+    expect(sentAfter.gpu).toBe(false);
+    replyOnePixel(workerStub, sentAfter.id);
+    await second;
   });
 
   it('carries the flag alongside the develop XMP (re-render path, #846)', async () => {

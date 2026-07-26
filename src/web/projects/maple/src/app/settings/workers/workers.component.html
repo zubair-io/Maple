@@ -877,6 +877,12 @@
     <maple-mirror-settings />
     <maple-derivative-audit-settings />
 
+    <!-- Rendering — runtime knobs for what the web editor does on the client,
+         as opposed to the server-side stages above. Today: the GPU live-render
+         ramp/kill switch (#1062). -->
+    <div class="group-label">Rendering</div>
+    <maple-gpu-live-render-settings />
+
     <!-- Import — its own pipeline group, rendered last (ticket #755). Rows
          expand in place to show src → library + the per-file list. -->
     <div class="group-label import-group">
