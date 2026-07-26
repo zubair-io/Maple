@@ -72,9 +72,9 @@ Without `MAPLE_PERF=1` both benches skip-pass — the default `swift test` / `ng
 
 ### What to do on a regression
 
-1. Look at the `[slider-tick-perf]` summary line. Apple reports `process=…ms render=…ms` — the attribution tells you whether the regression is in the FFI chain or the GPU sharpen/NRColor pass.
-2. If `process` time jumped: most likely a change to `applySceneLinearChainViaFFI` or the FFI parameter assembly. Walk the recent diff against `ImageEditPipeline.processSceneLinear` and the Rust core's scene-linear stages.
-3. If `render` time jumped: a Metal kernel change in `MetalKernels.applySceneSharpen` or `applySceneNRColor`, or a CIContext config drift.
+1. Look at the `[slider-tick-perf]` summary line. Apple reports `process=…ms render=…ms` — the attribution tells you whether the regression is in the FFI chain or in the CoreImage rasterisation that follows it.
+2. If `process` time jumped: most likely a change to `applySceneLinearChainViaFFI` or the FFI parameter assembly. Walk the recent diff against `ImageEditPipeline.processSceneLinear` and the Rust core's scene-linear stages — including `sharpen` and `nr_color`, which run inside that chain since #1043 and are by far its most expensive members.
+3. If `render` time jumped: a CIContext config drift, or the display-encode round trip. There are no hand-written Metal render kernels left on this path; #1043 retired the last two.
 4. If the web state-pipe ceiling tripped: the signal-update path got more expensive — most likely an unnecessary deep clone or a new subscriber doing synchronous work on every patch.
 
 The bench is a one-way ratchet, mirroring the color budgets policy in `docs/testing.md`. When a perf win lands, lower the ceiling in the same commit so a future regression can't sneak the floor back up.
