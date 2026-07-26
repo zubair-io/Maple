@@ -156,6 +156,11 @@ pub(super) fn make_params(
         color_grade_global_hue: model.color_grade_global_hue,
         color_grade_global_saturation: model.color_grade_global_saturation,
         color_grade_global_luminance: model.color_grade_global_luminance,
+        // No DNG NoiseProfile in the marshalling fixtures (#1714): a null
+        // pointer is the "no profile" encoding, i.e. the flat NLM filter.
+        noise_profile_ptr: std::ptr::null(),
+        noise_profile_len: 0,
+        iso: 0,
         // HSL 8-band adjustments (#1112) — pass through from the model.
         hsl_hue_red: model.hue_adjustment_red,
         hsl_hue_orange: model.hue_adjustment_orange,

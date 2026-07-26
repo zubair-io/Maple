@@ -323,6 +323,12 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
         // falls through to the AgX view tail. A stale host (zero-initialised
         // struct) reads 0, which lands on that same AgX fallback.
         profile_id: p.profile_id,
+        // The frame's DNG NoiseProfile + ISO (#1714) — what the NR stages'
+        // per-pixel modulation is derived from. A null pointer / zero length is
+        // "no profile", which is the flat filter raw-core runs at
+        // `noise_profile: None`.
+        noise_profile: read_floats(p.noise_profile_ptr, p.noise_profile_len as usize),
+        iso: p.iso,
     }
 }
 
