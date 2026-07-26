@@ -193,21 +193,21 @@ The scopes and presets work shipped; the remaining gap is panel UI for curves, w
 
 **Status: Partially built**
 
-| Feature                                           | Status      | Notes                                                                                                                              |
-| ------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Panorama stitching                                | Built       | Rust `pano` crate + `RustPanoStitcher.swift`, `PanoMergeView.swift`. Spec backlog is milestone 08                                  |
+| Feature                                           | Status      | Notes                                                                                                                                                                                  |
+| ------------------------------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Panorama stitching                                | Built       | Rust `pano` crate + `RustPanoStitcher.swift`, `PanoMergeView.swift`. Spec backlog is milestone 08                                                                                      |
 | Masking — linear and radial gradients             | Core only   | `types/local_adjustment/mod.rs`, `stages/local_adjustments/`, wired into the chain on both the CPU and the wgpu/WGSL live path (#1698). No UI on either surface (#355 Apple, #356 web) |
-| Masking — brush                                   | Not started | #360                                                                                                                               |
-| Masking — AI subject / sky                        | Not started | #361                                                                                                                               |
-| Masking — range (color / luminance / depth)       | Not started | #362                                                                                                                               |
-| Healing and cloning (Remove)                      | Core only   | `pipeline/inpaint_store.rs` + seam tests. Apple host wiring is #1486 / #1865, epic #1472                                           |
-| Geometry — crop, rotate, straighten, aspect       | Built       | `CropOverlay.swift`, `CropToolbar.swift`, `CropGeometry.swift` (#277, #638)                                                        |
-| Geometry — perspective, keystone, lens profiles   | Not started | Lens corrections tracked by #376                                                                                                   |
-| Batch editing — metadata                          | Built       | `Views/BatchMetadata/`, `BatchMetadataViewModel.swift` (#1575)                                                                     |
-| Batch editing — adjustments across a selection    | Not started | #944                                                                                                                               |
-| Smart collections (auto-filter by metadata rules) | Not started | Saved search / filter panel exists; rule-driven collections do not                                                                 |
-| Stacking (HDR merge, focus stack)                 | Not started | Dual-pixel / dual-ISO merge is #1701 (Icebox)                                                                                      |
-| Export profiles with watermarks                   | Not started |                                                                                                                                    |
+| Masking — brush                                   | Not started | #360                                                                                                                                                                                   |
+| Masking — AI subject / sky                        | Not started | #361                                                                                                                                                                                   |
+| Masking — range (color / luminance / depth)       | Not started | #362                                                                                                                                                                                   |
+| Healing and cloning (Remove)                      | Core only   | `pipeline/inpaint_store.rs` + seam tests. Apple host wiring is #1486 / #1865, epic #1472                                                                                               |
+| Geometry — crop, rotate, straighten, aspect       | Built       | `CropOverlay.swift`, `CropToolbar.swift`, `CropGeometry.swift` (#277, #638)                                                                                                            |
+| Geometry — perspective, keystone, lens profiles   | Not started | Lens corrections tracked by #376                                                                                                                                                       |
+| Batch editing — metadata                          | Built       | `Views/BatchMetadata/`, `BatchMetadataViewModel.swift` (#1575)                                                                                                                         |
+| Batch editing — adjustments across a selection    | Not started | #944                                                                                                                                                                                   |
+| Smart collections (auto-filter by metadata rules) | Not started | Saved search / filter panel exists; rule-driven collections do not                                                                                                                     |
+| Stacking (HDR merge, focus stack)                 | Not started | Dual-pixel / dual-ISO merge is #1701 (Icebox)                                                                                                                                          |
+| Export profiles with watermarks                   | Not started |                                                                                                                                                                                        |
 
 ---
 
