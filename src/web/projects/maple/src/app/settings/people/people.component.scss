@@ -2,9 +2,8 @@
 
 :host {
   @include chrome.settings-vars;
-  display: block;
+  @include chrome.settings-page-host;
   width: 100%;
-  height: 100%;
 }
 :host {
   @include chrome.settings-atoms;

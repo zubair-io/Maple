@@ -4,10 +4,14 @@
 // colour.
 @use 'settings-chrome' as chrome;
 
+// The shell is the template root of every routed Settings page, so its host
+// carries the same definite height as the page host above it — see
+// `settings-page-host` in settings-chrome.scss for why the whole chain has to
+// be definite for `.page` to scroll.
 :host {
   @include chrome.settings-vars;
+  @include chrome.settings-page-host;
   width: 100%;
-  height: 100%;
 }
 
 .settings-shell {
@@ -93,6 +97,9 @@
   }
   .page {
     min-width: 0;
+    // The scroll container runs to the bottom of the screen on phones, so the
+    // last row would otherwise sit under the home indicator / gesture bar.
+    padding-bottom: var(--safe-area-inset-bottom, 0px);
   }
 }
 
