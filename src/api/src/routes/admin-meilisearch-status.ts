@@ -1,23 +1,19 @@
 import { Elysia } from 'elysia';
 import { assetsCollection, getDb } from '../db/client.ts';
+import { EMBEDDER_NAME, meilisearchClient } from '../enrichment/meilisearch-client.ts';
 import {
-  DEFAULT_EMBEDDER_MODEL,
-  DEFAULT_SEMANTIC_RATIO,
-  EMBEDDER_NAME,
-  meilisearchClient,
-  type MeilisearchSemanticStatus,
-} from '../enrichment/meilisearch-client.ts';
+  DEFAULT_MEILISEARCH_EMBEDDER_MODEL,
+  DEFAULT_MEILISEARCH_SEMANTIC_RATIO,
+} from '../enrichment/meilisearch-config.ts';
+import type { MeilisearchSemanticStatus } from '../enrichment/meilisearch-client.ts';
 import type { BackfillState } from '../enrichment/meilisearch-backfill.ts';
 
 const unavailableStatus = (): MeilisearchSemanticStatus => ({
   configured: false,
   enabled: false,
   embedderName: EMBEDDER_NAME,
-  model: process.env.MAPLE_MEILISEARCH_EMBEDDER_MODEL?.trim() || DEFAULT_EMBEDDER_MODEL,
-  semanticRatio: (() => {
-    const ratio = Number(process.env.MAPLE_MEILISEARCH_SEMANTIC_RATIO);
-    return Number.isFinite(ratio) ? Math.min(1, Math.max(0, ratio)) : DEFAULT_SEMANTIC_RATIO;
-  })(),
+  model: DEFAULT_MEILISEARCH_EMBEDDER_MODEL,
+  semanticRatio: DEFAULT_MEILISEARCH_SEMANTIC_RATIO,
   meilisearchReachable: false,
   embedderConfigured: false,
   embedderReachable: false,

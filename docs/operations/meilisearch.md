@@ -14,12 +14,12 @@ exact filename matching. Every service-search response reports `modeUsed` and
 
 - A current stable Meilisearch v1 release with hybrid search and embedders.
 - An Ollama service reachable **from the Meilisearch host**.
-- The `nomic-embed-text` model (or the model selected below) pulled in Ollama.
+- An Ollama embedding model. Maple defaults to `bge-m3`.
 
 Pull the default model:
 
 ```sh
-ollama pull nomic-embed-text
+ollama pull bge-m3
 ```
 
 Run Meilisearch with a persistent data volume and production master key. For
@@ -39,26 +39,23 @@ Keep both the Meilisearch key and Maple service keys in a secrets manager.
 
 ## Maple configuration
 
-Set these values in `src/api/.env`:
+Open **Settings → Workers → meili** and configure:
 
-```sh
-MAPLE_MEILISEARCH_URL=http://meili.lan:7700
-MAPLE_MEILISEARCH_API_KEY=<meilisearch-key>
-MAPLE_MEILISEARCH_SEMANTIC=true
-MAPLE_MEILISEARCH_EMBEDDER_URL=http://ollama.lan:11434
-MAPLE_MEILISEARCH_EMBEDDER_MODEL=nomic-embed-text
-MAPLE_MEILISEARCH_SEMANTIC_RATIO=0.5
-```
+- the Meilisearch URL and API key;
+- **Enable hybrid semantic search**;
+- the Ollama URL reachable from the Meilisearch host;
+- the Ollama embedding model (freeform, default `bge-m3`);
+- the semantic blend, from `0` (keyword-only) to `1` (vector-only);
+- the service-search request limit and indexing task timeout.
 
-`MAPLE_MEILISEARCH_SEMANTIC_RATIO` is clamped to `0..1`: `0` is lexical-only,
-`1` is semantic-only, and the default `0.5` balances both. The bundled Docker
-deployment turns the semantic switch on by default when a Meilisearch URL is
-provided. Direct Bun deployments must set it explicitly.
-
-The URL and Meilisearch API key may also be set under
-**Settings → Workers → meili**. Saved values override the environment. The
-service-search request limit is configured there as a DB-backed runtime setting.
-The embedder URL, model, semantic switch, and blend remain deployment settings.
+These are database-backed runtime settings and apply without restarting Maple.
+The resolved settings are cached in Maple's in-memory Meilisearch client, so
+search requests do not read the settings document from MongoDB. The selected
+model is used for both document and query vectors. Semantic search defaults off
+until the operator enables it. The optional
+`MAPLE_MEILISEARCH_URL` and `MAPLE_MEILISEARCH_API_KEY` environment variables
+remain bootstrap fallbacks for the sidecar connection; saved values override
+them.
 
 At API startup Maple creates the `assets` index, applies settings, and
 registers the `caption` Ollama embedder. This happens in the HTTP tier even
@@ -188,9 +185,10 @@ network because the service key is a bearer credential.
 
 ## Outages, rollback, and sizing
 
-To roll back semantic search without interrupting lexical search, set
-`MAPLE_MEILISEARCH_SEMANTIC=false` and restart Maple. To bypass Meilisearch
-entirely, remove its URL; exact filename and Mongo lexical search remain.
+To roll back semantic search without interrupting lexical search, turn off
+**Enable hybrid semantic search** under **Settings → Workers → meili**. The
+change applies immediately. To bypass Meilisearch entirely, remove its URL;
+exact filename and Mongo lexical search remain.
 
 Embedding capacity has three components:
 

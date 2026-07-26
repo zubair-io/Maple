@@ -184,6 +184,20 @@
   }
 }
 
+.semantic-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--s-text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+
+  input {
+    accent-color: var(--s-accent);
+  }
+}
+
 .face-banner {
   grid-column: span 2;
   margin-bottom: 16px;

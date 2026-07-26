@@ -451,6 +451,58 @@ describe('PUT /api/enrichment/config — meilisearch task timeout', () => {
   });
 });
 
+describe('PUT /api/enrichment/config — semantic search', () => {
+  it('persists the UI settings, including a freeform embedding model', async () => {
+    if (!mongoReachable) return;
+    const r = await put('/api/enrichment/config', {
+      nominatim_url: null,
+      geocode_worker_enabled: false,
+      meilisearch_semantic_enabled: true,
+      meilisearch_embedder_url: 'http://ollama.test:11434/',
+      meilisearch_embedder_model: '  custom-embedder  ',
+      meilisearch_semantic_ratio: 0.65,
+    });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({
+      meilisearch_semantic_enabled: true,
+      meilisearch_embedder_url: 'http://ollama.test:11434',
+      meilisearch_embedder_model: 'custom-embedder',
+      meilisearch_semantic_ratio: 0.65,
+      source: {
+        meilisearch_semantic_enabled: 'db',
+        meilisearch_embedder_url: 'db',
+        meilisearch_embedder_model: 'db',
+        meilisearch_semantic_ratio: 'db',
+      },
+    });
+
+    const reset = await put('/api/enrichment/config', {
+      nominatim_url: null,
+      geocode_worker_enabled: false,
+      meilisearch_embedder_model: '   ',
+    });
+    expect(reset.body).toMatchObject({
+      meilisearch_embedder_model: 'bge-m3',
+      source: { meilisearch_embedder_model: 'default' },
+    });
+  });
+
+  it('rejects an invalid embedder URL or blend', async () => {
+    if (!mongoReachable) return;
+    const base = { nominatim_url: null, geocode_worker_enabled: false };
+    const badUrl = await put('/api/enrichment/config', {
+      ...base,
+      meilisearch_embedder_url: 'not-a-url',
+    });
+    expect(badUrl.status).toBe(400);
+    const badRatio = await put('/api/enrichment/config', {
+      ...base,
+      meilisearch_semantic_ratio: 1.1,
+    });
+    expect(badRatio.status).toBe(400);
+  });
+});
+
 describe('PUT/GET /api/enrichment/config — meilisearch_api_key (write-only)', () => {
   it('persists the key but never echoes it; reports meilisearch_api_key_set', async () => {
     if (!mongoReachable) return;

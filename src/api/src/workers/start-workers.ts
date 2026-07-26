@@ -138,11 +138,15 @@ export async function startWorkers(): Promise<void> {
     // search route. Since both run in the same process for now (Task 1),
     // either call suffices; the stage side call here covers the workers.
     const resolvedMeili = resolveEnrichmentConfig(await loadEnrichmentConfig());
-    reconfigureMeilisearch(
-      resolvedMeili.meilisearch_url,
-      resolvedMeili.meilisearch_api_key,
-      resolvedMeili.meilisearch_task_timeout_seconds * 1000,
-    );
+    reconfigureMeilisearch({
+      url: resolvedMeili.meilisearch_url,
+      apiKey: resolvedMeili.meilisearch_api_key,
+      taskTimeoutMs: resolvedMeili.meilisearch_task_timeout_seconds * 1000,
+      semanticEnabled: resolvedMeili.meilisearch_semantic_enabled,
+      embedderUrl: resolvedMeili.meilisearch_embedder_url,
+      embedderModel: resolvedMeili.meilisearch_embedder_model,
+      semanticRatio: resolvedMeili.meilisearch_semantic_ratio,
+    });
     const meili = meilisearchClient();
     if (!meili.isConfigured()) {
       log.info('Meilisearch URL unset (DB + MAPLE_MEILISEARCH_URL) — sidecar disabled');
