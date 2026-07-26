@@ -28,6 +28,7 @@ import {
   type MeilisearchSemanticStatus,
 } from './meilisearch-semantic-status.ts';
 import {
+  DEFAULT_MEILISEARCH_TASK_TIMEOUT_MS,
   isLiveConfig,
   joinMeilisearchUrl,
   meilisearchHttp,
@@ -181,7 +182,7 @@ export interface MeilisearchClient {
    * full asset rows from Mongo. Throws on transport error so the route can
    * fall back to Mongo `$text`. */
   search(q: string, opts?: MeilisearchSearchOptions): Promise<MeilisearchSearchResult>;
-  /** Operator-facing semantic configuration and vector coverage snapshot. */
+  /** Operator-facing semantic configuration and raw index population snapshot. */
   semanticStatus?(): Promise<MeilisearchSemanticStatus>;
 }
 
@@ -217,7 +218,7 @@ function readConfig(): ClientConfig {
       : DEFAULT_SEMANTIC_RATIO,
     fetchImpl: globalThis.fetch.bind(globalThis),
     taskPollIntervalMs: 100,
-    taskTimeoutMs: 30_000,
+    taskTimeoutMs: DEFAULT_MEILISEARCH_TASK_TIMEOUT_MS,
   };
 }
 
@@ -521,14 +522,19 @@ export function setMeilisearchClientForTests(client: MeilisearchClient | null): 
 /**
  * Rebuild the shared client against operator-supplied settings — called at
  * boot and on every `PUT /api/enrichment/config` so a saved Meilisearch URL
- * or API key takes effect without a restart. Both args are the already-
- * resolved values (DB > env), so passing them explicitly is authoritative:
+ * or task timeout takes effect without a restart. Arguments are already
+ * resolved values (DB > env/default), so passing them explicitly is authoritative:
  * `null` forces the absent state even when the corresponding env var is set
  * (an explicit `undefined` in the override beats `readConfig()`'s env read).
  */
-export function reconfigureMeilisearch(url: string | null, apiKey: string | null): void {
+export function reconfigureMeilisearch(
+  url: string | null,
+  apiKey: string | null,
+  taskTimeoutMs?: number,
+): void {
   singleton = createMeilisearchClient({
     url: url ?? undefined,
     apiKey: apiKey ?? undefined,
+    ...(taskTimeoutMs === undefined ? {} : { taskTimeoutMs }),
   });
 }

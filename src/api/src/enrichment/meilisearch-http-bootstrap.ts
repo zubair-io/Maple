@@ -10,7 +10,11 @@ export async function initializeHttpSearch(): Promise<void> {
   try {
     const resolved = resolveEnrichmentConfig(await loadEnrichmentConfig());
     configureServiceSearchRateLimit(resolved.service_search_rate_limit_per_minute);
-    reconfigureMeilisearch(resolved.meilisearch_url, resolved.meilisearch_api_key);
+    reconfigureMeilisearch(
+      resolved.meilisearch_url,
+      resolved.meilisearch_api_key,
+      resolved.meilisearch_task_timeout_seconds * 1000,
+    );
     const client = meilisearchClient();
     if (!client.isConfigured()) {
       log.info('Meilisearch URL unset — search sidecar disabled');
