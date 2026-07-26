@@ -134,14 +134,17 @@ public actor XMPSidecarStore {
 
     // MARK: Private
 
-    /// The IPTC/EXIF metadata block currently persisted in the sidecar, or nil
-    /// when none exists. Used to preserve metadata across model-only writes.
-    private func existingMetadataOnDisk() -> XmpMetadata? {
-        guard FileManager.default.fileExists(atPath: sidecarURL.path),
-              let xml = try? String(contentsOf: sidecarURL, encoding: .utf8)
-        else { return nil }
-        let metadata = XMPParser.parseMetadata(xml)
-        return metadata.isEmpty ? nil : metadata
+    /// The sidecar text currently on disk, or nil when there is none.
+    ///
+    /// The write path reads it for the two things a model+culling write must
+    /// not destroy: the IPTC/EXIF metadata block, and the passthrough bucket
+    /// (#2233). Disk is the carrier for both rather than in-memory state
+    /// threaded down from `EditSession`, so an externally-edited sidecar
+    /// contributes its current contents instead of a stale snapshot taken at
+    /// open time.
+    private func existingSidecarXML() -> String? {
+        guard FileManager.default.fileExists(atPath: sidecarURL.path) else { return nil }
+        return try? String(contentsOf: sidecarURL, encoding: .utf8)
     }
 
     private func readFromDisk() throws -> (AdjustmentModel, CullingState) {
@@ -166,18 +169,28 @@ public actor XMPSidecarStore {
     }
 
     private func writeAtomically(model: AdjustmentModel, culling: CullingState) throws {
+        let existingXML = existingSidecarXML()
         // Non-destructive: a model/culling-only write must NOT drop an existing
         // IPTC/EXIF metadata block (e.g. one authored by the batch editor). Use
         // the pending metadata if this write carries one, otherwise preserve
         // whatever is already on disk. (parseMetadata of a no-metadata sidecar
         // returns an empty struct, which we treat as "no block".)
-        let metadata = pendingMetadata ?? existingMetadataOnDisk()
+        let metadataOnDisk = existingXML
+            .map(XMPParser.parseMetadata)
+            .flatMap { $0.isEmpty ? nil : $0 }
+        let metadata = pendingMetadata ?? metadataOnDisk
         pendingMetadata = nil
+        // Likewise for every field Maple does not model at all (#2233) — the
+        // Lightroom masks, history, snapshots and display-referred curves that
+        // this writer used to delete on the first slider nudge.
+        let passthrough = existingXML.map(XMPParser.parsePassthrough) ?? .empty
         let xml: String
         if let metadata, !metadata.isEmpty {
-            xml = XMPSerializer.serialize(model: model, culling: culling, metadata: metadata)
+            xml = XMPSerializer.serialize(
+                model: model, culling: culling, metadata: metadata, passthrough: passthrough)
         } else {
-            xml = XMPSerializer.serialize(model: model, culling: culling)
+            xml = XMPSerializer.serialize(
+                model: model, culling: culling, passthrough: passthrough)
         }
         guard let data = xml.data(using: .utf8) else {
             throw XMPStoreError.encodingError

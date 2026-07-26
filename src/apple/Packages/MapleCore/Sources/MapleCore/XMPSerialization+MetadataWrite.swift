@@ -21,21 +21,26 @@ extension XMPSerializer {
     public static func serialize(
         model: AdjustmentModel,
         culling: CullingState,
-        metadata: XmpMetadata
+        metadata: XmpMetadata,
+        passthrough: XMPPassthrough = .empty
     ) -> String {
         let metaAttrs = metadataAttrParts(metadata)
         let metaBlocks = metadataNestedBlocks(metadata)
         let prefixes = metadataNamespacePrefixes(metadata)
 
-        // If nothing to add, return the base sidecar unchanged.
+        // If nothing to add, return the base sidecar unchanged — still
+        // carrying the passthrough bucket, since an empty metadata block is no
+        // reason to drop the source document's foreign fields (#2233).
         guard !metaAttrs.isEmpty || !metaBlocks.isEmpty else {
-            return serialize(model: model, culling: culling)
+            return serialize(model: model, culling: culling, passthrough: passthrough)
         }
 
         // Build the full attr list: adjustment+culling attrs first, then
-        // metadata attrs (values escaped for XML attribute context).
+        // metadata attrs (values escaped for XML attribute context), then the
+        // passthrough attributes. The canonical sort reorders all of them.
         let attrs = _buildAttrs(model: model, culling: culling)
             + metaAttrs.map { ($0.0, escapeXMLAttr($0.1)) }
+            + _passthroughAttrs(passthrough)
 
         // Keywords block (dc:subject), shared with the base serializer.
         let keywordsBlock = _buildKeywordsBlock(culling: culling)
@@ -69,6 +74,7 @@ extension XMPSerializer {
             keywordsBlock,
             metaBlocks.filter(isRightsBlock).joined(separator: "\n"),
             toneCurvesBlock,
+            _passthroughNodesBlock(passthrough, indent: XMPCanonical.childIndent),
         ]
         .filter { !$0.isEmpty }
         .joined(separator: "\n")

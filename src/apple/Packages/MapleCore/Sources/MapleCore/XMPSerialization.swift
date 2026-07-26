@@ -347,8 +347,20 @@ public struct XMPSerializer {
     /// needs As-Shot omission uses the internal `omitWhiteBalance` overload
     /// below, kept off this public surface so a sidecar-save call site can
     /// never accidentally drop authored WB (#1883, Copilot).
-    public static func serialize(model: AdjustmentModel, culling: CullingState) -> String {
-        serialize(model: model, culling: culling, omitWhiteBalance: false)
+    ///
+    /// `passthrough` (#2233) carries the fields the source sidecar had and
+    /// Maple does not model — Lightroom mask groups, history, snapshots,
+    /// `crs:ToneCurvePV2012*`. It defaults to empty because the transient
+    /// documents (the decode temp-XMP, the histogram probe) genuinely have
+    /// nothing to preserve; every persisted save must supply the bucket
+    /// `XMPParser.parsePassthrough` read off the document being replaced.
+    public static func serialize(
+        model: AdjustmentModel,
+        culling: CullingState,
+        passthrough: XMPPassthrough = .empty
+    ) -> String {
+        serialize(
+            model: model, culling: culling, omitWhiteBalance: false, passthrough: passthrough)
     }
 
     /// `omitWhiteBalance` (#1883): decode-XMP-only mode — see `_buildAttrs`.
@@ -359,9 +371,11 @@ public struct XMPSerializer {
     static func serialize(
         model: AdjustmentModel,
         culling: CullingState,
-        omitWhiteBalance: Bool
+        omitWhiteBalance: Bool,
+        passthrough: XMPPassthrough = .empty
     ) -> String {
         let attrs = _buildAttrs(model: model, culling: culling, omitWhiteBalance: omitWhiteBalance)
+            + _passthroughAttrs(passthrough)
         let keywordsBlock = _buildKeywordsBlock(culling: culling)
         // Point tone curves (#365) — the second nested child block. Children
         // of `rdf:Description` sit at six spaces in this document shape (see
@@ -370,7 +384,12 @@ public struct XMPSerializer {
         // pre-#365 bytes exactly.
         let toneCurvesBlock = _buildToneCurvesBlock(
             model: model, indent: XMPCanonical.childIndent)
-        let children = [keywordsBlock, toneCurvesBlock]
+        // Unknown nested nodes sit last, the slot the TypeScript serializer
+        // gives them, so Maple's own children stay grouped ahead of whatever
+        // the source document carried.
+        let passthroughBlock = _passthroughNodesBlock(
+            passthrough, indent: XMPCanonical.childIndent)
+        let children = [keywordsBlock, toneCurvesBlock, passthroughBlock]
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
 
