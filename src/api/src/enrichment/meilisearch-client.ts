@@ -23,6 +23,20 @@
  */
 
 import { child as childLogger } from '../log.ts';
+import {
+  readMeilisearchSemanticStatus,
+  type MeilisearchSemanticStatus,
+} from './meilisearch-semantic-status.ts';
+import {
+  isLiveConfig,
+  joinMeilisearchUrl,
+  meilisearchHttp,
+  waitForMeilisearchTask,
+  type MeilisearchTaskSummary,
+  type MeilisearchTransportConfig,
+} from './meilisearch-transport.ts';
+
+export type { MeilisearchSemanticStatus } from './meilisearch-semantic-status.ts';
 
 const log = childLogger('enrichment:meilisearch');
 
@@ -38,7 +52,7 @@ const REQUIRED_SETTINGS_VERSION = 3;
 /** Default Ollama base URL — mirrors the describe worker's default
  * (`MAPLE_DESCRIBE_PROVIDER_URL`). Meilisearch reaches this host to embed
  * both documents and queries when semantic search is enabled. */
-export const DEFAULT_EMBEDDER_BASE_URL = 'http://localhost:11434';
+const DEFAULT_EMBEDDER_BASE_URL = 'http://localhost:11434';
 /** Default Ollama embedding model. `nomic-embed-text` is a small, fast,
  * widely-available text embedder. */
 export const DEFAULT_EMBEDDER_MODEL = 'nomic-embed-text';
@@ -137,21 +151,6 @@ export interface MeilisearchSearchResult {
   scores?: Record<string, number>;
 }
 
-export interface MeilisearchSemanticStatus {
-  configured: boolean;
-  enabled: boolean;
-  embedderName: string;
-  model: string;
-  semanticRatio: number;
-  meilisearchReachable: boolean;
-  embedderConfigured: boolean;
-  embedderReachable: boolean;
-  indexedDocumentCount: number | null;
-  vectorizedDocumentCount: number | null;
-  isIndexing: boolean | null;
-  error: string | null;
-}
-
 export interface MeilisearchClient {
   /** Whether the client is configured (URL set in env). */
   isConfigured(): boolean;
@@ -172,6 +171,9 @@ export interface MeilisearchClient {
   /** Bulk variant used by the resumable backfill to enqueue one Meilisearch
    * task per batch instead of one task per asset. */
   upsertBatchOrThrow?(docs: MeilisearchAssetDoc[]): Promise<void>;
+  /** Bulk tombstone variant used by backfill cleanup. It resolves only after
+   * Meilisearch confirms the asynchronous task succeeded. */
+  tombstoneBatchOrThrow?(ids: string[]): Promise<void>;
   /** Mark a document tombstoned (sets `deletedAt`). The search route filters
    * `deletedAt IS NULL` so tombstoned docs disappear from results. */
   tombstone(id: string): Promise<void>;
@@ -183,9 +185,7 @@ export interface MeilisearchClient {
   semanticStatus?(): Promise<MeilisearchSemanticStatus>;
 }
 
-interface ClientConfig {
-  url: string | undefined;
-  apiKey: string | undefined;
+interface ClientConfig extends MeilisearchTransportConfig {
   /** Master switch for semantic/hybrid search. Default OFF so existing
    * deployments are unaffected and Meili↔Ollama coordination is opt-in. */
   semantic: boolean;
@@ -195,7 +195,6 @@ interface ClientConfig {
   embedderModel: string;
   /** Hybrid semantic ratio (0 = pure keyword, 1 = pure vector). */
   semanticRatio: number;
-  fetchImpl: typeof fetch;
 }
 
 function readConfig(): ClientConfig {
@@ -217,83 +216,8 @@ function readConfig(): ClientConfig {
       ? Math.min(1, Math.max(0, ratio))
       : DEFAULT_SEMANTIC_RATIO,
     fetchImpl: globalThis.fetch.bind(globalThis),
-  };
-}
-
-/** Type guard for the env-driven happy path: URL is set. */
-function isLive(cfg: ClientConfig): cfg is ClientConfig & { url: string } {
-  return typeof cfg.url === 'string' && cfg.url.length > 0;
-}
-
-/** Joins the base url and a relative path, tolerating a trailing slash on
- * the base. Always produces exactly one separator. */
-function joinUrl(base: string, path: string): string {
-  const b = base.replace(/\/+$/, '');
-  const p = path.startsWith('/') ? path : '/' + path;
-  return b + p;
-}
-
-interface HttpResult<T> {
-  ok: boolean;
-  status: number;
-  body: T | null;
-  errorText: string | null;
-}
-
-/** Tiny wrapper that bundles JSON parsing + auth header so each method is
- * one line. Returns a result object rather than throwing — methods decide
- * whether to log-and-swallow or rethrow. */
-async function http<T>(
-  cfg: ClientConfig,
-  method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE',
-  path: string,
-  body?: unknown,
-): Promise<HttpResult<T>> {
-  if (!isLive(cfg)) {
-    return { ok: true, status: 200, body: null, errorText: null };
-  }
-  const url = joinUrl(cfg.url, path);
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (cfg.apiKey) headers.Authorization = `Bearer ${cfg.apiKey}`;
-  let response: Response;
-  try {
-    response = await cfg.fetchImpl(url, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-  } catch (err) {
-    return {
-      ok: false,
-      status: 0,
-      body: null,
-      errorText: err instanceof Error ? err.message : String(err),
-    };
-  }
-  let parsed: unknown = null;
-  const text = await response.text().catch(() => '');
-  if (text.length > 0) {
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      parsed = text;
-    }
-  }
-  if (!response.ok) {
-    return {
-      ok: false,
-      status: response.status,
-      body: null,
-      errorText: typeof parsed === 'string' ? parsed : JSON.stringify(parsed),
-    };
-  }
-  return {
-    ok: true,
-    status: response.status,
-    body: parsed as T,
-    errorText: null,
+    taskPollIntervalMs: 100,
+    taskTimeoutMs: 30_000,
   };
 }
 
@@ -306,35 +230,151 @@ interface MeiliSearchResponse {
  * filter syntax is `field = "value" AND field IS NULL` — we hand-build it
  * here rather than passing user strings through, so an attacker can't
  * inject filter clauses via `folderId`. */
+function folderFilter(folderId: string | undefined): string | null {
+  const safe = folderId?.replace(/[^a-f0-9]/gi, '') ?? '';
+  return safe.length === 0 ? null : `folderId = "${safe}"`;
+}
+
+function peopleFilter(people: string[] | undefined): string | null {
+  const names = (people ?? [])
+    .map((person) => person.trim())
+    .filter(Boolean)
+    .map((person) => `"${person.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
+  return names.length === 0 ? null : `people IN [${names.join(', ')}]`;
+}
+
+function mediaFilter(mediaTypes: MeilisearchMediaType[] | undefined): string | null {
+  const allowed = new Set<MeilisearchMediaType>(['image', 'video', 'audio']);
+  const selected = [...new Set((mediaTypes ?? []).filter((value) => allowed.has(value)))];
+  return selected.length === 0
+    ? null
+    : `mediaType IN [${selected.map((value) => `"${value}"`).join(', ')}]`;
+}
+
 function buildFilter(opts: MeilisearchSearchOptions): string {
-  const clauses: string[] = ['deletedAt IS NULL'];
-  // `IS NULL` keeps pre-v3 documents visible until the resumable backfill
-  // has populated their explicit hidden=false field.
-  if (opts.includeHidden !== true) clauses.push('(hidden IS NULL OR hidden = false)');
-  if (opts.folderId !== undefined && opts.folderId.length > 0) {
-    // Hex chars only — defensive scrubbing in case a non-Mongo caller
-    // ever passes through. ObjectId is 24 hex chars; keep liberal here.
-    const safe = opts.folderId.replace(/[^a-f0-9]/gi, '');
-    if (safe.length > 0) clauses.push(`folderId = "${safe}"`);
-  }
-  if (opts.people !== undefined && opts.people.length > 0) {
-    // `people IN ["A", "B"]` — names are operator-controlled but may
-    // contain quotes/backslashes; escape them so the filter expression
-    // stays well-formed and can't be broken out of.
-    const names = opts.people
-      .map((p) => p.trim())
-      .filter((p) => p.length > 0)
-      .map((p) => `"${p.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
-    if (names.length > 0) clauses.push(`people IN [${names.join(', ')}]`);
-  }
-  if (opts.mediaTypes !== undefined && opts.mediaTypes.length > 0) {
-    const allowed = new Set<MeilisearchMediaType>(['image', 'video', 'audio']);
-    const mediaTypes = [...new Set(opts.mediaTypes.filter((value) => allowed.has(value)))];
-    if (mediaTypes.length > 0) {
-      clauses.push(`mediaType IN [${mediaTypes.map((value) => `"${value}"`).join(', ')}]`);
-    }
-  }
+  const clauses = [
+    'deletedAt IS NULL',
+    opts.includeHidden === true ? null : '(hidden IS NULL OR hidden = false)',
+    folderFilter(opts.folderId),
+    peopleFilter(opts.people),
+    mediaFilter(opts.mediaTypes),
+  ].filter((clause): clause is string => clause !== null);
   return clauses.join(' AND ');
+}
+
+async function createAssetsIndex(config: ClientConfig): Promise<void> {
+  const result = await meilisearchHttp<unknown>(config, 'POST', '/indexes', {
+    uid: ASSETS_INDEX,
+    primaryKey: 'id',
+  });
+  const alreadyExists =
+    result.status === 409 || (result.errorText ?? '').includes('index_already_exists');
+  if (!result.ok && !alreadyExists) {
+    log.warn(
+      {
+        status: result.status,
+        err: result.errorText,
+        settingsVersion: REQUIRED_SETTINGS_VERSION,
+      },
+      'meilisearch ensureIndex create-index failed',
+    );
+  }
+}
+
+async function enableVectorStore(config: ClientConfig): Promise<void> {
+  if (!config.semantic) return;
+  const result = await meilisearchHttp<unknown>(config, 'PATCH', '/experimental-features', {
+    vectorStore: true,
+  });
+  if (!result.ok && result.status !== 404) {
+    log.warn(
+      { status: result.status, err: result.errorText },
+      'meilisearch ensureIndex enable-vectorStore failed',
+    );
+  }
+}
+
+function assetsIndexSettings(config: ClientConfig): Record<string, unknown> {
+  const settings: Record<string, unknown> = {
+    searchableAttributes: ['filename', 'searchBlob', 'description', 'people', 'ocrText'],
+    filterableAttributes: [
+      'folderId',
+      'deletedAt',
+      'visionSceneType',
+      'visionActivity',
+      'visionSubjects',
+      'isScreenshot',
+      'people',
+      'mediaType',
+      'hidden',
+    ],
+    sortableAttributes: ['capturedAt'],
+  };
+  if (config.semantic) {
+    settings.embedders = {
+      [EMBEDDER_NAME]: {
+        source: 'ollama',
+        url: joinMeilisearchUrl(config.embedderUrl, '/api/embeddings'),
+        model: config.embedderModel,
+        documentTemplate: '{{ doc.searchBlob }} {{ doc.description }} {{ doc.people }}',
+      },
+    };
+  }
+  return settings;
+}
+
+async function applyAssetsIndexSettings(config: ClientConfig): Promise<void> {
+  const result = await meilisearchHttp<unknown>(
+    config,
+    'PATCH',
+    `/indexes/${ASSETS_INDEX}/settings`,
+    assetsIndexSettings(config),
+  );
+  if (!result.ok) {
+    log.warn(
+      { status: result.status, err: result.errorText },
+      'meilisearch ensureIndex apply-settings failed',
+    );
+  }
+}
+
+async function ensureAssetsIndex(config: ClientConfig): Promise<void> {
+  if (!isLiveConfig(config)) return;
+  await createAssetsIndex(config);
+  await enableVectorStore(config);
+  await applyAssetsIndexSettings(config);
+}
+
+function searchRequest(
+  config: ClientConfig,
+  query: string,
+  options: MeilisearchSearchOptions,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    q: query,
+    filter: buildFilter(options),
+    offset: options.offset ?? 0,
+    limit: options.limit ?? 100,
+    attributesToRetrieve: ['id'],
+    showRankingScore: true,
+  };
+  if (options.semantic && config.semantic) {
+    body.hybrid = { embedder: EMBEDDER_NAME, semanticRatio: config.semanticRatio };
+  }
+  return body;
+}
+
+function parseSearchResult(body: MeiliSearchResponse): MeilisearchSearchResult {
+  const scores = Object.fromEntries(
+    body.hits
+      .filter((hit) => typeof hit._rankingScore === 'number')
+      .map((hit) => [hit.id, hit._rankingScore!]),
+  );
+  return {
+    ids: body.hits.map((hit) => hit.id),
+    estimatedTotal: body.estimatedTotalHits,
+    ...(Object.keys(scores).length === 0 ? {} : { scores }),
+  };
 }
 
 /** Factory. Cached at module load so the boot path and the worker share
@@ -345,16 +385,16 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
 
   return {
     isConfigured(): boolean {
-      return isLive(cfg);
+      return isLiveConfig(cfg);
     },
 
     semanticConfigured(): boolean {
-      return isLive(cfg) && cfg.semantic;
+      return isLiveConfig(cfg) && cfg.semantic;
     },
 
     async health(): Promise<boolean> {
-      if (!isLive(cfg)) return false;
-      const result = await http<{ status: string }>(cfg, 'GET', '/health');
+      if (!isLiveConfig(cfg)) return false;
+      const result = await meilisearchHttp<{ status: string }>(cfg, 'GET', '/health');
       if (!result.ok) {
         log.warn(
           { status: result.status, err: result.errorText },
@@ -366,130 +406,66 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
     },
 
     async ensureIndex(): Promise<void> {
-      if (!isLive(cfg)) return;
-      // Idempotent index create. Meilisearch returns 202 with a task on
-      // create, and 4xx-with-already-exists if the index is already there;
-      // either path is success.
-      const create = await http<unknown>(cfg, 'POST', '/indexes', {
-        uid: ASSETS_INDEX,
-        primaryKey: 'id',
-      });
-      if (
-        !create.ok &&
-        create.status !== 409 &&
-        // Meili returns 4xx with an `index_already_exists` error code.
-        !(create.errorText ?? '').includes('index_already_exists')
-      ) {
-        log.warn(
-          {
-            status: create.status,
-            err: create.errorText,
-            settingsVersion: REQUIRED_SETTINGS_VERSION,
-          },
-          'meilisearch ensureIndex create-index failed',
-        );
-      }
-      // When semantic search is enabled, turn on the experimental
-      // vector-store feature once. GA Meili builds (≥ v1.13 with vectors
-      // on by default) return 404 here — swallow it; the embedders block
-      // below is what actually matters.
-      if (cfg.semantic) {
-        const exp = await http<unknown>(cfg, 'PATCH', '/experimental-features', {
-          vectorStore: true,
-        });
-        if (!exp.ok && exp.status !== 404) {
-          log.warn(
-            { status: exp.status, err: exp.errorText },
-            'meilisearch ensureIndex enable-vectorStore failed',
-          );
-        }
-      }
-      // Always (re-)apply settings — these are idempotent on Meilisearch's
-      // side and let us rev `REQUIRED_SETTINGS_VERSION` later when we add
-      // new searchable/filterable attributes.
-      const settingsBody: Record<string, unknown> = {
-        // Order is the per-attribute weighting Meilisearch applies:
-        // filename ranks first so exact camera identifiers stay strong,
-        // then searchBlob (unified), description (higher signal than chrome),
-        // people (named identities), then ocrText (often UI/menu strings).
-        searchableAttributes: ['filename', 'searchBlob', 'description', 'people', 'ocrText'],
-        filterableAttributes: [
-          'folderId',
-          'deletedAt',
-          'visionSceneType',
-          'visionActivity',
-          'visionSubjects',
-          'isScreenshot',
-          'people',
-          'mediaType',
-          'hidden',
-        ],
-        sortableAttributes: ['capturedAt'],
-      };
-      // Register a Meili-managed Ollama embedder so Meili embeds both the
-      // documents (via the template) and the query — no in-process embedding
-      // on the hot search path. Only when the master switch is on.
-      if (cfg.semantic) {
-        settingsBody.embedders = {
-          [EMBEDDER_NAME]: {
-            source: 'ollama',
-            url: joinUrl(cfg.embedderUrl, '/api/embeddings'),
-            model: cfg.embedderModel,
-            documentTemplate: '{{ doc.searchBlob }} {{ doc.description }} {{ doc.people }}',
-          },
-        };
-      }
-      const settings = await http<unknown>(
-        cfg,
-        'PATCH',
-        `/indexes/${ASSETS_INDEX}/settings`,
-        settingsBody,
-      );
-      if (!settings.ok) {
-        log.warn(
-          { status: settings.status, err: settings.errorText },
-          'meilisearch ensureIndex apply-settings failed',
-        );
-      }
+      await ensureAssetsIndex(cfg);
     },
 
     async upsert(doc: MeilisearchAssetDoc): Promise<void> {
-      if (!isLive(cfg)) return;
+      if (!isLiveConfig(cfg)) return;
       // Meilisearch's documents endpoint upserts on the primary key.
-      const r = await http<unknown>(cfg, 'POST', `/indexes/${ASSETS_INDEX}/documents`, [doc]);
+      const r = await meilisearchHttp<unknown>(cfg, 'POST', `/indexes/${ASSETS_INDEX}/documents`, [
+        doc,
+      ]);
       if (!r.ok) {
         log.warn({ id: doc.id, status: r.status, err: r.errorText }, 'meilisearch upsert failed');
       }
     },
 
     async upsertOrThrow(doc: MeilisearchAssetDoc): Promise<void> {
-      if (!isLive(cfg)) {
+      if (!isLiveConfig(cfg)) {
         throw new Error('meilisearch: not configured');
       }
       // Meilisearch's documents endpoint upserts on the primary key.
-      const r = await http<unknown>(cfg, 'POST', `/indexes/${ASSETS_INDEX}/documents`, [doc]);
+      const r = await meilisearchHttp<unknown>(cfg, 'POST', `/indexes/${ASSETS_INDEX}/documents`, [
+        doc,
+      ]);
       if (!r.ok) {
         throw new Error(`meilisearch upsert failed: status=${r.status} ${r.errorText ?? ''}`);
       }
     },
 
     async upsertBatchOrThrow(docs: MeilisearchAssetDoc[]): Promise<void> {
-      if (!isLive(cfg)) {
+      if (!isLiveConfig(cfg)) {
         throw new Error('meilisearch: not configured');
       }
       if (docs.length === 0) return;
-      const r = await http<unknown>(cfg, 'POST', `/indexes/${ASSETS_INDEX}/documents`, docs);
-      if (!r.ok) {
-        throw new Error(`meilisearch batch upsert failed: status=${r.status} ${r.errorText ?? ''}`);
-      }
+      const accepted = await meilisearchHttp<MeilisearchTaskSummary>(
+        cfg,
+        'POST',
+        `/indexes/${ASSETS_INDEX}/documents`,
+        docs,
+      );
+      await waitForMeilisearchTask(cfg, accepted, 'batch upsert');
+    },
+
+    async tombstoneBatchOrThrow(ids: string[]): Promise<void> {
+      if (!isLiveConfig(cfg)) throw new Error('meilisearch: not configured');
+      if (ids.length === 0) return;
+      const deletedAt = new Date().toISOString();
+      const accepted = await meilisearchHttp<MeilisearchTaskSummary>(
+        cfg,
+        'POST',
+        `/indexes/${ASSETS_INDEX}/documents`,
+        ids.map((id) => ({ id, deletedAt })),
+      );
+      await waitForMeilisearchTask(cfg, accepted, 'batch tombstone');
     },
 
     async tombstone(id: string): Promise<void> {
-      if (!isLive(cfg)) return;
+      if (!isLiveConfig(cfg)) return;
       // Update the row's `deletedAt` rather than DELETE-ing the document so
       // the row stays addressable for diagnostics. The search filter
       // `deletedAt IS NULL` keeps it out of results.
-      const r = await http<unknown>(cfg, 'POST', `/indexes/${ASSETS_INDEX}/documents`, [
+      const r = await meilisearchHttp<unknown>(cfg, 'POST', `/indexes/${ASSETS_INDEX}/documents`, [
         { id, deletedAt: new Date().toISOString() },
       ]);
       if (!r.ok) {
@@ -498,121 +474,25 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
     },
 
     async search(q: string, opts: MeilisearchSearchOptions = {}): Promise<MeilisearchSearchResult> {
-      if (!isLive(cfg)) {
+      if (!isLiveConfig(cfg)) {
         return { ids: [], estimatedTotal: 0 };
       }
-      const body: Record<string, unknown> = {
-        q,
-        filter: buildFilter(opts),
-        offset: opts.offset ?? 0,
-        limit: opts.limit ?? 100,
-        attributesToRetrieve: ['id'],
-        showRankingScore: true,
-      };
-      // Hybrid (keyword + vector) only when the caller asked AND the
-      // switch is on. A hybrid 4xx still throws below so the route falls
-      // back to Mongo `$text`.
-      if (opts.semantic && cfg.semantic) {
-        body.hybrid = {
-          embedder: EMBEDDER_NAME,
-          semanticRatio: cfg.semanticRatio,
-        };
-      }
-      const r = await http<MeiliSearchResponse>(
+      const r = await meilisearchHttp<MeiliSearchResponse>(
         cfg,
         'POST',
         `/indexes/${ASSETS_INDEX}/search`,
-        body,
+        searchRequest(cfg, q, opts),
       );
       if (!r.ok || !r.body) {
         // Throw so the search route's try/catch falls back to Mongo. The
         // route logs the fallback at warn level.
         throw new Error(`meilisearch search failed: status=${r.status} ${r.errorText ?? ''}`);
       }
-      const ids = r.body.hits.map((h) => h.id);
-      const scores = Object.fromEntries(
-        r.body.hits
-          .filter((hit) => typeof hit._rankingScore === 'number')
-          .map((hit) => [hit.id, hit._rankingScore!]),
-      );
-      return {
-        ids,
-        estimatedTotal: r.body.estimatedTotalHits,
-        ...(Object.keys(scores).length > 0 ? { scores } : {}),
-      };
+      return parseSearchResult(r.body);
     },
 
     async semanticStatus(): Promise<MeilisearchSemanticStatus> {
-      const base = {
-        configured: isLive(cfg),
-        enabled: isLive(cfg) && cfg.semantic,
-        embedderName: EMBEDDER_NAME,
-        model: cfg.embedderModel,
-        semanticRatio: cfg.semanticRatio,
-      };
-      if (!isLive(cfg)) {
-        return {
-          ...base,
-          meilisearchReachable: false,
-          embedderConfigured: false,
-          embedderReachable: false,
-          indexedDocumentCount: null,
-          vectorizedDocumentCount: null,
-          isIndexing: null,
-          error: 'meilisearch_not_configured',
-        };
-      }
-
-      const [healthResult, embeddersResult, statsResult] = await Promise.all([
-        http<{ status: string }>(cfg, 'GET', '/health'),
-        http<Record<string, { source?: string; model?: string }>>(
-          cfg,
-          'GET',
-          `/indexes/${ASSETS_INDEX}/settings/embedders`,
-        ),
-        http<{
-          numberOfDocuments: number;
-          numberOfEmbeddedDocuments?: number | null;
-          isIndexing: boolean;
-        }>(cfg, 'GET', `/indexes/${ASSETS_INDEX}/stats`),
-      ]);
-      const embedder = embeddersResult.body?.[EMBEDDER_NAME];
-      const embedderConfigured =
-        embeddersResult.ok && embedder?.source === 'ollama' && embedder.model === cfg.embedderModel;
-      let embedderReachable = false;
-      let probeError: string | null = null;
-      if (healthResult.ok && cfg.semantic && embedderConfigured) {
-        const probe = await http<MeiliSearchResponse>(
-          cfg,
-          'POST',
-          `/indexes/${ASSETS_INDEX}/search`,
-          {
-            q: 'maple semantic health probe',
-            filter: 'deletedAt IS NULL AND (hidden IS NULL OR hidden = false)',
-            limit: 1,
-            attributesToRetrieve: ['id'],
-            hybrid: { embedder: EMBEDDER_NAME, semanticRatio: cfg.semanticRatio },
-          },
-        );
-        embedderReachable = probe.ok;
-        if (!probe.ok) probeError = probe.errorText ?? `status_${probe.status}`;
-      }
-      const firstError =
-        (!healthResult.ok && (healthResult.errorText ?? `status_${healthResult.status}`)) ||
-        (!embeddersResult.ok &&
-          (embeddersResult.errorText ?? `status_${embeddersResult.status}`)) ||
-        (!statsResult.ok && (statsResult.errorText ?? `status_${statsResult.status}`)) ||
-        probeError;
-      return {
-        ...base,
-        meilisearchReachable: healthResult.ok,
-        embedderConfigured,
-        embedderReachable,
-        indexedDocumentCount: statsResult.body?.numberOfDocuments ?? null,
-        vectorizedDocumentCount: statsResult.body?.numberOfEmbeddedDocuments ?? null,
-        isIndexing: statsResult.body?.isIndexing ?? null,
-        error: firstError ? String(firstError) : null,
-      };
+      return readMeilisearchSemanticStatus(cfg, ASSETS_INDEX, EMBEDDER_NAME);
     },
   };
 }

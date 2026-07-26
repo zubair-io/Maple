@@ -23,6 +23,9 @@ import {
   DEFAULT_DESCRIBE_SYSTEM_PROMPT,
   DEFAULT_FACE_MIN_DETECTION_SIZE,
   DEFAULT_NOMINATIM_RATE_LIMIT_PER_SEC,
+  DEFAULT_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE,
+  MAX_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE,
+  MIN_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE,
   MAX_FACE_MIN_DETECTION_SIZE,
   MIN_FACE_MIN_DETECTION_SIZE,
   asDescribeProvider,
@@ -74,6 +77,7 @@ export interface ResolvedEnrichmentConfig {
   /** Resolved Meilisearch API key (DB → env → null). Secret: the config
    * route strips this before responding — never send it to a client. */
   meilisearch_api_key: string | null;
+  service_search_rate_limit_per_minute: number;
   /** Where each field came from. The UI renders this so the operator knows
    * whether they're seeing a saved value or an env-var fallback. */
   source: {
@@ -96,7 +100,23 @@ export interface ResolvedEnrichmentConfig {
     face_min_detection_size: 'db' | 'default';
     meilisearch_url: 'db' | 'env' | 'unset';
     meilisearch_api_key: 'db' | 'env' | 'unset';
+    service_search_rate_limit_per_minute: 'db' | 'default';
   };
+}
+
+function resolveServiceSearchRateLimit(db: EnrichmentConfig | null): {
+  value: number;
+  source: 'db' | 'default';
+} {
+  const saved = db?.service_search_rate_limit_per_minute;
+  const valid =
+    typeof saved === 'number' &&
+    Number.isFinite(saved) &&
+    saved >= MIN_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE &&
+    saved <= MAX_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE;
+  return valid
+    ? { value: Math.trunc(saved), source: 'db' }
+    : { value: DEFAULT_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE, source: 'default' };
 }
 
 export function resolveEnrichmentConfig(
@@ -312,6 +332,8 @@ export function resolveEnrichmentConfig(
     faceMinDetectionSizeSource = 'db';
   }
 
+  const serviceSearchRateLimit = resolveServiceSearchRateLimit(db);
+
   return {
     nominatim_url: url,
     geocode_worker_enabled: enabled,
@@ -332,6 +354,7 @@ export function resolveEnrichmentConfig(
     face_min_detection_size: faceMinDetectionSize,
     meilisearch_url: meilisearchUrl.value,
     meilisearch_api_key: meilisearchApiKey.value,
+    service_search_rate_limit_per_minute: serviceSearchRateLimit.value,
     source: {
       nominatim_url: urlSource,
       geocode_worker_enabled: enabledSource,
@@ -352,6 +375,7 @@ export function resolveEnrichmentConfig(
       face_min_detection_size: faceMinDetectionSizeSource,
       meilisearch_url: meilisearchUrl.source,
       meilisearch_api_key: meilisearchApiKey.source,
+      service_search_rate_limit_per_minute: serviceSearchRateLimit.source,
     },
   };
 }

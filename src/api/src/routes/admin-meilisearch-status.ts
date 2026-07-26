@@ -7,18 +7,7 @@ import {
   meilisearchClient,
   type MeilisearchSemanticStatus,
 } from '../enrichment/meilisearch-client.ts';
-
-interface BackfillState {
-  _id: string;
-  cursor: unknown;
-  scanned: number;
-  upserted: number;
-  skipped: number;
-  errors: number;
-  started_at: string;
-  updated_at: string;
-  completed_at: string | null;
-}
+import type { BackfillState } from '../enrichment/meilisearch-backfill.ts';
 
 const unavailableStatus = (): MeilisearchSemanticStatus => ({
   configured: false,
@@ -57,26 +46,23 @@ export const adminMeilisearchStatusRoutes = new Elysia({
       .collection<BackfillState>('meilisearch_backfill_state')
       .findOne({ _id: 'assets' }),
   ]);
-  const vectorCoverage =
-    semantic.vectorizedDocumentCount === null || liveDocumentCount === 0
-      ? liveDocumentCount === 0
-        ? 1
-        : null
-      : Math.min(1, semantic.vectorizedDocumentCount / liveDocumentCount);
-
   return {
     semantic,
     documents: {
       live: liveDocumentCount,
       indexed: semantic.indexedDocumentCount,
       vectorized: semantic.vectorizedDocumentCount,
-      vectorCoverage,
     },
     backfill: backfill
       ? {
-          status: backfill.completed_at ? 'complete' : 'in_progress',
+          status: backfill.completed_at
+            ? backfill.errors > 0
+              ? 'complete_with_errors'
+              : 'complete'
+            : 'in_progress',
           scanned: backfill.scanned,
           upserted: backfill.upserted,
+          tombstoned: backfill.tombstoned ?? 0,
           skipped: backfill.skipped,
           errors: backfill.errors,
           startedAt: backfill.started_at,
@@ -87,6 +73,7 @@ export const adminMeilisearchStatusRoutes = new Elysia({
           status: 'not_started',
           scanned: 0,
           upserted: 0,
+          tombstoned: 0,
           skipped: 0,
           errors: 0,
           startedAt: null,

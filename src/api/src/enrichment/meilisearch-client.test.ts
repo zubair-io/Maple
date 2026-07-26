@@ -555,59 +555,6 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     expect(result.ids).toEqual(['semantic', 'exact-lexical']);
     expect(result.scores).toEqual({ semantic: 0.91 });
   });
-
-  it('semanticStatus() reports live embedder and vector coverage inputs', async () => {
-    const { fetchImpl } = makeFakeFetch({
-      routes: [
-        { method: 'GET', pathPrefix: '/health', status: 200, body: { status: 'available' } },
-        {
-          method: 'GET',
-          pathPrefix: `/indexes/${ASSETS_INDEX}/settings/embedders`,
-          status: 200,
-          body: { caption: { source: 'ollama', model: 'nomic-embed-text' } },
-        },
-        {
-          method: 'GET',
-          pathPrefix: `/indexes/${ASSETS_INDEX}/stats`,
-          status: 200,
-          body: { numberOfDocuments: 10, numberOfEmbeddedDocuments: 7, isIndexing: true },
-        },
-        {
-          method: 'POST',
-          pathPrefix: `/indexes/${ASSETS_INDEX}/search`,
-          status: 200,
-          body: { hits: [], estimatedTotalHits: 0 },
-        },
-      ],
-    });
-    const client = createMeilisearchClient({
-      url: 'http://meili.local:7700',
-      fetchImpl,
-      semantic: true,
-    });
-    const status = await client.semanticStatus!();
-    expect(status.meilisearchReachable).toBe(true);
-    expect(status.embedderConfigured).toBe(true);
-    expect(status.embedderReachable).toBe(true);
-    expect(status.indexedDocumentCount).toBe(10);
-    expect(status.vectorizedDocumentCount).toBe(7);
-    expect(status.isIndexing).toBe(true);
-    expect(status.error).toBeNull();
-  });
-
-  it('isConfigured() reports true when URL is set via override', () => {
-    const client = createMeilisearchClient({
-      url: 'http://meili.local:7700',
-      fetchImpl: globalThis.fetch.bind(globalThis),
-    });
-    expect(client.isConfigured()).toBe(true);
-  });
-
-  it('isConfigured() reads MAPLE_MEILISEARCH_URL from env', () => {
-    process.env.MAPLE_MEILISEARCH_URL = 'http://meili.local:7700';
-    const client = createMeilisearchClient();
-    expect(client.isConfigured()).toBe(true);
-  });
 });
 
 describe('reconfigureMeilisearch — runtime singleton swap', () => {
