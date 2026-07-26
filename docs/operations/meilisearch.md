@@ -15,8 +15,6 @@ exact filename matching. Every service-search response reports `modeUsed` and
 - A current stable Meilisearch v1 release with hybrid search and embedders.
 - An Ollama service reachable **from the Meilisearch host**.
 - The `nomic-embed-text` model (or the model selected below) pulled in Ollama.
-- TLS between service consumers and Maple. Plain HTTP is accepted only on
-  loopback for local development.
 
 Pull the default model:
 
@@ -184,7 +182,9 @@ The response contains ordered `assetId`/`score` entries, `modeRequested`,
 `modeUsed`, `fallbackReason`, and `total`. Hidden and deleted assets are
 excluded by default. Keys are individually revocable and expirable, scoped to
 `assets:search`, rate-limited, and logged by key ID/prefix without logging the
-secret or query.
+secret or query. The endpoint accepts both HTTP and HTTPS so LAN integrations
+can connect directly; prefer HTTPS whenever requests cross an untrusted
+network because the service key is a bearer credential.
 
 ## Outages, rollback, and sizing
 

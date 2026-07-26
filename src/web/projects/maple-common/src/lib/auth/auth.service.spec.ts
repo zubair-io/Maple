@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
@@ -185,5 +185,82 @@ describe('AuthService LAN handoff', () => {
       .flush({ error: 'invalid or expired code' }, { status: 400, statusText: 'Bad Request' });
     expect(await p).toBe(false);
     expect(auth.bearer).toBeNull();
+  });
+});
+
+describe('AuthService service API keys', () => {
+  let auth: AuthService;
+  let ctrl: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    auth = TestBed.inject(AuthService);
+    ctrl = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => ctrl.verify());
+
+  it('lists key metadata without requesting plaintext secrets', () => {
+    const metadata = {
+      keyId: '0000000000000001',
+      prefix: 'maple_sk_0123456789abcdef',
+      name: 'SugarMaple',
+      scopes: ['assets:search'],
+      createdAt: '2026-07-26T12:00:00.000Z',
+      expiresAt: null,
+      revokedAt: null,
+      lastUsedAt: null,
+    };
+    let result: unknown;
+
+    auth.listServiceApiKeys().subscribe((keys) => (result = keys));
+    ctrl.expectOne('/api/admin/service-api-keys').flush({ keys: [metadata] });
+
+    expect(result).toEqual([metadata]);
+  });
+
+  it('creates a search-only key with a fresh step-up token', async () => {
+    (auth as unknown as { stepUp: () => Promise<string> }).stepUp = vi
+      .fn()
+      .mockResolvedValue('STEP-UP');
+
+    const createdPromise = auth.createServiceApiKey('SugarMaple', '2026-10-24T12:00:00.000Z');
+    await Promise.resolve();
+    const req = ctrl.expectOne('/api/admin/service-api-keys');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.headers.get('X-Step-Up')).toBe('STEP-UP');
+    expect(req.request.body).toEqual({
+      name: 'SugarMaple',
+      scopes: ['assets:search'],
+      expiresAt: '2026-10-24T12:00:00.000Z',
+    });
+    req.flush({
+      key: 'test-service-key',
+      keyId: '0000000000000001',
+      prefix: 'maple_sk_0123456789abcdef',
+      name: 'SugarMaple',
+      scopes: ['assets:search'],
+      createdAt: '2026-07-26T12:00:00.000Z',
+      expiresAt: '2026-10-24T12:00:00.000Z',
+    });
+
+    expect((await createdPromise).key).toBe('test-service-key');
+  });
+
+  it('revokes an encoded key id with a fresh step-up token', async () => {
+    (auth as unknown as { stepUp: () => Promise<string> }).stepUp = vi
+      .fn()
+      .mockResolvedValue('STEP-UP');
+
+    const revokePromise = auth.revokeServiceApiKey('id/with space');
+    await Promise.resolve();
+    const req = ctrl.expectOne('/api/admin/service-api-keys/id%2Fwith%20space');
+    expect(req.request.method).toBe('DELETE');
+    expect(req.request.headers.get('X-Step-Up')).toBe('STEP-UP');
+    req.flush(null);
+
+    await expect(revokePromise).resolves.toBeUndefined();
   });
 });

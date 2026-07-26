@@ -1,5 +1,4 @@
 // WorkersComponent — `/settings/workers` (owner-gated).
-//
 // Combined Workers + Enrichment surface per the v0.2 spec. One row per
 // pipeline stage, grouped Ingest / Enrich / Index. Clicking a row reveals
 // an inline panel with the generic stage runtime config (concurrency,
@@ -7,7 +6,6 @@
 // config (Ollama URL + model, Nominatim URL + rate, face model dir +
 // download URLs). Pause replaces the old "Enable" checkbox; the spec
 // makes paused and disabled the same state.
-//
 // Two data sources are merged here:
 //    - WorkerEventsService.workersStatus$ streams live status / counters /
 //      per-stage config over the /api/events WS bridge (#674). A one-shot
@@ -16,7 +14,6 @@
 //    - BunApiBackendService.getEnrichmentConfig() supplies the domain
 //      config for describe/geocode/face stages plus the live face-model
 //      loader banner.
-//
 // All pure logic (stage metadata, grouping, summarisation, formatting,
 // form defaults, error normalisation, clamped int parsing) lives in
 // `./workers.vm.ts`. This file owns DI, signal wiring, and side effects.
@@ -55,6 +52,7 @@ import { MirrorSettingsComponent } from './mirror-settings.component';
 import { DerivativeAuditSettingsComponent } from './derivative-audit-settings.component';
 import { GpuLiveRenderSettingsComponent } from './gpu-live-render-settings.component';
 import { FacePurgePanelComponent } from './face-purge-panel.component';
+import { ServiceApiKeysComponent } from './service-api-keys.component';
 import {
   FIXED_DESCRIBE_MODEL,
   groupStagesByPipeline,
@@ -94,6 +92,7 @@ import {
     DerivativeAuditSettingsComponent,
     GpuLiveRenderSettingsComponent,
     FacePurgePanelComponent,
+    ServiceApiKeysComponent,
   ],
   templateUrl: './workers.component.html',
   styleUrl: './workers.component.scss',
