@@ -14,6 +14,8 @@ import { meilisearchClient } from '../../enrichment/meilisearch-client.ts';
 import { BACKFILL_MEILISEARCH_VECTORS_ID } from './ids.ts';
 import type { Migration } from './types.ts';
 
+const BACKFILL_BATCH_SIZE = 500;
+
 export const backfillMeilisearchVectors: Migration = {
   id: BACKFILL_MEILISEARCH_VECTORS_ID,
   title: 'Backfill semantic-search index',
@@ -21,6 +23,7 @@ export const backfillMeilisearchVectors: Migration = {
     'Bulk-indexes existing assets in Meilisearch and generates vectors when semantic search is ' +
     'enabled. Progress is durable, failed writes retry without advancing, and bad rows are ' +
     'dead-lettered so the migration can finish.',
+  preferredBatchSize: BACKFILL_BATCH_SIZE,
 
   countRemaining: countMeilisearchBackfillRemaining,
 

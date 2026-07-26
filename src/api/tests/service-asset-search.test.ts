@@ -4,6 +4,7 @@ import { MongoClient, ObjectId } from 'mongodb';
 import { createServiceApiKey } from '../src/auth/service-api-keys.ts';
 import { saveEnrichmentConfig } from '../src/enrichment/enrichment-config.repo.ts';
 import {
+  MeilisearchSearchError,
   setMeilisearchClientForTests,
   type MeilisearchClient,
   type MeilisearchSearchOptions,
@@ -163,7 +164,16 @@ describe('POST /api/search/assets', () => {
     if (!mongoReachable) return;
     const meili = mockMeili({
       search: async (_query, options) => {
-        if (options.semantic) throw new Error('ollama unavailable');
+        if (options.semantic) {
+          throw new MeilisearchSearchError(
+            400,
+            JSON.stringify({
+              message: 'Cannot find embedder with name `caption`.',
+              code: 'invalid_search_embedder',
+              type: 'invalid_request',
+            }),
+          );
+        }
         return {
           ids: ['010045ca68ac1f7f7e8b3aa02f72ac80'],
           estimatedTotal: 1,
@@ -176,11 +186,23 @@ describe('POST /api/search/assets', () => {
     const body = (await response.json()) as {
       modeUsed: string;
       fallbackReason: string | null;
+      fallbackDetails: {
+        status: number | null;
+        code: string | null;
+        type: string | null;
+        message: string;
+      } | null;
       results: Array<{ assetId: string }>;
     };
     expect(response.status).toBe(200);
     expect(body.modeUsed).toBe('lexical');
     expect(body.fallbackReason).toBe('semantic_embedder_unavailable');
+    expect(body.fallbackDetails).toEqual({
+      status: 400,
+      code: 'invalid_search_embedder',
+      type: 'invalid_request',
+      message: 'Cannot find embedder with name `caption`.',
+    });
     expect(body.results[0]!.assetId).toBe('010045ca68ac1f7f7e8b3aa02f72ac80');
     expect(meili.calls.map((call) => call.options.semantic)).toEqual([true, false]);
   });

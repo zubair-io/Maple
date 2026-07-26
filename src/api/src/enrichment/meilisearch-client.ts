@@ -149,6 +149,60 @@ export interface MeilisearchSearchResult {
   scores?: Record<string, number>;
 }
 
+/** Safe subset of a Meilisearch search failure exposed to authenticated
+ * service-search consumers. The raw response is deliberately not forwarded. */
+export interface MeilisearchFailureDetails {
+  status: number | null;
+  code: string | null;
+  type: string | null;
+  message: string;
+}
+
+function failureField(
+  source: Record<string, unknown>,
+  key: string,
+  maxLength: number,
+): string | null {
+  const value = source[key];
+  if (typeof value !== 'string') return null;
+  const cleaned = value.replace(/\s+/g, ' ').trim();
+  return cleaned.length > 0 ? cleaned.slice(0, maxLength) : null;
+}
+
+function failureDetails(status: number, errorText: string | null): MeilisearchFailureDetails {
+  let payload: Record<string, unknown> = {};
+  if (errorText) {
+    try {
+      const parsed = JSON.parse(errorText) as unknown;
+      if (parsed && typeof parsed === 'object') payload = parsed as Record<string, unknown>;
+    } catch {
+      payload = {};
+    }
+  }
+  const fallbackMessage = errorText?.replace(/\s+/g, ' ').trim().slice(0, 1000);
+  return {
+    status: status > 0 ? status : null,
+    code: failureField(payload, 'code', 100),
+    type: failureField(payload, 'type', 100),
+    message:
+      failureField(payload, 'message', 1000) ??
+      failureField(payload, 'error', 1000) ??
+      fallbackMessage ??
+      'Meilisearch search request failed',
+  };
+}
+
+export class MeilisearchSearchError extends Error {
+  readonly details: MeilisearchFailureDetails;
+
+  constructor(status: number, errorText: string | null) {
+    const details = failureDetails(status, errorText);
+    super(`meilisearch search failed: ${details.message}`);
+    this.name = 'MeilisearchSearchError';
+    this.details = details;
+  }
+}
+
 export interface MeilisearchClient {
   /** Whether the client is configured with a sidecar URL. */
   isConfigured(): boolean;
@@ -251,7 +305,7 @@ function buildFilter(opts: MeilisearchSearchOptions): string {
 }
 
 async function createAssetsIndex(config: ClientConfig): Promise<void> {
-  const result = await meilisearchHttp<unknown>(config, 'POST', '/indexes', {
+  const result = await meilisearchHttp<MeilisearchTaskSummary>(config, 'POST', '/indexes', {
     uid: ASSETS_INDEX,
     primaryKey: 'id',
   });
@@ -266,19 +320,10 @@ async function createAssetsIndex(config: ClientConfig): Promise<void> {
       },
       'meilisearch ensureIndex create-index failed',
     );
+    throw new Error(`meilisearch create index failed: ${result.errorText ?? result.status}`);
   }
-}
-
-async function enableVectorStore(config: ClientConfig): Promise<void> {
-  if (!config.semantic) return;
-  const result = await meilisearchHttp<unknown>(config, 'PATCH', '/experimental-features', {
-    vectorStore: true,
-  });
-  if (!result.ok && result.status !== 404) {
-    log.warn(
-      { status: result.status, err: result.errorText },
-      'meilisearch ensureIndex enable-vectorStore failed',
-    );
+  if (result.ok && result.status === 202) {
+    await waitForMeilisearchTask(config, result, 'create assets index');
   }
 }
 
@@ -316,7 +361,7 @@ function assetsIndexSettings(config: ClientConfig): Record<string, unknown> {
 }
 
 async function applyAssetsIndexSettings(config: ClientConfig): Promise<void> {
-  const result = await meilisearchHttp<unknown>(
+  const result = await meilisearchHttp<MeilisearchTaskSummary>(
     config,
     'PATCH',
     `/indexes/${ASSETS_INDEX}/settings`,
@@ -327,13 +372,16 @@ async function applyAssetsIndexSettings(config: ClientConfig): Promise<void> {
       { status: result.status, err: result.errorText },
       'meilisearch ensureIndex apply-settings failed',
     );
+    throw new Error(`meilisearch apply settings failed: ${result.errorText ?? result.status}`);
+  }
+  if (result.status === 202) {
+    await waitForMeilisearchTask(config, result, 'apply assets index settings');
   }
 }
 
 async function ensureAssetsIndex(config: ClientConfig): Promise<void> {
   if (!isLiveConfig(config)) return;
   await createAssetsIndex(config);
-  await enableVectorStore(config);
   await applyAssetsIndexSettings(config);
 }
 
@@ -374,6 +422,17 @@ function parseSearchResult(body: MeiliSearchResponse): MeilisearchSearchResult {
  * to inject a mocked `fetch`. */
 export function createMeilisearchClient(override?: Partial<ClientConfig>): MeilisearchClient {
   const cfg: ClientConfig = { ...readConfig(), ...override };
+  let ensurePromise: Promise<void> | null = null;
+
+  const ensureIndexOnce = (): Promise<void> => {
+    if (!ensurePromise) {
+      ensurePromise = ensureAssetsIndex(cfg).catch((error) => {
+        ensurePromise = null;
+        throw error;
+      });
+    }
+    return ensurePromise;
+  };
 
   return {
     isConfigured(): boolean {
@@ -398,7 +457,7 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
     },
 
     async ensureIndex(): Promise<void> {
-      await ensureAssetsIndex(cfg);
+      await ensureIndexOnce();
     },
 
     async upsert(doc: MeilisearchAssetDoc): Promise<void> {
@@ -478,7 +537,7 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
       if (!r.ok || !r.body) {
         // Throw so the search route's try/catch falls back to Mongo. The
         // route logs the fallback at warn level.
-        throw new Error(`meilisearch search failed: status=${r.status} ${r.errorText ?? ''}`);
+        throw new MeilisearchSearchError(r.status, r.errorText);
       }
       return parseSearchResult(r.body);
     },
