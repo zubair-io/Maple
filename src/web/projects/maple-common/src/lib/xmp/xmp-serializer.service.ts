@@ -1,8 +1,10 @@
 // XmpSerializerService — P6.
 //
 // Produces a Lightroom-readable .xmp sidecar for a given AdjustmentModel.
-// Output is semantically round-trippable but NOT byte-canonical; byte-exact
-// output is deferred to slice 7.
+// Since #1577 the output is byte-canonical: the envelope, indentation,
+// namespace declarations and attribute ordering all come from
+// `xmp-canonical.ts`, which the Swift `XMPSerialization+Canonical.swift`
+// mirrors byte-for-byte. `docs/xmp-canonical-format.md` is the contract.
 //
 // Spec guarantees:
 //  - Standard xpacket header + x:xmpmeta + rdf:RDF + rdf:Description wrapper.
@@ -23,6 +25,7 @@ import {
   METADATA_NAMESPACES,
 } from './xmp-metadata';
 import { toneCurveBlocks } from './xmp-tone-curves';
+import { DESCRIPTION_CHILD_INDENT, canonicalDocument } from './xmp-canonical';
 
 @Injectable({ providedIn: 'root' })
 export class XmpSerializerService {
@@ -168,11 +171,10 @@ export class XmpSerializerService {
       }
     }
 
-    // Build the attribute block — each on its own indented line.
-    const attrsBlock = parts.map((p) => `   ${p}`).join('\n');
+    const indent = DESCRIPTION_CHILD_INDENT;
 
     // Passthrough: unknown nested nodes (ToneCurve, etc.) — indented inside rdf:Description.
-    const nestedNodes = (passthrough?.unknownNodes ?? []).map((n) => `  ${n}`).join('\n');
+    const nestedNodes = (passthrough?.unknownNodes ?? []).map((n) => `${indent}${n}`).join('\n');
 
     // dc:subject — IPTC keyword bag (#632). Emitted as a nested
     // `<dc:subject><rdf:Bag><rdf:li>…</rdf:Bag></dc:subject>` block when
@@ -185,11 +187,11 @@ export class XmpSerializerService {
       keywords.length === 0
         ? ''
         : [
-            '  <dc:subject>',
-            '   <rdf:Bag>',
-            ...keywords.map((k) => `    <rdf:li>${this._escapeText(k)}</rdf:li>`),
-            '   </rdf:Bag>',
-            '  </dc:subject>',
+            `${indent}<dc:subject>`,
+            `${indent}  <rdf:Bag>`,
+            ...keywords.map((k) => `${indent}    <rdf:li>${this._escapeText(k)}</rdf:li>`),
+            `${indent}  </rdf:Bag>`,
+            `${indent}</dc:subject>`,
           ].join('\n');
 
     // Metadata nested elements (lang-alt / seq), in fixed order.
@@ -199,21 +201,21 @@ export class XmpSerializerService {
     // title/creator/description first, then keywords (dc:subject), then
     // metadata rights/usageTerms, then any unknown passthrough nodes.
     const titleCreatorDesc = metadataBlocks.filter((b) =>
-      /^ {2}<(dc:title|dc:creator|dc:description)>/.test(b),
+      /^ *<(dc:title|dc:creator|dc:description)>/.test(b),
     );
     const rightsUsage = metadataBlocks.filter((b) =>
-      /^ {2}<(dc:rights|xmpRights:UsageTerms)>/.test(b),
+      /^ *<(dc:rights|xmpRights:UsageTerms)>/.test(b),
     );
     // Point tone curves (#365) — nested `papp:SceneLinearToneCurve*` blocks,
-    // emitted at this document's child indent (two spaces, matching the
-    // keywords block above). Identity curves emit nothing, so a model with
+    // emitted at the canonical child indent, the same ladder the keywords and
+    // metadata blocks sit on. Identity curves emit nothing, so a model with
     // no authored curve keeps the pre-#365 bytes exactly. They sit before
     // the passthrough nodes so Maple-managed children stay grouped and any
     // imported `crs:ToneCurvePV2012*` (which rides the passthrough pipe)
     // keeps its position relative to the other unknown nodes.
-    const toneCurvesBlock = toneCurveBlocks(model, '  ');
+    const toneCurvesBlock = toneCurveBlocks(model, indent);
 
-    const childBlocks = [
+    const children = [
       titleCreatorDesc.join('\n'),
       keywordsBlock,
       rightsUsage.join('\n'),
@@ -222,31 +224,19 @@ export class XmpSerializerService {
     ]
       .filter((b) => b.length > 0)
       .join('\n');
-    const nestedSection = childBlocks ? `\n${childBlocks}\n` : '\n';
 
-    // Namespace declarations: always xmp/crs/papp; then conditional metadata
-    // namespaces plus dc-for-keywords, in fixed prefix order. Keeps the
-    // attribute list quiet for sidecars that use none of them.
+    // Namespace declarations: the canonical xmp/crs/papp prelude is emitted by
+    // `canonicalDocument`; these are the conditional metadata namespaces plus
+    // dc-for-keywords, in fixed prefix order. Keeps the declaration list quiet
+    // for sidecars that use none of them.
     const usedPrefixes = metadata ? metadataNamespacePrefixes(metadata) : new Set<string>();
     if (keywords.length > 0) usedPrefixes.add('dc');
     const NS_ORDER = ['dc', 'exif', 'photoshop', 'Iptc4xmpCore', 'xmpRights'];
-    const extraNsLines = NS_ORDER.filter((p) => usedPrefixes.has(p))
-      .map((p) => `\n    xmlns:${p}="${METADATA_NAMESPACES[p]}"`)
-      .join('');
+    const extraNamespaces = NS_ORDER.filter((p) => usedPrefixes.has(p)).map(
+      (p) => [p, METADATA_NAMESPACES[p]] as const,
+    );
 
-    return [
-      '<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>',
-      '<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Maple Hosted 0.1.0">',
-      ' <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">',
-      '  <rdf:Description rdf:about=""',
-      '    xmlns:xmp="http://ns.adobe.com/xap/1.0/"',
-      '    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"',
-      `    xmlns:papp="http://ns.justmaple.app/photo/1.0/"${extraNsLines}`,
-      `${attrsBlock}>${nestedSection}  </rdf:Description>`,
-      ' </rdf:RDF>',
-      '</x:xmpmeta>',
-      '<?xpacket end="w"?>',
-    ].join('\n');
+    return canonicalDocument(extraNamespaces, parts, children);
   }
 
   /**
