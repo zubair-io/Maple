@@ -773,8 +773,7 @@
 // --s-sidebar-width is 0 and the toolbar spans the full viewport.
 @media (max-width: 767px) {
   .bulk-toolbar-wrap {
-    bottom: 12px;
-    padding-bottom: env(safe-area-inset-bottom);
+    bottom: calc(12px + env(safe-area-inset-bottom));
   }
 }
 
