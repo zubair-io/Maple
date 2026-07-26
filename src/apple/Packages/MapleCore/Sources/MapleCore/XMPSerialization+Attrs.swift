@@ -229,7 +229,7 @@ extension XMPSerializer {
         // omit-on-default convention as every other papp: enum field.
         // Sidecars predating this field have no `papp:AutoExposure` and
         // parse to `.on`; only an explicit AUTO opt-out (`applyAuto` on
-        // `Profile.neutral`/`.acrMatch`) or a hand-authored Off writes it.
+        // `Profile.neutral`) or a hand-authored Off writes it.
         if model.autoExposure != .on {
             attrs.append(("papp:AutoExposure", model.autoExposure.rawValue))
         }

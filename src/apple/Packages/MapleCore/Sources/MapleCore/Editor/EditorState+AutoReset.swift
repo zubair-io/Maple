@@ -46,7 +46,7 @@ extension EditorState {
     /// AE contract: AUTO's exposure is measured against an AE-Off probe. On the
     /// default `Profile.auto` the Apple decode already forces auto-exposure off
     /// internally whenever an Auto Profile curve will fit, so the recommendation
-    /// lands correctly there regardless; on `Profile.neutral` (and `.acrMatch`)
+    /// lands correctly there regardless; on `Profile.neutral`
     /// nothing forces that, so applying AUTO's exposure on top of an AE-On decode
     /// would double-count the anchor gain and blow out highlights. #1387 closes
     /// that gap: `autoExposure` is set to `.off` alongside `exposure`, on every
@@ -80,7 +80,7 @@ extension EditorState {
         m.exposure = clamp(result.exposure, AdjustmentModel.exposureRange)
         // #1387: the exposure recommendation is measured against an AE-Off
         // probe (see `autoProvider`), so pin the decode to match — otherwise
-        // a `Profile.neutral` (or `.acrMatch`) decode keeps auto_exposure On
+        // a `Profile.neutral` decode keeps auto_exposure On
         // and AE-lift stacks with AUTO's lift, blowing out highlights.
         m.autoExposure = .off
         session.model = m

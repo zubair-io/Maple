@@ -1,9 +1,8 @@
 // ProfilePicker.swift — two-segment Auto/Neutral picker for AdjustmentModel.profile.
 //
-// Profile.acrMatch is deliberately NOT surfaced here: it is diagnostic
-// tooling (papp:Profile="AcrMatch" in a sidecar, or maple-cli --profile
-// acr-match), not a product mode — real-image validation showed the
-// chart-fitted transform over-exposes real bodies (#1722).
+// A third profile, AcrMatch (#1722), was never surfaced here — real-image
+// validation showed the chart-fitted transform over-exposes real bodies —
+// and was retired entirely in #2312.
 //
 // `.segmented` style so both choices are visible at rest — a menu picker
 // would hide Auto behind a tap. Lives in its own file so DetailPanel.swift
