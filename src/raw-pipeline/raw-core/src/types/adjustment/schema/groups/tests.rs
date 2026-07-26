@@ -114,6 +114,10 @@ fn all_struct_field_names() -> Vec<&'static str> {
         hot_pixel_suppression: _,
         deep_denoise: _,
         crop: _,
+        lens_profile_enable: _,
+        lens_correction_distortion: _,
+        lens_correction_ca: _,
+        lens_correction_vignetting: _,
     } = AdjustmentModel::default();
 
     vec![
@@ -214,6 +218,10 @@ fn all_struct_field_names() -> Vec<&'static str> {
         "hot_pixel_suppression",
         "deep_denoise",
         "crop",
+        "lens_profile_enable",
+        "lens_correction_distortion",
+        "lens_correction_ca",
+        "lens_correction_vignetting",
     ]
 }
 
