@@ -950,6 +950,7 @@ struct AppShell: View {
             onOpenEditor: { asset in openEditor(for: asset) },
             onPrimeSession: { asset in ensureSession(for: asset) },
             onFullImageFallback: { mode = .browse },
+            timelinePreviewSiblingAssets: { ref in timelinePreviewSiblingAssets(for: ref) },
             onMergePanorama: { openPanoramaMerge() },
             onEditMetadata: { openBatchMetadata() },
             clipboard: adjustmentClipboard

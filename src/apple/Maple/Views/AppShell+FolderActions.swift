@@ -390,18 +390,47 @@ extension AppShell {
     func ensureSession(for asset: AssetRef) {
         guard sessions[asset.id] == nil else { return }
         let remoteStore: (any SidecarStoreProtocol)? = {
-            // Cloud-backed asset: route XMP through CloudSidecarStore so
-            // edits round-trip via PUT /api/assets/<id>/xmp. Local files
-            // (folder/SMB) keep using XMPSidecarStore via EditSession's
-            // primaryURL branch. Cloud refs carry the upstream asset id
-            // in stableID (set by BrowseViewModel.loadSource).
-            guard case .cloudLibrary(let serverID, _) = librarySelection,
-                  let assetID = asset.stableID
-            else { return nil }
-            return CloudSidecarStore(
-                server: serverID,
-                assetID: assetID,
-                httpClient: makeAuthenticatedHTTPClient(server: serverID))
+            guard let assetID = asset.stableID else { return nil }
+            switch asset.thumbnailProvenance {
+            case .cloud(let server):
+                // Timeline-sourced cloud asset (#2299): the ref itself
+                // carries its owning server — set by the lazy sibling
+                // builder for the unified/single-library Timeline's iPhone
+                // Preview swipe domain, where there's no single
+                // `librarySelection` to fall back on (the unified Timeline
+                // can span several servers at once). Checked FIRST so it
+                // takes priority over the ambient gate below.
+                return CloudSidecarStore(
+                    server: LocalNetworkResolver.shared.effectiveURL(for: server),
+                    assetID: assetID,
+                    httpClient: makeAuthenticatedHTTPClient(server: server))
+            case .photoKit:
+                // PhotoKit-backed asset — NEVER cloud-backed, regardless of
+                // `librarySelection`. Load-bearing: `loadCloudLibrary` sets
+                // `librarySelection = .cloudLibrary(...)` for BOTH its
+                // folder AND timeline view modes, so a PhotoKit-local
+                // sibling swiped to from a single-library cloud Timeline
+                // would otherwise match the ambient gate below and be handed
+                // a bogus `CloudSidecarStore` keyed on its PHAsset
+                // localIdentifier instead of a real Mongo asset id.
+                return nil
+            case nil:
+                // No explicit provenance — the folder/SMB browse flow's
+                // cloud refs never set it (only the Timeline sibling
+                // builder and the PhotoKit construction sites do). Fall back
+                // to the pre-#2299 ambient-selection gate: cloud-backed
+                // asset routes XMP through CloudSidecarStore so edits
+                // round-trip via PUT /api/assets/<id>/xmp; local files
+                // (folder/SMB) keep using XMPSidecarStore via EditSession's
+                // primaryURL branch. Cloud refs carry the upstream asset id
+                // in stableID (set by BrowseViewModel.loadSource).
+                guard case .cloudLibrary(let serverID, _) = librarySelection
+                else { return nil }
+                return CloudSidecarStore(
+                    server: serverID,
+                    assetID: assetID,
+                    httpClient: makeAuthenticatedHTTPClient(server: serverID))
+            }
         }()
         // FileProvider observer is no-op for cloud-library assets (sourceless
         // — no primaryURL), so passing DownloadProgress here is safe; the
