@@ -309,9 +309,9 @@ pub fn build_live_split(
     // Local adjustments (#1698) — develop's 12b position, between dehaze and
     // vignette. See the gate-predicate note in the module docs.
     if local_adjustments_are_active(&inputs.local_adjustments) {
-        suffix.push(Box::new(LocalAdjustmentsPass {
-            layers_flat: inputs.local_adjustments.clone(),
-        }));
+        suffix.push(Box::new(LocalAdjustmentsPass::new(
+            &inputs.local_adjustments,
+        )));
     }
     // Vignette (#1109) — develop's 12c position (after local_adjustments,
     // before sharpen). Same `apply` predicate as the raw-core stage's identity
