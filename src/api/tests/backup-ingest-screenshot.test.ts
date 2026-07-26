@@ -119,4 +119,35 @@ describe('backup-ingest screenshot routing', () => {
     expect(doc?.fileinfo?.[0].path).toBe('2024/Misc');
     expect(doc?.is_screenshot).toBe(false);
   });
+
+  test('a Screenshot-named VIDEO is not routed to <year>/Screenshot (#2325)', async () => {
+    const bytes = Buffer.alloc(64, 7);
+    const res = await authedHandle(
+      ingest(bytes, {
+        'X-Maple-Device-Id': deviceId,
+        'X-Maple-Phasset-Id': 'SS/L0/003',
+        'X-Maple-Capture-Date': '2024-03-15T10:30:00Z',
+        // A screen recording carries a screenshot-shaped name on some
+        // devices. It is still a video, so it belongs in the normal date
+        // layout, not the Screenshot folder.
+        'X-Maple-Filename': 'Screenshot_20240315_103000.mp4',
+        'X-Maple-Total-Bytes': '64',
+        'X-Maple-Maple-Id': 'screenshot-video-1',
+        'Content-Range': 'bytes 0-63/64',
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.target_rel_path).toBe('2024/Misc/Screenshot_20240315_103000.mp4');
+
+    const a = await assetsCollection();
+    const doc = await a.findOne({ maple_id: 'screenshot-video-1' });
+    expect(doc?.fileinfo?.[0].path).toBe('2024/Misc');
+    expect(doc?.is_screenshot).toBe(false);
+
+    // And the bytes really landed outside the Screenshot folder.
+    expect(
+      await fs.readFile(path.join(tmpLib, '2024/Misc/Screenshot_20240315_103000.mp4')),
+    ).toHaveLength(64);
+  });
 });
