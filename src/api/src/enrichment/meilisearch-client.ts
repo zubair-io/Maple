@@ -347,7 +347,7 @@ function assetsIndexSettings(config: ClientConfig): Record<string, unknown> {
     settings.embedders = {
       [EMBEDDER_NAME]: {
         source: 'ollama',
-        url: joinMeilisearchUrl(config.embedderUrl, '/api/embeddings'),
+        url: joinMeilisearchUrl(config.embedderUrl, '/api/embed'),
         model: config.embedderModel,
         documentTemplate: '{{ doc.searchBlob }} {{ doc.description }} {{ doc.people }}',
       },

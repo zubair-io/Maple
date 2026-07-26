@@ -457,13 +457,21 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
       complete: boolean;
       nextCursor: string | null;
       errors: number;
+      retryableError: string | null;
       cumulative: { scanned: number; skipped: number; errors: number };
     };
     expect(failedBody.complete).toBe(false);
     expect(failedBody.nextCursor).toBeNull();
     expect(failedBody.errors).toBe(1);
+    expect(failedBody.retryableError).toBe('temporary batch failure');
     expect(failedBody.cumulative).toMatchObject({ scanned: 0, skipped: 0, errors: 0 });
     expect(meili.upserts).toHaveLength(0);
+
+    const { backfillMeilisearchVectors } =
+      await import('../src/workers/migration/backfill-meilisearch-vectors');
+    await expect(backfillMeilisearchVectors.runBatch(10)).rejects.toThrow(
+      'Cause: temporary batch failure',
+    );
 
     meili.failBatch = false;
     const retried = await app.handle(new Request(url, { method: 'POST' }));
