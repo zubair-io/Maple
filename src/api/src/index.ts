@@ -88,6 +88,7 @@ import { derivativeAuditRoutes } from './routes/derivative-audit.ts';
 import { assetsListRoutes } from './routes/assets-list.ts';
 import { photosRoutes } from './routes/photos.ts';
 import { displayRoutes } from './routes/display.ts';
+import { renderConfigRoutes } from './routes/render-config.ts';
 import { requireAuth } from './auth/middleware.ts';
 import { staticUiPlugin } from './routes/static_ui.ts';
 import { getDb, ensureIndexes, closeDb } from './db/client.ts';
@@ -253,6 +254,9 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
         .use(presetsRoutes)
         .use(photosRoutes)
         .use(displayRoutes)
+        // Render runtime config (#1062) — the web GPU live-render ramp/kill
+        // switch. Read by every signed-in client at startup and on a poll.
+        .use(renderConfigRoutes)
         .use(panoRoutes)
         .use(changesRoutes)
         .use(mirrorRoutes)
