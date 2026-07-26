@@ -18,6 +18,17 @@
 // `splitTone*` fields ACR writes to `crs:SplitToning*`.
 // Presets (#1115) is wired: the pill opens the presets sheet/popover
 // instead of carrying a drag-bar value.
+//
+// One deliberate divergence from the Apple enum, recorded here so it isn't
+// folklore: Apple gained a `Tool.toneCurve` case in #367 and there is no
+// `'toneCurve'` ToolId to match it. The two shells reach the same panel by
+// different routes. `EditorShellComponent` already owns a first-class curve
+// panel with its own dock toggle (`curvePanelToggle` / `curveOpen`), so the
+// tone curve is not a tool the drag bar can arm here. Apple has no such
+// standalone panel — every one of its control variants swaps surfaces off
+// `armedTool` — so an armed tool is the only way to reach the curve there.
+// Adding a dead `'toneCurve'` ToolId to mirror the enum shape would put an
+// unreachable entry in the dock and the `[`/`]` cycle for no gain.
 
 import type { AdjustmentModel } from '../models/adjustment-model';
 import { ADJUSTMENT_RANGES, defaultGeneratedAdjustmentModel } from '../models/adjustment-model';
