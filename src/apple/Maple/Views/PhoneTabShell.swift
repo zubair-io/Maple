@@ -101,6 +101,9 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     let onOpenEditor: (AssetRef) -> Void
     let onPrimeSession: (AssetRef) -> Void
     let onFullImageFallback: () -> Void
+    /// #2299: resolves the iPhone Preview sibling list for a Timeline-opened
+    /// asset — forwarded straight through to `PhoneLibraryView`.
+    let timelinePreviewSiblingAssets: (AssetRef) -> [AssetRef]
     /// M2: triggers panorama merge view when the user taps "Merge to Panorama…".
     var onMergePanorama: (() -> Void)? = nil
     /// M4: triggers batch metadata editor when the user taps "Edit Metadata…".
@@ -191,6 +194,7 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     onOpenEditor: { pushPreview($0) },
                     onPrimeSession: onPrimeSession,
                     onFullImageFallback: onFullImageFallback,
+                    timelinePreviewSiblingAssets: timelinePreviewSiblingAssets,
                     onMergePanorama: onMergePanorama,
                     onEditMetadata: onEditMetadata,
                     clipboard: clipboard
