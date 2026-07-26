@@ -166,3 +166,9 @@ impl Pass for LocalAdjustmentsPass {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "local_adjustments/tests.rs"]
 mod tests;
+
+// The slider-tick timing harness — `#[ignore]`d, not a gate. Sibling file for
+// the same file-budget reason as `tests.rs`.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "local_adjustments/bench.rs"]
+mod bench;
