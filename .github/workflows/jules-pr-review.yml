@@ -1,8 +1,27 @@
+# Jules PR Review
+#
+# `paths-ignore` (#2313): the reviewer's prompt-injection rule fires on
+# first-party instruction files, because their whole purpose is text addressed
+# to an agent. It blocked #2267 three times over one added bullet in CLAUDE.md —
+# first for directive phrasing, then for two clauses about how much weight to
+# give automated checks, and finally for the PR description's explanation that
+# the earlier flag was a false positive. That last one leaves no in-band way to
+# contest a bad verdict, since the reviewer only re-reviews on a new head SHA.
+#
+# Scope it off the files that are agent-directed by construction. This skips the
+# review only when a PR touches NOTHING ELSE — a PR mixing CLAUDE.md with code
+# still gets reviewed in full, so the false positive is narrowed, not closed.
+# The real fix belongs upstream in the action's rule set.
 name: Jules PR Review
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
+    paths-ignore:
+      - 'CLAUDE.md'
+      - 'AGENTS.md'
+      - 'docs/superpowers/plans/**'
+      - 'docs/superpowers/specs/**'
 
 jobs:
   review:
