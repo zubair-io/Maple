@@ -101,7 +101,7 @@ export async function runMigrationTickOnce(batchSize: number, nowIso: string): P
 
     let batch: { processed: number; errors: number };
     try {
-      batch = await migration.runBatch(batchSize);
+      batch = await migration.runBatch(migration.preferredBatchSize ?? batchSize);
     } catch (err) {
       await patchMigrationState(migration.id, {
         status: 'error',
