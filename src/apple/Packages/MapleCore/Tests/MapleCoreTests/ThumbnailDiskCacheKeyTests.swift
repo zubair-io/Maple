@@ -5,6 +5,17 @@
 //
 // Cross-platform parity is a merge gate. If this test ever fails, any thumb
 // written by one layer will be invisible to the other two — see issue #108.
+//
+// #2254: the vectors above only pinned the HASH FUNCTION, never whether the
+// code that actually *writes* a thumb agrees with the code that *reads* one
+// back. That gap let the server's `thumb` stage drift onto a `<maple_id>.avif`
+// destination for months while this suite stayed green (#1999 / PR #2252).
+// The "Writer-vs-reader path parity" section below closes the Apple side of
+// that hole: it writes through the real `ThumbnailDiskCache` and reads back
+// through the independently-implemented `MapleSidecarPaths.thumbURL(for:)`
+// (the path `ThumbnailLoader.produceThumbnail` checks before falling back to
+// a local decode — see #1365) and asserts they name the exact same file,
+// directory included — not just that both hash to the same stem.
 
 import XCTest
 @testable import MapleCore
@@ -136,6 +147,57 @@ final class ThumbnailDiskCacheKeyTests: XCTestCase {
         XCTAssertEqual(
             fetched, payload,
             "basename-keyed cache should serve any URL with the same lastPathComponent"
+        )
+    }
+
+    // MARK: - Writer-vs-reader path parity (#2254)
+    //
+    // `ThumbnailDiskCache` (the writer for locally-generated thumbs) and
+    // `MapleSidecarPaths.thumbURL(for:)` (the independent reader
+    // `ThumbnailLoader.produceThumbnail` consults first, so a thumb dropped
+    // by the API's `thumb` stage or by Web is picked up without a local
+    // re-decode) are two SEPARATE implementations that must resolve to the
+    // identical on-disk file for the same asset. Asserting only that both
+    // reduce to the same hash STEM (as the tests above do) would have missed
+    // the #1999 regression, where the divergence was in the DIRECTORY the
+    // stem was written under, not the stem itself. This is the Apple sibling
+    // of the API's `xmp.test.ts` "agrees with resolveThumbPath for the same
+    // file" (added in PR #2252) — same shape: writer's real destination
+    // compared to the reader's real resolution, not two calls to the same
+    // hash helper.
+    func testStoreWritesToTheExactPathMapleSidecarPathsResolvesForReading() async {
+        let assetDir = tmp.appendingPathComponent("library")
+        try? FileManager.default.createDirectory(at: assetDir, withIntermediateDirectories: true)
+        let assetURL = assetDir.appendingPathComponent("IMG_1234.dng")
+
+        // Writer: ThumbnailDiskCache configured for the asset's OWN directory
+        // (mirrors how the app configures the singleton for the open folder).
+        let cache = ThumbnailDiskCache()
+        await cache.configure(folderURL: assetDir)
+        let payload = Data([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46])
+        await cache.storeThumbnailData(payload, for: assetURL)
+
+        // Reader: the independently-implemented resolver.
+        let readerPath = MapleSidecarPaths.thumbURL(for: assetURL)
+
+        let expectedHash = MapleThumbCacheKey.sha256Prefix16("IMG_1234.dng")
+        let expectedPath = assetDir
+            .appendingPathComponent(".maple")
+            .appendingPathComponent("thumbs")
+            .appendingPathComponent("\(expectedHash).avif")
+
+        XCTAssertEqual(
+            readerPath.path, expectedPath.path,
+            "MapleSidecarPaths.thumbURL drifted from the pinned <folder>/.maple/thumbs/<stem>.avif convention"
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: readerPath.path),
+            "ThumbnailDiskCache wrote somewhere MapleSidecarPaths.thumbURL does not look — " +
+            "this is the exact #1999 failure mode (writer/reader path divergence)"
+        )
+        XCTAssertEqual(
+            try? Data(contentsOf: readerPath), payload,
+            "file exists at the reader's path but its contents don't match what the writer stored"
         )
     }
 }
