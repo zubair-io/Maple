@@ -95,6 +95,13 @@ fn cpu_params_nonraw() -> MapleAdjustmentParams {
         clarity: 0.0,
         texture: 0.0,
         nr_luminance: 0.0,
+        // Spatial stages the chain took over from the deleted MSL kernels
+        // (#1043); zeroed like the other stage knobs in this fixture.
+        sharpen_amount: 0.0,
+        sharpen_radius: 1.0,
+        sharpen_detail: 25.0,
+        sharpen_masking: 0.0,
+        nr_color: 0.0,
         dehaze: 0.0,
         decoded_temperature: D65_TEMP,
         decoded_tint: D65_TINT,
