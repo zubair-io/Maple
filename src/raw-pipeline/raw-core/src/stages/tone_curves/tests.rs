@@ -8,6 +8,34 @@
 
 use super::*;
 
+/// The shared curve-editor parity anchor (#367).
+///
+/// The SwiftUI and Angular curve widgets each carry a port of
+/// `eval_monotonic_cubic` so the plot draws the shape the pipeline
+/// actually renders. This table is the contract between the three: the
+/// same four knots, the same eleven samples, asserted here, in
+/// `ToneCurveMathTests.swift` and in `tone-curve.spec.ts`. Any platform
+/// that drifts fails its own copy of this test.
+pub(crate) const PARITY_KNOTS: [(f32, f32); 4] =
+    [(0.0, 0.0), (0.25, 0.15), (0.6, 0.72), (1.0, 1.0)];
+pub(crate) const PARITY_SAMPLES: [f32; 11] = [
+    0.000000, 0.047657, 0.103543, 0.215379, 0.386152, 0.570335, 0.720000, 0.816116, 0.883214,
+    0.938705, 1.000000,
+];
+
+#[test]
+fn monotonic_cubic_matches_the_cross_platform_parity_anchor() {
+    let c = evaluator::prepare_curve(&ToneCurve::new(PARITY_KNOTS.to_vec()));
+    for (i, expected) in PARITY_SAMPLES.iter().enumerate() {
+        let x = i as f32 / 10.0;
+        let got = evaluator::eval_monotonic_cubic(&c, x);
+        assert!(
+            (got - expected).abs() < 1e-5,
+            "x={x}: expected {expected}, got {got}"
+        );
+    }
+}
+
 fn fresh_img(value: [f32; 3]) -> Image {
     let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
     for p in &mut img.pixels {
