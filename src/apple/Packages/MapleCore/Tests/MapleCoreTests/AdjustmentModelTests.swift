@@ -66,7 +66,9 @@ final class AdjustmentModelTests: XCTestCase {
         m.captureSharpeningAmount = 55
         m.captureSharpeningSigma = 2.0
         let xml = XMPSerializer.serialize(model: m, culling: CullingState())
-        XCTAssertTrue(xml.contains(#"papp:CaptureSharpeningSigma="2.0""#),
+        // `"2"`, not `"2.0"`: since #1577 every numeric attribute goes
+        // through the canonical wire codec, which emits integers bare.
+        XCTAssertTrue(xml.contains(#"papp:CaptureSharpeningSigma="2""#),
                       "serializer must emit the canonical sigma key")
         XCTAssertFalse(xml.contains("papp:CaptureSharpeningRadius"),
                        "serializer must not emit the legacy radius key")

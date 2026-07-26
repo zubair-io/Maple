@@ -17,12 +17,14 @@
 // Both sides round-trip semantically with the Rust `raw_core::xmp`
 // module and the TypeScript `XmpParserService` / `XmpSerializerService`
 // — same fields, same value semantics, same legacy-alias precedence.
-// The output is *not* byte-canonical: attribute ordering, the `papp:`
-// namespace URI, and whitespace around the `rdf:Description` differ
-// across the three serializers (TS calls this out in its own header,
-// Rust ships only a fragment serializer). The canonical-form ticket is
-// still open. When you add a new `crs:` or `papp:` attribute, mirror
-// it in all three.
+// Since #1577 the output is also byte-canonical against the TypeScript
+// writer: the envelope, namespace prelude, indentation, attribute
+// ordering and number codec all come from `XMPSerialization+Canonical.swift`
+// and `XMPSerialization+Helpers.swift`, and `XMPCanonicalFormatTests`
+// pins the result against a golden literal duplicated in the web suite.
+// `docs/xmp-canonical-format.md` is the contract, including what the
+// parity claim does and does not cover. When you add a new `crs:` or
+// `papp:` attribute, mirror it in all three writers.
 
 import Foundation
 
@@ -307,34 +309,36 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
 
 /// Emit an XMP sidecar string compatible with the `crs:` schema from a model + culling state.
 /// Output is semantically round-trippable with Lightroom / Maple Hosted (same fields,
-/// same value semantics) but is not byte-canonical — attribute ordering and the
-/// `papp:` namespace URI differ across the Apple / Web / Rust serializers today.
+/// same value semantics) and, since #1577, byte-canonical with the TypeScript writer for
+/// a model both emit the same field set for — see `docs/xmp-canonical-format.md`.
 public struct XMPSerializer {
     private init() {}
 
     // MARK: - Internal builders (used by both serialize overloads)
 
 
-    /// Build the dc:subject keywords block pieces.
-    /// Returns `(dcNs, block)` where `dcNs` is the namespace suffix string
-    /// (empty or `\n      xmlns:dc=…`) and `block` is the multi-line
-    /// `<dc:subject>…</dc:subject>` body (empty string when no keywords).
-    static func _buildKeywordsBlock(culling: CullingState) -> (dcNs: String, block: String) {
-        guard !culling.keywords.isEmpty else { return ("", "") }
-        let dcNs = "\n      xmlns:dc=\"http://purl.org/dc/elements/1.1/\""
-        let liItems = culling.keywords
-            .map { "          <rdf:li>\(escapeXMLText($0))</rdf:li>" }
-            .joined(separator: "\n")
-        let block = """
-
-              <dc:subject>
-                <rdf:Bag>
-            \(liItems)
-                </rdf:Bag>
-              </dc:subject>
-            """
-        return (dcNs, block)
+    /// Build the `dc:subject` keyword-bag block at the canonical child
+    /// indent, or the empty string when there are no keywords. The `dc`
+    /// namespace declaration it needs is contributed separately by the
+    /// callers' `extraNamespaces` list.
+    static func _buildKeywordsBlock(culling: CullingState) -> String {
+        guard !culling.keywords.isEmpty else { return "" }
+        let indent = XMPCanonical.childIndent
+        let liItems = culling.keywords.map {
+            "\(indent)    <rdf:li>\(escapeXMLText($0))</rdf:li>"
+        }
+        return ([
+            "\(indent)<dc:subject>",
+            "\(indent)  <rdf:Bag>",
+        ] + liItems + [
+            "\(indent)  </rdf:Bag>",
+            "\(indent)</dc:subject>",
+        ]).joined(separator: "\n")
     }
+
+    /// The `dc` namespace declaration, needed whenever the keyword bag is
+    /// emitted (and by the metadata overload's `dc:` blocks).
+    static let dcNamespace = (prefix: "dc", uri: "http://purl.org/dc/elements/1.1/")
 
     // MARK: - Public serializer
 
@@ -358,52 +362,22 @@ public struct XMPSerializer {
         omitWhiteBalance: Bool
     ) -> String {
         let attrs = _buildAttrs(model: model, culling: culling, omitWhiteBalance: omitWhiteBalance)
-        let attrsStr = attrs.map { "\($0.0)=\"\($0.1)\"" }.joined(separator: "\n        ")
-        let (dcNamespace, rawKeywordsBlock) = _buildKeywordsBlock(culling: culling)
+        let keywordsBlock = _buildKeywordsBlock(culling: culling)
         // Point tone curves (#365) — the second nested child block. Children
         // of `rdf:Description` sit at six spaces in this document shape (see
         // `docs/xmp-canonical-format.md` § "Indentation"). Identity curves
         // emit nothing, so a model with no authored curve keeps the
         // pre-#365 bytes exactly.
         let toneCurvesBlock = _buildToneCurvesBlock(
-            model: model, indent: "      ")
-        // Both blocks carry a leading newline when non-empty so they splice
-        // straight after the `rdf:Description` open tag's `>`.
-        let keywordsBlock = rawKeywordsBlock
-            + (toneCurvesBlock.isEmpty ? "" : "\n" + toneCurvesBlock)
+            model: model, indent: XMPCanonical.childIndent)
+        let children = [keywordsBlock, toneCurvesBlock]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
 
-        // Switch between self-closing and open/close `rdf:Description`
-        // forms based on whether there's any nested content.
-        if keywordsBlock.isEmpty {
-            return """
-            <?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzreSzNTczkc9d"?>
-            <x:xmpmeta xmlns:x="adobe:ns:meta/">
-              <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-                <rdf:Description
-                  xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
-                  xmlns:xmp="http://ns.adobe.com/xap/1.0/"
-                  xmlns:papp="http://ns.justmaple.app/1.0/"
-                  \(attrsStr)/>
-              </rdf:RDF>
-            </x:xmpmeta>
-            <?xpacket end="w"?>
-            """
-        } else {
-            return """
-            <?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzreSzNTczkc9d"?>
-            <x:xmpmeta xmlns:x="adobe:ns:meta/">
-              <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-                <rdf:Description
-                  xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
-                  xmlns:xmp="http://ns.adobe.com/xap/1.0/"
-                  xmlns:papp="http://ns.justmaple.app/1.0/"\(dcNamespace)
-                  \(attrsStr)>\(keywordsBlock)
-                </rdf:Description>
-              </rdf:RDF>
-            </x:xmpmeta>
-            <?xpacket end="w"?>
-            """
-        }
+        return XMPCanonical.document(
+            extraNamespaces: culling.keywords.isEmpty ? [] : [dcNamespace],
+            attributes: attrs,
+            children: children)
     }
 
     // serialize(model:culling:metadata:) + escapeXMLAttr live in
