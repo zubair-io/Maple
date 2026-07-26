@@ -29,6 +29,7 @@ import {
 } from './meilisearch-semantic-status.ts';
 import {
   DEFAULT_MEILISEARCH_TASK_TIMEOUT_MS,
+  MeilisearchTaskError,
   isLiveConfig,
   joinMeilisearchUrl,
   meilisearchHttp,
@@ -323,7 +324,15 @@ async function createAssetsIndex(config: ClientConfig): Promise<void> {
     throw new Error(`meilisearch create index failed: ${result.errorText ?? result.status}`);
   }
   if (result.ok && result.status === 202) {
-    await waitForMeilisearchTask(config, result, 'create assets index');
+    try {
+      await waitForMeilisearchTask(config, result, 'create assets index');
+    } catch (error) {
+      // The HTTP and worker processes can both observe a missing index and
+      // enqueue creation concurrently. One task wins; the other fails later
+      // with index_already_exists. The desired postcondition is satisfied.
+      if (error instanceof MeilisearchTaskError && error.code === 'index_already_exists') return;
+      throw error;
+    }
   }
 }
 
@@ -399,7 +408,10 @@ function searchRequest(
     showRankingScore: true,
   };
   if (options.semantic && config.semantic) {
-    body.hybrid = { embedder: EMBEDDER_NAME, semanticRatio: config.semanticRatio };
+    body.hybrid = {
+      embedder: EMBEDDER_NAME,
+      semanticRatio: config.semanticRatio,
+    };
   }
   return body;
 }
