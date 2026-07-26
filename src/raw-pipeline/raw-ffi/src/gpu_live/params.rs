@@ -214,6 +214,13 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
         clarity: p.clarity,
         texture: p.texture,
         dehaze: p.dehaze,
+        // Local adjustments (#1698). The wire is already the GPU storage
+        // layout, so this is a copy, not a re-pack: `read_floats` returns an
+        // owned Vec so the caller's buffer need not outlive the render, and a
+        // NULL / zero-length field (every host that has no masks, including
+        // one built against a pre-#1698 header) yields an empty stack, which
+        // omits the pass entirely.
+        local_adjustments: read_floats(p.local_adjustments_ptr, p.local_adjustments_len),
         vignette_amount: p.vignette_amount,
         vignette_feather: p.vignette_feather,
         grain_amount: p.grain_amount,
