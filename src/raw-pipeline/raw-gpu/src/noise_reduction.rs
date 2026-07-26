@@ -292,8 +292,9 @@ fn encode_extract_channel(
 ///
 /// `l_plane` is the Oklab L plane the modulation reads (raw-core's `l_plane`
 /// argument): the plane ITSELF for luma NR, the separately-extracted L for the
-/// chroma planes. It is unread when `modulation` is [`NoiseModulation::flat`],
-/// but still bound — the kernel takes one path, not two.
+/// chroma planes. A flat modulation (`dynamic == false`) never reads it, so a
+/// caller with no profile may bind any same-sized plane rather than extract one
+/// — the binding still has to exist, since the kernel takes one path, not two.
 pub(crate) fn encode_nlm_on_plane(
     ctx: &GpuContext,
     encoder: &mut wgpu::CommandEncoder,
@@ -499,27 +500,36 @@ impl Pass for NlmColorPass {
         // `denoise_plane` calls); then a single writeback restores both. Both
         // read the SAME L plane as their modulation guide — chroma noise is
         // modelled off luminance, exactly as raw-core hands `&l_plane` to both
-        // chroma calls — so L is extracted once here.
-        let l = encode_extract_channel(ctx, encoder, src, width, height, Channel::L, "nr-plane-l");
+        // chroma calls — so L is extracted ONCE, and only when a profile is
+        // present: without one the prepare kernel writes `scale ≡ 1` without
+        // reading the guide, so extracting L would be a wasted full-plane
+        // dispatch on every profile-less render. The a plane stands in as the
+        // (unread) binding there. A frame's profile is fixed for the session, so
+        // the two shapes never alternate under one pooled chain signature.
         let modulation =
             NoiseModulation::from_profile(profile_slice(&self.noise_profile), self.iso, true);
+        let l = modulation
+            .dynamic
+            .then(|| encode_extract_channel(ctx, encoder, src, width, height, Channel::L, "nr-l"));
         let a = encode_extract_channel(ctx, encoder, src, width, height, Channel::A, "nr-plane-a");
+        let guide = l.as_ref().unwrap_or(&a);
         let denoised_a = encode_nlm_on_plane(
             ctx,
             encoder,
             a.as_ref(),
-            l.as_ref(),
+            guide.as_ref(),
             width,
             height,
             params,
             modulation,
         );
         let b = encode_extract_channel(ctx, encoder, src, width, height, Channel::B, "nr-plane-b");
+        let guide = l.as_ref().unwrap_or(&b);
         let denoised_b = encode_nlm_on_plane(
             ctx,
             encoder,
             b.as_ref(),
-            l.as_ref(),
+            guide.as_ref(),
             width,
             height,
             params,
