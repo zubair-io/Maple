@@ -62,9 +62,8 @@ fn raw_core_local(buf: &[f32], w: u32, h: u32, layers: &[LocalAdjustment]) -> Ve
 fn run_gpu(ctx: &GpuContext, buf: &[f32], w: u32, h: u32, layers: &[LocalAdjustment]) -> Vec<f32> {
     let img = GpuImage::upload(ctx, buf, w, h);
     let runner = ChainRunner::new(ctx, &img);
-    runner.run_blocking(&[&LocalAdjustmentsPass {
-        layers_flat: layers_to_flat(layers),
-    }])
+    let pass = LocalAdjustmentsPass::new(&layers_to_flat(layers));
+    runner.run_blocking(&[&pass])
 }
 
 fn max_abs_diff(a: &[f32], b: &[f32]) -> f32 {
@@ -406,4 +405,31 @@ fn activity_predicate_matches_the_raw_core_guards() {
         linear(0.5, PartialAdjustments::default()),
         radial(0.5, false, only(|a| a.exposure = Some(0.1))),
     ])));
+}
+
+/// A truncated wire must render its valid prefix, not panic. The stack crosses
+/// the FFI/WASM boundary as a raw `(ptr, len)` pair, so a host bug can hand the
+/// GPU path a length that is not a whole number of records — and `flat.rs`
+/// documents that case as "dropped rather than rejected", which both the CPU
+/// stage and the inclusion predicate honour via `chunks_exact`. The pass has to
+/// agree, or an edit that renders fine on the refine pass takes the live render
+/// thread down with it.
+#[test]
+fn a_truncated_wire_renders_the_valid_prefix() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (input, w, h) = buffer_16x12();
+    let layers = [radial(0.4, false, all_controls())];
+
+    let mut truncated = layers_to_flat(&layers);
+    truncated.extend_from_slice(&[0.5; LAYER_FLAT_LEN - 1]); // half a record
+    assert_ne!(truncated.len() % LAYER_FLAT_LEN, 0);
+
+    let img = GpuImage::upload(&ctx, &input, w, h);
+    let runner = ChainRunner::new(&ctx, &img);
+    let pass = LocalAdjustmentsPass::new(&truncated);
+    let got = runner.run_blocking(&[&pass]);
+
+    // Identical to the same stack with no partial tail attached.
+    let clean = run_gpu(&ctx, &input, w, h, &layers);
+    assert_eq!(got, clean, "the partial tail record must be dropped");
 }
