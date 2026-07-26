@@ -3,10 +3,10 @@
  * `$text` index. See `docs/indexer-enrichment.md` §5.5 and Phase 7 brief.
  *
  * Maple is purely a client. Operators run Meilisearch elsewhere (Proxmox VM,
- * Docker, separate host) and point Maple at it via `MAPLE_MEILISEARCH_URL`.
+ * Docker, separate host) and configure it under Settings → Workers → meili.
  *
  * Behaviour:
- *   - When `MAPLE_MEILISEARCH_URL` is unset, every method is a no-op
+ *   - When no Meilisearch URL is configured, every method is a no-op
  *     (returns success / empty). The route layer falls back to the Mongo
  *     `$text` path; the asset stays searchable, just without typo tolerance.
  *   - All non-`health` methods log-and-swallow on error. Failures must NOT
@@ -36,6 +36,12 @@ import {
   type MeilisearchTaskSummary,
   type MeilisearchTransportConfig,
 } from './meilisearch-transport.ts';
+import {
+  DEFAULT_MEILISEARCH_EMBEDDER_URL,
+  DEFAULT_MEILISEARCH_EMBEDDER_MODEL,
+  DEFAULT_MEILISEARCH_SEMANTIC_ENABLED,
+  DEFAULT_MEILISEARCH_SEMANTIC_RATIO,
+} from './meilisearch-config.ts';
 
 export type { MeilisearchSemanticStatus } from './meilisearch-semantic-status.ts';
 
@@ -50,15 +56,6 @@ export const ASSETS_INDEX = 'assets';
  * status surface. */
 const REQUIRED_SETTINGS_VERSION = 3;
 
-/** Default Ollama base URL — mirrors the describe worker's default
- * (`MAPLE_DESCRIBE_PROVIDER_URL`). Meilisearch reaches this host to embed
- * both documents and queries when semantic search is enabled. */
-const DEFAULT_EMBEDDER_BASE_URL = 'http://localhost:11434';
-/** Default Ollama embedding model. `nomic-embed-text` is a small, fast,
- * widely-available text embedder. */
-export const DEFAULT_EMBEDDER_MODEL = 'nomic-embed-text';
-/** Default hybrid blend: 0.5 weights keyword and vector relevance equally. */
-export const DEFAULT_SEMANTIC_RATIO = 0.5;
 /** The Meili embedder name we register + reference in hybrid queries. */
 export const EMBEDDER_NAME = 'caption';
 
@@ -153,7 +150,7 @@ export interface MeilisearchSearchResult {
 }
 
 export interface MeilisearchClient {
-  /** Whether the client is configured (URL set in env). */
+  /** Whether the client is configured with a sidecar URL. */
   isConfigured(): boolean;
   /** Whether semantic (hybrid vector) search is enabled — the master
    * switch is on AND the client is configured. The route passes this as
@@ -199,23 +196,13 @@ interface ClientConfig extends MeilisearchTransportConfig {
 }
 
 function readConfig(): ClientConfig {
-  const ratioRaw = process.env.MAPLE_MEILISEARCH_SEMANTIC_RATIO?.trim();
-  const ratio = ratioRaw !== undefined && ratioRaw.length > 0 ? Number(ratioRaw) : NaN;
   return {
     url: process.env.MAPLE_MEILISEARCH_URL?.trim() || undefined,
     apiKey: process.env.MAPLE_MEILISEARCH_API_KEY?.trim() || undefined,
-    semantic: process.env.MAPLE_MEILISEARCH_SEMANTIC?.trim() === 'true',
-    embedderUrl:
-      process.env.MAPLE_MEILISEARCH_EMBEDDER_URL?.trim() ||
-      process.env.MAPLE_DESCRIBE_PROVIDER_URL?.trim() ||
-      DEFAULT_EMBEDDER_BASE_URL,
-    embedderModel: process.env.MAPLE_MEILISEARCH_EMBEDDER_MODEL?.trim() || DEFAULT_EMBEDDER_MODEL,
-    // Meili's hybrid `semanticRatio` must be in [0,1]; an out-of-range value
-    // 4xxs every semantic query. Clamp rather than reject so a fat-fingered
-    // env var degrades gracefully instead of breaking search.
-    semanticRatio: Number.isFinite(ratio)
-      ? Math.min(1, Math.max(0, ratio))
-      : DEFAULT_SEMANTIC_RATIO,
+    semantic: DEFAULT_MEILISEARCH_SEMANTIC_ENABLED,
+    embedderUrl: DEFAULT_MEILISEARCH_EMBEDDER_URL,
+    embedderModel: DEFAULT_MEILISEARCH_EMBEDDER_MODEL,
+    semanticRatio: DEFAULT_MEILISEARCH_SEMANTIC_RATIO,
     fetchImpl: globalThis.fetch.bind(globalThis),
     taskPollIntervalMs: 100,
     taskTimeoutMs: DEFAULT_MEILISEARCH_TASK_TIMEOUT_MS,
@@ -506,15 +493,14 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
 // `setMeilisearchClientForTests` to swap the implementation.
 let singleton: MeilisearchClient | null = null;
 
-/** Return the shared client. Reads env on first call so test bootstrap
- * (`process.env.MAPLE_MEILISEARCH_URL = ...`) takes effect. */
+/** Return the process-cached client. This path performs no DB I/O; settings
+ * are resolved only at startup/save and installed through reconfigure below. */
 export function meilisearchClient(): MeilisearchClient {
   if (singleton === null) singleton = createMeilisearchClient();
   return singleton;
 }
 
-/** Replace the singleton — used by tests + by the boot path when an
- * operator changes env via the (future) settings UI. */
+/** Replace the singleton for isolated tests. */
 export function setMeilisearchClientForTests(client: MeilisearchClient | null): void {
   singleton = client;
 }
@@ -522,19 +508,28 @@ export function setMeilisearchClientForTests(client: MeilisearchClient | null): 
 /**
  * Rebuild the shared client against operator-supplied settings — called at
  * boot and on every `PUT /api/enrichment/config` so a saved Meilisearch URL
- * or task timeout takes effect without a restart. Arguments are already
- * resolved values (DB > env/default), so passing them explicitly is authoritative:
- * `null` forces the absent state even when the corresponding env var is set
- * (an explicit `undefined` in the override beats `readConfig()`'s env read).
+ * or semantic setting takes effect without a restart. Arguments are already
+ * resolved values, so passing them explicitly is authoritative: `null` forces
+ * the absent state even when a bootstrap URL environment variable is set.
  */
-export function reconfigureMeilisearch(
-  url: string | null,
-  apiKey: string | null,
-  taskTimeoutMs?: number,
-): void {
+export interface MeilisearchRuntimeSettings {
+  url: string | null;
+  apiKey: string | null;
+  taskTimeoutMs: number;
+  semanticEnabled: boolean;
+  embedderUrl: string;
+  embedderModel: string;
+  semanticRatio: number;
+}
+
+export function reconfigureMeilisearch(settings: MeilisearchRuntimeSettings): void {
   singleton = createMeilisearchClient({
-    url: url ?? undefined,
-    apiKey: apiKey ?? undefined,
-    ...(taskTimeoutMs === undefined ? {} : { taskTimeoutMs }),
+    url: settings.url ?? undefined,
+    apiKey: settings.apiKey ?? undefined,
+    taskTimeoutMs: settings.taskTimeoutMs,
+    semantic: settings.semanticEnabled,
+    embedderUrl: settings.embedderUrl,
+    embedderModel: settings.embedderModel,
+    semanticRatio: settings.semanticRatio,
   });
 }

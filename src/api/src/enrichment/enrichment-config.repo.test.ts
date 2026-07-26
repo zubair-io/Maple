@@ -6,6 +6,9 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test'
 import { MongoClient, type Db } from 'mongodb';
 import {
   DEFAULT_DESCRIBE_MODELS,
+  DEFAULT_MEILISEARCH_EMBEDDER_MODEL,
+  DEFAULT_MEILISEARCH_EMBEDDER_URL,
+  DEFAULT_MEILISEARCH_SEMANTIC_RATIO,
   DEFAULT_MEILISEARCH_TASK_TIMEOUT_SECONDS,
   QWEN_VL_OLLAMA_TAG,
   loadEnrichmentConfig,
@@ -256,6 +259,45 @@ describe('resolveEnrichmentConfig — pure logic', () => {
     expect(dbConfig.source.meilisearch_task_timeout_seconds).toBe('db');
   });
 
+  it('semantic search defaults off with built-in runtime values', () => {
+    const r = resolveEnrichmentConfig(null, {});
+    expect(r.meilisearch_semantic_enabled).toBe(false);
+    expect(r.meilisearch_embedder_url).toBe(DEFAULT_MEILISEARCH_EMBEDDER_URL);
+    expect(r.meilisearch_embedder_model).toBe(DEFAULT_MEILISEARCH_EMBEDDER_MODEL);
+    expect(r.meilisearch_semantic_ratio).toBe(DEFAULT_MEILISEARCH_SEMANTIC_RATIO);
+    expect(r.source.meilisearch_semantic_enabled).toBe('default');
+    expect(r.source.meilisearch_embedder_model).toBe('default');
+  });
+
+  it('resolves DB-backed semantic settings and rejects an invalid saved ratio', () => {
+    const configured = resolveEnrichmentConfig(
+      {
+        nominatim_url: null,
+        geocode_worker_enabled: true,
+        meilisearch_semantic_enabled: true,
+        meilisearch_embedder_url: 'http://ollama.lan:11434',
+        meilisearch_embedder_model: 'custom-embedder',
+        meilisearch_semantic_ratio: 0.7,
+      },
+      {},
+    );
+    expect(configured.meilisearch_semantic_enabled).toBe(true);
+    expect(configured.meilisearch_embedder_url).toBe('http://ollama.lan:11434');
+    expect(configured.meilisearch_embedder_model).toBe('custom-embedder');
+    expect(configured.meilisearch_semantic_ratio).toBe(0.7);
+    expect(configured.source.meilisearch_semantic_enabled).toBe('db');
+    expect(configured.source.meilisearch_embedder_url).toBe('db');
+    expect(configured.source.meilisearch_embedder_model).toBe('db');
+    expect(configured.source.meilisearch_semantic_ratio).toBe('db');
+
+    const invalid = resolveEnrichmentConfig(
+      { nominatim_url: null, geocode_worker_enabled: true, meilisearch_semantic_ratio: 2 },
+      {},
+    );
+    expect(invalid.meilisearch_semantic_ratio).toBe(DEFAULT_MEILISEARCH_SEMANTIC_RATIO);
+    expect(invalid.source.meilisearch_semantic_ratio).toBe('default');
+  });
+
   it('face_min_detection_size defaults to 0.06 when no DB row', () => {
     const r = resolveEnrichmentConfig(null, {});
     expect(r.face_min_detection_size).toBeCloseTo(0.06);
@@ -371,6 +413,22 @@ describe('saveEnrichmentConfig + loadEnrichmentConfig — Mongo round-trip', () 
     if (!mongoReachable) return;
     await saveEnrichmentConfig({ meilisearch_task_timeout_seconds: 900 });
     expect((await loadEnrichmentConfig())!.meilisearch_task_timeout_seconds).toBe(900);
+  });
+
+  it('semantic search settings round-trip through save/load', async () => {
+    if (!mongoReachable) return;
+    await saveEnrichmentConfig({
+      meilisearch_semantic_enabled: true,
+      meilisearch_embedder_url: 'http://ollama.test:11434',
+      meilisearch_embedder_model: 'custom-embedder',
+      meilisearch_semantic_ratio: 0.65,
+    });
+    expect(await loadEnrichmentConfig()).toMatchObject({
+      meilisearch_semantic_enabled: true,
+      meilisearch_embedder_url: 'http://ollama.test:11434',
+      meilisearch_embedder_model: 'custom-embedder',
+      meilisearch_semantic_ratio: 0.65,
+    });
   });
 
   it('maps legacy face_retinaface_* / face_mobilefacenet_* onto new keys at write time', async () => {
