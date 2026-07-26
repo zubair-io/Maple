@@ -229,6 +229,14 @@ impl Case {
             input_shape: crate::full_chain::InputShape::PostDcpRec2020Fp16,
             // Oracle cases use the default profile (AgX / not AcrMatch).
             profile_id: 0,
+            // No DNG NoiseProfile — matching the `None` [`cpu_oracle`] passes to
+            // `apply_luminance` / `apply_color`, so both sides run the flat NLM.
+            // The PER-PIXEL modulation (#1714) is gated at the plane and stage
+            // level in `noise_reduction/tests_profile.rs`, where the reference can
+            // be driven with a profile without re-deriving one for the whole
+            // composed chain.
+            noise_profile: Vec::new(),
+            iso: 0,
         }
     }
 }

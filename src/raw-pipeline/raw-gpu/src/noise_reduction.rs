@@ -35,16 +35,28 @@
 //! direct register sum matches raw-core's local box-sum to the f32 floor
 //! (plane-parity max abs diff ~5e-8). Correctness-only; perf is P4.
 //!
+//! ## Per-pixel noise-profile modulation (#1714)
+//!
+//! When the DNG carries a NoiseProfile, raw-core filters each pixel with its OWN
+//! `h` and search radius, derived from that pixel's Oklab L (shot noise grows
+//! with signal). The GPU used to push one `inv_norm` scalar per dispatch, so the
+//! two paths denoised differently on any frame that isn't uniformly bright. The
+//! per-pixel `scale` rides in the SECOND LANE of the `max_w` accumulator (widened
+//! to `vec2<f32>`), which keeps the accumulate kernel at four storage bindings —
+//! see `noise_reduction.wgsl`'s header for the full argument. [`NoiseModulation`]
+//! carries the two profile coefficients from the host to the prepare kernel.
+//!
 //! ## Buffer budget (every kernel ≤ 4 storage)
 //!
 //! - extract: RGBA-src + plane-out (2).
-//! - accumulate (per shift): plane + acc + wsum + max_w (4).
-//! - finalize: plane + acc(rw, becomes the denoised plane) + wsum + max_w (4).
+//! - prepare: L-plane + (max_w, scale) packed plane (2).
+//! - accumulate (per shift): plane + acc + wsum + (max_w, scale) (4).
+//! - finalize: plane + acc(rw, becomes the denoised plane) + wsum + (max_w, scale) (4).
 //! - writeback luma: src + denoised-L + dst (3); color: src + a + b + dst (4).
 
 use crate::chain::Pass;
 use crate::context::GpuContext;
-use crate::spatial::{alloc_plane, encode_simple};
+use crate::spatial::{alloc_plane, alloc_plane_vec2, encode_simple};
 
 // ── Parameters at amount = 100, mirroring raw_core::stages::noise_reduction ────
 //
@@ -91,6 +103,88 @@ fn chroma_params(amount: f32) -> NlmParams {
     }
 }
 
+// ── Noise-profile modulation (#1714) ──────────────────────────────────────────
+
+/// The two DNG-NoiseProfile coefficients the per-pixel modulation needs, plus
+/// whether it engages at all. Line-faithful to
+/// `raw_core::stages::nlm::get_noise_params` — kept local for the same reason
+/// [`NlmParams`] is (the non-test module carries no `raw-core` dependency); the
+/// plane-level parity test gates the whole derivation end-to-end against the real
+/// `denoise_plane`, so a drift here shows up as a failing gate, not silently.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct NoiseModulation {
+    s_coeff: f32,
+    o_coeff: f32,
+    /// `noise_profile.is_some()` — matching raw-core's `use_dynamic`. Note this
+    /// is TRUE even at `iso == 0` (where both coefficients are zero and every
+    /// pixel lands on the `scale = 0.1` clamp), because that is what raw-core
+    /// does.
+    dynamic: bool,
+}
+
+impl NoiseModulation {
+    /// Mirror of `raw_core::stages::nlm::get_noise_params` + its `use_dynamic`
+    /// flag. `is_chroma` selects the a/b channel combination (mean of the R and B
+    /// coefficients) over the luma one (BT.2020-weighted). A `None` profile is
+    /// the FLAT filter — `scale ≡ 1`, i.e. the classic constant-`h`, full-`S`
+    /// NLM, bit-identical to the pre-#1714 GPU behaviour.
+    pub(crate) fn from_profile(profile: Option<&[f32]>, iso: u32, is_chroma: bool) -> Self {
+        let dynamic = profile.is_some();
+        let (s_coeff, o_coeff) = noise_params(profile, iso, is_chroma);
+        Self {
+            s_coeff,
+            o_coeff,
+            dynamic,
+        }
+    }
+}
+
+/// `(slope, offset)` for the per-pixel variance model `var = slope·L + offset`.
+/// Line-faithful to `raw_core::stages::nlm::get_noise_params`.
+fn noise_params(profile: Option<&[f32]>, iso: u32, is_chroma: bool) -> (f32, f32) {
+    if iso == 0 {
+        return (0.0, 0.0);
+    }
+    let Some(prof) = profile else {
+        return fallback_noise_params(iso);
+    };
+    if prof.len() >= 6 {
+        let (sr, or, sg, og, sb, ob) = if prof.len() >= 8 {
+            let sg = 0.5 * (prof[2] + prof[4]);
+            let og = 0.5 * (prof[3] + prof[5]);
+            (prof[0], prof[1], sg, og, prof[6], prof[7])
+        } else {
+            (prof[0], prof[1], prof[2], prof[3], prof[4], prof[5])
+        };
+        if is_chroma {
+            (0.5 * (sr + sb), 0.5 * (or + ob))
+        } else {
+            let s_luma = 0.2627 * sr + 0.6780 * sg + 0.0593 * sb;
+            let o_luma = 0.2627 * 0.2627 * or + 0.6780 * 0.6780 * og + 0.0593 * 0.0593 * ob;
+            (s_luma, o_luma)
+        }
+    } else if prof.len() >= 2 {
+        (prof[0], prof[1])
+    } else {
+        fallback_noise_params(iso)
+    }
+}
+
+/// ISO-only fallback when the DNG carries no usable profile row — mirror of
+/// `raw_core::stages::nlm::fallback_noise_params`.
+fn fallback_noise_params(iso: u32) -> (f32, f32) {
+    let ratio = iso as f32 / 100.0;
+    (0.00002 * ratio, 0.000002 * ratio * ratio)
+}
+
+/// The passes carry the profile as a `Vec<f32>` (a C-FFI / WASM caller has no
+/// `Option`), so EMPTY is the "no profile" encoding — it maps to raw-core's
+/// `None`, i.e. the flat filter. A decoder that found a NoiseProfile always
+/// yields at least one `(slope, offset)` pair, so no real profile is lost here.
+fn profile_slice(profile: &[f32]) -> Option<&[f32]> {
+    (!profile.is_empty()).then_some(profile)
+}
+
 // ── `repr(C)` uniforms for the WGSL kernels ───────────────────────────────────
 
 /// `extract_channel` uniform: pixel count + the Oklab channel (0=L, 1=a, 2=b).
@@ -103,23 +197,36 @@ struct ExtractParams {
     _pad1: u32,
 }
 
-/// `accumulate_shift` uniform: dims, patch radius, the exp normaliser, the shift,
-/// and the CPU-computed valid pixel range. 48 bytes (multiple of 16).
+/// `prepare_scale` uniform: pixel count, the modulation flag, and the two
+/// noise-profile coefficients. 16 bytes.
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct PrepareParams {
+    count: u32,
+    dynamic: u32,
+    s_coeff: f32,
+    o_coeff: f32,
+}
+
+/// `accumulate_shift` uniform: dims, patch radius, the UNMODULATED strength `h`
+/// (the kernel scales it per pixel), the shift, the CPU-computed valid pixel
+/// range, and the search radius the per-pixel `local_s` clamps to. 48 bytes
+/// (multiple of 16).
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct AccumParams {
     width: u32,
     height: u32,
     p: i32,
-    inv_norm: f32,
+    h: f32,
     dx: i32,
     dy: i32,
     x_lo: i32,
     x_hi: i32,
     y_lo: i32,
     y_hi: i32,
+    s: i32,
     _pad0: u32,
-    _pad1: u32,
 }
 
 /// `finalize` / `writeback_*` uniform: just the pixel count.
@@ -143,28 +250,20 @@ enum Channel {
     B = 2,
 }
 
-/// Extract one Oklab channel from `src`, run the full NLM shift loop, and leave
-/// the denoised plane in the returned buffer. Mirrors
-/// `raw_core::stages::nlm::denoise_plane` wrapped by the Oklab adapter's
-/// per-channel extract. The `params.h <= 0 || search_radius == 0` identity case
-/// is handled by the caller (the Pass copies src→dst); this always runs the loop.
-///
-/// Buffers: allocates plane / acc / wsum / max_w scratch planes; zeroes the three
-/// accumulators (raw-core starts them at 0.0). Returns the buffer holding the
-/// denoised plane (the `acc` plane, written in place by `finalize`).
-fn encode_denoise_plane(
+/// Extract one Oklab channel from `src` into a fresh scratch plane. The entry
+/// both NR passes share; the L plane it produces for luma doubles as the
+/// modulation guide, and the color pass extracts L separately for the same role.
+fn encode_extract_channel(
     ctx: &GpuContext,
     encoder: &mut wgpu::CommandEncoder,
     src: &wgpu::Buffer,
     width: u32,
     height: u32,
     channel: Channel,
-    params: NlmParams,
+    label: &str,
 ) -> crate::spatial::Plane {
     let count = width * height;
-
-    // Extract the channel plane from the RGBA source, then run the NLM core.
-    let plane = alloc_plane(ctx, width, height, "nr-plane");
+    let plane = alloc_plane(ctx, width, height, label);
     let ex_params = ExtractParams {
         count,
         channel: channel as u32,
@@ -180,41 +279,66 @@ fn encode_denoise_plane(
         count,
         "nr-extract",
     );
-
-    encode_nlm_on_plane(ctx, encoder, plane.as_ref(), width, height, params)
+    plane
 }
 
 /// The NLM core on an ALREADY-EXTRACTED scalar plane (mirrors
-/// `raw_core::stages::nlm::denoise_plane`): zero the accumulators, run the shift
-/// loop, finalize. Returns the buffer holding the denoised plane (the `acc`
-/// plane, written in place by `finalize`). `pub(crate)` so the parity test can
-/// gate this in ISOLATION against `denoise_plane` — no Oklab round-trip — which
-/// separates the two independent error sources (NLM math vs the color transform).
+/// `raw_core::stages::nlm::denoise_plane`): build the per-pixel modulation plane,
+/// zero the accumulators, run the shift loop, finalize. Returns the buffer
+/// holding the denoised plane (the `acc` plane, written in place by `finalize`).
+/// `pub(crate)` so the parity test can gate this in ISOLATION against
+/// `denoise_plane` — no Oklab round-trip — which separates the two independent
+/// error sources (NLM math vs the color transform).
+///
+/// `l_plane` is the Oklab L plane the modulation reads (raw-core's `l_plane`
+/// argument): the plane ITSELF for luma NR, the separately-extracted L for the
+/// chroma planes. It is unread when `modulation` is [`NoiseModulation::flat`],
+/// but still bound — the kernel takes one path, not two.
 pub(crate) fn encode_nlm_on_plane(
     ctx: &GpuContext,
     encoder: &mut wgpu::CommandEncoder,
     plane: &wgpu::Buffer,
+    l_plane: &wgpu::Buffer,
     width: u32,
     height: u32,
     params: NlmParams,
+    modulation: NoiseModulation,
 ) -> crate::spatial::Plane {
     let count = width * height;
 
-    // Accumulators, zeroed (raw-core's `vec![0.0; n]`).
+    // Accumulators, zeroed (raw-core's `vec![0.0; n]`). `max_w` is the `.x` lane
+    // of the packed (max_w, scale) plane, which `prepare_scale` writes in full —
+    // so it needs no clear of its own.
     let acc = alloc_plane(ctx, width, height, "nr-acc");
     let wsum = alloc_plane(ctx, width, height, "nr-wsum");
-    let max_w = alloc_plane(ctx, width, height, "nr-max-w");
+    let max_w_scale = alloc_plane_vec2(ctx, width, height, "nr-max-w-scale");
     encoder.clear_buffer(&acc, 0, None);
     encoder.clear_buffer(&wsum, 0, None);
-    encoder.clear_buffer(&max_w, 0, None);
+
+    // Per-pixel modulation plane: `scale` from the L plane (or ≡ 1 when flat).
+    let pr_params = PrepareParams {
+        count,
+        dynamic: u32::from(modulation.dynamic),
+        s_coeff: modulation.s_coeff,
+        o_coeff: modulation.o_coeff,
+    };
+    encode_simple(
+        ctx,
+        encoder,
+        ctx.nr_prepare_pipeline(),
+        bytemuck::bytes_of(&pr_params),
+        &[l_plane, &max_w_scale],
+        count,
+        "nr-prepare-scale",
+    );
 
     // Shift loop. dx, dy ∈ [-s, s]², skipping (0, 0) and any shift whose valid
     // pixel range is empty — both mirror raw-core's `process_shift` (the centre
-    // is added in `finalize`, empty ranges early-return there).
+    // is added in `finalize`, empty ranges early-return there). The per-pixel
+    // `local_s` gate lives in the kernel: a shift outside a pixel's own radius is
+    // still dispatched, that pixel just returns early (raw-core's `continue`).
     let p = params.patch_radius as i32;
     let s = params.search_radius as i32;
-    let patch_area = ((2 * params.patch_radius + 1) * (2 * params.patch_radius + 1)) as f32;
-    let inv_norm = 1.0 / (params.h * params.h * patch_area);
     let wi = width as i32;
     let hi = height as i32;
 
@@ -236,22 +360,22 @@ pub(crate) fn encode_nlm_on_plane(
                 width,
                 height,
                 p,
-                inv_norm,
+                h: params.h,
                 dx,
                 dy,
                 x_lo,
                 x_hi,
                 y_lo,
                 y_hi,
+                s,
                 _pad0: 0,
-                _pad1: 0,
             };
             encode_simple(
                 ctx,
                 encoder,
                 ctx.nr_accumulate_pipeline(),
                 bytemuck::bytes_of(&ac_params),
-                &[plane, &acc, &wsum, &max_w],
+                &[plane, &acc, &wsum, &max_w_scale],
                 count,
                 "nr-accumulate-shift",
             );
@@ -270,7 +394,7 @@ pub(crate) fn encode_nlm_on_plane(
         encoder,
         ctx.nr_finalize_pipeline(),
         bytemuck::bytes_of(&fin_params),
-        &[plane, &acc, &wsum, &max_w],
+        &[plane, &acc, &wsum, &max_w_scale],
         count,
         "nr-finalize",
     );
@@ -278,13 +402,21 @@ pub(crate) fn encode_nlm_on_plane(
     acc
 }
 
-/// A GPU-resident luminance-NR stage. Carries only its `nr_luminance` slider
-/// value ([0, 100]); device, pipelines, and scratch planes come from the
-/// [`GpuContext`] / spatial substrate at encode time. NLM-denoises the Oklab L
-/// channel, leaves a/b untouched. Mirrors
+/// A GPU-resident luminance-NR stage. Carries its `nr_luminance` slider value
+/// ([0, 100]) plus the frame's DNG NoiseProfile + ISO; device, pipelines, and
+/// scratch planes come from the [`GpuContext`] / spatial substrate at encode
+/// time. NLM-denoises the Oklab L channel, leaves a/b untouched. Mirrors
 /// `raw_core::stages::noise_reduction::apply_luminance`.
 pub struct NlmLumaPass {
     pub nr_luminance: f32,
+    /// The DNG NoiseProfile row(s) from `RawImage::noise_profile`, empty when the
+    /// file carries none. Drives the per-pixel modulation (#1714); empty means
+    /// the classic constant-`h` filter, matching raw-core at `noise_profile:
+    /// None`.
+    pub noise_profile: Vec<f32>,
+    /// `RawImage::iso`. Zero is raw-core's "unknown ISO" sentinel and zeroes both
+    /// profile coefficients.
+    pub iso: u32,
 }
 
 impl Pass for NlmLumaPass {
@@ -304,7 +436,19 @@ impl Pass for NlmLumaPass {
             copy_through(encoder, src, dst, width, height);
             return;
         }
-        let denoised_l = encode_denoise_plane(ctx, encoder, src, width, height, Channel::L, params);
+        // Luma NR denoises the L plane, and the modulation guide IS that plane —
+        // raw-core passes `&l_plane` for both arguments here.
+        let l = encode_extract_channel(ctx, encoder, src, width, height, Channel::L, "nr-plane-l");
+        let denoised_l = encode_nlm_on_plane(
+            ctx,
+            encoder,
+            l.as_ref(),
+            l.as_ref(),
+            width,
+            height,
+            params,
+            NoiseModulation::from_profile(profile_slice(&self.noise_profile), self.iso, false),
+        );
         let count = width * height;
         let wb_params = CountParams {
             count,
@@ -324,12 +468,16 @@ impl Pass for NlmLumaPass {
     }
 }
 
-/// A GPU-resident color-NR stage. Carries only its `nr_color` slider value
-/// ([0, 100]). NLM-denoises the Oklab a and b channels with a wider search window
-/// than luma, leaves L untouched. Mirrors
+/// A GPU-resident color-NR stage. Carries its `nr_color` slider value ([0, 100])
+/// plus the frame's DNG NoiseProfile + ISO. NLM-denoises the Oklab a and b
+/// channels with a wider search window than luma, leaves L untouched. Mirrors
 /// `raw_core::stages::noise_reduction::apply_color`.
 pub struct NlmColorPass {
     pub nr_color: f32,
+    /// See [`NlmLumaPass::noise_profile`]. The chroma planes take the a/b
+    /// coefficient combination (`is_chroma`), not the luma one.
+    pub noise_profile: Vec<f32>,
+    pub iso: u32,
 }
 
 impl Pass for NlmColorPass {
@@ -348,9 +496,35 @@ impl Pass for NlmColorPass {
             return;
         }
         // Denoise a and b independently (raw-core runs them as two
-        // `denoise_plane` calls); then a single writeback restores both.
-        let denoised_a = encode_denoise_plane(ctx, encoder, src, width, height, Channel::A, params);
-        let denoised_b = encode_denoise_plane(ctx, encoder, src, width, height, Channel::B, params);
+        // `denoise_plane` calls); then a single writeback restores both. Both
+        // read the SAME L plane as their modulation guide — chroma noise is
+        // modelled off luminance, exactly as raw-core hands `&l_plane` to both
+        // chroma calls — so L is extracted once here.
+        let l = encode_extract_channel(ctx, encoder, src, width, height, Channel::L, "nr-plane-l");
+        let modulation =
+            NoiseModulation::from_profile(profile_slice(&self.noise_profile), self.iso, true);
+        let a = encode_extract_channel(ctx, encoder, src, width, height, Channel::A, "nr-plane-a");
+        let denoised_a = encode_nlm_on_plane(
+            ctx,
+            encoder,
+            a.as_ref(),
+            l.as_ref(),
+            width,
+            height,
+            params,
+            modulation,
+        );
+        let b = encode_extract_channel(ctx, encoder, src, width, height, Channel::B, "nr-plane-b");
+        let denoised_b = encode_nlm_on_plane(
+            ctx,
+            encoder,
+            b.as_ref(),
+            l.as_ref(),
+            width,
+            height,
+            params,
+            modulation,
+        );
         let count = width * height;
         let wb_params = CountParams {
             count,
@@ -388,3 +562,10 @@ fn copy_through(
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "noise_reduction/tests.rs"]
 mod tests;
+
+// The PER-PIXEL noise-profile modulation gates (#1714) split further into their
+// own sibling — same 600-LOC budget reason, and they are the gate the flat
+// `tests.rs` cases are structurally unable to be.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "noise_reduction/tests_profile.rs"]
+mod tests_profile;
