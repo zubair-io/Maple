@@ -26,6 +26,14 @@ fn default_params() -> MapleAdjustmentParams {
         clarity: 0.0,
         texture: 0.0,
         nr_luminance: 0.0,
+        // Spatial stages the chain took over from the deleted MSL kernels
+        // (#1043). Zero keeps these tests' math trivial, as the other
+        // stage knobs above already do.
+        sharpen_amount: 0.0,
+        sharpen_radius: 1.0,
+        sharpen_detail: 25.0,
+        sharpen_masking: 0.0,
+        nr_color: 0.0,
         dehaze: 0.0,
         decoded_temperature: 5500.0,
         decoded_tint: 0.0,
