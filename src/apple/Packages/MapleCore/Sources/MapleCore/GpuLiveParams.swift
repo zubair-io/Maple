@@ -34,10 +34,12 @@
 //     decoded anchor" and applies `M_live` absolutely — preserved for callers
 //     written before #1240 that still expect the pre-delta behavior.
 //   * pass the REAL `sharpen_amount` / `nr_color` / `nr_luminance` — the chain
-//     runs them at their canonical scene-linear positions, REPLACING the post-AgX
-//     Metal kernels (`MetalKernels.applySceneSharpen` / `applySceneNRColor`). This
-//     is the sanctioned "convergence" divergence: sharpen + nr_color move from
-//     display-linear (post-AgX) into the scene-linear chain.
+//     runs them at their canonical scene-linear positions. This was the
+//     sanctioned "convergence" divergence when it landed: sharpen + nr_color
+//     moved from display-linear (post-AgX, where the Apple Metal kernels ran
+//     them) into the scene-linear chain. #1043 finished the convergence by
+//     deleting those kernels and giving the CPU chain the same two stages, so
+//     there is no longer a second position for either stage anywhere.
 //
 // Auto Profile rides the chain's curve + residual-LUT passes (the A2
 // `maple_gpu_fit_auto_profile` artifacts), NOT a pre-composed CIColorCube — wired
@@ -233,8 +235,8 @@ extension PipelineRenderer {
         p.bw_mix_purple   = Float(model.grayMixerPurple)
         p.bw_mix_magenta  = Float(model.grayMixerMagenta)
 
-        // REAL sharpen + NR — run IN the scene-linear chain (replacing the post-AgX
-        // Metal kernels), the sanctioned convergence divergence.
+        // REAL sharpen + NR — run IN the scene-linear chain, at develop's
+        // canonical positions (the CPU chain does the same since #1043).
         p.sharpen_amount = Float(model.sharpenAmount)
         p.sharpen_radius = Float(model.sharpenRadius)
         p.sharpen_detail = Float(model.sharpenDetail)

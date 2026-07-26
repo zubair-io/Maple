@@ -859,8 +859,8 @@ public actor ImageEditPipeline {
         // implementation is not under our control and is known to
         // autorelease scratch buffers) are released the instant this
         // function returns — BEFORE the next stage (the sibling
-        // `encodeDisplaySRGBViaFFI` round trip, or the Metal blur helpers
-        // in `MetalKernels`) allocates its own ~GB-scale buffers. Without
+        // `encodeDisplaySRGBViaFFI` round trip) allocates its own
+        // ~GB-scale buffers. Without
         // this, Swift gives no guarantee `inputBytes` is freed before
         // function return (ARC's last-use release is an optimisation, not
         // a promise, and autoreleased temporaries only die at a pool
@@ -919,8 +919,8 @@ public actor ImageEditPipeline {
 
             // Wrap the FFI output back into a CIImage. The bytes are f32
             // RGBA in extendedLinearITUR_2020 — same colour space the FFI
-            // input was in, so downstream `MetalKernels.*` consumers see
-            // the buffer they expect.
+            // input was in, so the downstream display encode sees the
+            // buffer it expects.
             return mapleStage("FFI chain CIImage build") {
                 CIImage(
                     bitmapData: outputBytes,
@@ -954,19 +954,15 @@ public actor ImageEditPipeline {
     /// producing the FINAL sRGB-gamma-encoded CIImage directly — no
     /// intermediate CIImage wrap, no second `CIContext.render` readback.
     ///
-    /// ONLY valid when nothing runs between the chain and the encode this
-    /// tick. In `processSceneLinear` / `processSceneLinearNonRaw` that gap is
-    /// `MetalKernels.applySceneSharpen` + `MetalKernels.applySceneNRColor` —
-    /// NOT the Auto Profile `CIColorCube` (that applies AFTER the encode, via
-    /// `applyAutoCubeIfEncoded`). Both Metal kernels already return their
-    /// input UNCHANGED (no dispatch, no new CIImage) when their amount is
-    /// within `1e-3` of zero (see `MetalKernels.applySceneSharpen` /
-    /// `applySceneNRColor`) — that is the exact identity condition this
-    /// function's callers must gate on. At `AdjustmentModel.default`
-    /// (`sharpenAmount: 40, nrColor: 25` — the reference-import defaults,
-    /// #1933) that gate does NOT hold, so the fused path does not engage for
-    /// a freshly imported photo's default slider state; it engages whenever
-    /// a session has sharpen and color-NR both at (or pushed back to) zero.
+    /// Valid whenever nothing runs between the chain and the encode this
+    /// tick — which, since #1043, is always. The gap used to hold
+    /// `MetalKernels.applySceneSharpen` + `applySceneNRColor`, so callers had
+    /// to gate on both sliders being within `1e-3` of zero, and at the
+    /// reference-import defaults (`sharpenAmount: 40, nrColor: 25`, #1933)
+    /// that gate essentially never held. Those kernels are gone and the Rust
+    /// chain runs both stages internally, so the fused path is now reachable
+    /// at any slider state. The Auto Profile `CIColorCube` was never in the
+    /// gap — it applies AFTER the encode, via `applyAutoCubeIfEncoded`.
     ///
     /// Also reuses `ffiInputBufferCache` (#1959/#2083) exactly like
     /// `applySceneLinearChainViaFFI` — same key, same weak identity anchor,
@@ -1257,20 +1253,17 @@ public actor ImageEditPipeline {
         // The contrast slider (which AgX normally consumes via curve
         // slope modulation) is therefore unused on the non-RAW path; for
         // default sliders today, output is near-passthrough.
-        // #2092 — fused chain+encode fast path. Only valid when the
-        // intervening Metal stages (sharpen/nr_color) are identity — see
-        // `applyChainAndEncodeViaFusedFFI`'s doc comment — and only worth
-        // trying when the #661 `sceneLinearChainCache` would MISS anyway
-        // (a HIT there is strictly cheaper: it skips the FFI entirely).
-        // Bounded to `targetSize != nil` to match the #2042 input-cache
-        // gate below.
+        // #2092 — fused chain+encode fast path. Nothing runs between the
+        // chain and the encode any more (#1043 retired the intervening
+        // Metal sharpen / nr_color kernels), so the only remaining gate is
+        // that the #661 `sceneLinearChainCache` would MISS anyway (a HIT
+        // there is strictly cheaper: it skips the FFI entirely). Bounded to
+        // `targetSize != nil` to match the #2042 input-cache gate below.
         if !Self.fusedChainEncodeDisabled, let targetSize {
             let extent = scaled.extent
             let w = Int(extent.width.rounded())
             let h = Int(extent.height.rounded())
-            let sharpenIsIdentity = abs(model.sharpenAmount) < 1e-3
-            let nrColorIsIdentity = abs(model.nrColor) < 1e-3
-            if w > 0, h > 0, sharpenIsIdentity, nrColorIsIdentity {
+            if w > 0, h > 0 {
                 let wouldMissChainCache: Bool = {
                     guard let assetID else { return true }
                     let key = SceneLinearChainCache.make(
@@ -1308,20 +1301,9 @@ public actor ImageEditPipeline {
             decodedSource: targetSize != nil ? decoded : nil
         )
 
-        // Sharpen + nr_color stay on the Apple GPU path (Metal compute
-        // kernels) — Richardson-Lucy at 33 ms / 2 MP and Oklab UV blur
-        // at 5 ms / 2 MP exceed the slider tick budget on Rust-on-CPU.
-        let withSharpen = MetalKernels.applySceneSharpen(
-            to: chained,
-            amount: Float(model.sharpenAmount),
-            radius: Float(model.sharpenRadius),
-            detail: Float(model.sharpenDetail),
-            masking: Float(model.sharpenMasking)
-        )
-        let withNRColor = MetalKernels.applySceneNRColor(
-            to: withSharpen,
-            nrColor: Float(model.nrColor)
-        )
+        // Sharpen + nr_color now run INSIDE `chained` — the per-tick Rust
+        // chain applies them at their canonical scene-linear positions
+        // (#1043 retired the post-AgX Metal kernels that used to sit here).
         // Display encode (#877) — same gamut-correct Rec.2020→sRGB (Oklab) +
         // gamma the RAW path uses, replacing CoreImage's implicit per-channel
         // clamp at the canvas boundary. Non-RAW input is already sRGB-gamut
@@ -1330,7 +1312,7 @@ public actor ImageEditPipeline {
         // RAW canvas (both tag the result `sRGB`). On encode failure fall back
         // to the Rec.2020 buffer (no cube on this path) — CoreImage then does
         // its own coherent Rec.2020→canvas conversion.
-        return encodeDisplaySRGBViaFFI(withNRColor) ?? withNRColor
+        return encodeDisplaySRGBViaFFI(chained) ?? chained
     }
 
     // MARK: Process (scene-linear path — Plan 1 FFI split)
@@ -1438,23 +1420,21 @@ public actor ImageEditPipeline {
             logger.notice("processSceneLinear asShot=NIL live=\(model.temperature, format: .fixed(precision: 0))K/\(model.tint, format: .fixed(precision: 1)) → decodedTemp=\(decodedTemp, format: .fixed(precision: 0))")
         }
 
-        // #2092 — fused chain+encode fast path. Only valid when the
-        // intervening Metal stages (sharpen/nr_color) are identity — see
-        // `applyChainAndEncodeViaFusedFFI`'s doc comment — and only worth
-        // trying when the #661 `sceneLinearChainCache` would MISS anyway (a
-        // HIT there is strictly cheaper: it skips the FFI entirely).
-        // Bounded to `targetSize != nil` to match the #2042 input-cache gate
-        // below. On success, the Auto Profile cube (if any) is the ONLY
-        // remaining step — it applies AFTER the encode either way, fused or
-        // not, so applying it here to `fusedEncoded` matches
+        // #2092 — fused chain+encode fast path. Nothing runs between the
+        // chain and the encode any more (#1043 retired the intervening
+        // Metal sharpen / nr_color kernels), so the only remaining gate is
+        // that the #661 `sceneLinearChainCache` would MISS anyway (a HIT
+        // there is strictly cheaper: it skips the FFI entirely). Bounded to
+        // `targetSize != nil` to match the #2042 input-cache gate below. On
+        // success, the Auto Profile cube (if any) is the ONLY remaining step
+        // — it applies AFTER the encode either way, fused or not, so
+        // applying it here to `fusedEncoded` matches
         // `applyAutoCubeIfEncoded`'s success branch exactly.
         if !Self.fusedChainEncodeDisabled, let targetSize {
             let extent = scaled.extent
             let w = Int(extent.width.rounded())
             let h = Int(extent.height.rounded())
-            let sharpenIsIdentity = abs(model.sharpenAmount) < 1e-3
-            let nrColorIsIdentity = abs(model.nrColor) < 1e-3
-            if w > 0, h > 0, sharpenIsIdentity, nrColorIsIdentity {
+            if w > 0, h > 0 {
                 let wouldMissChainCache: Bool = {
                     guard let assetID else { return true }
                     let key = SceneLinearChainCache.make(
@@ -1498,40 +1478,20 @@ public actor ImageEditPipeline {
             decodedSource: targetSize != nil ? decoded : nil
         )
 
-        // sharpen + nr_color stay on the Apple GPU path (Metal compute
-        // kernels). Both run AFTER the FFI's AgX, so they operate in
-        // display-linear Rec.2020 ([0,1]) rather than the scene-linear
-        // domain the reference (Rust CPU) pipeline runs them in. This is a
-        // deliberate domain change from "sharpen/NR pre-AgX in scene-linear"
-        // to "post-AgX in display-linear", chosen because:
-        //   * sharpen at viewport size dominates Rust-on-CPU latency
-        //     (~33 ms / 2 MP, exceeding the 16 ms slider tick budget);
-        //     the GPU kernels are essential to hit the budget.
-        //   * these are display-domain corrections in most reference
-        //     renderers too (ACR sharpens in a perceptual/gamma domain, not
-        //     scene-linear), so the post-AgX position is defensible, not a
-        //     regression.
-        //   * NOTE (#1933): the earlier rationale here claimed the visible
-        //     difference "at default sliders (sharpen_amount = 0) is zero."
-        //     That was false — the reference-import defaults are
-        //     sharpenAmount = 40 and nrColor = 25 (AdjustmentModel), non-zero
-        //     for essentially every fresh import, so the domain shift is
-        //     exercised on nearly every image. Its acceptability at those real
-        //     defaults is gated by the CIEDE2000 SliderMatrixUITests harness
-        //     (candidate canvas vs ACR reference), NOT asserted here; restoring
-        //     the pre-AgX scene-linear order would reintroduce the CPU-latency
-        //     budget blow-out above.
-        let withSharpen = MetalKernels.applySceneSharpen(
-            to: chained,
-            amount: Float(model.sharpenAmount),
-            radius: Float(model.sharpenRadius),
-            detail: Float(model.sharpenDetail),
-            masking: Float(model.sharpenMasking)
-        )
-        let withNRColor = MetalKernels.applySceneNRColor(
-            to: withSharpen,
-            nrColor: Float(model.nrColor)
-        )
+        // sharpen + nr_color are INSIDE `chained` (#1043). They used to run
+        // here as post-AgX Metal kernels, i.e. in display-linear Rec.2020
+        // rather than the scene-linear domain the reference (Rust CPU)
+        // pipeline runs them in — a deliberate domain change bought to keep
+        // sharpen (~33 ms / 2 MP on CPU) off the slider tick. With the
+        // wgpu/WGSL chain shipping as the default GPU path, that trade is
+        // no longer worth its cost: the Metal kernels were the last copy of
+        // render math outside Rust + WGSL, and the domain shift was
+        // exercised on nearly every image (the reference-import defaults are
+        // sharpenAmount = 40 and nrColor = 25). Both stages now run once, in
+        // the Rust chain, at develop's canonical scene-linear position — the
+        // same position the GPU chain uses — so this CPU path is once again
+        // a faithful oracle for it. The tick-budget cost lands only on the
+        // fallback; the GPU path is the one held to 16 ms.
         // Display encode (#877) — the EXACT raw-core view-encode the CPU/CLI
         // reference runs between AgX and the Auto Profile cube:
         // `rec2020_to_srgb` (hue-preserving Oklab gamut compression, #438) +
@@ -1546,7 +1506,7 @@ public actor ImageEditPipeline {
         //     (no clamp inside the cube's color management).
         //   * the canvas raster (`createCGImage(displayP3)`) converts
         //     sRGB → P3 with all values in-gamut — nothing clips.
-        let encoded = encodeDisplaySRGBViaFFI(withNRColor)
+        let encoded = encodeDisplaySRGBViaFFI(chained)
         // Auto Profile (#812) — the LAST display-space op, matching the CPU
         // path's `auto_profile` → quantize order. `profileLUT` is a
         // CIColorCubeWithColorSpace tagged sRGB; on a successful encode its
@@ -1563,7 +1523,7 @@ public actor ImageEditPipeline {
         // `applyAutoCubeIfEncoded` drops to the cube-less Rec.2020 fallback
         // (Neutral) instead.
         return Self.applyAutoCubeIfEncoded(
-            encoded: encoded, fallback: withNRColor, profileLUT: profileLUT
+            encoded: encoded, fallback: chained, profileLUT: profileLUT
         )
     }
 

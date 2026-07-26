@@ -977,16 +977,34 @@ final class SceneLinearPipelineTests: XCTestCase {
 
     // MARK: - Plan 2 v2 v3 M4: Swift scalar mirror of apply_sharpen
 
+    /// Port of `raw_core::stages::blur::gaussian_kernel_1d`:
+    /// `half = ceil(3σ).max(1)`, weights `exp(-(k²)/(2σ²))` for
+    /// `k ∈ [-half, half]`, divided by their sum. Non-finite / non-positive
+    /// sigma falls back to a tiny lower bound and the sigma is ceilinged at
+    /// 50 px, matching the Rust defensive clamp. Lived on `MetalKernels`
+    /// until #1043 retired the Metal blur path; the scalar mirror below is
+    /// its only remaining consumer.
+    static func gaussianKernel1D(sigma: Float) -> [Float] {
+        let s: Float = (sigma.isFinite && sigma > 0.0) ? min(sigma, 50.0) : 1e-3
+        let half = max(1, Int(ceilf(3.0 * s)))
+        let twoSigmaSq = 2.0 * s * s
+        let raw = (0...(2 * half)).map { i -> Float in
+            let x = Float(i - half)
+            return expf(-(x * x) / twoSigmaSq)
+        }
+        let inv = 1.0 / raw.reduce(0, +)
+        return raw.map { $0 * inv }
+    }
+
     /// Pure-Swift mirror of `gaussian_blur_plane_sigma` from
     /// raw-core/src/stages/blur.rs (#1083): a TRUE separable Gaussian at
-    /// float `sigma` — windowed/renormalized taps from
-    /// `MetalKernels.gaussianKernel1D` (the same builder the production
-    /// Metal path uploads), clamp-to-edge sample indices, H sweep then V
-    /// sweep. Per-pixel tap order matches the Rust loop exactly.
+    /// float `sigma` — windowed/renormalized taps from `gaussianKernel1D`
+    /// above, clamp-to-edge sample indices, H sweep then V sweep.
+    /// Per-pixel tap order matches the Rust loop exactly.
     static func swiftGaussianBlurPlaneSigma(
         _ buf: [Float], w: Int, h: Int, sigma: Float
     ) -> [Float] {
-        let kernel = MetalKernels.gaussianKernel1D(sigma: sigma)
+        let kernel = gaussianKernel1D(sigma: sigma)
         let half = kernel.count / 2
 
         var tmp = [Float](repeating: 0, count: buf.count)

@@ -72,21 +72,6 @@ extension SceneLinearPipelineTests {
         }
     }
 
-    /// Identity check at the Swift wrapper level: applySceneSharpen
-    /// with amount=0 returns the input CIImage instance (===).
-    /// Mirrors v2 v2's testM3NRLuminanceShortCircuitsAtZeroAmount.
-    func testM4SharpenShortCircuitsAtZeroAmount() async throws {
-        let input = Self.makeRGBSceneLinearCIImage(
-            width: 8, height: 8, r: 0.4, g: 0.5, b: 0.6
-        )
-        let out = MetalKernels.applySceneSharpen(
-            to: input,
-            amount: 0.0, radius: 0.5, detail: 25.0, masking: 0.0
-        )
-        XCTAssertTrue(out === input,
-            "amount=0 should return the input CIImage instance unchanged")
-    }
-
     /// Verify masking parameter actually attenuates sharpening on flat
     /// regions. The Rust source at sharpen.rs:108-110 sets
     /// edge = (g_norm >= masking_threshold) ? 1.0 : detail_atten.

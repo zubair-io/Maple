@@ -4,17 +4,16 @@
 // `applySceneLinearChainViaFFI` + `encodeDisplaySRGBViaFFI` into a single
 // FFI call (`maple_apply_chain_and_encode_display_f32`) whenever nothing
 // runs between them — see `ImageEditPipeline.applyChainAndEncodeViaFusedFFI`.
-// "Nothing runs between them" means `MetalKernels.applySceneSharpen` /
-// `applySceneNRColor` are both identity, which only holds when
-// `sharpenAmount` and `nrColor` are (numerically) zero.
+// "Nothing runs between them" used to require `MetalKernels.applySceneSharpen`
+// / `applySceneNRColor` to be identity, i.e. `sharpenAmount` and `nrColor`
+// both (numerically) zero. #1043 deleted those kernels — the Rust chain runs
+// sharpen and nr_color itself now — so the gap is empty at every slider
+// state and the fusion always engages.
 //
-// `AdjustmentModel.default` — the model `SliderTickPerfTests` drags — carries
-// the reference-import defaults `sharpenAmount: 40, nrColor: 25`, so that
-// bench's model NEVER satisfies the fusion gate and its numbers are
-// unaffected by #2092 (verified: its measured mean does not move). This
-// bench isolates the case the fusion actually changes: an exposure drag
-// with sharpen/nr_color pinned at zero (a Neutral/no-sharpen/no-NR session,
-// or any workflow where the user has turned both off).
+// This bench still drags with sharpen/nr_color pinned at zero, which keeps
+// its numbers comparable to the #2092 authorship runs quoted below and keeps
+// the two spatial stages (tens of ms of CPU work each) out of the measurement
+// so it stays a bench of the FFI round trip rather than of NLM denoising.
 //
 // Two arms, same tick loop, gated by `MAPLE_DISABLE_FUSED_CHAIN_ENCODE`:
 //

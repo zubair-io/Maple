@@ -39,12 +39,21 @@
 // (They DO influence the chain output, so they still belong in the
 // `SceneLinearChainCache` key — see `SceneLinearChainCache.make`.)
 //
-// Apple's Metal kernels also re-apply `sharpen` and `nr_color`
-// **after** the chain (`ImageEditPipeline.applySceneSharpen` +
-// `applySceneNRColor`), so those two are stripped for the same reason
-// (and have been since the first iteration of this helper). The Metal
-// pass is the SINGLE live post-AgX application — the Rust decode must
-// NOT also bake them.
+// `sharpen` and `nr_color` are stripped for exactly the same reason as
+// every field above, and have been since the first iteration of this
+// helper — but WHO re-applies them changed in #1043 (epic #925 P5b).
+// They used to be re-applied post-AgX by two Apple Metal kernels
+// (`MetalKernels.applySceneSharpen` / `applySceneNRColor`), the last
+// hand-written render math outside Rust + WGSL. Those kernels are gone.
+// Both stages now run INSIDE the chain, at develop's canonical
+// scene-linear position (`vignette` → `sharpen` → `nr_luminance` →
+// `nr_color`): on the GPU live path through `raw-gpu`'s `SharpenPass` /
+// `NlmColorPass` (wired by `makeGpuLiveParams`), and on the CPU path
+// through `apply_scene_linear_chain_f32` (wired by `makeParams`). So the
+// strip is unchanged and still correct — there is still exactly ONE live
+// application of each stage on every path, and the decode must still not
+// bake a second one. Un-zeroing these two would have double-applied them
+// on the GPU path, which is why the removal did not touch the strip.
 //
 // Two kinds of strip live in this helper (#973):
 //
@@ -58,10 +67,10 @@
 //     only early-exit below `1e-3` (`stages/noise_reduction.rs::apply_color`,
 //     `stages/sharpen.rs::apply`). Setting them to the *default* would
 //     run `nr_color`@25 (~8.5 s) + `sharpen`@40 (~0.8 s) in the decode
-//     AND have Metal re-apply them at the live value — a ~9.3 s wasted
-//     double-apply (over-denoise / over-sharpen the single-pass Rust
-//     reference doesn't have). Zeroing them makes the decode skip both;
-//     Metal owns the one live pass.
+//     AND have the chain re-apply them at the live value — a ~9.3 s
+//     wasted double-apply (over-denoise / over-sharpen the single-pass
+//     Rust reference doesn't have). Zeroing them makes the decode skip
+//     both; the chain owns the one live pass.
 //
 // Stripped fields:
 //   * `temperature`, `tint`        — `white_balance::apply` early-exits
@@ -92,14 +101,15 @@
 //     amount 0 short-circuits it (feather returns to its 50 default).
 //   * `nrLuminance`                — chain applies it; default 0 → decode
 //     early-exits without forcing
-//   * `nrColor`, `sharpenAmount`   — Apple Metal re-applies post-chain;
-//     forced to literal 0 (NOT the 25/40 defaults) to kill the
-//     double-apply described above
+//   * `nrColor`, `sharpenAmount`   — the chain re-applies both (GPU and
+//     CPU alike, #1043); forced to literal 0 (NOT the 25/40 defaults) to
+//     kill the double-apply described above
 //
 // **Kept** (Apple-irreplaceable, baked at decode only):
 //   * `highlightRecovery`          — pre-DCP, no chain equivalent.
-//   * `sharpenRadius`, `sharpenDetail`, `sharpenMasking` — read by
-//     Apple Metal; not used during decode anyway.
+//   * `sharpenRadius`, `sharpenDetail`, `sharpenMasking` — read by the
+//     chain's sharpen stage; inert during decode, whose `sharpenAmount`
+//     is zeroed above, so there is nothing to strip.
 //   * `captureSharpeningAmount`, `captureSharpeningSigma` — runs inside
 //     the Rust `develop_scene_linear_*` decode, post-DCP/PGTM, and has
 //     no Apple Metal equivalent. Default amount = 0 short-circuits the
@@ -139,7 +149,7 @@ private let bridgeLog = Logger(subsystem: "app.justmaple.aperture", category: "R
 
 public enum RawCoreBridge {
 
-    /// Zero the AdjustmentModel fields that Apple's Metal scene-linear
+    /// Zero the AdjustmentModel fields that Apple's live scene-linear
     /// chain re-applies post-decode. Returns a copy; the input is
     /// unchanged. See file header for the strip rationale.
     public static func stripAppleGPUStages(_ model: AdjustmentModel) -> AdjustmentModel {
@@ -232,10 +242,12 @@ public enum RawCoreBridge {
         // nrColor / sharpenAmount: literal 0, NOT the 25/40 model defaults
         // (#973). Their defaults are non-zero and the Rust decode only
         // early-exits below 1e-3, so defaulting would run the stage in the
-        // decode AND have Metal re-apply it post-AgX — a double-apply.
-        // Zero makes the decode skip both; Metal owns the single live pass.
+        // decode AND have the live chain re-apply it — a double-apply.
+        // Zero makes the decode skip both; the chain owns the single live
+        // pass on BOTH the GPU (`SharpenPass` / `NlmColorPass`) and the CPU
+        // (`apply_scene_linear_chain_f32`) paths since #1043.
         m.nrColor = 0
-        // Sharpen (Apple Metal handles — see nrColor note above).
+        // Sharpen (the chain handles it — see the nrColor note above).
         m.sharpenAmount = 0
         return m
     }
@@ -269,15 +281,15 @@ public enum RawCoreBridge {
     /// `openRawHandle` openers (`renderTile`, `decodePreviewTile`,
     /// `decodeSceneLinear` called without a `profileOverride`) all arrive
     /// here. On that path the decode runs with `AdjustmentModel::default()`
-    /// (nrColor=25, sharpenAmount=40), but those callers do NOT execute the
-    /// Apple Metal post-decode `nr_color`/`sharpen` re-apply pass — so
-    /// there is no double-apply on this path.
+    /// (nrColor=25, sharpenAmount=40), but those callers do NOT run the live
+    /// chain's `nr_color`/`sharpen` re-apply on top — so there is no
+    /// double-apply on this path.
     ///
     /// The PRODUCTION scene-linear AgX path (the one that WOULD double-apply
     /// if nrColor/sharpenAmount were left non-zero in the decode) always
     /// passes a non-nil `profileOverride`. That means it always takes the
     /// strip-temp-XMP branch, which zeros both fields before the decode —
-    /// Metal then owns the sole live pass. This invariant is what #977
+    /// the live chain then owns the sole pass. This invariant is what #977
     /// enforces; the nil/nil shortcut is never taken by that path.
     ///
     /// When `profileOverride` is non-nil a temp XMP is always written (even

@@ -118,15 +118,6 @@ extension SceneLinearPipelineTests {
         }
     }
 
-    func testM3NRColorShortCircuitsAtZeroAmount() async throws {
-        let input = Self.makeRGBSceneLinearCIImage(
-            width: 8, height: 8, r: 0.4, g: 0.5, b: 0.6
-        )
-        let out = MetalKernels.applySceneNRColor(to: input, nrColor: 0.0)
-        XCTAssertTrue(out === input,
-            "amount=0 should return the input CIImage instance unchanged")
-    }
-
     /// Build a 32×32 fp16 Rec.2020 CIImage with alternating bright/dark
     /// rows on the same hue (mirrors the Rust unit test at
     /// noise_reduction.rs:121-126). Run through processSceneLinear with
