@@ -23,6 +23,29 @@ export interface DeviceSession {
   last_used_at: string;
 }
 
+/** Metadata for a least-privilege integration key. The plaintext secret is never listed. */
+export interface ServiceApiKey {
+  keyId: string;
+  prefix: string;
+  name: string;
+  scopes: 'assets:search'[];
+  createdAt: string;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  lastUsedAt: string | null;
+}
+
+/** A newly minted integration key. `key` is returned by Maple exactly once. */
+export interface CreatedServiceApiKey {
+  key: string;
+  keyId: string;
+  prefix: string;
+  name: string;
+  scopes: 'assets:search'[];
+  createdAt: string;
+  expiresAt: string | null;
+}
+
 /**
  * Outcome of a refresh attempt.
  *  - `refreshed`: we now hold a valid access token; callers may retry.
@@ -369,6 +392,34 @@ export class AuthService {
     const stepUp = await this.stepUp();
     await firstValueFrom(
       this.http.delete<void>(`/api/auth/device-sessions/${encodeURIComponent(id)}`, {
+        headers: { 'X-Step-Up': stepUp },
+      }),
+    );
+  }
+
+  listServiceApiKeys(): Observable<ServiceApiKey[]> {
+    return this.http
+      .get<{ keys: ServiceApiKey[] }>('/api/admin/service-api-keys')
+      .pipe(map((r) => r.keys));
+  }
+
+  /** Create a search-only integration key after a fresh owner passkey check. */
+  async createServiceApiKey(name: string, expiresAt: string | null): Promise<CreatedServiceApiKey> {
+    const stepUp = await this.stepUp();
+    return firstValueFrom(
+      this.http.post<CreatedServiceApiKey>(
+        '/api/admin/service-api-keys',
+        { name, scopes: ['assets:search'], expiresAt },
+        { headers: { 'X-Step-Up': stepUp } },
+      ),
+    );
+  }
+
+  /** Revoke one integration key after a fresh owner passkey check. */
+  async revokeServiceApiKey(keyId: string): Promise<void> {
+    const stepUp = await this.stepUp();
+    await firstValueFrom(
+      this.http.delete<void>(`/api/admin/service-api-keys/${encodeURIComponent(keyId)}`, {
         headers: { 'X-Step-Up': stepUp },
       }),
     );

@@ -1,0 +1,149 @@
+<!-- fallow-ignore-file complexity -->
+<!-- One cohesive CRUD panel intentionally keeps loading/error/empty/one-time-secret states together. -->
+<section class="integration-keys">
+  <div class="section-heading">
+    <div>
+      <div class="subhead">SugarMaple integration</div>
+      <p>
+        Create a dedicated key for SugarMaple to search this library. It cannot access Meilisearch
+        directly, change photos, or use other Maple APIs.
+      </p>
+    </div>
+  </div>
+
+  <div class="endpoint-row">
+    <div class="endpoint-copy">
+      <span class="field-label">Search endpoint</span>
+      <code>{{ endpoint }}</code>
+    </div>
+    <button
+      type="button"
+      class="btn-ghost"
+      [attr.aria-label]="'Copy SugarMaple search endpoint'"
+      (click)="copy(endpoint, 'endpoint')"
+    >
+      <maple-settings-icon [name]="copied() === 'endpoint' ? 'check' : 'copy'" [size]="12" />
+      {{ copied() === 'endpoint' ? 'Copied' : 'Copy endpoint' }}
+    </button>
+  </div>
+
+  <form class="create-form" (ngSubmit)="create()">
+    <div class="field">
+      <label class="field-label" for="serviceKeyName">Key name</label>
+      <input
+        id="serviceKeyName"
+        type="text"
+        name="serviceKeyName"
+        maxlength="200"
+        autocomplete="off"
+        [(ngModel)]="name"
+      />
+    </div>
+    <div class="field">
+      <label class="field-label" for="serviceKeyExpiry">Expires</label>
+      <select id="serviceKeyExpiry" name="serviceKeyExpiry" [(ngModel)]="expiry">
+        <option value="30">In 30 days</option>
+        <option value="90">In 90 days</option>
+        <option value="365">In 1 year</option>
+        <option value="never">Never</option>
+      </select>
+    </div>
+    <button type="submit" class="btn-primary" [disabled]="busy() || !name.trim()">
+      <maple-settings-icon name="key" [size]="13" [color]="'#fff'" />
+      {{ busy() ? 'Waiting for passkey…' : 'Generate key' }}
+    </button>
+  </form>
+  <p class="form-hint">You will be asked to confirm with an owner passkey.</p>
+
+  @if (freshKey(); as created) {
+    <div class="fresh-key" role="status">
+      <div class="fresh-heading">
+        <div>
+          <strong>Copy this key now</strong>
+          <span>It will not be shown again after you dismiss it.</span>
+        </div>
+        <button type="button" class="dismiss-btn" (click)="dismissFreshKey()">Dismiss</button>
+      </div>
+      <div class="secret-row">
+        <code>{{ created.key }}</code>
+        <button
+          type="button"
+          class="btn-primary"
+          aria-label="Copy new SugarMaple API key"
+          (click)="copy(created.key, 'key')"
+        >
+          <maple-settings-icon
+            [name]="copied() === 'key' ? 'check' : 'copy'"
+            [size]="12"
+            [color]="'#fff'"
+          />
+          {{ copied() === 'key' ? 'Copied' : 'Copy key' }}
+        </button>
+      </div>
+    </div>
+  }
+
+  @if (error(); as message) {
+    <p class="error" role="alert">{{ message }}</p>
+  }
+
+  <div class="key-list-heading">
+    <span>Integration keys</span>
+    @if (keys() === null && error()) {
+      <button type="button" class="retry-btn" (click)="reload()">Retry</button>
+    }
+  </div>
+
+  @if (keys(); as list) {
+    @if (list.length === 0) {
+      <p class="empty">No SugarMaple integration keys yet.</p>
+    } @else {
+      <div class="key-list">
+        @for (key of list; track key.keyId) {
+          @let keyStatus = status(key);
+          <div class="key-row">
+            <div class="key-details">
+              <div class="key-name">
+                {{ key.name }}
+                <span
+                  class="status"
+                  [class.active]="keyStatus === 'Active'"
+                  [class.expired]="keyStatus === 'Expired'"
+                  [class.revoked]="keyStatus === 'Revoked'"
+                >
+                  {{ keyStatus }}
+                </span>
+              </div>
+              <div class="key-meta mono">
+                {{ key.prefix }}… · created {{ key.createdAt | date: 'mediumDate' }}
+                @if (key.lastUsedAt) {
+                  · last used {{ key.lastUsedAt | date: 'medium' }}
+                } @else {
+                  · never used
+                }
+                @if (key.expiresAt) {
+                  · expires {{ key.expiresAt | date: 'mediumDate' }}
+                } @else {
+                  · no expiry
+                }
+              </div>
+            </div>
+            @if (keyStatus === 'Active') {
+              <button
+                type="button"
+                class="revoke-btn"
+                [attr.aria-label]="'Revoke ' + key.name"
+                [disabled]="busyId() === key.keyId"
+                (click)="revoke(key)"
+              >
+                {{ busyId() === key.keyId ? 'Revoking…' : 'Revoke' }}
+              </button>
+            }
+          </div>
+        }
+      </div>
+    }
+  } @else if (!error()) {
+    <p class="empty">Loading integration keys…</p>
+  }
+</section>
