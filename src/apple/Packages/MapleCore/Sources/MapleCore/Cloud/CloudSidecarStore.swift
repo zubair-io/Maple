@@ -16,6 +16,12 @@ public actor CloudSidecarStore: SidecarStoreProtocol {
   private var pendingModel: AdjustmentModel?
   private var pendingCulling: CullingState?
 
+  /// Fields the remote sidecar carried that Maple does not model (#2233).
+  /// The local store re-reads them off disk at write time; there is no disk
+  /// here, so the bucket is captured on load and held for the lifetime of the
+  /// session — the same shape `cached` already has.
+  private var cachedPassthrough: XMPPassthrough = .empty
+
   private var subscribers: [UInt64: AsyncStream<Error>.Continuation] = [:]
   private var nextSubscriberID: UInt64 = 0
 
@@ -41,6 +47,7 @@ public actor CloudSidecarStore: SidecarStoreProtocol {
     try Self.checkOK(resp, data: data)
     let result = try XMPParser.parse(data: data)
     cached = result
+    cachedPassthrough = XMPParser.parsePassthrough(data: data)
     return result
   }
 
@@ -88,7 +95,8 @@ public actor CloudSidecarStore: SidecarStoreProtocol {
     pendingModel = nil
     pendingCulling = nil
     do {
-      let xml = XMPSerializer.serialize(model: model, culling: culling)
+      let xml = XMPSerializer.serialize(
+        model: model, culling: culling, passthrough: cachedPassthrough)
       var req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/xmp"))
       req.httpMethod = "PUT"
       req.setValue("application/xml", forHTTPHeaderField: "Content-Type")
