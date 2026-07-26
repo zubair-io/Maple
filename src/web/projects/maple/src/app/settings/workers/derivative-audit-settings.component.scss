@@ -7,9 +7,9 @@
   @include chrome.settings-atoms;
 
   display: block;
-  // Embedded in the Workers page (not a standalone page) — neutralise the
-  // full-page host behaviours from settings-vars.
-  min-height: 0;
+  // Embedded in the Workers page (not a standalone page), so it takes
+  // `settings-vars` (the tokens) but not `settings-page-host` (the full-height
+  // sizing). The background is cleared so it doesn't paint a second layer.
   background: transparent;
 }
 
