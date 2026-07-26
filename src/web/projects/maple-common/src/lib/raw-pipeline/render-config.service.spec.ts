@@ -110,6 +110,44 @@ describe('RenderConfigService (#1062)', () => {
     ctrl.verify(); // no further requests after teardown
   });
 
+  it('adopt applies a saved config without re-reading it', async () => {
+    service.adopt(body(false));
+    expect(gate.enabled()).toBe(false);
+    expect(service.config()?.gpu_live_render_enabled).toBe(false);
+    expect(service.lastError()).toBeNull();
+    ctrl.verify(); // adopting issues no GET
+  });
+
+  it('a poll GET that started before a save cannot flip the switch back', async () => {
+    // The poll reads "on"…
+    const stale = service.refresh();
+    const req = ctrl.expectOne('/api/render/config');
+
+    // …the operator saves "off" while that GET is still in flight…
+    service.adopt(body(false));
+    expect(gate.enabled()).toBe(false);
+
+    // …and the stale response lands afterwards. It must be dropped, not
+    // applied: the operator threw the kill switch after the API was read.
+    req.flush(body(true));
+    await stale;
+    expect(gate.enabled()).toBe(false);
+    expect(service.config()?.gpu_live_render_enabled).toBe(false);
+  });
+
+  it('a poll failure that started before a save does not surface as an error', async () => {
+    const stale = service.refresh();
+    const req = ctrl.expectOne('/api/render/config');
+    service.adopt(body(false));
+    req.flush({ error: 'nope' }, { status: 503, statusText: 'Unavailable' });
+    await stale;
+
+    // The save succeeded; a superseded poll's failure is not the operator's
+    // problem and must not paint an error over a good write.
+    expect(service.lastError()).toBeNull();
+    expect(gate.enabled()).toBe(false);
+  });
+
   it('init is idempotent — a second call does not start a second poll', async () => {
     vi.useFakeTimers();
     service.init();
