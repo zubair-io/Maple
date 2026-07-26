@@ -54,14 +54,14 @@ extension XMPSerializer {
         if model.blackWhite != .off {
             a.append(("crs:ConvertToGrayscale", "True"))
         }
-        if model.grayMixerRed      != 0 { a.append(("crs:GrayMixerRed",      String(format: "%.0f", model.grayMixerRed))) }
-        if model.grayMixerOrange   != 0 { a.append(("crs:GrayMixerOrange",   String(format: "%.0f", model.grayMixerOrange))) }
-        if model.grayMixerYellow   != 0 { a.append(("crs:GrayMixerYellow",   String(format: "%.0f", model.grayMixerYellow))) }
-        if model.grayMixerGreen    != 0 { a.append(("crs:GrayMixerGreen",    String(format: "%.0f", model.grayMixerGreen))) }
-        if model.grayMixerAqua     != 0 { a.append(("crs:GrayMixerAqua",     String(format: "%.0f", model.grayMixerAqua))) }
-        if model.grayMixerBlue     != 0 { a.append(("crs:GrayMixerBlue",     String(format: "%.0f", model.grayMixerBlue))) }
-        if model.grayMixerPurple   != 0 { a.append(("crs:GrayMixerPurple",   String(format: "%.0f", model.grayMixerPurple))) }
-        if model.grayMixerMagenta  != 0 { a.append(("crs:GrayMixerMagenta",  String(format: "%.0f", model.grayMixerMagenta))) }
+        if model.grayMixerRed      != 0 { a.append(("crs:GrayMixerRed",      fmtNum(model.grayMixerRed))) }
+        if model.grayMixerOrange   != 0 { a.append(("crs:GrayMixerOrange",   fmtNum(model.grayMixerOrange))) }
+        if model.grayMixerYellow   != 0 { a.append(("crs:GrayMixerYellow",   fmtNum(model.grayMixerYellow))) }
+        if model.grayMixerGreen    != 0 { a.append(("crs:GrayMixerGreen",    fmtNum(model.grayMixerGreen))) }
+        if model.grayMixerAqua     != 0 { a.append(("crs:GrayMixerAqua",     fmtNum(model.grayMixerAqua))) }
+        if model.grayMixerBlue     != 0 { a.append(("crs:GrayMixerBlue",     fmtNum(model.grayMixerBlue))) }
+        if model.grayMixerPurple   != 0 { a.append(("crs:GrayMixerPurple",   fmtNum(model.grayMixerPurple))) }
+        if model.grayMixerMagenta  != 0 { a.append(("crs:GrayMixerMagenta",  fmtNum(model.grayMixerMagenta))) }
         return a
     }
 }

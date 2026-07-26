@@ -71,7 +71,7 @@ enum ToneCurveXMP {
     /// canonical number codec (integers bare, non-integers at two decimals
     /// with trailing zeros trimmed).
     static func formatCoordinate(_ v: Double) -> String {
-        XMPSerializer.fmtWb(v * wireScale)
+        XMPSerializer.fmtNum(v * wireScale)
     }
 }
 

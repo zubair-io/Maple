@@ -50,30 +50,30 @@ extension XMPSerializer {
     /// the 600-LOC hard budget (#772).
     static func hslAttrs(model: AdjustmentModel) -> [(String, String)] {
         var a: [(String, String)] = []
-        if model.hueAdjustmentRed      != 0 { a.append(("crs:HueAdjustmentRed",      String(format: "%.0f", model.hueAdjustmentRed))) }
-        if model.hueAdjustmentOrange   != 0 { a.append(("crs:HueAdjustmentOrange",   String(format: "%.0f", model.hueAdjustmentOrange))) }
-        if model.hueAdjustmentYellow   != 0 { a.append(("crs:HueAdjustmentYellow",   String(format: "%.0f", model.hueAdjustmentYellow))) }
-        if model.hueAdjustmentGreen    != 0 { a.append(("crs:HueAdjustmentGreen",    String(format: "%.0f", model.hueAdjustmentGreen))) }
-        if model.hueAdjustmentAqua     != 0 { a.append(("crs:HueAdjustmentAqua",     String(format: "%.0f", model.hueAdjustmentAqua))) }
-        if model.hueAdjustmentBlue     != 0 { a.append(("crs:HueAdjustmentBlue",     String(format: "%.0f", model.hueAdjustmentBlue))) }
-        if model.hueAdjustmentPurple   != 0 { a.append(("crs:HueAdjustmentPurple",   String(format: "%.0f", model.hueAdjustmentPurple))) }
-        if model.hueAdjustmentMagenta  != 0 { a.append(("crs:HueAdjustmentMagenta",  String(format: "%.0f", model.hueAdjustmentMagenta))) }
-        if model.saturationAdjustmentRed      != 0 { a.append(("crs:SaturationAdjustmentRed",      String(format: "%.0f", model.saturationAdjustmentRed))) }
-        if model.saturationAdjustmentOrange   != 0 { a.append(("crs:SaturationAdjustmentOrange",   String(format: "%.0f", model.saturationAdjustmentOrange))) }
-        if model.saturationAdjustmentYellow   != 0 { a.append(("crs:SaturationAdjustmentYellow",   String(format: "%.0f", model.saturationAdjustmentYellow))) }
-        if model.saturationAdjustmentGreen    != 0 { a.append(("crs:SaturationAdjustmentGreen",    String(format: "%.0f", model.saturationAdjustmentGreen))) }
-        if model.saturationAdjustmentAqua     != 0 { a.append(("crs:SaturationAdjustmentAqua",     String(format: "%.0f", model.saturationAdjustmentAqua))) }
-        if model.saturationAdjustmentBlue     != 0 { a.append(("crs:SaturationAdjustmentBlue",     String(format: "%.0f", model.saturationAdjustmentBlue))) }
-        if model.saturationAdjustmentPurple   != 0 { a.append(("crs:SaturationAdjustmentPurple",   String(format: "%.0f", model.saturationAdjustmentPurple))) }
-        if model.saturationAdjustmentMagenta  != 0 { a.append(("crs:SaturationAdjustmentMagenta",  String(format: "%.0f", model.saturationAdjustmentMagenta))) }
-        if model.luminanceAdjustmentRed      != 0 { a.append(("crs:LuminanceAdjustmentRed",      String(format: "%.0f", model.luminanceAdjustmentRed))) }
-        if model.luminanceAdjustmentOrange   != 0 { a.append(("crs:LuminanceAdjustmentOrange",   String(format: "%.0f", model.luminanceAdjustmentOrange))) }
-        if model.luminanceAdjustmentYellow   != 0 { a.append(("crs:LuminanceAdjustmentYellow",   String(format: "%.0f", model.luminanceAdjustmentYellow))) }
-        if model.luminanceAdjustmentGreen    != 0 { a.append(("crs:LuminanceAdjustmentGreen",    String(format: "%.0f", model.luminanceAdjustmentGreen))) }
-        if model.luminanceAdjustmentAqua     != 0 { a.append(("crs:LuminanceAdjustmentAqua",     String(format: "%.0f", model.luminanceAdjustmentAqua))) }
-        if model.luminanceAdjustmentBlue     != 0 { a.append(("crs:LuminanceAdjustmentBlue",     String(format: "%.0f", model.luminanceAdjustmentBlue))) }
-        if model.luminanceAdjustmentPurple   != 0 { a.append(("crs:LuminanceAdjustmentPurple",   String(format: "%.0f", model.luminanceAdjustmentPurple))) }
-        if model.luminanceAdjustmentMagenta  != 0 { a.append(("crs:LuminanceAdjustmentMagenta",  String(format: "%.0f", model.luminanceAdjustmentMagenta))) }
+        if model.hueAdjustmentRed      != 0 { a.append(("crs:HueAdjustmentRed",      fmtNum(model.hueAdjustmentRed))) }
+        if model.hueAdjustmentOrange   != 0 { a.append(("crs:HueAdjustmentOrange",   fmtNum(model.hueAdjustmentOrange))) }
+        if model.hueAdjustmentYellow   != 0 { a.append(("crs:HueAdjustmentYellow",   fmtNum(model.hueAdjustmentYellow))) }
+        if model.hueAdjustmentGreen    != 0 { a.append(("crs:HueAdjustmentGreen",    fmtNum(model.hueAdjustmentGreen))) }
+        if model.hueAdjustmentAqua     != 0 { a.append(("crs:HueAdjustmentAqua",     fmtNum(model.hueAdjustmentAqua))) }
+        if model.hueAdjustmentBlue     != 0 { a.append(("crs:HueAdjustmentBlue",     fmtNum(model.hueAdjustmentBlue))) }
+        if model.hueAdjustmentPurple   != 0 { a.append(("crs:HueAdjustmentPurple",   fmtNum(model.hueAdjustmentPurple))) }
+        if model.hueAdjustmentMagenta  != 0 { a.append(("crs:HueAdjustmentMagenta",  fmtNum(model.hueAdjustmentMagenta))) }
+        if model.saturationAdjustmentRed      != 0 { a.append(("crs:SaturationAdjustmentRed",      fmtNum(model.saturationAdjustmentRed))) }
+        if model.saturationAdjustmentOrange   != 0 { a.append(("crs:SaturationAdjustmentOrange",   fmtNum(model.saturationAdjustmentOrange))) }
+        if model.saturationAdjustmentYellow   != 0 { a.append(("crs:SaturationAdjustmentYellow",   fmtNum(model.saturationAdjustmentYellow))) }
+        if model.saturationAdjustmentGreen    != 0 { a.append(("crs:SaturationAdjustmentGreen",    fmtNum(model.saturationAdjustmentGreen))) }
+        if model.saturationAdjustmentAqua     != 0 { a.append(("crs:SaturationAdjustmentAqua",     fmtNum(model.saturationAdjustmentAqua))) }
+        if model.saturationAdjustmentBlue     != 0 { a.append(("crs:SaturationAdjustmentBlue",     fmtNum(model.saturationAdjustmentBlue))) }
+        if model.saturationAdjustmentPurple   != 0 { a.append(("crs:SaturationAdjustmentPurple",   fmtNum(model.saturationAdjustmentPurple))) }
+        if model.saturationAdjustmentMagenta  != 0 { a.append(("crs:SaturationAdjustmentMagenta",  fmtNum(model.saturationAdjustmentMagenta))) }
+        if model.luminanceAdjustmentRed      != 0 { a.append(("crs:LuminanceAdjustmentRed",      fmtNum(model.luminanceAdjustmentRed))) }
+        if model.luminanceAdjustmentOrange   != 0 { a.append(("crs:LuminanceAdjustmentOrange",   fmtNum(model.luminanceAdjustmentOrange))) }
+        if model.luminanceAdjustmentYellow   != 0 { a.append(("crs:LuminanceAdjustmentYellow",   fmtNum(model.luminanceAdjustmentYellow))) }
+        if model.luminanceAdjustmentGreen    != 0 { a.append(("crs:LuminanceAdjustmentGreen",    fmtNum(model.luminanceAdjustmentGreen))) }
+        if model.luminanceAdjustmentAqua     != 0 { a.append(("crs:LuminanceAdjustmentAqua",     fmtNum(model.luminanceAdjustmentAqua))) }
+        if model.luminanceAdjustmentBlue     != 0 { a.append(("crs:LuminanceAdjustmentBlue",     fmtNum(model.luminanceAdjustmentBlue))) }
+        if model.luminanceAdjustmentPurple   != 0 { a.append(("crs:LuminanceAdjustmentPurple",   fmtNum(model.luminanceAdjustmentPurple))) }
+        if model.luminanceAdjustmentMagenta  != 0 { a.append(("crs:LuminanceAdjustmentMagenta",  fmtNum(model.luminanceAdjustmentMagenta))) }
         return a
     }
 }

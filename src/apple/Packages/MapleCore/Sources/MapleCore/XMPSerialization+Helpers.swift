@@ -8,28 +8,24 @@ import Foundation
 // MARK: - XMPSerializer formatting helpers
 
 extension XMPSerializer {
-    /// Format an exposure value to two decimal places, matching the reference
-    /// renderer's wire format.
-    static func fmtF(_ v: Double) -> String {
-        String(format: "%.2f", v)
-    }
-
     /// Format a crop edge or angle value. 6 significant decimal places —
     /// matches the reference renderer's output and keeps sidecars
-    /// byte-interchangeable across platforms for the crop group.
+    /// byte-interchangeable across platforms for the crop group. The one
+    /// documented exception to `fmtNum` below: crop edges are normalized
+    /// fractions where two decimals would quantize the rect to whole
+    /// percents of the frame.
     static func fmtCrop(_ v: Double) -> String {
         String(format: "%.6f", v)
     }
 
-    /// Format a WB slider value (`crs:Temperature` / `crs:Tint`),
-    /// preserving fractional precision: integers emit without decimals
-    /// (byte-stable with the historical `%.0f` output for the common
-    /// case), non-integers round to 2 decimals with trailing zeros
-    /// trimmed — mirroring the TS writer's `numericSerializer`. Needed
-    /// since #1893's V2/V3 → V4 load-normalization scales authored tints
-    /// by 0.3 (e.g. −144 → −43.2): integer rounding here would shift the
-    /// stored WB on every re-save, drifting the rendered look.
-    static func fmtWb(_ v: Double) -> String {
+    /// The canonical numeric wire codec (`docs/xmp-canonical-format.md`
+    /// § "Number formatting"): integers emit without decimals, non-integers
+    /// round to two decimals with trailing zeros trimmed. Byte-identical to
+    /// the TS writer's `numericSerializer`, which is why #1577 routes every
+    /// numeric attribute through it — the old per-field `%.0f` / `%.1f` /
+    /// `%.2f` formats both diverged from the web writer and silently
+    /// quantized fractional slider values on every re-save.
+    static func fmtNum(_ v: Double) -> String {
         let rounded = (v * 100).rounded() / 100
         if rounded == rounded.rounded() {
             return String(format: "%.0f", rounded)

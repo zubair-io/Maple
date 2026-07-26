@@ -10,10 +10,9 @@ extension XMPSerializer {
     /// IPTC/EXIF metadata set. Namespace declarations are emitted conditionally —
     /// only prefixes that appear in the payload are declared.
     ///
-    /// Per-platform byte-stable: `serialize(model:culling:metadata:)` →
-    /// `parseMetadata` → `serialize(model:culling:metadata:)` yields the same
-    /// string on Apple. Not cross-platform byte-identical with the TS serializer
-    /// (tracked as debt #1577).
+    /// Byte-canonical (#1577): the envelope, namespace prelude, attribute
+    /// ordering and child indentation all come from `XMPCanonical`, which the
+    /// TypeScript `canonicalDocument` mirrors.
     ///
     /// Implementation note: builds the full XML through the shared
     /// `_buildAttrs` / `_buildKeywordsBlock` internal helpers rather than
@@ -35,74 +34,49 @@ extension XMPSerializer {
 
         // Build the full attr list: adjustment+culling attrs first, then
         // metadata attrs (values escaped for XML attribute context).
-        var attrs = _buildAttrs(model: model, culling: culling)
-        for (key, value) in metaAttrs {
-            attrs.append((key, escapeXMLAttr(value)))
-        }
-        let attrsStr = attrs.map { "\($0.0)=\"\($0.1)\"" }.joined(separator: "\n        ")
+        let attrs = _buildAttrs(model: model, culling: culling)
+            + metaAttrs.map { ($0.0, escapeXMLAttr($0.1)) }
 
         // Keywords block (dc:subject), shared with the base serializer.
-        let (kwDcNs, keywordsBlock) = _buildKeywordsBlock(culling: culling)
+        let keywordsBlock = _buildKeywordsBlock(culling: culling)
 
-        // Namespace declarations for metadata prefixes, in fixed TS order:
-        // dc, exif, photoshop, Iptc4xmpCore, xmpRights.
-        // Skip dc when the keywords block already declares it.
+        // Namespace declarations for metadata prefixes, in the same fixed
+        // order the TS serializer uses: dc, exif, photoshop, Iptc4xmpCore,
+        // xmpRights. `dc` is also required by the keyword bag, so the union of
+        // the two needs is taken before the lookup.
         let nsOrder = ["dc", "exif", "photoshop", "Iptc4xmpCore", "xmpRights"]
-        let hasDcKeywords = !culling.keywords.isEmpty
-        let extraNsLines = nsOrder
-            .filter { prefixes.contains($0) && !($0 == "dc" && hasDcKeywords) }
-            .compactMap { p -> String? in
+        let neededPrefixes = culling.keywords.isEmpty ? prefixes : prefixes.union(["dc"])
+        let extraNamespaces = nsOrder
+            .filter { neededPrefixes.contains($0) }
+            .compactMap { p -> (prefix: String, uri: String)? in
                 guard let uri = xmpMetadataNamespaces[p] else { return nil }
-                return "\n      xmlns:\(p)=\"\(uri)\""
+                return (prefix: p, uri: uri)
             }
-            .joined()
 
-        // Nested content: keywords block (dc:subject) followed by metadata
-        // lang-alt/seq blocks (dc:title, dc:creator, dc:description, dc:rights,
-        // xmpRights:UsageTerms).
-        // Point tone curves (#365) ride along as a third nested block. A
-        // metadata-carrying save must not drop an authored curve — that is
+        // Nested content, in the canonical child order the TS serializer also
+        // uses: dc:title / dc:creator / dc:description, then the keyword bag,
+        // then dc:rights / xmpRights:UsageTerms, then the point tone curves.
+        // A metadata-carrying save must not drop an authored curve — that is
         // exactly the silent-data-loss shape #2191 fixed for the parametric
         // scalars.
-        let toneCurvesBlock = _buildToneCurvesBlock(model: model, indent: "      ")
-        let metaNestedStr = metaBlocks.joined(separator: "\n")
-        let allNested: String = [keywordsBlock, metaNestedStr]
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
-            + (toneCurvesBlock.isEmpty ? "" : "\n" + toneCurvesBlock)
-
-        if allNested.isEmpty {
-            // Self-closing form: no nested elements.
-            return """
-            <?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzreSzNTczkc9d"?>
-            <x:xmpmeta xmlns:x="adobe:ns:meta/">
-              <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-                <rdf:Description
-                  xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
-                  xmlns:xmp="http://ns.adobe.com/xap/1.0/"
-                  xmlns:papp="http://ns.justmaple.app/1.0/"\(extraNsLines)
-                  \(attrsStr)/>
-              </rdf:RDF>
-            </x:xmpmeta>
-            <?xpacket end="w"?>
-            """
-        } else {
-            // Open/close form: nested elements present.
-            return """
-            <?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzreSzNTczkc9d"?>
-            <x:xmpmeta xmlns:x="adobe:ns:meta/">
-              <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-                <rdf:Description
-                  xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
-                  xmlns:xmp="http://ns.adobe.com/xap/1.0/"
-                  xmlns:papp="http://ns.justmaple.app/1.0/"\(kwDcNs)\(extraNsLines)
-                  \(attrsStr)>\(allNested)
-                </rdf:Description>
-              </rdf:RDF>
-            </x:xmpmeta>
-            <?xpacket end="w"?>
-            """
+        let toneCurvesBlock = _buildToneCurvesBlock(
+            model: model, indent: XMPCanonical.childIndent)
+        let isRightsBlock: (String) -> Bool = { block in
+            block.contains("<dc:rights>") || block.contains("<xmpRights:UsageTerms>")
         }
+        let children = [
+            metaBlocks.filter { !isRightsBlock($0) }.joined(separator: "\n"),
+            keywordsBlock,
+            metaBlocks.filter(isRightsBlock).joined(separator: "\n"),
+            toneCurvesBlock,
+        ]
+        .filter { !$0.isEmpty }
+        .joined(separator: "\n")
+
+        return XMPCanonical.document(
+            extraNamespaces: extraNamespaces,
+            attributes: attrs,
+            children: children)
     }
 
     /// Attribute value escaping (mirrors `_escapeAttr` in the TS serializer).

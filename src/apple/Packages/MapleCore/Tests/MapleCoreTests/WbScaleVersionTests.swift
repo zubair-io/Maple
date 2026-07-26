@@ -140,12 +140,12 @@ final class WbScaleVersionTests: XCTestCase {
         XCTAssertTrue(resaved.contains(#"crs:Tint="-32.58""#),
                       "fractional tint must serialize without integer rounding")
         // The converted temperature is fractional (≈5526.09); assert the
-        // wire form is fmtWb of the model value rather than pinning the
+        // wire form is fmtNum of the model value rather than pinning the
         // last digit of the conversion itself (its own value is pinned by
         // testV3AuthoredPairConvertsJointlyIntoV5OnLoad).
-        XCTAssertTrue(resaved.contains("crs:Temperature=\"\(XMPSerializer.fmtWb(m.temperature))\""),
+        XCTAssertTrue(resaved.contains("crs:Temperature=\"\(XMPSerializer.fmtNum(m.temperature))\""),
                       "fractional temperature must serialize without integer rounding")
-        XCTAssertNotEqual(XMPSerializer.fmtWb(m.temperature), "5526",
+        XCTAssertNotEqual(XMPSerializer.fmtNum(m.temperature), "5526",
                           "the converted temperature must not integer-round")
         let (reparsed, c2) = try XMPParser.parse(resaved)
         XCTAssertEqual(reparsed.wbScaleVersion, 5)
@@ -158,7 +158,7 @@ final class WbScaleVersionTests: XCTestCase {
     func testFractionalTemperatureBeyondSixSignificantDigitsSurvives() {
         // PR #1900 review (Jules): %g defaults to 6 significant digits, so
         // an 11500.25 K fractional temperature would silently truncate to
-        // "11500.2" and drift on re-save. fmtWb must carry the full
+        // "11500.2" and drift on re-save. fmtNum must carry the full
         // 2-decimal precision at any slider magnitude.
         var m = AdjustmentModel.default
         m.temperature = 11500.25

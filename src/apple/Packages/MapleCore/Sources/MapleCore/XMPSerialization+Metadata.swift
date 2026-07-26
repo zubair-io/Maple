@@ -256,29 +256,32 @@ extension XMPSerializer {
 
     /// Build a lang-alt nested element:
     ///   `<prefix:Name><rdf:Alt><rdf:li xml:lang="x-default">text</rdf:li></rdf:Alt></prefix:Name>`
-    /// Mirrors `langAltBlock` in `xmp-metadata.ts`.
+    /// Indentation is the canonical child indent plus two spaces per nesting
+    /// level (#1577). Mirrors `langAltBlock` in `xmp-metadata.ts`.
     private static func langAltBlock(_ qname: String, text: String) -> String {
-        let escaped = escapeXMLText(text)
-        return """
-          <\(qname)>
-           <rdf:Alt>
-            <rdf:li xml:lang="x-default">\(escaped)</rdf:li>
-           </rdf:Alt>
-          </\(qname)>
-        """
+        containerBlock(qname, container: "rdf:Alt", item: #"<rdf:li xml:lang="x-default">"#
+            + escapeXMLText(text) + "</rdf:li>")
     }
 
     /// Build an `rdf:Seq` nested element holding a single entry (v1 single-creator).
     /// Mirrors `seqBlock` in `xmp-metadata.ts`.
     private static func seqBlock(_ qname: String, text: String) -> String {
-        let escaped = escapeXMLText(text)
-        return """
-          <\(qname)>
-           <rdf:Seq>
-            <rdf:li>\(escaped)</rdf:li>
-           </rdf:Seq>
-          </\(qname)>
-        """
+        containerBlock(qname, container: "rdf:Seq",
+                       item: "<rdf:li>" + escapeXMLText(text) + "</rdf:li>")
+    }
+
+    /// Shared three-level shape behind `langAltBlock` / `seqBlock`.
+    private static func containerBlock(
+        _ qname: String, container: String, item: String
+    ) -> String {
+        let indent = XMPCanonical.childIndent
+        return [
+            "\(indent)<\(qname)>",
+            "\(indent)  <\(container)>",
+            "\(indent)    \(item)",
+            "\(indent)  </\(container)>",
+            "\(indent)</\(qname)>",
+        ].joined(separator: "\n")
     }
 }
 
