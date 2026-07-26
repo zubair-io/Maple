@@ -1,6 +1,6 @@
 /**
  * POST /api/admin/enrichment/backfill-meilisearch — bulk re-push every asset
- * with a non-empty `place.search_blob` to the Meilisearch sidecar.
+ * with a stable `maple_id` to the Meilisearch sidecar.
  *
  * Use cases:
  *   - Fresh Meilisearch instance: seed the index from the existing Mongo
@@ -20,34 +20,53 @@
 
 import { Elysia } from 'elysia';
 import type { ObjectId } from 'mongodb';
-import { assetsCollection } from '../db/client.ts';
-import { meilisearchClient } from '../enrichment/meilisearch-client.ts';
+import { assetsCollection, getDb } from '../db/client.ts';
+import { meilisearchClient, type MeilisearchAssetDoc } from '../enrichment/meilisearch-client.ts';
 import { composeSearchBlob } from '../enrichment/search-blob.ts';
 import { resolveAssetPeopleNames } from '../workers/stages/meili.ts';
-import type { AssetFaceDoc, Place, VisionDoc } from '../db/schema.ts';
+import type { AssetFaceDoc, FileInfo, Place, TranscriptDoc, VisionDoc } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
+import { classifyMediaType } from '../indexer/media-types.ts';
 
 const log = childLogger('enrichment:meilisearch-backfill');
 
-const BATCH_SIZE = 1000;
+const DEFAULT_BATCH_SIZE = 250;
+const MAX_BATCH_SIZE = 1000;
+const STATE_ID = 'assets';
+
+interface BackfillState {
+  _id: string;
+  cursor: ObjectId | null;
+  scanned: number;
+  upserted: number;
+  skipped: number;
+  errors: number;
+  started_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
 
 interface BackfillRow {
   _id: ObjectId;
   maple_id?: string;
-  folder_id: ObjectId;
+  folder_id?: ObjectId;
+  filename?: string;
+  fileinfo?: FileInfo[];
   exif?: { captured_at?: string | null } | null;
   place?: Place | null;
   description?: string | null;
   ocr_text?: string | null;
+  transcript?: TranscriptDoc | null;
   vision?: VisionDoc | null;
   is_screenshot?: boolean | null;
   faces?: AssetFaceDoc[] | null;
   deleted_at?: string | null;
+  hidden?: boolean;
 }
 
 export const meilisearchBackfillRoutes = new Elysia({
   prefix: '/api/admin/enrichment',
-}).post('/backfill-meilisearch', async ({ set }) => {
+}).post('/backfill-meilisearch', async ({ set, query }) => {
   const meili = meilisearchClient();
   if (!meili.isConfigured()) {
     set.status = 400;
@@ -61,45 +80,78 @@ export const meilisearchBackfillRoutes = new Elysia({
   await meili.ensureIndex();
 
   const coll = await assetsCollection();
-  // Gate on the unified top-level `search_blob` — the meili stage folds
-  // place + description + OCR + vision + people into it. Gating on
-  // `place.search_blob` (as before) skipped assets that are searchable via
-  // description/vision/people but have no GPS/place.
-  const cursor = coll
-    .find(
-      {
-        search_blob: { $exists: true, $ne: '' },
-      } as unknown as Parameters<typeof coll.find>[0],
-      {
-        projection: {
-          _id: 1,
-          maple_id: 1,
-          folder_id: 1,
-          'exif.captured_at': 1,
-          place: 1,
-          description: 1,
-          ocr_text: 1,
-          vision: 1,
-          is_screenshot: 1,
-          faces: 1,
-          deleted_at: 1,
-        },
+  const states = (await getDb()).collection<BackfillState>('meilisearch_backfill_state');
+  const requestedBatchSize = Number(query.batchSize ?? DEFAULT_BATCH_SIZE);
+  const batchSize = Number.isFinite(requestedBatchSize)
+    ? Math.min(MAX_BATCH_SIZE, Math.max(1, Math.trunc(requestedBatchSize)))
+    : DEFAULT_BATCH_SIZE;
+  const reset = query.reset === 'true';
+  if (reset) await states.deleteOne({ _id: STATE_ID });
+
+  let state = await states.findOne({ _id: STATE_ID });
+  // A completed run is idempotently restartable. This keeps the operator's
+  // "run again after data loss" workflow simple while incomplete runs resume.
+  if (state?.completed_at) {
+    await states.deleteOne({ _id: STATE_ID });
+    state = null;
+  }
+  const now = new Date().toISOString();
+  if (!state) {
+    state = {
+      _id: STATE_ID,
+      cursor: null,
+      scanned: 0,
+      upserted: 0,
+      skipped: 0,
+      errors: 0,
+      started_at: now,
+      updated_at: now,
+      completed_at: null,
+    };
+    await states.insertOne(state);
+  }
+
+  // Include filename-only assets too. Exact camera identifiers are part of
+  // the lexical contract even before enrichment has produced search text.
+  const filter: Record<string, unknown> = {
+    maple_id: { $type: 'string', $ne: '' },
+  };
+  if (state.cursor) filter._id = { $gt: state.cursor };
+  const rows = await coll
+    .find(filter as Parameters<typeof coll.find>[0], {
+      projection: {
+        _id: 1,
+        maple_id: 1,
+        folder_id: 1,
+        filename: 1,
+        fileinfo: 1,
+        'exif.captured_at': 1,
+        place: 1,
+        description: 1,
+        ocr_text: 1,
+        transcript: 1,
+        vision: 1,
+        is_screenshot: 1,
+        faces: 1,
+        deleted_at: 1,
+        hidden: 1,
       },
-    )
-    .batchSize(BATCH_SIZE);
+    })
+    .sort({ _id: 1 })
+    .limit(batchSize)
+    .toArray();
 
   let upserted = 0;
   let skipped = 0;
   let errors = 0;
   let scanned = 0;
+  const docs: MeilisearchAssetDoc[] = [];
+  let lastCursor = state.cursor;
 
-  // Drain the cursor in batches. We awaited each upsert serially to keep
-  // the implementation small; Meilisearch coalesces these into a single
-  // task via the documents endpoint, so latency comes from the loop, not
-  // the wire.
-  for await (const raw of cursor) {
+  for (const raw of rows) {
     scanned += 1;
     const row = raw as unknown as BackfillRow;
+    lastCursor = row._id;
     const mapleId = row.maple_id;
     if (typeof mapleId !== 'string' || mapleId.length === 0) {
       skipped += 1;
@@ -115,27 +167,29 @@ export const meilisearchBackfillRoutes = new Elysia({
         place: row.place ?? null,
         description: row.description ?? null,
         ocrText: row.ocr_text ?? null,
+        transcript: row.transcript?.text ?? null,
         visionSubjects: vision?.subjects ?? null,
         visionSetting: vision?.setting ?? null,
         visionActivity: vision?.activity ?? null,
         visionNotableObjects: vision?.notable_objects ?? null,
         people: peopleNames,
       });
-      // Nothing indexable for this row (no place/description/OCR/vision and
-      // no named people) — skip rather than push an empty document.
-      if (searchBlob.length === 0 && peopleNames.length === 0) {
+      const primary =
+        row.fileinfo?.find((entry) => entry.deleted_at == null && entry.missing_since == null) ??
+        row.fileinfo?.[0];
+      const folderId = primary?.library_id ?? row.folder_id;
+      const filename = primary?.filename ?? row.filename;
+      if (!folderId || !filename) {
         skipped += 1;
         continue;
       }
-      // `upsertOrThrow` (not `upsert`) so a Meili transport failure lands in
-      // the catch and bumps `errors` — this operator endpoint must report
-      // real failures rather than silently swallowing them.
-      await meili.upsertOrThrow({
+      docs.push({
         id: mapleId,
+        filename,
         searchBlob,
         description: row.description ?? null,
         ocrText: row.ocr_text ?? null,
-        folderId: row.folder_id.toHexString(),
+        folderId: folderId.toHexString(),
         capturedAt: row.exif?.captured_at ?? null,
         deletedAt: row.deleted_at ?? null,
         visionSceneType: vision?.scene_type ?? null,
@@ -143,8 +197,9 @@ export const meilisearchBackfillRoutes = new Elysia({
         visionSubjects: vision?.subjects ?? null,
         isScreenshot: row.is_screenshot ?? null,
         people: peopleNames.length > 0 ? peopleNames : null,
+        mediaType: classifyMediaType(filename),
+        hidden: row.hidden === true,
       });
-      upserted += 1;
     } catch (err) {
       // `upsertOrThrow` (and any people-resolution failure) lands here —
       // log and bump `errors` so the operator sees a non-zero count.
@@ -156,9 +211,79 @@ export const meilisearchBackfillRoutes = new Elysia({
         'backfill upsert error',
       );
       errors += 1;
+      // Retry the entire idempotent batch next time rather than advancing
+      // past a row whose document could not be composed.
+      lastCursor = state.cursor;
+      break;
     }
   }
 
-  log.info({ scanned, upserted, skipped, errors }, 'meilisearch backfill complete');
-  return { scanned, upserted, skipped, errors };
+  // Production enqueues one task for the whole batch. Test doubles and older
+  // client implementations fall back to the per-document method.
+  try {
+    if (meili.upsertBatchOrThrow) {
+      await meili.upsertBatchOrThrow(docs);
+      upserted = docs.length;
+    } else {
+      for (const doc of docs) {
+        try {
+          await meili.upsertOrThrow(doc);
+          upserted += 1;
+        } catch (err) {
+          errors += 1;
+          lastCursor = state.cursor;
+          log.warn(
+            { mapleId: doc.id, err: err instanceof Error ? err.message : String(err) },
+            'backfill upsert error',
+          );
+        }
+      }
+    }
+  } catch (err) {
+    errors += docs.length;
+    // Do not advance the cursor on a batch transport/indexing failure: the
+    // next request retries the same bounded batch.
+    lastCursor = state.cursor;
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err), batchSize: docs.length },
+      'backfill batch failed; cursor retained for retry',
+    );
+  }
+
+  const complete = rows.length < batchSize && errors === 0;
+  const updatedAt = new Date().toISOString();
+  await states.updateOne(
+    { _id: STATE_ID },
+    {
+      $set: {
+        cursor: lastCursor,
+        updated_at: updatedAt,
+        completed_at: complete ? updatedAt : null,
+      },
+      $inc: { scanned, upserted, skipped, errors },
+    },
+  );
+  const cumulative = await states.findOne({ _id: STATE_ID });
+  log.info(
+    { scanned, upserted, skipped, errors, complete, nextCursor: lastCursor?.toHexString() ?? null },
+    'meilisearch backfill batch complete',
+  );
+  return {
+    scanned,
+    upserted,
+    skipped,
+    errors,
+    complete,
+    nextCursor: complete ? null : (lastCursor?.toHexString() ?? null),
+    cumulative: cumulative
+      ? {
+          scanned: cumulative.scanned,
+          upserted: cumulative.upserted,
+          skipped: cumulative.skipped,
+          errors: cumulative.errors,
+          startedAt: cumulative.started_at,
+          updatedAt: cumulative.updated_at,
+        }
+      : null,
+  };
 });

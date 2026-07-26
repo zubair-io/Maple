@@ -77,12 +77,12 @@ export async function geocodeHandler(image: ImageDoc, _ctx: StageContext): Promi
   const { lat, lng } = gps;
   const cached = await cache.get(lat, lng);
   const place = cached ?? null;
-  if (place) return { patch: placePatch(image, place) };
+  if (place) return { patch: placePatch(image, place), invalidates: ['meili'] };
 
   const raw = await client.reverse(lat, lng);
   const fresh = parseNominatimResponse(raw, lat, lng, GEOCODE_HANDLER_VERSION, () => new Date());
   await cache.set(lat, lng, fresh);
-  return { patch: placePatch(image, fresh) };
+  return { patch: placePatch(image, fresh), invalidates: ['meili'] };
 }
 
 /** Write the place, and — when it changes the canonical backup folder — reset

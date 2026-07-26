@@ -45,6 +45,7 @@ import type {
   ServerStateDoc,
   MirrorQueueDoc,
   PresetDoc,
+  ServiceApiKeyDoc,
 } from './schema.ts';
 import type { WorkerConfigDoc } from '../workers/worker-config.repo.ts';
 
@@ -156,6 +157,9 @@ export async function invitesCollection(): Promise<Collection<InviteDoc>> {
 }
 export async function refreshTokensCollection(): Promise<Collection<RefreshTokenDoc>> {
   return (await getDb()).collection<RefreshTokenDoc>('refresh_tokens');
+}
+export async function serviceApiKeysCollection(): Promise<Collection<ServiceApiKeyDoc>> {
+  return (await getDb()).collection<ServiceApiKeyDoc>('service_api_keys');
 }
 export async function challengesCollection(): Promise<Collection<ChallengeDoc>> {
   return (await getDb()).collection<ChallengeDoc>('challenges');
@@ -1438,6 +1442,11 @@ export async function ensureIndexes(): Promise<void> {
   // Rotation lineage (#858): family-scoped revoke + the grace re-mint's
   // family-liveness lookup (`{ family_id, revoked_at: null }`) both key on this.
   await refresh.createIndex({ family_id: 1 });
+
+  const serviceKeys = await serviceApiKeysCollection();
+  await serviceKeys.createIndex({ key_id: 1 }, { unique: true });
+  await serviceKeys.createIndex({ expires_at: 1 });
+  await serviceKeys.createIndex({ revoked_at: 1 });
 
   const challenges = await challengesCollection();
   await challenges.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 });
