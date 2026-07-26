@@ -463,8 +463,14 @@ export class RawPipelineService implements OnDestroy {
     } catch {
       return Promise.reject(new Error('RawPipelineService: worker unavailable'));
     }
-    const register = (id: number, handler: PendingHandler) => this.pending.set(id, handler);
-    return dispatchAutoAdjust(worker, this.nextId++, register, bytes, ext, xmp);
+    return dispatchAutoAdjust(
+      worker,
+      this.nextId++,
+      this.pending.set.bind(this.pending),
+      bytes,
+      ext,
+      xmp,
+    );
   }
 
   /**
