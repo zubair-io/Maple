@@ -44,6 +44,31 @@ cargo test -p raw-core --lib            # ~840 lib tests (70 ignored, fixture-ga
 cargo test -p raw-core --features test-support   # lib + integration, fixture-free
 ```
 
+### CPU↔GPU parity gate (raw-core vs the WGSL kernels)
+
+Every WGSL kernel in `raw-gpu` mirrors a raw-core Rust stage, and each one has a
+test that runs both and compares the buffers. `cargo test -p raw-wasm --features gpu`
+extends that to the whole chain, diffing the `render_bytes_gpu` u8 surface against
+the CPU `render_bytes` reference on the committed synthetic grey DNG.
+
+```bash
+cd src/raw-pipeline
+cargo test -p raw-gpu                      # ~180 per-kernel parity tests
+cargo test -p raw-wasm --features gpu      # whole-chain render_bytes_gpu vs render_bytes
+```
+
+Both run in CI (#1973) on the `raw-gpu` job against Mesa **lavapipe**, a software
+Vulkan adapter installed on the stock Linux runner — no GPU hardware needed. The
+raw-gpu tests `.expect()` a GPU context rather than guarding, so a missing adapter
+is ~180 loud failures rather than a skip; the raw-wasm gpu_render tests do keep a
+`gpu_available()` soft-pass for developer boxes, and the CI job sets
+`MAPLE_REQUIRE_GPU=1` to turn that soft-pass into a panic. A gate that quietly
+compares nothing is the failure mode #1973 existed to remove.
+
+lavapipe consumes naga's SPIR-V output, so this proves raw-core↔WGSL agreement but
+not Metal-backend or browser-WebGPU behaviour; those still depend on running the
+same suites locally on Metal and on the Apple UITest harness. Tracked in #2315.
+
 ### Developed-preview parity gate (API develop path)
 
 `src/raw-pipeline/raw-ffi/tests/develop_preview_parity.rs` (#1964) CIEDE2000-
@@ -68,7 +93,9 @@ cargo test -p raw-ffi --test develop_preview_parity -- --nocapture
 
 `.github/workflows/raw-pipeline.yml` runs the **`rust-tests`** job
 (`cargo test -p raw-core --features test-support` plus the three grey gates,
-added in #1082), a **`build-raw-ffi`** host-compile gate, and the
+added in #1082), a **`build-raw-ffi`** host-compile gate, the **`raw-gpu`** job
+(the `--features gpu` compile gates, `check_wgsl.sh` naga validation, and the
+CPU↔GPU parity suites above on lavapipe), and the
 **`color-pipeline`** job. `.github/workflows/cross.yml` runs the
 **`codegen-drift`** gate (confirming `tools/codegen.sh` outputs match the
 committed Swift/TS/SCSS/WGSL) and the **`format-check`** job (runs Prettier
