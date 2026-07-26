@@ -32,11 +32,22 @@ public enum ToolGroup: String, CaseIterable, Sendable, Hashable {
 /// Brightness (#1102 midtone-band gain) joined Light per tone-zoom spec
 /// §10.0 (#1108), placed directly after Exposure to match the
 /// scene_tone_controls pipeline order (exposure → brightness).
+/// Tone Curve (#367) joined Light last, after the scene-tone scalars it
+/// composes with.
 /// Declaration order is presentation order (`tools(in:)` filters
 /// `allCases`).
+///
+/// One deliberate divergence from the web `ToolId` union, recorded here so
+/// it isn't folklore: there is no `'toneCurve'` on the web. Its
+/// `EditorShellComponent` already owns a first-class curve panel with its
+/// own dock toggle (`curvePanelToggle` / `curveOpen`), so the tone curve is
+/// not a tool its drag bar can arm. Apple has no standalone panel — every
+/// control variant swaps surfaces off `armedTool` — so an armed tool is the
+/// only route to the curve here. See `tool-model.ts`'s header for the
+/// mirror of this note.
 public enum Tool: String, CaseIterable, Sendable, Hashable {
     // Light
-    case exposure, brightness, contrast, highlights, shadows, whites, blacks
+    case exposure, brightness, contrast, highlights, shadows, whites, blacks, toneCurve
     // Color
     case temp, tint, vibrance, saturation, hsl, bwMix
     // Effects
@@ -46,7 +57,8 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
 
     public var group: ToolGroup {
         switch self {
-        case .exposure, .brightness, .contrast, .highlights, .shadows, .whites, .blacks:
+        case .exposure, .brightness, .contrast, .highlights, .shadows, .whites, .blacks,
+             .toneCurve:
             return .light
         case .temp, .tint, .vibrance, .saturation, .hsl, .bwMix:
             return .color
@@ -66,6 +78,7 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
         case .shadows:    return "Shadows"
         case .whites:     return "Whites"
         case .blacks:     return "Blacks"
+        case .toneCurve:  return "Tone Curve"
         case .temp:       return "Temp"
         case .tint:       return "Tint"
         case .vibrance:   return "Vibrance"
@@ -111,6 +124,11 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     /// sheet/popover (see EditorView) instead of carrying a drag-bar
     /// value — `displayRange` stays nil, so the value pipe is inert for
     /// it (the scrub/reset guards also check `displayRange`).
+    ///
+    /// Tone Curve (#367) is wired and takes the HSL shape: four
+    /// parametric region sub-params plus four per-channel point curves
+    /// and no single primary field, so `displayRange` stays nil and
+    /// `ToneCurveSection` is its whole control surface.
     public var isWired: Bool {
         switch self {
         case .crop:

@@ -402,16 +402,17 @@ final class EditorStateTests: XCTestCase {
 
     // MARK: - Tool catalog sanity
 
-    func testTwentySixToolsExist() {
+    func testTwentySevenToolsExist() {
         // 22 base tools + Capture Sharpening Amount / Sigma, relocated to
         // the Detail group when the Develop tab was removed (#875), +
-        // Brightness in Light (#1108 / #1102), + B&W Mix in Color (#276).
-        XCTAssertEqual(Tool.allCases.count, 26)
+        // Brightness in Light (#1108 / #1102), + B&W Mix in Color (#276),
+        // + Tone Curve in Light (#367).
+        XCTAssertEqual(Tool.allCases.count, 27)
     }
 
     func testToolGroupMembership() {
-        // Light gained Brightness (#1108): 6 → 7.
-        XCTAssertEqual(Tool.tools(in: .light).count, 7)
+        // Light gained Brightness (#1108): 6 → 7, then Tone Curve (#367): 7 → 8.
+        XCTAssertEqual(Tool.tools(in: .light).count, 8)
         // Color gained B&W Mix (#276): 5 → 6.
         XCTAssertEqual(Tool.tools(in: .color).count, 6)
         XCTAssertEqual(Tool.tools(in: .effects).count, 6)
@@ -436,7 +437,7 @@ final class EditorStateTests: XCTestCase {
         XCTAssertEqual(session.model.brightness, 0, accuracy: 1e-9)
     }
 
-    func testWiredToolsCoverTwentyFiveTools() {
+    func testWiredToolsCoverTwentySixTools() {
         // The S5 effects all left the #952 stub list as their stages
         // landed (vignette #1109, grain #1110, colorGrade #1111 —
         // superseded split tone at #275), and HSL left it at #274 — its 24
@@ -446,11 +447,15 @@ final class EditorStateTests: XCTestCase {
         // left the stub list at #1115 — wired, but value-less (nil
         // displayRange keeps its value pipe inert). Brightness joined
         // wired at #1108. B&W Mix (#276) joined wired — its eight
-        // sub-params drive the `grayMixer*` fields.
+        // sub-params drive the `grayMixer*` fields. Tone Curve (#367)
+        // joined wired with the same shape as HSL: four parametric region
+        // sub-params plus four point curves, and no primary field.
         let wired = Tool.allCases.filter { $0.isWired }
-        XCTAssertEqual(wired.count, 25)
+        XCTAssertEqual(wired.count, 26)
         XCTAssertTrue(Tool.hsl.isWired)
         XCTAssertNil(ToolValueMapping.displayRange(for: .hsl))
+        XCTAssertTrue(Tool.toneCurve.isWired)
+        XCTAssertNil(ToolValueMapping.displayRange(for: .toneCurve))
         XCTAssertTrue(Tool.bwMix.isWired)
         // Unlike HSL, B&W Mix DOES have a tool-level range: the drag bar
         // drives `grayMixerRed`, its first sub-param.

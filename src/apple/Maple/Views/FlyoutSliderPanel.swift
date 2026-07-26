@@ -43,6 +43,11 @@ struct FlyoutSliderPanel: View {
                 // Color Grading's four wheels + luminance/balance sliders
                 // replace the sliders while it is armed — same swap as Crop.
                 ColorGradingPanel(state: state)
+            } else if state.armedTool == .toneCurve {
+                // Curve plot + four region sliders replace the sliders while
+                // Tone Curve is armed (#367) — it carries eight fields and no
+                // single primary one, so this is its whole control surface.
+                ToneCurveSection(state: state)
             } else {
                 // Sub-param chip row for multi-param tools.
                 let subs = state.armedSubParams
