@@ -15,8 +15,10 @@
 // The scanner is deliberately narrow: it finds the first `rdf:Description`
 // and records the source range of each direct child element. It never decodes
 // text, resolves entities, or interprets attributes — `XMLParser` still owns
-// all of that, and a document this scanner runs over has already been proven
-// well-formed by `XMPParser.parse`.
+// all of that. Its one production caller, `XMPParser.parsePassthrough`, runs
+// the document through its own `XMLParser.parse()` and bails to `.empty`
+// before reaching the scanner, so anything this code sees on the write path is
+// already known well-formed.
 
 import Foundation
 
