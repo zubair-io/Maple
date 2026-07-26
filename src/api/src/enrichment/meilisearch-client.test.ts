@@ -361,7 +361,7 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     );
   });
 
-  it('search() with no folderId only filters deletedAt', async () => {
+  it('search() with no folderId filters deleted and hidden assets', async () => {
     const { fetchImpl, calls } = makeFakeFetch({
       routes: [
         {

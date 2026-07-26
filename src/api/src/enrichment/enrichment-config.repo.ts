@@ -23,6 +23,7 @@ import {
   DEFAULT_DESCRIBE_VISION_PROMPT,
   DESCRIBE_VISION_PROMPT_VERSION,
 } from './describe-prompts.ts';
+import { DEFAULT_MEILISEARCH_TASK_TIMEOUT_MS } from './meilisearch-transport.ts';
 
 const COLL = 'app_settings';
 const DOC_ID = 'enrichment';
@@ -41,6 +42,7 @@ export function builtinModelDir(): string {
  * before and after the operator-configurable surface lands. */
 export const DEFAULT_NOMINATIM_RATE_LIMIT_PER_SEC = 10;
 export const DEFAULT_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE = 60;
+export const DEFAULT_MEILISEARCH_TASK_TIMEOUT_SECONDS = DEFAULT_MEILISEARCH_TASK_TIMEOUT_MS / 1000;
 
 /** Reject obviously broken values up-front. The lower bound is non-zero so
  * a misclick can't pause the worker silently; the upper bound is generous
@@ -50,6 +52,8 @@ export const MIN_NOMINATIM_RATE_LIMIT_PER_SEC = 0.1;
 export const MAX_NOMINATIM_RATE_LIMIT_PER_SEC = 100;
 export const MIN_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE = 1;
 export const MAX_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE = 10_000;
+export const MIN_MEILISEARCH_TASK_TIMEOUT_SECONDS = 30;
+export const MAX_MEILISEARCH_TASK_TIMEOUT_SECONDS = 3600;
 
 /** Default minimum face size, as a fraction of the 640-px detection frame.
  * A detection whose shorter bbox side is below this threshold is dropped
@@ -193,6 +197,9 @@ export interface EnrichmentConfig {
    * set. `null`/missing → falls back to the `MAPLE_MEILISEARCH_API_KEY` env
    * var. */
   meilisearch_api_key?: string | null;
+  /** Maximum wait for one asynchronous Meilisearch indexing task. DB-backed
+   * so slower Ollama deployments can tune it without restarting Maple. */
+  meilisearch_task_timeout_seconds?: number | null;
   /** Per-service-key request budget for the external asset-search endpoint.
    * DB-backed so operators can tune it at runtime from Settings → Workers. */
   service_search_rate_limit_per_minute?: number | null;
@@ -320,6 +327,9 @@ export async function saveEnrichmentConfig(patch: Partial<EnrichmentConfig>): Pr
   }
   if (remapped.meilisearch_api_key !== undefined) {
     set['config.meilisearch_api_key'] = remapped.meilisearch_api_key;
+  }
+  if (remapped.meilisearch_task_timeout_seconds !== undefined) {
+    set['config.meilisearch_task_timeout_seconds'] = remapped.meilisearch_task_timeout_seconds;
   }
   if (remapped.service_search_rate_limit_per_minute !== undefined) {
     set['config.service_search_rate_limit_per_minute'] =

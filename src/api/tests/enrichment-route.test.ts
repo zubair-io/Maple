@@ -425,6 +425,32 @@ describe('PUT /api/enrichment/config — meilisearch_url', () => {
   });
 });
 
+describe('PUT /api/enrichment/config — meilisearch task timeout', () => {
+  it('persists an operator timeout and rejects values outside the safe range', async () => {
+    if (!mongoReachable) return;
+    const saved = await put('/api/enrichment/config', {
+      nominatim_url: null,
+      geocode_worker_enabled: false,
+      meilisearch_task_timeout_seconds: 900,
+    });
+    expect(saved.status).toBe(200);
+    expect(saved.body).toMatchObject({
+      meilisearch_task_timeout_seconds: 900,
+      source: { meilisearch_task_timeout_seconds: 'db' },
+    });
+
+    const invalid = await put('/api/enrichment/config', {
+      nominatim_url: null,
+      geocode_worker_enabled: false,
+      meilisearch_task_timeout_seconds: 29,
+    });
+    expect(invalid.status).toBe(400);
+    expect((invalid.body as { error: string }).error).toMatch(
+      /Invalid meilisearch_task_timeout_seconds/,
+    );
+  });
+});
+
 describe('PUT/GET /api/enrichment/config — meilisearch_api_key (write-only)', () => {
   it('persists the key but never echoes it; reports meilisearch_api_key_set', async () => {
     if (!mongoReachable) return;
