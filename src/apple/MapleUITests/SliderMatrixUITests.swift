@@ -85,6 +85,14 @@ final class SliderMatrixUITests: XCTestCase {
     /// Poll interval inside the settle window.
     private static let settlePoll: TimeInterval = 0.1
 
+    /// Final confirmation window immediately before the frame read, using
+    /// an INVERTED expectation (wait for the sentinel to vanish; require
+    /// that wait to time out). Shorter than `settleWindow` because it runs
+    /// after settling has already succeeded — its job is to shrink the gap
+    /// between the last observation and the capture, not to re-prove the
+    /// settle.
+    private static let settleConfirmWindow: TimeInterval = 0.5
+
     /// Wait until `canvas` exists continuously for `settleWindow`, then
     /// return its frame. Returns nil if `settleDeadline` expires first.
     ///
@@ -110,14 +118,33 @@ final class SliderMatrixUITests: XCTestCase {
             guard XCTWaiter().wait(for: [expectation], timeout: remaining) == .completed else {
                 return nil
             }
-            // Up — now confirm it STAYS up for the whole window.
+            // Up — now confirm it STAYS up for the whole window. The
+            // explicit poll runs at `settlePoll` (100 ms), so it samples
+            // the window ~10x; `XCTNSPredicateExpectation` re-evaluates on
+            // a timer (`XCUIElement.exists` is not KVO-observable), which
+            // would sample it far more coarsely. The poll is therefore the
+            // sensitive detector for the brief render-cycle flips.
             let checks = max(1, Int(settleWindow / settlePoll))
             let stayedUp = (0..<checks).allSatisfy { _ in
                 Thread.sleep(forTimeInterval: settlePoll)
                 return canvas.exists
             }
-            // Read the frame while still inside the settled state.
-            if stayedUp, canvas.exists { return canvas.frame }
+            guard stayedUp else { continue }  // flipped; wait for ready again
+
+            // Then a final inverted confirmation adjacent to the frame
+            // read: wait for the sentinel to VANISH and require that wait
+            // to TIME OUT — a timeout is positive evidence it never
+            // disappeared across `settleConfirmWindow`. This is the
+            // idiomatic XCTest form, and unlike the poll it is continuous
+            // rather than sampled, so the two are complementary: the poll
+            // catches fast flips, this shrinks the gap before capture.
+            let vanished = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "exists == 0"), object: canvas)
+            guard XCTWaiter().wait(for: [vanished], timeout: settleConfirmWindow) == .timedOut
+            else { continue }  // it DID vanish; re-wait for ready
+
+            // Read the frame while still inside the confirmed settled state.
+            if canvas.exists { return canvas.frame }
             // Flipped back to `canvas-rendering`; loop and wait again.
         }
         return nil
