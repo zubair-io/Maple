@@ -6,14 +6,21 @@
 
 ## Problem
 
-The web app ships two disconnected UIs that meet at a hard 768px cliff. `RootShellComponent`
-(`maple-common/src/lib/shells/root-shell.component.ts:31`) switches on `LayoutService.layout()`:
+> **Note (baseline, since resolved):** the `RootShellComponent` fork described in this
+> section was retired in #2279 (the foundation slice — Task 1 of the companion plan, now
+> landed). `RootShellComponent` today always renders `<router-outlet />`, the phone-tab
+> shell is deleted, and `/library` redirects to `browse`. This section is kept as the
+> motivating baseline the epic set out to fix; the pane-shell fluidity work below is the
+> part still in flight.
+
+The web app shipped two disconnected UIs that met at a hard 768px cliff. `RootShellComponent`
+(`maple-common/src/lib/shells/root-shell.component.ts`) switched on `LayoutService.layout()`:
 
 - `< 768px` → `PhoneTabShellComponent` (bottom tab bar: Library / Search / Settings)
 - `≥ 768px` → the pane shells (`BrowseShell` / `EditorShell` / `PreviewShell`) via `<router-outlet>`
 
-The two sides don't even share routes — phone navigates to `/library`, `/search`, `/settings`;
-desktop lands on `/browse`, `/edit`, `/view`. So it is two component trees, not one that reflows.
+The two sides didn't even share routes — phone navigated to `/library`, `/search`, `/settings`;
+desktop lands on `/browse`, `/edit`, `/view`. So it was two component trees, not one that reflows.
 The desktop pane shells were never made fluid: `BrowseShell` has zero breakpoint awareness, `Search`
 is a phone-width column stretched full-viewport with a fixed-desktop advanced page, and only
 `Settings` (and `Preview`) actually collapse.
