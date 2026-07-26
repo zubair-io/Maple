@@ -198,7 +198,6 @@ export interface EnrichmentForm {
   meilisearch_api_key: string;
   meilisearch_task_timeout_seconds: string;
   meilisearch_semantic_enabled: boolean;
-  meilisearch_embedder_url: string;
   meilisearch_embedder_model: string;
   meilisearch_semantic_ratio: string;
   service_search_rate_limit_per_minute: string;
@@ -241,7 +240,6 @@ export function blankRuntime(stage: StageStatus): RuntimeForm {
 function blankMeilisearchSemantic(ec: EnrichmentConfigResponse | null) {
   return {
     meilisearch_semantic_enabled: ec?.meilisearch_semantic_enabled ?? false,
-    meilisearch_embedder_url: ec?.meilisearch_embedder_url ?? 'http://localhost:11434',
     meilisearch_embedder_model: ec?.meilisearch_embedder_model ?? 'bge-m3',
     meilisearch_semantic_ratio: String(ec?.meilisearch_semantic_ratio ?? 0.5),
   };
@@ -285,7 +283,6 @@ export function meilisearchFormToPatch(form: EnrichmentForm) {
         ? taskTimeout
         : null,
     meilisearch_semantic_enabled: form.meilisearch_semantic_enabled,
-    meilisearch_embedder_url: form.meilisearch_embedder_url.trim() || null,
     meilisearch_embedder_model: form.meilisearch_embedder_model.trim() || null,
     meilisearch_semantic_ratio:
       Number.isFinite(semanticRatio) && semanticRatio >= 0 && semanticRatio <= 1

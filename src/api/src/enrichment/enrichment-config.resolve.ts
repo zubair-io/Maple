@@ -24,7 +24,6 @@ import {
   DEFAULT_DESCRIBE_SYSTEM_PROMPT,
   DEFAULT_FACE_MIN_DETECTION_SIZE,
   DEFAULT_MEILISEARCH_EMBEDDER_MODEL,
-  DEFAULT_MEILISEARCH_EMBEDDER_URL,
   DEFAULT_MEILISEARCH_SEMANTIC_ENABLED,
   DEFAULT_MEILISEARCH_SEMANTIC_RATIO,
   DEFAULT_MEILISEARCH_TASK_TIMEOUT_SECONDS,
@@ -115,7 +114,7 @@ export interface ResolvedEnrichmentConfig {
     meilisearch_api_key: 'db' | 'env' | 'unset';
     meilisearch_task_timeout_seconds: 'db' | 'default';
     meilisearch_semantic_enabled: 'db' | 'default';
-    meilisearch_embedder_url: 'db' | 'default';
+    meilisearch_embedder_url: 'db' | 'env' | 'default';
     meilisearch_embedder_model: 'db' | 'default';
     meilisearch_semantic_ratio: 'db' | 'default';
     service_search_rate_limit_per_minute: 'db' | 'default';
@@ -353,11 +352,16 @@ export function resolveEnrichmentConfig(
     typeof db?.meilisearch_semantic_enabled === 'boolean'
       ? { value: db.meilisearch_semantic_enabled, source: 'db' as const }
       : { value: DEFAULT_MEILISEARCH_SEMANTIC_ENABLED, source: 'default' as const };
-  const savedEmbedderUrl = db?.meilisearch_embedder_url?.trim();
-  const meilisearchEmbedderUrl =
-    savedEmbedderUrl && savedEmbedderUrl.length > 0
-      ? { value: savedEmbedderUrl, source: 'db' as const }
-      : { value: DEFAULT_MEILISEARCH_EMBEDDER_URL, source: 'default' as const };
+  // Meilisearch calls Ollama directly, but Maple owns both configurations.
+  // Reuse Describe's resolved Ollama endpoint so a container/remote hostname
+  // cannot silently drift between captioning and semantic search.
+  const meilisearchEmbedderUrl = {
+    value: describeUrl ?? DEFAULT_DESCRIBE_OLLAMA_URL,
+    source:
+      describeUrlSource === 'db' || describeUrlSource === 'env'
+        ? describeUrlSource
+        : ('default' as const),
+  };
   const savedEmbedderModel = db?.meilisearch_embedder_model?.trim();
   const meilisearchEmbedderModel =
     savedEmbedderModel && savedEmbedderModel.length > 0

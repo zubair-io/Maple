@@ -215,7 +215,8 @@ export interface EnrichmentConfig {
   /** Enables Maple-owned hybrid queries and registers the fixed Ollama
    * embedder. DB-backed and operator-controlled from Settings → Workers. */
   meilisearch_semantic_enabled?: boolean | null;
-  /** Ollama base URL reachable from the Meilisearch host. */
+  /** @deprecated Semantic search reuses `describe_provider_url`. Retained only
+   * so older saved rows and rolling-version clients remain readable. */
   meilisearch_embedder_url?: string | null;
   /** Ollama embedding model used for both documents and queries. */
   meilisearch_embedder_model?: string | null;
@@ -262,7 +263,6 @@ const LEGACY_FIELD_REMAP: ReadonlyArray<readonly [keyof EnrichmentConfig, keyof 
 
 const MEILISEARCH_SEMANTIC_FIELDS = [
   'meilisearch_semantic_enabled',
-  'meilisearch_embedder_url',
   'meilisearch_embedder_model',
   'meilisearch_semantic_ratio',
 ] as const;

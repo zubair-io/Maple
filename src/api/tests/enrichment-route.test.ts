@@ -452,13 +452,14 @@ describe('PUT /api/enrichment/config — meilisearch task timeout', () => {
 });
 
 describe('PUT /api/enrichment/config — semantic search', () => {
-  it('persists the UI settings, including a freeform embedding model', async () => {
+  it('reuses the Describe Ollama URL and persists the freeform embedding model', async () => {
     if (!mongoReachable) return;
     const r = await put('/api/enrichment/config', {
       nominatim_url: null,
       geocode_worker_enabled: false,
+      describe_provider: 'ollama',
+      describe_provider_url: 'http://ollama.test:11434',
       meilisearch_semantic_enabled: true,
-      meilisearch_embedder_url: 'http://ollama.test:11434/',
       meilisearch_embedder_model: '  custom-embedder  ',
       meilisearch_semantic_ratio: 0.65,
     });
@@ -479,7 +480,7 @@ describe('PUT /api/enrichment/config — semantic search', () => {
     const reset = await put('/api/enrichment/config', {
       nominatim_url: null,
       geocode_worker_enabled: false,
-      meilisearch_embedder_url: null,
+      describe_provider_url: null,
       meilisearch_embedder_model: '   ',
     });
     expect(reset.status).toBe(200);
@@ -493,14 +494,18 @@ describe('PUT /api/enrichment/config — semantic search', () => {
     });
   });
 
-  it('rejects an invalid embedder URL or blend', async () => {
+  it('ignores the retired separate embedder URL and rejects an invalid blend', async () => {
     if (!mongoReachable) return;
     const base = { nominatim_url: null, geocode_worker_enabled: false };
-    const badUrl = await put('/api/enrichment/config', {
+    const legacyUrl = await put('/api/enrichment/config', {
       ...base,
       meilisearch_embedder_url: 'not-a-url',
     });
-    expect(badUrl.status).toBe(400);
+    expect(legacyUrl.status).toBe(200);
+    expect(legacyUrl.body).toMatchObject({
+      meilisearch_embedder_url: 'http://localhost:11434',
+      source: { meilisearch_embedder_url: 'default' },
+    });
     const badRatio = await put('/api/enrichment/config', {
       ...base,
       meilisearch_semantic_ratio: 1.1,
