@@ -27,6 +27,22 @@ interface MeilisearchTask {
   error?: unknown;
 }
 
+function taskErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== 'object') return null;
+  const code = (error as Record<string, unknown>).code;
+  return typeof code === 'string' ? code : null;
+}
+
+export class MeilisearchTaskError extends Error {
+  constructor(
+    message: string,
+    readonly code: string | null,
+  ) {
+    super(message);
+    this.name = 'MeilisearchTaskError';
+  }
+}
+
 export function isLiveConfig<T extends MeilisearchTransportConfig>(
   config: T,
 ): config is T & { url: string } {
@@ -48,7 +64,9 @@ export async function meilisearchHttp<T>(
   if (!isLiveConfig(config)) {
     return { ok: true, status: 200, body: null, errorText: null };
   }
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
   if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
   let response: Response;
   try {
@@ -83,7 +101,12 @@ export async function meilisearchHttp<T>(
       errorText: typeof parsed === 'string' ? parsed : JSON.stringify(parsed),
     };
   }
-  return { ok: true, status: response.status, body: parsed as T, errorText: null };
+  return {
+    ok: true,
+    status: response.status,
+    body: parsed as T,
+    errorText: null,
+  };
 }
 
 function taskFailure(task: MeilisearchTask): string {
@@ -122,7 +145,7 @@ async function readTask(
 function taskFinished(task: MeilisearchTask): boolean {
   if (task.status === 'succeeded') return true;
   if (task.status === 'failed' || task.status === 'canceled') {
-    throw new Error(taskFailure(task));
+    throw new MeilisearchTaskError(taskFailure(task), taskErrorCode(task.error));
   }
   return false;
 }
