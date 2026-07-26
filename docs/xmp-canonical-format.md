@@ -482,7 +482,7 @@ inherited namespace context, the Swift parser also preserves foreign `xmlns:`
 declarations found on `rdf:Description`, minus the prefixes the canonical
 prelude declares itself. Without that, a preserved `<xmpMM:History>` would
 re-emit into a document where `xmpMM` is undeclared. The TypeScript parser
-drops every `xmlns:` attribute instead — an asymmetry tracked separately.
+drops every `xmlns:` attribute instead — an asymmetry tracked as **#2338**.
 
 Before **#2233** Apple had neither half: its parser returned only
 `(AdjustmentModel, CullingState)` and its serializer rebuilt the document from

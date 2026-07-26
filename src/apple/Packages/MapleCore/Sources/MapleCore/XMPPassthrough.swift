@@ -26,7 +26,7 @@
 // subtree without its declaration produces a document a namespace-aware
 // reader rejects — so the preserved bytes would not actually survive. The
 // prefixes the canonical writer emits itself are excluded so the output can
-// never carry a duplicate declaration.
+// never carry a duplicate declaration. The web half of that question is #2338.
 
 import Foundation
 
