@@ -787,7 +787,6 @@ export class BunApiBackendService {
     meilisearch_api_key?: string | null;
     meilisearch_task_timeout_seconds?: number | null;
     meilisearch_semantic_enabled?: boolean | null;
-    meilisearch_embedder_url?: string | null;
     meilisearch_embedder_model?: string | null;
     meilisearch_semantic_ratio?: number | null;
     service_search_rate_limit_per_minute?: number | null;
@@ -1195,7 +1194,7 @@ export interface EnrichmentConfigResponse {
     meilisearch_api_key: 'db' | 'env' | 'unset';
     meilisearch_task_timeout_seconds?: 'db' | 'default';
     meilisearch_semantic_enabled: 'db' | 'default';
-    meilisearch_embedder_url: 'db' | 'default';
+    meilisearch_embedder_url: 'db' | 'env' | 'default';
     meilisearch_embedder_model: 'db' | 'default';
     meilisearch_semantic_ratio: 'db' | 'default';
     service_search_rate_limit_per_minute?: 'db' | 'default';

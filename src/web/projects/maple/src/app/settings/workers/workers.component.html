@@ -758,29 +758,25 @@
                       </div>
                       <div class="field field-wide">
                         <label class="field-label" for="meilisearch-embedder-url"
-                          >Embedding service URL</label
+                          >Ollama URL (from Describe)</label
                         >
-                        <div class="text-input mono">
+                        <div class="text-input mono readonly">
                           <div class="text-input-wrap">
                             <input
                               id="meilisearch-embedder-url"
                               type="text"
-                              placeholder="http://localhost:11434"
-                              [value]="enrichmentValue(s, 'meilisearch_embedder_url')"
-                              (input)="
-                                setEnrichment(
-                                  s,
-                                  'meilisearch_embedder_url',
-                                  $any($event.target).value
-                                )
+                              readonly
+                              [value]="
+                                enrichmentValue(s, 'describe_provider_url') ||
+                                'http://localhost:11434'
                               "
                               data-testid="meilisearch-embedder-url"
                             />
                           </div>
                         </div>
                         <div class="field-hint">
-                          Ollama base URL as seen by the Meilisearch host. For containers, use an
-                          address Meilisearch can reach rather than localhost.
+                          Shared with the Describe worker. Change this endpoint under Describe;
+                          Meilisearch must be able to reach it from its own host or container.
                         </div>
                       </div>
                       <div class="field">

@@ -269,13 +269,15 @@ describe('resolveEnrichmentConfig — pure logic', () => {
     expect(r.source.meilisearch_embedder_model).toBe('default');
   });
 
-  it('resolves DB-backed semantic settings and rejects an invalid saved ratio', () => {
+  it('reuses the Describe Ollama URL for semantic settings and rejects an invalid ratio', () => {
     const configured = resolveEnrichmentConfig(
       {
         nominatim_url: null,
         geocode_worker_enabled: true,
+        describe_provider: 'ollama',
+        describe_provider_url: 'http://ollama.lan:11434',
         meilisearch_semantic_enabled: true,
-        meilisearch_embedder_url: 'http://ollama.lan:11434',
+        meilisearch_embedder_url: 'http://stale-legacy-url:11434',
         meilisearch_embedder_model: 'custom-embedder',
         meilisearch_semantic_ratio: 0.7,
       },
@@ -419,13 +421,11 @@ describe('saveEnrichmentConfig + loadEnrichmentConfig — Mongo round-trip', () 
     if (!mongoReachable) return;
     await saveEnrichmentConfig({
       meilisearch_semantic_enabled: true,
-      meilisearch_embedder_url: 'http://ollama.test:11434',
       meilisearch_embedder_model: 'custom-embedder',
       meilisearch_semantic_ratio: 0.65,
     });
     expect(await loadEnrichmentConfig()).toMatchObject({
       meilisearch_semantic_enabled: true,
-      meilisearch_embedder_url: 'http://ollama.test:11434',
       meilisearch_embedder_model: 'custom-embedder',
       meilisearch_semantic_ratio: 0.65,
     });

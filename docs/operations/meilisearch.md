@@ -43,10 +43,13 @@ Open **Settings → Workers → meili** and configure:
 
 - the Meilisearch URL and API key;
 - **Enable hybrid semantic search**;
-- the Ollama URL reachable from the Meilisearch host;
 - the Ollama embedding model (freeform, default `bge-m3`);
 - the semantic blend, from `0` (keyword-only) to `1` (vector-only);
 - the service-search request limit and indexing task timeout.
+
+Semantic search reuses the Ollama URL configured under **Describe**. Meilisearch
+calls that URL directly, so it must be reachable from the Meilisearch host or
+container; `localhost` refers to the Meilisearch environment, not Maple's.
 
 These are database-backed runtime settings and apply without restarting Maple.
 The resolved settings are cached in Maple's in-memory Meilisearch client, so
@@ -103,6 +106,8 @@ index**. The migration worker sends 500-asset bulk tasks, stores a durable Mongo
 cursor, and reports processed, remaining, and error counts in that panel. It
 automatically disables itself when complete. Pause it with the toggle; use
 **Reset** to clear its cursor and intentionally restart from the beginning.
+`processed` is durable document-submission progress; use the status endpoint's
+`vectorized` count to verify completed embeddings.
 For a slow or CPU-bound Ollama host, increase **Index task timeout** on the
 Meilisearch worker before starting the migration.
 

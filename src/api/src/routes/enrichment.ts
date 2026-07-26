@@ -111,6 +111,8 @@ const ConfigBody = t.Object({
   meilisearch_api_key: t.Optional(t.Union([t.String(), t.Null()])),
   meilisearch_task_timeout_seconds: t.Optional(t.Union([t.Number(), t.Null()])),
   meilisearch_semantic_enabled: t.Optional(t.Union([t.Boolean(), t.Null()])),
+  /** Deprecated rolling-deploy compatibility field. Semantic search now
+   * always reuses `describe_provider_url`; this value is ignored. */
   meilisearch_embedder_url: t.Optional(t.Union([t.String(), t.Null()])),
   meilisearch_embedder_model: t.Optional(t.Union([t.String(), t.Null()])),
   meilisearch_semantic_ratio: t.Optional(t.Union([t.Number(), t.Null()])),
@@ -317,21 +319,6 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
         set.status = 400;
         return { error: taskTimeoutError };
       }
-      let meiliEmbedderUrl: string | null | undefined;
-      if (body.meilisearch_embedder_url === null) {
-        meiliEmbedderUrl = null;
-      } else if (body.meilisearch_embedder_url !== undefined) {
-        const validatedEmbedder = validateHttpUrl(body.meilisearch_embedder_url);
-        if (
-          validatedEmbedder &&
-          typeof validatedEmbedder === 'object' &&
-          'error' in validatedEmbedder
-        ) {
-          set.status = 400;
-          return { error: `Invalid meilisearch_embedder_url: ${validatedEmbedder.error}` };
-        }
-        meiliEmbedderUrl = validatedEmbedder as string | null;
-      }
       const meiliEmbedderModel =
         body.meilisearch_embedder_model === undefined
           ? undefined
@@ -418,7 +405,6 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
         ...(body.meilisearch_semantic_enabled !== undefined
           ? { meilisearch_semantic_enabled: body.meilisearch_semantic_enabled }
           : {}),
-        ...(meiliEmbedderUrl !== undefined ? { meilisearch_embedder_url: meiliEmbedderUrl } : {}),
         ...(meiliEmbedderModel !== undefined
           ? { meilisearch_embedder_model: meiliEmbedderModel }
           : {}),

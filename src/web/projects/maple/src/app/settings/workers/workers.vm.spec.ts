@@ -211,7 +211,6 @@ describe('blankEnrichment', () => {
     expect(form.meilisearch_url).toBe('http://meili.local:7700');
     expect(form.meilisearch_task_timeout_seconds).toBe('900');
     expect(form.meilisearch_semantic_enabled).toBe(true);
-    expect(form.meilisearch_embedder_url).toBe('http://ollama.local:11434');
     expect(form.meilisearch_embedder_model).toBe('custom-embedder');
     expect(form.meilisearch_semantic_ratio).toBe('0.7');
     // API key is write-only — never seeded from the response, even when set.
@@ -227,7 +226,6 @@ describe('blankEnrichment', () => {
     expect(form.meilisearch_api_key).toBe('');
     expect(form.meilisearch_task_timeout_seconds).toBe('600');
     expect(form.meilisearch_semantic_enabled).toBe(false);
-    expect(form.meilisearch_embedder_url).toBe('http://localhost:11434');
     expect(form.meilisearch_embedder_model).toBe('bge-m3');
     expect(form.meilisearch_semantic_ratio).toBe('0.5');
   });
@@ -238,14 +236,12 @@ describe('meilisearchFormToPatch', () => {
     const form = blankEnrichment(null);
     form.meilisearch_url = ' http://meili.local:7700 ';
     form.meilisearch_semantic_enabled = true;
-    form.meilisearch_embedder_url = ' http://ollama.local:11434 ';
     form.meilisearch_embedder_model = ' custom-embedder ';
     form.meilisearch_semantic_ratio = '0.65';
 
     expect(meilisearchFormToPatch(form)).toMatchObject({
       meilisearch_url: 'http://meili.local:7700',
       meilisearch_semantic_enabled: true,
-      meilisearch_embedder_url: 'http://ollama.local:11434',
       meilisearch_embedder_model: 'custom-embedder',
       meilisearch_semantic_ratio: 0.65,
     });
