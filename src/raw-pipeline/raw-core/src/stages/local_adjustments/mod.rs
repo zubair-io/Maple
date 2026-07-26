@@ -30,6 +30,8 @@
 //! default), `apply` returns immediately without touching pixels. This
 //! preserves the parity-harness baseline for every existing fixture.
 
+use rayon::prelude::*;
+
 use crate::image::{ColorSpace, Image};
 use crate::stages::saturation;
 use crate::stages::scene_tone_controls::{highlights_mult, shadows_mult, smoothstep, LUMA_REC2020};
@@ -69,22 +71,38 @@ pub fn apply(img: &mut Image, layers: &[LocalAdjustment]) {
     let inv_w = if w > 1 { 1.0 / (w as f32 - 1.0) } else { 0.0 };
     let inv_h = if h > 1 { 1.0 / (h as f32 - 1.0) } else { 0.0 };
 
+    // Row-parallel per layer (#1698). `mask::evaluate` is a pure function of
+    // `(mask, nx, ny)` and `apply_pixel` reads and writes exactly one pixel,
+    // so rows are independent and the per-pixel float sequence is unchanged —
+    // the output is BIT-IDENTICAL to the serial loop this replaced (the
+    // `local_adjustments_bench` example prints an FNV-1a fingerprint of the
+    // output buffer, which is the same before and after).
+    //
+    // The parallel unit is the row rather than the whole image because the row
+    // index supplies `ny` once for the whole span, matching the serial loop's
+    // hoist. Layers stay SEQUENTIAL: each layer composites on top of the
+    // previous layer's result, so they cannot be fused or reordered.
+    //
+    // No allocation: `par_chunks_mut` borrows the existing pixel buffer, and
+    // rayon's thread pool is process-global and already warm.
     for layer in layers {
         if layer.adjustments.is_empty() {
             continue;
         }
-        for y in 0..h {
-            let ny = y as f32 * inv_h;
-            for x in 0..w {
-                let nx = x as f32 * inv_w;
-                let weight = mask::evaluate(&layer.mask, nx, ny);
-                if weight <= 0.0 {
-                    continue;
+        img.pixels
+            .par_chunks_mut(w)
+            .enumerate()
+            .for_each(|(y, row)| {
+                let ny = y as f32 * inv_h;
+                for (x, p) in row.iter_mut().enumerate() {
+                    let nx = x as f32 * inv_w;
+                    let weight = mask::evaluate(&layer.mask, nx, ny);
+                    if weight <= 0.0 {
+                        continue;
+                    }
+                    apply_pixel(p, &layer.adjustments, weight);
                 }
-                let i = y * w + x;
-                apply_pixel(&mut img.pixels[i], &layer.adjustments, weight);
-            }
-        }
+            });
     }
 }
 
