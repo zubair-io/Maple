@@ -132,9 +132,13 @@ impl Default for ChainOptions<'_> {
 ///
 /// Performance notes (per the worktree-agent-a1ee8a4c brief):
 /// At 2 MP viewport size every stage except `dehaze`, `sharpen` and
-/// `nr_color` runs in <2 ms, and all three of those short-circuit at their
-/// zero defaults. With `sharpen`/`nr_color` engaged the whole-chain cost is
-/// tens of milliseconds — see the stage note above.
+/// `nr_color` runs in <2 ms. Those three short-circuit only when their
+/// *amount* is zero — and note that is NOT the import default: per #326
+/// `AdjustmentModel::default()` ships `sharpen_amount = 40` and
+/// `nr_color = 25` to match the reference renderer's import baseline, so a
+/// freshly-opened image pays for both. `dehaze` does default to zero.
+/// With `sharpen`/`nr_color` engaged the whole-chain cost is tens of
+/// milliseconds — see the stage note above.
 ///
 pub fn apply_scene_linear_chain(
     in_fp16_rgba: &[u16],
