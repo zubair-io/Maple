@@ -119,6 +119,19 @@ pub(super) fn stripped_prefix_model(
     }
 }
 
+/// The decoded frame's noise characterisation, carried from `RawImage` into the
+/// GPU chain (#1714). The NR stages' per-pixel modulation is a function of these
+/// two plus the pixel's own luminance, so the GPU chain has to see exactly what
+/// `develop` hands `noise_reduction::apply_luminance` — otherwise the live
+/// preview and the developed/exported frame denoise differently.
+#[cfg(any(target_arch = "wasm32", test))]
+pub(super) struct NoiseProfileInputs {
+    /// `RawImage::noise_profile`, empty when the file carries none.
+    pub profile: Vec<f32>,
+    /// `RawImage::iso`.
+    pub iso: u32,
+}
+
 /// Assemble the [`FullChainInputs`] the live chain consumes from the FULL user
 /// model + the fitted Auto Profile artifacts. Mirrors `raw_gpu`'s `Case::gpu_inputs`
 /// / the FFI `inputs_from_params` exactly: the WB matrix is derived from the
@@ -130,6 +143,7 @@ pub(super) fn build_full_chain_inputs(
     profile_curve_flat: Vec<f32>,
     residual_lut_size: usize,
     residual_lut_data: Vec<f32>,
+    noise: NoiseProfileInputs,
 ) -> FullChainInputs {
     use raw_core::types::WbMethod;
 
@@ -267,5 +281,10 @@ pub(super) fn build_full_chain_inputs(
             raw_core::types::adjustment::Profile::AcrMatch => raw_gpu::PROFILE_ID_ACR_MATCH,
             _ => 0,
         },
+        // The decoded frame's noise characterisation (#1714) — the same pair
+        // `develop` passes to the CPU NR stages, so the GPU chain's per-pixel
+        // modulation matches the developed/exported frame.
+        noise_profile: noise.profile,
+        iso: noise.iso,
     }
 }
