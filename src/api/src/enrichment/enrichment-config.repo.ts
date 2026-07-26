@@ -40,6 +40,7 @@ export function builtinModelDir(): string {
  * Matches `nominatim-client.ts:DEFAULT_RATE_LIMIT` so behaviour is identical
  * before and after the operator-configurable surface lands. */
 export const DEFAULT_NOMINATIM_RATE_LIMIT_PER_SEC = 10;
+export const DEFAULT_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE = 60;
 
 /** Reject obviously broken values up-front. The lower bound is non-zero so
  * a misclick can't pause the worker silently; the upper bound is generous
@@ -47,6 +48,8 @@ export const DEFAULT_NOMINATIM_RATE_LIMIT_PER_SEC = 10;
  * an accidental three-digit input. */
 export const MIN_NOMINATIM_RATE_LIMIT_PER_SEC = 0.1;
 export const MAX_NOMINATIM_RATE_LIMIT_PER_SEC = 100;
+export const MIN_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE = 1;
+export const MAX_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE = 10_000;
 
 /** Default minimum face size, as a fraction of the 640-px detection frame.
  * A detection whose shorter bbox side is below this threshold is dropped
@@ -190,6 +193,9 @@ export interface EnrichmentConfig {
    * set. `null`/missing → falls back to the `MAPLE_MEILISEARCH_API_KEY` env
    * var. */
   meilisearch_api_key?: string | null;
+  /** Per-service-key request budget for the external asset-search endpoint.
+   * DB-backed so operators can tune it at runtime from Settings → Workers. */
+  service_search_rate_limit_per_minute?: number | null;
   updated_at?: number;
 }
 
@@ -314,6 +320,10 @@ export async function saveEnrichmentConfig(patch: Partial<EnrichmentConfig>): Pr
   }
   if (remapped.meilisearch_api_key !== undefined) {
     set['config.meilisearch_api_key'] = remapped.meilisearch_api_key;
+  }
+  if (remapped.service_search_rate_limit_per_minute !== undefined) {
+    set['config.service_search_rate_limit_per_minute'] =
+      remapped.service_search_rate_limit_per_minute;
   }
   await db.collection(COLL).updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
 }

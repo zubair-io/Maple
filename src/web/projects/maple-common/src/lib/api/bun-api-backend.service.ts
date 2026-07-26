@@ -768,6 +768,7 @@ export class BunApiBackendService {
     /** Meilisearch API key (write-only secret). Non-empty string sets it;
      * `null` clears back to env; omitted/empty leaves the saved key alone. */
     meilisearch_api_key?: string | null;
+    service_search_rate_limit_per_minute?: number | null;
   }): Observable<EnrichmentConfigResponse> {
     return this.http.put<EnrichmentConfigResponse>(`${this.base}/enrichment/config`, body);
   }
@@ -1125,6 +1126,8 @@ export interface EnrichmentConfigResponse {
   /** Whether a Meilisearch API key is configured (DB or env). The key itself
    * is a secret and is never sent on the wire — only this boolean. */
   meilisearch_api_key_set: boolean;
+  /** Per-service-key request budget for POST /api/search/assets. */
+  service_search_rate_limit_per_minute?: number;
   /** Set when face worker is enabled but the model files are missing — UI
    * surfaces this as an actionable banner. Optional for backward compat. */
   face_worker_dormant_reason?: string | null;
@@ -1158,6 +1161,7 @@ export interface EnrichmentConfigResponse {
     face_min_detection_size: 'db' | 'default';
     meilisearch_url: 'db' | 'env' | 'unset';
     meilisearch_api_key: 'db' | 'env' | 'unset';
+    service_search_rate_limit_per_minute?: 'db' | 'default';
   };
 }
 

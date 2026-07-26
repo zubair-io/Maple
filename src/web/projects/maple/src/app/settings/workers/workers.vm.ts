@@ -196,6 +196,7 @@ export interface EnrichmentForm {
   // Write-only: always starts blank (the saved key is never echoed). A
   // blank value on save means "leave the saved key unchanged".
   meilisearch_api_key: string;
+  service_search_rate_limit_per_minute: string;
 }
 
 /** Ollama tag the describe stage is locked to at runtime. The structured
@@ -250,6 +251,7 @@ export function blankEnrichment(ec: EnrichmentConfigResponse | null): Enrichment
     meilisearch_url: ec?.meilisearch_url ?? '',
     // Never seeded from the response — the key is write-only.
     meilisearch_api_key: '',
+    service_search_rate_limit_per_minute: String(ec?.service_search_rate_limit_per_minute ?? 60),
   };
 }
 

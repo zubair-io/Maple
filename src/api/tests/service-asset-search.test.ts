@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { Elysia } from 'elysia';
 import { MongoClient, ObjectId } from 'mongodb';
 import { createServiceApiKey } from '../src/auth/service-api-keys.ts';
+import { saveEnrichmentConfig } from '../src/enrichment/enrichment-config.repo.ts';
 import {
   setMeilisearchClientForTests,
   type MeilisearchClient,
@@ -89,6 +90,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (!mongoReachable) return;
   const db = mongo!.db(TEST_DB);
+  await db.collection('app_settings').deleteMany({});
   await db.collection('service_api_keys').deleteMany({});
   await db.collection('assets').deleteMany({});
   serviceKey = (
@@ -209,6 +211,33 @@ describe('POST /api/search/assets', () => {
         deleted_at: null,
         hidden: false,
       });
+    // The matching filename belongs to a stale location while another
+    // location is live. The exact filename and liveness predicates must
+    // match the same fileinfo element.
+    await mongo!
+      .db(TEST_DB)
+      .collection('assets')
+      .insertOne({
+        maple_id: 'stale-filename',
+        fileinfo: [
+          {
+            library_id: folder,
+            path: '',
+            filename: 'IMG_4185.MOV',
+            deleted_at: new Date().toISOString(),
+            missing_since: null,
+          },
+          {
+            library_id: folder,
+            path: '',
+            filename: 'IMG_9999.MOV',
+            deleted_at: null,
+            missing_since: null,
+          },
+        ],
+        deleted_at: null,
+        hidden: false,
+      });
     setMeilisearchClientForTests({
       isConfigured: () => false,
       semanticConfigured: () => false,
@@ -246,5 +275,55 @@ describe('POST /api/search/assets', () => {
     const empty = await request({ query: '   ' });
     expect(empty.status).toBe(400);
     expect(await empty.json()).toEqual({ error: 'query_must_not_be_empty' });
+  });
+
+  it('authenticates before validating the request body', async () => {
+    if (!mongoReachable) return;
+    const response = await new Elysia().use(serviceAssetSearchRoutes).handle(
+      new Request('http://localhost/api/search/assets', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      }),
+    );
+    expect(response.status).toBe(401);
+  });
+
+  it('reads the per-key request budget from persisted enrichment settings', async () => {
+    if (!mongoReachable) return;
+    await saveEnrichmentConfig({ service_search_rate_limit_per_minute: 1 });
+    const meili = mockMeili({
+      search: async () => ({ ids: [], estimatedTotal: 0 }),
+    });
+    setMeilisearchClientForTests(meili);
+
+    expect((await request({ query: 'first' })).status).toBe(200);
+    const limited = await request({ query: 'second' });
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get('retry-after')).not.toBeNull();
+  });
+
+  it('does not trust X-Forwarded-Proto without explicit trusted-proxy configuration', async () => {
+    if (!mongoReachable) return;
+    const prior = process.env.MAPLE_TRUSTED_PROXIES;
+    delete process.env.MAPLE_TRUSTED_PROXIES;
+    try {
+      const response = await new Elysia().use(serviceAssetSearchRoutes).handle(
+        new Request('http://maple.example/api/search/assets', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${serviceKey}`,
+            'x-forwarded-proto': 'https',
+          },
+          body: JSON.stringify({ query: 'HVAC' }),
+        }),
+      );
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: 'tls_required' });
+    } finally {
+      if (prior === undefined) delete process.env.MAPLE_TRUSTED_PROXIES;
+      else process.env.MAPLE_TRUSTED_PROXIES = prior;
+    }
   });
 });
