@@ -215,7 +215,17 @@ fn apply_scene_linear_chain_scrubs_non_finite_at_pack_endcap() {
         "fp16 must carry Inf in"
     );
 
-    let model = AdjustmentModel::default();
+    // Sharpen / nr_color zeroed (#1043): the chain runs both stages now,
+    // and `AdjustmentModel::default()` carries the reference-import values
+    // 40 / 25 — a spatial pass that would smear the injected NaN across
+    // its neighbours and break the bit-exact finite-lane assertions below.
+    // This test is about the pack endcap's scrub, so it wants the rest of
+    // the chain to be identity.
+    let model = AdjustmentModel {
+        sharpen_amount: 0.0,
+        nr_color: 0.0,
+        ..AdjustmentModel::default()
+    };
     let out = apply_scene_linear_chain(
         &input,
         w,
@@ -275,7 +285,12 @@ fn apply_scene_linear_chain_f32_scrubs_non_finite_at_pack_endcap() {
         0.25,
         1.0,
     ];
-    let model = AdjustmentModel::default();
+    // Sharpen / nr_color zeroed — see the fp16 sibling above (#1043).
+    let model = AdjustmentModel {
+        sharpen_amount: 0.0,
+        nr_color: 0.0,
+        ..AdjustmentModel::default()
+    };
     let out = apply_scene_linear_chain_f32(
         &input,
         w,
