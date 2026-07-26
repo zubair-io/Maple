@@ -211,6 +211,17 @@ final class AdjustmentModelTests: XCTestCase {
         XCTAssertEqual(m.profile, .auto)
     }
 
+    /// Legacy `papp:Profile="AcrMatch"` (#1722, retired in #2312) migrates
+    /// to `.auto` — the profile that superseded it. Sidecars carrying the
+    /// retired value came from `maple-cli --profile acr-match` or were
+    /// hand-authored, so they must keep parsing. Mirrors raw-core's arm in
+    /// `xmp/fields.rs` and the web parser's fallback.
+    func testParseRetiredAcrMatchProfileMigratesToAuto() throws {
+        let xml = xmp(attrs: #"papp:Profile="AcrMatch""#)
+        let (m, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m.profile, .auto)
+    }
+
     /// Case-insensitive parse mirrors `papp:HighlightRecoveryMode` and
     /// raw-core's parser (which uses `eq_ignore_ascii_case`).
     func testParseProfileLowercase() throws {

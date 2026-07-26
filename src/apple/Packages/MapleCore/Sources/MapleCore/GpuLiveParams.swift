@@ -118,11 +118,6 @@ extension PipelineRenderer {
                 (0.0, 0.0)
             }
 
-        // --- render-shaping profile (#1722) --- profile_id lives at the
-        // struct TAIL (append-only ABI); 0 = AgX (Auto/Neutral view path),
-        // 2 = AcrMatch baked-LUT transform.
-        p.profile_id = model.profile == .acrMatch ? 2 : 0
-
         p.temperature = Float(model.temperature)
         p.tint = Float(model.tint)
         p.decoded_temperature = Float(decodedAnchor.temperature)

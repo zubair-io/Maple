@@ -257,7 +257,15 @@ pub(super) fn set_field(
             m.profile = match value {
                 v if v.eq_ignore_ascii_case("Auto") => Profile::Auto,
                 v if v.eq_ignore_ascii_case("Neutral") => Profile::Neutral,
-                v if v.eq_ignore_ascii_case("AcrMatch") => Profile::AcrMatch,
+                // Legacy `AcrMatch` (#1722, retired in #2312): the chart-fitted
+                // view transform was superseded by Auto's per-image
+                // embedded-JPEG fit, which targets the same reference without
+                // the over-exposure on real bodies. Sidecars written by
+                // `maple-cli --profile acr-match` (or by hand) migrate to
+                // `Auto` rather than failing the whole parse — same philosophy
+                // as the `papp:Look` migration above. Deliberately a specific
+                // arm, not a catch-all: unknown values still error.
+                v if v.eq_ignore_ascii_case("AcrMatch") => Profile::Auto,
                 other => return Err(Error::Xmp(format!("unknown Profile: {}", other))),
             };
         }

@@ -295,6 +295,34 @@ fn profile_auto_is_default_and_omitted_from_serialized_output() {
     );
 }
 
+/// Legacy `papp:Profile="AcrMatch"` (#1722, retired in #2312) migrates to
+/// `Auto` — the profile that superseded it. Sidecars carrying the retired
+/// value were produced by `maple-cli --profile acr-match` and by hand, so
+/// they must keep parsing rather than failing the whole sidecar.
+#[test]
+fn legacy_papp_profile_acr_match_migrates_to_profile_auto() {
+    let xmp = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/" xmlns:papp="http://ns.justmaple.app/papp/1.0/">
+        <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description papp:Profile="AcrMatch"/>
+        </rdf:RDF>
+    </x:xmpmeta>"#;
+    let model = crate::xmp::parse(xmp).expect("legacy AcrMatch sidecar must still parse");
+    assert_eq!(model.profile, crate::types::adjustment::Profile::Auto);
+}
+
+/// The `AcrMatch` migration arm is specific, not a catch-all: a genuinely
+/// unknown `papp:Profile` value still fails the parse, so a typo or a
+/// newer-schema value is never silently swallowed as `Auto`.
+#[test]
+fn unknown_papp_profile_value_still_errors() {
+    let xmp = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/" xmlns:papp="http://ns.justmaple.app/papp/1.0/">
+        <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description papp:Profile="WarpDrive"/>
+        </rdf:RDF>
+    </x:xmpmeta>"#;
+    assert!(crate::xmp::parse(xmp).is_err());
+}
+
 #[test]
 fn papp_profile_wins_over_legacy_papp_look() {
     let xmp = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/" xmlns:papp="http://ns.justmaple.app/papp/1.0/">

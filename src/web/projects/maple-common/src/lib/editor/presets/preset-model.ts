@@ -18,7 +18,16 @@
 import {
   ADJUSTMENT_RANGES,
   defaultGeneratedAdjustmentModel,
+  type AutoExposureMode,
+  type BlackWhiteMode,
   type GeneratedAdjustmentModel,
+  type HighlightRecoveryMode,
+  type HotPixelSuppressionMode,
+  type LensProfileEnable,
+  type Look,
+  type Profile,
+  type ToneCurveMode,
+  type WbMethod,
 } from '../../generated/adjustment-model.generated';
 import type { AdjustmentModel } from '../../models/adjustment-model';
 
@@ -67,27 +76,56 @@ const SNAKE_TO_GENERATED_KEY: ReadonlyMap<string, keyof GeneratedAdjustmentModel
 );
 
 /**
+ * Compile-time exhaustiveness guard for the hand-mirrored variant lists
+ * below. The listed tuple must cover EVERY variant of the generated union
+ * `U` — no more, no less. Omitting one, or leaving behind a variant the
+ * schema has dropped, makes the argument unassignable, so `ng build` fails
+ * naming the offending variant instead of the value being silently skipped
+ * at apply time. That bidirectionality is what keeps this table honest
+ * when raw-core adds a variant (e.g. a new `HighlightRecoveryMode`) or
+ * retires one (as `profile` did with `AcrMatch` in #2312).
+ */
+const allVariantsOf =
+  <U extends string>() =>
+  <T extends readonly U[]>(
+    values: T &
+      (Exclude<U, T[number]> extends never
+        ? unknown
+        : ['missing enum variant', Exclude<U, T[number]>]),
+  ): readonly U[] =>
+    values;
+
+/**
  * Allowed values per enum-valued schema field (canonical snake_case
  * names). The generated module only carries these variants as TS union
- * TYPES (erased at runtime), so the table is hand-mirrored here and
- * golden-pinned by `preset-model.spec.ts` (every string-valued generated
- * field listed; every generated default a member). Apply-time validation
- * SKIPS values outside this table instead of failing the whole preset —
- * a newer client's new variant must not break older clients.
+ * TYPES (erased at runtime), so the table is hand-mirrored here — pinned
+ * against the generated unions at compile time by `allVariantsOf`, and
+ * against the generated defaults at runtime by `preset-model.spec.ts`
+ * (every string-valued generated field listed; every generated default a
+ * member; every listed variant round-trips through `buildApplyPatch`).
+ * Apply-time validation SKIPS values outside this table instead of
+ * failing the whole preset — a newer client's new variant must not break
+ * older clients.
  */
 export const ENUM_FIELD_VALUES: Readonly<Record<string, readonly string[]>> = {
-  wb_method: ['Cat16', 'DiagonalRec2020'],
-  highlight_recovery: ['Off', 'Blend', 'Luminance', 'ChromaticAdaptation', 'OklabChromaReduction'],
-  auto_exposure: ['Off', 'On'],
-  look: ['Neutral', 'Default'],
-  profile: ['Auto', 'Neutral'],
-  tone_curve_mode: ['PerChannel', 'RatioPreserving'],
+  wb_method: allVariantsOf<WbMethod>()(['Cat16', 'DiagonalRec2020']),
+  highlight_recovery: allVariantsOf<HighlightRecoveryMode>()([
+    'Off',
+    'Blend',
+    'Luminance',
+    'ChromaticAdaptation',
+    'OklabChromaReduction',
+  ]),
+  auto_exposure: allVariantsOf<AutoExposureMode>()(['Off', 'On']),
+  look: allVariantsOf<Look>()(['Neutral', 'Default']),
+  profile: allVariantsOf<Profile>()(['Auto', 'Neutral']),
+  tone_curve_mode: allVariantsOf<ToneCurveMode>()(['PerChannel', 'RatioPreserving']),
   // Hot/dead-pixel suppression (#1106) — decode-product enum field.
-  hot_pixel_suppression: ['Off', 'On'],
+  hot_pixel_suppression: allVariantsOf<HotPixelSuppressionMode>()(['Off', 'On']),
   // Black & white toggle (#276) — 8-band Oklab stage's monochrome mode.
-  black_white: ['Off', 'On'],
+  black_white: allVariantsOf<BlackWhiteMode>()(['Off', 'On']),
   // DNG lens corrections master switch (#376) — decode-product enum field.
-  lens_profile_enable: ['Off', 'On'],
+  lens_profile_enable: allVariantsOf<LensProfileEnable>()(['Off', 'On']),
 };
 
 // ── Capture (save-preset) ─────────────────────────────────────────────────

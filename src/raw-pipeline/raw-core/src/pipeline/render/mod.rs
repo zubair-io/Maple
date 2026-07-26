@@ -19,7 +19,7 @@ use crate::{
     image::{Image, RawImage},
     stages::{color_grade, grain},
     types::adjustment::{AutoExposureMode, Profile},
-    view::{acr_match, agx, auto_profile, encode},
+    view::{agx, auto_profile, encode},
     xmp::AdjustmentModel,
 };
 
@@ -269,17 +269,11 @@ fn render_display_scene(
     // AgX's sigmoid). The Auto Profile per-channel curve now layers ON TOP
     // of AgX in f32 sRGB-encoded display space (see below), a tone residual
     // toward the JPEG distribution rather than a wholesale replacement.
-    // View transform dispatch — Profile selects between:
-    //   Neutral/Auto (fallback): AgX scene-referred sigmoid
-    //   AcrMatch (#1722): fitted ACR-match model (selectable, not yet default)
-    match model.profile {
-        Profile::AcrMatch => {
-            stage("acr_match", || acr_match::apply(&mut scene));
-        }
-        _ => {
-            stage("agx", || agx::apply(&mut scene, model.contrast));
-        }
-    }
+    // View transform — AgX scene-referred sigmoid for every profile. Auto
+    // and Neutral differ only in the Auto Profile tail layered on below;
+    // the chart-fitted AcrMatch branch that used to sit here was retired in
+    // #2312 (superseded by Auto's per-image embedded-JPEG fit).
+    stage("agx", || agx::apply(&mut scene, model.contrast));
     dump_after("16_agx", &scene);
     // Split toning (#1111, tone/zoom design § 10.3) — display-linear Oklab
     // a/b tint with a balance-shifted crossover; L untouched. Runs before
