@@ -1,6 +1,5 @@
 import { Elysia } from 'elysia';
 import type { Collection, Filter } from 'mongodb';
-import { trustedProxyCount } from '../auth/rate_limit.ts';
 import { authenticateServiceApiKey, type ServiceApiIdentity } from '../auth/service-api-keys.ts';
 import { assetsCollection } from '../db/client.ts';
 import type { AssetDoc } from '../db/schema.ts';
@@ -85,28 +84,6 @@ function parseSearchBody(body: unknown): SearchRequestBody | null {
 
 export function _resetServiceSearchRateLimitsForTests(): void {
   resetServiceSearchRateLimitsForTests();
-}
-
-function trustedForwardedProto(request: Request): string | null {
-  if (process.env.MAPLE_TRUSTED_PROXIES === undefined) return null;
-  const trust = trustedProxyCount();
-  if (trust < 1) return null;
-  const values = request.headers
-    .get('x-forwarded-proto')
-    ?.split(',')
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean);
-  if (!values?.length) return null;
-  return values[Math.max(0, values.length - trust)] ?? null;
-}
-
-function isSecureServiceRequest(request: Request): boolean {
-  const url = new URL(request.url);
-  if (url.protocol === 'https:') return true;
-  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1') {
-    return true;
-  }
-  return trustedForwardedProto(request) === 'https';
 }
 
 function regexEscape(value: string): string {
@@ -391,11 +368,6 @@ export const serviceAssetSearchRoutes = new Elysia({
   name: 'serviceAssetSearchRoutes',
 }).post('/api/search/assets', async ({ body, request, set }) => {
   const startedAt = performance.now();
-  if (!isSecureServiceRequest(request)) {
-    set.status = 400;
-    return { error: 'tls_required' };
-  }
-
   const auth = await authenticateServiceApiKey(
     request.headers.get('authorization'),
     'assets:search',
