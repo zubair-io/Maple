@@ -86,6 +86,13 @@ public enum AdjustmentGroupMerge {
             // case the mode falls through to `default` and the eight
             // gray-mixer weights land on an image still rendering in colour.
             merged.blackWhite = source.blackWhite
+        case .lensProfileEnable:
+            // #376, same failure mode as `.blackWhite` above. In the Detail
+            // group alongside the three `lensCorrection*` scales, which DO
+            // have numeric key paths — so without this case a Detail paste
+            // lands three live strengths and leaves the master switch that
+            // gates them behind on the target.
+            merged.lensProfileEnable = source.lensProfileEnable
         default:
             break // wb_method, tone_curve_mode, capture_sharpening_radius — no Swift property.
         }

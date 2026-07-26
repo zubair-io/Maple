@@ -176,6 +176,63 @@ final class AdjustmentGroupMergeTests: XCTestCase {
         XCTAssertEqual(merged.blackWhite, .off)
     }
 
+    /// #376, the same failure mode as `.blackWhite` one group over.
+    /// `lens_profile_enable` is the Detail-group field with no numeric key
+    /// path, so it reaches the enum switch while its three
+    /// `lensCorrection*` scales take the keypath fast path. Without an
+    /// explicit case the switch dropped it, landing three live strengths on
+    /// a target whose master switch still said the source's old value — the
+    /// switch gates the scales, so they travel together or not at all.
+    func testLensProfileEnableMovesWithDetailGroupAlongsideItsScales() {
+        var source = AdjustmentModel.default
+        source.lensProfileEnable = .off // default is .on
+        source.lensCorrectionDistortion = 80
+        source.lensCorrectionCa = 0
+        source.lensCorrectionVignetting = 55
+
+        let target = AdjustmentModel.default
+        let merged = AdjustmentGroupMerge.merged(target, applying: source, groups: [.detail])
+
+        XCTAssertEqual(merged.lensProfileEnable, .off)
+        XCTAssertEqual(merged.lensCorrectionDistortion, 80)
+        XCTAssertEqual(merged.lensCorrectionCa, 0)
+        XCTAssertEqual(merged.lensCorrectionVignetting, 55)
+    }
+
+    /// The mirror direction, and the reason the group patch is dense:
+    /// pasting from a source with untouched lens settings must restore a
+    /// target that had them disabled.
+    func testDetailGroupRestoresFullStrengthLensCorrectionsOnTheTarget() {
+        let source = AdjustmentModel.default // lensProfileEnable == .on, scales 100
+        var target = AdjustmentModel.default
+        target.lensProfileEnable = .off
+        target.lensCorrectionVignetting = 10
+
+        let merged = AdjustmentGroupMerge.merged(target, applying: source, groups: [.detail])
+
+        XCTAssertEqual(merged.lensProfileEnable, .on)
+        XCTAssertEqual(merged.lensCorrectionVignetting, 100)
+    }
+
+    /// Lens corrections are Detail-only — they must not ride along with a
+    /// Geometry (crop) paste, which is the group a reader might expect them
+    /// in. They live in Detail because they are decode-product parameters,
+    /// in the same cache-key family as `chromaPrefilter` / `deepDenoise`.
+    func testLensCorrectionsOnlyMoveWithDetailGroup() {
+        var source = AdjustmentModel.default
+        source.lensProfileEnable = .off
+        source.lensCorrectionDistortion = 20
+
+        let target = AdjustmentModel.default
+        let withoutDetail = AdjustmentGroupMerge.merged(
+            target, applying: source,
+            groups: [.whiteBalance, .tone, .color, .effects, .geometry]
+        )
+
+        XCTAssertEqual(withoutDetail.lensProfileEnable, .on)
+        XCTAssertEqual(withoutDetail.lensCorrectionDistortion, 100)
+    }
+
     func testEnumValuedToneFieldMovesWithToneGroup() {
         var source = AdjustmentModel.default
         source.autoExposure = .off // default is .on
