@@ -232,8 +232,14 @@ describe('canonical XMP document (#1577)', () => {
   });
 });
 
+/**
+ * A pre-canonical sidecar, kept verbatim so the re-save path is pinned against
+ * real legacy bytes. The `begin` attribute's U+FEFF is written as an explicit
+ * escape, not a literal: this fixture is compared byte-for-byte, so an
+ * invisible character here would let an editor silently move the goalposts.
+ */
 const LEGACY_LAYOUT_SIDECAR = [
-  '<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>',
+  '<?xpacket begin="\uFEFF" id="W5M0MpCehiHzreSzNTczkc9d"?>',
   '<x:xmpmeta xmlns:x="adobe:ns:meta/">',
   '  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">',
   '    <rdf:Description',
