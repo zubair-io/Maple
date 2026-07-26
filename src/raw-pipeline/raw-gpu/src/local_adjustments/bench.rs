@@ -91,6 +91,11 @@ fn bench_inputs(layers_flat: Vec<f32>) -> FullChainInputs {
         target_primaries: 0,
         input_shape: InputShape::PostDcpRec2020Fp16,
         profile_id: 0,
+        // #1714's per-pixel NR modulation inputs. Empty + ISO 0 is the flat
+        // filter, which is what this bench wants — it measures the local-
+        // adjustments stage, not noise reduction.
+        noise_profile: Vec::new(),
+        iso: 0,
     }
 }
 
