@@ -12,10 +12,16 @@
 // on does NOT change behaviour on a no-WebGPU host — that path stays byte-for-byte
 // the threaded CPU render it is today.
 //
-// Operator override per deployment in `app.config.ts` (e.g. a kill-switch):
+// Build/deploy-time override in `app.config.ts`:
 //   { provide: GPU_LIVE_RENDER_ENABLED, useValue: false }
-// A DB-backed settings gate for runtime operator ramp/kill is tracked as a
-// fast-follow (#1062); until then this token is the switch.
+//
+// #1062: this token is no longer the operator switch — it is the FALLBACK
+// default and the hard floor. The runtime ramp/kill is the DB-backed
+// `render.gpu_live_render_enabled` setting (Settings → Workers → Web GPU live
+// render), combined with this token by `GpuLiveRenderGate`: the token being
+// `false` is unconditional, and the DB setting decides otherwise. Consumers
+// read `GpuLiveRenderGate.enabled()` (or `RawPipelineService
+// .gpuLiveRenderEnabled`), never this token directly.
 //
 // Real-WebGPU-browser parity + the 16 ms slider-tick budget remain a manual
 // checkpoint (W3 / #1029) — headless CI WebGPU is unreliable.
