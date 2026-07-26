@@ -15,9 +15,15 @@
  * verdict (which handles cropped screenshots and photos-of-screens this
  * filename heuristic can't); the screenshot migration then re-files anything
  * the heuristic missed. So this is a fast first guess, not the last word.
+ *
+ * Videos are excluded outright: no video container is ever a screenshot,
+ * whatever it is named, and whatever the VLM later thinks of its poster
+ * frame (see `workers/stages/describe.ts`, which clamps its own verdict the
+ * same way). `is_screenshot` is a stills-only concept (#2325).
  */
 
 import * as path from 'node:path';
+import { isVideoFilename } from './media-types.ts';
 
 /** Filename patterns that almost always indicate a screenshot.
  *
@@ -34,6 +40,12 @@ export const SCREENSHOT_FILENAME_RE = /^(Screenshot[\s_-]|Screen[\s]Shot[\s])/i;
  * Pure filename test — used at backup ingest, where no EXIF has been parsed
  * yet so the only signal available is the name the device reported. */
 export function isScreenshotFilename(filename: string): boolean {
+  // `is_screenshot` is a stills-only concept (#2325) — a screen recording is
+  // a video and belongs in the video bucket, not the Screenshots one. This
+  // guard, not the camera-make check in `isLikelyScreenshot`, is what
+  // actually protects video: every video container is in `NO_EXIF_EXTS`, so
+  // exifr never returns a make and that branch is dead code for them.
+  if (isVideoFilename(filename)) return false;
   return SCREENSHOT_FILENAME_RE.test(path.basename(filename));
 }
 
@@ -43,6 +55,10 @@ export function isScreenshotFilename(filename: string): boolean {
  * negatives because the describe stage will correct false negatives on
  * its next pass but a false positive sticks in the "Photos" view until
  * the operator manually clears it.
+ *
+ * Note the camera_make guard does nothing for video: video containers are
+ * in `NO_EXIF_EXTS`, so exifr never returns a make for them. Video is kept
+ * out by the extension check in `isScreenshotFilename` below, not by this.
  *
  * The describe stage overwrites this with the qwen2.5-vl verdict once
  * it runs, which handles cropped screenshots and photos-of-screens. */
