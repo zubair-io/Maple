@@ -1026,18 +1026,15 @@ struct AppShell: View {
         AppShellToolbar(
             // `.editing` and `.preview` both own their chrome (back chevron,
             // export/share, filename), so the window toolbar suppresses every
-            // browse control (fill/fit, select, cloud view-mode) for both —
-            // only Library/Search/Settings survive so the sidebar stays
+            // browse control (fill/fit, select) for both — only
+            // Library/Search/Settings survive so the sidebar stays
             // toggleable (#815; Fast Preview §1).
             isEditing: mode == .editing || mode == .preview,
             isCompact: isCompactShell,
             searchAvailable: searchAvailable,
             isSearchActive: isSearchActive,
-            isCloudLibrary: searchAvailable,
-            cloudViewMode: currentCloudViewMode,
             browseDisplayMode: $browseDisplayMode,
             onOpenSearch: { toggleSearch() },
-            onSetCloudViewMode: { setCloudViewMode($0) },
             onOpenFolder: { showFilePicker = true },
             onSettings: { showSettings = true },
             // M1 multi-select (#1236): show the Select/Done toggle in browse mode only.

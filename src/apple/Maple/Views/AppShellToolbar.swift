@@ -25,10 +25,9 @@ struct AppShellToolbar: ToolbarContent {
     /// `.editing` editor OR the Fast-Preview `.preview` surface, Mac/iPad
     /// pane shell). Those views render their own header (back + filename),
     /// so the window toolbar suppresses every browse-specific control (grid
-    /// fill/fit, select, cloud view-mode) — only the persistent
-    /// Library/Search/Settings group survives, so the sidebar can still be
-    /// toggled. Always false on iPhone (it never enters these pane-shell
-    /// modes).
+    /// fill/fit, select) — only the persistent Library/Search/Settings group
+    /// survives, so the sidebar can still be toggled. Always false on
+    /// iPhone (it never enters these pane-shell modes).
     var isEditing: Bool = false
     /// True on the compact (iPhone) shell, where Library / Search / Settings
     /// live in the bottom tab bar. Desktop (Mac / iPad) renders them as a
@@ -39,21 +38,10 @@ struct AppShellToolbar: ToolbarContent {
     let searchAvailable: Bool
     /// True when the search UI is currently showing — drives the Search tint.
     let isSearchActive: Bool
-    /// True when the selected source is a Maple Cloud library — gates the
-    /// trailing Timeline/Folder view-mode toggle (which only makes sense
-    /// for cloud libraries). The toggle moved here from the sidebar (#782).
-    let isCloudLibrary: Bool
-    /// Current cloud view mode — drives the toggle's active tint. Ignored
-    /// when `isCloudLibrary` is false.
-    let cloudViewMode: CloudViewMode
     /// Grid fill/fit toggle — toolbar both reads (icon) and writes (tap).
     @Binding var browseDisplayMode: GridDisplayMode
     /// Desktop only — opens the cloud search view (the "Search" button).
     let onOpenSearch: () -> Void
-    /// Switch the current cloud library between Timeline and Folder view.
-    /// Wired to `AppShell.setCloudViewMode`. Only invoked from the trailing
-    /// toggle, which is shown only when `isCloudLibrary` is true.
-    let onSetCloudViewMode: (CloudViewMode) -> Void
     /// Triggered by the hidden ⌘O keyboard shortcut.
     let onOpenFolder: () -> Void
     /// Tapped when the user hits the Settings gear (also ⌘, on macOS).
@@ -110,16 +98,6 @@ struct AppShellToolbar: ToolbarContent {
                 .accessibilityIdentifier("multi-select-toggle")
             }
         }
-        // Cloud Timeline/Folder view-mode toggle — browse mode, cloud
-        // libraries only. Moved here from the sidebar's per-server header
-        // (#782) so it sits to the right of the fill/fit control. Tapping
-        // re-routes the current library through the chosen view mode via
-        // `AppShell.setCloudViewMode`.
-        if !isEditing && isCloudLibrary {
-            ToolbarItem(placement: .primaryAction) {
-                cloudViewModeToggle
-            }
-        }
         // ⌘O keyboard shortcut — desktop only. Omitted on the compact (iPhone)
         // shell: there's no hardware ⌘O there, and a hidden trailing item would
         // otherwise render as an empty glass capsule (iOS 26 groups toolbar
@@ -167,24 +145,5 @@ struct AppShellToolbar: ToolbarContent {
                 #endif
             }
         }
-    }
-
-    /// Single-button Timeline ↔ Folder toggle for the trailing header,
-    /// shown only for cloud libraries. One-button shape mirrors the
-    /// adjacent fill/fit toggle: the icon shows the CURRENT mode
-    /// (calendar = Timeline, folder = Folder) and a tap flips to the
-    /// other. (Replaced the earlier two-icon pair — #782.)
-    @ViewBuilder
-    private var cloudViewModeToggle: some View {
-        Button {
-            onSetCloudViewMode(cloudViewMode == .timeline ? .folder : .timeline)
-        } label: {
-            Image(systemName: cloudViewMode == .timeline ? "calendar" : "folder")
-                .foregroundStyle(MapleTokens.textMuted)
-        }
-        .accessibilityLabel(cloudViewMode == .timeline
-                            ? "Switch to Folder view"
-                            : "Switch to Timeline view")
-        .accessibilityIdentifier("cloud-view-mode-toggle")
     }
 }
