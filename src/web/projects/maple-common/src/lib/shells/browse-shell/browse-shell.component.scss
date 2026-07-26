@@ -1,14 +1,17 @@
 // Tailwind utilities cover layout. What stays here:
 // 1. `:host` viewport sizing — Angular host selector.
 // 2. `.chrome-btn.is-active` overlay swap — bound via [class.is-active] on the
-//    element so containment-style Tailwind variants don't fire.
-// 3. `.export-btn.has-selection` / `.no-selection` colour swaps — likewise.
-// 4. `.panel-right.is-hidden` removes the left border when the inspector is
+//    element so containment-style Tailwind variants don't fire. (Duplicated
+//    in toolbar-actions.component.scss — that component owns its own kebab
+//    toggle button and view-encapsulated styles don't cross the boundary.)
+// 3. `.panel-right.is-hidden` removes the left border when the inspector is
 //    collapsed (otherwise the 0.5px line stays visible against the bg).
-// 5. Responsive rules (#2280) — source sidebar width, toolbar search width,
-//    toolbar wrap/scroll, and the overflow-menu popover. Breakpoints mirror
-//    `LayoutService` (768/1024 — see `layout-service.ts`); `@media` cutoffs
-//    are 767/1023 to match.
+// 4. Responsive rules (#2280) — source sidebar width and toolbar
+//    wrap/scroll/search width. Breakpoints mirror `LayoutService` (768/1024
+//    — see `layout-service.ts`); `@media` cutoffs are 767/1023 to match.
+//    The action-pills row + its overflow-menu popover moved to
+//    toolbar-actions/toolbar-actions.component.scss (#2293 fallow-audit-web
+//    fix — kept the parent template's complexity under the fallow gate).
 
 :host {
   display: flex;
@@ -26,19 +29,6 @@
 .view-mode-btn.is-active {
   background: rgba(255, 255, 255, 0.04);
   color: var(--color-text-main);
-}
-
-.export-btn.has-selection {
-  background: var(--color-primary-dim);
-  color: var(--color-primary);
-  border: 0.5px solid var(--color-primary);
-}
-.export-btn.no-selection {
-  background: var(--color-input-bg);
-  color: var(--color-text-muted);
-  border: 0.5px solid var(--color-border);
-  opacity: 0.5;
-  cursor: default;
 }
 
 .panel-right.is-hidden {
@@ -80,35 +70,5 @@
   .toolbar-search {
     flex: 1 1 auto;
     max-width: none;
-  }
-}
-
-// ── Toolbar overflow menu (#2280) ────────────────────────────────────────
-// Kebab-triggered dropdown holding the action pills below the desktop
-// breakpoint. Anchored to `.toolbar-overflow` (the kebab button's
-// `position: relative` wrapper).
-.toolbar-overflow {
-  position: relative;
-}
-.toolbar-overflow-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px;
-  min-width: 200px;
-  background: var(--color-surface);
-  border: 0.5px solid var(--color-border);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-
-  // The pills were laid out for a horizontal row; stack + left-align them
-  // inside the menu instead of centering short labels in a wide button.
-  > button {
-    width: 100%;
-    justify-content: flex-start;
   }
 }
