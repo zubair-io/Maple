@@ -37,7 +37,6 @@
   background: var(--s-bg);
   color: var(--s-text);
   font-family: var(--s-font);
-  min-height: 100%;
 
   // Match the shell's responsive collapse so consumers of
   // --s-sidebar-width stay in sync without duplicating breakpoints.
@@ -47,6 +46,25 @@
   @media (max-width: 767px) {
     --s-sidebar-width: 0px;
   }
+}
+
+// Sizing for the *routed* Settings pages — the components whose template root
+// is `<maple-settings-shell>`. Their host must be a **definite** height, not
+// merely a minimum: the shell's `.page` is the scroll container, and a
+// percentage-height chain (`.page` ← `.settings-shell` ← shell `:host` ← page
+// `:host`) only resolves when every ancestor up to `<html>` has a definite
+// height. With `min-height: 100%` alone the whole chain computes to `auto`,
+// `.page` grows to fit its content instead of scrolling, and `html, body {
+// overflow: hidden }` (styles.scss) clips everything below the fold with no
+// way to reach it.
+//
+// Embedded panels (mirror-settings, derivative-audit-settings, paired-devices)
+// deliberately do NOT include this — they size to their content inside a page
+// that is already scrolling.
+@mixin settings-page-host {
+  display: block;
+  height: 100%;
+  min-height: 0;
 }
 
 @mixin settings-atoms {
