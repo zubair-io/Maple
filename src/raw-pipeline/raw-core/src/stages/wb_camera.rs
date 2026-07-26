@@ -157,25 +157,25 @@
 //! to [`apply`] (absolute, via [`resolve_target`]) otherwise — mirroring
 //! the post-DCP path's own `Some`/`None` dispatch on the same parameter.
 //!
-//! ## GPU-live boundary (documented, not yet closed — tracked for #1727)
+//! ## GPU-live boundary (closed)
 //!
-//! The GPU-live / per-tick FFI path (`pipeline::scene_linear_chain::
-//! apply_scene_linear_chain[_f32]`, and every `raw-gpu` chain —
-//! `WhiteBalancePass`, `full_chain`, `live_chain`) receives an
-//! **already-decoded, post-DCP** scene-linear Rec.2020 buffer — no
-//! camera-native buffer or `DcpProfile` exists at that layer to apply
-//! this module's math against. Those paths keep using the existing
-//! Rec.2020-space CAT16 `wb_cat16_matrix` / `white_balance::apply_delta`
-//! contract unchanged — [`apply_delta`] above closes the gap for the CPU
-//! tile-refine path specifically, not for the GPU-live per-tick path.
+//! The GPU-live / per-tick FFI path receives an **already-decoded,
+//! post-DCP** scene-linear Rec.2020 buffer, so no camera-native buffer or
+//! `DcpProfile` exists at that layer to apply this module's math against
+//! directly. That gap used to mean a cold/refine render and a slider tick
+//! computed user WB differently for the same non-default
+//! `(temperature, tint)` — the seam #1727 tracked.
 //!
-//! Net effect: a cold/refine render (this module, camera-space) and a
-//! GPU-live slider tick (unchanged, scene-linear CAT16) compute user WB
-//! differently for the same non-default `(temperature, tint)`. Closing
-//! that gap means teaching the GPU chain to run DCP itself, or to accept
-//! a precomputed camera-space delta *matrix* through the FFI the way
-//! `WhiteBalancePass` accepts a precomputed Rec.2020 matrix today. Both
-//! are real WGSL/FFI-surface changes; #1727 tracks the remainder.
+//! It is closed. Rather than teach the GPU chain to run DCP, the decode
+//! exports a [`SliderFrameExport`] (#1781) — the camera-calibration frame
+//! the develop chain interprets the sliders in — and the per-tick chain
+//! derives its delta in that same frame via
+//! `SliderFrameExport::apply_delta_rec2020`. See
+//! `pipeline::scene_linear_chain::ChainOptions::wb_frame` and its dispatch;
+//! the export is carried across the FFI in `raw-ffi`'s gpu_live params and
+//! gated by `gpu_live_wb_frame_tests` / `gpu_live_wb_seam_tests`.
+//! `wb_frame: None` keeps the legacy `white_balance::apply_delta` path
+//! bit-identical for callers that pass no export.
 
 use crate::{
     color::dcp::{self, DcpProfile},
