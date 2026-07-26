@@ -84,14 +84,16 @@ describe('altitudeFromXmp', () => {
 });
 
 describe('langAltBlock', () => {
-  it('emits an x-default rdf:Alt block with 2-space indentation', () => {
+  // Six-space child indent, two per nesting level — the canonical ladder
+  // every nested child shares since #1577. These blocks used 2/3/4 before.
+  it('emits an x-default rdf:Alt block at the canonical child indent', () => {
     expect(langAltBlock('dc:title', 'Sunset')).toBe(
       [
-        '  <dc:title>',
-        '   <rdf:Alt>',
-        '    <rdf:li xml:lang="x-default">Sunset</rdf:li>',
-        '   </rdf:Alt>',
-        '  </dc:title>',
+        '      <dc:title>',
+        '        <rdf:Alt>',
+        '          <rdf:li xml:lang="x-default">Sunset</rdf:li>',
+        '        </rdf:Alt>',
+        '      </dc:title>',
       ].join('\n'),
     );
   });
@@ -106,11 +108,11 @@ describe('seqBlock', () => {
   it('emits an rdf:Seq with one rdf:li', () => {
     expect(seqBlock('dc:creator', 'Ansel Adams')).toBe(
       [
-        '  <dc:creator>',
-        '   <rdf:Seq>',
-        '    <rdf:li>Ansel Adams</rdf:li>',
-        '   </rdf:Seq>',
-        '  </dc:creator>',
+        '      <dc:creator>',
+        '        <rdf:Seq>',
+        '          <rdf:li>Ansel Adams</rdf:li>',
+        '        </rdf:Seq>',
+        '      </dc:creator>',
       ].join('\n'),
     );
   });
