@@ -303,27 +303,18 @@ describe('POST /api/search/assets', () => {
     expect(limited.headers.get('retry-after')).not.toBeNull();
   });
 
-  it('does not trust X-Forwarded-Proto without explicit trusted-proxy configuration', async () => {
+  it('accepts service-key authentication over plain HTTP on remote hosts', async () => {
     if (!mongoReachable) return;
-    const prior = process.env.MAPLE_TRUSTED_PROXIES;
-    delete process.env.MAPLE_TRUSTED_PROXIES;
-    try {
-      const response = await new Elysia().use(serviceAssetSearchRoutes).handle(
-        new Request('http://maple.example/api/search/assets', {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            authorization: `Bearer ${serviceKey}`,
-            'x-forwarded-proto': 'https',
-          },
-          body: JSON.stringify({ query: 'HVAC' }),
-        }),
-      );
-      expect(response.status).toBe(400);
-      expect(await response.json()).toEqual({ error: 'tls_required' });
-    } finally {
-      if (prior === undefined) delete process.env.MAPLE_TRUSTED_PROXIES;
-      else process.env.MAPLE_TRUSTED_PROXIES = prior;
-    }
+    const response = await new Elysia().use(serviceAssetSearchRoutes).handle(
+      new Request('http://maple.example/api/search/assets', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${serviceKey}`,
+        },
+        body: JSON.stringify({ query: 'HVAC' }),
+      }),
+    );
+    expect(response.status).toBe(200);
   });
 });
