@@ -9,13 +9,17 @@
 //!
 //! Stages, in order: `white_balance::apply_delta` → `scene_tone_controls`
 //! → `tone_curves` → `vibrance` → `saturation` → `hsl` → `clarity` →
-//! `texture` → `dehaze` → `local_adjustments` → `vignette` → `nr_luminance`
-//! → `agx` → `split_tone` → `grain` (the AgX + display tail runs when
-//! `skip_agx == false`).
+//! `texture` → `dehaze` → `local_adjustments` → `vignette` → `sharpen` →
+//! `nr_luminance` → `nr_color` → `agx` → `split_tone` → `grain` (the AgX
+//! + display tail runs when `skip_agx == false`).
 //!
-//! **Deliberately omits** `sharpen` and `nr_color` — those two stay on
-//! the Apple GPU path (Metal compute pipelines). See the per-function
-//! doc-comment for the rationale.
+//! `sharpen` and `nr_color` were omitted here for as long as the Apple
+//! shell re-applied them post-AgX through its own Metal kernels. Those
+//! kernels were deleted in #1043 (epic #925 P5b) once the wgpu/WGSL chain
+//! became the shipping GPU path, so this CPU chain — the oracle and the
+//! no-GPU fallback for that WGSL chain — now runs both stages itself, at
+//! the same canonical scene-linear positions `develop` and the GPU live
+//! chain use (`vignette` → `sharpen` → `nr_luminance` → `nr_color`).
 
 mod composite;
 
@@ -90,17 +94,20 @@ impl Default for ChainOptions<'_> {
 ///
 /// Stages, in order: `white_balance::apply_delta` → `scene_tone_controls`
 /// → `tone_curves` → `vibrance` → `saturation` → `hsl` → `clarity` →
-/// `texture` → `dehaze` → `local_adjustments` → `vignette` → `nr_luminance`
-/// → `agx` → `split_tone` → `grain` (AgX + the display-linear stages skipped
-/// together on the non-RAW path).
+/// `texture` → `dehaze` → `local_adjustments` → `vignette` → `sharpen` →
+/// `nr_luminance` → `nr_color` → `agx` → `split_tone` → `grain` (AgX + the
+/// display-linear stages skipped together on the non-RAW path).
 ///
-/// **Deliberately omits** `sharpen` and `nr_color`. Those two stages are
-/// kept on the Apple GPU path (Metal compute pipelines) because:
-///   * sharpen at viewport size dominates Rust-on-CPU latency (~33 ms on a
-///     2 MP buffer, exceeding the 16 ms slider tick budget); GPU is
-///     essential.
-///   * nr_color is borderline (~5 ms) but architecturally easier to leave
-///     on Metal alongside sharpen than to split the FFI surface.
+/// `sharpen` and `nr_color` (#1043) are the two spatial stages that used to
+/// be omitted here, because the Apple shell re-applied them post-AgX with
+/// Metal compute kernels that this chain must not double-apply. Those
+/// kernels are gone: the wgpu/WGSL live chain runs both stages in-chain at
+/// the canonical scene-linear positions, and this function is that chain's
+/// CPU oracle plus its no-GPU fallback, so it runs them too. On the CPU
+/// they are the expensive pair — sharpen is ~33 ms on a 2 MP viewport
+/// buffer and nr_color ~5 ms, so a fallback tick carrying non-zero sharpen
+/// no longer fits the 16 ms budget. That is the accepted cost of a
+/// correct fallback; the GPU path is the one held to the tick budget.
 ///
 /// Everything about the render besides the buffer and the model — the
 /// decode WB anchor, the WB slider frame, AgX/primaries switches, noise
@@ -124,9 +131,10 @@ impl Default for ChainOptions<'_> {
 /// (unbounded) regardless of `target_primaries`.
 ///
 /// Performance notes (per the worktree-agent-a1ee8a4c brief):
-/// At 2 MP viewport size, every stage in this chain runs in <2 ms with
-/// the exception of dehaze (which short-circuits to a no-op when
-/// `model.dehaze == 0`, the default). Whole-chain target: <10 ms.
+/// At 2 MP viewport size every stage except `dehaze`, `sharpen` and
+/// `nr_color` runs in <2 ms, and all three of those short-circuit at their
+/// zero defaults. With `sharpen`/`nr_color` engaged the whole-chain cost is
+/// tens of milliseconds — see the stage note above.
 ///
 pub fn apply_scene_linear_chain(
     in_fp16_rgba: &[u16],
@@ -147,7 +155,7 @@ pub fn apply_scene_linear_chain(
     use crate::image::{ColorSpace, Image};
     use crate::stages::{
         clarity, color_grade, dehaze, grain, hsl, local_adjustments, noise_reduction,
-        saturation, scene_tone_controls, texture, tone_curves, vibrance, vignette,
+        saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance, vignette,
         white_balance,
     };
     use crate::view::agx;
@@ -194,9 +202,8 @@ pub fn apply_scene_linear_chain(
     });
 
     // Per-stage application — mirrors `develop_scene_linear_from_raw_with_quality`
-    // from `pipeline.rs:182-192`, with sharpen + nr_color intentionally
-    // omitted. The order MUST match the Rust reference so calibrate_color_pipeline
-    // remains the canonical metric.
+    // from `pipeline.rs:182-192`. The order MUST match the Rust reference so
+    // calibrate_color_pipeline remains the canonical metric.
     //
     // WB is `apply_delta(live, decoded)` so opening a sidecar with a
     // saved temperature doesn't double-apply WB on top of the decoded
@@ -255,17 +262,32 @@ pub fn apply_scene_linear_chain(
         local_adjustments::apply(&mut img, &model.local_adjustments)
     });
     // Vignette (#1109) — same chain position as develop (after local
-    // adjustments, before the omitted sharpen). Anchored to this buffer's
+    // adjustments, before sharpen). Anchored to this buffer's
     // extent — the viewport-sized decode of the DefaultCrop render rect,
     // so the normalized gain field matches the full-res render.
     stage("ffi_chain_vignette", || {
         vignette::apply(&mut img, model.vignette_amount, model.vignette_feather)
     });
-    // sharpen omitted — kept on Metal GPU path (~33 ms at viewport on CPU)
+    // Sharpen (#1043) — same chain position as develop (after vignette,
+    // before nr_luminance) and as the GPU live chain's `SharpenPass`.
+    // `sharpen::apply` short-circuits below |amount| < 1e-3.
+    stage("ffi_chain_sharpen", || {
+        sharpen::apply(
+            &mut img,
+            model.sharpen_amount,
+            model.sharpen_radius,
+            model.sharpen_detail,
+            model.sharpen_masking,
+        )
+    });
     stage("ffi_chain_nr_luminance", || {
         noise_reduction::apply_luminance(&mut img, model.nr_luminance, noise_profile, iso)
     });
-    // nr_color omitted — kept on Metal GPU path alongside sharpen
+    // Chroma noise reduction (#1043) — develop's `nr_color`, immediately
+    // after nr_luminance; identity below |amount| < 1e-3.
+    stage("ffi_chain_nr_color", || {
+        noise_reduction::apply_color(&mut img, model.nr_color, noise_profile, iso)
+    });
     if !skip_agx {
         stage("ffi_chain_agx", || agx::apply(&mut img, model.contrast));
         // Split toning (#1111) — display-linear Oklab tint, post-AgX,
@@ -363,7 +385,7 @@ pub fn apply_scene_linear_chain_f32(
     use crate::image::{ColorSpace, Image};
     use crate::stages::{
         clarity, color_grade, dehaze, grain, hsl, local_adjustments, noise_reduction,
-        saturation, scene_tone_controls, texture, tone_curves, vibrance, vignette,
+        saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance, vignette,
         white_balance,
     };
     use crate::view::agx;
@@ -455,11 +477,26 @@ pub fn apply_scene_linear_chain_f32(
     stage("ffi_chain_vignette", || {
         vignette::apply(&mut img, model.vignette_amount, model.vignette_feather)
     });
-    // sharpen omitted — kept on Metal GPU path (~33 ms at viewport on CPU)
+    // Sharpen (#1043) — same chain position as develop (after vignette,
+    // before nr_luminance) and as the GPU live chain's `SharpenPass`.
+    // `sharpen::apply` short-circuits below |amount| < 1e-3.
+    stage("ffi_chain_sharpen", || {
+        sharpen::apply(
+            &mut img,
+            model.sharpen_amount,
+            model.sharpen_radius,
+            model.sharpen_detail,
+            model.sharpen_masking,
+        )
+    });
     stage("ffi_chain_nr_luminance", || {
         noise_reduction::apply_luminance(&mut img, model.nr_luminance, noise_profile, iso)
     });
-    // nr_color omitted — kept on Metal GPU path alongside sharpen
+    // Chroma noise reduction (#1043) — develop's `nr_color`, immediately
+    // after nr_luminance; identity below |amount| < 1e-3.
+    stage("ffi_chain_nr_color", || {
+        noise_reduction::apply_color(&mut img, model.nr_color, noise_profile, iso)
+    });
     if !skip_agx {
         stage("ffi_chain_agx", || agx::apply(&mut img, model.contrast));
         // Split toning (#1111) + film grain (#1110) — see the fp16 sibling.
