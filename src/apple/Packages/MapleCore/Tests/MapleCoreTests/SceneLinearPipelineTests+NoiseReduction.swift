@@ -7,6 +7,7 @@
 import XCTest
 import CoreImage
 import CoreGraphics
+import Metal
 @testable import MapleCore
 
 extension SceneLinearPipelineTests {
@@ -152,30 +153,106 @@ extension SceneLinearPipelineTests {
             "NR luminance pushed centre R above 2.0 (clip headroom): \(bR)")
     }
 
-    /// Same shape but for NR color. The boost slider increases blur on
-    /// the a/b channels; assert no catastrophic chroma collapse.
+    /// Same shape but for NR color: the boost slider must actually reduce
+    /// chroma noise, without collapsing the frame.
+    ///
+    /// The input is spatially uncorrelated chroma noise on a neutral base
+    /// (#1043). It used to be `makeAlternatingChromaSceneLinearCIImage`'s
+    /// two-row red/green stripe, which worked while nr_color was a plain
+    /// Oklab box blur in Metal but is exactly the wrong probe now that the
+    /// stage is raw-core's non-local-means: NLM finds a perfect match for
+    /// every patch of a strictly periodic pattern and correctly preserves
+    /// it as signal, so the stripe's centre chroma came back marginally
+    /// HIGHER at amount 100. Random noise has no such self-similarity, so
+    /// this measures denoising rather than NLM's edge preservation — and
+    /// the statistic is the whole-frame mean |R-G|, not one pixel, because
+    /// a single sample of a noise field says nothing.
+    ///
+    /// `sharpenAmount` is zeroed alongside `nrLuminance` for the same
+    /// reason both arms zero everything else: the chain runs sharpen now,
+    /// and this test is about nr_color alone.
     func testM3ProcessSceneLinearAppliesNRColor() async throws {
         let pipeline = ImageEditPipeline()
-        let input = Self.makeAlternatingChromaSceneLinearCIImage(width: 32, height: 32)
+        let input = Self.makeChromaNoiseSceneLinearCIImage(width: 32, height: 32)
 
         var modelDefault = AdjustmentModel.default
         modelDefault.nrLuminance = 0
         modelDefault.nrColor = 0
+        modelDefault.sharpenAmount = 0
         var modelBoost = modelDefault
         modelBoost.nrColor = 100
 
         let outDefault = pipeline.processSceneLinear(decoded: input, model: modelDefault)
         let outBoost   = pipeline.processSceneLinear(decoded: input, model: modelBoost)
 
-        let dRG = Self.sampleCenterRMinusG(outDefault, width: 32, height: 32)
-        let bRG = Self.sampleCenterRMinusG(outBoost, width: 32, height: 32)
+        let dRG = Self.meanAbsRMinusG(outDefault, width: 32, height: 32)
+        let bRG = Self.meanAbsRMinusG(outBoost, width: 32, height: 32)
         XCTAssertTrue(dRG.isFinite && bRG.isFinite,
-            "NR color produced non-finite R-G: default=\(dRG) boost=\(bRG)")
-        // NR color blurs chroma — the centre of an alternating-chroma
-        // scene should see chroma reduced. We accept >= as a smoke
-        // threshold (no-op kernel passes; running kernel produces a
-        // smaller |R-G| at the centre).
-        XCTAssertLessThanOrEqual(abs(bRG), abs(dRG) + 1e-3,
-            "NR color +100 should not increase |R-G| at centre — got default=\(dRG) boost=\(bRG)")
+            "NR color produced non-finite mean |R-G|: default=\(dRG) boost=\(bRG)")
+        XCTAssertGreaterThan(dRG, 0.01,
+            "chroma-noise probe is too clean to measure denoising: \(dRG)")
+        XCTAssertLessThan(bRG, dRG,
+            "NR color +100 must reduce mean |R-G| over a chroma-noise field — " +
+            "got default=\(dRG) boost=\(bRG)")
+    }
+
+    /// A 32×32 scene-linear Rec.2020 fp16 image: neutral 0.4 base with
+    /// spatially uncorrelated chroma noise pushed into R and G in
+    /// opposite directions (so |R-G| is a direct chroma-noise readout).
+    /// Deterministic — a fixed-seed LCG, no `random()`.
+    static func makeChromaNoiseSceneLinearCIImage(width w: Int, height h: Int) -> CIImage {
+        var pixels = [UInt16](repeating: 0, count: w * h * 4)
+        let one = Self.float32ToFloat16Bits(1.0)
+        var seed: UInt32 = 0x9E37_79B9
+        for i in 0..<(w * h) {
+            seed = seed &* 1_664_525 &+ 1_013_904_223
+            let unit = Float(seed >> 8) / Float(1 << 24)   // [0, 1)
+            let n = (unit - 0.5) * 0.16                    // ±0.08
+            pixels[i * 4 + 0] = Self.float32ToFloat16Bits(0.4 + n)
+            pixels[i * 4 + 1] = Self.float32ToFloat16Bits(0.4 - n)
+            pixels[i * 4 + 2] = Self.float32ToFloat16Bits(0.4)
+            pixels[i * 4 + 3] = one
+        }
+        let data = pixels.withUnsafeBufferPointer {
+            Data(bytes: $0.baseAddress!, count: $0.count * 2)
+        }
+        return CIImage(
+            bitmapData: data,
+            bytesPerRow: w * 4 * 2,
+            size: CGSize(width: w, height: h),
+            format: .RGBAh,
+            colorSpace: CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        )
+    }
+
+    /// Whole-frame mean of |R - G| over a rendered CIImage, read back in
+    /// the same fp16 Rec.2020 space `sampleCenterRMinusG` uses.
+    static func meanAbsRMinusG(_ ci: CIImage, width w: Int, height h: Int) -> Float {
+        let context: CIContext = MTLCreateSystemDefaultDevice().map { device in
+            CIContext(mtlDevice: device, options: [
+                .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
+                .workingFormat: CIFormat.RGBAh,
+                .cacheIntermediates: false,
+            ])
+        } ?? CIContext(options: [
+            .workingColorSpace: CGColorSpace(name: CGColorSpace.linearSRGB)!,
+            .workingFormat: CIFormat.RGBAh,
+        ])
+        let outSpace = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        guard let cg = context.createCGImage(
+            ci, from: CGRect(x: 0, y: 0, width: w, height: h),
+            format: .RGBAh, colorSpace: outSpace
+        ), let cfData = cg.dataProvider?.data else { return Float.nan }
+        let bytes = UnsafeRawPointer(CFDataGetBytePtr(cfData)!)
+        let bpr = cg.bytesPerRow
+        let total = (0..<h).reduce(Float(0)) { rowAcc, y in
+            rowAcc + (0..<w).reduce(Float(0)) { acc, x in
+                let off = y * bpr + x * 4 * 2
+                let r = Self.float16BitsToFloat32(bytes.load(fromByteOffset: off + 0, as: UInt16.self))
+                let g = Self.float16BitsToFloat32(bytes.load(fromByteOffset: off + 2, as: UInt16.self))
+                return acc + abs(r - g)
+            }
+        }
+        return total / Float(w * h)
     }
 }

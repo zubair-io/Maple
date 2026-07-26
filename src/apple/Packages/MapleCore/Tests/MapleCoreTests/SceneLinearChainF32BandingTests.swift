@@ -66,6 +66,13 @@ final class SceneLinearChainF32BandingTests: XCTestCase {
         model.texture = 0.0
         model.dehaze = 0.0
         model.nrLuminance = 0.0
+        // Sharpen / nr_color are NOT identity at their model defaults
+        // (40 / 25) and the chain runs both since #1043 — a spatial pass
+        // over the ramp's endpoints would show up here as ~3.6e-5 of
+        // drift and be mistaken for the fp16 fingerprint this test hunts
+        // (~1e-3). Zero them like every other slider above.
+        model.sharpenAmount = 0.0
+        model.nrColor = 0.0
         let params = PipelineRenderer.makeParams(
             from: model,
             decodedTemperature: 6500.0,
