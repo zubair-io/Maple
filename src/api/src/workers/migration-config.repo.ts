@@ -22,6 +22,7 @@
 
 import { getDb } from '../db/client.ts';
 import { child as childLogger } from '../log.ts';
+import { BACKFILL_MEILISEARCH_VECTORS_ID } from './migration/ids.ts';
 
 const COLL = 'app_settings';
 const DOC_ID = 'migration';
@@ -151,6 +152,10 @@ export async function setMigrationEnabled(
 
 /** Clear a migration back to a pristine disabled/idle state (operator "reset"). */
 export async function resetMigrationState(id: string): Promise<MigrationState> {
+  if (id === BACKFILL_MEILISEARCH_VECTORS_ID) {
+    const db = await getDb();
+    await db.collection('meilisearch_backfill_state').deleteOne({ _id: 'assets' });
+  }
   const fresh = defaultMigrationState();
   await patchMigrationState(id, fresh);
   return fresh;

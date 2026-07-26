@@ -101,8 +101,14 @@ continues to return lexical-only documents while embeddings catch up.
 
 ## Resumable backfill
 
-Backfill sends bounded bulk tasks and stores a durable Mongo cursor. Repeat the
-request until `complete` is `true`:
+In **Settings → Workers → Migration**, enable **Backfill semantic-search
+index**. The migration worker sends bounded bulk tasks, stores a durable Mongo
+cursor, and reports processed, remaining, and error counts in that panel. It
+automatically disables itself when complete. Pause it with the toggle; use
+**Reset** to clear its cursor and intentionally restart from the beginning.
+
+The authenticated admin endpoint remains available for automation and
+troubleshooting. Repeat the request until `complete` is `true`:
 
 ```sh
 curl -X POST \

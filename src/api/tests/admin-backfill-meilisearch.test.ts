@@ -473,4 +473,41 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
     expect(retriedBody.upserted).toBe(2);
     expect(meili.upserts.map((doc) => doc.id).sort()).toEqual(['retry-a', 'retry-b']);
   });
+
+  it('exposes durable progress and reset through the migration adapter', async () => {
+    if (!mongoReachable) return;
+    await db!
+      .collection('assets')
+      .insertMany([
+        makeRow('migration-a', 'boiler installation'),
+        makeRow('migration-b', 'heat pump'),
+        makeRow('migration-c', 'air handler'),
+      ]);
+    const meili = makeCapturingMeili();
+    setMeilisearchClientForTests(meili.client);
+    const { backfillMeilisearchVectors } =
+      await import('../src/workers/migration/backfill-meilisearch-vectors.ts');
+
+    expect(await backfillMeilisearchVectors.countRemaining()).toBe(3);
+    expect(await backfillMeilisearchVectors.runBatch(2)).toEqual({
+      processed: 2,
+      errors: 0,
+    });
+    expect(await backfillMeilisearchVectors.countRemaining()).toBe(1);
+
+    // An exact-size final batch is marked complete without requiring a
+    // trailing empty request from the migration worker.
+    expect(await backfillMeilisearchVectors.runBatch(1)).toEqual({
+      processed: 1,
+      errors: 0,
+    });
+    expect(await backfillMeilisearchVectors.countRemaining()).toBe(0);
+    const state = await db!.collection('meilisearch_backfill_state').findOne({ _id: 'assets' });
+    expect(state?.completed_at).not.toBeNull();
+
+    const { resetMigrationState } = await import('../src/workers/migration-config.repo.ts');
+    const { BACKFILL_MEILISEARCH_VECTORS_ID } = await import('../src/workers/migration/ids.ts');
+    await resetMigrationState(BACKFILL_MEILISEARCH_VECTORS_ID);
+    expect(await backfillMeilisearchVectors.countRemaining()).toBe(3);
+  });
 });

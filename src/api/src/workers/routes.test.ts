@@ -487,6 +487,14 @@ describe('migration routes', () => {
       enabled: expect.any(Boolean),
       status: expect.any(String),
     });
+    const semanticBackfill = body.migrations.find(
+      (m: { id: string }) => m.id === 'backfill-meilisearch-vectors',
+    );
+    expect(semanticBackfill).toMatchObject({
+      title: 'Backfill semantic-search index',
+      enabled: expect.any(Boolean),
+      status: expect.any(String),
+    });
   });
 
   it('PATCH /migration/migrations/:id → 404 for an unknown migration', async () => {
@@ -509,5 +517,30 @@ describe('migration routes', () => {
       }),
     );
     expect(res.status).toBe(400);
+  });
+
+  it('Reset clears the semantic-backfill cursor as well as generic migration state', async () => {
+    if (!dbReachable) return;
+    const db = await getDb();
+    await db.collection('meilisearch_backfill_state').insertOne({
+      _id: 'assets',
+      cursor: null,
+      scanned: 10,
+      completed_at: '2026-07-26T00:00:00.000Z',
+    });
+
+    const res = await app.handle(
+      new Request(
+        'http://localhost/api/workers/migration/migrations/backfill-meilisearch-vectors',
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ reset: true }),
+        },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await db.collection('meilisearch_backfill_state').findOne({ _id: 'assets' })).toBeNull();
   });
 });

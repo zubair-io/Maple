@@ -68,6 +68,8 @@ export interface BackfillResult {
   tombstoned: number;
   skipped: number;
   errors: number;
+  /** True when a bulk write failed and the durable cursor was retained. */
+  retryable: boolean;
   complete: boolean;
   nextCursor: string | null;
   cumulative: {
@@ -112,12 +114,16 @@ async function loadState(
   return created;
 }
 
+function rowsAfter(cursor: ObjectId | null): Record<string, unknown> {
+  const filter: Record<string, unknown> = { maple_id: { $type: 'string', $ne: '' } };
+  if (cursor) filter._id = { $gt: cursor };
+  return filter;
+}
+
 async function loadRows(state: BackfillState, batchSize: number): Promise<BackfillRow[]> {
   const coll = await assetsCollection();
-  const filter: Record<string, unknown> = { maple_id: { $type: 'string', $ne: '' } };
-  if (state.cursor) filter._id = { $gt: state.cursor };
   return (await coll
-    .find(filter as Parameters<typeof coll.find>[0], {
+    .find(rowsAfter(state.cursor) as Parameters<typeof coll.find>[0], {
       projection: {
         _id: 1,
         maple_id: 1,
@@ -139,6 +145,19 @@ async function loadRows(state: BackfillState, batchSize: number): Promise<Backfi
     .sort({ _id: 1 })
     .limit(batchSize)
     .toArray()) as unknown as BackfillRow[];
+}
+
+async function countRowsAfter(cursor: ObjectId | null): Promise<number> {
+  const coll = await assetsCollection();
+  return coll.countDocuments(rowsAfter(cursor) as Parameters<typeof coll.countDocuments>[0]);
+}
+
+/** Remaining cursor work for the generic migration progress surface. */
+export async function countMeilisearchBackfillRemaining(): Promise<number> {
+  const states = (await getDb()).collection<BackfillState>('meilisearch_backfill_state');
+  const state = await states.findOne({ _id: STATE_ID });
+  if (state?.completed_at) return 0;
+  return countRowsAfter(state?.cursor ?? null);
 }
 
 function liveLocation(row: BackfillRow): { folderId: ObjectId; filename: string } | null {
@@ -266,10 +285,9 @@ async function saveProgress(
   states: Collection<BackfillState>,
   state: BackfillState,
   batch: PreparedBatch,
-  batchSize: number,
   writeSucceeded: boolean,
+  complete: boolean,
 ): Promise<{ complete: boolean; updatedAt: string }> {
-  const complete = writeSucceeded && batch.scanned < batchSize;
   const updatedAt = new Date().toISOString();
   await states.updateOne(
     { _id: STATE_ID },
@@ -316,7 +334,10 @@ export async function runMeilisearchBackfill(
       'backfill batch failed; cursor retained for retry',
     );
   }
-  const { complete } = await saveProgress(states, state, batch, batchSize, writeSucceeded);
+  // The indexed _id count avoids requiring an extra empty request when the
+  // final batch happens to contain exactly batchSize rows.
+  const complete = writeSucceeded && (await countRowsAfter(batch.lastCursor)) === 0;
+  await saveProgress(states, state, batch, writeSucceeded, complete);
   const cumulative = await states.findOne({ _id: STATE_ID });
   const writeErrors = writeSucceeded
     ? 0
@@ -327,6 +348,7 @@ export async function runMeilisearchBackfill(
     tombstoned: writeSucceeded ? batch.tombstoneIds.length : 0,
     skipped: batch.skipped,
     errors: batch.errors + writeErrors,
+    retryable: !writeSucceeded,
     complete,
     nextCursor: complete
       ? null
