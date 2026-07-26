@@ -85,21 +85,30 @@ final class SliderMatrixUITests: XCTestCase {
     /// Poll interval inside the settle window.
     private static let settlePoll: TimeInterval = 0.1
 
-    /// Wait until `canvas` exists continuously for `settleWindow`, or the
-    /// `settleDeadline` expires. Returns false on timeout.
+    /// Wait until `canvas` exists continuously for `settleWindow`, then
+    /// return its frame. Returns nil if `settleDeadline` expires first.
     ///
     /// A bare `exists == 1` wait is not enough: the sentinel is published
     /// only between render cycles (see the call site), so a single match
     /// can be a transient window that closes before the screenshot.
-    static func waitForSettledCanvas(_ canvas: XCUIElement) -> Bool {
+    ///
+    /// Returning the FRAME (rather than a Bool the caller follows with its
+    /// own `canvas.frame`) is deliberate: reading any `XCUIElement`
+    /// attribute forces query resolution and raises the same unrecoverable
+    /// XCTest failure as `.screenshot()` when the element has vanished. The
+    /// only safe moment to read it is here, immediately after the settle
+    /// window confirmed the element was up — so the caller never touches an
+    /// unguarded attribute, and everything downstream works off this
+    /// snapshot of the geometry.
+    static func waitForSettledCanvas(_ canvas: XCUIElement) -> CGRect? {
         let deadline = Date().addingTimeInterval(settleDeadline)
         while Date() < deadline {
             let remaining = deadline.timeIntervalSinceNow
-            guard remaining > 0 else { return false }
+            guard remaining > 0 else { return nil }
             let expectation = XCTNSPredicateExpectation(
                 predicate: NSPredicate(format: "exists == 1"), object: canvas)
             guard XCTWaiter().wait(for: [expectation], timeout: remaining) == .completed else {
-                return false
+                return nil
             }
             // Up — now confirm it STAYS up for the whole window.
             let checks = max(1, Int(settleWindow / settlePoll))
@@ -107,10 +116,21 @@ final class SliderMatrixUITests: XCTestCase {
                 Thread.sleep(forTimeInterval: settlePoll)
                 return canvas.exists
             }
-            if stayedUp { return true }
+            // Read the frame while still inside the settled state.
+            if stayedUp, canvas.exists { return canvas.frame }
             // Flipped back to `canvas-rendering`; loop and wait again.
         }
-        return false
+        return nil
+    }
+
+    /// Full-screen grab cropped to `frame`, PNG-encoded. Needs no live
+    /// element — this is the fallback whenever the sentinel can't be
+    /// screenshot directly, so it must not touch `canvas` at all.
+    private static func screenCropPNG(to frame: CGRect) -> Data? {
+        let screen = XCUIScreen.main.screenshot().image
+        return crop(screen, to: frame).tiffRepresentation
+            .flatMap { NSBitmapImageRep(data: $0) }
+            .flatMap { $0.representation(using: .png, properties: [:]) }
     }
 
     // MARK: - Fixture / reference resolution
@@ -326,7 +346,7 @@ final class SliderMatrixUITests: XCTestCase {
         // Settling first also captures the quiesced render rather than an
         // intermediate one, which is what the CIEDE2000 diff wants anyway.
         let canvas = app.otherElements["canvas-render-ready"]
-        guard Self.waitForSettledCanvas(canvas) else {
+        guard let frame = Self.waitForSettledCanvas(canvas) else {
             return CaseResult(
                 stem: stem,
                 caseName: caseName,
@@ -341,44 +361,31 @@ final class SliderMatrixUITests: XCTestCase {
         // rather than build a Driver per case — Driver.launch() does its
         // own fixture validation that's redundant here.
         //
-        // The element screenshot is gated on a fresh `exists` check
-        // (#2277): the screen-crop path needs no live element, so a
-        // sentinel that flips after settling degrades to the crop instead
-        // of failing the run. `frame` is read while the element is up.
+        // `frame` came back from `waitForSettledCanvas` — read there while
+        // the element was known up. NOTHING below reads a `canvas`
+        // attribute outside an `exists` guard: attribute access forces
+        // query resolution and raises the same unrecoverable XCTest
+        // failure as `.screenshot()` on a vanished element (#2277).
         //
         // Exactly ONE `canvas.screenshot()` call: each one is a fresh IPC
         // round trip to the app, so calling it twice (once for `.image`,
         // once for `.pngRepresentation`) would re-open the very race this
-        // change closes — a sentinel that vanished between the two calls
-        // would raise the unrecoverable XCTest failure again. An
-        // `XCUIScreenshot` captures its pixels at creation, so `.image`
-        // and `.pngRepresentation` below describe the same instant.
-        let frame = canvas.frame
-        let candidatePNG: Data? = {
+        // change closes. An `XCUIScreenshot` captures its pixels at
+        // creation, so `.image` and `.pngRepresentation` below describe
+        // the same instant.
+        //
+        // Either branch that can't produce a tight element grab falls
+        // through to `screenCropPNG`, which touches no element at all.
+        let elementPNG: Data? = {
             guard canvas.exists else { return nil }
             let snap = canvas.screenshot()
             let elementSize = snap.image.size
             let tight =
                 elementSize.width  <= frame.width  * 1.1 &&
                 elementSize.height <= frame.height * 1.1
-            if tight {
-                return snap.pngRepresentation
-            }
-            let screen = XCUIScreen.main.screenshot().image
-            let cropped = SliderMatrixUITests.crop(screen, to: frame)
-            return cropped.tiffRepresentation
-                .flatMap { NSBitmapImageRep(data: $0) }
-                .flatMap { $0.representation(using: .png, properties: [:]) }
-        }() ?? {
-            // Sentinel vanished between settling and capture. The screen
-            // buffer is still there — crop it to the frame we captured
-            // while the element was up.
-            let screen = XCUIScreen.main.screenshot().image
-            let cropped = SliderMatrixUITests.crop(screen, to: frame)
-            return cropped.tiffRepresentation
-                .flatMap { NSBitmapImageRep(data: $0) }
-                .flatMap { $0.representation(using: .png, properties: [:]) }
+            return tight ? snap.pngRepresentation : nil
         }()
+        let candidatePNG: Data? = elementPNG ?? Self.screenCropPNG(to: frame)
 
         guard let candidatePNG else {
             return CaseResult(
