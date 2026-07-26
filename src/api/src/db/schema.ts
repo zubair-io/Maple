@@ -509,6 +509,16 @@ export interface AssetDoc {
    */
   video_poster_rearm_version?: number;
   /**
+   * Video screenshot-flag clear generation
+   * (`workers/migration/clear-video-screenshot-flags.ts`). Stamped once that
+   * migration has cleared a video's `is_screenshot` / `vision.is_screenshot`
+   * and re-armed its describe + meili stages (#2325); its `{ $ne: N }`
+   * selector re-sweeps videos once per bump. Without this marker the
+   * candidate set would refill as soon as a re-run re-flagged a row, and the
+   * migration would never reach "done."
+   */
+  video_screenshot_clear_version?: number;
+  /**
    * Preview-missing re-drive generation
    * (`workers/migration/redrive-preview-missing-describe.ts`). Stamped once
    * that migration has reset a row's describe stage after it was terminally
