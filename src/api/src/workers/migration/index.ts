@@ -12,6 +12,7 @@ import { auditVideoGeoBackfill } from './audit-video-geo-backfill.ts';
 import { applyVideoGeoBackfill } from './apply-video-geo-backfill.ts';
 import { rearmVideoPosters } from './rearm-video-posters.ts';
 import { redrivePreviewMissingDescribe } from './redrive-preview-missing-describe.ts';
+import { backfillMeilisearchVectors } from './backfill-meilisearch-vectors.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   refileBackups,
@@ -22,6 +23,7 @@ export const MIGRATIONS: readonly Migration[] = [
   applyVideoGeoBackfill,
   rearmVideoPosters,
   redrivePreviewMissingDescribe,
+  backfillMeilisearchVectors,
 ];
 
 export function getMigration(id: string): Migration | undefined {
