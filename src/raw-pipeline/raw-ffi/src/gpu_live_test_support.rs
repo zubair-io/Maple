@@ -75,6 +75,7 @@ pub(super) struct OwnedArrays {
     blue: Vec<f32>,
     profile: Vec<f32>,
     residual: Vec<f32>,
+    local: Vec<f32>,
 }
 
 fn flat_points(c: &ToneCurve) -> Vec<f32> {
@@ -98,6 +99,7 @@ pub(super) fn owned_arrays(
         blue: flat_points(&model.tone_curve_blue),
         profile: curve.to_flat(),
         residual: lut.data.clone(),
+        local: raw_core::types::layers_to_flat(&model.local_adjustments),
     }
 }
 
@@ -203,6 +205,8 @@ pub(super) fn make_params(
         residual_lut_size: lut_size as u32,
         residual_lut_ptr: arr.residual.as_ptr(),
         residual_lut_len: arr.residual.len(),
+        local_adjustments_ptr: arr.local.as_ptr(),
+        local_adjustments_len: arr.local.len(),
         // Decoded WB sentinel — 0/0 hits the legacy absolute apply branch in
         // `inputs_from_params`, preserving the pre-#1240 behaviour the parity
         // tests calibrate against. (Copilot review on #1262.)
