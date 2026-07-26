@@ -71,6 +71,16 @@ public enum ProTokens {
     public static let star = Color(proHex: 0xEF9F27)
     /// Success / ok state (green).
     public static let ok = Color(proHex: 0x62C172)
+
+    // ── Per-channel curve strokes (#367) ───────────────────────────────────
+    //
+    // Desaturated against the panel so an R curve reads as "the red channel"
+    // without competing with the accent. The Luma curve uses `accent`.
+    // Mirrors `--pro-curve-{r,g,b}` in `src/web/.../pro-tokens.scss`.
+
+    public static let curveRed = Color(proHex: 0xD1584A)
+    public static let curveGreen = Color(proHex: 0x5AA361)
+    public static let curveBlue = Color(proHex: 0x4F7FC4)
 }
 
 // MARK: - Glass material constants

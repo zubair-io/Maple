@@ -57,10 +57,13 @@ extension PipelineRenderer {
     ///
     /// `wb_method` defaults to CAT16 (0) — the Apple model carries no WB-method
     /// field, matching `develop`'s default. `tone_curve_mode` defaults to
-    /// PerChannel (0). Per-channel POINT curves are not yet mirrored on the Swift
-    /// `AdjustmentModel` (only the parametric region sliders are — see
-    /// `AdjustmentModel`'s tone-curve comment), so those arrays stay empty; the
-    /// parametric fields carry the user's tone-region edits.
+    /// PerChannel (0). The four per-channel POINT curves ARE mirrored on the
+    /// Swift `AdjustmentModel` since #366, but they are variable-length arrays
+    /// like the Auto Profile artifacts, so they are bound by
+    /// `GpuLiveSession.withGpuLiveParams` inside a live `withUnsafeBufferPointer`
+    /// scope rather than here — a pointer written here would dangle the moment
+    /// this function returns. The parametric region scalars below are fixed-size
+    /// and stay on this path.
     /// `inputShape` is the `MapleGpuLiveParams.input_shape` tag (#1331): 0 =
     /// PostDcpRec2020Fp16 (RAW, all stages; the historic default), 1 =
     /// LinearRec2020Fp16 (pano PNG — capture_sharpening is skipped; WB stays

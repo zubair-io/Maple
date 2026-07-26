@@ -7,10 +7,10 @@
 //   • Top section: GROUP buttons — Light / Color / Effects / Detail.
 //     Tapping arms the group and switches the ControlCard to that group's sliders.
 //   • Divider.
-//   • Bottom section: SPECIAL TOOL buttons — Crop and Presets (the only two
-//     Tool cases in the Detail group that aren't plain sliders).  Mask / Heal /
-//     Curve / Optics are called out in the spec but have no `Tool` case yet;
-//     they are rendered as disabled placeholders.
+//   • Bottom section: SPECIAL TOOL buttons — Crop, Curve and Presets: the
+//     Tool cases that aren't plain sliders, so the group slider stack can't
+//     surface them.  Mask / Optics are called out in the spec but have no
+//     `Tool` case yet; they are rendered as disabled placeholders.
 //
 // The old behaviour (listing tools in the armed group) is replaced by this
 // group-switcher layout so the ControlCard can be simplified to show ONLY the
@@ -43,6 +43,17 @@ struct ToolDock: View {
                     tool: .crop,
                     onPresetsTap: onPresetsTap
                 )
+                // Curve — real Tool case since #367. It belongs to the Light
+                // GROUP but cannot be reached through that group's slider
+                // stack: it has no primary field, so `displayRange` is nil and
+                // `LivingSliderGrid` filters it out. The dock is therefore its
+                // only route in this variant, which is exactly what the
+                // "Curve" placeholder this file's header anticipated.
+                SpecialDockButton(
+                    state: state,
+                    tool: .toneCurve,
+                    onPresetsTap: onPresetsTap
+                )
                 // Presets — real Tool case; tapping also fires the presets sheet.
                 SpecialDockButton(
                     state: state,
@@ -57,9 +68,9 @@ struct ToolDock: View {
             }
             .padding(.vertical, 10)
         }
-        // Width is 64pt (same as before); height grows to fit the new content
-        // (4 groups + divider + 2 real special + 2 disabled ≈ 8 rows × 54pt + padding).
-        .frame(width: 64, height: min(CGFloat(ToolGroup.allCases.count + 4) * 54 + 40, 520))
+        // Width is 64pt (same as before); height grows to fit the content
+        // (4 groups + divider + 3 real special + 2 disabled ≈ 9 rows × 54pt + padding).
+        .frame(width: 64, height: min(CGFloat(ToolGroup.allCases.count + 5) * 54 + 40, 520))
         .background(ProTokens.bg.opacity(ProGlass.opacity), in: RoundedRectangle(cornerRadius: 14))
         .animation(MapleTokens.Motion.groupSwap, value: state.armedGroup)
         .accessibilityIdentifier("editor-tool-dock")

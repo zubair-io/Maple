@@ -220,6 +220,15 @@ public enum GradientCatalog {
         GradientStop(t: 1.0, hex: 0xF2EFE9),
     ]
 
+    /// Tone Curve region sliders (#367) — black → paper white. All four
+    /// regions share it: each one lifts or lowers its own band of the same
+    /// neutral tone ramp, so a per-region gradient would say less, not
+    /// more, than the full ramp with the thumb sitting inside it.
+    public static let toneCurve: [GradientStop] = [
+        GradientStop(t: 0.0, hex: 0x000000),
+        GradientStop(t: 1.0, hex: 0xFFFFFF),
+    ]
+
     // MARK: - Look-up by Tool / sub-param id
 
     /// Returns the gradient stops for `tool` (using its primary gradient),
@@ -253,6 +262,7 @@ public enum GradientCatalog {
         case .captureSharpen: return captureSharpen
         case .captureSigma:   return captureSigma
         case .hsl:            return hsl
+        case .toneCurve:      return toneCurve
         // B&W Mix (#276) is wired but multi-band — no single 2-stop
         // gradient reads correctly for eight independent per-hue weights,
         // so it's excluded from the gradient-track requirement, the same
