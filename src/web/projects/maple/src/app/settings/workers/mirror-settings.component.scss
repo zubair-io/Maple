@@ -1,58 +1,20 @@
 @use '../settings-chrome' as chrome;
 
-// Reuse the exact settings design system (tokens + field/input/button/chip
-// atoms) so this panel matches the rest of Settings.
-:host {
-  @include chrome.settings-vars;
-  @include chrome.settings-atoms;
+// Row chrome (settings design system on :host + the collapsed summary cells) is
+// shared with the other Workers-page embedded panels — see `settings-chrome`.
+@include chrome.workers-embedded-panel;
 
-  display: block;
-  // Embedded as the "Backup" group inside the Workers page (not a standalone
-  // page), so it takes `settings-vars` (the tokens) but not
-  // `settings-page-host` (the full-height sizing) — it sizes to its content.
-  // The background is cleared so it doesn't paint a second layer.
-  background: transparent;
-}
-
-// ── Collapsed summary row ────────────────────────────────────────────────────
-// Content for the maple-settings-row summary slot (chevron · icon · name ·
-// status · readout · actions). The row shell (border, hover, expand) is owned
-// by maple-settings-row; only the summary layout lives here.
-.wrow-summary {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 16px;
-  font-size: 13px;
-  flex-wrap: wrap;
-}
-.wrow-id {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 150px;
-
-  .mono {
-    color: var(--s-text);
-  }
-}
+// Backup reads its summary numbers a shade brighter than the audit panels.
 .wrow-readout {
-  font-size: 12px;
   color: var(--s-text-mid);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-.wrow-spacer {
-  flex: 1;
 }
 
 .mirror-body {
   padding: 4px 16px 16px;
 }
 
+// Backup's pill is the group header for the whole panel rather than one row of
+// a table, so it runs a step larger and brighter than the shared one.
 .status-pill {
   display: inline-flex;
   align-items: center;
