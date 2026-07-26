@@ -60,6 +60,14 @@ pub struct GpuContext {
     /// generated color matrices. Built on first use via
     /// [`GpuContext::vignette_pipeline`].
     pub(crate) vignette_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled local-adjustments compute pipeline
+    /// (`local_adjustments.wgsl` + the generated color matrices). The #1698
+    /// vector-mask rasterizer: it rasterizes each layer's linear/radial mask
+    /// and applies the layer's nine controls weighted by that mask, all in one
+    /// dispatch. Rounds pixels through Oklab (saturation / vibrance), so it
+    /// needs the generated matrices. Built on first use via
+    /// [`GpuContext::local_adjustments_pipeline`].
+    pub(crate) local_adjustments_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled film-grain compute pipeline (`grain.wgsl`). The #1110
     /// display-linear deterministic hash noise — a windowed point op, no
     /// Oklab. Built on first use via [`GpuContext::grain_pipeline`].
@@ -349,6 +357,7 @@ impl GpuContext {
             white_balance_pipeline: OnceCell::new(),
             scene_tone_controls_pipeline: OnceCell::new(),
             vignette_pipeline: OnceCell::new(),
+            local_adjustments_pipeline: OnceCell::new(),
             grain_pipeline: OnceCell::new(),
             color_grade_pipeline: OnceCell::new(),
             hsl_pipeline: OnceCell::new(),

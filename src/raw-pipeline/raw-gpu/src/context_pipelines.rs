@@ -86,6 +86,26 @@ impl GpuContext {
         })
     }
 
+    /// The cached local-adjustments compute pipeline (#1698).
+    ///
+    /// The kernel rasterizes each layer's vector mask and applies that layer's
+    /// nine controls weighted by the mask value, looping the whole layer stack
+    /// in registers so the stage stays one dispatch. Its saturation / vibrance
+    /// steps round pixels through Oklab, so the generated color-matrix module
+    /// is prepended (`compile_with_matrices`) — the same concat pattern
+    /// vibrance / saturation / colour grading use. Four bindings (params
+    /// uniform + src/dst storage + the flat layer-stack storage buffer);
+    /// `layout: None` derives the layout from the WGSL bindings.
+    pub fn local_adjustments_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.local_adjustments_pipeline.get_or_init(|| {
+            compile_with_matrices(
+                &self.device,
+                "local-adjustments",
+                include_str!("local_adjustments.wgsl"),
+            )
+        })
+    }
+
     /// The cached film-grain compute pipeline (#1110, tone/zoom design § 10.2).
     ///
     /// A windowed point op (deterministic hash noise from the absolute pixel
