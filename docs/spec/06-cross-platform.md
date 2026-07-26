@@ -50,9 +50,9 @@ The Rust core is the only truly shared code. The pipeline layers implement the s
 
 ### What each platform reimplements
 
-- **Interactive adjustment shaders** — Metal (MSL) on Apple, GLSL ES 3.0 on Web. Same math, different syntax.
-- **The AgX view transform** — Rust reference (float on CPU, used for parity tests), Metal kernel on Apple, GLSL shader on Web. Numeric parity required to 1e-4 (see § AgX parity).
-- **The adjustment pipeline orchestrator** — Swift `ImageEditPipeline` / `CIFilterMapping`, TypeScript `webgl-pipeline.ts`. Both reduce an `AdjustmentModel` to a chain of GPU calls ending in AgX + display encode.
+- **Interactive adjustment shaders** — nothing, any more. Epic #925 collapsed them onto one WGSL source in `raw-gpu`, which `wgpu` runs as native Metal on Apple and as WebGPU in the browser; the last hand-written Apple MSL render kernels went in #1043 and the web GLSL in #1042/#1049.
+- **The AgX view transform** — Rust reference (float on CPU, used for parity tests) and the shared `agx.wgsl` compute pass. Numeric parity required to 1e-4 (see § AgX parity).
+- **The adjustment pipeline orchestrator** — Swift `ImageEditPipeline` / `EditSession+GpuLive`, TypeScript `raw-pipeline.worker.ts`. Both reduce an `AdjustmentModel` to one chain invocation ending in AgX + display encode.
 - **The sidecar parser/serializer** — Swift `XMPParser` / `XMPSerializer`, TypeScript `xmp-parser.service.ts` / `xmp-serializer.service.ts`. Both must produce byte-identical output.
 - **The UI.** Not remotely shared.
 
@@ -196,33 +196,19 @@ For interactive preview on the web, Maple forces the half-res quad demosaic path
 
 ## Shader portability
 
-Two shader languages, same math. Maple maintains Metal Shading Language and GLSL ES 3.0 versions of the three scene-referred custom kernels (`SceneToneControls`, `SceneVibrance`, `AgXViewTransform`) plus the fused main program (web-only).
+One shader language, one source. Every render kernel is authored once in WGSL under `src/raw-pipeline/raw-gpu/src/*.wgsl` and dispatched by `wgpu`, which targets native Metal on macOS / iPadOS / iOS and WebGPU in the browser. Epic #925 replaced the earlier arrangement — hand-maintained Metal Shading Language on Apple and GLSL ES 3.0 on the web — and the last of that duplication was deleted in #1042/#1049 (GLSL) and #1043 (MSL).
 
-### Translation rules
+### Why one source, not a translation layer
 
-| Concept                | Metal (MSL)                             | WebGL2 (GLSL ES 3.0)                          |
-| ---------------------- | --------------------------------------- | --------------------------------------------- |
-| Vertex/fragment shader | `[[vertex]]` / `[[fragment]]`           | `#version 300 es`                             |
-| Input texture          | `texture2d<float>`                      | `uniform sampler2D`                           |
-| Sample                 | `tex.sample(sampler, uv)`               | `texture(tex, uv)`                            |
-| Uniform buffer         | `constant Params &params [[buffer(2)]]` | `uniform` block with `layout(std140)`         |
-| Matrix multiply        | `*` operator                            | `*` operator (same)                           |
-| Math functions         | `metal::` namespace                     | GLSL builtins (same names mostly)             |
-| Branch                 | `if / else` — fine                      | `if / else` — avoid if possible, use step/mix |
+The previous answer to "single source of truth?" was no: MSL and GLSL were maintained separately because each platform's dialect rewarded different idioms and the algorithms were small enough that duplication seemed tractable. It stopped being tractable — every new stage had to be ported twice and gated twice, and the two ports drifted in ways only the parity harness caught. `wgpu` + naga removes the choice: one WGSL source compiles to MSL for Metal and to the browser's WebGPU backend, so the platforms cannot disagree syntactically and the parity gate only has to police WGSL against the Rust reference.
 
-### Generator: single source of truth?
+### What the chain fuses
 
-Maple does **not** compile shaders from a single intermediate language. The MSL and GLSL sources are maintained separately. Reasons:
+The live chain is a sequence of compute passes over ping-ponged GPU buffers (`raw-gpu/src/live_chain.rs`), each stage gated on its own slider so an untouched adjustment costs no dispatch. Spatial stages — clarity, texture, capture sharpening, sharpen, NR — orchestrate their own sub-passes over scratch planes because they need blur / deconvolution intermediates, and they run in scene-linear space before the view tail applies AgX, the display encode and the gamma encode.
 
-- Platform-specific optimizations differ enough (Metal has `half` type; WebGL2's `mediump` semantics vary by driver).
-- Debugging is easier with native sources.
-- The algorithms are small enough (~200 lines each) that duplication is tractable.
+### The Rust CPU chain is the oracle, and the fallback
 
-The parity test (see below) keeps them in sync numerically, not syntactically.
-
-### What's in the fused shader (web)
-
-The web fuses White Balance → SceneToneControls → SceneVibrance → Saturation → Dehaze → AgX → target gamut → gamma encode into a single fragment shader (stages 2, 3, 4, 5, 8, 12, 13, 14 from [`02-pipeline.md`](./02-pipeline.md) § Filter chain). Clarity, texture, capture sharpening, and NR are separate passes because they need blur / deconvolution intermediates and must run in scene-linear space before the fused program applies AgX. On Apple, Core Image decides fusion automatically — Maple only writes the individual kernel stages; the AgX kernel is authored explicitly as a stage in the CIFilter graph.
+`raw_core::pipeline::apply_scene_linear_chain_f32` runs the same stages in the same order on the CPU. It is what the WGSL passes are gated against, and it is what renders when there is no usable GPU — a browser without WebGPU, a headless CI machine, or an Apple session launched with `MAPLE_GPU_LIVE=0`. Because it is a fallback and not a fast path, it carries the expensive spatial stages too (#1043) rather than omitting them for latency.
 
 ---
 
@@ -361,8 +347,8 @@ These are documented in [`09-open-questions.md`](./09-open-questions.md) as know
 
 ### Changing a shader
 
-1. Edit the MSL source; run the Mac app; verify visually.
-2. Edit the GLSL source in lockstep; run the web editor; run `test-dcp-flow.js`.
+1. Edit the WGSL source under `raw-gpu/src/`. There is only one copy; Apple and the web both consume it.
+2. Run the stage's WGSL-vs-Rust parity test (1e-4), then the Mac app and the web editor.
 3. Pixel parity harness re-runs.
 
 ### Adding a new adjustment
