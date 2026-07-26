@@ -70,7 +70,6 @@ public enum Look: String, Codable, Sendable, Hashable {
 public enum Profile: String, Codable, Sendable, Hashable, CaseIterable {
     case auto     = "Auto"
     case neutral  = "Neutral"
-    case acrMatch = "AcrMatch"
 }
 
 // MARK: - HotPixelSuppressionMode
@@ -108,7 +107,7 @@ public enum LensProfileEnable: String, Codable, Sendable, Hashable, CaseIterable
 ///
 /// `.on` (default) matches raw-core's parse default. `Profile.auto`'s
 /// decode forces this Off internally whenever an Auto Profile curve will
-/// fit; `Profile.neutral`/`.acrMatch` apply it as written. AUTO
+/// fit; `Profile.neutral` applies it as written. AUTO
 /// (`EditorState.applyAuto`) sets it to `.off` alongside `exposure` on
 /// every profile since its recommendation is measured against an AE-Off
 /// probe — skipping that on Neutral would double-count the anchor gain.

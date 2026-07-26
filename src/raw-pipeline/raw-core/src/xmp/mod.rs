@@ -212,7 +212,6 @@ pub fn serialize(model: &AdjustmentModel) -> String {
         let v = match model.profile {
             Profile::Auto => "Auto",
             Profile::Neutral => "Neutral",
-            Profile::AcrMatch => "AcrMatch",
         };
         out.push_str(&format!(r#" papp:Profile="{v}""#));
     }
