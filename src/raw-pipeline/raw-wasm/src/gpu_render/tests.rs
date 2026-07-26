@@ -51,8 +51,15 @@ fn require_gpu() -> bool {
 /// repo root.
 pub(super) fn synthetic_dng_path() -> Option<std::path::PathBuf> {
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    // raw-wasm → raw-pipeline → src → repo-root
-    let root = manifest.parent()?.parent()?.parent()?;
+    // raw-wasm → raw-pipeline → src → repo-root. `expect` rather than `?`: the
+    // crate always sits exactly three levels below the repo root, so a missing
+    // ancestor is a broken checkout, not a soft-pass condition — and returning
+    // early here would skip the `require_gpu` assertion below, reopening the
+    // silent-skip hole this guard exists to close.
+    let root = manifest
+        .ancestors()
+        .nth(3)
+        .expect("CARGO_MANIFEST_DIR is not three levels below the repo root");
     let p = root.join("src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng");
     let found = p.exists();
     assert!(
