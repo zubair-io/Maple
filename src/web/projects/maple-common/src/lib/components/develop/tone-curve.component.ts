@@ -60,8 +60,19 @@ import {
   type PlottedKnot,
 } from './tone-curve.vm';
 
-/** Vertical nudge per arrow-key press, in authoring-domain units. */
+/** Nudge per arrow-key press, in authoring-domain units. */
 const KEY_STEP = 1 / 64;
+
+/** Arrow keys → unit nudge vector in the authoring domain (y runs up). */
+const NUDGE_KEYS: Readonly<Record<string, readonly [number, number]>> = {
+  ArrowUp: [0, 1],
+  ArrowDown: [0, -1],
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+};
+
+/** Keys that delete the focused knot. */
+const DELETE_KEYS: ReadonlySet<string> = new Set(['Delete', 'Backspace']);
 
 @Component({
   selector: 'pro-tone-curve',
@@ -151,28 +162,37 @@ export class ToneCurveComponent implements OnDestroy {
     this.commit(removePoint(this.vm.points(), knot.index));
   }
 
-  /** Arrow keys nudge the focused knot; Delete/Backspace removes it. */
+  /**
+   * Arrow keys nudge the focused knot; Delete/Backspace removes it.
+   *
+   * Only a key the editor actually consumed suppresses the browser
+   * default — an unhandled key, and Delete on a pinned endpoint, fall
+   * through so scrolling and Back still work.
+   */
   onKnotKeyDown(knot: PlottedKnot, event: KeyboardEvent): void {
-    const points = this.vm.points();
-    const current = points[knot.index] ?? [
-      knot.cx / this.vm.plotSize,
-      1 - knot.cy / this.vm.plotSize,
-    ];
-    const step = event.shiftKey ? KEY_STEP * 4 : KEY_STEP;
+    if (this.applyKnotKey(knot, event)) event.preventDefault();
+  }
 
-    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-      const dy = event.key === 'ArrowUp' ? step : -step;
-      this.commit(movePoint(points, knot.index, current[0], current[1] + dy));
-    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-      const dx = event.key === 'ArrowRight' ? step : -step;
-      this.commit(movePoint(points, knot.index, current[0] + dx, current[1]));
-    } else if (event.key === 'Delete' || event.key === 'Backspace') {
-      if (knot.pinned) return;
-      this.commit(removePoint(points, knot.index));
-    } else {
-      return;
+  /** Apply one key to the focused knot; `true` when it was consumed. */
+  private applyKnotKey(knot: PlottedKnot, event: KeyboardEvent): boolean {
+    const points = this.vm.points();
+    const nudge = NUDGE_KEYS[event.key];
+    if (nudge) {
+      const [x, y] = points[knot.index] ?? this.knotPosition(knot);
+      const step = event.shiftKey ? KEY_STEP * 4 : KEY_STEP;
+      this.commit(movePoint(points, knot.index, x + nudge[0] * step, y + nudge[1] * step));
+      return true;
     }
-    event.preventDefault();
+    if (DELETE_KEYS.has(event.key) && !knot.pinned) {
+      this.commit(removePoint(points, knot.index));
+      return true;
+    }
+    return false;
+  }
+
+  /** A plotted knot back in the authoring domain — the pre-layout fallback. */
+  private knotPosition(knot: PlottedKnot): ToneCurvePoint {
+    return [knot.cx / this.vm.plotSize, 1 - knot.cy / this.vm.plotSize];
   }
 
   /** Reset the active channel's curve back to identity (the empty list). */

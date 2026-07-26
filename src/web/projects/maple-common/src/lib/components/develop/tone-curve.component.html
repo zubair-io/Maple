@@ -64,7 +64,8 @@
         role="slider"
         aria-valuemin="0"
         aria-valuemax="100"
-        [attr.aria-valuenow]="((1 - knot.cy / vm.plotSize) * 100).toFixed(0)"
+        [attr.aria-valuenow]="knot.valueNow"
+        [attr.aria-valuetext]="knot.valueText"
         [attr.aria-label]="
           vm.activeTab().label +
           ' curve point ' +

@@ -34,7 +34,7 @@ export interface ChannelTab {
   readonly stroke: string;
 }
 
-export const CHANNEL_TABS: readonly ChannelTab[] = [
+const CHANNEL_TABS: readonly ChannelTab[] = [
   { id: 'luma', label: 'Luma', field: 'toneCurveLuma', stroke: 'var(--pro-accent)' },
   { id: 'r', label: 'R', field: 'toneCurveRed', stroke: 'var(--pro-curve-r)' },
   { id: 'g', label: 'G', field: 'toneCurveGreen', stroke: 'var(--pro-curve-g)' },
@@ -52,7 +52,7 @@ export interface ParametricSlider {
 }
 
 /** Bright → dark, matching the order the regions appear on the plot. */
-export const PARAMETRIC_SLIDERS: readonly ParametricSlider[] = [
+const PARAMETRIC_SLIDERS: readonly ParametricSlider[] = [
   { field: 'parametricHighlights', label: 'Highlights' },
   { field: 'parametricLights', label: 'Lights' },
   { field: 'parametricDarks', label: 'Darks' },
@@ -66,7 +66,7 @@ export const PLOT_SIZE = 100;
 export const HIT_RADIUS = 0.045;
 
 /** Both parametric ends; all four fields share the ±100 span. */
-export const PARAMETRIC_RANGE = ADJUSTMENT_RANGES.parametricHighlights;
+const PARAMETRIC_RANGE = ADJUSTMENT_RANGES.parametricHighlights;
 
 /** A knot as the template draws it: SVG coordinates plus its list index. */
 export interface PlottedKnot {
@@ -75,6 +75,17 @@ export interface PlottedKnot {
   readonly cy: number;
   /** Endpoints are pinned in `x`; the template announces that. */
   readonly pinned: boolean;
+  /** Output level 0–100, the single number `aria-valuenow` can carry. */
+  readonly valueNow: number;
+  /**
+   * Both axes as percentages, for `aria-valuetext`.
+   *
+   * A knot is a 2-D control on a 1-D ARIA slider: the arrow keys move `x`
+   * as well as `y`, so `aria-valuenow` alone announces an unchanged value
+   * for every ArrowLeft/ArrowRight. `aria-valuetext` overrides what
+   * assistive tech speaks, so it carries the input level too.
+   */
+  readonly valueText: string;
 }
 
 /**
@@ -113,12 +124,18 @@ export function buildToneCurveViewModel(
 
   const knots = computed<readonly PlottedKnot[]>(() => {
     const list = materializeCurve(points());
-    return list.map((p, index) => ({
-      index,
-      cx: p[0] * PLOT_SIZE,
-      cy: (1 - p[1]) * PLOT_SIZE,
-      pinned: index === 0 || index === list.length - 1,
-    }));
+    return list.map((p, index) => {
+      const inputPct = Math.round(p[0] * 100);
+      const outputPct = Math.round(p[1] * 100);
+      return {
+        index,
+        cx: p[0] * PLOT_SIZE,
+        cy: (1 - p[1]) * PLOT_SIZE,
+        pinned: index === 0 || index === list.length - 1,
+        valueNow: outputPct,
+        valueText: `input ${inputPct}%, output ${outputPct}%`,
+      };
+    });
   });
 
   /** True when the active channel is untouched — drives the Reset button. */
@@ -165,5 +182,3 @@ export function buildToneCurveViewModel(
     gridLines: [0.25, 0.5, 0.75].map((f) => f * PLOT_SIZE),
   } as const;
 }
-
-export type ToneCurveViewModel = ReturnType<typeof buildToneCurveViewModel>;
