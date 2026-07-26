@@ -40,6 +40,7 @@ async function tryConnect(): Promise<MongoClient | null> {
 interface CapturedMeili {
   client: MeilisearchClient;
   upserts: MeilisearchAssetDoc[];
+  tombstones: string[];
   ensureCalls: number;
   configured: boolean;
   failBatch: boolean;
@@ -47,8 +48,10 @@ interface CapturedMeili {
 
 function makeCapturingMeili(configured = true): CapturedMeili {
   const upserts: MeilisearchAssetDoc[] = [];
+  const tombstones: string[] = [];
   const c: CapturedMeili = {
     upserts,
+    tombstones,
     ensureCalls: 0,
     configured,
     failBatch: false,
@@ -69,7 +72,13 @@ function makeCapturingMeili(configured = true): CapturedMeili {
         if (c.failBatch) throw new Error('temporary batch failure');
         upserts.push(...docs);
       },
-      tombstone: async () => {},
+      tombstoneBatchOrThrow: async (ids) => {
+        if (c.failBatch) throw new Error('temporary batch failure');
+        tombstones.push(...ids);
+      },
+      tombstone: async (id) => {
+        tombstones.push(id);
+      },
       search: async () => ({ ids: [], estimatedTotal: 0 }),
     },
   };
@@ -94,6 +103,7 @@ beforeEach(async () => {
   await db!.collection('assets').deleteMany({});
   await db!.collection('people').deleteMany({});
   await db!.collection('meilisearch_backfill_state').deleteMany({});
+  await db!.collection('meilisearch_backfill_failures').deleteMany({});
   setMeilisearchClientForTests(null);
 });
 
@@ -218,6 +228,18 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
     await db!
       .collection('assets')
       .insertOne(makeRow('g', 'denver co', { deletedAt: new Date().toISOString() }));
+    await db!.collection('assets').insertOne({
+      ...makeRow('h', 'stale modern location'),
+      fileinfo: [
+        {
+          library_id: FOLDER,
+          path: '',
+          filename: 'h.dng',
+          deleted_at: null,
+          missing_since: new Date().toISOString(),
+        },
+      ],
+    });
 
     const meili = makeCapturingMeili();
     setMeilisearchClientForTests(meili.client);
@@ -232,26 +254,25 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
     const body = (await r.json()) as {
       scanned: number;
       upserted: number;
+      tombstoned: number;
       skipped: number;
       errors: number;
     };
-    // All six stable assets are scanned; the legacy row without maple_id is
+    // All seven stable assets are scanned; the legacy row without maple_id is
     // excluded by the cursor query.
-    expect(body.scanned).toBe(6);
-    expect(body.upserted).toBe(6);
-    expect(body.skipped).toBe(0);
+    expect(body.scanned).toBe(7);
+    expect(body.upserted).toBe(5);
+    expect(body.tombstoned).toBe(2);
+    expect(body.skipped).toBe(2);
     expect(body.errors).toBe(0);
 
     // Confirm the captured upserts include the right ids and folderId.
     const ids = meili.upserts.map((u) => u.id).sort();
-    expect(ids).toEqual(['a', 'b', 'c', 'd', 'e', 'g']);
+    expect(ids).toEqual(['a', 'b', 'c', 'd', 'e']);
     for (const u of meili.upserts) {
       expect(u.folderId).toBe(FOLDER.toHexString());
     }
-    // The soft-deleted row's deletedAt should round-trip.
-    const denver = meili.upserts.find((u) => u.id === 'g');
-    expect(denver).toBeDefined();
-    expect(denver!.deletedAt).not.toBeNull();
+    expect(meili.tombstones.sort()).toEqual(['g', 'h']);
 
     // ensureIndex was called once at the start.
     expect(meili.ensureCalls).toBe(1);
@@ -382,6 +403,37 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
     expect(secondBody.cumulative.scanned).toBe(3);
     expect(secondBody.cumulative.upserted).toBe(3);
     expect(meili.upserts.map((doc) => doc.id).sort()).toEqual(['batch-a', 'batch-b', 'batch-c']);
+  });
+
+  it('dead-letters a deterministic row error and advances the cursor', async () => {
+    if (!mongoReachable) return;
+    await db!.collection('assets').insertOne({
+      ...makeRow('broken-row', 'bad folder id'),
+      folder_id: 'not-an-object-id',
+    });
+    const meili = makeCapturingMeili();
+    setMeilisearchClientForTests(meili.client);
+    const { meilisearchBackfillRoutes } =
+      await import('../src/routes/admin-backfill-meilisearch.ts');
+    const app = new Elysia().use(meilisearchBackfillRoutes);
+
+    const response = await app.handle(
+      new Request('http://localhost/api/admin/enrichment/backfill-meilisearch', {
+        method: 'POST',
+      }),
+    );
+    const body = (await response.json()) as {
+      complete: boolean;
+      errors: number;
+      nextCursor: string | null;
+    };
+    expect(body.complete).toBe(true);
+    expect(body.errors).toBe(1);
+    expect(body.nextCursor).toBeNull();
+    const failure = await db!
+      .collection('meilisearch_backfill_failures')
+      .findOne({ maple_id: 'broken-row' });
+    expect(failure?.attempts).toBe(1);
   });
 
   it('retains the cursor and retries an idempotent batch after a write failure', async () => {
