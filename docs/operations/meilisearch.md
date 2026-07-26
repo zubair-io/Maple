@@ -50,6 +50,7 @@ Open **Settings → Workers → meili** and configure:
 Semantic search reuses the Ollama URL configured under **Describe**. Meilisearch
 calls that URL directly, so it must be reachable from the Meilisearch host or
 container; `localhost` refers to the Meilisearch environment, not Maple's.
+Maple configures the current batch-capable Ollama `/api/embed` endpoint.
 
 These are database-backed runtime settings and apply without restarting Maple.
 The resolved settings are cached in Maple's in-memory Meilisearch client, so
@@ -107,7 +108,9 @@ cursor, and reports processed, remaining, and error counts in that panel. It
 automatically disables itself when complete. Pause it with the toggle; use
 **Reset** to clear its cursor and intentionally restart from the beginning.
 `processed` is durable document-submission progress; use the status endpoint's
-`vectorized` count to verify completed embeddings.
+`vectorized` count to verify completed embeddings. A retryable task failure
+keeps the cursor in place and shows the bounded Meilisearch/Ollama cause in the
+migration error.
 For a slow or CPU-bound Ollama host, increase **Index task timeout** on the
 Meilisearch worker before starting the migration.
 

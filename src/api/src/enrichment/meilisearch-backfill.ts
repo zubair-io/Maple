@@ -70,6 +70,8 @@ export interface BackfillResult {
   errors: number;
   /** True when a bulk write failed and the durable cursor was retained. */
   retryable: boolean;
+  /** Safe, bounded cause for a retained-cursor write failure. */
+  retryableError: string | null;
   complete: boolean;
   nextCursor: string | null;
   cumulative: {
@@ -313,6 +315,7 @@ function completedResult(state: BackfillState): BackfillResult {
     skipped: 0,
     errors: 0,
     retryable: false,
+    retryableError: null,
     complete: true,
     nextCursor: null,
     cumulative: {
@@ -339,13 +342,18 @@ export async function runMeilisearchBackfill(
   const rows = await loadRows(state, batchSize);
   const batch = await prepareBatch(rows, state.cursor);
   let writeSucceeded = true;
+  let retryableError: string | null = null;
   try {
     await commitBatch(client, batch);
   } catch (error) {
     writeSucceeded = false;
+    retryableError = (error instanceof Error ? error.message : String(error))
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 2000);
     log.warn(
       {
-        err: error instanceof Error ? error.message : String(error),
+        err: retryableError,
         batchSize: batch.docs.length + batch.tombstoneIds.length,
       },
       'backfill batch failed; cursor retained for retry',
@@ -364,6 +372,7 @@ export async function runMeilisearchBackfill(
     skipped: batch.skipped,
     errors: batch.errors + writeErrors,
     retryable: !writeSucceeded,
+    retryableError,
     complete,
     nextCursor: complete
       ? null

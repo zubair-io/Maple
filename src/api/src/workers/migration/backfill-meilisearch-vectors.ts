@@ -33,7 +33,10 @@ export const backfillMeilisearchVectors: Migration = {
     }
     const result = await runMeilisearchBackfill(batchSize, false);
     if (result.retryable) {
-      throw new Error('Meilisearch rejected the bulk batch; cursor retained for automatic retry.');
+      const detail = result.retryableError ? ` Cause: ${result.retryableError}` : '';
+      throw new Error(
+        `Meilisearch rejected the bulk batch; cursor retained for automatic retry.${detail}`,
+      );
     }
     return {
       processed: Math.max(0, result.scanned - result.errors),
