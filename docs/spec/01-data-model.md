@@ -98,8 +98,8 @@ The model groups fields by UI panel and by the underlying math, which happen to 
 
 | Field            | Range     | Default | XMP key                                                                                                                                                                          |
 | ---------------- | --------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sharpenAmount`  | 0 … 150   | `0`     | `crs:SharpenAmount`                                                                                                                                                              |
-| `sharpenRadius`  | 0.5 … 3.0 | `0.5`   | `crs:SharpenRadius` (PSF Gaussian sigma under RL; semantic meaning differs from Lightroom's unsharp-radius interpretation — see [`03-algorithms.md`](./03-algorithms.md) § 3.10) |
+| `sharpenAmount`  | 0 … 150   | `40`    | `crs:Sharpness`                                                                                                                                                                  |
+| `sharpenRadius`  | 0.5 … 3.0 | `1.0`   | `crs:SharpenRadius` (PSF Gaussian sigma under RL; semantic meaning differs from Lightroom's unsharp-radius interpretation — see [`03-algorithms.md`](./03-algorithms.md) § 3.10) |
 | `sharpenDetail`  | 0 … 100   | `25`    | `crs:SharpenDetail`                                                                                                                                                              |
 | `sharpenMasking` | 0 … 100   | `0`     | `crs:SharpenEdgeMasking`                                                                                                                                                         |
 | `nrLuminance`    | 0 … 100   | `0`     | `crs:LuminanceSmoothing`                                                                                                                                                         |
@@ -161,7 +161,7 @@ _Display-referred_ (Lightroom-compatible; applied at stage 12a after AgX; `[0, 2
 3. **Crop fields are emitted as a group.** When any of top/left/bottom/right differ from the full-frame identity, all four emit plus `crs:HasCrop="True"` and `crs:CropConstrainToWarp="0"`. `crs:CropAngle` is independently emitted only when non-zero.
 4. **Tone-curve identity test is structural.** `[(0,0), (255,255)]` — any sequence with only two endpoints exactly at the corners is identity. Any other shape serializes.
 5. **Passthrough nodes preserve order.** Mask groups, history entries, and snapshots rely on element order; re-emission must be stable.
-6. **Passthrough fields emit alphabetically by fully-qualified name**, after all known `crs:` / `xmp:` / `papp:` / `xmpMM:` attributes, to keep the byte form stable regardless of input order.
+6. **Passthrough fields emit alphabetically by fully-qualified name**, after all known `xmp:` / `crs:` / `papp:` and metadata-namespace attributes, to keep the byte form stable regardless of input order.
 7. **Numbers are canonical.** Integers emit as `String(Int(v))` (no trailing `.0`). Non-integers emit at 2 decimal places, then trailing zeros and a trailing `.` are stripped: `0.50 → "0.5"`, `0.123 → "0.12"`. NaN / Infinity are replaced with the field's default. See [`xmp-canonical-format.md`](../xmp-canonical-format.md).
 
 ### Lifecycle
@@ -250,7 +250,7 @@ SidecarElement = LeafText { name, text }
 ### Invariants
 
 1. **Round-trip is exact.** `bytes → parse → SidecarDocument → serialize → bytes` must produce the same byte string, modulo whitespace normalization for known elements. Unknown elements (`OpaqueXml`) must re-emit their raw source verbatim.
-2. **Serialization order is canonical**, not input order, for known fields. Attribute order is by namespace priority (`xmp:` → 0, `crs:` → 1, `papp:` → 2, `xmpMM:` → 3, unknown → 500), then alphabetical within each namespace. Element children order for tone curves is fixed: master, red, green, blue.
+2. **Serialization order is canonical**, not input order, for known fields. Attribute order is by namespace priority (`xmp:` → 0, `crs:` → 1, `papp:` → 2, then the metadata namespaces `dc:` / `exif:` / `photoshop:` / `Iptc4xmpCore:` / `xmpRights:`, unknown → 500), then alphabetical within each namespace. Element children order for tone curves is fixed: master, red, green, blue. See `docs/xmp-canonical-format.md` § "Attribute ordering".
 3. **BOM is literal.** The U+FEFF inside `<?xpacket begin="\ufeff" id="..."?>` is not stripped. Line endings are LF only. File ends with `>`, no trailing newline.
 
 ### Lifecycle
