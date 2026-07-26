@@ -151,30 +151,18 @@ fn parametric_highlights_pulls_bright_pixels_down() {
 
 #[test]
 fn parametric_conflicting_sliders_produce_monotonic_curve() {
-    // Shadows = +100 lifts knot (0.25, y) toward 0.5; darks = -100
-    // (combined with lights = -100) pulls knot (0.5, y) toward 0.25.
-    // Pre-fix, the synthesised knots were non-monotonic: y_at_0.5
-    // landed below y_at_0.25 and Fritsch–Carlson's monotonicity
-    // contract was violated. Post-fix, the cumulative-max clamp
-    // pins knot (0.5, _) to at least y_at_0.25 — earlier slider
-    // wins, output is monotonic. Verify by sampling the synthesised
-    // knots directly and by checking a monotonic input → monotonic
-    // output across a sweep of pixel values.
+    // Adjacent regions pushed in opposite directions at full deflection
+    // is the worst case for monotonicity: the segment between the two
+    // region centres carries the whole `2 · MAX_STOPS` swing across two
+    // stops. `parametric::region_windows_keep_the_curve_strictly_increasing`
+    // proves this over the whole slider grid at the knot level; here we
+    // check the end-to-end pixel path for one such combination.
     let mut m = model_default();
     m.parametric_shadows = 100.0;
     m.parametric_darks = -100.0;
     m.parametric_lights = -100.0;
-    let knots = build_parametric_knots(&m);
-    for w in knots.windows(2) {
-        assert!(
-            w[1].1 >= w[0].1 - 1e-6,
-            "non-monotonic knots: {:?} → {:?}",
-            w[0],
-            w[1]
-        );
-    }
-    // End-to-end: monotonically increasing scene values must stay
-    // monotonic after the parametric stage.
+    // Monotonically increasing scene values must stay monotonic after
+    // the parametric stage.
     let mut prev = f32::NEG_INFINITY;
     for i in 0..40 {
         let v = i as f32 * 0.1;
