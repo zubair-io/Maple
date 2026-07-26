@@ -67,13 +67,13 @@ pub(super) fn set_field(
         "crs:Blacks2012" => m.blacks = v()?,
         // Parametric tone-curve region sliders (PV2012 four-region model;
         // prerequisite for #368). These map onto the four parametric region
-        // scalars consumed by `build_parametric_knots` in
-        // `stages::tone_curves`. ACR's parametric split-point keys
-        // (ParametricShadowSplit/MidtoneSplit/HighlightSplit, defaults
-        // 25/50/75) are NOT mapped: the model has no split-point fields —
-        // `build_parametric_knots` uses fixed 0.25/0.5/0.75 knots — so there
-        // is nowhere to store them. Wiring user-adjustable split points is a
-        // follow-up (tracked under #368).
+        // scalars consumed by `stages::tone_curves::parametric`. ACR's
+        // parametric split-point keys (ParametricShadowSplit/MidtoneSplit/
+        // HighlightSplit, defaults 25/50/75) are NOT mapped: the model has
+        // no split-point fields, so there is nowhere to store them. The
+        // curve builder already parameterises the region axis on those
+        // three split points (#2318 put them there as constants); turning
+        // the constants into round-tripped model fields is #2320.
         "crs:ParametricHighlights" => m.parametric_highlights = v()?,
         "crs:ParametricLights" => m.parametric_lights = v()?,
         "crs:ParametricDarks" => m.parametric_darks = v()?,
