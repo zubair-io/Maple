@@ -319,6 +319,10 @@ function assetsIndexSettings(config: ClientConfig): Record<string, unknown> {
         documentTemplate: '{{ doc.searchBlob }} {{ doc.description }} {{ doc.people }}',
       },
     };
+  } else {
+    // An all-settings PATCH is partial: omitting embedders preserves an
+    // existing configuration. Null resets it when semantic search is disabled.
+    settings.embedders = null;
   }
   return settings;
 }
