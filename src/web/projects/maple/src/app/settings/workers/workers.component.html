@@ -734,6 +734,29 @@
                         </div>
                       </div>
                       <div class="field">
+                        <div class="field-label">Index task timeout</div>
+                        <div class="num-input">
+                          <input
+                            type="number"
+                            min="30"
+                            max="3600"
+                            [value]="enrichmentValue(s, 'meilisearch_task_timeout_seconds')"
+                            (input)="
+                              setEnrichment(
+                                s,
+                                'meilisearch_task_timeout_seconds',
+                                $any($event.target).value
+                              )
+                            "
+                          />
+                          <span class="unit">sec</span>
+                        </div>
+                        <div class="field-hint">
+                          Maximum wait for a Meilisearch indexing or embedding task. Increase this
+                          for slower Ollama hosts.
+                        </div>
+                      </div>
+                      <div class="field">
                         <div class="field-label">Service search requests / minute</div>
                         <div class="num-input">
                           <input

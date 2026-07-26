@@ -22,9 +22,12 @@ import {
   DEFAULT_DESCRIBE_PROVIDER,
   DEFAULT_DESCRIBE_SYSTEM_PROMPT,
   DEFAULT_FACE_MIN_DETECTION_SIZE,
+  DEFAULT_MEILISEARCH_TASK_TIMEOUT_SECONDS,
   DEFAULT_NOMINATIM_RATE_LIMIT_PER_SEC,
   DEFAULT_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE,
+  MAX_MEILISEARCH_TASK_TIMEOUT_SECONDS,
   MAX_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE,
+  MIN_MEILISEARCH_TASK_TIMEOUT_SECONDS,
   MIN_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE,
   MAX_FACE_MIN_DETECTION_SIZE,
   MIN_FACE_MIN_DETECTION_SIZE,
@@ -77,6 +80,7 @@ export interface ResolvedEnrichmentConfig {
   /** Resolved Meilisearch API key (DB → env → null). Secret: the config
    * route strips this before responding — never send it to a client. */
   meilisearch_api_key: string | null;
+  meilisearch_task_timeout_seconds: number;
   service_search_rate_limit_per_minute: number;
   /** Where each field came from. The UI renders this so the operator knows
    * whether they're seeing a saved value or an env-var fallback. */
@@ -100,8 +104,24 @@ export interface ResolvedEnrichmentConfig {
     face_min_detection_size: 'db' | 'default';
     meilisearch_url: 'db' | 'env' | 'unset';
     meilisearch_api_key: 'db' | 'env' | 'unset';
+    meilisearch_task_timeout_seconds: 'db' | 'default';
     service_search_rate_limit_per_minute: 'db' | 'default';
   };
+}
+
+function resolveMeilisearchTaskTimeout(db: EnrichmentConfig | null): {
+  value: number;
+  source: 'db' | 'default';
+} {
+  const saved = db?.meilisearch_task_timeout_seconds;
+  const valid =
+    typeof saved === 'number' &&
+    Number.isInteger(saved) &&
+    saved >= MIN_MEILISEARCH_TASK_TIMEOUT_SECONDS &&
+    saved <= MAX_MEILISEARCH_TASK_TIMEOUT_SECONDS;
+  return valid
+    ? { value: saved, source: 'db' }
+    : { value: DEFAULT_MEILISEARCH_TASK_TIMEOUT_SECONDS, source: 'default' };
 }
 
 function resolveServiceSearchRateLimit(db: EnrichmentConfig | null): {
@@ -333,6 +353,7 @@ export function resolveEnrichmentConfig(
   }
 
   const serviceSearchRateLimit = resolveServiceSearchRateLimit(db);
+  const meilisearchTaskTimeout = resolveMeilisearchTaskTimeout(db);
 
   return {
     nominatim_url: url,
@@ -354,6 +375,7 @@ export function resolveEnrichmentConfig(
     face_min_detection_size: faceMinDetectionSize,
     meilisearch_url: meilisearchUrl.value,
     meilisearch_api_key: meilisearchApiKey.value,
+    meilisearch_task_timeout_seconds: meilisearchTaskTimeout.value,
     service_search_rate_limit_per_minute: serviceSearchRateLimit.value,
     source: {
       nominatim_url: urlSource,
@@ -375,6 +397,7 @@ export function resolveEnrichmentConfig(
       face_min_detection_size: faceMinDetectionSizeSource,
       meilisearch_url: meilisearchUrl.source,
       meilisearch_api_key: meilisearchApiKey.source,
+      meilisearch_task_timeout_seconds: meilisearchTaskTimeout.source,
       service_search_rate_limit_per_minute: serviceSearchRateLimit.source,
     },
   };
