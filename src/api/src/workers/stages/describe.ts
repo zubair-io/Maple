@@ -35,7 +35,7 @@ import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
-import { isUndecodableFilename } from '../../indexer/media-types.ts';
+import { isUndecodableFilename, isVideoFilename } from '../../indexer/media-types.ts';
 import { relocateBackupScreenshot } from '../migration/refile-backups.ts';
 import {
   type DescribeProvider,
@@ -136,6 +136,12 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
     return { skip: 'stub-file' };
   }
 
+  // `is_screenshot` is a stills-only concept (#2325). A video's poster frame
+  // can read as a UI to the VLM — a screen recording does every time — but a
+  // video is never a screenshot, so the verdict is clamped before it reaches
+  // any of its three consumers below.
+  const isVideo = !!primary && isVideoFilename(primary.filename);
+
   const { provider, systemPrompt, model } = await getDeps();
 
   // 1280-px preview — VLMs need more pixels than the 512-px thumb to read
@@ -208,6 +214,7 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   // dead-letters the row after maxAttempts; operators triage via
   // /settings/workers and see the truncated raw snippet in last_error.
   const vision = parseVisionJson(result.text);
+  const isScreenshot = isVideo ? false : vision.is_screenshot;
 
   const now = new Date().toISOString();
   // Measure post-fence-strip so the recorded size matches what the parser
@@ -225,8 +232,12 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
       cost_usd: result.cost_usd,
       ...result.provider_info,
     },
-    // Structured vision subdoc — the new canonical source.
-    vision,
+    // Structured vision subdoc — the new canonical source. The screenshot
+    // verdict is clamped for video here too, not only on the top-level
+    // mirror: `sidecar-metadata-index` reads `vision.is_screenshot` back as
+    // its first source of truth, so leaving it true would let the flag
+    // reappear on the next sidecar re-index.
+    vision: { ...vision, is_screenshot: isScreenshot },
     vision_meta: {
       provider: provider.name,
       model,
@@ -237,8 +248,9 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
     // Top-level mirror of the VLM's screenshot verdict, overwriting any
     // exif-stage heuristic. The describe stage has more signal than
     // filename + missing camera_make (it sees cropped screenshots and
-    // photos-of-screens correctly), so its verdict wins.
-    is_screenshot: vision.is_screenshot,
+    // photos-of-screens correctly), so its verdict wins — except for video,
+    // which is never a screenshot whatever the model saw in the poster.
+    is_screenshot: isScreenshot,
   };
 
   // OCR mirror: the structured vision pass extracts visible text as part
@@ -261,7 +273,7 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   // gate keeps non-backup assets (and unit-test docs) off the DB path entirely.
   // moveBackupAsset repoints fileinfo directly; the metadata patch above does
   // not touch fileinfo, so the relocation and the stage write don't collide.
-  if (vision.is_screenshot && (image.phasset_links?.length ?? 0) > 0) {
+  if (isScreenshot && (image.phasset_links?.length ?? 0) > 0) {
     try {
       const outcome = await relocateBackupScreenshot(image._id);
       if (outcome === 'moved') {
