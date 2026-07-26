@@ -197,6 +197,10 @@ export interface EnrichmentForm {
   // blank value on save means "leave the saved key unchanged".
   meilisearch_api_key: string;
   meilisearch_task_timeout_seconds: string;
+  meilisearch_semantic_enabled: boolean;
+  meilisearch_embedder_url: string;
+  meilisearch_embedder_model: string;
+  meilisearch_semantic_ratio: string;
   service_search_rate_limit_per_minute: string;
 }
 
@@ -234,6 +238,15 @@ export function blankRuntime(stage: StageStatus): RuntimeForm {
   };
 }
 
+function blankMeilisearchSemantic(ec: EnrichmentConfigResponse | null) {
+  return {
+    meilisearch_semantic_enabled: ec?.meilisearch_semantic_enabled ?? false,
+    meilisearch_embedder_url: ec?.meilisearch_embedder_url ?? 'http://localhost:11434',
+    meilisearch_embedder_model: ec?.meilisearch_embedder_model ?? 'bge-m3',
+    meilisearch_semantic_ratio: String(ec?.meilisearch_semantic_ratio ?? 0.5),
+  };
+}
+
 /** Seed enrichment-form values from the latest server config snapshot.
  * `describe_model` is not seeded — the runtime hardcodes the model so the
  * UI shows `FIXED_DESCRIBE_MODEL` as a read-only label. */
@@ -253,7 +266,32 @@ export function blankEnrichment(ec: EnrichmentConfigResponse | null): Enrichment
     // Never seeded from the response — the key is write-only.
     meilisearch_api_key: '',
     meilisearch_task_timeout_seconds: String(ec?.meilisearch_task_timeout_seconds ?? 600),
+    ...blankMeilisearchSemantic(ec),
     service_search_rate_limit_per_minute: String(ec?.service_search_rate_limit_per_minute ?? 60),
+  };
+}
+
+export function meilisearchFormToPatch(form: EnrichmentForm) {
+  const key = form.meilisearch_api_key.trim();
+  const taskTimeout = Number(form.meilisearch_task_timeout_seconds.trim());
+  const semanticRatio = Number(form.meilisearch_semantic_ratio.trim());
+  const serviceRate = Number(form.service_search_rate_limit_per_minute.trim());
+  return {
+    meilisearch_url: form.meilisearch_url.trim() || null,
+    ...(key.length > 0 ? { meilisearch_api_key: key } : {}),
+    meilisearch_task_timeout_seconds:
+      Number.isInteger(taskTimeout) && taskTimeout >= 30 && taskTimeout <= 3600
+        ? taskTimeout
+        : null,
+    meilisearch_semantic_enabled: form.meilisearch_semantic_enabled,
+    meilisearch_embedder_url: form.meilisearch_embedder_url.trim() || null,
+    meilisearch_embedder_model: form.meilisearch_embedder_model.trim() || null,
+    meilisearch_semantic_ratio:
+      Number.isFinite(semanticRatio) && semanticRatio >= 0 && semanticRatio <= 1
+        ? semanticRatio
+        : null,
+    service_search_rate_limit_per_minute:
+      Number.isInteger(serviceRate) && serviceRate > 0 ? serviceRate : null,
   };
 }
 

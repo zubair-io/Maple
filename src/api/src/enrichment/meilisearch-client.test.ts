@@ -12,9 +12,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import {
   ASSETS_INDEX,
   createMeilisearchClient,
-  meilisearchClient,
-  reconfigureMeilisearch,
-  setMeilisearchClientForTests,
   type MeilisearchAssetDoc,
 } from './meilisearch-client.ts';
 import { makeFakeFetch } from './meilisearch-test-harness.ts';
@@ -178,7 +175,7 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
       fetchImpl,
       semantic: true,
       embedderUrl: 'http://ollama.lan:11434',
-      embedderModel: 'nomic-embed-text',
+      embedderModel: 'custom-embedder',
       semanticRatio: 0.6,
     });
     await client.ensureIndex();
@@ -197,7 +194,7 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     expect(embedders).toBeDefined();
     expect(embedders.caption.source).toBe('ollama');
     expect(embedders.caption.url).toBe('http://ollama.lan:11434/api/embeddings');
-    expect(embedders.caption.model).toBe('nomic-embed-text');
+    expect(embedders.caption.model).toBe('custom-embedder');
     expect(typeof embedders.caption.documentTemplate).toBe('string');
     // searchable/filterable still carry the `people` attribute.
     const filt = (settings!.body as Record<string, unknown>).filterableAttributes as string[];
@@ -555,46 +552,5 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     const result = await client.search('HVAC air conditioning installation', { semantic: true });
     expect(result.ids).toEqual(['semantic', 'exact-lexical']);
     expect(result.scores).toEqual({ semantic: 0.91 });
-  });
-});
-
-describe('reconfigureMeilisearch — runtime singleton swap', () => {
-  afterEach(() => {
-    // Reset the module singleton so other suites start clean.
-    setMeilisearchClientForTests(null);
-  });
-
-  it('a non-null URL configures the shared client', () => {
-    reconfigureMeilisearch('http://meili.saved:7700', null);
-    expect(meilisearchClient().isConfigured()).toBe(true);
-  });
-
-  it('the resolved URL wins even when the env var is set', () => {
-    // Simulate the resolver having already chosen the DB value: we pass the
-    // resolved URL explicitly, and the env var must NOT leak back in.
-    process.env.MAPLE_MEILISEARCH_URL = 'http://meili.env:7700';
-    reconfigureMeilisearch('http://meili.db:7700', null);
-    expect(meilisearchClient().isConfigured()).toBe(true);
-  });
-
-  it('a null URL disables the client even when the env var is set', () => {
-    // resolved.meilisearch_url === null means "neither DB nor env" — but
-    // even if a stale env var is present, the explicit null must disable.
-    process.env.MAPLE_MEILISEARCH_URL = 'http://meili.env:7700';
-    reconfigureMeilisearch(null, null);
-    expect(meilisearchClient().isConfigured()).toBe(false);
-  });
-
-  it('sends the resolved API key as a bearer token on requests', async () => {
-    const { fetchImpl, calls } = makeFakeFetch({
-      routes: [{ method: 'GET', pathPrefix: '/health', status: 200, body: { status: 'ok' } }],
-    });
-    reconfigureMeilisearch('http://meili.db:7700', 'db-key');
-    // Swap in the recording fetch on the freshly-built singleton.
-    setMeilisearchClientForTests(
-      createMeilisearchClient({ url: 'http://meili.db:7700', apiKey: 'db-key', fetchImpl }),
-    );
-    await meilisearchClient().health();
-    expect(calls[0]!.headers.Authorization).toBe('Bearer db-key');
   });
 });

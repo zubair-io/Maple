@@ -733,6 +733,109 @@
                           <span class="mono">MAPLE_MEILISEARCH_API_KEY</span>.
                         </div>
                       </div>
+                      <div class="field field-wide">
+                        <label class="semantic-toggle" for="meilisearch-semantic-enabled">
+                          <input
+                            id="meilisearch-semantic-enabled"
+                            type="checkbox"
+                            [checked]="enrichmentValue(s, 'meilisearch_semantic_enabled')"
+                            (change)="
+                              setEnrichment(
+                                s,
+                                'meilisearch_semantic_enabled',
+                                $any($event.target).checked
+                              )
+                            "
+                            data-testid="meilisearch-semantic-enabled"
+                          />
+                          <span>Enable hybrid semantic search</span>
+                        </label>
+                        <div class="field-hint">
+                          Combines keyword relevance with vector similarity. Saving applies the
+                          change immediately; existing assets still need the semantic-vector
+                          migration to become searchable by meaning.
+                        </div>
+                      </div>
+                      <div class="field field-wide">
+                        <label class="field-label" for="meilisearch-embedder-url"
+                          >Embedding service URL</label
+                        >
+                        <div class="text-input mono">
+                          <div class="text-input-wrap">
+                            <input
+                              id="meilisearch-embedder-url"
+                              type="text"
+                              placeholder="http://localhost:11434"
+                              [value]="enrichmentValue(s, 'meilisearch_embedder_url')"
+                              (input)="
+                                setEnrichment(
+                                  s,
+                                  'meilisearch_embedder_url',
+                                  $any($event.target).value
+                                )
+                              "
+                              data-testid="meilisearch-embedder-url"
+                            />
+                          </div>
+                        </div>
+                        <div class="field-hint">
+                          Ollama base URL as seen by the Meilisearch host. For containers, use an
+                          address Meilisearch can reach rather than localhost.
+                        </div>
+                      </div>
+                      <div class="field">
+                        <label class="field-label" for="meilisearch-embedder-model"
+                          >Embedding model</label
+                        >
+                        <div class="text-input mono">
+                          <div class="text-input-wrap">
+                            <input
+                              id="meilisearch-embedder-model"
+                              type="text"
+                              placeholder="bge-m3"
+                              [value]="enrichmentValue(s, 'meilisearch_embedder_model')"
+                              (input)="
+                                setEnrichment(
+                                  s,
+                                  'meilisearch_embedder_model',
+                                  $any($event.target).value
+                                )
+                              "
+                              data-testid="meilisearch-embedder-model"
+                            />
+                          </div>
+                        </div>
+                        <div class="field-hint">
+                          Ollama model used for both document and query vectors. Default:
+                          <span class="mono">bge-m3</span>.
+                        </div>
+                      </div>
+                      <div class="field">
+                        <label class="field-label" for="meilisearch-semantic-ratio"
+                          >Semantic blend</label
+                        >
+                        <div class="num-input">
+                          <input
+                            id="meilisearch-semantic-ratio"
+                            type="number"
+                            min="0"
+                            max="1"
+                            step="0.05"
+                            [value]="enrichmentValue(s, 'meilisearch_semantic_ratio')"
+                            (input)="
+                              setEnrichment(
+                                s,
+                                'meilisearch_semantic_ratio',
+                                $any($event.target).value
+                              )
+                            "
+                            data-testid="meilisearch-semantic-ratio"
+                          />
+                        </div>
+                        <div class="field-hint">
+                          0 uses keyword ranking only; 1 uses vector similarity only. Default: 0.5.
+                        </div>
+                      </div>
                       <div class="field">
                         <div class="field-label">Index task timeout</div>
                         <div class="num-input">

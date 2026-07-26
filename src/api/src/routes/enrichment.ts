@@ -47,6 +47,7 @@ import {
   createMeilisearchClient,
   reconfigureMeilisearch,
 } from '../enrichment/meilisearch-client.ts';
+import { validMeilisearchSemanticRatio } from '../enrichment/meilisearch-config.ts';
 import { configureServiceSearchRateLimit } from '../enrichment/service-search-rate-limit.ts';
 
 const log = childLogger('enrichment:routes');
@@ -109,6 +110,10 @@ const ConfigBody = t.Object({
    * field in the UI never wipes a key the operator can't see. */
   meilisearch_api_key: t.Optional(t.Union([t.String(), t.Null()])),
   meilisearch_task_timeout_seconds: t.Optional(t.Union([t.Number(), t.Null()])),
+  meilisearch_semantic_enabled: t.Optional(t.Union([t.Boolean(), t.Null()])),
+  meilisearch_embedder_url: t.Optional(t.Union([t.String(), t.Null()])),
+  meilisearch_embedder_model: t.Optional(t.Union([t.String(), t.Null()])),
+  meilisearch_semantic_ratio: t.Optional(t.Union([t.Number(), t.Null()])),
   service_search_rate_limit_per_minute: t.Optional(t.Union([t.Number(), t.Null()])),
 });
 
@@ -312,6 +317,32 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
         set.status = 400;
         return { error: taskTimeoutError };
       }
+      let meiliEmbedderUrl: string | null | undefined;
+      if (body.meilisearch_embedder_url !== undefined) {
+        const validatedEmbedder = validateHttpUrl(body.meilisearch_embedder_url);
+        if (
+          validatedEmbedder &&
+          typeof validatedEmbedder === 'object' &&
+          'error' in validatedEmbedder
+        ) {
+          set.status = 400;
+          return { error: `Invalid meilisearch_embedder_url: ${validatedEmbedder.error}` };
+        }
+        meiliEmbedderUrl = validatedEmbedder as string | null;
+      }
+      const meiliEmbedderModel =
+        body.meilisearch_embedder_model === undefined
+          ? undefined
+          : body.meilisearch_embedder_model?.trim() || null;
+      const semanticRatio = body.meilisearch_semantic_ratio;
+      if (
+        semanticRatio !== undefined &&
+        semanticRatio !== null &&
+        !validMeilisearchSemanticRatio(semanticRatio)
+      ) {
+        set.status = 400;
+        return { error: 'Invalid meilisearch_semantic_ratio: must be a number between 0 and 1' };
+      }
       const serviceSearchRateLimit = body.service_search_rate_limit_per_minute;
       const serviceRateError = boundedIntegerError(
         'service_search_rate_limit_per_minute',
@@ -382,6 +413,14 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
         ...(meilisearchTaskTimeout !== undefined
           ? { meilisearch_task_timeout_seconds: meilisearchTaskTimeout }
           : {}),
+        ...(body.meilisearch_semantic_enabled !== undefined
+          ? { meilisearch_semantic_enabled: body.meilisearch_semantic_enabled }
+          : {}),
+        ...(meiliEmbedderUrl !== undefined ? { meilisearch_embedder_url: meiliEmbedderUrl } : {}),
+        ...(meiliEmbedderModel !== undefined
+          ? { meilisearch_embedder_model: meiliEmbedderModel }
+          : {}),
+        ...(semanticRatio !== undefined ? { meilisearch_semantic_ratio: semanticRatio } : {}),
         ...(serviceSearchRateLimit !== undefined
           ? { service_search_rate_limit_per_minute: serviceSearchRateLimit }
           : {}),
@@ -427,26 +466,26 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
         return { error: `Saved, but worker reconfigure failed: ${configApplyErr}` };
       }
 
-      // Rebuild the Meilisearch client against the resolved URL so the
-      // running process (search route + meili stage) picks it up without a
-      // restart. This swap is synchronous and is the only part that must
-      // happen before we return.
-      reconfigureMeilisearch(
-        resolved.meilisearch_url,
-        resolved.meilisearch_api_key,
-        resolved.meilisearch_task_timeout_seconds * 1000,
-      );
+      // Swap the cached search client synchronously so settings apply now.
+      reconfigureMeilisearch({
+        url: resolved.meilisearch_url,
+        apiKey: resolved.meilisearch_api_key,
+        taskTimeoutMs: resolved.meilisearch_task_timeout_seconds * 1000,
+        semanticEnabled: resolved.meilisearch_semantic_enabled,
+        embedderUrl: resolved.meilisearch_embedder_url,
+        embedderModel: resolved.meilisearch_embedder_model,
+        semanticRatio: resolved.meilisearch_semantic_ratio,
+      });
       configureServiceSearchRateLimit(resolved.service_search_rate_limit_per_minute);
       if (resolved.meilisearch_url) {
-        // Warm up the freshly-pointed-at instance — health-check + index
-        // (re)creation — fire-and-forget. NOT awaited: a slow/unreachable
-        // Meili must never block saving the URL, and connectivity is
-        // best-effort (search falls back to Mongo `$text`). Detached so the
-        // response returns immediately; the IIFE owns its own error handling
-        // so there's no unhandled rejection.
+        // Warm up without blocking save; search falls back if Meili is unavailable.
         const meili = createMeilisearchClient({
           url: resolved.meilisearch_url,
           apiKey: resolved.meilisearch_api_key ?? undefined,
+          semantic: resolved.meilisearch_semantic_enabled,
+          embedderUrl: resolved.meilisearch_embedder_url,
+          embedderModel: resolved.meilisearch_embedder_model,
+          semanticRatio: resolved.meilisearch_semantic_ratio,
         });
         void (async () => {
           try {

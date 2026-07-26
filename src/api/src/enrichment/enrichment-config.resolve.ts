@@ -15,6 +15,7 @@
 
 import type { DescribeProviderName } from './describe-providers/index.ts';
 import { parseWhisperTier, type WhisperTier } from '../audio/whisper-model.ts';
+import { validMeilisearchSemanticRatio } from './meilisearch-config.ts';
 import {
   DEFAULT_DESCRIBE_DAILY_CAP_USD,
   DEFAULT_DESCRIBE_MODELS,
@@ -22,6 +23,10 @@ import {
   DEFAULT_DESCRIBE_PROVIDER,
   DEFAULT_DESCRIBE_SYSTEM_PROMPT,
   DEFAULT_FACE_MIN_DETECTION_SIZE,
+  DEFAULT_MEILISEARCH_EMBEDDER_MODEL,
+  DEFAULT_MEILISEARCH_EMBEDDER_URL,
+  DEFAULT_MEILISEARCH_SEMANTIC_ENABLED,
+  DEFAULT_MEILISEARCH_SEMANTIC_RATIO,
   DEFAULT_MEILISEARCH_TASK_TIMEOUT_SECONDS,
   DEFAULT_NOMINATIM_RATE_LIMIT_PER_SEC,
   DEFAULT_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE,
@@ -81,6 +86,10 @@ export interface ResolvedEnrichmentConfig {
    * route strips this before responding — never send it to a client. */
   meilisearch_api_key: string | null;
   meilisearch_task_timeout_seconds: number;
+  meilisearch_semantic_enabled: boolean;
+  meilisearch_embedder_url: string;
+  meilisearch_embedder_model: string;
+  meilisearch_semantic_ratio: number;
   service_search_rate_limit_per_minute: number;
   /** Where each field came from. The UI renders this so the operator knows
    * whether they're seeing a saved value or an env-var fallback. */
@@ -105,6 +114,10 @@ export interface ResolvedEnrichmentConfig {
     meilisearch_url: 'db' | 'env' | 'unset';
     meilisearch_api_key: 'db' | 'env' | 'unset';
     meilisearch_task_timeout_seconds: 'db' | 'default';
+    meilisearch_semantic_enabled: 'db' | 'default';
+    meilisearch_embedder_url: 'db' | 'default';
+    meilisearch_embedder_model: 'db' | 'default';
+    meilisearch_semantic_ratio: 'db' | 'default';
     service_search_rate_limit_per_minute: 'db' | 'default';
   };
 }
@@ -336,6 +349,24 @@ export function resolveEnrichmentConfig(
   // Meilisearch sidecar — URL + API key, each DB → env → null.
   const meilisearchUrl = resolveStr(db?.meilisearch_url, env.MAPLE_MEILISEARCH_URL);
   const meilisearchApiKey = resolveStr(db?.meilisearch_api_key, env.MAPLE_MEILISEARCH_API_KEY);
+  const meilisearchSemanticEnabled =
+    typeof db?.meilisearch_semantic_enabled === 'boolean'
+      ? { value: db.meilisearch_semantic_enabled, source: 'db' as const }
+      : { value: DEFAULT_MEILISEARCH_SEMANTIC_ENABLED, source: 'default' as const };
+  const savedEmbedderUrl = db?.meilisearch_embedder_url?.trim();
+  const meilisearchEmbedderUrl =
+    savedEmbedderUrl && savedEmbedderUrl.length > 0
+      ? { value: savedEmbedderUrl, source: 'db' as const }
+      : { value: DEFAULT_MEILISEARCH_EMBEDDER_URL, source: 'default' as const };
+  const savedEmbedderModel = db?.meilisearch_embedder_model?.trim();
+  const meilisearchEmbedderModel =
+    savedEmbedderModel && savedEmbedderModel.length > 0
+      ? { value: savedEmbedderModel, source: 'db' as const }
+      : { value: DEFAULT_MEILISEARCH_EMBEDDER_MODEL, source: 'default' as const };
+  const savedSemanticRatio = db?.meilisearch_semantic_ratio;
+  const meilisearchSemanticRatio = validMeilisearchSemanticRatio(savedSemanticRatio)
+    ? { value: savedSemanticRatio, source: 'db' as const }
+    : { value: DEFAULT_MEILISEARCH_SEMANTIC_RATIO, source: 'default' as const };
 
   // Minimum face size — DB-only (no env var); falls back to built-in default.
   let faceMinDetectionSize = DEFAULT_FACE_MIN_DETECTION_SIZE;
@@ -376,6 +407,10 @@ export function resolveEnrichmentConfig(
     meilisearch_url: meilisearchUrl.value,
     meilisearch_api_key: meilisearchApiKey.value,
     meilisearch_task_timeout_seconds: meilisearchTaskTimeout.value,
+    meilisearch_semantic_enabled: meilisearchSemanticEnabled.value,
+    meilisearch_embedder_url: meilisearchEmbedderUrl.value,
+    meilisearch_embedder_model: meilisearchEmbedderModel.value,
+    meilisearch_semantic_ratio: meilisearchSemanticRatio.value,
     service_search_rate_limit_per_minute: serviceSearchRateLimit.value,
     source: {
       nominatim_url: urlSource,
@@ -398,6 +433,10 @@ export function resolveEnrichmentConfig(
       meilisearch_url: meilisearchUrl.source,
       meilisearch_api_key: meilisearchApiKey.source,
       meilisearch_task_timeout_seconds: meilisearchTaskTimeout.source,
+      meilisearch_semantic_enabled: meilisearchSemanticEnabled.source,
+      meilisearch_embedder_url: meilisearchEmbedderUrl.source,
+      meilisearch_embedder_model: meilisearchEmbedderModel.source,
+      meilisearch_semantic_ratio: meilisearchSemanticRatio.source,
       service_search_rate_limit_per_minute: serviceSearchRateLimit.source,
     },
   };

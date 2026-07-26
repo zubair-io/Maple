@@ -46,14 +46,9 @@ services:
       PORT: '3000'
       MAPLE_MONGO_URI: 'mongodb://mongo:27017'
       MAPLE_MONGO_DB: 'maple'
-      # Hybrid search is enabled by default for container deployments once
-      # MAPLE_MEILISEARCH_URL points at a reachable v1 Meilisearch instance.
+      # Configure semantic search at runtime under Settings → Workers → meili.
       MAPLE_MEILISEARCH_URL: ${MAPLE_MEILISEARCH_URL:-}
       MAPLE_MEILISEARCH_API_KEY: ${MAPLE_MEILISEARCH_API_KEY:-}
-      MAPLE_MEILISEARCH_SEMANTIC: ${MAPLE_MEILISEARCH_SEMANTIC:-true}
-      MAPLE_MEILISEARCH_EMBEDDER_URL: ${MAPLE_MEILISEARCH_EMBEDDER_URL:-http://host.docker.internal:11434}
-      MAPLE_MEILISEARCH_EMBEDDER_MODEL: ${MAPLE_MEILISEARCH_EMBEDDER_MODEL:-nomic-embed-text}
-      MAPLE_MEILISEARCH_SEMANTIC_RATIO: ${MAPLE_MEILISEARCH_SEMANTIC_RATIO:-0.5}
       # Mount your photo library here (also set MAPLE_ROOTS):
       # MAPLE_ROOTS: /photos
     volumes:

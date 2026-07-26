@@ -23,6 +23,12 @@ import {
   DEFAULT_DESCRIBE_VISION_PROMPT,
   DESCRIBE_VISION_PROMPT_VERSION,
 } from './describe-prompts.ts';
+import {
+  DEFAULT_MEILISEARCH_EMBEDDER_URL,
+  DEFAULT_MEILISEARCH_EMBEDDER_MODEL,
+  DEFAULT_MEILISEARCH_SEMANTIC_ENABLED,
+  DEFAULT_MEILISEARCH_SEMANTIC_RATIO,
+} from './meilisearch-config.ts';
 import { DEFAULT_MEILISEARCH_TASK_TIMEOUT_MS } from './meilisearch-transport.ts';
 
 const COLL = 'app_settings';
@@ -43,6 +49,12 @@ export function builtinModelDir(): string {
 export const DEFAULT_NOMINATIM_RATE_LIMIT_PER_SEC = 10;
 export const DEFAULT_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE = 60;
 export const DEFAULT_MEILISEARCH_TASK_TIMEOUT_SECONDS = DEFAULT_MEILISEARCH_TASK_TIMEOUT_MS / 1000;
+export {
+  DEFAULT_MEILISEARCH_EMBEDDER_URL,
+  DEFAULT_MEILISEARCH_EMBEDDER_MODEL,
+  DEFAULT_MEILISEARCH_SEMANTIC_ENABLED,
+  DEFAULT_MEILISEARCH_SEMANTIC_RATIO,
+};
 
 /** Reject obviously broken values up-front. The lower bound is non-zero so
  * a misclick can't pause the worker silently; the upper bound is generous
@@ -200,6 +212,15 @@ export interface EnrichmentConfig {
   /** Maximum wait for one asynchronous Meilisearch indexing task. DB-backed
    * so slower Ollama deployments can tune it without restarting Maple. */
   meilisearch_task_timeout_seconds?: number | null;
+  /** Enables Maple-owned hybrid queries and registers the fixed Ollama
+   * embedder. DB-backed and operator-controlled from Settings → Workers. */
+  meilisearch_semantic_enabled?: boolean | null;
+  /** Ollama base URL reachable from the Meilisearch host. */
+  meilisearch_embedder_url?: string | null;
+  /** Ollama embedding model used for both documents and queries. */
+  meilisearch_embedder_model?: string | null;
+  /** Hybrid vector/keyword blend in [0, 1]. */
+  meilisearch_semantic_ratio?: number | null;
   /** Per-service-key request budget for the external asset-search endpoint.
    * DB-backed so operators can tune it at runtime from Settings → Workers. */
   service_search_rate_limit_per_minute?: number | null;
@@ -238,6 +259,22 @@ const LEGACY_FIELD_REMAP: ReadonlyArray<readonly [keyof EnrichmentConfig, keyof 
     ['face_mobilefacenet_url', 'face_recognizer_url'],
     ['face_mobilefacenet_sha256', 'face_recognizer_sha256'],
   ];
+
+const MEILISEARCH_SEMANTIC_FIELDS = [
+  'meilisearch_semantic_enabled',
+  'meilisearch_embedder_url',
+  'meilisearch_embedder_model',
+  'meilisearch_semantic_ratio',
+] as const;
+
+function copyMeilisearchSemanticFields(
+  set: Record<string, unknown>,
+  config: Partial<EnrichmentConfig>,
+): void {
+  for (const field of MEILISEARCH_SEMANTIC_FIELDS) {
+    if (config[field] !== undefined) set[`config.${field}`] = config[field];
+  }
+}
 
 /** Upsert. Partial patches are supported: only the fields you supply are
  * touched, the rest of the config doc is preserved.
@@ -331,6 +368,7 @@ export async function saveEnrichmentConfig(patch: Partial<EnrichmentConfig>): Pr
   if (remapped.meilisearch_task_timeout_seconds !== undefined) {
     set['config.meilisearch_task_timeout_seconds'] = remapped.meilisearch_task_timeout_seconds;
   }
+  copyMeilisearchSemanticFields(set, remapped);
   if (remapped.service_search_rate_limit_per_minute !== undefined) {
     set['config.service_search_rate_limit_per_minute'] =
       remapped.service_search_rate_limit_per_minute;
