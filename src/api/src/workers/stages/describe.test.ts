@@ -1,90 +1,19 @@
-import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
-import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { ObjectId } from 'mongodb';
-import sharp from 'sharp';
 import type { ImageDoc } from '../run-stage.ts';
 import {
   RemoteError,
   type DescribeProvider,
   type DescribeResult,
 } from '../../enrichment/describe-providers/index.ts';
-import { cachePathForAsset } from '../../fs/xmp.ts';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
-import * as refileBackups from '../migration/refile-backups.ts';
 
 import { describeHandler, setDescribeDepsForTests, DESCRIBE_PROMPT_VERSION } from './describe.ts';
 import { VISION_DOC_JSON_SCHEMA } from '../../enrichment/describe-providers/parse-vision-json.ts';
-
-const VALID_VISION = {
-  is_screenshot: false,
-  nudity: 'none',
-  caption: 'A red bicycle leaning against a brick wall.',
-  subjects: ['vehicle'],
-  scene_type: 'outdoor',
-  setting: 'alleyway',
-  activity: null,
-  time_of_day: 'afternoon',
-  lighting: 'natural',
-  weather: 'clear',
-  mood: 'calm',
-  colors: ['red', 'brown', 'grey'],
-  composition: 'close-up',
-  text_visible: null,
-  notable_objects: ['bicycle', 'brick wall'],
-  shot_type: 'static',
-};
-
-function fakeDoc(absPath: string, libraryId: ObjectId, libraryRoot: string): ImageDoc {
-  const relDir = (() => {
-    const r = absPath.startsWith(libraryRoot + '/')
-      ? absPath.substring(libraryRoot.length + 1)
-      : '';
-    const lastSlash = r.lastIndexOf('/');
-    return lastSlash < 0 ? '' : r.substring(0, lastSlash);
-  })();
-  const filename = absPath.split('/').pop()!;
-  return {
-    _id: new ObjectId(),
-    fileinfo: [{ path: relDir, filename, library_id: libraryId, deleted_at: null }],
-    maple_id: 'describe-test-' + Math.random().toString(36).slice(2),
-    size: 1,
-    mtime: 1,
-    rating: 0,
-    flag: 0,
-    color_label: '',
-    indexed_at: new Date().toISOString(),
-    exif: {
-      captured_at: '2024-06-01T12:00:00.000Z',
-      captured_year: 2024,
-      captured_month: 6,
-      camera_make: null,
-      camera_model: null,
-      lens: null,
-      iso: null,
-      aperture: null,
-      shutter: null,
-      focal_length: null,
-      gps: null,
-    },
-    faces: [],
-    description: null,
-    place: null,
-    stages: {},
-  } as unknown as ImageDoc;
-}
-
-function mockProvider(result: DescribeResult | Error): DescribeProvider {
-  return {
-    name: 'ollama',
-    async describe(_bytes, _opts): Promise<DescribeResult> {
-      if (result instanceof Error) throw result;
-      return result;
-    },
-    async health(): Promise<void> {},
-  };
-}
+import { VALID_VISION, fakeDoc, mockProvider, stageDocIn } from './describe.fixtures.ts';
 
 let tmpRoot: string;
 let libraryId: ObjectId;
@@ -99,34 +28,10 @@ afterEach(() => {
   setLibraryRootsForTests(null);
 });
 
-/** Stage a fake 1280-px preview AND build the matching doc. The doc's
- * fileinfo determines the (path-keyed) preview cache path so we have to
- * construct them together. The preview must be a genuinely decodable AVIF —
- * `describeHandler` now decodes + re-encodes it to JPEG before calling the
- * provider (#1978), so a placeholder byte sequence would make `sharp()`
- * throw instead of exercising the real path. */
+/** Bind the shared preview-staging factory to this suite's per-test
+ * `tmpRoot` / `libraryId`, so existing cases keep their one-arg call shape. */
 async function stageDoc(absPath: string): Promise<ImageDoc> {
-  const doc = fakeDoc(absPath, libraryId, tmpRoot);
-  const previewPath = cachePathForAsset(
-    doc as never,
-    new Map([[libraryId.toHexString(), tmpRoot]]),
-    'previews',
-    'avif',
-  );
-  if (!previewPath) throw new Error('test setup: cachePathForAsset returned null');
-  mkdirSync(dirname(previewPath), { recursive: true });
-  const avifBytes = await sharp({
-    create: {
-      width: 32,
-      height: 24,
-      channels: 3,
-      background: { r: 120, g: 80, b: 40 },
-    },
-  })
-    .avif()
-    .toBuffer();
-  writeFileSync(previewPath, avifBytes);
-  return doc;
+  return stageDocIn(absPath, libraryId, tmpRoot);
 }
 
 const fakeCtx = {} as never;
@@ -575,92 +480,5 @@ describe('describeHandler — provider_info extras', () => {
     expect(meta.input_tokens).toBe('120');
     expect(meta.output_tokens).toBe('20');
     expect(meta.cost_usd).toBe(0.04);
-  });
-});
-
-describe('describeHandler — video is never a screenshot (#2325)', () => {
-  /** A video's poster frame reads as a UI to the VLM — a screen recording
-   * does every time. The verdict must not reach any of its three consumers. */
-  const SCREENSHOT_VISION = { ...VALID_VISION, is_screenshot: true };
-
-  it('writes is_screenshot false for a video even when the model says true', async () => {
-    const doc = await stageDoc(join(tmpRoot, 'clip.mov'));
-    setDescribeDepsForTests({
-      provider: mockProvider({
-        text: JSON.stringify(SCREENSHOT_VISION),
-        cost_usd: 0,
-        provider_info: {},
-      }),
-      systemPrompt: 'structured vision prompt',
-      model: 'qwen3-vl:8b',
-    });
-
-    const res = (await describeHandler(doc, fakeCtx)) as { patch: Record<string, unknown> };
-
-    expect(res.patch.is_screenshot).toBe(false);
-  });
-
-  it('also clamps the stored vision subdoc, so a sidecar re-index cannot resurrect it', async () => {
-    const doc = await stageDoc(join(tmpRoot, 'clip.mov'));
-    setDescribeDepsForTests({
-      provider: mockProvider({
-        text: JSON.stringify(SCREENSHOT_VISION),
-        cost_usd: 0,
-        provider_info: {},
-      }),
-      systemPrompt: 'structured vision prompt',
-      model: 'qwen3-vl:8b',
-    });
-
-    const res = (await describeHandler(doc, fakeCtx)) as {
-      patch: { vision: { is_screenshot: boolean; caption: string } };
-    };
-
-    expect(res.patch.vision.is_screenshot).toBe(false);
-    // The rest of the VisionDoc is passed through untouched.
-    expect(res.patch.vision.caption).toBe(VALID_VISION.caption);
-  });
-
-  it('never relocates a video into <year>/Screenshot on disk', async () => {
-    const doc = await stageDoc(join(tmpRoot, 'clip.mov'));
-    // The relocation is gated on backup origin, so give the doc a phasset
-    // link — otherwise this test would pass for the wrong reason.
-    (doc as unknown as { phasset_links: string[] }).phasset_links = ['SS/L0/001'];
-    const relocate = spyOn(refileBackups, 'relocateBackupScreenshot');
-
-    setDescribeDepsForTests({
-      provider: mockProvider({
-        text: JSON.stringify(SCREENSHOT_VISION),
-        cost_usd: 0,
-        provider_info: {},
-      }),
-      systemPrompt: 'structured vision prompt',
-      model: 'qwen3-vl:8b',
-    });
-
-    await describeHandler(doc, fakeCtx);
-
-    expect(relocate).not.toHaveBeenCalled();
-    relocate.mockRestore();
-  });
-
-  it('still honours a true verdict for a still image', async () => {
-    const doc = await stageDoc(join(tmpRoot, 'shot.png'));
-    setDescribeDepsForTests({
-      provider: mockProvider({
-        text: JSON.stringify(SCREENSHOT_VISION),
-        cost_usd: 0,
-        provider_info: {},
-      }),
-      systemPrompt: 'structured vision prompt',
-      model: 'qwen3-vl:8b',
-    });
-
-    const res = (await describeHandler(doc, fakeCtx)) as {
-      patch: { is_screenshot: boolean; vision: { is_screenshot: boolean } };
-    };
-
-    expect(res.patch.is_screenshot).toBe(true);
-    expect(res.patch.vision.is_screenshot).toBe(true);
   });
 });
