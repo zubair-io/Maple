@@ -180,15 +180,15 @@ function failureDetails(status: number, errorText: string | null): MeilisearchFa
     }
   }
   const fallbackMessage = errorText?.replace(/\s+/g, ' ').trim().slice(0, 1000);
+  const message =
+    failureField(payload, 'message', 1000) ??
+    failureField(payload, 'error', 1000) ??
+    fallbackMessage;
   return {
     status: status > 0 ? status : null,
     code: failureField(payload, 'code', 100),
     type: failureField(payload, 'type', 100),
-    message:
-      failureField(payload, 'message', 1000) ??
-      failureField(payload, 'error', 1000) ??
-      fallbackMessage ??
-      'Meilisearch search request failed',
+    message: message || 'Meilisearch search request failed',
   };
 }
 
