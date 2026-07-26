@@ -350,9 +350,8 @@ pub fn apply_warp_rectilinear(
     let set_for = |p: usize| warp.planes[p.min(warp.planes.len() - 1)];
     let green = set_for(1);
     let (d, c) = (distortion as f64, ca as f64);
-    let plane_sets: [super::opcodes::WarpPlaneParams; 3] = std::array::from_fn(|p| {
-        blend_warp_toward_identity(&set_for(p), &green, d, c)
-    });
+    let plane_sets: [super::opcodes::WarpPlaneParams; 3] =
+        std::array::from_fn(|p| blend_warp_toward_identity(&set_for(p), &green, d, c));
     let all_same = plane_sets[1] == plane_sets[0] && plane_sets[2] == plane_sets[0];
 
     let src = image.pixels.clone(); // gather source (warp can't run in place)
@@ -545,3 +544,5 @@ fn bilinear_aa_ch(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_lens;

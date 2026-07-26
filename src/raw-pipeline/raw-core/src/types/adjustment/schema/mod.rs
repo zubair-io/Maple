@@ -29,6 +29,10 @@ pub use types::{band_field, FieldKind, FieldSpec};
 // in place so schema order still matches struct order.
 mod hsl;
 
+// The 13 Colour Grading entries, split out for the same reason (#376);
+// `ADJUSTMENT_SCHEMA` lists them in place so emitted order is unchanged.
+mod color_grade;
+
 // Copy/paste/sync group → field mapping (#944). Sibling submodule for the
 // same 600-LOC budget reason as `types`.
 mod groups;
@@ -311,113 +315,22 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         enum_name: "",
         doc: "Grain roughness (#1110) — mixes a second noise octave at 2x frequency.",
     },
-    FieldSpec {
-        name: "split_tone_shadow_hue",
-        kind: FieldKind::F32,
-        range: (0.0, 360.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "Split-tone shadow hue in degrees (#1111, tone/zoom design spec § 10.3) — display-linear Oklab tint.",
-    },
-    FieldSpec {
-        name: "split_tone_shadow_saturation",
-        kind: FieldKind::F32,
-        range: (0.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "Split-tone shadow saturation (#1111); 0 disables the shadow tint.",
-    },
-    FieldSpec {
-        name: "split_tone_highlight_hue",
-        kind: FieldKind::F32,
-        range: (0.0, 360.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "Split-tone highlight hue in degrees (#1111).",
-    },
-    FieldSpec {
-        name: "split_tone_highlight_saturation",
-        kind: FieldKind::F32,
-        range: (0.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "Split-tone highlight saturation (#1111); 0 disables the highlight tint.",
-    },
-    FieldSpec {
-        name: "split_tone_balance",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "Colour-grading balance — warps the tonal axis via a Yd^exp2(-bal/100) remap, shifting the shadow/midtone/highlight crossovers (#275, formerly #1111). Primary drag-bar field for the Color Grading tool. XMP: crs:SplitToningBalance.",
-    },
+    color_grade::SPLIT_TONE_SHADOW_HUE,
+    color_grade::SPLIT_TONE_SHADOW_SATURATION,
+    color_grade::SPLIT_TONE_HIGHLIGHT_HUE,
+    color_grade::SPLIT_TONE_HIGHLIGHT_SATURATION,
+    color_grade::SPLIT_TONE_BALANCE,
     // Colour grading (#275) — the wheels ACR namespaces under
     // `crs:ColorGrade*`. Shadow/highlight hue+sat and balance are the five
     // `split_tone_*` fields above, matching ACR's own layout.
-    FieldSpec {
-        name: "color_grade_shadow_luminance",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "Colour-grading shadow luminance offset (#275). XMP: crs:ColorGradeShadowLum.",
-    },
-    FieldSpec {
-        name: "color_grade_midtone_hue",
-        kind: FieldKind::F32,
-        range: (0.0, 360.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "Colour-grading midtone hue in degrees (#275). XMP: crs:ColorGradeMidtoneHue.",
-    },
-    FieldSpec {
-        name: "color_grade_midtone_saturation",
-        kind: FieldKind::F32,
-        range: (0.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "Colour-grading midtone saturation (#275); 0 disables the midtone tint. XMP: crs:ColorGradeMidtoneSat.",
-    },
-    FieldSpec {
-        name: "color_grade_midtone_luminance",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "Colour-grading midtone luminance offset (#275). XMP: crs:ColorGradeMidtoneLum.",
-    },
-    FieldSpec {
-        name: "color_grade_highlight_luminance",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "Colour-grading highlight luminance offset (#275). XMP: crs:ColorGradeHighlightLum.",
-    },
-    FieldSpec {
-        name: "color_grade_global_hue",
-        kind: FieldKind::F32,
-        range: (0.0, 360.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "Colour-grading global hue in degrees (#275) — the unweighted wheel that tints every tone. XMP: crs:ColorGradeGlobalHue.",
-    },
-    FieldSpec {
-        name: "color_grade_global_saturation",
-        kind: FieldKind::F32,
-        range: (0.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "Colour-grading global saturation (#275); 0 disables the global tint. XMP: crs:ColorGradeGlobalSat.",
-    },
-    FieldSpec {
-        name: "color_grade_global_luminance",
-        kind: FieldKind::F32,
-        range: (-100.0, 100.0),
-        default_f32: 0.0,
-        enum_name: "",
-        doc: "Colour-grading global luminance offset (#275). XMP: crs:ColorGradeGlobalLum.",
-    },
+    color_grade::COLOR_GRADE_SHADOW_LUMINANCE,
+    color_grade::COLOR_GRADE_MIDTONE_HUE,
+    color_grade::COLOR_GRADE_MIDTONE_SATURATION,
+    color_grade::COLOR_GRADE_MIDTONE_LUMINANCE,
+    color_grade::COLOR_GRADE_HIGHLIGHT_LUMINANCE,
+    color_grade::COLOR_GRADE_GLOBAL_HUE,
+    color_grade::COLOR_GRADE_GLOBAL_SATURATION,
+    color_grade::COLOR_GRADE_GLOBAL_LUMINANCE,
     // HSL 8-band hue/saturation/luminance (#1112, tone/zoom design § 10.4).
     // 24 `crs:` fields (ACR-compatible, Lightroom interop). All range -100..100,
     // default 0. Band order: Red, Orange, Yellow, Green, Aqua, Blue, Purple, Magenta.
