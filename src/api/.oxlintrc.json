@@ -191,6 +191,8 @@
         "src/workers/stages/cf-thumb-sync.test.ts",
         "src/workers/stages/cf-thumb-sync.ts",
         "src/workers/stages/describe.test.ts",
+        "src/workers/stages/describe.fixtures.ts",
+        "src/workers/stages/describe.video-screenshot.test.ts",
         "src/workers/stages/describe.ts",
         "src/workers/stages/exif.test.ts",
         "src/workers/stages/exif.ts",
