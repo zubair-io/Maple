@@ -167,17 +167,7 @@ The pixel data lives in WASM linear memory and is accessed from JS via a `Float3
 ```typescript
 const memory = wasm.memory.buffer; // ArrayBuffer backing all WASM data
 const pixels = new Float32Array(memory, demo.pixelsPtr(), demo.pixelsLen());
-gl.texImage2D(
-  gl.TEXTURE_2D,
-  0,
-  gl.RGBA32F,
-  demo.width,
-  demo.height,
-  0,
-  gl.RGBA,
-  gl.FLOAT,
-  pixels,
-);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, demo.width, demo.height, 0, gl.RGBA, gl.FLOAT, pixels);
 ```
 
 `texImage2D` copies once on upload. There is no WebGL equivalent of zero-copy to GPU memory — the copy is unavoidable.
