@@ -341,20 +341,28 @@ final class SliderMatrixUITests: XCTestCase {
         // rather than build a Driver per case — Driver.launch() does its
         // own fixture validation that's redundant here.
         //
-        // Every `canvas.screenshot()` below is gated on a fresh `exists`
-        // check (#2277): the screen-crop path needs no live element, so a
+        // The element screenshot is gated on a fresh `exists` check
+        // (#2277): the screen-crop path needs no live element, so a
         // sentinel that flips after settling degrades to the crop instead
         // of failing the run. `frame` is read while the element is up.
+        //
+        // Exactly ONE `canvas.screenshot()` call: each one is a fresh IPC
+        // round trip to the app, so calling it twice (once for `.image`,
+        // once for `.pngRepresentation`) would re-open the very race this
+        // change closes — a sentinel that vanished between the two calls
+        // would raise the unrecoverable XCTest failure again. An
+        // `XCUIScreenshot` captures its pixels at creation, so `.image`
+        // and `.pngRepresentation` below describe the same instant.
         let frame = canvas.frame
         let candidatePNG: Data? = {
             guard canvas.exists else { return nil }
-            let elementSnap = canvas.screenshot().image
-            let elementSize = elementSnap.size
+            let snap = canvas.screenshot()
+            let elementSize = snap.image.size
             let tight =
                 elementSize.width  <= frame.width  * 1.1 &&
                 elementSize.height <= frame.height * 1.1
-            if tight, canvas.exists {
-                return canvas.screenshot().pngRepresentation
+            if tight {
+                return snap.pngRepresentation
             }
             let screen = XCUIScreen.main.screenshot().image
             let cropped = SliderMatrixUITests.crop(screen, to: frame)
