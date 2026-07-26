@@ -17,9 +17,12 @@ These are invariants. If you're about to violate one, stop and ask.
 ## File-size budget
 
 - **Soft limit:** 400 lines. Warned by `tools/check-file-budget.sh` and by lefthook on commit. Encouraged to split, not blocked.
+- **Headroom limit:** 570 lines. On a PR, `tools/check-budget-headroom.sh` fails if your change _grows_ a source file past this. Files already above it are fine as long as you don't make them bigger — shrinking always passes.
 - **Hard limit:** 600 lines. Blocks commit / CI unless the path is in `tools/budget-allowlist.txt`.
 
-The allowlist is the day-0 audit of historical violators (#113). Every entry maps to a split ticket on the KTLO project board, and the allowlist is append-forbidden in CI (#114). When you split a file, remove its allowlist entry in the same PR.
+The headroom limit exists because the hard limit alone punishes the wrong PR (#2311). Splitting a file to clear 600 naturally lands it at 598 or 599, since that's the cheapest change that turns CI green — and then the next unrelated PR adding two lines is the one that fails. On 2026-07-25 that took `main` red: one PR left `raw-pipeline.service.ts` at 599, the next added 19 (#2266). **So when you split a file, split it with real margin** — aim well under 570, not just under 600.
+
+The allowlist is the day-0 audit of historical violators (#113). Every entry maps to a split ticket on the KTLO project board, and the allowlist is append-forbidden in CI (#114). When you split a file, remove its allowlist entry in the same PR. Allowlisted paths are exempt from the headroom check too.
 
 To check locally:
 
@@ -27,6 +30,11 @@ To check locally:
 bash tools/check-file-budget.sh                  # whole repo
 bash tools/check-file-budget.sh path/to/file.ts  # one file
 bash tools/check-file-budget.sh --help
+```
+
+```bash
+bash tools/check-budget-headroom.sh origin/main  # what the PR gate runs
+bash tools/check-budget-headroom.sh --self-test  # exercise the checker itself
 ```
 
 ## Task tracking
