@@ -19,6 +19,10 @@ from collections import defaultdict
 
 # Match a case row from calibrate_color_pipeline.sh's output:
 #   test_0000    baseline                 8.32M    8.41 12.34 27.50  -0.0431 +0.0042 -0.0301
+# A FAIL row carries the breach reasons after the bias columns, e.g.
+#   FAIL test_0013 baseline  8.32M  9.10 ... -0.0301  mean 9.10>8.40, no-budget-entry
+# so the trailing annotation is optional rather than end-of-line (#814 — the
+# tool was unusable on exactly the red run a re-baseline is captured from).
 ROW_RE = re.compile(
     r"^(?:PASS|FAIL)?\s*"
     r"(?P<fixture>test_\d+)\s+"
@@ -29,7 +33,8 @@ ROW_RE = re.compile(
     r"(?P<max>[\d.]+)\s+"
     r"(?P<bR>[+-][\d.]+)\s+"
     r"(?P<bG>[+-][\d.]+)\s+"
-    r"(?P<bB>[+-][\d.]+)\s*$"
+    r"(?P<bB>[+-][\d.]+)"
+    r"(?:\s+\S.*)?\s*$"
 )
 
 def headroom(metric: str, value: float) -> float:
