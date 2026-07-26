@@ -15,7 +15,7 @@
 //!   highlight_recovery · DCP · oklab_highlight_recovery · PGTM ·
 //!   **capture_sharpening** · auto_exposure · **white_balance** ·
 //!   **scene_tone_controls** · **tone_curves** · **vibrance** · **saturation** ·
-//!   **clarity** · **texture** · **dehaze** · local_adjustments · **vignette** ·
+//!   **clarity** · **texture** · **dehaze** · **local_adjustments** · **vignette** ·
 //!   **sharpen** · **nr_luminance** · **nr_color**
 //! then `render` appends the view tail:
 //!   **agx** · **split_tone** (#1111) · **grain** (#1110, both display-linear) ·
@@ -29,9 +29,10 @@
 //! - **Upstream / out of scope** (run before the post-DCP scene-linear buffer this
 //!   chain takes as input): linearize, demosaic, crop, baseline_exposure,
 //!   WB-pre-gain, highlight_recovery, DCP, oklab_highlight_recovery, PGTM.
-//! - **In-chain, NOT GPU-ported** — P4 must run these CPU-side around the GPU
-//!   chain: `auto_exposure` (a scalar mid-gray gain) and `local_adjustments`
-//!   (default empty → bit-identical no-op; non-empty is a CPU stage today).
+//! - **In-chain, NOT GPU-ported** — P4 must run this CPU-side around the GPU
+//!   chain: `auto_exposure` (a scalar mid-gray gain). `local_adjustments` was
+//!   the other one until #1698 ported it; it now composes here at develop's 12b
+//!   slot, gated on a non-empty layer stack.
 //! - **View-tail, GPU-ported in P4a**: `srgb_gamma_encode` (= [`SrgbGammaPass`]),
 //!   inserted between [`DisplayEncodePass`] and [`AutoProfileCurvePass`] — the
 //!   curve + residual LUT that follow it were *fit* in gamma space, so the gamma
@@ -72,6 +73,7 @@ use crate::dehaze::{AirlightSource, DehazePass};
 use crate::display_encode::DisplayEncodePass;
 use crate::grain::GrainPass;
 use crate::hsl::HslPass;
+use crate::local_adjustments::{local_adjustments_are_active, LocalAdjustmentsPass};
 
 /// The 8-band Oklab pass for these inputs. Built in one place so the live
 /// chain's assembly gate and its stage-mask bit can never disagree about
@@ -152,6 +154,14 @@ pub struct FullChainInputs {
     pub clarity: f32,
     pub texture: f32,
     pub dehaze: f32,
+    /// Local-adjustment layer stack (#1698), in the flat wire
+    /// `raw_core::types::local_adjustment::flat` defines — 24 floats per layer,
+    /// which is also the WGSL `array<Layer>` storage layout, so nothing is
+    /// re-packed between the FFI boundary and the bind group. Empty (the
+    /// default for every caller that has no masks) means the stage is a
+    /// bit-identical no-op and the pass is omitted. Runs at develop's 12b slot,
+    /// between dehaze and vignette.
+    pub local_adjustments: Vec<f32>,
     /// Vignette (#1109): amount [-100, 100] (negative darkens corners) and
     /// feather [0, 100] (mask transition width). Runs between dehaze and
     /// sharpen — develop's 12c position.
@@ -353,7 +363,7 @@ pub fn build_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses
 
     // --- Suffix: dehaze (airlight from the prefix output) → sharpen → NR →
     //     view tail (agx → display_encode → srgb_gamma → auto_profile_curve →
-    //     residual_lut). local_adjustments / look / dither are gaps (module docs). ---
+    //     residual_lut). look / dither are gaps (module docs). ---
     let mut suffix: BoxedPasses = Vec::new();
     // P4a is the headless COMPOSITION gate (no live loop), so it always supplies a
     // CPU airlight measured from the post-prefix buffer (#1033's on-GPU source is
@@ -362,8 +372,18 @@ pub fn build_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses
         dehaze: inputs.dehaze,
         airlight: AirlightSource::Cpu(airlight),
     }));
-    // Vignette (#1109) — develop's 12c position: after dehaze (and the
-    // not-GPU-ported local_adjustments no-op), before sharpen.
+    // Local adjustments (#1698) — develop's 12b position, between dehaze and
+    // vignette. Unlike the other passes here this one IS gated even in the
+    // composition builder: `LocalAdjustmentsPass` needs a non-empty storage
+    // buffer to bind, and an empty stack is a true no-op in raw-core too, so
+    // there is no "always push it" form to compose.
+    if local_adjustments_are_active(&inputs.local_adjustments) {
+        suffix.push(Box::new(LocalAdjustmentsPass {
+            layers_flat: inputs.local_adjustments.clone(),
+        }));
+    }
+    // Vignette (#1109) — develop's 12c position: after local_adjustments,
+    // before sharpen.
     suffix.push(Box::new(VignettePass {
         amount: inputs.vignette_amount,
         feather: inputs.vignette_feather,

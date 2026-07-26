@@ -193,6 +193,7 @@ impl Case {
             clarity: self.model.clarity,
             texture: self.model.texture,
             dehaze: self.model.dehaze,
+            local_adjustments: raw_core::types::layers_to_flat(&self.model.local_adjustments),
             vignette_amount: self.model.vignette_amount,
             vignette_feather: self.model.vignette_feather,
             grain_amount: self.model.grain_amount,
@@ -270,6 +271,10 @@ pub fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
     raw_core::stages::clarity::apply(&mut img, case.model.clarity);
     raw_core::stages::texture::apply(&mut img, case.model.texture);
     raw_core::stages::dehaze::apply(&mut img, case.model.dehaze);
+    // Local adjustments (#1698) — develop's 12b slot, between dehaze and
+    // vignette. Empty for every existing case, so the shared oracle stays
+    // bit-identical for them.
+    raw_core::stages::local_adjustments::apply(&mut img, &case.model.local_adjustments);
     raw_core::stages::vignette::apply(
         &mut img,
         case.model.vignette_amount,

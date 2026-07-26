@@ -44,6 +44,8 @@
 //!   curve is identity (raw-core `mod.rs:82-102`).
 //! - `sharpen`: `amount.abs() < 1e-3` → omit. `nr_luminance` / `nr_color`:
 //!   `< 1e-3` → omit.
+//! - `local_adjustments` (#1698): omit unless some layer in the flat stack sets
+//!   some control — see [`crate::local_adjustments_are_active`].
 //! - `capture_sharpening`: already gated via `Option` (generalised here).
 //! - View tail (`agx`, `display_encode`, `srgb_gamma`, `auto_profile_curve`,
 //!   `residual_lut`) ALWAYS run — even a neutral image must go through the view
@@ -60,6 +62,7 @@ use crate::display_encode::DisplayEncodePass;
 use crate::full_chain::hsl_pass_for;
 use crate::full_chain::{BoxedPasses, FullChainInputs, InputShape, PROFILE_ID_ACR_MATCH};
 use crate::grain::GrainPass;
+use crate::local_adjustments::{local_adjustments_are_active, LocalAdjustmentsPass};
 use crate::noise_reduction::{NlmColorPass, NlmLumaPass};
 use crate::residual_lut::ResidualLutPass;
 use crate::saturation::SaturationPass;
@@ -303,10 +306,16 @@ pub fn build_live_split(
             airlight: airlight.clone(),
         }));
     }
-    // Vignette (#1109) — develop's 12c position (after dehaze / the no-op
-    // local_adjustments, before sharpen). Same `apply` predicate as the
-    // raw-core stage's identity short-circuit (`|amount| < 1e-3`); feather
-    // alone never engages the stage.
+    // Local adjustments (#1698) — develop's 12b position, between dehaze and
+    // vignette. See the gate-predicate note in the module docs.
+    if local_adjustments_are_active(&inputs.local_adjustments) {
+        suffix.push(Box::new(LocalAdjustmentsPass {
+            layers_flat: inputs.local_adjustments.clone(),
+        }));
+    }
+    // Vignette (#1109) — develop's 12c position (after local_adjustments,
+    // before sharpen). Same `apply` predicate as the raw-core stage's identity
+    // short-circuit (`|amount| < 1e-3`); feather alone never engages the stage.
     if inputs.vignette_amount.abs() >= SLIDER_EPS {
         suffix.push(Box::new(VignettePass {
             amount: inputs.vignette_amount,
@@ -470,6 +479,9 @@ fn active_mask(inputs: &FullChainInputs) -> u32 {
     if inputs.dehaze.abs() >= SLIDER_EPS {
         m |= 1 << 8;
     }
+    if local_adjustments_are_active(&inputs.local_adjustments) {
+        m |= 1 << 16;
+    }
     if inputs.vignette_amount.abs() >= SLIDER_EPS {
         m |= 1 << 9;
     }
@@ -561,6 +573,12 @@ pub fn chain_signature(inputs: &FullChainInputs, dims: (u32, u32), session_id: u
     // The residual-LUT edge drives the pooled grid buffer's byte length (#1079).
     // Hash as u64 so the signature is stable across usize widths.
     (inputs.residual_lut_size as u64).hash(&mut h);
+    // The local-adjustment LAYER COUNT is the second pooled data buffer whose
+    // byte length can vary at a constant active mask (#1698): adding a layer
+    // mid-session would otherwise leave the cached bind group at this signature
+    // pointing at the replaced, too-small buffer. The per-layer VALUES
+    // deliberately do not participate — a mask drag rewrites a same-sized one.
+    (inputs.local_adjustments.len() as u64).hash(&mut h);
     h.finish()
 }
 
