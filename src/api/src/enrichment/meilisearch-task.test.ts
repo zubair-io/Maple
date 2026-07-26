@@ -76,7 +76,11 @@ describe('Meilisearch asynchronous tasks', () => {
         {
           method: 'GET',
           pathPrefix: '/tasks/43',
-          body: { uid: 43, status: 'failed', error: { message: 'invalid document' } },
+          body: {
+            uid: 43,
+            status: 'failed',
+            error: { message: 'invalid document' },
+          },
         },
       ],
     });
@@ -87,6 +91,57 @@ describe('Meilisearch asynchronous tasks', () => {
     });
 
     expect(client.upsertBatchOrThrow!([sampleDoc])).rejects.toThrow('task 43 failed');
+  });
+
+  it('tolerates an asynchronous create-index race, then applies settings', async () => {
+    const { fetchImpl, calls } = makeFakeFetch({
+      routes: [
+        {
+          method: 'POST',
+          pathPrefix: '/indexes',
+          status: 202,
+          body: { taskUid: 45 },
+        },
+        {
+          method: 'GET',
+          pathPrefix: '/tasks/45',
+          body: {
+            uid: 45,
+            status: 'failed',
+            error: {
+              message: 'Index `assets` already exists.',
+              code: 'index_already_exists',
+              type: 'invalid_request',
+            },
+          },
+        },
+        {
+          method: 'PATCH',
+          pathPrefix: `/indexes/${ASSETS_INDEX}/settings`,
+          status: 202,
+          body: { taskUid: 46 },
+        },
+        {
+          method: 'GET',
+          pathPrefix: '/tasks/46',
+          body: { uid: 46, status: 'succeeded' },
+        },
+      ],
+    });
+    const client = createMeilisearchClient({
+      url: 'http://meili.local:7700',
+      fetchImpl,
+      taskPollIntervalMs: 0,
+    });
+
+    await client.ensureIndex();
+
+    expect(calls.map((call) => `${call.method} ${new URL(call.url).pathname}`)).toEqual([
+      'POST /indexes',
+      'GET /tasks/45',
+      `PATCH /indexes/${ASSETS_INDEX}/settings`,
+      'GET /tasks/46',
+    ]);
   });
 
   it('honors the configured asynchronous task timeout', async () => {
@@ -127,7 +182,11 @@ describe('Meilisearch asynchronous tasks', () => {
         {
           method: 'GET',
           pathPrefix: `/indexes/${ASSETS_INDEX}/stats`,
-          body: { numberOfDocuments: 10, numberOfEmbeddedDocuments: 7, isIndexing: true },
+          body: {
+            numberOfDocuments: 10,
+            numberOfEmbeddedDocuments: 7,
+            isIndexing: true,
+          },
         },
         {
           method: 'POST',
