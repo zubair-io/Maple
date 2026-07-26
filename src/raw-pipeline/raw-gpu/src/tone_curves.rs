@@ -34,8 +34,7 @@ use crate::chain::Pass;
 use crate::context::GpuContext;
 use crate::spatial::{encode_simple, pool_data_storage};
 use prep::{
-    build_parametric_knots, eval_curve_scene_linear, prepare_curve, prepare_curve_from_slice,
-    PreparedCurve, CURVE_CAP,
+    build_parametric_curve, eval_curve_scene_linear, prepare_curve, PreparedCurve, CURVE_CAP,
 };
 
 /// Rec.2020 luma weights — inlined (mirror `mod::LUMA_REC2020` / the WGSL
@@ -134,7 +133,7 @@ impl ToneCurveInputs {
     /// per-lane early-return).
     fn prepared_slots(&self) -> [PreparedCurve; NUM_SLOTS] {
         let [s, d, l, h] = self.parametric;
-        let parametric = prepare_curve_from_slice(&build_parametric_knots(s, d, l, h));
+        let parametric = build_parametric_curve(s, d, l, h);
         [
             parametric,
             prepare_curve(&self.luma),
