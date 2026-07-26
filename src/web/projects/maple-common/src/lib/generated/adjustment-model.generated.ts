@@ -6,6 +6,8 @@
 // default factory. Hand-written extensions (e.g. `WhiteBalancePreset`)
 // live alongside in `adjustment-model.ts` and augment this shape.
 
+import type { ToneCurve } from '../models/adjustment-model';
+
 export type HighlightRecoveryMode =
   | 'Off'
   | 'Blend'
@@ -19,13 +21,15 @@ export type Profile = 'Auto' | 'Neutral' | 'AcrMatch';
 
 export type ToneCurveMode = 'PerChannel' | 'RatioPreserving';
 
+export type LensProfileEnable = 'Off' | 'On';
+
 export type WbMethod = 'Cat16' | 'DiagonalRec2020';
 
 export type AutoExposureMode = 'Off' | 'On';
 
 export type HotPixelSuppressionMode = 'Off' | 'On';
 
-export type LensProfileEnable = 'Off' | 'On';
+export type BlackWhiteMode = 'Off' | 'On';
 
 export interface GeneratedAdjustmentModel {
   /** White balance correlated color temperature in Kelvin. Range: [2000.0, 12000.0]. */
@@ -102,8 +106,24 @@ export interface GeneratedAdjustmentModel {
   splitToneHighlightHue: number;
   /** Split-tone highlight saturation (#1111); 0 disables the highlight tint. Range: [0.0, 100.0]. */
   splitToneHighlightSaturation: number;
-  /** Split-tone balance — shifts the shadow/highlight crossover via exp2(bal/100) weight exponents (#1111). Primary drag-bar field for the Split Tone tool. Range: [-100.0, 100.0]. */
+  /** Colour-grading balance — warps the tonal axis via a Yd^exp2(-bal/100) remap, shifting the shadow/midtone/highlight crossovers (#275, formerly #1111). Primary drag-bar field for the Color Grading tool. XMP: crs:SplitToningBalance. Range: [-100.0, 100.0]. */
   splitToneBalance: number;
+  /** Colour-grading shadow luminance offset (#275). XMP: crs:ColorGradeShadowLum. Range: [-100.0, 100.0]. */
+  colorGradeShadowLuminance: number;
+  /** Colour-grading midtone hue in degrees (#275). XMP: crs:ColorGradeMidtoneHue. Range: [0.0, 360.0]. */
+  colorGradeMidtoneHue: number;
+  /** Colour-grading midtone saturation (#275); 0 disables the midtone tint. XMP: crs:ColorGradeMidtoneSat. Range: [0.0, 100.0]. */
+  colorGradeMidtoneSaturation: number;
+  /** Colour-grading midtone luminance offset (#275). XMP: crs:ColorGradeMidtoneLum. Range: [-100.0, 100.0]. */
+  colorGradeMidtoneLuminance: number;
+  /** Colour-grading highlight luminance offset (#275). XMP: crs:ColorGradeHighlightLum. Range: [-100.0, 100.0]. */
+  colorGradeHighlightLuminance: number;
+  /** Colour-grading global hue in degrees (#275) — the unweighted wheel that tints every tone. XMP: crs:ColorGradeGlobalHue. Range: [0.0, 360.0]. */
+  colorGradeGlobalHue: number;
+  /** Colour-grading global saturation (#275); 0 disables the global tint. XMP: crs:ColorGradeGlobalSat. Range: [0.0, 100.0]. */
+  colorGradeGlobalSaturation: number;
+  /** Colour-grading global luminance offset (#275). XMP: crs:ColorGradeGlobalLum. Range: [-100.0, 100.0]. */
+  colorGradeGlobalLuminance: number;
   /** HSL Red hue adjustment (#1112, tone/zoom design spec § 10.4). Oklab hue rotation on the Red band; ±100 ↔ ±30° (pending ACR calibration). XMP: crs:HueAdjustmentRed. Range: [-100.0, 100.0]. */
   hueAdjustmentRed: number;
   /** HSL Orange hue adjustment (#1112). XMP: crs:HueAdjustmentOrange. Range: [-100.0, 100.0]. */
@@ -152,6 +172,24 @@ export interface GeneratedAdjustmentModel {
   luminanceAdjustmentPurple: number;
   /** HSL Magenta luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentMagenta. Range: [-100.0, 100.0]. */
   luminanceAdjustmentMagenta: number;
+  /** Black & white conversion mode (#276). 'On' routes the 8-band Oklab stage into its monochrome path — the gray-mixer weights drive L and chroma is forced to zero — and makes the 24 HSL sliders inert. XMP: crs:ConvertToGrayscale. */
+  blackWhite: BlackWhiteMode;
+  /** B&W Red luminance weight (#276). Scales Oklab L on the Red band while black_white is On; ±100 ↔ scale ×2 / ×0. XMP: crs:GrayMixerRed. Range: [-100.0, 100.0]. */
+  grayMixerRed: number;
+  /** B&W Orange luminance weight (#276). XMP: crs:GrayMixerOrange. Range: [-100.0, 100.0]. */
+  grayMixerOrange: number;
+  /** B&W Yellow luminance weight (#276). XMP: crs:GrayMixerYellow. Range: [-100.0, 100.0]. */
+  grayMixerYellow: number;
+  /** B&W Green luminance weight (#276). XMP: crs:GrayMixerGreen. Range: [-100.0, 100.0]. */
+  grayMixerGreen: number;
+  /** B&W Aqua luminance weight (#276). XMP: crs:GrayMixerAqua. Range: [-100.0, 100.0]. */
+  grayMixerAqua: number;
+  /** B&W Blue luminance weight (#276). XMP: crs:GrayMixerBlue. Range: [-100.0, 100.0]. */
+  grayMixerBlue: number;
+  /** B&W Purple luminance weight (#276). XMP: crs:GrayMixerPurple. Range: [-100.0, 100.0]. */
+  grayMixerPurple: number;
+  /** B&W Magenta luminance weight (#276). XMP: crs:GrayMixerMagenta. Range: [-100.0, 100.0]. */
+  grayMixerMagenta: number;
   /** Highlight reconstruction mode per spec § 3.3a. */
   highlightRecovery: HighlightRecoveryMode;
   /** Per-image auto-exposure mode (ticket #429). 'On' (default) anchors scene mid-gray to 0.18 before AgX; 'Off' is strict scene-referred. The `exposure` slider stacks additively in EV on top. */
@@ -162,6 +200,14 @@ export interface GeneratedAdjustmentModel {
   profile: Profile;
   /** Tone-curve application mode (ticket #436). 'PerChannel' applies the three R/G/B curves independently (hue shifts); 'RatioPreserving' folds them through Rec.2020 luma to preserve hue. */
   toneCurveMode: ToneCurveMode;
+  /** Luma point curve (#273). Applied in scene-linear channels-uniformly via the Rec.2020 luma weights, so hue is preserved by construction. Identity (empty) by default. */
+  toneCurveLuma: ToneCurve;
+  /** Red-channel point curve (#273). Applied per `toneCurveMode` — independently in 'PerChannel', or folded through Rec.2020 luma in 'RatioPreserving'. Identity (empty) by default. */
+  toneCurveRed: ToneCurve;
+  /** Green-channel point curve (#273). Applied per `toneCurveMode`. Identity (empty) by default. */
+  toneCurveGreen: ToneCurve;
+  /** Blue-channel point curve (#273). Applied per `toneCurveMode`. Identity (empty) by default. */
+  toneCurveBlue: ToneCurve;
   /** Decode-time chroma pre-filter strength (#1104, tone/zoom design spec § 3.1). Luma-guided sparse cross-bilateral on opponent chroma inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:ChromaPrefilter`. Part of the decoded-image cache key. Range: [0.0, 100.0]. */
   chromaPrefilter: number;
   /** Hot/dead-pixel suppression (#1106, tone/zoom design spec § 10.6). Pre-demosaic same-color-neighbor outlier replacement inside the decode product; 'Off' (default) skips the stage bit-identically. XMP key `papp:HotPixelSuppression`. Part of the decoded-image cache key. */
@@ -217,6 +263,14 @@ export const ADJUSTMENT_RANGES = {
   splitToneHighlightHue: [0.0, 360.0] as const,
   splitToneHighlightSaturation: [0.0, 100.0] as const,
   splitToneBalance: [-100.0, 100.0] as const,
+  colorGradeShadowLuminance: [-100.0, 100.0] as const,
+  colorGradeMidtoneHue: [0.0, 360.0] as const,
+  colorGradeMidtoneSaturation: [0.0, 100.0] as const,
+  colorGradeMidtoneLuminance: [-100.0, 100.0] as const,
+  colorGradeHighlightLuminance: [-100.0, 100.0] as const,
+  colorGradeGlobalHue: [0.0, 360.0] as const,
+  colorGradeGlobalSaturation: [0.0, 100.0] as const,
+  colorGradeGlobalLuminance: [-100.0, 100.0] as const,
   hueAdjustmentRed: [-100.0, 100.0] as const,
   hueAdjustmentOrange: [-100.0, 100.0] as const,
   hueAdjustmentYellow: [-100.0, 100.0] as const,
@@ -241,6 +295,14 @@ export const ADJUSTMENT_RANGES = {
   luminanceAdjustmentBlue: [-100.0, 100.0] as const,
   luminanceAdjustmentPurple: [-100.0, 100.0] as const,
   luminanceAdjustmentMagenta: [-100.0, 100.0] as const,
+  grayMixerRed: [-100.0, 100.0] as const,
+  grayMixerOrange: [-100.0, 100.0] as const,
+  grayMixerYellow: [-100.0, 100.0] as const,
+  grayMixerGreen: [-100.0, 100.0] as const,
+  grayMixerAqua: [-100.0, 100.0] as const,
+  grayMixerBlue: [-100.0, 100.0] as const,
+  grayMixerPurple: [-100.0, 100.0] as const,
+  grayMixerMagenta: [-100.0, 100.0] as const,
   chromaPrefilter: [0.0, 100.0] as const,
   deepDenoise: [0.0, 100.0] as const,
   lensCorrectionDistortion: [0.0, 100.0] as const,
@@ -289,6 +351,14 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     splitToneHighlightHue: 0.0,
     splitToneHighlightSaturation: 0.0,
     splitToneBalance: 0.0,
+    colorGradeShadowLuminance: 0.0,
+    colorGradeMidtoneHue: 0.0,
+    colorGradeMidtoneSaturation: 0.0,
+    colorGradeMidtoneLuminance: 0.0,
+    colorGradeHighlightLuminance: 0.0,
+    colorGradeGlobalHue: 0.0,
+    colorGradeGlobalSaturation: 0.0,
+    colorGradeGlobalLuminance: 0.0,
     hueAdjustmentRed: 0.0,
     hueAdjustmentOrange: 0.0,
     hueAdjustmentYellow: 0.0,
@@ -313,11 +383,24 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     luminanceAdjustmentBlue: 0.0,
     luminanceAdjustmentPurple: 0.0,
     luminanceAdjustmentMagenta: 0.0,
+    blackWhite: 'Off',
+    grayMixerRed: 0.0,
+    grayMixerOrange: 0.0,
+    grayMixerYellow: 0.0,
+    grayMixerGreen: 0.0,
+    grayMixerAqua: 0.0,
+    grayMixerBlue: 0.0,
+    grayMixerPurple: 0.0,
+    grayMixerMagenta: 0.0,
     highlightRecovery: 'ChromaticAdaptation',
     autoExposure: 'On',
     look: 'Default',
     profile: 'Auto',
     toneCurveMode: 'PerChannel',
+    toneCurveLuma: { points: [] },
+    toneCurveRed: { points: [] },
+    toneCurveGreen: { points: [] },
+    toneCurveBlue: { points: [] },
     chromaPrefilter: 0.0,
     hotPixelSuppression: 'Off',
     deepDenoise: 0.0,
@@ -337,3 +420,175 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
  * stale entries across all platforms.
  */
 export const PIPELINE_OUTPUT_VERSION = 2;
+
+/**
+ * A user-selectable bundle of `AdjustmentModel` fields for copy / paste /
+ * sync (#944). The string values are the canonical storage / wire keys
+ * shared with the Apple client.
+ */
+export type AdjustmentGroupId =
+  | 'white_balance'
+  | 'tone'
+  | 'color'
+  | 'detail'
+  | 'effects'
+  | 'geometry';
+
+/** One selectable group in the copy / paste / sync UI (#944). */
+export interface AdjustmentGroupSpec {
+  readonly id: AdjustmentGroupId;
+  /** Human-readable label for the selective-paste UI. */
+  readonly label: string;
+  /**
+   * Canonical snake_case `AdjustmentModel` field names this group carries.
+   * Names the TypeScript model does not mirror are skipped by the merge.
+   */
+  readonly fields: readonly string[];
+}
+
+/** Every group, in the order the selective-paste UI presents them. */
+export const ADJUSTMENT_GROUPS: readonly AdjustmentGroupSpec[] = [
+  {
+    id: 'white_balance',
+    label: 'White Balance',
+    fields: [
+      'temperature',
+      'tint',
+      'temperature_seen',
+      'tint_seen',
+      'wb_method',
+      'wb_scale_version',
+    ],
+  },
+  {
+    id: 'tone',
+    label: 'Tone',
+    fields: [
+      'exposure',
+      'brightness',
+      'contrast',
+      'highlights',
+      'shadows',
+      'whites',
+      'blacks',
+      'parametric_highlights',
+      'parametric_lights',
+      'parametric_darks',
+      'parametric_shadows',
+      'auto_exposure',
+      'tone_curve_mode',
+      'tone_curve_luma',
+      'tone_curve_red',
+      'tone_curve_green',
+      'tone_curve_blue',
+    ],
+  },
+  {
+    id: 'color',
+    label: 'Color',
+    fields: [
+      'vibrance',
+      'saturation',
+      'hue_adjustment_red',
+      'hue_adjustment_orange',
+      'hue_adjustment_yellow',
+      'hue_adjustment_green',
+      'hue_adjustment_aqua',
+      'hue_adjustment_blue',
+      'hue_adjustment_purple',
+      'hue_adjustment_magenta',
+      'saturation_adjustment_red',
+      'saturation_adjustment_orange',
+      'saturation_adjustment_yellow',
+      'saturation_adjustment_green',
+      'saturation_adjustment_aqua',
+      'saturation_adjustment_blue',
+      'saturation_adjustment_purple',
+      'saturation_adjustment_magenta',
+      'luminance_adjustment_red',
+      'luminance_adjustment_orange',
+      'luminance_adjustment_yellow',
+      'luminance_adjustment_green',
+      'luminance_adjustment_aqua',
+      'luminance_adjustment_blue',
+      'luminance_adjustment_purple',
+      'luminance_adjustment_magenta',
+      'black_white',
+      'gray_mixer_red',
+      'gray_mixer_orange',
+      'gray_mixer_yellow',
+      'gray_mixer_green',
+      'gray_mixer_aqua',
+      'gray_mixer_blue',
+      'gray_mixer_purple',
+      'gray_mixer_magenta',
+      'split_tone_shadow_hue',
+      'split_tone_shadow_saturation',
+      'split_tone_highlight_hue',
+      'split_tone_highlight_saturation',
+      'split_tone_balance',
+      'color_grade_shadow_luminance',
+      'color_grade_midtone_hue',
+      'color_grade_midtone_saturation',
+      'color_grade_midtone_luminance',
+      'color_grade_highlight_luminance',
+      'color_grade_global_hue',
+      'color_grade_global_saturation',
+      'color_grade_global_luminance',
+      'highlight_recovery',
+      'look',
+      'profile',
+    ],
+  },
+  {
+    id: 'detail',
+    label: 'Detail',
+    fields: [
+      'clarity',
+      'texture',
+      'dehaze',
+      'sharpen_amount',
+      'sharpen_radius',
+      'sharpen_detail',
+      'sharpen_masking',
+      'capture_sharpening_amount',
+      'capture_sharpening_sigma',
+      'nr_luminance',
+      'nr_color',
+      'chroma_prefilter',
+      'hot_pixel_suppression',
+      'deep_denoise',
+      'lens_profile_enable',
+      'lens_correction_distortion',
+      'lens_correction_ca',
+      'lens_correction_vignetting',
+    ],
+  },
+  {
+    id: 'effects',
+    label: 'Effects',
+    fields: [
+      'vignette_amount',
+      'vignette_feather',
+      'grain_amount',
+      'grain_size',
+      'grain_roughness',
+    ],
+  },
+  {
+    id: 'geometry',
+    label: 'Geometry',
+    fields: ['crop'],
+  },
+];
+
+/**
+ * `AdjustmentModel` fields deliberately never moved by copy / paste / sync.
+ * See `raw_core::types::adjustment::schema::groups` for the per-field
+ * rationale (notably the mask decision).
+ */
+export const ADJUSTMENT_NON_COPYABLE_FIELDS: readonly string[] = [
+  'local_adjustments',
+  'inpaint_removals',
+  'capture_sharpening_radius',
+];
