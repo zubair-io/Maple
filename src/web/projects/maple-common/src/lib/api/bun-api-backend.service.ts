@@ -16,10 +16,7 @@ import type { DownloadProgress } from './filesystem-browse.service';
 // here for the method signatures below.
 import type { ObservabilityConfigResponse } from '../observability/observability-config.model';
 import type { NetworkConfigPatch, NetworkConfigResponse } from '../network/network-config.model';
-import type {
-  RenderConfigPatch,
-  RenderConfigResponse,
-} from '../raw-pipeline/render-config.model';
+import type { RenderConfigPatch, RenderConfigResponse } from '../raw-pipeline/render-config.model';
 
 export interface ApiFolder {
   id: string;
