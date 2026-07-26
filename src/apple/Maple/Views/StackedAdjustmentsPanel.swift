@@ -330,6 +330,17 @@ struct StackedAdjustmentsPanel: View {
                     .padding(.horizontal, 14)
                     .padding(.bottom, 8)
             }
+
+            // Tone Curve (#367) is pinned into the Light section for the
+            // same structural reason: eight fields, no single primary one,
+            // so it has no `displayRange` and the living-slider stack above
+            // filters it out. Unlike HSL it has no mode gate — there is no
+            // model state that makes a tone curve meaningless.
+            if group == .light {
+                ToneCurveSection(state: state)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 8)
+            }
         }
     }
 

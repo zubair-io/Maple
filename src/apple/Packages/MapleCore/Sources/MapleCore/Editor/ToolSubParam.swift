@@ -143,6 +143,39 @@ extension Tool {
         switch self {
         case .hsl:
             return Self.hslSubParams
+        case .toneCurve:
+            // Tone Curve (#367) — the four PV2012 parametric region
+            // sliders. Bright → dark, matching the order the regions sit
+            // on the plot left-to-right when read as tonal zones, and the
+            // order the web widget lists them in. The four per-channel
+            // POINT curves are NOT sub-params: a sub-param is a scalar
+            // key path by construction, and a curve is a point list, so
+            // the curves are edited on `ToneCurveSection`'s plot rather
+            // than through the drag-bar value pipe. Symmetric ±100 range
+            // with a 0 default, so `.linear` and `.anchored` coincide;
+            // `.linear` matches the other symmetric-range sub-params.
+            return [
+                ToolSubParam(id: "highlights", label: "Highlights",
+                             keyPath: \.parametricHighlights, mapping: .linear,
+                             range: AdjustmentModel.parametricHighlightsRange,
+                             defaultDisplayValue: Self.defaults.parametricHighlights,
+                             decimals: 0),
+                ToolSubParam(id: "lights", label: "Lights",
+                             keyPath: \.parametricLights, mapping: .linear,
+                             range: AdjustmentModel.parametricLightsRange,
+                             defaultDisplayValue: Self.defaults.parametricLights,
+                             decimals: 0),
+                ToolSubParam(id: "darks", label: "Darks",
+                             keyPath: \.parametricDarks, mapping: .linear,
+                             range: AdjustmentModel.parametricDarksRange,
+                             defaultDisplayValue: Self.defaults.parametricDarks,
+                             decimals: 0),
+                ToolSubParam(id: "shadows", label: "Shadows",
+                             keyPath: \.parametricShadows, mapping: .linear,
+                             range: AdjustmentModel.parametricShadowsRange,
+                             defaultDisplayValue: Self.defaults.parametricShadows,
+                             decimals: 0),
+            ]
         case .bwMix:
             // B&W mix (#276) — eight per-hue-band luminance weights, in the
             // same order (and under the same ids/labels) as `HSLBand.all`,

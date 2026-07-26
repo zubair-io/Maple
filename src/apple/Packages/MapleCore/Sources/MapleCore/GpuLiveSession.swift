@@ -232,7 +232,7 @@ public actor GpuLiveSession {
         // does not perturb the number (and is unconditional — the HUD flag gates
         // RECORDING, not the cheap timestamp).
         let t0 = CACurrentMediaTime()
-        let rc = withGpuLiveParams(params) { pp in
+        let rc = withGpuLiveParams(params, curves: model) { pp in
             maple_gpu_present_chain(&h, pp, layerPtr, cancelPtr, surfaceGeneration)
         }
         let elapsedMs = (CACurrentMediaTime() - t0) * 1000.0
@@ -277,7 +277,7 @@ public actor GpuLiveSession {
             wbFrame: wbFrame
         )
         var out = [UInt8](repeating: 0, count: width * height * 3)
-        let rc = withGpuLiveParams(params) { pp in
+        let rc = withGpuLiveParams(params, curves: model) { pp in
             withUnsafePointer(to: h) { hp in
                 out.withUnsafeMutableBufferPointer { obuf in
                     maple_gpu_live_render(hp, pp, obuf.baseAddress)
@@ -294,14 +294,70 @@ public actor GpuLiveSession {
         }
     }
 
-    /// Bind the fitted Auto Profile curve + residual LUT (if any) into a copy of
-    /// `params` and yield a POINTER to that array-wired copy for the duration of
-    /// `body` (the FFI reads the arrays only during the call; the `[Float]` buffers
-    /// stay alive in scope, so no dangling pointer). Yielding a pointer — rather
-    /// than mutating the caller's `params` in place — keeps the FFI call from
-    /// re-borrowing `params` (Swift exclusive-access). When no artifacts are fit the
-    /// params keep their NULL pointers (identity curve + no residual = plain AgX).
+    /// Bind the fitted Auto Profile curve + residual LUT (if any) and the four
+    /// user-authored point tone curves into a copy of `params`, then yield a
+    /// POINTER to that array-wired copy for the duration of `body` (the FFI
+    /// reads the arrays only during the call; the `[Float]` buffers stay alive
+    /// in scope, so no dangling pointer). Yielding a pointer — rather than
+    /// mutating the caller's `params` in place — keeps the FFI call from
+    /// re-borrowing `params` (Swift exclusive-access). When no artifacts are fit
+    /// and every curve is identity the params keep their NULL pointers
+    /// (identity curve + no residual = plain AgX).
+    ///
+    /// Point curves (#367) are wired HERE rather than in `makeGpuLiveParams`
+    /// for the same reason the Auto Profile arrays are: they are
+    /// variable-length, and a pointer stored on a struct that outlives this
+    /// scope would dangle. `read_points` on the FFI side reads the flat
+    /// `[x0, y0, x1, y1, …]` layout `flattened(_:)` produces, and treats a
+    /// null pointer or zero length as the identity curve — so an unedited
+    /// model still takes the stage's short-circuit.
     private func withGpuLiveParams<R>(
+        _ params: MapleGpuLiveParams,
+        curves model: AdjustmentModel,
+        _ body: (UnsafePointer<MapleGpuLiveParams>) -> R
+    ) -> R {
+        let luma = Self.flattened(model.toneCurveLuma)
+        let red = Self.flattened(model.toneCurveRed)
+        let green = Self.flattened(model.toneCurveGreen)
+        let blue = Self.flattened(model.toneCurveBlue)
+        return luma.withUnsafeBufferPointer { lu in
+            red.withUnsafeBufferPointer { r in
+                green.withUnsafeBufferPointer { g in
+                    blue.withUnsafeBufferPointer { b in
+                        var p = params
+                        Self.bind(lu, to: &p.tone_curve_luma_ptr, len: &p.tone_curve_luma_len)
+                        Self.bind(r, to: &p.tone_curve_red_ptr, len: &p.tone_curve_red_len)
+                        Self.bind(g, to: &p.tone_curve_green_ptr, len: &p.tone_curve_green_len)
+                        Self.bind(b, to: &p.tone_curve_blue_ptr, len: &p.tone_curve_blue_len)
+                        return withAutoProfileBound(p, body)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Flatten a `ToneCurve` into the FFI's `[x0, y0, x1, y1, …]` f32 layout.
+    /// The identity (empty) curve flattens to an empty array, which the FFI
+    /// reads as "no curve".
+    private static func flattened(_ curve: ToneCurve) -> [Float] {
+        curve.points.flatMap { [Float($0.x), Float($0.y)] }
+    }
+
+    /// Point a `(ptr, len)` pair at `buffer`, leaving it NULL/0 when empty.
+    private static func bind(
+        _ buffer: UnsafeBufferPointer<Float>,
+        to ptr: inout UnsafePointer<Float>?,
+        len: inout UInt
+    ) {
+        guard !buffer.isEmpty, let base = buffer.baseAddress else { return }
+        ptr = base
+        len = UInt(buffer.count)
+    }
+
+    /// Bind the fitted Auto Profile curve + residual LUT (if any) and yield the
+    /// pointer. Split out of `withGpuLiveParams` so the point-curve scopes and
+    /// the Auto Profile scopes nest without one closure per array.
+    private func withAutoProfileBound<R>(
         _ params: MapleGpuLiveParams,
         _ body: (UnsafePointer<MapleGpuLiveParams>) -> R
     ) -> R {
