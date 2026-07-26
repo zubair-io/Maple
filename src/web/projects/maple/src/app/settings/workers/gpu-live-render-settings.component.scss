@@ -1,70 +1,8 @@
 @use '../settings-chrome' as chrome;
 
-// Reuse the settings design system (tokens + field/input/button atoms) so this
-// panel matches the rest of Settings — mirrors DerivativeAuditSettingsComponent.
-:host {
-  @include chrome.settings-vars;
-  @include chrome.settings-atoms;
-
-  display: block;
-  // Embedded in the Workers page (not a standalone page) — neutralise the
-  // full-page host behaviours from settings-vars.
-  min-height: 0;
-  background: transparent;
-}
-
-// ── Collapsed summary row ────────────────────────────────────────────────────
-// Content for the maple-settings-row summary slot (chevron · icon · name ·
-// status · readout). The row shell is owned by maple-settings-row.
-.wrow-summary {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 16px;
-  font-size: 13px;
-  flex-wrap: wrap;
-}
-.wrow-id {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 150px;
-
-  .mono {
-    color: var(--s-text);
-  }
-}
-
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-
-  .status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex: none;
-  }
-  .status-label {
-    font-size: 12.5px;
-    font-weight: 600;
-    color: var(--s-text-mid);
-  }
-}
-
-.wrow-readout {
-  font-size: 12px;
-  color: var(--s-text-dim);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-.wrow-spacer {
-  flex: 1;
-}
+// Row chrome (settings design system on :host + the collapsed summary cells) is
+// shared with the other Workers-page embedded panels — see `settings-chrome`.
+@include chrome.workers-embedded-panel;
 
 // ── Expandable body ──────────────────────────────────────────────────────────
 .gpu-body {

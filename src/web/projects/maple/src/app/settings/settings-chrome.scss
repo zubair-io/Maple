@@ -380,6 +380,82 @@
   }
 }
 
+// ── Embedded Workers-page panel ─────────────────────────────────────────────
+// Chrome for a panel that mounts *inside* the Workers page as one
+// `maple-settings-row` rather than as a standalone settings page: the settings
+// design system on `:host` with the full-page host behaviours neutralised, plus
+// the summary-slot cells (chevron · icon · name · status · readout) the
+// collapsed row renders. The row shell — border, hover, expand — is owned by
+// `maple-settings-row`; only the summary layout lives here.
+//
+// `.status-pill` is here rather than in `settings-atoms` because it is a
+// worker-row cell (it also appears in `worker-row-cells` for the stage table),
+// not a general settings atom.
+//
+// Include at the root of the panel stylesheet, not inside a selector.
+@mixin workers-embedded-panel {
+  :host {
+    @include settings-vars;
+    @include settings-atoms;
+
+    display: block;
+    // No `min-height: 0` here on purpose: main dropped it from both embedded
+    // panels while this mixin was in flight, so reinstating it via the hoist
+    // would silently revert that.
+    background: transparent;
+  }
+
+  .wrow-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    font-size: 13px;
+    flex-wrap: wrap;
+  }
+  .wrow-id {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 150px;
+
+    .mono {
+      color: var(--s-text);
+    }
+  }
+
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex: none;
+    }
+    .status-label {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--s-text-mid);
+    }
+  }
+
+  .wrow-readout {
+    font-size: 12px;
+    color: var(--s-text-dim);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .wrow-spacer {
+    flex: 1;
+  }
+}
+
 // At ≤1023px the worker/stage table stops being a table: each `maple-settings-row`
 // becomes a self-contained bordered card (the inner grid re-flows in the Workers
 // stylesheet). Used by the Workers page rows so they read as cards on
