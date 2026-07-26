@@ -19,8 +19,11 @@
 //! fraction. A wholesale divergence (a mismatched AE decision, a non-no-op
 //! short-circuit, a wrong WB sense) blows past these thresholds — that's the gate.
 //!
-//! Skips (soft pass) when the synthetic DNG fixture or a Metal adapter is absent,
-//! mirroring `test_color_pipeline.sh`'s "no fixtures, skipping" pattern.
+//! Skips (soft pass) when the synthetic DNG fixture or a GPU adapter is absent,
+//! mirroring `test_color_pipeline.sh`'s "no fixtures, skipping" pattern. Setting
+//! `MAPLE_REQUIRE_GPU=1` — which the `raw-gpu` CI job does — converts both skips
+//! into panics, so an environment provisioned to run this gate can never report
+//! green without having run it (#1973).
 
 use raw_core::pipeline::{render_from_raw_with_quality_and_source, RawInput, RenderQuality};
 use raw_core::types::adjustment::{
@@ -30,24 +33,52 @@ use raw_core::types::ToneCurve;
 use raw_core::view::auto_profile;
 use raw_core::xmp::AdjustmentModel;
 
+/// Whether the caller has declared that this environment MUST be able to run the
+/// GPU parity gate (`MAPLE_REQUIRE_GPU=1`). The soft-pass paths below exist for
+/// developer boxes with no adapter; on a runner that was deliberately provisioned
+/// with one, a skip means the gate silently certified nothing — the exact failure
+/// #1973 was filed about — so the guards fail closed instead. Same semantics as
+/// raw-core's `fixtures` feature: without it a missing input is a visible skip,
+/// with it a missing input is a panic.
+fn require_gpu() -> bool {
+    std::env::var("MAPLE_REQUIRE_GPU").is_ok_and(|v| v == "1")
+}
+
 /// Resolve the committed synthetic grey DNG (a flat L=0.18 RGGB Bayer frame —
 /// the same fixture the Apple grey-pipeline harness uses). Returns `None` when
-/// absent so the test soft-passes. Resolved from `CARGO_MANIFEST_DIR`
-/// (`src/raw-pipeline/raw-wasm`) up to the repo root.
+/// absent so the test soft-passes (panics instead under `MAPLE_REQUIRE_GPU=1`).
+/// Resolved from `CARGO_MANIFEST_DIR` (`src/raw-pipeline/raw-wasm`) up to the
+/// repo root.
 pub(super) fn synthetic_dng_path() -> Option<std::path::PathBuf> {
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     // raw-wasm → raw-pipeline → src → repo-root
     let root = manifest.parent()?.parent()?.parent()?;
     let p = root.join("src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng");
-    p.exists().then_some(p)
+    let found = p.exists();
+    assert!(
+        found || !require_gpu(),
+        "MAPLE_REQUIRE_GPU=1 but the synthetic DNG fixture is missing at {} — \
+         the GPU parity gate would have soft-passed without comparing anything (#1973)",
+        p.display()
+    );
+    found.then_some(p)
 }
 
-/// Whether a Metal (or any) GPU adapter is available — guards the test so a
-/// headless box with no GPU soft-passes instead of failing on
-/// `GpuContext::new_async`'s "no suitable GPU adapter" error.
+/// Whether a GPU adapter is available — Metal on a developer Mac, Mesa lavapipe
+/// on the CI runner. Guards the tests so a headless box with no adapter
+/// soft-passes instead of failing on `GpuContext::new_async`'s "no suitable GPU
+/// adapter" error; under `MAPLE_REQUIRE_GPU=1` the absence is a panic instead.
 pub(super) fn gpu_available() -> bool {
     let instance = wgpu::Instance::default();
-    pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).is_some()
+    let found =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .is_some();
+    assert!(
+        found || !require_gpu(),
+        "MAPLE_REQUIRE_GPU=1 but wgpu found no GPU adapter — the GPU parity gate \
+         would have soft-passed without comparing anything (#1973)"
+    );
+    found
 }
 
 /// The CPU reference: EXACTLY what `crate::render_bytes` produces for `model` —

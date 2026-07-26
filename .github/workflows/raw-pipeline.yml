@@ -135,39 +135,67 @@ jobs:
         working-directory: src/raw-pipeline
         run: cargo build --bin maple-cli --features pano
 
-  # GPU path gate (#1937). Before this job the GPU chain was untested in CI:
-  # no workflow built raw-ffi with `--features gpu`, and the WGSL kernels were
-  # only compiled by naga when a real GPU device compiled them (a local or
-  # Apple-side build) — a shader syntax/type error slipped straight through CI.
-  # This job closes both gaps with two ALWAYS-ON, GPU-free gates on a stock
-  # Linux runner:
+  # GPU path gate (#1937, made a real parity gate in #1973). CLAUDE.md treats
+  # CPU↔GPU parity as a merge gate; until #1973 it was not one. #1937 landed the
+  # two GPU-FREE halves of this job — the `--features gpu` compile gate and the
+  # naga WGSL validation — but the half that actually compares WGSL output
+  # against the raw-core Rust stage was dropped, because the first attempt at a
+  # software-adapter step found no wgpu adapter and every one of the ~180 raw-gpu
+  # tests panicked on `GpuContext::new_blocking().expect("gpu context")`. So the
+  # job's green tick certified "the shaders parse", never "the shaders compute
+  # the same numbers as raw-core" — which is exactly how the #1918/#1948 CPU-vs-
+  # WGSL divergence reached main.
+  #
+  # The missing piece was the Vulkan userspace, not the hardware. ubuntu-latest
+  # ships no Vulkan loader and no ICD at all, so wgpu's Vulkan backend enumerates
+  # nothing and `request_adapter` returns None; `vulkaninfo` reporting llvmpipe
+  # on some images comes from a different Mesa path. Installing `libvulkan1` +
+  # `mesa-vulkan-drivers` puts Mesa's lavapipe ICD on the loader search path, and
+  # wgpu-core accepts a `DeviceType::Cpu` adapter (it is only excluded when
+  # `force_fallback_adapter` is set, wgpu-core-23 instance.rs) — so the whole
+  # suite runs, headless and compute-only, on the stock runner.
+  #
+  # The four gates, cheapest first:
   #   1. `cargo build -p raw-ffi --features gpu` — the FFI GPU surface
   #      (src/gpu.rs + src/gpu_live.rs) that delegates into raw-gpu/wgpu; a
   #      compile-only gate needing no GPU. Catches the "raw-ffi --features gpu
   #      doesn't compile against raw-gpu/raw-core" failure class.
-  #   2. `check_wgsl.sh` — naga's CPU WGSL front-end + validator over every
+  #   2. `cargo check -p raw-wasm --all-features --all-targets` — raw-wasm's
+  #      `gpu` feature gates a whole module tree (src/gpu_render/, including
+  #      model.rs) that a default `cargo check` never compiles, so type-level rot
+  #      there was invisible to every job. `--all-features` also pulls `parallel`;
+  #      both resolve on the host target.
+  #   3. `check_wgsl.sh` — naga's CPU WGSL front-end + validator over every
   #      hand-written kernel (assembled with its generated headers, mirroring
   #      the runtime concat). Needs no GPU. naga-cli is pinned to 23.0.0 to
   #      match the naga 23.1.0 that wgpu 23.0.1 bundles (Cargo.lock), so the
-  #      gate matches the compiler the app actually runs. Catches the WGSL
-  #      syntax/type-error class the issue named.
+  #      gate matches the compiler the app actually runs.
+  #   4. THE PARITY GATE: `cargo test -p raw-gpu` (every WGSL kernel against its
+  #      raw-core Rust stage) followed by `cargo test -p raw-wasm --features gpu`
+  #      (the whole `render_bytes_gpu` chain against `render_bytes`, on the
+  #      committed synthetic grey DNG). A WGSL kernel that stops agreeing with
+  #      raw-core now turns this job red.
   #
-  # What this job DOES NOT run: the raw-gpu RUNTIME test suite (the AgX
-  # GPU-parity suite etc.). Those 200+ tests call
-  # `GpuContext::new_blocking().expect("gpu context")` and need a real GPU
-  # adapter — Mesa lavapipe (llvmpipe) on ubuntu-latest is enumerated by
-  # `vulkaninfo` but wgpu's `Instance::default()` returns "no suitable GPU
-  # adapter" for it, so every test panics. Unlike raw-wasm/src/gpu_render/tests.rs
-  # (which guards each test with `gpu_available()` and soft-passes), the raw-gpu
-  # tests hard-`.expect()` a context and cannot self-skip, so a software-adapter
-  # step is red on every run — worse than no job. The runtime suite runs on
-  # real-GPU machines instead (Metal locally / Apple CI: 167 passed on Metal),
-  # exactly like the Apple-slice symbol checks that this Linux CI also can't do.
-  # Re-add a `cargo test -p raw-gpu` step here if the repo gains a GPU-capable
-  # runner.
+  # Fail-closed, never silently green. The raw-gpu tests `.expect()` a context,
+  # so a vanished adapter is ~180 loud failures, not a skip. The raw-wasm
+  # gpu_render tests DO have a `gpu_available()` soft-pass for developer boxes —
+  # `MAPLE_REQUIRE_GPU=1` turns that soft-pass into a panic here, so this job can
+  # never report green on a run that quietly executed no parity comparison.
+  #
+  # Still uncovered, deliberately: lavapipe is a Vulkan/SPIR-V target, so this
+  # gate proves raw-core↔WGSL agreement but not Metal-backend-specific behaviour
+  # (naga's MSL output, Apple driver rounding) or a browser's real WebGPU
+  # implementation. Those keep running on real hardware — Metal locally and via
+  # the Apple UITest harness. Tracked in #2315.
   raw-gpu:
-    name: raw-gpu (gpu build + WGSL naga validate)
+    name: raw-gpu (gpu build + WGSL validate + raw-core↔GPU parity)
     runs-on: ubuntu-latest
+    env:
+      # Turns the raw-wasm gpu_render `gpu_available()` soft-pass into a hard
+      # failure (#1973): on a runner we have deliberately provisioned with an
+      # adapter, "no adapter, skipping" is a broken gate, not a valid outcome.
+      MAPLE_REQUIRE_GPU: '1'
+      RUST_BACKTRACE: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -180,6 +208,24 @@ jobs:
             src/raw-pipeline/target
           key: raw-gpu-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
 
+      # Mesa lavapipe — the software Vulkan ICD the parity suite runs on. The
+      # loader (`libvulkan1`) is as load-bearing as the driver: without it wgpu's
+      # Vulkan backend fails to initialise and reports no adapter at all.
+      # `vulkan-tools` is diagnostic only, but `vulkaninfo --summary` in the CI
+      # log is what tells a future debugger which adapter the suite actually got.
+      - name: Install Mesa lavapipe (software Vulkan adapter)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libvulkan1 mesa-vulkan-drivers vulkan-tools
+      - name: Report the Vulkan adapter (fails closed if there is none)
+        run: |
+          vulkaninfo --summary | tee /tmp/vulkaninfo.txt
+          grep -q 'deviceName' /tmp/vulkaninfo.txt || {
+            echo "::error::no Vulkan device enumerated — the raw-gpu parity gate would not be running"
+            exit 1
+          }
+
       # 1. Compile gate — the raw-ffi GPU FFI surface + raw-gpu + wgpu. No GPU
       #    required; this is what a bare `cargo build -p raw-ffi` (the
       #    build-raw-ffi job) deliberately does NOT cover.
@@ -187,12 +233,27 @@ jobs:
         working-directory: src/raw-pipeline
         run: cargo build -p raw-ffi --features gpu
 
-      # 2. WGSL syntax/type gate — CPU-only naga validation. Pinned to the naga
+      # 2. The other feature-gated GPU surface: raw-wasm's `gpu` module tree.
+      - name: cargo check -p raw-wasm --all-features --all-targets
+        working-directory: src/raw-pipeline
+        run: cargo check -p raw-wasm --all-features --all-targets
+
+      # 3. WGSL syntax/type gate — CPU-only naga validation. Pinned to the naga
       #    version wgpu bundles so the gate mirrors the app's own compiler.
       - name: Install naga-cli (pinned to wgpu 23's naga)
         run: cargo install naga-cli --locked --version 23.0.0
       - name: WGSL validate (check_wgsl.sh)
         run: bash src/scripts/check_wgsl.sh
+
+      # 4. The parity gate proper. raw-gpu first: its ~180 tests hard-`.expect()`
+      #    a context, so if the adapter ever disappears this step is the loud
+      #    failure that stops the job before anything downstream can soft-pass.
+      - name: cargo test -p raw-gpu (raw-core↔WGSL parity)
+        working-directory: src/raw-pipeline
+        run: cargo test -p raw-gpu
+      - name: cargo test -p raw-wasm --features gpu (render_bytes_gpu↔CPU parity)
+        working-directory: src/raw-pipeline
+        run: cargo test -p raw-wasm --features gpu
 
   # Fixture-free Rust test gate (#1082). Before this job, NO CI executed
   # `cargo test` anywhere — the ~750 raw-core lib tests ran only on laptops.
