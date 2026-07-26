@@ -316,13 +316,18 @@ mod black_white;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_detail;
+#[cfg(test)]
 mod tests_effects;
+#[cfg(test)]
+mod tests_lens;
 #[cfg(test)]
 mod tests_metadata;
 #[cfg(test)]
 mod tests_modes;
 #[cfg(test)]
-mod tests_lens;
+mod tests_payloads;
+#[cfg(test)]
 mod tests_tone_curves;
 #[cfg(test)]
 mod tests_wb_scale;
