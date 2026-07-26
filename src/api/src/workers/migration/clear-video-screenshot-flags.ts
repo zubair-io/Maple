@@ -134,24 +134,45 @@ export const clearVideoScreenshotFlags: Migration = {
     const _id = { $in: ids.map((d) => d._id) };
 
     try {
-      // The vision mirror is cleared by its own narrower write rather than
-      // another key in the `$set` below. Folding it in would make Mongo
+      // Two writes, each SELF-CONTAINED: every row is fully handled — flag
+      // cleared and done-marker stamped — by exactly one of them. That is
+      // what makes a failure between the two safe: the rows the failed write
+      // would have covered still match `candidateFilter()`, so the next tick
+      // retries them.
+      //
+      // The obvious shape — clear the vision mirror, then stamp everything —
+      // has an atomicity gap. A row flagged ONLY in `vision.is_screenshot`
+      // would have that mirror cleared by the first write and then, if the
+      // second failed, match neither arm of the `$or` on the retry: stranded
+      // with the right flag but its describe/meili stages never re-armed, and
+      // silently so.
+      //
+      // Order matters and vision-first is required. A row carrying BOTH flags
+      // must have its mirror cleared in the same write that stamps it —
+      // stamping first would make the marker's `$ne` exclude it before the
+      // mirror write landed, stranding it the same way.
+      const visionRes = await coll.updateMany(
+        { _id, 'vision.is_screenshot': true } as Filter<AssetDoc>,
+        { $set: { ...clearUpdate(), 'vision.is_screenshot': false } },
+      );
+
+      // Rows flagged only on the top-level mirror. `vision.is_screenshot` is
+      // absent from this `$set` on purpose: folding it in would make Mongo
       // fabricate `vision: { is_screenshot: false }` on every
-      // heuristic-flagged row that never ran describe — a malformed
-      // VisionDoc with no caption, and one that would then satisfy the
-      // "vision exists" branch in `sidecar-metadata-index`, permanently
-      // shadowing the filename heuristic for that asset.
-      await coll.updateMany({ _id, 'vision.is_screenshot': true } as Filter<AssetDoc>, {
-        $set: { 'vision.is_screenshot': false },
+      // heuristic-flagged row that never ran describe — a malformed VisionDoc
+      // with no caption, and one that would then satisfy the "vision exists"
+      // branch in `sidecar-metadata-index`, permanently shadowing the
+      // filename heuristic for that asset.
+      const mirrorRes = await coll.updateMany({ _id, is_screenshot: true } as Filter<AssetDoc>, {
+        $set: clearUpdate(),
       });
 
-      const res = await coll.updateMany({ _id } as Filter<AssetDoc>, { $set: clearUpdate() });
-
+      const modified = visionRes.modifiedCount + mirrorRes.modifiedCount;
       log.info(
-        { matched: res.matchedCount, modified: res.modifiedCount },
+        { vision: visionRes.modifiedCount, mirror: mirrorRes.modifiedCount },
         'cleared video screenshot flags',
       );
-      return { processed: res.modifiedCount, errors: 0 };
+      return { processed: modified, errors: 0 };
     } catch (err) {
       // Left unstamped, so the next tick retries this same batch.
       log.error(

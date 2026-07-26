@@ -1,6 +1,8 @@
 # Videos Are Never Screenshots — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+This plan was executed task-by-task on 2026-07-26 and landed in PR #2332. It is kept as a record of
+how the change was sequenced and verified; the checkbox syntax below reflects the tracking format
+used during execution, not outstanding work.
 
 **Goal:** Enforce that no video asset is ever classified as a screenshot, at every write site, and repair the videos already flagged.
 

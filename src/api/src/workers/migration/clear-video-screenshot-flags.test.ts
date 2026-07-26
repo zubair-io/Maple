@@ -205,6 +205,34 @@ describe('clear-video-screenshot-flags', () => {
 
     const after = await coll.findOne({ _id: doc._id });
     expect(after!.vision.is_screenshot).toBe(false);
+    // The marker and the stage re-arm must land in the SAME write that clears
+    // the mirror. If they were split, a failure in between would leave this
+    // row matching neither arm of the candidate `$or` on retry — flag right,
+    // stages never re-armed, and silently so.
+    expect(after!.video_screenshot_clear_version).toBe(VIDEO_SCREENSHOT_CLEAR_VERSION);
+    expect(after!.stages.describe.version).toBe(0);
+    expect(after!.stages.describe.dead).toBe(false);
+    expect(after!.stages.meili.version).toBe(0);
+  });
+
+  it('counts a row carrying BOTH flags exactly once', async () => {
+    if (!mongoReachable) return;
+    const coll = db!.collection('assets');
+    const doc = videoDoc({
+      is_screenshot: true,
+      vision: { caption: 'a UI', is_screenshot: true, subjects: [] },
+    });
+    await coll.insertOne(doc as never);
+
+    // Handled entirely by the vision-first write; the mirror write must not
+    // pick it up again and double-count it.
+    const res = await clearVideoScreenshotFlags.runBatch(100);
+    expect(res.processed).toBe(1);
+
+    const after = await coll.findOne({ _id: doc._id });
+    expect(after!.is_screenshot).toBe(false);
+    expect(after!.vision.is_screenshot).toBe(false);
+    expect(after!.video_screenshot_clear_version).toBe(VIDEO_SCREENSHOT_CLEAR_VERSION);
   });
 
   it('does NOT fabricate a vision subdoc on a heuristic-flagged video', async () => {
