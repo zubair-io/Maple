@@ -45,8 +45,9 @@ fn parse_s5_effects_fields() {
 /// Parametric tone-curve region sliders (prerequisite for #368): the four
 /// PV2012 `crs:Parametric{Highlights,Lights,Darks,Shadows}` keys parse onto
 /// the matching `parametric_*` model scalars. ACR's split-point keys are
-/// intentionally unmapped — the model has no split-point fields (the knots
-/// are fixed at 0.25/0.5/0.75 in `build_parametric_knots`).
+/// intentionally unmapped — the model has no split-point fields, so the
+/// curve builder holds them as the ACR defaults (25/50/75) in constants.
+/// Round-tripping them is #2320.
 #[test]
 fn parse_parametric_tone_curve_fields() {
     let xml = r#"<?xml version="1.0"?>
