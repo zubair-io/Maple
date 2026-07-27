@@ -551,5 +551,50 @@ describe('assets.repo', () => {
       expect(typeof (rows[0] as unknown as { mtime: unknown }).mtime).toBe('number');
       expect((rows[0] as unknown as { mtime: number }).mtime).toBe(restoredMtimeMs);
     });
+
+    // #2354 — markSoftDeleted must NOT re-arm meili (today's meiliHandler
+    // has no delete-detection/tombstone branch, so reclaiming a trashed row
+    // would re-upsert it as live — see markSoftDeleted's docstring);
+    // restoreFromTrash MUST re-arm it atomically with the deleted_at clear.
+    it('markSoftDeleted leaves stages.meili untouched; restoreFromTrash resets it', async () => {
+      if (!db) return;
+      type MeiliState = { version: number; attempts: number; last_error: unknown; dead: boolean };
+      type MeiliRow = { deleted_at: unknown; stages: { meili: MeiliState } };
+      const libraryId = new ObjectId();
+      await db.collection('folders').insertOne({
+        _id: libraryId,
+        path: '/lib',
+        label: 'lib',
+        last_scan: null,
+        file_count: 0,
+        created_at: '2026-01-01T00:00:00Z',
+      } as never);
+      const id = await seedAsset(db, {
+        folder_id: libraryId,
+        stages: { meili: { version: 7, attempts: 0, last_error: null, dead: false } },
+      });
+      await markSoftDeleted({
+        id,
+        libraryRoot: '/lib',
+        libraryId,
+        newAbsPath: '/lib/.maple/trash/a.dng',
+        originalAbsPath: '/lib/a.dng',
+        dbOverride: db,
+      });
+      const afterTrash = (await db.collection('assets').findOne({ _id: id })) as unknown as MeiliRow;
+      expect(afterTrash.stages.meili.version).toBe(7);
+      await restoreFromTrash({
+        id,
+        libraryRoot: '/lib',
+        libraryId,
+        newAbsPath: '/lib/a.dng',
+        size: 2048,
+        mtimeMs: Date.UTC(2026, 5, 1),
+        dbOverride: db,
+      });
+      const after = (await db.collection('assets').findOne({ _id: id })) as unknown as MeiliRow;
+      expect(after.deleted_at).toBeNull();
+      expect(after.stages.meili).toEqual({ version: 0, attempts: 0, last_error: null, dead: false });
+    });
   });
 });
