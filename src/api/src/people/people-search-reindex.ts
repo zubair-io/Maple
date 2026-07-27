@@ -29,9 +29,10 @@ const log = childLogger('people:search-reindex');
  *
  * Exported so every call site that needs to re-arm meili shares this exact
  * shape instead of hand-rolling a second, subtly different reset — see
- * `markAssetsForMeiliReindex` / `markAssetIdsForMeiliReindex` below and
- * `restoreFromTrash` (`db/assets.trash.ts`), which folds this into the same
- * atomic update that clears `deleted_at` on restore (#2354).
+ * `markAssetsForMeiliReindex` / `markAssetIdsForMeiliReindex` below and the
+ * trash workflows (`markSoftDeleted` / `restoreFromTrash` in
+ * `db/assets.trash.ts`), which fold this into the same atomic update that
+ * stamps/clears `deleted_at` (#2354).
  */
 export const MEILI_REARM_SET: Record<string, unknown> = {
   'stages.meili.version': 0,
@@ -94,7 +95,10 @@ export function markAssetsForMeiliReindexBestEffort(personIds: Array<ObjectId | 
 export async function markAssetIdsForMeiliReindex(assetIds: ObjectId[]): Promise<number> {
   if (assetIds.length === 0) return 0;
   const assets = await assetsCollection();
-  const result = await assets.updateMany({ _id: { $in: assetIds } }, { $set: MEILI_REARM_SET });
+  const result = await assets.updateMany(
+    { _id: { $in: assetIds } },
+    { $set: MEILI_REARM_SET },
+  );
   return result.modifiedCount;
 }
 
