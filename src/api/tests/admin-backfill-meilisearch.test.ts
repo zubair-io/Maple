@@ -505,7 +505,7 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
     setMeilisearchClientForTests(meili.client);
     const { backfillMeilisearchVectors } =
       await import('../src/workers/migration/backfill-meilisearch-vectors.ts');
-    expect(backfillMeilisearchVectors.preferredBatchSize).toBe(500);
+    expect(backfillMeilisearchVectors.preferredBatchSize).toBe(50);
 
     expect(await backfillMeilisearchVectors.countRemaining()).toBe(3);
     expect(await backfillMeilisearchVectors.runBatch(2)).toEqual({

@@ -115,7 +115,7 @@ incrementally.
 ## Resumable backfill
 
 In **Settings → Workers → Migration**, enable **Backfill semantic-search
-index**. The migration worker sends 500-asset bulk tasks, stores a durable Mongo
+index**. The migration worker sends 50-asset bulk tasks, stores a durable Mongo
 cursor, and reports processed, remaining, and error counts in that panel. It
 automatically disables itself when complete. Pause it with the toggle; use
 **Reset** to clear its cursor and intentionally restart from the beginning.
@@ -225,7 +225,7 @@ Embedding capacity has three components:
   vectors, plus Meilisearch graph/index overhead;
 - temporary disk and CPU while Meilisearch processes backfill tasks.
 
-The Settings migration uses durable 500-asset tasks. Ollama inference is
+The Settings migration uses durable 50-asset tasks. Ollama inference is
 normally the limiting step; GPU acceleration and model throughput determine
 the completion time. For manual/admin backfills, start with a bounded batch,
 watch the status endpoint and service memory, then increase `batchSize` only if

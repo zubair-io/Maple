@@ -139,16 +139,19 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     await client.ensureIndex();
     await client.ensureIndex();
 
-    // Two calls: POST /indexes (create) + PATCH /indexes/assets/settings
-    expect(calls.length).toBe(2);
+    // The second ensure is cached. The first creates, reads, then patches.
+    expect(calls.length).toBe(3);
     expect(calls[0]!.method).toBe('POST');
     expect(calls[0]!.url).toContain('/indexes');
     expect(calls[0]!.body).toEqual({ uid: ASSETS_INDEX, primaryKey: 'id' });
     expect(calls[0]!.headers.Authorization).toBe('Bearer secret-key');
 
-    expect(calls[1]!.method).toBe('PATCH');
+    expect(calls[1]!.method).toBe('GET');
     expect(calls[1]!.url).toContain(`/indexes/${ASSETS_INDEX}/settings`);
-    expect(calls[1]!.body).toEqual({
+
+    expect(calls[2]!.method).toBe('PATCH');
+    expect(calls[2]!.url).toContain(`/indexes/${ASSETS_INDEX}/settings`);
+    expect(calls[2]!.body).toEqual({
       embedders: null,
       searchableAttributes: ['filename', 'searchBlob', 'description', 'people', 'ocrText'],
       filterableAttributes: [
@@ -166,7 +169,7 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     });
     // Semantic switch OFF (default) — explicitly reset any previously
     // configured embedder; omission would preserve it on a settings PATCH.
-    expect((calls[1]!.body as Record<string, unknown>).embedders).toBeNull();
+    expect((calls[2]!.body as Record<string, unknown>).embedders).toBeNull();
     expect(calls.some((c) => c.url.includes('/experimental-features'))).toBe(false);
   });
 
@@ -184,7 +187,7 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
 
     expect(calls.some((c) => c.url.includes('/experimental-features'))).toBe(false);
 
-    const settings = calls.find((c) => c.url.includes('/settings'));
+    const settings = calls.find((c) => c.method === 'PATCH' && c.url.includes('/settings'));
     expect(settings).toBeDefined();
     const embedders = (settings!.body as Record<string, unknown>).embedders as Record<
       string,
@@ -283,7 +286,7 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     });
     // Must not throw even though /indexes returned 409.
     await client.ensureIndex();
-    expect(calls.length).toBe(3);
+    expect(calls.length).toBe(4);
   });
 
   it('upsert() POSTs the doc array to /indexes/assets/documents', async () => {
