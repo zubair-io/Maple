@@ -6,13 +6,25 @@ import {
   type MeilisearchClient,
 } from '../src/enrichment/meilisearch-client.ts';
 import { MeilisearchTaskError } from '../src/enrichment/meilisearch-transport.ts';
+import { signAccessToken } from '../src/auth/tokens.ts';
 
 const TEST_DB = `maple_test_meili_resilience_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
+process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 const URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 let mongo: MongoClient | null = null;
 let db: Db | null = null;
 const folder = new ObjectId();
+
+// admin-meilisearch-status is owner-gated (#2353).
+const ownerJwt = await signAccessToken(
+  { sub: new ObjectId().toHexString(), email: 'o@m.c', role: 'owner' },
+  'x'.repeat(32),
+);
+const memberJwt = await signAccessToken(
+  { sub: new ObjectId().toHexString(), email: 'm@m.c', role: 'member' },
+  'x'.repeat(32),
+);
 
 beforeAll(async () => {
   mongo = new MongoClient(URI, { serverSelectionTimeoutMS: 1500 });
@@ -131,9 +143,11 @@ describe('semantic backfill resilience', () => {
     const { adminMeilisearchStatusRoutes } =
       await import('../src/routes/admin-meilisearch-status.ts');
     const { Elysia } = await import('elysia');
-    const response = await new Elysia()
-      .use(adminMeilisearchStatusRoutes)
-      .handle(new Request('http://localhost/api/admin/enrichment/meilisearch-status'));
+    const response = await new Elysia().use(adminMeilisearchStatusRoutes).handle(
+      new Request('http://localhost/api/admin/enrichment/meilisearch-status', {
+        headers: { authorization: `Bearer ${ownerJwt}` },
+      }),
+    );
     expect(await response.json()).toMatchObject({
       documents: {
         live: 2,
@@ -203,5 +217,45 @@ describe('semantic backfill resilience', () => {
     );
     release();
     await first;
+  });
+});
+
+describe('GET /api/admin/enrichment/meilisearch-status — owner gate (#2353)', () => {
+  it('rejects an unauthenticated request with 401', async () => {
+    if (!db) return;
+    const { adminMeilisearchStatusRoutes } =
+      await import('../src/routes/admin-meilisearch-status.ts');
+    const { Elysia } = await import('elysia');
+    const response = await new Elysia()
+      .use(adminMeilisearchStatusRoutes)
+      .handle(new Request('http://localhost/api/admin/enrichment/meilisearch-status'));
+    expect(response.status).toBe(401);
+  });
+
+  it('rejects a member-role token with 403', async () => {
+    if (!db) return;
+    const { adminMeilisearchStatusRoutes } =
+      await import('../src/routes/admin-meilisearch-status.ts');
+    const { Elysia } = await import('elysia');
+    const response = await new Elysia().use(adminMeilisearchStatusRoutes).handle(
+      new Request('http://localhost/api/admin/enrichment/meilisearch-status', {
+        headers: { authorization: `Bearer ${memberJwt}` },
+      }),
+    );
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: 'owner role required' });
+  });
+
+  it('allows an owner-role token through (200)', async () => {
+    if (!db) return;
+    const { adminMeilisearchStatusRoutes } =
+      await import('../src/routes/admin-meilisearch-status.ts');
+    const { Elysia } = await import('elysia');
+    const response = await new Elysia().use(adminMeilisearchStatusRoutes).handle(
+      new Request('http://localhost/api/admin/enrichment/meilisearch-status', {
+        headers: { authorization: `Bearer ${ownerJwt}` },
+      }),
+    );
+    expect(response.status).toBe(200);
   });
 });

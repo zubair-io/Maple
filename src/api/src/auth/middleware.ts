@@ -74,14 +74,33 @@ export const requireAuth = new Elysia({ name: 'requireAuth' }).derive(
   },
 );
 
+interface OwnerContext {
+  auth?: { user: AccessClaims };
+  set: { status?: number | string };
+}
+
+/**
+ * Route `beforeHandle` that requires the authenticated user's role to be
+ * `owner`. Backs the `requireOwner` plugin below (`.use(requireOwner)` gates
+ * every route defined after it in a chain — see `service-api-keys.ts` /
+ * `cloudflare.ts`), and is also exported standalone for the case where only
+ * *some* handlers in a plugin need the owner gate (e.g. a member-readable GET
+ * sitting next to an owner-only PUT in the same route file, as in
+ * `enrichment.ts` — attach via `{ beforeHandle: requireOwnerBeforeHandle }`
+ * on just that route so sibling routes stay unaffected). Requires `auth` —
+ * only reachable behind `requireAuth` (mount it locally for a standalone
+ * test app, or rely on an outer `requireAuth`-gated wrapper).
+ */
+export function requireOwnerBeforeHandle({ auth, set }: OwnerContext) {
+  if (!auth || auth.user.role !== 'owner') {
+    set.status = 403;
+    return { error: 'owner role required' };
+  }
+}
+
 export const requireOwner = new Elysia({ name: 'requireOwner' })
   .use(requireAuth)
-  .onBeforeHandle({ as: 'scoped' }, ({ auth, set }) => {
-    if (!auth || auth.user.role !== 'owner') {
-      set.status = 403;
-      return { error: 'owner role required' };
-    }
-  });
+  .onBeforeHandle({ as: 'scoped' }, requireOwnerBeforeHandle);
 
 interface StepUpContext {
   auth?: { user: AccessClaims };

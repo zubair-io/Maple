@@ -1,6 +1,11 @@
 /**
  * Tests POST /api/admin/enrichment/backfill-meilisearch — sweeps every
  * asset with a populated `place.search_blob` and upserts to Meilisearch.
+ * The route is owner-gated (#2353) — a `?reset=true` call discards backfill
+ * progress and re-scans the whole library, so every request below carries an
+ * owner bearer. The member/no-bearer rejection paths are covered in
+ * `admin-backfill-meilisearch-owner-gate.test.ts` (split for the file-size
+ * budget).
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
@@ -11,14 +16,31 @@ import {
   type MeilisearchClient,
   type MeilisearchAssetDoc,
 } from '../src/enrichment/meilisearch-client.ts';
+import { signAccessToken } from '../src/auth/tokens.ts';
 
 const TEST_DB = `maple_test_meili_backfill_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
+process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
 let db: Db | null = null;
+
+const ownerJwt = await signAccessToken(
+  { sub: new ObjectId().toHexString(), email: 'o@m.c', role: 'owner' },
+  'x'.repeat(32),
+);
+
+function ownerAuthed(init: RequestInit = {}): RequestInit {
+  return {
+    ...init,
+    headers: {
+      ...(init.headers as Record<string, string> | undefined),
+      authorization: `Bearer ${ownerJwt}`,
+    },
+  };
+}
 
 async function tryConnect(): Promise<MongoClient | null> {
   const c = new MongoClient(MONGO_URI, {
@@ -177,7 +199,10 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
       await import('../src/routes/admin-backfill-meilisearch.ts');
     const app = new Elysia().use(meilisearchBackfillRoutes);
     const r = await app.handle(
-      new Request('http://localhost/api/admin/enrichment/backfill-meilisearch', { method: 'POST' }),
+      new Request(
+        'http://localhost/api/admin/enrichment/backfill-meilisearch',
+        ownerAuthed({ method: 'POST' }),
+      ),
     );
     expect(r.status).toBe(400);
     const body = (await r.json()) as { error: string };
@@ -249,7 +274,10 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
       await import('../src/routes/admin-backfill-meilisearch.ts');
     const app = new Elysia().use(meilisearchBackfillRoutes);
     const r = await app.handle(
-      new Request('http://localhost/api/admin/enrichment/backfill-meilisearch', { method: 'POST' }),
+      new Request(
+        'http://localhost/api/admin/enrichment/backfill-meilisearch',
+        ownerAuthed({ method: 'POST' }),
+      ),
     );
     expect(r.status).toBe(200);
     const body = (await r.json()) as {
@@ -339,9 +367,10 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
       await import('../src/routes/admin-backfill-meilisearch.ts');
     const app = new Elysia().use(meilisearchBackfillRoutes);
     const r = await app.handle(
-      new Request('http://localhost/api/admin/enrichment/backfill-meilisearch', {
-        method: 'POST',
-      }),
+      new Request(
+        'http://localhost/api/admin/enrichment/backfill-meilisearch',
+        ownerAuthed({ method: 'POST' }),
+      ),
     );
     expect(r.status).toBe(200);
 
@@ -376,9 +405,10 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
     const app = new Elysia().use(meilisearchBackfillRoutes);
 
     const first = await app.handle(
-      new Request('http://localhost/api/admin/enrichment/backfill-meilisearch?batchSize=2', {
-        method: 'POST',
-      }),
+      new Request(
+        'http://localhost/api/admin/enrichment/backfill-meilisearch?batchSize=2',
+        ownerAuthed({ method: 'POST' }),
+      ),
     );
     const firstBody = (await first.json()) as {
       complete: boolean;
@@ -390,9 +420,10 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
     expect(firstBody.cumulative.scanned).toBe(2);
 
     const second = await app.handle(
-      new Request('http://localhost/api/admin/enrichment/backfill-meilisearch?batchSize=2', {
-        method: 'POST',
-      }),
+      new Request(
+        'http://localhost/api/admin/enrichment/backfill-meilisearch?batchSize=2',
+        ownerAuthed({ method: 'POST' }),
+      ),
     );
     const secondBody = (await second.json()) as {
       complete: boolean;
@@ -419,9 +450,10 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
     const app = new Elysia().use(meilisearchBackfillRoutes);
 
     const response = await app.handle(
-      new Request('http://localhost/api/admin/enrichment/backfill-meilisearch', {
-        method: 'POST',
-      }),
+      new Request(
+        'http://localhost/api/admin/enrichment/backfill-meilisearch',
+        ownerAuthed({ method: 'POST' }),
+      ),
     );
     const body = (await response.json()) as {
       complete: boolean;
@@ -453,7 +485,7 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
     const app = new Elysia().use(meilisearchBackfillRoutes);
     const url = 'http://localhost/api/admin/enrichment/backfill-meilisearch?batchSize=10';
 
-    const failed = await app.handle(new Request(url, { method: 'POST' }));
+    const failed = await app.handle(new Request(url, ownerAuthed({ method: 'POST' })));
     const failedBody = (await failed.json()) as {
       complete: boolean;
       nextCursor: string | null;
@@ -475,7 +507,7 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
     );
 
     meili.failBatch = false;
-    const retried = await app.handle(new Request(url, { method: 'POST' }));
+    const retried = await app.handle(new Request(url, ownerAuthed({ method: 'POST' })));
     const retriedBody = (await retried.json()) as {
       complete: boolean;
       upserted: number;

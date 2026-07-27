@@ -12,10 +12,15 @@
  *                                        Meilisearch URL without saving
  *   POST /api/enrichment/test-describe — health-check a describe provider
  *
- * All routes are mounted behind `requireAuth` — see `src/index.ts`.
+ * All routes are mounted behind `requireAuth` — see `src/index.ts`. PUT
+ * /config additionally requires `owner` (#2353): it can repoint
+ * `meilisearch_url` at an attacker-controlled host, so a member mustn't be
+ * able to redirect search traffic + the stored API key bearer. GET/test stay
+ * member-readable — read-only, and the response never echoes secrets.
  */
 
 import { Elysia, t } from 'elysia';
+import { requireAuth, requireOwnerBeforeHandle } from '../auth/middleware.ts';
 import { child as childLogger } from '../log.ts';
 import {
   MAX_DESCRIBE_DAILY_CAP_USD,
@@ -164,6 +169,7 @@ const TestDescribeBody = t.Object({
 });
 
 export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
+  .use(requireAuth)
   .get('/config', async () => {
     const dbConfig = await loadEnrichmentConfig();
     const resolved = resolveEnrichmentConfig(dbConfig);
@@ -514,7 +520,8 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
       // Strip the secret key before returning.
       return toPublicConfig(resolved);
     },
-    { body: ConfigBody },
+    // #2353 — owner-only; scoped to just this handler so GET/test stay member-accessible.
+    { body: ConfigBody, beforeHandle: requireOwnerBeforeHandle },
   )
 
   .post(
