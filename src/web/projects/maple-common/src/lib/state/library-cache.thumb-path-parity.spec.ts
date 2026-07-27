@@ -119,9 +119,22 @@ function setup() {
   };
 }
 
-const settle = async (until: () => boolean, timeoutMs = 1000): Promise<void> => {
+/** Poll until `until()` holds, THROWING if it never does.
+ *
+ * Deliberately not a silent return on timeout: a caller that gave up would fall
+ * through to its real assertion and fail as "reader didn't find the thumb",
+ * which reads exactly like the parity regression this suite is built to detect.
+ * Failing here instead points at the async wait that never converged, so a slow
+ * or wedged fixture can't masquerade as a writer/reader path divergence. */
+const settle = async (until: () => boolean, label: string, timeoutMs = 1000): Promise<void> => {
   const start = Date.now();
-  while (!until() && Date.now() - start < timeoutMs) {
+  while (!until()) {
+    if (Date.now() - start >= timeoutMs) {
+      throw new Error(
+        `settle("${label}") timed out after ${timeoutMs}ms — the condition never became true. ` +
+          `This is a fixture/async problem, NOT a writer-vs-reader path mismatch.`,
+      );
+    }
     await new Promise((r) => setTimeout(r, 5));
   }
 };
@@ -157,7 +170,10 @@ describe('LibraryCache Hosted thumbs — writer destination === reader source (#
 
       const asset = { id: ASSET_ID, filename: FILENAME } as unknown as Asset;
       svc.ensureThumbnailUrl(asset);
-      await settle(() => svc.thumbnailUrlFor(asset.id as AssetId) !== undefined);
+      await settle(
+        () => svc.thumbnailUrlFor(asset.id as AssetId) !== undefined,
+        'thumbnail URL published from the cached file',
+      );
 
       // The UNMODIFIED production read path found the thumb the write
       // primitive stored — never falling through to the network/decode path.
@@ -181,7 +197,10 @@ describe('LibraryCache Hosted thumbs — writer destination === reader source (#
 
       const asset = { id: ASSET_ID, filename: FILENAME } as unknown as Asset;
       svc.ensureThumbnailUrl(asset);
-      await settle(() => bytesForAsset.mock.calls.length > 0);
+      await settle(
+        () => bytesForAsset.mock.calls.length > 0,
+        'fell back to bytesForAsset (decode path)',
+      );
 
       // Cache miss — the read call site fell through to the network/decode
       // fallback, proving the assertion above is actually discriminating and
