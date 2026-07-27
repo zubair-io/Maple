@@ -1,16 +1,25 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient, type Db } from 'mongodb';
+import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { signAccessToken } from '../src/auth/tokens.ts';
 
 const TEST_DB = `maple_test_semantic_validation_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
 process.env.MAPLE_GEOCODE_WORKER_ENABLED = 'false';
 process.env.MAPLE_DESCRIBE_WORKER_ENABLED = 'false';
+process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 const realFetch = globalThis.fetch;
 let mongo: MongoClient | null = null;
 let db: Db | null = null;
 let app: Elysia | null = null;
+
+// PUT /config is owner-gated (#2353); the other routes exercised here
+// (POST /test-meili) only need a valid bearer, so an owner token covers both.
+const ownerJwt = await signAccessToken(
+  { sub: new ObjectId().toHexString(), email: 'o@m.c', role: 'owner' },
+  'x'.repeat(32),
+);
 
 beforeAll(async () => {
   mongo = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 1500 });
@@ -50,7 +59,7 @@ async function request(method: 'POST' | 'PUT', path: string, body: object) {
   const response = await app!.handle(
     new Request(`http://localhost${path}`, {
       method,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${ownerJwt}` },
       body: JSON.stringify(body),
     }),
   );
