@@ -53,6 +53,10 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
     let toolbarContent: () -> ToolbarContentT
 
     let onSelectCloudAsset: (SearchAsset, URL) -> Void
+    /// `CloudSource` for a cloud asset pushed from the Timeline / merged grid.
+    /// Preferred over `browseVM.currentSource`, which is nil for those taps —
+    /// Preview needs a source or it falls back to downloading the RAW (#2376).
+    var cloudPreviewSource: (any ImageSource)? = nil
     let onCloseSearch: () -> Void
     let onSelectLocalAsset: (ImageRef) -> Void
     let onGrantPhotosAccess: () -> Void
@@ -117,7 +121,7 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
                         // grids own the list); the local library flow carries
                         // the full `browseVM.assets`.
                         assets: browseVM.assets.contains(ref) ? browseVM.assets : [ref],
-                        source: browseVM.currentSource,
+                        source: browseVM.currentSource ?? cloudPreviewSource,
                         sessions: $sessions,
                         onClose: popPreviewWithoutAnimation,
                         onEdit: { asset in libraryPath.append(.edit(asset)) },
