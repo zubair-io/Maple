@@ -235,6 +235,14 @@
                       @if (m.errors > 0) {
                         <span class="is-error">{{ m.errors | number }} errors</span>
                       }
+                      @if (m.failedPermanently) {
+                        <span
+                          class="is-error"
+                          [attr.data-testid]="'migration-failed-permanently-' + m.id"
+                        >
+                          {{ m.failedPermanently | number }} dead-lettered
+                        </span>
+                      }
                       @if (m.processed > 0 || m.status !== 'idle') {
                         <button
                           type="button"

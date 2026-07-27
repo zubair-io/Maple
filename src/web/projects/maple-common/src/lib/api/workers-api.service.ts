@@ -129,6 +129,11 @@ export interface MigrationInfo {
   errors: number;
   /** Items still needing transformation. */
   remaining: number;
+  /** Live count of items parked in this migration's own dead-letter queue
+   * (distinct from the cumulative `errors` counter, which never decreases).
+   * Only present for migrations that track one — e.g. the Meilisearch
+   * backfill's redrivable `meilisearch_backfill_failures` collection. */
+  failedPermanently?: number;
   last_error: string | null;
   started_at: string | null;
   finished_at: string | null;
