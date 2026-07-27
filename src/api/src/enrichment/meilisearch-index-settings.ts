@@ -106,6 +106,8 @@ export function assetsIndexSettingsMatch(
     sameStringSet(actual[field], expected[field]),
   );
   return (
-    searchableMatches && orderInsensitiveMatches && embedderMatches(actual.embedders, expected.embedders)
+    searchableMatches &&
+    orderInsensitiveMatches &&
+    embedderMatches(actual.embedders, expected.embedders)
   );
 }
