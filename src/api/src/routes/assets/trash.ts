@@ -145,6 +145,15 @@ export const trashRoutes = new Elysia()
     // search route's `deletedAt IS NULL` filter excludes the row from
     // results. Mongo is canonical; a Meilisearch failure here must NOT
     // roll back the soft-delete or change the 204 response.
+    //
+    // Unlike restore, this has no stage-owned fallback (#2354): resetting
+    // `stages.meili` here would be unsafe, since `meiliHandler`
+    // (workers/stages/meili.ts) never checks the asset's top-level
+    // `deleted_at` and has no delete-detection/tombstone branch of its own
+    // — it would just re-upsert a full "live" document. So a transient
+    // Meilisearch outage at trash time can still leave the asset visible in
+    // search indefinitely. See the #2354 PR description for the design
+    // options left for a follow-up decision.
     if (info.maple_id) {
       try {
         await meilisearchClient().tombstone(info.maple_id);
@@ -307,11 +316,19 @@ export const trashRoutes = new Elysia()
 
       // Best-effort Meilisearch re-index — symmetric with the tombstone
       // on DELETE. Resurrects the row by upserting with `deletedAt: null`
-      // so the search filter `deletedAt IS NULL` picks it up again. The
-      // text payload comes from whatever enrichment fields are present;
-      // missing enrichment (rows that never finished the meili stage)
-      // just upserts an empty `searchBlob` — the meili stage will
-      // backfill content on its next pass.
+      // so the search filter `deletedAt IS NULL` picks it up again. This is
+      // a FAST PATH only, not the correctness mechanism: the payload here
+      // is built from whatever enrichment fields happen to be present on
+      // `info` and — unlike `meiliHandler` (workers/stages/meili.ts) —
+      // omits `visionSceneType` / `visionActivity` / `visionSubjects` /
+      // `isScreenshot` / `people` entirely, so on its own it would
+      // permanently strip those facets from the live document (#2354). The
+      // actual guarantee is `restoreFromTrash` (db/assets.trash.ts), which
+      // resets `stages.meili` atomically in the same DB update that clears
+      // `deleted_at` — that re-arms the meili stage's claim query so its
+      // own handler rebuilds the FULL document on its next poll tick, even
+      // if this inline call fails, only partially succeeds, or Meilisearch
+      // was unreachable at restore time.
       if (info.maple_id) {
         try {
           await meilisearchClient().upsert({
