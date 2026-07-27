@@ -7,7 +7,11 @@ import type {
   MeilisearchAssetDoc,
 } from '../../enrichment/meilisearch-client.ts';
 
-import { meiliHandler, setMeilisearchClientForTests } from './meili.ts';
+import {
+  meiliHandler,
+  setMeilisearchClientForTests,
+  SINGLE_DOC_TOMBSTONE_TIMEOUT_MS,
+} from './meili.ts';
 
 function fakeDoc(overrides: Partial<ImageDoc> = {}): ImageDoc {
   const folderId = new ObjectId();
@@ -60,9 +64,11 @@ function capturingClient(): {
   client: MeilisearchClient;
   upserts: MeilisearchAssetDoc[];
   tombstones: string[];
+  tombstoneTimeouts: Array<number | undefined>;
 } {
   const upserts: MeilisearchAssetDoc[] = [];
   const tombstones: string[] = [];
+  const tombstoneTimeouts: Array<number | undefined> = [];
   const client: MeilisearchClient = {
     isConfigured: () => true,
     semanticConfigured: () => false,
@@ -77,12 +83,13 @@ function capturingClient(): {
     tombstone: async (id) => {
       tombstones.push(id);
     },
-    tombstoneBatchOrThrow: async (ids) => {
+    tombstoneBatchOrThrow: async (ids, timeoutMs) => {
       tombstones.push(...ids);
+      tombstoneTimeouts.push(timeoutMs);
     },
     search: async () => ({ ids: [], estimatedTotal: 0 }),
   };
-  return { client, upserts, tombstones };
+  return { client, upserts, tombstones, tombstoneTimeouts };
 }
 
 function failingClient(): MeilisearchClient {
@@ -242,6 +249,15 @@ describe('meiliHandler — trashed assets (#2354)', () => {
     // An upsert here would resurrect the row in live search
     // (meilisearchDocument hardcodes deletedAt: null).
     expect(upserts.length).toBe(0);
+  });
+
+  it('passes the short single-doc timeout override to tombstoneBatchOrThrow, not the 10-minute bulk-batch default (#2359)', async () => {
+    const { client, tombstoneTimeouts } = capturingClient();
+    setMeilisearchClientForTests(client);
+    const doc = { ...fakeDoc(), deleted_at: '2026-07-01T00:00:00.000Z' } as ImageDoc;
+    await meiliHandler(doc, fakeCtx);
+    expect(tombstoneTimeouts).toEqual([SINGLE_DOC_TOMBSTONE_TIMEOUT_MS]);
+    expect(SINGLE_DOC_TOMBSTONE_TIMEOUT_MS).toBeLessThan(60_000);
   });
 
   it('throws when the tombstone write fails, so the runtime retries (search-index convergence)', async () => {

@@ -65,7 +65,27 @@ async function liveVectorizedCount(fingerprint: string | null): Promise<number> 
   } as never);
 }
 
-async function loadAdminMeilisearchStatus(): Promise<Record<string, unknown>> {
+// ── Status response cache (#2359) ─────────────────────────────────────
+// Every call runs `semanticStatus()` (a live hybrid-search embed probe
+// against Ollama — see `meilisearch-semantic-status.ts`) plus two
+// unindexed O(N) `countDocuments` scans. This route backs the Settings →
+// Workers polling widget, so without a cache each poll tick re-hammers
+// both Ollama and Mongo. There's exactly one response shape (no request
+// params to key on), so a single cached slot + absolute expiry is enough
+// — mirrors the TTL-cache shape used by `totalCache` in
+// `routes/search/list.ts` and `bucketsCache` in `routes/search/buckets.ts`,
+// just without the per-filter `Map`. No bypass: operators can wait out
+// the TTL.
+const STATUS_CACHE_TTL_MS = 30_000;
+let statusCache: { result: Record<string, unknown>; expiresMs: number } | null = null;
+
+/** Test-only: blow the cache so back-to-back tests (each installing a
+ * different fake Meilisearch client) don't see a stale cached response. */
+export function _resetAdminMeilisearchStatusCacheForTests(): void {
+  statusCache = null;
+}
+
+async function computeAdminMeilisearchStatus(): Promise<Record<string, unknown>> {
   const client = meilisearchClient();
   const fingerprint = client.semanticFingerprint?.() ?? null;
   const assets = await assetsCollection();
@@ -87,6 +107,14 @@ async function loadAdminMeilisearchStatus(): Promise<Record<string, unknown>> {
     },
     backfill: backfillPayload(backfill),
   };
+}
+
+async function loadAdminMeilisearchStatus(): Promise<Record<string, unknown>> {
+  const nowMs = Date.now();
+  if (statusCache && statusCache.expiresMs > nowMs) return statusCache.result;
+  const result = await computeAdminMeilisearchStatus();
+  statusCache = { result, expiresMs: nowMs + STATUS_CACHE_TTL_MS };
+  return result;
 }
 
 // Owner-only (#2353): mirrors meilisearchBackfillRoutes in the same
