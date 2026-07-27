@@ -23,10 +23,8 @@ struct SearchPhotoResultsSection: View {
     let isStale: Bool
     let hasQuery: Bool
     let query: String
-    /// Result tap. Carries the tapped cell's zoom-to-open source (#1489) —
-    /// its painted thumbnail and on-screen rect — or `nil` when the cell had
-    /// no thumbnail yet, in which case the host opens without the zoom.
-    let onTap: (SearchAsset, PhotoGridHeroSource?) -> Void
+    /// Result tap — the host opens the asset.
+    let onTap: (SearchAsset) -> Void
     /// Called when the last loaded tile appears — the host pages in more
     /// results (the host's loader no-ops once the full set is loaded).
     var onLoadMore: () -> Void = {}
@@ -63,8 +61,7 @@ struct SearchPhotoResultsSection: View {
                     onAppearItem: { asset in
                         if asset.id == results.last?.id { onLoadMore() }
                     },
-                    onTap: { asset in onTap(asset, nil) },
-                    onHeroTap: onTap,
+                    onTap: onTap,
                     makeItem: { asset in
                         PhotoGridItem(cloud: asset, host: host, style: .phone)
                     }
@@ -94,7 +91,7 @@ struct SearchPhotoResultsSection: View {
         isStale: false,
         hasQuery: true,
         query: "paris",
-        onTap: { _, _ in }
+        onTap: { _ in }
     )
     .padding()
     .background(MapleTokens.bg)
@@ -110,7 +107,7 @@ struct SearchPhotoResultsSection: View {
         isStale: true,
         hasQuery: true,
         query: "paris",
-        onTap: { _, _ in }
+        onTap: { _ in }
     )
     .padding()
     .background(MapleTokens.bg)
@@ -123,7 +120,7 @@ struct SearchPhotoResultsSection: View {
         isStale: false,
         hasQuery: true,
         query: "nothing matches",
-        onTap: { _, _ in }
+        onTap: { _ in }
     )
     .padding()
     .background(MapleTokens.bg)
