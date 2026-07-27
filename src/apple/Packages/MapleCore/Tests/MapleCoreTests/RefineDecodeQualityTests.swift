@@ -252,11 +252,19 @@ final class RefineDecodeQualityTests: XCTestCase {
     // MARK: - Perf (diagnostic, not gated): fit-mode vs 100%-zoom decode cost
 
     /// Prints wall-clock decode time for the two branches `refineDecodeQuality`
-    /// distinguishes, on the real 100 MP fixture. Not a pass/fail perf gate
-    /// (wall time is hardware-dependent) — the one invariant asserted is the
-    /// obviously-true direction (a full/AMaZE demosaic cannot be faster than
-    /// a half-res one on the same input). Numbers are reported to stderr and
-    /// belong in the PR body per the ticket's evidence requirement.
+    /// distinguishes, on the real 100 MP fixture. Not a pass/fail perf gate:
+    /// NOTHING about the measured durations is asserted. An earlier revision
+    /// asserted the "obviously true" direction (`.full`/`.amaze` is never
+    /// dramatically faster than `.preview`), but that is not reliably true as
+    /// measured here — the `.preview` timing runs first against a cold page
+    /// cache and the escalated timing second against a warm one, so hundreds
+    /// of MB of first-touch I/O land entirely on the baseline. Thermal state
+    /// adds more spread. The assertions kept below are the deterministic ones
+    /// the reported numbers depend on for meaning: that the zoom target really
+    /// did escalate, and that both decodes actually produced a buffer (a nil
+    /// decode would otherwise report a flatteringly small duration).
+    /// Numbers go to stderr and belong in the PR body per the ticket's
+    /// evidence requirement.
     func testDiagnosticRefineDecodeWallTime() async throws {
         guard let url = fixtureURL() else {
             throw XCTSkip("dji-mavic3pro-100mp.dng fixture not present; skipping")
@@ -265,10 +273,18 @@ final class RefineDecodeQualityTests: XCTestCase {
         let pipeline = ImageEditPipeline()
         let nativeLongEdge = max(Self.nativeSize.width, Self.nativeSize.height)
 
-        func timeDecodeMs(target: CGSize, quality: PipelineRenderer.Quality) async -> Double {
+        func timeDecodeMs(
+            target: CGSize, quality: PipelineRenderer.Quality,
+            line: UInt = #line
+        ) async -> Double {
             let start = DispatchTime.now()
-            _ = await pipeline.decodeSceneLinearSized(asset: asset, targetSize: target, quality: quality)
+            let decoded = await pipeline.decodeSceneLinearSized(
+                asset: asset, targetSize: target, quality: quality
+            )
             let end = DispatchTime.now()
+            XCTAssertNotNil(decoded,
+                "decode at \(quality) for target \(target) returned nil — the "
+                + "duration below would be meaningless", line: line)
             return Double(end.uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000
         }
 
@@ -277,6 +293,10 @@ final class RefineDecodeQualityTests: XCTestCase {
         let zoomQuality = ImageEditPipeline.refineDecodeQuality(
             nativeLongEdge: nativeLongEdge, targetLongEdge: nativeLongEdge
         )
+        // The reported "after" number only means anything if this target
+        // actually crossed the escalation threshold.
+        XCTAssertNotEqual(zoomQuality, .preview,
+            "a native-long-edge refine target must escalate past .preview")
 
         // Fit-mode / moderate-zoom branch: quality is .preview BEFORE and
         // AFTER this fix (the target never crosses the escalation
@@ -304,9 +324,5 @@ final class RefineDecodeQualityTests: XCTestCase {
                 + "before=\(zoomBeforeMs)ms  after=\(zoomAfterMs)ms\n"
             ).data(using: .utf8)!
         )
-
-        XCTAssertGreaterThanOrEqual(zoomAfterMs, zoomBeforeMs * 0.5,
-            "sanity check: a full/AMaZE demosaic decode should not be dramatically FASTER "
-            + "than a half-res preview decode of the same input")
     }
 }
