@@ -39,13 +39,11 @@ extension RenderActor {
     ///              caller's target happens to approach native (#785).
     ///
     /// `quality` (#2143) is the axis that now actually distinguishes fast
-    /// from refine for RAW: fast always requests `.preview` (half-res);
-    /// refine escalates to `.full`/`.amaze` when its target needs more
-    /// detail than `.preview` can deliver — see `ImageEditPipeline.
-    /// refineDecodeQuality`. It is part of the in-flight-task join identity
-    /// alongside `target`'s fullness and `profile`, so a quality-escalated
-    /// caller never joins (and silently downgrades to) an in-flight
-    /// lower-quality task for the same asset.
+    /// from refine for RAW — see `ImageEditPipeline.refineDecodeQuality`.
+    /// It joins `target`'s fullness and `profile` in the in-flight-task
+    /// identity so an escalated caller never silently downgrades onto a
+    /// lower-quality in-flight task. It is ignored (pinned to `.preview`)
+    /// for non-RAW, whose ImageIO decode has no quality axis.
     ///
     /// A `nil`-target caller never joins an in-flight sized task — that
     /// would hand back a low-res buffer. The cache's `decodedIsFull` flag is
@@ -86,6 +84,13 @@ extension RenderActor {
         // profile) without waiting for the debounced sidecar write. Same
         // treatment as `decodeProfile` immediately above.
         let decodeAutoExposure: AutoExposureMode? = asset.isRaw ? autoExposure : nil
+        // #2143: `quality` only steers the RAW demosaic — the non-RAW branch
+        // below routes through `decodeSceneLinearNonRaw`, which takes no
+        // quality at all. Pin non-RAW to `.preview` so an escalated caller
+        // can't make quality a spurious identity axis there (a re-decode +
+        // cancel for a bit-identical buffer). Same reasoning, and the same
+        // shape, as `decodeProfile` / `decodeAutoExposure` above.
+        let decodeQuality: PipelineRenderer.Quality = asset.isRaw ? quality : .preview
         // Reuse an in-flight task only when it already satisfies the
         // caller's fullness requirement AND was launched for the same
         // profile + autoExposure + quality. A fast (sized) caller can join
@@ -97,7 +102,7 @@ extension RenderActor {
         if let existing = decodeTask, decodeTaskAssetID == asset.id,
            decodeTaskProfile == decodeProfile,
            decodeTaskAutoExposure == decodeAutoExposure,
-           decodeTaskQuality == quality,
+           decodeTaskQuality == decodeQuality,
            (!wantsFull || decodeTaskIsFull) {
             // #951: JOIN an in-flight, identity-compatible decode. Do NOT create
             // or flip a cancel flag here — same-asset slider ticks during a cold
@@ -197,26 +202,15 @@ extension RenderActor {
             // RAW fast phase AND refine both route through the sized scene-
             // linear FFI (`maxLongEdge`) so the Rust decoder never allocates
             // a full-sensor-resolution buffer just because the viewport
-            // asked for one (#785/#1637). What used to distinguish refine
-            // from fast — a `nil` target routing to the unsized full/AMaZE
-            // decode below — stopped happening once `ImageEditPipeline.
-            // decodeTarget` started always returning a bounded target
-            // (#1637): every caller here passes a sized target now, fast
-            // AND refine alike. `quality` is what actually carries that
-            // distinction post-#2143: fast always requests `.preview`
-            // (half-res); refine's caller (`EditSession.decodeAndRender`)
-            // escalates to `.full`/`.amaze` via `ImageEditPipeline.
-            // refineDecodeQuality` whenever the requested target exceeds
-            // what `.preview` can deliver (roughly native/2) — see that
-            // function's doc comment for the upscale-then-downscale waste
-            // this removes. Below that threshold `.preview` already decodes
-            // exactly the requested target, so quality stays `.preview` and
-            // this call is bit-identical to pre-#2143 behaviour.
+            // asked for one (#785/#1637) — every caller passes a sized
+            // target since #1637, so `quality` (not a `nil` target) is what
+            // now distinguishes refine from fast. See `ImageEditPipeline.
+            // refineDecodeQuality` for the escalation rule and its rationale.
             if let decodeTarget {
                 let sizedResult = await mapleStageAsync("rust FFI scene-linear sized decode") {
                     await pipeline.decodeSceneLinearSized(
                         asset: asset, targetSize: decodeTarget, xmpPath: sidecar,
-                        quality: quality,
+                        quality: decodeQuality,
                         profileOverride: decodeProfile, autoExposureOverride: decodeAutoExposure,
                         cancel: cancelFlag
                     )
@@ -251,7 +245,7 @@ extension RenderActor {
         decodeTaskIsFull = wantsFull
         decodeTaskProfile = decodeProfile
         decodeTaskAutoExposure = decodeAutoExposure
-        decodeTaskQuality = quality
+        decodeTaskQuality = decodeQuality
 
         let decodeResult = await task.value
         editSessionSignposter.endInterval("decode", decodeState)
@@ -383,68 +377,6 @@ extension RenderActor {
             refineDecodeTasks[key] = nil
         }
         return result
-    }
-
-    // MARK: - Refine-sufficiency predicate (pure, testable, #2039)
-
-    /// Whether a cached decode is sufficient for the REFINE phase: either a
-    /// genuine full-resolution decode, or a sized decode whose extent already
-    /// COVERS the requested `targetSize` (holds every pixel the request
-    /// needs, so reuse can never publish below the requested quality — the
-    /// #785 invariant, preserved via coverage rather than exact fullness). A
-    /// `nil` target (the `renderFull()` export-prep path) has no bound to
-    /// check coverage against, so only `isFull` can satisfy it.
-    nonisolated static func refineCacheSufficient(
-        isFull: Bool, rawResolution: CGSize, targetSize: CGSize?
-    ) -> Bool {
-        if isFull { return true }
-        guard let targetSize else { return false }
-        return rawResolution.width >= targetSize.width - 0.5
-            && rawResolution.height >= targetSize.height - 0.5
-    }
-
-    // MARK: - Write-gate coverage predicate (pure, testable, #2039/#871)
-
-    /// Whether the EXISTING cache already covers what a just-completed
-    /// decode would offer — same asset, same profile (#871), same baked
-    /// model (#950), and a resolution at least as large as the new decode's.
-    /// All four must hold: profile and baked-model mismatches mean the
-    /// cached pixels are DIFFERENT content, not merely a smaller version of
-    /// the same content, so a mismatch on either always yields `false`
-    /// (permit the write) regardless of resolution. Skipping the profile
-    /// check here would wedge a profile switch to a smaller target in a
-    /// permanent loop: the new-profile decode gets discarded as "already
-    /// covered" by the stale old-profile buffer, the read-side profile
-    /// check (`decodeAndRender`'s `profileMatches`) detects the mismatch and
-    /// re-decodes, and the write gate discards the result again forever.
-    nonisolated static func cacheCoversNewDecode(
-        sameAsset: Bool,
-        sameProfile: Bool,
-        sameAutoExposure: Bool = true,
-        sameBakedModel: Bool,
-        cachedRawResolution: CGSize,
-        newRawResolution: CGSize
-    ) -> Bool {
-        sameAsset && sameProfile && sameAutoExposure && sameBakedModel
-            && cachedRawResolution.width >= newRawResolution.width - 0.5
-            && cachedRawResolution.height >= newRawResolution.height - 0.5
-    }
-
-    // MARK: - Write-gate predicate (pure, testable)
-
-    /// Decide whether a just-completed decode may write the decoded-image
-    /// cache. A full decode always wins. A sized (fast) decode writes unless
-    /// the cache ALREADY COVERS it — same asset, same profile, same baked
-    /// model, and a resolution at least as large as this decode's (#2039)
-    /// — in which case writing would only downgrade or needlessly re-store
-    /// an equivalent buffer. `cachedCoversNewDecode` is never served past its
-    /// own coverage claim: the read-side coverage check in `decodeAndRender`
-    /// re-evaluates against whatever IS in the cache, so a write that DOES
-    /// go through is always safe to serve at its own size (#785).
-    nonisolated static func shouldWriteDecodedCache(
-        wantsFull: Bool, cachedCoversNewDecode: Bool
-    ) -> Bool {
-        wantsFull || !cachedCoversNewDecode
     }
 
     // MARK: - Cache lifecycle (slice 2)
