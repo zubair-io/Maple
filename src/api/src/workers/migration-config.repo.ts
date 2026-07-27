@@ -145,6 +145,11 @@ export async function setMigrationEnabled(
   enabled: boolean,
   nowIso: string,
 ): Promise<MigrationState> {
+  if (id === BACKFILL_MEILISEARCH_VECTORS_ID && enabled) {
+    const { clearMeilisearchBackfillRetryState } =
+      await import('../enrichment/meilisearch-backfill.ts');
+    await clearMeilisearchBackfillRetryState();
+  }
   const next = computeEnabledTransition(await loadMigrationState(id), enabled, nowIso);
   await patchMigrationState(id, next);
   return next;
@@ -153,8 +158,8 @@ export async function setMigrationEnabled(
 /** Clear a migration back to a pristine disabled/idle state (operator "reset"). */
 export async function resetMigrationState(id: string): Promise<MigrationState> {
   if (id === BACKFILL_MEILISEARCH_VECTORS_ID) {
-    const db = await getDb();
-    await db.collection('meilisearch_backfill_state').deleteOne({ _id: 'assets' });
+    const { resetMeilisearchBackfillState } = await import('../enrichment/meilisearch-backfill.ts');
+    await resetMeilisearchBackfillState();
   }
   const fresh = defaultMigrationState();
   await patchMigrationState(id, fresh);

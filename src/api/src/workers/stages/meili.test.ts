@@ -245,12 +245,14 @@ describe('resolveAssetPeopleNames + people in the doc/blob', () => {
   const PERSON_A = new ObjectId();
   const PERSON_AUTO = new ObjectId();
   const PERSON_MERGED = new ObjectId();
+  const PERSON_HIDDEN = new ObjectId();
   const personRows = [
     { _id: PERSON_A, name: 'Greyson', merged_into: null },
     // Auto-generated cluster name — must be excluded from the index.
     { _id: PERSON_AUTO, name: 'Person 7', merged_into: null },
     // Merged row — must be excluded.
     { _id: PERSON_MERGED, name: 'Maya', merged_into: new ObjectId() },
+    { _id: PERSON_HIDDEN, name: 'Hidden Helen', merged_into: null, hidden: true },
   ];
 
   function facesFor(...ids: ObjectId[]): AssetFaceDoc[] {
@@ -265,25 +267,25 @@ describe('resolveAssetPeopleNames + people in the doc/blob', () => {
     const realDbClient = await import('../../db/client.ts');
     const dbSpy = spyOn(realDbClient, 'peopleCollection').mockImplementation(async () => {
       return {
-        find: (filter: { _id: { $in: ObjectId[] }; merged_into: null }) => {
+        find: (filter: { _id: { $in: ObjectId[] }; merged_into: null; hidden: { $ne: true } }) => {
           const idSet = new Set(filter._id.$in.map((o) => o.toHexString()));
           const matched = personRows.filter(
-            (r) => idSet.has(r._id.toHexString()) && r.merged_into === null,
+            (r) => idSet.has(r._id.toHexString()) && r.merged_into === null && r.hidden !== true,
           );
           return {
             project: () => ({
-              toArray: async () => matched.map((r) => ({ name: r.name })),
+              toArray: async () => matched.map((r) => ({ _id: r._id, name: r.name })),
             }),
           };
         },
-      } as any;
+      } as unknown as Awaited<ReturnType<typeof realDbClient.peopleCollection>>;
     });
     try {
       const { client, upserts } = capturingClient();
       setMeilisearchClientForTests(client);
       const doc = {
         ...fakeDoc(),
-        faces: facesFor(PERSON_A, PERSON_AUTO, PERSON_MERGED),
+        faces: facesFor(PERSON_A, PERSON_AUTO, PERSON_MERGED, PERSON_HIDDEN),
       } as ImageDoc;
       const result = await meiliHandler(doc, fakeCtx);
       expect(upserts.length).toBe(1);

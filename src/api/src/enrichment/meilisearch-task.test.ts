@@ -64,6 +64,36 @@ describe('Meilisearch asynchronous tasks', () => {
     ]);
   });
 
+  it('waits for a single-asset upsert before the worker can stamp it complete', async () => {
+    const { fetchImpl, calls } = makeFakeFetch({
+      routes: [
+        {
+          method: 'POST',
+          pathPrefix: `/indexes/${ASSETS_INDEX}/documents`,
+          status: 202,
+          body: { taskUid: 41 },
+        },
+        {
+          method: 'GET',
+          pathPrefix: '/tasks/41',
+          body: { uid: 41, status: 'succeeded' },
+        },
+      ],
+    });
+    const client = createMeilisearchClient({
+      url: 'http://meili.local:7700',
+      fetchImpl,
+      taskPollIntervalMs: 0,
+    });
+
+    await client.upsertOrThrow(sampleDoc);
+
+    expect(calls.map((call) => new URL(call.url).pathname)).toEqual([
+      `/indexes/${ASSETS_INDEX}/documents`,
+      '/tasks/41',
+    ]);
+  });
+
   it('surfaces a failed asynchronous bulk upsert task', async () => {
     const { fetchImpl } = makeFakeFetch({
       routes: [

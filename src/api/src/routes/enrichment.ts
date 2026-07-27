@@ -49,6 +49,8 @@ import {
 } from '../enrichment/meilisearch-client.ts';
 import { validMeilisearchSemanticRatio } from '../enrichment/meilisearch-config.ts';
 import { configureServiceSearchRateLimit } from '../enrichment/service-search-rate-limit.ts';
+import { advanceKnownVectorCoverage } from '../enrichment/meilisearch-vector-coverage.ts';
+import { testMeilisearchConnection } from '../enrichment/meilisearch-connection-test.ts';
 
 const log = childLogger('enrichment:routes');
 
@@ -196,6 +198,7 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
   .put(
     '/config',
     async ({ body, set }) => {
+      const existing = resolveEnrichmentConfig(await loadEnrichmentConfig());
       const validated = validateHttpUrl(body.nominatim_url);
       if (validated && typeof validated === 'object' && 'error' in validated) {
         set.status = 400;
@@ -251,6 +254,20 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
         };
       }
 
+      let describeUrl: string | null | undefined;
+      if (body.describe_provider_url !== undefined) {
+        const validatedDescribe = validateHttpUrl(body.describe_provider_url);
+        if (
+          validatedDescribe &&
+          typeof validatedDescribe === 'object' &&
+          'error' in validatedDescribe
+        ) {
+          set.status = 400;
+          return { error: `Invalid describe_provider_url: ${validatedDescribe.error}` };
+        }
+        describeUrl = validatedDescribe as string | null;
+      }
+
       const describeCap = body.describe_daily_cap_usd;
       if (typeof describeCap === 'number') {
         if (
@@ -295,6 +312,15 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
           return { error: `Invalid meilisearch_url: ${validatedMeili.error}` };
         }
         meiliUrl = validatedMeili as string | null;
+      }
+      const semanticEnabled =
+        body.meilisearch_semantic_enabled ?? existing.meilisearch_semantic_enabled;
+      const effectiveMeiliUrl = meiliUrl === undefined ? existing.meilisearch_url : meiliUrl;
+      if (semanticEnabled && !effectiveMeiliUrl) {
+        set.status = 400;
+        return {
+          error: 'Semantic search requires a Meilisearch URL.',
+        };
       }
 
       // Meilisearch API key (secret, write-only). `undefined` or empty
@@ -362,9 +388,7 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
           ? { describe_system_prompt: body.describe_system_prompt }
           : {}),
         ...(describeCap !== undefined ? { describe_daily_cap_usd: describeCap } : {}),
-        ...(body.describe_provider_url !== undefined
-          ? { describe_provider_url: body.describe_provider_url }
-          : {}),
+        ...(describeUrl !== undefined ? { describe_provider_url: describeUrl } : {}),
         ...(body.transcribe_model_tier !== undefined
           ? { transcribe_model_tier: body.transcribe_model_tier }
           : {}),
@@ -477,7 +501,10 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
         });
         void (async () => {
           try {
-            if (await meili.health()) await meili.ensureIndex();
+            if (await meili.health()) {
+              await meili.ensureIndex();
+              await advanceKnownVectorCoverage(meili.semanticFingerprint?.());
+            }
           } catch (err) {
             log.warn({ err }, 'Meilisearch reconfigure health/ensureIndex failed (non-fatal)');
           }
@@ -516,30 +543,14 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
   )
 
   // POST /api/enrichment/test-meili — health-check an arbitrary Meilisearch
-  // URL without saving. The API key comes from MAPLE_MEILISEARCH_API_KEY
-  // (read by createMeilisearchClient), so the probe authenticates the same
-  // way the live client will.
+  // URL without saving. A blank key reuses the effective saved DB key,
+  // matching the live client instead of silently falling back to env only.
   .post(
     '/test-meili',
     async ({ body, set }) => {
-      const validated = validateHttpUrl(body.meilisearch_url);
-      if (validated === null || (typeof validated === 'object' && 'error' in validated)) {
-        set.status = 400;
-        return { ok: false, error: validated === null ? 'URL is empty' : validated.error };
-      }
-      // Probe with the typed key when supplied; otherwise let
-      // createMeilisearchClient read MAPLE_MEILISEARCH_API_KEY from env.
-      // (Don't pass `apiKey: undefined` explicitly — that would override the
-      // env read with "no key".)
-      const override: { url: string; apiKey?: string } = { url: validated };
-      if (typeof body.api_key === 'string' && body.api_key.trim().length > 0) {
-        override.apiKey = body.api_key.trim();
-      }
-      const client = createMeilisearchClient(override);
-      const ok = await client.health();
-      return ok
-        ? { ok: true, url: validated }
-        : { ok: false, error: 'Meilisearch health check failed', url: validated };
+      const result = await testMeilisearchConnection(body);
+      set.status = result.status;
+      return result.body;
     },
     { body: TestMeiliBody },
   )

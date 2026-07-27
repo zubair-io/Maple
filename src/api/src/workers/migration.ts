@@ -22,6 +22,11 @@ import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts'
 import { makePausedPoller } from './paused-poller.ts';
 import { MIGRATIONS } from './migration/index.ts';
 import {
+  MigrationBlockedError,
+  type Migration,
+  type MigrationBatchResult,
+} from './migration/types.ts';
+import {
   loadAllMigrationStates,
   loadMigrationState,
   patchMigrationState,
@@ -78,64 +83,76 @@ function resolveBatchSize(migration: Migration, defaultBatchSize: number): numbe
   return migration.preferredBatchSize ?? defaultBatchSize;
 }
 
+async function markMigrationDone(migration: Migration, nowIso: string): Promise<void> {
+  await patchMigrationState(migration.id, {
+    status: 'done',
+    enabled: false,
+    finished_at: nowIso,
+  });
+  log.info({ migration: migration.id }, 'migration complete — nothing remaining, auto-disabled');
+}
+
+async function runMigrationBatchSafely(
+  migration: Migration,
+  batchSize: number,
+): Promise<MigrationBatchResult | null> {
+  try {
+    return await migration.runBatch(resolveBatchSize(migration, batchSize));
+  } catch (error) {
+    await patchMigrationState(migration.id, {
+      status: 'error',
+      ...(error instanceof MigrationBlockedError ? { enabled: false } : {}),
+      last_error: error instanceof Error ? error.message : String(error),
+    });
+    log.error({ migration: migration.id, err: error }, 'migration batch crashed');
+    return null;
+  }
+}
+
+async function remainingAfterBatch(
+  migration: Migration,
+  batch: MigrationBatchResult,
+): Promise<number> {
+  if (migration.selfReportsCompletion && batch.complete === true) return 0;
+  return migration.countRemaining();
+}
+
+async function runMigrationOnce(
+  migration: Migration,
+  batchSize: number,
+  nowIso: string,
+): Promise<number> {
+  const state = await loadMigrationState(migration.id);
+  if (!state.enabled || state.status === 'done') return 0;
+
+  const remainingBefore = migration.selfReportsCompletion ? null : await migration.countRemaining();
+  if (remainingBefore === 0) {
+    await markMigrationDone(migration, nowIso);
+    return 0;
+  }
+
+  const batch = await runMigrationBatchSafely(migration, batchSize);
+  if (!batch) return 0;
+  const remaining = await remainingAfterBatch(migration, batch);
+  const complete = remaining === 0;
+  await patchMigrationState(migration.id, {
+    processed: state.processed + batch.processed,
+    errors: state.errors + batch.errors,
+    status: complete ? 'done' : 'running',
+    last_error: null,
+    ...(complete ? { enabled: false, finished_at: nowIso } : {}),
+  });
+  log.info({ migration: migration.id, ...batch, remaining }, 'migration batch complete');
+  return batch.processed;
+}
+
 /** Run every enabled, not-yet-done migration for one bounded batch. Returns the
  * total items processed this tick (so the caller can record throughput).
  * Exported for tests; the interval loop calls it each tick. */
 export async function runMigrationTickOnce(batchSize: number, nowIso: string): Promise<number> {
   let processedThisTick = 0;
   for (const migration of MIGRATIONS) {
-    const state = await loadMigrationState(migration.id);
-    if (!state.enabled || state.status === 'done') continue;
-
-    const remainingBefore = await migration.countRemaining();
-    if (remainingBefore === 0) {
-      // Done → also flip the operator toggle off, so a finished one-shot stops
-      // contributing a countRemaining scan to the status pill (migrationPendingCount).
-      await patchMigrationState(migration.id, {
-        status: 'done',
-        enabled: false,
-        finished_at: nowIso,
-      });
-      log.info(
-        { migration: migration.id },
-        'migration complete — nothing remaining, auto-disabled',
-      );
-      continue;
-    }
-
-    let batch: { processed: number; errors: number };
-    try {
-      batch = await migration.runBatch(resolveBatchSize(migration, batchSize));
-    } catch (err) {
-      await patchMigrationState(migration.id, {
-        status: 'error',
-        last_error: err instanceof Error ? err.message : String(err),
-      });
-      log.error({ migration: migration.id, err }, 'migration batch crashed');
-      continue;
-    }
-
-    processedThisTick += batch.processed;
-    const remainingAfter = await migration.countRemaining();
-    const next: Partial<MigrationState> = {
-      processed: state.processed + batch.processed,
-      errors: state.errors + batch.errors,
-      status: remainingAfter === 0 ? 'done' : 'running',
-      // Clear any stale crash message once a batch completes cleanly, so the UI
-      // doesn't keep showing an old error after the migration has recovered.
-      last_error: null,
-    };
-    if (remainingAfter === 0) {
-      next.finished_at = nowIso;
-      // Auto-disable a completed one-shot: stops its countRemaining scan from
-      // riding the status pill, and a re-run is then an explicit operator re-enable.
-      next.enabled = false;
-    }
-    await patchMigrationState(migration.id, next);
-    log.info(
-      { migration: migration.id, ...batch, remaining: remainingAfter },
-      'migration batch complete',
-    );
+    processedThisTick += await runMigrationOnce(migration, batchSize, nowIso);
   }
   return processedThisTick;
 }

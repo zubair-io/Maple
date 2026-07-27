@@ -544,6 +544,7 @@ export async function hidePerson(id: ObjectId): Promise<void> {
   await (
     await peopleCollection()
   ).updateOne({ _id: id }, { $set: { hidden: true, updated_at: nowIso() } });
+  markAssetsForMeiliReindexBestEffort([id]);
   log.info({ id: id.toHexString() }, 'hid person');
 }
 
@@ -554,6 +555,7 @@ export async function unhidePerson(id: ObjectId): Promise<void> {
   await (
     await peopleCollection()
   ).updateOne({ _id: id }, { $set: { hidden: false, updated_at: nowIso() } });
+  markAssetsForMeiliReindexBestEffort([id]);
   log.info({ id: id.toHexString() }, 'unhid person');
 }
 
