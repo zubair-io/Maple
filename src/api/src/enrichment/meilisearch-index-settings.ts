@@ -61,6 +61,23 @@ function sameStringArray(actual: unknown, expected: unknown): boolean {
   );
 }
 
+// Meilisearch stores filterableAttributes and sortableAttributes as a
+// BTreeSet and returns them alphabetically sorted from GET /settings,
+// regardless of submission order — unlike searchableAttributes, whose order
+// is ranking-significant and which Meilisearch echoes back in submission
+// order. Compare these two fields as sets, not sequences.
+function sameStringSet(actual: unknown, expected: unknown): boolean {
+  if (!Array.isArray(actual) || !Array.isArray(expected)) return false;
+  if (actual.length !== expected.length) return false;
+  const allStrings =
+    actual.every((value) => typeof value === 'string') &&
+    expected.every((value) => typeof value === 'string');
+  if (!allStrings) return false;
+  const sortedActual = [...actual].sort();
+  const sortedExpected = [...expected].sort();
+  return sortedActual.every((value, index) => value === sortedExpected[index]);
+}
+
 function managedEmbedderConfigMatches(actual: unknown, expected: unknown): boolean {
   if (!isRecord(actual) || !isRecord(expected)) return false;
   return ['source', 'url', 'model', 'documentTemplate'].every(
@@ -81,8 +98,14 @@ export function assetsIndexSettingsMatch(
   expected: Record<string, unknown>,
 ): boolean {
   if (!isRecord(actual)) return false;
-  for (const field of ['searchableAttributes', 'filterableAttributes', 'sortableAttributes']) {
-    if (!sameStringArray(actual[field], expected[field])) return false;
-  }
-  return embedderMatches(actual.embedders, expected.embedders);
+  const searchableMatches = sameStringArray(
+    actual.searchableAttributes,
+    expected.searchableAttributes,
+  );
+  const orderInsensitiveMatches = ['filterableAttributes', 'sortableAttributes'].every((field) =>
+    sameStringSet(actual[field], expected[field]),
+  );
+  return (
+    searchableMatches && orderInsensitiveMatches && embedderMatches(actual.embedders, expected.embedders)
+  );
 }
