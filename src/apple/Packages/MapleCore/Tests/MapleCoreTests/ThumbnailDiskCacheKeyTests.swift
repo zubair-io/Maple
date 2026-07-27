@@ -165,9 +165,13 @@ final class ThumbnailDiskCacheKeyTests: XCTestCase {
     // file" (added in PR #2252) — same shape: writer's real destination
     // compared to the reader's real resolution, not two calls to the same
     // hash helper.
-    func testStoreWritesToTheExactPathMapleSidecarPathsResolvesForReading() async {
+    func testStoreWritesToTheExactPathMapleSidecarPathsResolvesForReading() async throws {
         let assetDir = tmp.appendingPathComponent("library")
-        try? FileManager.default.createDirectory(at: assetDir, withIntermediateDirectories: true)
+        // Throwing `try`, not `try?`: if the fixture directory can't be created,
+        // this must fail HERE. Swallowing it would surface later as a cache-write
+        // or path-mismatch failure and read as a parity regression that isn't one
+        // — the wrong-root-cause trap this whole suite exists to avoid.
+        try FileManager.default.createDirectory(at: assetDir, withIntermediateDirectories: true)
         let assetURL = assetDir.appendingPathComponent("IMG_1234.dng")
 
         // Writer: ThumbnailDiskCache configured for the asset's OWN directory
