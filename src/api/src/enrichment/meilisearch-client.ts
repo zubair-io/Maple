@@ -46,6 +46,7 @@ import {
   DEFAULT_MEILISEARCH_SEMANTIC_RATIO,
 } from './meilisearch-config.ts';
 import { MeilisearchSearchError } from './meilisearch-search-error.ts';
+import { assetsIndexSettings, assetsIndexSettingsMatch } from './meilisearch-index-settings.ts';
 export {
   MeilisearchSearchError,
   type MeilisearchFailureDetails,
@@ -321,45 +322,20 @@ async function createAssetsIndex(config: ClientConfig): Promise<void> {
   await awaitIndexCreation(config, result);
 }
 
-function assetsIndexSettings(config: ClientConfig): Record<string, unknown> {
-  const settings: Record<string, unknown> = {
-    searchableAttributes: ['filename', 'searchBlob', 'description', 'people', 'ocrText'],
-    filterableAttributes: [
-      'folderId',
-      'deletedAt',
-      'visionSceneType',
-      'visionActivity',
-      'visionSubjects',
-      'isScreenshot',
-      'people',
-      'mediaType',
-      'hidden',
-    ],
-    sortableAttributes: ['capturedAt'],
-  };
-  if (config.semantic) {
-    settings.embedders = {
-      [EMBEDDER_NAME]: {
-        source: 'ollama',
-        url: joinMeilisearchUrl(config.embedderUrl, '/api/embed'),
-        model: config.embedderModel,
-        documentTemplate: '{{ doc.searchBlob }} {{ doc.description }} {{ doc.people }}',
-      },
-    };
-  } else {
-    // An all-settings PATCH is partial: omitting embedders preserves an
-    // existing configuration. Null resets it when semantic search is disabled.
-    settings.embedders = null;
-  }
-  return settings;
-}
-
 async function applyAssetsIndexSettings(config: ClientConfig): Promise<void> {
+  const settings = assetsIndexSettings(config, EMBEDDER_NAME);
+  const current = await meilisearchHttp<Record<string, unknown>>(
+    config,
+    'GET',
+    `/indexes/${ASSETS_INDEX}/settings`,
+  );
+  if (current.ok && assetsIndexSettingsMatch(current.body, settings)) return;
+
   const result = await meilisearchHttp<MeilisearchTaskSummary>(
     config,
     'PATCH',
     `/indexes/${ASSETS_INDEX}/settings`,
-    assetsIndexSettings(config),
+    settings,
   );
   if (!result.ok) {
     log.warn(

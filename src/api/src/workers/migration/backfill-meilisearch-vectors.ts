@@ -15,7 +15,7 @@ import { BACKFILL_MEILISEARCH_VECTORS_ID } from './ids.ts';
 import type { Migration } from './types.ts';
 import { MigrationBlockedError } from './types.ts';
 
-const BACKFILL_BATCH_SIZE = 500;
+const BACKFILL_BATCH_SIZE = 50;
 
 export const backfillMeilisearchVectors: Migration = {
   id: BACKFILL_MEILISEARCH_VECTORS_ID,
