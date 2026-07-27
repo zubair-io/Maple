@@ -412,24 +412,14 @@ extension EditSession {
                 // rather than fall through to full-res — no interactive path
                 // ever allocates a full-sensor decode; genuine full-res lives
                 // solely on `renderActor.renderForExport` (#2058).
-                let decodeTarget = ImageEditPipeline.decodeTarget(
-                    phase: phase, targetSize: targetSize
-                )
-                // #2143: refine escalates decode quality past `.preview`
-                // when the requested target genuinely needs more detail
-                // than `.preview`'s half-res demosaic can deliver (roughly
-                // native long edge / 2) — otherwise `.preview` silently caps
-                // its output there regardless of the larger target asked
-                // for, and the canvas pays for an upscale-to-native (a fixed
-                // sx == sy == 2.0) immediately followed by a downscale back
-                // to the display target. Fast phase always stays `.preview`
-                // (unchanged; #785). See `ImageEditPipeline.
-                // refineDecodeQuality` for the full rationale.
+                let decodeTarget = ImageEditPipeline.decodeTarget(phase: phase, targetSize: targetSize)
+                // #2143: refine escalates past `.preview` when its target needs
+                // more detail than half-res delivers; fast stays `.preview`
+                // (#785). Rule + rationale: `refineDecodeQuality`'s doc comment.
                 let decodeQuality: PipelineRenderer.Quality = phase == .refine
                     ? ImageEditPipeline.refineDecodeQuality(
                         nativeLongEdge: max(nativeImageSize.width, nativeImageSize.height),
-                        targetLongEdge: max(decodeTarget?.width ?? 0, decodeTarget?.height ?? 0)
-                    )
+                        targetLongEdge: max(decodeTarget?.width ?? 0, decodeTarget?.height ?? 0))
                     : .preview
                 let decoded = await renderActor.sharedDecode(
                     asset: asset,
