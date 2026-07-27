@@ -460,12 +460,19 @@ public final class BrowseViewModel {
     /// local URL. Mirrors the same invariants (one-cell list, no
     /// subfolders, generation-bumped) so a back-to-Browse flip doesn't
     /// ghost-render the prior selection.
-    public func loadSingleCloudAsset(_ ref: AssetRef) {
+    ///
+    /// `source` is the asset's `CloudSource` and is load-bearing for Preview
+    /// (#2376): a cloud `AssetRef` has no `primaryURL`, so both of Preview's
+    /// image tiers dispatch on this source. Without it `ThumbnailProvider`
+    /// has no display tier at all and `ThumbnailLoader` falls through to
+    /// pulling the whole RAW through `bytesProvider` — the exact cost Preview
+    /// exists to avoid. Kept optional so non-cloud callers are unaffected.
+    public func loadSingleCloudAsset(_ ref: AssetRef, source: (any ImageSource)? = nil) {
         loadGeneration &+= 1
         assets = [ref]
         subfolders = []
         selectedID = ref.id
-        currentSource = nil
+        currentSource = source
         loadError = nil
         photosAuthNeeded = false
     }
