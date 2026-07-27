@@ -19,6 +19,7 @@ import type { ObjectId } from 'mongodb';
 import { type Db, type UpdateResult, type DeleteResult, type Collection } from 'mongodb';
 import { assetsCollection } from './client.ts';
 import { type AssetDoc } from './schema.ts';
+import { MEILI_REARM_SET } from '../people/people-search-reindex.ts';
 
 async function coll(dbOverride?: Db): Promise<Collection<AssetDoc>> {
   if (dbOverride) return dbOverride.collection<AssetDoc>('assets');
@@ -51,6 +52,19 @@ function relSplit(libraryRoot: string, absPath: string): { path: string; filenam
  * `fileinfo[0]`, which the trash route resolved before calling
  * `moveToTrash`. Falls back to overwriting `fileinfo[0]` only when no
  * `source` is given, matching the historical single-entry contract.
+ *
+ * Does NOT reset `stages.meili`. Unlike restore, re-arming the stage here
+ * would be unsafe as of #2354's investigation: `meiliHandler`
+ * (workers/stages/meili.ts) never inspects the asset's top-level
+ * `deleted_at` and has no delete-detection/tombstone branch — it only
+ * tombstones when `assetPrimaryFileInfo` resolves to nothing at all. Since
+ * the rewritten trash entry keeps its own per-entry `deleted_at: null`
+ * (only the top-level field is stamped above), a reclaimed row would still
+ * resolve a "live" primary at the trash path and the stage would happily
+ * re-upsert a FULL document with a hardcoded `deletedAt: null`, undoing the
+ * tombstone. The trash route's inline best-effort tombstone
+ * (`routes/assets/trash.ts`) remains the only tombstone path pending a
+ * decision on how to make it reliable — see the #2354 PR description.
  */
 export async function markSoftDeleted(args: {
   id: ObjectId;
@@ -134,6 +148,20 @@ export async function hardDelete(id: ObjectId, dbOverride?: Db): Promise<DeleteR
  *
  * The watcher-race delete is bundled in here so the workflow is atomic
  * at the repo layer.
+ *
+ * Also resets `stages.meili` (`MEILI_REARM_SET`) in the SAME update that
+ * clears `deleted_at`. A restored asset's fileinfo entry was already "live"
+ * per `isLiveFileInfo` while trashed (only the top-level `deleted_at` was
+ * stamped, never the entry's own), so the meili stage's claim query never
+ * naturally re-picks the row — without this reset the caller's inline
+ * Meilisearch upsert (see `routes/assets/trash.ts`) is the ONLY thing that
+ * ever repopulates the search document, and it writes a partial doc
+ * missing `visionSceneType` / `visionActivity` / `visionSubjects` /
+ * `isScreenshot` / `people`, permanently stripping those facets from the
+ * live index (#2354). Resetting the stage version below target makes the
+ * row reclaimable so the stage's own handler (`workers/stages/meili.ts`)
+ * rebuilds the FULL document on its next poll tick — the inline call is a
+ * fast-path convenience, this reset is the correctness guarantee.
  */
 export async function restoreFromTrash(args: {
   id: ObjectId;
@@ -196,6 +224,7 @@ export async function restoreFromTrash(args: {
           mtime: args.mtimeMs,
           deleted_at: null,
           original_path: null,
+          ...MEILI_REARM_SET,
         },
       },
       {
@@ -218,6 +247,7 @@ export async function restoreFromTrash(args: {
         mtime: args.mtimeMs,
         deleted_at: null,
         original_path: null,
+        ...MEILI_REARM_SET,
       },
     },
   );
