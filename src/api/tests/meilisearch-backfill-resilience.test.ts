@@ -173,9 +173,14 @@ describe('semantic backfill resilience', () => {
       errors: 1,
     });
     expect(meili.upserts.map((doc) => doc.id)).toEqual(['valid']);
+    // Reaching `complete` in this same call also runs the end-of-run redrive
+    // pass against the dead letter it just recorded. The mock client rejects
+    // 'invalid' unconditionally, so the immediate re-attempt fails the same
+    // way and `attempts` reflects both tries (see meilisearch-backfill-redrive.ts
+    // for the pass that recovers a row once its underlying cause is fixed).
     expect(
       await db.collection('meilisearch_backfill_failures').findOne({ maple_id: 'invalid' }),
-    ).toMatchObject({ attempts: 1 });
+    ).toMatchObject({ attempts: 2 });
   });
 
   it('blocks after five transient failures and can rearm without losing its cursor', async () => {
