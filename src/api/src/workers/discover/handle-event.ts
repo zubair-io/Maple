@@ -24,6 +24,7 @@ import { liveFileInfoElemMatch, updateLiveLocationCount } from '../../indexer/im
 import { directoryHasKeepFile } from '../../fs/duplicates.ts';
 import { libraryRootAvailable, statKind } from '../missing-reaper.helpers.ts';
 import { buildFileinfoEntry, isInsideMapleCache } from './types.ts';
+import { MEILI_REARM_SET } from '../../people/people-search-reindex.ts';
 
 const log = child('discover');
 
@@ -200,6 +201,10 @@ export async function handleEvent(
           fileinfo: newFileinfo,
           indexed_at: new Date().toISOString(),
           deleted_at: null,
+          // The `filename` field is the highest-weight lexical field in the
+          // Meilisearch index — a rename must re-arm the meili stage in the
+          // SAME update or the search document goes permanently stale (#2357).
+          ...MEILI_REARM_SET,
         },
       },
     );
