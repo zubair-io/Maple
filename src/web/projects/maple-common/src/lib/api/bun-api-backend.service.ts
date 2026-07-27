@@ -1206,6 +1206,15 @@ export interface EnrichmentTestResponse {
   url?: string;
   error?: string;
   status?: number | null;
+  semanticReady?: boolean;
+  semantic?: {
+    embedderName: string;
+    model: string;
+    meilisearchReachable: boolean;
+    embedderConfigured: boolean;
+    embedderReachable: boolean;
+    error: string | null;
+  };
 }
 
 export interface EnrichmentTestDescribeResponse {
