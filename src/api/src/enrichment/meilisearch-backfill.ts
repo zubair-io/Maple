@@ -15,8 +15,6 @@ import {
 } from './meilisearch-backfill-compose.ts';
 import { redriveMeilisearchBackfillFailures } from './meilisearch-backfill-redrive.ts';
 
-export { countMeilisearchBackfillFailures } from './meilisearch-backfill-redrive.ts';
-
 const log = childLogger('enrichment:meilisearch-backfill');
 const STATE_ID = 'assets';
 const MAX_TRANSIENT_RETRIES = 5;
@@ -391,7 +389,8 @@ async function runBackfillBatch(batchSize: number, reset: boolean): Promise<Back
     const writes = await commitBatch(client, batch);
     const result = await finishCommittedBatch(states, state, rows, batch, writes, batchSize);
     // The cursor pass just reached the end of the library — redrive every row
-    // parked in `meilisearch_backfill_failures` (bounded to `batchSize`) while
+    // parked in `meilisearch_backfill_failures` (paging `batchSize` rows at a
+    // time until the collection drains or a page makes no progress) while
     // still holding this call's backfill lease, so a transient failure gets a
     // same-run retry instead of sitting silently until an operator notices.
     // Best-effort: a redrive failure never turns this already-successful batch

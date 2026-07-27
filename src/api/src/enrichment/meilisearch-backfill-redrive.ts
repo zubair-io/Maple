@@ -12,6 +12,10 @@
  * (or whose asset is now a tombstone/gone entirely) is cleared from the
  * dead-letter collection; a row that fails again stays, with its `attempts`
  * counter incremented by the shared `recordFailure`.
+ *
+ * `redriveMeilisearchBackfillFailures` loops one `batchSize` page at a time
+ * until the collection is drained or a page recovers nothing — see its
+ * doc comment for why that termination condition is safe.
  */
 
 import type { ObjectId } from 'mongodb';
@@ -34,12 +38,13 @@ const log = childLogger('enrichment:meilisearch-backfill-redrive');
 const REDRIVE_SORT = { updated_at: 1 } as const;
 
 export interface RedriveOutcome {
-  /** Dead-letter rows picked up this pass (bounded by the caller's batch size). */
+  /** Dead-letter rows picked up across every page of this drain run (each
+   * page reads up to the caller's batch size). */
   retried: number;
-  /** Rows resolved this pass — written, tombstoned, or found already gone —
-   * and cleared from `meilisearch_backfill_failures`. */
+  /** Rows resolved across the whole run — written, tombstoned, or found
+   * already gone — and cleared from `meilisearch_backfill_failures`. */
   recovered: number;
-  /** Rows that failed again and remain dead-lettered. */
+  /** Rows still dead-lettered once the run stopped. */
   stillFailing: number;
 }
 
@@ -108,7 +113,10 @@ async function prepareRedriveBatch(
   return { docs, tombstoneIds, tombstoneRowIds, goneIds };
 }
 
-async function redriveBackfillFailures(
+/** One page: read up to `batchSize` dead letters, re-attempt, and clear
+ * whatever resolved. `redriveMeilisearchBackfillFailures` below drives this
+ * in a loop so a backlog bigger than `batchSize` still fully drains. */
+async function redriveFailurePage(
   client: MeilisearchClient,
   batchSize: number,
 ): Promise<RedriveOutcome> {
@@ -134,18 +142,40 @@ async function redriveBackfillFailures(
   };
 }
 
-/** Redrive dead-lettered rows, bounded to `batchSize` per call. Never throws:
- * a redrive failure (e.g. Meilisearch unreachable) is logged and leaves the
- * dead letters queued for the next completed run rather than failing the
- * backfill batch that just finished successfully. */
+/** Redrive dead-lettered rows, looping one `batchSize` page at a time until
+ * the failures collection is drained or a page recovers nothing.
+ *
+ * `loadFailureBatch` sorts oldest-`updated_at`-first, and `recordFailure`
+ * bumps `updated_at` on every repeat failure — so a row that fails again
+ * within a page is pushed to the back of the queue rather than re-read next
+ * page. That's what makes a zero-progress page a safe stop: once a page's
+ * rows all fail, they've all just been bumped behind everything else still
+ * in the collection, so a following page could only be more of the same
+ * already-failing rows (or, if the collection is smaller than `batchSize`,
+ * exactly the same rows) — looping again could not recover anything either.
+ * Stopping there also bounds the loop against a batch of permanently-bad
+ * rows that would otherwise spin forever. A page that *does* recover
+ * something is proof of forward progress, so the loop keeps paging through
+ * the rest of the backlog. Runs inside the caller's
+ * `withMeilisearchBackfillLease` scope for as long as the drain takes — the
+ * lease's heartbeat keeps it held.
+ *
+ * Never throws: a redrive failure (e.g. Meilisearch unreachable) is logged
+ * and leaves whatever's left in the dead-letter collection queued for the
+ * next completed run rather than failing the backfill batch that just
+ * finished successfully. */
 export async function redriveMeilisearchBackfillFailures(
   client: MeilisearchClient,
   batchSize: number,
 ): Promise<RedriveOutcome> {
+  const totals = { retried: 0, recovered: 0 };
   try {
-    const outcome = await redriveBackfillFailures(client, batchSize);
-    if (outcome.retried > 0) log.info(outcome, 'backfill dead-letter redrive pass complete');
-    return outcome;
+    for (;;) {
+      const page = await redriveFailurePage(client, batchSize);
+      totals.retried += page.retried;
+      totals.recovered += page.recovered;
+      if (page.recovered === 0) break;
+    }
   } catch (error) {
     log.warn(
       { err: error instanceof Error ? error.message : String(error) },
@@ -153,4 +183,7 @@ export async function redriveMeilisearchBackfillFailures(
     );
     return { retried: 0, recovered: 0, stillFailing: 0 };
   }
+  const outcome = { ...totals, stillFailing: await countMeilisearchBackfillFailures() };
+  if (outcome.retried > 0) log.info(outcome, 'backfill dead-letter redrive pass complete');
+  return outcome;
 }
