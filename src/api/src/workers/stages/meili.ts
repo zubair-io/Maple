@@ -177,6 +177,17 @@ function meilisearchDocument(
 }
 
 /**
+ * Timeout for this stage's single-asset tombstone wait (#2359). The client's
+ * configured `taskTimeoutMs` (`DEFAULT_MEILISEARCH_TASK_TIMEOUT_MS` = 10 min)
+ * is sized for bulk backfill batches, which are expected to take a while and
+ * run outside the per-asset concurrency pool. Reusing it here would let a
+ * degraded Meilisearch stall one of this stage's 2 concurrency slots for up
+ * to 10 minutes per asset. The stage's retry/backoff (`run-stage.ts`, #2360
+ * design) already covers a fast-failing wait safely, so keep this short.
+ */
+export const SINGLE_DOC_TOMBSTONE_TIMEOUT_MS = 30_000;
+
+/**
  * Tombstone one asset in Meilisearch, preferring the batch-throwing form
  * when the client offers it. No-ops when Meilisearch isn't configured.
  * Shared by both `meiliHandler` early-return branches below (trashed,
@@ -185,8 +196,11 @@ function meilisearchDocument(
  */
 async function tombstoneIfConfigured(client: MeilisearchClient, mapleId: string): Promise<void> {
   if (!client.isConfigured()) return;
-  if (client.tombstoneBatchOrThrow) await client.tombstoneBatchOrThrow([mapleId]);
-  else await client.tombstone(mapleId);
+  if (client.tombstoneBatchOrThrow) {
+    await client.tombstoneBatchOrThrow([mapleId], SINGLE_DOC_TOMBSTONE_TIMEOUT_MS);
+  } else {
+    await client.tombstone(mapleId);
+  }
 }
 
 export async function meiliHandler(image: ImageDoc, _ctx: StageContext): Promise<StageResult> {

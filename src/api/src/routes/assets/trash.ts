@@ -82,9 +82,18 @@ export const trashRoutes = new Elysia()
       await hardDelete(id);
       // The doc was already tombstoned in Meilisearch by the prior
       // soft-delete (`tombstone` sets `deletedAt`, which the search filter
-      // excludes). Meilisearch has no per-asset delete-document path here
-      // — the tombstone is sufficient and the row is GC'd by the
-      // next bulk backfill / index rebuild.
+      // excludes) — no per-asset delete-document call is made here.
+      // That tombstoned document is NOT garbage-collected by a later bulk
+      // backfill: the backfill cursor scans live Mongo rows and only
+      // re-tombstones/re-upserts documents for rows it still finds there.
+      // `hardDelete` just removed this asset's Mongo row, so no future
+      // backfill pass will ever see this id again to clean it up — the
+      // tombstoned Meilisearch document accumulates in the index
+      // permanently. It stays invisible to every route/service query
+      // because they all filter `deletedAt IS NULL`, so this is a storage
+      // leak in Meilisearch, not a correctness bug. An actual GC would
+      // need a dedicated sweep (diff Meilisearch document ids against live
+      // Mongo `maple_id`s and hard-delete the stragglers) — not implemented.
       set.status = 204;
       // Emit a delete change so the File Provider extension drops this
       // item from its working set on the next pull.

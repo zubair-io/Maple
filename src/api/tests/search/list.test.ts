@@ -298,6 +298,25 @@ describe('/api/search', () => {
     expect(body.results.length).toBeLessThanOrEqual(500);
   });
 
+  it('clamps an over-cap page to 10_000 (#2359)', async () => {
+    if (!mongoReachable) return;
+    const { searchRoutes } = await import('../../src/routes/search.ts');
+    const { requireAuth } = await import('../../src/auth/middleware.ts');
+    const app = new Elysia().use(requireAuth).use(searchRoutes);
+
+    // Previously clamped to Number.MAX_SAFE_INTEGER, letting `skip = page *
+    // limit` blow up for a trivially-crafted request. A page past the
+    // ceiling is clamped, not honored, and still returns 200 with an empty
+    // page rather than erroring.
+    const r = await app.handle(
+      new Request('http://localhost/api/search?page=99999999999', { headers: fmtAuth() }),
+    );
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { page: number; results: unknown[] };
+    expect(body.page).toBe(10_000);
+    expect(body.results.length).toBe(0);
+  });
+
   it('excludes soft-deleted rows', async () => {
     if (!mongoReachable) return;
     const { searchRoutes } = await import('../../src/routes/search.ts');

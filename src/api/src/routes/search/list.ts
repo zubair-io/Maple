@@ -193,7 +193,11 @@ export const listRoute = new Elysia().get(
     }
     const filter = filterOrError;
 
-    const page = clampInt(query.page, 0, Number.MAX_SAFE_INTEGER, 0);
+    // 10_000 mirrors `limit`'s ceiling below in spirit — a sane cap rather
+    // than `Number.MAX_SAFE_INTEGER`, which let `skip = page * limit`
+    // (below) blow up into a value Mongo has to reject/choke on for a
+    // trivially-crafted request (#2359).
+    const page = clampInt(query.page, 0, 10_000, 0);
     const limit = clampInt(query.limit, 1, 500, 100);
 
     // S7 scope chip: `albums` has no backing field today (PhotoKit
