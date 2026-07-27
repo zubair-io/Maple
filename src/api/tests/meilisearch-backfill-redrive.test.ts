@@ -116,13 +116,14 @@ describe('meilisearch backfill dead-letter redrive', () => {
     // `description` is a number, not a string — composeSearchBlob's
     // `raw.toLowerCase()` throws a TypeError, the same shape of failure the
     // main pass would hit from a genuinely transient bad-data condition.
-    await db.collection('assets').insertOne({ _id: assetId, ...row('broken', { description: 42 }) });
+    await db
+      .collection('assets')
+      .insertOne({ _id: assetId, ...row('broken', { description: 42 }) });
     await db.collection('meilisearch_backfill_failures').insertOne(failureDoc(assetId, 'broken'));
     const meili = client();
     setMeilisearchClientForTests(meili.fake);
-    const { redriveMeilisearchBackfillFailures } = await import(
-      '../src/enrichment/meilisearch-backfill-redrive.ts'
-    );
+    const { redriveMeilisearchBackfillFailures } =
+      await import('../src/enrichment/meilisearch-backfill-redrive.ts');
 
     const first = await redriveMeilisearchBackfillFailures(meili.fake, 10);
     expect(first).toEqual({ retried: 1, recovered: 0, stillFailing: 1 });
@@ -150,9 +151,8 @@ describe('meilisearch backfill dead-letter redrive', () => {
     await db.collection('meilisearch_backfill_failures').insertOne(failureDoc(goneId, 'gone'));
     const meili = client();
     setMeilisearchClientForTests(meili.fake);
-    const { redriveMeilisearchBackfillFailures } = await import(
-      '../src/enrichment/meilisearch-backfill-redrive.ts'
-    );
+    const { redriveMeilisearchBackfillFailures } =
+      await import('../src/enrichment/meilisearch-backfill-redrive.ts');
 
     const outcome = await redriveMeilisearchBackfillFailures(meili.fake, 10);
     expect(outcome).toEqual({ retried: 1, recovered: 1, stillFailing: 0 });
@@ -173,9 +173,8 @@ describe('meilisearch backfill dead-letter redrive', () => {
       .insertOne(failureDoc(assetId, 'tombstoned'));
     const meili = client();
     setMeilisearchClientForTests(meili.fake);
-    const { redriveMeilisearchBackfillFailures } = await import(
-      '../src/enrichment/meilisearch-backfill-redrive.ts'
-    );
+    const { redriveMeilisearchBackfillFailures } =
+      await import('../src/enrichment/meilisearch-backfill-redrive.ts');
 
     const outcome = await redriveMeilisearchBackfillFailures(meili.fake, 10);
     expect(outcome).toEqual({ retried: 1, recovered: 1, stillFailing: 0 });
@@ -197,9 +196,8 @@ describe('meilisearch backfill dead-letter redrive', () => {
       throw new Error('connect ECONNREFUSED');
     };
     setMeilisearchClientForTests(meili.fake);
-    const { redriveMeilisearchBackfillFailures } = await import(
-      '../src/enrichment/meilisearch-backfill-redrive.ts'
-    );
+    const { redriveMeilisearchBackfillFailures } =
+      await import('../src/enrichment/meilisearch-backfill-redrive.ts');
 
     const outcome = await redriveMeilisearchBackfillFailures(meili.fake, 10);
     expect(outcome).toEqual({ retried: 0, recovered: 0, stillFailing: 0 });
@@ -223,9 +221,8 @@ describe('meilisearch backfill dead-letter redrive', () => {
     const meili = client();
     setMeilisearchClientForTests(meili.fake);
     const { runMeilisearchBackfill } = await import('../src/enrichment/meilisearch-backfill.ts');
-    const { countMeilisearchBackfillFailures } = await import(
-      '../src/enrichment/meilisearch-backfill-redrive.ts'
-    );
+    const { countMeilisearchBackfillFailures } =
+      await import('../src/enrichment/meilisearch-backfill-redrive.ts');
 
     const firstBatch = await runMeilisearchBackfill(1, false);
     expect(firstBatch.complete).toBe(false);
@@ -238,5 +235,64 @@ describe('meilisearch backfill dead-letter redrive', () => {
     expect(secondBatch.complete).toBe(true);
     expect(meili.upserts.map((doc) => doc.id).sort()).toEqual(['broken', 'valid']);
     expect(await countMeilisearchBackfillFailures()).toBe(0);
+  });
+
+  it('drains a backlog larger than batchSize across passes, leaving only the permanent failures', async () => {
+    if (!db) return;
+    const batchSize = 3;
+    const recoverableIds = ['r1', 'r2', 'r3', 'r4'];
+    const permanentIds = ['p1', 'p2', 'p3'];
+    // Interleaved insertion (and `updated_at`) order so no single
+    // batchSize-sized page can be entirely permanent failures while a
+    // recoverable row still waits behind it — the same interleaving a real
+    // cursor pass would produce, since it dead-letters rows in cursor order
+    // regardless of which ones happen to be permanently broken.
+    const order = ['r1', 'p1', 'r2', 'p2', 'r3', 'p3', 'r4'];
+
+    for (const [index, id] of order.entries()) {
+      const assetId = new ObjectId();
+      const isPermanent = permanentIds.includes(id);
+      // `description: 42` reproduces the same TypeError every attempt (see
+      // the first test above) — a stand-in for a row that's permanently
+      // unfixable, as opposed to one dead-lettered by a transient failure.
+      await db
+        .collection('assets')
+        .insertOne({ _id: assetId, ...row(id, isPermanent ? { description: 42 } : {}) });
+      await db.collection('meilisearch_backfill_failures').insertOne({
+        ...failureDoc(assetId, id),
+        updated_at: new Date(index).toISOString(),
+      });
+    }
+
+    const meili = client();
+    setMeilisearchClientForTests(meili.fake);
+    const { redriveMeilisearchBackfillFailures, countMeilisearchBackfillFailures } =
+      await import('../src/enrichment/meilisearch-backfill-redrive.ts');
+
+    const outcome = await redriveMeilisearchBackfillFailures(meili.fake, batchSize);
+
+    // All 4 recoverable rows drain in this one run, even though the backlog
+    // (7) is more than double the batch size (3) — proof the loop keeps
+    // paging past the first `batchSize` rows instead of stopping there.
+    expect(outcome.recovered).toBe(recoverableIds.length);
+    expect(outcome.stillFailing).toBe(permanentIds.length);
+    // More rows were retried than exist, since every permanent row gets
+    // re-picked-up on a later page after failing once — the loop keeps
+    // going as long as some page still makes progress.
+    expect(outcome.retried).toBeGreaterThan(recoverableIds.length + permanentIds.length);
+    expect(await countMeilisearchBackfillFailures()).toBe(permanentIds.length);
+    expect(meili.upserts.map((doc) => doc.id).sort()).toEqual([...recoverableIds].sort());
+
+    const remaining = await db
+      .collection('meilisearch_backfill_failures')
+      .find({})
+      .sort({ maple_id: 1 })
+      .toArray();
+    expect(remaining.map((doc) => doc.maple_id)).toEqual([...permanentIds].sort());
+    // Each permanent row started at attempts: 1 (the initial dead-letter) and
+    // must have been re-attempted at least once by the drain loop — and the
+    // loop terminated (this assertion runs at all) instead of spinning on
+    // them forever.
+    for (const doc of remaining) expect(doc.attempts).toBeGreaterThan(1);
   });
 });

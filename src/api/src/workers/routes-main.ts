@@ -19,7 +19,7 @@
  */
 
 import { Elysia, t } from 'elysia';
-import { type Filter, ObjectId } from 'mongodb';
+import { type Collection, type Filter, ObjectId } from 'mongodb';
 import { getDb } from '../db/client.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import {
@@ -78,6 +78,65 @@ export const KNOWN_WORKER_NAMES = new Set<string>([
  * so a cleared file is genuinely re-tried. Kept in sync with the stage configs
  * in `stages/{exif,thumb,preview}.ts`. */
 export const DAMAGE_TAGGING_STAGES = ['exif', 'thumb', 'preview'] as const;
+
+/** 404 payload for a `:name`-gated route, or `null` when `name` is a known
+ * worker/stage. Shared by every route below that validates `params.name`
+ * against `KNOWN_WORKER_NAMES` before doing any work. */
+function unknownWorkerError(name: string, noun: 'worker' | 'stage'): { error: string } | null {
+  return KNOWN_WORKER_NAMES.has(name) ? null : { error: `unknown ${noun}: ${name}` };
+}
+
+/** Clamp a `?limit=` query value into `[1, DEAD_LIST_LIMIT_MAX]`, falling
+ * back to `DEAD_LIST_LIMIT_DEFAULT` when it's missing or not a finite
+ * number. Shared by every dead/damaged-list route. */
+function resolveDeadListLimit(rawLimit: unknown): number {
+  const requested = Number(rawLimit ?? DEAD_LIST_LIMIT_DEFAULT);
+  return Number.isFinite(requested)
+    ? Math.max(1, Math.min(DEAD_LIST_LIMIT_MAX, Math.floor(requested)))
+    : DEAD_LIST_LIMIT_DEFAULT;
+}
+
+/** `assets` collection plus a limit clamped via `resolveDeadListLimit` —
+ * the common setup for `/:name/dead` and `/damaged`, which otherwise only
+ * differ in their Mongo filter/projection/sort. */
+async function loadDeadListPage(
+  rawLimit: unknown,
+): Promise<{ limit: number; assets: Collection<ImageDoc> }> {
+  const limit = resolveDeadListLimit(rawLimit);
+  const db = await getDb();
+  return { limit, assets: db.collection<ImageDoc>('assets') };
+}
+
+async function setWorkerPaused(name: string, paused: boolean): Promise<{ ok: true }> {
+  const db = await getDb();
+  const repo = new WorkerConfigRepo(db.collection('worker_config') as never);
+  await repo.patch(name, { paused });
+  return { ok: true };
+}
+
+/** `POST /:name/pause` and `/:name/resume` are identical apart from the
+ * `paused` value they write — one handler factory backs both routes. */
+function pauseResumeHandler(paused: boolean) {
+  return async ({
+    params,
+    set,
+  }: {
+    params: { name: string };
+    set: { status?: number | string };
+  }) => {
+    const unknown = unknownWorkerError(params.name, 'worker');
+    if (unknown) {
+      set.status = 404;
+      return unknown;
+    }
+    try {
+      return await setWorkerPaused(params.name, paused);
+    } catch (err) {
+      set.status = 500;
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  };
+}
 
 // ── Routes: Main entry that combines all route definitions ──────────────────
 
@@ -229,17 +288,13 @@ export function workerRoutes(): Elysia {
       // ── Dead logs ───────────────────────────────────────────────────────────
 
       .get('/:name/dead', async ({ params, query, set }) => {
-        if (!KNOWN_WORKER_NAMES.has(params.name)) {
+        const unknown = unknownWorkerError(params.name, 'stage');
+        if (unknown) {
           set.status = 404;
-          return { error: `unknown stage: ${params.name}` };
+          return unknown;
         }
-        const requested = Number(query.limit ?? DEAD_LIST_LIMIT_DEFAULT);
-        const limit = Number.isFinite(requested)
-          ? Math.max(1, Math.min(DEAD_LIST_LIMIT_MAX, Math.floor(requested)))
-          : DEAD_LIST_LIMIT_DEFAULT;
         try {
-          const db = await getDb();
-          const assets = db.collection<ImageDoc>('assets');
+          const { limit, assets } = await loadDeadListPage(query.limit);
           const stageKey = `stages.${params.name}`;
           const docs = await assets
             .find(
@@ -283,13 +338,8 @@ export function workerRoutes(): Elysia {
       // file-reading stage that exhausted its retries. Collection-level: one
       // list across the whole pipeline, each row keyed by maple_id.
       .get('/damaged', async ({ query, set }) => {
-        const requested = Number(query.limit ?? DEAD_LIST_LIMIT_DEFAULT);
-        const limit = Number.isFinite(requested)
-          ? Math.max(1, Math.min(DEAD_LIST_LIMIT_MAX, Math.floor(requested)))
-          : DEAD_LIST_LIMIT_DEFAULT;
         try {
-          const db = await getDb();
-          const assets = db.collection<ImageDoc>('assets');
+          const { limit, assets } = await loadDeadListPage(query.limit);
           const docs = await assets
             .find(
               { 'damaged.since': { $type: 'string' } },
@@ -369,42 +419,15 @@ export function workerRoutes(): Elysia {
 
       // ── Stage control ───────────────────────────────────────────────────────
 
-      .post('/:name/pause', async ({ params, set }) => {
-        if (!KNOWN_WORKER_NAMES.has(params.name)) {
-          set.status = 404;
-          return { error: `unknown worker: ${params.name}` };
-        }
-        try {
-          const db = await getDb();
-          const repo = new WorkerConfigRepo(db.collection('worker_config') as never);
-          await repo.patch(params.name, { paused: true });
-          return { ok: true };
-        } catch (err) {
-          set.status = 500;
-          return { error: err instanceof Error ? err.message : String(err) };
-        }
-      })
+      .post('/:name/pause', pauseResumeHandler(true))
 
-      .post('/:name/resume', async ({ params, set }) => {
-        if (!KNOWN_WORKER_NAMES.has(params.name)) {
-          set.status = 404;
-          return { error: `unknown worker: ${params.name}` };
-        }
-        try {
-          const db = await getDb();
-          const repo = new WorkerConfigRepo(db.collection('worker_config') as never);
-          await repo.patch(params.name, { paused: false });
-          return { ok: true };
-        } catch (err) {
-          set.status = 500;
-          return { error: err instanceof Error ? err.message : String(err) };
-        }
-      })
+      .post('/:name/resume', pauseResumeHandler(false))
 
       .post('/:name/retry-dead', async ({ params, set }) => {
-        if (!KNOWN_WORKER_NAMES.has(params.name)) {
+        const unknown = unknownWorkerError(params.name, 'stage');
+        if (unknown) {
           set.status = 404;
-          return { error: `unknown stage: ${params.name}` };
+          return unknown;
         }
         try {
           const db = await getDb();
@@ -432,9 +455,10 @@ export function workerRoutes(): Elysia {
       .patch(
         '/:name/config',
         async ({ params, body, set }) => {
-          if (!KNOWN_WORKER_NAMES.has(params.name)) {
+          const unknown = unknownWorkerError(params.name, 'stage');
+          if (unknown) {
             set.status = 404;
-            return { error: `unknown stage: ${params.name}` };
+            return unknown;
           }
           // `pollIntervalMs` / `batchSize` were removed as knobs (#674) — the
           // poll cadence is a global constant and batch size is derived as
