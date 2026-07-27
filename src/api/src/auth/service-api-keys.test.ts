@@ -19,7 +19,15 @@ const KEY_SHAPE = /^maple_sk_[a-f0-9]{16}_([A-Za-z0-9_-]{43})$/;
  */
 function secretOf(key: string): string {
   const match = KEY_SHAPE.exec(key);
-  if (!match) throw new Error(`key does not match the expected shape: ${key}`);
+  // Report the shape, never the value: this helper exists for a secret-leak
+  // assertion, so echoing the key into a CI log on failure would be the very
+  // thing it guards against. Length plus prefix is enough to debug a shape
+  // change, and neither reveals the secret.
+  if (!match) {
+    throw new Error(
+      `key does not match the expected shape (length ${key.length}, prefix ${key.slice(0, 9)})`,
+    );
+  }
   return match[1]!;
 }
 
