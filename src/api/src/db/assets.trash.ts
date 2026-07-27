@@ -41,6 +41,27 @@ function relSplit(libraryRoot: string, absPath: string): { path: string; filenam
 }
 
 /**
+ * `arrayFilters` for a surgical `fileinfo.$[entry]` update targeting the one
+ * fileinfo entry identified by `source`. Shared by `markSoftDeleted` and
+ * `restoreFromTrash` so the entry-matcher shape (library_id + path +
+ * filename) can't drift between the trash and restore directions of the
+ * same workflow.
+ */
+function sourceEntryArrayFilters(source: {
+  libraryId: ObjectId;
+  path: string;
+  filename: string;
+}): Array<Record<string, unknown>> {
+  return [
+    {
+      'entry.library_id': source.libraryId,
+      'entry.path': source.path,
+      'entry.filename': source.filename,
+    },
+  ];
+}
+
+/**
  * Mark a live asset as soft-deleted and rewrite the matching fileinfo
  * entry to point at the trash destination. `originalAbsPath` is preserved
  * in `original_path` so the restore workflow can put the file back.
@@ -109,13 +130,7 @@ export async function markSoftDeleted(args: {
         },
       },
       {
-        arrayFilters: [
-          {
-            'entry.library_id': args.source.libraryId,
-            'entry.path': args.source.path,
-            'entry.filename': args.source.filename,
-          },
-        ],
+        arrayFilters: sourceEntryArrayFilters(args.source),
       },
     );
   }
@@ -228,13 +243,7 @@ export async function restoreFromTrash(args: {
         },
       },
       {
-        arrayFilters: [
-          {
-            'entry.library_id': args.source.libraryId,
-            'entry.path': args.source.path,
-            'entry.filename': args.source.filename,
-          },
-        ],
+        arrayFilters: sourceEntryArrayFilters(args.source),
       },
     );
   }
