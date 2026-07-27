@@ -254,17 +254,19 @@ export const listRoute = new Elysia().get(
       try {
         const placeQuery = resolved.placeQuery!.trim();
         // Thread the caller's hidden mode into the Meili candidate set.
-        // `buildFilter` (used below for the Mongo re-fetch) already narrows
-        // `only` to `hidden: true` and leaves `all` unconstrained — but
-        // Meili defaults to excluding hidden docs from its own candidate
-        // set, so without this the Mongo `hidden: true` intersection with
-        // an already hidden-free id set is always empty (#2358).
-        const includeHidden = resolved.hidden === 'all' || resolved.hidden === 'only';
+        // Meili defaults to excluding hidden docs, so without this the Mongo
+        // `hidden: true` intersection for `only` runs against an already
+        // hidden-free id set and always comes back empty (#2358). `only` is
+        // pushed all the way into the Meili filter (`hidden = true`) so each
+        // candidate page stays dense with rows the re-fetch will keep.
+        const includeHidden = resolved.hidden === 'all';
+        const onlyHidden = resolved.hidden === 'only';
         const meiliResult = await meili.search(placeQuery, {
           folderId: query.libraryId,
           people: peopleNames,
           semantic: meili.semanticConfigured(),
           includeHidden,
+          onlyHidden,
           offset: skip,
           limit,
         });
