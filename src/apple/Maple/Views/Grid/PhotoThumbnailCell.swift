@@ -47,12 +47,6 @@ struct PhotoThumbnailCell: View {
     var multiSelectChecked: Bool? = nil
     /// Cell tap handler.
     let onTap: () -> Void
-    /// Zoom-to-open tap handler (#1489). When set it SUPERSEDES `onTap`: the
-    /// cell hands back the thumbnail it is painting plus its frame in global
-    /// coordinates, and the surface flies that exact image out of that exact
-    /// rect. `nil` (every grid without a hero presentation) leaves `onTap` in
-    /// charge and skips the decode this needs.
-    var onHeroTap: ((PhotoGridHeroSource?) -> Void)? = nil
     /// Fired from the cell's `.onAppear`. SwiftUI may call `.onAppear` more than
     /// once (re-insertion / scroll in-out), so the work MUST be idempotent — use
     /// it for session priming or page-load triggers, not exactly-once side effects.
@@ -62,10 +56,6 @@ struct PhotoThumbnailCell: View {
     // MARK: State
 
     @State private var thumb: Data?
-    /// This cell's frame in global coordinates — the hero transition's start
-    /// rect. Tracked continuously (rather than measured on tap) because the
-    /// tap handler has no geometry proxy to read from.
-    @State private var cellFrame: CGRect = .zero
 
     /// Multi-select-aware accessibility label — restores the per-cell
     /// "<name>, selected / not selected" announcement BrowseGrid had before the
@@ -123,12 +113,7 @@ struct PhotoThumbnailCell: View {
             }
             .modifier(ZoomSourceTag(id: item.id, namespace: transitionNamespace))
             .contentShape(Rectangle())
-            .onGeometryChange(for: CGRect.self) { proxy in
-                proxy.frame(in: .global)
-            } action: { frame in
-                cellFrame = frame
-            }
-            .onTapGesture { handleTap() }
+            .onTapGesture { onTap() }
             .onAppear { onAppear?() }
             // Accessibility: UITest harness resolves cells by displayName via
             // `app.otherElements["thumb-<displayName>"]` — mirrors LibraryCell's
@@ -147,31 +132,6 @@ struct PhotoThumbnailCell: View {
             }
     }
 
-    // MARK: Tap
-
-    private func handleTap() {
-        guard let onHeroTap else {
-            onTap()
-            return
-        }
-        onHeroTap(heroSource())
-    }
-
-    /// The hero payload for this cell, or `nil` when there is nothing worth
-    /// flying — no thumbnail loaded yet, undecodable bytes, or a frame that
-    /// hasn't been measured. The presentation degrades to a plain fade on
-    /// `nil` rather than animating from a wrong rect.
-    private func heroSource() -> PhotoGridHeroSource? {
-        guard cellFrame.width > 0, cellFrame.height > 0,
-              let data = thumb ?? provider.cachedThumbnail(for: item.thumbnailSource),
-              let image = ThumbnailImage.cgImage(from: data)
-        else { return nil }
-        return PhotoGridHeroSource(
-            thumbnail: image,
-            frame: cellFrame,
-            cornerRadius: ThumbnailImage.cornerRadius
-        )
-    }
 }
 
 // MARK: - GridCellOverlayView
