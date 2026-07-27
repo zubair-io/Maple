@@ -24,6 +24,7 @@
 
 import { createHash } from 'node:crypto';
 import { child as childLogger } from '../log.ts';
+import { buildFilter } from './meilisearch-filter.ts';
 import {
   readMeilisearchSemanticStatus,
   type MeilisearchSemanticStatus,
@@ -136,10 +137,7 @@ export interface MeilisearchSearchOptions {
   mediaTypes?: MeilisearchMediaType[];
   /** Hidden assets are excluded unless explicitly requested. */
   includeHidden?: boolean;
-  /** Constrain the candidate set to hidden assets only (`hidden = true`).
-   * Pushing `hidden=only` into the Meilisearch filter keeps every returned
-   * page dense with rows the Mongo re-fetch will keep — with just
-   * `includeHidden` the pages arrive mixed and the re-fetch thins them
+  /** Hidden assets only (`hidden = true`); keeps `hidden=only` pages dense
    * (#2358). Takes precedence over `includeHidden`. */
   onlyHidden?: boolean;
   /** When true, run a hybrid (keyword + vector) query against the managed
@@ -243,46 +241,6 @@ function vectorFingerprint(config: ClientConfig): string | null {
 interface MeiliSearchResponse {
   hits: Array<{ id: string; _rankingScore?: number }>;
   estimatedTotalHits: number;
-}
-
-/** Build the Meilisearch filter expression from typed inputs. Meili's
- * filter syntax is `field = "value" AND field IS NULL` — we hand-build it
- * here rather than passing user strings through, so an attacker can't
- * inject filter clauses via `folderId`. */
-function folderFilter(folderId: string | undefined): string | null {
-  const safe = folderId?.replace(/[^a-f0-9]/gi, '') ?? '';
-  return safe.length === 0 ? null : `folderId = "${safe}"`;
-}
-
-function peopleFilter(people: string[] | undefined): string | null {
-  const names = (people ?? [])
-    .map((person) => person.trim())
-    .filter(Boolean)
-    .map((person) => `"${person.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
-  return names.length === 0 ? null : `people IN [${names.join(', ')}]`;
-}
-
-function mediaFilter(mediaTypes: MeilisearchMediaType[] | undefined): string | null {
-  const allowed = new Set<MeilisearchMediaType>(['image', 'video', 'audio']);
-  const selected = [...new Set((mediaTypes ?? []).filter((value) => allowed.has(value)))];
-  return selected.length === 0
-    ? null
-    : `mediaType IN [${selected.map((value) => `"${value}"`).join(', ')}]`;
-}
-
-function buildFilter(opts: MeilisearchSearchOptions): string {
-  const clauses = [
-    'deletedAt IS NULL',
-    opts.onlyHidden === true
-      ? 'hidden = true'
-      : opts.includeHidden === true
-        ? null
-        : '(hidden IS NULL OR hidden = false)',
-    folderFilter(opts.folderId),
-    peopleFilter(opts.people),
-    mediaFilter(opts.mediaTypes),
-  ].filter((clause): clause is string => clause !== null);
-  return clauses.join(' AND ');
 }
 
 function createIndexAlreadySatisfied(
