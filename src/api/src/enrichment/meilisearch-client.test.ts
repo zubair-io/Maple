@@ -300,7 +300,8 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     expect(calls.length).toBe(1);
     expect(calls[0]!.method).toBe('POST');
     expect(calls[0]!.url).toContain(`/indexes/${ASSETS_INDEX}/documents`);
-    expect(calls[0]!.body).toEqual([sampleDoc]);
+    // Docs are normalized with the embedder template-field defaults (#2369).
+    expect(calls[0]!.body).toEqual([{ description: null, people: null, ...sampleDoc }]);
   });
 
   it('upsert() swallows errors (does not throw)', async () => {
@@ -322,7 +323,7 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     await client.upsert(sampleDoc);
   });
 
-  it('tombstone() POSTs a partial doc with deletedAt set', async () => {
+  it('tombstone() POSTs a doc with deletedAt AND the embedder template fields', async () => {
     const { fetchImpl, calls } = makeFakeFetch();
     const client = createMeilisearchClient({
       url: 'http://meili.local:7700',
@@ -332,9 +333,14 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
 
     expect(calls.length).toBe(1);
     const body = calls[0]!.body as Array<Record<string, unknown>>;
-    expect(Array.isArray(body)).toBe(true);
-    expect(body[0]!.id).toBe('xyz');
-    expect(typeof body[0]!.deletedAt).toBe('string');
+    // documentTemplate keys must be PRESENT — absence rejects the batch (#2369).
+    expect(body[0]).toEqual({
+      id: 'xyz',
+      deletedAt: expect.any(String),
+      searchBlob: '',
+      description: null,
+      people: null,
+    });
   });
 
   it('search() passes q + filter + pagination, parses hits', async () => {

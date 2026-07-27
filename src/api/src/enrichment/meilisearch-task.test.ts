@@ -65,6 +65,45 @@ describe('Meilisearch asynchronous tasks', () => {
     ]);
   });
 
+  it('batch tombstones carry the embedder template fields (#2369)', async () => {
+    const { fetchImpl, calls } = makeFakeFetch({
+      routes: [
+        {
+          method: 'POST',
+          pathPrefix: `/indexes/${ASSETS_INDEX}/documents`,
+          status: 202,
+          body: { taskUid: 43 },
+        },
+        {
+          method: 'GET',
+          pathPrefix: '/tasks/43',
+          body: { uid: 43, status: 'succeeded' },
+        },
+      ],
+    });
+    const client = createMeilisearchClient({
+      url: 'http://meili.local:7700',
+      fetchImpl,
+      taskPollIntervalMs: 0,
+    });
+
+    await client.tombstoneBatchOrThrow!(['gone-1', 'gone-2']);
+
+    // With an embedder configured, Meilisearch renders the documentTemplate
+    // for every incoming doc with strict liquid lookups — a doc missing
+    // `searchBlob`/`description`/`people` rejects its whole batch. Null is
+    // fine, ABSENT is not (#2369).
+    const body = calls[0]!.body as Array<Record<string, unknown>>;
+    expect(body).toHaveLength(2);
+    for (const doc of body) {
+      expect(typeof doc.deletedAt).toBe('string');
+      expect('searchBlob' in doc).toBe(true);
+      expect('description' in doc).toBe(true);
+      expect('people' in doc).toBe(true);
+    }
+    expect(body.map((doc) => doc.id)).toEqual(['gone-1', 'gone-2']);
+  });
+
   it('waits for a single-asset upsert before the worker can stamp it complete', async () => {
     const { fetchImpl, calls } = makeFakeFetch({
       routes: [
