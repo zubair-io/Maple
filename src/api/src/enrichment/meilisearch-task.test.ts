@@ -4,6 +4,7 @@ import {
   createMeilisearchClient,
   type MeilisearchAssetDoc,
 } from './meilisearch-client.ts';
+import { assetsIndexSettingsMatch } from './meilisearch-index-settings.ts';
 import { makeFakeFetch } from './meilisearch-test-harness.ts';
 
 const sampleDoc: MeilisearchAssetDoc = {
@@ -178,16 +179,19 @@ describe('Meilisearch asynchronous tasks', () => {
   it('does not enqueue a settings task when the managed settings are unchanged', async () => {
     const matchingSettings = {
       searchableAttributes: ['filename', 'searchBlob', 'description', 'people', 'ocrText'],
+      // Meilisearch stores filterableAttributes in a BTreeSet and returns it
+      // alphabetically sorted from GET /settings, never in submission order —
+      // this mock reproduces that so the no-op check is exercised honestly.
       filterableAttributes: [
-        'folderId',
         'deletedAt',
-        'visionSceneType',
-        'visionActivity',
-        'visionSubjects',
-        'isScreenshot',
-        'people',
-        'mediaType',
+        'folderId',
         'hidden',
+        'isScreenshot',
+        'mediaType',
+        'people',
+        'visionActivity',
+        'visionSceneType',
+        'visionSubjects',
       ],
       sortableAttributes: ['capturedAt'],
       embedders: {
@@ -255,6 +259,41 @@ describe('Meilisearch asynchronous tasks', () => {
     });
 
     expect(client.upsertBatchOrThrow!([sampleDoc])).rejects.toThrow('task 44 timed out');
+  });
+
+  it('matches filterable/sortable attributes Meilisearch returned in sorted (not submission) order', () => {
+    const expected = {
+      searchableAttributes: ['filename', 'description', 'people'],
+      // Submission order, as `assetsIndexSettings` would produce it.
+      filterableAttributes: ['people', 'folderId', 'hidden'],
+      sortableAttributes: ['capturedAt', 'addedAt'],
+      embedders: null,
+    };
+    const actual = {
+      searchableAttributes: ['filename', 'description', 'people'],
+      // What GET /settings actually returns — alphabetically sorted, since
+      // Meilisearch stores these fields as a BTreeSet.
+      filterableAttributes: ['folderId', 'hidden', 'people'],
+      sortableAttributes: ['addedAt', 'capturedAt'],
+      embedders: null,
+    };
+    expect(assetsIndexSettingsMatch(actual, expected)).toBe(true);
+  });
+
+  it('rejects a reordered searchableAttributes — its order is ranking-significant', () => {
+    const expected = {
+      searchableAttributes: ['filename', 'description', 'people'],
+      filterableAttributes: ['folderId'],
+      sortableAttributes: ['capturedAt'],
+      embedders: null,
+    };
+    const actual = {
+      searchableAttributes: ['description', 'filename', 'people'],
+      filterableAttributes: ['folderId'],
+      sortableAttributes: ['capturedAt'],
+      embedders: null,
+    };
+    expect(assetsIndexSettingsMatch(actual, expected)).toBe(false);
   });
 
   it('reports semantic embedder health and raw index populations', async () => {
