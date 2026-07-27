@@ -413,9 +413,8 @@ extension EditSession {
                 // ever allocates a full-sensor decode; genuine full-res lives
                 // solely on `renderActor.renderForExport` (#2058).
                 let decodeTarget = ImageEditPipeline.decodeTarget(phase: phase, targetSize: targetSize)
-                // #2143: refine escalates past `.preview` when its target needs
-                // more detail than half-res delivers; fast stays `.preview`
-                // (#785). Rule + rationale: `refineDecodeQuality`'s doc comment.
+                // #2143: refine escalates past `.preview` when its target needs more detail than
+                // half-res delivers; fast stays `.preview` (#785). Rationale: `refineDecodeQuality`.
                 let decodeQuality: PipelineRenderer.Quality = phase == .refine
                     ? ImageEditPipeline.refineDecodeQuality(
                         nativeLongEdge: max(nativeImageSize.width, nativeImageSize.height),
