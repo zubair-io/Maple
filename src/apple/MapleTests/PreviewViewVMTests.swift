@@ -193,6 +193,29 @@ final class PreviewViewVMTests: XCTestCase {
     XCTAssertEqual(ref.id, asset.id)
   }
 
+  func testThumbnailSourceKeepsCloudProvenanceLocalEvenWithAPhotoKitAmbientSource() throws {
+    // The misroute this tag exists to prevent, exercised directly: a mixed
+    // Timeline sibling list interleaves PhotoKit cells with cloud cells, so
+    // the ambient `source` may genuinely BE the one `PhotoKitSource` while
+    // the asset under test is cloud-backed. A cloud ref has no `primaryURL`,
+    // so the legacy `primaryURL == nil && source is PhotoKitSource` fallback
+    // matches it — provenance must short-circuit that, not merely add to it.
+    let photoKitSource = try PhotoKitSource()
+    let asset = AssetRef(
+      displayName: "IMG_4.dng",
+      hintExtension: "dng",
+      stableID: "fs:/library/IMG_4.dng",
+      thumbnailProvenance: .cloud(server: URL(string: "https://cloud.example.invalid")!),
+      bytesProvider: { Data() }
+    )
+    XCTAssertNil(asset.primaryURL, "precondition: a cloud ref has no primaryURL")
+    let src = PreviewViewVM.thumbnailSource(for: asset, source: photoKitSource)
+    guard case let .local(ref, _) = src else {
+      return XCTFail("expected .local ThumbnailSource, got \(src)")
+    }
+    XCTAssertEqual(ref.id, asset.id)
+  }
+
   // MARK: - filenameMaxWidth (spec §6)
 
   func testFilenameMaxWidthIsResponsiveToSizeClass() {
