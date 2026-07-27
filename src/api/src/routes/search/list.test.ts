@@ -9,11 +9,11 @@
  * constraint on it.
  *
  * Uses the `setMeilisearchClientForTests` seam (same pattern as
- * `workers/stages/meili.test.ts`) with a fake client that reproduces real
- * Meilisearch's default hidden-exclusion behaviour: it only returns a
- * hidden candidate when `opts.includeHidden === true`. That makes this
- * test actually exercise the Mongo-side intersection, not just assert on
- * the options object passed to `search`.
+ * `workers/stages/meili.test.ts`) with a fake client that reproduces
+ * `buildFilter`'s hidden handling (default exclusion, `includeHidden`,
+ * and the `onlyHidden` pushdown). That makes this test actually exercise
+ * the Mongo-side intersection, not just assert on the options object
+ * passed to `search`.
  *
  * Real Mongo required (localhost:27017 by default, override via
  * `MAPLE_MONGO_URI`) — soft-skips when unreachable, matching
@@ -90,10 +90,10 @@ async function seed(d: Db): Promise<void> {
   ] as never);
 }
 
-/** Reproduces real Meilisearch's default hidden-exclusion: the hidden
- * candidate is only in the returned id set when the caller explicitly
- * asked for `includeHidden: true` — exactly what `buildFilter` in
- * `meilisearch-client.ts` does against the live index. */
+/** Reproduces `buildFilter`'s hidden handling against the live index:
+ * `onlyHidden` narrows the candidate set to the hidden doc alone
+ * (`hidden = true`), `includeHidden` returns both, and the default
+ * excludes the hidden candidate entirely. */
 function fakeMeiliClient(): {
   client: MeilisearchClient;
   calls: MeilisearchSearchOptions[];
@@ -109,7 +109,12 @@ function fakeMeiliClient(): {
     tombstone: async () => {},
     search: async (_q, opts = {}) => {
       calls.push(opts);
-      const ids = opts.includeHidden === true ? [VISIBLE_ID, HIDDEN_ID] : [VISIBLE_ID];
+      const ids =
+        opts.onlyHidden === true
+          ? [HIDDEN_ID]
+          : opts.includeHidden === true
+            ? [VISIBLE_ID, HIDDEN_ID]
+            : [VISIBLE_ID];
       return { ids, estimatedTotal: ids.length };
     },
   };
@@ -124,15 +129,11 @@ describe('GET /api/search — placeQuery hidden mode (#2358)', () => {
     setMeilisearchClientForTests(client);
 
     const app = new Elysia().use(listRoute);
-    const res = await app.handle(
-      new Request('http://localhost/?placeQuery=museum&hidden=only'),
-    );
+    const res = await app.handle(new Request('http://localhost/?placeQuery=museum&hidden=only'));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(
-      body.results.map((r: { filename: string }) => r.filename),
-    ).toEqual(['hidden.dng']);
-    expect(calls[0]?.includeHidden).toBe(true);
+    expect(body.results.map((r: { filename: string }) => r.filename)).toEqual(['hidden.dng']);
+    expect(calls[0]?.onlyHidden).toBe(true);
   });
 
   it('hidden=all includes both the visible and hidden match', async () => {
@@ -145,9 +146,10 @@ describe('GET /api/search — placeQuery hidden mode (#2358)', () => {
     const res = await app.handle(new Request('http://localhost/?placeQuery=museum&hidden=all'));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(
-      body.results.map((r: { filename: string }) => r.filename).sort(),
-    ).toEqual(['hidden.dng', 'visible.dng']);
+    expect(body.results.map((r: { filename: string }) => r.filename).sort()).toEqual([
+      'hidden.dng',
+      'visible.dng',
+    ]);
     expect(calls[0]?.includeHidden).toBe(true);
   });
 
@@ -161,9 +163,8 @@ describe('GET /api/search — placeQuery hidden mode (#2358)', () => {
     const res = await app.handle(new Request('http://localhost/?placeQuery=museum'));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(
-      body.results.map((r: { filename: string }) => r.filename),
-    ).toEqual(['visible.dng']);
+    expect(body.results.map((r: { filename: string }) => r.filename)).toEqual(['visible.dng']);
     expect(calls[0]?.includeHidden).toBe(false);
+    expect(calls[0]?.onlyHidden).toBe(false);
   });
 });
