@@ -459,6 +459,7 @@ describe('PUT /api/enrichment/config — semantic search', () => {
       geocode_worker_enabled: false,
       describe_provider: 'ollama',
       describe_provider_url: 'http://ollama.test:11434',
+      meilisearch_url: 'http://meili.test:7700',
       meilisearch_semantic_enabled: true,
       meilisearch_embedder_model: '  custom-embedder  ',
       meilisearch_semantic_ratio: 0.65,

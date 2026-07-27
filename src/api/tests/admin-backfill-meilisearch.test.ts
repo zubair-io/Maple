@@ -57,7 +57,7 @@ function makeCapturingMeili(configured = true): CapturedMeili {
     failBatch: false,
     client: {
       isConfigured: () => c.configured,
-      semanticConfigured: () => false,
+      semanticConfigured: () => c.configured,
       health: async () => c.configured,
       ensureIndex: async () => {
         c.ensureCalls += 1;
@@ -104,6 +104,7 @@ beforeEach(async () => {
   await db!.collection('people').deleteMany({});
   await db!.collection('meilisearch_backfill_state').deleteMany({});
   await db!.collection('meilisearch_backfill_failures').deleteMany({});
+  await db!.collection('meilisearch_backfill_leases').deleteMany({});
   setMeilisearchClientForTests(null);
 });
 
@@ -167,7 +168,7 @@ function makeRow(mapleId: string, blob: string | null, opts: { deletedAt?: strin
 }
 
 describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
-  it('returns 400 when Meilisearch is not configured', async () => {
+  it('returns 400 when semantic search is not configured', async () => {
     if (!mongoReachable) return;
     const meili = makeCapturingMeili(false);
     setMeilisearchClientForTests(meili.client);
@@ -180,7 +181,7 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
     );
     expect(r.status).toBe(400);
     const body = (await r.json()) as { error: string };
-    expect(body.error).toContain('not configured');
+    expect(body.error).toContain('not enabled');
   });
 
   it('upserts enriched and filename-only assets and reports counts', async () => {
@@ -510,6 +511,7 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
     expect(await backfillMeilisearchVectors.runBatch(2)).toEqual({
       processed: 2,
       errors: 0,
+      complete: false,
     });
     expect(await backfillMeilisearchVectors.countRemaining()).toBe(1);
 
@@ -518,9 +520,12 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
     expect(await backfillMeilisearchVectors.runBatch(1)).toEqual({
       processed: 1,
       errors: 0,
+      complete: true,
     });
     expect(await backfillMeilisearchVectors.countRemaining()).toBe(0);
-    const state = await db!.collection('meilisearch_backfill_state').findOne({ _id: 'assets' });
+    const state = await db!
+      .collection<{ _id: string; completed_at?: string | null }>('meilisearch_backfill_state')
+      .findOne({ _id: 'assets' });
     expect(state?.completed_at).not.toBeNull();
 
     // A confirming poll after completion is idempotent. Only an explicit
@@ -529,11 +534,14 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
     expect(await backfillMeilisearchVectors.runBatch(1)).toEqual({
       processed: 0,
       errors: 0,
+      complete: true,
     });
     expect(meili.upserts).toHaveLength(upsertCount);
-    expect(await db!.collection('meilisearch_backfill_state').findOne({ _id: 'assets' })).toEqual(
-      state,
-    );
+    expect(
+      await db!
+        .collection<{ _id: string }>('meilisearch_backfill_state')
+        .findOne({ _id: 'assets' }),
+    ).toEqual(state);
 
     const { resetMigrationState } = await import('../src/workers/migration-config.repo.ts');
     const { BACKFILL_MEILISEARCH_VECTORS_ID } = await import('../src/workers/migration/ids.ts');

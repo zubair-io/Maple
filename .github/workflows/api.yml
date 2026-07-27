@@ -19,6 +19,12 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      meilisearch:
+        image: getmeili/meilisearch:v1.50.0
+        ports:
+          - 7700:7700
+        env:
+          MEILI_ENV: development
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -33,3 +39,8 @@ jobs:
           MAPLE_MONGO_URI: mongodb://localhost:27017
           MAPLE_JWT_SECRET: ci-test-secret-not-for-production-only
         run: bun test --timeout 30000
+      - name: Verify real Meilisearch task and search compatibility
+        working-directory: src/api
+        env:
+          MAPLE_MEILISEARCH_INTEGRATION_URL: http://localhost:7700
+        run: bun test src/enrichment/meilisearch-real.integration.test.ts --timeout 30000

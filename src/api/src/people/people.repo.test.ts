@@ -239,6 +239,9 @@ describe('people.repo — hidePerson / unhidePerson', () => {
       },
     ]);
     await assignFaceToPerson(asset, 0, p._id);
+    await h.db
+      .collection<AssetDoc>('assets')
+      .updateOne({ _id: asset }, { $set: { 'stages.meili.version': 7 } } as never);
     await hidePerson(p._id);
     // Faces stay assigned — soft-hide does NOT unassign.
     const row = await h.db.collection<AssetDoc>('assets').findOne({ _id: asset });
@@ -247,6 +250,17 @@ describe('people.repo — hidePerson / unhidePerson', () => {
     const stored = await h.db.collection<PersonDoc>('people').findOne({ _id: p._id });
     expect(stored).not.toBeNull();
     expect(stored?.hidden).toBe(true);
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const rearmed = (await h.db.collection<AssetDoc>('assets').findOne({ _id: asset })) as
+        | (AssetDoc & { stages?: Record<string, { version?: number }> })
+        | null;
+      if (rearmed?.stages?.meili?.version === 0) break;
+      await Bun.sleep(5);
+    }
+    const rearmed = (await h.db.collection<AssetDoc>('assets').findOne({ _id: asset })) as
+      | (AssetDoc & { stages?: Record<string, { version?: number }> })
+      | null;
+    expect(rearmed?.stages?.meili?.version).toBe(0);
   });
 
   it('listPeople excludes hidden; listHiddenPeople returns them with counts', async () => {
