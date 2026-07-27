@@ -7,6 +7,7 @@ import {
 } from '../src/enrichment/meilisearch-client.ts';
 import { MeilisearchTaskError } from '../src/enrichment/meilisearch-transport.ts';
 import { signAccessToken } from '../src/auth/tokens.ts';
+import { _resetAdminMeilisearchStatusCacheForTests } from '../src/routes/admin-meilisearch-status.ts';
 
 const TEST_DB = `maple_test_meili_resilience_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
@@ -53,6 +54,7 @@ beforeEach(async () => {
     await db.collection(collection).deleteMany({});
   }
   setMeilisearchClientForTests(null);
+  _resetAdminMeilisearchStatusCacheForTests();
 });
 
 afterAll(async () => {
@@ -262,5 +264,58 @@ describe('GET /api/admin/enrichment/meilisearch-status — owner gate (#2353)', 
       }),
     );
     expect(response.status).toBe(200);
+  });
+
+  it('caches the response so a second poll within the TTL does not re-probe Ollama or re-scan Mongo (#2359)', async () => {
+    if (!db) return;
+    let semanticStatusCalls = 0;
+    const meili = client();
+    meili.fake.semanticFingerprint = () => null;
+    meili.fake.semanticStatus = async () => {
+      semanticStatusCalls += 1;
+      return {
+        configured: true,
+        enabled: true,
+        embedderName: 'caption',
+        model: 'bge-m3',
+        semanticRatio: 0.5,
+        meilisearchReachable: true,
+        embedderConfigured: true,
+        embedderReachable: true,
+        indexedDocumentCount: 0,
+        vectorizedDocumentCount: 0,
+        isIndexing: false,
+        error: null,
+      };
+    };
+    setMeilisearchClientForTests(meili.fake);
+    const { adminMeilisearchStatusRoutes } =
+      await import('../src/routes/admin-meilisearch-status.ts');
+    const { Elysia } = await import('elysia');
+    const app = new Elysia().use(adminMeilisearchStatusRoutes);
+    const request = () =>
+      app.handle(
+        new Request('http://localhost/api/admin/enrichment/meilisearch-status', {
+          headers: { authorization: `Bearer ${ownerJwt}` },
+        }),
+      );
+
+    const first = await request();
+    expect(first.status).toBe(200);
+    const firstBody = await first.json();
+    expect(semanticStatusCalls).toBe(1);
+
+    // Second poll within the TTL is served from cache — no second probe.
+    const second = await request();
+    expect(second.status).toBe(200);
+    expect(semanticStatusCalls).toBe(1);
+    expect(await second.json()).toEqual(firstBody);
+
+    // Once the cache is cleared (simulating TTL expiry), the next poll
+    // probes again.
+    _resetAdminMeilisearchStatusCacheForTests();
+    const third = await request();
+    expect(third.status).toBe(200);
+    expect(semanticStatusCalls).toBe(2);
   });
 });
