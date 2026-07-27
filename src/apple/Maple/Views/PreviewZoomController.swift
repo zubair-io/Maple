@@ -15,6 +15,21 @@ final class PreviewZoomController: UIViewController, UIScrollViewDelegate {
     private let provider: ThumbnailProvider
     private let scrollView = UIScrollView()
     private let imageView = UIImageView()
+    /// Shown while the first bytes are in flight (#2377). Until now this page
+    /// rendered a bare backdrop until an image landed, which for a
+    /// network-bound cloud fetch is an indefinite blank screen.
+    private let spinner = UIActivityIndicatorView(style: .large)
+    /// Terminal state — the source had nothing for us. Kept distinct from the
+    /// spinner so "loading" and "failed" never read as each other.
+    private let failureView = UIImageView(
+        image: UIImage(systemName: "photo")?.withConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 56)
+        )
+    )
+    private var spinnerDelayTask: Task<Void, Never>?
+    /// The common case is a cached thumbnail resolving in a frame or two;
+    /// gating the spinner behind this keeps it from flashing there.
+    private static let spinnerDelayNanoseconds: UInt64 = 250_000_000
     private var thumbnailTask: Task<Void, Never>?
     private var refinementTask: Task<Void, Never>?
     private var refinementActive = false
@@ -54,12 +69,31 @@ final class PreviewZoomController: UIViewController, UIScrollViewDelegate {
         imageView.clipsToBounds = true
         scrollView.addSubview(imageView)
 
+        // Both status views sit on the controller's view, not inside the
+        // scroll view: they must stay centred on screen and must not be
+        // zoomed or panned along with the photo.
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        spinner.hidesWhenStopped = true
+        spinner.accessibilityIdentifier = "preview-image-loading"
+        view.addSubview(spinner)
+
+        failureView.translatesAutoresizingMaskIntoConstraints = false
+        failureView.tintColor = UIColor(ProTokens.textDim)
+        failureView.isHidden = true
+        failureView.accessibilityIdentifier = "preview-image-failed"
+        view.addSubview(failureView)
+
         NSLayoutConstraint.activate([
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scrollView.topAnchor.constraint(equalTo: view.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            spinner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            spinner.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            failureView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            failureView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
         ])
+        startSpinnerDelay()
         loadThumbnail()
     }
 
@@ -118,14 +152,45 @@ final class PreviewZoomController: UIViewController, UIScrollViewDelegate {
 
     private func loadThumbnail() {
         thumbnailTask = Task { [weak self] in
-            guard let self, let data = await provider.thumbnail(for: source),
-                  !Task.isCancelled, let image = Self.image(from: data) else { return }
+            guard let self else { return }
+            let data = await provider.thumbnail(for: source)
+            guard !Task.isCancelled else { return }
+            guard let data, let image = Self.image(from: data) else {
+                // The source's terminal answer, not a slow one — stop the
+                // spinner rather than leaving it turning forever.
+                showFailure()
+                return
+            }
             imageView.image = image
+            hideStatusViews()
             view.setNeedsLayout()
             if refinementActive {
                 requestRefinement(maxDimension: screenPreviewDimension)
             }
         }
+    }
+
+    /// Reveal the spinner only if the first bytes are still outstanding once
+    /// the delay elapses.
+    private func startSpinnerDelay() {
+        spinnerDelayTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.spinnerDelayNanoseconds)
+            guard let self, !Task.isCancelled, imageView.image == nil,
+                  failureView.isHidden else { return }
+            spinner.startAnimating()
+        }
+    }
+
+    private func hideStatusViews() {
+        spinnerDelayTask?.cancel()
+        spinnerDelayTask = nil
+        spinner.stopAnimating()
+        failureView.isHidden = true
+    }
+
+    private func showFailure() {
+        hideStatusViews()
+        failureView.isHidden = false
     }
 
     private var screenPreviewDimension: CGFloat {
@@ -166,6 +231,7 @@ final class PreviewZoomController: UIViewController, UIScrollViewDelegate {
     deinit {
         thumbnailTask?.cancel()
         refinementTask?.cancel()
+        spinnerDelayTask?.cancel()
     }
 }
 
