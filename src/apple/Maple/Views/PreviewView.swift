@@ -309,6 +309,19 @@ private struct PreviewImage: View {
     /// ImageIO decode there blocks the main thread and visibly stalls the pager.
     @State private var decodedImage: CGImage?
     @State private var loadedID: String?
+
+    /// What the empty branch should say when there are no pixels yet (#2377).
+    /// The old behaviour — a static `photo` glyph — assumed the thumbnail was
+    /// already cached and "usually instant". That holds for a warm local
+    /// asset; a cloud fetch is network-bound, and a motionless icon read as
+    /// "broken" with no way to tell loading from failed.
+    private enum LoadPhase { case loading, loaded, failed }
+    @State private var phase: LoadPhase = .loading
+    /// Gates the spinner behind `spinnerDelay` so the common case — a cached
+    /// thumbnail resolving in a frame or two — never flashes one. A spinner
+    /// visible for 30ms is worse than no spinner at all.
+    @State private var showsSpinner = false
+    private static let spinnerDelay: Duration = .milliseconds(250)
     @State private var zoomScale: CGFloat = 1
     @GestureState private var pinchScale: CGFloat = 1
 
@@ -340,19 +353,35 @@ private struct PreviewImage: View {
                 }
                 .scaleEffect(effectiveZoom)
                 .animation(.interactiveSpring(response: 0.25, dampingFraction: 0.86), value: zoomScale)
-            } else {
-                // No blank canvas — a neutral placeholder while the (already
-                // cached, usually instant) thumbnail resolves.
+            } else if phase == .failed {
+                // Terminal: the source returned nothing. Distinct from the
+                // loading state above so the two never read as each other.
                 Image(systemName: "photo")
                     .font(.system(size: 56))
                     .foregroundStyle(ProTokens.textDim)
+                    .accessibilityIdentifier("preview-image-failed")
+            } else if showsSpinner {
+                ProgressView()
+                    .controlSize(.large)
+                    .accessibilityIdentifier("preview-image-loading")
             }
+            // Below `spinnerDelay` the branch is deliberately empty: the
+            // backdrop alone is calmer than a glyph that appears and is gone
+            // again before it can be read.
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(MapleTokens.bg)
         .clipped()
         .simultaneousGesture(pinchGesture)
         .task(id: sourceID) { await load(for: sourceID) }
+        // Separate task so the delay races the load rather than serialising
+        // behind it. Cancelled and restarted on every source change.
+        .task(id: sourceID) {
+            showsSpinner = false
+            try? await Task.sleep(for: Self.spinnerDelay)
+            guard !Task.isCancelled, phase == .loading else { return }
+            showsSpinner = true
+        }
         .onChange(of: sourceID) { _, _ in
             zoomScale = 1
             onZoomStateChanged(true, false)
@@ -362,7 +391,13 @@ private struct PreviewImage: View {
     private func load(for id: String) async {
         // Already showing this source — nothing to do.
         if loadedID == id, decodedImage != nil { return }
-        guard let data = await provider.thumbnail(for: source) else { return }
+        phase = .loading
+        guard let data = await provider.thumbnail(for: source) else {
+            // Don't strand the view on the spinner: a nil thumbnail is the
+            // source's terminal answer, not a slow one.
+            if !Task.isCancelled { phase = .failed }
+            return
+        }
         let image = await Task.detached(priority: .userInitiated) {
             ThumbnailImage.cgImage(from: data)
         }.value
@@ -374,6 +409,7 @@ private struct PreviewImage: View {
         guard !Task.isCancelled else { return }
         decodedImage = image
         loadedID = id
+        phase = image == nil ? .failed : .loaded
 
         // The tiny cached image owns first paint. Once it is on screen, ask
         // the source for display-sized pixels and swap them in only if this
