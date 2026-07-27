@@ -41,11 +41,17 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     /// same stack a grid tap uses.
     @Binding var libraryPath: [LibraryDestination]
 
-    /// `CloudSource` for the asset most recently pushed onto `libraryPath`
-    /// from a cloud Timeline / merged cell. `PhoneLibraryView`'s Preview
-    /// destination falls back to `browseVM.currentSource`, which is nil for a
-    /// Timeline tap — leaving Preview with no way to reach `/api/fs/preview`
-    /// (#2376). Cleared when the stack empties.
+    /// `CloudSource` for the asset most recently pushed onto `libraryPath`.
+    /// `PhoneLibraryView`'s Preview destination falls back to this when
+    /// `browseVM.currentSource` is nil, which it is for a cloud Timeline tap —
+    /// leaving Preview no way to reach `/api/fs/preview` (#2376).
+    ///
+    /// Every push sets it (see `pushPreview`), including to `nil` for local
+    /// assets. It must not persist across pushes: `prepareLocalPhotoKitSession`
+    /// never touches `browseVM`, so `currentSource` stays nil for a local-only
+    /// PhotoKit push, and a leftover `CloudSource` here would be applied to it
+    /// — sending `/api/fs/thumb` a PhotoKit local id and bypassing the
+    /// PhotoKit fast path entirely.
     @State private var cloudPreviewSource: (any ImageSource)?
 
     /// Live text for the Search tab's native `.searchable` field (the
@@ -156,8 +162,7 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     // without one Preview downloads the whole RAW (#2376).
                     onSelectCloudAsset: { asset, server in
                         if let resolved = onSelectCloudAsset(asset, server) {
-                            cloudPreviewSource = resolved.source
-                            pushPreview(resolved.ref)
+                            pushPreview(resolved.ref, cloudSource: resolved.source)
                         }
                     },
                     cloudPreviewSource: cloudPreviewSource,
@@ -178,7 +183,12 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     // tab bar is hidden on push (#791). The AppShell-provided
                     // `onOpenEditor` (mode flip) stays in use by the
                     // tablet/desktop pane shell, which has no NavigationStack.
-                    onOpenEditor: pushPreview,
+                    // Explicit closure, not a bare `pushPreview` reference:
+                    // Swift can't apply the defaulted `cloudSource:` when a
+                    // function is used as a value. A local library cell is
+                    // never a cloud asset, so nil is right — and it clears any
+                    // source from a previous push.
+                    onOpenEditor: { pushPreview($0) },
                     onPrimeSession: onPrimeSession,
                     onFullImageFallback: onFullImageFallback,
                     onMergePanorama: onMergePanorama,
@@ -217,7 +227,12 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
 
     /// Preview supplies its own non-interactive scale/fade presentation. Turn
     /// off NavigationStack's horizontal push so the two animations never mix.
-    private func pushPreview(_ asset: AssetRef) {
+    /// `cloudSource` is assigned unconditionally — passing nothing CLEARS any
+    /// source left over from a previous push. Making it a parameter rather
+    /// than a separate assignment at one call site means a new push site
+    /// cannot silently inherit the last asset's source.
+    private func pushPreview(_ asset: AssetRef, cloudSource: (any ImageSource)? = nil) {
+        cloudPreviewSource = cloudSource
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
