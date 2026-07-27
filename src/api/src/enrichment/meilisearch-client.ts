@@ -136,6 +136,12 @@ export interface MeilisearchSearchOptions {
   mediaTypes?: MeilisearchMediaType[];
   /** Hidden assets are excluded unless explicitly requested. */
   includeHidden?: boolean;
+  /** Constrain the candidate set to hidden assets only (`hidden = true`).
+   * Pushing `hidden=only` into the Meilisearch filter keeps every returned
+   * page dense with rows the Mongo re-fetch will keep — with just
+   * `includeHidden` the pages arrive mixed and the re-fetch thins them
+   * (#2358). Takes precedence over `includeHidden`. */
+  onlyHidden?: boolean;
   /** When true, run a hybrid (keyword + vector) query against the managed
    * `caption` embedder. Ignored unless `semanticConfigured()` is true; the
    * route passes `meili.semanticConfigured()` so this is self-gating. */
@@ -267,7 +273,11 @@ function mediaFilter(mediaTypes: MeilisearchMediaType[] | undefined): string | n
 function buildFilter(opts: MeilisearchSearchOptions): string {
   const clauses = [
     'deletedAt IS NULL',
-    opts.includeHidden === true ? null : '(hidden IS NULL OR hidden = false)',
+    opts.onlyHidden === true
+      ? 'hidden = true'
+      : opts.includeHidden === true
+        ? null
+        : '(hidden IS NULL OR hidden = false)',
     folderFilter(opts.folderId),
     peopleFilter(opts.people),
     mediaFilter(opts.mediaTypes),
