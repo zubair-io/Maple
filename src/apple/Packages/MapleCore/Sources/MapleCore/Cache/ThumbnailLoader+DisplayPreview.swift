@@ -19,7 +19,7 @@ extension ThumbnailLoader {
     /// 256px thumbnail tier's `ThumbnailEncoder.quality` (0.5): a preview is
     /// the largest on-screen surface below full develop, so it favors fidelity
     /// over file size.
-    static let displayPreviewAvifQuality: CGFloat = 0.7
+    public static let displayPreviewAvifQuality: CGFloat = 0.7
 
     /// Long-edge target for the display-preview tier at
     /// `MapleSidecarPaths.previewURL` (`.maple/previews/<filename>.avif`). 1280
