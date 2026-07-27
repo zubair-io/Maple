@@ -239,6 +239,78 @@ describe('discover producer — events', () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
+  it('re-arms the meili stage (all five fields) on a rename event', async () => {
+    // #2357: a rename rewrites `fileinfo[].filename` — the highest-weight
+    // lexical field in the Meilisearch index — but only via `$set`. Without
+    // re-arming `stages.meili` the search document is never re-synced and
+    // goes permanently stale.
+    if (!mongoReachable) return;
+
+    const { handleEvent } = await import('./index.ts');
+    const { assetsCollection, foldersCollection } = await import('../../db/client.ts');
+
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'discover-meili-rename-'));
+    const file = path.join(tempDir, 'meili-src.jpg');
+    await writeFile(file, Buffer.alloc(64, 0x55));
+
+    const foldersColl = await foldersCollection();
+    const folderId = (
+      await foldersColl.insertOne({
+        path: tempDir,
+        label: path.basename(tempDir),
+        last_scan: null,
+        file_count: 0,
+        created_at: new Date().toISOString(),
+      } as never)
+    ).insertedId;
+
+    await handleEvent({ kind: 'created', absPath: file }, folderId, tempDir);
+    const coll = await assetsCollection();
+    const filter = {
+      fileinfo: { $elemMatch: { library_id: folderId, filename: 'meili-src.jpg' } },
+    } as never;
+    const before = await coll.findOne(filter);
+    expect(before).not.toBeNull();
+    const id = (before as { _id: unknown })._id;
+
+    // Simulate a stage that already dead-lettered — the rename must fully
+    // re-arm it (all five fields), not just bump the version.
+    await coll.updateOne({ _id: id } as never, {
+      $set: {
+        'stages.meili.version': 3,
+        'stages.meili.dead': true,
+        'stages.meili.attempts': 5,
+        'stages.meili.last_error': 'boom',
+        'stages.meili.processed_at': '2024-01-01T00:00:00.000Z',
+      },
+    });
+
+    const newPath = path.join(tempDir, 'meili-renamed.jpg');
+    await writeFile(newPath, Buffer.alloc(64, 0x55));
+    await handleEvent({ kind: 'renamed', absPath: newPath, fromPath: file }, folderId, tempDir);
+
+    const after = (await coll.findOne({ _id: id } as never)) as {
+      stages?: {
+        meili?: {
+          version: number;
+          dead: boolean;
+          attempts: number;
+          last_error: unknown;
+          processed_at: unknown;
+        };
+      };
+    } | null;
+    expect(after?.stages?.meili?.version).toBe(0);
+    expect(after?.stages?.meili?.dead).toBe(false);
+    expect(after?.stages?.meili?.attempts).toBe(0);
+    expect(after?.stages?.meili?.last_error).toBeNull();
+    expect(after?.stages?.meili?.processed_at).toBeNull();
+
+    await coll.deleteOne({ _id: id } as never);
+    await foldersColl.deleteOne({ _id: folderId });
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
   it('refuses events whose absPath is inside the `.maple/` cache (defense-in-depth)', async () => {
     // Regression for #1186: if any producer (current or future) hands the
     // handler a path inside `.maple/`, the handler must refuse rather than
