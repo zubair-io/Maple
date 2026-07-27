@@ -2,26 +2,27 @@
 //
 // The file name is retained for git/Xcode-group continuity (a later PR
 // renames it). `PhoneSearchTab` is the production view: it owns the
-// account-wide `SearchViewModel`, its own NavigationStack, and the editor
-// presentation for tapped results. The search FIELD and the bottom nav are
+// account-wide `SearchViewModel`, its own NavigationStack, and the open
+// route for tapped results. The search FIELD and the bottom nav are
 // the native system tab bar — this tab lives inside a `Tab(role: .search)`
 // in `PhoneTabShell` and carries the `.searchable` field whose text is bound
 // here as `query`.
 //
-// Editor presentation (#1489): a tapped result does NOT push onto this
-// tab's `NavigationStack` — it presents `HeroZoomEditorOverlay` in a
-// `ZStack` above the tab's content, so the thumbnail zooms open into the
-// editor and zooms back on close. The overlay owns both gestures outright,
-// which a push could not: the only way to get a zoom out of a push is
-// `.navigationTransition(.zoom(sourceID:in:))`, whose non-disableable
-// pinch-to-dismiss beats `CanvasZoomHost`'s pinch and closes the editor
-// while the user is zooming in. The tab bar (and with it the search field)
-// is hidden for the duration so the overlay is the whole screen.
+// Open presentation (#2371): a tapped result pushes `.preview` onto this
+// tab's own `[LibraryDestination]` stack, exactly as `PhoneLibraryView`
+// does for the Library tab — Preview first, and the editor only from
+// Preview's Edit button (Fast Preview §1). Each destination hides the tab
+// bar (and with it the search field) so it owns the whole screen.
+//
+// This replaced the search-only `HeroZoomEditorOverlay` presentation
+// (#1489), which zoomed a tapped tile straight into the editor and so was
+// the one surface in the app that skipped Preview.
 
 #if os(iOS)
 
 import SwiftUI
 import MapleCore
+import UIKit
 
 struct PhoneSearchTab: View {
     @Binding var sessions: [AssetRef.ID: EditSession]
@@ -37,54 +38,61 @@ struct PhoneSearchTab: View {
 
     @State private var session: PhoneSearchSession?
     @State private var didLoad = false
-    /// The result currently open in the hero-zoomed editor, plus the tile it
-    /// was opened from. `nil` → no editor, the grid is the whole tab.
-    @State private var openResult: OpenResult?
+    /// This tab's navigation stack. Empty → the result grid is the whole tab;
+    /// `[.preview(a)]` → Preview; `[.preview(a), .edit(a)]` → the editor
+    /// reached from Preview's Edit button. Same typed route the Library tab
+    /// uses, so back pops `editor → Preview → grid`.
+    @State private var path: [LibraryDestination] = []
     @FocusState private var searchFieldFocused: Bool
 
-    /// A result open in the editor: the resolved asset and the grid tile the
-    /// zoom flies out of (and back into).
-    private struct OpenResult: Identifiable {
-        let asset: AssetRef
-        let hero: PhotoGridHeroSource?
-        var id: AssetRef.ID { asset.id }
-    }
-
     var body: some View {
-        ZStack {
-            NavigationStack {
-                content
-                    .navigationTitle("Search")
-                    .navigationBarTitleDisplayMode(.inline)
-            }
-
-            if let open = openResult {
-                HeroZoomEditorOverlay(
-                    asset: open.asset,
-                    source: open.hero,
-                    sessions: $sessions,
-                    onClosed: { openResult = nil }
-                )
-                // Identity per asset so opening a second result after the
-                // first has closed builds a fresh overlay (and a fresh
-                // animation) rather than reusing the collapsed one.
-                .id(open.id)
-            }
+        NavigationStack(path: $path) {
+            content
+                .navigationTitle("Search")
+                .navigationBarTitleDisplayMode(.inline)
+                // Mirrors `PhoneLibraryView`'s resolution (Fast Preview §1):
+                // `.preview` → the fast static surface, `.edit` → the editor.
+                // Both hide the tab bar + system nav bar; each ships its own
+                // 44pt header with a back button.
+                .navigationDestination(for: LibraryDestination.self) { destination in
+                    Group {
+                        switch destination {
+                        case .preview(let ref):
+                            PreviewDestination(
+                                asset: ref,
+                                // A search result is a single-asset preview:
+                                // the result set is this tab's own grid, not a
+                                // folder listing, so there is no sibling list
+                                // to hand the filmstrip. Same shape the Library
+                                // tab uses for cloud / search taps.
+                                assets: [ref],
+                                source: nil,
+                                sessions: $sessions,
+                                onClose: popWithoutAnimation,
+                                onEdit: { path.append(.edit($0)) },
+                                // Prev/next can't move within a one-asset list,
+                                // so there is no selection to propagate — the
+                                // search grid owns its own selection state.
+                                onSelectionChanged: { _ in }
+                            )
+                        case .edit(let ref):
+                            EditorDestination(asset: ref, sessions: $sessions)
+                        }
+                    }
+                    .toolbar(.hidden, for: .tabBar)
+                    .toolbar(.hidden, for: .navigationBar)
+                }
         }
         // The native search field for the `Tab(role: .search)` this view
         // lives in — its text drives the same `query` the content reads.
         .searchable(text: $query, prompt: "Search your library")
         .searchFocused($searchFieldFocused)
-        // The overlay is the whole screen while it's up, so the system tab
-        // bar (which carries the search field) gets out of its way — the same
-        // contract a pushed destination gets from `.toolbar(.hidden, for:)`.
-        .toolbar(openResult == nil ? .visible : .hidden, for: .tabBar)
         // Focus the search field the moment the Search tab is entered (Apple
         // Photos drops you straight into typing). Deferred one runloop so the
         // searchable field is in the hierarchy before focus moves to it; only
-        // when the editor isn't open on top.
+        // when nothing is pushed on top.
         .onAppear {
-            if openResult == nil {
+            if path.isEmpty {
                 Task { @MainActor in searchFieldFocused = true }
             }
         }
@@ -125,11 +133,8 @@ struct PhoneSearchTab: View {
                 thumbClient: session.thumbClient,
                 thumbCache: session.thumbCache,
                 query: $query,
-                onSelectAsset: { asset, hero in
-                    openResult = OpenResult(
-                        asset: resolveAsset(asset, session.server),
-                        hero: hero
-                    )
+                onSelectAsset: { asset in
+                    path.append(.preview(resolveAsset(asset, session.server)))
                 }
             )
         } else if !didLoad {
@@ -138,6 +143,21 @@ struct PhoneSearchTab: View {
                 .background(MapleTokens.bg.ignoresSafeArea())
         } else {
             PhoneSearchEmptyState()
+        }
+    }
+
+    /// Pop the top destination without the stack's own slide. `PreviewDestination`
+    /// runs its own scale/fade close and calls back when it's finished, so a
+    /// second animation here would play on top of one that has already ended.
+    /// Same helper as `PhoneLibraryView.popPreviewWithoutAnimation`.
+    private func popWithoutAnimation() {
+        guard !path.isEmpty else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        UIView.performWithoutAnimation {
+            withTransaction(transaction) {
+                _ = path.removeLast()
+            }
         }
     }
 }
