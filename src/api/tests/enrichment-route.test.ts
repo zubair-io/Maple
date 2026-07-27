@@ -1,7 +1,11 @@
 /**
  * /api/enrichment/* route tests. Exercises the route directly via
- * `app.handle` (no auth — we mount the route without `requireAuth` for
- * tests, mirroring the search-route + jobs-route patterns).
+ * `app.handle`. GET/test routes need no auth beyond a bearer (mirroring the
+ * search-route + jobs-route patterns); PUT /config additionally requires the
+ * `owner` role (#2353) — the `put()` helper below defaults to an owner JWT so
+ * the existing save-path tests stay unchanged. Meilisearch-field PUT coverage
+ * and the dedicated owner-gate rejection tests live in
+ * `enrichment-route-meilisearch.test.ts` (split for the file-size budget).
  *
  * The Nominatim health-check is faked by stubbing `globalThis.fetch` for
  * the duration of each test — no network calls.
@@ -9,10 +13,12 @@
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient, type Db } from 'mongodb';
+import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { signAccessToken } from '../src/auth/tokens.ts';
 
 const TEST_DB = `maple_test_enrichment_route_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
+process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;
@@ -21,6 +27,15 @@ let db: Db | null = null;
 let app: Elysia | null = null;
 
 const realFetch = globalThis.fetch;
+
+const ownerJwt = await signAccessToken(
+  { sub: new ObjectId().toHexString(), email: 'o@m.c', role: 'owner' },
+  'x'.repeat(32),
+);
+const memberJwt = await signAccessToken(
+  { sub: new ObjectId().toHexString(), email: 'm@m.c', role: 'member' },
+  'x'.repeat(32),
+);
 
 async function tryConnect(): Promise<MongoClient | null> {
   const c = new MongoClient(MONGO_URI, {
@@ -90,19 +105,29 @@ function stubFetch(handler: (url: string) => { status?: number; body?: unknown }
   }) as typeof fetch;
 }
 
-async function get(path: string): Promise<{ status: number; body: unknown }> {
-  const res = await app!.handle(new Request(`http://localhost${path}`));
+async function get(
+  path: string,
+  jwt: string = memberJwt,
+): Promise<{ status: number; body: unknown }> {
+  const res = await app!.handle(
+    new Request(`http://localhost${path}`, { headers: { authorization: `Bearer ${jwt}` } }),
+  );
   return { status: res.status, body: res.status === 204 ? null : await res.json() };
 }
 
+// Defaults to an owner bearer — PUT /config is owner-gated (#2353). Pass
+// `jwt` explicitly to exercise the member rejection path; the no-bearer
+// (401) path is exercised directly against `app!.handle` below since its
+// body isn't JSON.
 async function put(
   path: string,
   body: Record<string, unknown>,
+  jwt: string = ownerJwt,
 ): Promise<{ status: number; body: unknown }> {
   const res = await app!.handle(
     new Request(`http://localhost${path}`, {
       method: 'PUT',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${jwt}` },
       body: JSON.stringify(body),
     }),
   );
@@ -112,11 +137,12 @@ async function put(
 async function post(
   path: string,
   body: Record<string, unknown>,
+  jwt: string = memberJwt,
 ): Promise<{ status: number; body: unknown }> {
   const res = await app!.handle(
     new Request(`http://localhost${path}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${jwt}` },
       body: JSON.stringify(body),
     }),
   );
@@ -385,202 +411,5 @@ describe('POST /api/enrichment/test-meili', () => {
       meilisearch_url: 'not-a-url',
     });
     expect(r.status).toBe(400);
-  });
-});
-
-describe('PUT /api/enrichment/config — meilisearch_url', () => {
-  it('rejects a malformed meilisearch_url with 400', async () => {
-    if (!mongoReachable) return;
-    const r = await put('/api/enrichment/config', {
-      nominatim_url: null,
-      geocode_worker_enabled: false,
-      meilisearch_url: 'not-a-url',
-    });
-    expect(r.status).toBe(400);
-    expect((r.body as { error: string }).error).toMatch(/Invalid meilisearch_url/);
-  });
-
-  it("persists meilisearch_url and reports source 'db' (no health gate)", async () => {
-    if (!mongoReachable) return;
-    // A bad/unreachable Meili URL must NOT block the save — search degrades
-    // to Mongo $text. We still stub fetch so the background health probe
-    // doesn't hit the network.
-    stubFetch(() => ({ status: 503 }));
-    const r = await put('/api/enrichment/config', {
-      nominatim_url: null,
-      geocode_worker_enabled: false,
-      meilisearch_url: 'http://meili.test:7700/',
-    });
-    expect(r.status).toBe(200);
-    const body = r.body as {
-      meilisearch_url: string;
-      source: { meilisearch_url: string };
-    };
-    expect(body.meilisearch_url).toBe('http://meili.test:7700');
-    expect(body.source.meilisearch_url).toBe('db');
-    const saved = await db!
-      .collection('app_settings')
-      .findOne<{ config: { meilisearch_url?: string } }>({ _id: 'enrichment' } as never);
-    expect(saved!.config.meilisearch_url).toBe('http://meili.test:7700');
-  });
-});
-
-describe('PUT /api/enrichment/config — meilisearch task timeout', () => {
-  it('persists an operator timeout and rejects values outside the safe range', async () => {
-    if (!mongoReachable) return;
-    const saved = await put('/api/enrichment/config', {
-      nominatim_url: null,
-      geocode_worker_enabled: false,
-      meilisearch_task_timeout_seconds: 900,
-    });
-    expect(saved.status).toBe(200);
-    expect(saved.body).toMatchObject({
-      meilisearch_task_timeout_seconds: 900,
-      source: { meilisearch_task_timeout_seconds: 'db' },
-    });
-
-    const invalid = await put('/api/enrichment/config', {
-      nominatim_url: null,
-      geocode_worker_enabled: false,
-      meilisearch_task_timeout_seconds: 29,
-    });
-    expect(invalid.status).toBe(400);
-    expect((invalid.body as { error: string }).error).toMatch(
-      /Invalid meilisearch_task_timeout_seconds/,
-    );
-  });
-});
-
-describe('PUT /api/enrichment/config — semantic search', () => {
-  it('reuses the Describe Ollama URL and persists the freeform embedding model', async () => {
-    if (!mongoReachable) return;
-    const r = await put('/api/enrichment/config', {
-      nominatim_url: null,
-      geocode_worker_enabled: false,
-      describe_provider: 'ollama',
-      describe_provider_url: 'http://ollama.test:11434',
-      meilisearch_url: 'http://meili.test:7700',
-      meilisearch_semantic_enabled: true,
-      meilisearch_embedder_model: '  custom-embedder  ',
-      meilisearch_semantic_ratio: 0.65,
-    });
-    expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({
-      meilisearch_semantic_enabled: true,
-      meilisearch_embedder_url: 'http://ollama.test:11434',
-      meilisearch_embedder_model: 'custom-embedder',
-      meilisearch_semantic_ratio: 0.65,
-      source: {
-        meilisearch_semantic_enabled: 'db',
-        meilisearch_embedder_url: 'db',
-        meilisearch_embedder_model: 'db',
-        meilisearch_semantic_ratio: 'db',
-      },
-    });
-
-    const reset = await put('/api/enrichment/config', {
-      nominatim_url: null,
-      geocode_worker_enabled: false,
-      describe_provider_url: null,
-      meilisearch_embedder_model: '   ',
-    });
-    expect(reset.status).toBe(200);
-    expect(reset.body).toMatchObject({
-      meilisearch_embedder_url: 'http://localhost:11434',
-      meilisearch_embedder_model: 'bge-m3',
-      source: {
-        meilisearch_embedder_url: 'default',
-        meilisearch_embedder_model: 'default',
-      },
-    });
-  });
-
-  it('ignores the retired separate embedder URL and rejects an invalid blend', async () => {
-    if (!mongoReachable) return;
-    const base = { nominatim_url: null, geocode_worker_enabled: false };
-    const legacyUrl = await put('/api/enrichment/config', {
-      ...base,
-      meilisearch_embedder_url: 'not-a-url',
-    });
-    expect(legacyUrl.status).toBe(200);
-    expect(legacyUrl.body).toMatchObject({
-      meilisearch_embedder_url: 'http://localhost:11434',
-      source: { meilisearch_embedder_url: 'default' },
-    });
-    const badRatio = await put('/api/enrichment/config', {
-      ...base,
-      meilisearch_semantic_ratio: 1.1,
-    });
-    expect(badRatio.status).toBe(400);
-  });
-});
-
-describe('PUT/GET /api/enrichment/config — meilisearch_api_key (write-only)', () => {
-  it('persists the key but never echoes it; reports meilisearch_api_key_set', async () => {
-    if (!mongoReachable) return;
-    stubFetch(() => ({ status: 200 }));
-    const put1 = await put('/api/enrichment/config', {
-      nominatim_url: null,
-      geocode_worker_enabled: false,
-      meilisearch_url: 'http://meili.test:7700',
-      meilisearch_api_key: 'super-secret',
-    });
-    expect(put1.status).toBe(200);
-    // The raw key must NOT appear in the response.
-    expect(JSON.stringify(put1.body)).not.toContain('super-secret');
-    expect((put1.body as { meilisearch_api_key_set: boolean }).meilisearch_api_key_set).toBe(true);
-    expect(
-      (put1.body as { source: { meilisearch_api_key: string } }).source.meilisearch_api_key,
-    ).toBe('db');
-
-    // GET also reports set=true and never includes the key.
-    const got = await get('/api/enrichment/config');
-    expect(JSON.stringify(got.body)).not.toContain('super-secret');
-    expect((got.body as { meilisearch_api_key_set: boolean }).meilisearch_api_key_set).toBe(true);
-
-    // ...but it IS persisted in Mongo.
-    const saved = await db!
-      .collection('app_settings')
-      .findOne<{ config: { meilisearch_api_key?: string } }>({ _id: 'enrichment' } as never);
-    expect(saved!.config.meilisearch_api_key).toBe('super-secret');
-  });
-
-  it('a blank/omitted key leaves the saved key unchanged', async () => {
-    if (!mongoReachable) return;
-    stubFetch(() => ({ status: 200 }));
-    await put('/api/enrichment/config', {
-      nominatim_url: null,
-      geocode_worker_enabled: false,
-      meilisearch_api_key: 'keep-me',
-    });
-    // Second save with an empty-string key must NOT wipe it.
-    await put('/api/enrichment/config', {
-      nominatim_url: null,
-      geocode_worker_enabled: false,
-      meilisearch_api_key: '',
-    });
-    const saved = await db!
-      .collection('app_settings')
-      .findOne<{ config: { meilisearch_api_key?: string } }>({ _id: 'enrichment' } as never);
-    expect(saved!.config.meilisearch_api_key).toBe('keep-me');
-  });
-
-  it('an explicit null clears the saved key', async () => {
-    if (!mongoReachable) return;
-    stubFetch(() => ({ status: 200 }));
-    await put('/api/enrichment/config', {
-      nominatim_url: null,
-      geocode_worker_enabled: false,
-      meilisearch_api_key: 'delete-me',
-    });
-    await put('/api/enrichment/config', {
-      nominatim_url: null,
-      geocode_worker_enabled: false,
-      meilisearch_api_key: null,
-    });
-    const saved = await db!
-      .collection('app_settings')
-      .findOne<{ config: { meilisearch_api_key?: string | null } }>({ _id: 'enrichment' } as never);
-    expect(saved!.config.meilisearch_api_key).toBeNull();
   });
 });

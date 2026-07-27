@@ -1,4 +1,5 @@
 import { Elysia } from 'elysia';
+import { requireAuth, requireOwner } from '../auth/middleware.ts';
 import { assetsCollection, getDb } from '../db/client.ts';
 import { EMBEDDER_NAME, meilisearchClient } from '../enrichment/meilisearch-client.ts';
 import {
@@ -88,6 +89,13 @@ async function loadAdminMeilisearchStatus(): Promise<Record<string, unknown>> {
   };
 }
 
+// Owner-only (#2353): mirrors meilisearchBackfillRoutes in the same
+// `/api/admin/enrichment` prefix — this surfaces the raw indexed/vectorized
+// document counts and backfill progress, admin-tier operational detail that
+// shouldn't be exposed to every member.
 export const adminMeilisearchStatusRoutes = new Elysia({
   prefix: '/api/admin/enrichment',
-}).get('/meilisearch-status', loadAdminMeilisearchStatus);
+})
+  .use(requireAuth)
+  .use(requireOwner)
+  .get('/meilisearch-status', loadAdminMeilisearchStatus);
