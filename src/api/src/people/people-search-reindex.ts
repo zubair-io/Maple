@@ -21,6 +21,26 @@ import { child as childLogger } from '../log.ts';
 const log = childLogger('people:search-reindex');
 
 /**
+ * The `$set` fields that re-arm the meili stage on one or more assets:
+ * reset the stage version below `meiliStage.targetVersion` so
+ * `buildClaimQuery` (`workers/run-stage.ts`) reclaims the doc on its next
+ * poll tick, and clear the dead-letter/attempt bookkeeping so a row that
+ * previously dead-lettered isn't permanently skipped.
+ *
+ * Exported so every call site that needs to re-arm meili shares this exact
+ * shape instead of hand-rolling a second, subtly different reset — see
+ * `markAssetsForMeiliReindex` / `markAssetIdsForMeiliReindex` below and
+ * `restoreFromTrash` (`db/assets.trash.ts`), which folds this into the same
+ * atomic update that clears `deleted_at` on restore (#2354).
+ */
+export const MEILI_REARM_SET: Record<string, unknown> = {
+  'stages.meili.version': 0,
+  'stages.meili.dead': false,
+  'stages.meili.attempts': 0,
+  'stages.meili.last_error': null,
+};
+
+/**
  * Reset `stages.meili.version` (and clear the dead-letter bookkeeping) on
  * every asset that carries a face assigned to one of `personIds`, so the
  * meili stage re-processes them. Person ids are matched as hex strings —
@@ -42,14 +62,7 @@ export async function markAssetsForMeiliReindex(
   const assets = await assetsCollection();
   const result = await assets.updateMany(
     { 'faces.person_id': { $in: hexIds } },
-    {
-      $set: {
-        'stages.meili.version': 0,
-        'stages.meili.dead': false,
-        'stages.meili.attempts': 0,
-        'stages.meili.last_error': null,
-      },
-    },
+    { $set: MEILI_REARM_SET },
   );
   return result.modifiedCount;
 }
@@ -81,17 +94,7 @@ export function markAssetsForMeiliReindexBestEffort(personIds: Array<ObjectId | 
 export async function markAssetIdsForMeiliReindex(assetIds: ObjectId[]): Promise<number> {
   if (assetIds.length === 0) return 0;
   const assets = await assetsCollection();
-  const result = await assets.updateMany(
-    { _id: { $in: assetIds } },
-    {
-      $set: {
-        'stages.meili.version': 0,
-        'stages.meili.dead': false,
-        'stages.meili.attempts': 0,
-        'stages.meili.last_error': null,
-      },
-    },
-  );
+  const result = await assets.updateMany({ _id: { $in: assetIds } }, { $set: MEILI_REARM_SET });
   return result.modifiedCount;
 }
 
