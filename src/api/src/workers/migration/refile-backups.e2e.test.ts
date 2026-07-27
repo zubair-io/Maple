@@ -114,14 +114,35 @@ describe('refile-backups end-to-end', () => {
       flag: 0,
       color_label: '',
       indexed_at: new Date().toISOString(),
-      stages: { thumb: { version: 1 }, preview: { version: 1 } },
+      stages: {
+        thumb: { version: 1 },
+        preview: { version: 1 },
+        // #2357: a previously dead-lettered meili stage must be fully
+        // re-armed by the repoint, not left stale at the old filename.
+        meili: {
+          version: 3,
+          attempts: 5,
+          last_error: 'boom',
+          processed_at: '2024-01-01T00:00:00.000Z',
+          dead: true,
+        },
+      },
     } as never);
 
     try {
       await runTick();
       const doc = (await assets.findOne({ _id })) as {
         fileinfo?: { path: string; filename: string }[];
-        stages?: Record<string, { version: number }>;
+        stages?: Record<
+          string,
+          {
+            version: number;
+            attempts?: number;
+            last_error?: unknown;
+            processed_at?: unknown;
+            dead?: boolean;
+          }
+        >;
         backup_layout_version?: number;
       } | null;
       expect(doc?.fileinfo?.[0].path).toBe('2024/Japan/Kyoto');
@@ -129,6 +150,11 @@ describe('refile-backups end-to-end', () => {
       expect(doc?.backup_layout_version).toBe(BACKUP_LAYOUT_VERSION);
       expect(doc?.stages?.thumb.version).toBe(0);
       expect(doc?.stages?.preview.version).toBe(0);
+      expect(doc?.stages?.meili?.version).toBe(0);
+      expect(doc?.stages?.meili?.attempts).toBe(0);
+      expect(doc?.stages?.meili?.last_error).toBeNull();
+      expect(doc?.stages?.meili?.processed_at).toBeNull();
+      expect(doc?.stages?.meili?.dead).toBe(false);
 
       expect(await fs.readFile(path.join(dir, '2024/Japan/Kyoto/IMG_GEO.HEIC'), 'utf8')).toBe(
         'pixels',
@@ -374,7 +400,7 @@ describe('refile-backups end-to-end', () => {
       flag: 0,
       color_label: '',
       indexed_at: new Date().toISOString(),
-      stages: { thumb: { version: 4 }, preview: { version: 4 } },
+      stages: { thumb: { version: 4 }, preview: { version: 4 }, meili: { version: 4 } },
     } as never);
 
     try {
@@ -387,6 +413,7 @@ describe('refile-backups end-to-end', () => {
       expect(doc?.backup_layout_version).toBe(BACKUP_LAYOUT_VERSION);
       expect(doc?.fileinfo?.[0].path).toBe(rel);
       expect(doc?.stages?.thumb.version).toBe(4); // not reset — no move happened
+      expect(doc?.stages?.meili?.version).toBe(4); // not reset — no move happened
       expect(await fs.readFile(path.join(dir, rel, 'IMG_OK.HEIC'), 'utf8')).toBe('pixels');
     } finally {
       await assets.deleteOne({ _id });

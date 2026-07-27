@@ -33,6 +33,7 @@ import type { Collection, WithId } from 'mongodb';
 import type { AssetDoc, FileInfo } from '../../db/schema.ts';
 import { child as childLogger } from '../../log.ts';
 import { updateLiveLocationCount } from '../../indexer/images.repo.ts';
+import { MEILI_REARM_SET } from '../../people/people-search-reindex.ts';
 import { finalize, planAndPlace, revertCreated } from './restructure-fs.ts';
 
 /**
@@ -60,8 +61,18 @@ export type MoveOutcome =
 
 /** Build the surgical `$set` that repoints the matched fileinfo entry (the
  * positional `$` from the query's `$elemMatch`) to its new (path, filename),
- * resets the cache stages, and merges any caller-supplied fields. Updating only
- * the matched element preserves a multi-location asset's other entries. */
+ * resets the cache stages, re-arms the meili stage, and merges any
+ * caller-supplied fields. Updating only the matched element preserves a
+ * multi-location asset's other entries.
+ *
+ * The meili reset is spread from `MEILI_REARM_SET` rather than folded into
+ * `CACHE_STAGES` — that constant means "cache-writing stages keyed on the
+ * asset's path" (thumb/preview only; see its declaration), a name the sibling
+ * `CACHE_STAGES` export in `workers/dedupe.helpers.ts` shares, so widening
+ * this local copy would silently drift its meaning from that name's other
+ * usage. The `filename` field is the highest-weight lexical field in the
+ * Meilisearch index — a relocate must re-arm the meili stage in the SAME
+ * update or the search document goes permanently stale (#2357). */
 function buildRepointSet(args: {
   newPath: string;
   newFilename: string;
@@ -73,6 +84,7 @@ function buildRepointSet(args: {
     'fileinfo.$.filename': args.newFilename,
     'fileinfo.$.missing_since': null,
     apple_rendered_path: args.newRenderedRel,
+    ...MEILI_REARM_SET,
   };
   for (const stage of CACHE_STAGES) {
     set[`stages.${stage}.version`] = 0;
