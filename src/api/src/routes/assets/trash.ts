@@ -144,16 +144,13 @@ export const trashRoutes = new Elysia()
     // `softDelete()` pattern (src/api/src/indexer/images.repo.ts). The
     // search route's `deletedAt IS NULL` filter excludes the row from
     // results. Mongo is canonical; a Meilisearch failure here must NOT
-    // roll back the soft-delete or change the 204 response.
-    //
-    // Unlike restore, this has no stage-owned fallback (#2354): resetting
-    // `stages.meili` here would be unsafe, since `meiliHandler`
-    // (workers/stages/meili.ts) never checks the asset's top-level
-    // `deleted_at` and has no delete-detection/tombstone branch of its own
-    // — it would just re-upsert a full "live" document. So a transient
-    // Meilisearch outage at trash time can still leave the asset visible in
-    // search indefinitely. See the #2354 PR description for the design
-    // options left for a follow-up decision.
+    // roll back the soft-delete or change the 204 response. This is a FAST
+    // PATH only, not the correctness mechanism (#2354): `markSoftDeleted`
+    // above reset `stages.meili` in the same atomic update that stamped
+    // `deleted_at`, so the meili stage re-claims the row and its handler's
+    // `deleted_at` branch (workers/stages/meili.ts) tombstones the document
+    // itself, with the stage's retry/backoff — a transient Meilisearch
+    // outage here cannot leave the asset in live search forever.
     if (info.maple_id) {
       try {
         await meilisearchClient().tombstone(info.maple_id);

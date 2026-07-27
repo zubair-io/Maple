@@ -53,18 +53,16 @@ function relSplit(libraryRoot: string, absPath: string): { path: string; filenam
  * `moveToTrash`. Falls back to overwriting `fileinfo[0]` only when no
  * `source` is given, matching the historical single-entry contract.
  *
- * Does NOT reset `stages.meili`. Unlike restore, re-arming the stage here
- * would be unsafe as of #2354's investigation: `meiliHandler`
- * (workers/stages/meili.ts) never inspects the asset's top-level
- * `deleted_at` and has no delete-detection/tombstone branch — it only
- * tombstones when `assetPrimaryFileInfo` resolves to nothing at all. Since
- * the rewritten trash entry keeps its own per-entry `deleted_at: null`
- * (only the top-level field is stamped above), a reclaimed row would still
- * resolve a "live" primary at the trash path and the stage would happily
- * re-upsert a FULL document with a hardcoded `deletedAt: null`, undoing the
- * tombstone. The trash route's inline best-effort tombstone
- * (`routes/assets/trash.ts`) remains the only tombstone path pending a
- * decision on how to make it reliable — see the #2354 PR description.
+ * Also resets `stages.meili` (`MEILI_REARM_SET`) in the SAME update that
+ * stamps `deleted_at`. The rewritten trash entry stays "live" per
+ * `isLiveFileInfo` (its own per-entry `deleted_at` is null — only the
+ * top-level field is stamped), so the meili stage's claim query re-picks
+ * the row, and `meiliHandler`'s `deleted_at` branch
+ * (workers/stages/meili.ts) tombstones the search document with the
+ * stage's retry/backoff — guaranteeing the asset leaves live search even
+ * when the trash route's inline best-effort tombstone failed against a
+ * transient Meilisearch outage (#2354). The inline call is a fast path;
+ * this re-arm is the correctness mechanism.
  */
 export async function markSoftDeleted(args: {
   id: ObjectId;
@@ -107,6 +105,7 @@ export async function markSoftDeleted(args: {
           'fileinfo.$[entry]': newEntry,
           deleted_at: new Date().toISOString(),
           original_path: args.originalAbsPath,
+          ...MEILI_REARM_SET,
         },
       },
       {
@@ -130,6 +129,7 @@ export async function markSoftDeleted(args: {
         fileinfo: [newEntry],
         deleted_at: new Date().toISOString(),
         original_path: args.originalAbsPath,
+        ...MEILI_REARM_SET,
       },
     },
   );
