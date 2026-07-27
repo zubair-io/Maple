@@ -7,6 +7,22 @@ import {
   revokeServiceApiKey,
 } from './service-api-keys.ts';
 
+/** Mirrors `KEY_PATTERN` in service-api-keys.ts (module-private there). */
+const KEY_SHAPE = /^maple_sk_[a-f0-9]{16}_([A-Za-z0-9_-]{43})$/;
+
+/**
+ * The plaintext secret — the third field of `maple_sk_<key id>_<secret>`.
+ *
+ * Deliberately a shape match, not `split('_')`: the secret is base64url and
+ * that alphabet contains `_`, so splitting yields a tail fragment rather than
+ * the secret whenever one lands near the end.
+ */
+function secretOf(key: string): string {
+  const match = KEY_SHAPE.exec(key);
+  if (!match) throw new Error(`key does not match the expected shape: ${key}`);
+  return match[1]!;
+}
+
 const TEST_DB = `maple_test_service_api_keys_${process.pid}`;
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 const PRIOR_DB = process.env.MAPLE_MONGO_DB;
@@ -61,7 +77,7 @@ describe('service API keys', () => {
       name: 'SugarMaple',
       createdBy: new ObjectId(),
     });
-    expect(created.key).toMatch(/^maple_sk_[a-f0-9]{16}_[A-Za-z0-9_-]{43}$/);
+    expect(created.key).toMatch(KEY_SHAPE);
 
     const stored = await mongo!
       .db(TEST_DB)
@@ -69,7 +85,13 @@ describe('service API keys', () => {
       .findOne({ key_id: created.keyId });
     expect(stored?.secret_hash).toMatch(/^[a-f0-9]{64}$/);
     expect(JSON.stringify(stored)).not.toContain(created.key);
-    expect(JSON.stringify(stored)).not.toContain(created.key.split('_').at(-1)!);
+    // Capture the secret by the key's shape rather than `split('_')`. base64url's
+    // alphabet includes `_`, so splitting on it returns whatever follows the LAST
+    // underscore — a one- or two-character tail whenever the secret happens to
+    // contain one near its end. A fragment that short matches something in every
+    // stored document (an ObjectId, the 64-char hash, the timestamp), so the old
+    // form passed by accident and failed a few percent of the time (#2367).
+    expect(JSON.stringify(stored)).not.toContain(secretOf(created.key));
 
     const listed = await listServiceApiKeys();
     expect(listed).toHaveLength(1);
