@@ -12,7 +12,8 @@ exact filename matching. Every service-search response reports `modeUsed` and
 
 ## Requirements
 
-- A current stable Meilisearch v1 release with hybrid search and embedders.
+- Meilisearch v1.50 or newer. CI pins v1.50.0 and exercises Maple's real
+  create-index, settings, task-polling, bulk-upsert, and search wire contract.
 - An Ollama service reachable **from the Meilisearch host**.
 - An Ollama embedding model. Maple defaults to `bge-m3`.
 
@@ -32,7 +33,7 @@ docker run -d \
   -e MEILI_MASTER_KEY='<long-random-secret>' \
   -e MEILI_ENV=production \
   -v maple-meili-data:/meili_data \
-  getmeili/meilisearch:latest
+  getmeili/meilisearch:v1.50.0
 ```
 
 Keep both the Meilisearch key and Maple service keys in a secrets manager.
@@ -54,10 +55,12 @@ The saved URL remains available if the Describe provider changes. Maple
 configures the current batch-capable Ollama `/api/embed` endpoint.
 
 These are database-backed runtime settings and apply without restarting Maple.
-The resolved settings are cached in Maple's in-memory Meilisearch client, so
-search requests do not read the settings document from MongoDB. The selected
-model is used for both document and query vectors. Semantic search defaults off
-until the operator enables it. The optional
+The API process applies a save immediately; the worker process polls the single
+settings row and refreshes its Meilisearch and Describe clients within two
+seconds. Search and per-asset indexing use those process-local caches, so they
+do not read MongoDB per request or asset. The selected model is used for both
+document and query vectors. Semantic search defaults off until the operator
+enables it. The optional
 `MAPLE_MEILISEARCH_URL` and `MAPLE_MEILISEARCH_API_KEY` environment variables
 remain bootstrap fallbacks for the sidecar connection; saved values override
 them.
@@ -65,6 +68,12 @@ them.
 At API startup Maple creates the `assets` index, applies settings, and
 registers the `caption` Ollama embedder. This happens in the HTTP tier even
 when the background worker process is disabled.
+
+The Meilisearch card's **Test connection** action reuses the saved write-only
+API key when the key field is blank. With semantic search enabled it also reads
+the configured embedder and performs a hybrid query, so a missing `caption`
+embedder, wrong model, or unreachable Ollama endpoint is reported instead of a
+misleading health-only success.
 
 The searchable projection includes:
 
@@ -91,15 +100,17 @@ The response reports:
 - whether semantic search is enabled;
 - Meilisearch and embedder reachability;
 - configured embedder/model/blend;
-- raw live-Mongo, indexed, vectorized, and tombstoned document counts;
+- live Mongo count, confirmed live-vector count and coverage ratio;
+- raw index-wide indexed/vectorized counts (diagnostic; may include tombstones);
 - indexing activity and resumable backfill progress.
 
 `embedderConfigured`, `embedderReachable`, and `semantic.enabled` should all be
-`true`. Indexed/vectorized counts are index-wide populations and can include
-tombstones, so do not treat their ratio to the live-Mongo count as a coverage
-percentage. During a backfill, hybrid search continues to return lexical-only
-documents while embeddings catch up. The migration does not need to finish
-before hybrid search works; completed vectors become usable incrementally.
+`true`. `documents.vectorizedLive / documents.live` is the confirmed coverage
+ratio. The `indexedRaw` and `vectorizedRaw` values are index-wide diagnostics
+that can include tombstones. During a backfill, hybrid search continues to
+return lexical-only documents while embeddings catch up. The migration does
+not need to finish before hybrid search works; completed vectors become usable
+incrementally.
 
 ## Resumable backfill
 
@@ -108,10 +119,12 @@ index**. The migration worker sends 500-asset bulk tasks, stores a durable Mongo
 cursor, and reports processed, remaining, and error counts in that panel. It
 automatically disables itself when complete. Pause it with the toggle; use
 **Reset** to clear its cursor and intentionally restart from the beginning.
-`processed` is durable document-submission progress; use the status endpoint's
-`vectorized` count to verify completed embeddings. A retryable task failure
-keeps the cursor in place and shows the bounded Meilisearch/Ollama cause in the
-migration error.
+`processed` advances only after Meilisearch reports the asynchronous task
+succeeded. Permanently invalid documents are isolated from a failed bulk task
+and dead-lettered, allowing valid siblings and the cursor to advance. Transient
+failures retain the cursor and retry five times; the migration then disables
+itself with the cause visible. Fix the dependency and re-enable the migration
+to clear the retry circuit and resume from the same cursor.
 For a slow or CPU-bound Ollama host, increase **Index task timeout** on the
 Meilisearch worker before starting the migration.
 
@@ -127,9 +140,11 @@ curl -X POST \
 ```
 
 The response contains per-call and cumulative `scanned`, `upserted`, `skipped`,
-and `errors` counters plus `nextCursor`. A failed bulk write retains the cursor,
-so the next request retries the same batch. Use `reset=true` to intentionally
-restart from the beginning:
+and `errors` counters plus `nextCursor`. A failed transient bulk write retains
+the cursor, so the next request retries the same batch. Concurrent admin,
+migration, and reset calls are serialized by a renewable Mongo lease; a
+competing request returns `409`. Use `reset=true` to intentionally restart from
+the beginning:
 
 ```sh
 curl -X POST \
@@ -217,3 +232,14 @@ watch the status endpoint and service memory, then increase `batchSize` only if
 indexing stays healthy. Keep the Meilisearch data volume backed up only for
 faster recovery; Mongo and XMP are the sources of truth, so a wiped search
 index can always be rebuilt.
+
+For an opt-in end-to-end relevance check against a real Meilisearch and Ollama
+deployment with `bge-m3` already pulled:
+
+```sh
+cd src/api
+MAPLE_OLLAMA_INTEGRATION=1 \
+MAPLE_MEILISEARCH_INTEGRATION_URL=http://localhost:7700 \
+MAPLE_OLLAMA_INTEGRATION_URL=http://host-reachable-from-meili:11434 \
+bun test src/enrichment/meilisearch-ollama.integration.test.ts
+```

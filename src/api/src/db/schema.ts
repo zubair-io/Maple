@@ -469,6 +469,9 @@ export interface AssetDoc {
    * separate write. The Mongo `$text` index lives on this field
    * (Mongo allows only ONE text index per collection). */
   search_blob?: string;
+  /** Fingerprint of the semantic embedder configuration whose Meilisearch
+   * task completed for this asset. Used for exact live-vector coverage. */
+  semantic_vector_fingerprint?: string;
   /** Per-device link from Apple Photos. Multiple entries when the same
    * content has been observed on more than one device. See
    * `.archived-plans/specs/2026-05-09-photokit-backup-design.md` §16. */

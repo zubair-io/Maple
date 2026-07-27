@@ -13,6 +13,15 @@ export interface MigrationBatchResult {
   processed: number;
   /** Items that errored this batch (logged, left in place for re-try). */
   errors: number;
+  /** Optional authoritative completion signal for cursor-backed migrations. */
+  complete?: boolean;
+}
+
+export class MigrationBlockedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MigrationBlockedError';
+  }
 }
 
 export interface Migration {
@@ -25,6 +34,9 @@ export interface Migration {
   /** Optional fixed batch size for work whose throughput profile differs
    * materially from the generic file-I/O migrations. */
   readonly preferredBatchSize?: number;
+  /** Cursor-backed migrations can self-report completion and avoid two full
+   * count queries around every batch. */
+  readonly selfReportsCompletion?: boolean;
   /** How many items still need transforming. Drives both the Workers-UI
    * "pending" count and done-detection (0 ⇒ done). Must be cheap (a count
    * query), not a full scan. */

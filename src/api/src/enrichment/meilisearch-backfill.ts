@@ -3,16 +3,20 @@ import { assetsCollection, getDb } from '../db/client.ts';
 import type { AssetFaceDoc, FileInfo, Place, TranscriptDoc, VisionDoc } from '../db/schema.ts';
 import { classifyMediaType } from '../indexer/media-types.ts';
 import { child as childLogger } from '../log.ts';
-import { resolveAssetPeopleNames } from '../workers/stages/meili.ts';
+import { loadNamedPeople, peopleNamesForFaces } from '../workers/stages/meili.ts';
 import {
   meilisearchClient,
   type MeilisearchAssetDoc,
   type MeilisearchClient,
 } from './meilisearch-client.ts';
+import { MeilisearchTaskError } from './meilisearch-transport.ts';
+import { withMeilisearchBackfillLease } from './meilisearch-backfill-lease.ts';
+import { markAssetsVectorized } from './meilisearch-vector-coverage.ts';
 import { composeSearchBlob } from './search-blob.ts';
 
 const log = childLogger('enrichment:meilisearch-backfill');
 const STATE_ID = 'assets';
+const MAX_TRANSIENT_RETRIES = 5;
 
 export interface BackfillState {
   _id: string;
@@ -22,6 +26,10 @@ export interface BackfillState {
   tombstoned?: number;
   skipped: number;
   errors: number;
+  remaining?: number;
+  retry_attempts?: number;
+  retry_error?: string | null;
+  blocked_at?: string | null;
   started_at: string;
   updated_at: string;
   completed_at: string | null;
@@ -57,7 +65,7 @@ interface PreparedBatch {
   scanned: number;
   skipped: number;
   errors: number;
-  docs: MeilisearchAssetDoc[];
+  docs: Array<{ row: BackfillRow; doc: MeilisearchAssetDoc }>;
   tombstoneIds: string[];
   lastCursor: ObjectId | null;
 }
@@ -72,6 +80,8 @@ export interface BackfillResult {
   retryable: boolean;
   /** Safe, bounded cause for a retained-cursor write failure. */
   retryableError: string | null;
+  /** True once transient writes exhausted the bounded retry budget. */
+  blocked: boolean;
   complete: boolean;
   nextCursor: string | null;
   cumulative: {
@@ -85,7 +95,7 @@ export interface BackfillResult {
   } | null;
 }
 
-function freshState(now: string): BackfillState {
+function freshState(now: string, remaining: number): BackfillState {
   return {
     _id: STATE_ID,
     cursor: null,
@@ -94,6 +104,10 @@ function freshState(now: string): BackfillState {
     tombstoned: 0,
     skipped: 0,
     errors: 0,
+    remaining,
+    retry_attempts: 0,
+    retry_error: null,
+    blocked_at: null,
     started_at: now,
     updated_at: now,
     completed_at: null,
@@ -106,8 +120,14 @@ async function loadState(
 ): Promise<BackfillState> {
   if (reset) await states.deleteOne({ _id: STATE_ID });
   const state = await states.findOne({ _id: STATE_ID });
-  if (state) return state;
-  const created = freshState(new Date().toISOString());
+  if (state) {
+    if (typeof state.remaining !== 'number' && !state.completed_at) {
+      state.remaining = await countRowsAfter(state.cursor);
+      await states.updateOne({ _id: STATE_ID }, { $set: { remaining: state.remaining } });
+    }
+    return state;
+  }
+  const created = freshState(new Date().toISOString(), await countRowsAfter(null));
   await states.insertOne(created);
   return created;
 }
@@ -155,7 +175,17 @@ export async function countMeilisearchBackfillRemaining(): Promise<number> {
   const states = (await getDb()).collection<BackfillState>('meilisearch_backfill_state');
   const state = await states.findOne({ _id: STATE_ID });
   if (state?.completed_at) return 0;
+  if (typeof state?.remaining === 'number') return state.remaining;
   return countRowsAfter(state?.cursor ?? null);
+}
+
+async function hasRowsAfter(cursor: ObjectId | null): Promise<boolean> {
+  const coll = await assetsCollection();
+  return (
+    (await coll.findOne(rowsAfter(cursor) as Parameters<typeof coll.findOne>[0], {
+      projection: { _id: 1 },
+    })) !== null
+  );
 }
 
 function liveLocation(row: BackfillRow): { folderId: ObjectId; filename: string } | null {
@@ -185,13 +215,13 @@ function capturedAt(row: BackfillRow): string | null {
   return nullIfMissing(row.exif?.captured_at);
 }
 
-async function composeDocument(
+function composeDocument(
   row: BackfillRow,
   mapleId: string,
   folderId: ObjectId,
   filename: string,
-): Promise<MeilisearchAssetDoc> {
-  const people = await resolveAssetPeopleNames(nullIfMissing(row.faces));
+  people: string[],
+): MeilisearchAssetDoc {
   const vision = nullIfMissing(row.vision);
   const visionFields: Partial<VisionDoc> = vision ?? {};
   const searchBlob = composeSearchBlob({
@@ -247,6 +277,7 @@ async function prepareBatch(rows: BackfillRow[], cursor: ObjectId | null): Promi
     tombstoneIds: [],
     lastCursor: cursor,
   };
+  const namesById = await loadNamedPeople(rows.map((row) => row.faces));
   for (const row of rows) {
     prepared.scanned += 1;
     prepared.lastCursor = row._id;
@@ -262,7 +293,11 @@ async function prepareBatch(rows: BackfillRow[], cursor: ObjectId | null): Promi
       continue;
     }
     try {
-      prepared.docs.push(await composeDocument(row, mapleId, location.folderId, location.filename));
+      const people = peopleNamesForFaces(row.faces, namesById);
+      prepared.docs.push({
+        row,
+        doc: composeDocument(row, mapleId, location.folderId, location.filename, people),
+      });
     } catch (error) {
       prepared.errors += 1;
       await recordFailure(row, mapleId, error);
@@ -271,19 +306,66 @@ async function prepareBatch(rows: BackfillRow[], cursor: ObjectId | null): Promi
   return prepared;
 }
 
-async function commitBatch(client: MeilisearchClient, batch: PreparedBatch): Promise<void> {
-  if (client.upsertBatchOrThrow) await client.upsertBatchOrThrow(batch.docs);
-  else for (const doc of batch.docs) await client.upsertOrThrow(doc);
+function isPermanentDocumentFailure(error: unknown): boolean {
+  return (
+    error instanceof MeilisearchTaskError &&
+    (error.code === 'missing_document_id' ||
+      error.code === 'document_fields_limit_reached' ||
+      error.code?.startsWith('invalid_document_') === true)
+  );
+}
+
+async function writeDocuments(
+  client: MeilisearchClient,
+  entries: PreparedBatch['docs'],
+): Promise<{ upserted: number; errors: number; assetIds: ObjectId[] }> {
+  if (entries.length === 0) return { upserted: 0, errors: 0, assetIds: [] };
+  try {
+    if (client.upsertBatchOrThrow) {
+      await client.upsertBatchOrThrow(entries.map((entry) => entry.doc));
+    } else {
+      for (const entry of entries) await client.upsertOrThrow(entry.doc);
+    }
+    return {
+      upserted: entries.length,
+      errors: 0,
+      assetIds: entries.map((entry) => entry.row._id),
+    };
+  } catch (error) {
+    if (!isPermanentDocumentFailure(error)) throw error;
+    if (entries.length === 1) {
+      const entry = entries[0]!;
+      await recordFailure(entry.row, entry.doc.id, error);
+      return { upserted: 0, errors: 1, assetIds: [] };
+    }
+    const middle = Math.ceil(entries.length / 2);
+    const left = await writeDocuments(client, entries.slice(0, middle));
+    const right = await writeDocuments(client, entries.slice(middle));
+    return {
+      upserted: left.upserted + right.upserted,
+      errors: left.errors + right.errors,
+      assetIds: [...left.assetIds, ...right.assetIds],
+    };
+  }
+}
+
+async function commitBatch(
+  client: MeilisearchClient,
+  batch: PreparedBatch,
+): Promise<{ upserted: number; errors: number; assetIds: ObjectId[] }> {
+  const writes = await writeDocuments(client, batch.docs);
 
   if (client.tombstoneBatchOrThrow) await client.tombstoneBatchOrThrow(batch.tombstoneIds);
   else for (const id of batch.tombstoneIds) await client.tombstone(id);
+  await markAssetsVectorized(writes.assetIds, client.semanticFingerprint?.());
+  return writes;
 }
 
 async function saveProgress(
   states: Collection<BackfillState>,
   state: BackfillState,
   batch: PreparedBatch,
-  writeSucceeded: boolean,
+  writes: { upserted: number; errors: number; assetIds: ObjectId[] },
   complete: boolean,
 ): Promise<{ complete: boolean; updatedAt: string }> {
   const updatedAt = new Date().toISOString();
@@ -291,16 +373,20 @@ async function saveProgress(
     { _id: STATE_ID },
     {
       $set: {
-        cursor: writeSucceeded ? batch.lastCursor : state.cursor,
+        cursor: batch.lastCursor,
         updated_at: updatedAt,
         completed_at: complete ? updatedAt : null,
+        remaining: complete ? 0 : Math.max(0, (state.remaining ?? batch.scanned) - batch.scanned),
+        retry_attempts: 0,
+        retry_error: null,
+        blocked_at: null,
       },
       $inc: {
-        scanned: writeSucceeded ? batch.scanned : 0,
-        upserted: writeSucceeded ? batch.docs.length : 0,
-        tombstoned: writeSucceeded ? batch.tombstoneIds.length : 0,
-        skipped: writeSucceeded ? batch.skipped : 0,
-        errors: writeSucceeded ? batch.errors : 0,
+        scanned: batch.scanned,
+        upserted: writes.upserted,
+        tombstoned: batch.tombstoneIds.length,
+        skipped: batch.skipped,
+        errors: batch.errors + writes.errors,
       },
     },
   );
@@ -316,6 +402,7 @@ function completedResult(state: BackfillState): BackfillResult {
     errors: 0,
     retryable: false,
     retryableError: null,
+    blocked: false,
     complete: true,
     nextCursor: null,
     cumulative: {
@@ -330,63 +417,155 @@ function completedResult(state: BackfillState): BackfillResult {
   };
 }
 
-export async function runMeilisearchBackfill(
-  batchSize: number,
-  reset: boolean,
+async function saveRetryFailure(
+  states: Collection<BackfillState>,
+  state: BackfillState,
+  error: string,
+): Promise<{ attempts: number; blocked: boolean; updatedAt: string }> {
+  const attempts = (state.retry_attempts ?? 0) + 1;
+  const blocked = attempts >= MAX_TRANSIENT_RETRIES;
+  const updatedAt = new Date().toISOString();
+  await states.updateOne(
+    { _id: STATE_ID },
+    {
+      $set: {
+        retry_attempts: attempts,
+        retry_error: error,
+        blocked_at: blocked ? updatedAt : null,
+        updated_at: updatedAt,
+      },
+    },
+  );
+  return { attempts, blocked, updatedAt };
+}
+
+/** Clear only the retry circuit; the durable cursor and progress are preserved. */
+export async function clearMeilisearchBackfillRetryState(): Promise<void> {
+  const states = (await getDb()).collection<BackfillState>('meilisearch_backfill_state');
+  await states.updateOne(
+    { _id: STATE_ID },
+    {
+      $set: {
+        retry_attempts: 0,
+        retry_error: null,
+        blocked_at: null,
+        updated_at: new Date().toISOString(),
+      },
+    },
+  );
+}
+
+/** Reset durable progress without racing an active admin or migration batch. */
+export async function resetMeilisearchBackfillState(): Promise<void> {
+  await withMeilisearchBackfillLease(async () => {
+    const db = await getDb();
+    await db.collection<BackfillState>('meilisearch_backfill_state').deleteOne({ _id: STATE_ID });
+  });
+}
+
+function cumulativeResult(state: BackfillState | null): BackfillResult['cumulative'] {
+  if (!state) return null;
+  return {
+    scanned: state.scanned,
+    upserted: state.upserted,
+    tombstoned: state.tombstoned ?? 0,
+    skipped: state.skipped,
+    errors: state.errors,
+    startedAt: state.started_at,
+    updatedAt: state.updated_at,
+  };
+}
+
+async function handleCommitFailure(
+  states: Collection<BackfillState>,
+  state: BackfillState,
+  batch: PreparedBatch,
+  error: unknown,
 ): Promise<BackfillResult> {
+  const retryableError = (error instanceof Error ? error.message : String(error))
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 2000);
+  const retry = await saveRetryFailure(states, state, retryableError);
+  log.warn(
+    {
+      err: retryableError,
+      batchSize: batch.docs.length + batch.tombstoneIds.length,
+      attempt: retry.attempts,
+      blocked: retry.blocked,
+    },
+    retry.blocked
+      ? 'backfill retry budget exhausted; cursor retained and migration blocked'
+      : 'backfill batch failed; cursor retained for retry',
+  );
+  return {
+    scanned: batch.scanned,
+    upserted: 0,
+    tombstoned: 0,
+    skipped: batch.skipped,
+    errors: batch.errors + 1,
+    retryable: true,
+    retryableError,
+    blocked: retry.blocked,
+    complete: false,
+    nextCursor: state.cursor?.toHexString() ?? null,
+    cumulative: cumulativeResult(await states.findOne({ _id: STATE_ID })),
+  };
+}
+
+async function finishCommittedBatch(
+  states: Collection<BackfillState>,
+  state: BackfillState,
+  rows: BackfillRow[],
+  batch: PreparedBatch,
+  writes: { upserted: number; errors: number; assetIds: ObjectId[] },
+  batchSize: number,
+): Promise<BackfillResult> {
+  // A short batch is final without another query. Exact-size batches use a
+  // one-row existence check instead of repeatedly counting the whole suffix.
+  const complete =
+    rows.length < batchSize ||
+    (batch.lastCursor !== null && !(await hasRowsAfter(batch.lastCursor)));
+  await saveProgress(states, state, batch, writes, complete);
+  return {
+    scanned: batch.scanned,
+    upserted: writes.upserted,
+    tombstoned: batch.tombstoneIds.length,
+    skipped: batch.skipped,
+    errors: batch.errors + writes.errors,
+    retryable: false,
+    retryableError: null,
+    blocked: false,
+    complete,
+    nextCursor: complete ? null : (batch.lastCursor?.toHexString() ?? null),
+    cumulative: cumulativeResult(await states.findOne({ _id: STATE_ID })),
+  };
+}
+
+async function runBackfillBatch(batchSize: number, reset: boolean): Promise<BackfillResult> {
   const client = meilisearchClient();
+  if (!client.semanticConfigured()) {
+    throw new Error(
+      'Enable semantic search in Settings → Workers before running the vector backfill.',
+    );
+  }
   await client.ensureIndex();
   const states = (await getDb()).collection<BackfillState>('meilisearch_backfill_state');
   const state = await loadState(states, reset);
   if (state.completed_at) return completedResult(state);
   const rows = await loadRows(state, batchSize);
   const batch = await prepareBatch(rows, state.cursor);
-  let writeSucceeded = true;
-  let retryableError: string | null = null;
   try {
-    await commitBatch(client, batch);
+    const writes = await commitBatch(client, batch);
+    return finishCommittedBatch(states, state, rows, batch, writes, batchSize);
   } catch (error) {
-    writeSucceeded = false;
-    retryableError = (error instanceof Error ? error.message : String(error))
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 2000);
-    log.warn(
-      {
-        err: retryableError,
-        batchSize: batch.docs.length + batch.tombstoneIds.length,
-      },
-      'backfill batch failed; cursor retained for retry',
-    );
+    return handleCommitFailure(states, state, batch, error);
   }
-  // The indexed _id count avoids requiring an extra empty request when the
-  // final batch happens to contain exactly batchSize rows.
-  const complete = writeSucceeded && (await countRowsAfter(batch.lastCursor)) === 0;
-  await saveProgress(states, state, batch, writeSucceeded, complete);
-  const cumulative = await states.findOne({ _id: STATE_ID });
-  const writeErrors = writeSucceeded ? 0 : 1;
-  return {
-    scanned: batch.scanned,
-    upserted: writeSucceeded ? batch.docs.length : 0,
-    tombstoned: writeSucceeded ? batch.tombstoneIds.length : 0,
-    skipped: batch.skipped,
-    errors: batch.errors + writeErrors,
-    retryable: !writeSucceeded,
-    retryableError,
-    complete,
-    nextCursor: complete
-      ? null
-      : ((writeSucceeded ? batch.lastCursor : state.cursor)?.toHexString() ?? null),
-    cumulative: cumulative
-      ? {
-          scanned: cumulative.scanned,
-          upserted: cumulative.upserted,
-          tombstoned: cumulative.tombstoned ?? 0,
-          skipped: cumulative.skipped,
-          errors: cumulative.errors,
-          startedAt: cumulative.started_at,
-          updatedAt: cumulative.updated_at,
-        }
-      : null,
-  };
+}
+
+export async function runMeilisearchBackfill(
+  batchSize: number,
+  reset: boolean,
+): Promise<BackfillResult> {
+  return withMeilisearchBackfillLease(() => runBackfillBatch(batchSize, reset));
 }

@@ -22,6 +22,7 @@
  * (`globalThis.fetch`) the only seam tests need to control.
  */
 
+import { createHash } from 'node:crypto';
 import { child as childLogger } from '../log.ts';
 import {
   readMeilisearchSemanticStatus,
@@ -34,6 +35,7 @@ import {
   joinMeilisearchUrl,
   meilisearchHttp,
   waitForMeilisearchTask,
+  type MeilisearchHttpResult,
   type MeilisearchTaskSummary,
   type MeilisearchTransportConfig,
 } from './meilisearch-transport.ts';
@@ -43,6 +45,11 @@ import {
   DEFAULT_MEILISEARCH_SEMANTIC_ENABLED,
   DEFAULT_MEILISEARCH_SEMANTIC_RATIO,
 } from './meilisearch-config.ts';
+import { MeilisearchSearchError } from './meilisearch-search-error.ts';
+export {
+  MeilisearchSearchError,
+  type MeilisearchFailureDetails,
+} from './meilisearch-search-error.ts';
 
 export type { MeilisearchSemanticStatus } from './meilisearch-semantic-status.ts';
 
@@ -150,60 +157,6 @@ export interface MeilisearchSearchResult {
   scores?: Record<string, number>;
 }
 
-/** Safe subset of a Meilisearch search failure exposed to authenticated
- * service-search consumers. The raw response is deliberately not forwarded. */
-export interface MeilisearchFailureDetails {
-  status: number | null;
-  code: string | null;
-  type: string | null;
-  message: string;
-}
-
-function failureField(
-  source: Record<string, unknown>,
-  key: string,
-  maxLength: number,
-): string | null {
-  const value = source[key];
-  if (typeof value !== 'string') return null;
-  const cleaned = value.replace(/\s+/g, ' ').trim();
-  return cleaned.length > 0 ? cleaned.slice(0, maxLength) : null;
-}
-
-function failureDetails(status: number, errorText: string | null): MeilisearchFailureDetails {
-  let payload: Record<string, unknown> = {};
-  if (errorText) {
-    try {
-      const parsed = JSON.parse(errorText) as unknown;
-      if (parsed && typeof parsed === 'object') payload = parsed as Record<string, unknown>;
-    } catch {
-      payload = {};
-    }
-  }
-  const fallbackMessage = errorText?.replace(/\s+/g, ' ').trim().slice(0, 1000);
-  const message =
-    failureField(payload, 'message', 1000) ??
-    failureField(payload, 'error', 1000) ??
-    fallbackMessage;
-  return {
-    status: status > 0 ? status : null,
-    code: failureField(payload, 'code', 100),
-    type: failureField(payload, 'type', 100),
-    message: message || 'Meilisearch search request failed',
-  };
-}
-
-export class MeilisearchSearchError extends Error {
-  readonly details: MeilisearchFailureDetails;
-
-  constructor(status: number, errorText: string | null) {
-    const details = failureDetails(status, errorText);
-    super(`meilisearch search failed: ${details.message}`);
-    this.name = 'MeilisearchSearchError';
-    this.details = details;
-  }
-}
-
 export interface MeilisearchClient {
   /** Whether the client is configured with a sidecar URL. */
   isConfigured(): boolean;
@@ -211,6 +164,8 @@ export interface MeilisearchClient {
    * switch is on AND the client is configured. The route passes this as
    * the `semantic` flag so hybrid is opt-in and degrades to keyword. */
   semanticConfigured(): boolean;
+  /** Stable non-secret identity of the active vector configuration. */
+  semanticFingerprint?(): string | null;
   /** Reachability check used at boot. Returns false on any error
    * (unconfigured, unreachable, 4xx, etc.) so the caller can warn-and-continue. */
   health(): Promise<boolean>;
@@ -264,6 +219,21 @@ function readConfig(): ClientConfig {
   };
 }
 
+function vectorFingerprint(config: ClientConfig): string | null {
+  if (!isLiveConfig(config) || !config.semantic) return null;
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        version: 1,
+        embedder: EMBEDDER_NAME,
+        url: joinMeilisearchUrl(config.embedderUrl, '/api/embed'),
+        model: config.embedderModel,
+        documentTemplate: '{{ doc.searchBlob }} {{ doc.description }} {{ doc.people }}',
+      }),
+    )
+    .digest('hex');
+}
+
 interface MeiliSearchResponse {
   hits: Array<{ id: string; _rankingScore?: number }>;
   estimatedTotalHits: number;
@@ -305,35 +275,50 @@ function buildFilter(opts: MeilisearchSearchOptions): string {
   return clauses.join(' AND ');
 }
 
+function createIndexAlreadySatisfied(
+  result: MeilisearchHttpResult<MeilisearchTaskSummary>,
+): boolean {
+  return result.status === 409 || (result.errorText ?? '').includes('index_already_exists');
+}
+
+function throwCreateIndexFailure(result: MeilisearchHttpResult<MeilisearchTaskSummary>): never {
+  log.warn(
+    {
+      status: result.status,
+      err: result.errorText,
+      settingsVersion: REQUIRED_SETTINGS_VERSION,
+    },
+    'meilisearch ensureIndex create-index failed',
+  );
+  throw new Error(`meilisearch create index failed: ${result.errorText ?? result.status}`);
+}
+
+async function awaitIndexCreation(
+  config: ClientConfig,
+  result: MeilisearchHttpResult<MeilisearchTaskSummary>,
+): Promise<void> {
+  if (!result.ok) {
+    if (createIndexAlreadySatisfied(result)) return;
+    throwCreateIndexFailure(result);
+  }
+  if (result.status !== 202) return;
+  try {
+    await waitForMeilisearchTask(config, result, 'create assets index');
+  } catch (error) {
+    // The HTTP and worker processes can both observe a missing index and
+    // enqueue creation concurrently. One task wins; the other fails later
+    // with index_already_exists. The desired postcondition is satisfied.
+    if (error instanceof MeilisearchTaskError && error.code === 'index_already_exists') return;
+    throw error;
+  }
+}
+
 async function createAssetsIndex(config: ClientConfig): Promise<void> {
   const result = await meilisearchHttp<MeilisearchTaskSummary>(config, 'POST', '/indexes', {
     uid: ASSETS_INDEX,
     primaryKey: 'id',
   });
-  const alreadyExists =
-    result.status === 409 || (result.errorText ?? '').includes('index_already_exists');
-  if (!result.ok && !alreadyExists) {
-    log.warn(
-      {
-        status: result.status,
-        err: result.errorText,
-        settingsVersion: REQUIRED_SETTINGS_VERSION,
-      },
-      'meilisearch ensureIndex create-index failed',
-    );
-    throw new Error(`meilisearch create index failed: ${result.errorText ?? result.status}`);
-  }
-  if (result.ok && result.status === 202) {
-    try {
-      await waitForMeilisearchTask(config, result, 'create assets index');
-    } catch (error) {
-      // The HTTP and worker processes can both observe a missing index and
-      // enqueue creation concurrently. One task wins; the other fails later
-      // with index_already_exists. The desired postcondition is satisfied.
-      if (error instanceof MeilisearchTaskError && error.code === 'index_already_exists') return;
-      throw error;
-    }
-  }
+  await awaitIndexCreation(config, result);
 }
 
 function assetsIndexSettings(config: ClientConfig): Record<string, unknown> {
@@ -455,6 +440,10 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
       return isLiveConfig(cfg) && cfg.semantic;
     },
 
+    semanticFingerprint(): string | null {
+      return vectorFingerprint(cfg);
+    },
+
     async health(): Promise<boolean> {
       if (!isLiveConfig(cfg)) return false;
       const result = await meilisearchHttp<{ status: string }>(cfg, 'GET', '/health');
@@ -488,12 +477,13 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
         throw new Error('meilisearch: not configured');
       }
       // Meilisearch's documents endpoint upserts on the primary key.
-      const r = await meilisearchHttp<unknown>(cfg, 'POST', `/indexes/${ASSETS_INDEX}/documents`, [
-        doc,
-      ]);
-      if (!r.ok) {
-        throw new Error(`meilisearch upsert failed: status=${r.status} ${r.errorText ?? ''}`);
-      }
+      const accepted = await meilisearchHttp<MeilisearchTaskSummary>(
+        cfg,
+        'POST',
+        `/indexes/${ASSETS_INDEX}/documents`,
+        [doc],
+      );
+      await waitForMeilisearchTask(cfg, accepted, 'asset upsert');
     },
 
     async upsertBatchOrThrow(docs: MeilisearchAssetDoc[]): Promise<void> {

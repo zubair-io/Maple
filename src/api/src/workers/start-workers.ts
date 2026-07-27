@@ -35,14 +35,16 @@ import { startGeocodeWorker, stopGeocodeWorker } from '../enrichment/bootstrap.t
 import { startFaceWorker, stopFaceWorker } from '../enrichment/face-bootstrap.ts';
 import { getFaceModelsStatus } from '../enrichment/face-models.ts';
 import { startDescribeWorker, stopDescribeWorker } from '../enrichment/describe-bootstrap.ts';
-import { meilisearchClient, reconfigureMeilisearch } from '../enrichment/meilisearch-client.ts';
-import { loadEnrichmentConfig } from '../enrichment/enrichment-config.repo.ts';
-import { resolveEnrichmentConfig } from '../enrichment/enrichment-config.resolve.ts';
 import { startJobRunner, stopJobRunner } from '../job-runner/runner.ts';
 import { startImportRunner, stopImportRunner } from '../imports/worker.ts';
 import { writeWorkerStatus } from './worker-status.repo.ts';
 import { startMaintenanceJobs, stopMaintenanceJobs } from './maintenance.ts';
 import { flushPendingMirrorOps } from '../fs/mirrored.ts';
+import {
+  refreshWorkerEnrichmentConfig,
+  startWorkerEnrichmentConfigRefresh,
+  stopWorkerEnrichmentConfigRefresh,
+} from './enrichment-config-refresh.ts';
 
 const log = childLogger('workers');
 
@@ -128,38 +130,11 @@ export async function startWorkers(): Promise<void> {
   ]);
 
   try {
-    // Meilisearch sidecar — stage side. Resolve the URL from the DB-backed
-    // enrichment config first (operator can set it via /settings/workers); a
-    // saved value wins over the MAPLE_MEILISEARCH_URL env var.
-    // reconfigureMeilisearch rebuilds the shared client so the meili stage
-    // agrees. ensureIndex() creates the index if absent.
-    //
-    // NOTE: index.ts also calls reconfigureMeilisearch on its own for the
-    // search route. Since both run in the same process for now (Task 1),
-    // either call suffices; the stage side call here covers the workers.
-    const resolvedMeili = resolveEnrichmentConfig(await loadEnrichmentConfig());
-    reconfigureMeilisearch({
-      url: resolvedMeili.meilisearch_url,
-      apiKey: resolvedMeili.meilisearch_api_key,
-      taskTimeoutMs: resolvedMeili.meilisearch_task_timeout_seconds * 1000,
-      semanticEnabled: resolvedMeili.meilisearch_semantic_enabled,
-      embedderUrl: resolvedMeili.meilisearch_embedder_url,
-      embedderModel: resolvedMeili.meilisearch_embedder_model,
-      semanticRatio: resolvedMeili.meilisearch_semantic_ratio,
-    });
-    const meili = meilisearchClient();
-    if (!meili.isConfigured()) {
-      log.info('Meilisearch URL unset (DB + MAPLE_MEILISEARCH_URL) — sidecar disabled');
-    } else if (!(await meili.health())) {
-      log.warn(
-        'Meilisearch health check failed; search will fall back to Mongo $text until the service is reachable',
-      );
-    } else {
-      await meili.ensureIndex();
-      log.info('Meilisearch sidecar ready');
-    }
+    await refreshWorkerEnrichmentConfig(true);
+    startWorkerEnrichmentConfigRefresh();
   } catch (err) {
     log.warn({ err }, 'Meilisearch boot failed; search will fall back to Mongo $text');
+    startWorkerEnrichmentConfigRefresh();
   }
 
   try {
@@ -210,6 +185,8 @@ export async function startWorkers(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function stopWorkers(): Promise<void> {
+  stopWorkerEnrichmentConfigRefresh();
+
   // Clear the status-publishing interval before tearing down subsystems so
   // we don't fire a best-effort write after the DB connection closes.
   if (_statusInterval !== null) {

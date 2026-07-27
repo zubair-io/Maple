@@ -37,6 +37,64 @@ import { classifyMediaType } from '../../indexer/media-types.ts';
  * from both the search blob and the Meili `people` attribute. */
 const AUTO_PERSON_NAME = /^Person \d+$/;
 
+function validPersonIds(faces: AssetFaceDoc[] | null | undefined): ObjectId[] {
+  if (!faces || faces.length === 0) return [];
+  const ids: ObjectId[] = [];
+  const seen = new Set<string>();
+  for (const face of faces) {
+    const hex = face.person_id;
+    if (!hex || seen.has(hex) || !/^[0-9a-f]{24}$/i.test(hex)) continue;
+    seen.add(hex);
+    ids.push(new ObjectId(hex));
+  }
+  return ids;
+}
+
+/** Load all indexable person names for one or more assets in a single query. */
+export async function loadNamedPeople(
+  faceSets: Array<AssetFaceDoc[] | null | undefined>,
+): Promise<Map<string, string>> {
+  const uniqueIds = new Map<string, ObjectId>();
+  for (const faces of faceSets) {
+    for (const id of validPersonIds(faces)) uniqueIds.set(id.toHexString(), id);
+  }
+  if (uniqueIds.size === 0) return new Map();
+
+  const coll = await peopleCollection();
+  const rows = await coll
+    .find({
+      _id: { $in: [...uniqueIds.values()] },
+      merged_into: null,
+      hidden: { $ne: true },
+    } as never)
+    .project<{ _id: ObjectId; name: PersonDoc['name'] }>({ _id: 1, name: 1 })
+    .toArray();
+  return new Map(
+    rows
+      .filter(
+        (row) =>
+          typeof row.name === 'string' && row.name.length > 0 && !AUTO_PERSON_NAME.test(row.name),
+      )
+      .map((row) => [row._id.toHexString(), row.name]),
+  );
+}
+
+/** Resolve an asset's ordered, de-duplicated names from a batch name map. */
+export function peopleNamesForFaces(
+  faces: AssetFaceDoc[] | null | undefined,
+  namesById: ReadonlyMap<string, string>,
+): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const id of validPersonIds(faces)) {
+    const name = namesById.get(id.toHexString());
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    names.push(name);
+  }
+  return names;
+}
+
 /**
  * Resolve the named people on an asset from its `faces[].person_id`s.
  * Dedupes person ids, looks up `peopleCollection`, and returns the names
@@ -45,42 +103,16 @@ const AUTO_PERSON_NAME = /^Person \d+$/;
  * has no assigned faces, which keeps the no-Mongo / fixture test paths
  * cheap and offline.
  */
-export async function resolveAssetPeopleNames(
+async function resolveAssetPeopleNames(
   faces: AssetFaceDoc[] | null | undefined,
 ): Promise<string[]> {
-  if (!faces || faces.length === 0) return [];
-  const ids: ObjectId[] = [];
-  const seen = new Set<string>();
-  for (const f of faces) {
-    const hex = f.person_id;
-    if (!hex || seen.has(hex)) continue;
-    seen.add(hex);
-    if (!/^[0-9a-f]{24}$/i.test(hex)) continue;
-    try {
-      ids.push(new ObjectId(hex));
-    } catch {
-      // Malformed id — skip.
-    }
-  }
-  if (ids.length === 0) return [];
-  const coll = await peopleCollection();
-  const rows = await coll
-    .find({ _id: { $in: ids }, merged_into: null } as never)
-    .project<{ name: string }>({ name: 1 })
-    .toArray();
-  const names: string[] = [];
-  for (const r of rows) {
-    const name = (r as Pick<PersonDoc, 'name'>).name;
-    if (typeof name === 'string' && name.length > 0 && !AUTO_PERSON_NAME.test(name)) {
-      names.push(name);
-    }
-  }
-  return names;
+  const namesById = await loadNamedPeople([faces]);
+  return peopleNamesForFaces(faces, namesById);
 }
 
 // Tests inject a fake here; production leaves it null and reads the live
-// module singleton on every call so an operator's `PUT /enrichment/config`
-// reconfigure (reconfigureMeilisearch) is picked up without a restart.
+// module singleton on every call so the API-process save path and the
+// worker-process DB refresh can replace it without restarting either process.
 let _testClient: MeilisearchClient | null = null;
 function getClient(): MeilisearchClient {
   return _testClient ?? meilisearchClient();
@@ -175,7 +207,13 @@ export async function meiliHandler(image: ImageDoc, _ctx: StageContext): Promise
     );
   }
 
-  return { patch: { search_blob: blob } };
+  const semanticFingerprint = client.semanticFingerprint?.();
+  return {
+    patch: {
+      search_blob: blob,
+      ...(semanticFingerprint ? { semantic_vector_fingerprint: semanticFingerprint } : {}),
+    },
+  };
 }
 
 const meiliStage = defineStage({
