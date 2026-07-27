@@ -41,6 +41,11 @@ export interface Migration {
    * "pending" count and done-detection (0 ⇒ done). Must be cheap (a count
    * query), not a full scan. */
   countRemaining(): Promise<number>;
+  /** Optional live count of items parked in a migration-specific dead-letter
+   * queue, distinct from the cumulative per-run `errors` counter (which never
+   * decreases even after a row is redriven). Surfaced as `failedPermanently`
+   * in the Workers panel row when a migration implements this. */
+  countFailedPermanently?(): Promise<number>;
   /** Transform at most `batchSize` items. Returns per-batch progress. Must be
    * idempotent: a re-run over already-migrated items is a no-op. */
   runBatch(batchSize: number): Promise<MigrationBatchResult>;

@@ -1,18 +1,21 @@
 import type { Collection, ObjectId } from 'mongodb';
 import { assetsCollection, getDb } from '../db/client.ts';
-import type { AssetFaceDoc, FileInfo, Place, TranscriptDoc, VisionDoc } from '../db/schema.ts';
-import { classifyMediaType } from '../indexer/media-types.ts';
 import { child as childLogger } from '../log.ts';
 import { loadNamedPeople, peopleNamesForFaces } from '../workers/stages/meili.ts';
-import {
-  meilisearchClient,
-  type MeilisearchAssetDoc,
-  type MeilisearchClient,
-} from './meilisearch-client.ts';
-import { MeilisearchTaskError } from './meilisearch-transport.ts';
+import { meilisearchClient } from './meilisearch-client.ts';
 import { withMeilisearchBackfillLease } from './meilisearch-backfill-lease.ts';
-import { markAssetsVectorized } from './meilisearch-vector-coverage.ts';
-import { composeSearchBlob } from './search-blob.ts';
+import {
+  ROW_PROJECTION,
+  commitBatch,
+  composeDocument,
+  liveLocation,
+  recordFailure,
+  type BackfillRow,
+  type ComposedEntry,
+} from './meilisearch-backfill-compose.ts';
+import { redriveMeilisearchBackfillFailures } from './meilisearch-backfill-redrive.ts';
+
+export { countMeilisearchBackfillFailures } from './meilisearch-backfill-redrive.ts';
 
 const log = childLogger('enrichment:meilisearch-backfill');
 const STATE_ID = 'assets';
@@ -35,37 +38,11 @@ export interface BackfillState {
   completed_at: string | null;
 }
 
-interface BackfillFailure {
-  _id: ObjectId;
-  maple_id: string;
-  error: string;
-  attempts: number;
-  updated_at: string;
-}
-
-interface BackfillRow {
-  _id: ObjectId;
-  maple_id?: string;
-  folder_id?: ObjectId;
-  filename?: string;
-  fileinfo?: FileInfo[];
-  exif?: { captured_at?: string | null } | null;
-  place?: Place | null;
-  description?: string | null;
-  ocr_text?: string | null;
-  transcript?: TranscriptDoc | null;
-  vision?: VisionDoc | null;
-  is_screenshot?: boolean | null;
-  faces?: AssetFaceDoc[] | null;
-  deleted_at?: string | null;
-  hidden?: boolean;
-}
-
 interface PreparedBatch {
   scanned: number;
   skipped: number;
   errors: number;
-  docs: Array<{ row: BackfillRow; doc: MeilisearchAssetDoc }>;
+  docs: ComposedEntry[];
   tombstoneIds: string[];
   lastCursor: ObjectId | null;
 }
@@ -142,23 +119,7 @@ async function loadRows(state: BackfillState, batchSize: number): Promise<Backfi
   const coll = await assetsCollection();
   return (await coll
     .find(rowsAfter(state.cursor) as Parameters<typeof coll.find>[0], {
-      projection: {
-        _id: 1,
-        maple_id: 1,
-        folder_id: 1,
-        filename: 1,
-        fileinfo: 1,
-        'exif.captured_at': 1,
-        place: 1,
-        description: 1,
-        ocr_text: 1,
-        transcript: 1,
-        vision: 1,
-        is_screenshot: 1,
-        faces: 1,
-        deleted_at: 1,
-        hidden: 1,
-      },
+      projection: ROW_PROJECTION,
     })
     .sort({ _id: 1 })
     .limit(batchSize)
@@ -188,86 +149,6 @@ async function hasRowsAfter(cursor: ObjectId | null): Promise<boolean> {
   );
 }
 
-function liveLocation(row: BackfillRow): { folderId: ObjectId; filename: string } | null {
-  if (row.deleted_at != null) return null;
-  if (row.fileinfo && row.fileinfo.length > 0) {
-    const primary = row.fileinfo.find(
-      (entry) => entry.deleted_at == null && entry.missing_since == null,
-    );
-    return primary ? { folderId: primary.library_id, filename: primary.filename } : null;
-  }
-  return row.folder_id && row.filename ? { folderId: row.folder_id, filename: row.filename } : null;
-}
-
-function nullIfMissing<T>(value: T | null | undefined): T | null {
-  return value === undefined ? null : value;
-}
-
-function nullIfEmpty<T>(values: T[]): T[] | null {
-  return values.length === 0 ? null : values;
-}
-
-function transcriptText(row: BackfillRow): string | null {
-  return nullIfMissing(row.transcript?.text);
-}
-
-function capturedAt(row: BackfillRow): string | null {
-  return nullIfMissing(row.exif?.captured_at);
-}
-
-function composeDocument(
-  row: BackfillRow,
-  mapleId: string,
-  folderId: ObjectId,
-  filename: string,
-  people: string[],
-): MeilisearchAssetDoc {
-  const vision = nullIfMissing(row.vision);
-  const visionFields: Partial<VisionDoc> = vision ?? {};
-  const searchBlob = composeSearchBlob({
-    place: nullIfMissing(row.place),
-    description: nullIfMissing(row.description),
-    ocrText: nullIfMissing(row.ocr_text),
-    transcript: transcriptText(row),
-    visionSubjects: nullIfMissing(visionFields.subjects),
-    visionSetting: nullIfMissing(visionFields.setting),
-    visionActivity: nullIfMissing(visionFields.activity),
-    visionNotableObjects: nullIfMissing(visionFields.notable_objects),
-    people,
-  });
-  return {
-    id: mapleId,
-    filename,
-    searchBlob,
-    description: nullIfMissing(row.description),
-    ocrText: nullIfMissing(row.ocr_text),
-    folderId: folderId.toHexString(),
-    capturedAt: capturedAt(row),
-    deletedAt: null,
-    visionSceneType: nullIfMissing(visionFields.scene_type),
-    visionActivity: nullIfMissing(visionFields.activity),
-    visionSubjects: nullIfMissing(visionFields.subjects),
-    isScreenshot: nullIfMissing(row.is_screenshot),
-    people: nullIfEmpty(people),
-    mediaType: classifyMediaType(filename),
-    hidden: row.hidden === true,
-  };
-}
-
-async function recordFailure(row: BackfillRow, mapleId: string, error: unknown): Promise<void> {
-  const message = error instanceof Error ? error.message : String(error);
-  const failures = (await getDb()).collection<BackfillFailure>('meilisearch_backfill_failures');
-  await failures.updateOne(
-    { _id: row._id },
-    {
-      $set: { maple_id: mapleId, error: message, updated_at: new Date().toISOString() },
-      $inc: { attempts: 1 },
-    },
-    { upsert: true },
-  );
-  log.warn({ mapleId, err: message }, 'backfill row dead-lettered');
-}
-
 async function prepareBatch(rows: BackfillRow[], cursor: ObjectId | null): Promise<PreparedBatch> {
   const prepared: PreparedBatch = {
     scanned: 0,
@@ -280,6 +161,12 @@ async function prepareBatch(rows: BackfillRow[], cursor: ObjectId | null): Promi
   const namesById = await loadNamedPeople(rows.map((row) => row.faces));
   for (const row of rows) {
     prepared.scanned += 1;
+    // Advance past this row unconditionally, including on a compose/write
+    // failure below — a durable cursor that never revisits a dead-lettered
+    // row is what keeps one bad row from stalling the whole migration. This
+    // is safe because the end-of-run redrive pass (`redriveMeilisearchBackfillFailures`,
+    // triggered once the cursor pass completes) re-attempts every row parked
+    // in `meilisearch_backfill_failures` regardless of where the cursor is.
     prepared.lastCursor = row._id;
     const mapleId = row.maple_id;
     if (!mapleId) {
@@ -304,61 +191,6 @@ async function prepareBatch(rows: BackfillRow[], cursor: ObjectId | null): Promi
     }
   }
   return prepared;
-}
-
-function isPermanentDocumentFailure(error: unknown): boolean {
-  return (
-    error instanceof MeilisearchTaskError &&
-    (error.code === 'missing_document_id' ||
-      error.code === 'document_fields_limit_reached' ||
-      error.code?.startsWith('invalid_document_') === true)
-  );
-}
-
-async function writeDocuments(
-  client: MeilisearchClient,
-  entries: PreparedBatch['docs'],
-): Promise<{ upserted: number; errors: number; assetIds: ObjectId[] }> {
-  if (entries.length === 0) return { upserted: 0, errors: 0, assetIds: [] };
-  try {
-    if (client.upsertBatchOrThrow) {
-      await client.upsertBatchOrThrow(entries.map((entry) => entry.doc));
-    } else {
-      for (const entry of entries) await client.upsertOrThrow(entry.doc);
-    }
-    return {
-      upserted: entries.length,
-      errors: 0,
-      assetIds: entries.map((entry) => entry.row._id),
-    };
-  } catch (error) {
-    if (!isPermanentDocumentFailure(error)) throw error;
-    if (entries.length === 1) {
-      const entry = entries[0]!;
-      await recordFailure(entry.row, entry.doc.id, error);
-      return { upserted: 0, errors: 1, assetIds: [] };
-    }
-    const middle = Math.ceil(entries.length / 2);
-    const left = await writeDocuments(client, entries.slice(0, middle));
-    const right = await writeDocuments(client, entries.slice(middle));
-    return {
-      upserted: left.upserted + right.upserted,
-      errors: left.errors + right.errors,
-      assetIds: [...left.assetIds, ...right.assetIds],
-    };
-  }
-}
-
-async function commitBatch(
-  client: MeilisearchClient,
-  batch: PreparedBatch,
-): Promise<{ upserted: number; errors: number; assetIds: ObjectId[] }> {
-  const writes = await writeDocuments(client, batch.docs);
-
-  if (client.tombstoneBatchOrThrow) await client.tombstoneBatchOrThrow(batch.tombstoneIds);
-  else for (const id of batch.tombstoneIds) await client.tombstone(id);
-  await markAssetsVectorized(writes.assetIds, client.semanticFingerprint?.());
-  return writes;
 }
 
 async function saveProgress(
@@ -557,7 +389,16 @@ async function runBackfillBatch(batchSize: number, reset: boolean): Promise<Back
   const batch = await prepareBatch(rows, state.cursor);
   try {
     const writes = await commitBatch(client, batch);
-    return finishCommittedBatch(states, state, rows, batch, writes, batchSize);
+    const result = await finishCommittedBatch(states, state, rows, batch, writes, batchSize);
+    // The cursor pass just reached the end of the library — redrive every row
+    // parked in `meilisearch_backfill_failures` (bounded to `batchSize`) while
+    // still holding this call's backfill lease, so a transient failure gets a
+    // same-run retry instead of sitting silently until an operator notices.
+    // Best-effort: a redrive failure never turns this already-successful batch
+    // into a retryable/blocked one — unresolved rows just stay queued for the
+    // next completed run (e.g. an operator re-enabling the migration).
+    if (result.complete) await redriveMeilisearchBackfillFailures(client, batchSize);
+    return result;
   } catch (error) {
     return handleCommitFailure(states, state, batch, error);
   }

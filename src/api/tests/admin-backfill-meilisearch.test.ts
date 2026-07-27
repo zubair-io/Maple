@@ -463,10 +463,13 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
     expect(body.complete).toBe(true);
     expect(body.errors).toBe(1);
     expect(body.nextCursor).toBeNull();
+    // `complete` in this same call also runs the end-of-run redrive pass. The
+    // row's folder_id is still malformed, so the immediate re-attempt fails
+    // the same way and `attempts` reflects both tries.
     const failure = await db!
       .collection('meilisearch_backfill_failures')
       .findOne({ maple_id: 'broken-row' });
-    expect(failure?.attempts).toBe(1);
+    expect(failure?.attempts).toBe(2);
   });
 
   it('retains the cursor and retries an idempotent batch after a write failure', async () => {
@@ -579,5 +582,28 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
     const { BACKFILL_MEILISEARCH_VECTORS_ID } = await import('../src/workers/migration/ids.ts');
     await resetMigrationState(BACKFILL_MEILISEARCH_VECTORS_ID);
     expect(await backfillMeilisearchVectors.countRemaining()).toBe(3);
+  });
+
+  it('surfaces the live dead-letter backlog through the migration adapter', async () => {
+    if (!mongoReachable) return;
+    await db!.collection('assets').insertOne({
+      ...makeRow('status-broken', 'bad folder id'),
+      folder_id: 'not-an-object-id',
+    });
+    const meili = makeCapturingMeili();
+    setMeilisearchClientForTests(meili.client);
+    const { backfillMeilisearchVectors } =
+      await import('../src/workers/migration/backfill-meilisearch-vectors.ts');
+
+    // A migration without a dead-letter queue omits the field entirely; this
+    // one always implements it.
+    expect(backfillMeilisearchVectors.countFailedPermanently).toBeDefined();
+    expect(await backfillMeilisearchVectors.countFailedPermanently!()).toBe(0);
+
+    // The row's folder_id never becomes valid, so both the initial compose
+    // failure and the same-run redrive re-attempt fail — the row stays
+    // dead-lettered and the live count reflects it.
+    await backfillMeilisearchVectors.runBatch(10);
+    expect(await backfillMeilisearchVectors.countFailedPermanently!()).toBe(1);
   });
 });

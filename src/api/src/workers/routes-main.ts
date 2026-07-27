@@ -158,6 +158,16 @@ export function workerRoutes(): Elysia {
               } catch {
                 /* best-effort — surface 0 if the count query fails */
               }
+              // Only migrations that implement `countFailedPermanently` (a
+              // migration-specific dead-letter queue) surface the field at all.
+              let failedPermanently: number | undefined;
+              if (m.countFailedPermanently) {
+                try {
+                  failedPermanently = await m.countFailedPermanently();
+                } catch {
+                  /* best-effort — omit the field if the count query fails */
+                }
+              }
               return {
                 id: m.id,
                 title: m.title,
@@ -167,6 +177,7 @@ export function workerRoutes(): Elysia {
                 processed: state.processed,
                 errors: state.errors,
                 remaining,
+                ...(failedPermanently !== undefined ? { failedPermanently } : {}),
                 last_error: state.last_error,
                 started_at: state.started_at,
                 finished_at: state.finished_at,

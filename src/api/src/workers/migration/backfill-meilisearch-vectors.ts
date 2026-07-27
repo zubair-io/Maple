@@ -10,6 +10,7 @@ import {
   countMeilisearchBackfillRemaining,
   runMeilisearchBackfill,
 } from '../../enrichment/meilisearch-backfill.ts';
+import { countMeilisearchBackfillFailures } from '../../enrichment/meilisearch-backfill-redrive.ts';
 import { meilisearchClient } from '../../enrichment/meilisearch-client.ts';
 import { BACKFILL_MEILISEARCH_VECTORS_ID } from './ids.ts';
 import type { Migration } from './types.ts';
@@ -28,6 +29,11 @@ export const backfillMeilisearchVectors: Migration = {
   selfReportsCompletion: true,
 
   countRemaining: countMeilisearchBackfillRemaining,
+  // Live backlog in `meilisearch_backfill_failures` — rows the end-of-run
+  // redrive pass hasn't yet resolved. Surfaced separately from `errors`
+  // (cumulative, never decreases) so an operator can see whether anything
+  // still needs attention.
+  countFailedPermanently: countMeilisearchBackfillFailures,
 
   async runBatch(batchSize) {
     if (!meilisearchClient().semanticConfigured()) {
