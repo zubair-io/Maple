@@ -244,6 +244,21 @@ interface MeiliSearchResponse {
   estimatedTotalHits: number;
 }
 
+/** Keys the embedder documentTemplate dereferences (`{{ doc.searchBlob }}
+ * {{ doc.description }} {{ doc.people }}`). Once an embedder is configured,
+ * Meilisearch renders the template for EVERY incoming document with strict
+ * liquid lookups: a document MISSING any of these keys rejects its whole
+ * batch (`invalid_document_fields` — #2369, hit live by tombstone docs
+ * during the semantic backfill). Null-VALUED keys render fine
+ * (`composeDocument` has always sent `description: null` / `people: null`),
+ * so the defaults mirror that shape. `POST /documents` is a full replace,
+ * so defaulting a key can never clobber live state. */
+const TEMPLATE_FIELD_DEFAULTS = { searchBlob: '', description: null, people: null };
+
+function withTemplateFields<T extends { id: string }>(doc: T): T {
+  return { ...TEMPLATE_FIELD_DEFAULTS, ...doc };
+}
+
 function createIndexAlreadySatisfied(
   result: MeilisearchHttpResult<MeilisearchTaskSummary>,
 ): boolean {
@@ -409,7 +424,7 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
       if (!isLiveConfig(cfg)) return;
       // Meilisearch's documents endpoint upserts on the primary key.
       const r = await meilisearchHttp<unknown>(cfg, 'POST', `/indexes/${ASSETS_INDEX}/documents`, [
-        doc,
+        withTemplateFields(doc),
       ]);
       if (!r.ok) {
         log.warn({ id: doc.id, status: r.status, err: r.errorText }, 'meilisearch upsert failed');
@@ -425,7 +440,7 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
         cfg,
         'POST',
         `/indexes/${ASSETS_INDEX}/documents`,
-        [doc],
+        [withTemplateFields(doc)],
       );
       await waitForMeilisearchTask(cfg, accepted, 'asset upsert');
     },
@@ -439,7 +454,7 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
         cfg,
         'POST',
         `/indexes/${ASSETS_INDEX}/documents`,
-        docs,
+        docs.map(withTemplateFields),
       );
       await waitForMeilisearchTask(cfg, accepted, 'batch upsert');
     },
@@ -452,7 +467,7 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
         cfg,
         'POST',
         `/indexes/${ASSETS_INDEX}/documents`,
-        ids.map((id) => ({ id, deletedAt })),
+        ids.map((id) => withTemplateFields({ id, deletedAt })),
       );
       await waitForMeilisearchTask(cfg, accepted, 'batch tombstone');
     },
@@ -463,7 +478,7 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
       // the row stays addressable for diagnostics. The search filter
       // `deletedAt IS NULL` keeps it out of results.
       const r = await meilisearchHttp<unknown>(cfg, 'POST', `/indexes/${ASSETS_INDEX}/documents`, [
-        { id, deletedAt: new Date().toISOString() },
+        withTemplateFields({ id, deletedAt: new Date().toISOString() }),
       ]);
       if (!r.ok) {
         log.warn({ id, status: r.status, err: r.errorText }, 'meilisearch tombstone failed');
