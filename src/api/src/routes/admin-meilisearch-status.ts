@@ -7,6 +7,7 @@ import {
 } from '../enrichment/meilisearch-config.ts';
 import type { MeilisearchSemanticStatus } from '../enrichment/meilisearch-client.ts';
 import type { BackfillState } from '../enrichment/meilisearch-backfill.ts';
+import { LIVE_ASSET_FILTER } from '../enrichment/meilisearch-vector-coverage.ts';
 
 const unavailableStatus = (): MeilisearchSemanticStatus => ({
   configured: false,
@@ -23,58 +24,70 @@ const unavailableStatus = (): MeilisearchSemanticStatus => ({
   error: 'status_not_supported',
 });
 
-export const adminMeilisearchStatusRoutes = new Elysia({
-  prefix: '/api/admin/enrichment',
-}).get('/meilisearch-status', async () => {
+function backfillStatus(backfill: BackfillState): string {
+  if (!backfill.completed_at) return 'in_progress';
+  return backfill.errors > 0 ? 'complete_with_errors' : 'complete';
+}
+
+function backfillPayload(backfill: BackfillState | null): Record<string, unknown> {
+  if (!backfill) {
+    return {
+      status: 'not_started',
+      scanned: 0,
+      upserted: 0,
+      tombstoned: 0,
+      skipped: 0,
+      errors: 0,
+      startedAt: null,
+      updatedAt: null,
+      completedAt: null,
+    };
+  }
+  return {
+    status: backfillStatus(backfill),
+    scanned: backfill.scanned,
+    upserted: backfill.upserted,
+    tombstoned: backfill.tombstoned ?? 0,
+    skipped: backfill.skipped,
+    errors: backfill.errors,
+    startedAt: backfill.started_at,
+    updatedAt: backfill.updated_at,
+    completedAt: backfill.completed_at,
+  };
+}
+
+async function liveVectorizedCount(fingerprint: string | null): Promise<number> {
+  if (!fingerprint) return 0;
+  return (await assetsCollection()).countDocuments({
+    ...LIVE_ASSET_FILTER,
+    semantic_vector_fingerprint: fingerprint,
+  } as never);
+}
+
+async function loadAdminMeilisearchStatus(): Promise<Record<string, unknown>> {
   const client = meilisearchClient();
-  const [semantic, liveDocumentCount, backfill] = await Promise.all([
+  const fingerprint = client.semanticFingerprint?.() ?? null;
+  const assets = await assetsCollection();
+  const db = await getDb();
+  const [semantic, liveDocumentCount, vectorizedLive, backfill] = await Promise.all([
     client.semanticStatus?.() ?? Promise.resolve(unavailableStatus()),
-    (await assetsCollection()).countDocuments({
-      deleted_at: { $in: [null] },
-      fileinfo: {
-        $elemMatch: {
-          deleted_at: { $in: [null] },
-          missing_since: { $in: [null] },
-        },
-      },
-    }),
-    (await getDb())
-      .collection<BackfillState>('meilisearch_backfill_state')
-      .findOne({ _id: 'assets' }),
+    assets.countDocuments(LIVE_ASSET_FILTER as never),
+    liveVectorizedCount(fingerprint),
+    db.collection<BackfillState>('meilisearch_backfill_state').findOne({ _id: 'assets' }),
   ]);
   return {
     semantic,
     documents: {
       live: liveDocumentCount,
-      indexed: semantic.indexedDocumentCount,
-      vectorized: semantic.vectorizedDocumentCount,
+      indexedRaw: semantic.indexedDocumentCount,
+      vectorizedRaw: semantic.vectorizedDocumentCount,
+      vectorizedLive,
+      vectorCoverage: liveDocumentCount === 0 ? 1 : vectorizedLive / liveDocumentCount,
     },
-    backfill: backfill
-      ? {
-          status: backfill.completed_at
-            ? backfill.errors > 0
-              ? 'complete_with_errors'
-              : 'complete'
-            : 'in_progress',
-          scanned: backfill.scanned,
-          upserted: backfill.upserted,
-          tombstoned: backfill.tombstoned ?? 0,
-          skipped: backfill.skipped,
-          errors: backfill.errors,
-          startedAt: backfill.started_at,
-          updatedAt: backfill.updated_at,
-          completedAt: backfill.completed_at,
-        }
-      : {
-          status: 'not_started',
-          scanned: 0,
-          upserted: 0,
-          tombstoned: 0,
-          skipped: 0,
-          errors: 0,
-          startedAt: null,
-          updatedAt: null,
-          completedAt: null,
-        },
+    backfill: backfillPayload(backfill),
   };
-});
+}
+
+export const adminMeilisearchStatusRoutes = new Elysia({
+  prefix: '/api/admin/enrichment',
+}).get('/meilisearch-status', loadAdminMeilisearchStatus);
