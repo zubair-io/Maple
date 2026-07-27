@@ -183,6 +183,21 @@ export async function meiliHandler(image: ImageDoc, _ctx: StageContext): Promise
     return { skip: 'no-maple-id' };
   }
   const client = getClient();
+  // Trashed asset (root `deleted_at` set). Its fileinfo entry still points at
+  // the `.maple/trash/…` location and stays live PER-ENTRY, so the claim query
+  // does hand trashed rows to this handler — the trash route re-arms this
+  // stage on soft-delete precisely so a failed inline tombstone converges
+  // here (#2354). Tombstone instead of upserting: an upsert would resurrect
+  // the row in search (`meilisearchDocument` writes `deletedAt: null`).
+  // Throws on transport error so the runtime retries; the later restore
+  // re-arms the stage again, which rebuilds the full live document.
+  if (searchable.deleted_at) {
+    if (client.isConfigured()) {
+      if (client.tombstoneBatchOrThrow) await client.tombstoneBatchOrThrow([mapleId]);
+      else await client.tombstone(mapleId);
+    }
+    return { skip: 'trashed' };
+  }
   const primary = client.isConfigured() ? assetPrimaryFileInfo(image as never) : null;
   if (client.isConfigured() && !primary) {
     if (client.tombstoneBatchOrThrow) await client.tombstoneBatchOrThrow([mapleId]);
