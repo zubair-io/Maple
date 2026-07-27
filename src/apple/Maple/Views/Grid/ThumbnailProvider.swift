@@ -18,7 +18,6 @@ import SwiftUI
 import MapleCore
 import Photos
 import ImageIO
-import UniformTypeIdentifiers
 #if canImport(AppKit)
 import AppKit
 #elseif canImport(UIKit)
@@ -139,9 +138,11 @@ actor ThumbnailProvider {
     /// grid-sized pixels and must never be polluted with a larger variant.
     ///
     /// Per-backend display tier:
-    ///   - local URL-backed: `.maple/previews/<key>_1600.jpg` next to the
+    ///   - local URL-backed: `.maple/previews/<filename>.avif` next to the
     ///     asset via `ThumbnailLoader.loadDisplayPreview` (generated from the
-    ///     embedded camera preview on first request).
+    ///     embedded camera preview on first request), 1280 px long edge. The
+    ///     pre-#2009 `<key>_1600.jpg` scheme is retired — it lived at a
+    ///     different path, which is why the reader needs no version gate.
     ///   - sourceless local (cloud/self-hosted browse): the source's own
     ///     `preview(for:)` — `CloudSource` serves the server-generated
     ///     1280 px `/api/fs/preview` artifact.
@@ -312,7 +313,7 @@ private extension ThumbnailProvider {
                     continuation.resume(returning: nil)
                     return
                 }
-                continuation.resume(returning: jpegBytes(from: image))
+                continuation.resume(returning: displayPreviewBytes(from: image))
             }
         }
     }
@@ -339,24 +340,20 @@ private extension ThumbnailProvider {
         return ThumbnailEncoder.encode(cg)
     }
 
-    /// JPEG quality for the display-preview tier — independent of the
-    /// thumbnail tier's `ThumbnailEncoder.quality` (AVIF scale). This tier
-    /// is out of scope for the thumbnail AVIF migration and stays JPEG.
-    private static let previewJpegQuality: CGFloat = 0.82
-
-    /// Encode a platform image to JPEG bytes for the display-preview tier.
-    static func jpegBytes(from image: PlatformImage) -> Data? {
+    /// Encode a platform image to AVIF bytes for the display-preview tier, at
+    /// the same quality `ThumbnailLoader` writes `.maple/previews` with —
+    /// higher than the 256px thumbnail tier, since a preview is the largest
+    /// on-screen surface below full develop.
+    ///
+    /// This arm was the last JPEG holdout: #2009 moved the whole preview tier
+    /// onto AVIF (local `.maple/previews/<filename>.avif`, `/api/fs/preview`)
+    /// but left the PhotoKit encoder behind. Nothing depended on the format —
+    /// the bytes are decoded straight to a `CGImage` by the Preview surfaces
+    /// and never persisted to the shared preview path.
+    static func displayPreviewBytes(from image: PlatformImage) -> Data? {
         guard let cg = cgImage(from: image) else { return nil }
-        let mutableData = NSMutableData()
-        let type = UTType.jpeg.identifier as CFString
-        guard let dest = CGImageDestinationCreateWithData(mutableData, type, 1, nil)
-        else { return nil }
-        CGImageDestinationAddImage(
-            dest, cg,
-            [kCGImageDestinationLossyCompressionQuality: previewJpegQuality]
-                as CFDictionary
-        )
-        return CGImageDestinationFinalize(dest) ? (mutableData as Data) : nil
+        return ThumbnailEncoder.encode(
+            cg, quality: ThumbnailLoader.displayPreviewAvifQuality)
     }
 }
 
