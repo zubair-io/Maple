@@ -124,7 +124,15 @@ enum PreviewViewVM {
         source: (any ImageSource)?
     ) -> ThumbnailSource {
         let isPhotoKitBacked: Bool = {
-            if case .photoKit = asset.thumbnailProvenance { return true }
+            // Provenance, when present, is authoritative in BOTH directions.
+            // Falling through to the ambient-source check for a `.cloud` ref
+            // would reintroduce exactly the misroute this tag exists to stop:
+            // in a mixed sibling list the ambient `source` may well be the
+            // one `PhotoKitSource`, and a cloud ref with no `primaryURL`
+            // would then resolve to `.photoKit(localID:)` and fail to paint.
+            if let provenance = asset.thumbnailProvenance {
+                return provenance == .photoKit
+            }
             return asset.primaryURL == nil && source is PhotoKitSource
         }()
         if isPhotoKitBacked, let localID = asset.stableID {
