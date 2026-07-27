@@ -176,8 +176,9 @@ function isPermanentDocumentFailure(error: unknown): boolean {
 
 /** Write composed documents, splitting the batch on a permanent per-document
  * rejection so one bad row can't block its siblings. Transient errors
- * (timeouts, transport failures) propagate to the caller unchanged. */
-export async function writeDocuments(
+ * (timeouts, transport failures) propagate to the caller unchanged. Not
+ * exported — `commitBatch` below is the module's public write entry point. */
+async function writeDocuments(
   client: MeilisearchClient,
   entries: ComposedEntry[],
 ): Promise<{ upserted: number; errors: number; assetIds: ObjectId[] }> {
