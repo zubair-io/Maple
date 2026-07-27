@@ -60,13 +60,6 @@ struct EditorView: View {
     /// Source the filmstrip assets came from, forwarded to ThumbnailLoader.
     var filmstripSource: (any ImageSource)? = nil
 
-    /// Zoom-to-open wiring (#1489), non-nil only while
-    /// `HeroZoomEditorOverlay` is presenting this editor. It seeds the grid
-    /// thumbnail over the canvas so the transition never expands a blank
-    /// shell, reports the canvas rect the hero flies into, and routes an
-    /// at-fit pinch-in into the presentation's interactive close.
-    var heroZoom: EditorHeroZoom? = nil
-
     @Environment(\.horizontalSizeClass) private var hSizeClass
 
     /// Chrome recede state for compact (iPhone). Timer resets on any
@@ -478,25 +471,11 @@ struct EditorView: View {
                     onWheelEditing: { steps, unit in
                         state.wheelNudge(steps: steps, unit: unit)
                     },
-                    onCloseProgress: heroZoom?.onCloseProgress,
-                    onCloseEnded: heroZoom?.onCloseEnded,
                     canvasReady: canvasIsReady
                 ) {
                     canvasLeaf
                 } fallback: {
                     canvasPlaceholder
-                }
-                // Zoom-to-open seed (#1489): the grid thumbnail, painted at
-                // the same fit rect the canvas is about to fill, ABOVE the
-                // canvas — the GPU layer mounts opaque before its first
-                // frame, so a seed underneath would be hidden by exactly the
-                // blank shell it exists to prevent. It retires the moment a
-                // real frame is on screen, which for an undownloaded cloud
-                // asset is well after the transition has finished.
-                if let seed = heroZoom?.seedImage {
-                    HeroSeedImage(image: seed)
-                        .opacity(canvasHasOnscreenFrame ? 0 : 1)
-                        .animation(MapleTokens.Motion.chromeHide, value: canvasHasOnscreenFrame)
                 }
                 // Crop overlay (#638): shown while the Crop tool is armed.
                 // The canvas renders UNCROPPED under the overlay.
@@ -531,14 +510,6 @@ struct EditorView: View {
         .onTapGesture {
             guard !isRegular else { return }
             bumpChrome()
-        }
-        // The hero presentation cannot derive this rect itself — the canvas
-        // region is whatever is left after safe area and chrome resolve — so
-        // the editor reports it and the overlay flies into it (#1489).
-        .onGeometryChange(for: CGRect.self) { proxy in
-            proxy.frame(in: .global)
-        } action: { frame in
-            heroZoom?.onCanvasFrame(frame)
         }
     }
 
