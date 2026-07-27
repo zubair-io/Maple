@@ -103,10 +103,6 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
     /// outline behaviour of the original grid surfaces.
     var multiSelectChecked: ((Element) -> Bool?)? = nil
     let onTap: (Element) -> Void
-    /// Zoom-to-open tap handler (#1489). When set it SUPERSEDES `onTap` and
-    /// each cell hands back its painted thumbnail + global frame (or `nil`
-    /// when it has none yet) so the surface can fly it into the editor.
-    var onHeroTap: ((Element, PhotoGridHeroSource?) -> Void)? = nil
     let makeItem: (Element) -> PhotoGridItem
     let leading: () -> Leading
 
@@ -124,7 +120,6 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
         onAppearItem: ((Element) -> Void)? = nil,
         multiSelectChecked: ((Element) -> Bool?)? = nil,
         onTap: @escaping (Element) -> Void,
-        onHeroTap: ((Element, PhotoGridHeroSource?) -> Void)? = nil,
         makeItem: @escaping (Element) -> PhotoGridItem,
         @ViewBuilder leading: @escaping () -> Leading
     ) {
@@ -137,7 +132,6 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
         self.onAppearItem = onAppearItem
         self.multiSelectChecked = multiSelectChecked
         self.onTap = onTap
-        self.onHeroTap = onHeroTap
         self.makeItem = makeItem
         self.leading = leading
     }
@@ -160,7 +154,6 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
                     transitionNamespace: transitionNamespace,
                     multiSelectChecked: multiSelectChecked?(element),
                     onTap: { onTap(element) },
-                    onHeroTap: onHeroTap.map { cb in { source in cb(element, source) } },
                     onAppear: onAppearItem.map { cb in { cb(element) } }
                 )
                 // Tag each photo cell so ScrollViewReader.scrollTo can target it.
@@ -183,7 +176,6 @@ extension PhotoGrid where Leading == EmptyView {
         onAppearItem: ((Element) -> Void)? = nil,
         multiSelectChecked: ((Element) -> Bool?)? = nil,
         onTap: @escaping (Element) -> Void,
-        onHeroTap: ((Element, PhotoGridHeroSource?) -> Void)? = nil,
         makeItem: @escaping (Element) -> PhotoGridItem
     ) {
         self.init(
@@ -196,7 +188,6 @@ extension PhotoGrid where Leading == EmptyView {
             onAppearItem: onAppearItem,
             multiSelectChecked: multiSelectChecked,
             onTap: onTap,
-            onHeroTap: onHeroTap,
             makeItem: makeItem,
             leading: { EmptyView() }
         )
