@@ -176,6 +176,19 @@ function meilisearchDocument(
   };
 }
 
+/**
+ * Tombstone one asset in Meilisearch, preferring the batch-throwing form
+ * when the client offers it. No-ops when Meilisearch isn't configured.
+ * Shared by both `meiliHandler` early-return branches below (trashed,
+ * no-resolvable-location) so neither drifts from the other on the
+ * batch-vs-single fallback.
+ */
+async function tombstoneIfConfigured(client: MeilisearchClient, mapleId: string): Promise<void> {
+  if (!client.isConfigured()) return;
+  if (client.tombstoneBatchOrThrow) await client.tombstoneBatchOrThrow([mapleId]);
+  else await client.tombstone(mapleId);
+}
+
 export async function meiliHandler(image: ImageDoc, _ctx: StageContext): Promise<StageResult> {
   const searchable = image as SearchableImage;
   const mapleId = searchable.maple_id ?? '';
@@ -192,16 +205,12 @@ export async function meiliHandler(image: ImageDoc, _ctx: StageContext): Promise
   // Throws on transport error so the runtime retries; the later restore
   // re-arms the stage again, which rebuilds the full live document.
   if (searchable.deleted_at) {
-    if (client.isConfigured()) {
-      if (client.tombstoneBatchOrThrow) await client.tombstoneBatchOrThrow([mapleId]);
-      else await client.tombstone(mapleId);
-    }
+    await tombstoneIfConfigured(client, mapleId);
     return { skip: 'trashed' };
   }
   const primary = client.isConfigured() ? assetPrimaryFileInfo(image as never) : null;
   if (client.isConfigured() && !primary) {
-    if (client.tombstoneBatchOrThrow) await client.tombstoneBatchOrThrow([mapleId]);
-    else await client.tombstone(mapleId);
+    await tombstoneIfConfigured(client, mapleId);
     return { skip: 'no-resolvable-location' };
   }
 
