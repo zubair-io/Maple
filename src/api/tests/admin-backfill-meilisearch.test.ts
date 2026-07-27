@@ -526,84 +526,8 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
     });
     expect(meili.upserts.map((doc) => doc.id).sort()).toEqual(['retry-a', 'retry-b']);
   });
-
-  it('exposes durable progress and reset through the migration adapter', async () => {
-    if (!mongoReachable) return;
-    await db!
-      .collection('assets')
-      .insertMany([
-        makeRow('migration-a', 'boiler installation'),
-        makeRow('migration-b', 'heat pump'),
-        makeRow('migration-c', 'air handler'),
-      ]);
-    const meili = makeCapturingMeili();
-    setMeilisearchClientForTests(meili.client);
-    const { backfillMeilisearchVectors } =
-      await import('../src/workers/migration/backfill-meilisearch-vectors.ts');
-    expect(backfillMeilisearchVectors.preferredBatchSize).toBe(50);
-
-    expect(await backfillMeilisearchVectors.countRemaining()).toBe(3);
-    expect(await backfillMeilisearchVectors.runBatch(2)).toEqual({
-      processed: 2,
-      errors: 0,
-      complete: false,
-    });
-    expect(await backfillMeilisearchVectors.countRemaining()).toBe(1);
-
-    // An exact-size final batch is marked complete without requiring a
-    // trailing empty request from the migration worker.
-    expect(await backfillMeilisearchVectors.runBatch(1)).toEqual({
-      processed: 1,
-      errors: 0,
-      complete: true,
-    });
-    expect(await backfillMeilisearchVectors.countRemaining()).toBe(0);
-    const state = await db!
-      .collection<{ _id: string; completed_at?: string | null }>('meilisearch_backfill_state')
-      .findOne({ _id: 'assets' });
-    expect(state?.completed_at).not.toBeNull();
-
-    // A confirming poll after completion is idempotent. Only an explicit
-    // reset may restart the library-wide sweep.
-    const upsertCount = meili.upserts.length;
-    expect(await backfillMeilisearchVectors.runBatch(1)).toEqual({
-      processed: 0,
-      errors: 0,
-      complete: true,
-    });
-    expect(meili.upserts).toHaveLength(upsertCount);
-    expect(
-      await db!
-        .collection<{ _id: string }>('meilisearch_backfill_state')
-        .findOne({ _id: 'assets' }),
-    ).toEqual(state);
-
-    const { resetMigrationState } = await import('../src/workers/migration-config.repo.ts');
-    const { BACKFILL_MEILISEARCH_VECTORS_ID } = await import('../src/workers/migration/ids.ts');
-    await resetMigrationState(BACKFILL_MEILISEARCH_VECTORS_ID);
-    expect(await backfillMeilisearchVectors.countRemaining()).toBe(3);
-  });
-
-  it('surfaces the live dead-letter backlog through the migration adapter', async () => {
-    if (!mongoReachable) return;
-    await db!.collection('assets').insertOne({
-      ...makeRow('status-broken', 'bad folder id'),
-      folder_id: 'not-an-object-id',
-    });
-    const meili = makeCapturingMeili();
-    setMeilisearchClientForTests(meili.client);
-    const { backfillMeilisearchVectors } =
-      await import('../src/workers/migration/backfill-meilisearch-vectors.ts');
-
-    // A migration without a dead-letter queue omits the field entirely; this
-    // one always implements it.
-    expect(backfillMeilisearchVectors.countFailedPermanently).toBeDefined();
-    expect(await backfillMeilisearchVectors.countFailedPermanently!()).toBe(0);
-
-    // The row's folder_id never becomes valid, so both the initial compose
-    // failure and the same-run redrive re-attempt fail — the row stays
-    // dead-lettered and the live count reflects it.
-    await backfillMeilisearchVectors.runBatch(10);
-    expect(await backfillMeilisearchVectors.countFailedPermanently!()).toBe(1);
-  });
 });
+
+// The migration-adapter tests (durable progress/reset, dead-letter backlog
+// count) live in `admin-backfill-meilisearch-migration.test.ts` — split for
+// the file-size budget.
