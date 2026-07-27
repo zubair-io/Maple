@@ -320,3 +320,54 @@ describe('meiliHandler — null enrichment fields', () => {
     expect(blob.split(' ')).toContain('albany');
   });
 });
+
+describe('meiliHandler — restore convergence (#2354)', () => {
+  it('rebuilds the FULL document (vision facets, isScreenshot, people) for a row shaped like restoreFromTrash left it', async () => {
+    // `restoreFromTrash` (db/assets.trash.ts) clears `deleted_at`, points
+    // fileinfo back at the live location, and resets `stages.meili` so the
+    // stage reclaims the row. This test proves the OTHER half of that
+    // guarantee end-to-end at the handler level, without touching
+    // meiliHandler itself: once reclaimed, the existing (unmodified)
+    // handler rebuilds the COMPLETE document — including the vision facets
+    // and people the trash route's inline fast-path upsert omits — which is
+    // exactly why the reset is the correctness mechanism and the inline
+    // call is only a fast path.
+    const { client, upserts } = capturingClient();
+    setMeilisearchClientForTests(client);
+    const restoredDoc = {
+      ...fakeDoc(),
+      deleted_at: null,
+      ...({
+        vision: {
+          caption: 'kids playing lacrosse',
+          subjects: ['person', 'child'],
+          scene_type: 'outdoor',
+          setting: 'sports field',
+          activity: 'lacrosse',
+          time_of_day: 'afternoon',
+          lighting: 'natural',
+          weather: 'clear',
+          mood: 'energetic',
+          colors: ['green'],
+          composition: 'wide shot',
+          text_visible: null,
+          notable_objects: ['lacrosse stick'],
+          shot_type: 'action',
+          is_screenshot: false,
+          nudity: 'none',
+        },
+        is_screenshot: false,
+      } as unknown as Partial<ImageDoc>),
+    } as ImageDoc;
+    const result = await meiliHandler(restoredDoc, fakeCtx);
+    expect('patch' in result).toBe(true);
+    expect(upserts.length).toBe(1);
+    const u = upserts[0]!;
+    expect(u.deletedAt).toBeNull();
+    expect(u.visionSceneType).toBe('outdoor');
+    expect(u.visionActivity).toBe('lacrosse');
+    expect(u.visionSubjects).toEqual(['person', 'child']);
+    expect(u.isScreenshot).toBe(false);
+    expect(u.searchBlob.split(' ')).toContain('lacrosse');
+  });
+});
