@@ -32,9 +32,10 @@ struct PhoneSearchTab: View {
     let serverKey: String?
     /// Builds the account-wide search session for the resolved server.
     let makeSession: () async -> PhoneSearchSession?
-    /// Resolve a tapped result into an editor-ready AssetRef (populates
-    /// `sessions` with a CloudSidecarStore-backed EditSession).
-    let resolveAsset: (SearchAsset, URL) -> AssetRef
+    /// Resolve a tapped result into an openable asset — its `AssetRef`
+    /// (populating `sessions` with a CloudSidecarStore-backed EditSession)
+    /// plus the `CloudSource` Preview needs for its image tiers.
+    let resolveAsset: (SearchAsset, URL) -> ResolvedCloudAsset
 
     @State private var session: PhoneSearchSession?
     @State private var didLoad = false
@@ -43,6 +44,11 @@ struct PhoneSearchTab: View {
     /// reached from Preview's Edit button. Same typed route the Library tab
     /// uses, so back pops `editor → Preview → grid`.
     @State private var path: [LibraryDestination] = []
+    /// `CloudSource` for the result currently pushed on `path`. A search result
+    /// has no `primaryURL`, so Preview dispatches BOTH its image tiers on this:
+    /// without it there is no display tier and the thumbnail tier falls back to
+    /// downloading the entire RAW through `bytesProvider` (#2376).
+    @State private var previewSource: (any ImageSource)?
     @FocusState private var searchFieldFocused: Bool
 
     var body: some View {
@@ -66,7 +72,7 @@ struct PhoneSearchTab: View {
                                 // to hand the filmstrip. Same shape the Library
                                 // tab uses for cloud / search taps.
                                 assets: [ref],
-                                source: nil,
+                                source: previewSource,
                                 sessions: $sessions,
                                 onClose: popWithoutAnimation,
                                 onEdit: { path.append(.edit($0)) },
@@ -134,7 +140,9 @@ struct PhoneSearchTab: View {
                 thumbCache: session.thumbCache,
                 query: $query,
                 onSelectAsset: { asset in
-                    path.append(.preview(resolveAsset(asset, session.server)))
+                    let resolved = resolveAsset(asset, session.server)
+                    previewSource = resolved.source
+                    path.append(.preview(resolved.ref))
                 }
             )
         } else if !didLoad {

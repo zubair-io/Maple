@@ -41,6 +41,13 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     /// same stack a grid tap uses.
     @Binding var libraryPath: [LibraryDestination]
 
+    /// `CloudSource` for the asset most recently pushed onto `libraryPath`
+    /// from a cloud Timeline / merged cell. `PhoneLibraryView`'s Preview
+    /// destination falls back to `browseVM.currentSource`, which is nil for a
+    /// Timeline tap — leaving Preview with no way to reach `/api/fs/preview`
+    /// (#2376). Cleared when the stack empties.
+    @State private var cloudPreviewSource: (any ImageSource)?
+
     /// Live text for the Search tab's native `.searchable` field (the
     /// iOS 26 `Tab(role: .search)` search bar). Bound into `PhoneSearchTab`.
     @State private var searchQuery: String = ""
@@ -67,7 +74,7 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     /// result-tap resolver. Distinct from the desktop overlay's `searchVM`.
     let phoneSearchServerKey: String?
     let makePhoneSearchSession: () async -> PhoneSearchSession?
-    let resolveSearchAsset: (SearchAsset, URL) -> AssetRef
+    let resolveSearchAsset: (SearchAsset, URL) -> ResolvedCloudAsset
 
     let sidebar: () -> SidebarContent
     let toolbarContent: () -> ToolbarContentT
@@ -80,7 +87,7 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     // resolution failed (e.g. PhotoKit unavailable) and nothing is pushed.
     // Mac / iPad keep the `mode`-flip handlers (they have no NavigationStack)
     // — that wiring is unchanged in `AppShell.macShell`.
-    let onSelectCloudAsset: (SearchAsset, URL) -> AssetRef?
+    let onSelectCloudAsset: (SearchAsset, URL) -> ResolvedCloudAsset?
     let onCloseSearch: () -> Void
     let onSelectLocalAsset: (ImageRef) -> AssetRef?
     let onGrantPhotosAccess: () -> Void
@@ -138,15 +145,22 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     // (returns its AssetRef) and push the S5 Editor onto THIS
                     // tab's NavigationStack — same target as a LibraryGrid cell
                     // tap (`onOpenEditor` below), not the legacy fullImage mode
-                    // flip (#809). The `.navigationDestination(for: AssetRef)`
-                    // in PhoneLibraryView resolves the pushed ref to
-                    // EditorDestination → EditorView, reusing the session
-                    // (incl. its CloudSidecarStore) created during resolution.
+                    // flip (#809). `PhoneLibraryView`'s
+                    // `.navigationDestination(for: LibraryDestination)` resolves
+                    // the pushed `.preview` to PreviewDestination, reusing the
+                    // session (incl. its CloudSidecarStore) created during
+                    // resolution.
+                    //
+                    // The resolved `CloudSource` is stashed alongside the push:
+                    // the browse VM holds no source for a Timeline tap, and
+                    // without one Preview downloads the whole RAW (#2376).
                     onSelectCloudAsset: { asset, server in
-                        if let ref = onSelectCloudAsset(asset, server) {
-                            pushPreview(ref)
+                        if let resolved = onSelectCloudAsset(asset, server) {
+                            cloudPreviewSource = resolved.source
+                            pushPreview(resolved.ref)
                         }
                     },
+                    cloudPreviewSource: cloudPreviewSource,
                     onCloseSearch: onCloseSearch,
                     // Merged-PhotoKit (local-only) timeline cells: same S5
                     // push as cloud assets (#809).

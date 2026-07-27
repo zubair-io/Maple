@@ -22,6 +22,22 @@ import MapleCore
 
 private let cloudHTTPLogger = Logger(subsystem: "app.justmaple.aperture", category: "Cloud.HTTP")
 
+// MARK: - ResolvedCloudAsset
+
+/// A cloud asset resolved for opening: the bytes-providing `AssetRef` plus the
+/// `CloudSource` that serves its server-rendered thumb and preview.
+///
+/// Both halves travel together because the two surfaces need different ones.
+/// The editor decodes through the ref's `bytesProvider`; **Preview dispatches
+/// its image tiers on the source** — a cloud ref has no `primaryURL`, so
+/// without the source `ThumbnailProvider` has no display tier and
+/// `ThumbnailLoader` falls back to pulling the entire RAW (#2376). Returning
+/// only the ref is what let that regression happen.
+struct ResolvedCloudAsset {
+    let ref: AssetRef
+    let source: any ImageSource
+}
+
 @MainActor
 extension AppShell {
     @MainActor
@@ -382,7 +398,7 @@ extension AppShell {
     ///     `EditSession(asset:)` injects no remote store, so pre-creating the
     ///     session here is load-bearing for server-side XMP persistence).
     @MainActor
-    func prepareCloudSession(_ asset: SearchAsset, server: URL) -> AssetRef {
+    func prepareCloudSession(_ asset: SearchAsset, server: URL) -> ResolvedCloudAsset {
         let httpClient = makeAuthenticatedHTTPClient(server: server)
         let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: server)
         // libraryPath is unused for this code path — we never call
@@ -446,7 +462,7 @@ extension AppShell {
         // (description / OCR / transcript) via `GET /api/assets/:id`.
         cloudAssetDetailClient = CloudAssetDetailClient(
           server: effectiveServer, httpClient: httpClient)
-        return assetRef
+        return ResolvedCloudAsset(ref: assetRef, source: source)
     }
 
     /// Open a cloud asset (selected from CloudTimelineView / CloudSearchView)
@@ -458,8 +474,10 @@ extension AppShell {
     /// calls this.
     @MainActor
     func openCloudAsset(_ asset: SearchAsset, server: URL) {
-        let assetRef = prepareCloudSession(asset, server: server)
-        browseVM.loadSingleCloudAsset(assetRef)
+        let resolved = prepareCloudSession(asset, server: server)
+        // The source rides along so Preview can serve `/api/fs/thumb` +
+        // `/api/fs/preview` instead of downloading the RAW (#2376).
+        browseVM.loadSingleCloudAsset(resolved.ref, source: resolved.source)
         mode = imageOpenMode
     }
 }
