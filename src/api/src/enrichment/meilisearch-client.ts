@@ -185,8 +185,16 @@ export interface MeilisearchClient {
    * task per batch instead of one task per asset. */
   upsertBatchOrThrow?(docs: MeilisearchAssetDoc[]): Promise<void>;
   /** Bulk tombstone variant used by backfill cleanup. It resolves only after
-   * Meilisearch confirms the asynchronous task succeeded. */
-  tombstoneBatchOrThrow?(ids: string[]): Promise<void>;
+   * Meilisearch confirms the asynchronous task succeeded.
+   *
+   * `timeoutMs`, when given, overrides the client's configured
+   * `taskTimeoutMs` for this call only (#2359). The meili stage's
+   * per-asset tombstone wait passes a short override here so a degraded
+   * Meilisearch can't stall one of the stage's concurrency slots for the
+   * full bulk-batch timeout — the stage's retry/backoff handles the
+   * resulting failure. Bulk backfill cleanup omits the override and keeps
+   * the client-configured (operator-tunable) timeout. */
+  tombstoneBatchOrThrow?(ids: string[], timeoutMs?: number): Promise<void>;
   /** Mark a document tombstoned (sets `deletedAt`). The search route filters
    * `deletedAt IS NULL` so tombstoned docs disappear from results. */
   tombstone(id: string): Promise<void>;
@@ -444,7 +452,7 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
       await waitForMeilisearchTask(cfg, accepted, 'batch upsert');
     },
 
-    async tombstoneBatchOrThrow(ids: string[]): Promise<void> {
+    async tombstoneBatchOrThrow(ids: string[], timeoutMs?: number): Promise<void> {
       if (!isLiveConfig(cfg)) throw new Error('meilisearch: not configured');
       if (ids.length === 0) return;
       const deletedAt = new Date().toISOString();
@@ -454,7 +462,12 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
         `/indexes/${ASSETS_INDEX}/documents`,
         ids.map((id) => ({ id, deletedAt })),
       );
-      await waitForMeilisearchTask(cfg, accepted, 'batch tombstone');
+      // Per-call override (#2359): a short-timeout copy of `cfg` is used
+      // only for the wait below, so the shared config's own
+      // `taskTimeoutMs` (and every other in-flight call reading `cfg`)
+      // stays untouched.
+      const waitConfig = timeoutMs === undefined ? cfg : { ...cfg, taskTimeoutMs: timeoutMs };
+      await waitForMeilisearchTask(waitConfig, accepted, 'batch tombstone');
     },
 
     async tombstone(id: string): Promise<void> {
