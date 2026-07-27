@@ -59,8 +59,10 @@ function fakeDoc(overrides: Partial<ImageDoc> = {}): ImageDoc {
 function capturingClient(): {
   client: MeilisearchClient;
   upserts: MeilisearchAssetDoc[];
+  tombstones: string[];
 } {
   const upserts: MeilisearchAssetDoc[] = [];
+  const tombstones: string[] = [];
   const client: MeilisearchClient = {
     isConfigured: () => true,
     semanticConfigured: () => false,
@@ -72,10 +74,15 @@ function capturingClient(): {
     upsertOrThrow: async (doc) => {
       upserts.push(doc);
     },
-    tombstone: async () => {},
+    tombstone: async (id) => {
+      tombstones.push(id);
+    },
+    tombstoneBatchOrThrow: async (ids) => {
+      tombstones.push(...ids);
+    },
     search: async () => ({ ids: [], estimatedTotal: 0 }),
   };
-  return { client, upserts };
+  return { client, upserts, tombstones };
 }
 
 function failingClient(): MeilisearchClient {
@@ -217,6 +224,92 @@ describe('meiliHandler — no maple_id', () => {
   });
 });
 
+describe('meiliHandler — trashed assets (#2354)', () => {
+  it("tombstones instead of upserting when the root deleted_at is set, returning { skip: 'trashed' }", async () => {
+    const { client, upserts, tombstones } = capturingClient();
+    setMeilisearchClientForTests(client);
+    // A trashed asset: root deleted_at stamped, but the fileinfo entry
+    // points at the trash location and stays live per-entry — exactly the
+    // shape markSoftDeleted writes, and the shape the claim query hands
+    // to this handler after the trash route's stage re-arm.
+    const doc = {
+      ...fakeDoc(),
+      deleted_at: '2026-07-01T00:00:00.000Z',
+    } as ImageDoc;
+    const result = await meiliHandler(doc, fakeCtx);
+    expect((result as { skip: string }).skip).toBe('trashed');
+    expect(tombstones).toEqual(['maple-abc-123']);
+    // An upsert here would resurrect the row in live search
+    // (meilisearchDocument hardcodes deletedAt: null).
+    expect(upserts.length).toBe(0);
+  });
+
+  it('throws when the tombstone write fails, so the runtime retries (search-index convergence)', async () => {
+    const { client } = capturingClient();
+    setMeilisearchClientForTests({
+      ...client,
+      tombstoneBatchOrThrow: async () => {
+        throw new Error('simulated meili outage');
+      },
+    });
+    const doc = { ...fakeDoc(), deleted_at: '2026-07-01T00:00:00.000Z' } as ImageDoc;
+    await expect(meiliHandler(doc, fakeCtx)).rejects.toThrow('simulated meili outage');
+  });
+
+  it("skips without a tombstone round-trip when Meilisearch isn't configured", async () => {
+    setMeilisearchClientForTests(unconfiguredClient());
+    const doc = { ...fakeDoc(), deleted_at: '2026-07-01T00:00:00.000Z' } as ImageDoc;
+    const result = await meiliHandler(doc, fakeCtx);
+    expect((result as { skip: string }).skip).toBe('trashed');
+  });
+
+  it('re-indexes the FULL document (vision facets, isScreenshot) once the asset is restored', async () => {
+    const { client, upserts, tombstones } = capturingClient();
+    setMeilisearchClientForTests(client);
+    const enriched = {
+      ...({
+        vision: {
+          caption: 'kids playing lacrosse',
+          subjects: ['person', 'child'],
+          scene_type: 'outdoor',
+          setting: 'sports field',
+          activity: 'lacrosse',
+          time_of_day: 'afternoon',
+          lighting: 'natural',
+          weather: 'clear',
+          mood: 'energetic',
+          colors: ['green'],
+          composition: 'wide shot',
+          text_visible: null,
+          notable_objects: ['lacrosse stick'],
+          shot_type: 'action',
+          is_screenshot: false,
+          nudity: 'none',
+        },
+        is_screenshot: false,
+      } as unknown as Partial<ImageDoc>),
+    };
+    // Pass 1 — trashed: tombstone only.
+    const trashed = { ...fakeDoc(), ...enriched, deleted_at: '2026-07-01T00:00:00.000Z' };
+    await meiliHandler(trashed as ImageDoc, fakeCtx);
+    expect(tombstones).toEqual(['maple-abc-123']);
+    expect(upserts.length).toBe(0);
+    // Pass 2 — restored (restoreFromTrash cleared deleted_at and re-armed
+    // the stage): the handler rebuilds the COMPLETE document, including the
+    // facets the trash route's inline fast-path upsert omits.
+    const restored = { ...trashed, deleted_at: null };
+    await meiliHandler(restored as ImageDoc, fakeCtx);
+    expect(upserts.length).toBe(1);
+    const u = upserts[0]!;
+    expect(u.deletedAt).toBeNull();
+    expect(u.visionSceneType).toBe('outdoor');
+    expect(u.visionActivity).toBe('lacrosse');
+    expect(u.visionSubjects).toEqual(['person', 'child']);
+    expect(u.isScreenshot).toBe(false);
+    expect(u.searchBlob.split(' ')).toContain('lacrosse');
+  });
+});
+
 describe('meiliHandler — Meilisearch error tolerance', () => {
   it('Meilisearch upsert failure results in handler throw so runtime retries', async () => {
     setMeilisearchClientForTests(failingClient());
@@ -318,56 +411,5 @@ describe('meiliHandler — null enrichment fields', () => {
     const blob = upserts[0]!.searchBlob;
     // Place tokens still contribute.
     expect(blob.split(' ')).toContain('albany');
-  });
-});
-
-describe('meiliHandler — restore convergence (#2354)', () => {
-  it('rebuilds the FULL document (vision facets, isScreenshot, people) for a row shaped like restoreFromTrash left it', async () => {
-    // `restoreFromTrash` (db/assets.trash.ts) clears `deleted_at`, points
-    // fileinfo back at the live location, and resets `stages.meili` so the
-    // stage reclaims the row. This test proves the OTHER half of that
-    // guarantee end-to-end at the handler level, without touching
-    // meiliHandler itself: once reclaimed, the existing (unmodified)
-    // handler rebuilds the COMPLETE document — including the vision facets
-    // and people the trash route's inline fast-path upsert omits — which is
-    // exactly why the reset is the correctness mechanism and the inline
-    // call is only a fast path.
-    const { client, upserts } = capturingClient();
-    setMeilisearchClientForTests(client);
-    const restoredDoc = {
-      ...fakeDoc(),
-      deleted_at: null,
-      ...({
-        vision: {
-          caption: 'kids playing lacrosse',
-          subjects: ['person', 'child'],
-          scene_type: 'outdoor',
-          setting: 'sports field',
-          activity: 'lacrosse',
-          time_of_day: 'afternoon',
-          lighting: 'natural',
-          weather: 'clear',
-          mood: 'energetic',
-          colors: ['green'],
-          composition: 'wide shot',
-          text_visible: null,
-          notable_objects: ['lacrosse stick'],
-          shot_type: 'action',
-          is_screenshot: false,
-          nudity: 'none',
-        },
-        is_screenshot: false,
-      } as unknown as Partial<ImageDoc>),
-    } as ImageDoc;
-    const result = await meiliHandler(restoredDoc, fakeCtx);
-    expect('patch' in result).toBe(true);
-    expect(upserts.length).toBe(1);
-    const u = upserts[0]!;
-    expect(u.deletedAt).toBeNull();
-    expect(u.visionSceneType).toBe('outdoor');
-    expect(u.visionActivity).toBe('lacrosse');
-    expect(u.visionSubjects).toEqual(['person', 'child']);
-    expect(u.isScreenshot).toBe(false);
-    expect(u.searchBlob.split(' ')).toContain('lacrosse');
   });
 });
