@@ -169,8 +169,65 @@ describe('Meilisearch asynchronous tasks', () => {
     expect(calls.map((call) => `${call.method} ${new URL(call.url).pathname}`)).toEqual([
       'POST /indexes',
       'GET /tasks/45',
+      `GET /indexes/${ASSETS_INDEX}/settings`,
       `PATCH /indexes/${ASSETS_INDEX}/settings`,
       'GET /tasks/46',
+    ]);
+  });
+
+  it('does not enqueue a settings task when the managed settings are unchanged', async () => {
+    const matchingSettings = {
+      searchableAttributes: ['filename', 'searchBlob', 'description', 'people', 'ocrText'],
+      filterableAttributes: [
+        'folderId',
+        'deletedAt',
+        'visionSceneType',
+        'visionActivity',
+        'visionSubjects',
+        'isScreenshot',
+        'people',
+        'mediaType',
+        'hidden',
+      ],
+      sortableAttributes: ['capturedAt'],
+      embedders: {
+        caption: {
+          source: 'ollama',
+          url: 'http://ollama.lan:11434/api/embed',
+          model: 'bge-m3',
+          documentTemplate: '{{ doc.searchBlob }} {{ doc.description }} {{ doc.people }}',
+          dimensions: 1024,
+        },
+      },
+    };
+    const { fetchImpl, calls } = makeFakeFetch({
+      routes: [
+        {
+          method: 'POST',
+          pathPrefix: '/indexes',
+          status: 409,
+          body: { code: 'index_already_exists' },
+        },
+        {
+          method: 'GET',
+          pathPrefix: `/indexes/${ASSETS_INDEX}/settings`,
+          body: matchingSettings,
+        },
+      ],
+    });
+    const client = createMeilisearchClient({
+      url: 'http://meili.local:7700',
+      fetchImpl,
+      semantic: true,
+      embedderUrl: 'http://ollama.lan:11434',
+      embedderModel: 'bge-m3',
+    });
+
+    await client.ensureIndex();
+
+    expect(calls.map((call) => `${call.method} ${new URL(call.url).pathname}`)).toEqual([
+      'POST /indexes',
+      `GET /indexes/${ASSETS_INDEX}/settings`,
     ]);
   });
 
