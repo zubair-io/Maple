@@ -21,6 +21,7 @@ import {
 } from './assets.repo.ts';
 import { closeDb } from './client.ts';
 import { pendingEnrichment } from './schema.ts';
+import { buildClaimQuery } from '../workers/run-stage.ts';
 
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 const TEST_DB = `maple_assets_repo_test_${process.pid}`;
@@ -552,14 +553,13 @@ describe('assets.repo', () => {
       expect((rows[0] as unknown as { mtime: number }).mtime).toBe(restoredMtimeMs);
     });
 
-    // #2354 — markSoftDeleted must NOT re-arm meili (today's meiliHandler
-    // has no delete-detection/tombstone branch, so reclaiming a trashed row
-    // would re-upsert it as live — see markSoftDeleted's docstring);
-    // restoreFromTrash MUST re-arm it atomically with the deleted_at clear.
-    it('markSoftDeleted leaves stages.meili untouched; restoreFromTrash resets it', async () => {
+    // #2354 — trash + restore must re-arm the meili stage in the SAME
+    // update as the deleted_at flip, so the stage (not the trash route's
+    // best-effort inline Meilisearch calls) guarantees search-index
+    // convergence: tombstone while trashed, full-document rebuild after
+    // restore.
+    it('markSoftDeleted re-arms the meili stage atomically and leaves the row claimable', async () => {
       if (!db) return;
-      type MeiliState = { version: number; attempts: number; last_error: unknown; dead: boolean };
-      type MeiliRow = { deleted_at: unknown; stages: { meili: MeiliState } };
       const libraryId = new ObjectId();
       await db.collection('folders').insertOne({
         _id: libraryId,
@@ -569,9 +569,19 @@ describe('assets.repo', () => {
         file_count: 0,
         created_at: '2026-01-01T00:00:00Z',
       } as never);
+      // A fully-indexed asset: meili stage done at current target, and
+      // previously dead-lettered bookkeeping to prove the reset clears it.
       const id = await seedAsset(db, {
         folder_id: libraryId,
-        stages: { meili: { version: 7, attempts: 0, last_error: null, dead: false } },
+        stages: {
+          meili: {
+            version: 7,
+            attempts: 3,
+            last_error: 'boom',
+            processed_at: new Date(),
+            dead: true,
+          },
+        },
       });
       await markSoftDeleted({
         id,
@@ -581,8 +591,52 @@ describe('assets.repo', () => {
         originalAbsPath: '/lib/a.dng',
         dbOverride: db,
       });
-      const afterTrash = (await db.collection('assets').findOne({ _id: id })) as unknown as MeiliRow;
-      expect(afterTrash.stages.meili.version).toBe(7);
+      const row = (await db.collection('assets').findOne({ _id: id })) as unknown as {
+        stages: { meili: { version: number; attempts: number; last_error: unknown; dead: boolean } };
+      };
+      expect(row.stages.meili.version).toBe(0);
+      expect(row.stages.meili.attempts).toBe(0);
+      expect(row.stages.meili.last_error).toBeNull();
+      expect(row.stages.meili.dead).toBe(false);
+      // The trashed row must actually be reachable by the stage's claim
+      // query (the trash-location fileinfo entry stays live per-entry) —
+      // that reachability is what lets meiliHandler's deleted_at branch
+      // tombstone the search document with retry/backoff.
+      const claim = buildClaimQuery('meili', 7, [], new Set());
+      const claimed = await db.collection('assets').find(claim as never).toArray();
+      expect(claimed.map((d) => d._id.toHexString())).toContain(id.toHexString());
+    });
+
+    it('restoreFromTrash re-arms the meili stage atomically in the same update that clears deleted_at', async () => {
+      if (!db) return;
+      const libraryId = new ObjectId();
+      await db.collection('folders').insertOne({
+        _id: libraryId,
+        path: '/lib',
+        label: 'lib',
+        last_scan: null,
+        file_count: 0,
+        created_at: '2026-01-01T00:00:00Z',
+      } as never);
+      // Trashed asset whose meili stage already re-ran (tombstone pass)
+      // and is done again at the current target version.
+      const id = await seedAsset(db, {
+        folder_id: libraryId,
+        fileinfo: [
+          { path: '.maple/trash', filename: 'a.dng', library_id: libraryId, deleted_at: null },
+        ],
+        deleted_at: '2026-01-01T00:00:00Z',
+        original_path: '/lib/a.dng',
+        stages: {
+          meili: {
+            version: 7,
+            attempts: 0,
+            last_error: null,
+            processed_at: new Date(),
+            dead: false,
+          },
+        },
+      });
       await restoreFromTrash({
         id,
         libraryRoot: '/lib',
@@ -592,9 +646,21 @@ describe('assets.repo', () => {
         mtimeMs: Date.UTC(2026, 5, 1),
         dbOverride: db,
       });
-      const after = (await db.collection('assets').findOne({ _id: id })) as unknown as MeiliRow;
-      expect(after.deleted_at).toBeNull();
-      expect(after.stages.meili).toEqual({ version: 0, attempts: 0, last_error: null, dead: false });
+      const row = (await db.collection('assets').findOne({ _id: id })) as unknown as {
+        deleted_at: unknown;
+        stages: { meili: { version: number; attempts: number; last_error: unknown; dead: boolean } };
+      };
+      expect(row.deleted_at).toBeNull();
+      expect(row.stages.meili.version).toBe(0);
+      expect(row.stages.meili.attempts).toBe(0);
+      expect(row.stages.meili.last_error).toBeNull();
+      expect(row.stages.meili.dead).toBe(false);
+      // Restored row is claimable again → the stage rebuilds the FULL
+      // Meilisearch document (facets included), superseding the route's
+      // partial fast-path upsert.
+      const claim = buildClaimQuery('meili', 7, [], new Set());
+      const claimed = await db.collection('assets').find(claim as never).toArray();
+      expect(claimed.map((d) => d._id.toHexString())).toContain(id.toHexString());
     });
   });
 });
