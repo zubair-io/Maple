@@ -35,16 +35,27 @@ export function dispatchExport(
   ) as ArrayBuffer;
   const request: ExportRequest = { id, type: 'export', bytes: buffer, ext, xmp, options };
   const startMark = `maple:export:${id}:start`;
+  const endMark = `maple:export:${id}:end`;
   markStart(startMark);
   return new Promise<ExportedFile>((resolve, reject) => {
+    // Post BEFORE registering — see the identical note in
+    // `raw-pipeline.auto-adjust-request.ts`. A synchronous `postMessage`
+    // throw (terminated worker / untransferable payload) would otherwise
+    // strand a pending-map entry and an unmatched `markStart`.
+    try {
+      worker.postMessage(request, [buffer]);
+    } catch (err) {
+      markEnd(startMark, endMark, 'maple:export');
+      reject(err instanceof Error ? err : new Error(String(err)));
+      return;
+    }
     register(id, {
       kind: 'export',
       resolve: (file) => {
-        markEnd(startMark, `maple:export:${id}:end`, 'maple:export');
+        markEnd(startMark, endMark, 'maple:export');
         resolve(file);
       },
       reject,
     });
-    worker.postMessage(request, [buffer]);
   });
 }
