@@ -306,15 +306,33 @@ describe('/api/search', () => {
 
     // Previously clamped to Number.MAX_SAFE_INTEGER, letting `skip = page *
     // limit` blow up for a trivially-crafted request. A page past the
-    // ceiling is clamped, not honored, and still returns 200 with an empty
-    // page rather than erroring.
-    const r = await app.handle(
+    // ceiling is clamped, not honored, and still returns 200 rather than
+    // erroring.
+    //
+    // Only the clamp itself is asserted. `results.length === 0` would be a
+    // dataset-dependent side effect: page 10_000 is `skip = 10_000 * limit`,
+    // so a corpus that large would legitimately return rows there and the
+    // test would start failing for a reason that has nothing to do with the
+    // ceiling.
+    const overCap = await app.handle(
       new Request('http://localhost/api/search?page=99999999999', { headers: fmtAuth() }),
     );
-    expect(r.status).toBe(200);
-    const body = (await r.json()) as { page: number; results: unknown[] };
-    expect(body.page).toBe(10_000);
-    expect(body.results.length).toBe(0);
+    expect(overCap.status).toBe(200);
+    expect(((await overCap.json()) as { page: number }).page).toBe(10_000);
+
+    // The ceiling is where it claims to be, not merely "big numbers get
+    // reduced to something": the last in-range page is returned unclamped.
+    const atCap = await app.handle(
+      new Request('http://localhost/api/search?page=10000', { headers: fmtAuth() }),
+    );
+    expect(atCap.status).toBe(200);
+    expect(((await atCap.json()) as { page: number }).page).toBe(10_000);
+
+    const belowCap = await app.handle(
+      new Request('http://localhost/api/search?page=9999', { headers: fmtAuth() }),
+    );
+    expect(belowCap.status).toBe(200);
+    expect(((await belowCap.json()) as { page: number }).page).toBe(9_999);
   });
 
   it('excludes soft-deleted rows', async () => {
