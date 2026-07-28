@@ -6,7 +6,10 @@ import {
 } from './meilisearch-client.ts';
 import { assetsIndexSettingsMatch } from './meilisearch-index-settings.ts';
 import { makeFakeFetch } from './meilisearch-test-harness.ts';
-import { EMBEDDER_DOCUMENT_TEMPLATE } from './meilisearch-embedder-template.ts';
+import {
+  EMBEDDER_DOCUMENT_TEMPLATE,
+  EMBEDDER_TEMPLATE_MAX_BYTES,
+} from './meilisearch-embedder-template.ts';
 
 const sampleDoc: MeilisearchAssetDoc = {
   id: 'task-test',
@@ -252,6 +255,7 @@ describe('Meilisearch asynchronous tasks', () => {
           // literal-value guards live in
           // `meilisearch-embedder-template.test.ts`.
           documentTemplate: EMBEDDER_DOCUMENT_TEMPLATE,
+          documentTemplateMaxBytes: EMBEDDER_TEMPLATE_MAX_BYTES,
           dimensions: 1024,
         },
       },

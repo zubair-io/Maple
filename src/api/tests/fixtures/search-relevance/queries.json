@@ -2,19 +2,28 @@
   {
     "query": "HVAC air conditioning installation",
     "relevantIds": ["010045ca68ac1f7f7e8b3aa02f72ac80"],
-    "mustBeInTop": { "id": "010045ca68ac1f7f7e8b3aa02f72ac80", "k": 5 },
-    "note": "The #2384 case. The transcript describes a completed heat-pump installation; generic rooftop captions containing the literal token HVAC must not bury it."
+    "mustBeInTop": {
+      "id": "010045ca68ac1f7f7e8b3aa02f72ac80",
+      "k": 5
+    },
+    "note": "The #2384 case. KNOWN RED as of 2026-07-28: the video ranks 6, 0.0012 behind rank 5, at every semantic ratio from 0.3 to 0.9. Its transcript never says 'HVAC' or 'air conditioning' (it says heat pumps, Lennox, condensate pumps), so neither attribute weighting nor blend tuning can reach it \u2014 closing this needs the second-stage reranker in #2393. The guard stays at k=5 deliberately, as that ticket's target. Do NOT relax it to make the harness green."
   },
   {
     "query": "IMG_4185.MOV",
     "relevantIds": ["010045ca68ac1f7f7e8b3aa02f72ac80"],
-    "mustBeInTop": { "id": "010045ca68ac1f7f7e8b3aa02f72ac80", "k": 1 },
-    "note": "Acceptance criterion 7 — exact filename search must stay top-1."
+    "mustBeInTop": {
+      "id": "010045ca68ac1f7f7e8b3aa02f72ac80",
+      "k": 1
+    },
+    "note": "Acceptance criterion 7 \u2014 exact filename search must stay top-1."
   },
   {
     "query": "Greyson",
     "relevantIds": ["person-greyson-1", "person-greyson-2"],
-    "mustBeInTop": { "id": "person-greyson-1", "k": 3 },
+    "mustBeInTop": {
+      "id": "person-greyson-1",
+      "k": 3
+    },
     "note": "Named-person guard. mentions-greyson-untagged says the name in its transcript but carries no person tag; the tagged photos must win. Fails if `people` drops below transcript/ocrText in searchableAttributes."
   },
   {
@@ -35,7 +44,7 @@
   {
     "query": "configuring the heating zones",
     "relevantIds": ["controller-config-clip"],
-    "note": "Pure transcript semantics — the clip's caption says nothing about zones."
+    "note": "Pure transcript semantics \u2014 the clip's caption says nothing about zones."
   },
   {
     "query": "utility bill statement",
@@ -46,6 +55,6 @@
     "query": "Rose",
     "relevantIds": [],
     "observeIds": ["person-rose-1", "flowers-roses-1"],
-    "note": "UNASSERTED — owned by #2386. Person-name-vs-common-noun collision. relevantIds is empty so this contributes nothing to Recall@10 or MRR; the harness only records where each document landed so #2386 starts from measured data. Do not add mustBeInTop here."
+    "note": "UNASSERTED \u2014 owned by #2386. Person-name-vs-common-noun collision. relevantIds is empty so this contributes nothing to Recall@10 or MRR; the harness only records where each document landed so #2386 starts from measured data. Do not add mustBeInTop here."
   }
 ]
