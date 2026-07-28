@@ -1,0 +1,7 @@
+{
+  "_comment": "One-way ratchet, same convention as test-fixtures/budgets.json. Raise a floor only in the commit that delivers the improvement; never lower one to make a red run green. Floors stay at 0 until a measured baseline exists — see the note below.",
+  "_status": "UNCALIBRATED. Requires a live Meilisearch + Ollama (bge-m3) to measure. Run src/scripts/test_search_relevance.sh against origin/main to record the baseline, then against this branch, then set minRecallAt10 / minMrr to ~95% of the post-change numbers. The mustBeInTop assertions in queries.json gate regardless of these floors.",
+  "minRecallAt10": 0.0,
+  "minMrr": 0.0,
+  "semanticRatio": 0.7
+}
