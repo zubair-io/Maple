@@ -19,7 +19,22 @@ export function assetsIndexSettings(
   embedderName: string,
 ): Record<string, unknown> {
   const settings: Record<string, unknown> = {
-    searchableAttributes: ['filename', 'searchBlob', 'description', 'people', 'ocrText'],
+    // Order is ranking-significant: Meilisearch's `attribute` rule favours
+    // matches in earlier attributes. filename first keeps exact-identifier
+    // queries top-1; people second because a name query wants photos OF that
+    // person, not a transcript that mentions them; then real evidence
+    // (transcript, OCR) above guessed captions. searchBlob stays last — it is
+    // the only home for the structured vision tokens, so it must remain
+    // searchable, but at the lowest weight (#2384).
+    searchableAttributes: [
+      'filename',
+      'people',
+      'transcript',
+      'ocrText',
+      'description',
+      'placeText',
+      'searchBlob',
+    ],
     filterableAttributes: [
       'folderId',
       'deletedAt',
