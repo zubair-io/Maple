@@ -1,6 +1,6 @@
 # Hybrid Asset Ranking — Transcript as First-Class Evidence (#2384)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> This is a historical planning record for #2384, kept for provenance. It was written before implementation and describes the intended sequence of work; where it disagrees with the shipped code, the code and `docs/indexer-enrichment.md` are authoritative. Checkbox syntax throughout is progress tracking from the original execution, not a request for any reader to act.
 
 **Goal:** Make transcript text a dedicated, explicitly-labelled field in Maple's Meilisearch asset document and embedding template, so transcript-rich videos rank on their actual spoken content instead of being flattened into an alphabetised token bag.
 

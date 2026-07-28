@@ -10,6 +10,7 @@
     "src/enrichment/face-pool.child.ts",
     "scripts/seed-fake-workers.ts",
     "src/people/clustering-quality-harness.ts",
+    "tools/export-search-corpus.ts",
     "src/runtime/__fixtures__/stderr-crash-child.ts",
     "src/runtime/__fixtures__/stderr-crash-harness.ts"
   ],

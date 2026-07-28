@@ -42,7 +42,7 @@ const EMBEDDER_DIMENSIONS: Readonly<Record<string, number>> = {
 
 /** Known output size for an Ollama model id, ignoring any `:tag` suffix.
  * `undefined` means "we don't know — let Meilisearch probe". */
-export function embedderDimensions(model: string): number | undefined {
+function embedderDimensions(model: string): number | undefined {
   return EMBEDDER_DIMENSIONS[model.split(':')[0]!.trim().toLowerCase()];
 }
 
