@@ -244,14 +244,31 @@ public actor AuthenticatedHTTPClient {
     // is always available.
     let container = FileManager.default.temporaryDirectory
     #else
-    let sharedContainer = FileManager.default.containerURL(
-      forSecurityApplicationGroupIdentifier: "group.app.justmaple.aperture"
-    )
+    // A test process gets the app-private temporary directory BEFORE the
+    // shared container is even looked up (#2387). The lookup itself is a
+    // synchronous, untimed XPC round-trip to `containermanagerd`, and the
+    // flock that follows it is a REAL cross-process lock — so a unit test
+    // that reached the shared container inherited the responsiveness of a
+    // system daemon and the liveness of every other Maple process on the
+    // developer's machine (an installed Maple.app, MapleBackupAgent, the
+    // File Provider / QuickLook extensions), for up to the 10 s the retry
+    // loop below spins. `RemoteCatalogDownloadAssetTests` proved this
+    // concretely: `~/Library/Group Containers/group.app.justmaple.aperture/
+    // AuthLocks/b061d8220ab2bfb0.lock` is `stableServerHash` of the test's
+    // own `https://x.test`, written there by earlier test runs.
+    //
+    // This gate USED to sit after the container check, as the fallback for
+    // "no container available," which meant it never fired on any machine
+    // that had ever run Maple.app — exactly the machines that run the
+    // tests. Order is the whole fix; the production branches below are
+    // untouched (no shipping process links XCTest).
     let container: URL
-    if let sharedContainer {
-      container = sharedContainer
-    } else if NSClassFromString("XCTestCase") != nil {
+    if NSClassFromString("XCTestCase") != nil {
       container = FileManager.default.temporaryDirectory
+    } else if let sharedContainer = FileManager.default.containerURL(
+      forSecurityApplicationGroupIdentifier: "group.app.justmaple.aperture"
+    ) {
+      container = sharedContainer
     } else {
       // iOS/macOS share refresh families with extension processes
       // (File Provider, QuickLook) — refusing to refresh without the
