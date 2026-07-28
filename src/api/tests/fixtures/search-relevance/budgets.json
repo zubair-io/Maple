@@ -1,7 +1,7 @@
 {
   "_comment": "One-way ratchet, same convention as test-fixtures/budgets.json. Raise a floor only in the commit that delivers the improvement; never lower one to make a red run green.",
-  "_measured": "2026-07-28, Meilisearch 1.51.0 + Ollama bge-m3, 32-doc corpus. BEFORE (origin/main): Recall@10 0.8889, MRR 0.5631. AFTER (this branch, semanticRatio 0.5): Recall@10 1.0000, MRR 0.7407. Floors below are ~95% of the AFTER numbers.",
-  "_known_red": "The `HVAC air conditioning installation` top-5 guard in queries.json FAILS at every semantic ratio (rank 6, 0.0012 behind rank 5). That is deliberate and tracked — see the reranker follow-up referenced in queries.json. Do not relax it to make the harness green.",
+  "_measured": "2026-07-28, Meilisearch 1.51.0 + Ollama bge-m3, 32-doc corpus, semanticRatio 0.5. BEFORE (origin/main): Recall@10 0.8889, MRR 0.5631. AFTER (this branch): Recall@10 1.0000, MRR 0.7259. Floors below are ~95% of the AFTER numbers.",
+  "_corpus_limits": "This corpus is SYNTHETIC and small, and it does NOT reproduce the production semantic failure. At semanticRatio 1.0 the #2384 target ranks 5 here under every template tried, INCLUDING the pre-change token bag, while the 333k-document production index ranks it ~97 pure-vector. Use this corpus to catch plumbing and lexical regressions (field wiring, attribute order, exact filename, named person) — it is measurably good at those. Do NOT use it to conclude anything about semantic ranking quality at production scale.",
   "minRecallAt10": 0.95,
   "minMrr": 0.7,
   "semanticRatio": 0.5
