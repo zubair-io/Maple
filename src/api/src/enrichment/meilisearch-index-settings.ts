@@ -5,6 +5,7 @@
  * put a large semantic backfill behind hours of duplicate embedding work.
  */
 
+import { EMBEDDER_DOCUMENT_TEMPLATE } from './meilisearch-embedder-template.ts';
 import { joinMeilisearchUrl } from './meilisearch-transport.ts';
 
 interface AssetsIndexSettingsConfig {
@@ -38,7 +39,7 @@ export function assetsIndexSettings(
         source: 'ollama',
         url: joinMeilisearchUrl(config.embedderUrl, '/api/embed'),
         model: config.embedderModel,
-        documentTemplate: '{{ doc.searchBlob }} {{ doc.description }} {{ doc.people }}',
+        documentTemplate: EMBEDDER_DOCUMENT_TEMPLATE,
       },
     };
   } else {
