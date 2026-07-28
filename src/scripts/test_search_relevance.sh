@@ -21,8 +21,9 @@
 # The per-case JSON report goes to stderr; redirect it to capture a baseline:
 #   src/scripts/test_search_relevance.sh 2>&1 | tee baseline.json
 #
-# One-time setup:
-#   docker run -p 7700:7700 getmeili/meilisearch:v1.11
+# One-time setup (writes to a throwaway `maple_relevance_probe` index,
+# never the managed `assets` index):
+#   docker run -p 7700:7700 getmeili/meilisearch:v1.50.0   # matches CI + docs/operations/meilisearch.md
 #   ollama pull bge-m3
 
 set -euo pipefail
