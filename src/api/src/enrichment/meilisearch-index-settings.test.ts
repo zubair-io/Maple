@@ -69,3 +69,58 @@ describe('searchable attribute order', () => {
     ]);
   });
 });
+
+describe('embedder dimensions', () => {
+  function embedder(model: string): Record<string, unknown> {
+    const s = assetsIndexSettings(
+      { semantic: true, embedderUrl: 'http://localhost:11434', embedderModel: model },
+      'caption',
+    );
+    return (s.embedders as Record<string, Record<string, unknown>>).caption!;
+  }
+
+  it('declares the output size for models we know', () => {
+    // Supplying `dimensions` makes Meilisearch skip its own dimension probe,
+    // which is a request to the embedding server that can fail independently
+    // of everything else and takes the whole embedder registration down.
+    expect(embedder('bge-m3').dimensions).toBe(1024);
+    expect(embedder('nomic-embed-text').dimensions).toBe(768);
+  });
+
+  it('ignores a tag suffix when resolving the model', () => {
+    expect(embedder('bge-m3:latest').dimensions).toBe(1024);
+  });
+
+  it('omits dimensions for a model we do not know', () => {
+    // Guessing here would be worse than probing: a wrong `dimensions` makes
+    // Meilisearch reject or truncate every vector. The model is an
+    // operator-settable value, so unknown models must fall back to the probe.
+    expect(embedder('some-private-embedder').dimensions).toBeUndefined();
+  });
+});
+
+describe('settings comparison and dimensions', () => {
+  function settingsFor(model: string): Record<string, unknown> {
+    return assetsIndexSettings(
+      { semantic: true, embedderUrl: 'http://localhost:11434', embedderModel: model },
+      'caption',
+    );
+  }
+
+  it('re-PATCHes when a known model is stored without our dimensions', () => {
+    const expected = settingsFor('bge-m3');
+    const actual = JSON.parse(JSON.stringify(expected)) as Record<string, unknown>;
+    delete (actual.embedders as Record<string, Record<string, unknown>>).caption!.dimensions;
+    expect(assetsIndexSettingsMatch(actual, expected)).toBe(false);
+  });
+
+  it('does NOT re-PATCH when Meilisearch probed dimensions for a model we do not know', () => {
+    // The boot-loop trap: for an unknown model we send no `dimensions`, but
+    // Meilisearch probes one and echoes it back. Comparing it unconditionally
+    // would mismatch on every boot, and every PATCH re-embeds the whole index.
+    const expected = settingsFor('some-private-embedder');
+    const actual = JSON.parse(JSON.stringify(expected)) as Record<string, unknown>;
+    (actual.embedders as Record<string, Record<string, unknown>>).caption!.dimensions = 768;
+    expect(assetsIndexSettingsMatch(actual, expected)).toBe(true);
+  });
+});
