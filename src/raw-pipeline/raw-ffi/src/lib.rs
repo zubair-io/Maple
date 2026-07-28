@@ -150,6 +150,9 @@ mod scene_linear_chain_fused_tests;
 #[path = "scene_linear_chain_local_tests.rs"]
 mod scene_linear_chain_local_tests;
 #[cfg(test)]
+#[path = "scene_linear_chain_patches_tests.rs"]
+mod scene_linear_chain_patches_tests;
+#[cfg(test)]
 #[path = "scene_linear_chain_tests.rs"]
 mod scene_linear_chain_tests;
 #[cfg(test)]
