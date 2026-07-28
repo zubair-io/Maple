@@ -52,20 +52,32 @@ export const ASSET_DOC_SHAPE_VERSION = 8;
  *        overlays). In practice it rarely competes with the transcript:
  *        assets tend to have one or the other, not both.
  *
- * Every `{{ doc.x }}` here MUST have a matching key in
- * `TEMPLATE_FIELD_DEFAULTS` below — see the note there.
+ * EVERY FIELD REFERENCE MUST BE `{% if %}`-GUARDED. Meilisearch re-renders
+ * this template against the documents ALREADY IN ITS INDEX the moment the
+ * embedder settings change — documents this deployment has not re-upserted
+ * yet, which therefore lack any newly-added field. A bare
+ * `{{ doc.placeText }}` against such a document fails the entire
+ * `settingsUpdate` task with `invalid_document_fields`
+ * (`liquid: Unknown index`), so the migration can never even start. Hit live
+ * on a 333k-document index during the #2384 rollout.
+ *
+ * `TEMPLATE_FIELD_DEFAULTS` does NOT cover this: it back-fills keys on
+ * documents we SEND, and cannot retro-fit the ones already indexed. The
+ * guard is what makes a template change deployable in a single release.
+ * Verified against Meilisearch 1.51 — `{% if %}` renders a missing key as
+ * empty, while `{{ doc.x | default: "" }}` still fails.
  */
 export const EMBEDDER_DOCUMENT_TEMPLATE = [
-  'Filename: {{ doc.filename }}',
-  'Media type: {{ doc.mediaType }}',
+  '{% if doc.filename %}Filename: {{ doc.filename }}{% endif %}',
+  '{% if doc.mediaType %}Media type: {{ doc.mediaType }}{% endif %}',
   // People sits high for the same reason it sits second in
   // `searchableAttributes`: a name query wants photos OF that person. The
   // field is short, so its position costs nothing downstream.
-  'People: {{ doc.people }}',
-  'Place: {{ doc.placeText }}',
-  'Visual description: {{ doc.description }}',
-  'Video transcript: {{ doc.transcript }}',
-  'OCR: {{ doc.ocrText }}',
+  '{% if doc.people %}People: {{ doc.people }}{% endif %}',
+  '{% if doc.placeText %}Place: {{ doc.placeText }}{% endif %}',
+  '{% if doc.description %}Visual description: {{ doc.description }}{% endif %}',
+  '{% if doc.transcript %}Video transcript: {{ doc.transcript }}{% endif %}',
+  '{% if doc.ocrText %}OCR: {{ doc.ocrText }}{% endif %}',
 ].join('\n');
 
 /**
