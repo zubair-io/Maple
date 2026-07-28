@@ -204,3 +204,80 @@ fn null_and_zero_dimension_guards_match_the_plain_entry() {
     };
     assert_eq!(rc_zero, 2, "zero width must return rc 2");
 }
+
+/// Regression gate for the fp16-vs-f32 mapping divergence found in review of
+/// #1486: before the `chain_inputs_from_params` hoist the f32 entry mapped the
+/// eight Colour Grading sliders and the fp16 entry did not, so Colour Grading
+/// was silently inert on the fp16 CPU refine path. Both surfaces must respond.
+///
+/// This is deliberately a *behavioural* check rather than a field-list
+/// assertion — a future field added to one copy and not the other is exactly
+/// the failure mode the shared mapping exists to prevent.
+#[test]
+fn colour_grading_reaches_both_fp16_and_f32_surfaces() {
+    // A non-neutral input: a global hue/saturation push has nothing to act on
+    // in a perfectly grey frame.
+    // The grade stage lives in the post-AgX display tail, so it only runs with
+    // `skip_agx == 0`; the shared `default_params()` sets 1 to keep the cheap
+    // stages trivial.
+    let mut graded = default_params();
+    graded.skip_agx = 0;
+    graded.color_grade_global_saturation = 100.0;
+    graded.color_grade_global_hue = 200.0;
+    graded.color_grade_midtone_saturation = 100.0;
+    graded.color_grade_midtone_hue = 40.0;
+    let mut plain = default_params();
+    plain.skip_agx = 0;
+
+    // fp16 surface
+    let f16_in: Vec<u16> = (0..LANES)
+        .map(|i| match i % 4 {
+            0 => 0x3800u16, // 0.5
+            1 => 0x3400u16, // 0.25
+            2 => 0x3A00u16, // 0.75
+            _ => 0x3C00u16, // 1.0 alpha
+        })
+        .collect();
+    let mut a = vec![0u16; LANES];
+    let mut b = vec![0u16; LANES];
+    unsafe {
+        assert_eq!(
+            maple_apply_scene_linear_chain(f16_in.as_ptr(), W, H, &plain, a.as_mut_ptr()),
+            0
+        );
+        assert_eq!(
+            maple_apply_scene_linear_chain(f16_in.as_ptr(), W, H, &graded, b.as_mut_ptr()),
+            0
+        );
+    }
+    assert_ne!(
+        a, b,
+        "Colour Grading must change the fp16 chain output (it was inert before #1486)"
+    );
+
+    // f32 surface
+    let f32_in: Vec<f32> = (0..LANES)
+        .map(|i| match i % 4 {
+            0 => 0.5f32,
+            1 => 0.25,
+            2 => 0.75,
+            _ => 1.0,
+        })
+        .collect();
+    let mut c = vec![0f32; LANES];
+    let mut d = vec![0f32; LANES];
+    unsafe {
+        assert_eq!(
+            maple_apply_scene_linear_chain_f32(f32_in.as_ptr(), W, H, &plain, c.as_mut_ptr()),
+            0
+        );
+        assert_eq!(
+            maple_apply_scene_linear_chain_f32(f32_in.as_ptr(), W, H, &graded, d.as_mut_ptr()),
+            0
+        );
+    }
+    assert_ne!(
+        c, d,
+        "Colour Grading must change the f32 chain output (it always did — keep it that way)"
+    );
+}

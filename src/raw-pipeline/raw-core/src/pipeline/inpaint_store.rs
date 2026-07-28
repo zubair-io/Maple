@@ -133,6 +133,18 @@ pub fn patches_from_blob(bytes: &[u8]) -> Result<Vec<InpaintPatch>, String> {
         ));
     }
     let count = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
+    // The count is untrusted: every patch costs at least HEADER_LEN bytes, so a
+    // blob of this length cannot describe more than `remaining / HEADER_LEN` of
+    // them. Bound the reservation by that ceiling rather than trusting `count`,
+    // or a malformed header claiming u32::MAX patches aborts the process on the
+    // allocation before any of the truncation checks below can run.
+    let max_possible = (bytes.len() - 4) / HEADER_LEN;
+    if count > max_possible {
+        return Err(format!(
+            "inpaint blob: count {count} exceeds what {} remaining bytes can hold ({max_possible})",
+            bytes.len() - 4
+        ));
+    }
     let mut off = 4;
     let mut out = Vec::with_capacity(count);
     for i in 0..count {
@@ -167,6 +179,14 @@ pub fn patches_from_blob(bytes: &[u8]) -> Result<Vec<InpaintPatch>, String> {
         }
         out.push(patch_from_bytes(&bytes[off..end])?);
         off = end;
+    }
+    // Trailing bytes mean the blob does not describe what it claims — surface
+    // that rather than silently dropping removals from a corrupt cache entry.
+    if off != bytes.len() {
+        return Err(format!(
+            "inpaint blob: {} trailing byte(s) after {count} patch(es)",
+            bytes.len() - off
+        ));
     }
     Ok(out)
 }
@@ -281,5 +301,51 @@ mod tests {
         let mut blob = 5u32.to_le_bytes().to_vec();
         blob.extend_from_slice(&[0u8; 4]);
         assert!(patches_from_blob(&blob).is_err());
+    }
+    /// A malformed header claiming a huge patch count must be rejected from the
+    /// blob length alone, BEFORE `Vec::with_capacity` — otherwise an untrusted
+    /// blob crossing the FFI boundary aborts the process on the allocation.
+    #[test]
+    fn absurd_count_is_rejected_without_allocating() {
+        let mut blob = u32::MAX.to_le_bytes().to_vec();
+        blob.extend_from_slice(&[0u8; 16]);
+        let err = patches_from_blob(&blob).expect_err("absurd count must error");
+        assert!(
+            err.contains("exceeds what"),
+            "expected the length-bound rejection, got: {err}"
+        );
+    }
+
+    /// Trailing bytes mean the blob does not describe what it claims; treating
+    /// it as valid would silently drop removals from a corrupt cache entry.
+    #[test]
+    fn trailing_bytes_are_rejected() {
+        let patch = InpaintPatch {
+            width: 2,
+            height: 2,
+            origin: [0.0, 0.0],
+            extent: [1.0, 1.0],
+            pixels: vec![[0.25, 0.5, 0.75]; 4],
+            coverage: vec![1.0; 4],
+        };
+        let good = patches_to_blob(std::slice::from_ref(&patch));
+        assert!(patches_from_blob(&good).is_ok(), "control blob must decode");
+
+        let mut trailing = good.clone();
+        trailing.extend_from_slice(&[0xAB; 3]);
+        let err = patches_from_blob(&trailing).expect_err("trailing bytes must error");
+        assert!(
+            err.contains("trailing"),
+            "expected the trailing-byte rejection, got: {err}"
+        );
+    }
+
+    /// The empty blob stays valid — it is the "no removals" encoding.
+    #[test]
+    fn empty_blob_still_decodes_to_no_patches() {
+        let blob = 0u32.to_le_bytes().to_vec();
+        assert!(patches_from_blob(&blob)
+            .expect("empty blob decodes")
+            .is_empty());
     }
 }
