@@ -95,6 +95,21 @@ describe('template content', () => {
     expect(EMBEDDER_TEMPLATE_MAX_BYTES).toBeGreaterThanOrEqual(4000);
   });
 
+  it('guards every field reference so a settings change cannot fail on old documents', () => {
+    // The deployment trap (#2384): Meilisearch re-renders this template
+    // against the documents ALREADY in its index the moment embedder settings
+    // change. Those documents predate any newly-added field, and a bare
+    // `{{ doc.x }}` against them fails the entire settingsUpdate task with
+    // `invalid_document_fields` — the migration can never start.
+    // TEMPLATE_FIELD_DEFAULTS cannot help: it back-fills documents we SEND,
+    // not the millions already indexed.
+    for (const line of EMBEDDER_DOCUMENT_TEMPLATE.split('\n')) {
+      if (!line.includes('doc.')) continue;
+      const guarded = /^\{% if doc\.(\w+) %\}[^{]*\{\{ doc\.\1 \}\}[^{]*\{% endif %\}$/.exec(line);
+      expect(guarded, `unguarded template line: ${line}`).not.toBeNull();
+    }
+  });
+
   it('references only keys that TEMPLATE_FIELD_DEFAULTS covers', () => {
     // The #2369 invariant, enforced structurally: a document missing any key
     // the template dereferences rejects its ENTIRE batch. Derived from the
