@@ -229,6 +229,19 @@ public actor AuthenticatedHTTPClient {
 
   private static func acquireRefreshLock(server: URL) async throws -> Int32 {
     #if canImport(Darwin)
+    #if os(tvOS)
+    // tvOS runs no auth-capable extension processes (no File Provider,
+    // no QuickLook) — this app is the only refresh actor, and the
+    // in-process single-flight task already serializes concurrent
+    // refreshes, so the flock only needs to be process-visible. Gating
+    // tvOS refresh on the shared App Group container bricked auth on
+    // real Apple TV hardware: the container lookup failed at runtime
+    // despite the granted entitlement, so no refresh ever reached the
+    // server and every session died at access-token expiry (#2380 —
+    // every tvOS refresh family in production sat un-rotated). The
+    // app-private temporary directory is always available.
+    let container = FileManager.default.temporaryDirectory
+    #else
     let sharedContainer = FileManager.default.containerURL(
       forSecurityApplicationGroupIdentifier: "group.app.justmaple.aperture"
     )
@@ -238,9 +251,15 @@ public actor AuthenticatedHTTPClient {
     } else if NSClassFromString("XCTestCase") != nil {
       container = FileManager.default.temporaryDirectory
     } else {
+      // iOS/macOS share refresh families with extension processes
+      // (File Provider, QuickLook) — refusing to refresh without the
+      // cross-process lock is deliberate: an uncoordinated rotation
+      // there can strand a sibling process's token and revoke the
+      // whole family (#1868 class). Do NOT weaken this branch.
       cloudHTTPLogger.fault("shared App Group container unavailable; refusing unsafe refresh")
       throw AuthenticationError.temporarilyUnavailable
     }
+    #endif
     let directory = container.appendingPathComponent("AuthLocks", isDirectory: true)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let path = directory.appendingPathComponent("\(stableServerHash(server)).lock").path
