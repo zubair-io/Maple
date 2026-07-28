@@ -171,8 +171,15 @@ pub fn patches_from_blob(bytes: &[u8]) -> Result<Vec<InpaintPatch>, String> {
         let body = n
             .checked_mul(8)
             .ok_or_else(|| format!("inpaint blob: patch {i} body overflow"))?;
+        // Every step is checked, including the inner `HEADER_LEN + body`: `body`
+        // survives `checked_mul(8)` at up to `usize::MAX - 7`, so adding the
+        // header to it wraps for dimensions a blob can legitimately declare
+        // (w = 2147483646, h = 1073741825 both fit u32 and land there). A wrap
+        // here is a panic in debug and a tiny `end` that slips past the bounds
+        // check below in release.
         let end = off
-            .checked_add(HEADER_LEN + body)
+            .checked_add(HEADER_LEN)
+            .and_then(|o| o.checked_add(body))
             .ok_or_else(|| format!("inpaint blob: patch {i} offset overflow"))?;
         if bytes.len() < end {
             return Err(format!("inpaint blob: truncated body for patch {i}"));
@@ -313,6 +320,27 @@ mod tests {
         assert!(
             err.contains("exceeds what"),
             "expected the length-bound rejection, got: {err}"
+        );
+    }
+
+    /// The per-patch body length must not be able to wrap the offset math.
+    /// `w * h * 8` can survive its own `checked_mul` at `usize::MAX - 15` while
+    /// `HEADER_LEN + body` still overflows, so the header addition has to be
+    /// checked too — otherwise this input panics in debug and, in release,
+    /// wraps `end` down to a value that slips past the truncation check.
+    /// These dimensions are the smallest pair that both fit `u32` and land in
+    /// that window: 2147483646 * 1073741825 * 8 == usize::MAX - 15.
+    #[test]
+    fn body_length_cannot_wrap_the_offset_math() {
+        let mut blob = 1u32.to_le_bytes().to_vec();
+        blob.extend_from_slice(&[0u8; 8]); // origin/extent lead-in
+        blob.extend_from_slice(&2147483646u32.to_le_bytes());
+        blob.extend_from_slice(&1073741825u32.to_le_bytes());
+        blob.extend_from_slice(&[0u8; HEADER_LEN - 16]); // rest of the header
+        let err = patches_from_blob(&blob).expect_err("wrapping body must error");
+        assert!(
+            err.contains("overflow") || err.contains("truncated"),
+            "expected an overflow/truncation rejection, got: {err}"
         );
     }
 
