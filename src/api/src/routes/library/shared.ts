@@ -2,15 +2,15 @@
  * Shared utilities for the M1 library routes.
  */
 
-import { stat } from "node:fs/promises";
-import type { Context } from "elysia";
+import { stat } from 'node:fs/promises';
+import type { Context } from 'elysia';
 import {
   RAW_EXTENSIONS,
   SHARP_EXTENSIONS,
   PSD_HDR_EXTENSIONS,
   STUB_IMAGE_EXTENSIONS,
   AUDIO_EXTENSIONS,
-} from "../../fs/browse.ts";
+} from '../../fs/browse.ts';
 
 /** Union of all image extensions surfaced by library routes. */
 export const IMAGE_EXTENSIONS_SET = new Set<string>([
@@ -32,75 +32,75 @@ export const STUB_AND_AUDIO_EXTENSIONS_SET = new Set<string>([
 
 /** Map of lowercase extension → MIME type for Content-Type headers. */
 const MIME_BY_EXT: Record<string, string> = {
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  png: "image/png",
-  webp: "image/webp",
-  gif: "image/gif",
-  tif: "image/tiff",
-  tiff: "image/tiff",
-  heic: "image/heic",
-  heif: "image/heif",
-  cr2: "image/x-canon-cr2",
-  cr3: "image/x-canon-cr3",
-  nef: "image/x-nikon-nef",
-  arw: "image/x-sony-arw",
-  dng: "image/dng",
-  raf: "image/x-fuji-raf",
-  orf: "image/x-olympus-orf",
-  rw2: "image/x-panasonic-rw2",
-  pef: "image/x-pentax-pef",
-  srw: "image/x-samsung-srw",
-  x3f: "image/x-sigma-x3f",
-  "3fr": "image/x-hasselblad-3fr",
-  mef: "image/x-mamiya-mef",
-  erf: "image/x-epson-erf",
-  mrw: "image/x-minolta-mrw",
-  fff: "image/x-hasselblad-fff",
-  avif: "image/avif",
-  psd: "image/vnd.adobe.photoshop",
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  gif: 'image/gif',
+  tif: 'image/tiff',
+  tiff: 'image/tiff',
+  heic: 'image/heic',
+  heif: 'image/heif',
+  cr2: 'image/x-canon-cr2',
+  cr3: 'image/x-canon-cr3',
+  nef: 'image/x-nikon-nef',
+  arw: 'image/x-sony-arw',
+  dng: 'image/dng',
+  raf: 'image/x-fuji-raf',
+  orf: 'image/x-olympus-orf',
+  rw2: 'image/x-panasonic-rw2',
+  pef: 'image/x-pentax-pef',
+  srw: 'image/x-samsung-srw',
+  x3f: 'image/x-sigma-x3f',
+  '3fr': 'image/x-hasselblad-3fr',
+  mef: 'image/x-mamiya-mef',
+  erf: 'image/x-epson-erf',
+  mrw: 'image/x-minolta-mrw',
+  fff: 'image/x-hasselblad-fff',
+  avif: 'image/avif',
+  psd: 'image/vnd.adobe.photoshop',
   // No registered PSB-specific MIME type exists; PSB is Photoshop's own
   // "Large Document Format" variant of the same 8BPS container, so reuse
   // the PSD type rather than falling back to application/octet-stream.
-  psb: "image/vnd.adobe.photoshop",
-  hdr: "image/vnd.radiance",
+  psb: 'image/vnd.adobe.photoshop',
+  hdr: 'image/vnd.radiance',
   // Audio (#1835) — IANA-registered types.
-  mp3: "audio/mpeg",
-  wav: "audio/wav",
-  m4a: "audio/mp4",
-  aac: "audio/aac",
-  mov: "video/quicktime",
-  mp4: "video/mp4",
-  m4v: "video/x-m4v",
-  webm: "video/webm",
-  avi: "video/x-msvideo",
-  mkv: "video/x-matroska",
-  mts: "video/mp2t",
-  m2ts: "video/mp2t",
-  "3gp": "video/3gpp",
-  mxf: "application/mxf",
-  "3g2": "video/3gpp2",
-  flv: "video/x-flv",
-  vob: "video/mpeg",
-  mpg: "video/mpeg",
-  wmv: "video/x-ms-wmv",
-  f4v: "video/mp4",
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  mov: 'video/quicktime',
+  mp4: 'video/mp4',
+  m4v: 'video/x-m4v',
+  webm: 'video/webm',
+  avi: 'video/x-msvideo',
+  mkv: 'video/x-matroska',
+  mts: 'video/mp2t',
+  m2ts: 'video/mp2t',
+  '3gp': 'video/3gpp',
+  mxf: 'application/mxf',
+  '3g2': 'video/3gpp2',
+  flv: 'video/x-flv',
+  vob: 'video/mpeg',
+  mpg: 'video/mpeg',
+  wmv: 'video/x-ms-wmv',
+  f4v: 'video/mp4',
   // Metadata-only stub images (#1835) — no registered MIME exists for
   // eip/braw/afphoto; fall back to the generic binary type. `ai` files are
   // normally a PDF/vector container (Illustrator), so `application/postscript`
   // is the closest IANA-registered type rather than octet-stream.
-  eip: "application/octet-stream",
-  braw: "application/octet-stream",
-  afphoto: "application/octet-stream",
-  ai: "application/postscript",
+  eip: 'application/octet-stream',
+  braw: 'application/octet-stream',
+  afphoto: 'application/octet-stream',
+  ai: 'application/postscript',
 };
 
 export function mimeForExt(ext: string): string {
-  return MIME_BY_EXT[ext.toLowerCase()] ?? "application/octet-stream";
+  return MIME_BY_EXT[ext.toLowerCase()] ?? 'application/octet-stream';
 }
 
 /** Immutable cache control for content-keyed responses. */
-export const IMMUTABLE_CACHE = "public, max-age=31536000, immutable";
+export const IMMUTABLE_CACHE = 'public, max-age=31536000, immutable';
 
 /**
  * Cache control for the preview tier (#2017). The preview is a pure cache
@@ -111,7 +111,7 @@ export const IMMUTABLE_CACHE = "public, max-age=31536000, immutable";
  * unchanged and fresh bytes immediately after the editor overwrites the file.
  * `private` because previews are per-library user content behind auth.
  */
-export const MUTABLE_PREVIEW_CACHE = "private, max-age=0, must-revalidate";
+export const MUTABLE_PREVIEW_CACHE = 'private, max-age=0, must-revalidate';
 
 /**
  * Strong ETag for a preview file: its full-precision mtime + size. An in-place
@@ -132,9 +132,7 @@ export function previewFileETag(st: Awaited<ReturnType<typeof stat>>): string {
 /**
  * Safe stat — returns null on any error.
  */
-export async function safeStat(
-  p: string,
-): Promise<Awaited<ReturnType<typeof stat>> | null> {
+export async function safeStat(p: string): Promise<Awaited<ReturnType<typeof stat>> | null> {
   try {
     return await stat(p);
   } catch {
@@ -163,7 +161,7 @@ export async function safeReadBytes(p: string): Promise<Uint8Array | null> {
  * single `return`, not a repeated unwrap-and-forward.
  */
 export async function serveCachedBytesOr404(
-  set: Context["set"],
+  set: Context['set'],
   cachePath: string,
   contentType: string,
   etag: string,
@@ -178,9 +176,9 @@ export async function serveCachedBytesOr404(
   return new Response(bytes as unknown as BodyInit, {
     status: 200,
     headers: {
-      "Content-Type": contentType,
+      'Content-Type': contentType,
       ETag: etag,
-      "Cache-Control": cacheControl,
+      'Cache-Control': cacheControl,
     },
   });
 }
@@ -204,16 +202,14 @@ export async function streamFile(
   return new Response(Bun.file(absPath), {
     status: 200,
     headers: {
-      "Content-Type": contentType,
-      "Content-Length": String(st.size),
+      'Content-Type': contentType,
+      'Content-Length': String(st.size),
       ...extraHeaders,
     },
   });
 }
 
-export type ByteRange =
-  | { ok: true; start: number; end: number }
-  | { ok: false };
+export type ByteRange = { ok: true; start: number; end: number } | { ok: false };
 
 /** Parse the single byte range used by media players. */
 export function parseByteRange(value: string, size: number): ByteRange {
@@ -229,52 +225,50 @@ export function parseByteRange(value: string, size: number): ByteRange {
   }
 
   const start = Number(startText);
-  if (!Number.isSafeInteger(start) || start < 0 || start >= size)
-    return { ok: false };
+  if (!Number.isSafeInteger(start) || start < 0 || start >= size) return { ok: false };
   const requestedEnd = endText ? Number(endText) : size - 1;
-  if (!Number.isSafeInteger(requestedEnd) || requestedEnd < start)
-    return { ok: false };
+  if (!Number.isSafeInteger(requestedEnd) || requestedEnd < start) return { ok: false };
   return { ok: true, start, end: Math.min(requestedEnd, size - 1) };
 }
 
 /**
- * Headers a streamed-file response carries itself.
+ * Headers a streamed-file response carries itself (#2382).
  *
- * #2382: the app's global CORS/isolation `onBeforeHandle` writes `set.headers`,
- * and Elysia rebuilds any returned `Response` when `set.headers` is non-empty
- * — discarding the `BunFile` slice and the explicit `Content-Length`. That
- * turned every 206 into a full-file chunked response, which AVFoundation
- * rejects as a protocol violation (blank player on every Apple device). So
- * file responses are exempted from that hook and repeat the headers here.
+ * The app's global CORS/isolation hook writes `set.headers`, and Elysia
+ * rebuilds any returned `Response` when `set.headers` is non-empty — which
+ * discards the `BunFile` slice and the explicit `Content-Length`. That turned
+ * every 206 into a full-file chunked response, which AVFoundation rejects as a
+ * protocol violation. File responses are exempted from that hook and repeat
+ * the headers here.
  *
- * `Cross-Origin-Resource-Policy` replaces the COOP/COEP pair: those belong on
- * a top-level *document* to make the page cross-origin-isolated, whereas these
- * are subresources. Under the document's `COEP: require-corp` a same-origin
- * load needs nothing, but the dev setup serves Angular on :4201 against the
- * API on :3000, so `cross-origin` keeps that working too.
+ * `Cross-Origin-Resource-Policy` stands in for the COOP/COEP pair: those
+ * belong on a top-level *document* to make the page cross-origin isolated,
+ * whereas these are subresources. A same-origin load needs nothing under the
+ * document's `require-corp`, but dev serves Angular on :4201 against the API
+ * on :3000, so `cross-origin` keeps that working too.
  */
-export const STREAMED_FILE_HEADERS: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-  "Cross-Origin-Resource-Policy": "cross-origin",
+const STREAMED_FILE_HEADERS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Cross-Origin-Resource-Policy': 'cross-origin',
 };
 
 /**
- * True for request paths whose handler returns a streamed file body, and which
- * therefore must be skipped by the global `set.headers` hook (#2382).
+ * True for request paths whose handler returns a streamed file body, which the
+ * global `set.headers` hooks must therefore skip (#2382).
  *
- * Kept as a prefix list rather than inferred from the response because the
- * decision has to be made in `onBeforeHandle`, before a response exists. The
- * regression test in `video.test.ts` mounts the real hook and asserts an exact
- * byte count, so a new streaming route that forgets to register here fails
- * loudly rather than silently serving whole files.
+ * A prefix list rather than something inferred from the response, because the
+ * decision has to be made in `onRequest`/`onBeforeHandle`, before a response
+ * exists. `video.test.ts` mounts the real middleware and asserts an exact byte
+ * count, so a new streaming route that forgets to register here fails loudly
+ * instead of silently serving whole files.
  */
 export function isStreamedFilePath(path: string): boolean {
   return (
-    path.startsWith("/api/video/") ||
-    path.startsWith("/api/library/image/") ||
-    path.startsWith("/api/fs/download/")
+    path.startsWith('/api/video/') ||
+    path.startsWith('/api/library/image/') ||
+    path.startsWith('/api/fs/download/')
   );
 }
 
@@ -287,22 +281,22 @@ export function streamFileRange(
 ): Response {
   const common = {
     ...STREAMED_FILE_HEADERS,
-    "Content-Type": contentType,
-    "Accept-Ranges": "bytes",
-    "Cache-Control": "private, max-age=0, must-revalidate",
-    "Referrer-Policy": "no-referrer",
+    'Content-Type': contentType,
+    'Accept-Ranges': 'bytes',
+    'Cache-Control': 'private, max-age=0, must-revalidate',
+    'Referrer-Policy': 'no-referrer',
   };
   if (!rangeHeader) {
     return new Response(Bun.file(absPath), {
       status: 200,
-      headers: { ...common, "Content-Length": String(size) },
+      headers: { ...common, 'Content-Length': String(size) },
     });
   }
   const range = parseByteRange(rangeHeader, size);
   if (!range.ok) {
     return new Response(null, {
       status: 416,
-      headers: { ...common, "Content-Range": `bytes */${size}` },
+      headers: { ...common, 'Content-Range': `bytes */${size}` },
     });
   }
   const length = range.end - range.start + 1;
@@ -310,8 +304,8 @@ export function streamFileRange(
     status: 206,
     headers: {
       ...common,
-      "Content-Length": String(length),
-      "Content-Range": `bytes ${range.start}-${range.end}/${size}`,
+      'Content-Length': String(length),
+      'Content-Range': `bytes ${range.start}-${range.end}/${size}`,
     },
   });
 }
@@ -320,8 +314,8 @@ export function streamFileRange(
  * Extension from a filename (lowercase, no dot).
  */
 export function extOf(filename: string): string {
-  const dot = filename.lastIndexOf(".");
-  return dot >= 0 ? filename.slice(dot + 1).toLowerCase() : "";
+  const dot = filename.lastIndexOf('.');
+  return dot >= 0 ? filename.slice(dot + 1).toLowerCase() : '';
 }
 
 /**
@@ -334,7 +328,7 @@ export function extOf(filename: string): string {
  */
 export function parseWildcardSegments(wildcard: string): string[] {
   if (!wildcard) return [];
-  return wildcard.split("/").map((seg) => {
+  return wildcard.split('/').map((seg) => {
     try {
       return decodeURIComponent(seg);
     } catch {
@@ -347,14 +341,10 @@ export function parseWildcardSegments(wildcard: string): string[] {
  * Get the asset record for a specific (library_id, path, filename) tuple.
  * Uses the `fileinfo_lib_path_name` compound index.
  */
-import { assetsCollection } from "../../db/client.ts";
-import type { ObjectId } from "mongodb";
+import { assetsCollection } from '../../db/client.ts';
+import type { ObjectId } from 'mongodb';
 
-export async function findAssetByAddress(
-  libraryId: ObjectId,
-  relPath: string,
-  filename: string,
-) {
+export async function findAssetByAddress(libraryId: ObjectId, relPath: string, filename: string) {
   const coll = await assetsCollection();
   return coll.findOne(
     {
