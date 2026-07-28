@@ -3,6 +3,7 @@ import { assetsCollection, getDb } from '../db/client.ts';
 import { child as childLogger } from '../log.ts';
 import { loadNamedPeople, peopleNamesForFaces } from '../workers/stages/meili.ts';
 import { meilisearchClient } from './meilisearch-client.ts';
+import { ASSET_DOC_SHAPE_VERSION } from './meilisearch-embedder-template.ts';
 import { withMeilisearchBackfillLease } from './meilisearch-backfill-lease.ts';
 import {
   ROW_PROJECTION,
@@ -34,6 +35,10 @@ export interface BackfillState {
   started_at: string;
   updated_at: string;
   completed_at: string | null;
+  /** `ASSET_DOC_SHAPE_VERSION` this generation's documents were written for.
+   * A completed run only means "the index is current" for the shape it ran
+   * under; see `loadState`. Absent on states written before #2384. */
+  doc_shape_version?: number;
 }
 
 interface PreparedBatch {
@@ -86,7 +91,45 @@ function freshState(now: string, remaining: number): BackfillState {
     started_at: now,
     updated_at: now,
     completed_at: null,
+    doc_shape_version: ASSET_DOC_SHAPE_VERSION,
   };
+}
+
+/**
+ * Whether a stored generation still describes the documents we would write.
+ *
+ * `runBackfillBatch` short-circuits on `completed_at`, so a state left over
+ * from an earlier document shape would report "complete" and re-upsert
+ * nothing — the index silently keeps serving the old shape while the operator
+ * sees a finished migration. A shape bump therefore starts a new generation
+ * automatically, rather than depending on someone passing `reset=true` (#2384).
+ *
+ * Only the DOCUMENT shape matters here, not the full vector fingerprint: a
+ * model or embedder-URL change is re-embedded by Meilisearch from the
+ * documents already in its index and needs no re-upsert. Same distinction
+ * `documentShapeOf` draws in `meilisearch-vector-coverage.ts`.
+ */
+function generationIsCurrent(state: BackfillState | null): state is BackfillState {
+  return state !== null && state.doc_shape_version === ASSET_DOC_SHAPE_VERSION;
+}
+
+/** Drop a stored generation belonging to a superseded document shape. Returns
+ * the state to resume, or `null` when a fresh generation must be started. */
+async function currentGeneration(states: Collection<BackfillState>): Promise<BackfillState | null> {
+  const stored = await states.findOne({ _id: STATE_ID });
+  if (generationIsCurrent(stored)) return stored;
+  if (stored) {
+    log.info(
+      {
+        storedShape: stored.doc_shape_version ?? null,
+        currentShape: ASSET_DOC_SHAPE_VERSION,
+        discardedScanned: stored.scanned,
+      },
+      'meilisearch backfill: document shape changed — starting a new generation',
+    );
+    await states.deleteOne({ _id: STATE_ID });
+  }
+  return null;
 }
 
 async function loadState(
@@ -94,7 +137,7 @@ async function loadState(
   reset: boolean,
 ): Promise<BackfillState> {
   if (reset) await states.deleteOne({ _id: STATE_ID });
-  const state = await states.findOne({ _id: STATE_ID });
+  const state = await currentGeneration(states);
   if (state) {
     if (typeof state.remaining !== 'number' && !state.completed_at) {
       state.remaining = await countRowsAfter(state.cursor);
@@ -408,4 +451,10 @@ export async function runMeilisearchBackfill(
   reset: boolean,
 ): Promise<BackfillResult> {
   return withMeilisearchBackfillLease(() => runBackfillBatch(batchSize, reset));
+}
+
+/** Test-only: exercise generation selection without a live Meilisearch. */
+export async function loadBackfillStateForTests(reset: boolean): Promise<BackfillState> {
+  const states = (await getDb()).collection<BackfillState>('meilisearch_backfill_state');
+  return loadState(states, reset);
 }
