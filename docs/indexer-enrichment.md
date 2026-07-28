@@ -364,6 +364,40 @@ For "Musum" to match "museum", we need typo-tolerant search. Mongo text indexes 
 
 V1 ships without typo tolerance. The first time a user types "Musum" and gets nothing, it's a small UX hit — acceptable for the launch.
 
+### 5.6 The shipped Meilisearch index
+
+§5.5 is the original design decision; this section describes what actually runs. Option 1 shipped, plus hybrid (keyword + vector) search against a managed Ollama embedder.
+
+**Document fields.** `MeilisearchAssetDoc` (`src/api/src/enrichment/meilisearch-client.ts`) is written by exactly two places, which must stay in lockstep: the per-asset meili stage (`workers/stages/meili.ts`) and the bulk backfill (`meilisearch-backfill-compose.ts`). Both derive the prose fields through `enrichment/asset-doc-fields.ts` so they cannot drift.
+
+Searchable attributes, in order — **the order is ranking-significant**, because Meilisearch's `attribute` rule favours matches in earlier attributes:
+
+```text
+filename, people, transcript, ocrText, description, placeText, searchBlob
+```
+
+- `filename` first keeps exact-identifier queries (`IMG_4185.MOV`) top-1.
+- `people` second: a name query wants photos _of_ that person, not a transcript that mentions them in passing. The field holds only resolved `PersonDoc.name`s — auto `Person N` clusters and merged rows are excluded upstream.
+- `transcript` / `ocrText` above `description`: what was actually said or written outranks what a captioner guessed.
+- `searchBlob` last. It remains searchable because it is the only home for the structured vision tokens, but at the lowest weight.
+
+**Embedding template.** Single-sourced in `enrichment/meilisearch-embedder-template.ts` and labelled per field. It deliberately excludes `searchBlob`: that field is a lowercased, deduped, **alphabetically sorted** token bag (§5.2, `enrichment/search-blob.ts`), and a sentence embedder reads word order and repetition, so feeding it the blob delivered scrambled tokens for real transcripts while generic captions arrived as fluent prose. `transcript` is rendered last so that if the embedder's context window is reached, the truncation lands in the transcript tail rather than dropping the shorter, denser fields; `asset-doc-fields.ts` also caps it at `MAX_INDEXED_TRANSCRIPT_CHARS`.
+
+Every `{{ doc.x }}` the template dereferences **must** have a matching key in `TEMPLATE_FIELD_DEFAULTS` in the same file. Meilisearch renders the template for every incoming document with strict Liquid lookups, so a document missing a referenced key rejects its **entire batch** with `invalid_document_fields` — hit live in #2369 by tombstone documents during a backfill.
+
+### 5.7 Re-embedding after a document-shape change
+
+The semantic fingerprint is `v<ASSET_DOC_SHAPE_VERSION>:<sha256>`. When the shape version changes (a new field on `MeilisearchAssetDoc`), coverage is **not** carried forward: every asset reads as un-vectorized until it has been re-upserted with the new fields.
+
+That asymmetry is deliberate. A settings PATCH makes Meilisearch re-embed the documents already in its index, so a pure model / URL / template-wording change carries forward safely — the vectors really are rebuilt. But a shape change means the template now reads fields those indexed documents do not carry yet, so the re-embed would run against missing data. Counting it as coverage would show the operator 100% while every vector was built without, say, a transcript. See `documentShapeOf` in `enrichment/meilisearch-vector-coverage.ts`.
+
+Two paths converge on the rebuild, and both are safe to run:
+
+1. **Automatic** — the meili stage's `targetVersion` is bound to `ASSET_DOC_SHAPE_VERSION`, so every asset becomes eligible again and the stage re-upserts it. Slow (concurrency 2) but needs no operator action.
+2. **Operator-driven** — `POST /api/admin/enrichment/backfill-meilisearch` (owner only) batches the same work at 250 documents per Meilisearch task. `?reset=true` discards prior backfill progress and re-scans from the start.
+
+Watch Settings → Workers: `vectorizedDocumentCount` climbs back toward `indexedDocumentCount` as the re-embed proceeds.
+
 ## 6. Face and describe workers (sketch)
 
 Same worker shape as geocode (§3). What changes:
