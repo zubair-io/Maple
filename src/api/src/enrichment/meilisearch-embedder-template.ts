@@ -37,10 +37,20 @@ export const ASSET_DOC_SHAPE_VERSION = 8;
  * scrambled tokens while a generic photo caption reached it as fluent prose.
  * That asymmetry is why transcript-rich videos under-ranked (#2384).
  *
- * `transcript` is last: it is by far the longest field, so if Ollama's
- * context window is reached the truncation lands in the transcript tail
- * rather than dropping the shorter, denser fields entirely.
- * `asset-doc-fields.ts` also caps it explicitly.
+ * FIELD ORDER IS LOAD-BEARING, because the rendered template is truncated to
+ * `EMBEDDER_TEMPLATE_MAX_BYTES` before it is embedded. Whatever sits at the
+ * end is what gets dropped on a long document, so the order runs
+ * highest-value-per-byte first:
+ *
+ *   1-4. filename / media type / people / place — tiny, high-precision, and
+ *        together only a few hundred bytes.
+ *   5.   description — one or two sentences of scene prose.
+ *   6.   transcript  — the point of #2384. It must NOT be last: on a
+ *        transcript-rich video it is the primary evidence, and putting it
+ *        after OCR would let a screenshot's chrome text crowd it out.
+ *   7.   OCR — last because it is the noisiest source (UI chrome, EXIF
+ *        overlays). In practice it rarely competes with the transcript:
+ *        assets tend to have one or the other, not both.
  *
  * Every `{{ doc.x }}` here MUST have a matching key in
  * `TEMPLATE_FIELD_DEFAULTS` below — see the note there.
@@ -52,11 +62,30 @@ export const EMBEDDER_DOCUMENT_TEMPLATE = [
   // `searchableAttributes`: a name query wants photos OF that person. The
   // field is short, so its position costs nothing downstream.
   'People: {{ doc.people }}',
-  'Visual description: {{ doc.description }}',
   'Place: {{ doc.placeText }}',
-  'OCR: {{ doc.ocrText }}',
+  'Visual description: {{ doc.description }}',
   'Video transcript: {{ doc.transcript }}',
+  'OCR: {{ doc.ocrText }}',
 ].join('\n');
+
+/**
+ * Byte ceiling Meilisearch applies to the RENDERED template before embedding.
+ *
+ * Meilisearch defaults this to **400 bytes**, and Maple never set it — so
+ * every vector in a pre-#2384 index was built from roughly the first 400
+ * bytes of `{{ doc.searchBlob }} …`, i.e. the first ~50 tokens of an
+ * ALPHABETISED token bag. Description and people were usually truncated away
+ * entirely before the embedder ever saw them. Fixing the template without
+ * fixing this cap would change almost nothing.
+ *
+ * 5000 bytes ≈ 1200 tokens: comfortably inside bge-m3's 8192-token window,
+ * enough for the short fields plus a substantial transcript excerpt, and
+ * small enough that re-embedding a large library stays tractable. The
+ * separate `MAX_INDEXED_TRANSCRIPT_CHARS` cap in `asset-doc-fields.ts` bounds
+ * the LEXICAL copy of the transcript; this bounds the EMBEDDED copy. They are
+ * different budgets for different indexes and do not need to agree.
+ */
+export const EMBEDDER_TEMPLATE_MAX_BYTES = 5000;
 
 /**
  * Every key the template above dereferences, with the value a document gets
@@ -113,6 +142,9 @@ export function vectorFingerprint(input: VectorFingerprintInput): string {
         url: input.embedUrl,
         model: input.model,
         documentTemplate: EMBEDDER_DOCUMENT_TEMPLATE,
+        // Part of the identity: changing the byte ceiling changes what text
+        // is actually embedded, so it must invalidate vector coverage.
+        documentTemplateMaxBytes: EMBEDDER_TEMPLATE_MAX_BYTES,
       }),
     )
     .digest('hex');
