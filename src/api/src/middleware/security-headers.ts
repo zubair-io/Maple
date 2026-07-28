@@ -11,10 +11,11 @@
  * document response carries both headers.
  */
 import { Elysia } from 'elysia';
-import { isStreamedFilePath } from '../routes/library/shared.ts';
-
-// Preserved verbatim from index.ts: operators can pin the allowed origin.
-const CORS_ORIGIN = process.env.MAPLE_CORS_ORIGIN ?? '*';
+import {
+  CORS_ORIGIN,
+  STREAMED_FILE_HEADERS,
+  isStreamedFilePath,
+} from '../routes/library/shared.ts';
 
 export const securityHeaders = new Elysia({ name: 'securityHeaders' })
   // #2382: these MUST NOT be applied via `set.headers` to routes that return a
@@ -31,6 +32,20 @@ export const securityHeaders = new Elysia({ name: 'securityHeaders' })
     set.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
     set.headers['Cross-Origin-Opener-Policy'] = 'same-origin';
     set.headers['Cross-Origin-Embedder-Policy'] = 'require-corp';
+  })
+  // Streamed-file routes are skipped above so their `Response` body survives,
+  // but that also stripped CORS from their ERROR replies — a 401/415 from
+  // `/api/video/fs` came back with no CORS headers at all, so a browser could
+  // not read the failure (jules review on #2383).
+  //
+  // Those error branches return a plain object, not a `Response`, so there is
+  // no file body to rebuild and writing `set.headers` here is safe. A real
+  // streamed `Response` is left untouched — it already carries
+  // `STREAMED_FILE_HEADERS` from `streamFileRange`/`streamFile`.
+  .onAfterHandle(({ response, set, path }) => {
+    if (!isStreamedFilePath(path)) return;
+    if (response instanceof Response) return;
+    Object.assign(set.headers, STREAMED_FILE_HEADERS);
   })
   // Mirror the isolation headers onto OPTIONS preflight too, so that any
   // cross-origin check counts them as present.
