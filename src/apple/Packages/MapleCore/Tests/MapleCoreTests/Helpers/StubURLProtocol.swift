@@ -56,6 +56,16 @@ enum TestURLSession {
   static func make() -> URLSession {
     let cfg = URLSessionConfiguration.ephemeral
     cfg.protocolClasses = [StubURLProtocol.self] + (cfg.protocolClasses ?? [])
+    // Every request through this session is answered in-process by
+    // StubURLProtocol, so no legitimate call can take even a second. The
+    // point of the short budget is the ILLEGITIMATE case (#2387): if a
+    // request ever escapes the stub — a URL the responder doesn't cover, a
+    // transport that bypasses `protocolClasses` — the default 60 s request /
+    // 7 day resource timeouts turn that into a silent multi-minute pass
+    // instead of a fast, obvious failure. 5 s is ~100× the slowest real
+    // stubbed suite and still fails inside a normal attention span.
+    cfg.timeoutIntervalForRequest = 5
+    cfg.timeoutIntervalForResource = 5
     return URLSession(configuration: cfg)
   }
 }
