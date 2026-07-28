@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   ASSET_DOC_SHAPE_VERSION,
   EMBEDDER_DOCUMENT_TEMPLATE,
+  EMBEDDER_TEMPLATE_MAX_BYTES,
   TEMPLATE_FIELD_DEFAULTS,
   vectorFingerprint,
 } from './meilisearch-embedder-template.ts';
@@ -70,12 +71,28 @@ describe('template content', () => {
     }
   });
 
-  it('puts the transcript last so context truncation eats its tail, not the dense fields', () => {
-    const transcriptAt = EMBEDDER_DOCUMENT_TEMPLATE.indexOf('doc.transcript');
-    expect(transcriptAt).toBeGreaterThan(0);
-    for (const field of ['doc.filename', 'doc.people', 'doc.description', 'doc.placeText']) {
-      expect(EMBEDDER_DOCUMENT_TEMPLATE.indexOf(field)).toBeLessThan(transcriptAt);
+  it('orders fields by value-per-byte, because the tail is what truncation drops', () => {
+    // Meilisearch truncates the RENDERED template to
+    // EMBEDDER_TEMPLATE_MAX_BYTES before embedding, so position is priority.
+    const at = (field: string): number => {
+      const index = EMBEDDER_DOCUMENT_TEMPLATE.indexOf(field);
+      expect(index).toBeGreaterThan(-1);
+      return index;
+    };
+    // Short, high-precision fields first.
+    for (const field of ['doc.filename', 'doc.mediaType', 'doc.people', 'doc.placeText']) {
+      expect(at(field)).toBeLessThan(at('doc.description'));
     }
+    // Transcript is the point of #2384 — it must outrank OCR, or a
+    // screenshot's chrome text would crowd out what was actually said.
+    expect(at('doc.description')).toBeLessThan(at('doc.transcript'));
+    expect(at('doc.transcript')).toBeLessThan(at('doc.ocrText'));
+  });
+
+  it('raises the byte ceiling well above Meilisearch’s 400-byte default', () => {
+    // 400 bytes is roughly 50 alphabetised tokens — the silent truncation
+    // that made the old template near-useless (#2384).
+    expect(EMBEDDER_TEMPLATE_MAX_BYTES).toBeGreaterThanOrEqual(4000);
   });
 
   it('references only keys that TEMPLATE_FIELD_DEFAULTS covers', () => {

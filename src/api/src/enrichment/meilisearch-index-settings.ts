@@ -5,7 +5,10 @@
  * put a large semantic backfill behind hours of duplicate embedding work.
  */
 
-import { EMBEDDER_DOCUMENT_TEMPLATE } from './meilisearch-embedder-template.ts';
+import {
+  EMBEDDER_DOCUMENT_TEMPLATE,
+  EMBEDDER_TEMPLATE_MAX_BYTES,
+} from './meilisearch-embedder-template.ts';
 import { joinMeilisearchUrl } from './meilisearch-transport.ts';
 
 interface AssetsIndexSettingsConfig {
@@ -85,6 +88,10 @@ export function assetsIndexSettings(
         url: joinMeilisearchUrl(config.embedderUrl, '/api/embed'),
         model: config.embedderModel,
         documentTemplate: EMBEDDER_DOCUMENT_TEMPLATE,
+        // Meilisearch defaults this to 400 bytes and silently truncates the
+        // rendered template to it. Always send it explicitly — see the note
+        // on EMBEDDER_TEMPLATE_MAX_BYTES.
+        documentTemplateMaxBytes: EMBEDDER_TEMPLATE_MAX_BYTES,
         // Omitted entirely for unknown models — see EMBEDDER_DIMENSIONS.
         ...(dimensions === undefined ? {} : { dimensions }),
       },
@@ -128,9 +135,16 @@ function sameStringSet(actual: unknown, expected: unknown): boolean {
 
 function managedEmbedderConfigMatches(actual: unknown, expected: unknown): boolean {
   if (!isRecord(actual) || !isRecord(expected)) return false;
-  const baseMatches = ['source', 'url', 'model', 'documentTemplate'].every(
-    (field) => actual[field] === expected[field],
-  );
+  // `documentTemplateMaxBytes` is compared unconditionally: we always send
+  // it, so an index still carrying Meilisearch's 400-byte default must be
+  // re-PATCHed or the new template is truncated to near-nothing.
+  const baseMatches = [
+    'source',
+    'url',
+    'model',
+    'documentTemplate',
+    'documentTemplateMaxBytes',
+  ].every((field) => actual[field] === expected[field]);
   // `dimensions` is compared ONLY when we send one. For an unknown model we
   // omit it and Meilisearch probes a value it then echoes back from
   // GET /settings; comparing that unconditionally would mismatch on every

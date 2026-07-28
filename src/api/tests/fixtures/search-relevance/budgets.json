@@ -1,7 +1,8 @@
 {
-  "_comment": "One-way ratchet, same convention as test-fixtures/budgets.json. Raise a floor only in the commit that delivers the improvement; never lower one to make a red run green. Floors stay at 0 until a measured baseline exists — see the note below.",
-  "_status": "UNCALIBRATED. Requires a live Meilisearch + Ollama (bge-m3) to measure. Run src/scripts/test_search_relevance.sh against origin/main to record the baseline, then against this branch, then set minRecallAt10 / minMrr to ~95% of the post-change numbers. The mustBeInTop assertions in queries.json gate regardless of these floors.",
-  "minRecallAt10": 0.0,
-  "minMrr": 0.0,
-  "semanticRatio": 0.7
+  "_comment": "One-way ratchet, same convention as test-fixtures/budgets.json. Raise a floor only in the commit that delivers the improvement; never lower one to make a red run green.",
+  "_measured": "2026-07-28, Meilisearch 1.51.0 + Ollama bge-m3, 32-doc corpus. BEFORE (origin/main): Recall@10 0.8889, MRR 0.5631. AFTER (this branch, semanticRatio 0.5): Recall@10 1.0000, MRR 0.7407. Floors below are ~95% of the AFTER numbers.",
+  "_known_red": "The `HVAC air conditioning installation` top-5 guard in queries.json FAILS at every semantic ratio (rank 6, 0.0012 behind rank 5). That is deliberate and tracked — see the reranker follow-up referenced in queries.json. Do not relax it to make the harness green.",
+  "minRecallAt10": 0.95,
+  "minMrr": 0.7,
+  "semanticRatio": 0.5
 }
