@@ -23,11 +23,43 @@
 import { createHash } from 'node:crypto';
 
 /** Bump whenever the fields written into `MeilisearchAssetDoc` change. */
-export const ASSET_DOC_SHAPE_VERSION = 7;
+export const ASSET_DOC_SHAPE_VERSION = 8;
 
 /** Rendered by Meilisearch for every document to produce the embedding input. */
 export const EMBEDDER_DOCUMENT_TEMPLATE =
   '{{ doc.searchBlob }} {{ doc.description }} {{ doc.people }}';
+
+/**
+ * Every key the template above dereferences, with the value a document gets
+ * when it does not supply one.
+ *
+ * This lives beside the template because it is the template's own invariant:
+ * once an embedder is configured, Meilisearch renders the template for EVERY
+ * incoming document with strict liquid lookups, and a document MISSING any
+ * referenced key rejects its WHOLE BATCH (`invalid_document_fields` — #2369,
+ * hit live by tombstone docs during the semantic backfill). Adding a
+ * `{{ doc.x }}` to the template without adding `x` here is that bug.
+ *
+ * Null-VALUED keys render fine (`composeDocument` has always sent
+ * `description: null` / `people: null`), so the defaults mirror that shape.
+ * `POST /documents` is a full replace, so defaulting a key can never clobber
+ * live state.
+ */
+export const TEMPLATE_FIELD_DEFAULTS = {
+  searchBlob: '',
+  filename: '',
+  mediaType: null,
+  description: null,
+  transcript: null,
+  ocrText: null,
+  people: null,
+  placeText: null,
+};
+
+/** Fill in any template-referenced key the caller omitted. */
+export function withTemplateFields<T extends { id: string }>(doc: T): T {
+  return { ...TEMPLATE_FIELD_DEFAULTS, ...doc };
+}
 
 export interface VectorFingerprintInput {
   /** The Meili embedder name we register (`caption`). */

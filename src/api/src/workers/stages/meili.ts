@@ -26,6 +26,8 @@ import {
   type MeilisearchClient,
 } from '../../enrichment/meilisearch-client.ts';
 import { composeSearchBlob } from '../../enrichment/search-blob.ts';
+import { placeTextForIndex, transcriptForIndex } from '../../enrichment/asset-doc-fields.ts';
+import { ASSET_DOC_SHAPE_VERSION } from '../../enrichment/meilisearch-embedder-template.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { peopleCollection } from '../../db/client.ts';
 import type { AssetFaceDoc, FileInfo, PersonDoc, VisionDoc } from '../../db/schema.ts';
@@ -163,6 +165,8 @@ function meilisearchDocument(
     searchBlob,
     description: nullIfMissing(image.description),
     ocrText: nullIfMissing(image.ocr_text),
+    transcript: transcriptForIndex(image.transcript),
+    placeText: placeTextForIndex(image.place),
     folderId: primary.library_id.toHexString(),
     capturedAt: nullIfMissing(image.exif?.captured_at),
     deletedAt: null,
@@ -280,7 +284,14 @@ const meiliStage = defineStage({
   //
   // v7: adds the highest-weight filename plus mediaType and hidden filter
   // fields used by the Maple-owned service-search contract.
-  targetVersion: 7,
+  //
+  // v8: the document carries prose `transcript` and `placeText` fields so the
+  // embedder reads real sentences instead of the alphabetised `searchBlob`
+  // token bag (#2384). Bound to ASSET_DOC_SHAPE_VERSION rather than written
+  // as a literal because a document-shape change is exactly the condition
+  // under which every asset must be re-upserted — the two can never
+  // legitimately disagree.
+  targetVersion: ASSET_DOC_SHAPE_VERSION,
   // Only depends on always-on stages so search is available early. Optional
   // semantic sources explicitly invalidate this stage when their output
   // changes (describe/OCR, geocode, transcript, people, sidecar metadata).

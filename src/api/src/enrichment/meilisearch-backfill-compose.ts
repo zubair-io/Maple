@@ -14,6 +14,7 @@ import { child as childLogger } from '../log.ts';
 import { MeilisearchTaskError } from './meilisearch-transport.ts';
 import { markAssetsVectorized } from './meilisearch-vector-coverage.ts';
 import { composeSearchBlob } from './search-blob.ts';
+import { placeTextForIndex, transcriptForIndex } from './asset-doc-fields.ts';
 import type { MeilisearchAssetDoc, MeilisearchClient } from './meilisearch-client.ts';
 
 const log = childLogger('enrichment:meilisearch-backfill');
@@ -130,6 +131,8 @@ export function composeDocument(
     searchBlob,
     description: nullIfMissing(row.description),
     ocrText: nullIfMissing(row.ocr_text),
+    transcript: transcriptForIndex(row.transcript),
+    placeText: placeTextForIndex(row.place),
     folderId: folderId.toHexString(),
     capturedAt: capturedAt(row),
     deletedAt: null,

@@ -49,6 +49,7 @@ import { MeilisearchSearchError } from './meilisearch-search-error.ts';
 import { assetsIndexSettings, assetsIndexSettingsMatch } from './meilisearch-index-settings.ts';
 import {
   vectorFingerprint as computeVectorFingerprint,
+  withTemplateFields,
   type VectorFingerprintInput,
 } from './meilisearch-embedder-template.ts';
 export {
@@ -97,6 +98,15 @@ export interface MeilisearchAssetDoc {
   /** OCR'd text from the OCR worker (Phase 8). Same per-attribute
    * weighting story as `description`. */
   ocrText?: string | null;
+  /** Speech-to-text transcript as PROSE — word order and repetition intact,
+   * capped at `MAX_INDEXED_TRANSCRIPT_CHARS`. This is the field that makes a
+   * transcript-rich video rank on what was actually said rather than on the
+   * alphabetised `searchBlob` bag (#2384). `null` before the transcribe
+   * stage has run. */
+  transcript?: string | null;
+  /** Reverse-geocoded `place.display_name` as prose. NOT `place.search_blob`,
+   * which is itself an alphabetised token bag. `null` before geocode. */
+  placeText?: string | null;
   /** Folder hex string. Filterable so the route can scope to one library. */
   folderId: string;
   /** ISO timestamp; sortable so the future "search-as-you-type" path can
@@ -248,21 +258,6 @@ function fingerprintFor(config: ClientConfig): string | null {
 interface MeiliSearchResponse {
   hits: Array<{ id: string; _rankingScore?: number }>;
   estimatedTotalHits: number;
-}
-
-/** Keys the embedder documentTemplate dereferences (`{{ doc.searchBlob }}
- * {{ doc.description }} {{ doc.people }}`). Once an embedder is configured,
- * Meilisearch renders the template for EVERY incoming document with strict
- * liquid lookups: a document MISSING any of these keys rejects its whole
- * batch (`invalid_document_fields` — #2369, hit live by tombstone docs
- * during the semantic backfill). Null-VALUED keys render fine
- * (`composeDocument` has always sent `description: null` / `people: null`),
- * so the defaults mirror that shape. `POST /documents` is a full replace,
- * so defaulting a key can never clobber live state. */
-const TEMPLATE_FIELD_DEFAULTS = { searchBlob: '', description: null, people: null };
-
-function withTemplateFields<T extends { id: string }>(doc: T): T {
-  return { ...TEMPLATE_FIELD_DEFAULTS, ...doc };
 }
 
 function createIndexAlreadySatisfied(
