@@ -157,6 +157,18 @@ actor ThumbnailProvider {
             if ref.primaryURL != nil {
                 return await ThumbnailLoader.shared.loadDisplayPreview(for: ref)
             }
+            // The asset's OWN preview resolver, when it has one, is
+            // authoritative in both directions (#2385) — exactly as
+            // `thumbnailProvenance` is for `PreviewViewVM.thumbnailSource`.
+            // A mixed sibling list (the unified Timeline's iPhone Preview,
+            // which spans several Maple Cloud servers) has no single ambient
+            // `ImageSource` that's correct for every asset in it, so falling
+            // back to `box` when this returns nil would just re-ask the wrong
+            // server — the request is host-specific and 404s there, which is
+            // what left a cross-server sibling stuck at its grid thumbnail.
+            if let displayPreviewProvider = ref.displayPreviewProvider {
+                return try? await displayPreviewProvider()
+            }
             guard let imageSource = box?.source else { return nil }
             let imageRef = ImageRef(
                 id: ref.stableID ?? ref.id.uuidString,
