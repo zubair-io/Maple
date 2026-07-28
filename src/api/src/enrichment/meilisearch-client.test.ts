@@ -15,6 +15,7 @@ import {
   type MeilisearchAssetDoc,
 } from './meilisearch-client.ts';
 import { makeFakeFetch } from './meilisearch-test-harness.ts';
+import { TEMPLATE_FIELD_DEFAULTS } from './meilisearch-embedder-template.ts';
 
 const PRIOR_URL = process.env.MAPLE_MEILISEARCH_URL;
 const PRIOR_KEY = process.env.MAPLE_MEILISEARCH_API_KEY;
@@ -300,7 +301,7 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     expect(calls[0]!.method).toBe('POST');
     expect(calls[0]!.url).toContain(`/indexes/${ASSETS_INDEX}/documents`);
     // Docs are normalized with the embedder template-field defaults (#2369).
-    expect(calls[0]!.body).toEqual([{ description: null, people: null, ...sampleDoc }]);
+    expect(calls[0]!.body).toEqual([{ ...TEMPLATE_FIELD_DEFAULTS, ...sampleDoc }]);
   });
 
   it('upsert() swallows errors (does not throw)', async () => {
@@ -332,13 +333,22 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
 
     expect(calls.length).toBe(1);
     const body = calls[0]!.body as Array<Record<string, unknown>>;
-    // documentTemplate keys must be PRESENT — absence rejects the batch (#2369).
+    // documentTemplate keys must be PRESENT — absence rejects the batch
+    // (#2369). Spelled out literally rather than spread from
+    // TEMPLATE_FIELD_DEFAULTS: this assertion exists to FAIL when a new
+    // `{{ doc.x }}` lands in the template without a matching default, and
+    // reusing the production constant would make it pass vacuously.
     expect(body[0]).toEqual({
       id: 'xyz',
       deletedAt: expect.any(String),
       searchBlob: '',
+      filename: '',
+      mediaType: null,
       description: null,
+      transcript: null,
+      ocrText: null,
       people: null,
+      placeText: null,
     });
   });
 });
