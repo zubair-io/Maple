@@ -12,6 +12,7 @@ import {
   setMeilisearchClientForTests,
   SINGLE_DOC_TOMBSTONE_TIMEOUT_MS,
 } from './meili.ts';
+import { composeDocument } from '../../enrichment/meilisearch-backfill-compose.ts';
 
 function fakeDoc(overrides: Partial<ImageDoc> = {}): ImageDoc {
   const folderId = new ObjectId();
@@ -427,5 +428,62 @@ describe('meiliHandler — null enrichment fields', () => {
     const blob = upserts[0]!.searchBlob;
     // Place tokens still contribute.
     expect(blob.split(' ')).toContain('albany');
+  });
+});
+
+describe('document field parity between the two writers (#2384)', () => {
+  const transcriptText = 'just have the heat pumps installed on the Harmony 3 zone controller';
+
+  function hvacRow(): ImageDoc {
+    return {
+      ...fakeDoc(),
+      description: 'Interior view of a basement mechanical room.',
+      ...({ transcript: { text: transcriptText } } as unknown as Partial<ImageDoc>),
+    } as ImageDoc;
+  }
+
+  it('the meili stage writes transcript and placeText as prose', async () => {
+    const { client, upserts } = capturingClient();
+    setMeilisearchClientForTests(client);
+    await meiliHandler(hvacRow(), fakeCtx);
+    setMeilisearchClientForTests(null);
+
+    expect(upserts.length).toBe(1);
+    expect(upserts[0]!.transcript).toBe(transcriptText);
+    expect(upserts[0]!.placeText).toBe('Albany');
+  });
+
+  it('the backfill writer emits byte-identical values for the same row', async () => {
+    const { client, upserts } = capturingClient();
+    setMeilisearchClientForTests(client);
+    const row = hvacRow();
+    await meiliHandler(row, fakeCtx);
+    setMeilisearchClientForTests(null);
+
+    const primary = row.fileinfo![0]!;
+    const backfilled = composeDocument(
+      row as never,
+      'maple-abc-123',
+      primary.library_id,
+      primary.filename,
+      [],
+    );
+    // Assert the concrete values too, not just equality — two `undefined`s
+    // match each other and would let a both-writers-missing-the-field
+    // regression through.
+    expect(backfilled.transcript).toBe(transcriptText);
+    expect(backfilled.placeText).toBe('Albany');
+    expect(backfilled.transcript).toBe(upserts[0]!.transcript);
+    expect(backfilled.placeText).toBe(upserts[0]!.placeText);
+  });
+
+  it('leaves both fields null when the asset has no transcript or place', async () => {
+    const { client, upserts } = capturingClient();
+    setMeilisearchClientForTests(client);
+    await meiliHandler({ ...fakeDoc(), place: null } as ImageDoc, fakeCtx);
+    setMeilisearchClientForTests(null);
+
+    expect(upserts[0]!.transcript).toBeNull();
+    expect(upserts[0]!.placeText).toBeNull();
   });
 });
