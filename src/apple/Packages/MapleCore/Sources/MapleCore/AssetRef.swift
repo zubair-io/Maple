@@ -30,6 +30,12 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     /// `@Sendable` closure so EditSession can call it from an actor hop.
     public typealias BytesProvider = @Sendable () async throws -> Data
 
+    /// On-demand DISPLAY-PREVIEW fetch for sourceless assets — the 1280 px
+    /// tier, not the full RAW `BytesProvider` returns. Optional result
+    /// because a backend may legitimately have no preview for an asset
+    /// (`ImageSource.preview(for:)` is `Data?` for exactly that reason).
+    public typealias DisplayPreviewProvider = @Sendable () async throws -> Data?
+
     public let id: UUID
     /// Filesystem URL of the RAW file. `nil` for PhotoKit / self-hosted
     /// assets that live behind an opaque identifier.
@@ -43,6 +49,19 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     /// Closure used to fetch bytes on demand. `nil` means the asset lives on
     /// disk at `primaryURL`.
     public let bytesProvider: BytesProvider?
+    /// Closure used to fetch this asset's display-sized preview on demand
+    /// (#2385). Set by adapters that build refs for a MIXED list, where the
+    /// caller's one ambient `ImageSource` is only ever correct for a single
+    /// asset in that list: the unified Timeline's iPhone Preview sibling list
+    /// spans several Maple Cloud servers, and a preview request sent to the
+    /// wrong server 404s (`CloudSource` resolves the path from `ImageRef.id`,
+    /// which is machine-specific `fs:<abs_path>`). This is the display tier's
+    /// counterpart to `bytesProvider` — both close over the asset's OWN
+    /// source, so both are correct regardless of the ambient one.
+    ///
+    /// `nil` (the default) means "resolve from the ambient source," which is
+    /// unchanged for every construction site that doesn't opt in.
+    public let displayPreviewProvider: DisplayPreviewProvider?
     /// Stable cross-session identifier used as the thumbnail cache key and
     /// the deep-link resolution target (`maple://image/{id}`).
     ///
@@ -262,6 +281,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
         self.displayNameOverride = nil
         self.hintExtension = url.pathExtension.isEmpty ? nil : url.pathExtension
         self.bytesProvider = nil
+        self.displayPreviewProvider = nil
         self.stableID = url.path
         self.scopeParentURL = scopeParentURL
         self.explicitIsRaw = nil
@@ -280,18 +300,24 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     /// classifies the asset. `thumbnailProvenance` tags the backend
     /// explicitly (#2299) for callers that build a ref for a list that mixes
     /// sources (PhotoKit + several cloud servers) and can't rely on a single
-    /// ambient `ImageSource` to route it correctly.
+    /// ambient `ImageSource` to route it correctly. `displayPreviewProvider`
+    /// is the display tier's counterpart to `bytesProvider` for those same
+    /// mixed lists (#2385) — pass it whenever this ref's own source can
+    /// serve a 1280 px preview, so the display tier never has to guess from
+    /// the ambient source either.
     public init(displayName: String,
                 hintExtension: String?,
                 stableID: String? = nil,
                 explicitIsRaw: Bool? = nil,
                 thumbnailProvenance: ThumbnailProvenance? = nil,
+                displayPreviewProvider: DisplayPreviewProvider? = nil,
                 bytesProvider: @escaping BytesProvider) {
         self.id = UUID()
         self.primaryURL = nil
         self.displayNameOverride = displayName
         self.hintExtension = hintExtension
         self.bytesProvider = bytesProvider
+        self.displayPreviewProvider = displayPreviewProvider
         self.stableID = stableID
         self.scopeParentURL = nil
         self.explicitIsRaw = explicitIsRaw
