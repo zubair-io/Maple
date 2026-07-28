@@ -22,7 +22,6 @@
  * (`globalThis.fetch`) the only seam tests need to control.
  */
 
-import { createHash } from 'node:crypto';
 import { child as childLogger } from '../log.ts';
 import { buildFilter } from './meilisearch-filter.ts';
 import {
@@ -48,6 +47,10 @@ import {
 } from './meilisearch-config.ts';
 import { MeilisearchSearchError } from './meilisearch-search-error.ts';
 import { assetsIndexSettings, assetsIndexSettingsMatch } from './meilisearch-index-settings.ts';
+import {
+  vectorFingerprint as computeVectorFingerprint,
+  type VectorFingerprintInput,
+} from './meilisearch-embedder-template.ts';
 export {
   MeilisearchSearchError,
   type MeilisearchFailureDetails,
@@ -232,19 +235,14 @@ function readConfig(): ClientConfig {
   };
 }
 
-function vectorFingerprint(config: ClientConfig): string | null {
+function fingerprintFor(config: ClientConfig): string | null {
   if (!isLiveConfig(config) || !config.semantic) return null;
-  return createHash('sha256')
-    .update(
-      JSON.stringify({
-        version: 1,
-        embedder: EMBEDDER_NAME,
-        url: joinMeilisearchUrl(config.embedderUrl, '/api/embed'),
-        model: config.embedderModel,
-        documentTemplate: '{{ doc.searchBlob }} {{ doc.description }} {{ doc.people }}',
-      }),
-    )
-    .digest('hex');
+  const input: VectorFingerprintInput = {
+    embedderName: EMBEDDER_NAME,
+    embedUrl: joinMeilisearchUrl(config.embedderUrl, '/api/embed'),
+    model: config.embedderModel,
+  };
+  return computeVectorFingerprint(input);
 }
 
 interface MeiliSearchResponse {
@@ -408,7 +406,7 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
     },
 
     semanticFingerprint(): string | null {
-      return vectorFingerprint(cfg);
+      return fingerprintFor(cfg);
     },
 
     async health(): Promise<boolean> {
