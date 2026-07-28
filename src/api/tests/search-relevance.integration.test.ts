@@ -32,6 +32,9 @@ const meiliUrl = process.env.MAPLE_MEILISEARCH_INTEGRATION_URL;
 const ollamaUrl = process.env.MAPLE_OLLAMA_INTEGRATION_URL;
 const ratio = Number(process.env.MAPLE_SEMANTIC_RATIO ?? budgets.semanticRatio);
 
+/** Throwaway index this harness owns outright. Never the managed one. */
+const PROBE_INDEX = 'maple_relevance_probe';
+
 interface QueryCase {
   query: string;
   relevantIds: string[];
@@ -48,6 +51,12 @@ describe('hybrid search relevance gate (#2384)', () => {
     async () => {
       const client = createMeilisearchClient({
         url: meiliUrl,
+        // NEVER the managed `assets` index. This harness upserts a synthetic
+        // corpus and rewrites index settings; pointed at a real deployment
+        // that would pollute the library's search index and force a full
+        // re-embed. A dedicated probe index makes a misaimed
+        // MAPLE_MEILISEARCH_INTEGRATION_URL harmless.
+        indexName: PROBE_INDEX,
         semantic: true,
         embedderUrl: ollamaUrl!,
         embedderModel: 'bge-m3',

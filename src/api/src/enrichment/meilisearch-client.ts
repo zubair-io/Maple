@@ -220,6 +220,11 @@ export interface MeilisearchClient {
 }
 
 interface ClientConfig extends MeilisearchTransportConfig {
+  /** Index this client operates on. Defaults to the managed `assets` index.
+   * The relevance harness overrides it so a misaimed
+   * `MAPLE_MEILISEARCH_INTEGRATION_URL` can never write its synthetic corpus
+   * into a real library's index. */
+  indexName: string;
   /** Master switch for semantic/hybrid search. Default OFF so existing
    * deployments are unaffected and Meili↔Ollama coordination is opt-in. */
   semantic: boolean;
@@ -233,6 +238,7 @@ interface ClientConfig extends MeilisearchTransportConfig {
 
 function readConfig(): ClientConfig {
   return {
+    indexName: ASSETS_INDEX,
     url: process.env.MAPLE_MEILISEARCH_URL?.trim() || undefined,
     apiKey: process.env.MAPLE_MEILISEARCH_API_KEY?.trim() || undefined,
     semantic: DEFAULT_MEILISEARCH_SEMANTIC_ENABLED,
@@ -300,7 +306,7 @@ async function awaitIndexCreation(
 
 async function createAssetsIndex(config: ClientConfig): Promise<void> {
   const result = await meilisearchHttp<MeilisearchTaskSummary>(config, 'POST', '/indexes', {
-    uid: ASSETS_INDEX,
+    uid: config.indexName,
     primaryKey: 'id',
   });
   await awaitIndexCreation(config, result);
@@ -311,14 +317,14 @@ async function applyAssetsIndexSettings(config: ClientConfig): Promise<void> {
   const current = await meilisearchHttp<Record<string, unknown>>(
     config,
     'GET',
-    `/indexes/${ASSETS_INDEX}/settings`,
+    `/indexes/${config.indexName}/settings`,
   );
   if (current.ok && assetsIndexSettingsMatch(current.body, settings)) return;
 
   const result = await meilisearchHttp<MeilisearchTaskSummary>(
     config,
     'PATCH',
-    `/indexes/${ASSETS_INDEX}/settings`,
+    `/indexes/${config.indexName}/settings`,
     settings,
   );
   if (!result.ok) {
@@ -424,7 +430,7 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
     async upsert(doc: MeilisearchAssetDoc): Promise<void> {
       if (!isLiveConfig(cfg)) return;
       // Meilisearch's documents endpoint upserts on the primary key.
-      const r = await meilisearchHttp<unknown>(cfg, 'POST', `/indexes/${ASSETS_INDEX}/documents`, [
+      const r = await meilisearchHttp<unknown>(cfg, 'POST', `/indexes/${cfg.indexName}/documents`, [
         withTemplateFields(doc),
       ]);
       if (!r.ok) {
@@ -440,7 +446,7 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
       const accepted = await meilisearchHttp<MeilisearchTaskSummary>(
         cfg,
         'POST',
-        `/indexes/${ASSETS_INDEX}/documents`,
+        `/indexes/${cfg.indexName}/documents`,
         [withTemplateFields(doc)],
       );
       await waitForMeilisearchTask(cfg, accepted, 'asset upsert');
@@ -454,7 +460,7 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
       const accepted = await meilisearchHttp<MeilisearchTaskSummary>(
         cfg,
         'POST',
-        `/indexes/${ASSETS_INDEX}/documents`,
+        `/indexes/${cfg.indexName}/documents`,
         docs.map(withTemplateFields),
       );
       await waitForMeilisearchTask(cfg, accepted, 'batch upsert');
@@ -467,7 +473,7 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
       const accepted = await meilisearchHttp<MeilisearchTaskSummary>(
         cfg,
         'POST',
-        `/indexes/${ASSETS_INDEX}/documents`,
+        `/indexes/${cfg.indexName}/documents`,
         ids.map((id) => withTemplateFields({ id, deletedAt })),
       );
       // Per-call override (#2359): a short-timeout copy of `cfg` is used
@@ -483,7 +489,7 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
       // Update the row's `deletedAt` rather than DELETE-ing the document so
       // the row stays addressable for diagnostics. The search filter
       // `deletedAt IS NULL` keeps it out of results.
-      const r = await meilisearchHttp<unknown>(cfg, 'POST', `/indexes/${ASSETS_INDEX}/documents`, [
+      const r = await meilisearchHttp<unknown>(cfg, 'POST', `/indexes/${cfg.indexName}/documents`, [
         withTemplateFields({ id, deletedAt: new Date().toISOString() }),
       ]);
       if (!r.ok) {
@@ -498,7 +504,7 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
       const r = await meilisearchHttp<MeiliSearchResponse>(
         cfg,
         'POST',
-        `/indexes/${ASSETS_INDEX}/search`,
+        `/indexes/${cfg.indexName}/search`,
         searchRequest(cfg, q, opts),
       );
       if (!r.ok || !r.body) {
@@ -510,7 +516,7 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
     },
 
     async semanticStatus(): Promise<MeilisearchSemanticStatus> {
-      return readMeilisearchSemanticStatus(cfg, ASSETS_INDEX, EMBEDDER_NAME);
+      return readMeilisearchSemanticStatus(cfg, cfg.indexName, EMBEDDER_NAME);
     },
   };
 }

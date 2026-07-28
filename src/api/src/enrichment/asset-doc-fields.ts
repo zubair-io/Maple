@@ -30,13 +30,16 @@ export interface IndexablePlace {
  * `bge-m3` accepts 8192 tokens (~30k characters of English). The embedder
  * template also carries description, OCR text, people, and place, so budgeting
  * ~12k characters to the transcript keeps the whole rendered document inside
- * the context window with room to spare. Beyond that Ollama truncates
- * silently, and because `transcript` is the LAST field in the template
- * (see `meilisearch-embedder-template.ts`) the truncation would eat the
- * transcript tail rather than the shorter, denser fields — but an explicit,
- * tested cap is cheaper to reason about than relying on that ordering. The
- * full transcript remains searchable lexically via `search_blob` and remains
- * intact in Mongo; only the indexed copy is bounded.
+ * the context window with room to spare.
+ *
+ * This cap is independent of `EMBEDDER_TEMPLATE_MAX_BYTES`, which bounds the
+ * whole rendered template. That one governs the EMBEDDED copy and is the
+ * tighter constraint in practice; this one bounds the value stored on the
+ * document, which is also what the lexical `transcript` attribute searches.
+ * Both exist because they answer to different indexes.
+ *
+ * The full transcript stays intact in Mongo; only the indexed copy is
+ * bounded.
  */
 export const MAX_INDEXED_TRANSCRIPT_CHARS = 12_000;
 
