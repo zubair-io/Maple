@@ -153,7 +153,15 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     expect(calls[2]!.url).toContain(`/indexes/${ASSETS_INDEX}/settings`);
     expect(calls[2]!.body).toEqual({
       embedders: null,
-      searchableAttributes: ['filename', 'searchBlob', 'description', 'people', 'ocrText'],
+      searchableAttributes: [
+        'filename',
+        'people',
+        'transcript',
+        'ocrText',
+        'description',
+        'placeText',
+        'searchBlob',
+      ],
       filterableAttributes: [
         'folderId',
         'deletedAt',

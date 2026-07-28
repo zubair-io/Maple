@@ -6,6 +6,7 @@ import {
 } from './meilisearch-client.ts';
 import { assetsIndexSettingsMatch } from './meilisearch-index-settings.ts';
 import { makeFakeFetch } from './meilisearch-test-harness.ts';
+import { EMBEDDER_DOCUMENT_TEMPLATE } from './meilisearch-embedder-template.ts';
 
 const sampleDoc: MeilisearchAssetDoc = {
   id: 'task-test',
@@ -217,7 +218,15 @@ describe('Meilisearch asynchronous tasks', () => {
 
   it('does not enqueue a settings task when the managed settings are unchanged', async () => {
     const matchingSettings = {
-      searchableAttributes: ['filename', 'searchBlob', 'description', 'people', 'ocrText'],
+      searchableAttributes: [
+        'filename',
+        'people',
+        'transcript',
+        'ocrText',
+        'description',
+        'placeText',
+        'searchBlob',
+      ],
       // Meilisearch stores filterableAttributes in a BTreeSet and returns it
       // alphabetically sorted from GET /settings, never in submission order —
       // this mock reproduces that so the no-op check is exercised honestly.
@@ -238,7 +247,11 @@ describe('Meilisearch asynchronous tasks', () => {
           source: 'ollama',
           url: 'http://ollama.lan:11434/api/embed',
           model: 'bge-m3',
-          documentTemplate: '{{ doc.searchBlob }} {{ doc.description }} {{ doc.people }}',
+          // This fixture stands for "the server already holds exactly what we
+          // would send", so it tracks the shipped template by reference. The
+          // literal-value guards live in
+          // `meilisearch-embedder-template.test.ts`.
+          documentTemplate: EMBEDDER_DOCUMENT_TEMPLATE,
           dimensions: 1024,
         },
       },

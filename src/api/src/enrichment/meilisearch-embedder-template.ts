@@ -25,9 +25,38 @@ import { createHash } from 'node:crypto';
 /** Bump whenever the fields written into `MeilisearchAssetDoc` change. */
 export const ASSET_DOC_SHAPE_VERSION = 8;
 
-/** Rendered by Meilisearch for every document to produce the embedding input. */
-export const EMBEDDER_DOCUMENT_TEMPLATE =
-  '{{ doc.searchBlob }} {{ doc.description }} {{ doc.people }}';
+/**
+ * Rendered by Meilisearch for every document to produce the embedding input.
+ *
+ * Labelled, one field per line, and deliberately NOT including `searchBlob`.
+ * The previous template (`{{ doc.searchBlob }} {{ doc.description }}
+ * {{ doc.people }}`) had two defects: it embedded description twice, and its
+ * largest segment was `searchBlob` — a lowercased, deduped, ALPHABETICALLY
+ * SORTED token bag. A sentence embedder reads word order and repetition; the
+ * blob has neither, so a real video transcript reached the embedder as
+ * scrambled tokens while a generic photo caption reached it as fluent prose.
+ * That asymmetry is why transcript-rich videos under-ranked (#2384).
+ *
+ * `transcript` is last: it is by far the longest field, so if Ollama's
+ * context window is reached the truncation lands in the transcript tail
+ * rather than dropping the shorter, denser fields entirely.
+ * `asset-doc-fields.ts` also caps it explicitly.
+ *
+ * Every `{{ doc.x }}` here MUST have a matching key in
+ * `TEMPLATE_FIELD_DEFAULTS` below — see the note there.
+ */
+export const EMBEDDER_DOCUMENT_TEMPLATE = [
+  'Filename: {{ doc.filename }}',
+  'Media type: {{ doc.mediaType }}',
+  // People sits high for the same reason it sits second in
+  // `searchableAttributes`: a name query wants photos OF that person. The
+  // field is short, so its position costs nothing downstream.
+  'People: {{ doc.people }}',
+  'Visual description: {{ doc.description }}',
+  'Place: {{ doc.placeText }}',
+  'OCR: {{ doc.ocrText }}',
+  'Video transcript: {{ doc.transcript }}',
+].join('\n');
 
 /**
  * Every key the template above dereferences, with the value a document gets
