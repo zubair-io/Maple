@@ -6,7 +6,7 @@
       "id": "010045ca68ac1f7f7e8b3aa02f72ac80",
       "k": 5
     },
-    "note": "The #2384 case. KNOWN RED as of 2026-07-28: the video ranks 6, 0.0012 behind rank 5, at every semantic ratio from 0.3 to 0.9. Its transcript never says 'HVAC' or 'air conditioning' (it says heat pumps, Lennox, condensate pumps), so neither attribute weighting nor blend tuning can reach it \u2014 closing this needs the second-stage reranker in #2393. The guard stays at k=5 deliberately, as that ticket's target. Do NOT relax it to make the harness green."
+    "note": "The #2384 case. PASSES on this corpus at rank 5 \u2014 but read the corpus caveat below before drawing any conclusion from that. This 32-document corpus does NOT reproduce the production failure: measured at semanticRatio 1.0 the target ranks 5 here under EVERY template tried, including the pre-#2384 token bag, whereas in the 333k-document production index it ranks ~97 pure-vector. Rank 5 of 32 and rank 97 of 333k are different regimes. Treat this case as a plumbing regression guard, not as evidence that ranking is fixed. The decisive test is a pure-semantic query against production after the v8 re-embed, using the asset's REAL transcript."
   },
   {
     "query": "IMG_4185.MOV",
