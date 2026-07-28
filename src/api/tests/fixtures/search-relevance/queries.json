@@ -1,0 +1,51 @@
+[
+  {
+    "query": "HVAC air conditioning installation",
+    "relevantIds": ["010045ca68ac1f7f7e8b3aa02f72ac80"],
+    "mustBeInTop": { "id": "010045ca68ac1f7f7e8b3aa02f72ac80", "k": 5 },
+    "note": "The #2384 case. The transcript describes a completed heat-pump installation; generic rooftop captions containing the literal token HVAC must not bury it."
+  },
+  {
+    "query": "IMG_4185.MOV",
+    "relevantIds": ["010045ca68ac1f7f7e8b3aa02f72ac80"],
+    "mustBeInTop": { "id": "010045ca68ac1f7f7e8b3aa02f72ac80", "k": 1 },
+    "note": "Acceptance criterion 7 — exact filename search must stay top-1."
+  },
+  {
+    "query": "Greyson",
+    "relevantIds": ["person-greyson-1", "person-greyson-2"],
+    "mustBeInTop": { "id": "person-greyson-1", "k": 3 },
+    "note": "Named-person guard. mentions-greyson-untagged says the name in its transcript but carries no person tag; the tagged photos must win. Fails if `people` drops below transcript/ocrText in searchableAttributes."
+  },
+  {
+    "query": "heat pump receipt",
+    "relevantIds": ["receipt-hvac-invoice"],
+    "note": "OCR'd invoice text should beat photos of the equipment itself."
+  },
+  {
+    "query": "thermostat controller model number",
+    "relevantIds": ["controller-thermostat-1"],
+    "note": "Model number lives only in OCR text."
+  },
+  {
+    "query": "furnace installation paperwork",
+    "relevantIds": ["install-doc-1", "install-doc-2"],
+    "note": "Two scanned documents; neither word appears in any caption."
+  },
+  {
+    "query": "configuring the heating zones",
+    "relevantIds": ["controller-config-clip"],
+    "note": "Pure transcript semantics — the clip's caption says nothing about zones."
+  },
+  {
+    "query": "utility bill statement",
+    "relevantIds": ["receipt-utility-bill"],
+    "note": "Distinguishes among three OCR-heavy screenshots."
+  },
+  {
+    "query": "Rose",
+    "relevantIds": [],
+    "observeIds": ["person-rose-1", "flowers-roses-1"],
+    "note": "UNASSERTED — owned by #2386. Person-name-vs-common-noun collision. relevantIds is empty so this contributes nothing to Recall@10 or MRR; the harness only records where each document landed so #2386 starts from measured data. Do not add mustBeInTop here."
+  }
+]
