@@ -402,7 +402,7 @@ From `src/scripts/test_search_relevance.sh` against the committed 32-document co
 
 The blend ratio was swept 0.3–0.9. Everything at or below 0.5 scores identically; 0.6 and above lose MRR _and_ regress exact-filename and named-person queries. `DEFAULT_MEILISEARCH_SEMANTIC_RATIO` stays 0.5 on that evidence.
 
-One guard is knowingly red: `HVAC air conditioning installation` ranks the target video 6th rather than top-5, at every ratio. Its transcript never contains the query's words, so neither attribute weighting nor blend tuning can reach it — that case is owned by the second-stage reranker ticket referenced in `budgets.json`. The assertion stays as that ticket's target.
+**What this corpus can and cannot tell you.** It is synthetic and small, and it does NOT reproduce the production semantic failure: at `semanticRatio` 1.0 the #2384 target ranks 5 here under every template tried, including the pre-change token bag, while the 333k-document production index ranks it ~97 pure-vector. Use it to catch plumbing and lexical regressions — field wiring, attribute order, exact filename, named-person precedence — which it does well. Do not use it to judge semantic ranking quality at scale; that requires a pure-semantic query against production after the v8 re-embed, with the asset's real transcript.
 
 ### 5.7 Re-embedding after a document-shape change
 
