@@ -15,10 +15,13 @@
 // `cloudTimelineVM`), using ONLY buckets that VM has already fetched — no
 // new network fetch, no cross-bucket fetch-on-swipe. Each sibling's
 // `AssetRef` is built LAZILY/CHEAPLY: enough to render a filmstrip thumbnail
-// (id, displayName, stableID, `thumbnailProvenance`, and a lazy
-// `bytesProvider`) but no `EditSession`, no `CloudSidecarStore`, no download
-// box. Those are created only for whichever asset actually becomes the shown
-// Preview asset, via the EXISTING `ensureSession(for:)` (generalized in this
+// and its display-sized preview (id, displayName, stableID,
+// `thumbnailProvenance`, and the lazy `bytesProvider` /
+// `displayPreviewProvider` pair — both bound to the asset's OWN server, so a
+// mixed multi-server list needs no ambient `ImageSource`; #2385) but no
+// `EditSession`, no `CloudSidecarStore`, no download box. Those are created
+// only for whichever asset actually becomes the shown Preview asset, via
+// the EXISTING `ensureSession(for:)` (generalized in this
 // same ticket to read `AssetRef.thumbnailProvenance`'s `.cloud(server:)`
 // case) — wired from `PhoneLibraryView`'s `onSelectionChanged`.
 
@@ -169,6 +172,14 @@ extension AppShell {
             hintExtension: (asset.filename as NSString).pathExtension.lowercased(),
             stableID: asset.id,
             thumbnailProvenance: .cloud(server: server),
+            // Same per-server `source` the byte fetch closes over, so the
+            // 1280 px `/api/fs/preview` request lands on the server that
+            // actually owns this asset (#2385). Without it the display tier
+            // fell back to the Preview's one ambient `ImageSource` — the
+            // `CloudSource` for whichever asset the user TAPPED — and a
+            // sibling on a different server 404'd, never upgrading past its
+            // grid thumbnail.
+            displayPreviewProvider: { try await source.preview(for: imageRef) },
             bytesProvider: { try await source.rawBytes(for: imageRef) }
         )
     }
