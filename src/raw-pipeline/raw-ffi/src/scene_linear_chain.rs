@@ -416,6 +416,17 @@ pub(crate) use scene_linear_chain_inputs::*;
 mod scene_linear_chain_f32_entry;
 pub use scene_linear_chain_f32_entry::*;
 
+// Patch-compositing entries (#1486) live in a sibling module (file-size
+// budget); the `#[no_mangle]` symbols are unaffected by module placement.
+#[path = "scene_linear_chain_patches.rs"]
+mod scene_linear_chain_patches;
+// The C symbols are exported by `#[no_mangle]`, so this re-export exists only
+// to give the Rust-side tests a path to them; it is unused in a non-test build.
+#[allow(unused_imports)]
+pub use scene_linear_chain_patches::{
+    maple_apply_scene_linear_chain_f32_with_patches, maple_apply_scene_linear_chain_with_patches,
+};
+
 // The display-encode entry lives in a sibling module (file-size budget); the
 // `#[no_mangle]` symbol is unaffected by module placement.
 #[path = "scene_linear_chain_encode_entry.rs"]
