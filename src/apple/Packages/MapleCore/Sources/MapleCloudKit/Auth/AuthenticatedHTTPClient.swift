@@ -233,13 +233,15 @@ public actor AuthenticatedHTTPClient {
     // tvOS runs no auth-capable extension processes (no File Provider,
     // no QuickLook) — this app is the only refresh actor, and the
     // in-process single-flight task already serializes concurrent
-    // refreshes, so the flock only needs to be process-visible. Gating
-    // tvOS refresh on the shared App Group container bricked auth on
-    // real Apple TV hardware: the container lookup failed at runtime
-    // despite the granted entitlement, so no refresh ever reached the
-    // server and every session died at access-token expiry (#2380 —
-    // every tvOS refresh family in production sat un-rotated). The
-    // app-private temporary directory is always available.
+    // refreshes. The flock stays a real cross-process lock; with no
+    // sibling process to coordinate, its FILE just doesn't need to live
+    // in the shared App Group container. Gating tvOS refresh on that
+    // container bricked auth on real Apple TV hardware: the container
+    // lookup failed at runtime despite the granted entitlement, so no
+    // refresh ever reached the server and every session died at
+    // access-token expiry (#2380 — every tvOS refresh family in
+    // production sat un-rotated). The app-private temporary directory
+    // is always available.
     let container = FileManager.default.temporaryDirectory
     #else
     let sharedContainer = FileManager.default.containerURL(
