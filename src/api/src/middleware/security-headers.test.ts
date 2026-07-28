@@ -17,7 +17,12 @@ function app() {
   return new Elysia()
     .use(securityHeaders)
     .get('/api/folders', () => ({ ok: true }))
-    .get('/api/video/fs', () => new Response('bytes'));
+    .get('/api/video/fs', () => new Response('bytes'))
+    .get('/api/image/x', () => new Response('bytes'))
+    .get('/api/video/err', ({ set }) => {
+      set.status = 401;
+      return { error: 'nope' };
+    });
 }
 
 describe('securityHeaders', () => {
@@ -32,6 +37,21 @@ describe('securityHeaders', () => {
     const res = await app().handle(new Request('http://localhost/api/video/fs'));
     expect(res.headers.get('Cross-Origin-Embedder-Policy')).toBeNull();
     expect(res.headers.get('Cross-Origin-Opener-Policy')).toBeNull();
+  });
+
+  test('exempts the image route too — its mounted path is /api/image', async () => {
+    const res = await app().handle(new Request('http://localhost/api/image/x'));
+    expect(res.headers.get('Cross-Origin-Embedder-Policy')).toBeNull();
+  });
+
+  // jules review on #2383: skipping the hook stripped CORS from the error
+  // replies of those routes as well, so a browser could not read a 401/415.
+  test('keeps CORS on error replies from streamed-file routes', async () => {
+    const res = await app().handle(new Request('http://localhost/api/video/err'));
+    expect(res.status).toBe(401);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    // Still no COEP: an error body is not a document.
+    expect(res.headers.get('Cross-Origin-Embedder-Policy')).toBeNull();
   });
 
   test('answers OPTIONS preflight with 204 and the isolation headers', async () => {
