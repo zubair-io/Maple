@@ -44,6 +44,7 @@ import { Elysia } from "elysia";
 import { ulid } from "ulid";
 import type { Logger } from "pino";
 import { child as childLogger } from "../log.ts";
+import { isStreamedFilePath } from "../routes/library/shared.ts";
 
 /** Canonical, stable error codes returned in the envelope. */
 export type ErrorCode =
@@ -220,7 +221,15 @@ export const requestContext = new Elysia({ name: "requestContext" })
     const inbound = request.headers.get("x-request-id");
     const requestId = deriveRequestId(inbound);
     setRequestId(set, requestId);
-    set.headers["X-Request-Id"] = requestId;
+    // #2382: any non-empty `set.headers` makes Elysia rebuild a returned
+    // `Response`, and that rebuild discards the `BunFile` slice — a 206 then
+    // ships the WHOLE file while still advertising a partial `Content-Range`,
+    // which AVFoundation rejects (no video played on any Apple device). The id
+    // is still stashed on `set` above, so request logging is unaffected; only
+    // the response header is skipped, and only for streamed-file routes.
+    if (!isStreamedFilePath(new URL(request.url).pathname)) {
+      set.headers["X-Request-Id"] = requestId;
+    }
   })
   // derive runs after onRequest for matched routes. Surfaces `requestId`
   // and a bound logger to route handlers via destructuring.
