@@ -128,6 +128,18 @@ pub(crate) unsafe fn chain_inputs_from_params(p: &MapleAdjustmentParams) -> Chai
     model.gray_mixer_blue = p.bw_mix_blue;
     model.gray_mixer_purple = p.bw_mix_purple;
     model.gray_mixer_magenta = p.bw_mix_magenta;
+    // Colour Grading (#643). These were mapped by the f32 entry but NOT by the
+    // fp16 entry before this hoist — i.e. the two copies had genuinely diverged
+    // and Colour Grading was inert on the fp16 CPU refine path. The shared
+    // mapping takes the complete (f32) version, so both surfaces now agree.
+    model.color_grade_shadow_luminance = p.color_grade_shadow_luminance;
+    model.color_grade_midtone_hue = p.color_grade_midtone_hue;
+    model.color_grade_midtone_saturation = p.color_grade_midtone_saturation;
+    model.color_grade_midtone_luminance = p.color_grade_midtone_luminance;
+    model.color_grade_highlight_luminance = p.color_grade_highlight_luminance;
+    model.color_grade_global_hue = p.color_grade_global_hue;
+    model.color_grade_global_saturation = p.color_grade_global_saturation;
+    model.color_grade_global_luminance = p.color_grade_global_luminance;
     model.look = raw_core::view::look::Look::from(p.look_mode);
     // Sharpen + chroma NR (#1043) — set EXPLICITLY from the params tail
     // rather than left at `AdjustmentModel::default()` (40 / 25), so a host
