@@ -410,12 +410,18 @@ The semantic fingerprint is `v<ASSET_DOC_SHAPE_VERSION>:<sha256>`. When the shap
 
 That asymmetry is deliberate. A settings PATCH makes Meilisearch re-embed the documents already in its index, so a pure model / URL / template-wording change carries forward safely — the vectors really are rebuilt. But a shape change means the template now reads fields those indexed documents do not carry yet, so the re-embed would run against missing data. Counting it as coverage would show the operator 100% while every vector was built without, say, a transcript. See `documentShapeOf` in `enrichment/meilisearch-vector-coverage.ts`.
 
+**The backfill self-invalidates.** `meilisearch_backfill_state` stores the `doc_shape_version` its generation ran under, and `loadState` discards a generation belonging to a superseded shape. This matters because the batch runner short-circuits on `completed_at`: without the stamp, a deployment whose previous backfill had finished would report the new migration as already complete and re-upsert nothing, leaving the index on the old shape while the operator saw a green migration. `?reset=true` is therefore a manual override, not a required step.
+
 Two paths converge on the rebuild, and both are safe to run:
 
 1. **Automatic** — the meili stage's `targetVersion` is bound to `ASSET_DOC_SHAPE_VERSION`, so every asset becomes eligible again and the stage re-upserts it. Slow (concurrency 2) but needs no operator action.
 2. **Operator-driven** — `POST /api/admin/enrichment/backfill-meilisearch` (owner only) batches the same work at 250 documents per Meilisearch task. `?reset=true` discards prior backfill progress and re-scans from the start.
 
-Watch Settings → Workers: `vectorizedDocumentCount` climbs back toward `indexedDocumentCount` as the re-embed proceeds.
+Watch Settings → Workers: `vectorizedDocumentCount` climbs back toward `indexedDocumentCount` as the re-embed proceeds. Run the relevance harness only once coverage is complete — measuring a half-migrated index compares a mix of old and new documents.
+
+Prefer path 2 as the primary mechanism. Path 1 runs at concurrency 2 and is a safety net for assets the backfill misses, not a rollout plan: on a large library it leaves the index holding a mix of old- and new-shape documents for a long time, which makes ranking non-reproducible while it runs.
+
+**Expect the embedding work to happen twice.** `ensureIndex()` applies the new embedder settings at boot, and Meilisearch immediately re-embeds every document it already holds — which at that point still lack `transcript`, so that pass is wasted. The backfill then re-upserts each document with the new fields, triggering a second embed. It converges correctly, but budget roughly double the embedding time and load on the Ollama host. Avoiding it would need a two-release rollout (ship the document shape, complete the backfill, then activate the template), which is only worth doing if embedder capacity is the binding constraint.
 
 ## 6. Face and describe workers (sketch)
 
