@@ -40,23 +40,23 @@
  *   stashing is the only mechanism that works for every code path.
  */
 
-import { Elysia } from "elysia";
-import { ulid } from "ulid";
-import type { Logger } from "pino";
-import { child as childLogger } from "../log.ts";
-import { isStreamedFilePath } from "../routes/library/shared.ts";
+import { Elysia } from 'elysia';
+import { ulid } from 'ulid';
+import type { Logger } from 'pino';
+import { child as childLogger } from '../log.ts';
+import { isStreamedFilePath } from '../routes/library/shared.ts';
 
 /** Canonical, stable error codes returned in the envelope. */
 export type ErrorCode =
-  | "bad_request"
-  | "unauthorized"
-  | "forbidden"
-  | "not_found"
-  | "conflict"
-  | "unsupported_media_type"
-  | "validation"
-  | "service_unavailable"
-  | "internal";
+  | 'bad_request'
+  | 'unauthorized'
+  | 'forbidden'
+  | 'not_found'
+  | 'conflict'
+  | 'unsupported_media_type'
+  | 'validation'
+  | 'service_unavailable'
+  | 'internal';
 
 export interface ErrorEnvelope {
   error: string;
@@ -66,30 +66,30 @@ export interface ErrorEnvelope {
 }
 
 const STATUS_TO_CODE: Record<number, ErrorCode> = {
-  400: "bad_request",
-  401: "unauthorized",
-  403: "forbidden",
-  404: "not_found",
-  409: "conflict",
-  415: "unsupported_media_type",
-  422: "validation",
-  503: "service_unavailable",
+  400: 'bad_request',
+  401: 'unauthorized',
+  403: 'forbidden',
+  404: 'not_found',
+  409: 'conflict',
+  415: 'unsupported_media_type',
+  422: 'validation',
+  503: 'service_unavailable',
 };
 
 function codeForStatus(status: number): ErrorCode {
   if (STATUS_TO_CODE[status]) return STATUS_TO_CODE[status];
-  if (status >= 400 && status < 500) return "bad_request";
-  return "internal";
+  if (status >= 400 && status < 500) return 'bad_request';
+  return 'internal';
 }
 
 /** True if `v` is a non-null object (i.e. could already be an envelope). */
 function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null;
+  return typeof v === 'object' && v !== null;
 }
 
 /** Extract a numeric status from Elysia's `set.status` (number or status name). */
 function statusAsNumber(s: unknown): number {
-  if (typeof s === "number") return s;
+  if (typeof s === 'number') return s;
   // Elysia accepts named statuses ("Bad Request", etc.); we only care about
   // the numeric form here — leave anything else as 200 (success).
   return 200;
@@ -100,7 +100,7 @@ function statusAsNumber(s: unknown): number {
  * fresh per request, so this avoids the cross-request race that affected
  * the previous `store`-based implementation.
  */
-const REQUEST_ID_KEY = "__mapleRequestId" as const;
+const REQUEST_ID_KEY = '__mapleRequestId' as const;
 
 interface SetWithRequestId {
   status?: number | string;
@@ -111,7 +111,7 @@ interface SetWithRequestId {
 function getRequestId(set: unknown): string | undefined {
   if (!isObject(set)) return undefined;
   const v = (set as unknown as SetWithRequestId)[REQUEST_ID_KEY];
-  return typeof v === "string" ? v : undefined;
+  return typeof v === 'string' ? v : undefined;
 }
 
 function setRequestId(set: unknown, id: string): void {
@@ -128,11 +128,7 @@ function setRequestId(set: unknown, id: string): void {
  * thin zero-dep ESM module.
  */
 function deriveRequestId(inboundHeader: string | null): string {
-  if (
-    inboundHeader &&
-    inboundHeader.length > 0 &&
-    inboundHeader.length <= 128
-  ) {
+  if (inboundHeader && inboundHeader.length > 0 && inboundHeader.length <= 128) {
     return inboundHeader;
   }
   return ulid();
@@ -154,27 +150,22 @@ function deriveRequestId(inboundHeader: string | null): string {
  * For anything else (strings, arrays, missing `error` field, NotFound, …)
  * we synthesise a clean envelope.
  */
-function buildEnvelope(
-  body: unknown,
-  status: number,
-  requestId: string,
-): Record<string, unknown> {
+function buildEnvelope(body: unknown, status: number, requestId: string): Record<string, unknown> {
   const code = codeForStatus(status);
 
   if (isObject(body)) {
     // Already-shaped envelope (built by our own onError below, or by a
     // handler that called `errorEnvelope` directly) — just patch the
     // requestId if it's missing.
-    if (typeof body.code === "string" && typeof body.error === "string") {
+    if (typeof body.code === 'string' && typeof body.error === 'string') {
       return {
         ...body,
         code: body.code,
-        requestId:
-          typeof body.requestId === "string" ? body.requestId : requestId,
+        requestId: typeof body.requestId === 'string' ? body.requestId : requestId,
       };
     }
 
-    if (typeof body.error === "string") {
+    if (typeof body.error === 'string') {
       // Legacy `{ error: "msg", ...rest }` shape. Keep `rest` at the top
       // level so existing clients (Apple/Web/backup-ingest) keep reading
       // their accustomed fields. Add `code` + `requestId` alongside.
@@ -188,19 +179,19 @@ function buildEnvelope(
     // Unstructured object with no `error` field — synthesise an envelope
     // and stash the original under `details`.
     return {
-      error: "request failed",
+      error: 'request failed',
       code,
       requestId,
       details: body,
     };
   }
 
-  if (typeof body === "string") {
+  if (typeof body === 'string') {
     return { error: body, code, requestId };
   }
 
   // No body at all (e.g. Elysia's default NotFound path).
-  return { error: "request failed", code, requestId };
+  return { error: 'request failed', code, requestId };
 }
 
 /**
@@ -212,13 +203,13 @@ function buildEnvelope(
  *   - `log: Logger` — a pino child bound to `{ requestId, method, path }`,
  *     so any handler that calls `log.warn(...)` gets the id for free.
  */
-export const requestContext = new Elysia({ name: "requestContext" })
+export const requestContext = new Elysia({ name: 'requestContext' })
   // onRequest fires before derive and before any route handler. Stash the
   // request-id on `set` (per-request) so it's accessible from every later
   // lifecycle hook — including the NOT_FOUND path where `derive` does not
   // run. `store` would race across concurrent requests; do NOT use it.
   .onRequest(({ request, set }) => {
-    const inbound = request.headers.get("x-request-id");
+    const inbound = request.headers.get('x-request-id');
     const requestId = deriveRequestId(inbound);
     setRequestId(set, requestId);
     // #2382: any non-empty `set.headers` makes Elysia rebuild a returned
@@ -228,14 +219,14 @@ export const requestContext = new Elysia({ name: "requestContext" })
     // is still stashed on `set` above, so request logging is unaffected; only
     // the response header is skipped, and only for streamed-file routes.
     if (!isStreamedFilePath(new URL(request.url).pathname)) {
-      set.headers["X-Request-Id"] = requestId;
+      set.headers['X-Request-Id'] = requestId;
     }
   })
   // derive runs after onRequest for matched routes. Surfaces `requestId`
   // and a bound logger to route handlers via destructuring.
   .derive(({ set, request }) => {
     const id = getRequestId(set) ?? ulid();
-    const log: Logger = childLogger("request").child({
+    const log: Logger = childLogger('request').child({
       requestId: id,
       method: request.method,
       path: new URL(request.url).pathname,
@@ -247,7 +238,7 @@ export const requestContext = new Elysia({ name: "requestContext" })
   // requireAuth) still surface to the client.
   .onError(({ error, set, request, code }) => {
     const requestId = getRequestId(set) ?? ulid();
-    const log = childLogger("request").child({
+    const log = childLogger('request').child({
       requestId,
       method: request.method,
       path: new URL(request.url).pathname,
@@ -262,11 +253,11 @@ export const requestContext = new Elysia({ name: "requestContext" })
     let status: number;
     if (preset >= 400 && preset < 600) {
       status = preset;
-    } else if (code === "VALIDATION") {
+    } else if (code === 'VALIDATION') {
       status = 422;
-    } else if (code === "NOT_FOUND") {
+    } else if (code === 'NOT_FOUND') {
       status = 404;
-    } else if (code === "PARSE") {
+    } else if (code === 'PARSE') {
       status = 400;
     } else {
       status = 500;
@@ -277,22 +268,22 @@ export const requestContext = new Elysia({ name: "requestContext" })
     // "start mongo" tip at the top level so operators (and any existing
     // diagnostic UI) still see it. The envelope-mandated `code` + `requestId`
     // are added alongside.
-    const isDbErr = message.includes("[db]") || message.includes("MongoDB");
+    const isDbErr = message.includes('[db]') || message.includes('MongoDB');
     if (isDbErr && status >= 500) {
       set.status = 503;
-      log.error({ err: error }, "request error (db unavailable)");
+      log.error({ err: error }, 'request error (db unavailable)');
       return {
-        error: "Database unavailable",
-        code: "service_unavailable" as ErrorCode,
+        error: 'Database unavailable',
+        code: 'service_unavailable' as ErrorCode,
         requestId,
         detail: message,
-        tip: "Start MongoDB with: docker compose up -d mongo",
+        tip: 'Start MongoDB with: docker compose up -d mongo',
       };
     }
 
     // Pass the raw error to pino so its serializer preserves the stack +
     // any structured fields (e.g. MongoDB driver error codes).
-    log.error({ err: error }, "request error");
+    log.error({ err: error }, 'request error');
 
     const envelope: ErrorEnvelope = {
       error: message,
@@ -335,17 +326,17 @@ export const requestContext = new Elysia({ name: "requestContext" })
       // JSON error bodies). We treat absent content-type as "not JSON" —
       // `new Response("Forbidden", { status: 403 })` falls into the wrap
       // path, which is the desired behaviour.
-      const ct = response.headers.get("content-type") ?? "";
-      if (ct.toLowerCase().includes("json")) return response;
+      const ct = response.headers.get('content-type') ?? '';
+      if (ct.toLowerCase().includes('json')) return response;
 
       // HEAD requests must not have a body. Preserve the status but skip
       // body rewriting.
-      if (ctx.request?.method === "HEAD") {
+      if (ctx.request?.method === 'HEAD') {
         // Surface the request id on the headers if not already present.
         const headers = new Headers(response.headers);
         const reqId = getRequestId(set);
-        if (reqId && !headers.has("X-Request-Id")) {
-          headers.set("X-Request-Id", reqId);
+        if (reqId && !headers.has('X-Request-Id')) {
+          headers.set('X-Request-Id', reqId);
         }
         return new Response(null, { status: respStatus, headers });
       }
@@ -354,10 +345,10 @@ export const requestContext = new Elysia({ name: "requestContext" })
       const text = await response.text();
       const envelope = buildEnvelope(text, respStatus, requestId);
       const headers = new Headers(response.headers);
-      headers.set("Content-Type", "application/json; charset=utf-8");
-      headers.set("X-Request-Id", requestId);
+      headers.set('Content-Type', 'application/json; charset=utf-8');
+      headers.set('X-Request-Id', requestId);
       // Drop content-length: the body changed shape.
-      headers.delete("Content-Length");
+      headers.delete('Content-Length');
       // Reflect the wrap on set.status so downstream sees the same number.
       set.status = respStatus;
       return new Response(JSON.stringify(envelope), {
@@ -374,9 +365,9 @@ export const requestContext = new Elysia({ name: "requestContext" })
     // by the `errorEnvelope` helper).
     if (
       isObject(response) &&
-      typeof response.code === "string" &&
-      typeof response.error === "string" &&
-      typeof response.requestId === "string"
+      typeof response.code === 'string' &&
+      typeof response.error === 'string' &&
+      typeof response.requestId === 'string'
     ) {
       return response;
     }
@@ -392,7 +383,7 @@ export const requestContext = new Elysia({ name: "requestContext" })
   // public API for this; the per-hook `{ as: "global" }` option is buggy
   // in this version (it stores the handler in a way that crashes the
   // composer — see PR for #133).
-  .as("global");
+  .as('global');
 
 /**
  * Helper for handlers that want to build the envelope explicitly — kept
