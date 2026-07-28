@@ -385,6 +385,25 @@ filename, people, transcript, ocrText, description, placeText, searchBlob
 
 Every `{{ doc.x }}` the template dereferences **must** have a matching key in `TEMPLATE_FIELD_DEFAULTS` in the same file. Meilisearch renders the template for every incoming document with strict Liquid lookups, so a document missing a referenced key rejects its **entire batch** with `invalid_document_fields` — hit live in #2369 by tombstone documents during a backfill.
 
+**The byte ceiling matters more than the template.** Meilisearch truncates the _rendered_ template to `documentTemplateMaxBytes` before embedding, and its default is **400 bytes**. Maple never set it, so every vector built before #2384 came from roughly the first 400 bytes of `{{ doc.searchBlob }} …` — about the first 50 tokens of an alphabetised bag, with description and people usually truncated away before the embedder ever saw them. `EMBEDDER_TEMPLATE_MAX_BYTES` now pins this at 5000 and it is part of the fingerprint, so changing it re-embeds. Because the tail is what truncation drops, **field order in the template is a priority order**, not cosmetic.
+
+`dimensions` is likewise declared explicitly for models listed in `EMBEDDER_DIMENSIONS`, which lets Meilisearch skip its own dimension-probe round-trip to the embedding server. Models not in that table deliberately omit it and fall back to the probe — a wrong `dimensions` would make Meilisearch reject or truncate every vector, and the model is operator-settable.
+
+### 5.6.1 Measured ranking baseline
+
+From `src/scripts/test_search_relevance.sh` against the committed 32-document corpus (Meilisearch 1.51.0 + Ollama `bge-m3`, 2026-07-28):
+
+| Metric                                                 | Before #2384 | After #2384 |
+| ------------------------------------------------------ | ------------ | ----------- |
+| Recall@10                                              | 0.8889       | 1.0000      |
+| MRR                                                    | 0.5631       | 0.7407      |
+| Exact filename (`IMG_4185.MOV`)                        | rank 29      | rank 1      |
+| Transcript semantics (`configuring the heating zones`) | rank 3       | rank 1      |
+
+The blend ratio was swept 0.3–0.9. Everything at or below 0.5 scores identically; 0.6 and above lose MRR _and_ regress exact-filename and named-person queries. `DEFAULT_MEILISEARCH_SEMANTIC_RATIO` stays 0.5 on that evidence.
+
+One guard is knowingly red: `HVAC air conditioning installation` ranks the target video 6th rather than top-5, at every ratio. Its transcript never contains the query's words, so neither attribute weighting nor blend tuning can reach it — that case is owned by the second-stage reranker ticket referenced in `budgets.json`. The assertion stays as that ticket's target.
+
 ### 5.7 Re-embedding after a document-shape change
 
 The semantic fingerprint is `v<ASSET_DOC_SHAPE_VERSION>:<sha256>`. When the shape version changes (a new field on `MeilisearchAssetDoc`), coverage is **not** carried forward: every asset reads as un-vectorized until it has been re-upserted with the new fields.
