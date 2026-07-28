@@ -14,6 +14,35 @@ interface AssetsIndexSettingsConfig {
   embedderModel: string;
 }
 
+/**
+ * Output dimensionality of the embedding models we ship or expect operators
+ * to pick, keyed by Ollama model name without its tag.
+ *
+ * Declaring `dimensions` lets Meilisearch skip its own dimension probe — an
+ * extra round-trip to the embedding server, made while applying settings,
+ * that can fail on its own and takes the entire embedder registration down
+ * with it when it does.
+ *
+ * A WRONG value is far worse than no value: Meilisearch would reject or
+ * truncate every vector. `meilisearch_embedder_model` is operator-settable,
+ * so anything not listed here deliberately falls back to the probe rather
+ * than guessing. Add an entry only when the model's size is known for
+ * certain.
+ */
+const EMBEDDER_DIMENSIONS: Readonly<Record<string, number>> = {
+  'bge-m3': 1024,
+  'bge-large': 1024,
+  'mxbai-embed-large': 1024,
+  'nomic-embed-text': 768,
+  'all-minilm': 384,
+};
+
+/** Known output size for an Ollama model id, ignoring any `:tag` suffix.
+ * `undefined` means "we don't know — let Meilisearch probe". */
+export function embedderDimensions(model: string): number | undefined {
+  return EMBEDDER_DIMENSIONS[model.split(':')[0]!.trim().toLowerCase()];
+}
+
 export function assetsIndexSettings(
   config: AssetsIndexSettingsConfig,
   embedderName: string,
@@ -49,12 +78,15 @@ export function assetsIndexSettings(
     sortableAttributes: ['capturedAt'],
   };
   if (config.semantic) {
+    const dimensions = embedderDimensions(config.embedderModel);
     settings.embedders = {
       [embedderName]: {
         source: 'ollama',
         url: joinMeilisearchUrl(config.embedderUrl, '/api/embed'),
         model: config.embedderModel,
         documentTemplate: EMBEDDER_DOCUMENT_TEMPLATE,
+        // Omitted entirely for unknown models — see EMBEDDER_DIMENSIONS.
+        ...(dimensions === undefined ? {} : { dimensions }),
       },
     };
   } else {
@@ -96,9 +128,16 @@ function sameStringSet(actual: unknown, expected: unknown): boolean {
 
 function managedEmbedderConfigMatches(actual: unknown, expected: unknown): boolean {
   if (!isRecord(actual) || !isRecord(expected)) return false;
-  return ['source', 'url', 'model', 'documentTemplate'].every(
+  const baseMatches = ['source', 'url', 'model', 'documentTemplate'].every(
     (field) => actual[field] === expected[field],
   );
+  // `dimensions` is compared ONLY when we send one. For an unknown model we
+  // omit it and Meilisearch probes a value it then echoes back from
+  // GET /settings; comparing that unconditionally would mismatch on every
+  // boot, and each resulting PATCH re-embeds the whole index.
+  const dimensionsMatch =
+    expected.dimensions === undefined || actual.dimensions === expected.dimensions;
+  return baseMatches && dimensionsMatch;
 }
 
 function embedderMatches(actual: unknown, expected: unknown): boolean {
