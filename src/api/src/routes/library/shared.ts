@@ -202,6 +202,10 @@ export async function streamFile(
   return new Response(Bun.file(absPath), {
     status: 200,
     headers: {
+      // Exempt from the global `set.headers` hook (#2382), so this response
+      // has to carry CORS/CORP itself or `/api/image/...` would answer with
+      // none at all.
+      ...STREAMED_FILE_HEADERS,
       'Content-Type': contentType,
       'Content-Length': String(st.size),
       ...extraHeaders,
@@ -247,8 +251,16 @@ export function parseByteRange(value: string, size: number): ByteRange {
  * document's `require-corp`, but dev serves Angular on :4201 against the API
  * on :3000, so `cross-origin` keeps that working too.
  */
-const STREAMED_FILE_HEADERS: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
+/**
+ * Allowed CORS origin, shared with `middleware/security-headers.ts` so a
+ * streamed file can never advertise a wider origin than the rest of the API.
+ * Copilot review on #2383: this used to hard-code `*` and silently ignored a
+ * `MAPLE_CORS_ORIGIN` restriction.
+ */
+export const CORS_ORIGIN = process.env.MAPLE_CORS_ORIGIN ?? '*';
+
+export const STREAMED_FILE_HEADERS: Record<string, string> = {
+  'Access-Control-Allow-Origin': CORS_ORIGIN,
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Cross-Origin-Resource-Policy': 'cross-origin',
@@ -265,11 +277,12 @@ const STREAMED_FILE_HEADERS: Record<string, string> = {
  * instead of silently serving whole files.
  */
 export function isStreamedFilePath(path: string): boolean {
-  return (
-    path.startsWith('/api/video/') ||
-    path.startsWith('/api/library/image/') ||
-    path.startsWith('/api/fs/download/')
-  );
+  // Prefixes are the MOUNTED paths, which is not always where the source file
+  // lives: `imageRoutes` declares `/image/:slug/*` but is mounted inside
+  // `libraryRoutes` (prefix `/api`), so it serves `/api/image/...` — an earlier
+  // draft guessed `/api/library/image/` and silently never matched (Copilot
+  // review on #2383).
+  return path.startsWith('/api/video/') || path.startsWith('/api/image/');
 }
 
 /** Serve a regular file with the single-range contract required by media players. */
