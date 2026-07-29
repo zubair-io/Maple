@@ -292,3 +292,43 @@ describe('M2 addressing — _selectInitialFolder fallback logic', () => {
     expect(r.sourceId).toBe('alpha:');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Sidebar folder-tree ordering (mirrors _attachFolderChildren, pure)
+// ---------------------------------------------------------------------------
+
+describe('sidebar tree — folder children ordering', () => {
+  type PriorEntry = { id: string; label: string };
+
+  // Mirrors the child-building + sort in _attachFolderChildren: map each
+  // listing folder to a sidebar entry (carrying over a prior entry's identity
+  // if present) then sort alphabetically by display label.
+  function attachChildLabels(
+    folders: { name: string; address: string }[],
+    prior: PriorEntry[] = [],
+  ): string[] {
+    const existingById = new Map(prior.map((c) => [c.id, c]));
+    return folders
+      .map((d) => {
+        const p = existingById.get(d.address);
+        return p ? { ...p, label: d.name } : { id: d.address, label: d.name };
+      })
+      .sort((a, b) => a.label.localeCompare(b.label))
+      .map((c) => c.label);
+  }
+
+  it('sorts sidebar folder children alphabetically regardless of listing order', () => {
+    const folders = [
+      makeFolder('Zebra', 'Zebra'),
+      makeFolder('apple', 'apple'),
+      makeFolder('Mango', 'Mango'),
+    ];
+    expect(attachChildLabels(folders)).toEqual(['apple', 'Mango', 'Zebra']);
+  });
+
+  it('keeps ordering stable when a parent is refetched (existing children preserved)', () => {
+    const folders = [makeFolder('Beta', 'Beta'), makeFolder('Alpha', 'Alpha')];
+    const prior = [{ id: `${LIB_SLUG}:Alpha`, label: 'Alpha' }];
+    expect(attachChildLabels(folders, prior)).toEqual(['Alpha', 'Beta']);
+  });
+});

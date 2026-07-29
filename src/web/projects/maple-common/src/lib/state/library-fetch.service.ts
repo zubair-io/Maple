@@ -762,17 +762,22 @@ export class LibraryFetch {
           ...n,
           childrenStatus: 'loaded' as const,
           childrenError: undefined,
-          children: folders.map((d) => {
-            const prior = existingById.get(d.address);
-            if (prior) return { ...prior, label: d.name };
-            return {
-              kind: 'folder' as const,
-              id: d.address,
-              label: d.name,
-              count: null,
-              // childrenStatus left undefined — fetched on first chevron expand.
-            };
-          }),
+          // Alphabetical by display label (mirrors the grid folder sort in
+          // library-selection.service) so the sidebar tree is stable rather
+          // than following backend/filesystem listing order.
+          children: folders
+            .map((d) => {
+              const prior = existingById.get(d.address);
+              if (prior) return { ...prior, label: d.name };
+              return {
+                kind: 'folder' as const,
+                id: d.address,
+                label: d.name,
+                count: null,
+                // childrenStatus left undefined — fetched on first chevron expand.
+              };
+            })
+            .sort((a, b) => a.label.localeCompare(b.label)),
         };
       }),
     );
