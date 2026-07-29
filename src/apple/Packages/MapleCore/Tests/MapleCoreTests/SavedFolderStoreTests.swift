@@ -70,6 +70,23 @@ final class SavedFolderStoreTests: XCTestCase {
         XCTAssertFalse(names.contains("A00"), "the least-recently-opened folder is evicted")
     }
 
+    /// `mostRecent` returns the last-opened folder even though `load()` is
+    /// alphabetical — this is the cold-start fallback (`autoPickInitialSource`)
+    /// that must reopen where the user left off, not the alphabetically-first.
+    func testMostRecentReturnsLastOpenedNotAlphabeticallyFirst() {
+        SavedFolderStore.upsert(folder("Apple", openedSecondsAgo: 100), into: defaults)
+        SavedFolderStore.upsert(folder("Mango", openedSecondsAgo: 5), into: defaults)
+        SavedFolderStore.upsert(folder("Zebra", openedSecondsAgo: 50), into: defaults)
+
+        // "Apple" sorts first alphabetically, but "Mango" was opened most recently.
+        XCTAssertEqual(SavedFolderStore.load(from: defaults).first?.displayName, "Apple")
+        XCTAssertEqual(SavedFolderStore.mostRecent(from: defaults)?.displayName, "Mango")
+    }
+
+    func testMostRecentIsNilWhenEmpty() {
+        XCTAssertNil(SavedFolderStore.mostRecent(from: defaults))
+    }
+
     /// Re-opening an existing folder refreshes it in place (no duplicate) and,
     /// because display order is alphabetical, its position does not change.
     func testUpsertExistingRefreshesWithoutDuplicating() {
