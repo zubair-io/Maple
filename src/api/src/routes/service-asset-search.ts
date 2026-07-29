@@ -33,6 +33,8 @@ interface SearchRequestBody {
   mode?: SearchMode;
   limit?: number;
   includeHidden?: boolean;
+  from?: string;
+  to?: string;
   filters?: { mediaTypes?: MeilisearchMediaType[] };
 }
 
@@ -45,6 +47,23 @@ function validLimit(value: unknown): value is number | undefined {
     value === undefined ||
     (Number.isInteger(value) && (value as number) >= 1 && (value as number) <= MAX_LIMIT)
   );
+}
+
+function parseUtcDate(value: unknown): Date | null {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value
+    ? null
+    : parsed;
+}
+
+function validDateRange(from: unknown, to: unknown): boolean {
+  if (from === undefined && to === undefined) return true;
+  const parsedFrom = from === undefined ? null : parseUtcDate(from);
+  const parsedTo = to === undefined ? null : parseUtcDate(to);
+  if (from !== undefined && !parsedFrom) return false;
+  if (to !== undefined && !parsedTo) return false;
+  return !parsedFrom || !parsedTo || parsedFrom.getTime() <= parsedTo.getTime();
 }
 
 function validFilters(value: unknown): boolean {
@@ -79,6 +98,7 @@ function parseSearchBody(body: unknown): SearchRequestBody | null {
   if (!validQuery(candidate.query)) return null;
   if (!validMode(candidate.mode)) return null;
   if (!validLimit(candidate.limit)) return null;
+  if (!validDateRange(candidate.from, candidate.to)) return null;
   if (!validHidden(candidate.includeHidden)) return null;
   if (!validFilters(candidate.filters)) return null;
   return candidate as unknown as SearchRequestBody;
@@ -122,6 +142,8 @@ function mediaFilenameRegex(mediaTypes: MeilisearchMediaType[] | undefined): Reg
 function mongoBaseFilter(
   includeHidden: boolean,
   mediaTypes: MeilisearchMediaType[] | undefined,
+  capturedFrom?: string,
+  capturedBefore?: string,
   exactFilename?: RegExp,
 ): Filter<AssetDoc> {
   const entry: Record<string, unknown> = {
@@ -139,6 +161,14 @@ function mongoBaseFilter(
   return {
     deleted_at: { $in: [null] },
     ...(includeHidden ? {} : { hidden: { $ne: true } }),
+    ...(capturedFrom || capturedBefore
+      ? {
+          'exif.captured_at': {
+            ...(capturedFrom ? { $gte: capturedFrom } : {}),
+            ...(capturedBefore ? { $lt: capturedBefore } : {}),
+          },
+        }
+      : {}),
     fileinfo: { $elemMatch: entry },
   } as Filter<AssetDoc>;
 }
@@ -148,12 +178,14 @@ async function mongoLexicalSearch(
   limit: number,
   includeHidden: boolean,
   mediaTypes: MeilisearchMediaType[] | undefined,
+  capturedFrom?: string,
+  capturedBefore?: string,
 ): Promise<MeilisearchSearchResult & { exactIds: Set<string> }> {
   const coll = await assetsCollection();
-  const base = mongoBaseFilter(includeHidden, mediaTypes);
+  const base = mongoBaseFilter(includeHidden, mediaTypes, capturedFrom, capturedBefore);
   const exactFilename = new RegExp(`^${regexEscape(query)}$`, 'i');
   const exactRows = await coll
-    .find(mongoBaseFilter(includeHidden, mediaTypes, exactFilename))
+    .find(mongoBaseFilter(includeHidden, mediaTypes, capturedFrom, capturedBefore, exactFilename))
     .project<{ maple_id?: string }>({ maple_id: 1 })
     .limit(limit)
     .toArray();
@@ -259,15 +291,33 @@ interface SearchContext {
   limit: number;
   includeHidden: boolean;
   mediaTypes: MeilisearchMediaType[] | undefined;
+  capturedFrom: string | undefined;
+  capturedBefore: string | undefined;
 }
 
 function searchContext(request: SearchRequestBody): SearchContext {
+  const capturedFrom = request.from ? parseUtcDate(request.from)!.toISOString() : undefined;
+  const capturedBeforeDate = request.to ? parseUtcDate(request.to)! : null;
+  capturedBeforeDate?.setUTCDate(capturedBeforeDate.getUTCDate() + 1);
   return {
     query: request.query.trim(),
     modeRequested: request.mode ?? 'hybrid',
     limit: request.limit ?? DEFAULT_LIMIT,
     includeHidden: request.includeHidden ?? false,
     mediaTypes: request.filters?.mediaTypes,
+    capturedFrom,
+    capturedBefore: capturedBeforeDate?.toISOString(),
+  };
+}
+
+function meiliOptions(context: SearchContext, semantic: boolean) {
+  return {
+    semantic,
+    limit: context.limit,
+    includeHidden: context.includeHidden,
+    mediaTypes: context.mediaTypes,
+    capturedFrom: context.capturedFrom,
+    capturedBefore: context.capturedBefore,
   };
 }
 
@@ -288,12 +338,7 @@ async function tryHybridSearch(
     return { response: null, fallback: 'semantic_not_configured', details: null };
   }
   try {
-    const result = await meili.search(context.query, {
-      semantic: true,
-      limit: context.limit,
-      includeHidden: context.includeHidden,
-      mediaTypes: context.mediaTypes,
-    });
+    const result = await meili.search(context.query, meiliOptions(context, true));
     return {
       response: finishSearch(identity, startedAt, context.modeRequested, 'hybrid', null, result),
       fallback: null,
@@ -330,12 +375,7 @@ async function tryMeilisearchLexical(
   details: MeilisearchFailureDetails | null;
 }> {
   try {
-    const result = await meili.search(context.query, {
-      semantic: false,
-      limit: context.limit,
-      includeHidden: context.includeHidden,
-      mediaTypes: context.mediaTypes,
-    });
+    const result = await meili.search(context.query, meiliOptions(context, false));
     return {
       response: finishSearch(
         identity,
@@ -402,6 +442,8 @@ async function executeSearch(
     context.limit,
     context.includeHidden,
     context.mediaTypes,
+    context.capturedFrom,
+    context.capturedBefore,
   );
   return finishSearch(
     identity,
