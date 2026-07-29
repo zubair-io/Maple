@@ -160,6 +160,35 @@ describe('POST /api/search/assets', () => {
     });
   });
 
+  it('passes an inclusive capture-date range to hybrid search', async () => {
+    if (!mongoReachable) return;
+    const meili = mockMeili({
+      search: async () => ({ ids: [], estimatedTotal: 0 }),
+    });
+    setMeilisearchClientForTests(meili);
+
+    const response = await request({
+      query: 'HVAC air conditioning installation',
+      from: '2026-06-29',
+      to: '2026-07-29',
+    });
+
+    expect(response.status).toBe(200);
+    expect(meili.calls[0]!.options).toMatchObject({
+      semantic: true,
+      capturedFrom: '2026-06-29T00:00:00.000Z',
+      capturedBefore: '2026-07-30T00:00:00.000Z',
+    });
+  });
+
+  it('rejects invalid or reversed capture-date ranges', async () => {
+    if (!mongoReachable) return;
+    expect((await request({ query: 'HVAC', from: '2026-02-30' })).status).toBe(400);
+    expect(
+      (await request({ query: 'HVAC', from: '2026-07-30', to: '2026-07-29' })).status,
+    ).toBe(400);
+  });
+
   it('retries lexical search and reports the fallback when embedding fails', async () => {
     if (!mongoReachable) return;
     const meili = mockMeili({

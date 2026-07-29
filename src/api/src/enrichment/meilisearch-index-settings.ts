@@ -77,6 +77,7 @@ export function assetsIndexSettings(
       'people',
       'mediaType',
       'hidden',
+      'capturedAt',
     ],
     sortableAttributes: ['capturedAt'],
   };
