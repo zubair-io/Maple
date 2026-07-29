@@ -1,7 +1,9 @@
 // SavedFolderStore.swift — UserDefaults-backed list of recently-opened local
 // folders, plus their security-scoped bookmarks.
 //
-// The sidebar's "Folders" section lists up to 10 most-recently-opened folders.
+// The sidebar's "Folders" section lists up to 10 folders. Recency decides
+// which folders are kept (opening one bumps it in and LRU-evicts the oldest),
+// but they are displayed in stable alphabetical order rather than by recency.
 // Opening one reuses the stored bookmark to reclaim security scope across
 // launches without re-prompting the user.
 //
@@ -58,40 +60,46 @@ public enum SavedFolderStore {
     /// `NotificationCenter.default.publisher(for: .savedFoldersChanged)`.
     public static let changedNotification = Notification.Name("SavedFolderStore.changed")
 
-    public static func load() -> [SavedFolder] {
-        guard let data = UserDefaults.standard.data(forKey: key) else { return [] }
+    public static func load(from defaults: UserDefaults = .standard) -> [SavedFolder] {
+        guard let data = defaults.data(forKey: key) else { return [] }
         let folders = (try? JSONDecoder().decode([SavedFolder].self, from: data)) ?? []
-        // Most recent first.
-        return folders.sorted { $0.lastOpened > $1.lastOpened }
+        // Display order is alphabetical (Finder-standard, case-insensitive,
+        // numeric-aware) so the sidebar stays stable across opens. Recency is
+        // preserved in `lastOpened` and only drives capacity eviction in `upsert`.
+        return folders.sorted {
+            $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
+        }
     }
 
     /// Insert or refresh an entry. If a folder with the same `path` already
     /// exists it's replaced (updating the bookmark + lastOpened timestamp).
-    /// LRU-evicts to `capacity` on overflow.
-    public static func upsert(_ folder: SavedFolder) {
-        var current = load().filter { $0.path != folder.path }
-        current.insert(folder, at: 0)
-        if current.count > capacity {
-            current = Array(current.prefix(capacity))
-        }
-        write(current)
+    /// LRU-evicts to `capacity` on overflow — the least-recently-opened entries
+    /// are dropped (eviction tracks `lastOpened`, independent of display order).
+    public static func upsert(_ folder: SavedFolder, into defaults: UserDefaults = .standard) {
+        let others = load(from: defaults).filter { $0.path != folder.path }
+        let combined = [folder] + others
+        let kept =
+            combined.count > capacity
+            ? Array(combined.sorted { $0.lastOpened > $1.lastOpened }.prefix(capacity))
+            : combined
+        write(kept, to: defaults)
         notifyChanged()
     }
 
-    public static func remove(path: String) {
-        let remaining = load().filter { $0.path != path }
-        write(remaining)
+    public static func remove(path: String, from defaults: UserDefaults = .standard) {
+        let remaining = load(from: defaults).filter { $0.path != path }
+        write(remaining, to: defaults)
         notifyChanged()
     }
 
-    public static func clear() {
-        UserDefaults.standard.removeObject(forKey: key)
+    public static func clear(from defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: key)
         notifyChanged()
     }
 
-    private static func write(_ folders: [SavedFolder]) {
+    private static func write(_ folders: [SavedFolder], to defaults: UserDefaults = .standard) {
         guard let data = try? JSONEncoder().encode(folders) else { return }
-        UserDefaults.standard.set(data, forKey: key)
+        defaults.set(data, forKey: key)
     }
 
     private static func notifyChanged() {
