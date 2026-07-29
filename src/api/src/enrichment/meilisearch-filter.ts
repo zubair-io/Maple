@@ -29,6 +29,13 @@ function mediaFilter(mediaTypes: MeilisearchMediaType[] | undefined): string | n
     : `mediaType IN [${selected.map((value) => `"${value}"`).join(', ')}]`;
 }
 
+function capturedAtFilters(opts: MeilisearchSearchOptions): string[] {
+  return [
+    ...(opts.capturedFrom ? [`capturedAt >= "${opts.capturedFrom}"`] : []),
+    ...(opts.capturedBefore ? [`capturedAt < "${opts.capturedBefore}"`] : []),
+  ];
+}
+
 /** Hidden-mode clause: `onlyHidden` narrows to hidden docs (`hidden = true`,
  * keeps `hidden=only` pages dense — #2358), `includeHidden` lifts the
  * default exclusion, default excludes hidden docs. */
@@ -44,6 +51,7 @@ export function buildFilter(opts: MeilisearchSearchOptions): string {
     folderFilter(opts.folderId),
     peopleFilter(opts.people),
     mediaFilter(opts.mediaTypes),
+    ...capturedAtFilters(opts),
   ].filter((clause): clause is string => clause !== null);
   return clauses.join(' AND ');
 }

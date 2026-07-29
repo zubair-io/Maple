@@ -68,7 +68,7 @@ export const ASSETS_INDEX = 'assets';
 /** Latest stable v1 features we rely on; bumped when we change the schema.
  * v3: adds filename/media/hidden fields and the operator-facing semantic
  * status surface. */
-const REQUIRED_SETTINGS_VERSION = 3;
+const REQUIRED_SETTINGS_VERSION = 4;
 
 /** The Meili embedder name we register + reference in hybrid queries. */
 export const EMBEDDER_NAME = 'caption';
@@ -149,6 +149,10 @@ export interface MeilisearchSearchOptions {
   people?: string[];
   /** Optional coarse media-type filter. */
   mediaTypes?: MeilisearchMediaType[];
+  /** Inclusive UTC lower bound for `capturedAt`. */
+  capturedFrom?: string;
+  /** Exclusive UTC upper bound for `capturedAt`. */
+  capturedBefore?: string;
   /** Hidden assets are excluded unless explicitly requested. */
   includeHidden?: boolean;
   /** Hidden assets only (`hidden = true`); keeps `hidden=only` pages dense

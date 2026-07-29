@@ -172,6 +172,7 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
         'people',
         'mediaType',
         'hidden',
+        'capturedAt',
       ],
       sortableAttributes: ['capturedAt'],
     });
