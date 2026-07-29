@@ -71,6 +71,15 @@ public enum SavedFolderStore {
         }
     }
 
+    /// The most-recently-opened folder, or `nil` if none are saved. `load()`
+    /// is sorted alphabetically for stable sidebar display, so callers that
+    /// want "the folder the user last had open" (e.g. the cold-start fallback
+    /// in `autoPickInitialSource`) must use this — recency lives in
+    /// `lastOpened`, not in `load()`'s order.
+    public static func mostRecent(from defaults: UserDefaults = .standard) -> SavedFolder? {
+        load(from: defaults).max { $0.lastOpened < $1.lastOpened }
+    }
+
     /// Insert or refresh an entry. If a folder with the same `path` already
     /// exists it's replaced (updating the bookmark + lastOpened timestamp).
     /// LRU-evicts to `capacity` on overflow — the least-recently-opened entries

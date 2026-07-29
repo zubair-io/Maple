@@ -370,8 +370,8 @@ extension AppShell {
                 return
             }
         }
-        if let first = SavedFolderStore.load().first {
-            openSavedFolder(first)
+        if let recent = SavedFolderStore.mostRecent() {
+            openSavedFolder(recent)
             return
         }
     }
