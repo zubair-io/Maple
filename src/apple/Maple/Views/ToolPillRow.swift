@@ -6,10 +6,11 @@
 // Modified-indicator dot bottom-right of the circle when the tool's
 // internal value is non-zero (positive = primary, negative = textMuted).
 //
-// Tools are laid out `flex: 1` (equal widths). When the group has more
-// tools than fits comfortably (6 in Light/Effects), the row scrolls
-// horizontally — `ScrollView(.horizontal)` is allowed because the row's
-// per-tool pill is fixed-width.
+// Tools are laid out `flex: 1` (equal widths) while they fit the row.
+// When the armed group has more tools than fit (Light/Effects on a narrow
+// phone), the row falls back to a horizontal `ScrollView` at each pill's
+// natural width so nothing is clipped or squeezed — `ViewThatFits` picks
+// the equal-width layout first and the scrolling layout only on overflow.
 //
 // Spec: docs/design/responsive-program/s5-editor.md §2 + §5.
 
@@ -24,18 +25,30 @@ struct ToolPillRow: View {
 
     var body: some View {
         let tools = state.visibleTools(in: state.armedGroup)
-        HStack(spacing: 4) {
-            ForEach(tools, id: \.self) { tool in
-                ToolPillButton(state: state, tool: tool, onPresetsTap: onPresetsTap)
-                    .frame(maxWidth: .infinity)
+        ViewThatFits(in: .horizontal) {
+            // Preferred: equal-width pills spanning the full row.
+            toolRow(tools, fill: true)
+            // Fallback when the group overflows: scroll at natural width.
+            ScrollView(.horizontal, showsIndicators: false) {
+                toolRow(tools, fill: false)
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 8)
         .frame(minHeight: 60)
         .background(MapleTokens.bg)
         .animation(MapleTokens.Motion.groupSwap, value: state.armedGroup)
         .accessibilityIdentifier("editor-tool-row")
+    }
+
+    @ViewBuilder
+    private func toolRow(_ tools: [Tool], fill: Bool) -> some View {
+        HStack(spacing: 4) {
+            ForEach(tools, id: \.self) { tool in
+                ToolPillButton(state: state, tool: tool, onPresetsTap: onPresetsTap)
+                    .frame(maxWidth: fill ? .infinity : nil)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
     }
 }
 
