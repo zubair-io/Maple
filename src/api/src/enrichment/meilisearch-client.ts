@@ -52,6 +52,11 @@ import {
   withTemplateFields,
   type VectorFingerprintInput,
 } from './meilisearch-embedder-template.ts';
+import type {
+  MeilisearchAssetDoc,
+  MeilisearchSearchOptions,
+  MeilisearchSearchResult,
+} from './meilisearch-types.ts';
 export {
   MeilisearchSearchError,
   type MeilisearchFailureDetails,
@@ -67,117 +72,21 @@ export const ASSETS_INDEX = 'assets';
 
 /** Latest stable v1 features we rely on; bumped when we change the schema.
  * v3: adds filename/media/hidden fields and the operator-facing semantic
- * status surface. */
+ * status surface.
+ * v4: makes the existing `capturedAt` field filterable so service callers can
+ * constrain a search to a capture-date window. Settings-only — the document
+ * shape is unchanged, so this needs no re-index of existing documents. */
 const REQUIRED_SETTINGS_VERSION = 4;
 
 /** The Meili embedder name we register + reference in hybrid queries. */
 export const EMBEDDER_NAME = 'caption';
 
-export type MeilisearchMediaType = 'image' | 'video' | 'audio';
-
-/** Document shape we push to Meilisearch. Mirror of the unified
- * `asset.search_blob` field plus the per-attribute sources so
- * Meilisearch can apply per-field weighting (POI/place metadata typically
- * outranks description prose, which outranks OCR'd UI chrome). */
-export interface MeilisearchAssetDoc {
-  /** Unique document id. We use the asset's stable `maple_id` so re-upserts
-   * are idempotent even after rename/move (the absPath changes; mapleId
-   * doesn't). */
-  id: string;
-  /** Primary filename. Kept as the highest-weight lexical field so exact
-   * camera filenames remain strong even when hybrid search is enabled. */
-  filename?: string;
-  /** Unified text bag — concatenation of `place.search_blob`,
-   * `description`, and `ocr_text`. Equivalent to what the Mongo `$text`
-   * index covers. */
-  searchBlob: string;
-  /** LLM-generated caption from the describe worker (Phase 6). Stored
-   * separately so per-attribute weighting can favour caption matches.
-   * `null`/omitted before the worker has run. */
-  description?: string | null;
-  /** OCR'd text from the OCR worker (Phase 8). Same per-attribute
-   * weighting story as `description`. */
-  ocrText?: string | null;
-  /** Speech-to-text transcript as PROSE — word order and repetition intact,
-   * capped at `MAX_INDEXED_TRANSCRIPT_CHARS`. This is the field that makes a
-   * transcript-rich video rank on what was actually said rather than on the
-   * alphabetised `searchBlob` bag (#2384). `null` before the transcribe
-   * stage has run. */
-  transcript?: string | null;
-  /** Reverse-geocoded `place.display_name` as prose. NOT `place.search_blob`,
-   * which is itself an alphabetised token bag. `null` before geocode. */
-  placeText?: string | null;
-  /** Folder hex string. Filterable so the route can scope to one library. */
-  folderId: string;
-  /** ISO timestamp; sortable so the future "search-as-you-type" path can
-   * tie-break by recency. Null when EXIF is missing. */
-  capturedAt: string | null;
-  /** ISO timestamp when the asset was soft-deleted. Filterable so the
-   * route can exclude `deletedAt IS NOT NULL`. We keep tombstones in-index
-   * by setting this rather than `deleteDocument` so eventual-consistency
-   * lag never resurrects a deleted row. */
-  deletedAt: string | null;
-  /** Closed-union scene classification from `vision.scene_type`. `null` on
-   * rows that haven't been through the qwen2.5-vl describe stage yet. */
-  visionSceneType?: string | null;
-  /** Open-vocab activity tag from `vision.activity`. */
-  visionActivity?: string | null;
-  /** Open-vocab subject tags from `vision.subjects`. Array filterable so a
-   * future meili-side facet path can intersect on subject. */
-  visionSubjects?: string[] | null;
-  /** Screenshot vs photograph — top-level mirror of `vision.is_screenshot`
-   * (or the exif-stage heuristic when describe hasn't run yet). */
-  isScreenshot?: boolean | null;
-  /** Named people appearing in this asset — `PersonDoc.name`s resolved from
-   * `faces[].person_id`, EXCLUDING auto-generated `Person N` clusters and
-   * merged rows. Searchable (so "Greyson" matches) and filterable (so an
-   * explicit picker can `people IN [...]`). `null`/omitted when the asset
-   * has no named people. */
-  people?: string[] | null;
-  /** Coarse media class for service consumers such as SugarMaple. */
-  mediaType?: MeilisearchMediaType;
-  /** Effective hidden state. Filtered by default; service callers need an
-   * explicit includeHidden=true request to retrieve hidden assets. */
-  hidden?: boolean;
-}
-
-export interface MeilisearchSearchOptions {
-  /** Hex folder id; passed through to Meilisearch's filter syntax. */
-  folderId?: string;
-  /** Person names to constrain results to (filterable `people IN [...]`).
-   * Each value is escaped before injection. */
-  people?: string[];
-  /** Optional coarse media-type filter. */
-  mediaTypes?: MeilisearchMediaType[];
-  /** Inclusive UTC lower bound for `capturedAt`. */
-  capturedFrom?: string;
-  /** Exclusive UTC upper bound for `capturedAt`. */
-  capturedBefore?: string;
-  /** Hidden assets are excluded unless explicitly requested. */
-  includeHidden?: boolean;
-  /** Hidden assets only (`hidden = true`); keeps `hidden=only` pages dense
-   * (#2358). Takes precedence over `includeHidden`. */
-  onlyHidden?: boolean;
-  /** When true, run a hybrid (keyword + vector) query against the managed
-   * `caption` embedder. Ignored unless `semanticConfigured()` is true; the
-   * route passes `meili.semanticConfigured()` so this is self-gating. */
-  semantic?: boolean;
-  /** Pagination. Defaults match the search route. */
-  offset?: number;
-  limit?: number;
-}
-
-export interface MeilisearchSearchResult {
-  /** Asset ids in Meilisearch's relevance order. The route fetches asset
-   * summaries from Mongo with `find({ maple_id: { $in: ids } })` and
-   * preserves this order. */
-  ids: string[];
-  /** Meilisearch's `estimatedTotalHits` — what the route returns as `total`. */
-  estimatedTotal: number;
-  /** Ranking scores keyed by asset id when the Meilisearch version exposes
-   * `_rankingScore`. Older servers omit it and callers return `null`. */
-  scores?: Record<string, number>;
-}
+export type {
+  MeilisearchAssetDoc,
+  MeilisearchMediaType,
+  MeilisearchSearchOptions,
+  MeilisearchSearchResult,
+} from './meilisearch-types.ts';
 
 export interface MeilisearchClient {
   /** Whether the client is configured with a sidecar URL. */
