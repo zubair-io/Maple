@@ -184,9 +184,9 @@ describe('POST /api/search/assets', () => {
   it('rejects invalid or reversed capture-date ranges', async () => {
     if (!mongoReachable) return;
     expect((await request({ query: 'HVAC', from: '2026-02-30' })).status).toBe(400);
-    expect(
-      (await request({ query: 'HVAC', from: '2026-07-30', to: '2026-07-29' })).status,
-    ).toBe(400);
+    expect((await request({ query: 'HVAC', from: '2026-07-30', to: '2026-07-29' })).status).toBe(
+      400,
+    );
   });
 
   it('retries lexical search and reports the fallback when embedding fails', async () => {
@@ -363,6 +363,65 @@ describe('POST /api/search/assets', () => {
         matchedBy: ['exact_filename'],
       },
     ]);
+  });
+
+  it('applies the capture-date range during full Mongo fallback', async () => {
+    if (!mongoReachable) return;
+    const folder = new ObjectId();
+    // `exif.captured_at` is stored as a UTC ISO string (`db/schema.ts`), so
+    // the range is a lexicographic compare. `undated` carries no
+    // `exif.captured_at` at all — Mongo's range operators are type-bracketed,
+    // so it must fall out of a bounded window rather than sorting below every
+    // string, and must still be reachable when no window is given.
+    const asset = (mapleId: string, capturedAt: string | null) => ({
+      maple_id: mapleId,
+      fileinfo: [
+        {
+          library_id: folder,
+          path: '',
+          filename: `${mapleId}.jpg`,
+          deleted_at: null,
+          missing_since: null,
+        },
+      ],
+      ...(capturedAt === null ? {} : { exif: { captured_at: capturedAt } }),
+      deleted_at: null,
+      hidden: false,
+    });
+    await mongo!
+      .db(TEST_DB)
+      .collection('assets')
+      .insertMany([
+        asset('dated-2023', '2023-06-15T12:00:00.000Z'),
+        asset('dated-2024', '2024-06-15T12:00:00.000Z'),
+        asset('dated-2025', '2025-06-15T12:00:00.000Z'),
+        asset('undated', null),
+      ]);
+    setMeilisearchClientForTests({
+      isConfigured: () => false,
+      semanticConfigured: () => false,
+      health: async () => false,
+      ensureIndex: async () => {},
+      upsert: async () => {},
+      upsertOrThrow: async () => {},
+      tombstone: async () => {},
+      search: async () => ({ ids: [], estimatedTotal: 0 }),
+    });
+    const idsFor = async (range: Record<string, unknown>) => {
+      const body = (await (await request({ query: 'dated-2024.jpg', ...range })).json()) as {
+        results: Array<{ assetId: string }>;
+      };
+      return body.results.map((r) => r.assetId).sort();
+    };
+
+    // `to` is inclusive of the whole day, so 2024-12-31 admits 2024 only.
+    expect(await idsFor({ from: '2024-01-01', to: '2024-12-31' })).toEqual(['dated-2024']);
+    // Out-of-window: the exact-filename match must NOT survive the range.
+    expect(await idsFor({ from: '2025-01-01' })).toEqual([]);
+    expect(await idsFor({ to: '2023-12-31' })).toEqual([]);
+    // Control — with no window the same query does find the asset, so the
+    // empty results above are real exclusions, not a broken query.
+    expect(await idsFor({})).toEqual(['dated-2024']);
   });
 
   it('rejects invalid credentials and whitespace-only queries', async () => {

@@ -234,6 +234,7 @@ describe('Meilisearch asynchronous tasks', () => {
       // alphabetically sorted from GET /settings, never in submission order —
       // this mock reproduces that so the no-op check is exercised honestly.
       filterableAttributes: [
+        'capturedAt',
         'deletedAt',
         'folderId',
         'hidden',
