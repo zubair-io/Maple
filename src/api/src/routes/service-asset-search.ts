@@ -57,12 +57,15 @@ function parseUtcDate(value: unknown): Date | null {
     : parsed;
 }
 
+/** A bound is valid when it is absent, or present and a real calendar date. */
+function validDateBound(value: unknown): boolean {
+  return value === undefined || parseUtcDate(value) !== null;
+}
+
 function validDateRange(from: unknown, to: unknown): boolean {
-  if (from === undefined && to === undefined) return true;
-  const parsedFrom = from === undefined ? null : parseUtcDate(from);
-  const parsedTo = to === undefined ? null : parseUtcDate(to);
-  if (from !== undefined && !parsedFrom) return false;
-  if (to !== undefined && !parsedTo) return false;
+  if (!validDateBound(from) || !validDateBound(to)) return false;
+  const parsedFrom = parseUtcDate(from);
+  const parsedTo = parseUtcDate(to);
   return !parsedFrom || !parsedTo || parsedFrom.getTime() <= parsedTo.getTime();
 }
 
@@ -139,53 +142,71 @@ function mediaFilenameRegex(mediaTypes: MeilisearchMediaType[] | undefined): Reg
   return new RegExp(`(?:${extensions.join('|')})$`, 'i');
 }
 
-function mongoBaseFilter(
-  includeHidden: boolean,
-  mediaTypes: MeilisearchMediaType[] | undefined,
-  capturedFrom?: string,
-  capturedBefore?: string,
-  exactFilename?: RegExp,
-): Filter<AssetDoc> {
+/** `fileinfo.$elemMatch` filename clause. Both patterns must hold when a
+ * media-type narrowing and an exact-filename probe are in play, so those
+ * combine under `$and` rather than one silently overwriting the other. */
+function filenameClause(
+  mediaRegex: RegExp | null,
+  exactFilename: RegExp | undefined,
+): Record<string, unknown> {
+  const patterns = [mediaRegex, exactFilename].filter((r): r is RegExp => r != null);
+  if (patterns.length === 0) return {};
+  if (patterns.length === 1) return { filename: patterns[0] };
+  return { $and: patterns.map((filename) => ({ filename })) };
+}
+
+/** Capture-window clause, empty when unbounded. `exif.captured_at` is stored
+ * as a UTC ISO string (`db/schema.ts`), so this is a lexicographic range over
+ * the existing `exif.captured_at` index — the same trick as `imports/nearby`
+ * and `db/assets.repo`. Mongo's range operators are type-bracketed, so rows
+ * with a null or missing `captured_at` are excluded, which is what a caller
+ * asking for a date window wants. */
+function capturedAtClause(
+  capturedFrom: string | undefined,
+  capturedBefore: string | undefined,
+): Record<string, unknown> {
+  if (!capturedFrom && !capturedBefore) return {};
+  return {
+    'exif.captured_at': {
+      ...(capturedFrom ? { $gte: capturedFrom } : {}),
+      ...(capturedBefore ? { $lt: capturedBefore } : {}),
+    },
+  };
+}
+
+/** The parts of a search request that narrow the Mongo fallback query.
+ * `SearchContext` satisfies this structurally. */
+interface MongoFilterScope {
+  includeHidden: boolean;
+  mediaTypes: MeilisearchMediaType[] | undefined;
+  capturedFrom: string | undefined;
+  capturedBefore: string | undefined;
+}
+
+function mongoBaseFilter(scope: MongoFilterScope, exactFilename?: RegExp): Filter<AssetDoc> {
   const entry: Record<string, unknown> = {
     deleted_at: { $in: [null] },
     missing_since: { $in: [null] },
+    ...filenameClause(mediaFilenameRegex(scope.mediaTypes), exactFilename),
   };
-  const filenameRegex = mediaFilenameRegex(mediaTypes);
-  if (filenameRegex && exactFilename) {
-    entry.$and = [{ filename: filenameRegex }, { filename: exactFilename }];
-  } else if (filenameRegex) {
-    entry.filename = filenameRegex;
-  } else if (exactFilename) {
-    entry.filename = exactFilename;
-  }
   return {
     deleted_at: { $in: [null] },
-    ...(includeHidden ? {} : { hidden: { $ne: true } }),
-    ...(capturedFrom || capturedBefore
-      ? {
-          'exif.captured_at': {
-            ...(capturedFrom ? { $gte: capturedFrom } : {}),
-            ...(capturedBefore ? { $lt: capturedBefore } : {}),
-          },
-        }
-      : {}),
+    ...(scope.includeHidden ? {} : { hidden: { $ne: true } }),
+    ...capturedAtClause(scope.capturedFrom, scope.capturedBefore),
     fileinfo: { $elemMatch: entry },
   } as Filter<AssetDoc>;
 }
 
 async function mongoLexicalSearch(
+  scope: MongoFilterScope,
   query: string,
   limit: number,
-  includeHidden: boolean,
-  mediaTypes: MeilisearchMediaType[] | undefined,
-  capturedFrom?: string,
-  capturedBefore?: string,
 ): Promise<MeilisearchSearchResult & { exactIds: Set<string> }> {
   const coll = await assetsCollection();
-  const base = mongoBaseFilter(includeHidden, mediaTypes, capturedFrom, capturedBefore);
+  const base = mongoBaseFilter(scope);
   const exactFilename = new RegExp(`^${regexEscape(query)}$`, 'i');
   const exactRows = await coll
-    .find(mongoBaseFilter(includeHidden, mediaTypes, capturedFrom, capturedBefore, exactFilename))
+    .find(mongoBaseFilter(scope, exactFilename))
     .project<{ maple_id?: string }>({ maple_id: 1 })
     .limit(limit)
     .toArray();
@@ -437,14 +458,7 @@ async function executeSearch(
     fallbackReason = 'meilisearch_unavailable';
   }
 
-  const result = await mongoLexicalSearch(
-    context.query,
-    context.limit,
-    context.includeHidden,
-    context.mediaTypes,
-    context.capturedFrom,
-    context.capturedBefore,
-  );
+  const result = await mongoLexicalSearch(context, context.query, context.limit);
   return finishSearch(
     identity,
     startedAt,
