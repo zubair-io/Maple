@@ -133,7 +133,8 @@ struct StackedAdjustmentsPanel: View {
             // #2244: was `resetAll()` (revert to the session-open snapshot),
             // which silently kept pre-existing sidecar edits. The epic's
             // contract is factory defaults + As-Shot WB + Auto profile, crop
-            // preserved — the same action the pill header's RESET performs.
+            // preserved. This is now the only RESET affordance — the pill
+            // header's AUTO/RESET were removed when the nav was slimmed to fit.
             Button {
                 state.resetToFactoryDefaults()
             } label: {
