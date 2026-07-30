@@ -1,10 +1,9 @@
 // PillHeader.swift — Pro Editor Canvas-first (A2, #1555).
 //
-// Frosted-glass content-width pill at the top of the canvas.  Contains,
-// left → right: back chevron, filename, live RGB histogram chip, AUTO,
-// RESET, before/after toggle (only while the session is dirty), undo (tap)
-// / redo (long-press), info, share, zoom-percent readout, GPU/CPU
-// render-path indicator.
+// Frosted-glass pill at the top of the canvas.  Contains, left → right:
+// back chevron, filename, live RGB histogram chip, before/after toggle
+// (only while the session is dirty), undo (tap) / redo (long-press), info,
+// share, zoom-percent readout, GPU/CPU render-path indicator.
 //
 // Replaces the full-width `EditorHeader` treatment from the old vertical
 // editor.  The Info button plumbs the editor's `onInfo` closure (the
@@ -12,12 +11,9 @@
 // reveal via EditorSessionHost) — without it the info affordance would be
 // unreachable in the canvas-first shell.
 //
-// AUTO / RESET (epic #1370, restored by #2244) live here for the same
-// reason: `EditorHeader` hosted them until it was deleted with the
-// canvas-first redesign, and the pill is the ONLY editor chrome mounted on
-// every control variant and both size classes (`EditorView` LAYER 4).  The
-// adjustments panel's own "Reset All" is variant- and iPad/Mac-only, so it
-// cannot be the single home for RESET.
+// On compact width the trailing controls scroll horizontally so the pill
+// always fits the screen and the back chevron + filename stay pinned and
+// visible (`FloatingImageHeader`).
 
 import SwiftUI
 import MapleCore
@@ -50,44 +46,6 @@ struct PillHeader: View {
                 )
                 .allowsHitTesting(false)
                 .accessibilityIdentifier("editor-pill-histogram")
-
-            // AUTO — analyses the scene and writes exposure + autoExposure
-            // `.off` as one undo entry.  Disabled while the analysis runs
-            // (`autoInProgress`); the accent tint is the in-flight cue.
-            Button {
-                Task { await state.applyAuto() }
-            } label: {
-                // `text`, not `textMuted`: the pill is `.ultraThinMaterial`,
-                // so over a bright frame it goes near-white and the muted
-                // token washes out to illegible. The icon buttons beside it
-                // already use `text` for the same reason.
-                Text("AUTO")
-                    .font(.system(size: 10, weight: .semibold))
-                    .tracking(0.6)
-                    .foregroundStyle(state.autoInProgress ? ProTokens.accent : ProTokens.text)
-                    .frame(height: 30)
-                    .padding(.horizontal, 6)
-            }
-            .buttonStyle(.plain)
-            .disabled(state.autoInProgress)
-            .accessibilityLabel("Auto adjust")
-            .accessibilityIdentifier("editor-auto")
-
-            // RESET — every develop slider to its factory default, white
-            // balance to camera As Shot, profile to Auto; crop/rotation kept.
-            Button {
-                state.resetToFactoryDefaults()
-            } label: {
-                Text("RESET")
-                    .font(.system(size: 10, weight: .semibold))
-                    .tracking(0.6)
-                    .foregroundStyle(ProTokens.text)
-                    .frame(height: 30)
-                    .padding(.horizontal, 6)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Reset all adjustments")
-            .accessibilityIdentifier("editor-reset-all")
 
             // Before/after toggle — shown only when there are edits
             if showBeforeAfter {
