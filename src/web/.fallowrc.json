@@ -1,5 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "entry": ["scripts/serve-production-e2e.ts"],
   "ignorePatterns": ["_design-reference/**"],
   "ignoreDependencies": ["@socketsecurity/bun-security-scanner", "fallow"],
   "ignoreUnresolvedImports": ["**/pkg/raw_wasm"]

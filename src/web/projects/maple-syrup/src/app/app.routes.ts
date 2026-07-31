@@ -1,11 +1,11 @@
 import { Routes } from '@angular/router';
 import {
   BrowseShellComponent,
-  EditorShellComponent,
   PreviewShellComponent,
   ProtocolHandlerComponent,
 } from '@maple-common';
 import { LandingComponent } from './landing/landing.component';
+import { HostedEditorRouteComponent } from './hosted-editor-route/hosted-editor-route.component';
 
 // Hosted: `/` is the Landing page with two CTAs. Users enter Browse or the
 // Editor explicitly from there.
@@ -19,7 +19,7 @@ const baseRoutes: Routes = [
   { path: 'browse', component: BrowseShellComponent },
   {
     path: 'edit/:slug',
-    children: [{ path: '**', component: EditorShellComponent }],
+    children: [{ path: '**', component: HostedEditorRouteComponent }],
   },
   // Web Preview Surface Task 3 — /view/:slug/** deep-links into a fast,
   // static-image preview (grid thumbnail → display preview, no canvas/WASM).

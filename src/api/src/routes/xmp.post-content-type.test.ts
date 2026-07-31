@@ -138,7 +138,9 @@ describe('POST /api/xmp content-type contract', () => {
     expect(read.status).toBe(200);
     expect(await read.text()).toBe(SIDECAR_XML);
     expect(await fs.readFile(path.join(tmpDir, 'IMG_SAFE.xmp'), 'utf8')).toBe(SIDECAR_XML);
-    const hashAfter = createHash('sha256').update(await fs.readFile(assetPath)).digest('hex');
+    const hashAfter = createHash('sha256')
+      .update(await fs.readFile(assetPath))
+      .digest('hex');
     expect(hashAfter).toBe(hashBefore);
   });
 });

@@ -4,6 +4,7 @@ import {
   cleanupProductionFixtures,
   stageProductionFixtures,
   verifyOriginalRawHashes,
+  verifyStagedRawHashes,
   type ProductionFixtureManifest,
 } from '../e2e/support/production-fixtures';
 
@@ -29,14 +30,18 @@ async function waitFor(url: string, child: Bun.Subprocess): Promise<void> {
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error(`${url} server exited before becoming ready`);
-    try {
-      if ((await fetch(url)).ok) return;
-    } catch {
-      // Server is still starting.
-    }
+    if (await endpointIsReady(url)) return;
     await Bun.sleep(200);
   }
   throw new Error(`Timed out waiting for ${url}`);
+}
+
+async function endpointIsReady(url: string): Promise<boolean> {
+  try {
+    return (await fetch(url)).ok;
+  } catch {
+    return false;
+  }
 }
 
 async function stop(exitCode: number): Promise<never> {
@@ -46,6 +51,7 @@ async function stop(exitCode: number): Promise<never> {
   if (manifest) {
     try {
       await verifyOriginalRawHashes(manifest);
+      await verifyStagedRawHashes(manifest);
     } finally {
       await cleanupProductionFixtures(manifest);
     }

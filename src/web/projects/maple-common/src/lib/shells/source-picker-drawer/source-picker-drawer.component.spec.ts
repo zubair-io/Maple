@@ -124,8 +124,10 @@ describe('SourcePickerDrawerComponent', () => {
     host.showSearch.set(false);
     fixture.detectChanges();
 
-    expect(el().querySelector('[data-testid="source-picker-drawer-search-pill"]')).toBeNull();
-    expect(el().textContent).not.toContain('Search photos');
+    const search = el().querySelector<HTMLButtonElement>(
+      '[data-testid="source-picker-drawer-search-pill"]',
+    );
+    expect(search?.hidden).toBe(true);
   });
 
   it('closes when the scrim is clicked', () => {
