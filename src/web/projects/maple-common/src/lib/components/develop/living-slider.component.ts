@@ -71,6 +71,11 @@ export class LivingSliderComponent implements OnDestroy {
   @ViewChild('trackEl') trackRef!: ElementRef<HTMLElement>;
 
   readonly dragging = signal(false);
+  /** Pointer that owns the active drag (mirrors DragBarComponent) — a
+   * second finger's pointerdown/move/up mid-drag must not re-enter the
+   * gesture (extra dragStart = extra undo commit) or overwrite the bound
+   * window listeners (leak). `null` while no drag is active. */
+  private _activePointerId: number | null = null;
   private _pointerDownX = 0;
   private _pointerDownValue = 0;
   private _cachedTrackWidth = 0;
@@ -115,6 +120,9 @@ export class LivingSliderComponent implements OnDestroy {
 
   onTrackPointerDown(e: PointerEvent): void {
     if (e.button !== 0) return;
+    // Re-entrancy guard: a second pointer landing mid-drag (multi-touch)
+    // must not open a second gesture.
+    if (this.dragging()) return;
 
     const track = this.trackRef?.nativeElement;
     if (!track) return;
@@ -125,6 +133,7 @@ export class LivingSliderComponent implements OnDestroy {
     this._cachedTrackWidth = track.getBoundingClientRect().width;
 
     this.dragging.set(true);
+    this._activePointerId = e.pointerId;
     this._pointerDownX = e.clientX;
     this._pointerDownValue = this.value();
     // Gesture boundary BEFORE the first valueChange tick (#2411) — a
@@ -144,6 +153,7 @@ export class LivingSliderComponent implements OnDestroy {
   }
 
   private _onPointerMove(e: PointerEvent): void {
+    if (e.pointerId !== this._activePointerId) return;
     const trackW = this._cachedTrackWidth;
     if (trackW <= 0) return;
 
@@ -161,13 +171,17 @@ export class LivingSliderComponent implements OnDestroy {
     this.valueChange.emit(clamped);
   }
 
-  private _onPointerUp(_e: PointerEvent): void {
+  private _onPointerUp(e: PointerEvent): void {
+    // Only the pointer that opened the gesture can end it — a stray second
+    // finger lifting must not cut the drag short.
+    if (e.pointerId !== this._activePointerId) return;
     this._cleanup();
   }
 
   private _cleanup(): void {
     const wasDragging = this.dragging();
     this.dragging.set(false);
+    this._activePointerId = null;
     if (this._boundPointerMove) {
       window.removeEventListener('pointermove', this._boundPointerMove);
       this._boundPointerMove = null;
