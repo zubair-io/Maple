@@ -114,7 +114,7 @@ describe('static_ui /pkg asset-path 404 (#2408)', () => {
     expect(res.headers.get('content-type')).not.toContain('html');
   });
 
-  it('404s an unmatched (missing/typo\'d) path under /pkg/', async () => {
+  it("404s an unmatched (missing/typo'd) path under /pkg/", async () => {
     const res = await get('/pkg/does-not-exist.js');
     expect(res.status).toBe(404);
   });
