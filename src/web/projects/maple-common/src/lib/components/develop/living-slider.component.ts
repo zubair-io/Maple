@@ -53,6 +53,19 @@ export class LivingSliderComponent implements OnDestroy {
   valueChange = output<number>();
   /** Fired when the user double-clicks the slider to request a reset. */
   resetRequest = output<void>();
+  /**
+   * Fired once at the start of a continuous value gesture (pointer drag, or
+   * a held arrow key) — BEFORE the first `valueChange` of that gesture.
+   * `valueChange` fires on every pointermove / key-repeat tick, which is
+   * right for the live preview but wrong for undo (#2411): a consumer that
+   * wants one undo entry per gesture, not per tick, commits its snapshot
+   * here instead of on every `valueChange`.
+   */
+  dragStart = output<void>();
+  /** Fired once when the gesture that opened `dragStart` ends (pointerup,
+   * pointercancel, or the arrow key being released). Pairs 1:1 with
+   * `dragStart`. */
+  dragEnd = output<void>();
 
   // ── Internal ──────────────────────────────────────────────────────────
   @ViewChild('trackEl') trackRef!: ElementRef<HTMLElement>;
@@ -64,6 +77,9 @@ export class LivingSliderComponent implements OnDestroy {
   private _boundPointerMove: ((e: PointerEvent) => void) | null = null;
   private _boundPointerUp: ((e: PointerEvent) => void) | null = null;
   private _boundPointerCancel: ((e: PointerEvent) => void) | null = null;
+  /** True between a held arrow key's first (non-repeat) keydown and its
+   * keyup — mirrors `dragging` for the pointer-gesture case. */
+  private _keyGestureActive = false;
 
   // ── View model ────────────────────────────────────────────────────────
 
@@ -111,6 +127,9 @@ export class LivingSliderComponent implements OnDestroy {
     this.dragging.set(true);
     this._pointerDownX = e.clientX;
     this._pointerDownValue = this.value();
+    // Gesture boundary BEFORE the first valueChange tick (#2411) — a
+    // consumer's commit-on-dragStart handler must see the pre-drag value.
+    this.dragStart.emit();
 
     this._boundPointerMove = (ev: PointerEvent) => this._onPointerMove(ev);
     this._boundPointerUp = (ev: PointerEvent) => this._onPointerUp(ev);
@@ -147,6 +166,7 @@ export class LivingSliderComponent implements OnDestroy {
   }
 
   private _cleanup(): void {
+    const wasDragging = this.dragging();
     this.dragging.set(false);
     if (this._boundPointerMove) {
       window.removeEventListener('pointermove', this._boundPointerMove);
@@ -160,6 +180,7 @@ export class LivingSliderComponent implements OnDestroy {
       window.removeEventListener('pointercancel', this._boundPointerCancel);
       this._boundPointerCancel = null;
     }
+    if (wasDragging) this.dragEnd.emit();
   }
 
   /** Keyboard operation for the focused track (role="slider" + tabindex="0").
@@ -169,7 +190,13 @@ export class LivingSliderComponent implements OnDestroy {
    * `stopPropagation` on the keys this handler consumes (#2409) — without it
    * the event bubbles to the editor shell's global `document:keydown`
    * listener, whose bare-arrow filmstrip-navigation shortcut then fires on
-   * top of this one and silently switches the focused image. */
+   * top of this one and silently switches the focused image.
+   *
+   * Holding a key auto-repeats keydown at the OS rate, so a held arrow is
+   * its own gesture (#2411): the FIRST (non-repeat) keydown opens it with
+   * `dragStart` — before its `valueChange` — and `onTrackKeyUp` closes it,
+   * mirroring the pointer-drag gesture boundary above. Without this, a
+   * one-second key-hold would push dozens of undo entries instead of one. */
   onTrackKeyDown(e: KeyboardEvent): void {
     const lo = this.min();
     const hi = this.max();
@@ -184,8 +211,36 @@ export class LivingSliderComponent implements OnDestroy {
     }
     e.preventDefault();
     e.stopPropagation();
+    if (!this._keyGestureActive) {
+      this._keyGestureActive = true;
+      this.dragStart.emit();
+    }
     const next = Math.min(hi, Math.max(lo, this.value() + delta));
     this.valueChange.emit(next);
+  }
+
+  /** Closes the key-hold gesture opened by `onTrackKeyDown`. */
+  onTrackKeyUp(e: KeyboardEvent): void {
+    if (!this._keyGestureActive) return;
+    if (
+      e.key !== 'ArrowLeft' &&
+      e.key !== 'ArrowRight' &&
+      e.key !== 'ArrowUp' &&
+      e.key !== 'ArrowDown'
+    ) {
+      return;
+    }
+    this._keyGestureActive = false;
+    this.dragEnd.emit();
+  }
+
+  /** Losing focus mid-hold (tab-away, click elsewhere) must still close the
+   * gesture — the key-up that would normally do it never arrives. */
+  @HostListener('focusout')
+  onTrackFocusOut(): void {
+    if (!this._keyGestureActive) return;
+    this._keyGestureActive = false;
+    this.dragEnd.emit();
   }
 
   /** Double-click resets to default. */

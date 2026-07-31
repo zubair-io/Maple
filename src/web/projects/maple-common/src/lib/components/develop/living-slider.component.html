@@ -16,6 +16,7 @@
     [attr.aria-valuetext]="valueLabel()"
     (pointerdown)="onTrackPointerDown($event)"
     (keydown)="onTrackKeyDown($event)"
+    (keyup)="onTrackKeyUp($event)"
   >
     <!-- Track gradient fill -->
     <div class="track" [style.background]="gradient()">
