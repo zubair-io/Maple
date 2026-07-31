@@ -137,4 +137,14 @@ describe('ToolbarActionsComponent', () => {
     const exportBtn = el().querySelector('.export-btn.has-selection') as HTMLButtonElement | null;
     expect(exportBtn?.textContent).toContain('Export (3)');
   });
+
+  // #2427 — the host must not generate a box. BrowseShell drops
+  // <app-toolbar-actions> straight into its `.toolbar` flex row, and every pill
+  // carries Tailwind's `flex` utility; a host box blockifies as a flex item and
+  // the pills then stack vertically out of the fixed-height bar instead of
+  // laying out as a row.
+  it('does not generate a host box, so the pills are direct flex items of the toolbar', () => {
+    const hostEl = fixture.nativeElement.querySelector('app-toolbar-actions') as HTMLElement;
+    expect(getComputedStyle(hostEl).display).toBe('contents');
+  });
 });
