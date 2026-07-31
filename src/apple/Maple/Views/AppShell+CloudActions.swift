@@ -65,7 +65,8 @@ extension AppShell {
             // sidebar shows "Sign in" and stops dispatching tokenless requests.
             onSignOut: {
                 Task { @MainActor in await session.handleAuthExpired() }
-            }
+            },
+            refreshExecutor: BackgroundExecution()
         )
     }
 

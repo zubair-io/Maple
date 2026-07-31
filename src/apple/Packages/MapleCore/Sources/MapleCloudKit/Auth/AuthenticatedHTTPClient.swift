@@ -14,7 +14,25 @@ public let cloudHTTPLogger = Logger(
   category: "http"
 )
 
+public protocol AuthenticatedRefreshExecutor {
+  func execute(
+    _ operation: @escaping AuthenticatedHTTPClient.RefreshOperation
+  ) async throws -> AuthTokens
+}
+
+public struct DirectAuthenticatedRefreshExecutor: AuthenticatedRefreshExecutor {
+  public init() {}
+
+  public func execute(
+    _ operation: @escaping AuthenticatedHTTPClient.RefreshOperation
+  ) async throws -> AuthTokens {
+    try await operation()
+  }
+}
+
 public actor AuthenticatedHTTPClient {
+  public typealias RefreshOperation = () async throws -> AuthTokens
+
   public enum AuthenticationError: Error, Equatable {
     case notAuthenticated
     case temporarilyUnavailable
@@ -24,15 +42,19 @@ public actor AuthenticatedHTTPClient {
   private let tokensProvider: () -> AuthTokens?
   private let onTokensRefreshed: (AuthTokens) throws -> Void
   private let onSignOut: () -> Void
+  private let refreshExecutor: any AuthenticatedRefreshExecutor
   private var inflightRefresh: Task<AuthTokens, Error>?
 
   public init(server: URL, urlSession: URLSession,
               tokensProvider: @escaping () -> AuthTokens?,
               onTokensRefreshed: @escaping (AuthTokens) throws -> Void,
-              onSignOut: @escaping () -> Void) {
+              onSignOut: @escaping () -> Void,
+              refreshExecutor: any AuthenticatedRefreshExecutor =
+                DirectAuthenticatedRefreshExecutor()) {
     self.server = server; self.urlSession = urlSession
     self.tokensProvider = tokensProvider; self.onTokensRefreshed = onTokensRefreshed
     self.onSignOut = onSignOut
+    self.refreshExecutor = refreshExecutor
   }
 
   /// Sample client for SwiftUI `#Preview` blocks. Points at an unreachable
@@ -122,47 +144,54 @@ public actor AuthenticatedHTTPClient {
     // rotation or the same persistence error; none can use the new access token
     // early, and N concurrent 401s still produce exactly one Keychain write.
     if let t = inflightRefresh { return try await t.value }
+    let server = self.server
+    let urlSession = self.urlSession
+    let tokensProvider = self.tokensProvider
+    let onTokensRefreshed = self.onTokensRefreshed
+    let refreshExecutor = self.refreshExecutor
     let task = Task { () throws -> AuthTokens in
-      let lock = try await Self.acquireRefreshLock(server: server)
-      defer { Self.releaseRefreshLock(lock) }
-      // A different Apple process may have rotated while this process waited
-      // for the App Group lock. Adopt that generation instead of replaying the
-      // predecessor refresh token.
-      var effectiveRefreshToken = refreshToken
-      if let latest = tokensProvider(), latest.refresh != refreshToken {
-        if !Self.accessTokenIsExpired(latest.access, skew: 0) {
-          return latest
+      try await refreshExecutor.execute {
+        let lock = try await Self.acquireRefreshLock(server: server)
+        defer { Self.releaseRefreshLock(lock) }
+        // A different Apple process may have rotated while this process waited
+        // for the App Group lock. Adopt that generation instead of replaying the
+        // predecessor refresh token.
+        var effectiveRefreshToken = refreshToken
+        if let latest = tokensProvider(), latest.refresh != refreshToken {
+          if !Self.accessTokenIsExpired(latest.access, skew: 0) {
+            return latest
+          }
+          // The other process rotated long enough ago that its access token is
+          // already expired too. Refresh from that newer generation, never the
+          // predecessor this process originally read.
+          effectiveRefreshToken = latest.refresh
         }
-        // The other process rotated long enough ago that its access token is
-        // already expired too. Refresh from that newer generation, never the
-        // predecessor this process originally read.
-        effectiveRefreshToken = latest.refresh
+        var req = URLRequest(url: server.appending(path: "/api/auth/refresh"))
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["refresh_token": effectiveRefreshToken])
+        let (data, resp) = try await urlSession.data(for: req)
+        guard let http = resp as? HTTPURLResponse else { throw RefreshFailure.transient }
+        if http.statusCode == 401 { throw RefreshFailure.terminal }
+        guard http.statusCode == 200 else { throw RefreshFailure.transient }
+        // The rotated refresh token rides the JSON body for native (Keychain)
+        // clients — we have no cookie jar. `refresh_token` is decoded as optional
+        // purely as a safety net: a server that ever omits it (e.g. legacy
+        // cookie-only rotation) must not make the decode throw and escalate into a
+        // sign-out. When absent we keep the token we presented.
+        struct R: Decodable { let access_token: String; let refresh_token: String? }
+        let r = try JSONDecoder().decode(R.self, from: data)
+        let tokens = AuthTokens(
+          access: r.access_token,
+          refresh: r.refresh_token ?? effectiveRefreshToken
+        )
+        // Rotation consumes the old refresh token server-side. Do not expose the
+        // replacement or release the refresh lock until it is durably persisted;
+        // otherwise this launch appears healthy while the next launch replays the
+        // dead predecessor and forces the user to pair again.
+        try onTokensRefreshed(tokens)
+        return tokens
       }
-      var req = URLRequest(url: server.appending(path: "/api/auth/refresh"))
-      req.httpMethod = "POST"
-      req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-      req.httpBody = try JSONSerialization.data(withJSONObject: ["refresh_token": effectiveRefreshToken])
-      let (data, resp) = try await urlSession.data(for: req)
-      guard let http = resp as? HTTPURLResponse else { throw RefreshFailure.transient }
-      if http.statusCode == 401 { throw RefreshFailure.terminal }
-      guard http.statusCode == 200 else { throw RefreshFailure.transient }
-      // The rotated refresh token rides the JSON body for native (Keychain)
-      // clients — we have no cookie jar. `refresh_token` is decoded as optional
-      // purely as a safety net: a server that ever omits it (e.g. legacy
-      // cookie-only rotation) must not make the decode throw and escalate into a
-      // sign-out. When absent we keep the token we presented.
-      struct R: Decodable { let access_token: String; let refresh_token: String? }
-      let r = try JSONDecoder().decode(R.self, from: data)
-      let tokens = AuthTokens(
-        access: r.access_token,
-        refresh: r.refresh_token ?? effectiveRefreshToken
-      )
-      // Rotation consumes the old refresh token server-side. Do not expose the
-      // replacement or release the refresh lock until it is durably persisted;
-      // otherwise this launch appears healthy while the next launch replays the
-      // dead predecessor and forces the user to pair again.
-      try onTokensRefreshed(tokens)
-      return tokens
     }
     inflightRefresh = task
     defer { inflightRefresh = nil }

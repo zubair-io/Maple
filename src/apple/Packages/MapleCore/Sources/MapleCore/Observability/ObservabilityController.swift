@@ -126,6 +126,11 @@ public final class ObservabilityController {
     /// for the bootstrap half (the refresh half is still safe to repeat).
     private var didStart = false
 
+    /// App-process hook that protects auth token rotation from iOS suspension.
+    /// Extensions and non-iOS callers use the pass-through default.
+    private var refreshExecutor: any AuthenticatedRefreshExecutor =
+        DirectAuthenticatedRefreshExecutor()
+
     private init() {
         self.settings = ObservabilitySettings.load() ?? .defaults
     }
@@ -135,12 +140,16 @@ public final class ObservabilityController {
     /// Called once at app launch. Reads cached config and bootstraps the
     /// exporter synchronously from disk (no network), then kicks a background
     /// refresh. Safe to call more than once — only the first call bootstraps.
-    public func start() {
+    public func start(
+        refreshExecutor: any AuthenticatedRefreshExecutor =
+            DirectAuthenticatedRefreshExecutor()
+    ) {
         guard !didStart else {
             osLog.debug("start() called again — already started, ignoring")
             return
         }
         didStart = true
+        self.refreshExecutor = refreshExecutor
 
         guard let server = selectedServerURL else {
             osLog.info("observability: no server selected — telemetry inactive")
@@ -215,7 +224,7 @@ public final class ObservabilityController {
         defer { isRefreshing = false }
 
         do {
-            let client = try await Self.makeClient(for: server)
+            let client = try await makeClient(for: server)
             let fresh = try await client.fetchConfig()
 
             // Superseded by a newer selectServer/start while we were in
@@ -362,7 +371,7 @@ public final class ObservabilityController {
     /// restoring Keychain tokens if needed. Mirrors CloudFoldersListing.client
     /// in the app module, but lives here in MapleCore so the controller has no
     /// app-module dependency. Throws a user-facing NSError when not signed in.
-    private static func makeClient(for server: URL) async throws -> ObservabilityConfigClient {
+    private func makeClient(for server: URL) async throws -> ObservabilityConfigClient {
         let session = AuthSession(server: server, client: AuthClient(server: server))
         if !session.isSignedIn { await session.bootstrapAndRestore() }
         guard session.isSignedIn else {
@@ -378,7 +387,8 @@ public final class ObservabilityController {
             tokensProvider: { try? TokenStore.load(server: server) },
             // Mirror rotations into the File Provider store too — see CloudTokenPersistence.
             onTokensRefreshed: { try CloudTokenPersistence.persistRotated($0, server: server) },
-            onSignOut: { CloudTokenPersistence.clear(server: server) })
+            onSignOut: { CloudTokenPersistence.clear(server: server) },
+            refreshExecutor: refreshExecutor)
         return ObservabilityConfigClient(server: server, httpClient: httpClient)
     }
 }
