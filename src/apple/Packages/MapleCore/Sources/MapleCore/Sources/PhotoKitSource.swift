@@ -83,7 +83,13 @@ public actor PhotoKitSource {
         // Subscribe to library-change notifications so a photo added in
         // another app invalidates our cached snapshot. The handler runs on
         // a PhotoKit-private thread; we hop to the actor with `Task`.
-        let token = PhotoKitChangeObserver.shared.subscribe { [weak self] in
+        // Only once the user has actually opted in: subscribing registers a
+        // `PHPhotoLibraryChangeObserver`, and registering one while
+        // authorization is `.notDetermined` IS an authorization request —
+        // it raises the system permission dialog (#2454). A source built
+        // before the user has decided stays unsubscribed; there is nothing
+        // to invalidate until it can fetch anyway.
+        let token = PhotoKitSource.subscribeToChangesIfAuthorized { [weak self] in
             guard let self else { return }
             Task { await self.invalidateSnapshot() }
         }
@@ -96,7 +102,13 @@ public actor PhotoKitSource {
     /// touching the user's real Application Support folder.
     internal init(sidecarOverride: AppSupportSidecarStore) {
         self.sidecarStore = sidecarOverride
-        let token = PhotoKitChangeObserver.shared.subscribe { [weak self] in
+        // Only once the user has actually opted in: subscribing registers a
+        // `PHPhotoLibraryChangeObserver`, and registering one while
+        // authorization is `.notDetermined` IS an authorization request —
+        // it raises the system permission dialog (#2454). A source built
+        // before the user has decided stays unsubscribed; there is nothing
+        // to invalidate until it can fetch anyway.
+        let token = PhotoKitSource.subscribeToChangesIfAuthorized { [weak self] in
             guard let self else { return }
             Task { await self.invalidateSnapshot() }
         }
@@ -107,6 +119,18 @@ public actor PhotoKitSource {
         if let token = changeObserverToken {
             PhotoKitChangeObserver.shared.unsubscribe(token)
         }
+    }
+
+    /// Subscribe to library changes only when PhotoKit access has already
+    /// been granted, returning `nil` otherwise. See the call sites in `init`
+    /// for why the gate exists (#2454): observer registration is itself an
+    /// authorization request.
+    private static func subscribeToChangesIfAuthorized(
+        _ handler: @escaping @Sendable () -> Void
+    ) -> UUID? {
+        let status = PhotoKitLibrary.authorizationStatus()
+        guard status == .authorized || status == .limited else { return nil }
+        return PhotoKitChangeObserver.shared.subscribe(handler)
     }
 
     /// Drop the cached fetch result so the next `images()` call re-queries.
