@@ -27,6 +27,7 @@ import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
 import type { Asset, AssetId } from '../../models/asset';
 import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
+import { patchSecureGpuContext, type SecureGpuContextPatch } from './gpu-context-test-helpers';
 
 const REFINE_MS = 150;
 // jsdom wrap has no layout → the component falls back to 800×600 CSS px and
@@ -321,19 +322,14 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
   let closeSessionSpy: ReturnType<typeof vi.fn>;
   let transferSpy: ReturnType<typeof vi.fn>;
   let fixture: ComponentFixture<ImageCanvasComponent>;
-  let originalIsSecureContext: PropertyDescriptor | undefined;
-  let originalNavigatorGpu: PropertyDescriptor | undefined;
+  let gpuContext: SecureGpuContextPatch;
 
   beforeEach(() => {
     vi.useFakeTimers();
-    // jsdom never sets `isSecureContext` / `navigator.gpu` — this suite exercises
-    // a secure, GPU-capable browser (the happy path), so stub both explicitly.
-    // The #2415 insecure-context short-circuit is covered in
-    // `gpu-fallback-notice.integration.spec.ts`.
-    originalIsSecureContext = Object.getOwnPropertyDescriptor(window, 'isSecureContext');
-    originalNavigatorGpu = Object.getOwnPropertyDescriptor(navigator, 'gpu');
-    Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true });
-    Object.defineProperty(navigator, 'gpu', { value: {}, configurable: true });
+    // This suite exercises a secure, GPU-capable browser (the happy path) —
+    // the #2415 insecure-context short-circuit is covered in
+    // `image-canvas.gpu-present.spec.ts`'s "GPU fallback notice" suite.
+    gpuContext = patchSecureGpuContext();
     focused = signal<Asset | null>(null);
     models = new Map();
     decodeSpy = vi.fn((_b: Uint8Array, _e: string, _x: string | undefined, mle: number) =>
@@ -423,16 +419,7 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     TestBed.resetTestingModule();
-    if (originalIsSecureContext) {
-      Object.defineProperty(window, 'isSecureContext', originalIsSecureContext);
-    } else {
-      delete (window as any).isSecureContext;
-    }
-    if (originalNavigatorGpu) {
-      Object.defineProperty(navigator, 'gpu', originalNavigatorGpu);
-    } else {
-      delete (navigator as any).gpu;
-    }
+    gpuContext.restore();
   });
 
   async function settle(ms = 0): Promise<void> {

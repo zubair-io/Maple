@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveTlsConfig } from './tls-config.ts';
+import { resolveTlsConfig, listenOptions } from './tls-config.ts';
 
 describe('resolveTlsConfig', () => {
   let dir: string;
@@ -94,5 +94,17 @@ describe('resolveTlsConfig', () => {
         MAPLE_TLS_KEY: `  ${key}  `,
       }),
     ).toEqual({ certPath: cert, keyPath: key });
+  });
+});
+
+describe('listenOptions', () => {
+  // `listenOptions` reads the module-load-time `TLS_CONFIG` singleton (real
+  // `process.env`, not injectable) — this process never sets MAPLE_TLS_CERT/
+  // MAPLE_TLS_KEY, so only the "TLS unconfigured" branch is exercisable here.
+  // The "TLS configured" branch is the same object-literal shape `resolveTlsConfig`
+  // already proves valid above; `network.scheme.test.ts` covers the derived
+  // `TLS_ENABLED` flag that the rest of the app (the /local-address route) reads.
+  it('passes the bare port through when TLS is unconfigured', () => {
+    expect(listenOptions(4321)).toBe(4321);
   });
 });

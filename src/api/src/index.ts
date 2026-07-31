@@ -35,17 +35,9 @@
  *                        cgroup-restricted containers.
  *   MAPLE_FACE_ORT_INTER_OP_THREADS — inter-op thread count for the same.
  *                        Defaults to 1 (sequential execution mode).
- *   MAPLE_TLS_CERT      — absolute path to a TLS certificate. Set together
- *                        with MAPLE_TLS_KEY to serve HTTPS instead of plain
- *                        HTTP — needed for the live GPU render path to work
- *                        over a LAN IP (`navigator.gpu` requires a secure
- *                        context). See `runtime/tls-config.ts`. Unset by
- *                        default (plain HTTP, today's behavior). Setting
- *                        only one of the pair, or an unreadable path, fails
- *                        startup with a clear error rather than silently
- *                        falling back to HTTP.
- *   MAPLE_TLS_KEY       — absolute path to the TLS certificate's private key.
- *                        See MAPLE_TLS_CERT.
+ *   MAPLE_TLS_CERT / MAPLE_TLS_KEY — absolute paths to a TLS cert + key; set
+ *                        both to serve HTTPS instead of HTTP. See
+ *                        `runtime/tls-config.ts` for the full contract.
  */
 
 import { Elysia } from 'elysia';
@@ -123,7 +115,7 @@ import {
   DEFAULT_NATIVE_CHILD_NICE,
 } from './runtime/child-process-worker.ts';
 import { SERVER_PORT } from './runtime/server-port.ts';
-import { TLS_CONFIG } from './runtime/tls-config.ts';
+import { TLS_ENABLED, listenOptions } from './runtime/tls-config.ts';
 
 const PORT = SERVER_PORT;
 
@@ -323,7 +315,7 @@ async function start(): Promise<void> {
     {
       version: '0.1.0',
       port: PORT,
-      tls: TLS_CONFIG !== null,
+      tls: TLS_ENABLED,
       mongo_uri: process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017',
     },
     'Maple Self Hosted starting',
@@ -489,20 +481,8 @@ async function start(): Promise<void> {
   startEventLoopLagMonitor();
 
   const server = buildApp();
-  // TLS_CONFIG is validated once at module load (runtime/tls-config.ts) — a
-  // half-configured pair or an unreadable file has already thrown before we
-  // get here, so this is a straight pass-through to Bun.serve's `tls` option.
-  server.listen(
-    TLS_CONFIG === null
-      ? PORT
-      : {
-          port: PORT,
-          tls: {
-            cert: Bun.file(TLS_CONFIG.certPath),
-            key: Bun.file(TLS_CONFIG.keyPath),
-          },
-        },
-  );
+  // listenOptions wires in TLS_CONFIG (validated at module load) when configured.
+  server.listen(listenOptions(PORT));
 }
 
 // Graceful shutdown.

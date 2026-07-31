@@ -23,7 +23,7 @@
  * to fix.
  */
 
-import { accessSync, constants } from 'node:fs';
+import { accessSync, constants, readFileSync } from 'node:fs';
 
 export interface TlsConfig {
   readonly certPath: string;
@@ -83,3 +83,19 @@ export const TLS_CONFIG = resolveTlsConfig();
 /** Whether the server is (about to be) listening over TLS. Read by
  * `routes/network.ts` so the advertised LAN scheme matches reality. */
 export const TLS_ENABLED = TLS_CONFIG !== null;
+
+/** `Elysia#listen()` options for `port`: a bare port when TLS is unconfigured,
+ * or Bun.serve's `{ port, tls }` shape when it is. Lives here (not index.ts)
+ * so the pass-through logic sits next to the config singleton it reads. */
+export function listenOptions(
+  port: number,
+): number | { port: number; tls: { cert: Buffer; key: Buffer } } {
+  if (TLS_CONFIG === null) return port;
+  return {
+    port,
+    tls: {
+      cert: readFileSync(TLS_CONFIG.certPath),
+      key: readFileSync(TLS_CONFIG.keyPath),
+    },
+  };
+}
