@@ -164,7 +164,12 @@ export class LivingSliderComponent implements OnDestroy {
 
   /** Keyboard operation for the focused track (role="slider" + tabindex="0").
    * ArrowLeft/Down decrement by step; ArrowRight/Up increment by step.
-   * All other keys pass through. */
+   * All other keys pass through.
+   *
+   * `stopPropagation` on the keys this handler consumes (#2409) — without it
+   * the event bubbles to the editor shell's global `document:keydown`
+   * listener, whose bare-arrow filmstrip-navigation shortcut then fires on
+   * top of this one and silently switches the focused image. */
   onTrackKeyDown(e: KeyboardEvent): void {
     const lo = this.min();
     const hi = this.max();
@@ -178,6 +183,7 @@ export class LivingSliderComponent implements OnDestroy {
       return;
     }
     e.preventDefault();
+    e.stopPropagation();
     const next = Math.min(hi, Math.max(lo, this.value() + delta));
     this.valueChange.emit(next);
   }

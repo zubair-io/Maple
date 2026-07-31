@@ -11,6 +11,19 @@
 import type { EditorShellComponent } from './editor-shell.component';
 import { type ToolGroup, type ToolId, groupOf, visibleToolsInGroup } from '../../editor/tool-model';
 
+/** True when the event target is (or is inside) a focusable value widget —
+ * e.g. LivingSlider's `role="slider"` track — that owns its own arrow-key
+ * semantics. Guards the filmstrip-navigation shortcut (#2409): without this,
+ * a slider's own keydown handler and this global one both react to the same
+ * ArrowLeft/ArrowRight, and the filmstrip silently jumps to another image
+ * out from under a keyboard user nudging a slider. Defense-in-depth —
+ * LivingSlider itself also stops propagation on the keys it consumes. */
+function isFocusedOnValueWidget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement && target.closest('[role="slider"], [role="spinbutton"]') !== null
+  );
+}
+
 /** Cycle the armed tool within its group; shift cycles the group. Verbatim
  * port of the S5 editor's `_nudgeTool` (`editor.component.ts`). */
 function nudgeTool(shell: EditorShellComponent, direction: 1 | -1, byGroup: boolean): void {
@@ -37,14 +50,16 @@ function nudgeTool(shell: EditorShellComponent, direction: 1 | -1, byGroup: bool
 /**
  * Pro editor keyboard shortcuts (spec §13). Bound from the shell's
  * `@HostListener('document:keydown')`. Returns early when the event target is
- * a text field so typing isn't hijacked.
+ * a text field (so typing isn't hijacked) or a focused value widget like a
+ * slider (#2409, so its own arrow-key semantics aren't hijacked).
  */
 export function handleEditorKeydown(shell: EditorShellComponent, e: KeyboardEvent): void {
   const target = e.target as HTMLElement;
   if (
     target instanceof HTMLInputElement ||
     target instanceof HTMLTextAreaElement ||
-    target.isContentEditable
+    target.isContentEditable ||
+    isFocusedOnValueWidget(target)
   )
     return;
 
