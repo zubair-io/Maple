@@ -367,11 +367,10 @@ export class LibraryCache {
     return this.thumbChannel.get(id);
   }
 
-  /** Idempotently load the blob-URL thumbnail for one asset. `<asset-grid>`
-   * and `<editor-filmstrip>` call this on every visible row; it short-circuits
-   * when the URL is cached, a load is in flight, or the load already failed
-   * this session ({@link ThumbFailMemory}, #2413 — reset by `clearAll()`), so
-   * callers can fire it on every change-detection pass. Errors are swallowed and logged. */
+  /** Idempotently load the blob-URL thumbnail for one asset. Grid + filmstrip
+   * call this on every visible row; it short-circuits when the URL is cached,
+   * a load is in flight, or the load already failed this session
+   * ({@link ThumbFailMemory}, #2413 — reset by `clearAll()`). Errors are swallowed + logged. */
   ensureThumbnailUrl(asset: Asset, onThumbWritten?: (id: AssetId, sha: string) => void): void {
     if (!asset) return;
     if (this.thumbnailUrls().has(asset.id) || this.thumbFails.has(asset.id)) return;
@@ -554,6 +553,7 @@ export class LibraryCache {
       }
     } catch (err) {
       console.warn('[state] thumb load failed for', asset.filename, err);
+      return this.thumbFails.record(asset.id, err); // no-ops on 'Queue cleared'
     }
     if (!this.thumbnailUrls().has(asset.id)) this.thumbFails.record(asset.id);
   }
