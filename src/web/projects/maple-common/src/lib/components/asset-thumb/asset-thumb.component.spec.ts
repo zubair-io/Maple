@@ -255,6 +255,7 @@ describe('AssetThumbComponent — accessible name and selection state (#2414)', 
           useValue: {
             ensureThumbnailUrl: () => {},
             subscribeThumbUrl,
+            isSelecting: () => false,
           },
         },
       ],
