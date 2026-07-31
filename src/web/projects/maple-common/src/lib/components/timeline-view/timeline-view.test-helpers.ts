@@ -47,10 +47,15 @@ export class SearchStub {
     const resp = this.pages[page] ?? { total: 0, page, limit: p.limit ?? 200, results: [] };
     return of(resp);
   });
+  // Called by TimelineViewComponent through DI, never from the spec source, so
+  // static analysis can't see the reference.
+  // fallow-ignore-next-line unused-class-members
   facets = vi.fn(() => of({}));
 }
 
 export class FsBrowseStub {
+  // Same as SearchStub.facets — reached via DI from the component under test.
+  // fallow-ignore-next-line unused-class-members
   getThumbBlobUrl = vi.fn(() => Promise.resolve('blob:fake'));
 }
 
