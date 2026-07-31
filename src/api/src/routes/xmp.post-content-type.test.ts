@@ -26,6 +26,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { createHash } from 'node:crypto';
 import { Elysia } from 'elysia';
 import { xmpPathRoutes } from './xmp.ts';
 import { setLibraryRootsForTests } from '../indexer/libraries.cache.ts';
@@ -79,6 +80,9 @@ const del = (assetPath: string): Promise<Response> =>
     }),
   );
 
+const get = (assetPath: string): Promise<Response> =>
+  app.handle(new Request(`http://localhost/api/xmp?path=${encodeURIComponent(assetPath)}`));
+
 describe('POST /api/xmp content-type contract', () => {
   test('accepts Content-Type: application/xml (the real web client header) and writes the sidecar', async () => {
     const assetPath = path.join(tmpDir, 'test_0017.dng');
@@ -119,5 +123,22 @@ describe('POST /api/xmp content-type contract', () => {
 
     expect(res.status).toBe(204);
     await expect(fs.access(sidecarPath)).rejects.toThrow();
+  });
+
+  test('round-trips exact sidecar bytes without modifying the original RAW', async () => {
+    const assetPath = path.join(tmpDir, 'IMG_SAFE.dng');
+    const raw = crypto.getRandomValues(new Uint8Array(4096));
+    await fs.writeFile(assetPath, raw);
+    const hashBefore = createHash('sha256').update(raw).digest('hex');
+
+    const write = await post(assetPath, 'application/xml', SIDECAR_XML);
+    expect(write.status).toBe(200);
+
+    const read = await get(assetPath);
+    expect(read.status).toBe(200);
+    expect(await read.text()).toBe(SIDECAR_XML);
+    expect(await fs.readFile(path.join(tmpDir, 'IMG_SAFE.xmp'), 'utf8')).toBe(SIDECAR_XML);
+    const hashAfter = createHash('sha256').update(await fs.readFile(assetPath)).digest('hex');
+    expect(hashAfter).toBe(hashBefore);
   });
 });

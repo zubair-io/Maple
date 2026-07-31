@@ -77,8 +77,9 @@ describe('ToolbarActionsComponent', () => {
     fixture.detectChanges();
     expect(el().querySelector('[aria-label="Edit metadata"]')).toBeNull();
     expect(el().querySelector('[aria-label="Merge to panorama"]')).toBeNull();
-    // Copy/Paste/Sync/Export stay visible — not backend-gated.
+    // Copy/Paste/Sync stay visible — they have real Hosted persistence paths.
     expect(el().querySelector('[aria-label="Copy settings"]')).not.toBeNull();
+    expect(el().textContent).not.toContain('Export');
 
     host.selfHosted.set(true);
     fixture.detectChanges();
@@ -130,7 +131,7 @@ describe('ToolbarActionsComponent', () => {
     expect(host.syncSettingsCount()).toBe(1);
   });
 
-  it('disables pills whose gating input is false and shows the selection count when true', () => {
+  it('disables pills whose gating input is false without rendering the inert Export action', () => {
     host.canCopySettings.set(false);
     host.selectedCount.set(3);
     fixture.detectChanges();
@@ -138,8 +139,7 @@ describe('ToolbarActionsComponent', () => {
     const copyBtn = el().querySelector('[aria-label="Copy settings"]') as HTMLButtonElement;
     expect(copyBtn.disabled).toBe(true);
 
-    const exportBtn = el().querySelector('.export-btn.has-selection') as HTMLButtonElement | null;
-    expect(exportBtn?.textContent).toContain('Export (3)');
+    expect(el().textContent).not.toContain('Export');
   });
 
   // #2427 — the host must not generate a box. BrowseShell drops

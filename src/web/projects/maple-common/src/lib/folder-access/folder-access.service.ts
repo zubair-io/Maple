@@ -14,6 +14,7 @@ import {
 } from './folder-access.types';
 import {
   fsAccessOpenFolder,
+  fsAccessOpenDroppedFolder,
   fsAccessReopenHandle,
   fsAccessRequestWrite,
   fsAccessListEntries,
@@ -30,6 +31,10 @@ import {
   fallbackWriteFile,
   fallbackEnsureSubdirectory,
 } from './fallback-backend';
+
+interface DataTransferItemWithHandle extends DataTransferItem {
+  getAsFileSystemHandle?: () => Promise<FileSystemHandle | null>;
+}
 
 @Injectable({ providedIn: 'root' })
 export class FolderAccessService {
@@ -76,6 +81,19 @@ export class FolderAccessService {
       return handle;
     }
     return fallbackOpenFolder();
+  }
+
+  /** Resolve a directory dragged from the OS without opening another picker. */
+  async openDroppedFolder(dataTransfer: DataTransfer): Promise<MapleFolderHandle | null> {
+    if (this.backend !== 'fs-access') return null;
+
+    for (const item of Array.from(dataTransfer.items)) {
+      const handle = await (item as DataTransferItemWithHandle).getAsFileSystemHandle?.();
+      if (handle?.kind === 'directory') {
+        return fsAccessOpenDroppedFolder(handle as FileSystemDirectoryHandle);
+      }
+    }
+    return null;
   }
 
   /**

@@ -26,7 +26,8 @@ import { Injectable, effect, inject, untracked } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 
-import { BunApiBackendService } from '../api/bun-api-backend.service';
+import { SERVER_WORKSPACE_PERSISTENCE } from '../workspace/workspace-persistence';
+import { SERVER_LIBRARY_IO } from '../workspace/server-library-io';
 import type { AssetId } from '../models/asset';
 import { LibraryStore } from '../state/library-store.service';
 import { LibrarySelection } from '../state/library-selection.service';
@@ -37,7 +38,8 @@ import { XmpStoreService } from './xmp-store.service';
 export class XmpAdjustmentRestoreService {
   private readonly store = inject(LibraryStore);
   private readonly selection = inject(LibrarySelection);
-  private readonly api = inject(BunApiBackendService);
+  private readonly serverPersistence = inject(SERVER_WORKSPACE_PERSISTENCE, { optional: true });
+  private readonly serverLibrary = inject(SERVER_LIBRARY_IO, { optional: true });
   private readonly parser = inject(XmpParserService);
   private readonly xmpStore = inject(XmpStoreService);
 
@@ -90,7 +92,8 @@ export class XmpAdjustmentRestoreService {
     await this._ensureRegisteredFolders();
     const absPath = this.store.absPathFor(id);
     if (!absPath) return null;
-    return await firstValueFrom(this.api.getXmp(absPath));
+    if (!this.serverPersistence) return null;
+    return await firstValueFrom(this.serverPersistence.readSidecar(absPath));
   }
 
   private _applyParsedSidecar(id: AssetId, xml: string): void {
@@ -122,7 +125,8 @@ export class XmpAdjustmentRestoreService {
    */
   private _ensureRegisteredFolders(): Promise<void> {
     if (this.store.registeredFolders().length > 0) return Promise.resolve();
-    this._foldersLoad ??= firstValueFrom(this.api.listFolders())
+    if (!this.serverLibrary) return Promise.resolve();
+    this._foldersLoad ??= firstValueFrom(this.serverLibrary.listFolders())
       .then((folders) => {
         // Don't stomp a richer list a concurrent loadFolderTree() landed.
         if (this.store.registeredFolders().length === 0) {

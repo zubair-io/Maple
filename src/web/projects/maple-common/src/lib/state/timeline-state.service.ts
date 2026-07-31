@@ -20,7 +20,8 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { LibraryStateService } from './library-state.service';
 import { SidebarEntry } from '../models/folder';
-import { ApiFolder, BunApiBackendService } from '../api/bun-api-backend.service';
+import type { ApiFolder } from '../api/bun-api-backend.service';
+import { SERVER_LIBRARY_IO } from '../workspace/server-library-io';
 import { SearchParams } from '../api/search.service';
 import { parseAddress } from '../addressing/maple-address';
 import type { ColorLabelValue } from '../models/color-label';
@@ -31,9 +32,10 @@ export type TimelineColor = '' | ColorLabelValue;
 @Injectable({ providedIn: 'root' })
 export class TimelineStateService {
   private readonly state = inject(LibraryStateService);
-  private readonly api = inject(BunApiBackendService);
+  private readonly api = inject(SERVER_LIBRARY_IO, { optional: true });
 
   constructor() {
+    if (!this.api) return;
     this.api.getDisplayConfig().subscribe({
       next: (config) => {
         if (config.show_hidden_images) {
