@@ -39,7 +39,7 @@ import { type AdjustmentModel } from '../../models/adjustment-model';
 import { cropStraightenTransform, displayDims, renderModelForCrop } from './image-canvas.crop';
 import { coldOpen2d, runRender2d, type Render2dHost } from './image-canvas.render2d';
 import { canUseLiveFastPath, buildLiveParams } from './image-canvas.live-params';
-import { fetchAndLoadBytes, type ByteLoadHost } from './image-canvas.byteload';
+import { fetchAndLoadBytes, type ByteLoadError, type ByteLoadHost } from './image-canvas.byteload';
 
 @Component({
   selector: 'editor-image-canvas',
@@ -72,7 +72,7 @@ export class ImageCanvasComponent
   readonly loading = signal(false);
   readonly imageBitmap = signal<ImageBitmap | null>(null);
   // Recoverable byte-load error (#2407) — see image-canvas.byteload.ts.
-  readonly byteLoadError = signal<{ id: AssetId; filename: string } | null>(null);
+  readonly byteLoadError = signal<ByteLoadError | null>(null);
 
   // GPU live-render path (epic #925, P4b-web / #1038). The GPU canvas lifecycle +
   // worker session wiring lives in `ImageCanvasGpuPresent` (see that file for the

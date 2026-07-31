@@ -17,11 +17,16 @@
 const MAX_ATTEMPTS = 3;
 const BACKOFF_MS = [250, 1000];
 
-/** True for an HttpErrorResponse-shaped error worth retrying — status 0
- *  (network/CORS failure that never reached a server), 429, or 5xx. */
+/** True for an error worth retrying: an HttpErrorResponse-shaped status 0
+ *  (network/CORS failure that never reached a server), 429, or 5xx — plus the
+ *  plain `Error` the byte sources throw on a response aborted mid-stream
+ *  ("empty response body", see `HttpLibrarySource.imageBlob`), which carries
+ *  no status but is exactly as transient as a dropped connection. */
 export function isTransientFetchError(err: unknown): boolean {
   const status = (err as { status?: number } | null)?.status;
-  if (status === undefined) return false;
+  if (status === undefined) {
+    return err instanceof Error && err.message.includes('empty response body');
+  }
   if (status === 0 || status === 429) return true;
   return status >= 500 && status < 600;
 }

@@ -15,10 +15,17 @@ import type { AssetId } from '../../models/asset';
 import type { LibraryStateService } from '../../state/library-state.service';
 import type { ImageCanvasService } from './image-canvas.service';
 
+export interface ByteLoadError {
+  id: AssetId;
+  filename: string;
+  /** Short human-readable cause for the overlay — "HTTP 503" / "Network error". */
+  reason: string;
+}
+
 export interface ByteLoadHost {
   currentAssetId: AssetId | null;
   readonly imageBitmap: WritableSignal<ImageBitmap | null>;
-  readonly byteLoadError: WritableSignal<{ id: AssetId; filename: string } | null>;
+  readonly byteLoadError: WritableSignal<ByteLoadError | null>;
   readonly state: Pick<LibraryStateService, 'bytesForAsset'>;
   readonly canvasSvc: Pick<ImageCanvasService, 'currentPixels'>;
   loadReal(assetId: AssetId, filename: string, bytes: Uint8Array): Promise<void>;
@@ -44,6 +51,9 @@ export function fetchAndLoadBytes(host: ByteLoadHost, assetId: AssetId, filename
       const status = (err as { status?: number } | null)?.status;
       const url = (err as { url?: string } | null)?.url;
       console.error('[image-canvas] bytesForAsset failed:', { status, url, err });
-      host.byteLoadError.set({ id: assetId, filename });
+      // Statusless failures (mid-stream aborts, non-HTTP errors) and status 0
+      // (never reached a server) both read as a network-level problem.
+      const reason = typeof status === 'number' && status > 0 ? `HTTP ${status}` : 'Network error';
+      host.byteLoadError.set({ id: assetId, filename, reason });
     });
 }
