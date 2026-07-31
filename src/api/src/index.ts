@@ -497,7 +497,10 @@ async function start(): Promise<void> {
       ? PORT
       : {
           port: PORT,
-          tls: { cert: Bun.file(TLS_CONFIG.certPath), key: Bun.file(TLS_CONFIG.keyPath) },
+          tls: {
+            cert: Bun.file(TLS_CONFIG.certPath),
+            key: Bun.file(TLS_CONFIG.keyPath),
+          },
         },
   );
 }

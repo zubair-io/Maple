@@ -51,9 +51,9 @@ describe('resolveTlsConfig', () => {
     const key = join(dir, 'key.pem');
     writeFileSync(key, 'key bytes');
     const missingCert = join(dir, 'does-not-exist.pem');
-    expect(() =>
-      resolveTlsConfig({ MAPLE_TLS_CERT: missingCert, MAPLE_TLS_KEY: key }),
-    ).toThrow(/MAPLE_TLS_CERT=.*not a readable file/);
+    expect(() => resolveTlsConfig({ MAPLE_TLS_CERT: missingCert, MAPLE_TLS_KEY: key })).toThrow(
+      /MAPLE_TLS_CERT=.*not a readable file/,
+    );
   });
 
   it('throws when both are set but the key path is unreadable', () => {
@@ -89,7 +89,10 @@ describe('resolveTlsConfig', () => {
     writeFileSync(cert, 'cert bytes');
     writeFileSync(key, 'key bytes');
     expect(
-      resolveTlsConfig({ MAPLE_TLS_CERT: `  ${cert}  `, MAPLE_TLS_KEY: `  ${key}  ` }),
+      resolveTlsConfig({
+        MAPLE_TLS_CERT: `  ${cert}  `,
+        MAPLE_TLS_KEY: `  ${key}  `,
+      }),
     ).toEqual({ certPath: cert, keyPath: key });
   });
 });
