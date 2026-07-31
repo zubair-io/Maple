@@ -216,6 +216,51 @@ final class PreviewViewVMTests: XCTestCase {
     XCTAssertEqual(ref.id, asset.id)
   }
 
+  // MARK: - infoPaneShouldOpen (#2405)
+
+  func testInfoPaneOpensAtRegularWhenPreferenceIsStoredOpen() {
+    XCTAssertTrue(
+      PreviewViewVM.infoPaneShouldOpen(isRegular: true, storedPreference: true))
+  }
+
+  func testInfoPaneHonoursAStoredClosedPreferenceAtRegular() {
+    XCTAssertFalse(
+      PreviewViewVM.infoPaneShouldOpen(isRegular: true, storedPreference: false))
+  }
+
+  func testInfoPaneNeverOpensAtCompactRegardlessOfStoredPreference() {
+    // The iPhone bottom sheet always starts closed — a sheet covering the
+    // photo on every Preview open is the wrong default for the surface
+    // whose whole purpose is showing the photo. Compact never reads the
+    // persisted `cm.preview.infoOpen` preference.
+    XCTAssertFalse(
+      PreviewViewVM.infoPaneShouldOpen(isRegular: false, storedPreference: true))
+    XCTAssertFalse(
+      PreviewViewVM.infoPaneShouldOpen(isRegular: false, storedPreference: false))
+  }
+
+  // MARK: - needsSessionPriming (#2405)
+
+  func testOpenPaneWithNoSessionNeedsPriming() {
+    XCTAssertTrue(
+      PreviewViewVM.needsSessionPriming(isPaneOpen: true, hasSession: false))
+  }
+
+  func testOpenPaneWithAnExistingSessionDoesNotNeedPriming() {
+    XCTAssertFalse(
+      PreviewViewVM.needsSessionPriming(isPaneOpen: true, hasSession: true))
+  }
+
+  func testClosedPaneNeverNeedsPriming() {
+    // A closed pane primes nothing — merely looking at a photo (Preview's
+    // whole point) must cost zero session/pipeline work, whether or not a
+    // session happens to already exist.
+    XCTAssertFalse(
+      PreviewViewVM.needsSessionPriming(isPaneOpen: false, hasSession: false))
+    XCTAssertFalse(
+      PreviewViewVM.needsSessionPriming(isPaneOpen: false, hasSession: true))
+  }
+
   // MARK: - filenameMaxWidth (spec §6)
 
   func testFilenameMaxWidthIsResponsiveToSizeClass() {

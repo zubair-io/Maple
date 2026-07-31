@@ -4,7 +4,7 @@
 // header's back-navigation + filename derivation.
 
 import { TestBed } from '@angular/core/testing';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { signal } from '@angular/core';
 import { of } from 'rxjs';
@@ -14,7 +14,19 @@ import { LibraryStateService } from '../../state/library-state.service';
 import { LIBRARY_BACKEND } from '../../api/library-backend.token';
 import { BunApiBackendService } from '../../api/bun-api-backend.service';
 import { viewRouteCommands, editRouteCommands } from '../../addressing/route-address';
+import { STORAGE_KEYS } from '../../util/typed-storage';
+import { LayoutService, type MapleLayout } from '../../layout-service';
 import type { Asset } from '../../models/asset';
+
+// This spec constructs the real PreviewShellComponent, which reads/writes
+// `cm.preview.infoOpen` directly against jsdom's shared localStorage — clear
+// it around each test so nothing leaks into sibling spec files (mirrors
+// browse-shell.component.spec.ts's `clearPrefKeys`, #1142).
+const clearPrefKeys = (): void => {
+  for (const key of Object.values(STORAGE_KEYS)) localStorage.removeItem(key);
+};
+beforeEach(clearPrefKeys);
+afterEach(clearPrefKeys);
 
 interface Synth {
   id: string;
@@ -117,7 +129,7 @@ const STUB_ASSET: Asset = {
  * because `<app-info-panel>` (imported for the Info sheet/pane) pulls in
  * `<app-info-enrichment>` and `<app-info-histogram>`, which inject those
  * services. Mirrors info-panel.component.spec.ts's fake-service pattern. */
-function setupFixture(opts: { navigate?: ReturnType<typeof vi.fn> } = {}) {
+function setupFixture(opts: { navigate?: ReturnType<typeof vi.fn>; layout?: MapleLayout } = {}) {
   const navigate = opts.navigate ?? vi.fn();
   const state = {
     backend: 'self-hosted',
@@ -168,6 +180,12 @@ function setupFixture(opts: { navigate?: ReturnType<typeof vi.fn> } = {}) {
       { provide: LibraryStateService, useValue: state },
       { provide: LIBRARY_BACKEND, useValue: 'self-hosted' },
       { provide: BunApiBackendService, useValue: fakeBunApi },
+      // Defaults to 'tablet' (tablet+) so the pre-existing (layout-agnostic)
+      // tests above keep exercising the same DOM shape they always have.
+      {
+        provide: LayoutService,
+        useValue: { layout: signal<MapleLayout>(opts.layout ?? 'tablet') },
+      },
     ],
   });
   const fixture = TestBed.createComponent(PreviewShellComponent);
@@ -287,15 +305,76 @@ describe('PreviewShellComponent', () => {
     expect((fixture.nativeElement as HTMLElement).querySelector('.flag-popover')).not.toBeNull();
   });
 
-  it('Info click sets infoOpen to true', () => {
-    const { fixture } = setupFixture();
+  it('Info click toggles infoOpen off then back on (#2405: docked pane defaults open at tablet+)', () => {
+    const { fixture } = setupFixture({ layout: 'tablet' });
     const comp = fixture.componentInstance;
-    expect(comp.infoOpen()).toBe(false);
+    expect(comp.infoOpen()).toBe(true);
     const el = fixture.nativeElement as HTMLElement;
     const infoBtn = el.querySelector('[aria-label="Info"]') as HTMLButtonElement;
+
+    infoBtn.click();
+    fixture.detectChanges();
+    expect(comp.infoOpen()).toBe(false);
+
     infoBtn.click();
     fixture.detectChanges();
     expect(comp.infoOpen()).toBe(true);
+  });
+
+  it('Info button reflects its state via aria-pressed', () => {
+    const { fixture } = setupFixture({ layout: 'tablet' });
+    const el = fixture.nativeElement as HTMLElement;
+    const infoBtn = el.querySelector('[aria-label="Info"]') as HTMLButtonElement;
+    expect(infoBtn.getAttribute('aria-pressed')).toBe('true');
+
+    infoBtn.click();
+    fixture.detectChanges();
+    expect(infoBtn.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  // ── Docked Info pane: layout + persisted open state (#2405) ─────────────
+
+  it('the Info pane defaults open at tablet+ with no stored preference', () => {
+    const { fixture } = setupFixture({ layout: 'tablet' });
+    const comp = fixture.componentInstance;
+    expect(comp.infoOpen()).toBe(true);
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('.info-pane')).not.toBeNull();
+    expect(el.querySelector('app-bottom-sheet')).toBeNull();
+  });
+
+  it('the Info pane honours a stored `false` preference at tablet+', () => {
+    localStorage.setItem(STORAGE_KEYS.PREVIEW_INFO_OPEN, 'false');
+    const { fixture } = setupFixture({ layout: 'desktop' });
+    const comp = fixture.componentInstance;
+    expect(comp.infoOpen()).toBe(false);
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('.info-pane')).toBeNull();
+  });
+
+  it('ignores the stored preference at phone width — the bottom sheet always starts closed', () => {
+    localStorage.setItem(STORAGE_KEYS.PREVIEW_INFO_OPEN, 'true');
+    const { fixture } = setupFixture({ layout: 'phone' });
+    const comp = fixture.componentInstance;
+    expect(comp.infoOpen()).toBe(false);
+    const el = fixture.nativeElement as HTMLElement;
+    // Still renders the bottom sheet host at phone width (closed).
+    expect(el.querySelector('app-bottom-sheet')).not.toBeNull();
+    expect(el.querySelector('.info-pane')).toBeNull();
+  });
+
+  it('toggling Info at tablet+ persists the preference; toggling at phone width does not', () => {
+    const { fixture } = setupFixture({ layout: 'tablet' });
+    const comp = fixture.componentInstance;
+    comp.toggleInfo();
+    expect(localStorage.getItem(STORAGE_KEYS.PREVIEW_INFO_OPEN)).toBe('false');
+
+    const { fixture: phoneFixture } = setupFixture({ layout: 'phone' });
+    const phoneComp = phoneFixture.componentInstance;
+    localStorage.removeItem(STORAGE_KEYS.PREVIEW_INFO_OPEN);
+    phoneComp.toggleInfo();
+    expect(phoneComp.infoOpen()).toBe(true);
+    expect(localStorage.getItem(STORAGE_KEYS.PREVIEW_INFO_OPEN)).toBeNull();
   });
 
   // ── Prev/next navigation + keyboard shortcuts (#Web Preview Surface Task 5) ─
