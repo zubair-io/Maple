@@ -11,16 +11,40 @@
 import type { EditorShellComponent } from './editor-shell.component';
 import { type ToolGroup, type ToolId, groupOf, visibleToolsInGroup } from '../../editor/tool-model';
 
-/** True when the event target is (or is inside) a focusable value widget —
- * e.g. LivingSlider's `role="slider"` track — that owns its own arrow-key
- * semantics. Guards the filmstrip-navigation shortcut (#2409): without this,
- * a slider's own keydown handler and this global one both react to the same
- * ArrowLeft/ArrowRight, and the filmstrip silently jumps to another image
- * out from under a keyboard user nudging a slider. Defense-in-depth —
- * LivingSlider itself also stops propagation on the keys it consumes. */
-function isFocusedOnValueWidget(target: EventTarget | null): boolean {
+/** Bare (unmodified) keys a focused slider/spinbutton semantically consumes
+ * per the WAI-ARIA slider pattern — value adjustment only. */
+const VALUE_WIDGET_KEYS: ReadonlySet<string> = new Set([
+  'ArrowLeft',
+  'ArrowRight',
+  'ArrowUp',
+  'ArrowDown',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
+]);
+
+/** True when the event is a bare value-adjustment key targeting (or inside) a
+ * focusable value widget — e.g. LivingSlider's `role="slider"` track — that
+ * owns those keys' semantics. Guards the filmstrip-navigation shortcut
+ * (#2409): without this, a slider's own keydown handler and this global one
+ * both react to the same ArrowLeft/ArrowRight, and the filmstrip silently
+ * jumps to another image out from under a keyboard user nudging a slider.
+ *
+ * Deliberately narrow: unlike the text-field guard (a text field consumes
+ * arbitrary typing, so everything is skipped), a slider only consumes value
+ * keys — Escape, ⌘Z/⌘S, rating keys and every other shortcut keep working
+ * while a slider is focused. Defense-in-depth — LivingSlider itself also
+ * stops propagation on the keys it consumes. */
+function isValueWidgetKey(e: KeyboardEvent, target: EventTarget | null): boolean {
   return (
-    target instanceof HTMLElement && target.closest('[role="slider"], [role="spinbutton"]') !== null
+    VALUE_WIDGET_KEYS.has(e.key) &&
+    !e.metaKey &&
+    !e.ctrlKey &&
+    !e.altKey &&
+    !e.shiftKey &&
+    target instanceof HTMLElement &&
+    target.closest('[role="slider"], [role="spinbutton"]') !== null
   );
 }
 
@@ -50,8 +74,9 @@ function nudgeTool(shell: EditorShellComponent, direction: 1 | -1, byGroup: bool
 /**
  * Pro editor keyboard shortcuts (spec §13). Bound from the shell's
  * `@HostListener('document:keydown')`. Returns early when the event target is
- * a text field (so typing isn't hijacked) or a focused value widget like a
- * slider (#2409, so its own arrow-key semantics aren't hijacked).
+ * a text field (so typing isn't hijacked), or when a bare value-adjustment
+ * key targets a focused slider-like widget (#2409, so the widget's own
+ * arrow-key semantics aren't hijacked — all other shortcuts still run).
  */
 export function handleEditorKeydown(shell: EditorShellComponent, e: KeyboardEvent): void {
   const target = e.target as HTMLElement;
@@ -59,7 +84,7 @@ export function handleEditorKeydown(shell: EditorShellComponent, e: KeyboardEven
     target instanceof HTMLInputElement ||
     target instanceof HTMLTextAreaElement ||
     target.isContentEditable ||
-    isFocusedOnValueWidget(target)
+    isValueWidgetKey(e, target)
   )
     return;
 

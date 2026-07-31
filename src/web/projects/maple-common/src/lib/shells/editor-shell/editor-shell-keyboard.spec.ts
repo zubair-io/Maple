@@ -255,7 +255,10 @@ describe('handleEditorKeydown (epic #1807 slice 5 parity)', () => {
   // slider's own keydown handler), never the filmstrip. LivingSlider itself
   // stops propagation on the keys it consumes (living-slider.component.spec.ts),
   // but the shell's own guard is defense-in-depth for any other role="slider"
-  // widget that doesn't.
+  // widget that doesn't. The guard is deliberately NARROW — it skips only the
+  // bare value keys a slider semantically consumes; every other shortcut
+  // (Escape, undo/redo, save, rating…) keeps working while a slider is
+  // focused.
 
   it('bare ArrowRight does NOT navigate the filmstrip when a role="slider" widget is focused', () => {
     const slider = document.createElement('div');
@@ -291,11 +294,35 @@ describe('handleEditorKeydown (epic #1807 slice 5 parity)', () => {
     expect(shell.navigateToAsset).not.toHaveBeenCalled();
   });
 
-  it('guard is a full early-return (mirrors the text-field guard) — other shortcuts are also skipped while a role="slider" widget is focused', () => {
+  it('Escape still goes back to Browse while a role="slider" widget is focused', () => {
     const slider = document.createElement('div');
     slider.setAttribute('role', 'slider');
     dispatch(makeKeyEvent('Escape', { target: slider }));
-    expect(shell.goBack).not.toHaveBeenCalled();
+    expect(shell.goBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('⌘Z still undoes while a role="slider" widget is focused', () => {
+    const slider = document.createElement('div');
+    slider.setAttribute('role', 'slider');
+    dispatch(makeKeyEvent('z', { meta: true, target: slider }));
+    expect(shell.editorState.undo).toHaveBeenCalledTimes(1);
+  });
+
+  it('⌘S still flushes pending XMP writes while a role="slider" widget is focused', () => {
+    const slider = document.createElement('div');
+    slider.setAttribute('role', 'slider');
+    dispatch(makeKeyEvent('s', { meta: true, target: slider }));
+    expect(shell.state.flushPendingXmpWrites).toHaveBeenCalledTimes(1);
+  });
+
+  it('a MODIFIED arrow (Shift+ArrowRight) is not swallowed by the slider guard — the armed-slider nudge still runs', () => {
+    // Shift+Arrow is not one of the bare value keys a slider consumes, so
+    // the guard must let it through to the dispatcher's ±10 nudge path.
+    const slider = document.createElement('div');
+    slider.setAttribute('role', 'slider');
+    dispatch(makeKeyEvent('ArrowRight', { shift: true, target: slider }));
+    expect(shell.editorState.setArmedInternalValue).toHaveBeenCalledWith(10);
+    expect(shell.navigateToAsset).not.toHaveBeenCalled();
   });
 
   // ── Text-field guard ──────────────────────────────────────────────────────
