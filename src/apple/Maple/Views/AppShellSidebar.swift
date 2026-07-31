@@ -27,6 +27,8 @@ struct AppShellSidebar: View {
     let onPickAncestor: (URL, Data) -> Void
     let onPickPhotosFilter: (PhotoKitFilter) -> Void
     let onRequestPhotosAccess: () -> Void
+    /// Forwarded to `LibrarySidebar` — see its declaration (#2454).
+    var photosAuthGeneration: Int = 0
     let onAddSMB: () -> Void
     let onPickSMB: (SMBCredentialStore.SavedShare) -> Void
     let onAddCloudServer: () -> Void
@@ -48,6 +50,7 @@ struct AppShellSidebar: View {
             onPickAncestor: onPickAncestor,
             onPickPhotosFilter: onPickPhotosFilter,
             onRequestPhotosAccess: onRequestPhotosAccess,
+            photosAuthGeneration: photosAuthGeneration,
             onAddSMB: onAddSMB,
             onPickSMB: onPickSMB,
             onAddCloudServer: onAddCloudServer,

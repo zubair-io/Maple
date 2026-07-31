@@ -101,6 +101,12 @@ struct AppShell: View {
     /// changes the content subtree's identity and would reset it.
     @State private var editorDetailVisible = true
     @State private var showFilePicker = false
+    /// Bumped after the user grants PhotoKit access from the permission
+    /// panel. `LibrarySidebar` skips all PhotoKit work while the user is
+    /// undecided — even registering a change observer prompts (#2454) — and
+    /// PhotoKit publishes no authorization change, so this counter is what
+    /// tells the sidebar it may now read the library.
+    @State var photosAuthGeneration = 0
 
     // Sidebar selection (single active row across the whole tree).
     @State var librarySelection: LibrarySelection = .none
@@ -832,6 +838,7 @@ struct AppShell: View {
             },
             onPickPhotosFilter: { filter in loadPhotos(filter: filter) },
             onRequestPhotosAccess: { requestPhotosAccess() },
+            photosAuthGeneration: photosAuthGeneration,
             onAddSMB: { showSMBSheet = true },
             onPickSMB: { share in connectSavedSMB(share) },
             onAddCloudServer: { addCloudSheetTarget = .fresh },
