@@ -6,12 +6,15 @@
 // rather than owning UI state itself — same separation as the other
 // singleton services it already reaches through the host (pipeline, state,
 // canvasSvc). Two reasons are distinguished:
-//   - 'insecure-context': `!isSecureContext` or no `navigator.gpu` at all —
-//     the fixable case (serve this origin over HTTPS) that #2415 exists for.
-//   - 'session-open-failed': the browser IS a secure, WebGPU-capable
-//     context, but the session still failed to open (gpu-off WASM bundle,
-//     decode error, a broken present). Not fixable by switching schemes, so
-//     the notice doesn't point at HTTPS for this one.
+//   - 'insecure-context': the ORIGIN itself is insecure
+//     (`window.isSecureContext === false` — e.g. a LAN `http://<ip>:port`
+//     page), so the browser withholds `navigator.gpu` on principle. The one
+//     case serving this connection over HTTPS fixes — the case #2415 exists
+//     for — and the only reason allowed to carry the HTTPS message.
+//   - 'session-open-failed': everything else — a secure origin whose browser
+//     simply doesn't implement WebGPU, a gpu-off WASM bundle, a decode
+//     error, a broken present. Not fixable by switching schemes, so the
+//     notice doesn't point at HTTPS for this one.
 //
 // Session-scoped dismissal only (a signal, no storage) — matches the
 // LAN-switch banner / update toast: "dismiss" hides it until the next full
