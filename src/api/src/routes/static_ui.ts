@@ -188,7 +188,7 @@ export const staticUiPlugin = new Elysia().get('/*', async ({ request, set }) =>
   // extension, e.g. `/edit/mylib/raws/IMG_0001.CR2`) as a path segment, so a
   // generic extension check would 404 a legitimate direct-navigation/reload
   // of the editor or preview route.
-  if (isAssetPath(uiPath)) {
+  if (isPkgAssetPath(uiPath)) {
     set.status = 404;
     return { error: 'Not found: ' + uiPath };
   }
@@ -207,7 +207,7 @@ export const staticUiPlugin = new Elysia().get('/*', async ({ request, set }) =>
  * lives under that prefix). The SPA fallback must never answer these with
  * index.html — see the #2408 comment above.
  */
-function isAssetPath(uiPath: string): boolean {
+function isPkgAssetPath(uiPath: string): boolean {
   return uiPath === '/pkg' || uiPath.startsWith('/pkg/');
 }
 
