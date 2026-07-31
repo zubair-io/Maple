@@ -146,6 +146,17 @@ export class PreviewShellComponent implements OnDestroy {
       this.unsubThumb = this.state.subscribeThumbUrl(id, (u) => this.thumbUrl.set(u));
       this.unsubPreview = this.state.subscribePreviewUrl(id, (u) => this.previewUrl.set(u));
     });
+    // Re-seed `infoOpen` whenever the viewport crosses the tablet breakpoint.
+    // The docked pane and the phone bottom sheet share this one signal, so a
+    // window resized down from tablet+ with the pane open would otherwise hand
+    // the sheet an already-open state and cover the photo — the exact default
+    // the phone branch exists to avoid. Reading only `isTabletPlus()` keeps
+    // this effect to layout changes, so it never clobbers an in-session
+    // toggle at a steady width, and it deliberately does not write through to
+    // storage: crossing a breakpoint is not the user expressing a preference.
+    effect(() => {
+      this.infoOpen.set(this.isTabletPlus() ? this.persistedInfoOpen() : false);
+    });
     this.applyRouteAddress();
   }
 
@@ -168,12 +179,17 @@ export class PreviewShellComponent implements OnDestroy {
 
   // ── Info pane persisted state (#2405) ────────────────────────────────────
 
+  /** The stored tablet+ preference, defaulting to open. Never consulted at
+   * phone width. */
+  private persistedInfoOpen(): boolean {
+    return TypedStorage.get<boolean>(STORAGE_KEYS.PREVIEW_INFO_OPEN) ?? true;
+  }
+
   /** `infoOpen`'s seed value, read once at construction. Tablet+ reads the
    * persisted preference (defaulting open); below the tablet breakpoint the
    * phone sheet always starts closed and the preference is never consulted. */
   private initialInfoOpen(): boolean {
-    if (this.layoutService.layout() === 'phone') return false;
-    return TypedStorage.get<boolean>(STORAGE_KEYS.PREVIEW_INFO_OPEN) ?? true;
+    return this.layoutService.layout() === 'phone' ? false : this.persistedInfoOpen();
   }
 
   /** Info button toggle handler. Writes through to the persisted preference
