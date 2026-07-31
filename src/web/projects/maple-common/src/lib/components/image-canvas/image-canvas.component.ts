@@ -56,18 +56,16 @@ export class ImageCanvasComponent
   @ViewChild('canvas') canvasRef!: ElementRef<HTMLCanvasElement>;
   @ViewChild('wrap') wrapRef!: ElementRef<HTMLElement>;
 
-  /** Hide the legacy zoom/before-after toolbar. The canvas-first Pro editor
-   * (#1535) supplies zoom via gestures + keyboard and before/after via its
-   * floating top-bar, so the toolbar would be a duplicate header there.
-   * Defaults false so the classic 3-column editor keeps its toolbar. */
+  /** Hide the legacy zoom/before-after toolbar — the canvas-first Pro editor
+   * (#1535) supplies both itself, so this would duplicate it. Defaults false
+   * so the classic 3-column editor keeps its toolbar. */
   readonly hideToolbar = input<boolean>(false);
 
   state = inject(LibraryStateService);
   canvasSvc = inject(ImageCanvasService);
   pipeline = inject(RawPipelineService);
-  // Public for `GpuPresentHost` (the GPU cold-open serializes the live model).
+  // Public for `GpuPresentHost` (serializes the model; 2D-fallback reporting, #2415).
   readonly xmpSerializer = inject(XmpSerializerService);
-  // Public for `GpuPresentHost` (#2415 — where a 2D fallback gets reported).
   readonly gpuFallback = inject(GpuFallbackNoticeService);
   private readonly injector = inject(Injector);
   private readonly cropSession = inject(CropSessionService);
@@ -107,9 +105,8 @@ export class ImageCanvasComponent
     runRender: (xmp, generation, sizing) => this.runRender(xmp, generation, sizing),
   });
   // Bytes + extension for the focused asset, retained so adjustment-driven
-  // re-renders don't re-read from the byte cache. `decode()` slices a copy of
-  // the buffer before transferring it into the worker, so the original view
-  // here is never detached — repeated decodes are safe.
+  // re-renders don't re-read the byte cache. `decode()` slices a copy before
+  // transferring it into the worker, so the original view here stays attached.
   private currentBytes: Uint8Array | null = null;
   private currentExt = '';
   // Public for `GpuPresentHost` (the helper drops stale session renders on it); component-bumped.
