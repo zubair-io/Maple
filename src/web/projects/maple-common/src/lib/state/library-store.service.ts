@@ -244,6 +244,10 @@ export class LibraryStore {
   }
 
   setAdjustment(id: AssetId, patch: Partial<AdjustmentModel>): void {
+    // Every setAdjustment call site is user-driven (sliders, WB pad, AUTO,
+    // RESET, undo, paste) — record it so a late sidecar restore (#2406)
+    // can never overwrite what the user is looking at.
+    this._sessionEdited.add(id);
     // A temperature/tint value in the patch WITHOUT an explicit preset is a
     // user WB edit — leave 'As Shot' for it and the serializer would drop
     // the pair on save (an As-Shot model's temperature/tint are the camera
@@ -271,11 +275,65 @@ export class LibraryStore {
     });
   }
 
+  /**
+   * Asset ids the user has touched this session — via `setAdjustment` or any
+   * scheduled sidecar write (culling included, see
+   * `LibraryFetch.scheduleSidecarWrite`). A sidecar restore must never
+   * overwrite these: the in-memory model is newer than whatever the fetch
+   * returns (#2406).
+   */
+  private readonly _sessionEdited = new Set<AssetId>();
+
+  markSessionEdited(id: AssetId): void {
+    this._sessionEdited.add(id);
+  }
+
+  /**
+   * Apply a sidecar-parsed adjustment model for `id` unless the user already
+   * edited it this session. Carries a decode-time As-Shot WB seed through
+   * when the sidecar doesn't author explicit WB values (an "As Shot" sidecar
+   * parses with no temperature/tint, and spreading it over defaults would
+   * reset the seeded camera reading to 6500 K). Returns whether it applied.
+   */
+  restoreAdjustment(id: AssetId, parsed: Partial<AdjustmentModel>): boolean {
+    if (this._sessionEdited.has(id)) return false;
+    this.adjustmentModels.update((map) => {
+      const current = map.get(id);
+      const wbSeed = current ? { temperature: current.temperature, tint: current.tint } : {};
+      const next = new Map(map);
+      next.set(id, { ...defaultAdjustmentModel(), ...wbSeed, ...parsed });
+      return next;
+    });
+    return true;
+  }
+
   // ── Self-Hosted id-map helpers ────────────────────────────────────────────
 
-  /** Returns the on-disk path for a Self-Hosted FS-walk asset, if any. */
+  /**
+   * Returns the on-disk path for a Self-Hosted asset, if resolvable.
+   *
+   * Legacy FS-walk assets are looked up in `assetAbsPaths`; post-M2
+   * `slug:relPath` addresses resolve through the registered library that
+   * owns the slug (`<library.path>/<relPath>`). The M2 cutover (#1325)
+   * stopped populating `assetAbsPaths`, which silently disabled every
+   * path-keyed write (XMP sidecar POST, developed-preview PUT) — the
+   * address fallback here is what revives them (#2406).
+   */
   absPathFor(assetId: AssetId): string | undefined {
-    return this.assetAbsPaths.get(assetId);
+    const legacy = this.assetAbsPaths.get(assetId);
+    if (legacy) return legacy;
+    if (!assetId.includes(':') || assetId.startsWith('fs:')) return undefined;
+    try {
+      const addr = parseAddress(assetId);
+      const library = this.registeredFolders().find(
+        (f) => f.slug === addr.slug || f.id === addr.slug,
+      );
+      if (!library) return undefined;
+      const root = library.path.replace(/\/+$/, '');
+      return addr.relPath ? `${root}/${addr.relPath}` : root;
+    } catch {
+      return undefined;
+    }
   }
 
   /** Returns the API id for a local asset id (Self-Hosted only). */
