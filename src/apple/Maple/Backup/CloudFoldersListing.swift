@@ -50,7 +50,8 @@ enum CloudFoldersListing {
             tokensProvider: { try? TokenStore.load(server: server) },
             // Mirror rotations into the File Provider store too — see CloudTokenPersistence.
             onTokensRefreshed: { try CloudTokenPersistence.persistRotated($0, server: server) },
-            onSignOut: { CloudTokenPersistence.clear(server: server) }
+            onSignOut: { CloudTokenPersistence.clear(server: server) },
+            refreshExecutor: BackgroundExecution()
         )
     }
 }
