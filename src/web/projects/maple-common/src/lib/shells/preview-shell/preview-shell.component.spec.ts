@@ -6,17 +6,13 @@
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
-import { signal } from '@angular/core';
 import { of } from 'rxjs';
 
 import { PreviewShellComponent } from './preview-shell.component';
 import { LibraryStateService } from '../../state/library-state.service';
-import { LIBRARY_BACKEND } from '../../api/library-backend.token';
-import { BunApiBackendService } from '../../api/bun-api-backend.service';
 import { viewRouteCommands, editRouteCommands } from '../../addressing/route-address';
 import { STORAGE_KEYS } from '../../util/typed-storage';
-import { LayoutService, type MapleLayout } from '../../layout-service';
-import type { Asset } from '../../models/asset';
+import { STUB_ASSET, setupFixture } from './preview-shell.test-helpers';
 
 // This spec constructs the real PreviewShellComponent, which reads/writes
 // `cm.preview.infoOpen` directly against jsdom's shared localStorage — clear
@@ -111,86 +107,6 @@ function setup(opts: {
     setRating,
     setFlag,
   };
-}
-
-const STUB_ASSET: Asset = {
-  id: 'library:2026/a.jpg',
-  filename: '2026/a.jpg',
-  folderId: 'folder-1',
-  rating: 0,
-  flag: 'unflagged',
-  colorLabel: null,
-  thumbnailGradient: '',
-  aspectRatio: 1.5,
-};
-
-/** Full-template fixture (via `TestBed.createComponent`) for the bottom
- * action bar — needs `LIBRARY_BACKEND` + `BunApiBackendService` stubs
- * because `<app-info-panel>` (imported for the Info sheet/pane) pulls in
- * `<app-info-enrichment>` and `<app-info-histogram>`, which inject those
- * services. Mirrors info-panel.component.spec.ts's fake-service pattern. */
-function setupFixture(opts: { navigate?: ReturnType<typeof vi.fn>; layout?: MapleLayout } = {}) {
-  const navigate = opts.navigate ?? vi.fn();
-  const state = {
-    backend: 'self-hosted',
-    assets: () => [{ id: STUB_ASSET.id, filename: STUB_ASSET.filename }],
-    assetsInSelectedFolder: () => [],
-    focusedAsset: signal<Asset | null>(STUB_ASSET),
-    focusedAssetId: signal<string | undefined>(STUB_ASSET.id),
-    selectAsset: vi.fn(),
-    openSelfHostedSubfolder: vi.fn(),
-    hydrateSelfHostedFsAsset: vi.fn(() => null),
-    subscribeThumbUrl: vi.fn(() => () => {}),
-    subscribePreviewUrl: vi.fn(() => () => {}),
-    ensureThumbnailUrl: vi.fn(),
-    flushPendingXmpWrites: vi.fn(),
-    setFlag: vi.fn(),
-    setRating: vi.fn(),
-    focusNext: vi.fn(),
-    focusPrev: vi.fn(),
-    apiIdFor: vi.fn().mockReturnValue(undefined),
-  };
-  const route = {
-    url: of([]),
-    snapshot: { paramMap: convertToParamMap({}), url: [] },
-  };
-  const fakeBunApi = {
-    getWorkerStatus: vi.fn().mockReturnValue(of({ stages: [] })),
-    getAssetDetails: vi.fn().mockReturnValue(of()),
-    // Grid assets carry no Mongo id, so the enrichment pane now resolves their
-    // detail by `slug:relPath` address (#2236). `of()` completes without
-    // emitting, leaving the pane empty — what this spec already asserts.
-    getAssetDetailsByAddress: vi.fn().mockReturnValue(of()),
-    setAssetPlaceOverride: vi.fn(),
-    setAssetDescriptionOverride: vi.fn(),
-    requeueEnrichmentStage: vi.fn(),
-    getHistogram: vi
-      .fn()
-      .mockReturnValue(
-        of({ r: new Array(256).fill(0), g: new Array(256).fill(0), b: new Array(256).fill(0) }),
-      ),
-  };
-
-  TestBed.resetTestingModule();
-  TestBed.configureTestingModule({
-    imports: [PreviewShellComponent],
-    providers: [
-      { provide: ActivatedRoute, useValue: route },
-      { provide: Router, useValue: { navigate } },
-      { provide: LibraryStateService, useValue: state },
-      { provide: LIBRARY_BACKEND, useValue: 'self-hosted' },
-      { provide: BunApiBackendService, useValue: fakeBunApi },
-      // Defaults to 'tablet' (tablet+) so the pre-existing (layout-agnostic)
-      // tests above keep exercising the same DOM shape they always have.
-      {
-        provide: LayoutService,
-        useValue: { layout: signal<MapleLayout>(opts.layout ?? 'tablet') },
-      },
-    ],
-  });
-  const fixture = TestBed.createComponent(PreviewShellComponent);
-  fixture.detectChanges();
-  return { fixture, navigate, state };
 }
 
 describe('PreviewShellComponent', () => {
@@ -375,6 +291,25 @@ describe('PreviewShellComponent', () => {
     phoneComp.toggleInfo();
     expect(phoneComp.infoOpen()).toBe(true);
     expect(localStorage.getItem(STORAGE_KEYS.PREVIEW_INFO_OPEN)).toBeNull();
+  });
+
+  it('resizing tablet+ → phone closes the pane instead of handing the sheet an open state', () => {
+    const { fixture, layout } = setupFixture({ layout: 'tablet' });
+    const comp = fixture.componentInstance;
+    expect(comp.infoOpen()).toBe(true);
+
+    // The docked pane and the phone bottom sheet share one `infoOpen` signal,
+    // so without the layout-sync effect the sheet would mount already-open and
+    // cover the photo — the default the phone branch exists to avoid.
+    layout.set('phone');
+    fixture.detectChanges();
+    expect(comp.infoOpen()).toBe(false);
+    expect(fixture.nativeElement.querySelector('.info-pane')).toBeNull();
+
+    // Going back up re-seeds from the stored preference rather than staying shut.
+    layout.set('tablet');
+    fixture.detectChanges();
+    expect(comp.infoOpen()).toBe(true);
   });
 
   // ── Prev/next navigation + keyboard shortcuts (#Web Preview Surface Task 5) ─
