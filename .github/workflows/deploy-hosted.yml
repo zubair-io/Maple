@@ -1,0 +1,128 @@
+# .github/workflows/deploy-hosted.yml
+#
+# Ships the Hosted app (`maple-syrup`) to Azure Blob Storage — the same
+# pattern Just Maple uses for justmaple.app: `azure/login@v2` with the
+# `AZURE_CREDENTIALS` service principal, then `az storage blob upload-batch`
+# into a container on the `hornbeam` storage account. Here the container is
+# `maple-syrup` and the payload is `src/web/dist/maple-syrup/browser`.
+#
+# One job, and it is deliberately heavier than the Just Maple original:
+# the Hosted app imports the Rust -> WASM `pkg/`
+# (projects/maple-common/.../raw-pipeline/raw-wasm-init.ts), and that `pkg/`
+# is a gitignored build artifact — so `ng build maple-syrup` cannot resolve
+# its modules until the WASM is built. That means nightly Rust + rust-src +
+# the wasm32 target + wasm-pack, exactly as in web.yml's `web-build` job.
+# The cargo cache key is deliberately identical to web.yml's, so a deploy
+# restores the `-Z build-std` artifacts that the gate on the same commit
+# already produced instead of recompiling the standard library.
+#
+# `web.yml` gates this same `ng build maple-syrup` on every push and PR, so a
+# compile break can't reach this workflow — this one exists to publish, not
+# to gate.
+#
+# Path filter: the Hosted bundle is a function of `src/web/` and the Rust
+# core it compiles to WASM, so those two trees (plus this file) are what
+# warrant a redeploy. `src/api/` is intentionally absent — the web app
+# imports types from it, and types don't survive into emitted JS.
+#
+# Not handled here, because they are account configuration rather than
+# repo state: the `maple-syrup` container must exist on `hornbeam` with SPA
+# fallback (unknown paths -> index.html, HTTP 200), and the COOP/COEP pair
+# in projects/maple-syrup/public/_headers is inert on Azure Blob — that file
+# is a Cloudflare Pages / Netlify convention and Blob storage has no
+# equivalent, so cross-origin isolation (and with it the wasm-bindgen-rayon
+# thread pool) has to come from a Cloudflare transform rule at the edge.
+# Without it the app still loads and renders, single-threaded — see
+# src/web/DEPLOY.md "WASM threading + cross-origin isolation (T10)".
+
+name: deploy-hosted
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/web/**'
+      - 'src/raw-pipeline/**'
+      - '.github/workflows/deploy-hosted.yml'
+  workflow_dispatch:
+
+# Never cancel a deploy that is already uploading — a half-written container
+# is worse than a superseded one. Later pushes queue behind it instead.
+concurrency:
+  group: deploy-hosted
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    name: build-and-deploy (ng build maple-syrup -> hornbeam/maple-syrup)
+    runs-on: ubuntu-latest
+    # A cold cargo cache means a full `-Z build-std` compile of the standard
+    # library before Angular even starts, so the 5-minute budget the Just
+    # Maple workflow gets away with is not survivable here.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Pinned to match raw-wasm/rust-toolchain.toml, same as web.yml.
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2025-10-01
+          components: rust-src
+          targets: wasm32-unknown-unknown
+
+      - uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
+
+      # Same key as web.yml's jobs — on a push to main the gate populates it,
+      # and this job restores rather than rebuilds.
+      - name: Cache cargo registry + raw-pipeline target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/raw-pipeline/target
+          key: web-wasm-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
+
+      - name: Install web deps
+        working-directory: src/web
+        run: bun install --frozen-lockfile
+
+      # Builds + syncs pkg/ and writes the build stamp, so the `prebuild:syrup`
+      # lifecycle hook below no-ops off it (no double build) and the WASM is
+      # present even if bun skips the hook.
+      - name: Build raw-wasm (pkg/)
+        working-directory: src/web
+        run: bun run raw-wasm
+
+      - name: Production Hosted build (ng build maple-syrup)
+        working-directory: src/web
+        run: bun run build:syrup
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # upload-batch adds and overwrites but never deletes, which is what a
+      # hash-named SPA bundle wants: a client mid-session can still fetch the
+      # chunks of the build it loaded.
+      - name: Upload to blob storage
+        uses: azure/CLI@v2
+        with:
+          inlineScript: |
+            az storage blob upload-batch \
+              --overwrite true \
+              --account-name hornbeam \
+              --auth-mode login \
+              -d 'maple-syrup' \
+              -s src/web/dist/maple-syrup/browser
+
+      - name: Azure Logout
+        run: az logout
+        if: always()
