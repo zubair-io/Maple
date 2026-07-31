@@ -6,7 +6,7 @@
 // out from under a keyboard user who thinks they're nudging a slider.
 
 import { TestBed } from '@angular/core/testing';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { LivingSliderComponent } from './living-slider.component';
 
 function createTrack(
@@ -125,6 +125,10 @@ describe('LivingSliderComponent — dragStart/dragEnd gesture boundary (#2411)',
     return new PointerEvent(type, { button: 0, clientX, pointerId, bubbles: true });
   }
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('pointerdown fires dragStart exactly once, before any valueChange', () => {
     const { slider, track } = render();
     const events: string[] = [];
@@ -174,6 +178,68 @@ describe('LivingSliderComponent — dragStart/dragEnd gesture boundary (#2411)',
     window.dispatchEvent(pointerEvent('pointerup', 0));
 
     expect(startCount).toBe(2);
+  });
+
+  // Multi-touch re-entrancy (PR #2418 review): a second finger's pointerdown
+  // mid-drag must not open a second gesture — an extra dragStart would push
+  // an extra undo commit for one interaction, and overwriting _boundPointer*
+  // without removing the old handlers would leak window listeners.
+  it('a second pointerdown mid-drag is ignored — dragStart fires once', () => {
+    const { slider, track } = render();
+    const events: string[] = [];
+    slider.dragStart.subscribe(() => events.push('start'));
+    slider.dragEnd.subscribe(() => events.push('end'));
+
+    track.dispatchEvent(pointerEvent('pointerdown', 0, 1));
+    track.dispatchEvent(pointerEvent('pointerdown', 80, 2)); // second finger
+    window.dispatchEvent(pointerEvent('pointerup', 20, 1));
+
+    expect(events).toEqual(['start', 'end']);
+  });
+
+  it('only the active pointer ends the gesture; other pointers cannot', () => {
+    const { slider, track } = render();
+    track.dispatchEvent(pointerEvent('pointerdown', 0, 1));
+
+    window.dispatchEvent(pointerEvent('pointerup', 50, 2)); // stray pointer
+    expect(slider.dragging()).toBe(true);
+
+    window.dispatchEvent(pointerEvent('pointerup', 20, 1));
+    expect(slider.dragging()).toBe(false);
+  });
+
+  it('moves from a non-active pointer do not drive the value', () => {
+    const { slider, track } = render();
+    let changeCount = 0;
+    slider.valueChange.subscribe(() => changeCount++);
+
+    track.dispatchEvent(pointerEvent('pointerdown', 0, 1));
+    window.dispatchEvent(pointerEvent('pointermove', 40, 2)); // stray pointer
+    expect(changeCount).toBe(0);
+
+    window.dispatchEvent(pointerEvent('pointermove', 40, 1));
+    expect(changeCount).toBe(1);
+    window.dispatchEvent(pointerEvent('pointerup', 40, 1));
+  });
+
+  it('every window listener added by a drag is removed on release, even with a mid-drag pointerdown', () => {
+    const { track } = render();
+    const addSpy = vi.spyOn(window, 'addEventListener');
+    const removeSpy = vi.spyOn(window, 'removeEventListener');
+
+    track.dispatchEvent(pointerEvent('pointerdown', 0, 1));
+    track.dispatchEvent(pointerEvent('pointerdown', 80, 2)); // re-entrant down
+    window.dispatchEvent(pointerEvent('pointerup', 20, 1));
+
+    const pointerTypes = ['pointermove', 'pointerup', 'pointercancel'];
+    const added = addSpy.mock.calls.filter(([type]) => pointerTypes.includes(type as string));
+    const removed = removeSpy.mock.calls.filter(([type]) => pointerTypes.includes(type as string));
+    expect(added.length).toBe(3); // one set of listeners, not two
+    expect(removed.length).toBe(3);
+    // The exact handler references that were added are the ones removed.
+    const addedFns = added.map(([, fn]) => fn);
+    const removedFns = removed.map(([, fn]) => fn);
+    expect(new Set(removedFns)).toEqual(new Set(addedFns));
   });
 
   it('a held arrow key (repeated keydown) opens ONE dragStart, closed by keyup', () => {
