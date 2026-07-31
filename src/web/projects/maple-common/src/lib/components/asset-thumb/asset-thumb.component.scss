@@ -20,6 +20,17 @@
   border-color: rgba(255, 255, 255, 0.2);
 }
 
+/* Keyboard focus (#2414 follow-up). The repo-wide focus pattern is
+   `outline: 2px solid var(--color-primary); outline-offset: 2px` on
+   :focus-visible, but this component's header documents that outlines
+   clip intermittently under the thumb's own overflow:hidden — so keyboard
+   focus lights the same .thumb-ring overlay the selected/focused states
+   use, with the same token. :focus-visible (not :focus) so pointer
+   clicks don't flash a ring. */
+.thumb:focus-visible .thumb-ring {
+  border-color: var(--color-primary);
+}
+
 /* Applied whenever a photo is hidden, in every view (including the
    hidden-only filter) — dimmed so the HIDDEN badge above reads as an
    overlay on something de-emphasized rather than a normal photo with an
