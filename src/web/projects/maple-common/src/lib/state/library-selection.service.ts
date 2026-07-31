@@ -25,6 +25,24 @@ export class LibrarySelection {
   // (i.e. it's a selection-shaping input, not library data).
   readonly searchQuery = signal<string>('');
 
+  // ── Select mode (#2404) ────────────────────────────────────────────────────
+  // Session-scoped, not persisted — mirrors Apple's `BrowseVM.isSelecting`,
+  // which is view-model state rather than a stored preference. Off by
+  // default: a plain grid click navigates to Preview. While on, every click
+  // toggles selection membership instead. Toggled from the toolbar's Select
+  // pill; Escape exits it. Leaving the mode does NOT clear the selection —
+  // the batch-metadata / pano / copy-paste pills stay enabled off
+  // `selectedCount()` and clearing here would defeat the point of the mode.
+  readonly isSelecting = signal<boolean>(false);
+
+  toggleSelectMode(): void {
+    this.isSelecting.update((v) => !v);
+  }
+
+  exitSelectMode(): void {
+    this.isSelecting.set(false);
+  }
+
   /**
    * Label of the currently selected sidebar entry (recursive lookup), or empty
    * when nothing is selected. Used by the BrowseShell title bar.

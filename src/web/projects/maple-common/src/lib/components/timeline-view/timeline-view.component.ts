@@ -493,14 +493,26 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
   }
 
   // ── Click handlers ───────────────────────────────────────────────────────
+  /**
+   * Grid click semantics (#2404), same contract as AssetGridComponent's
+   * onThumbClick so Folder and Timeline mode behave identically: a plain
+   * click selects and navigates to `/view/…`; Cmd/Ctrl-click and
+   * Shift-click each mutate the selection and never navigate; while Select
+   * mode is on, every click toggles membership and never navigates.
+   */
   onPhotoClick(p: PhotoVm, e: MouseEvent): void {
     this._hydrate(p);
-    this.state.selectAsset(p.id, e.metaKey || e.ctrlKey, e.shiftKey);
-  }
 
-  onPhotoDblClick(p: PhotoVm): void {
-    this._hydrate(p);
-    this.state.selectAsset(p.id);
+    if (this.state.isSelecting()) {
+      this.state.selectAsset(p.id, true, false);
+      return;
+    }
+
+    const additive = e.metaKey || e.ctrlKey;
+    const range = e.shiftKey;
+    this.state.selectAsset(p.id, additive, range);
+    if (additive || range) return;
+
     void this.router.navigate(viewRouteCommands(p.id));
   }
 

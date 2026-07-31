@@ -33,6 +33,7 @@ describe('AssetThumbComponent — component-owned thumbnail signal', () => {
           useValue: {
             ensureThumbnailUrl: (a: Asset) => ensureCalls.push(a.id),
             subscribeThumbUrl,
+            isSelecting: () => false,
           },
         },
       ],
@@ -110,6 +111,7 @@ describe('AssetThumbComponent — no-preview badge', () => {
           useValue: {
             ensureThumbnailUrl: () => {},
             subscribeThumbUrl,
+            isSelecting: () => false,
           },
         },
       ],
@@ -159,5 +161,80 @@ describe('AssetThumbComponent — no-preview badge', () => {
   it('does not render the badge once a thumbnail resolves, even for a stub extension', () => {
     const fixture = render('scan.eip', 'blob:loaded');
     expect(fixture.nativeElement.textContent).not.toContain('EIP');
+  });
+});
+
+describe('AssetThumbComponent — Select-mode checkbox (#2404)', () => {
+  function configure(selecting: boolean) {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        {
+          provide: LibraryStateService,
+          useValue: {
+            ensureThumbnailUrl: () => {},
+            subscribeThumbUrl: (_id: AssetId, cb: ThumbCb) => {
+              cb(undefined);
+              return () => {};
+            },
+            isSelecting: () => selecting,
+          },
+        },
+      ],
+    });
+  }
+
+  function render(opts: { selecting: boolean; selected?: boolean; edited?: boolean }) {
+    configure(opts.selecting);
+    const fixture = TestBed.createComponent(AssetThumbComponent);
+    fixture.componentRef.setInput('asset', {
+      ...makeAsset('lib:a.jpg'),
+      edited: opts.edited ?? false,
+    });
+    fixture.componentRef.setInput('selected', opts.selected ?? false);
+    fixture.componentRef.setInput('variant', 'grid');
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('renders no checkbox affordance when Select mode is off', () => {
+    const fixture = render({ selecting: false, selected: true });
+    expect(fixture.nativeElement.querySelector('[data-testid="select-checkbox"]')).toBeNull();
+  });
+
+  it('renders an unchecked affordance in Select mode when not selected', () => {
+    const fixture = render({ selecting: true, selected: false });
+    const badge = fixture.nativeElement.querySelector('[data-testid="select-checkbox"]');
+    expect(badge).not.toBeNull();
+    expect(badge!.classList.contains('bg-primary')).toBe(false);
+    expect(badge!.querySelector('svg')).toBeNull();
+  });
+
+  it('renders a checked affordance in Select mode when selected', () => {
+    const fixture = render({ selecting: true, selected: true });
+    const badge = fixture.nativeElement.querySelector('[data-testid="select-checkbox"]');
+    expect(badge).not.toBeNull();
+    expect(badge!.classList.contains('bg-primary')).toBe(true);
+    expect(badge!.querySelector('svg')).not.toBeNull();
+  });
+
+  it('shifts the checkbox left of the edited badge when both render', () => {
+    const fixture = render({ selecting: true, selected: true, edited: true });
+    const badge = fixture.nativeElement.querySelector('[data-testid="select-checkbox"]');
+    expect(badge!.classList.contains('right-[22px]')).toBe(true);
+    // The edited badge keeps its usual spot.
+    const editedBadge = fixture.nativeElement.querySelector('.border-success-text');
+    expect(editedBadge).not.toBeNull();
+    expect(editedBadge!.classList.contains('right-[5px]')).toBe(true);
+  });
+
+  it('does not render the checkbox for the filmstrip variant even in Select mode', () => {
+    configure(true);
+    const fixture = TestBed.createComponent(AssetThumbComponent);
+    fixture.componentRef.setInput('asset', makeAsset('lib:a.jpg'));
+    fixture.componentRef.setInput('selected', true);
+    fixture.componentRef.setInput('variant', 'filmstrip');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-testid="select-checkbox"]')).toBeNull();
   });
 });

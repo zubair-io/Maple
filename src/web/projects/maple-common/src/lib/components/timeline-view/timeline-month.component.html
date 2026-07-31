@@ -46,6 +46,7 @@
         @if (!isCollapsed(g.folderName)) {
           <div class="flex flex-wrap gap-1 px-4 pb-2">
             @for (p of g.photos; track trackPhoto($index, p)) {
+              @let isChecked = state.selectedAssetIds().has(p.id);
               <button
                 type="button"
                 class="timeline-photo relative h-[140px] w-[140px] flex-shrink-0 cursor-pointer overflow-hidden rounded-sm border-[0.5px] border-border bg-surface-hover transition-[border-color] duration-[120ms] hover:border-primary"
@@ -53,7 +54,6 @@
                 [class.dimmed]="p.hidden"
                 [attr.aria-label]="p.filename"
                 (click)="photoClick.emit({ photo: p, event: $event })"
-                (dblclick)="photoDblClick.emit(p)"
               >
                 @if (p.thumbUrl) {
                   <img
@@ -76,6 +76,21 @@
                     class="absolute bottom-1 right-1 rounded bg-black/45 px-1 py-0.5 text-[10px] text-white backdrop-blur-[4px]"
                   >
                     {{ p.rating }}★
+                  </div>
+                }
+                <!-- Select-mode checkbox (#2404) — mirrors asset-thumb's
+                     top-right badge in the grid view. -->
+                @if (state.isSelecting()) {
+                  <div
+                    data-testid="select-checkbox"
+                    [class]="
+                      'absolute right-1 top-1 flex h-[14px] w-[14px] items-center justify-center rounded-[3px] border-[0.5px] backdrop-blur-[4px] ' +
+                      (isChecked ? 'bg-primary border-primary' : 'bg-black/45 border-white/30')
+                    "
+                  >
+                    @if (isChecked) {
+                      <maple-icon name="check" [size]="9" [strokeWidth]="2" color="white" />
+                    }
                   </div>
                 }
               </button>
