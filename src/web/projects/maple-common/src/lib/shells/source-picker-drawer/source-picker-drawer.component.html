@@ -72,27 +72,26 @@
     <!-- Search pill — visually an input, behaviourally a button. Tap
          switches the host to the Search tab; the drawer dismisses itself
          before emitting so the host doesn't have to remember to do it. -->
-    @if (showSearch()) {
-      <button
-        type="button"
-        class="search-pill"
-        data-testid="source-picker-drawer-search-pill"
-        (click)="onSearchPillTap()"
-      >
-        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
-          <circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5" fill="none" />
-          <path
-            d="M9.5 9.5L12.5 12.5"
-            stroke="currentColor"
-            stroke-width="1.5"
-            stroke-linecap="round"
-          />
-        </svg>
-        <span>Search photos</span>
-      </button>
+    <button
+      type="button"
+      class="search-pill"
+      data-testid="source-picker-drawer-search-pill"
+      [hidden]="!showSearch()"
+      (click)="onSearchPillTap()"
+    >
+      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+        <circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5" fill="none" />
+        <path
+          d="M9.5 9.5L12.5 12.5"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+        />
+      </svg>
+      <span>Search photos</span>
+    </button>
 
-      <hr class="separator" />
-    }
+    <hr class="separator" [hidden]="!showSearch()" />
 
     <!-- Source tree — rendered from the input. Section / subheader rows
          are visual group headers; tapping them does nothing. -->

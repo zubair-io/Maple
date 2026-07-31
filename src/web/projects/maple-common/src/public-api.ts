@@ -103,6 +103,7 @@ export * from './lib/state/store';
 export * from './lib/xmp/sidecar-idb-cache';
 export * from './lib/xmp/sidecar.store';
 export * from './lib/xmp/sidecar-save-state.service';
+export * from './lib/export/single-file-save-notice.component';
 // People page SWR cache (list + per-person detail).
 export * from './lib/api/people.store';
 

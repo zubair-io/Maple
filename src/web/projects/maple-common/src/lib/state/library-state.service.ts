@@ -27,7 +27,6 @@ import { LibraryStatusService } from './library-status.service';
 import { BrowsePreferencesService } from './browse-preferences.service';
 import { EditPreviewPersistService } from './edit-preview-persist.service';
 import { XmpAdjustmentRestoreService } from '../xmp/xmp-adjustment-restore.service';
-import { SidecarSaveStateService } from '../xmp/sidecar-save-state.service';
 
 // Re-export RAW-extension helpers for callers that import from this module.
 export { SUPPORTED_RAW_EXTENSIONS, isSupportedRaw } from './library-fetch.service';
@@ -44,13 +43,9 @@ export class LibraryStateService {
   // Instantiated for its focused-asset effect: restores persisted XMP
   // adjustments on reload / deep-link hydration (#2406).
   private readonly xmpRestore = inject(XmpAdjustmentRestoreService);
-  private readonly sidecarSave = inject(SidecarSaveStateService);
 
   // ── Backend identity ──────────────────────────────────────────────────────
   readonly backend = this.store.backend;
-  readonly sidecarSavePhase = this.sidecarSave.phase;
-  readonly sidecarSaveError = this.sidecarSave.error;
-  readonly hasUnsavedChanges = this.sidecarSave.hasUnsavedChanges;
 
   // ── Self-Hosted bootstrap state ────────────────────────────────────────────
   // Async-lifecycle signals live in LibraryStatusService (slice 3 of #191);

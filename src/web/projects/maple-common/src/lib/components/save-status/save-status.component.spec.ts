@@ -40,4 +40,15 @@ describe('SaveStatusComponent', () => {
 
     expect(state.phase()).toBe('unsaved');
   });
+
+  it('keeps a failure visible when a different asset saves later', () => {
+    const failed = state.queued('asset-1');
+    const saved = state.queued('asset-2');
+    state.failed('asset-1', failed, new Error('Disk full'));
+    state.saved('asset-2', saved);
+
+    expect(state.phase()).toBe('error');
+    expect(state.error()).toBe('Disk full');
+    expect(state.hasUnsavedChanges()).toBe(true);
+  });
 });

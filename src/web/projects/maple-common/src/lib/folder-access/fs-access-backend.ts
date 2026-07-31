@@ -40,7 +40,7 @@ function openHandleDb(): Promise<IDBDatabase> {
   });
 }
 
-export async function persistHandle(handle: FileSystemDirectoryHandle): Promise<string> {
+async function persistHandle(handle: FileSystemDirectoryHandle): Promise<string> {
   const key = crypto.randomUUID();
   const record: PersistedHandleRecord = {
     key,
