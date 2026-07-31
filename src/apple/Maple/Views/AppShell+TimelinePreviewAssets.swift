@@ -192,6 +192,13 @@ extension AppShell {
     /// than crash on a throwing init.
     private func photoKitAssetRef(_ ref: ImageRef, photoKitSource: inout PhotoKitSource?) -> AssetRef? {
         if photoKitSource == nil {
+            // Never construct one before the user has opted in: the init
+            // subscribes to library changes, and registering an observer
+            // while authorization is `.notDetermined` raises the system
+            // prompt (#2454). A timeline can only hold PhotoKit cells when
+            // access was already granted, so this guard costs nothing.
+            let status = PhotoKitLibrary.authorizationStatus()
+            guard status == .authorized || status == .limited else { return nil }
             photoKitSource = try? PhotoKitSource()
         }
         guard let source = photoKitSource else { return nil }

@@ -40,6 +40,12 @@ struct LibrarySidebar: View {
     let onPickAncestor: (URL, Data) -> Void
     let onPickPhotosFilter: (PhotoKitFilter) -> Void
     let onRequestPhotosAccess: () -> Void
+    /// Bumped by `AppShell` after the user grants PhotoKit access from the
+    /// permission panel. The sidebar can't observe authorization directly —
+    /// PhotoKit has no such publisher — and it deliberately does not touch
+    /// PhotoKit while undecided, so this counter is what tells it to re-read
+    /// the status, load albums, and subscribe to library changes (#2454).
+    var photosAuthGeneration: Int = 0
     let onAddSMB: () -> Void
     let onPickSMB: (SMBCredentialStore.SavedShare) -> Void
     /// Open the AddMapleCloudSheet (no prefilled domain).
@@ -119,17 +125,15 @@ struct LibrarySidebar: View {
         .background(MapleTokens.sidebar)
         .task {
             await refreshAll()
-            // Subscribe to library-change notifications so albums refresh
-            // the moment the user adds/removes one in another app.
-            // Subscriptions live on a process-wide singleton observer that
-            // PhotoKit registers exactly once per process; safe to call
-            // every appearance.
-            let token = PhotoKitChangeObserver.shared.subscribe {
-                Task { @MainActor in
-                    await refreshAll()
-                }
+            subscribeToPhotoLibraryChangesIfAuthorized()
+        }
+        // Re-run once the user grants access from the permission panel: this
+        // is the appearance-time work that was skipped while undecided.
+        .onChange(of: photosAuthGeneration) { _, _ in
+            Task { @MainActor in
+                await refreshAll()
+                subscribeToPhotoLibraryChangesIfAuthorized()
             }
-            photosChangeToken = token
         }
         // `.task` is implicitly cancelled when the view leaves the hierarchy;
         // unsubscribe alongside it. Without explicit cleanup the singleton
@@ -424,6 +428,31 @@ struct LibrarySidebar: View {
     }
 
     // MARK: - Refresh
+
+    /// Subscribe to PhotoKit library-change notifications so albums refresh
+    /// the moment the user adds or removes one in another app.
+    ///
+    /// Gated on already having access, and that gate is the whole point: the
+    /// subscription registers a `PHPhotoLibraryChangeObserver`, and
+    /// registering one while authorization is `.notDetermined` IS an
+    /// authorization request — it raised the system permission dialog at
+    /// launch, before the user had touched anything (#2454). Nothing in this
+    /// sidebar may reach PhotoKit until the user has opted in from the
+    /// permission panel; `photosAuthGeneration` re-drives this afterwards.
+    ///
+    /// Subscriptions live on a process-wide singleton observer that PhotoKit
+    /// registers exactly once per process, so calling this on every
+    /// appearance is safe once the gate passes.
+    @MainActor
+    private func subscribeToPhotoLibraryChangesIfAuthorized() {
+        guard photosStatus == .authorized || photosStatus == .limited else { return }
+        guard photosChangeToken == nil else { return }
+        photosChangeToken = PhotoKitChangeObserver.shared.subscribe {
+            Task { @MainActor in
+                await refreshAll()
+            }
+        }
+    }
 
     /// Re-read persistent stores. Called on `.task` appearance.
     private func refreshAll() async {

@@ -29,6 +29,12 @@ enum BrowseGridVM {
     /// reason the folder is empty rather than whether it is.
     struct EmptyStateInputs {
         let photosAuthNeeded: Bool
+        /// True while PhotoKit is `.notDetermined` — the one state where the
+        /// system prompt can still be raised. Once the user has declined,
+        /// iOS never shows that prompt again, so a Connect button would be a
+        /// dead end and the panel offers Settings instead. Only read when
+        /// `photosAuthNeeded` is true.
+        let photosAuthCanRequest: Bool
         let isLoading: Bool
         let hasLoadError: Bool
         let hasCurrentSource: Bool
@@ -41,12 +47,36 @@ enum BrowseGridVM {
         photosAuthNeeded ? "lock.shield" : "photo.on.rectangle.angled"
     }
 
+    // MARK: - Photos permission panel (#2454)
+
+    /// Title for the Photos-permission panel. Splits on whether the system
+    /// prompt is still available: an undecided user is being invited to
+    /// connect, a declined one is being told where the switch now lives.
+    static func photosAuthTitle(canRequest: Bool) -> String {
+        canRequest ? "Connect your Photos library" : "Photos access is turned off"
+    }
+
+    /// Body copy for the Photos-permission panel. The `canRequest` branch
+    /// says what Maple does with the library and reassures on the
+    /// non-destructive invariant; the declined branch explains that the
+    /// choice was already made and is reversible in Settings.
+    static func photosAuthBody(canRequest: Bool) -> String {
+        canRequest
+            ? "Maple reads the photos and RAW files in your library so you can browse and edit them here. Your originals are never modified — every edit is saved alongside them."
+            : "Maple was declined access to your photo library, and iOS won't ask again. You can turn it back on in Settings."
+    }
+
+    /// Label for the panel's action button.
+    static func photosAuthButtonTitle(canRequest: Bool) -> String {
+        canRequest ? "Connect" : "Open Settings"
+    }
+
     /// Primary line of the empty-state overlay. Branches only on whether
     /// the user still owes Maple Photos access — every other branch
     /// shares the "No assets yet" copy and is differentiated by the
     /// secondary line below.
-    static func emptyStatePrimaryTitle(photosAuthNeeded: Bool) -> String {
-        photosAuthNeeded ? "Photos access not granted" : "No assets yet"
+    static func emptyStatePrimaryTitle(photosAuthNeeded: Bool, photosAuthCanRequest: Bool) -> String {
+        photosAuthNeeded ? photosAuthTitle(canRequest: photosAuthCanRequest) : "No assets yet"
     }
 
     /// Classifies which secondary line the empty-state view should
@@ -60,7 +90,13 @@ enum BrowseGridVM {
     ///   4. `hasCurrentSource` → "no supported RAW files"
     ///   5. otherwise → "pick a folder / Photos filter"
     enum EmptyStateSecondary: Equatable {
-        case photosAuthCTA
+        /// Undecided — the panel invites the user to Connect, which raises
+        /// the system prompt.
+        case photosAuthConnect
+        /// Declined or restricted — the prompt is spent, so the panel sends
+        /// the user to Settings instead of offering a button that would do
+        /// nothing.
+        case photosAuthSettings
         case loading
         case loadError
         case sourceHasNoRaws
@@ -71,7 +107,9 @@ enum BrowseGridVM {
     /// into `BrowseViewModel` directly any more — it lifts the four
     /// inputs out and asks this function which branch to render.
     static func emptyStateSecondary(_ inputs: EmptyStateInputs) -> EmptyStateSecondary {
-        if inputs.photosAuthNeeded { return .photosAuthCTA }
+        if inputs.photosAuthNeeded {
+            return inputs.photosAuthCanRequest ? .photosAuthConnect : .photosAuthSettings
+        }
         if inputs.isLoading { return .loading }
         if inputs.hasLoadError { return .loadError }
         if inputs.hasCurrentSource { return .sourceHasNoRaws }

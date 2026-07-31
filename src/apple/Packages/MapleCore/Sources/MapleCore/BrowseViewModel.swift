@@ -40,9 +40,15 @@ public final class BrowseViewModel {
     /// Last load error; views can surface a banner when non-nil.
     public var loadError: Error?
     /// When non-nil the user selected a Photos-library filter but the app
-    /// doesn't yet have PhotoKit permission. Views should surface a "Grant
-    /// Access" empty state rather than silently loading zero assets.
+    /// doesn't yet have PhotoKit permission. Views should surface the
+    /// permission panel rather than silently loading zero assets.
     public var photosAuthNeeded: Bool = false
+    /// True while PhotoKit authorization is `.notDetermined` — the only state
+    /// in which the system prompt can still be raised. Once the user declines,
+    /// iOS never shows it again, so the panel must offer Settings rather than
+    /// a Connect button that would silently do nothing (#2454). Only
+    /// meaningful while `photosAuthNeeded` is true.
+    public var photosAuthCanRequest: Bool = true
     /// The source feeding the grid. Nil until the user picks one.
     /// `@ObservationIgnored` — callers interested in changes should observe
     /// `assets` / `selectedID` which change together with the source.
@@ -348,9 +354,13 @@ public final class BrowseViewModel {
 
     /// Put the grid into the "Photos Library selected but access not granted"
     /// state — no source, no assets, but `photosAuthNeeded` flips on so the
-    /// empty state can surface a "Grant Access" CTA. Called by AppShell when
-    /// the user clicks a Photos filter while PhotoKit is unauthorised.
-    public func setPhotosAuthNeeded() {
+    /// permission panel takes over. Called by AppShell when the user clicks a
+    /// Photos filter while PhotoKit is unauthorised.
+    ///
+    /// `canRequest` is true only while authorization is `.notDetermined`; it
+    /// decides whether the panel offers Connect or sends the user to Settings
+    /// (#2454).
+    public func setPhotosAuthNeeded(canRequest: Bool) {
         loadGeneration &+= 1
         assets = []
         selectedID = nil
@@ -358,6 +368,7 @@ public final class BrowseViewModel {
         loadError = nil
         isLoading = false
         photosAuthNeeded = true
+        photosAuthCanRequest = canRequest
     }
 
     /// Wipe the prior source's grid state and flip into the loading-spinner

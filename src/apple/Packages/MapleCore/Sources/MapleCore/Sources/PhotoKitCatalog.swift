@@ -71,6 +71,14 @@ public final class PhotoKitCatalog: @unchecked Sendable {
     private var observerToken: UUID?
 
     private init() {
+        // Gated like every other subscription site (#2454): registering a
+        // `PHPhotoLibraryChangeObserver` while authorization is
+        // `.notDetermined` is itself an authorization request. This catalog is
+        // a lazily-initialised singleton, so whether it prompts depends on who
+        // touches it first — exactly the action-at-a-distance the gate exists
+        // to remove. There is nothing to invalidate before access anyway.
+        let status = PhotoKitLibrary.authorizationStatus()
+        guard status == .authorized || status == .limited else { return }
         observerToken = PhotoKitChangeObserver.shared.subscribe { [weak self] in
             // Synchronous invalidation — runs on the PhotoKit-private thread
             // but the lock makes mutation safe. By the time other subscribers'

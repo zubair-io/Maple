@@ -450,32 +450,63 @@ private struct BrowseEmptyState: View {
     }
 
     private var primaryTitle: String {
-        BrowseGridVM.emptyStatePrimaryTitle(photosAuthNeeded: vm.photosAuthNeeded)
+        BrowseGridVM.emptyStatePrimaryTitle(
+            photosAuthNeeded: vm.photosAuthNeeded,
+            photosAuthCanRequest: vm.photosAuthCanRequest
+        )
     }
 
     private var secondaryCase: BrowseGridVM.EmptyStateSecondary {
         BrowseGridVM.emptyStateSecondary(.init(
             photosAuthNeeded: vm.photosAuthNeeded,
+            photosAuthCanRequest: vm.photosAuthCanRequest,
             isLoading: vm.isLoading,
             hasLoadError: vm.loadError != nil,
             hasCurrentSource: vm.currentSource != nil
         ))
     }
 
+    /// Open this app's own page in the system Settings / System Settings app,
+    /// where the Photos toggle the user already declined can be flipped back
+    /// on. The only in-app next step once the prompt is spent (#2454).
+    private static func openAppSettings() {
+        #if os(iOS)
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+        #elseif os(macOS)
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Photos"
+        ) else { return }
+        NSWorkspace.shared.open(url)
+        #endif
+    }
+
+    /// The Photos-permission panel (#2454). One layout, two states: Connect
+    /// raises the system prompt while the choice is still open; Open Settings
+    /// takes over once it isn't, because iOS never re-shows a spent prompt.
+    @ViewBuilder
+    private func photosAuthPanel(canRequest: Bool, action: @escaping () -> Void) -> some View {
+        VStack(spacing: 12) {
+            Text(BrowseGridVM.photosAuthBody(canRequest: canRequest))
+                .font(.system(size: 12))
+                .foregroundStyle(MapleTokens.textMuted)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 380)
+            Button(BrowseGridVM.photosAuthButtonTitle(canRequest: canRequest), action: action)
+                .buttonStyle(.borderedProminent)
+        }
+        .accessibilityIdentifier("photos-auth-panel")
+    }
+
     @ViewBuilder
     private var secondary: some View {
         switch secondaryCase {
-        case .photosAuthCTA:
-            VStack(spacing: 8) {
-                Text("Maple needs permission to read your Photos library.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(MapleTokens.textMuted)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 360)
-                Button("Grant Access") { onGrantPhotosAccess?() }
-                    .buttonStyle(.bordered)
-                    .disabled(onGrantPhotosAccess == nil)
-            }
+        case .photosAuthConnect:
+            photosAuthPanel(canRequest: true) { onGrantPhotosAccess?() }
+                .disabled(onGrantPhotosAccess == nil)
+        case .photosAuthSettings:
+            photosAuthPanel(canRequest: false) { Self.openAppSettings() }
         case .loading:
             HStack(spacing: 8) {
                 ProgressView()

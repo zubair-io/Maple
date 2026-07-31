@@ -42,11 +42,11 @@ extension AppShell {
         currentRootBookmark = nil
         // Selecting a Photos filter must not ambush the user with a permission
         // dialog. If PhotoKit isn't authorised yet, put the grid into the
-        // "auth needed" empty state; the actual request happens when the user
-        // taps the grid's "Grant Access" button.
+        // permission-panel state; the actual request happens when the user
+        // taps that panel's "Connect" button.
         let status = PhotoKitLibrary.authorizationStatus()
         guard status == .authorized || status == .limited else {
-            browseVM.setPhotosAuthNeeded()
+            browseVM.setPhotosAuthNeeded(canRequest: status == .notDetermined)
             return
         }
         // Clear the prior source's assets immediately so the user sees the
@@ -84,7 +84,15 @@ extension AppShell {
     func grantPhotosAccessAndLoad() {
         Task { @MainActor in
             let status = await PhotoKitLibrary.requestAuthorization()
-            guard status == .authorized || status == .limited else { return }
+            guard status == .authorized || status == .limited else {
+                // Declined. Re-render the panel in its Settings state — the
+                // prompt is now spent and can't be raised again (#2454).
+                browseVM.setPhotosAuthNeeded(canRequest: false)
+                return
+            }
+            // Let the sidebar do the PhotoKit work it skipped while undecided
+            // (read status, load albums, subscribe to library changes).
+            photosAuthGeneration &+= 1
             // User may have selected a filter before granting; fall back to .all.
             let filter: PhotoKitFilter
             if case .photosFilter(let f) = librarySelection { filter = f }
