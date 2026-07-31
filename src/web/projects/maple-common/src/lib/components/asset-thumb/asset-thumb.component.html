@@ -2,14 +2,18 @@
 @let a = asset();
 @let url = thumbUrl();
 @let noPreviewBadge = noPreviewBadgeLabel();
-<div
-  class="thumb relative h-full w-full flex-shrink-0 cursor-pointer overflow-hidden rounded-[2px] bg-cover bg-center outline-none"
+<button
+  type="button"
+  class="thumb block text-left relative h-full w-full flex-shrink-0 cursor-pointer overflow-hidden rounded-[2px] bg-cover bg-center outline-none"
   [class.selected]="selected()"
   [class.focused]="focused()"
   [class.variant-grid]="variant() === 'grid'"
   [class.variant-filmstrip]="variant() === 'filmstrip'"
   [class.dimmed]="a.hidden"
   [style.background-image]="url ? '' : 'url(' + a.thumbnailGradient + ')'"
+  [attr.aria-label]="a.filename"
+  [attr.aria-pressed]="variant() === 'grid' ? selected() : null"
+  [attr.aria-current]="variant() === 'filmstrip' && focused() ? 'true' : null"
   (click)="thumbClick.emit($event)"
 >
   @if (url) {
@@ -121,4 +125,4 @@
       ></div>
     }
   }
-</div>
+</button>
