@@ -2,8 +2,7 @@
 //
 // Coordinates debounced, atomic sidecar writes for the Develop tab.
 //
-// - loadSidecar()       reads and parses a .xmp, caching the passthrough bucket.
-// - scheduleWrite()     debounces at 750ms then atomically writes the sidecar via
+// - scheduleWrite()     debounces at 200ms then atomically writes the sidecar via
 //                       FolderAccessService (FS Access writable-stream close is
 //                       atomic on Chromium; fallback backend writes to IndexedDB).
 // - rememberPassthrough stores the passthrough bucket from the last load so that
@@ -16,14 +15,12 @@ import type { XmpCulling, PassthroughBucket } from './xmp.types';
 import type { AssetId } from '../models/asset';
 import type { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { FolderAccessService } from '../folder-access/folder-access.service';
-import { XmpParserService } from './xmp-parser.service';
 import { XmpSerializerService } from './xmp-serializer.service';
 import { SidecarSaveStateService } from './sidecar-save-state.service';
 
 @Injectable({ providedIn: 'root' })
 export class XmpStoreService {
   private folderAccess = inject(FolderAccessService);
-  private parser = inject(XmpParserService);
   private serializer = inject(XmpSerializerService);
   private saveState = inject(SidecarSaveStateService);
 
@@ -41,39 +38,11 @@ export class XmpStoreService {
       revision: number;
     }
   >();
-  private readonly _inFlightWrites = new Set<Promise<void>>();
+  /** Latest serialized write chain for each asset. */
+  private readonly _inFlightWrites = new Map<AssetId, Promise<void>>();
 
   /** Per-asset passthrough buckets loaded from the source sidecar. */
   private _passthroughs = new Map<AssetId, PassthroughBucket>();
-
-  // ── Load ────────────────────────────────────────────────────────────────────
-
-  /**
-   * Read and parse `<rawFilename without ext>.xmp` from `folder`.
-   * Caches the passthrough bucket for later writes.
-   * Returns null when no sidecar exists or it is unreadable.
-   */
-  async loadSidecar(
-    folder: MapleFolderHandle,
-    assetId: AssetId,
-    rawFilename: string,
-  ): Promise<{
-    model: Partial<AdjustmentModel>;
-    culling: XmpCulling;
-    passthrough: PassthroughBucket;
-  } | null> {
-    const sidecarName = this._sidecarFilename(rawFilename);
-    try {
-      const bytes = await this.folderAccess.readFile(folder, sidecarName);
-      const xml = new TextDecoder().decode(bytes);
-      const { model, passthrough } = this.parser.parseAdjustmentModel(xml);
-      const culling = this.parser.parseCulling(xml);
-      this._passthroughs.set(assetId, passthrough);
-      return { model, culling, passthrough };
-    } catch {
-      return null;
-    }
-  }
 
   // ── Passthrough cache ───────────────────────────────────────────────────────
 
@@ -164,7 +133,7 @@ export class XmpStoreService {
       );
     }
     this._pendingWrites.clear();
-    await Promise.all([...this._inFlightWrites, ...writes]);
+    await Promise.all(new Set([...this._inFlightWrites.values(), ...writes]));
   }
 
   // ── Private ─────────────────────────────────────────────────────────────────
@@ -178,20 +147,20 @@ export class XmpStoreService {
     revision: number,
     passthrough?: PassthroughBucket,
   ): Promise<void> {
-    const write = this._flushWrite(
-      assetId,
-      folder,
-      rawFilename,
-      model,
-      culling,
-      revision,
-      passthrough,
-    );
-    this._inFlightWrites.add(write);
-    void write.then(
-      () => this._inFlightWrites.delete(write),
-      () => this._inFlightWrites.delete(write),
-    );
+    // File System Access writes are asynchronous. Serialize writes for the
+    // same asset so an older, slower write can never overwrite a newer edit.
+    const prior = this._inFlightWrites.get(assetId) ?? Promise.resolve();
+    const write = prior
+      .catch(() => undefined)
+      .then(() =>
+        this._flushWrite(assetId, folder, rawFilename, model, culling, revision, passthrough),
+      )
+      .finally(() => {
+        if (this._inFlightWrites.get(assetId) === write) {
+          this._inFlightWrites.delete(assetId);
+        }
+      });
+    this._inFlightWrites.set(assetId, write);
     return write;
   }
 

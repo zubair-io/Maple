@@ -58,6 +58,41 @@ describe('XmpStoreService persistence contract', () => {
     expect(flushed).toBe(true);
   });
 
+  it('serializes writes for one asset so an older write cannot win', async () => {
+    const completions: Array<() => void> = [];
+    writeFile.mockImplementation(() => new Promise<void>((resolve) => completions.push(resolve)));
+
+    store.scheduleWrite(
+      'asset-1',
+      FOLDER,
+      'IMG_0001.dng',
+      { ...defaultAdjustmentModel(), exposure: 1 },
+      CULLING,
+    );
+    await vi.advanceTimersByTimeAsync(200);
+    expect(writeFile).toHaveBeenCalledTimes(1);
+
+    store.scheduleWrite(
+      'asset-1',
+      FOLDER,
+      'IMG_0001.dng',
+      { ...defaultAdjustmentModel(), exposure: 2 },
+      CULLING,
+    );
+    await vi.advanceTimersByTimeAsync(200);
+    expect(writeFile).toHaveBeenCalledTimes(1);
+
+    completions[0]!();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(writeFile).toHaveBeenCalledTimes(2);
+    const xml = new TextDecoder().decode(writeFile.mock.calls[1]![2]);
+    expect(xml).toContain('crs:Exposure2012="2"');
+
+    completions[1]!();
+    await store.flushAll();
+    expect(saveState.phase()).toBe('saved');
+  });
+
   it('keeps the edit unsaved and rejects flush when the filesystem write fails', async () => {
     writeFile.mockRejectedValue(new Error('Permission revoked'));
     store.scheduleWrite('asset-1', FOLDER, 'IMG_0001.dng', defaultAdjustmentModel(), CULLING);

@@ -3,6 +3,7 @@ import {
   readProductionFixtureManifest,
   type ProductionFixtureManifest,
   verifyOriginalRawHashes,
+  verifyStagedRawHashes,
 } from './production-fixtures';
 
 export default async function productionGlobalTeardown(): Promise<void> {
@@ -15,6 +16,7 @@ export default async function productionGlobalTeardown(): Promise<void> {
   }
   try {
     await verifyOriginalRawHashes(manifest);
+    await verifyStagedRawHashes(manifest);
   } finally {
     await cleanupProductionFixtures(manifest);
   }
