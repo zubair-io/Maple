@@ -183,9 +183,14 @@ export class WbPadComponent implements AfterViewInit, OnDestroy {
     const id = this.library.focusedAssetId();
     if (!id) return;
 
+    // Clamp BOTH axes at read (#2412 review): every keyboard update writes
+    // both fields back, so a pre-existing out-of-range value on the
+    // non-stepped axis (e.g. tint=180 persisted by a build that predates the
+    // stepper clamp) must be normalized here too — otherwise ArrowLeft/Right
+    // would keep re-persisting the bad tint verbatim.
     const adj = this.adj();
-    const temp = adj?.temperature ?? 6500;
-    const tint = adj?.tint ?? 0;
+    const temp = clamp(adj?.temperature ?? 6500, TEMP_MIN, TEMP_MAX);
+    const tint = clamp(adj?.tint ?? 0, TINT_MIN, TINT_MAX);
 
     switch (e.key) {
       case 'ArrowLeft':
