@@ -173,13 +173,43 @@ export const staticUiPlugin = new Elysia().get('/*', async ({ request, set }) =>
   const exact = await serveStatic(uiPath);
   if (exact) return exact;
 
-  // SPA fallback: serve index.html for any unmatched path.
+  // #2408: a request under the WASM bundle's `/pkg` prefix that missed above
+  // (the bare directory `/pkg`, or a real filename that just doesn't exist,
+  // e.g. a typo'd `/pkg/workerHelpers.worker.js`) is never an Angular route —
+  // no app route lives under `/pkg` — so falling back to index.html for it
+  // masks a missing/misnamed asset as a 200 `text/html` response. A browser
+  // `import()` of that response then fails opaquely ("Unexpected token '<'")
+  // instead of surfacing a clear 404, which is exactly how the WASM
+  // thread-pool worker's self-spawn silently timed out instead of erroring
+  // loudly before the underlying import was fixed to reference a real served
+  // file. This check is deliberately scoped to `/pkg` rather than "any path
+  // with a file extension" — Angular's own `/edit/:slug/**` and
+  // `/view/:slug/**` deep-link routes embed a real RAW filename (with its
+  // extension, e.g. `/edit/mylib/raws/IMG_0001.CR2`) as a path segment, so a
+  // generic extension check would 404 a legitimate direct-navigation/reload
+  // of the editor or preview route.
+  if (isAssetPath(uiPath)) {
+    set.status = 404;
+    return { error: 'Not found: ' + uiPath };
+  }
+
+  // SPA fallback: serve index.html for any unmatched app route.
   const indexHtml = await serveStatic('/index.html');
   if (indexHtml) return indexHtml;
 
   set.status = 404;
   return { error: 'UI index.html not found in ' + uiDist() };
 });
+
+/**
+ * True for paths that reference the WASM `/pkg` bundle rather than an
+ * Angular route (including the bare `/pkg` directory itself — no app route
+ * lives under that prefix). The SPA fallback must never answer these with
+ * index.html — see the #2408 comment above.
+ */
+function isAssetPath(uiPath: string): boolean {
+  return uiPath === '/pkg' || uiPath.startsWith('/pkg/');
+}
 
 // One-time dist availability check.
 let _distExists: boolean | null = null;
