@@ -104,4 +104,28 @@ describe('LibraryCache — failed thumbnail is not re-requested (#2413)', () => 
       ),
     ).toBe(true);
   });
+
+  it("a 'Queue cleared' cancellation does not brand the asset — the next call retries", async () => {
+    // Source switch mid-load rejects queued items with `new Error('Queue
+    // cleared')` (see the thumb queue). That is a cancellation, not a verdict
+    // on the asset: the next ensureThumbnailUrl must fire a fresh request.
+    const thumbBlob = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Queue cleared'))
+      .mockRejectedValueOnce(new Error('404 Not Found'));
+    const svc = setup({ thumbBlob });
+    const asset = { id: 'lib:2026/cancelled.raf', filename: 'cancelled.raf' } as unknown as Asset;
+
+    svc.ensureThumbnailUrl(asset);
+    await settle();
+    expect(thumbBlob).toHaveBeenCalledTimes(1);
+
+    svc.ensureThumbnailUrl(asset); // after cancellation: retries
+    await settle();
+    expect(thumbBlob).toHaveBeenCalledTimes(2);
+
+    svc.ensureThumbnailUrl(asset); // after a REAL failure: branded, no retry
+    await settle();
+    expect(thumbBlob).toHaveBeenCalledTimes(2);
+  });
 });

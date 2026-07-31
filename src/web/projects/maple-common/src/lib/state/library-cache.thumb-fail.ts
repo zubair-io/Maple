@@ -27,7 +27,12 @@ export class ThumbFailMemory {
     return this.ids.has(id);
   }
 
-  record(id: AssetId): void {
+  /**
+   * Brand `id` failed — unless `err` is the loader queue's "Queue cleared"
+   * cancellation (source switch), which is not a verdict on the asset.
+   */
+  record(id: AssetId, err?: unknown): void {
+    if (err instanceof Error && err.message === 'Queue cleared') return;
     this.ids.add(id);
   }
 
