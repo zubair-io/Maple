@@ -69,10 +69,26 @@ RUN bun install --frozen-lockfile
 
 COPY src/web/ .
 
-# Drop the WASM blob produced in stage 0 into the location the Angular
-# build expects (and that the sync-raw-wasm.sh script normally writes to).
-COPY --from=wasm-builder /wasm-pkg/ \
-     projects/maple-common/src/lib/raw-pipeline/pkg/
+# Drop the WASM blob produced in stage 0 where scripts/sync-raw-wasm.sh
+# expects to find it — a sibling of this workspace, matching the local-dev
+# layout (src/raw-pipeline/raw-wasm/pkg next to src/web/) — then run that
+# SAME script instead of copying straight into maple-common's pkg/.
+#
+# This is deliberate, not cosmetic (#2408): sync-raw-wasm.sh carries the
+# #2097 nested-worker patch that rewrites the vendored wasm-bindgen-rayon
+# workerHelpers.js's bundler-oriented `import('../../..')` into a servable
+# absolute-URL worker entry (`/pkg/workerHelpers.worker.js`). A prior version
+# of this Dockerfile stage COPY'd the raw wasm-pack pkg/ straight into
+# maple-common and skipped that patch, so the production image shipped the
+# unpatched import — which 404s once bundled into the render-worker chunk —
+# and the WASM thread pool silently fell back to single-threaded in every
+# deployed instance. Calling the actual script (needs python3, installed
+# below) means a future change to the patch can't silently diverge between
+# local dev and the Docker build.
+COPY --from=wasm-builder /wasm-pkg/ /raw-pipeline/raw-wasm/pkg/
+RUN apt-get update && apt-get install -y --no-install-recommends python3 \
+    && rm -rf /var/lib/apt/lists/* \
+    && bash scripts/sync-raw-wasm.sh
 
 # Invoke ng directly to skip the `prebuild:maple` npm-lifecycle hook, which
 # tries to rebuild raw-wasm — already produced by the wasm-builder stage and
