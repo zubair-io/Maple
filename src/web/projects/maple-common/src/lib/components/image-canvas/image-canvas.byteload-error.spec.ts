@@ -111,7 +111,18 @@ describe('ImageCanvasComponent — recoverable byte-load error (#2407)', () => {
     const overlay = fixture.nativeElement.querySelector('[data-testid="byte-load-error"]');
     expect(overlay).toBeTruthy();
     expect(overlay.textContent).toContain('a.dng');
+    expect(overlay.textContent).toContain('HTTP 503');
     expect(decodeSpy).not.toHaveBeenCalled();
+  });
+
+  it('renders a generic network reason for statusless failures', async () => {
+    bytesForAssetSpy.mockRejectedValueOnce(new Error('imageBlob: empty response body'));
+    focused.set({ id: 'photos:2026/trip/a.dng', filename: 'a.dng' } as Asset);
+    await settle(REFINE_MS + 50);
+
+    const overlay = fixture.nativeElement.querySelector('[data-testid="byte-load-error"]');
+    expect(overlay).toBeTruthy();
+    expect(overlay.textContent).toContain('Network error');
   });
 
   it('Retry re-attempts bytesForAsset and clears the error on success', async () => {

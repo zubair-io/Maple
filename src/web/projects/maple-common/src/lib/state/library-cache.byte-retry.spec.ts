@@ -34,11 +34,19 @@ describe('isTransientFetchError', () => {
     expect(isTransientFetchError(httpError(599))).toBe(true);
   });
 
-  it('is false for 4xx (404/403/401) and for a statusless error', () => {
+  it('is false for 4xx (404/403/401) and for an unrelated statusless error', () => {
     expect(isTransientFetchError(httpError(404))).toBe(false);
     expect(isTransientFetchError(httpError(403))).toBe(false);
     expect(isTransientFetchError(httpError(401))).toBe(false);
     expect(isTransientFetchError(new Error('boom'))).toBe(false);
+  });
+
+  it('is true for the mid-stream-abort plain Error (empty response body)', () => {
+    // HttpLibrarySource.imageBlob throws this statusless Error when a
+    // response aborts mid-stream — as transient as a dropped connection.
+    expect(
+      isTransientFetchError(new Error('imageBlob: empty response body for lib:a.dng (status 200)')),
+    ).toBe(true);
   });
 });
 
@@ -129,5 +137,23 @@ describe('LibraryCache — M2 byte fetch retry on transient failure (#2407)', ()
       url: '/api/image/lib/2026/a.dng',
     });
     expect(imageBlob).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries after a mid-stream-abort plain Error and resolves', async () => {
+    const payload = new Uint8Array([5, 5]);
+    const imageBlob = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new Error('imageBlob: empty response body for lib:2026/a.dng (status 200)'),
+      )
+      .mockResolvedValueOnce(new Blob([payload], { type: 'application/octet-stream' }));
+    const svc = setup(imageBlob);
+
+    const bytesPromise = svc.bytesForAsset('lib:2026/a.dng' as AssetId);
+    await vi.runAllTimersAsync();
+    const bytes = await bytesPromise;
+
+    expect(imageBlob).toHaveBeenCalledTimes(2);
+    expect(Array.from(bytes)).toEqual([5, 5]);
   });
 });
