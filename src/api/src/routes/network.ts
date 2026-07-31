@@ -23,10 +23,31 @@ import {
   resolveNetworkConfig,
   saveNetworkConfig,
   validateLocalAddress,
+  type ResolvedNetworkConfig,
 } from '../network/network-config.repo.ts';
+import { TLS_ENABLED } from '../runtime/tls-config.ts';
 
-export const networkPublicRoutes = new Elysia().get('/api/network/local-address', async () => {
-  const resolved = resolveNetworkConfig(await loadNetworkConfig());
+export interface LocalAddressResponse {
+  available: boolean;
+  ip?: string;
+  port?: number;
+  scheme?: 'http' | 'https';
+}
+
+/**
+ * Pure — exported for tests so the advertised scheme can be exercised
+ * without a real TLS cert (`tlsEnabled` is injected rather than read from
+ * `TLS_ENABLED` directly). The Bun process serves HTTPS exactly when
+ * `MAPLE_TLS_CERT`/`MAPLE_TLS_KEY` are configured (see
+ * `runtime/tls-config.ts`) — this is the single place that turns that into
+ * the `scheme` clients see, so `LanSwitchService` on the web side always
+ * builds a candidate origin that matches what the server actually listens
+ * on.
+ */
+export function buildLocalAddressResponse(
+  resolved: ResolvedNetworkConfig,
+  tlsEnabled: boolean,
+): LocalAddressResponse {
   if (!resolved.enabled || resolved.local_ip === null) {
     return { available: false as const };
   }
@@ -34,12 +55,13 @@ export const networkPublicRoutes = new Elysia().get('/api/network/local-address'
     available: true as const,
     ip: resolved.local_ip,
     port: resolved.local_port,
-    // The Bun process itself only ever serves plain HTTP — TLS termination
-    // for the public URL (if any) happens at a reverse proxy/tunnel in
-    // front of it, which has no bearing on the LAN path.
-    scheme: 'http' as const,
+    scheme: tlsEnabled ? ('https' as const) : ('http' as const),
   };
-});
+}
+
+export const networkPublicRoutes = new Elysia().get('/api/network/local-address', async () =>
+  buildLocalAddressResponse(resolveNetworkConfig(await loadNetworkConfig()), TLS_ENABLED),
+);
 
 const NetworkConfigBody = t.Object({
   enabled: t.Optional(t.Union([t.Boolean(), t.Null()])),
