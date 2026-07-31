@@ -26,6 +26,7 @@ import { LibraryFetch } from './library-fetch.service';
 import { LibraryStatusService } from './library-status.service';
 import { BrowsePreferencesService } from './browse-preferences.service';
 import { EditPreviewPersistService } from './edit-preview-persist.service';
+import { XmpAdjustmentRestoreService } from '../xmp/xmp-adjustment-restore.service';
 
 // Re-export RAW-extension helpers for callers that import from this module.
 export { SUPPORTED_RAW_EXTENSIONS, isSupportedRaw } from './library-fetch.service';
@@ -39,6 +40,9 @@ export class LibraryStateService {
   private readonly status = inject(LibraryStatusService);
   private readonly prefs = inject(BrowsePreferencesService);
   private readonly previewPersist = inject(EditPreviewPersistService);
+  // Instantiated for its focused-asset effect: restores persisted XMP
+  // adjustments on reload / deep-link hydration (#2406).
+  private readonly xmpRestore = inject(XmpAdjustmentRestoreService);
 
   // ── Backend identity ──────────────────────────────────────────────────────
   readonly backend = this.store.backend;
