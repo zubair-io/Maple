@@ -113,7 +113,16 @@ export const xmpPathRoutes = new Elysia()
       return xmlContent;
     },
     {
-      type: 'text',
+      // Force the text parser regardless of the client's Content-Type (the
+      // same idiom routes/preview.ts uses with `parse: 'arrayBuffer'`). The
+      // web client sends `application/xml`, which the previous `type: 'text'`
+      // hook did NOT map to the text parser in this Elysia version — `type`
+      // is vestigial there; only `parse` selects a parser. Without it the
+      // default content-type sniff routed `application/xml` to the
+      // urlencoded parser (both share `charCodeAt(12) === 'x'`), the body
+      // arrived as a garbage object, and `t.String()` validation 422'd every
+      // live editor write (#2406).
+      parse: 'text',
       body: t.String({
         description: 'Full XMP document. No merging — the file is overwritten byte-for-byte.',
       }),
