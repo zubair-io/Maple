@@ -32,6 +32,15 @@ export { xToTemp, tempToX, yToTint, tintToY, rgbToWb } from './wb-pad-math';
 import { xToTemp, tempToX, yToTint, tintToY, rgbToWb } from './wb-pad-math';
 import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
 import type { AdjustmentModel } from '../../models/adjustment-model';
+import { ADJUSTMENT_RANGES } from '../../generated/adjustment-model.generated';
+
+const [TEMP_MIN, TEMP_MAX] = ADJUSTMENT_RANGES.temperature;
+const [TINT_MIN, TINT_MAX] = ADJUSTMENT_RANGES.tint;
+
+/** Clamp a value to a closed `[min, max]` range. */
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
 
 @Component({
   selector: 'pro-wb-pad',
@@ -65,14 +74,21 @@ export class WbPadComponent implements AfterViewInit, OnDestroy {
     return { x: tempToX(temp), y: tintToY(tint) };
   });
 
+  // Read-side clamp (#2412): the puck position is already implicitly
+  // clamped by tempToX/tintToY, but a value already persisted to a sidecar
+  // out of range (e.g. by a build that predates the keyboard-stepper clamp
+  // fix) would otherwise show a raw, out-of-range Kelvin/tint readout here.
+  // Clamp on read so the numeric labels always agree with what the puck
+  // shows and with the declared ADJUSTMENT_RANGES.
   readonly tempLabel = computed<string>(() => {
     const adj = this.adj();
-    return `${adj?.temperature ?? 6500} K`;
+    const temp = clamp(adj?.temperature ?? 6500, TEMP_MIN, TEMP_MAX);
+    return `${temp} K`;
   });
 
   readonly tintLabel = computed<string>(() => {
     const adj = this.adj();
-    const t = adj?.tint ?? 0;
+    const t = clamp(adj?.tint ?? 0, TINT_MIN, TINT_MAX);
     return t >= 0 ? `+${t}` : `${t}`;
   });
 
@@ -174,19 +190,31 @@ export class WbPadComponent implements AfterViewInit, OnDestroy {
     switch (e.key) {
       case 'ArrowLeft':
         e.preventDefault();
-        this.library.updateAdjustment(id, { temperature: temp - TEMP_STEP, tint });
+        this.library.updateAdjustment(id, {
+          temperature: clamp(temp - TEMP_STEP, TEMP_MIN, TEMP_MAX),
+          tint,
+        });
         break;
       case 'ArrowRight':
         e.preventDefault();
-        this.library.updateAdjustment(id, { temperature: temp + TEMP_STEP, tint });
+        this.library.updateAdjustment(id, {
+          temperature: clamp(temp + TEMP_STEP, TEMP_MIN, TEMP_MAX),
+          tint,
+        });
         break;
       case 'ArrowDown':
         e.preventDefault();
-        this.library.updateAdjustment(id, { temperature: temp, tint: tint - TINT_STEP });
+        this.library.updateAdjustment(id, {
+          temperature: temp,
+          tint: clamp(tint - TINT_STEP, TINT_MIN, TINT_MAX),
+        });
         break;
       case 'ArrowUp':
         e.preventDefault();
-        this.library.updateAdjustment(id, { temperature: temp, tint: tint + TINT_STEP });
+        this.library.updateAdjustment(id, {
+          temperature: temp,
+          tint: clamp(tint + TINT_STEP, TINT_MIN, TINT_MAX),
+        });
         break;
     }
   }
