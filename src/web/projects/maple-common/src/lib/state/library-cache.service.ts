@@ -19,6 +19,7 @@ import { parseAddress } from '../addressing/maple-address';
 import { BlobUrlChannel } from './blob-url-channel';
 import { LruCache, ThumbLruCache } from './lru-cache';
 import { HostedPreviewResolver } from './hosted-preview-resolver.service';
+import { isM2Asset, readAssetBytes } from './library-cache.byte-source';
 
 @Injectable({ providedIn: 'root' })
 export class LibraryCache {
@@ -316,62 +317,22 @@ export class LibraryCache {
     }
   }
 
-  private _isM2Asset(id: AssetId): boolean {
-    return typeof id === 'string' && id.includes(':') && !id.startsWith('fs:');
-  }
-
-  private async _readM2Bytes(id: AssetId): Promise<Uint8Array> {
-    try {
-      const blob = await this.librarySource.imageBlob(
-        parseAddress(id),
-        this.makeProgressCallback(id),
-      );
-      return new Uint8Array(await blob.arrayBuffer());
-    } catch (err) {
-      const fsAbsPath = this.store.assetAbsPaths.get(id);
-      if (!fsAbsPath) throw err;
-      return this._readFsBytes(fsAbsPath, id);
-    }
-  }
-
-  private async _readFsBytes(fsAbsPath: string, id: AssetId): Promise<Uint8Array> {
-    const buf = await this.fsBrowse.getRawBytes(fsAbsPath, this.makeProgressCallback(id));
-    return new Uint8Array(buf);
-  }
-
-  private async _readSelfHostedBytes(id: AssetId): Promise<Uint8Array> {
-    const apiId = this.store.apiAssetIds.get(id);
-    if (!apiId) throw new Error(`bytesForAsset: no api id for asset ${id}`);
-    const buf = await firstValueFrom(this.api.getRawBytes(apiId, this.makeProgressCallback(id)));
-    return new Uint8Array(buf);
-  }
-
-  private async _readFsAccessBytes(id: AssetId): Promise<Uint8Array> {
-    const entry = this.fileHandles.get(id);
-    if (!entry) throw new Error(`bytesForAsset: no handle for asset ${id}`);
-    const file = await entry.getFile();
-    return new Uint8Array(await file.arrayBuffer());
-  }
-
-  private async _doReadBytes(id: AssetId): Promise<Uint8Array> {
-    // Legacy in-memory path (drag-drop imports without FS Access).
-    const legacy = this.legacyBytes.get(id);
-    if (legacy) return legacy;
-
-    if (this._isM2Asset(id)) {
-      return this._readM2Bytes(id);
-    }
-
-    const fsAbsPath = this.store.assetAbsPaths.get(id);
-    if (fsAbsPath) {
-      return this._readFsBytes(fsAbsPath, id);
-    }
-
-    if (this.store.backend === 'self-hosted') {
-      return this._readSelfHostedBytes(id);
-    }
-
-    return this._readFsAccessBytes(id);
+  // Per-backend byte-read dispatch (legacy in-memory, M2 network — retried on
+  // transient failure, #2407 — FS-walk absPath, Self-Hosted apiId, Hosted
+  // FS-Access handle) lives in `library-cache.byte-source.ts`, split out to
+  // keep this file under the file-size budget.
+  private _doReadBytes(id: AssetId): Promise<Uint8Array> {
+    return readAssetBytes(id, {
+      legacyBytes: this.legacyBytes,
+      librarySource: this.librarySource,
+      assetAbsPaths: this.store.assetAbsPaths,
+      fsBrowse: this.fsBrowse,
+      backend: this.store.backend,
+      apiAssetIds: this.store.apiAssetIds,
+      api: this.api,
+      fileHandles: this.fileHandles,
+      makeProgressCallback: (assetId) => this.makeProgressCallback(assetId),
+    });
   }
 
   /**
@@ -530,7 +491,7 @@ export class LibraryCache {
   private async _loadSelfHostedThumb(asset: Asset): Promise<void> {
     // 0. Self-Hosted M2 slug:relPath asset → /api/thumb via the authed
     //    LibrarySource (HttpClient attaches the bearer).
-    if (this._isM2Asset(asset.id)) {
+    if (isM2Asset(asset.id)) {
       const blob = await this.librarySource.thumbBlob(parseAddress(asset.id));
       if (blob) {
         this.cacheThumbnailUrl(asset.id, URL.createObjectURL(blob));

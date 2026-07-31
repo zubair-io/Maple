@@ -39,6 +39,7 @@ import { type AdjustmentModel } from '../../models/adjustment-model';
 import { cropStraightenTransform, displayDims, renderModelForCrop } from './image-canvas.crop';
 import { coldOpen2d, runRender2d, type Render2dHost } from './image-canvas.render2d';
 import { canUseLiveFastPath, buildLiveParams } from './image-canvas.live-params';
+import { fetchAndLoadBytes, type ByteLoadHost } from './image-canvas.byteload';
 
 @Component({
   selector: 'editor-image-canvas',
@@ -49,7 +50,7 @@ import { canUseLiveFastPath, buildLiveParams } from './image-canvas.live-params'
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ImageCanvasComponent
-  implements AfterViewInit, OnDestroy, GpuPresentHost, Render2dHost
+  implements AfterViewInit, OnDestroy, GpuPresentHost, Render2dHost, ByteLoadHost
 {
   @ViewChild('canvas') canvasRef!: ElementRef<HTMLCanvasElement>;
   @ViewChild('wrap') wrapRef!: ElementRef<HTMLElement>;
@@ -70,6 +71,8 @@ export class ImageCanvasComponent
 
   readonly loading = signal(false);
   readonly imageBitmap = signal<ImageBitmap | null>(null);
+  // Recoverable byte-load error (#2407) — see image-canvas.byteload.ts.
+  readonly byteLoadError = signal<{ id: AssetId; filename: string } | null>(null);
 
   // GPU live-render path (epic #925, P4b-web / #1038). The GPU canvas lifecycle +
   // worker session wiring lives in `ImageCanvasGpuPresent` (see that file for the
@@ -285,6 +288,7 @@ export class ImageCanvasComponent
         this.nativeDims.set(null);
         this.paintedLongEdge = 0;
         this.paintedAspect.set(null);
+        this.byteLoadError.set(null);
 
         const bytes = this.state.bytesFor(a.id);
         if (bytes) {
@@ -306,18 +310,7 @@ export class ImageCanvasComponent
         // mock assets (Hosted demo: `a-film`, `f-france`, …) and UUID imports
         // never do, so they still fall through to the gradient / in-memory path.
         if (a.absPath || a.id.includes(':')) {
-          const requestedId = a.id;
-          this.imageBitmap.set(null);
-          this.canvasSvc.currentPixels.set(null);
-          this.state
-            .bytesForAsset(requestedId)
-            .then((fetched) => {
-              if (this.currentAssetId !== requestedId) return; // user moved on
-              void this.loadReal(requestedId, a.filename, fetched);
-            })
-            .catch((err) => {
-              console.error('[image-canvas] bytesForAsset failed:', err);
-            });
+          fetchAndLoadBytes(this, a.id, a.filename);
           return;
         }
 
@@ -447,7 +440,8 @@ export class ImageCanvasComponent
     });
   }
 
-  private async loadReal(assetId: AssetId, filename: string, bytes: Uint8Array): Promise<void> {
+  // Public: also satisfies `ByteLoadHost` (called on a successful fetch).
+  async loadReal(assetId: AssetId, filename: string, bytes: Uint8Array): Promise<void> {
     const ext = filename.split('.').pop()?.toLowerCase() ?? '';
     // Retain bytes + ext for adjustment-driven re-renders (no XMP on this
     // cold-open decode — raw-core substitutes the camera As-Shot WB).
@@ -476,6 +470,12 @@ export class ImageCanvasComponent
   /** Schedule a refine pass (`Render2dHost`). */
   scheduleRefine(xmp: string, generation: number): void {
     this.twoPhase.scheduleRefine(xmp, generation);
+  }
+
+  /** `ByteLoadHost`: re-attempt the fetch behind `byteLoadError` (Retry button). */
+  retryByteLoad(): void {
+    const err = this.byteLoadError();
+    if (err) fetchAndLoadBytes(this, err.id, err.filename);
   }
 
   // ── GpuPresentHost ───────────────────────────────────────────────────────
