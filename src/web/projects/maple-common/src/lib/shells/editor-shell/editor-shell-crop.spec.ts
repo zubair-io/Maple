@@ -96,6 +96,7 @@ describe('EditorShellComponent — crop tool port (#1813)', () => {
       focusedAssetId: () => focused()?.id ?? null,
       assets: () => [focused()!].filter(Boolean),
       assetsInSelectedFolder: () => [focused()!].filter(Boolean),
+      isSelecting: () => false,
       adjustmentFor: (id: AssetId) => modelFor(id),
       updateAdjustment: (id: AssetId, patch: Partial<AdjustmentModel>) => {
         modelFor(id).update((m) => ({ ...m, ...patch }));

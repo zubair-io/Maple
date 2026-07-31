@@ -33,11 +33,17 @@ export class ToolbarActionsComponent {
   readonly canSyncSettings = input.required<boolean>();
   readonly selectedCount = input.required<number>();
 
+  /** True while Select mode is on (#2404) — session signal on
+   * LibraryStateService, reflected here via `aria-pressed` and an
+   * active-tint style, same as Apple's `BrowseVM.isSelecting` toggle. */
+  readonly isSelecting = input.required<boolean>();
+
   readonly editMetadata = output<void>();
   readonly mergePano = output<void>();
   readonly copySettings = output<void>();
   readonly openPasteDialog = output<void>();
   readonly syncSettings = output<void>();
+  readonly toggleSelectMode = output<void>();
 
   /** True while the collapsed kebab menu is open. */
   protected readonly overflowMenuOpen = signal(false);

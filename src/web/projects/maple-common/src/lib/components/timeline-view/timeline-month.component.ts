@@ -7,6 +7,7 @@
 
 import { ChangeDetectionStrategy, Component, inject, input, output } from '@angular/core';
 import { LibraryStateService } from '../../state/library-state.service';
+import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { PhotoVm } from './timeline-view.utils';
 import { TimelineRegisterSectionDirective } from './timeline-register-section.directive';
 
@@ -37,7 +38,7 @@ const MONTH_NAMES = [
 @Component({
   selector: 'app-timeline-month',
   standalone: true,
-  imports: [TimelineRegisterSectionDirective],
+  imports: [TimelineRegisterSectionDirective, MapleIconComponent],
   templateUrl: './timeline-month.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -48,7 +49,6 @@ export class TimelineMonthComponent {
   readonly registerSection = input.required<(el: HTMLElement) => void>();
 
   readonly photoClick = output<{ photo: PhotoVm; event: MouseEvent }>();
-  readonly photoDblClick = output<PhotoVm>();
 
   // ── Folder-group collapse (session-local; not persisted) ────────────────
   // A missing entry means expanded — the default is "show photos" so the
