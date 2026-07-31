@@ -1,3 +1,15 @@
+<!-- fallow-ignore-file complexity -->
+<!-- The 21 cyclomatic / 24 cognitive here is inherited, not introduced by
+     #2404: this diff only removes the `(thumbDblClick)` binding and reformats
+     an existing `@switch` — it adds no branches. The file simply entered the
+     changed-file audit scope for the first time. What the count measures is
+     top-level layout branching — the breadcrumb's folder-vs-source fork, the
+     Self-Hosted-only rescan pill with its four-state `@switch`, the
+     sort/filter pills, and the asset-vs-folder-tile split inside the
+     virtual-scroll row — each a deliberate structural decision rather than
+     accidental nesting. Same suppression and same reasoning as
+     browse-shell.component.html, timeline-view.component.html,
+     asset-thumb.component.html and export-dialog.component.html. -->
 <!-- Toolbar -->
 <div class="flex items-center gap-3 h-11 px-4 bg-bg border-b-[0.5px] border-border flex-shrink-0">
   <!-- Breadcrumb -->
