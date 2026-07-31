@@ -22,11 +22,13 @@ import { ToolbarActionsComponent } from './toolbar-actions.component';
       [canPasteSettings]="canPasteSettings()"
       [canSyncSettings]="canSyncSettings()"
       [selectedCount]="selectedCount()"
+      [isSelecting]="isSelecting()"
       (editMetadata)="editMetadataCount.update((v) => v + 1)"
       (mergePano)="mergePanoCount.update((v) => v + 1)"
       (copySettings)="copySettingsCount.update((v) => v + 1)"
       (openPasteDialog)="openPasteDialogCount.update((v) => v + 1)"
       (syncSettings)="syncSettingsCount.update((v) => v + 1)"
+      (toggleSelectMode)="toggleSelectModeCount.update((v) => v + 1)"
     />
   `,
 })
@@ -39,12 +41,14 @@ class HostComponent {
   readonly canPasteSettings = signal(false);
   readonly canSyncSettings = signal(false);
   readonly selectedCount = signal(0);
+  readonly isSelecting = signal(false);
 
   readonly editMetadataCount = signal(0);
   readonly mergePanoCount = signal(0);
   readonly copySettingsCount = signal(0);
   readonly openPasteDialogCount = signal(0);
   readonly syncSettingsCount = signal(0);
+  readonly toggleSelectModeCount = signal(0);
 }
 
 describe('ToolbarActionsComponent', () => {
@@ -146,5 +150,20 @@ describe('ToolbarActionsComponent', () => {
   it('does not generate a host box, so the pills are direct flex items of the toolbar', () => {
     const hostEl = fixture.nativeElement.querySelector('app-toolbar-actions') as HTMLElement;
     expect(getComputedStyle(hostEl).display).toBe('contents');
+  });
+
+  it('renders the Select pill, reflects isSelecting via aria-pressed, and emits toggleSelectMode on click (#2404)', () => {
+    const selectBtn = el().querySelector('[aria-label="Select"]') as HTMLButtonElement;
+    expect(selectBtn).not.toBeNull();
+    expect(selectBtn.getAttribute('aria-pressed')).toBe('false');
+
+    selectBtn.click();
+    fixture.detectChanges();
+    expect(host.toggleSelectModeCount()).toBe(1);
+
+    host.isSelecting.set(true);
+    fixture.detectChanges();
+    expect(selectBtn.getAttribute('aria-pressed')).toBe('true');
+    expect(selectBtn.classList.contains('is-active')).toBe(true);
   });
 });

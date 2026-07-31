@@ -98,6 +98,15 @@ export class LibraryStateService {
   // ── In-grid search query (filename substring filter) ──────────────────────
   readonly searchQuery = this.selection.searchQuery;
 
+  // ── Select mode (#2404) ────────────────────────────────────────────────────
+  readonly isSelecting = this.selection.isSelecting;
+  toggleSelectMode(): void {
+    this.selection.toggleSelectMode();
+  }
+  exitSelectMode(): void {
+    this.selection.exitSelectMode();
+  }
+
   // ── Panel visibility (persisted) ──────────────────────────────────────────
   readonly sidebarVisible = this.prefs.sidebarVisible;
   readonly inspectorVisible = this.prefs.inspectorVisible;
