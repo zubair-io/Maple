@@ -35,9 +35,12 @@ afterEach(clearPrefKeys);
 describe('TimelineViewComponent — click semantics (#2404)', () => {
   let library: LibraryStateService;
   let searchStub: SearchStub;
+  let restoreObservers: () => void;
+
+  afterEach(() => restoreObservers());
 
   beforeEach(() => {
-    installObserverStubs();
+    restoreObservers = installObserverStubs();
 
     searchStub = new SearchStub();
     TestBed.configureTestingModule({
