@@ -69,6 +69,8 @@ in the background.
 | `MAPLE_CORS_ORIGIN`     | `*`                                                                      | CORS `Access-Control-Allow-Origin`. Tighten to your domain in production.                                                                                                                           |
 | `MAPLE_JWT_SECRET_FILE` | `./.maple/jwt.secret` (native) · `/app/config/jwt.secret` (Docker image) | On-disk **fallback** secret path, used only when MongoDB is unreachable at boot.                                                                                                                    |
 | `MAPLE_DEV_AUTH`        | (none)                                                                   | Set to `1` to expose `/api/auth/dev-login` (passkey bypass). **NEVER set in production.**                                                                                                           |
+| `MAPLE_TLS_CERT`        | (none)                                                                   | Absolute path to a TLS certificate. Set together with `MAPLE_TLS_KEY` to serve HTTPS instead of plain HTTP — see "TLS on the LAN" below. Setting only one of the pair, or an unreadable path, fails startup with a clear error rather than silently falling back to HTTP. |
+| `MAPLE_TLS_KEY`         | (none)                                                                   | Absolute path to the TLS certificate's private key. See `MAPLE_TLS_CERT`.                                                                                                                           |
 
 **JWT secret resolution.** The HS256 signing secret is owned by the server — there is no environment variable to set it. It is resolved at startup in this order: (1) the **database** — collection `server_state`, document `_id: "jwt_secret"`, field `value`, created once on first boot; this is the canonical store because MongoDB data persists across container recreates and is shared by every instance, so the secret never silently rotates; (2) `MAPLE_JWT_SECRET_FILE` on disk, a degraded fallback used only when Mongo is unreachable; (3) an in-memory secret as a last resort if the filesystem is unusable (it won't survive a restart). The startup log line `JWT secret resolved` reports the `source` (`db`/`db-created`/`file`/`generated`/`memory`) and a non-reversible `fingerprint` — a changing fingerprint across restarts/instances is the signature of a `bad signature` auth bug.
 
@@ -148,6 +150,51 @@ see "JWT secret resolution" above. The `maple_config` volume (mounted at
 `/app/config`) only holds the on-disk fallback secret used when Mongo is
 unreachable at boot; keeping the mount means even that degraded path stays
 stable.
+
+## TLS on the LAN (enabling GPU rendering)
+
+Chrome (and every other evergreen browser) only exposes `navigator.gpu` on a
+**secure context** — `https:`, or exactly `http://localhost`. A self-hosted
+server reached over its LAN IP (`http://192.168.1.42:3000`) is neither, so
+the editor's live GPU render path is unavailable there: it silently falls
+back to the slower WASM-CPU/2D path, and the app shows a dismissible notice
+pointing back at this section.
+
+Set `MAPLE_TLS_CERT` + `MAPLE_TLS_KEY` (both, as absolute paths to a
+certificate and its private key) to have the server terminate TLS itself and
+restore the secure context on the LAN origin too:
+
+```bash
+# mkcert (recommended for LAN use — trusted by browsers on the machine that
+# ran `mkcert -install`, no browser security-exception click-through):
+brew install mkcert    # or your platform's package manager
+mkcert -install
+mkcert -cert-file /opt/maple/tls/cert.pem -key-file /opt/maple/tls/key.pem \
+  192.168.1.42 maple.local localhost 127.0.0.1
+
+MAPLE_TLS_CERT=/opt/maple/tls/cert.pem \
+MAPLE_TLS_KEY=/opt/maple/tls/key.pem \
+bun src/index.ts
+```
+
+A plain self-signed cert (`openssl req -x509 -newkey rsa:2048 -nodes ...`)
+works too, but browsers show a security-exception interstitial for it on
+every device that connects — `mkcert` avoids that by installing a local CA
+the browser already trusts.
+
+Both variables must be set together — the server fails fast at startup
+(before it accepts any connection) if only one is set, or if either path
+isn't a readable file, rather than silently continuing to serve the exact
+insecure origin this is meant to fix. `GET /api/network/local-address`
+(consumed by the LAN-switch banner and the Apple client) advertises
+`scheme: "https"` automatically once TLS is active, so clients build the
+correct candidate origin without any extra configuration.
+
+Deploying behind a reverse proxy or tunnel that already terminates TLS in
+front of the Bun process (a public HTTPS domain via Cloudflare Tunnel,
+nginx, Caddy, etc.)? Leave `MAPLE_TLS_CERT`/`MAPLE_TLS_KEY` unset — that path
+is unrelated to this section, which is specifically about the *direct* LAN
+origin the Bun process itself listens on.
 
 ## Self-hosting on Linux (systemd)
 
