@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { Router } from '@angular/router';
 import { LanSwitchService } from './lan-switch.service';
 import { AuthService } from '../auth/auth.service';
 import type { LocalAddressReport } from './local-address-report.model';
@@ -149,37 +150,88 @@ describe('LanSwitchService.checkAvailable', () => {
 });
 
 describe('LanSwitchService.switchTo', () => {
-  let service: LanSwitchService;
   let issueLanHandoffCode: ReturnType<typeof vi.fn>;
 
-  beforeEach(() => {
+  /** `routerUrl` stands in for `Router.url` — the current app path + query
+   * the user is on when they click "Switch". */
+  function setup(routerUrl: string): LanSwitchService {
     issueLanHandoffCode = vi.fn();
     TestBed.configureTestingModule({
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
         { provide: AuthService, useValue: { issueLanHandoffCode } },
+        { provide: Router, useValue: { url: routerUrl } },
       ],
     });
-    service = TestBed.inject(LanSwitchService);
-  });
+    return TestBed.inject(LanSwitchService);
+  }
 
-  it('mints a code and navigates to the LAN origin with it', async () => {
-    issueLanHandoffCode.mockResolvedValue('CODE123');
+  function captureNavigations(service: LanSwitchService): string[] {
     const navigated: string[] = [];
     (service as unknown as { navigateTo: (u: string) => void }).navigateTo = (u) =>
       navigated.push(u);
+    return navigated;
+  }
+
+  it('preserves the current edit route (path + asset) through the redirect', async () => {
+    const service = setup('/edit/photos/raws/test_0008.RAF');
+    issueLanHandoffCode.mockResolvedValue('CODE123');
+    const navigated = captureNavigations(service);
+
+    const ok = await service.switchTo({ origin: 'http://192.168.1.42:3000' });
+    expect(ok).toBe(true);
+    expect(navigated).toEqual([
+      'http://192.168.1.42:3000/edit/photos/raws/test_0008.RAF?lan_handoff=CODE123',
+    ]);
+  });
+
+  it('preserves the current browse route through the redirect', async () => {
+    const service = setup('/browse/some/folder');
+    issueLanHandoffCode.mockResolvedValue('CODE123');
+    const navigated = captureNavigations(service);
+
+    const ok = await service.switchTo({ origin: 'http://192.168.1.42:3000' });
+    expect(ok).toBe(true);
+    expect(navigated).toEqual(['http://192.168.1.42:3000/browse/some/folder?lan_handoff=CODE123']);
+  });
+
+  it('still lands on the root route with no double slash when that IS the current route', async () => {
+    const service = setup('/');
+    issueLanHandoffCode.mockResolvedValue('CODE123');
+    const navigated = captureNavigations(service);
 
     const ok = await service.switchTo({ origin: 'http://192.168.1.42:3000' });
     expect(ok).toBe(true);
     expect(navigated).toEqual(['http://192.168.1.42:3000/?lan_handoff=CODE123']);
   });
 
+  it('preserves existing query params on the current route alongside lan_handoff', async () => {
+    const service = setup('/browse?sort=date');
+    issueLanHandoffCode.mockResolvedValue('CODE123');
+    const navigated = captureNavigations(service);
+
+    const ok = await service.switchTo({ origin: 'http://192.168.1.42:3000' });
+    expect(ok).toBe(true);
+    expect(navigated).toEqual(['http://192.168.1.42:3000/browse?sort=date&lan_handoff=CODE123']);
+  });
+
+  it('preserves an encoded path segment (e.g. an asset name with a space)', async () => {
+    const service = setup('/edit/photos/raws/test%20file%200008.RAF');
+    issueLanHandoffCode.mockResolvedValue('CODE123');
+    const navigated = captureNavigations(service);
+
+    const ok = await service.switchTo({ origin: 'http://192.168.1.42:3000' });
+    expect(ok).toBe(true);
+    expect(navigated).toEqual([
+      'http://192.168.1.42:3000/edit/photos/raws/test%20file%200008.RAF?lan_handoff=CODE123',
+    ]);
+  });
+
   it('returns false and does not navigate when code issuance fails', async () => {
+    const service = setup('/edit/photos/raws/test_0008.RAF');
     issueLanHandoffCode.mockResolvedValue(null);
-    const navigated: string[] = [];
-    (service as unknown as { navigateTo: (u: string) => void }).navigateTo = (u) =>
-      navigated.push(u);
+    const navigated = captureNavigations(service);
 
     const ok = await service.switchTo({ origin: 'http://192.168.1.42:3000' });
     expect(ok).toBe(false);
