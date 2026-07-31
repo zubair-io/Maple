@@ -321,9 +321,19 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
   let closeSessionSpy: ReturnType<typeof vi.fn>;
   let transferSpy: ReturnType<typeof vi.fn>;
   let fixture: ComponentFixture<ImageCanvasComponent>;
+  let originalIsSecureContext: PropertyDescriptor | undefined;
+  let originalNavigatorGpu: PropertyDescriptor | undefined;
 
   beforeEach(() => {
     vi.useFakeTimers();
+    // jsdom never sets `isSecureContext` / `navigator.gpu` — this suite exercises
+    // a secure, GPU-capable browser (the happy path), so stub both explicitly.
+    // The #2415 insecure-context short-circuit is covered in
+    // `gpu-fallback-notice.integration.spec.ts`.
+    originalIsSecureContext = Object.getOwnPropertyDescriptor(window, 'isSecureContext');
+    originalNavigatorGpu = Object.getOwnPropertyDescriptor(navigator, 'gpu');
+    Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true });
+    Object.defineProperty(navigator, 'gpu', { value: {}, configurable: true });
     focused = signal<Asset | null>(null);
     models = new Map();
     decodeSpy = vi.fn((_b: Uint8Array, _e: string, _x: string | undefined, mle: number) =>
@@ -413,6 +423,16 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     TestBed.resetTestingModule();
+    if (originalIsSecureContext) {
+      Object.defineProperty(window, 'isSecureContext', originalIsSecureContext);
+    } else {
+      delete (window as any).isSecureContext;
+    }
+    if (originalNavigatorGpu) {
+      Object.defineProperty(navigator, 'gpu', originalNavigatorGpu);
+    } else {
+      delete (navigator as any).gpu;
+    }
   });
 
   async function settle(ms = 0): Promise<void> {

@@ -40,6 +40,7 @@ import { cropStraightenTransform, displayDims, renderModelForCrop } from './imag
 import { coldOpen2d, runRender2d, type Render2dHost } from './image-canvas.render2d';
 import { canUseLiveFastPath, buildLiveParams } from './image-canvas.live-params';
 import { fetchAndLoadBytes, type ByteLoadError, type ByteLoadHost } from './image-canvas.byteload';
+import { GpuFallbackNoticeService } from '../gpu-fallback-notice/gpu-fallback-notice.service';
 
 @Component({
   selector: 'editor-image-canvas',
@@ -66,6 +67,8 @@ export class ImageCanvasComponent
   pipeline = inject(RawPipelineService);
   // Public for `GpuPresentHost` (the GPU cold-open serializes the live model).
   readonly xmpSerializer = inject(XmpSerializerService);
+  // Public for `GpuPresentHost` (#2415 — where a 2D fallback gets reported).
+  readonly gpuFallback = inject(GpuFallbackNoticeService);
   private readonly injector = inject(Injector);
   private readonly cropSession = inject(CropSessionService);
 

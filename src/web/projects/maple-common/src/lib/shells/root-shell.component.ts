@@ -14,17 +14,27 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { UpdateToastComponent } from '../sw/update-toast.component';
 import { LanSwitchBannerComponent } from '../network/lan-switch-banner.component';
+import { GpuFallbackNoticeComponent } from '../components/gpu-fallback-notice/gpu-fallback-notice.component';
 
 @Component({
   selector: 'app-root-shell',
   standalone: true,
-  imports: [RouterOutlet, UpdateToastComponent, LanSwitchBannerComponent],
+  imports: [
+    RouterOutlet,
+    UpdateToastComponent,
+    LanSwitchBannerComponent,
+    GpuFallbackNoticeComponent,
+  ],
   // The LAN-switch banner is a no-op on the Hosted build (see its
-  // LIBRARY_BACKEND gate) — safe to always mount here.
+  // LIBRARY_BACKEND gate) — safe to always mount here. The GPU fallback
+  // notice (#2415) only ever becomes visible once the editor has actually
+  // attempted (and lost) a GPU live session, so it's likewise a safe no-op
+  // everywhere else.
   template: `
     <router-outlet />
     <maple-update-toast />
     <maple-lan-switch-banner />
+    <maple-gpu-fallback-notice />
   `,
   styles: [
     `

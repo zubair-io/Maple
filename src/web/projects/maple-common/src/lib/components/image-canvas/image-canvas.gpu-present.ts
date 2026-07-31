@@ -34,6 +34,7 @@ import type { ImageCanvasService } from './image-canvas.service';
 import type { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 import type { AssetId } from '../../models/asset';
 import { type AdjustmentModel, isDefaultAdjustment } from '../../models/adjustment-model';
+import type { GpuFallbackNoticeService } from '../gpu-fallback-notice/gpu-fallback-notice.service';
 
 /**
  * The slice of `ImageCanvasComponent` the GPU present path reaches back into. Defined
@@ -50,6 +51,9 @@ export interface GpuPresentHost {
   readonly state: LibraryStateService;
   readonly canvasSvc: ImageCanvasService;
   readonly xmpSerializer: XmpSerializerService;
+  /** Where a fallback to the 2D path is reported (#2415) so the UI can
+   *  surface a notice instead of only the console warning below. */
+  readonly gpuFallback: GpuFallbackNoticeService;
   /** Serialize a model for the renderer, stripping the crop while the crop
    *  tool is armed (#638) so cold-open dedup matches the 2D path. */
   serializeForRender(model: AdjustmentModel): string;
@@ -120,6 +124,20 @@ export class ImageCanvasGpuPresent {
   static resetSessionForTests(): void {
     ImageCanvasGpuPresent.presentBroken = false;
     ImageCanvasGpuPresent.presentTested = false;
+  }
+
+  /**
+   * Whether this page is in a state where a GPU session COULD open at all
+   * (#2415): a secure context (`https:`, or exactly `http://localhost`) AND
+   * the browser exposes `navigator.gpu`. Both fail together on a LAN
+   * `http://<ip>:port` origin — the realistic case this exists to detect —
+   * but are checked independently since either alone rules out WebGPU.
+   * `window`/`navigator` are always defined in a browser tab; the guard is
+   * only for non-browser evaluation (SSR, if this were ever imported there).
+   */
+  private static hasSecureGpuContext(): boolean {
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') return true;
+    return window.isSecureContext === true && 'gpu' in navigator;
   }
 
   /**
@@ -240,6 +258,18 @@ export class ImageCanvasGpuPresent {
     // WebGPU-capable browser; guard so an old browser falls back cleanly).
     if (typeof OffscreenCanvas === 'undefined') return false;
 
+    // #2415: a LAN http:// origin (or a browser with no WebGPU support at all) is
+    // not a secure context, so `navigator.gpu` is never exposed — the session-open
+    // below would fail for that reason on EVERY attempt. Detect it up front (cheap,
+    // synchronous) so the UI notice can point at the actual fix (serve HTTPS)
+    // instead of a generic "GPU unavailable" message, and so we skip the doomed
+    // worker round-trip. Any OTHER open failure (a gpu-off WASM bundle, a decode
+    // error, a broken present) is still classified `session-open-failed` below.
+    if (!ImageCanvasGpuPresent.hasSecureGpuContext()) {
+      this.host.gpuFallback.report('insecure-context');
+      return false;
+    }
+
     // Run the one-time GPU presentation check before opening the session.
     if (!ImageCanvasGpuPresent.presentTested) {
       ImageCanvasGpuPresent.presentTested = true;
@@ -247,6 +277,7 @@ export class ImageCanvasGpuPresent {
       if (!works) {
         console.warn('[image-canvas] GPU present test failed; falling back to 2D.');
         ImageCanvasGpuPresent.presentBroken = true;
+        this.host.gpuFallback.report('session-open-failed');
         return false;
       }
     }
@@ -284,6 +315,10 @@ export class ImageCanvasGpuPresent {
       }
 
       this.active.set(true);
+      // A GPU session is up — drop any fallback notice from an earlier failed
+      // asset/session so the UI doesn't keep reporting a degraded path that's
+      // no longer true.
+      this.host.gpuFallback.clear();
       // Clear the 2D bitmap so the (hidden) 2D canvas doesn't retain stale pixels.
       this.host.imageBitmap()?.close();
       this.host.imageBitmap.set(null);
@@ -314,8 +349,11 @@ export class ImageCanvasGpuPresent {
       );
       return true;
     } catch (e) {
-      // gpu-off bundle / no WebGPU / decode error → tear down + signal fallback.
+      // gpu-off bundle / decode error / broken present on a browser that DOES
+      // otherwise support WebGPU (the insecure-context case returned early above) →
+      // tear down + signal fallback.
       console.warn('[image-canvas] GPU live session open failed; falling back to 2D:', e);
+      this.host.gpuFallback.report('session-open-failed');
       this.teardown();
       return false;
     } finally {

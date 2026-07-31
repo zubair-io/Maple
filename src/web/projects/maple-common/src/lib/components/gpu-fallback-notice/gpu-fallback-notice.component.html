@@ -1,0 +1,17 @@
+@if (visible()) {
+  <div
+    class="fixed right-4 top-4 z-[1000] flex items-start gap-3 px-4 py-2.5 rounded-lg border border-border bg-surface-alt text-text-main text-sm shadow-lg max-w-sm"
+    role="status"
+    aria-live="polite"
+  >
+    <span class="flex-1">{{ message() }}</span>
+    <button
+      type="button"
+      class="appearance-none border border-border bg-transparent text-text-muted text-[13px] px-2.5 py-[5px] rounded cursor-pointer hover:bg-white/[0.06] shrink-0"
+      (click)="dismiss()"
+      aria-label="Dismiss"
+    >
+      Dismiss
+    </button>
+  </div>
+}
