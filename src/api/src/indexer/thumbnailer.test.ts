@@ -11,6 +11,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { generateThumb } from './thumbnailer.ts';
 import { generatePreview } from './previewer.ts';
+import { ffiPool } from '../ffi/ffi-pool.ts';
 
 const NO_PREVIEW_SOURCES = [
   ['clip.mov', 'not a real quicktime file'],
@@ -45,6 +46,39 @@ describe('generateThumb — no-preview guard', () => {
       }
     });
   }
+});
+
+describe('generateThumb — X3F (Sigma Foveon) regression (#2413)', () => {
+  // test_0016.X3F always failed: extract_embedded_preview unconditionally
+  // called rawler's `X3fDecoder::raw_metadata`, which is a `todo!()` — the
+  // panic degraded to a hard Err, so the FFI call returned rc 11 and no
+  // thumb was ever written, no matter how many times the route was hit.
+  // Fixture-gated (matches the repo's soft-pass convention): skips cleanly
+  // when `test-fixtures/raws/test_0016.X3F` or the built libraw_ffi dylib
+  // isn't present on this machine.
+  it('writes a non-empty AVIF thumb for test_0016.X3F when fixtures + FFI are available', async () => {
+    const x3fPath = path.resolve(process.cwd(), '../../test-fixtures/raws/test_0016.X3F');
+    try {
+      await fs.stat(x3fPath);
+    } catch {
+      return; // soft pass: no fixture
+    }
+    if (!ffiPool().available()) {
+      return; // soft pass: libraw_ffi.dylib not built on this machine
+    }
+
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'thumbnailer-x3f-'));
+    try {
+      const thumbPath = path.join(dir, 'thumb.avif');
+
+      await generateThumb(x3fPath, thumbPath);
+
+      const s = await fs.stat(thumbPath);
+      expect(s.size).toBeGreaterThan(0);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
 });
 
 describe('generatePreview — no-preview guard', () => {
