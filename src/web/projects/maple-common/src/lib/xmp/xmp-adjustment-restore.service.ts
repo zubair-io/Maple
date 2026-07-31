@@ -98,7 +98,13 @@ export class XmpAdjustmentRestoreService {
     // Keep the passthrough bucket so a later write round-trips unknown
     // fields byte-for-byte — same contract as the openFolder() load.
     this.xmpStore.rememberPassthrough(id, passthrough);
-    if (this.store.restoreAdjustment(id, model)) this._markEdited(id);
+    this.store.restoreAdjustment(id, model);
+    // A 200 means a sidecar exists on disk — flip `edited` even when
+    // `restoreAdjustment` refused to overwrite (the user edited while the
+    // GET was in flight). The "Edited" filter chip tracks sidecar
+    // EXISTENCE, and `openFolder()` sets the flag on every successful
+    // sidecar read regardless of the model's content.
+    this._markEdited(id);
   }
 
   private _onFetchError(id: AssetId, err: unknown): void {

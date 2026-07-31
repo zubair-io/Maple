@@ -165,6 +165,12 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
 
     const model = store.adjustmentFor(ASSET_ID)();
     expect(model.exposure).toBeCloseTo(2.5);
+    // The 200 still proved a sidecar EXISTS, so the "Edited" filter-chip
+    // flag flips even though the model kept the in-session edit —
+    // mirroring openFolder(), which sets `edited` on every successful
+    // sidecar read regardless of the model's content.
+    const asset = store.assets().find((a) => a.id === ASSET_ID);
+    expect(asset?.edited).toBe(true);
   });
 
   it('restores once per asset and fetches lazily (no refetch on refocus)', async () => {
