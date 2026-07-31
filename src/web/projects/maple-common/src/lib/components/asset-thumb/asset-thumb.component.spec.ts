@@ -238,3 +238,108 @@ describe('AssetThumbComponent — Select-mode checkbox (#2404)', () => {
     expect(fixture.nativeElement.querySelector('[data-testid="select-checkbox"]')).toBeNull();
   });
 });
+
+// #2414 — production audit MAPLE-PROD-10: 15/15 gallery + filmstrip <img>s
+// had no accessible name and the accessible tree exposed no filenames.
+// Pattern: the img stays decorative (alt="") and the clickable wrapper
+// (a real <button>, matching the LibraryCell / timeline-photo / search-tile
+// precedent elsewhere in this codebase) carries the accessible name plus
+// the variant-appropriate selection state.
+describe('AssetThumbComponent — accessible name and selection state (#2414)', () => {
+  function configure(subscribeThumbUrl: (id: AssetId, cb: ThumbCb) => () => void) {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        {
+          provide: LibraryStateService,
+          useValue: {
+            ensureThumbnailUrl: () => {},
+            subscribeThumbUrl,
+          },
+        },
+      ],
+    });
+  }
+
+  function syncStub(initial: string | undefined = undefined) {
+    return (_id: AssetId, cb: ThumbCb): (() => void) => {
+      cb(initial);
+      return () => {};
+    };
+  }
+
+  function render(filename: string, thumbUrl: string | undefined = undefined) {
+    configure(syncStub(thumbUrl));
+    const fixture = TestBed.createComponent(AssetThumbComponent);
+    fixture.componentRef.setInput('asset', makeAsset('lib:x', filename));
+    return fixture;
+  }
+
+  function wrapper(fixture: ReturnType<typeof render>): HTMLElement {
+    const el = fixture.nativeElement.querySelector('[aria-label], .thumb') as HTMLElement | null;
+    expect(el).not.toBeNull();
+    return el!;
+  }
+
+  it('grid tile: the button wrapper is labeled with the filename and the img is decorative', () => {
+    const fixture = render('IMG_0042.dng', 'blob:loaded');
+    fixture.detectChanges();
+
+    const button = wrapper(fixture);
+    expect(button.tagName).toBe('BUTTON');
+    expect(button.getAttribute('aria-label')).toBe('IMG_0042.dng');
+
+    const img = fixture.nativeElement.querySelector('img') as HTMLImageElement;
+    expect(img.getAttribute('alt')).toBe('');
+  });
+
+  it('grid tile: still exposes the accessible name before a thumbnail has loaded (no <img> yet)', () => {
+    const fixture = render('IMG_0043.dng', undefined);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('img')).toBeNull();
+    expect(wrapper(fixture).getAttribute('aria-label')).toBe('IMG_0043.dng');
+  });
+
+  it('grid tile: reflects the multi-select state via aria-pressed', () => {
+    const fixture = render('a.jpg');
+    fixture.componentRef.setInput('variant', 'grid');
+    fixture.componentRef.setInput('selected', false);
+    fixture.detectChanges();
+    expect(wrapper(fixture).getAttribute('aria-pressed')).toBe('false');
+
+    fixture.componentRef.setInput('selected', true);
+    fixture.detectChanges();
+    expect(wrapper(fixture).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('grid tile: never reports aria-current — that state belongs to the filmstrip', () => {
+    const fixture = render('a.jpg');
+    fixture.componentRef.setInput('variant', 'grid');
+    fixture.componentRef.setInput('selected', true);
+    fixture.detectChanges();
+    expect(wrapper(fixture).hasAttribute('aria-current')).toBe(false);
+  });
+
+  it('filmstrip item: is labeled with the filename and marks the focused item as aria-current', () => {
+    const fixture = render('b.jpg');
+    fixture.componentRef.setInput('variant', 'filmstrip');
+    fixture.componentRef.setInput('focused', false);
+    fixture.detectChanges();
+    const el = wrapper(fixture);
+    expect(el.getAttribute('aria-label')).toBe('b.jpg');
+    expect(el.hasAttribute('aria-current')).toBe(false);
+
+    fixture.componentRef.setInput('focused', true);
+    fixture.detectChanges();
+    expect(wrapper(fixture).getAttribute('aria-current')).toBe('true');
+  });
+
+  it('filmstrip item: never reports aria-pressed — that state belongs to the grid', () => {
+    const fixture = render('b.jpg');
+    fixture.componentRef.setInput('variant', 'filmstrip');
+    fixture.componentRef.setInput('focused', true);
+    fixture.detectChanges();
+    expect(wrapper(fixture).hasAttribute('aria-pressed')).toBe(false);
+  });
+});
