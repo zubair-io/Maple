@@ -24,7 +24,7 @@ import type { ApiFolder } from '../api/bun-api-backend.service';
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import { API_BASE_URL } from '../api/api-base-url.token';
 import { STORAGE_KEYS } from '../util/typed-storage';
-import { provideLibrarySource } from '../addressing/library-source-provider';
+import { provideSelfHostedWorkspace } from '../workspace/self-hosted-workspace.providers';
 import { SIDECAR_CACHE } from './sidecar-idb-cache';
 import type { AssetId } from '../models/asset';
 
@@ -51,9 +51,11 @@ const SIDECAR_XML = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
   <rdf:Description rdf:about=""
     xmlns:xmp="http://ns.adobe.com/xap/1.0/"
     xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+    xmlns:vendor="https://example.test/vendor/1.0/"
     crs:Version="11.0"
     crs:Exposure2012="1.05"
-    crs:Vibrance="26">
+    crs:Vibrance="26"
+    vendor:OpaqueSetting="keep-me">
   </rdf:Description>
  </rdf:RDF>
 </x:xmpmeta>
@@ -90,7 +92,7 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
-        provideLibrarySource,
+        provideSelfHostedWorkspace(),
         { provide: API_BASE_URL, useValue: '/api' },
         { provide: LIBRARY_BACKEND, useValue: 'self-hosted' },
         { provide: BunApiBackendService, useValue: api },
@@ -185,7 +187,7 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
     expect(api.getXmp).toHaveBeenCalledTimes(1);
   });
 
-  it('debounced sidecar write after restore serializes the restored model (write path resolves the abs path)', async () => {
+  it('commits within 250ms, resolves the sibling path, and preserves unknown XML', async () => {
     vi.useFakeTimers();
     hydrateAndFocus();
     await flushAsync();
@@ -195,12 +197,32 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
     // regression where `assetAbsPaths` was never populated and the
     // debounced POST /api/xmp silently no-oped.
     state.updateAdjustment(ASSET_ID, { contrast: 10 });
-    await vi.advanceTimersByTimeAsync(800);
+    await vi.advanceTimersByTimeAsync(199);
+    expect(api.putXmp).not.toHaveBeenCalled();
+    expect(state.hasUnsavedChanges()).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(1);
 
     expect(api.putXmp).toHaveBeenCalledTimes(1);
     const [path, xml] = api.putXmp.mock.calls[0]!;
     expect(path).toBe(SIDECAR_ABS_PATH);
     expect(xml).toContain('crs:Exposure2012');
     expect(xml).toContain('crs:Contrast2012');
+    expect(xml).toContain('vendor:OpaqueSetting="keep-me"');
+    expect(state.sidecarSavePhase()).toBe('saved');
+  });
+
+  it('keeps the edit visibly unsaved when the sibling write fails', async () => {
+    vi.useFakeTimers();
+    api.putXmp.mockImplementation(() => throwError(() => new Error('disk is read-only')));
+    hydrateAndFocus();
+    await flushAsync();
+
+    state.updateAdjustment(ASSET_ID, { contrast: 12 });
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(state.sidecarSavePhase()).toBe('error');
+    expect(state.sidecarSaveError()).toContain('disk is read-only');
+    expect(state.hasUnsavedChanges()).toBe(true);
   });
 });

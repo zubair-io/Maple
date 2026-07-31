@@ -1,0 +1,7 @@
+@if (saveState.phase() === 'unsaved' || saveState.phase() === 'saving') {
+  <div class="save-status" role="status" aria-live="polite">Saving edits…</div>
+} @else if (saveState.phase() === 'error') {
+  <div class="save-status save-status--error" role="alert">
+    Edits are not saved. {{ saveState.error() }}
+  </div>
+}

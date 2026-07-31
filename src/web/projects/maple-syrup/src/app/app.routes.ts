@@ -34,7 +34,8 @@ const baseRoutes: Routes = [
   // per #619 — the Editor canvas IS the full-image view; the S5 editor
   // itself was retired once the canvas-first editor reached feature parity,
   // epic #1807 — Preview's own Edit action reaches it via `/edit/:slug/**`
-  // above); search is the lazy-loaded S7 page.
+  // above). Hosted has no server search index or account/auth surface, so
+  // those Self Hosted routes are intentionally absent.
   { path: 'library', redirectTo: 'browse', pathMatch: 'full' },
   { path: 'library/loupe/:id', redirectTo: 'view/:id' },
   // PWA `protocol_handlers` landing route — see manifest.webmanifest and
@@ -42,18 +43,6 @@ const baseRoutes: Routes = [
   // `web+maple://…` URL into `?url=…` (percent-encoded); the component
   // decodes it and redirects to the canonical Angular route.
   { path: 'protocol-handler', component: ProtocolHandlerComponent },
-  {
-    path: 'search',
-    loadComponent: () => import('./search-page.component').then((m) => m.SearchPageComponent),
-  },
-  // Hosted settings: Account is the only surface today (signed-in identity
-  // + sign-out) — see settings/account.component.ts for why it can't reuse
-  // Self Hosted's AccountComponent/SettingsShellComponent directly.
-  { path: 'settings', redirectTo: 'settings/account', pathMatch: 'full' },
-  {
-    path: 'settings/account',
-    loadComponent: () => import('./settings/account.component').then((m) => m.AccountComponent),
-  },
 ];
 
 export const routes: Routes = [...baseRoutes, { path: '**', redirectTo: '' }];

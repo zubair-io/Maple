@@ -16,13 +16,14 @@
 
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { of } from 'rxjs';
+import { Observable, of } from 'rxjs';
 
 import { EditPreviewPersistService } from './edit-preview-persist.service';
 import { LibraryStore } from './library-store.service';
 import { LibraryCache } from './library-cache.service';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
+import { SERVER_WORKSPACE_PERSISTENCE } from '../workspace/workspace-persistence';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
 import type { Asset, AssetId } from '../models/asset';
@@ -74,6 +75,12 @@ interface Setup {
 }
 
 function setup(opts: Setup = {}) {
+  const api = {
+    putPreview: vi.fn((_path: string, _body: Blob, _contentType: string) => of(undefined)),
+    ...opts.api,
+  } as {
+    putPreview: (path: string, body: Blob, contentType: string) => Observable<unknown>;
+  };
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [
@@ -103,7 +110,14 @@ function setup(opts: Setup = {}) {
       },
       {
         provide: BunApiBackendService,
-        useValue: { putPreview: vi.fn(() => of(undefined)), ...opts.api },
+        useValue: api,
+      },
+      {
+        provide: SERVER_WORKSPACE_PERSISTENCE,
+        useValue: {
+          writePreview: (path: string, bytes: Blob, contentType: 'image/avif' | 'image/jpeg') =>
+            api.putPreview(path, bytes, contentType) as Observable<void>,
+        },
       },
       {
         provide: RawPipelineService,

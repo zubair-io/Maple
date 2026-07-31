@@ -36,6 +36,7 @@ const TREE: SidebarEntry[] = [
       [sourceTree]="tree"
       [connectionIdentity]="identity"
       [tertiarySummary]="tertiary"
+      [showSearch]="showSearch()"
       (sourceSelected)="picked.set($event)"
       (searchPillTap)="searchTapped.update((v) => v + 1)"
     />
@@ -46,6 +47,7 @@ class HostComponent {
   readonly tree = TREE;
   readonly identity = 'maple.lawrence.io';
   readonly tertiary = '12,481 photos · synced 2m ago';
+  readonly showSearch = signal(true);
   readonly picked = signal<string | null>(null);
   readonly searchTapped = signal(0);
 }
@@ -116,6 +118,14 @@ describe('SourcePickerDrawerComponent', () => {
     fixture.detectChanges();
     expect(host.searchTapped()).toBe(1);
     expect(host.open()).toBe(false);
+  });
+
+  it('does not render search when the host has no search capability', () => {
+    host.showSearch.set(false);
+    fixture.detectChanges();
+
+    expect(el().querySelector('[data-testid="source-picker-drawer-search-pill"]')).toBeNull();
+    expect(el().textContent).not.toContain('Search photos');
   });
 
   it('closes when the scrim is clicked', () => {

@@ -28,7 +28,7 @@ import type { AdjustmentModel } from '../models/adjustment-model';
 import type { XmpCulling, PassthroughBucket } from './xmp.types';
 import { XmpParserService } from './xmp-parser.service';
 import { SIDECAR_CACHE, type SidecarCache } from './sidecar-idb-cache';
-import { BunApiBackendService } from '../api/bun-api-backend.service';
+import { SERVER_WORKSPACE_PERSISTENCE } from '../workspace/workspace-persistence';
 import { firstValueFrom } from 'rxjs';
 
 /**
@@ -63,7 +63,7 @@ export class SidecarStore {
   private readonly backend = inject(LIBRARY_BACKEND);
   private readonly parser = inject(XmpParserService);
   private readonly cache = inject<SidecarCache>(SIDECAR_CACHE);
-  private readonly api = inject(BunApiBackendService);
+  private readonly serverPersistence = inject(SERVER_WORKSPACE_PERSISTENCE);
 
   /** Optimistic cache: parsed docs keyed by path. Populated by `write()`. */
   private readonly _docs = signal<Map<string, SidecarDoc>>(new Map());
@@ -94,7 +94,9 @@ export class SidecarStore {
       // 2. Network. Only relevant on Self-Hosted; Hosted callers should keep
       //    using XmpStoreService.scheduleWrite (the FS Access debounced path).
       if (this.backend === 'self-hosted') {
-        await firstValueFrom(this.api.putXmp(path, xml));
+        if (!this.serverPersistence)
+          throw new Error('Self Hosted sidecar persistence is not configured');
+        await firstValueFrom(this.serverPersistence.writeSidecar(path, xml));
       }
     } catch (err) {
       // 3. Rollback. We do this best-effort — if IDB write fails on rollback

@@ -102,6 +102,16 @@ export async function fsAccessOpenFolder(): Promise<MapleFolderHandle | null> {
     return null;
   }
 
+  return fsAccessOpenDroppedFolder(nativeHandle);
+}
+
+/**
+ * Normalize a directory handle supplied by drag/drop instead of the picker.
+ * Chrome exposes the same permission contract for both entry points.
+ */
+export async function fsAccessOpenDroppedFolder(
+  nativeHandle: FileSystemDirectoryHandle,
+): Promise<MapleFolderHandle | null> {
   // Try readwrite first; fall back to read-only.
   const write = await verifyPermission(nativeHandle, 'readwrite');
   const read = write || (await verifyPermission(nativeHandle, 'read'));

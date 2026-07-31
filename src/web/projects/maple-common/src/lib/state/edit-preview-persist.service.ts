@@ -52,7 +52,7 @@ import type { DecodedImage } from '../raw-pipeline/raw-pipeline.types';
 import { LibraryStore } from './library-store.service';
 import { LibraryCache } from './library-cache.service';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
-import { BunApiBackendService } from '../api/bun-api-backend.service';
+import { SERVER_WORKSPACE_PERSISTENCE } from '../workspace/workspace-persistence';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
 import {
@@ -65,7 +65,7 @@ import { splitRelPath, validateRelPath } from '../addressing/fs-access-library-s
 import { isSupportedRaw } from './raw-extensions';
 
 /** Idle debounce before a developed preview is persisted, in ms. Longer than
- * the 750ms sidecar-write debounce (`LibraryFetch.API_XMP_DEBOUNCE_MS`)
+ * the 200ms sidecar-write debounce (`LibraryFetch.API_XMP_DEBOUNCE_MS`)
  * because this triggers a full decode + encode + disk/network write, not a
  * cheap text write — no value re-persisting mid-drag. */
 const IDLE_PERSIST_DEBOUNCE_MS = 2000;
@@ -86,7 +86,7 @@ export class EditPreviewPersistService {
   private readonly store = inject(LibraryStore);
   private readonly cache = inject(LibraryCache);
   private readonly mapleCache = inject(MapleCacheService);
-  private readonly api = inject(BunApiBackendService);
+  private readonly serverPersistence = inject(SERVER_WORKSPACE_PERSISTENCE);
   private readonly pipeline = inject(RawPipelineService);
   private readonly xmpSerializer = inject(XmpSerializerService);
 
@@ -169,14 +169,14 @@ export class EditPreviewPersistService {
    * to). No-ops if the asset has no known on-disk path yet. */
   private async _persistServerBacked(id: AssetId, img: DecodedImage): Promise<void> {
     const absPath = this.store.absPathFor(id);
-    if (!absPath) return;
+    if (!absPath || !this.serverPersistence) return;
     const avif = await encodeDevelopedRenderToAvif(img);
     if (avif) {
-      await firstValueFrom(this.api.putPreview(absPath, avif, 'image/avif'));
+      await firstValueFrom(this.serverPersistence.writePreview(absPath, avif, 'image/avif'));
       return;
     }
     const jpeg = await encodeDevelopedRenderToJpeg(img);
-    await firstValueFrom(this.api.putPreview(absPath, jpeg, 'image/jpeg'));
+    await firstValueFrom(this.serverPersistence.writePreview(absPath, jpeg, 'image/jpeg'));
   }
 
   /** Hosted (File System Access folder handle): only a genuine AVIF is ever

@@ -12,7 +12,7 @@ import { API_BASE_URL } from '../api/api-base-url.token';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { STORAGE_KEYS } from '../util/typed-storage';
-import { provideLibrarySource } from '../addressing/library-source-provider';
+import { provideSelfHostedWorkspace } from '../workspace/self-hosted-workspace.providers';
 
 // This spec constructs the real BrowsePreferencesService (via
 // TimelineStateService → LibraryStateService); its persistence effects write
@@ -34,7 +34,7 @@ describe('TimelineStateService', () => {
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
-        provideLibrarySource,
+        provideSelfHostedWorkspace(),
         { provide: API_BASE_URL, useValue: '/api' },
         { provide: LIBRARY_BACKEND, useValue: 'self-hosted' },
       ],

@@ -1,0 +1,53 @@
+:host {
+  position: absolute;
+  top: 66px;
+  left: 50%;
+  z-index: 12;
+  width: min(520px, calc(100vw - 24px));
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 10px 9px 12px;
+  border: 0.5px solid var(--pro-glass-border);
+  border-radius: 8px;
+  background: var(--pro-glass-bg-heavy);
+  box-shadow: var(--pro-glass-shadow);
+  backdrop-filter: var(--pro-glass-blur-heavy);
+  color: var(--pro-text);
+  font-size: 11px;
+  line-height: 1.35;
+  pointer-events: auto;
+}
+
+p {
+  margin: 0;
+}
+
+button {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border: 0.5px solid var(--pro-accent);
+  border-radius: 6px;
+  background: var(--pro-accent);
+  color: white;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:focus-visible {
+  outline: 2px solid white;
+  outline-offset: 2px;
+}
+
+@media (max-width: 520px) {
+  .notice {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

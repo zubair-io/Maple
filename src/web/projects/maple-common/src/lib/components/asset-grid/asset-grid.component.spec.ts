@@ -12,9 +12,10 @@
 // the click handler's branching is pure logic over its injected collaborators
 // and doesn't need a DOM render to prove out.
 
-import { TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { AssetGridComponent } from './asset-grid.component';
 import { LibraryStateService } from '../../state/library-state.service';
@@ -106,5 +107,72 @@ describe('AssetGridComponent — click semantics (#2404)', () => {
 
     expect(selectAsset).toHaveBeenCalledWith('a1.jpg', true, false);
     expect(navigate).not.toHaveBeenCalled();
+  });
+});
+
+describe('AssetGridComponent — thumbnail size accessibility (#2462)', () => {
+  let fixture: ComponentFixture<AssetGridComponent>;
+  const thumbSize = signal(140);
+
+  beforeEach(() => {
+    thumbSize.set(140);
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe = vi.fn();
+        disconnect = vi.fn();
+      },
+    );
+    TestBed.configureTestingModule({
+      providers: [
+        {
+          provide: LibraryStateService,
+          useValue: {
+            currentFolder: () => undefined,
+            currentRegisteredFolder: () => undefined,
+            selectedSourceLabel: () => undefined,
+            thumbSize,
+            sort: () => 'date',
+            filter: () => 'all',
+            selectedCount: () => 0,
+            foldersInSelectedFolder: () => [],
+            assetsInSelectedFolder: () => [],
+            selectedAssetIds: () => new Set<AssetId>(),
+            backendLoading: () => false,
+            backendError: () => undefined,
+            selectedSourceId: () => undefined,
+          },
+        },
+        { provide: Router, useValue: { navigate: vi.fn() } },
+      ],
+    });
+
+    fixture = TestBed.createComponent(AssetGridComponent);
+    fixture.detectChanges();
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  function slider(): HTMLInputElement {
+    return fixture.nativeElement.querySelector('input[type="range"]') as HTMLInputElement;
+  }
+
+  it('names the range and exposes its current value and valid bounds', () => {
+    expect(slider().getAttribute('aria-label')).toBe('Thumbnail size');
+    expect(slider().getAttribute('aria-valuetext')).toBe('140 pixels');
+    expect(slider().value).toBe('140');
+    expect(slider().min).toBe('60');
+    expect(slider().max).toBe('220');
+  });
+
+  it('keeps the semantic name and bounds stable when its value changes', () => {
+    thumbSize.set(180);
+    fixture.detectChanges();
+
+    expect(slider().getAttribute('aria-label')).toBe('Thumbnail size');
+    expect(slider().getAttribute('aria-valuetext')).toBe('180 pixels');
+    expect(slider().value).toBe('180');
+    expect(slider().min).toBe('60');
+    expect(slider().max).toBe('220');
   });
 });

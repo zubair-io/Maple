@@ -18,14 +18,16 @@ import type { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import { XmpParserService } from './xmp-parser.service';
 import { XmpSerializerService } from './xmp-serializer.service';
+import { SidecarSaveStateService } from './sidecar-save-state.service';
 
 @Injectable({ providedIn: 'root' })
 export class XmpStoreService {
   private folderAccess = inject(FolderAccessService);
   private parser = inject(XmpParserService);
   private serializer = inject(XmpSerializerService);
+  private saveState = inject(SidecarSaveStateService);
 
-  private readonly DEBOUNCE_MS = 750;
+  private readonly DEBOUNCE_MS = 200;
 
   /** Pending debounce handles keyed by AssetId. */
   private _pendingWrites = new Map<
@@ -36,8 +38,10 @@ export class XmpStoreService {
       rawFilename: string;
       model: AdjustmentModel;
       culling: XmpCulling;
+      revision: number;
     }
   >();
+  private readonly _inFlightWrites = new Set<Promise<void>>();
 
   /** Per-asset passthrough buckets loaded from the source sidecar. */
   private _passthroughs = new Map<AssetId, PassthroughBucket>();
@@ -105,16 +109,32 @@ export class XmpStoreService {
     culling: XmpCulling,
   ): void {
     if (!folder.write) return;
+    const revision = this.saveState.queued(assetId);
 
     const existing = this._pendingWrites.get(assetId);
     if (existing) clearTimeout(existing.timeout);
 
     const timeout = setTimeout(() => {
       this._pendingWrites.delete(assetId);
-      void this._flushWrite(folder, rawFilename, model, culling, this._passthroughs.get(assetId));
+      void this._startWrite(
+        assetId,
+        folder,
+        rawFilename,
+        model,
+        culling,
+        revision,
+        this._passthroughs.get(assetId),
+      ).catch(() => undefined);
     }, this.DEBOUNCE_MS);
 
-    this._pendingWrites.set(assetId, { timeout, folder, rawFilename, model, culling });
+    this._pendingWrites.set(assetId, {
+      timeout,
+      folder,
+      rawFilename,
+      model,
+      culling,
+      revision,
+    });
   }
 
   // ── Flush all (beforeunload) ────────────────────────────────────────────────
@@ -124,33 +144,67 @@ export class XmpStoreService {
    * Call from a beforeunload handler — modern Chromium will still finish any
    * in-flight writable-stream operations that have already been flushed to
    * the OS, but pending debounce timers that haven't fired yet are lost.
-   * For the common case (user pauses, then closes tab) 750ms debounce means
+   * For the common case (user pauses, then closes tab) the 200ms debounce means
    * the write will already have fired before unload.
    */
   async flushAll(): Promise<void> {
+    const writes: Promise<void>[] = [];
     for (const [id, pending] of this._pendingWrites.entries()) {
       clearTimeout(pending.timeout);
-      // Best-effort immediate write for any outstanding edits.
-      void this._flushWrite(
-        pending.folder,
-        pending.rawFilename,
-        pending.model,
-        pending.culling,
-        this._passthroughs.get(id),
+      writes.push(
+        this._startWrite(
+          id,
+          pending.folder,
+          pending.rawFilename,
+          pending.model,
+          pending.culling,
+          pending.revision,
+          this._passthroughs.get(id),
+        ),
       );
     }
     this._pendingWrites.clear();
+    await Promise.all([...this._inFlightWrites, ...writes]);
   }
 
   // ── Private ─────────────────────────────────────────────────────────────────
 
-  private async _flushWrite(
+  private _startWrite(
+    assetId: AssetId,
     folder: MapleFolderHandle,
     rawFilename: string,
     model: AdjustmentModel,
     culling: XmpCulling,
+    revision: number,
     passthrough?: PassthroughBucket,
   ): Promise<void> {
+    const write = this._flushWrite(
+      assetId,
+      folder,
+      rawFilename,
+      model,
+      culling,
+      revision,
+      passthrough,
+    );
+    this._inFlightWrites.add(write);
+    void write.then(
+      () => this._inFlightWrites.delete(write),
+      () => this._inFlightWrites.delete(write),
+    );
+    return write;
+  }
+
+  private async _flushWrite(
+    assetId: AssetId,
+    folder: MapleFolderHandle,
+    rawFilename: string,
+    model: AdjustmentModel,
+    culling: XmpCulling,
+    revision: number,
+    passthrough?: PassthroughBucket,
+  ): Promise<void> {
+    this.saveState.saving(assetId, revision);
     const xml = this.serializer.serialize(model, passthrough, culling);
     const bytes = new TextEncoder().encode(xml);
     const sidecarName = this._sidecarFilename(rawFilename);
@@ -159,8 +213,11 @@ export class XmpStoreService {
       // whose close() is atomic at the OS level.  The fallback backend writes to
       // IndexedDB which is also atomic.
       await this.folderAccess.writeFile(folder, sidecarName, bytes);
+      this.saveState.saved(assetId, revision);
     } catch (e) {
+      this.saveState.failed(assetId, revision, e);
       console.error(`XmpStoreService: write failed for ${rawFilename}:`, e);
+      throw e;
     }
   }
 

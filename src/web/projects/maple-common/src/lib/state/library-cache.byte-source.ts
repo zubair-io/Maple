@@ -11,7 +11,7 @@
 
 import { firstValueFrom } from 'rxjs';
 import type { AssetId } from '../models/asset';
-import type { BunApiBackendService } from '../api/bun-api-backend.service';
+import type { ServerLibraryIo } from '../workspace/server-library-io';
 import type { DownloadProgress, FilesystemBrowseService } from '../api/filesystem-browse.service';
 import type { LibraryBackendKind } from '../api/library-backend.token';
 import type { FolderEntry } from '../folder-access/folder-access.types';
@@ -31,7 +31,7 @@ export interface ByteSourceDeps {
   fsBrowse: FilesystemBrowseService;
   backend: LibraryBackendKind;
   apiAssetIds: Map<AssetId, string>;
-  api: BunApiBackendService;
+  api: ServerLibraryIo | null;
   fileHandles: Map<AssetId, FolderEntry>;
   makeProgressCallback: (id: AssetId) => (p: DownloadProgress) => void;
 }
@@ -62,6 +62,7 @@ async function readM2Bytes(id: AssetId, deps: ByteSourceDeps): Promise<Uint8Arra
 async function readSelfHostedBytes(id: AssetId, deps: ByteSourceDeps): Promise<Uint8Array> {
   const apiId = deps.apiAssetIds.get(id);
   if (!apiId) throw new Error(`bytesForAsset: no api id for asset ${id}`);
+  if (!deps.api) throw new Error('bytesForAsset: Self Hosted library I/O is not configured');
   const buf = await firstValueFrom(deps.api.getRawBytes(apiId, deps.makeProgressCallback(id)));
   return new Uint8Array(buf);
 }

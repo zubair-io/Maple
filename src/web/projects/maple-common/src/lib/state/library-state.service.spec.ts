@@ -20,7 +20,7 @@ import type { ApiFolder } from '../api/bun-api-backend.service';
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import { API_BASE_URL } from '../api/api-base-url.token';
 import { STORAGE_KEYS } from '../util/typed-storage';
-import { provideLibrarySource } from '../addressing/library-source-provider';
+import { provideSelfHostedWorkspace } from '../workspace/self-hosted-workspace.providers';
 
 // This spec constructs the real BrowsePreferencesService (via
 // LibraryStateService); its persistence effects write `cm.*` keys into the
@@ -65,7 +65,7 @@ describe('LibraryStateService — Self-Hosted picker + addLibraryFolder', () => 
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
-        provideLibrarySource,
+        provideSelfHostedWorkspace(),
         { provide: API_BASE_URL, useValue: '/api' },
         { provide: LIBRARY_BACKEND, useValue: 'self-hosted' },
         { provide: BunApiBackendService, useValue: api },

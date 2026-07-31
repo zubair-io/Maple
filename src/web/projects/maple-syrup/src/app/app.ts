@@ -8,13 +8,14 @@
 // in #624 — see DeepLinkService.
 
 import { Component, inject, OnInit } from '@angular/core';
-import { DeepLinkService, LibraryStateService, RootShellComponent } from '@maple-common';
+import { DeepLinkService, LibraryStateService } from '@maple-common';
+import { HostedRootShellComponent } from './hosted-root-shell/hosted-root-shell.component';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RootShellComponent],
-  template: `<app-root-shell />`,
+  imports: [HostedRootShellComponent],
+  template: `<maple-syrup-root-shell />`,
   styles: [
     `
       :host {

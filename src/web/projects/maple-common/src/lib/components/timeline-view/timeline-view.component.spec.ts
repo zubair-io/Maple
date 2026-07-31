@@ -17,7 +17,7 @@ import { SearchService, SearchParams } from '../../api/search.service';
 import { FilesystemBrowseService } from '../../api/filesystem-browse.service';
 import { LIBRARY_BACKEND } from '../../api/library-backend.token';
 import { API_BASE_URL } from '../../api/api-base-url.token';
-import { provideLibrarySource } from '../../addressing/library-source-provider';
+import { provideSelfHostedWorkspace } from '../../workspace/self-hosted-workspace.providers';
 import { FsBrowseStub, SearchStub, clearPrefKeys, makeResult } from './timeline-view.test-helpers';
 
 beforeEach(clearPrefKeys);
@@ -62,7 +62,7 @@ describe('TimelineViewComponent', () => {
         provideRouter([]),
         provideHttpClient(),
         provideHttpClientTesting(),
-        provideLibrarySource,
+        provideSelfHostedWorkspace(),
         { provide: LIBRARY_BACKEND, useValue: 'self-hosted' },
         { provide: API_BASE_URL, useValue: '/api' },
         { provide: SearchService, useValue: searchStub },

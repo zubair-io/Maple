@@ -33,6 +33,11 @@ export interface ExportOutcome {
   readonly byteLength: number;
 }
 
+export interface SidecarDownloadOutcome {
+  readonly filename: string;
+  readonly byteLength: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ImageExportService {
   private readonly library = inject(LibraryStateService);
@@ -55,6 +60,20 @@ export class ImageExportService {
     const file = await this.pipeline.exportImage(bytes, extensionOf(asset.filename), options, xmp);
     await this.persistSidecar(asset.id);
     return this.deliver(asset, file);
+  }
+
+  /**
+   * Download the current sidecar when the browser only has a single file and
+   * therefore cannot write beside the original. Uses the same serializer as
+   * image export so culling fields and unknown XMP passthrough stay identical.
+   */
+  downloadSidecar(asset: Asset): SidecarDownloadOutcome {
+    const blob = new Blob([this.sidecarXml(asset)], {
+      type: 'application/rdf+xml;charset=utf-8',
+    });
+    const filename = exportFilename(asset.filename, 'xmp');
+    downloadBlob(blob, filename);
+    return { filename, byteLength: blob.size };
   }
 
   /**

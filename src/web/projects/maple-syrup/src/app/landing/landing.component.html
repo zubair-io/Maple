@@ -1,4 +1,10 @@
-<section class="mx-auto flex max-w-[720px] flex-col gap-12 px-8 pt-24 pb-16">
+<section
+  class="mx-auto flex max-w-[720px] flex-col gap-12 px-8 pt-24 pb-16"
+  [class.landing--dragging]="isDragging()"
+  (dragover)="onDragOver($event)"
+  (dragleave)="onDragLeave($event)"
+  (drop)="onDrop($event)"
+>
   <header class="flex flex-col items-center gap-3 text-center">
     <div class="flex items-center justify-center text-primary" aria-hidden="true">
       <!-- Maple mark -->
@@ -14,6 +20,26 @@
       A photo editor for working photographers.
     </p>
   </header>
+
+  <div
+    class="rounded-xl border border-dashed border-border bg-white/[0.02] px-6 py-5 text-center transition-colors"
+    [class.border-primary]="isDragging()"
+    [class.bg-surface-hover]="isDragging()"
+  >
+    <p class="text-sm font-medium">
+      {{ isDragging() ? 'Drop to open in Maple' : 'Drag and drop a RAW, image, or folder' }}
+    </p>
+    <p class="mt-1 text-xs text-text-muted">Your original files are never modified.</p>
+  </div>
+
+  @if (errorMessage(); as error) {
+    <p
+      class="rounded-lg border border-warn/50 bg-error-bg px-4 py-3 text-sm text-error-text"
+      role="alert"
+    >
+      {{ error }}
+    </p>
+  }
 
   <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
     <button

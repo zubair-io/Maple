@@ -11,13 +11,15 @@ import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/
 import { provideServiceWorker } from '@angular/service-worker';
 import {
   AppUpdateService,
-  LIBRARY_BACKEND,
+  API_BASE_URL,
+  AuthService,
   MapleErrorHandler,
   ObservabilityService,
+  PREVIEW_VIDEO_ACCESS,
   RenderConfigService,
   authInterceptor,
   provideAuthBootstrap,
-  provideLibrarySource,
+  provideSelfHostedWorkspace,
 } from '@maple-common';
 import { routes } from './app.routes';
 
@@ -36,8 +38,14 @@ export const appConfig: ApplicationConfig = {
     ),
     provideHttpClient(withFetch(), withInterceptors([authInterceptor])),
     provideAuthBootstrap(),
-    provideLibrarySource,
-    { provide: LIBRARY_BACKEND, useValue: 'self-hosted' },
+    provideSelfHostedWorkspace(),
+    {
+      provide: PREVIEW_VIDEO_ACCESS,
+      useFactory: () => {
+        const auth = inject(AuthService);
+        return { apiBase: inject(API_BASE_URL), bearer: () => auth.bearer };
+      },
+    },
     // GPU live-render is on by default (token factory) and the token override
     // here was a blanket kill-switch from #1560 (#1559). #1572 replaced the
     // kill-switch with per-session present-failure detection in
