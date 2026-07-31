@@ -14,6 +14,7 @@
 
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
+import { Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { AuthService } from '../auth/auth.service';
 import type { LocalAddressReport } from './local-address-report.model';
@@ -27,6 +28,7 @@ export interface LanSwitchCandidate {
 export class LanSwitchService {
   private readonly http = inject(HttpClient);
   private readonly auth = inject(AuthService);
+  private readonly router = inject(Router);
 
   /**
    * Checks whether the server has a LAN address to offer. Confirms
@@ -84,16 +86,27 @@ export class LanSwitchService {
 
   /**
    * Mints a one-time handoff code and navigates the whole page to the LAN
-   * origin. A top-level navigation is exempt from mixed-content blocking
-   * (only subresource fetches are restricted), so this works even from an
-   * HTTPS page redirecting to a plain-HTTP LAN address. Returns `false`
-   * without navigating when the code couldn't be minted (network error, or
-   * the session expired between offering and clicking).
+   * origin, at the SAME app route (path + query) the user is currently on —
+   * not the origin's root — so e.g. switching from `/edit/photos/raws/foo.RAF`
+   * lands back on that same asset/mode on the LAN origin instead of dropping
+   * the user at the default browse state. `provideAuthBootstrap()` on the
+   * receiving side only scrubs the `lan_handoff` query param via
+   * `history.replaceState`, leaving the rest of the URL untouched, so
+   * forwarding the current route here is sufficient — no server-side route
+   * payload needed.
+   *
+   * A top-level navigation is exempt from mixed-content blocking (only
+   * subresource fetches are restricted), so this works even from an HTTPS
+   * page redirecting to a plain-HTTP LAN address. Returns `false` without
+   * navigating when the code couldn't be minted (network error, or the
+   * session expired between offering and clicking).
    */
   async switchTo(candidate: LanSwitchCandidate): Promise<boolean> {
     const code = await this.auth.issueLanHandoffCode();
     if (!code) return false;
-    this.navigateTo(`${candidate.origin}/?lan_handoff=${encodeURIComponent(code)}`);
+    const target = new URL(this.router.url, candidate.origin);
+    target.searchParams.set('lan_handoff', code);
+    this.navigateTo(target.toString());
     return true;
   }
 
