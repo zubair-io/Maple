@@ -316,7 +316,10 @@ fn extract_preview_from_rawsource(src: &RawSource) -> Option<DynamicImage> {
 /// containers (Sigma X3F `FOVb`, Canon CR3 BMFF, Fuji RAF `FUJIFILM`) do not.
 /// Used to gate the embedded-JPEG byte scan away from any container that could
 /// hold a RAW-as-JPEG.
-fn is_tiff_container(buf: &[u8]) -> bool {
+///
+/// `pub(crate)`: shared with [`crate::preview::extract_embedded_preview`]
+/// (#2413), which needs the same non-TIFF gate for its own byte-scan tier.
+pub(crate) fn is_tiff_container(buf: &[u8]) -> bool {
     matches!(
         buf.get(0..4),
         Some([0x49, 0x49, 0x2A, 0x00]) | Some([0x4D, 0x4D, 0x00, 0x2A])
@@ -332,7 +335,10 @@ fn is_tiff_container(buf: &[u8]) -> bool {
 ///   * reject grayscale decodes (a CFA RAW stored as a 1-component JPEG);
 ///   * reject `< MIN_EDGE` px (thumbnails);
 ///   * keep the largest by pixel area (the camera preview dwarfs the thumbnail).
-fn largest_embedded_jpeg(bytes: &[u8]) -> Option<DynamicImage> {
+///
+/// `pub(crate)`: shared with [`crate::preview::extract_embedded_preview`]
+/// (#2413) — see [`is_tiff_container`] doc.
+pub(crate) fn largest_embedded_jpeg(bytes: &[u8]) -> Option<DynamicImage> {
     const MIN_EDGE: u32 = 256;
     let mut best: Option<DynamicImage> = None;
     let mut best_area: u64 = 0;

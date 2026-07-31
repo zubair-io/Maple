@@ -45,9 +45,13 @@ use crate::Result;
 /// used by most non-DNG decoders — CR3, ARW, NEF, RAF), then `full_image`
 /// (the DNG SubIFD preview, `NewSubFileType=1` — the multi-MP one most DNG
 /// converters embed), then `thumbnail_image` (the tiny ~160px root-IFD
-/// thumb) as a last resort. Returns [`Error::Preview`] if none exists —
-/// callers may fall through to a full pipeline render, or (browser/no
-/// filesystem) surface the error to the user.
+/// thumb), then — for non-TIFF containers only (Sigma X3F; see
+/// [`crate::view::auto_profile::preview::is_tiff_container`]) — a byte scan
+/// for the largest embedded color JPEG (#2413: X3F's rawler decoder
+/// implements none of the three slots above, so this tier is the only one
+/// that ever produces a preview for it). Returns [`Error::Preview`] if none
+/// exists — callers may fall through to a full pipeline render, or
+/// (browser/no filesystem) surface the error to the user.
 ///
 /// Also returns the source's EXIF orientation so the caller can bake the
 /// rotation into the pixels: embedded preview JPEGs (and the rawler decode
@@ -75,12 +79,22 @@ pub fn extract_embedded_preview(
         // raw TIFF tag — same source the full decode path uses
         // (`decode::decode_bytes` § 1a). Works across DNG/CR2/ARW/NEF;
         // defaults to Normal when missing.
-        let orientation = decoder
-            .raw_metadata(&source, &params)
-            .ok()
-            .and_then(|md| md.exif.orientation)
-            .map(ExifOrientation::from_u16)
-            .unwrap_or(ExifOrientation::Normal);
+        //
+        // Best-effort, isolated behind its own `catch_unwind`: some rawler
+        // decoders (X3F — Sigma Foveon) have `raw_metadata` implemented as
+        // `todo!()`, since only the preview/thumbnail slots are supported
+        // for that format (full Foveon decode is out of scope, #417). A
+        // panic here must degrade to the default orientation rather than
+        // fail the whole preview extraction — the embedded JPEG preview is
+        // still perfectly extractable even when metadata isn't.
+        let orientation = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            decoder.raw_metadata(&source, &params).ok()
+        }))
+        .ok()
+        .flatten()
+        .and_then(|md| md.exif.orientation)
+        .map(ExifOrientation::from_u16)
+        .unwrap_or(ExifOrientation::Normal);
 
         // Embedded preview hunt — different decoders put the largest
         // embedded JPEG in different rawler slots (see doc comment above
@@ -95,7 +109,15 @@ pub fn extract_embedded_preview(
         };
         let img = try_slot(decoder.preview_image(&source, &params))
             .or_else(|| try_slot(decoder.full_image(&source, &params)))
-            .or_else(|| try_slot(decoder.thumbnail_image(&source, &params)));
+            .or_else(|| try_slot(decoder.thumbnail_image(&source, &params)))
+            .or_else(|| {
+                // Last-resort byte scan, non-TIFF containers only — see the
+                // doc comment above and `is_tiff_container`'s own doc for
+                // why this can never go circular on a TIFF-based RAW.
+                (!crate::view::auto_profile::preview::is_tiff_container(raw_bytes))
+                    .then(|| crate::view::auto_profile::preview::largest_embedded_jpeg(raw_bytes))
+                    .flatten()
+            });
         match img {
             Some(i) => Ok((i, orientation)),
             None => Err(Error::Preview(
@@ -188,5 +210,25 @@ mod tests {
         use image::GenericImageView;
         let (w, h) = img.dimensions();
         assert!(w > 0 && h > 0);
+    }
+
+    /// Regression for #2413: X3F (Sigma Foveon) thumbnails always failed
+    /// because `X3fDecoder::raw_metadata` is a vendored-rawler `todo!()` —
+    /// the panic used to propagate out of `extract_embedded_preview`
+    /// entirely (caught by the outer `catch_unwind`, but as an `Err` that
+    /// discarded the perfectly-extractable embedded JPEG preview along with
+    /// it). Orientation lookup is now isolated behind its own
+    /// `catch_unwind` so it degrades to `ExifOrientation::Normal` instead of
+    /// failing extraction.
+    #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
+    fn fixture_x3f_orientation_panic_degrades_not_fails() {
+        let path = crate::test_support::fixtures::require_raw("test_0016.X3F");
+        let bytes = std::fs::read(&path).unwrap();
+        let (img, orientation) = extract_embedded_preview(&bytes, "x3f").unwrap();
+        use image::GenericImageView;
+        let (w, h) = img.dimensions();
+        assert!(w > 0 && h > 0);
+        assert_eq!(orientation, ExifOrientation::Normal);
     }
 }
