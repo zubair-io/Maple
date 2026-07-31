@@ -85,7 +85,10 @@ COPY src/web/ .
 # deployed instance. Calling the actual script (needs python3, installed
 # below) means a future change to the patch can't silently diverge between
 # local dev and the Docker build.
-COPY --from=wasm-builder /wasm-pkg/ /raw-pipeline/raw-wasm/pkg/
+# Relative destination on purpose: sync-raw-wasm.sh resolves the pkg as
+# `<web workspace>/../raw-pipeline/raw-wasm/pkg`, so a WORKDIR-relative `..`
+# keeps the COPY and the script in lockstep at any WORKDIR depth.
+COPY --from=wasm-builder /wasm-pkg/ ../raw-pipeline/raw-wasm/pkg/
 RUN apt-get update && apt-get install -y --no-install-recommends python3 \
     && rm -rf /var/lib/apt/lists/* \
     && bash scripts/sync-raw-wasm.sh
