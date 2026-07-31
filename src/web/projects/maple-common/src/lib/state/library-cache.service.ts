@@ -18,6 +18,7 @@ import { LIBRARY_SOURCE, type LibrarySource } from '../addressing/library-source
 import { parseAddress } from '../addressing/maple-address';
 import { BlobUrlChannel } from './blob-url-channel';
 import { LruCache, ThumbLruCache } from './lru-cache';
+import { ThumbFailMemory } from './library-cache.thumb-fail';
 import { HostedPreviewResolver } from './hosted-preview-resolver.service';
 import { isM2Asset, readAssetBytes } from './library-cache.byte-source';
 
@@ -128,18 +129,7 @@ export class LibraryCache {
    * `onThumbWritten` side effect, not `BlobUrlChannel.ensure()`'s simple shape.
    */
   private readonly thumbLoadingTokens = new Map<AssetId, { token: symbol; sourceId: string }>();
-
-  /**
-   * Assets whose thumbnail load has already failed once this session (#2413:
-   * an X3F whose FFI preview extraction 404s got re-requested on every
-   * `ensureThumbnailUrl` call — every grid re-render re-fired the same doomed
-   * network request forever). Checked by `ensureThumbnailUrl` as a third
-   * short-circuit alongside the URL cache and the in-flight token map.
-   * Session-scoped only — no TTL/backoff, cleared on `clearAll()` (folder
-   * switch / sign-out) so a later retry of the same id is still possible in a
-   * fresh session.
-   */
-  private readonly failedThumbIds = new Set<AssetId>();
+  private readonly thumbFails = new ThumbFailMemory();
 
   // ── Thumbnail load queue ──────────────────────────────────────────────────
   private static readonly MAX_CONCURRENT_THUMB_LOADS = 4;
@@ -222,9 +212,7 @@ export class LibraryCache {
     // need a full wipe.
     this.thumbChannel.clearAll();
     this.thumbnailUrls.set(new Map());
-    // A failure recorded against a folder's assets shouldn't haunt the next
-    // folder (or a later revisit of this one) forever.
-    this.failedThumbIds.clear();
+    this.thumbFails.clear();
     // FilesystemBrowseService owns the FS-walk thumb blob URLs in its own cache
     // (unbounded, previously revoked only on sign-out). Clear it here too so a
     // folder switch reclaims that memory instead of letting it accumulate for
@@ -379,20 +367,15 @@ export class LibraryCache {
     return this.thumbChannel.get(id);
   }
 
-  /** Idempotently load the blob-URL thumbnail for one asset. Both
-   * `<asset-grid>` and `<editor-filmstrip>` call this on every visible row;
-   * it short-circuits when the URL is already cached or in flight, so
-   * callers can fire it on every change-detection pass without paying for
-   * extra network round-trips.
-   *
-   * Single source of truth for all thumbnail acquisition paths:
-   * Swallows errors and logs them — the gradient placeholder stays visible.
-   * The entry stays out of `thumbnailUrls`, so a future trigger can retry. */
+  /** Idempotently load the blob-URL thumbnail for one asset. `<asset-grid>`
+   * and `<editor-filmstrip>` call this on every visible row; it short-circuits
+   * when the URL is cached, a load is in flight, or the load already failed
+   * this session ({@link ThumbFailMemory}, #2413), so callers can fire it on
+   * every change-detection pass. Errors are swallowed and logged. */
   ensureThumbnailUrl(asset: Asset, onThumbWritten?: (id: AssetId, sha: string) => void): void {
     if (!asset) return;
-    if (this.thumbnailUrls().has(asset.id)) return;
+    if (this.thumbnailUrls().has(asset.id) || this.thumbFails.has(asset.id)) return;
     if (this.thumbLoadingTokens.has(asset.id)) return;
-    if (this.failedThumbIds.has(asset.id)) return;
 
     const token = Symbol('thumb-load');
     const sourceId = this.selection.selectedSourceId();
@@ -572,13 +555,6 @@ export class LibraryCache {
     } catch (err) {
       console.warn('[state] thumb load failed for', asset.filename, err);
     }
-    // Every success path above ends in `cacheThumbnailUrl`, so a load that
-    // didn't land a URL — whether it threw above or silently ran out of
-    // branches (e.g. no absPath, no apiId) — is a failure. Remember it so
-    // `ensureThumbnailUrl` stops re-firing the same doomed request on every
-    // subsequent re-render (#2413).
-    if (!this.thumbnailUrls().has(asset.id)) {
-      this.failedThumbIds.add(asset.id);
-    }
+    if (!this.thumbnailUrls().has(asset.id)) this.thumbFails.record(asset.id);
   }
 }
