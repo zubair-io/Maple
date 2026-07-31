@@ -25,7 +25,8 @@ import { BrowseShellComponent } from './browse-shell.component';
 import { LIBRARY_BACKEND } from '../../api/library-backend.token';
 import { API_BASE_URL } from '../../api/api-base-url.token';
 import { STORAGE_KEYS } from '../../util/typed-storage';
-import { provideLibrarySource } from '../../addressing/library-source-provider';
+import { provideHostedWorkspace } from '../../workspace/hosted-workspace.providers';
+import { provideSelfHostedWorkspace } from '../../workspace/self-hosted-workspace.providers';
 import { LibraryStateService } from '../../state/library-state.service';
 import { LayoutService, type MapleLayout } from '../../layout-service';
 import type { Asset } from '../../models/asset';
@@ -52,7 +53,7 @@ function setupHosted(layout: MapleLayout = 'desktop') {
       provideRouter([]),
       provideHttpClient(),
       provideHttpClientTesting(),
-      provideLibrarySource,
+      provideHostedWorkspace(),
       { provide: LIBRARY_BACKEND, useValue: 'hosted' },
       { provide: API_BASE_URL, useValue: '/api' },
       { provide: LayoutService, useValue: { layout: signal<MapleLayout>(layout) } },
@@ -66,7 +67,7 @@ function setupSelfHosted(layout: MapleLayout = 'desktop') {
       provideRouter([]),
       provideHttpClient(),
       provideHttpClientTesting(),
-      provideLibrarySource,
+      provideSelfHostedWorkspace(),
       { provide: LIBRARY_BACKEND, useValue: 'self-hosted' },
       { provide: API_BASE_URL, useValue: '/api' },
       { provide: LayoutService, useValue: { layout: signal<MapleLayout>(layout) } },

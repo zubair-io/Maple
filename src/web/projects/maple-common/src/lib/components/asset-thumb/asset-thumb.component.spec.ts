@@ -246,6 +246,8 @@ describe('AssetThumbComponent — Select-mode checkbox (#2404)', () => {
 // precedent elsewhere in this codebase) carries the accessible name plus
 // the variant-appropriate selection state.
 describe('AssetThumbComponent — accessible name and selection state (#2414)', () => {
+  let thumbCb: ThumbCb | undefined;
+
   function configure(subscribeThumbUrl: (id: AssetId, cb: ThumbCb) => () => void) {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
@@ -264,6 +266,7 @@ describe('AssetThumbComponent — accessible name and selection state (#2414)', 
 
   function syncStub(initial: string | undefined = undefined) {
     return (_id: AssetId, cb: ThumbCb): (() => void) => {
+      thumbCb = cb;
       cb(initial);
       return () => {};
     };
@@ -300,6 +303,19 @@ describe('AssetThumbComponent — accessible name and selection state (#2414)', 
 
     expect(fixture.nativeElement.querySelector('img')).toBeNull();
     expect(wrapper(fixture).getAttribute('aria-label')).toBe('IMG_0043.dng');
+  });
+
+  it('keeps its name and selection state when an async thumbnail arrives', () => {
+    const fixture = render('IMG_0044.dng');
+    fixture.componentRef.setInput('selected', true);
+    fixture.detectChanges();
+
+    thumbCb!('blob:loaded');
+    fixture.detectChanges();
+
+    expect(wrapper(fixture).getAttribute('aria-label')).toBe('IMG_0044.dng');
+    expect(wrapper(fixture).getAttribute('aria-pressed')).toBe('true');
+    expect(fixture.nativeElement.querySelector('img')?.getAttribute('alt')).toBe('');
   });
 
   it('grid tile: reflects the multi-select state via aria-pressed', () => {

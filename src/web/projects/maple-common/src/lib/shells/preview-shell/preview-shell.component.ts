@@ -43,9 +43,8 @@ import {
 } from '../../addressing/route-address';
 import { previewKeyAction } from './preview-shell-keyboard';
 import { FilmstripComponent } from '../../components/filmstrip/filmstrip.component';
-import { AuthService } from '../../auth/auth.service';
-import { API_BASE_URL } from '../../api/api-base-url.token';
 import { STORAGE_KEYS, TypedStorage } from '../../util/typed-storage';
+import { PREVIEW_VIDEO_ACCESS } from './preview-video-access';
 
 /** Horizontal swipe distance (px) past which a pointerdown→pointerup drag on
  * `.preview-image-wrap` counts as a prev/next gesture rather than a tap. */
@@ -70,8 +69,7 @@ export class PreviewShellComponent implements OnDestroy {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private layoutService = inject(LayoutService);
-  private auth = inject(AuthService);
-  private apiBase = inject(API_BASE_URL);
+  private videoAccess = inject(PREVIEW_VIDEO_ACCESS);
 
   readonly thumbUrl = signal<string | undefined>(undefined);
   readonly previewUrl = signal<string | undefined>(undefined);
@@ -110,16 +108,16 @@ export class PreviewShellComponent implements OnDestroy {
    * the bearer-token HttpInterceptor used for image Blob requests. */
   readonly videoUrl = computed<string | undefined>(() => {
     const asset = this.state.focusedAsset();
-    const token = this.auth.bearer;
+    const token = this.videoAccess?.bearer();
     if (!asset?.isVideo || !token) return undefined;
     const query = new URLSearchParams({ token });
     if (asset.absPath) {
       query.set('path', asset.absPath);
-      return `${this.apiBase}/video/fs?${query.toString()}`;
+      return `${this.videoAccess!.apiBase}/video/fs?${query.toString()}`;
     }
     const address = parseAddress(asset.id);
     if (!address.slug || !address.relPath) return undefined;
-    return `${this.apiBase}/video/${toApiPath(address)}?${query.toString()}`;
+    return `${this.videoAccess!.apiBase}/video/${toApiPath(address)}?${query.toString()}`;
   });
 
   constructor() {

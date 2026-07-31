@@ -32,7 +32,7 @@ if [[ "${FORCE_WASM_REBUILD:-}" != "1" && "${1:-}" != "--force" && \
     changes=$(find "$WORKSPACE_DIR" \
         \( -type d \( -name target -o -name .git -o -name pkg \) -prune \) -o \
         -type f \( -name '*.rs' -o -name 'Cargo.toml' -o -name 'Cargo.lock' \) \
-        -newer "$STAMP" -print 2>/dev/null | head -n 1)
+        -newer "$STAMP" -print -quit 2>/dev/null)
     if [[ -z "$changes" ]]; then
         echo "[raw-wasm] No source changes since last build — skipping."
         exit 0
