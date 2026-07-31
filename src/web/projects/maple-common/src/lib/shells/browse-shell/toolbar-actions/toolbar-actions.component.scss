@@ -4,6 +4,22 @@
 // toggle) rather than shared — it's a two-line rule and the two components
 // don't otherwise share a stylesheet.
 
+// The pills are laid out by BrowseShell's `.toolbar` flex row, which they were
+// direct children of until #2293 extracted them into this component. With no
+// `:host` display the host is blockified as a flex item, and the pills — each
+// carrying Tailwind's `flex` utility, so each a block-level flex box — stack
+// vertically inside it and overflow the fixed-height bar. `display: contents`
+// drops the host box so they are direct flex items of `.toolbar` again, which
+// also restores `.toolbar`'s `gap-2` falling between each individual pill
+// rather than once around a grouped host box (#2427).
+//
+// Safe for the collapsed kebab: `.toolbar-overflow` below puts
+// `position: relative` on an inner <div>, so the absolutely-positioned
+// `.toolbar-overflow-menu` never anchored to the host to begin with.
+:host {
+  display: contents;
+}
+
 .chrome-btn.is-active {
   background: rgba(255, 255, 255, 0.04);
   border-color: var(--color-border);
