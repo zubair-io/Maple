@@ -80,11 +80,17 @@ export class XmpAdjustmentRestoreService {
     );
   }
 
-  /** The sidecar XML for `id`, or `null` when no library root owns its slug. */
+  /** The sidecar XML for `id`, or `null` when no library root owns its slug.
+   *  Awaits the GET explicitly (rather than returning the bare promise) so
+   *  this resolves after the same number of microtask turns as the inline
+   *  version it replaced — returning an un-awaited promise from an `async`
+   *  function costs one extra tick for the runtime to adopt it, which is
+   *  enough to land after a test's fixed number of `flushAsync` turns. */
   private async _fetchSidecarXml(id: AssetId): Promise<string | null> {
     await this._ensureRegisteredFolders();
     const absPath = this.store.absPathFor(id);
-    return absPath ? firstValueFrom(this.api.getXmp(absPath)) : null;
+    if (!absPath) return null;
+    return await firstValueFrom(this.api.getXmp(absPath));
   }
 
   private _applyParsedSidecar(id: AssetId, xml: string): void {
