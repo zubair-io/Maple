@@ -9,6 +9,10 @@
  * Unit-style: a real temp directory stands in for the library root — no
  * MongoDB needed (the library-roots cache is seeded via
  * `setLibraryRootsForTests`, mirroring xmp-batch.test.ts).
+ *
+ * Raw `node:fs/promises` (allowlisted in .oxlintrc.json): temp-fixture
+ * writes under mkdtemp only — throwaway test sidecars that must NOT
+ * replicate through the src/fs/mirrored.ts backup mirror.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';

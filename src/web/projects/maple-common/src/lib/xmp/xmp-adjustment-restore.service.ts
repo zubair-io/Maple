@@ -60,29 +60,46 @@ export class XmpAdjustmentRestoreService {
    * whose sidecar 404s (defaults are correct then).
    */
   async restoreForAsset(id: AssetId): Promise<void> {
-    if (this.store.backend !== 'self-hosted') return;
-    if (!id.includes(':') || id.startsWith('fs:')) return;
-    if (this._attempted.has(id)) return;
+    if (!this._eligible(id)) return;
     this._attempted.add(id);
-
     try {
-      await this._ensureRegisteredFolders();
-      const absPath = this.store.absPathFor(id);
-      if (!absPath) return; // no registered library owns this slug
-      const xml = await firstValueFrom(this.api.getXmp(absPath));
-
-      const { model, passthrough } = this.parser.parseAdjustmentModel(xml);
-      // Keep the passthrough bucket so a later write round-trips unknown
-      // fields byte-for-byte — same contract as the openFolder() load.
-      this.xmpStore.rememberPassthrough(id, passthrough);
-      const applied = this.store.restoreAdjustment(id, model);
-      if (applied) this._markEdited(id);
+      const xml = await this._fetchSidecarXml(id);
+      if (xml !== null) this._applyParsedSidecar(id, xml);
     } catch (err) {
-      if (err instanceof HttpErrorResponse && err.status === 404) return; // no sidecar — defaults stand
-      // Transient failure (network, 5xx): re-arm so a refocus can retry.
-      this._attempted.delete(id);
-      console.warn(`XmpAdjustmentRestore: sidecar read failed for ${id}`, err);
+      this._onFetchError(id, err);
     }
+  }
+
+  /** Self-Hosted `slug:relPath` assets not yet attempted this session. */
+  private _eligible(id: AssetId): boolean {
+    return (
+      this.store.backend === 'self-hosted' &&
+      id.includes(':') &&
+      !id.startsWith('fs:') &&
+      !this._attempted.has(id)
+    );
+  }
+
+  /** The sidecar XML for `id`, or `null` when no library root owns its slug. */
+  private async _fetchSidecarXml(id: AssetId): Promise<string | null> {
+    await this._ensureRegisteredFolders();
+    const absPath = this.store.absPathFor(id);
+    return absPath ? firstValueFrom(this.api.getXmp(absPath)) : null;
+  }
+
+  private _applyParsedSidecar(id: AssetId, xml: string): void {
+    const { model, passthrough } = this.parser.parseAdjustmentModel(xml);
+    // Keep the passthrough bucket so a later write round-trips unknown
+    // fields byte-for-byte — same contract as the openFolder() load.
+    this.xmpStore.rememberPassthrough(id, passthrough);
+    if (this.store.restoreAdjustment(id, model)) this._markEdited(id);
+  }
+
+  private _onFetchError(id: AssetId, err: unknown): void {
+    if (err instanceof HttpErrorResponse && err.status === 404) return; // no sidecar — defaults stand
+    // Transient failure (network, 5xx): re-arm so a refocus can retry.
+    this._attempted.delete(id);
+    console.warn(`XmpAdjustmentRestore: sidecar read failed for ${id}`, err);
   }
 
   /**
