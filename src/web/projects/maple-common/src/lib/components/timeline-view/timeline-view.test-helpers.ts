@@ -60,8 +60,18 @@ export class FsBrowseStub {
 }
 
 /** Timeline mounts tiles through IntersectionObserver and measures with
- * ResizeObserver; jsdom has neither, so both specs install inert stubs. */
-export function installObserverStubs(): void {
+ * ResizeObserver; jsdom has neither, so both specs install inert stubs.
+ *
+ * Returns a teardown that puts the originals back (including `undefined`,
+ * which is what jsdom actually starts with). Call it from `afterEach` —
+ * leaving the stubs installed pollutes `globalThis` for anything that runs
+ * afterwards, whether that's a suite relying on the real implementations or
+ * one asserting their absence. */
+export function installObserverStubs(): () => void {
+  const g = globalThis as { ResizeObserver?: unknown; IntersectionObserver?: unknown };
+  const originalResize = g.ResizeObserver;
+  const originalIntersection = g.IntersectionObserver;
+
   const observerStub = class {
     constructor(_callback: IntersectionObserverCallback, _options?: IntersectionObserverInit) {}
     observe(): void {}
@@ -73,6 +83,11 @@ export function installObserverStubs(): void {
     unobserve(): void {}
     disconnect(): void {}
   };
-  (globalThis as { ResizeObserver?: unknown }).ResizeObserver = roStub;
-  (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver = observerStub;
+  g.ResizeObserver = roStub;
+  g.IntersectionObserver = observerStub;
+
+  return () => {
+    g.ResizeObserver = originalResize;
+    g.IntersectionObserver = originalIntersection;
+  };
 }
