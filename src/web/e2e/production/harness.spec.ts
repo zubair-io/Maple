@@ -57,11 +57,20 @@ test('Hosted opens one RAW directly and downloads its XMP without a filmstrip', 
     'Download the XMP to keep your edits',
   );
 
+  const exposure = page.getByRole('slider', { name: 'Exposure' });
+  await expect(exposure).toBeVisible({ timeout: 60_000 });
+  await exposure.focus();
+  await exposure.press('ArrowRight');
+  await expect(exposure).not.toHaveAttribute('aria-valuenow', '0');
+  await expect(page.getByTestId('editor-shell-undo')).toBeEnabled();
+
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download XMP' }).click();
   const download = await downloadPromise;
   const downloadPath = await download.path();
   expect(download.suggestedFilename()).toBe('test_0006.xmp');
   expect(downloadPath).not.toBeNull();
-  expect(await readFile(downloadPath!, 'utf8')).toContain('<x:xmpmeta');
+  const xml = await readFile(downloadPath!, 'utf8');
+  expect(xml).toContain('<x:xmpmeta');
+  expect(xml).toMatch(/crs:Exposure2012="(?!0(?:\.0+)?")/);
 });
