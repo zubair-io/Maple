@@ -118,6 +118,24 @@ describe('WbPadComponent.onPadKeyDown clamping (#2412)', () => {
     expect(lib.model().tint).toBe(0);
   });
 
+  // Regression (review follow-up): every keyboard update writes BOTH fields
+  // back, so a pre-existing out-of-range value on the NON-stepped axis must
+  // be normalized by the write too — a temperature step must not re-persist
+  // a bad stored tint verbatim, and vice versa.
+  it('a temperature step normalizes an out-of-range stored tint', () => {
+    lib.model.update((m) => ({ ...m, temperature: 6500, tint: TINT_MAX + 30 }));
+    pad.onPadKeyDown(key('ArrowRight'));
+    expect(lib.model().temperature).toBe(6600);
+    expect(lib.model().tint).toBe(TINT_MAX);
+  });
+
+  it('a tint step normalizes an out-of-range stored temperature', () => {
+    lib.model.update((m) => ({ ...m, temperature: TEMP_MAX + 3000, tint: 0 }));
+    pad.onPadKeyDown(key('ArrowUp'));
+    expect(lib.model().tint).toBe(1);
+    expect(lib.model().temperature).toBe(TEMP_MAX);
+  });
+
   // Regression: a value already persisted out of range (e.g. an XMP written
   // before this fix, with tint=180) must not render a raw, out-of-range
   // readout — the read-side clamp on tempLabel/tintLabel keeps the numeric
