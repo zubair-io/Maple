@@ -45,6 +45,7 @@ import { previewKeyAction } from './preview-shell-keyboard';
 import { FilmstripComponent } from '../../components/filmstrip/filmstrip.component';
 import { AuthService } from '../../auth/auth.service';
 import { API_BASE_URL } from '../../api/api-base-url.token';
+import { STORAGE_KEYS, TypedStorage } from '../../util/typed-storage';
 
 /** Horizontal swipe distance (px) past which a pointerdown→pointerup drag on
  * `.preview-image-wrap` counts as a prev/next gesture rather than a tap. */
@@ -79,8 +80,14 @@ export class PreviewShellComponent implements OnDestroy {
 
   /** Flag popover open/closed (Flag button in the bottom action bar). */
   readonly flagOpen = signal(false);
-  /** Info sheet/pane open/closed (Info button in the bottom action bar). */
-  readonly infoOpen = signal(false);
+  /** Info sheet/pane open/closed (Info button in the bottom action bar).
+   * Initialises from the persisted `cm.preview.infoOpen` preference at
+   * tablet+ (defaulting to open), and from `false` below the tablet
+   * breakpoint — the phone bottom sheet keeps its own always-starts-closed
+   * session state and never reads or writes the persisted preference (#2405:
+   * a sheet covering the photo on every Preview open is the wrong default
+   * for the surface whose whole purpose is showing the photo). */
+  readonly infoOpen = signal(this.initialInfoOpen());
 
   /** Pointer position at the last `pointerdown` on `.preview-image-wrap`,
    * used to classify the matching `pointerup` as a horizontal swipe. */
@@ -157,6 +164,31 @@ export class PreviewShellComponent implements OnDestroy {
     // The canvas-first editor reached feature parity and the S5 editor was
     // retired (epic #1807) — Edit now goes straight to it.
     if (id) void this.router.navigate(editRouteCommands(id));
+  }
+
+  // ── Info pane persisted state (#2405) ────────────────────────────────────
+
+  /** `infoOpen`'s seed value, read once at construction. Tablet+ reads the
+   * persisted preference (defaulting open); below the tablet breakpoint the
+   * phone sheet always starts closed and the preference is never consulted. */
+  private initialInfoOpen(): boolean {
+    if (this.layoutService.layout() === 'phone') return false;
+    return TypedStorage.get<boolean>(STORAGE_KEYS.PREVIEW_INFO_OPEN) ?? true;
+  }
+
+  /** Info button toggle handler. Writes through to the persisted preference
+   * only at tablet+ — a phone-width toggle only ever flips the transient
+   * bottom-sheet `infoOpen` signal, matching the "phone keeps its own
+   * always-starts-closed state" rule. */
+  toggleInfo(): void {
+    this.setInfoOpen(!this.infoOpen());
+  }
+
+  setInfoOpen(open: boolean): void {
+    this.infoOpen.set(open);
+    if (this.isTabletPlus()) {
+      TypedStorage.set(STORAGE_KEYS.PREVIEW_INFO_OPEN, open);
+    }
   }
 
   // ── Prev/next navigation (swipe + arrow keys) ────────────────────────────

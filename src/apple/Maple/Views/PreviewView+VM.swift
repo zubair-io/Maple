@@ -140,4 +140,26 @@ enum PreviewViewVM {
         }
         return .local(asset, source: source.map(ImageSourceBox.init))
     }
+
+    // MARK: - Info pane presentation (#2405)
+
+    /// Whether the Info pane should be presented open, given the current
+    /// size class and the persisted `cm.preview.infoOpen` preference.
+    ///
+    /// Compact NEVER reads the stored preference — the iPhone bottom sheet
+    /// always starts closed, because a sheet covering the photo on every
+    /// Preview open is the wrong default for the surface whose whole
+    /// purpose is showing the photo. Only the regular (tablet+) inspector
+    /// column persists across opens.
+    static func infoPaneShouldOpen(isRegular: Bool, storedPreference: Bool) -> Bool {
+        isRegular ? storedPreference : false
+    }
+
+    /// Whether the Flag/Info `EditSession` needs priming right now. A closed
+    /// pane primes nothing — Preview's whole point is that merely looking at
+    /// a photo costs zero session/pipeline work. An open pane with no
+    /// session yet needs one primed so it doesn't render empty.
+    static func needsSessionPriming(isPaneOpen: Bool, hasSession: Bool) -> Bool {
+        isPaneOpen && !hasSession
+    }
 }

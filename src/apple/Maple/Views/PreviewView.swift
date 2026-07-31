@@ -72,10 +72,20 @@ struct PreviewView: View {
 
     /// Flag popover (regular) / bottom sheet (compact) presentation.
     @State private var showFlags = false
-    /// Info side panel (regular) / bottom sheet (compact) presentation.
+    /// Info bottom sheet presentation — compact ONLY. Deliberately always
+    /// starts closed regardless of the persisted preference (spec #2405: a
+    /// sheet covering the photo on every Preview open is the wrong default
+    /// for the surface whose whole purpose is showing the photo).
     @State private var showInfo = false
-    /// The session backing the Flag / Info surfaces. Primed on tap (never
-    /// during `body`) so opening Preview to look at a photo costs nothing.
+    /// Info inspector column presentation — regular (tablet+) ONLY. Persists
+    /// across Preview opens under `cm.preview.infoOpen`, defaulting to open,
+    /// mirroring the editor's `DetailPanel` inspector.
+    @AppStorage("cm.preview.infoOpen") private var infoPaneOpenPreference = true
+    /// The session backing the Flag / Info surfaces. Primed on tap for Flag,
+    /// and (since the Info pane can now be open by default with no tap at
+    /// all) by a `.task` keyed on the pane's open state — never during
+    /// `body`, so opening Preview to look at a photo costs nothing when the
+    /// pane is closed.
     @State private var flagInfoSession: EditSession?
     /// Positive vertical travel for the interactive pull-down dismissal.
     @State private var dismissTranslation: CGFloat = 0
@@ -116,13 +126,15 @@ struct PreviewView: View {
                 )
 
                 PreviewActionBar(
-                    // Prime the (pipeline-free) session ON TAP — never during
-                    // body — then present. This keeps Preview open cheap: no
-                    // session is created just to look at a photo, only when the
-                    // user actually reaches for Flag / Info.
+                    // Flag still primes the (pipeline-free) session ON TAP —
+                    // never during body — then presents. Info is now a
+                    // toggle; its priming is handled by the `.task` below so
+                    // a pane that's open by default (no tap at all) still
+                    // primes correctly.
                     onFlag: { flagInfoSession = ensureFlagSession(); showFlags = true },
                     onEdit: { onEdit(asset) },
-                    onInfo: { flagInfoSession = ensureFlagSession(); showInfo = true }
+                    onInfo: { isInfoPresented.wrappedValue.toggle() },
+                    isInfoOn: isInfoPresented.wrappedValue
                 )
             }
         }
@@ -147,6 +159,20 @@ struct PreviewView: View {
         .onChange(of: asset.id) { _, _ in
             flagInfoSession = nil
         }
+        // Re-prime the Info session whenever the pane is open — on first
+        // appearance (the pane defaults to open, so no tap ever fires) and
+        // again whenever `asset.id` changes while the pane stays open. A
+        // closed pane primes nothing: the task body bails via
+        // `needsSessionPriming` before touching `sessions`. This keeps the
+        // write out of `body` (the hazard the comments above call out) while
+        // covering the case the old tap-only priming could not.
+        .task(id: InfoPrimeTrigger(assetID: asset.id, isOpen: isInfoPresented.wrappedValue)) {
+            guard PreviewViewVM.needsSessionPriming(
+                isPaneOpen: isInfoPresented.wrappedValue,
+                hasSession: flagInfoSession != nil
+            ) else { return }
+            flagInfoSession = ensureFlagSession()
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("preview-view")
         // Flag: popover (regular) / bottom sheet (compact). Both reuse the
@@ -158,14 +184,42 @@ struct PreviewView: View {
                 session: flagInfoSession
             )
         )
-        // Info: side panel (regular) / bottom sheet (compact), mirroring how
-        // `EditorDestination` / `DetailPanel` present it elsewhere.
+        // Info: inspector column (regular) / bottom sheet (compact), mirroring
+        // how `AppShellMacLayout` / `DetailPanel` present the editor's own
+        // Info inspector.
         .modifier(
             InfoPresentation(
-                isPresented: $showInfo,
+                isPresented: isInfoPresented,
                 isRegular: isRegular,
                 session: flagInfoSession
             )
+        )
+    }
+
+    /// The single source of truth for "is the Info surface presented",
+    /// routed to the size-class-appropriate backing store: the persisted
+    /// `infoPaneOpenPreference` at regular (tablet+), the transient
+    /// `showInfo` `@State` at compact (iPhone sheet — always starts closed,
+    /// never persisted). The read side calls `PreviewViewVM.infoPaneShouldOpen`
+    /// — the pure, unit-tested form of the regular-vs-compact routing
+    /// decision — OR'd with `showInfo` (which `infoPaneShouldOpen` always
+    /// reports closed for compact, since it never reads the persisted
+    /// preference there) so a compact tap-to-open still works.
+    private var isInfoPresented: Binding<Bool> {
+        Binding(
+            get: {
+                PreviewViewVM.infoPaneShouldOpen(
+                    isRegular: isRegular,
+                    storedPreference: infoPaneOpenPreference
+                ) || (!isRegular && showInfo)
+            },
+            set: { newValue in
+                if isRegular {
+                    infoPaneOpenPreference = newValue
+                } else {
+                    showInfo = newValue
+                }
+            }
         )
     }
 
@@ -211,12 +265,13 @@ struct PreviewView: View {
     // MARK: - Session priming (pipeline-free)
 
     /// Return a session for Flag/Info, creating one only if the grid didn't
-    /// already prime it. Called from a button-tap handler (NOT `body`), so the
-    /// `sessions` write never happens during a view update. The `EditSession`
-    /// is lightweight — it allocates a pipeline object but performs no decode
-    /// or render (`ensureRenderStarted()` is never called here), so priming it
-    /// for Flag/Info doesn't boot the pipeline Preview exists to avoid. Writes
-    /// go back into `sessions` so the grid badges + a later editor open share
+    /// already prime it. Called from a button-tap handler (Flag) or from the
+    /// Info-pane `.task` above — NEVER from `body` — so the `sessions` write
+    /// never happens during a view update. The `EditSession` is lightweight —
+    /// it allocates a pipeline object but performs no decode or render
+    /// (`ensureRenderStarted()` is never called here), so priming it for
+    /// Flag/Info doesn't boot the pipeline Preview exists to avoid. Writes go
+    /// back into `sessions` so the grid badges + a later editor open share
     /// the same instance.
     private func ensureFlagSession() -> EditSession {
         if let existing = sessions[asset.id] { return existing }
@@ -287,14 +342,28 @@ struct PreviewView: View {
 // The UIKit pager lives in PreviewPager.swift so this screen remains focused
 // on composition, navigation, and presentation state.
 
+// MARK: - InfoPrimeTrigger
+
+/// `.task(id:)` key for the Info-pane priming task on `PreviewView`. SwiftUI
+/// cancels + restarts a `.task(id:)` whenever this value changes, which is
+/// exactly the two moments priming needs to (re-)run: the pane's open state
+/// flipping, or the shown asset changing while the pane stays open.
+private struct InfoPrimeTrigger: Equatable {
+    let assetID: AssetRef.ID
+    let isOpen: Bool
+}
+
 // MARK: - PreviewActionBar
 
 /// Bottom Flag · Edit · Info bar (spec §4). Edit is the emphasised primary
-/// action (the only route into the editor); Flag + Info are secondary.
+/// action (the only route into the editor); Flag + Info are secondary. Info
+/// is a toggle — `isInfoOn` reflects the pane's live presented state as an
+/// active tint, mirroring `aria-pressed` on Web.
 private struct PreviewActionBar: View {
     let onFlag: () -> Void
     let onEdit: () -> Void
     let onInfo: () -> Void
+    let isInfoOn: Bool
 
     var body: some View {
         HStack(spacing: 0) {
@@ -310,7 +379,7 @@ private struct PreviewActionBar: View {
 
             groupedButton(
                 label: "Info", systemImage: "info.circle",
-                identifier: "preview-info", action: onInfo
+                identifier: "preview-info", isActive: isInfoOn, action: onInfo
             )
         }
         .padding(4)
@@ -325,6 +394,7 @@ private struct PreviewActionBar: View {
     private func groupedButton(
         label: String, systemImage: String, identifier: String,
         isPrimary: Bool = false,
+        isActive: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -333,13 +403,16 @@ private struct PreviewActionBar: View {
                 .foregroundStyle(isPrimary ? Color.white : MapleTokens.primary)
                 .frame(minWidth: 96, minHeight: 44)
                 .background(
-                    isPrimary ? MapleTokens.primary : Color.clear,
+                    isPrimary
+                        ? MapleTokens.primary
+                        : (isActive ? MapleTokens.primary.opacity(0.15) : Color.clear),
                     in: Capsule()
                 )
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(identifier)
+        .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 }
 
@@ -386,9 +459,11 @@ private struct FlagPresentation: ViewModifier {
     }
 }
 
-/// Info surface: side panel via `.inspector`-style popover on regular, bottom
-/// sheet on compact — mirroring how `EditorDestination` / `DetailPanel` present
-/// Info elsewhere. Reuses `InfoPanelView` (the S6 panel) directly.
+/// Info surface: a docked `.inspector` column on regular, bottom sheet on
+/// compact — mirroring how `AppShellMacLayout` presents the editor's
+/// `DetailPanel` (same modifier, same `.inspectorColumnWidth` clamps) so
+/// Preview's pane and the editor's pane read as one thing. Reuses
+/// `InfoPanelView` (the S6 panel) directly.
 private struct InfoPresentation: ViewModifier {
     @Binding var isPresented: Bool
     let isRegular: Bool
@@ -401,24 +476,28 @@ private struct InfoPresentation: ViewModifier {
     // leaving the description / OCR / transcript section blank on iPhone
     // even for a Self-Hosted asset. Read them here (this modifier IS in
     // the AppShell environment) and re-inject them onto the presented
-    // content below.
+    // content below. An inspector's content is part of the view tree rather
+    // than a separate presentation, so it would inherit these anyway — the
+    // explicit re-injection just keeps the regular/compact branches from
+    // diverging in a way a later reader has to re-derive.
     @Environment(\.cloudAssetDetailClient) private var detailClient
     @Environment(\.cloudHistogramClient) private var histogramClient
 
     func body(content: Content) -> some View {
         if isRegular {
-            content.popover(isPresented: $isPresented, arrowEdge: .bottom) {
-                InfoPanelView(
-                    session: session,
-                    isInsideSheet: true,
-                    showsCullingAndHistogram: false,
-                    onClose: { isPresented = false }
-                )
-                    .frame(width: 320, height: 480)
-                    .background(MapleTokens.sidebar)
+            content
+                .inspector(isPresented: $isPresented) {
+                    InfoPanelView(
+                        session: session,
+                        isInsideSheet: false,
+                        showsCullingAndHistogram: false
+                    )
                     .environment(\.cloudAssetDetailClient, detailClient)
                     .environment(\.cloudHistogramClient, histogramClient)
-            }
+                    // Same clamps `AppShellMacLayout` applies to the
+                    // editor's `DetailPanel` inspector.
+                    .inspectorColumnWidth(min: 240, ideal: 280, max: 360)
+                }
         } else {
             #if os(iOS)
             content.sheet(isPresented: $isPresented) {
