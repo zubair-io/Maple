@@ -38,6 +38,25 @@
 }
 
 <ng-template #actionPills>
+  <!-- Select mode (#2404) — a keyboard-less tablet's only way to build a
+       selection now that a plain click navigates. Toggle, not a gated
+       action, so it's always enabled; state lives on LibraryStateService,
+       not persisted, and survives leaving the mode so the pills below stay
+       usable. -->
+  <button
+    type="button"
+    class="export-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] border-[0.5px]"
+    [class.is-active]="isSelecting()"
+    [class.idle]="!isSelecting()"
+    [attr.aria-pressed]="isSelecting()"
+    title="Toggle select mode"
+    aria-label="Select"
+    (click)="toggleSelectMode.emit()"
+  >
+    <maple-icon name="check" [size]="11" />
+    <span>Select</span>
+  </button>
+
   <!-- Edit Metadata (self-hosted only; requires ≥1 selected) -->
   @if (selfHosted()) {
     <button

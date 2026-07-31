@@ -11,7 +11,6 @@
   [class.dimmed]="a.hidden"
   [style.background-image]="url ? '' : 'url(' + a.thumbnailGradient + ')'"
   (click)="thumbClick.emit($event)"
-  (dblclick)="thumbDblClick.emit($event)"
 >
   @if (url) {
     <img
@@ -49,6 +48,25 @@
     class="thumb-ring pointer-events-none absolute inset-0 rounded-[2px] border-2 border-transparent transition-[border-color] duration-[80ms]"
     aria-hidden="true"
   ></div>
+
+  <!-- Select-mode checkbox (#2404) — top-right, next to the edited badge;
+       shifts left when both render so they sit side by side rather than
+       overlapping. Reuses the `selected` input already driving the focus
+       ring, so checked state always matches actual selection membership. -->
+  @if (isSelecting() && variant() === 'grid') {
+    <div
+      data-testid="select-checkbox"
+      [class]="
+        (a.edited ? 'right-[22px] ' : 'right-[5px] ') +
+        'absolute top-[5px] flex h-[14px] w-[14px] items-center justify-center rounded-[3px] border-[0.5px] backdrop-blur-[4px] ' +
+        (selected() ? 'bg-primary border-primary' : 'bg-black/45 border-white/30')
+      "
+    >
+      @if (selected()) {
+        <maple-icon name="check" [size]="9" [strokeWidth]="2" color="white" />
+      }
+    </div>
+  }
 
   @if (a.edited && variant() === 'grid') {
     <div

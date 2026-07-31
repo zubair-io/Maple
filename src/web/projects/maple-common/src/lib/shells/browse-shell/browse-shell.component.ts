@@ -379,6 +379,15 @@ export class BrowseShellComponent implements OnInit, OnDestroy {
     )
       return;
 
+    // Escape: exit Select mode without touching the selection (#2404) — the
+    // batch-metadata / pano / paste pills stay enabled off selectedCount(),
+    // so this only leaves the toggle-on-click behaviour, not the selection.
+    if (e.key === 'Escape' && this.state.isSelecting()) {
+      this.state.exitSelectMode();
+      e.preventDefault();
+      return;
+    }
+
     const fid = this.state.focusedAssetId();
 
     // 1–5: star rating

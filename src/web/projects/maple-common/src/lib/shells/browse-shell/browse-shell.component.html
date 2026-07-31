@@ -144,11 +144,13 @@
       [canPasteSettings]="canPasteSettings()"
       [canSyncSettings]="canSyncSettings()"
       [selectedCount]="state.selectedCount()"
+      [isSelecting]="state.isSelecting()"
       (editMetadata)="onEditMetadata()"
       (mergePano)="onMergePano()"
       (copySettings)="onCopySettings()"
       (openPasteDialog)="onOpenPasteDialog()"
       (syncSettings)="onSyncSettings()"
+      (toggleSelectMode)="state.toggleSelectMode()"
     />
   </div>
 
