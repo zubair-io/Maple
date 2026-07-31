@@ -129,6 +129,18 @@ export class LibraryCache {
    */
   private readonly thumbLoadingTokens = new Map<AssetId, { token: symbol; sourceId: string }>();
 
+  /**
+   * Assets whose thumbnail load has already failed once this session (#2413:
+   * an X3F whose FFI preview extraction 404s got re-requested on every
+   * `ensureThumbnailUrl` call — every grid re-render re-fired the same doomed
+   * network request forever). Checked by `ensureThumbnailUrl` as a third
+   * short-circuit alongside the URL cache and the in-flight token map.
+   * Session-scoped only — no TTL/backoff, cleared on `clearAll()` (folder
+   * switch / sign-out) so a later retry of the same id is still possible in a
+   * fresh session.
+   */
+  private readonly failedThumbIds = new Set<AssetId>();
+
   // ── Thumbnail load queue ──────────────────────────────────────────────────
   private static readonly MAX_CONCURRENT_THUMB_LOADS = 4;
   private _inflightThumbLoads = 0;
@@ -210,6 +222,9 @@ export class LibraryCache {
     // need a full wipe.
     this.thumbChannel.clearAll();
     this.thumbnailUrls.set(new Map());
+    // A failure recorded against a folder's assets shouldn't haunt the next
+    // folder (or a later revisit of this one) forever.
+    this.failedThumbIds.clear();
     // FilesystemBrowseService owns the FS-walk thumb blob URLs in its own cache
     // (unbounded, previously revoked only on sign-out). Clear it here too so a
     // folder switch reclaims that memory instead of letting it accumulate for
@@ -377,6 +392,7 @@ export class LibraryCache {
     if (!asset) return;
     if (this.thumbnailUrls().has(asset.id)) return;
     if (this.thumbLoadingTokens.has(asset.id)) return;
+    if (this.failedThumbIds.has(asset.id)) return;
 
     const token = Symbol('thumb-load');
     const sourceId = this.selection.selectedSourceId();
@@ -555,6 +571,14 @@ export class LibraryCache {
       }
     } catch (err) {
       console.warn('[state] thumb load failed for', asset.filename, err);
+    }
+    // Every success path above ends in `cacheThumbnailUrl`, so a load that
+    // didn't land a URL — whether it threw above or silently ran out of
+    // branches (e.g. no absPath, no apiId) — is a failure. Remember it so
+    // `ensureThumbnailUrl` stops re-firing the same doomed request on every
+    // subsequent re-render (#2413).
+    if (!this.thumbnailUrls().has(asset.id)) {
+      this.failedThumbIds.add(asset.id);
     }
   }
 }
