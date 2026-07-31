@@ -249,6 +249,55 @@ describe('handleEditorKeydown (epic #1807 slice 5 parity)', () => {
     expect(shell.editorState.setArmedInternalValue).toHaveBeenCalledWith(10);
   });
 
+  // ── Focused-widget guard (#2409) ─────────────────────────────────────────
+  // A LivingSlider track is `role="slider"`, tabindex="0" — while it's
+  // focused, bare ArrowLeft/ArrowRight must nudge the slider (handled by the
+  // slider's own keydown handler), never the filmstrip. LivingSlider itself
+  // stops propagation on the keys it consumes (living-slider.component.spec.ts),
+  // but the shell's own guard is defense-in-depth for any other role="slider"
+  // widget that doesn't.
+
+  it('bare ArrowRight does NOT navigate the filmstrip when a role="slider" widget is focused', () => {
+    const slider = document.createElement('div');
+    slider.setAttribute('role', 'slider');
+    shell.state.peekNext.mockReturnValue('b.dng');
+    dispatch(makeKeyEvent('ArrowRight', { target: slider }));
+    expect(shell.navigateToAsset).not.toHaveBeenCalled();
+  });
+
+  it('bare ArrowLeft does NOT navigate the filmstrip when a role="slider" widget is focused', () => {
+    const slider = document.createElement('div');
+    slider.setAttribute('role', 'slider');
+    shell.state.peekPrev.mockReturnValue('z.dng');
+    dispatch(makeKeyEvent('ArrowLeft', { target: slider }));
+    expect(shell.navigateToAsset).not.toHaveBeenCalled();
+  });
+
+  it('does NOT navigate when the event target is a descendant of a role="slider" widget', () => {
+    const slider = document.createElement('div');
+    slider.setAttribute('role', 'slider');
+    const thumb = document.createElement('div');
+    slider.appendChild(thumb);
+    shell.state.peekNext.mockReturnValue('b.dng');
+    dispatch(makeKeyEvent('ArrowRight', { target: thumb }));
+    expect(shell.navigateToAsset).not.toHaveBeenCalled();
+  });
+
+  it('also guards role="spinbutton" widgets', () => {
+    const spin = document.createElement('div');
+    spin.setAttribute('role', 'spinbutton');
+    shell.state.peekNext.mockReturnValue('b.dng');
+    dispatch(makeKeyEvent('ArrowRight', { target: spin }));
+    expect(shell.navigateToAsset).not.toHaveBeenCalled();
+  });
+
+  it('guard is a full early-return (mirrors the text-field guard) — other shortcuts are also skipped while a role="slider" widget is focused', () => {
+    const slider = document.createElement('div');
+    slider.setAttribute('role', 'slider');
+    dispatch(makeKeyEvent('Escape', { target: slider }));
+    expect(shell.goBack).not.toHaveBeenCalled();
+  });
+
   // ── Text-field guard ──────────────────────────────────────────────────────
 
   it('does nothing when focus is in an input element (e.g. ⌘Z while typing)', () => {
