@@ -90,3 +90,135 @@ describe('LivingSliderComponent — keyboard operation (#2409)', () => {
     expect(emitted).toEqual([100]);
   });
 });
+
+// living-slider.component.spec.ts — gesture-boundary outputs (#2411).
+//
+// `valueChange` fires on every pointermove / arrow-key tick, which is right
+// for the live preview but wrong for undo: a drag or a key-hold must open
+// exactly one undo entry, not one per tick. `dragStart` / `dragEnd` mark the
+// gesture boundary so a consumer (ControlCardComponent) can hang a single
+// `commit()` off gesture START, before any `valueChange` lands.
+describe('LivingSliderComponent — dragStart/dragEnd gesture boundary (#2411)', () => {
+  function render(): {
+    fixture: ReturnType<typeof TestBed.createComponent<LivingSliderComponent>>;
+    slider: LivingSliderComponent;
+    track: HTMLElement;
+  } {
+    TestBed.configureTestingModule({ imports: [LivingSliderComponent] });
+    const fixture = TestBed.createComponent(LivingSliderComponent);
+    fixture.componentRef.setInput('label', 'Exposure');
+    fixture.componentRef.setInput('value', 0);
+    fixture.componentRef.setInput('min', -5);
+    fixture.componentRef.setInput('max', 5);
+    fixture.componentRef.setInput('step', 0.1);
+    fixture.detectChanges();
+    const track: HTMLElement = fixture.nativeElement.querySelector('.track-wrap');
+    track.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 200, height: 20, right: 200, bottom: 20 }) as DOMRect;
+    // jsdom doesn't implement pointer capture.
+    track.setPointerCapture = () => {};
+    track.releasePointerCapture = () => {};
+    return { fixture, slider: fixture.componentInstance, track };
+  }
+
+  function pointerEvent(type: string, clientX: number, pointerId = 1): PointerEvent {
+    return new PointerEvent(type, { button: 0, clientX, pointerId, bubbles: true });
+  }
+
+  it('pointerdown fires dragStart exactly once, before any valueChange', () => {
+    const { slider, track } = render();
+    const events: string[] = [];
+    slider.dragStart.subscribe(() => events.push('start'));
+    slider.valueChange.subscribe(() => events.push('change'));
+
+    track.dispatchEvent(pointerEvent('pointerdown', 0));
+    expect(events).toEqual(['start']);
+
+    window.dispatchEvent(pointerEvent('pointermove', 20));
+    window.dispatchEvent(pointerEvent('pointermove', 40));
+    expect(events.filter((e) => e === 'start').length).toBe(1);
+    expect(events.filter((e) => e === 'change').length).toBe(2);
+  });
+
+  it('pointerup fires dragEnd exactly once', () => {
+    const { slider, track } = render();
+    let endCount = 0;
+    slider.dragEnd.subscribe(() => endCount++);
+
+    track.dispatchEvent(pointerEvent('pointerdown', 0));
+    window.dispatchEvent(pointerEvent('pointermove', 20));
+    window.dispatchEvent(pointerEvent('pointerup', 20));
+
+    expect(endCount).toBe(1);
+  });
+
+  it('pointercancel also closes the gesture with dragEnd', () => {
+    const { slider, track } = render();
+    let endCount = 0;
+    slider.dragEnd.subscribe(() => endCount++);
+
+    track.dispatchEvent(pointerEvent('pointerdown', 0));
+    window.dispatchEvent(pointerEvent('pointercancel', 10));
+
+    expect(endCount).toBe(1);
+  });
+
+  it('a second drag after dragEnd opens a fresh dragStart', () => {
+    const { slider, track } = render();
+    let startCount = 0;
+    slider.dragStart.subscribe(() => startCount++);
+
+    track.dispatchEvent(pointerEvent('pointerdown', 0));
+    window.dispatchEvent(pointerEvent('pointerup', 0));
+    track.dispatchEvent(pointerEvent('pointerdown', 0));
+    window.dispatchEvent(pointerEvent('pointerup', 0));
+
+    expect(startCount).toBe(2);
+  });
+
+  it('a held arrow key (repeated keydown) opens ONE dragStart, closed by keyup', () => {
+    const { slider, track } = render();
+    const events: string[] = [];
+    slider.dragStart.subscribe(() => events.push('start'));
+    slider.dragEnd.subscribe(() => events.push('end'));
+    slider.valueChange.subscribe(() => events.push('change'));
+
+    // Browser key-repeat: first keydown has repeat:false, the rest repeat:true.
+    track.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    track.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowRight', repeat: true, bubbles: true }),
+    );
+    track.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowRight', repeat: true, bubbles: true }),
+    );
+    track.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true }));
+
+    expect(events).toEqual(['start', 'change', 'change', 'change', 'end']);
+  });
+
+  it('two separate key presses open two dragStart/dragEnd pairs', () => {
+    const { slider, track } = render();
+    let startCount = 0;
+    let endCount = 0;
+    slider.dragStart.subscribe(() => startCount++);
+    slider.dragEnd.subscribe(() => endCount++);
+
+    track.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    track.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true }));
+    track.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    track.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowLeft', bubbles: true }));
+
+    expect(startCount).toBe(2);
+    expect(endCount).toBe(2);
+  });
+
+  it('a non-arrow key does not open a gesture', () => {
+    const { slider, track } = render();
+    let startCount = 0;
+    slider.dragStart.subscribe(() => startCount++);
+
+    track.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+
+    expect(startCount).toBe(0);
+  });
+});
