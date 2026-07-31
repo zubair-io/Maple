@@ -444,18 +444,28 @@ describe('BrowseShellComponent — responsive layout (#2280)', () => {
 
 describe('BrowseShellComponent — Select mode (#2404)', () => {
   let http: HttpTestingController;
+  let originalResize: unknown;
+  let originalIntersection: unknown;
 
   beforeEach(() => {
+    const g = globalThis as { ResizeObserver?: unknown; IntersectionObserver?: unknown };
+    originalResize = g.ResizeObserver;
+    originalIntersection = g.IntersectionObserver;
     const observerStub = class {
       observe(): void {}
       unobserve(): void {}
       disconnect(): void {}
     };
-    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = observerStub;
-    (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver = observerStub;
+    g.ResizeObserver = observerStub;
+    g.IntersectionObserver = observerStub;
   });
 
   afterEach(() => {
+    // Put the globals back (including `undefined`, jsdom's actual starting
+    // state) so the stubs don't leak into whatever runs next.
+    const g = globalThis as { ResizeObserver?: unknown; IntersectionObserver?: unknown };
+    g.ResizeObserver = originalResize;
+    g.IntersectionObserver = originalIntersection;
     try {
       http.verify();
     } catch {
