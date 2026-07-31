@@ -168,6 +168,21 @@ export class ControlCardComponent {
 
   // ── Value edits ───────────────────────────────────────────────────────
 
+  /**
+   * Gesture-boundary handler (#2411): `LivingSliderComponent` fires
+   * `dragStart` once — before its first `valueChange` tick, whether the
+   * gesture is a pointer drag or a held arrow key — so this is the single
+   * place to snapshot the pre-edit value onto the undo stack. Mirrors
+   * `DragBarComponent.onPointerDown`'s `commit()` call for the drag-bar
+   * control. `onSliderChange` below must NOT also commit — it runs once per
+   * tick, and one undo entry per gesture (not per tick) is the whole point.
+   */
+  onSliderDragStart(tool: ToolId): void {
+    const id = this.libraryState.focusedAssetId();
+    if (!id || !isWired(tool)) return;
+    this.editorState.commit();
+  }
+
   onSliderChange(tool: ToolId, value: number): void {
     const id = this.libraryState.focusedAssetId();
     if (!id || !isWired(tool)) return;

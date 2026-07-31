@@ -66,6 +66,7 @@
             [gradient]="gradientFor(tool)"
             [bipolar]="bipolarFor(tool)"
             [defaultValue]="defaultFor(tool)"
+            (dragStart)="onSliderDragStart(tool)"
             (valueChange)="onSliderChange(tool, $event)"
             (resetRequest)="onSliderReset(tool)"
           />
