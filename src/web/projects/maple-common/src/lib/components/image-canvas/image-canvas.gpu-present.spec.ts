@@ -246,8 +246,10 @@ describe('ImageCanvasGpuPresent — GPU fallback notice reporting (#2415)', () =
     vi.restoreAllMocks();
   });
 
-  it('an insecure context reports "insecure-context" and never calls openLiveSession', async () => {
-    // Downgrade patchDom()'s secure-context stub for this one test.
+  it('an insecure origin (isSecureContext === false) reports "insecure-context" with the HTTPS message and never calls openLiveSession', async () => {
+    // Downgrade patchDom()'s secure-context stub for this one test. Note
+    // `navigator.gpu` stays stubbed present: the origin check ALONE must
+    // classify as insecure-context.
     Object.defineProperty(window, 'isSecureContext', { value: false, configurable: true });
 
     const host = makeHost(() => Promise.resolve(makeOpenedSession()));
@@ -262,8 +264,9 @@ describe('ImageCanvasGpuPresent — GPU fallback notice reporting (#2415)', () =
     expect(host.gpuFallback.message()).toContain('HTTPS');
   });
 
-  it('missing navigator.gpu (no isSecureContext support at all) also reports "insecure-context"', async () => {
-    delete (navigator as any).gpu;
+  it('missing navigator.gpu on a SECURE origin reports the generic fallback — HTTPS would not fix it', async () => {
+    // patchDom() left `isSecureContext` true; only WebGPU support is absent.
+    delete (navigator as unknown as { gpu?: unknown }).gpu;
 
     const host = makeHost(() => Promise.resolve(makeOpenedSession()));
     const gpuPresent = new ImageCanvasGpuPresent(host);
@@ -273,7 +276,7 @@ describe('ImageCanvasGpuPresent — GPU fallback notice reporting (#2415)', () =
     expect(result).toBe(false);
     expect(host.pipeline.openLiveSession).not.toHaveBeenCalled();
     expect(host.gpuFallback.visible()).toBe(true);
-    expect(host.gpuFallback.message()).toContain('HTTPS');
+    expect(host.gpuFallback.message()).not.toContain('HTTPS');
   });
 
   it('a session-open failure on an otherwise secure, GPU-capable browser reports "session-open-failed" (no HTTPS mention)', async () => {

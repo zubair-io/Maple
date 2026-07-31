@@ -6,8 +6,8 @@
  * the editor's live GPU render path silently falls back to the slower
  * WASM-CPU/2D path. Setting `MAPLE_TLS_CERT` + `MAPLE_TLS_KEY` (absolute
  * paths to a certificate and private key — e.g. from `mkcert`, see
- * `docs/self-hosted.md`) switches the server to HTTPS, which restores the
- * secure context on the LAN origin too.
+ * `src/api/README.md` § "TLS on the LAN") switches the server to HTTPS,
+ * which restores the secure context on the LAN origin too.
  *
  * Env vars are the right config surface here (not a DB-backed setting) —
  * this is pre-DB infra bootstrap: the credentials to listen with must be

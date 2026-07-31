@@ -1,7 +1,7 @@
 // Test-only jsdom stub for a secure, WebGPU-capable browser (#2415). jsdom
 // never sets `isSecureContext` / `navigator.gpu` at all — several specs need
 // to represent a real capable browser to reach the GPU session-open path
-// (`ImageCanvasGpuPresent.hasSecureGpuContext()`), so this centralizes the
+// (`ImageCanvasGpuPresent.preOpenFallbackReason()`), so this centralizes the
 // patch/restore pair rather than duplicating it per spec file.
 
 export interface SecureGpuContextPatch {

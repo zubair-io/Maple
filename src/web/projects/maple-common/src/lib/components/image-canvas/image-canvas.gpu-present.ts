@@ -34,7 +34,10 @@ import type { ImageCanvasService } from './image-canvas.service';
 import type { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 import type { AssetId } from '../../models/asset';
 import { type AdjustmentModel, isDefaultAdjustment } from '../../models/adjustment-model';
-import type { GpuFallbackNoticeService } from '../gpu-fallback-notice/gpu-fallback-notice.service';
+import type {
+  GpuFallbackNoticeService,
+  GpuFallbackReason,
+} from '../gpu-fallback-notice/gpu-fallback-notice.service';
 
 /**
  * The slice of `ImageCanvasComponent` the GPU present path reaches back into. Defined
@@ -127,17 +130,25 @@ export class ImageCanvasGpuPresent {
   }
 
   /**
-   * Whether this page is in a state where a GPU session COULD open at all
-   * (#2415): a secure context (`https:`, or exactly `http://localhost`) AND
-   * the browser exposes `navigator.gpu`. Both fail together on a LAN
-   * `http://<ip>:port` origin — the realistic case this exists to detect —
-   * but are checked independently since either alone rules out WebGPU.
+   * Classifies, before any session-open attempt, why a GPU session can never
+   * open in this page (#2415) — or `null` when nothing rules it out up front.
+   *
+   * - An insecure origin (`window.isSecureContext === false` — e.g. a LAN
+   *   `http://<ip>:port` page) → `'insecure-context'`: the browser withholds
+   *   `navigator.gpu` on principle, and serving the connection over HTTPS
+   *   fixes it. Only this exact case may carry the HTTPS message.
+   * - A SECURE origin whose browser simply doesn't implement WebGPU (no
+   *   `navigator.gpu`) → `'session-open-failed'`: not fixable by switching
+   *   schemes, so it gets the generic reduced-performance message.
+   *
    * `window`/`navigator` are always defined in a browser tab; the guard is
    * only for non-browser evaluation (SSR, if this were ever imported there).
    */
-  private static hasSecureGpuContext(): boolean {
-    if (typeof window === 'undefined' || typeof navigator === 'undefined') return true;
-    return window.isSecureContext === true && 'gpu' in navigator;
+  private static preOpenFallbackReason(): GpuFallbackReason | null {
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') return null;
+    if (window.isSecureContext === false) return 'insecure-context';
+    if (!('gpu' in navigator)) return 'session-open-failed';
+    return null;
   }
 
   /**
@@ -258,15 +269,17 @@ export class ImageCanvasGpuPresent {
     // WebGPU-capable browser; guard so an old browser falls back cleanly).
     if (typeof OffscreenCanvas === 'undefined') return false;
 
-    // #2415: a LAN http:// origin (or a browser with no WebGPU support at all) is
-    // not a secure context, so `navigator.gpu` is never exposed — the session-open
-    // below would fail for that reason on EVERY attempt. Detect it up front (cheap,
-    // synchronous) so the UI notice can point at the actual fix (serve HTTPS)
-    // instead of a generic "GPU unavailable" message, and so we skip the doomed
-    // worker round-trip. Any OTHER open failure (a gpu-off WASM bundle, a decode
-    // error, a broken present) is still classified `session-open-failed` below.
-    if (!ImageCanvasGpuPresent.hasSecureGpuContext()) {
-      this.host.gpuFallback.report('insecure-context');
+    // #2415: on an insecure LAN http:// origin (or a browser with no WebGPU at
+    // all) the session-open below would fail for the same reason on EVERY
+    // attempt. Classify it up front (cheap, synchronous) — `insecure-context`
+    // only when the origin itself is insecure, so the notice's "serve HTTPS"
+    // pointer is never shown for a browser that just lacks WebGPU — and skip
+    // the doomed worker round-trip. Any failure past this gate (a gpu-off WASM
+    // bundle, a decode error, a broken present) reports `session-open-failed`
+    // in the catch below.
+    const preOpenReason = ImageCanvasGpuPresent.preOpenFallbackReason();
+    if (preOpenReason !== null) {
+      this.host.gpuFallback.report(preOpenReason);
       return false;
     }
 
