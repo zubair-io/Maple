@@ -16,14 +16,13 @@ import type { OpenedLiveSession } from '../../raw-pipeline/raw-pipeline.service'
 import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
 import { type AdjustmentModel, defaultAdjustmentModel } from '../../models/adjustment-model';
 import { GpuFallbackNoticeService } from '../gpu-fallback-notice/gpu-fallback-notice.service';
+import { patchSecureGpuContext, type SecureGpuContextPatch } from './gpu-context-test-helpers';
 
 // ── DOM stubs ────────────────────────────────────────────────────────────────
-// jsdom omits OffscreenCanvas / transferControlToOffscreen, and never sets
-// `isSecureContext` / `navigator.gpu` at all (both read `undefined`/absent).
-// This suite exercises a browser that DOES support WebGPU (the #2415
-// insecure-context short-circuit is covered separately, in
-// `gpu-fallback-notice.integration.spec.ts`), so stub all four to a
-// realistic secure, GPU-capable browser.
+// jsdom omits OffscreenCanvas / transferControlToOffscreen entirely. This
+// suite exercises a browser that DOES support WebGPU (the #2415
+// insecure-context short-circuit has its own suite below), so also patch in
+// a secure, GPU-capable `isSecureContext`/`navigator.gpu` via the shared helper.
 
 class OffscreenCanvasStub {
   width = 0;
@@ -36,14 +35,11 @@ class OffscreenCanvasStub {
 
 let originalOffscreenCanvas: any;
 let originalTransferControl: any;
-let originalIsSecureContext: PropertyDescriptor | undefined;
-let originalNavigatorGpu: PropertyDescriptor | undefined;
+let gpuContext: SecureGpuContextPatch;
 
 function patchDom(): void {
   originalOffscreenCanvas = (globalThis as any).OffscreenCanvas;
   originalTransferControl = HTMLCanvasElement.prototype.transferControlToOffscreen;
-  originalIsSecureContext = Object.getOwnPropertyDescriptor(window, 'isSecureContext');
-  originalNavigatorGpu = Object.getOwnPropertyDescriptor(navigator, 'gpu');
 
   Object.defineProperty(globalThis, 'OffscreenCanvas', {
     value: OffscreenCanvasStub,
@@ -53,8 +49,7 @@ function patchDom(): void {
   HTMLCanvasElement.prototype.transferControlToOffscreen = function () {
     return new OffscreenCanvasStub(0, 0) as unknown as OffscreenCanvas;
   };
-  Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true });
-  Object.defineProperty(navigator, 'gpu', { value: {}, configurable: true });
+  gpuContext = patchSecureGpuContext();
 }
 
 function unpatchDom(): void {
@@ -64,16 +59,7 @@ function unpatchDom(): void {
     writable: true,
     configurable: true,
   });
-  if (originalIsSecureContext) {
-    Object.defineProperty(window, 'isSecureContext', originalIsSecureContext);
-  } else {
-    delete (window as any).isSecureContext;
-  }
-  if (originalNavigatorGpu) {
-    Object.defineProperty(navigator, 'gpu', originalNavigatorGpu);
-  } else {
-    delete (navigator as any).gpu;
-  }
+  gpuContext.restore();
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
