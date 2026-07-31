@@ -22,14 +22,22 @@
       type="button"
       class="pill-btn flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[10px] font-medium cursor-pointer transition-colors duration-[120ms] bg-surface text-text-muted border-[0.5px] border-border hover:bg-surface-hover hover:text-text-main disabled:cursor-not-allowed disabled:opacity-60"
       [disabled]="state.rescanStatus() === 'running' || state.rescanStatus() === 'done'"
-      [title]="state.rescanError() ?? ('Re-scan ' + rf.path + ' for new files')"
+      [title]="state.rescanError() ?? 'Re-scan ' + rf.path + ' for new files'"
       (click)="state.rescanCurrentFolder()"
     >
       @switch (state.rescanStatus()) {
-        @case ('running') { <span>Rescanning…</span> }
-        @case ('done')    { <span class="text-primary">Queued ✓</span> }
-        @case ('error')   { <span class="text-error-text">Rescan failed</span> }
-        @default          { <span>Rescan</span> }
+        @case ('running') {
+          <span>Rescanning…</span>
+        }
+        @case ('done') {
+          <span class="text-primary">Queued ✓</span>
+        }
+        @case ('error') {
+          <span class="text-error-text">Rescan failed</span>
+        }
+        @default {
+          <span>Rescan</span>
+        }
       }
     </button>
   }
@@ -102,10 +110,7 @@
     minBufferPx="600"
     maxBufferPx="900"
   >
-    <div
-      *cdkVirtualFor="let row of gridRows(); trackBy: trackRow"
-      class="flex gap-[3px] mb-[3px]"
-    >
+    <div *cdkVirtualFor="let row of gridRows(); trackBy: trackRow" class="flex gap-[3px] mb-[3px]">
       @for (item of row.items; track itemKey(item)) {
         <div
           class="flex-shrink-0"
@@ -119,7 +124,6 @@
               variant="grid"
               [selected]="isSelected"
               (thumbClick)="onThumbClick(item.asset, $event)"
-              (thumbDblClick)="onThumbDblClick(item.asset)"
             />
           } @else {
             <maple-folder-tile
@@ -139,6 +143,10 @@
     !state.backendError() &&
     state.selectedSourceId()
   ) {
-    <div class="absolute inset-0 flex items-center justify-center pointer-events-none font-sans text-xs text-text-muted">Folder is empty</div>
+    <div
+      class="absolute inset-0 flex items-center justify-center pointer-events-none font-sans text-xs text-text-muted"
+    >
+      Folder is empty
+    </div>
   }
 </div>

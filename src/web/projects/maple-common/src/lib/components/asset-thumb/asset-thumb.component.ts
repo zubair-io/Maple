@@ -54,11 +54,15 @@ export class AssetThumbComponent {
   /** Click events bubble up so the parent decides what selection /
    * navigation actions mean. Don't put click handlers in here. */
   thumbClick = output<MouseEvent>();
-  thumbDblClick = output<MouseEvent>();
 
   readonly STAR_INDICES = [1, 2, 3, 4, 5];
 
   private state = inject(LibraryStateService);
+
+  /** Select mode (#2404) — session-scoped signal on LibraryStateService.
+   * Drives the checkbox affordance in the top-right corner, next to the
+   * `edited` badge, while the grid's Select toggle is on. */
+  readonly isSelecting = this.state.isSelecting;
 
   /** The blob URL for this asset, or undefined until it loads (gradient stays).
    * This component OWNS the signal, so it's created and destroyed WITH the tile —

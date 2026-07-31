@@ -33,6 +33,7 @@ function setup() {
     selectAsset,
     ensureThumbnailUrl: vi.fn(),
     subscribeThumbUrl: vi.fn(() => () => {}),
+    isSelecting: () => false,
   };
 
   TestBed.configureTestingModule({

@@ -25,7 +25,8 @@
   border-color: var(--color-border);
 }
 
-.export-btn.has-selection {
+.export-btn.has-selection,
+.export-btn.is-active {
   background: var(--color-primary-dim);
   color: var(--color-primary);
   border: 0.5px solid var(--color-primary);
@@ -36,6 +37,19 @@
   border: 0.5px solid var(--color-border);
   opacity: 0.5;
   cursor: default;
+}
+
+// Off state for the Select toggle pill — unlike `.no-selection` above this
+// is a fully interactive idle pill (clicking it is how you turn the mode
+// ON), so it gets the same look as the Sort/Filter pills rather than a
+// disabled/dimmed one.
+.export-btn.idle {
+  background: var(--color-surface);
+  color: var(--color-text-main);
+  border: 0.5px solid var(--color-border);
+}
+.export-btn.idle:hover {
+  background: var(--color-surface-hover);
 }
 
 // ── Toolbar overflow menu (#2280) ────────────────────────────────────────

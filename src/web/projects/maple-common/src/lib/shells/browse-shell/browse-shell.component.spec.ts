@@ -434,3 +434,92 @@ describe('BrowseShellComponent — responsive layout (#2280)', () => {
     expect(fixture.nativeElement.querySelector('[data-testid="toolbar-overflow-menu"]')).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Select mode (#2404) — the toolbar's Select pill toggles
+// LibraryStateService.isSelecting, and Escape exits the mode without
+// touching the selection (the batch-metadata / pano / paste pills are
+// enabled off selectedCount(), so clearing on exit would defeat the mode).
+// ---------------------------------------------------------------------------
+
+describe('BrowseShellComponent — Select mode (#2404)', () => {
+  let http: HttpTestingController;
+
+  beforeEach(() => {
+    const observerStub = class {
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    };
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = observerStub;
+    (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver = observerStub;
+  });
+
+  afterEach(() => {
+    try {
+      http.verify();
+    } catch {
+      // Swallow stray expectations from heavy child components.
+    }
+  });
+
+  function createAndFlush() {
+    setupSelfHosted('desktop');
+    const fixture = TestBed.createComponent(BrowseShellComponent);
+    http = TestBed.inject(HttpTestingController);
+    fixture.detectChanges();
+    http.match(() => true).forEach((r) => r.flush([]));
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('clicking the Select pill toggles LibraryStateService.isSelecting', () => {
+    const fixture = createAndFlush();
+    const state = TestBed.inject(LibraryStateService);
+    expect(state.isSelecting()).toBe(false);
+
+    const selectBtn = fixture.nativeElement.querySelector(
+      '[aria-label="Select"]',
+    ) as HTMLButtonElement;
+    expect(selectBtn).not.toBeNull();
+
+    selectBtn.click();
+    fixture.detectChanges();
+    expect(state.isSelecting()).toBe(true);
+
+    selectBtn.click();
+    fixture.detectChanges();
+    expect(state.isSelecting()).toBe(false);
+  });
+
+  it('Escape exits Select mode without clearing the selection', () => {
+    const fixture = createAndFlush();
+    const state = TestBed.inject(LibraryStateService);
+    state.toggleSelectMode();
+    state.selectAsset('asset-1' as never);
+    expect(state.isSelecting()).toBe(true);
+    expect(state.selectedAssetIds().has('asset-1' as never)).toBe(true);
+
+    // Dispatched on `document` (not called directly) so `e.target` is a real
+    // element — onKeydown reads `e.target as HTMLElement` unconditionally,
+    // same as a real keypress the @HostListener('document:keydown') binding
+    // would receive.
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    fixture.detectChanges();
+
+    expect(state.isSelecting()).toBe(false);
+    // Selection survives — leaving the mode must not clear it.
+    expect(state.selectedAssetIds().has('asset-1' as never)).toBe(true);
+  });
+
+  it('Escape is a no-op when Select mode is already off', () => {
+    const fixture = createAndFlush();
+    const state = TestBed.inject(LibraryStateService);
+    expect(state.isSelecting()).toBe(false);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    fixture.detectChanges();
+
+    expect(state.isSelecting()).toBe(false);
+  });
+});

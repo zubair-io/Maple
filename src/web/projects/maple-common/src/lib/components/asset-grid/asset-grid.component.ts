@@ -141,12 +141,25 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
 
   // ── Event handlers ────────────────────────────────────────────────────────
 
+  /**
+   * Grid click semantics (#2404 — matches Apple's single-tap-opens model):
+   * a plain click selects and navigates to `/view/…`; Cmd/Ctrl-click and
+   * Shift-click each mutate the selection (toggle / range-extend) and never
+   * navigate; while Select mode is on, every click toggles membership and
+   * never navigates. Double-click-to-open no longer exists — a plain click
+   * already navigates, so a second click lands on a torn-down component.
+   */
   onThumbClick(asset: Asset, e: MouseEvent): void {
-    this.state.selectAsset(asset.id, e.metaKey || e.ctrlKey, e.shiftKey);
-  }
+    if (this.state.isSelecting()) {
+      this.state.selectAsset(asset.id, true, false);
+      return;
+    }
 
-  onThumbDblClick(asset: Asset): void {
-    this.state.selectAsset(asset.id);
+    const additive = e.metaKey || e.ctrlKey;
+    const range = e.shiftKey;
+    this.state.selectAsset(asset.id, additive, range);
+    if (additive || range) return;
+
     // Split the slug:relPath id into /view/:slug/** segments — passing the whole
     // id as one segment makes Preview resolve a bogus address and bounce back
     // to Browse.
