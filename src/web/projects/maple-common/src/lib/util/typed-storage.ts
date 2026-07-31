@@ -44,6 +44,11 @@ export const STORAGE_KEYS = {
    * #1062). Warm-start cache: read synchronously at startup so a kill flip
    * this browser has already seen survives a reload with no network. */
   GPU_LIVE_RENDER_ENABLED: 'cm.gpuLiveRenderEnabled',
+  /** Whether the Preview surface's docked Info pane is open (boolean, #2405).
+   * Defaults to open when unset. Read and written only at tablet+ — the
+   * phone bottom sheet keeps its own always-starts-closed session state and
+   * never touches this key. */
+  PREVIEW_INFO_OPEN: 'cm.preview.infoOpen',
 } as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS];
