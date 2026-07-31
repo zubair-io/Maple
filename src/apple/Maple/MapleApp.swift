@@ -160,7 +160,9 @@ struct MapleApp: App {
                     // config and bootstraps swift-otel synchronously (no
                     // network), then background-refreshes. Never blocks launch.
                     // Ticket #713.
-                    ObservabilityController.shared.start()
+                    ObservabilityController.shared.start(
+                        refreshExecutor: BackgroundExecution()
+                    )
                 }
                 .task {
                     guard let settings = BackupSettings.load(), settings.isConfigured,
