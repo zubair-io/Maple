@@ -370,8 +370,8 @@ export class LibraryCache {
   /** Idempotently load the blob-URL thumbnail for one asset. `<asset-grid>`
    * and `<editor-filmstrip>` call this on every visible row; it short-circuits
    * when the URL is cached, a load is in flight, or the load already failed
-   * this session ({@link ThumbFailMemory}, #2413), so callers can fire it on
-   * every change-detection pass. Errors are swallowed and logged. */
+   * this session ({@link ThumbFailMemory}, #2413 — reset by `clearAll()`), so
+   * callers can fire it on every change-detection pass. Errors are swallowed and logged. */
   ensureThumbnailUrl(asset: Asset, onThumbWritten?: (id: AssetId, sha: string) => void): void {
     if (!asset) return;
     if (this.thumbnailUrls().has(asset.id) || this.thumbFails.has(asset.id)) return;
