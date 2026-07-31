@@ -14,7 +14,7 @@
       "installMode": "lazy",
       "updateMode": "prefetch",
       "resources": {
-        "files": ["/raw_wasm_bg.wasm", "/raw_wasm.js"]
+        "files": ["/raw_wasm_bg.wasm", "/pkg/**"]
       }
     },
     {
