@@ -54,6 +54,7 @@ describe('ImageExportService', () => {
   let scheduleSidecarWrite: ReturnType<typeof vi.fn>;
   let flushPendingXmpWrites: ReturnType<typeof vi.fn>;
   let serialize: ReturnType<typeof vi.fn>;
+  let passthroughFor: ReturnType<typeof vi.fn>;
   let clickedAnchors: HTMLAnchorElement[];
   let originalCreateObjectURL: typeof URL.createObjectURL;
   let originalRevokeObjectURL: typeof URL.revokeObjectURL;
@@ -71,6 +72,7 @@ describe('ImageExportService', () => {
     scheduleSidecarWrite = vi.fn();
     flushPendingXmpWrites = vi.fn().mockResolvedValue(undefined);
     serialize = vi.fn().mockReturnValue(SIDECAR_XML);
+    passthroughFor = vi.fn().mockReturnValue(undefined);
 
     const libraryStub = {
       bytesForAsset: vi.fn().mockResolvedValue(RAW_BYTES),
@@ -87,7 +89,7 @@ describe('ImageExportService', () => {
         { provide: LibraryStateService, useValue: libraryStub },
         {
           provide: XmpStoreService,
-          useValue: { passthroughFor: vi.fn().mockReturnValue(undefined) },
+          useValue: { passthroughFor },
         },
         { provide: XmpSerializerService, useValue: { serialize } },
       ],
@@ -178,6 +180,35 @@ describe('ImageExportService', () => {
     expect(outcome.filename).toBe('IMG_0042.tif');
     expect(clickedAnchors).toHaveLength(1);
     expect(clickedAnchors[0].download).toBe('IMG_0042.tif');
+  });
+
+  it('downloads the current sidecar under the sibling XMP filename', () => {
+    const outcome = service.downloadSidecar(makeAsset());
+
+    expect(outcome.filename).toBe('IMG_0042.xmp');
+    expect(outcome.byteLength).toBeGreaterThan(0);
+    expect(clickedAnchors).toHaveLength(1);
+    expect(clickedAnchors[0].download).toBe('IMG_0042.xmp');
+    expect(URL.createObjectURL).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'application/rdf+xml;charset=utf-8' }),
+    );
+  });
+
+  it('preserves culling and loaded passthrough when downloading a sidecar', () => {
+    const passthrough = {
+      unknownAttributes: [{ name: 'xmp:CreatorTool', value: 'Other editor' }],
+      unknownNodes: ['<crs:ToneCurvePV2012>foreign</crs:ToneCurvePV2012>'],
+    };
+    passthroughFor.mockReturnValue(passthrough);
+    const asset = makeAsset({ rating: 5, flag: 'pick', keywords: ['keeper'] });
+
+    service.downloadSidecar(asset);
+
+    expect(serialize).toHaveBeenCalledWith(
+      defaultAdjustmentModel(),
+      passthrough,
+      expect.objectContaining({ rating: 5, flag: 'pick', keywords: ['keeper'] }),
+    );
   });
 
   it('reports the dimensions and size the worker returned', async () => {

@@ -109,12 +109,6 @@
           (keydown.enter)="onSearchEnter()"
         />
       </div>
-    } @else {
-      <div
-        class="chrome-btn flex h-8 w-8 items-center justify-center rounded-md border-[0.5px] border-transparent cursor-pointer transition-colors duration-[120ms] hover:bg-surface-hover hover:border-border"
-      >
-        <maple-icon name="search" [size]="14" color="var(--color-text-muted)" />
-      </div>
     }
 
     <!-- Settings (Self-Hosted only — Hosted has no server-side surfaces). -->
@@ -204,6 +198,7 @@
   <app-source-picker-drawer
     [(isOpen)]="sourceDrawerOpen"
     [sourceTree]="state.sidebarTree()"
+    [showSearch]="state.backend === 'self-hosted'"
     (sourceSelected)="onDrawerSourceSelected($event)"
     (searchPillTap)="onDrawerSearchPillTap()"
   />

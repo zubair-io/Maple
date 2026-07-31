@@ -3,7 +3,7 @@
   "short_name": "Maple",
   "id": "/",
   "scope": "/",
-  "start_url": "/browse",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#1c1917",
   "theme_color": "#1c1917",

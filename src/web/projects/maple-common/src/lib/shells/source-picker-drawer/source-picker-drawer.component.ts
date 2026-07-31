@@ -58,6 +58,8 @@ export class SourcePickerDrawerComponent {
   /** Optional tertiary summary row (e.g. `"12,481 photos · 2m"`). Empty
    * string hides the row. */
   readonly tertiarySummary = input<string>('');
+  /** Search needs the Self Hosted index and is absent in browser-only Hosted. */
+  readonly showSearch = input(true);
 
   /** Emitted when the user taps a source row (any non-section entry). */
   readonly sourceSelected = output<string>();

@@ -19,6 +19,7 @@ import { InMemorySidecarCache, SIDECAR_CACHE, type SidecarCache } from './sideca
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import { API_BASE_URL } from '../api/api-base-url.token';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
+import { SERVER_WORKSPACE_PERSISTENCE } from '../workspace/workspace-persistence';
 
 const PATH_A = '/srv/photos/folder/IMG_0001.dng';
 
@@ -65,6 +66,12 @@ function makeBed(opts: { cache?: SidecarCache; backend?: 'self-hosted' | 'hosted
       { provide: API_BASE_URL, useValue: '/api' },
       { provide: SIDECAR_CACHE, useValue: cache },
       { provide: BunApiBackendService, useValue: api },
+      {
+        provide: SERVER_WORKSPACE_PERSISTENCE,
+        useValue: {
+          writeSidecar: (path: string, xml: string) => api.putXmp(path, xml),
+        },
+      },
     ],
   });
   return { cache, api };

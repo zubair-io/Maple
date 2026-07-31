@@ -12,7 +12,8 @@ import { FOLDER_LISTING_CACHE } from '../api/folder-listing-cache';
 import { Asset, AssetId, ColorLabel, Flag } from '../models/asset';
 import { GridFolderItem, SidebarEntry } from '../models/folder';
 import { AdjustmentModel, defaultAdjustmentModel } from '../models/adjustment-model';
-import { ApiFolder, BunApiBackendService } from '../api/bun-api-backend.service';
+import type { ApiFolder } from '../api/bun-api-backend.service';
+import { SERVER_LIBRARY_IO } from '../workspace/server-library-io';
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import {
   LIBRARY_SOURCE,
@@ -37,6 +38,7 @@ import { LibraryStatusService } from './library-status.service';
 import { BrowsePreferencesService } from './browse-preferences.service';
 import { isSupportedRaw } from './raw-extensions';
 import { TypedStorage } from '../util/typed-storage';
+import { SidecarSaveStateService } from '../xmp/sidecar-save-state.service';
 
 const ASSET_RENDER_KEYS: readonly (keyof Asset)[] = [
   'id',
@@ -92,10 +94,11 @@ export class LibraryFetch {
   private readonly xmpStore = inject(XmpStoreService);
   private readonly xmpSerializer = inject(XmpSerializerService);
   private readonly sidecarStore = inject(SidecarStore);
-  private readonly api = inject(BunApiBackendService);
+  private readonly api = inject(SERVER_LIBRARY_IO, { optional: true });
   private readonly librarySource: LibrarySource = inject(LIBRARY_SOURCE);
   private readonly prefs = inject(BrowsePreferencesService);
   private readonly folderCache = inject(FOLDER_LISTING_CACHE);
+  private readonly sidecarSave = inject(SidecarSaveStateService);
 
   // ── Index write debounce ──────────────────────────────────────────────────
   private _indexWriteTimer: ReturnType<typeof setTimeout> | null = null;
@@ -110,12 +113,13 @@ export class LibraryFetch {
   private readonly _autoScannedLibraryIds = new Set<string>();
 
   // ── Self-Hosted XMP write debounce ────────────────────────────────────────
-  private readonly API_XMP_DEBOUNCE_MS = 750;
+  private readonly API_XMP_DEBOUNCE_MS = 200;
   private readonly _apiXmpTimers = new Map<AssetId, ReturnType<typeof setTimeout>>();
   private readonly _apiXmpPending = new Map<
     AssetId,
-    { model: AdjustmentModel; culling: XmpCulling }
+    { model: AdjustmentModel; culling: XmpCulling; revision: number }
   >();
+  private readonly _apiXmpInFlight = new Map<AssetId, Promise<void>>();
 
   constructor() {
     // Debounced index write: re-fires 500ms after the last culling change.
@@ -255,6 +259,7 @@ export class LibraryFetch {
    */
   loadFolderTree(): void {
     if (this.store.backend !== 'self-hosted') return;
+    if (!this.api) return;
 
     this.status.backendLoading.set(true);
     this.status.backendError.set(null);
@@ -416,6 +421,7 @@ export class LibraryFetch {
    */
   addLibraryFolder(absPath: string): void {
     if (this.store.backend !== 'self-hosted') return;
+    if (!this.api) return;
 
     this.status.backendLoading.set(true);
     this.status.backendError.set(null);
@@ -449,6 +455,7 @@ export class LibraryFetch {
     }
     this.status.rescanError.set(null);
     this.status.rescanStatus.set('running');
+    if (!this.api) return;
     this.api.rescanFolder(folder.id).subscribe({
       next: (res) => {
         if (res.ok) {
@@ -582,6 +589,7 @@ export class LibraryFetch {
     if (this._autoScannedLibraryIds.has(library.id)) return;
     this._autoScannedLibraryIds.add(library.id);
 
+    if (!this.api) return;
     this.api.scanFolder(library.id).subscribe({
       next: (res) => {
         // A skipped (recent) scan did no re-walk — nothing new to surface, so
@@ -1002,24 +1010,29 @@ export class LibraryFetch {
     // library roots; the raw `assetAbsPaths` map only ever held legacy
     // FS-walk ids and is empty post-cutover (#2406).
     const absPath = this.store.absPathFor(id);
-    if (!absPath) return;
+    if (!absPath) {
+      const revision = this.sidecarSave.queued(id);
+      this.sidecarSave.failed(id, revision, new Error(`No writable sidecar path for ${id}`));
+      return;
+    }
 
-    this._apiXmpPending.set(id, { model, culling });
+    const revision = this.sidecarSave.queued(id);
+    this._apiXmpPending.set(id, { model, culling, revision });
 
     const existing = this._apiXmpTimers.get(id);
     if (existing) clearTimeout(existing);
 
     const timeout = setTimeout(() => {
       this._apiXmpTimers.delete(id);
-      this._flushApiXmpWrite(id);
+      void this._flushApiXmpWrite(id).catch(() => undefined);
     }, this.API_XMP_DEBOUNCE_MS);
     this._apiXmpTimers.set(id, timeout);
   }
 
-  private _flushApiXmpWrite(id: AssetId): void {
+  private _flushApiXmpWrite(id: AssetId): Promise<void> {
     const pending = this._apiXmpPending.get(id);
     const absPath = this.store.absPathFor(id);
-    if (!pending || !absPath) return;
+    if (!pending || !absPath) return Promise.resolve();
     this._apiXmpPending.delete(id);
 
     // Re-use the canonical serializer so Self-Hosted XMP matches Hosted
@@ -1034,9 +1047,27 @@ export class LibraryFetch {
     // `write()` returns a Promise that rejects on network failure; we log
     // here and let consumers (e.g. an upcoming toast surface) decide what to
     // do with the error.
-    void this.sidecarStore.write(absPath, xml).catch((err) => {
-      console.error(`putXmp failed for asset ${id} (path=${absPath}):`, err);
-    });
+    // Serialize writes per asset. A second commit can be queued while the
+    // previous request is still in flight; allowing both requests to race
+    // could leave the older XML on disk if it completes last.
+    const prior = this._apiXmpInFlight.get(id) ?? Promise.resolve();
+    const write = prior
+      .catch(() => undefined)
+      .then(() => {
+        this.sidecarSave.saving(id, pending.revision);
+        return this.sidecarStore.write(absPath, xml);
+      })
+      .then(() => this.sidecarSave.saved(id, pending.revision))
+      .catch((err) => {
+        this.sidecarSave.failed(id, pending.revision, err);
+        console.error(`putXmp failed for asset ${id} (path=${absPath}):`, err);
+        throw err;
+      })
+      .finally(() => {
+        if (this._apiXmpInFlight.get(id) === write) this._apiXmpInFlight.delete(id);
+      });
+    this._apiXmpInFlight.set(id, write);
+    return write;
   }
 
   /**
@@ -1047,9 +1078,10 @@ export class LibraryFetch {
     if (this.store.backend === 'self-hosted') {
       for (const [id, timeout] of this._apiXmpTimers.entries()) {
         clearTimeout(timeout);
-        this._flushApiXmpWrite(id);
+        void this._flushApiXmpWrite(id);
       }
       this._apiXmpTimers.clear();
+      await Promise.all(this._apiXmpInFlight.values());
       return;
     }
     return this.xmpStore.flushAll();

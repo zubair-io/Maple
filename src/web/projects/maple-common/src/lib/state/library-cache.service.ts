@@ -5,7 +5,7 @@
 import { Injectable, inject, signal, effect } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { Asset, AssetId } from '../models/asset';
-import { BunApiBackendService } from '../api/bun-api-backend.service';
+import { SERVER_LIBRARY_IO } from '../workspace/server-library-io';
 import { FilesystemBrowseService, type DownloadProgress } from '../api/filesystem-browse.service';
 import { FolderEntry, MapleFolderHandle } from '../folder-access/folder-access.types';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
@@ -26,7 +26,7 @@ import { isM2Asset, readAssetBytes } from './library-cache.byte-source';
 export class LibraryCache {
   private readonly store = inject(LibraryStore);
   private readonly selection = inject(LibrarySelection);
-  private readonly api = inject(BunApiBackendService);
+  private readonly api = inject(SERVER_LIBRARY_IO, { optional: true });
   private readonly fsBrowse = inject(FilesystemBrowseService);
   private readonly librarySource: LibrarySource = inject(LIBRARY_SOURCE);
   private readonly cache = inject(MapleCacheService);
@@ -507,6 +507,7 @@ export class LibraryCache {
     // 2. Self-Hosted Mongo asset (older grid mounts that resolved an apiId).
     const apiId = this.store.apiAssetIds.get(asset.id);
     if (!apiId) return;
+    if (!this.api) return;
     const blob = await firstValueFrom(this.api.getThumb(apiId));
     this.cacheThumbnailUrl(asset.id, URL.createObjectURL(blob));
   }

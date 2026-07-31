@@ -24,6 +24,9 @@
     "format:check": "bash scripts/format.sh --check",
     "test": "ng test",
     "e2e": "playwright test",
+    "e2e:production": "playwright test --config playwright.production.config.ts",
+    "e2e:production:hosted": "npm run e2e:production -- --project chrome-hosted",
+    "e2e:production:self-hosted": "npm run e2e:production -- --project chrome-self-hosted",
     "storybook": "ng run maple:storybook",
     "build-storybook": "ng run maple:build-storybook"
   },

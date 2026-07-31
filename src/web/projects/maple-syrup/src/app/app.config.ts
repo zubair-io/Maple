@@ -6,15 +6,9 @@ import {
   provideZonelessChangeDetection,
 } from '@angular/core';
 import { provideRouter, withInMemoryScrolling, withRouterConfig } from '@angular/router';
-import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
+import { provideHttpClient, withFetch } from '@angular/common/http';
 import { provideServiceWorker } from '@angular/service-worker';
-import {
-  AppUpdateService,
-  LIBRARY_BACKEND,
-  authInterceptor,
-  provideAuthBootstrap,
-  provideLibrarySource,
-} from '@maple-common';
+import { AppUpdateService, provideHostedWorkspace } from '@maple-common';
 import { routes } from './app.routes';
 
 // Hosted: browser-only build. No server; offline support via service worker.
@@ -26,10 +20,8 @@ export const appConfig: ApplicationConfig = {
       withInMemoryScrolling({ scrollPositionRestoration: 'enabled' }),
       withRouterConfig({ paramsInheritanceStrategy: 'always' }),
     ),
-    provideHttpClient(withFetch(), withInterceptors([authInterceptor])),
-    provideAuthBootstrap(),
-    provideLibrarySource,
-    { provide: LIBRARY_BACKEND, useValue: 'hosted' },
+    provideHttpClient(withFetch()),
+    provideHostedWorkspace(),
     provideServiceWorker('ngsw-worker.js', {
       enabled: !isDevMode(),
       registrationStrategy: 'registerWhenStable:30000',

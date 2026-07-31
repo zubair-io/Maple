@@ -1,0 +1,9 @@
+@if (visible()) {
+  <section class="notice" role="status" aria-label="Single-file save">
+    <p>
+      This single-file session can’t write a sibling <strong>.xmp</strong> or
+      <strong>.maple</strong> cache. Download the XMP to keep your edits.
+    </p>
+    <button type="button" (click)="downloadXmp()">Download XMP</button>
+  </section>
+}
