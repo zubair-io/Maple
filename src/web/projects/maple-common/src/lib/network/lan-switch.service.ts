@@ -104,7 +104,13 @@ export class LanSwitchService {
   async switchTo(candidate: LanSwitchCandidate): Promise<boolean> {
     const code = await this.auth.issueLanHandoffCode();
     if (!code) return false;
-    const target = new URL(this.router.url, candidate.origin);
+    // Normalize the router URL to a guaranteed app-internal path with exactly
+    // one leading slash BEFORE resolving it against the candidate origin: a
+    // path starting with `//` would be parsed by `new URL` as
+    // PROTOCOL-RELATIVE (`//evil.example/x` → `http://evil.example/x`),
+    // redirecting the one-time handoff code off-origin.
+    const appPath = `/${this.router.url.replace(/^\/+/, '')}`;
+    const target = new URL(appPath, candidate.origin);
     target.searchParams.set('lan_handoff', code);
     this.navigateTo(target.toString());
     return true;

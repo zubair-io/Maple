@@ -228,6 +228,22 @@ describe('LanSwitchService.switchTo', () => {
     ]);
   });
 
+  it('never treats a double-leading-slash route as protocol-relative — the code stays on the LAN origin', async () => {
+    // `new URL('//evil.example/x', origin)` would resolve to
+    // `http://evil.example/x` — an off-origin redirect that hands the
+    // one-time lan_handoff code to an attacker-influenced host. The route
+    // must be normalized to an app-internal single-leading-slash path first.
+    const service = setup('//evil.example/x');
+    issueLanHandoffCode.mockResolvedValue('CODE123');
+    const navigated = captureNavigations(service);
+
+    const ok = await service.switchTo({ origin: 'http://192.168.1.42:3000' });
+    expect(ok).toBe(true);
+    expect(navigated).toHaveLength(1);
+    expect(new URL(navigated[0]).origin).toBe('http://192.168.1.42:3000');
+    expect(navigated).toEqual(['http://192.168.1.42:3000/evil.example/x?lan_handoff=CODE123']);
+  });
+
   it('returns false and does not navigate when code issuance fails', async () => {
     const service = setup('/edit/photos/raws/test_0008.RAF');
     issueLanHandoffCode.mockResolvedValue(null);
