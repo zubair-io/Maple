@@ -117,11 +117,9 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
   };
 
   const flushAsync = async (): Promise<void> => {
-    // Let the listFolders + getXmp microtask chain settle, then flush any
-    // effects the restore scheduled.
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    // Let the listFolders + getXmp microtask chain settle (the restore path
+    // is a few awaits deep), then flush any effects the restore scheduled.
+    for (let i = 0; i < 10; i++) await Promise.resolve();
     TestBed.tick();
   };
 

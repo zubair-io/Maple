@@ -150,6 +150,7 @@
         "src/routes/xmp.ts",
         "src/routes/xmp-batch.ts",
         "src/routes/xmp-batch.test.ts",
+        "src/routes/xmp.get.test.ts",
         "src/thumbs/apply-orientation.ts",
         "src/thumbs/imgdecode-pool.test.ts",
         "src/thumbs/render.test.ts",
