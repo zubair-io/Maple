@@ -112,14 +112,22 @@ export async function readProductionFixtureManifest(): Promise<ProductionFixture
 }
 
 export async function verifyOriginalRawHashes(manifest: ProductionFixtureManifest): Promise<void> {
-  const current = await hashFiles(manifest.sourceHashes.map(({ path }) => path));
+  await verifyHashes(manifest.sourceHashes, 'source');
+}
+
+export async function verifyStagedRawHashes(manifest: ProductionFixtureManifest): Promise<void> {
+  await verifyHashes(manifest.stagedRawHashes, 'staged');
+}
+
+async function verifyHashes(expected: readonly FixtureHash[], label: string): Promise<void> {
+  const current = await hashFiles(expected.map(({ path }) => path));
   const changed = current.filter(
     ({ path, sha256: digest }) =>
-      manifest.sourceHashes.find(({ path: original }) => original === path)?.sha256 !== digest,
+      expected.find(({ path: original }) => original === path)?.sha256 !== digest,
   );
   if (changed.length > 0) {
     throw new Error(
-      `Production Chrome tests modified source RAWs:\n${changed.map(({ path }) => path).join('\n')}`,
+      `Production Chrome tests modified ${label} RAWs:\n${changed.map(({ path }) => path).join('\n')}`,
     );
   }
 }

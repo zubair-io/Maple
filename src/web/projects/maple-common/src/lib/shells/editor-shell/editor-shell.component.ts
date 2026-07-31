@@ -92,7 +92,6 @@ import { ValueChipComponent } from '../../editor/value-chip.component';
 import { InfoPanelComponent } from '../../info/info-panel.component';
 import { BottomSheetComponent } from '../bottom-sheet.component';
 import { ExportDialogComponent } from '../../export/export-dialog.component';
-import { SingleFileSaveNoticeComponent } from '../../export/single-file-save-notice.component';
 import { editRouteCommands, viewRouteCommands } from '../../addressing/route-address';
 import { AdjustmentClipboardService } from '../../editor/copy-paste/adjustment-clipboard.service';
 import { applyRouteAddress as applyEditorRouteAddress } from './editor-shell-route';
@@ -147,7 +146,6 @@ type ChromeState = 'full' | 'receded' | 'scrubbing';
     InfoPanelComponent,
     BottomSheetComponent,
     ExportDialogComponent,
-    SingleFileSaveNoticeComponent,
   ],
   styleUrl: './editor-shell.component.scss',
   templateUrl: './editor-shell.component.html',

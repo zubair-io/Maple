@@ -27,6 +27,7 @@ import { STORAGE_KEYS } from '../util/typed-storage';
 import { provideSelfHostedWorkspace } from '../workspace/self-hosted-workspace.providers';
 import { SIDECAR_CACHE } from './sidecar-idb-cache';
 import type { AssetId } from '../models/asset';
+import { SidecarSaveStateService } from './sidecar-save-state.service';
 
 // The deep-linked asset: `/edit/photos/raws/test_0004.fff` resolves to the
 // address `photos:raws/test_0004.fff` inside the registered library at
@@ -83,6 +84,7 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
   let api: ApiStub;
   let state: LibraryStateService;
   let store: LibraryStore;
+  let saveState: SidecarSaveStateService;
 
   beforeEach(() => {
     clearPrefKeys();
@@ -102,6 +104,7 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
 
     state = TestBed.inject(LibraryStateService);
     store = TestBed.inject(LibraryStore);
+    saveState = TestBed.inject(SidecarSaveStateService);
   });
 
   afterEach(() => {
@@ -199,7 +202,7 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
     state.updateAdjustment(ASSET_ID, { contrast: 10 });
     await vi.advanceTimersByTimeAsync(199);
     expect(api.putXmp).not.toHaveBeenCalled();
-    expect(state.hasUnsavedChanges()).toBe(true);
+    expect(saveState.hasUnsavedChanges()).toBe(true);
 
     await vi.advanceTimersByTimeAsync(1);
 
@@ -209,7 +212,7 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
     expect(xml).toContain('crs:Exposure2012');
     expect(xml).toContain('crs:Contrast2012');
     expect(xml).toContain('vendor:OpaqueSetting="keep-me"');
-    expect(state.sidecarSavePhase()).toBe('saved');
+    expect(saveState.phase()).toBe('saved');
   });
 
   it('keeps the edit visibly unsaved when the sibling write fails', async () => {
@@ -221,8 +224,8 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
     state.updateAdjustment(ASSET_ID, { contrast: 12 });
     await vi.advanceTimersByTimeAsync(200);
 
-    expect(state.sidecarSavePhase()).toBe('error');
-    expect(state.sidecarSaveError()).toContain('disk is read-only');
-    expect(state.hasUnsavedChanges()).toBe(true);
+    expect(saveState.phase()).toBe('error');
+    expect(saveState.error()).toContain('disk is read-only');
+    expect(saveState.hasUnsavedChanges()).toBe(true);
   });
 });

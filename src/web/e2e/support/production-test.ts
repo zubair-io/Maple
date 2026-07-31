@@ -8,6 +8,28 @@ interface BrowserAudit {
   readonly errorResponses: string[];
 }
 
+const EXPECTED_SELF_HOSTED_BOOTSTRAP_401 =
+  /^401 (?:GET http:\/\/127\.0\.0\.1:\d+\/api\/(?:render|observability)\/config|POST http:\/\/127\.0\.0\.1:\d+\/api\/auth\/refresh)$/;
+const CHROME_RESOURCE_401 =
+  'Failed to load resource: the server responded with a status of 401 (Unauthorized)';
+
+function unexpectedAuditEntries(project: string, audit: BrowserAudit): string[] {
+  const entries = [
+    ...audit.consoleErrors
+      .filter((value) => project !== 'chrome-self-hosted' || value !== CHROME_RESOURCE_401)
+      .map((value) => `console: ${value}`),
+    ...audit.pageErrors.map((value) => `page: ${value}`),
+    ...audit.failedRequests.map((value) => `request: ${value}`),
+    ...audit.errorResponses
+      .filter(
+        (value) =>
+          project !== 'chrome-self-hosted' || !EXPECTED_SELF_HOSTED_BOOTSTRAP_401.test(value),
+      )
+      .map((value) => `response: ${value}`),
+  ];
+  return entries;
+}
+
 export const test = base.extend<{ browserAudit: void }>({
   browserAudit: [
     async ({ page }, use, testInfo) => {
@@ -51,6 +73,10 @@ export const test = base.extend<{ browserAudit: void }>({
         ),
         contentType: 'application/json',
       });
+      expect(
+        unexpectedAuditEntries(testInfo.project.name, audit),
+        'Production browser emitted unexpected errors; see production-browser-audit.json',
+      ).toEqual([]);
     },
     { auto: true },
   ],
