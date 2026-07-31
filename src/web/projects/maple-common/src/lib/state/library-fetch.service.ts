@@ -971,6 +971,11 @@ export class LibraryFetch {
     const asset = this.store.findAsset(id);
     if (!asset) return;
 
+    // Any scheduled persistence (adjustments AND culling) marks the asset
+    // session-edited, so a late sidecar restore (#2406) can't overwrite the
+    // model this write is about to serialize.
+    this.store.markSessionEdited(id);
+
     const fullModel = this.store.adjustmentModels().get(id) ?? defaultAdjustmentModel();
     const culling: XmpCulling = {
       rating: asset.rating,
@@ -992,9 +997,11 @@ export class LibraryFetch {
   }
 
   private _scheduleApiXmpWrite(id: AssetId, model: AdjustmentModel, culling: XmpCulling): void {
-    // Gate on a known source path — no path, no XMP target. This replaces the
-    // previous `apiAssetIds` gate as part of slice 4 of #193 (path-keyed XMP).
-    const absPath = this.store.assetAbsPaths.get(id);
+    // Gate on a resolvable source path — no path, no XMP target. `absPathFor`
+    // resolves post-M2 `slug:relPath` addresses through the registered
+    // library roots; the raw `assetAbsPaths` map only ever held legacy
+    // FS-walk ids and is empty post-cutover (#2406).
+    const absPath = this.store.absPathFor(id);
     if (!absPath) return;
 
     this._apiXmpPending.set(id, { model, culling });
@@ -1011,7 +1018,7 @@ export class LibraryFetch {
 
   private _flushApiXmpWrite(id: AssetId): void {
     const pending = this._apiXmpPending.get(id);
-    const absPath = this.store.assetAbsPaths.get(id);
+    const absPath = this.store.absPathFor(id);
     if (!pending || !absPath) return;
     this._apiXmpPending.delete(id);
 

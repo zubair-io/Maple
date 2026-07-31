@@ -662,6 +662,17 @@ export class BunApiBackendService {
   }
 
   /**
+   * Read the XMP sidecar that lives next to `path` (404 when none exists).
+   * The editor's adjustment-restore path (#2406) calls this when an asset
+   * becomes focused so a reload / deep-link shows persisted adjustments.
+   */
+  getXmp(path: string): Observable<string> {
+    return this.http.get(`${this.base}/xmp?path=${encodeURIComponent(path)}`, {
+      responseType: 'text',
+    });
+  }
+
+  /**
    * Write the XMP sidecar that lives next to `path`.
    *
    * Path-keyed (NOT asset-id-keyed) — see slice 4 of #193 for why. The path

@@ -8,10 +8,11 @@
 // As of #801 the selection-time read path (the `httpResource` that fired
 // `GET /api/xmp?path=…` whenever an asset was focused) is gone: it only ever
 // drove the now-removed editor sidecar-status badge. Editor adjustment-restore
-// reads XMP independently via `library-fetch.service` →
-// `XmpParserService.parseAdjustmentModel`, and sidecar writes flow through
-// `write()` below. The store keys on the source file's absolute filesystem
-// path (see the design note on #193).
+// reads XMP independently via `XmpAdjustmentRestoreService` (a lazy, once-per-
+// focused-asset `GET /api/xmp` added by #2406 — between #801 and #2406 nothing
+// read the sidecar back on reload/deep-link at all), and sidecar writes flow
+// through `write()` below. The store keys on the source file's absolute
+// filesystem path (see the design note on #193).
 //
 // Write semantics:
 //
