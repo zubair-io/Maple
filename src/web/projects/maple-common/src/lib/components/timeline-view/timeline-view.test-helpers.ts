@@ -49,13 +49,13 @@ export class SearchStub {
   });
   // Called by TimelineViewComponent through DI, never from the spec source, so
   // static analysis can't see the reference.
-  // fallow-ignore-next-line unused-class-members
+  // fallow-ignore-next-line unused-class-member
   facets = vi.fn(() => of({}));
 }
 
 export class FsBrowseStub {
   // Same as SearchStub.facets — reached via DI from the component under test.
-  // fallow-ignore-next-line unused-class-members
+  // fallow-ignore-next-line unused-class-member
   getThumbBlobUrl = vi.fn(() => Promise.resolve('blob:fake'));
 }
 
