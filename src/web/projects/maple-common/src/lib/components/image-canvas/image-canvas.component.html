@@ -170,4 +170,29 @@
       </div>
     </div>
   }
+
+  <!-- Byte-load error overlay (#2407). A failed byte fetch used to leave a
+       silently blank canvas; this names the file and offers a Retry that
+       re-attempts the same fetch (image-canvas.byteload.ts). Not
+       pointer-events-none: the Retry button needs clicks. -->
+  @if (byteLoadError(); as err) {
+    <div class="absolute inset-0 flex items-center justify-center z-[8]" role="alert">
+      <div
+        class="flex flex-col items-center gap-2.5 bg-black/70 border-[0.5px] border-white/15 rounded-[14px] px-5 py-4 backdrop-blur-[6px]"
+        data-testid="byte-load-error"
+      >
+        <span class="font-sans text-[12px] text-white/85 text-center max-w-[240px]">
+          Couldn't load {{ err.filename }}
+        </span>
+        <button
+          type="button"
+          class="tool-btn flex h-7 cursor-pointer items-center justify-center rounded px-3 font-sans text-[11px] text-text-muted bg-surface-alt border-[0.5px] border-border transition-colors duration-100 hover:bg-surface-hover hover:text-text-main"
+          [attr.aria-label]="'Retry loading ' + err.filename"
+          (click)="retryByteLoad()"
+        >
+          Retry
+        </button>
+      </div>
+    </div>
+  }
 </div>
