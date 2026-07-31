@@ -101,3 +101,54 @@ describe('static_ui production serving', () => {
     expect(body).toBe('<html lang="en"></html>');
   });
 });
+
+describe('static_ui /pkg asset-path 404 (#2408)', () => {
+  it('404s a bare /pkg directory request instead of masking it as index.html', async () => {
+    // Before the #2097/#2408 fix chain, a bare `/pkg` request (the shape a
+    // bundler-oriented `import('../../..')` resolves to once bundled into a
+    // worker chunk) silently 200'd as index.html — a browser `import()` of
+    // that response fails opaquely instead of surfacing a clear 404, and
+    // `initThreadPool` just hung until its 5s timeout.
+    const res = await get('/pkg');
+    expect(res.status).toBe(404);
+    expect(res.headers.get('content-type')).not.toContain('html');
+  });
+
+  it('404s an unmatched (missing/typo\'d) path under /pkg/', async () => {
+    const res = await get('/pkg/does-not-exist.js');
+    expect(res.status).toBe(404);
+  });
+
+  it('serves the real file at /pkg/... when it exists on disk', async () => {
+    await Bun.write(path.join(distDir, 'pkg', 'raw_wasm.js'), 'export default 1;');
+    const res = await get('/pkg/raw_wasm.js');
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('export default 1;');
+  });
+
+  it('still falls back to index.html for a real Angular route under /pkg-like prefixes', async () => {
+    // Sanity: the guard is prefix-scoped to `/pkg`, not every path containing
+    // the substring "pkg" — an app route like `/library/pkgconfig` is still
+    // a normal SPA route.
+    const res = await get('/library/pkgconfig');
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('<html lang="en"></html>');
+  });
+
+  it('does NOT 404 an /edit or /view deep link whose path segment is a real filename with an extension', async () => {
+    // Regression guard: `/edit/:slug/**` and `/view/:slug/**` deep-link into
+    // an image by embedding its real RAW filename (with extension) as a path
+    // segment — e.g. a direct navigation/reload of
+    // `/edit/mylib/raws/IMG_0001.CR2`. An earlier draft of the #2408 guard
+    // 404'd any unmatched path whose last segment merely contained a dot,
+    // which broke exactly this deep-link shape. The guard must stay scoped
+    // to the `/pkg` prefix only.
+    const res = await get('/edit/mylib/raws/IMG_0001.CR2');
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('<html lang="en"></html>');
+
+    const viewRes = await get('/view/mylib/raws/IMG_0001.CR2');
+    expect(viewRes.status).toBe(200);
+    expect(await viewRes.text()).toBe('<html lang="en"></html>');
+  });
+});
