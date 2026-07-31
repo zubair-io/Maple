@@ -23,6 +23,9 @@
  * to fix.
  */
 
+// Raw node:fs is allowlisted in .oxlintrc.json for this file: read-only
+// bootstrap access to operator-provided cert/key paths — nothing durable is
+// written, so the mirrored-fs layer doesn't apply.
 import { accessSync, constants, readFileSync } from 'node:fs';
 
 export interface TlsConfig {
@@ -69,6 +72,7 @@ export function resolveTlsConfig(env: NodeJS.ProcessEnv = process.env): TlsConfi
       throw new Error(
         `${name}=${path} is not a readable file (${(err as Error).message}). ` +
           'Check the path is absolute and the process has read access.',
+        { cause: err },
       );
     }
   }
@@ -77,8 +81,9 @@ export function resolveTlsConfig(env: NodeJS.ProcessEnv = process.env): TlsConfi
 }
 
 /** Singleton, resolved once at process start — see file header. Throws
- * synchronously on import if TLS is half-configured or unreadable. */
-export const TLS_CONFIG = resolveTlsConfig();
+ * synchronously on import if TLS is half-configured or unreadable.
+ * Module-private: consumers read `TLS_ENABLED` / call `listenOptions()`. */
+const TLS_CONFIG = resolveTlsConfig();
 
 /** Whether the server is (about to be) listening over TLS. Read by
  * `routes/network.ts` so the advertised LAN scheme matches reality. */
