@@ -342,4 +342,16 @@ describe('AssetThumbComponent — accessible name and selection state (#2414)', 
     fixture.detectChanges();
     expect(wrapper(fixture).hasAttribute('aria-pressed')).toBe(false);
   });
+
+  it('keyboard focus: the focusable button contains the .thumb-ring overlay the :focus-visible SCSS rule lights', () => {
+    // The visible focus indicator is `.thumb:focus-visible .thumb-ring`
+    // (component SCSS — jsdom does not apply stylesheets, so assert the
+    // structural precondition: the ring element the rule targets exists
+    // inside the button that receives keyboard focus).
+    const fixture = render('a.jpg');
+    fixture.detectChanges();
+    const button = wrapper(fixture);
+    expect(button.classList.contains('thumb')).toBe(true);
+    expect(button.querySelector('.thumb-ring')).not.toBeNull();
+  });
 });
