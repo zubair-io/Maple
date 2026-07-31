@@ -35,6 +35,11 @@ export * from './lib/raw-pipeline/embedded-preview.types';
 
 // T4: Hosted vs Self-Hosted backend selection
 export * from './lib/api/library-backend.token';
+export * from './lib/workspace/workspace-capabilities';
+export * from './lib/workspace/workspace-persistence';
+export * from './lib/workspace/server-library-io';
+export * from './lib/workspace/hosted-workspace.providers';
+export * from './lib/workspace/self-hosted-workspace.providers';
 export * from './lib/api/api-base-url.token';
 export * from './lib/api/bun-api-backend.service';
 export * from './lib/api/filesystem-browse.service';
@@ -97,6 +102,7 @@ export * from './lib/xmp/xmp-store.service';
 export * from './lib/state/store';
 export * from './lib/xmp/sidecar-idb-cache';
 export * from './lib/xmp/sidecar.store';
+export * from './lib/xmp/sidecar-save-state.service';
 // People page SWR cache (list + per-person detail).
 export * from './lib/api/people.store';
 
@@ -105,6 +111,7 @@ export * from './lib/shells/browse-shell/browse-shell.component';
 export * from './lib/shells/editor-shell/editor-shell.component';
 // Web Preview Surface Task 3 — fast static-image preview (no canvas/WASM).
 export * from './lib/shells/preview-shell/preview-shell.component';
+export * from './lib/shells/preview-shell/preview-video-access';
 // S1c (#599) — phone bottom-sheet primitive (consumed by S4 Loupe / S5 Editor / S6 phone Detail).
 export * from './lib/shells/bottom-sheet.component';
 
@@ -119,6 +126,8 @@ export * from './lib/shells/protocol-handler.component';
 // app's bootstrap.
 export * from './lib/sw/app-update.service';
 export * from './lib/sw/update-toast.component';
+export * from './lib/components/gpu-fallback-notice/gpu-fallback-notice.component';
+export * from './lib/components/save-status/save-status.component';
 
 // Responsive-program S2 (#623) — responsive Library grid (3 / 5 / auto-fill).
 export * from './lib/library/library-grid.component';
@@ -229,7 +238,6 @@ export * from './lib/batch-metadata/batch-metadata-confirm-dialog.component';
 export * from './lib/addressing/maple-address';
 export * from './lib/addressing/library-source';
 export * from './lib/addressing/library-source-selector';
-export * from './lib/addressing/library-source-provider';
 export * from './lib/addressing/http-library-source';
 export * from './lib/addressing/fs-access-library-source';
 export * from './lib/addressing/library-slug-registry';

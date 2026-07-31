@@ -63,6 +63,8 @@
       type="range"
       min="60"
       max="220"
+      aria-label="Thumbnail size"
+      [attr.aria-valuetext]="state.thumbSize() + ' pixels'"
       class="w-24 cursor-pointer accent-primary"
       [value]="state.thumbSize()"
       (input)="onThumbSizeChange($event)"
