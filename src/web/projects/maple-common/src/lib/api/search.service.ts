@@ -130,19 +130,43 @@ export interface SearchResponse {
   limit: number;
   results: SearchResult[];
   /**
-   * Seek cursor for the next page (#2129), or `null` when this query has
-   * no cursor to offer — either the result set is exhausted, or the sort
-   * isn't seekable (`name` / `rating` / the `placeQuery` relevance order).
+   * Whether this query supports seek pagination (#2129) — true for the
+   * `captured_desc` / `captured_asc` sorts off the relevance-ranked
+   * `placeQuery` path, false everywhere else. Absent on responses from a
+   * server predating the field; readers coerce to `false`.
    *
-   * `null` therefore means "fall back to `page + 1`", not "stop". The
-   * caller's own end-of-list gate stays `results.length < total` in both
-   * modes. Absent on responses from a server predating this field.
+   * This is what disambiguates `nextCursor: null`. With `cursorPaging`
+   * true it means the seek chain is **exhausted** and the caller must
+   * stop; with it false it means seek pagination was never available and
+   * the caller keeps using `page`. Without the distinction, a stale
+   * `total` (it is cached server-side for 30 s) leaves `canLoadMore` true
+   * at the end of the chain and the grid falls back to deep `page + 1`
+   * SKIP paging — exactly the cost cursors exist to remove.
+   */
+  cursorPaging?: boolean;
+  /**
+   * Seek cursor for the next page, or `null` when there is none. See
+   * `cursorPaging` for what `null` means in each mode.
    */
   nextCursor?: string | null;
   /** Set to `true` by the backend when the requested `scope` has no
    * underlying field today (currently only `albums`). The grid is empty
    * by definition; UIs surface "Coming soon" instead of "No matches". */
   notImplemented?: boolean;
+}
+
+/**
+ * True when a seek-paginated result set has been walked to its end (#2129).
+ *
+ * `nextCursor: null` alone is ambiguous — it also covers "this query was
+ * never seekable" — so the check needs `cursorPaging` too. Callers use it to
+ * clamp `total` to the rows they hold: the server-side `total` is cached for
+ * 30 s and can overstate the set, and trusting a stale one at the end of the
+ * chain leaves the infinite-scroll gate open, sending the grid back to deep
+ * `page + 1` SKIP paging — the exact cost cursors exist to remove.
+ */
+export function seekExhausted(r: SearchResponse): boolean {
+  return r.cursorPaging === true && (r.nextCursor ?? null) === null;
 }
 
 export interface SearchFacets {

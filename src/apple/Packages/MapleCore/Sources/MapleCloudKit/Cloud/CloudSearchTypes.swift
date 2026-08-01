@@ -180,26 +180,40 @@ public struct SearchResponse: Codable, Sendable {
   public let page: Int
   public let limit: Int
   public let results: [SearchAsset]
-  /// Opaque seek cursor for the next page (#2129). Non-nil only when the
-  /// server can resume this query with a range predicate on
-  /// `(exif.captured_at, _id)` instead of a SKIP — i.e. the
-  /// `captured_desc` / `captured_asc` sorts, off the relevance-ranked
-  /// `placeQuery` path. `nil` therefore means "keep using `page`", not
-  /// "no more rows"; the caller's own `results.count < total` gate is
-  /// what ends pagination in both modes.
+  /// Whether this query supports seek pagination (#2129) — true for the
+  /// `captured_desc` / `captured_asc` sorts off the relevance-ranked
+  /// `placeQuery` path, false everywhere else. Optional so responses from a
+  /// server predating the field still decode; readers treat nil as false.
   ///
-  /// Optional so responses from a server predating the field still decode.
+  /// This is what disambiguates `nextCursor == nil`. With `cursorPaging`
+  /// true it means the seek chain is **exhausted** and the caller must stop;
+  /// with it false it means seek pagination was never available and the
+  /// caller keeps using `page`.
+  public let cursorPaging: Bool?
+  /// Opaque seek cursor for the next page, or nil when there is none. See
+  /// `cursorPaging` for what nil means in each mode.
   public let nextCursor: String?
+
+  /// True when a seek-paginated result set has been walked to its end.
+  ///
+  /// Callers clamp `total` to the rows they hold when this is true: the
+  /// server caches `total` for 30 s and can overstate the set, and trusting
+  /// a stale one at the end of the chain leaves the infinite-scroll gate
+  /// open — which sends the grid back to deep `page + 1` SKIP paging, the
+  /// exact cost cursors exist to remove.
+  public var seekExhausted: Bool { cursorPaging == true && nextCursor == nil }
 
   public init(total: Int,
               page: Int,
               limit: Int,
               results: [SearchAsset],
+              cursorPaging: Bool? = nil,
               nextCursor: String? = nil) {
     self.total = total
     self.page = page
     self.limit = limit
     self.results = results
+    self.cursorPaging = cursorPaging
     self.nextCursor = nextCursor
   }
 }

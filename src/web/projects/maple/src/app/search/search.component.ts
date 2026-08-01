@@ -52,6 +52,7 @@ import {
   viewRouteCommands,
 } from '@maple-common';
 import { SearchBatchMetaController } from './search-batch-meta';
+import { nextPagingState } from './search-paging';
 import { SearchThumbLoader } from './search-thumbs';
 import {
   COLOR_LABELS,
@@ -482,13 +483,15 @@ export class SearchComponent implements OnInit, OnDestroy {
   /** Apply a search response to the result signals and kick off thumb loads.
    * Shared by the cache-hit and network paths. */
   private applyResults(r: SearchResponse, append: boolean, seeked = false): void {
-    this.total.set(r.total);
-    // `page` is the skip-mode fallback counter. A seek request echoes back
-    // `page: 0`, so adopting it there would rewind the counter mid-scroll.
-    if (!seeked) this.page.set(r.page);
-    this.nextCursor.set(r.nextCursor ?? null);
     const vms = r.results.map((res) => toResultViewModel(res, this.thumbs.cached(res.abs_path)));
-    this.results.update((prev) => (append ? prev.concat(vms) : vms));
+    const next = append ? this.results().concat(vms) : vms;
+    this.results.set(next);
+    // The page/cursor/total rules are non-obvious enough to live as a pure,
+    // tested function — see `search-paging.ts`.
+    const paging = nextPagingState(r, seeked, next.length, this.page());
+    this.page.set(paging.page);
+    this.nextCursor.set(paging.nextCursor);
+    this.total.set(paging.total);
     // Kick off thumb loads (fire-and-forget).
     for (const vm of vms) void this.thumbs.load(vm);
   }
