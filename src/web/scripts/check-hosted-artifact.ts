@@ -106,7 +106,7 @@ async function verifySecurityHeaders(): Promise<void> {
 async function verifyIndexCspCompatibility(): Promise<void> {
   const index = await text('/index.html');
   assertContract(
-    !/\son[a-z]+\s*=/i.test(index),
+    !/<[a-z][^>]*\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/i.test(index),
     'index.html contains an inline event handler forbidden by the Hosted CSP',
   );
 }
