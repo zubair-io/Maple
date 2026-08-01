@@ -46,6 +46,14 @@ describe('MapleIconComponent', () => {
     });
   });
 
+  describe('gear', () => {
+    it('renders the local settings glyph without an icon font', () => {
+      const svg = render('gear');
+      expect(svg.querySelector('circle')?.getAttribute('r')).toBe('2.2');
+      expect(svg.querySelector('path')?.getAttribute('d')).toContain('M8 1v2');
+    });
+  });
+
   // ---- Glyphs added in S0c ----
   // Each test renders the glyph and verifies the registry shape data lands
   // in the DOM with the expected primitive (path d=…, circle cx/cy/r,

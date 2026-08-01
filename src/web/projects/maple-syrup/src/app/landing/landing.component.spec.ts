@@ -49,6 +49,14 @@ describe('LandingComponent', () => {
     fixture.detectChanges();
   });
 
+  it('uses the shared Apple-sourced Maple mark', () => {
+    const mark = fixture.nativeElement.querySelector('header img') as HTMLImageElement;
+    expect(mark.getAttribute('src')).toBe('assets/brand/maple-mark.png');
+    expect(mark.getAttribute('alt')).toBe('');
+    expect(mark.width).toBe(48);
+    expect(mark.height).toBe(48);
+  });
+
   it('shows a specific error for an unsupported picked file', async () => {
     const input = {
       files: [new File(['notes'], 'notes.txt', { type: 'text/plain' })],

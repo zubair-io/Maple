@@ -34,7 +34,6 @@ import { DropZoneComponent } from '../../components/drop-zone/drop-zone.componen
 import { LoadingBannerComponent } from '../../components/loading-banner/loading-banner.component';
 import { ErrorBannerComponent } from '../../components/error-banner/error-banner.component';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
-import { MaterialIconComponent } from '../../icons/material-icon.component';
 import { LibraryPickerComponent } from '../../components/library-picker/library-picker.component';
 import { LibraryPickerModalComponent } from '../../components/library-picker-modal/library-picker-modal.component';
 import { TimelineViewComponent } from '../../components/timeline-view/timeline-view.component';
@@ -62,7 +61,6 @@ import { selectSidebarEntry } from './source-selection';
     LoadingBannerComponent,
     ErrorBannerComponent,
     MapleIconComponent,
-    MaterialIconComponent,
     LibraryPickerComponent,
     LibraryPickerModalComponent,
     TimelineViewComponent,
