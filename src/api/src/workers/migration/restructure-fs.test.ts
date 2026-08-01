@@ -99,9 +99,7 @@ describe('planAndPlace — crash-safe ordering', () => {
     expect(await exists('2024/Tokyo/IMG_1.MOV.xmp')).toBe(true);
     // The still photo's own sidecar must NOT be swept up as a "companion".
     expect(await exists('2024/Tokyo/IMG_1.xmp')).toBe(false);
-    expect(plan.sourcesToDelete).not.toContain(
-      path.join(root, '2024/Tokyo/03-15/IMG_1.xmp'),
-    );
+    expect(plan.sourcesToDelete).not.toContain(path.join(root, '2024/Tokyo/03-15/IMG_1.xmp'));
     // Still photo untouched at the old dir.
     expect(await exists('2024/Tokyo/03-15/IMG_1.HEIC')).toBe(true);
     expect(await exists('2024/Tokyo/03-15/IMG_1.xmp')).toBe(true);
