@@ -99,6 +99,67 @@ describe('mirrored fs fan-out', () => {
     expect(await fileExists(onMirror('sidecar.xmp.tmp.999'))).toBe(false);
   });
 
+  test('replicatePath copies an out-of-band write to the mirror', async () => {
+    // The `.maple/` cache case: an FFI worker / child process wrote these bytes
+    // straight to disk, so no fs verb here saw them. The renderer hands the
+    // committed path over explicitly.
+    const thumb = onPrimary('.maple/thumbs/abc123.avif');
+    await realFs.mkdir(path.dirname(thumb), { recursive: true });
+    await realFs.writeFile(thumb, 'avif-bytes');
+
+    fs.replicatePath(thumb);
+    await fs.flushPendingMirrorOps();
+
+    expect(await realFs.readFile(onMirror('.maple/thumbs/abc123.avif'), 'utf8')).toBe('avif-bytes');
+  });
+
+  test('replicatePath preserves the source mtime on the mirror copy', async () => {
+    const thumb = onPrimary('.maple/previews/photo.jpg.avif');
+    await realFs.mkdir(path.dirname(thumb), { recursive: true });
+    await realFs.writeFile(thumb, 'avif-bytes');
+    const past = new Date(Date.now() - 3_600_000);
+    await realFs.utimes(thumb, past, past);
+
+    fs.replicatePath(thumb);
+    await fs.flushPendingMirrorOps();
+
+    const [a, b] = await Promise.all([
+      realFs.stat(thumb),
+      realFs.stat(onMirror('.maple/previews/photo.jpg.avif')),
+    ]);
+    // Faithful mtime is what makes the copy usable as a read replica.
+    expect(Math.floor(b.mtimeMs)).toBe(Math.floor(a.mtimeMs));
+  });
+
+  test('replicatePath ignores temps and paths outside a mirrored root', async () => {
+    const tmp = onPrimary('.maple/thumbs/abc.avif.tmp.42');
+    await realFs.mkdir(path.dirname(tmp), { recursive: true });
+    await realFs.writeFile(tmp, 'partial');
+    fs.replicatePath(tmp);
+
+    const outside = path.join(dir, 'elsewhere.avif');
+    await realFs.writeFile(outside, 'unrelated');
+    fs.replicatePath(outside);
+
+    await fs.flushPendingMirrorOps();
+    expect(await fileExists(onMirror('.maple/thumbs/abc.avif.tmp.42'))).toBe(false);
+    expect(await fileExists(path.join(mirror, 'elsewhere.avif'))).toBe(false);
+  });
+
+  test('unlinking a cache file removes it from the mirror (cache-gc path)', async () => {
+    const thumb = onPrimary('.maple/thumbs/dead.avif');
+    await realFs.mkdir(path.dirname(thumb), { recursive: true });
+    await realFs.writeFile(thumb, 'avif-bytes');
+    fs.replicatePath(thumb);
+    await fs.flushPendingMirrorOps();
+    expect(await fileExists(onMirror('.maple/thumbs/dead.avif'))).toBe(true);
+
+    // `cache-gc.ts` reclaims orphans through this same mirrored `unlink`.
+    await fs.unlink(thumb);
+    await fs.flushPendingMirrorOps();
+    expect(await fileExists(onMirror('.maple/thumbs/dead.avif'))).toBe(false);
+  });
+
   test('unlink removes the file from the mirror too', async () => {
     const src = path.join(dir, 's.dng');
     await realFs.writeFile(src, 'x');
