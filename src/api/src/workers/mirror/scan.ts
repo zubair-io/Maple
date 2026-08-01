@@ -18,7 +18,8 @@ import { liveFileInfoElemMatch } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { resolveMirrorTargets, isMirroringActive } from '../../fs/mirror-registry.ts';
 import { enqueueMirrorCopy } from '../../fs/mirror-queue.repo.ts';
-import { xmpSidecarPath } from '../../fs/xmp.ts';
+import { xmpSidecarPath, resolveThumbPath, cachePathFor } from '../../fs/xmp.ts';
+import { PREVIEW_CACHE_SUFFIX } from '../../indexer/previewer.ts';
 import { needsReplication, statOrNull } from './replicate.ts';
 import { child as childLogger } from '../../log.ts';
 
@@ -114,15 +115,27 @@ export async function runMirrorScanOnce(opts: MirrorScanOptions = {}): Promise<M
       const segments = entry.path === '' ? [] : entry.path.split('/');
       const primaryAbs = path.join(root, ...segments, entry.filename);
 
+      // Everything this asset owns on disk, in priority order. `checkOne`
+      // no-ops on any of these that the primary doesn't have.
+      const replicable = [
+        primaryAbs,
+        // The canonical XMP sidecar carries the user's edits (the
+        // non-destructive contract), so it must back up too.
+        xmpSidecarPath(primaryAbs),
+        // The derived `.maple/` cache. Fresh renders reach the mirror inline via
+        // `fs/mirrored.ts:replicatePath`; this is what carries the pre-existing
+        // backlog — and anything a dropped inline copy missed — across, so a
+        // mirror-served read hits the cache instead of regenerating (#926).
+        resolveThumbPath(primaryAbs),
+        cachePathFor(primaryAbs, 'previews', PREVIEW_CACHE_SUFFIX),
+      ];
+
       try {
-        // The original, then its canonical XMP sidecar — the sidecar carries
-        // the user's edits (the non-destructive contract), so it must back up
-        // too. checkOne no-ops when the sidecar doesn't exist on the primary.
-        let capped = (await checkOne(primaryAbs)) === 'cap';
-        if (!capped) capped = (await checkOne(xmpSidecarPath(primaryAbs))) === 'cap';
-        if (capped) {
-          log.warn({ maxEnqueue }, 'mirror-scan hit per-pass enqueue cap — deferring rest');
-          return summary;
+        for (const candidate of replicable) {
+          if ((await checkOne(candidate)) === 'cap') {
+            log.warn({ maxEnqueue }, 'mirror-scan hit per-pass enqueue cap — deferring rest');
+            return summary;
+          }
         }
       } catch (err) {
         summary.errors++;

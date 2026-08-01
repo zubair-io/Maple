@@ -24,12 +24,14 @@
 //   non-RAW bitmap formats (jpg/heic/png/…) stream their original bytes for
 //   the client to decode directly. Allowlist = RAW ∪ SHARP extensions (same
 //   set the dir listing + thumb endpoint surface); other extensions 415.
+//   Bytes may be served from the library's mirror as well as its primary —
+//   see `fs/mirror-read.ts` for the round-robin + failover contract.
 //
 // All endpoints share the same MAPLE_ROOTS jail and system-directory
 // denylist enforced in `../fs/browse.ts`.
 
 import { Elysia, t } from 'elysia';
-import { realpath, stat } from 'node:fs/promises';
+import { realpath } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import * as path from 'node:path';
 import { Readable } from 'node:stream';
@@ -42,10 +44,26 @@ import {
   RAW_EXTENSIONS,
   SHARP_EXTENSIONS,
 } from '../fs/browse.ts';
+import { resolveOriginalReadSource } from '../fs/mirror-read.ts';
 import { child as childLogger } from '../log.ts';
 import { computeBodyETag, ifNoneMatchEqual } from '../runtime/http-etag.ts';
 
 const log = childLogger('fs/dir');
+
+/**
+ * Resolve symlinks for the jail check, falling back to a lexical resolve when
+ * the path can't be walked. An unmounted primary volume ENOENTs every component,
+ * which would otherwise 404 the request before the mirror failover below ever
+ * ran. The jail check still applies to the resolved result, and failover only
+ * ever reads inside an operator-configured mirror root.
+ */
+async function realpathOrResolve(p: string): Promise<string> {
+  try {
+    return await realpath(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
 
 export const fsRoutes = new Elysia({ prefix: '/api/fs' })
   .get(
@@ -189,15 +207,7 @@ export const fsRoutes = new Elysia({ prefix: '/api/fs' })
         set.status = 400;
         return { error: 'path must be absolute' };
       }
-      let real: string;
-      try {
-        real = await realpath(reqPath);
-      } catch (err) {
-        set.status = 404;
-        return {
-          error: `Cannot access "${reqPath}": ${err instanceof Error ? err.message : String(err)}`,
-        };
-      }
+      const real = await realpathOrResolve(reqPath);
       const roots = await browseRoots();
       if (!roots.some((r) => isUnderRoot(real, r))) {
         set.status = 403;
@@ -216,22 +226,21 @@ export const fsRoutes = new Elysia({ prefix: '/api/fs' })
         set.status = 415;
         return { error: `Unsupported file extension: "${ext}"` };
       }
-      let st: Awaited<ReturnType<typeof stat>>;
-      try {
-        st = await stat(real);
-      } catch (err) {
+      // Originals are immutable (root CLAUDE.md principle 1), so a same-size,
+      // same-mtime mirror copy IS the file — reads round-robin across the
+      // primary and the library's healthy mirrors to spread load, and fail over
+      // to a mirror when the primary volume is unreachable (#926). The stat we
+      // report comes from the authoritative copy either way, so Content-Length
+      // and ETag are identical whichever replica served.
+      const source = await resolveOriginalReadSource(real);
+      if (source === null) {
         set.status = 404;
-        return {
-          error: `Cannot stat "${real}": ${err instanceof Error ? err.message : String(err)}`,
-        };
+        return { error: `Cannot read "${real}": no readable copy on the primary or a mirror` };
       }
-      if (!st.isFile()) {
-        set.status = 400;
-        return { error: `"${real}" is not a regular file` };
-      }
+      const st = source.stat;
       // Stream the bytes. Web ReadableStream is built from the Node stream
       // so we don't have to slurp 100MP RAWs (~200MB) into memory.
-      const nodeStream = createReadStream(real);
+      const nodeStream = createReadStream(source.path);
       // Cast through `unknown` because @types/node's `node:stream/web`
       // ReadableStream and the DOM ReadableStream lib types don't share a
       // structural overlap (different `getReader` overload signatures), but

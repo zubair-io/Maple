@@ -27,7 +27,7 @@ import { Elysia, t } from 'elysia';
 import * as path from 'node:path';
 import { stat, unlink } from 'node:fs/promises';
 import { foldersCollection } from '../../db/client.ts';
-import { listPairedSidecars } from '../../fs/xmp.ts';
+import { listPairedSidecars } from '../../fs/xmp-conflict.ts';
 import { moveToTrash, moveOutOfTrash } from '../../fs/trash.ts';
 import { composeSearchBlob } from '../../enrichment/search-blob.ts';
 import { classifyMediaType } from '../../indexer/media-types.ts';

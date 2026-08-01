@@ -41,6 +41,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { cachePathFor } from '../fs/xmp.ts';
+import { replicatePath } from '../fs/mirrored.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
 import { isUndecodableFilename, isVideoFilename } from './media-types.ts';
@@ -174,6 +175,10 @@ export async function generatePreview(
 
   if (ok) {
     _rendered++;
+    // Written out-of-band (FFI worker / imgdecode child), so the mirror-aware fs
+    // drop-in never saw these bytes — hand the committed path to the mirror
+    // explicitly. See `thumbnailer.ts` and `fs/mirrored.ts:replicatePath` (#926).
+    replicatePath(previewPath);
   } else {
     _failed++;
     log.warn({ absPath }, 'failed');
