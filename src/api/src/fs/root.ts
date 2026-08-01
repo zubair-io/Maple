@@ -33,7 +33,7 @@ let envRootsCache:
 
 async function normalizedEnvRoots(): Promise<string[]> {
   const value = process.env.MAPLE_ROOTS;
-  if (envRootsCache?.value === value) return envRootsCache.roots;
+  if (envRootsCache && envRootsCache.value === value) return envRootsCache.roots;
   const roots = Promise.all(
     (value ?? '')
       .split(':')
