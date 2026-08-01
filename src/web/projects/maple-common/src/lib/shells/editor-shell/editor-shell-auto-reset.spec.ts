@@ -226,6 +226,9 @@ describe('EditorShellComponent — AUTO / RESET reachability (#2244)', () => {
       // The load-bearing invariant of #1370: AUTO's exposure is measured
       // against an AE-Off probe, so the mode must flip alongside it.
       expect(m.autoExposure).toBe('Off');
+      expect(fixture.nativeElement.querySelector('[role="status"]')?.textContent).toContain(
+        'Auto applied · Exposure +1.25 EV',
+      );
     });
 
     it('is disabled while the analysis is in flight', async () => {
@@ -281,6 +284,10 @@ describe('EditorShellComponent — AUTO / RESET reachability (#2244)', () => {
       fixture.detectChanges();
 
       resetButton().click();
+      fixture.detectChanges();
+      expect(editorState.canUndo()).toBe(true);
+
+      fixture.componentInstance.onGroupChange('color');
       fixture.detectChanges();
       expect(editorState.canUndo()).toBe(true);
 
