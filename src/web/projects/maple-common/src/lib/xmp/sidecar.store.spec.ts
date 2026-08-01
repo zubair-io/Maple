@@ -55,6 +55,43 @@ class ApiStub {
   });
 }
 
+class DeferredFirstPutCache implements SidecarCache {
+  private readonly backing = new InMemorySidecarCache();
+  private releaseFirstPut!: () => void;
+  private first = true;
+  readonly firstPutStarted: Promise<void>;
+  private markFirstPutStarted!: () => void;
+
+  constructor() {
+    this.firstPutStarted = new Promise((resolve) => (this.markFirstPutStarted = resolve));
+  }
+
+  release(): void {
+    this.releaseFirstPut();
+  }
+
+  get(path: string) {
+    return this.backing.get(path);
+  }
+
+  async put(path: string, xml: string): Promise<void> {
+    if (this.first) {
+      this.first = false;
+      this.markFirstPutStarted();
+      await new Promise<void>((resolve) => (this.releaseFirstPut = resolve));
+    }
+    await this.backing.put(path, xml);
+  }
+
+  delete(path: string) {
+    return this.backing.delete(path);
+  }
+
+  clear() {
+    return this.backing.clear();
+  }
+}
+
 function makeBed(opts: { cache?: SidecarCache; backend?: 'self-hosted' | 'hosted' } = {}) {
   const cache = opts.cache ?? new InMemorySidecarCache();
   const api = new ApiStub();
@@ -150,6 +187,22 @@ describe('SidecarStore', () => {
     // No prior value anywhere → the optimistic row is removed entirely.
     const rec = await cache.get(PATH_A);
     expect(rec).toBeNull();
+  });
+
+  it('awaits the optimistic cache write before a fast network failure rolls it back', async () => {
+    const cache = new DeferredFirstPutCache();
+    const { api } = makeBed({ cache });
+    store = TestBed.inject(SidecarStore);
+    TestBed.inject(HttpTestingController);
+    api.putResult = 'fail';
+
+    const write = store.write(PATH_A, SIDECAR_XML_UPDATED);
+    await cache.firstPutStarted;
+    expect(api.putXmp).not.toHaveBeenCalled();
+
+    cache.release();
+    await expect(write).rejects.toThrow('POST failed');
+    expect(await cache.get(PATH_A)).toBeNull();
   });
 
   it('does not POST to the network on Hosted backends', async () => {

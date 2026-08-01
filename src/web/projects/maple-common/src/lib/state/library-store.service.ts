@@ -51,6 +51,7 @@ import { ApiFolder } from '../api/bun-api-backend.service';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { MapleIndex } from '../maple-cache/maple-cache.types';
 import { parseAddress } from '../addressing/maple-address';
+import type { XmpCulling } from '../xmp/xmp.types';
 
 // ─── Location helpers (content-addressing migration) ───────────────────────
 //
@@ -115,6 +116,7 @@ export function buildLibrariesById(folders: readonly ApiFolder[]): ReadonlyMap<s
 
 @Injectable({ providedIn: 'root' })
 export class LibraryStore {
+  readonly singleFileMemoryOnly = signal(false);
   /** Which backend is in use. Consumers read this to branch data-source paths. */
   readonly backend = inject(LIBRARY_BACKEND);
 
@@ -243,7 +245,7 @@ export class LibraryStore {
     return computed(() => this.adjustmentModels().get(id) ?? defaultAdjustmentModel());
   }
 
-  setAdjustment(id: AssetId, patch: Partial<AdjustmentModel>): void {
+  setAdjustment(id: AssetId, patch: Partial<AdjustmentModel>): Partial<AdjustmentModel> {
     // Every setAdjustment call site is user-driven (sliders, WB pad, AUTO,
     // RESET, undo, paste) — record it so a late sidecar restore (#2406)
     // can never overwrite what the user is looking at.
@@ -266,6 +268,7 @@ export class LibraryStore {
       next.set(id, { ...current, ...effective });
       return next;
     });
+    return effective;
   }
 
   isEdited(id: AssetId) {
@@ -283,9 +286,29 @@ export class LibraryStore {
    * returns (#2406).
    */
   private readonly _sessionEdited = new Set<AssetId>();
+  private readonly _sessionCullingPatches = new Map<AssetId, Partial<XmpCulling>>();
 
   markSessionEdited(id: AssetId): void {
     this._sessionEdited.add(id);
+  }
+
+  setCulling(id: AssetId, patch: Partial<XmpCulling>): void {
+    this._sessionEdited.add(id);
+    this._sessionCullingPatches.set(id, {
+      ...this._sessionCullingPatches.get(id),
+      ...patch,
+    });
+    this.assets.update((assets) =>
+      assets.map((asset) => (asset.id === id ? { ...asset, ...patch } : asset)),
+    );
+  }
+
+  mergePersistedCulling(id: AssetId, persisted: XmpCulling): XmpCulling {
+    const merged = { ...persisted, ...(this._sessionCullingPatches.get(id) ?? {}) };
+    this.assets.update((assets) =>
+      assets.map((asset) => (asset.id === id ? { ...asset, ...merged } : asset)),
+    );
+    return merged;
   }
 
   /**
@@ -305,6 +328,18 @@ export class LibraryStore {
       return next;
     });
     return true;
+  }
+
+  /** Merge a delayed persisted base with fields authored during that read. */
+  mergePersistedAdjustment(
+    id: AssetId,
+    persisted: Partial<AdjustmentModel>,
+    authored: Partial<AdjustmentModel>,
+  ): AdjustmentModel {
+    const current = this.adjustmentModels().get(id) ?? defaultAdjustmentModel();
+    const merged = { ...current, ...persisted, ...authored };
+    this.adjustmentModels.update((models) => new Map(models).set(id, merged));
+    return merged;
   }
 
   // ── Self-Hosted id-map helpers ────────────────────────────────────────────

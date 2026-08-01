@@ -23,7 +23,9 @@ describe('workspace providers', () => {
     expect(TestBed.inject(LIBRARY_BACKEND)).toBe('hosted');
     expect(TestBed.inject(LIBRARY_SOURCE)).toBe(fsSource);
     expect(TestBed.inject(SERVER_WORKSPACE_PERSISTENCE)).toBeNull();
-    expect(TestBed.inject(WORKSPACE_CAPABILITIES).resolve(false).mode).toBe('hosted-single-file');
+    expect(TestBed.inject(WORKSPACE_CAPABILITIES).resolve('single-file').mode).toBe(
+      'hosted-single-file',
+    );
   });
 
   it('adapts Self Hosted HTTP persistence behind the narrow port', async () => {
@@ -43,7 +45,7 @@ describe('workspace providers', () => {
 
     const persistence = TestBed.inject(SERVER_WORKSPACE_PERSISTENCE)!;
     expect(TestBed.inject(LIBRARY_SOURCE)).toBe(httpSource);
-    expect(TestBed.inject(WORKSPACE_CAPABILITIES).resolve(false).mode).toBe('self-hosted');
+    expect(TestBed.inject(WORKSPACE_CAPABILITIES).resolve('single-file').mode).toBe('self-hosted');
     await expect(firstValueFrom(persistence.readSidecar('/photos/a.raw'))).resolves.toBe('<xmp/>');
     await firstValueFrom(persistence.writeSidecar('/photos/a.raw', '<xmp/>'));
     await firstValueFrom(persistence.writePreview('/photos/a.raw', new Blob(), 'image/avif'));
