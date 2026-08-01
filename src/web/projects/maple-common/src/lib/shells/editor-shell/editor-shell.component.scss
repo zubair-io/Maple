@@ -199,6 +199,15 @@
   }
 }
 
+.auto-result {
+  max-width: 160px;
+  overflow: hidden;
+  color: var(--pro-text-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .top-icon-btn {
   display: flex;
   align-items: center;
