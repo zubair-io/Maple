@@ -105,7 +105,7 @@ const FILTER_AFFECTING_FIELD_VALUES: Record<string, [string, string]> = {
   excludeHiddenPeople: ['true', 'false'],
 };
 
-const NON_FILTER_FIELDS = new Set(['people', 'page', 'limit', 'sort']);
+const NON_FILTER_FIELDS = new Set(['people', 'page', 'limit', 'sort', 'cursor']);
 
 const ALL_SEARCH_QUERY_FIELDS: Record<keyof SearchQuery, true> = {
   q: true,
@@ -138,6 +138,7 @@ const ALL_SEARCH_QUERY_FIELDS: Record<keyof SearchQuery, true> = {
   page: true,
   limit: true,
   sort: true,
+  cursor: true,
 };
 
 describe('makeBucketsCacheKey — completeness vs SearchQuery', () => {
