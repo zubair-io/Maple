@@ -162,6 +162,17 @@ export class CanvasZoomGestures {
   attach(el: HTMLElement): () => void {
     const down = (e: PointerEvent) => {
       if (this.dividerDrag) return; // divider owns this pointer
+      // Overlay controls (for example the byte-load Retry button) live inside
+      // the canvas wrap. Capturing their pointer on the wrap retargets the
+      // eventual click away from the control, making it look enabled while
+      // doing nothing. Interactive descendants own their pointer stream.
+      const target = e.target;
+      if (
+        target instanceof Element &&
+        target.closest('button, a, input, select, textarea, [role="button"], [role="slider"]')
+      ) {
+        return;
+      }
       // Mouse: left or middle button drags (parity with the old mouse path).
       if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 1) return;
       // Capture on the wrap so drags/pinches survive leaving the element.
