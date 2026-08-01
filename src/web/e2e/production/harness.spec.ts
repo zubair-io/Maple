@@ -304,14 +304,9 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
     body: Buffer.from(JSON.stringify(xmpDispatchEvidence, null, 2)),
     contentType: 'application/json',
   });
-  expect(
-    xmpDispatchMs,
-    'the first real sibling-XMP write must dispatch within 250 ms',
-  ).toBeGreaterThanOrEqual(0);
-  expect(
-    xmpDispatchMs,
-    'the first real sibling-XMP write must dispatch within 250 ms',
-  ).toBeLessThanOrEqual(XMP_DISPATCH_BUDGET_MS);
+  const xmpDispatchBudgetMessage = `the first real sibling-XMP write must dispatch within ${XMP_DISPATCH_BUDGET_MS} ms`;
+  expect(xmpDispatchMs, xmpDispatchBudgetMessage).toBeGreaterThanOrEqual(0);
+  expect(xmpDispatchMs, xmpDispatchBudgetMessage).toBeLessThanOrEqual(XMP_DISPATCH_BUDGET_MS);
   await expect(exposure).not.toHaveAttribute('aria-valuenow', '0');
   const exposureBox = await exposure.boundingBox();
   expect(exposureBox).not.toBeNull();
@@ -345,22 +340,28 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
   await expect
     .poll(
       async () => {
-        const descriptor = JSON.parse(await readFile(descriptorPath, 'utf8')) as {
-          format: 'avif' | 'jpeg' | 'webp' | 'png';
-          artifactLastModified: number;
-        };
-        if (descriptor.artifactLastModified <= beforeEditDescriptor.artifactLastModified) {
+        try {
+          const descriptor = JSON.parse(await readFile(descriptorPath, 'utf8')) as {
+            format: 'avif' | 'jpeg' | 'webp' | 'png';
+            artifactLastModified: number;
+          };
+          if (descriptor.artifactLastModified <= beforeEditDescriptor.artifactLastModified) {
+            return false;
+          }
+          const artifact = await readFile(
+            join(
+              manifest.writableFolder,
+              '.maple',
+              'previews',
+              `test_0006.DNG.${extensions[descriptor.format]}`,
+            ),
+          );
+          return !artifact.equals(beforeEditBytes);
+        } catch {
+          // Artifact and descriptor publish separately by contract. A read
+          // between those writes is transient and should keep polling.
           return false;
         }
-        const artifact = await readFile(
-          join(
-            manifest.writableFolder,
-            '.maple',
-            'previews',
-            `test_0006.DNG.${extensions[descriptor.format]}`,
-          ),
-        );
-        return !artifact.equals(beforeEditBytes);
       },
       { timeout: 90_000 },
     )
