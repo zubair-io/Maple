@@ -14,6 +14,17 @@ import { deleteSidecar, writeSidecarAtomic } from './sidecar-io.ts';
 // Conflict-copy sidecars (`<base> (conflict from <device>).xmp`) live in their
 // own module; the precondition write below is their only producer here.
 import { pickFreeConflictPath } from './xmp-conflict.ts';
+// Re-exported so callers that predate the split keep importing the sidecar
+// surface from one place. `conflictCopyPath` in particular is the writer that
+// must agree with `listPairedSidecars`'s matcher on the video full-name base
+// (#1678/#2481) — they are deliberately kept in the same module for that reason.
+export {
+  conflictCopyPath,
+  listPairedSidecars,
+  readConflictSidecar,
+  writeConflictSidecarAtomic,
+  deleteConflictSidecar,
+} from './xmp-conflict.ts';
 import { createHash, randomBytes } from 'node:crypto';
 import { safeWriteAllowed } from './root.ts';
 import type { OpResult } from './root.ts';
