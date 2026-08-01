@@ -254,6 +254,25 @@ describe('EditorShellComponent — crop tool port (#1813)', () => {
     expect(isIdentityCrop(after.crop)).toBe(false);
   });
 
+  it('applies an aspect crop from renderer dimensions while asset metadata is still hydrating', () => {
+    focused.set({ id: ASSET_ID, filename: 'a.dng' } as Asset);
+    TestBed.inject(ImageCanvasService).nativeDimensions.set({ w: 6240, h: 4160 });
+    cropDockButton().click();
+    fixture.detectChanges();
+
+    const square = fixture.nativeElement.querySelector(
+      '[data-testid="crop-aspect-square"]',
+    ) as HTMLButtonElement;
+    square.click();
+    fixture.detectChanges();
+
+    const applied = modelFor(ASSET_ID)().crop;
+    expect(applied.top).toBe(0);
+    expect(applied.bottom).toBe(1);
+    expect(applied.left).toBeCloseTo(1 / 6, 6);
+    expect(applied.right).toBeCloseTo(5 / 6, 6);
+  });
+
   it('Done exits crop back to Exposure and restores the control card', () => {
     cropDockButton().click();
     fixture.detectChanges();

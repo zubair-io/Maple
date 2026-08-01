@@ -10,6 +10,7 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { LibraryStateService } from '../state/library-state.service';
 import { EditorStateService } from './editor-state.service';
 import { CropSessionService } from '../components/crop-overlay/crop-session.service';
+import { ImageCanvasService } from '../components/image-canvas/image-canvas.service';
 import {
   ASPECT_PRESETS,
   type AspectId,
@@ -32,6 +33,7 @@ const STRAIGHTEN_MAX = 45;
 export class CropToolbarComponent {
   private readonly library = inject(LibraryStateService);
   private readonly editor = inject(EditorStateService);
+  private readonly canvas = inject(ImageCanvasService);
   protected readonly crop = inject(CropSessionService);
 
   protected readonly presets = ASPECT_PRESETS;
@@ -51,21 +53,38 @@ export class CropToolbarComponent {
   });
 
   protected readonly activeAspect = computed<AspectId>(() => this.crop.aspectId());
+  protected readonly imageDimensions = computed(() => {
+    const asset = this.library.focusedAsset();
+    const native = this.canvas.nativeDimensions();
+    const width = positiveDimension(asset?.width, native?.w);
+    const height = positiveDimension(asset?.height, native?.h);
+    return width && height ? { width, height } : null;
+  });
+
+  protected aspectDisabled(id: AspectId): boolean {
+    return id !== 'free' && this.imageDimensions() === null;
+  }
 
   /** Select an aspect-ratio preset. `free` only unlocks; a fixed ratio snaps
    *  the crop to a centered rect of that ratio (preserving the angle). */
   protected selectAspect(id: AspectId): void {
-    this.crop.setAspect(id);
-    if (id === 'free') return;
+    if (id === 'free') {
+      this.crop.setAspect(id);
+      return;
+    }
     const id2 = this.editor.imageId();
     const a = this.library.focusedAsset();
     const m = this.model();
     if (!id2 || !a || !m) return;
-    const ratio = resolveAspect(this.crop.aspectPreset(), a.width ?? 1, a.height ?? 1);
+    const dimensions = this.imageDimensions();
+    if (!dimensions) return;
+    const { width, height } = dimensions;
+    this.crop.setAspect(id);
+    const ratio = resolveAspect(this.crop.aspectPreset(), width, height);
     if (ratio == null) return;
     this.editor.commit();
     this.library.updateAdjustment(id2, {
-      crop: centeredCropForAspect(ratio, a.width ?? 1, a.height ?? 1, m.crop.angle),
+      crop: centeredCropForAspect(ratio, width, height, m.crop.angle),
     });
   }
 
@@ -98,4 +117,8 @@ export class CropToolbarComponent {
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
+}
+
+function positiveDimension(primary?: number, fallback?: number): number | undefined {
+  return primary != null && primary > 0 ? primary : fallback;
 }
