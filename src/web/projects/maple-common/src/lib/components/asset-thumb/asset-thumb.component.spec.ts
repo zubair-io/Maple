@@ -295,6 +295,8 @@ describe('AssetThumbComponent — accessible name and selection state (#2414)', 
 
     const img = fixture.nativeElement.querySelector('img') as HTMLImageElement;
     expect(img.getAttribute('alt')).toBe('');
+    expect(img.getAttribute('aria-hidden')).toBe('true');
+    expect(img.getAttribute('role')).toBe('presentation');
   });
 
   it('grid tile: still exposes the accessible name before a thumbnail has loaded (no <img> yet)', () => {
@@ -316,6 +318,8 @@ describe('AssetThumbComponent — accessible name and selection state (#2414)', 
     expect(wrapper(fixture).getAttribute('aria-label')).toBe('IMG_0044.dng');
     expect(wrapper(fixture).getAttribute('aria-pressed')).toBe('true');
     expect(fixture.nativeElement.querySelector('img')?.getAttribute('alt')).toBe('');
+    expect(fixture.nativeElement.querySelector('img')?.getAttribute('aria-hidden')).toBe('true');
+    expect(fixture.nativeElement.querySelector('img')?.getAttribute('role')).toBe('presentation');
   });
 
   it('grid tile: reflects the multi-select state via aria-pressed', () => {
