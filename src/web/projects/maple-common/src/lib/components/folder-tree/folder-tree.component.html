@@ -2,10 +2,13 @@
   <span class="flex-1 text-[11px] font-semibold tracking-[0.04em] text-text-muted uppercase"
     >Library</span
   >
+  @if (extensions; as appExtensions) {
+    <ng-container *ngComponentOutlet="appExtensions.header" />
+  }
 </div>
 
-@if (extension; as extensionComponent) {
-  <ng-container *ngComponentOutlet="extensionComponent" />
+@if (extensions; as appExtensions) {
+  <ng-container *ngComponentOutlet="appExtensions.body" />
 }
 
 @for (section of state.sidebarTree(); track section.id) {
