@@ -144,12 +144,17 @@ public final class ObservabilityController {
         refreshExecutor: any AuthenticatedRefreshExecutor =
             DirectAuthenticatedRefreshExecutor()
     ) {
+        // Adopt the executor before the didStart guard: a `selectServer` that
+        // beat `start()` to the punch has already kicked a refresh, and every
+        // later refresh on this controller should be protected regardless of
+        // which call won.
+        self.refreshExecutor = refreshExecutor
+
         guard !didStart else {
             osLog.debug("start() called again — already started, ignoring")
             return
         }
         didStart = true
-        self.refreshExecutor = refreshExecutor
 
         guard let server = selectedServerURL else {
             osLog.info("observability: no server selected — telemetry inactive")
