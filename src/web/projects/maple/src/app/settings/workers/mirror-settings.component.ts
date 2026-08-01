@@ -69,6 +69,15 @@ export class MirrorSettingsComponent implements OnInit, OnDestroy {
   protected readonly status = signal<{ pending: number; dead: number } | null>(null);
   protected readonly retrying = signal(false);
 
+  /** Backup roots the API has benched for READS after an I/O failure/timeout.
+   * Writes still queue and retry — only read load-balancing is paused. */
+  protected readonly benchedReads = signal<{ root: string; retryInMs: number }[]>([]);
+
+  /** Whole seconds until a benched root is probed again (for the operator line). */
+  protected retrySeconds(ms: number): number {
+    return Math.max(1, Math.ceil(ms / 1000));
+  }
+
   /** Live two-stage reconcile progress (null before any run). */
   protected readonly reconcile = signal<MirrorReconcileProgress | null>(null);
   /** True from clicking "Reconcile now" until the run reports idle. */
@@ -298,6 +307,7 @@ export class MirrorSettingsComponent implements OnInit, OnDestroy {
     try {
       const res = await firstValueFrom(this.backend.getMirrorStatus());
       this.status.set(res.queue);
+      this.benchedReads.set(res.reads?.benched ?? []);
       // Treat a "never run" idle snapshot (no timestamps, no errors) as null so
       // the "not run yet" hint shows until a real reconcile has happened.
       const r = res.reconcile;

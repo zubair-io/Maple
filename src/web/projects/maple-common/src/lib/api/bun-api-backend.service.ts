@@ -56,6 +56,12 @@ export interface MirrorQueueStatus {
   queue: { pending: number; dead: number };
   /** Optional so older/mocked responses without reconcile progress still type-check. */
   reconcile?: MirrorReconcileProgress;
+  /**
+   * Read-replica health: backup roots the API has stopped serving reads from
+   * after an I/O failure or timeout, with the remaining cooldown. Empty in the
+   * normal case; optional so mocked responses still type-check.
+   */
+  reads?: { benched: { root: string; retryInMs: number }[] };
 }
 
 /** Config for the derivative-audit worker (mirrors the API `DerivativeAuditConfig`). */
