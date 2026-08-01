@@ -23,6 +23,11 @@ public final class SearchViewModel {
   public private(set) var isLoadingMore: Bool = false
   public private(set) var loadError: Error?
   public private(set) var page: Int = 0
+  /// Opaque seek cursor for the next page (#2129), or nil when the server
+  /// has none for this query — an unseekable sort (`name` / `rating`), a
+  /// relevance-ranked `placeQuery`, or a server predating the field.
+  /// `loadMore()` falls back to `page + 1` then, so both modes coexist.
+  public private(set) var nextCursor: String?
 
   /// Mutable search parameters. Filter controls bind to fields here, then
   /// call `submit()`; the text box calls `queryChanged()` (debounced).
@@ -106,6 +111,7 @@ public final class SearchViewModel {
     generation &+= 1
     let g = generation
     page = 0
+    nextCursor = nil
     lastSubmittedParams = params
     let requested = params
     let pageKey = PageKey(params: requested, page: 0)
@@ -117,6 +123,7 @@ public final class SearchViewModel {
       loadError = nil
       results = cachedPage.results
       total = cachedPage.total
+      nextCursor = cachedPage.nextCursor
       facets = cachedFacets
       return
     }
@@ -137,6 +144,7 @@ public final class SearchViewModel {
       pageCache[pageKey] = resp
       results = resp.results
       total = resp.total
+      nextCursor = resp.nextCursor
       if let facetsResult {
         facetCache[requested] = facetsResult
         facets = facetsResult
@@ -180,22 +188,28 @@ public final class SearchViewModel {
     let next = page + 1
     let requested = params
     let pageKey = PageKey(params: requested, page: next)
+    // Seek past the last row we hold when the server minted a cursor; the
+    // page index still advances so it can key the cache and cover the
+    // skip-pagination fallback (see `nextCursor`).
+    let seek = nextCursor
 
     if let cached = pageCache[pageKey] {
       guard g == generation else { return }
       page = next
       results.append(contentsOf: cached.results)
       total = cached.total
+      nextCursor = cached.nextCursor
       return
     }
 
     do {
-      let resp = try await searchClient.search(requested, page: next, limit: limit)
+      let resp = try await searchClient.search(requested, page: next, limit: limit, cursor: seek)
       guard g == generation else { return }
       pageCache[pageKey] = resp
       page = next
       results.append(contentsOf: resp.results)
       total = resp.total
+      nextCursor = resp.nextCursor
     } catch {
       if Self.isCancellation(error) { return }
       guard g == generation else { return }
