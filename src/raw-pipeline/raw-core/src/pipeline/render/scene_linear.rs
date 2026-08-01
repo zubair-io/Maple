@@ -21,6 +21,7 @@ use crate::pipeline::fp16::f32_to_f16_bits;
 use crate::pipeline::orient::apply_orientation_f32_rgba;
 use crate::pipeline::{finite_or_zero, stage, RenderQuality};
 use crate::xmp::AdjustmentModel;
+use rayon::prelude::*;
 
 /// Scene-linear render entry. Runs the same development chain as
 /// `render_from_raw_with_quality` (via the shared
@@ -58,8 +59,14 @@ pub fn render_scene_linear_from_raw_with_quality(
     let (w, h, oriented_f32) = stage("apply_orientation_rgba", || {
         apply_orientation_f32_rgba(&rgba_f32, w0, h0, raw.orientation)
     });
+    // Parallel (#1089 item 8): `f32_to_f16_bits` is a scalar software
+    // convert, so this full-frame pack is compute-bound. Indexed rayon
+    // collect preserves order — bit-identical to the serial map.
     let fp16: Vec<u16> = stage("pack_fp16", || {
-        oriented_f32.iter().map(|&v| f32_to_f16_bits(v)).collect()
+        oriented_f32
+            .par_iter()
+            .map(|&v| f32_to_f16_bits(v))
+            .collect()
     });
     Ok((w, h, fp16))
 }
@@ -191,7 +198,10 @@ pub fn render_scene_linear_sized_from_raw_with_quality(
         apply_orientation_f32_rgba(&rgba_f32, w0, h0, raw.orientation)
     });
     let fp16: Vec<u16> = stage("pack_fp16_sized", || {
-        oriented_f32.iter().map(|&v| f32_to_f16_bits(v)).collect()
+        oriented_f32
+            .par_iter()
+            .map(|&v| f32_to_f16_bits(v))
+            .collect()
     });
     Ok((w, h, fp16))
 }
