@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import { LibraryStateService } from '../state/library-state.service';
 import { provideHostedWorkspace } from '../workspace/hosted-workspace.providers';
-import { SingleFileXmpService } from './single-file-xmp.service';
+import { assertValidSingleFileXmp, SingleFileXmpService } from './single-file-xmp.service';
 import { XmpStoreService } from './xmp-store.service';
 import { XmpSerializerService } from './xmp-serializer.service';
 import { XmpParserService } from './xmp-parser.service';
@@ -92,6 +92,54 @@ describe('SingleFileXmpService', () => {
       expect.objectContaining({ id: 'existing-id', filename: 'existing.dng' }),
     );
     expect(library.assets().some((asset) => asset.id === 'photo-id')).toBe(false);
+  });
+
+  it('rejects parser-error documents even when they contain apparent RDF content', () => {
+    const parserFailure = `
+      <parsererror xmlns="http://www.mozilla.org/newlayout/xml/parsererror.xml">
+        malformed input
+        <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+          <rdf:Description />
+        </rdf:RDF>
+      </parsererror>`;
+
+    expect(() => assertValidSingleFileXmp(parserFailure)).toThrow('not a valid sidecar');
+    expect(() =>
+      assertValidSingleFileXmp(`
+        <x:xmpmeta xmlns:x="adobe:ns:meta/">
+          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description />
+          </rdf:RDF>
+        </broken>`),
+    ).toThrow('not a valid sidecar');
+  });
+
+  it('accepts and preserves a valid foreign parsererror element', () => {
+    const vendorUri = 'https://vendor.test/diagnostics';
+    const xmp = `
+      <x:xmpmeta xmlns:x="adobe:ns:meta/">
+        <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+          <rdf:Description xmlns:vendor="${vendorUri}">
+            <vendor:parsererror vendor:Code="camera-note">Keep this metadata</vendor:parsererror>
+          </rdf:Description>
+        </rdf:RDF>
+      </x:xmpmeta>`;
+    const id = library.enterSingleFileWorkspace(
+      new Uint8Array([1]),
+      'photo.dng',
+      'photo-id',
+      false,
+      xmp,
+    );
+    const written = TestBed.inject(XmpSerializerService).serialize(
+      library.adjustmentFor(id)(),
+      TestBed.inject(XmpStoreService).passthroughFor(id),
+    );
+    const document = new DOMParser().parseFromString(written, 'text/xml');
+    const vendorError = document.getElementsByTagNameNS(vendorUri, 'parsererror')[0];
+
+    expect(vendorError?.getAttributeNS(vendorUri, 'Code')).toBe('camera-note');
+    expect(vendorError?.textContent).toBe('Keep this metadata');
   });
 
   it('resolves RDF and managed fields by namespace URI instead of source prefix', () => {
