@@ -108,11 +108,11 @@ final class PoisonedCacheUpgradeUITests: XCTestCase {
             + "\(poisonedMean)) — without that short-circuit this gate proves "
             + "nothing about the upgrade case below")
 
-        // ── Launch 3: the upgrade. Same bytes, a key this build does not
-        //    compute — which is precisely what a version bump does. ──
-        let stale = "\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))_stale.jpg"
-        try FileManager.default.moveItem(at: previewDir.appendingPathComponent(entry),
-                                         to: previewDir.appendingPathComponent(stale))
+        // ── Launch 3: the upgrade. Same bytes, under keys this build does not
+        //    compute — which is exactly what a version bump does to the whole
+        //    store. Every `.jpg` is re-keyed, not just the one launch 1 wrote,
+        //    so a preview launch 2 re-persisted cannot mask the result. ──
+        try Self.rekeyEverything(in: previewDir)
         let upgradedMean = try launchAndMeasureMean(staged)
         XCTAssertLessThanOrEqual(
             abs(upgradedMean - Self.expectedMean), Self.meanToleranceLSB,
@@ -173,6 +173,19 @@ final class PoisonedCacheUpgradeUITests: XCTestCase {
         while Date() < deadline {
             if soleCacheEntry(in: dir) != nil { return }
             Thread.sleep(forTimeInterval: 0.25)
+        }
+    }
+
+    /// Move every cached preview to a key of the same shape that this build
+    /// will never compute — the cache's-eye view of a version bump, where the
+    /// artifacts are all still there and none of them is addressable.
+    private static func rekeyEverything(in dir: URL) throws {
+        let jpgs = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+            .filter { $0.hasSuffix(".jpg") }
+        for name in jpgs {
+            let rekeyed = "\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))_stale.jpg"
+            try FileManager.default.moveItem(at: dir.appendingPathComponent(name),
+                                             to: dir.appendingPathComponent(rekeyed))
         }
     }
 
