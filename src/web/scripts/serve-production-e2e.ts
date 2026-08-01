@@ -1,5 +1,5 @@
 import { join, resolve } from 'node:path';
-import { access, mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import {
   cleanupProductionFixtures,
   stageProductionFixtures,
@@ -14,25 +14,22 @@ const API_ROOT = resolve(WEB_ROOT, '../api');
 const HOSTED_PORT = process.env.MAPLE_E2E_HOSTED_PORT ?? '4400';
 const SELF_HOSTED_PORT = process.env.MAPLE_E2E_SELF_HOSTED_PORT ?? '4401';
 const children: Bun.Subprocess[] = [];
+const RAW_FFI_FILENAMES: Partial<Record<NodeJS.Platform, string>> = {
+  darwin: 'libraw_ffi.dylib',
+  linux: 'libraw_ffi.so',
+};
 let manifest: ProductionFixtureManifest | undefined;
 let shutdown: Promise<never> | null = null;
 
 async function requireRawFfi(): Promise<void> {
-  const filename =
-    process.platform === 'darwin'
-      ? 'libraw_ffi.dylib'
-      : process.platform === 'linux'
-        ? 'libraw_ffi.so'
-        : null;
+  const filename = RAW_FFI_FILENAMES[process.platform];
   if (!filename) {
     throw new Error(
       `Production Chrome tests require the native RAW FFI, which is unsupported on ${process.platform}. Use macOS or Linux.`,
     );
   }
   const path = resolve(API_ROOT, 'native', filename);
-  try {
-    await access(path);
-  } catch {
+  if (!(await Bun.file(path).exists())) {
     throw new Error(
       `Production Chrome tests require ${path}. Build it with ${resolve(API_ROOT, 'scripts/build-raw-ffi.sh')}.`,
     );
