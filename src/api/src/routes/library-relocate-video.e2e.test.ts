@@ -154,9 +154,7 @@ describe('library-relocate end-to-end — video sidecars (#1678)', () => {
       const newRel = '2024/California/Berkeley';
       // File + full-name sidecar both landed at the new dir with identical bytes.
       expect(await fs.readFile(path.join(dir, newRel, 'CLIP.mov'), 'utf8')).toBe('frames');
-      expect(await fs.readFile(path.join(dir, newRel, 'CLIP.mov.xmp'), 'utf8')).toBe(
-        'video-edits',
-      );
+      expect(await fs.readFile(path.join(dir, newRel, 'CLIP.mov.xmp'), 'utf8')).toBe('video-edits');
       // Sources gone — neither the clip nor its sidecar is stranded.
       await expect(fs.stat(path.join(dir, oldRel, 'CLIP.mov'))).rejects.toThrow();
       await expect(fs.stat(path.join(dir, oldRel, 'CLIP.mov.xmp'))).rejects.toThrow();
@@ -220,13 +218,9 @@ describe('library-relocate end-to-end — video sidecars (#1678)', () => {
       const newRel = '2024/California/Berkeley';
       // The clip + its own full-name sidecar moved.
       expect(await fs.readFile(path.join(dir, newRel, 'IMG_1.MOV'), 'utf8')).toBe('clip-frames');
-      expect(await fs.readFile(path.join(dir, newRel, 'IMG_1.MOV.xmp'), 'utf8')).toBe(
-        'clip-edits',
-      );
+      expect(await fs.readFile(path.join(dir, newRel, 'IMG_1.MOV.xmp'), 'utf8')).toBe('clip-edits');
       // The still photo and ITS sidecar were never touched — still at the old dir.
-      expect(await fs.readFile(path.join(dir, oldRel, 'IMG_1.HEIC'), 'utf8')).toBe(
-        'still-pixels',
-      );
+      expect(await fs.readFile(path.join(dir, oldRel, 'IMG_1.HEIC'), 'utf8')).toBe('still-pixels');
       expect(await fs.readFile(path.join(dir, oldRel, 'IMG_1.xmp'), 'utf8')).toBe('still-edits');
     } finally {
       await assets.deleteOne({ _id });
