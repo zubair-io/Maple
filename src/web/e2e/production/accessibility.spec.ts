@@ -71,18 +71,34 @@ async function targetThumbWritePath(picker: ProductionFolderPickerAudit): Promis
 }
 
 async function expectVisibleFocusIndicator(asset: Locator): Promise<void> {
-  const focus = await asset.evaluate((button) => {
-    const ring = button.querySelector<HTMLElement>('.thumb-ring');
-    const style = ring ? getComputedStyle(ring) : null;
-    return {
-      focusVisible: button.matches(':focus-visible'),
-      borderColor: style?.borderTopColor ?? '',
-      borderWidth: style?.borderTopWidth ?? '',
-    };
-  });
+  const focusState = () =>
+    asset.evaluate((button) => {
+      const ring = button.querySelector<HTMLElement>('.thumb-ring');
+      const style = ring ? getComputedStyle(ring) : null;
+      const colorProbe = document.createElement('span');
+      colorProbe.style.color = 'var(--color-primary)';
+      ring?.append(colorProbe);
+      const targetBorderColor = getComputedStyle(colorProbe).color;
+      colorProbe.remove();
+      return {
+        focusVisible: button.matches(':focus-visible'),
+        borderColor: style?.borderTopColor ?? '',
+        borderWidth: style?.borderTopWidth ?? '',
+        targetBorderColor,
+      };
+    });
+
+  await expect
+    .poll(async () => {
+      const focus = await focusState();
+      return focus.borderColor === focus.targetBorderColor;
+    })
+    .toBe(true);
+
+  const focus = await focusState();
   expect(focus.focusVisible).toBe(true);
   expect(focus.borderWidth).toBe('2px');
-  expect(focus.borderColor).not.toBe('rgba(0, 0, 0, 0)');
+  expect(focus.borderColor).toBe(focus.targetBorderColor);
 }
 
 async function expectSliderAxRange(page: Page): Promise<void> {
