@@ -18,13 +18,23 @@ let manifest: ProductionFixtureManifest | undefined;
 let shutdown: Promise<never> | null = null;
 
 async function requireRawFfi(): Promise<void> {
-  const filename = process.platform === 'darwin' ? 'libraw_ffi.dylib' : 'libraw_ffi.so';
+  const filename =
+    process.platform === 'darwin'
+      ? 'libraw_ffi.dylib'
+      : process.platform === 'linux'
+        ? 'libraw_ffi.so'
+        : null;
+  if (!filename) {
+    throw new Error(
+      `Production Chrome tests require the native RAW FFI, which is unsupported on ${process.platform}. Use macOS or Linux.`,
+    );
+  }
   const path = resolve(API_ROOT, 'native', filename);
   try {
     await access(path);
   } catch {
     throw new Error(
-      `Production Chrome tests require ${path}. Build it with src/api/scripts/build-raw-ffi.sh.`,
+      `Production Chrome tests require ${path}. Build it with ${resolve(API_ROOT, 'scripts/build-raw-ffi.sh')}.`,
     );
   }
 }
