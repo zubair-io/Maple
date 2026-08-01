@@ -7,6 +7,7 @@
         class="aspect-chip"
         [class.is-active]="activeAspect() === p.id"
         role="radio"
+        [disabled]="aspectDisabled(p.id)"
         [attr.aria-checked]="activeAspect() === p.id"
         [attr.aria-label]="'Aspect ' + p.label"
         [attr.data-testid]="'crop-aspect-' + p.id"

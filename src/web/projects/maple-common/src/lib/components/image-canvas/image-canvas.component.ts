@@ -117,7 +117,6 @@ export class ImageCanvasComponent
   // Native (full-resolution, oriented) image dims, from the sized decode's
   // `nativeWidth`/`nativeHeight` (2D path) or the session dims (GPU path).
   // Drives the refine-target math; null until the cold open lands.
-  private nativeDims = signal<{ w: number; h: number } | null>(null);
   // Long edge of the bitmap currently painted — refine only runs when it can
   // beat this (so zoom-out never re-renders, and fit never refines).
   private paintedLongEdge = 0;
@@ -161,7 +160,7 @@ export class ImageCanvasComponent
     wrapSize: () => ({ w: this.wrapW(), h: this.wrapH() }),
     wrapRect: () => this.wrapRef?.nativeElement?.getBoundingClientRect() ?? null,
     nativeSize: () => {
-      const n = this.nativeDims();
+      const n = this.canvasSvc.nativeDimensions();
       if (n) return { w: n.w, h: n.h };
       const a = this.state.focusedAsset();
       return a?.width && a?.height ? { w: a.width, h: a.height } : null;
@@ -288,7 +287,7 @@ export class ImageCanvasComponent
         this.currentExt = '';
         this.lastRenderedXmp = null;
         this.coldOpenDone = false;
-        this.nativeDims.set(null);
+        this.canvasSvc.nativeDimensions.set(null);
         this.paintedLongEdge = 0;
         this.paintedAspect.set(null);
         this.byteLoadError.set(null);
@@ -429,7 +428,7 @@ export class ImageCanvasComponent
 
   /** Refine-phase target — see `computeRefineTargetLongEdge`. */
   private refineTargetPx(): number | null {
-    const native = this.nativeDims();
+    const native = this.canvasSvc.nativeDimensions();
     if (!native) return null;
     return computeRefineTargetLongEdge({
       zoom: this.cssZoom(),
@@ -451,7 +450,7 @@ export class ImageCanvasComponent
     // GPU live-render path (#1038): persistent worker session presenting to an
     // OffscreenCanvas; any failure falls back to the 2D decode path below.
     if (this.gpuPresent.enabled && !isNonRawExtension(input.ext)) {
-      // A successful open recorded the reply's NATIVE dims (asset + `nativeDims`
+      // A successful open recorded the reply's NATIVE dims (asset + canvas service
       // via `recordNativeDims`) — the session itself is viewport-sized (#1080).
       if (await this.gpuPresent.open(assetId, input.bytes, input.ext)) return;
       // GPU open failed (e.g. non-gpu bundle / no WebGPU) — fall through to 2D.
@@ -500,7 +499,7 @@ export class ImageCanvasComponent
 
   /** Record the session reply's native dims (#1080) for the refine/zoom math. */
   recordNativeDims(w: number, h: number): void {
-    if (w && h) this.nativeDims.set({ w, h });
+    if (w && h) this.canvasSvc.nativeDimensions.set({ w, h });
   }
 
   /**

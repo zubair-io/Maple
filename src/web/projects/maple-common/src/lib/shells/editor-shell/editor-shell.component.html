@@ -78,6 +78,8 @@
         [class.top-icon-btn--active]="canvasSvc.showBeforeAfter()"
         title="Before/After (\)"
         aria-label="Toggle before/after"
+        [attr.aria-pressed]="canvasSvc.showBeforeAfter()"
+        data-testid="editor-shell-before-after"
         (click)="canvasSvc.toggleBeforeAfter()"
       >
         <maple-icon name="split" [size]="16" color="var(--pro-text-muted)" />
@@ -103,6 +105,7 @@
         [class.top-icon-btn--active]="infoOpen()"
         title="Info"
         aria-label="Info"
+        [attr.aria-pressed]="infoOpen()"
         data-testid="editor-shell-info"
         (click)="infoOpen.update((v) => !v)"
       >
@@ -116,6 +119,7 @@
         [disabled]="state.focusedAssetId() === null"
         title="Export"
         aria-label="Export"
+        data-testid="editor-shell-export"
         (click)="exportOpen.set(true)"
       >
         <maple-icon name="export" [size]="14" color="currentColor" />
