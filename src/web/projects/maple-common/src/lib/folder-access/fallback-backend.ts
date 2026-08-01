@@ -10,6 +10,28 @@ const IDB_DB_NAME = 'maple-fallback-cache';
 const IDB_STORE = 'blobs';
 const IDB_VERSION = 1;
 
+function isMapleCachePath(path: string): boolean {
+  return pathSegments(path).includes('.maple');
+}
+
+function pathSegments(path: string): string[] {
+  return path.split(/[\\/]+/).filter(Boolean);
+}
+
+function fallbackRelativePath(folder: MapleFolderHandle, file: File): string {
+  const relative = (file as File & { webkitRelativePath?: string }).webkitRelativePath ?? file.name;
+  const segments = pathSegments(relative);
+  if (segments[0] === folder.name) segments.shift();
+  return segments.join('/');
+}
+
+function fallbackSourceFile(folder: MapleFolderHandle, path: string): File | undefined {
+  const requested = pathSegments(path).join('/');
+  return (folder.fallbackFiles ?? []).find(
+    (file) => fallbackRelativePath(folder, file) === requested,
+  );
+}
+
 // ── IndexedDB blob store ──────────────────────────────────────────────────────
 
 function openBlobDb(): Promise<IDBDatabase> {
@@ -128,23 +150,17 @@ export async function fallbackReadFile(
   folder: MapleFolderHandle,
   path: string,
 ): Promise<Uint8Array> {
-  const parts = path.split('/').filter((p) => p.length > 0);
-  const filename = parts[parts.length - 1];
+  const filename = pathSegments(path).at(-1);
 
   // For .maple/ paths, check IndexedDB first (written by us this session).
-  if (path.startsWith('.maple/') || path.startsWith('.maple\\')) {
+  if (isMapleCachePath(path)) {
     const cached = await fallbackReadBlob(folder.name, path);
     if (cached) return cached;
     throw new Error(`fallback: file not found in IDB: ${path}`);
   }
 
   // For regular files, find in the FileList.
-  const files = folder.fallbackFiles ?? [];
-  const match = files.find((f) => {
-    const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath ?? f.name;
-    const fname = rel.split('/').pop();
-    return fname === filename;
-  });
+  const match = fallbackSourceFile(folder, path);
   if (!match) throw new Error(`fallback: file not found: ${filename}`);
   return new Uint8Array(await match.arrayBuffer());
 }
@@ -153,14 +169,11 @@ export async function fallbackFileMetadata(
   folder: MapleFolderHandle,
   path: string,
 ): Promise<FileMetadata> {
-  if (path.startsWith('.maple/') || path.startsWith('.maple\\')) {
+  if (isMapleCachePath(path)) {
     throw new Error('fallback: cached file metadata unavailable');
   }
-  const filename = path.split('/').filter(Boolean).at(-1);
-  const match = (folder.fallbackFiles ?? []).find((file) => {
-    const rel = (file as File & { webkitRelativePath?: string }).webkitRelativePath ?? file.name;
-    return rel.split('/').pop() === filename;
-  });
+  const filename = pathSegments(path).at(-1);
+  const match = fallbackSourceFile(folder, path);
   if (!match) throw new Error(`fallback: file not found: ${filename}`);
   return { size: match.size, lastModified: match.lastModified };
 }
