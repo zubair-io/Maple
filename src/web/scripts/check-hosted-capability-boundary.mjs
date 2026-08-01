@@ -10,6 +10,7 @@ const MAX_MAIN_BYTES = 880_000;
 const SERVER_ONLY_MARKERS = [
   '/api/metadata/snapshots',
   '/api/pano/stitch',
+  '/api/fs/list',
   '/api/xmp/batch',
   'Merge to panorama',
   'Timeline view',

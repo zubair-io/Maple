@@ -13,6 +13,7 @@ import {
   FileMetadata,
 } from './folder-access.types';
 import { openDb, reqToPromise, txDone } from '../util/idb';
+import { FolderAccessError, folderPermissionError } from './folder-access.error';
 
 // ── Ambient type patches for FS Access API gaps in TS lib ────────────────────
 
@@ -103,6 +104,20 @@ async function verifyPermission(
   return (await h.requestPermission({ mode })) === 'granted';
 }
 
+async function folderPermissions(
+  nativeHandle: FileSystemDirectoryHandle,
+): Promise<{ read: boolean; write: boolean }> {
+  try {
+    const write = await verifyPermission(nativeHandle, 'readwrite');
+    const read = write || (await verifyPermission(nativeHandle, 'read'));
+    if (!read) throw folderPermissionError(nativeHandle.name);
+    return { read, write };
+  } catch (error) {
+    if (error instanceof FolderAccessError) throw error;
+    throw folderPermissionError(nativeHandle.name, error);
+  }
+}
+
 // ── Open folder ───────────────────────────────────────────────────────────────
 
 /**
@@ -116,9 +131,9 @@ export async function fsAccessOpenFolder(): Promise<MapleFolderHandle | null> {
       mode: 'readwrite',
       id: 'maple-folder',
     });
-  } catch {
-    // AbortError or SecurityError — user cancelled.
-    return null;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') return null;
+    throw folderPermissionError('the selected folder', error);
   }
 
   return fsAccessOpenDroppedFolder(nativeHandle);
@@ -131,10 +146,7 @@ export async function fsAccessOpenFolder(): Promise<MapleFolderHandle | null> {
 export async function fsAccessOpenDroppedFolder(
   nativeHandle: FileSystemDirectoryHandle,
 ): Promise<MapleFolderHandle | null> {
-  // Try readwrite first; fall back to read-only.
-  const write = await verifyPermission(nativeHandle, 'readwrite');
-  const read = write || (await verifyPermission(nativeHandle, 'read'));
-  if (!read) return null;
+  const { read, write } = await folderPermissions(nativeHandle);
 
   let persistedKey: string | undefined;
   try {
@@ -154,9 +166,7 @@ export async function fsAccessReopenHandle(
   record: PersistedHandleRecord,
 ): Promise<MapleFolderHandle | null> {
   const nativeHandle = record.handle;
-  const write = await verifyPermission(nativeHandle, 'readwrite');
-  const read = write || (await verifyPermission(nativeHandle, 'read'));
-  if (!read) return null;
+  const { read, write } = await folderPermissions(nativeHandle);
   return {
     name: nativeHandle.name,
     read,

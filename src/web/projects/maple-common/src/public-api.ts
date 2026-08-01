@@ -84,6 +84,7 @@ export * from './lib/components/library-picker-modal/library-picker-modal.compon
 
 // P5: File System Access API + .maple/ cache protocol
 export * from './lib/folder-access/folder-access.types';
+export * from './lib/folder-access/folder-access.error';
 export * from './lib/folder-access/folder-access.service';
 export * from './lib/folder-access/file-cache';
 export * from './lib/maple-cache/maple-cache.types';
