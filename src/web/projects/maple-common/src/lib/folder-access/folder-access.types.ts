@@ -36,6 +36,11 @@ export interface FolderEntry {
   getSubFolder(): Promise<MapleFolderHandle>;
 }
 
+export interface FileMetadata {
+  size: number;
+  lastModified: number;
+}
+
 /** Shape stored inside IndexedDB for persisted handles. */
 export interface PersistedHandleRecord {
   key: string;

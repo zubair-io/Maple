@@ -55,6 +55,23 @@ export class XmpStoreService {
   }
 
   /**
+   * Replace passthrough state for a freshly enumerated asset scope.
+   *
+   * Folder reopen uses this as one commit step after every sidecar has been
+   * read. Deleting the complete scope first prevents a missing or removed
+   * sidecar from inheriting unknown XML loaded during an earlier open.
+   */
+  replacePassthroughs(
+    assetIds: Iterable<AssetId>,
+    replacements: ReadonlyMap<AssetId, PassthroughBucket>,
+  ): void {
+    for (const assetId of assetIds) this._passthroughs.delete(assetId);
+    for (const [assetId, passthrough] of replacements) {
+      this._passthroughs.set(assetId, passthrough);
+    }
+  }
+
+  /**
    * Look up the passthrough bucket previously stored for an asset (or undefined
    * if none was ever loaded). Used by callers that bypass `loadSidecar` /
    * `scheduleWrite` (e.g. the Self-Hosted API path in LibraryStateService).

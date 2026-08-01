@@ -3,7 +3,7 @@
 // and IndexedDB as an in-session key-value store for any .maple/ cache data
 // (since we can't write back to the real filesystem).
 
-import { MapleFolderHandle, FolderEntry } from './folder-access.types';
+import { MapleFolderHandle, FolderEntry, FileMetadata } from './folder-access.types';
 import { openDb, reqToPromise, txDone } from '../util/idb';
 
 const IDB_DB_NAME = 'maple-fallback-cache';
@@ -147,6 +147,22 @@ export async function fallbackReadFile(
   });
   if (!match) throw new Error(`fallback: file not found: ${filename}`);
   return new Uint8Array(await match.arrayBuffer());
+}
+
+export async function fallbackFileMetadata(
+  folder: MapleFolderHandle,
+  path: string,
+): Promise<FileMetadata> {
+  if (path.startsWith('.maple/') || path.startsWith('.maple\\')) {
+    throw new Error('fallback: cached file metadata unavailable');
+  }
+  const filename = path.split('/').filter(Boolean).at(-1);
+  const match = (folder.fallbackFiles ?? []).find((file) => {
+    const rel = (file as File & { webkitRelativePath?: string }).webkitRelativePath ?? file.name;
+    return rel.split('/').pop() === filename;
+  });
+  if (!match) throw new Error(`fallback: file not found: ${filename}`);
+  return { size: match.size, lastModified: match.lastModified };
 }
 
 // ── Write file (fallback = write to IndexedDB only) ───────────────────────────

@@ -6,7 +6,12 @@
 // methods, showDirectoryPicker options) — we use inline ambient interfaces where
 // needed to avoid requiring a separate @types package.
 
-import { MapleFolderHandle, FolderEntry, PersistedHandleRecord } from './folder-access.types';
+import {
+  MapleFolderHandle,
+  FolderEntry,
+  PersistedHandleRecord,
+  FileMetadata,
+} from './folder-access.types';
 import { openDb, reqToPromise, txDone } from '../util/idb';
 
 // ── Ambient type patches for FS Access API gaps in TS lib ────────────────────
@@ -26,6 +31,20 @@ interface WindowWithDirectoryPicker extends Window {
     id?: string;
     startIn?: string;
   }): Promise<FileSystemDirectoryHandle>;
+}
+
+async function resolveFileHandle(
+  folder: MapleFolderHandle,
+  path: string,
+  create: boolean,
+): Promise<FileSystemFileHandle> {
+  if (!folder.native) throw new Error('fs-access: no native handle');
+  const parts = path.split('/').filter((part) => part.length > 0 && part !== '.');
+  let directory = folder.native;
+  for (const part of parts.slice(0, -1)) {
+    directory = await directory.getDirectoryHandle(part, { create });
+  }
+  return directory.getFileHandle(parts.at(-1) ?? '', { create });
 }
 
 const IDB_DB_NAME = 'maple-fs-handles';
@@ -195,16 +214,18 @@ export async function fsAccessReadFile(
   folder: MapleFolderHandle,
   path: string,
 ): Promise<Uint8Array> {
-  if (!folder.native) throw new Error('fs-access: no native handle');
-  const parts = path.split('/').filter((p) => p.length > 0 && p !== '.');
-  let dir: FileSystemDirectoryHandle = folder.native;
-  for (let i = 0; i < parts.length - 1; i++) {
-    dir = await dir.getDirectoryHandle(parts[i], { create: false });
-  }
-  const filename = parts[parts.length - 1];
-  const fileHandle = await dir.getFileHandle(filename ?? '', { create: false });
+  const fileHandle = await resolveFileHandle(folder, path, false);
   const file = await fileHandle.getFile();
   return new Uint8Array(await file.arrayBuffer());
+}
+
+export async function fsAccessFileMetadata(
+  folder: MapleFolderHandle,
+  path: string,
+): Promise<FileMetadata> {
+  const handle = await resolveFileHandle(folder, path, false);
+  const file = await handle.getFile();
+  return { size: file.size, lastModified: file.lastModified };
 }
 
 // ── Write file ────────────────────────────────────────────────────────────────
@@ -220,13 +241,7 @@ export async function fsAccessWriteFile(
 ): Promise<void> {
   if (!folder.native) throw new Error('fs-access: no native handle');
   if (!folder.write) throw new Error('fs-access: no write permission');
-  const parts = path.split('/').filter((p) => p.length > 0 && p !== '.');
-  let dir: FileSystemDirectoryHandle = folder.native;
-  for (let i = 0; i < parts.length - 1; i++) {
-    dir = await dir.getDirectoryHandle(parts[i], { create: true });
-  }
-  const filename = parts[parts.length - 1];
-  const fileHandle = await dir.getFileHandle(filename ?? '', { create: true });
+  const fileHandle = await resolveFileHandle(folder, path, true);
   const writable = await (fileHandle as FsFileHandleWithWritable).createWritable();
   // Copy into a plain ArrayBuffer so the writable stream gets the correct type.
   const ab = new ArrayBuffer(data.byteLength);

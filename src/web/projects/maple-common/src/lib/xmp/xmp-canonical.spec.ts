@@ -177,6 +177,29 @@ describe('canonical XMP document (#1577)', () => {
     ]);
   });
 
+  it('fails closed when passthrough would rebind a canonical namespace prefix', () => {
+    expect(() =>
+      serializer.serialize(defaultAdjustmentModel(), {
+        unknownNamespaces: [{ prefix: 'papp', uri: 'https://vendor.test/private' }],
+        unknownAttributes: [{ name: 'papp:PrivateData', value: 'preserve-me' }],
+        unknownNodes: [],
+      }),
+    ).toThrow('XMP namespace conflict for prefix "papp"');
+
+    expect(() =>
+      serializer.serialize(
+        defaultAdjustmentModel(),
+        {
+          unknownNamespaces: [{ prefix: 'exif', uri: 'https://vendor.test/private' }],
+          unknownAttributes: [{ name: 'exif:PrivateData', value: 'preserve-me' }],
+          unknownNodes: [],
+        },
+        undefined,
+        { gpsLatitude: 40.7 },
+      ),
+    ).toThrow('XMP namespace conflict for prefix "exif"');
+  });
+
   it('puts every nested child on one six-space indent ladder', () => {
     const doc = serializer.serialize(canonicalFixtureModel(), undefined, canonicalFixtureCulling);
     for (const line of [

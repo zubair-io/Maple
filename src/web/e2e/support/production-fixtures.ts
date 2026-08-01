@@ -12,6 +12,15 @@ export const REQUIRED_RAW_FIXTURES = [
   'test_0017.dng',
 ] as const;
 
+// Deterministic 8×8 AVIF used only to prove the production Hosted reader takes
+// a valid warm-cache artifact before touching RAW bytes. Keeping the tiny
+// fixture inline makes a clean checkout independent of mutable, gitignored
+// `.maple` directories beside the developer's RAW fixtures.
+const WARM_CACHE_AVIF = Buffer.from(
+  'AAAAHGZ0eXBhdmlmAAAAAG1pZjFhdmlmbWlhZgAAANZtZXRhAAAAAAAAACFoZGxyAAAAAAAAAABwaWN0AAAAAAAAAAAAAAAAAAAAACJpbG9jAAAAAERAAAEAAQAAAAAA+gABAAAAAAAAACMAAAAjaWluZgAAAAAAAQAAABVpbmZlAgAAAAABAABhdjAxAAAAAA5waXRtAAAAAAABAAAAVmlwcnAAAAA4aXBjbwAAAAxhdjFDgUBsAAAAABRpc3BlAAAAAAAAAAgAAAAIAAAAEHBpeGkAAAAAAwwMDAAAABZpcG1hAAAAAAAAAAEAAQOBAgMAAAArbWRhdBIACglYCL9rQENBuEAyFBlHh4YhiaaaZoAAAJA/n8tuutZA',
+  'base64',
+);
+
 export const PRODUCTION_FIXTURE_MANIFEST = resolve(
   process.env.MAPLE_E2E_FIXTURE_MANIFEST ??
     join(
@@ -28,6 +37,7 @@ export interface FixtureHash {
 export interface ProductionFixtureManifest {
   readonly root: string;
   readonly freshFolder: string;
+  readonly writableFolder: string;
   readonly populatedFolder: string;
   readonly sourceHashes: readonly FixtureHash[];
   readonly stagedRawHashes: readonly FixtureHash[];
@@ -63,9 +73,11 @@ export async function stageProductionFixtures(
 
   const root = await mkdtemp(join(tmpdir(), 'maple-production-e2e-'));
   const freshFolder = join(root, 'fresh');
+  const writableFolder = join(root, 'writable');
   const populatedFolder = join(root, 'populated');
   await Promise.all([
     mkdir(freshFolder, { recursive: true }),
+    mkdir(writableFolder, { recursive: true }),
     mkdir(join(populatedFolder, '.maple', 'thumbs'), { recursive: true }),
     mkdir(join(populatedFolder, '.maple', 'previews'), { recursive: true }),
   ]);
@@ -82,12 +94,26 @@ export async function stageProductionFixtures(
   await copyFile(sourcePaths[4], populatedRaw);
   stagedRawPaths.push(populatedRaw);
 
+  const writableRaw = join(writableFolder, 'test_0006.DNG');
+  await copyFile(sourcePaths[1], writableRaw);
+  stagedRawPaths.push(writableRaw);
+  const writableFilmstripRaw = join(writableFolder, 'test_0008.RAF');
+  await copyFile(sourcePaths[2], writableFilmstripRaw);
+  stagedRawPaths.push(writableFilmstripRaw);
+
   const baselineXmp = resolve(
     __dirname,
     '../../../../test-fixtures/references/test_0017/xmp/baseline.xmp',
   );
   try {
-    await copyFile(baselineXmp, join(populatedFolder, 'test_0017.xmp'));
+    await Promise.all([
+      copyFile(baselineXmp, join(populatedFolder, 'test_0017.xmp')),
+      writeFile(
+        join(populatedFolder, '.maple', 'thumbs', '5170a2440f3250ea.avif'),
+        WARM_CACHE_AVIF,
+      ),
+      writeFile(join(populatedFolder, '.maple', 'previews', 'test_0017.dng.avif'), WARM_CACHE_AVIF),
+    ]);
   } catch {
     await cleanupProductionFixtures({ root } as ProductionFixtureManifest);
     throw new Error(`Production Chrome tests require the populated XMP fixture: ${baselineXmp}`);
@@ -96,6 +122,7 @@ export async function stageProductionFixtures(
   const manifest: ProductionFixtureManifest = {
     root,
     freshFolder,
+    writableFolder,
     populatedFolder,
     sourceHashes: await hashFiles(sourcePaths),
     stagedRawHashes: await hashFiles(stagedRawPaths),

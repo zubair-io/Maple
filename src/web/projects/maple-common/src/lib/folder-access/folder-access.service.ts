@@ -11,6 +11,7 @@ import {
   FolderEntry,
   PersistedHandleRecord,
   FolderAccessBackend,
+  FileMetadata,
 } from './folder-access.types';
 import {
   fsAccessOpenFolder,
@@ -19,6 +20,7 @@ import {
   fsAccessRequestWrite,
   fsAccessListEntries,
   fsAccessReadFile,
+  fsAccessFileMetadata,
   fsAccessWriteFile,
   fsAccessEnsureSubdirectory,
   getPersistedHandles,
@@ -28,6 +30,7 @@ import {
   fallbackOpenFolder,
   fallbackListEntries,
   fallbackReadFile,
+  fallbackFileMetadata,
   fallbackWriteFile,
   fallbackEnsureSubdirectory,
 } from './fallback-backend';
@@ -145,6 +148,12 @@ export class FolderAccessService {
       return fsAccessReadFile(folder, path);
     }
     return fallbackReadFile(folder, path);
+  }
+
+  async fileMetadata(folder: MapleFolderHandle, path: string): Promise<FileMetadata> {
+    return this.backend === 'fs-access'
+      ? fsAccessFileMetadata(folder, path)
+      : fallbackFileMetadata(folder, path);
   }
 
   /**

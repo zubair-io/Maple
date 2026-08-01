@@ -312,6 +312,15 @@ marker (contrast the thumb tier): a preview is a pure re-encode of the camera's
 own embedded JPEG, never touching the develop pipeline, so a raw-core/AgX bump
 can't stale it.
 
+**Source replacement invalidation:** path portability does not make filename
+alone a freshness signal. Hosted writes an adjacent `.source.json` identity
+containing the RAW's `size` and `lastModified`; reuse requires an exact match.
+For an AVIF written by Apple or Self Hosted before that companion exists,
+Hosted applies the server's cross-platform freshness rule instead: the preview
+file's mtime must be at least the source RAW's mtime. Missing source metadata is
+a cache miss. The canonical AVIF filename is unchanged, so other clients keep
+reading and writing the same portable artifact.
+
 | Cache                   | How to Clear                                     | Effect                            |
 | ----------------------- | ------------------------------------------------ | --------------------------------- |
 | Hosted unedited preview | Delete `.maple/previews/` in the photo directory | Preview re-extracted on next open |

@@ -12,6 +12,7 @@ import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { MapleIndex, IndexedAsset } from './maple-cache.types';
 import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-model.generated';
 import { ThumbFormat } from '../raw-pipeline/image-utils';
+import { hasCacheImageSignature } from './cache-image-format';
 
 /**
  * Pipeline version the Hosted thumb cache was developed at (#1927). Unlike
@@ -47,6 +48,15 @@ function previewCacheDir(relDir: string): string {
  * `.../previews/IMG_1234.CR2.avif`). */
 function previewCachePath(relDir: string, filename: string): string {
   return `${previewCacheDir(relDir)}/${filename}.avif`;
+}
+
+export interface PreviewSourceIdentity {
+  size: number;
+  lastModified: number;
+}
+
+function previewIdentityPath(relDir: string, filename: string): string {
+  return `${previewCachePath(relDir, filename)}.source.json`;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -161,6 +171,11 @@ export class MapleCacheService {
       if (markerVersion !== null && markerVersion < THUMB_PIPELINE_VERSION) {
         return null; // stale locally-developed thumb → re-decode
       }
+      const format: ThumbFormat = ext === 'avif' ? 'avif' : 'jpeg';
+      if (!hasCacheImageSignature(bytes, format)) {
+        if (markerVersion !== null) return null;
+        continue; // corrupt or mislabeled entry — try the other real format
+      }
       // Copy into a fresh plain ArrayBuffer (readFile returns Uint8Array whose
       // .buffer may be typed as ArrayBufferLike; Blob requires ArrayBuffer).
       const ab = new ArrayBuffer(bytes.byteLength);
@@ -188,8 +203,12 @@ export class MapleCacheService {
     if (!folder.write) return;
     const ext = format === 'avif' ? 'avif' : 'jpg';
     try {
-      await this.fs.ensureSubdirectory(folder, '.maple/thumbs');
       const bytes = new Uint8Array(await blob.arrayBuffer());
+      if (!hasCacheImageSignature(bytes, format)) {
+        console.warn(`MapleCacheService: refused mislabeled ${format} thumb ${sha}`);
+        return;
+      }
+      await this.fs.ensureSubdirectory(folder, '.maple/thumbs');
       await this.fs.writeFile(folder, `.maple/thumbs/${sha}.${ext}`, bytes);
       // Stamp the pipeline version this thumb was developed at so a later
       // raw-core/AgX bump invalidates it on read (see readThumb).
@@ -248,16 +267,22 @@ export class MapleCacheService {
    * No pipeline-version marker (contrast `readThumb`'s `.v` companion): a
    * preview is a pure re-encode of the RAW's own camera-embedded JPEG
    * (`EmbeddedPreviewService`), never touching raw-core's decode/demosaic/AgX
-   * chain, so a `PIPELINE_OUTPUT_VERSION` bump can't make it stale. Every entry
-   * under `.maple/previews/` is trusted as-is.
+   * chain, so a `PIPELINE_OUTPUT_VERSION` bump can't make it stale. Cache reuse
+   * is nevertheless source-gated: Hosted writes record the RAW's exact
+   * size+mtime, while unmarked cross-platform entries use the server's
+   * derivative-mtime freshness rule.
    */
   async readPreview(
     folder: MapleFolderHandle,
     relDir: string,
     filename: string,
+    source: PreviewSourceIdentity,
   ): Promise<Blob | null> {
     try {
-      const bytes = await this.fs.readFile(folder, previewCachePath(relDir, filename));
+      const path = previewCachePath(relDir, filename);
+      const bytes = await this.fs.readFile(folder, path);
+      if (!hasCacheImageSignature(bytes, 'avif')) return null;
+      if (!(await this._previewMatchesSource(folder, relDir, filename, source))) return null;
       // `Blob`'s constructor accepts an `ArrayBufferView` (a `Uint8Array`)
       // directly at runtime — passing `bytes` itself (not `bytes.buffer`) also
       // respects its byteOffset/byteLength if `readFile` ever returns a view
@@ -291,14 +316,49 @@ export class MapleCacheService {
     relDir: string,
     filename: string,
     blob: Blob,
+    source?: PreviewSourceIdentity,
   ): Promise<void> {
     if (!folder.write) return;
     try {
-      await this.fs.ensureSubdirectory(folder, previewCacheDir(relDir));
       const bytes = new Uint8Array(await blob.arrayBuffer());
+      if (!hasCacheImageSignature(bytes, 'avif')) {
+        console.warn(`MapleCacheService: refused non-AVIF preview ${relDir}/${filename}`);
+        return;
+      }
+      await this.fs.ensureSubdirectory(folder, previewCacheDir(relDir));
       await this.fs.writeFile(folder, previewCachePath(relDir, filename), bytes);
+      if (source) {
+        await this.fs.writeFile(
+          folder,
+          previewIdentityPath(relDir, filename),
+          new TextEncoder().encode(JSON.stringify(source)),
+        );
+      }
     } catch (err) {
       console.warn(`MapleCacheService: failed to write preview ${relDir}/${filename}`, err);
+    }
+  }
+
+  private async _previewMatchesSource(
+    folder: MapleFolderHandle,
+    relDir: string,
+    filename: string,
+    source: PreviewSourceIdentity,
+  ): Promise<boolean> {
+    try {
+      const bytes = await this.fs.readFile(folder, previewIdentityPath(relDir, filename));
+      const recorded = JSON.parse(new TextDecoder().decode(bytes)) as PreviewSourceIdentity;
+      return recorded.size === source.size && recorded.lastModified === source.lastModified;
+    } catch {
+      // Cross-platform entries predate the Hosted marker. Preserve the server's
+      // canonical freshness rule for those: derivative mtime must not precede
+      // the source. Hosted writes add the exact size+mtime marker above.
+      try {
+        const metadata = await this.fs.fileMetadata(folder, previewCachePath(relDir, filename));
+        return metadata.lastModified >= source.lastModified;
+      } catch {
+        return false;
+      }
     }
   }
 }

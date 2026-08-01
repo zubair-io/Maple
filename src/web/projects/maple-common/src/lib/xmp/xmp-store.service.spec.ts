@@ -5,6 +5,7 @@ import type { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import { SidecarSaveStateService } from './sidecar-save-state.service';
 import { XmpStoreService } from './xmp-store.service';
+import { XmpParserService } from './xmp-parser.service';
 
 const FOLDER: MapleFolderHandle = { name: 'raws', read: true, write: true };
 const CULLING = { rating: 0, flag: 'unflagged' as const, colorLabel: null, keywords: [] };
@@ -100,5 +101,81 @@ describe('XmpStoreService persistence contract', () => {
     await expect(store.flushAll()).rejects.toThrow('Permission revoked');
     expect(saveState.phase()).toBe('error');
     expect(saveState.hasUnsavedChanges()).toBe(true);
+  });
+
+  it('preserves unknown XMP content through a sibling write and reload parse', async () => {
+    const parser = TestBed.inject(XmpParserService);
+    const source = `<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/"
+  xmlns:vendor="https://example.test/vendor?a=1&amp;b=2"
+  xmlns:exif="http://ns.adobe.com/exif/1.0/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:Exposure2012="0.75"
+      vendor:Workflow="approved">
+      <vendor:Recipe><rdf:li>keep me</rdf:li></vendor:Recipe>
+      <exif:PrivateData>preserve me</exif:PrivateData>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>`;
+    const loaded = parser.parseAdjustmentModel(source);
+    store.rememberPassthrough('asset-1', loaded.passthrough);
+
+    store.scheduleWrite(
+      'asset-1',
+      FOLDER,
+      'IMG_0001.dng',
+      { ...defaultAdjustmentModel(), ...loaded.model, exposure: 1.5 },
+      { rating: 4, flag: 'pick', colorLabel: 'red', keywords: ['portfolio'] },
+    );
+    await store.flushAll();
+
+    const savedXml = new TextDecoder().decode(writeFile.mock.calls[0]![2]);
+    expect(savedXml).toContain(loaded.passthrough.unknownNodes[0]);
+    expect(savedXml).toContain('xmlns:exif="http://ns.adobe.com/exif/1.0/"');
+    expect(new DOMParser().parseFromString(savedXml, 'text/xml').querySelector('parseerror')).toBe(
+      null,
+    );
+    const reloaded = parser.parseAdjustmentModel(savedXml);
+    expect(reloaded.model.exposure).toBe(1.5);
+    expect(reloaded.passthrough.unknownNamespaces).toContainEqual({
+      prefix: 'vendor',
+      uri: 'https://example.test/vendor?a=1&b=2',
+    });
+    expect(parser.parseCulling(savedXml)).toEqual({
+      rating: 4,
+      flag: 'pick',
+      colorLabel: 'red',
+      keywords: ['portfolio'],
+    });
+    expect(reloaded.passthrough.unknownAttributes).toContainEqual({
+      name: 'vendor:Workflow',
+      value: 'approved',
+    });
+    expect(reloaded.passthrough.unknownNodes.join('\n')).toContain('<vendor:Recipe');
+    expect(reloaded.passthrough.unknownNodes.join('\n')).toContain('keep me');
+    expect(reloaded.passthrough.unknownNodes.join('\n')).toContain('exif:PrivateData');
+  });
+
+  it('recovers from permission loss after a later sibling write succeeds', async () => {
+    writeFile.mockRejectedValueOnce(new Error('Permission revoked'));
+    store.scheduleWrite('asset-1', FOLDER, 'IMG_0001.dng', defaultAdjustmentModel(), CULLING);
+    await expect(store.flushAll()).rejects.toThrow('Permission revoked');
+
+    writeFile.mockResolvedValue(undefined);
+    store.scheduleWrite(
+      'asset-1',
+      FOLDER,
+      'IMG_0001.dng',
+      { ...defaultAdjustmentModel(), exposure: 0.5 },
+      CULLING,
+    );
+    await store.flushAll();
+
+    expect(saveState.phase()).toBe('saved');
+    expect(saveState.error()).toBeNull();
+    expect(saveState.hasUnsavedChanges()).toBe(false);
   });
 });
