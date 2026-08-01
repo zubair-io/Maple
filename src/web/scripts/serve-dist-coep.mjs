@@ -15,6 +15,7 @@ if (!process.env.DIST) {
 // `DIST + sep` boundary check is exact (no trailing-slash surprises).
 const DIST = resolve(process.env.DIST);
 const PORT = Number(process.env.PORT ?? 4300);
+const API_UNAVAILABLE_STATUS = Number(process.env.API_UNAVAILABLE_STATUS ?? 0);
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -50,8 +51,9 @@ function contentTypeFor(abs) {
   return MIME[extname(abs).toLowerCase()] ?? 'application/octet-stream';
 }
 
-function isolatedResponse(body, contentType) {
+function isolatedResponse(body, contentType, status = 200) {
   return new Response(body, {
+    status,
     headers: {
       'Content-Type': contentType,
       'Cross-Origin-Opener-Policy': 'same-origin',
@@ -60,8 +62,25 @@ function isolatedResponse(body, contentType) {
   });
 }
 
+function unavailableApiResponse(pathname) {
+  if (!API_UNAVAILABLE_STATUS) return null;
+  if (pathname === '/api/auth/bootstrap') {
+    return isolatedResponse(
+      JSON.stringify({ claimed: true, dev_login_enabled: false }),
+      'application/json',
+    );
+  }
+  if (pathname.startsWith('/api/')) {
+    return isolatedResponse('Unauthorized', 'text/plain; charset=utf-8', API_UNAVAILABLE_STATUS);
+  }
+  return null;
+}
+
 async function handle(req) {
-  const abs = normalize(join(DIST, resolvePathname(new URL(req.url).pathname)));
+  const pathname = new URL(req.url).pathname;
+  const apiResponse = unavailableApiResponse(pathname);
+  if (apiResponse) return apiResponse;
+  const abs = normalize(join(DIST, resolvePathname(pathname)));
   if (!isWithinRoot(abs)) return new Response('Forbidden', { status: 403 });
   const f = file(abs);
   if (await f.exists()) return isolatedResponse(f, contentTypeFor(abs));
