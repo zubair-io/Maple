@@ -25,11 +25,11 @@ Output: `dist/maple/browser/` with hash-named JS/CSS bundles, `raw_wasm_bg.wasm`
 
 **Build settings** (in the Pages dashboard or `wrangler.toml`):
 
-| Setting | Value |
-|---------|-------|
-| Build command | `npm run sync-raw-wasm && ng build maple --configuration=production` |
-| Build output directory | `dist/maple/browser` |
-| Node.js version | 20+ |
+| Setting                | Value                                                                |
+| ---------------------- | -------------------------------------------------------------------- |
+| Build command          | `npm run sync-raw-wasm && ng build maple --configuration=production` |
+| Build output directory | `dist/maple/browser`                                                 |
+| Node.js version        | 20+                                                                  |
 
 **SPA fallback** — Cloudflare Pages automatically serves `index.html` for 404s on static sites. No extra config needed.
 
@@ -138,7 +138,7 @@ server {
 
 ---
 
-## WASM threading + cross-origin isolation (T10)
+## Hosted production security policy
 
 The RAW decode path ships a `wasm-bindgen-rayon` thread pool that only
 activates inside a **cross-origin-isolated** document. Browsers require two
@@ -159,7 +159,14 @@ renders, just slower on large RAWs.
 Both hosts honour the `_headers` file that ships in
 `projects/maple-syrup/public/_headers`. After `ng build maple-syrup` the
 file lands in `dist/maple-syrup/browser/_headers` and is picked up
-automatically — no extra config needed.
+automatically — no extra config needed. The artifact checker compares that file
+with `scripts/hosted-security-header-contract.ts`, the same contract imported by
+the local production-artifact server. It includes COOP/COEP, a least-privilege
+CSP, `nosniff`, no-referrer, and disabled unused browser permissions.
+
+Azure Blob Storage does not interpret `_headers`. The Cloudflare/Azure edge must
+apply the same response headers before public deployment can be qualified; that
+work is deliberately tracked in Milestone 20 issue #2474.
 
 ### Apache / nginx
 
@@ -197,12 +204,11 @@ already serve cross-origin-isolated responses — threading works locally.
 
 ```bash
 cd src/web
-npm run build          # builds to dist/maple/browser/
-python3 -m http.server 4200 --directory dist/maple/browser
-# open http://localhost:4200
+npm run build:syrup
+DIST=dist/maple-syrup/browser PORT=4200 bun scripts/serve-dist-coep.mjs
+# open http://127.0.0.1:4200
 ```
 
-Note: `python3 -m http.server` serves `.wasm` as `application/wasm` out of the box on Python 3.4+.
-For threaded testing locally, prefer `npm run start:syrup` (Angular dev server
-with COOP/COEP already configured) — `http.server` does not set those headers
-so threading stays in the single-threaded fallback path.
+This server imports the production security contract directly. A generic static
+server does not provide equivalent CSP, isolation, or hardening headers and is
+not a valid production qualification surface.

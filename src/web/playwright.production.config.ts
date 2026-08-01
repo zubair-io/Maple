@@ -17,7 +17,8 @@ const artifactServers = [
   {
     command:
       `DIST=dist/maple/browser PORT=${selfHostedPort} ` +
-      'API_UNAVAILABLE_STATUS=401 bun scripts/serve-dist-coep.mjs',
+      'API_UNAVAILABLE_STATUS=401 MAPLE_HOSTED_SECURITY_POLICY=0 ' +
+      'bun scripts/serve-dist-coep.mjs',
     url: `http://127.0.0.1:${selfHostedPort}`,
     reuseExistingServer: false,
     timeout: 30_000,

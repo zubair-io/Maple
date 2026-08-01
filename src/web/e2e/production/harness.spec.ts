@@ -3,6 +3,7 @@ import { basename, extname, join } from 'node:path';
 import { test, expect } from '../support/production-test';
 import { readProductionFixtureManifest } from '../support/production-fixtures';
 import { installProductionFolderPicker } from '../support/production-folder-picker';
+import { HOSTED_SECURITY_HEADERS } from '../../scripts/hosted-security-header-contract';
 
 type CacheFormatMatcher = (bytes: Buffer) => boolean;
 
@@ -27,8 +28,16 @@ function cacheFormatMatches(path: string, bytes: Buffer): boolean {
 test('serves a production build in installed Google Chrome', async ({ page }, testInfo) => {
   const response = await page.goto('/');
   expect(response?.ok()).toBe(true);
-  expect(response?.headers()['cross-origin-opener-policy']).toBe('same-origin');
-  expect(response?.headers()['cross-origin-embedder-policy']).toBe('require-corp');
+  if (testInfo.project.name === 'chrome-hosted') {
+    for (const [name, expected] of Object.entries(HOSTED_SECURITY_HEADERS)) {
+      expect(response?.headers()[name.toLowerCase()], `${name} must match the contract`).toBe(
+        expected,
+      );
+    }
+  } else {
+    expect(response?.headers()['cross-origin-opener-policy']).toBe('same-origin');
+    expect(response?.headers()['cross-origin-embedder-policy']).toBe('require-corp');
+  }
   await expect.poll(() => page.evaluate(() => crossOriginIsolated)).toBe(true);
   expect(await page.evaluate(() => navigator.userAgent)).toContain('Chrome/');
 
@@ -250,8 +259,15 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
   test.skip(testInfo.project.name !== 'chrome-hosted');
   const manifest = await readProductionFixtureManifest();
   const picker = await installProductionFolderPicker(page, manifest.writableFolder);
+  const rayonHelper = page.waitForResponse(
+    (response) => new URL(response.url()).pathname.endsWith('/workerHelpers.js'),
+    { timeout: 60_000 },
+  );
 
   await openWritableRawEditor(page);
+  expect((await rayonHelper).ok(), 'the real RAW worker must initialize its Rayon helper').toBe(
+    true,
+  );
   await expect(page.locator('editor-filmstrip')).toBeVisible();
   const descriptorPath = join(
     manifest.writableFolder,

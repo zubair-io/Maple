@@ -1,6 +1,7 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { basename, relative, resolve, sep } from 'node:path';
 import { HOSTED_ICONS, HOSTED_LOCAL_FONTS, HOSTED_WASM_ASSETS } from './hosted-artifact-contract';
+import { HOSTED_SECURITY_HEADERS } from './hosted-security-header-contract';
 
 const WEB_ROOT = resolve(import.meta.dirname, '..');
 const ARTIFACT_ROOT = resolve(
@@ -27,6 +28,8 @@ interface WebManifest {
   readonly icons?: readonly { readonly src?: string; readonly sizes?: string }[];
 }
 
+type HeaderRules = ReadonlyMap<string, ReadonlyMap<string, string>>;
+
 function fail(message: string): never {
   throw new Error(`Hosted artifact contract failed: ${message}`);
 }
@@ -49,6 +52,63 @@ async function json<T>(path: string): Promise<T> {
   } catch (error) {
     return fail(`${path} is not valid JSON: ${String(error)}`);
   }
+}
+
+async function text(path: string): Promise<string> {
+  try {
+    return await readFile(resolve(ARTIFACT_ROOT, `.${path}`), 'utf8');
+  } catch {
+    return fail(`missing ${path}`);
+  }
+}
+
+function headerRuleLines(source: string): readonly string[] {
+  return source
+    .split(/\r?\n/)
+    .filter((line) => line.trim() !== '' && !line.trimStart().startsWith('#'));
+}
+
+function addHeader(rawLine: string, current: Map<string, string> | undefined): void {
+  assertContract(current, `header appears before a path rule: ${rawLine.trim()}`);
+  const separator = rawLine.indexOf(':');
+  assertContract(separator > 0, `invalid header line: ${rawLine.trim()}`);
+  const name = rawLine.slice(0, separator).trim();
+  assertContract(!current.has(name), `duplicate ${name} header`);
+  current.set(name, rawLine.slice(separator + 1).trim());
+}
+
+function parseHeaderRules(source: string): HeaderRules {
+  const rules = new Map<string, Map<string, string>>();
+  let current: Map<string, string> | undefined;
+  for (const rawLine of headerRuleLines(source)) {
+    if (/^\s/.test(rawLine)) {
+      addHeader(rawLine, current);
+    } else {
+      current = new Map();
+      rules.set(rawLine.trim(), current);
+    }
+  }
+  return rules;
+}
+
+async function verifySecurityHeaders(): Promise<void> {
+  const rules = parseHeaderRules(await text('/_headers'));
+  const wildcard = rules.get('/*') ?? fail('_headers omits /*');
+  for (const [name, expected] of Object.entries(HOSTED_SECURITY_HEADERS)) {
+    assertContract(wildcard.get(name) === expected, `_headers has invalid ${name}`);
+  }
+  assertContract(
+    rules.get('/raw_wasm_bg.wasm')?.get('Content-Type') === 'application/wasm',
+    '_headers omits the WASM MIME override',
+  );
+}
+
+async function verifyIndexCspCompatibility(): Promise<void> {
+  const index = await text('/index.html');
+  assertContract(
+    !/\son[a-z]+\s*=/i.test(index),
+    'index.html contains an inline event handler forbidden by the Hosted CSP',
+  );
 }
 
 function startsWith(value: Uint8Array, expected: readonly number[]): boolean {
@@ -189,6 +249,8 @@ async function verifyNgsw(rayonHelper: string): Promise<number> {
 }
 
 await verifyManifestAndIcons();
+await verifySecurityHeaders();
+await verifyIndexCspCompatibility();
 const rayonHelper = await verifyBinaryAssets();
 const appShellBytes = await verifyNgsw(rayonHelper);
 console.log(

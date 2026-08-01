@@ -31,13 +31,13 @@
 #
 # Not handled here, because they are account configuration rather than
 # repo state: the `maple-syrup` container must exist on `hornbeam` with SPA
-# fallback (unknown paths -> index.html, HTTP 200), and the COOP/COEP pair
+# fallback (unknown paths -> index.html, HTTP 200), and the security policy
 # in projects/maple-syrup/public/_headers is inert on Azure Blob — that file
 # is a Cloudflare Pages / Netlify convention and Blob storage has no
-# equivalent, so cross-origin isolation (and with it the wasm-bindgen-rayon
-# thread pool) has to come from a Cloudflare transform rule at the edge.
-# Without it the app still loads and renders, single-threaded — see
-# src/web/DEPLOY.md "WASM threading + cross-origin isolation (T10)".
+# equivalent. COOP/COEP, CSP, nosniff, referrer policy, and permissions policy
+# therefore have to come from a Cloudflare transform rule at the public edge.
+# Local artifact correctness is gated here; public-edge implementation and
+# deployed-browser validation are Milestone 20 issue #2474.
 
 name: deploy-hosted
 
