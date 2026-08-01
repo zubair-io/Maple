@@ -84,6 +84,69 @@ describe('LibrarySlugRegistry session fallback', () => {
     }
   });
 
+  it('closes IndexedDB when persisting a handle throws synchronously', async () => {
+    const successfulRequest = <T>(result: T): IDBRequest<T> => {
+      const request = { result, error: null } as unknown as IDBRequest<T>;
+      Object.defineProperty(request, 'onsuccess', {
+        set(callback: ((event: Event) => void) | null) {
+          if (callback) queueMicrotask(() => callback.call(request, new Event('success')));
+        },
+      });
+      return request;
+    };
+    const listClose = vi.fn();
+    const writeClose = vi.fn();
+    const listStore = {
+      getAllKeys: () => successfulRequest<IDBValidKey[]>([]),
+      getAll: () => successfulRequest<unknown[]>([]),
+    };
+    const listDb = {
+      transaction: () => ({ objectStore: () => listStore }),
+      close: listClose,
+    } as unknown as IDBDatabase;
+    const writeDb = {
+      transaction: () => ({
+        objectStore: () => ({
+          put: () => {
+            throw new DOMException('Handle cannot be cloned', 'DataCloneError');
+          },
+        }),
+      }),
+      close: writeClose,
+    } as unknown as IDBDatabase;
+    const openRequest = vi
+      .fn()
+      .mockReturnValueOnce(successfulRequest(listDb))
+      .mockReturnValueOnce(successfulRequest(writeDb));
+    const globalWithIdb = globalThis as typeof globalThis & { indexedDB?: IDBFactory };
+    const original = globalWithIdb.indexedDB;
+    globalWithIdb.indexedDB = { open: openRequest } as unknown as IDBFactory;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      const registry = new LibrarySlugRegistry();
+      const handle = {
+        kind: 'directory',
+        name: 'Writable Photos',
+      } as unknown as FileSystemDirectoryHandle;
+
+      const slug = await registry.register(handle);
+
+      expect(slug).toBe('writable-photos');
+      expect(await registry.getHandle(slug)).toBe(handle);
+      expect(listClose).toHaveBeenCalledOnce();
+      expect(writeClose).toHaveBeenCalledOnce();
+      expect(warn).toHaveBeenCalledWith(
+        'LibrarySlugRegistry: handle persistence unavailable',
+        expect.objectContaining({ name: 'DataCloneError' }),
+      );
+    } finally {
+      warn.mockRestore();
+      if (original) globalWithIdb.indexedDB = original;
+      else Reflect.deleteProperty(globalWithIdb, 'indexedDB');
+    }
+  });
+
   it('mints a deduplicated slug when an existing handle rejects identity comparison', async () => {
     const globalWithIdb = globalThis as typeof globalThis & { indexedDB?: IDBFactory };
     const original = globalWithIdb.indexedDB;
