@@ -497,6 +497,23 @@ export class XmpParserService {
       model.crop = crop;
     }
 
+    // Remember namespace declarations visible to rdf:Description. The final
+    // passthrough bucket keeps only declarations used by preserved QNames;
+    // keeping every source declaration would create false conflicts with
+    // Maple's canonical bindings (notably legacy papp URIs).
+    const visibleNamespaces = new Map<string, string>();
+    const ancestors: Element[] = [];
+    for (let element: Element | null = desc; element; element = element.parentElement) {
+      ancestors.unshift(element);
+    }
+    for (const element of ancestors) {
+      for (const attr of Array.from(element.attributes)) {
+        if (!attr.name.startsWith('xmlns:')) continue;
+        const prefix = attr.name.slice('xmlns:'.length);
+        visibleNamespaces.set(prefix, attr.value);
+      }
+    }
+
     // Collect unknown attributes for the passthrough bucket.
     const unknownAttributes: Array<{ name: string; value: string }> = [];
     for (let i = 0; i < desc.attributes.length; i++) {
@@ -515,6 +532,12 @@ export class XmpParserService {
     // namespaced and prefix-only forms because DOMParser normalisation
     // varies across browsers.
     const unknownNodes: string[] = [];
+    const passthroughPrefixes = new Set<string>();
+    const rememberPrefix = (node: Element | Attr): void => {
+      if (node.prefix && node.prefix !== 'xml' && node.prefix !== 'xmlns') {
+        passthroughPrefixes.add(node.prefix);
+      }
+    };
     const isManaged = (child: Element): boolean => {
       // dc:subject (keywords) stays excluded as before.
       if (
@@ -544,12 +567,29 @@ export class XmpParserService {
         continue;
       }
       if (isManaged(child)) continue;
+      for (const element of [child, ...Array.from(child.querySelectorAll('*'))]) {
+        rememberPrefix(element);
+        for (const attr of Array.from(element.attributes)) rememberPrefix(attr);
+      }
       unknownNodes.push(child.outerHTML);
     }
 
+    for (const attr of unknownAttributes) {
+      const colon = attr.name.indexOf(':');
+      if (colon > 0) passthroughPrefixes.add(attr.name.slice(0, colon));
+    }
+
+    const unknownNamespaces = Array.from(passthroughPrefixes)
+      .map((prefix) => ({ prefix, uri: visibleNamespaces.get(prefix) }))
+      .filter((namespace): namespace is { prefix: string; uri: string } => !!namespace.uri);
+
     return {
       model,
-      passthrough: { unknownAttributes, unknownNodes },
+      passthrough: {
+        unknownNamespaces,
+        unknownAttributes,
+        unknownNodes,
+      },
     };
   }
 }

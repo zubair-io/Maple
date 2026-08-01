@@ -240,9 +240,14 @@ export class XmpSerializerService {
     const usedPrefixes = metadata ? metadataNamespacePrefixes(metadata) : new Set<string>();
     if (keywords.length > 0) usedPrefixes.add('dc');
     const NS_ORDER = ['dc', 'exif', 'photoshop', 'Iptc4xmpCore', 'xmpRights'];
-    const extraNamespaces = NS_ORDER.filter((p) => usedPrefixes.has(p)).map(
-      (p) => [p, METADATA_NAMESPACES[p]] as const,
-    );
+    const extraNamespaces: Array<readonly [string, string]> = NS_ORDER.filter((p) =>
+      usedPrefixes.has(p),
+    ).map((p) => [p, METADATA_NAMESPACES[p]] as const);
+    for (const namespace of [...(passthrough?.unknownNamespaces ?? [])].sort((a, b) =>
+      a.prefix.localeCompare(b.prefix),
+    )) {
+      extraNamespaces.push([namespace.prefix, namespace.uri]);
+    }
 
     return canonicalDocument(extraNamespaces, parts, children);
   }

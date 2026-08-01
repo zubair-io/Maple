@@ -51,9 +51,10 @@ describe('MapleCacheService — thumb pipeline-version guard (#1927)', () => {
 
   const jpeg = () => new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], { type: 'image/jpeg' });
   const avif = () =>
-    new Blob([new Uint8Array([0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70])], {
-      type: 'image/avif',
-    });
+    new Blob(
+      [new Uint8Array([0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66])],
+      { type: 'image/avif' },
+    );
   const markerInt = () => Number.parseInt(new TextDecoder().decode(files.get(MARKER)!).trim(), 10);
   const avifMarkerInt = () =>
     Number.parseInt(new TextDecoder().decode(files.get(AVIF_MARKER)!).trim(), 10);
@@ -132,6 +133,26 @@ describe('MapleCacheService — thumb pipeline-version guard (#1927)', () => {
     expect(blob!.type).toBe('image/avif');
   });
 
+  it('readThumb ignores a mislabeled avif and falls back to a real legacy jpg', async () => {
+    files.set(AVIF, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
+    files.set(JPG, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
+    const blob = await svc.readThumb(folder(), SHA);
+    expect(blob?.type).toBe('image/jpeg');
+  });
+
+  it('readThumb re-decodes a corrupt locally-written avif instead of serving an older jpg', async () => {
+    files.set(AVIF, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
+    files.set(AVIF_MARKER, new TextEncoder().encode(String(THUMB_PIPELINE_VERSION)));
+    files.set(JPG, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
+    expect(await svc.readThumb(folder(), SHA)).toBeNull();
+  });
+
+  it('writeThumb refuses bytes that do not match the requested format', async () => {
+    await svc.writeThumb(folder(), SHA, jpeg(), 'avif');
+    expect(files.has(AVIF)).toBe(false);
+    expect(files.has(AVIF_MARKER)).toBe(false);
+  });
+
   it('readThumb falls back to a legacy jpg when no avif is cached', async () => {
     // Foreign (server/native) thumb pre-dating the AVIF migration, or a local
     // thumb from a browser whose canvas encode fell back to JPEG.
@@ -143,7 +164,10 @@ describe('MapleCacheService — thumb pipeline-version guard (#1927)', () => {
 
   it('readThumb misses a stale locally-written avif rather than falling back to an even-older jpg', async () => {
     files.set(JPG, new Uint8Array([0xff, 0xd8, 0xff, 0xd9])); // a co-present legacy entry
-    files.set(AVIF, new Uint8Array([0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70]));
+    files.set(
+      AVIF,
+      new Uint8Array([0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66]),
+    );
     files.set(AVIF_MARKER, new TextEncoder().encode(String(THUMB_PIPELINE_VERSION - 1)));
     const blob = await svc.readThumb(folder(), SHA);
     // Stale avif must NOT fall through to the co-present jpg and must not be
@@ -155,10 +179,12 @@ describe('MapleCacheService — thumb pipeline-version guard (#1927)', () => {
 describe('MapleCacheService — unedited-preview cache (#2010, canonical <dir>/.maple/previews/<filename>.avif)', () => {
   let svc: MapleCacheService;
   let files: Map<string, Uint8Array>;
+  let modified: Map<string, number>;
   let ensured: string[];
 
   beforeEach(() => {
     files = new Map();
+    modified = new Map();
     ensured = [];
     const fakeFs = {
       async readFile(_f: MapleFolderHandle, path: string): Promise<Uint8Array> {
@@ -168,6 +194,11 @@ describe('MapleCacheService — unedited-preview cache (#2010, canonical <dir>/.
       },
       async writeFile(_f: MapleFolderHandle, path: string, data: Uint8Array): Promise<void> {
         files.set(path, data);
+        modified.set(path, Date.now());
+      },
+      async fileMetadata(_f: MapleFolderHandle, path: string) {
+        if (!files.has(path)) throw new Error(`ENOENT ${path}`);
+        return { size: files.get(path)!.byteLength, lastModified: modified.get(path) ?? 0 };
       },
       async ensureSubdirectory(f: MapleFolderHandle, name: string): Promise<MapleFolderHandle> {
         ensured.push(name);
@@ -181,7 +212,7 @@ describe('MapleCacheService — unedited-preview cache (#2010, canonical <dir>/.
   });
 
   const avif = () =>
-    new Blob([new Uint8Array([0, 0, 0, 0x1c, 0x66, 0x74, 0x79, 0x70])], {
+    new Blob([new Uint8Array([0, 0, 0, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66])], {
       type: 'image/avif',
     });
 
@@ -204,14 +235,60 @@ describe('MapleCacheService — unedited-preview cache (#2010, canonical <dir>/.
   });
 
   it('readPreview round-trips a written AVIF with image/avif type', async () => {
-    await svc.writePreview(folder(), '2024', 'a.dng', avif());
-    const blob = await svc.readPreview(folder(), '2024', 'a.dng');
+    const source = { size: 42, lastModified: 1234 };
+    await svc.writePreview(folder(), '2024', 'a.dng', avif(), source);
+    const blob = await svc.readPreview(folder(), '2024', 'a.dng', source);
     expect(blob).not.toBeNull();
     expect(blob!.type).toBe('image/avif');
   });
 
   it('readPreview returns null when nothing is cached', async () => {
-    expect(await svc.readPreview(folder(), '2024', 'missing.dng')).toBeNull();
+    expect(
+      await svc.readPreview(folder(), '2024', 'missing.dng', { size: 1, lastModified: 1 }),
+    ).toBeNull();
+  });
+
+  it('readPreview refuses cached bytes that are not AVIF', async () => {
+    files.set('2024/.maple/previews/a.dng.avif', new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
+    expect(
+      await svc.readPreview(folder(), '2024', 'a.dng', { size: 1, lastModified: 1 }),
+    ).toBeNull();
+  });
+
+  it('readPreview accepts mif1 containers with an AVIF compatible brand', async () => {
+    files.set(
+      '2024/.maple/previews/a.dng.avif',
+      new Uint8Array([
+        0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x6d, 0x69, 0x66, 0x31, 0, 0, 0, 0, 0x61, 0x76, 0x69,
+        0x66,
+      ]),
+    );
+    modified.set('2024/.maple/previews/a.dng.avif', 2);
+    expect(
+      (await svc.readPreview(folder(), '2024', 'a.dng', { size: 1, lastModified: 1 }))?.type,
+    ).toBe('image/avif');
+  });
+
+  it('invalidates a same-named RAW replacement against the recorded source identity', async () => {
+    const original = { size: 100, lastModified: 1_700_000_000_000 };
+    await svc.writePreview(folder(), '', 'replace.dng', avif(), original);
+
+    expect(await svc.readPreview(folder(), '', 'replace.dng', original)).not.toBeNull();
+    expect(
+      await svc.readPreview(folder(), '', 'replace.dng', {
+        size: 101,
+        lastModified: original.lastModified,
+      }),
+    ).toBeNull();
+  });
+
+  it('writePreview refuses a JPEG carrying an image/avif MIME label', async () => {
+    const mislabeled = new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], {
+      type: 'image/avif',
+    });
+    await svc.writePreview(folder(), '2024', 'a.dng', mislabeled);
+    expect(files.size).toBe(0);
+    expect(ensured).toEqual([]);
   });
 
   it('preview cache filename includes the original extension (e.g. IMG.CR2.avif, not IMG.avif)', async () => {

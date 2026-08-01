@@ -61,7 +61,10 @@ describe('HostedPreviewResolver.resolve', () => {
 
     const blob = await resolver.resolve('lib:2026/a.dng' as AssetId, getBytes);
 
-    expect(readPreview).toHaveBeenCalledWith(folder, '2026', 'a.dng');
+    expect(readPreview).toHaveBeenCalledWith(folder, '2026', 'a.dng', {
+      size: 0,
+      lastModified: 0,
+    });
     expect(getBytes).toHaveBeenCalledWith('lib:2026/a.dng');
     expect(extractEmbeddedPreview).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]), 'dng');
     expect(blob).toBe(jpeg); // display uses the fast JPEG, not the AVIF
@@ -107,7 +110,10 @@ describe('HostedPreviewResolver.resolve', () => {
       'lib:top.dng' as AssetId,
       vi.fn(async () => new Uint8Array([1])),
     );
-    expect(readPreview).toHaveBeenCalledWith(expect.anything(), '', 'top.dng');
+    expect(readPreview).toHaveBeenCalledWith(expect.anything(), '', 'top.dng', {
+      size: 0,
+      lastModified: 0,
+    });
   });
 
   it('cache hit: returns the cached AVIF without extracting, reading bytes, or writing', async () => {

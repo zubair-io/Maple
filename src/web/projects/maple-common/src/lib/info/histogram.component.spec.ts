@@ -16,10 +16,11 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { of, throwError } from 'rxjs';
 
 import { InfoHistogramComponent } from './histogram.component';
-import { BunApiBackendService, type ApiHistogram } from '../api/bun-api-backend.service';
+import type { ApiHistogram } from '../api/bun-api-backend.service';
 import { ImageCanvasService } from '../components/image-canvas/image-canvas.service';
 import type { DecodedImage } from '../raw-pipeline/raw-pipeline.types';
 import type { Asset } from '../models/asset';
+import { SERVER_LIBRARY_IO, type ServerLibraryIo } from '../workspace/server-library-io';
 
 function makeAsset(id = 'asset-1'): Asset {
   return {
@@ -42,11 +43,11 @@ function emptyHistogram(): ApiHistogram {
   };
 }
 
-function makeApiStub(impl: Partial<BunApiBackendService> = {}): BunApiBackendService {
+function makeApiStub(impl: Partial<ServerLibraryIo> = {}): ServerLibraryIo {
   return {
     getHistogram: vi.fn().mockReturnValue(of(emptyHistogram())),
     ...impl,
-  } as unknown as BunApiBackendService;
+  } as unknown as ServerLibraryIo;
 }
 
 describe('InfoHistogramComponent', () => {
@@ -56,7 +57,7 @@ describe('InfoHistogramComponent', () => {
     const api = makeApiStub();
     TestBed.configureTestingModule({
       imports: [InfoHistogramComponent],
-      providers: [{ provide: BunApiBackendService, useValue: api }],
+      providers: [{ provide: SERVER_LIBRARY_IO, useValue: api }],
     });
     const fixture = TestBed.createComponent(InfoHistogramComponent);
     fixture.detectChanges();
@@ -81,11 +82,11 @@ describe('InfoHistogramComponent', () => {
 
     const api = makeApiStub({
       getHistogram: vi.fn().mockReturnValue(of(spike)),
-    } as Partial<BunApiBackendService>);
+    } as Partial<ServerLibraryIo>);
 
     TestBed.configureTestingModule({
       imports: [InfoHistogramComponent],
-      providers: [{ provide: BunApiBackendService, useValue: api }],
+      providers: [{ provide: SERVER_LIBRARY_IO, useValue: api }],
     });
     const fixture = TestBed.createComponent(InfoHistogramComponent);
     fixture.componentRef.setInput('asset', makeAsset('asset-42'));
@@ -107,11 +108,11 @@ describe('InfoHistogramComponent', () => {
   it('falls back to the placeholder when the API errors', () => {
     const api = makeApiStub({
       getHistogram: vi.fn().mockReturnValue(throwError(() => new Error('503'))),
-    } as Partial<BunApiBackendService>);
+    } as Partial<ServerLibraryIo>);
 
     TestBed.configureTestingModule({
       imports: [InfoHistogramComponent],
-      providers: [{ provide: BunApiBackendService, useValue: api }],
+      providers: [{ provide: SERVER_LIBRARY_IO, useValue: api }],
     });
     const fixture = TestBed.createComponent(InfoHistogramComponent);
     fixture.componentRef.setInput('asset', makeAsset('asset-err'));
@@ -131,7 +132,7 @@ describe('InfoHistogramComponent', () => {
     const api = makeApiStub();
     TestBed.configureTestingModule({
       imports: [InfoHistogramComponent],
-      providers: [{ provide: BunApiBackendService, useValue: api }],
+      providers: [{ provide: SERVER_LIBRARY_IO, useValue: api }],
     });
     const canvas = TestBed.inject(ImageCanvasService);
     const decoded: DecodedImage = {
@@ -159,10 +160,10 @@ describe('InfoHistogramComponent', () => {
 
   it('refetches when the asset id changes', () => {
     const getHistogram = vi.fn().mockReturnValue(of(emptyHistogram()));
-    const api = makeApiStub({ getHistogram } as Partial<BunApiBackendService>);
+    const api = makeApiStub({ getHistogram } as Partial<ServerLibraryIo>);
     TestBed.configureTestingModule({
       imports: [InfoHistogramComponent],
-      providers: [{ provide: BunApiBackendService, useValue: api }],
+      providers: [{ provide: SERVER_LIBRARY_IO, useValue: api }],
     });
     const fixture = TestBed.createComponent(InfoHistogramComponent);
     fixture.componentRef.setInput('asset', makeAsset('one'));
@@ -172,5 +173,17 @@ describe('InfoHistogramComponent', () => {
     expect(getHistogram).toHaveBeenCalledTimes(2);
     expect(getHistogram).toHaveBeenNthCalledWith(1, 'one');
     expect(getHistogram).toHaveBeenNthCalledWith(2, 'two');
+  });
+
+  it('does not request a server histogram in Hosted mode', () => {
+    TestBed.configureTestingModule({
+      imports: [InfoHistogramComponent],
+      providers: [{ provide: SERVER_LIBRARY_IO, useValue: null }],
+    });
+    const fixture = TestBed.createComponent(InfoHistogramComponent);
+    fixture.componentRef.setInput('asset', makeAsset('hosted:photo.dng'));
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.placeholder')).not.toBeNull();
   });
 });

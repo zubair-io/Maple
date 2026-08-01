@@ -61,6 +61,8 @@ export interface XmpMetadata {
  * Preserved verbatim on writes so Lightroom round-trips are non-destructive.
  */
 export interface PassthroughBucket {
+  /** Namespace declarations needed by passthrough attributes/nodes. */
+  unknownNamespaces?: Array<{ prefix: string; uri: string }>;
   /** Attributes on rdf:Description that are not in Maple's known set. */
   unknownAttributes: Array<{ name: string; value: string }>;
   /** Serialized XML of child elements of rdf:Description Maple doesn't model. */

@@ -84,7 +84,11 @@ describe('LibraryCache.subscribePreviewUrl', () => {
 
       // Called with the id and a getBytes callback (LibraryCache.bytesForAsset).
       expect(resolve).toHaveBeenCalledTimes(1);
-      expect(resolve).toHaveBeenCalledWith('lib:2026/a.dng', expect.any(Function));
+      expect(resolve).toHaveBeenCalledWith(
+        'lib:2026/a.dng',
+        expect.any(Function),
+        expect.any(Function),
+      );
       expect(seen[seen.length - 1]).toBe('blob:hosted-embedded-preview');
     } finally {
       URL.createObjectURL = originalCreate;

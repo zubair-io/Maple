@@ -19,6 +19,7 @@ import { InfoPanelComponent } from './info-panel.component';
 import { LibraryStateService } from '../state/library-state.service';
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
+import { SERVER_LIBRARY_IO } from '../workspace/server-library-io';
 import type { Asset } from '../models/asset';
 
 const STUB_ASSET: Asset = {
@@ -79,6 +80,7 @@ function makeFixture(
     providers: [
       { provide: LibraryStateService, useValue: new FakeLibraryStateService() },
       { provide: BunApiBackendService, useValue: new FakeBunApiBackendService() },
+      { provide: SERVER_LIBRARY_IO, useExisting: BunApiBackendService },
       { provide: LIBRARY_BACKEND, useValue: opts.backend ?? 'hosted' },
     ],
   });
