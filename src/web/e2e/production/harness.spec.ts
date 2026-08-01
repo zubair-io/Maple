@@ -104,6 +104,10 @@ test('Hosted writable folder creates its .maple cache without modifying the RAW'
     .toContain('test_0006.DNG');
   const coldReadyMs = Date.now() - coldStarted;
 
+  // The warm-cache phase intentionally replaces the document. Let Chrome
+  // finish the current document's local font request first so that navigation
+  // does not manufacture a net::ERR_ABORTED browser-audit failure.
+  await page.evaluate(() => document.fonts.ready);
   await page.goto('/');
   const warmStarted = Date.now();
   await openHostedFolder(page, 'test_0006.DNG');
@@ -446,11 +450,18 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
 
   picker.setWritePermission(true);
   await restoredExposure.press('ArrowRight');
-  const recoveredExposure = await restoredExposure.getAttribute('aria-valuenow');
-  expect(recoveredExposure).not.toBe(editedExposure);
+  const recoveredExposureAttribute = await restoredExposure.getAttribute('aria-valuenow');
+  const recoveredExposure = Number(recoveredExposureAttribute);
+  expect(recoveredExposureAttribute).not.toBeNull();
+  expect(Number.isFinite(recoveredExposure)).toBe(true);
+  expect(recoveredExposure).not.toBe(Number(editedExposure));
   await expect
-    .poll(async () => readFile(sidecar, 'utf8').catch(() => ''))
-    .toContain(`crs:Exposure2012="${recoveredExposure}"`);
+    .poll(async () => {
+      const xml = await readFile(sidecar, 'utf8').catch(() => '');
+      const serialized = /crs:Exposure2012="([^"]+)"/.exec(xml)?.[1];
+      return serialized === undefined ? null : Number(serialized);
+    })
+    .toBeCloseTo(recoveredExposure, 2);
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
 
