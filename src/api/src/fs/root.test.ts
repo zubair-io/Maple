@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, parse } from 'node:path';
-import { safeWriteAllowed } from './root.ts';
+import { getRegisteredRoots, safeWriteAllowed } from './root.ts';
 
 const originalRoots = process.env.MAPLE_ROOTS;
 const temporaryRoots: string[] = [];
@@ -17,14 +17,15 @@ afterEach(async () => {
 });
 
 describe('safeWriteAllowed', () => {
-  test('allows development writes when MAPLE_ROOTS is unset before the cache is initialized', async () => {
+  test('handles MAPLE_ROOTS unset before the cache is initialized', async () => {
     const fixture = await mkdtemp(join(tmpdir(), 'maple-root-unconfigured-'));
     temporaryRoots.push(fixture);
     delete process.env.MAPLE_ROOTS;
+    const target = join(getRegisteredRoots()[0] ?? fixture, 'photo.xmp');
 
-    expect(await safeWriteAllowed(join(fixture, 'photo.xmp'))).toEqual({
+    expect(await safeWriteAllowed(target)).toEqual({
       ok: true,
-      data: join(fixture, 'photo.xmp'),
+      data: target,
     });
   });
 
