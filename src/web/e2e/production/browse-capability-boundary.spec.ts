@@ -45,10 +45,11 @@ test('production Browse exposes only the app-provided capability surface', async
   }
 
   await expect(viewMode).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Add folder' })).toBeVisible();
+  const sidebar = page.getByTestId('source-sidebar');
   await expect(
-    page.getByTestId('source-sidebar').getByRole('button', { name: 'Timeline', exact: true }),
+    sidebar.locator('.section-bar').getByRole('button', { name: 'Add folder' }),
   ).toBeVisible();
+  await expect(sidebar.getByRole('button', { name: 'Timeline', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Edit metadata' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Merge to panorama' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Open settings' })).toBeVisible();
