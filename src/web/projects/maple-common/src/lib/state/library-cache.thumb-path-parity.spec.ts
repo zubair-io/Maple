@@ -146,7 +146,9 @@ describe('LibraryCache Hosted thumbs — writer destination === reader source (#
       const sha = await sha256Prefix16(FILENAME); // identical call the write call site makes
       expect(sha).toBe(PINNED_SHA);
 
-      const payload = new Uint8Array([0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70]);
+      const payload = new Uint8Array([
+        0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66,
+      ]);
       await cache.writeThumb(folder, sha, new Blob([payload], { type: 'image/avif' }), 'avif');
 
       // Pin the DIRECTORY convention alongside the stem — a future change to
@@ -164,7 +166,9 @@ describe('LibraryCache Hosted thumbs — writer destination === reader source (#
       // primitives (`sha256Prefix16` + `MapleCacheService.writeThumb`)
       // `_loadHostedThumb` composes, in the same order.
       const sha = await sha256Prefix16(FILENAME);
-      const payload = new Uint8Array([0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70]);
+      const payload = new Uint8Array([
+        0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66,
+      ]);
       await cache.writeThumb(folder, sha, new Blob([payload], { type: 'image/avif' }), 'avif');
       expect(files.has(`.maple/thumbs/${sha}.avif`)).toBe(true);
 
