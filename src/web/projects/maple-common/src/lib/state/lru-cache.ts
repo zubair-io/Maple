@@ -32,6 +32,13 @@ export class LruCache {
     this._evict();
   }
 
+  delete(id: AssetId): void {
+    const removed = this.entries.get(id);
+    if (!removed) return;
+    this.entries.delete(id);
+    this.totalBytes -= removed.byteLength;
+  }
+
   clear(): void {
     this.entries.clear();
     this.totalBytes = 0;

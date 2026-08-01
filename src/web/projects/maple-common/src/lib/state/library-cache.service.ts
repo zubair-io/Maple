@@ -234,6 +234,14 @@ export class LibraryCache {
     this.byteCache.set(id, bytes);
   }
 
+  /** Release every direct byte reference for a removed standalone import. */
+  evictImportedAsset(id: AssetId): void {
+    this.legacyBytes.delete(id);
+    this.byteCache.delete(id);
+    this.fileHandles.delete(id);
+    this.byteReads.delete(id);
+  }
+
   /** Register a folder entry for lazy reads. */
   registerHandle(id: AssetId, entry: FolderEntry): void {
     this.fileHandles.set(id, entry);

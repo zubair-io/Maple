@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
 import { FolderAccessService, LibraryStateService, MapleFolderHandle } from '@maple-common';
-import { LandingComponent } from './landing.component';
+import { LandingComponent, SINGLE_FILE_PERSISTENCE } from './landing.component';
 
 describe('LandingComponent', () => {
   let fixture: ComponentFixture<LandingComponent>;
@@ -18,14 +18,13 @@ describe('LandingComponent', () => {
     openDroppedFolder: vi.fn<() => Promise<MapleFolderHandle | null>>(),
   };
   const libraryState = {
-    addImportedAsset: vi.fn(),
-    selectedSourceId: { set: vi.fn() },
-    selectAsset: vi.fn(),
+    enterSingleFileWorkspace: vi.fn(),
     openFolder: vi.fn<() => Promise<void>>(),
   };
   const router = {
     navigate: vi.fn<() => Promise<boolean>>(),
   };
+  const persistSingleFile = vi.fn<(id: string, file: File) => Promise<void>>();
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -33,6 +32,7 @@ describe('LandingComponent', () => {
     folderAccess.openDroppedFolder.mockResolvedValue(null);
     libraryState.openFolder.mockResolvedValue();
     router.navigate.mockResolvedValue(true);
+    persistSingleFile.mockResolvedValue();
 
     await TestBed.configureTestingModule({
       imports: [LandingComponent],
@@ -40,6 +40,7 @@ describe('LandingComponent', () => {
         { provide: FolderAccessService, useValue: folderAccess },
         { provide: LibraryStateService, useValue: libraryState },
         { provide: Router, useValue: router },
+        { provide: SINGLE_FILE_PERSISTENCE, useValue: persistSingleFile },
       ],
     }).compileComponents();
 
@@ -60,8 +61,41 @@ describe('LandingComponent', () => {
     const alert = fixture.nativeElement.querySelector('[role="alert"]') as HTMLElement;
     expect(alert.textContent).toContain('notes.txt');
     expect(alert.textContent).toContain('not a supported RAW or image file');
-    expect(libraryState.addImportedAsset).not.toHaveBeenCalled();
+    expect(libraryState.enterSingleFileWorkspace).not.toHaveBeenCalled();
     expect(router.navigate).not.toHaveBeenCalled();
+  });
+
+  it('persists a picked file before entering the single-file workspace', async () => {
+    const file = new File(['raw'], 'photo.DNG', { type: 'image/x-adobe-dng' });
+    const input = { files: [file], value: 'photo.DNG' };
+
+    await component.onFilePicked({ target: input } as unknown as Event);
+
+    expect(persistSingleFile).toHaveBeenCalledOnce();
+    const assetId = persistSingleFile.mock.calls[0][0];
+    expect(libraryState.enterSingleFileWorkspace).toHaveBeenCalledWith(
+      expect.any(Uint8Array),
+      'photo.DNG',
+      assetId,
+      false,
+    );
+    expect(router.navigate).toHaveBeenCalledWith(['/edit', assetId]);
+  });
+
+  it('opens memory-only and carries a persistent warning when browser persistence fails', async () => {
+    persistSingleFile.mockRejectedValue(new Error('quota exceeded'));
+    const file = new File(['raw'], 'photo.DNG', { type: 'image/x-adobe-dng' });
+    const input = { files: [file], value: 'photo.DNG' };
+
+    await component.onFilePicked({ target: input } as unknown as Event);
+    const assetId = persistSingleFile.mock.calls[0][0];
+    expect(libraryState.enterSingleFileWorkspace).toHaveBeenCalledWith(
+      expect.any(Uint8Array),
+      'photo.DNG',
+      assetId,
+      true,
+    );
+    expect(router.navigate).toHaveBeenCalledWith(['/edit', assetId]);
   });
 
   it('opens a dropped writable folder through the shared folder path', async () => {

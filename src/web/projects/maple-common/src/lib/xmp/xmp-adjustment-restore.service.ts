@@ -29,10 +29,18 @@ import { firstValueFrom } from 'rxjs';
 import { SERVER_WORKSPACE_PERSISTENCE } from '../workspace/workspace-persistence';
 import { SERVER_LIBRARY_IO } from '../workspace/server-library-io';
 import type { AssetId } from '../models/asset';
+import type { AdjustmentModel } from '../models/adjustment-model';
 import { LibraryStore } from '../state/library-store.service';
 import { LibrarySelection } from '../state/library-selection.service';
 import { XmpParserService } from './xmp-parser.service';
 import { XmpStoreService } from './xmp-store.service';
+import type { PassthroughBucket, XmpCulling } from './xmp.types';
+
+export interface HydratedSidecar {
+  readonly model: Partial<AdjustmentModel>;
+  readonly passthrough: PassthroughBucket;
+  readonly culling: XmpCulling;
+}
 
 @Injectable({ providedIn: 'root' })
 export class XmpAdjustmentRestoreService {
@@ -45,6 +53,9 @@ export class XmpAdjustmentRestoreService {
 
   /** Asset ids already fetched (or in flight) this session. */
   private readonly _attempted = new Set<AssetId>();
+
+  /** One shared read per asset for restore and read-before-write coordination. */
+  private readonly _sidecars = new Map<AssetId, Promise<HydratedSidecar | null>>();
 
   /** Memoized cold-start `listFolders` load (see `_ensureRegisteredFolders`). */
   private _foldersLoad: Promise<void> | null = null;
@@ -65,56 +76,71 @@ export class XmpAdjustmentRestoreService {
     if (!this._eligible(id)) return;
     this._attempted.add(id);
     try {
-      const xml = await this._fetchSidecarXml(id);
-      if (xml !== null) this._applyParsedSidecar(id, xml);
+      const sidecar = await this.loadForWrite(id);
+      if (sidecar !== null) this._applyParsedSidecar(id, sidecar);
     } catch (err) {
-      this._onFetchError(id, err);
+      this._attempted.delete(id);
+      console.warn(`XmpAdjustmentRestore: sidecar read failed for ${id}`, err);
     }
+  }
+
+  /**
+   * Return the persisted sidecar model used as the base for a full-document
+   * write. Sharing this promise with the focus restore prevents a culling edit
+   * from racing the GET and replacing develop settings with defaults.
+   */
+  loadForWrite(id: AssetId): Promise<HydratedSidecar | null> {
+    if (!this._addressable(id)) return Promise.resolve(null);
+    const existing = this._sidecars.get(id);
+    if (existing) return existing;
+
+    const load = this._loadSidecar(id).catch((err: unknown) => {
+      this._sidecars.delete(id);
+      throw err;
+    });
+    this._sidecars.set(id, load);
+    return load;
   }
 
   /** Self-Hosted `slug:relPath` assets not yet attempted this session. */
   private _eligible(id: AssetId): boolean {
-    return (
-      this.store.backend === 'self-hosted' &&
-      id.includes(':') &&
-      !id.startsWith('fs:') &&
-      !this._attempted.has(id)
-    );
+    return this._addressable(id) && !this._attempted.has(id);
   }
 
-  /** The sidecar XML for `id`, or `null` when no library root owns its slug.
-   *  Awaits the GET explicitly (rather than returning the bare promise) so
-   *  this resolves after the same number of microtask turns as the inline
-   *  version it replaced — returning an un-awaited promise from an `async`
-   *  function costs one extra tick for the runtime to adopt it, which is
-   *  enough to land after a test's fixed number of `flushAsync` turns. */
-  private async _fetchSidecarXml(id: AssetId): Promise<string | null> {
+  private _addressable(id: AssetId): boolean {
+    return this.store.backend === 'self-hosted' && id.includes(':') && !id.startsWith('fs:');
+  }
+
+  /** Parsed sidecar for `id`, or `null` when none exists. */
+  private async _loadSidecar(id: AssetId): Promise<HydratedSidecar | null> {
     await this._ensureRegisteredFolders();
     const absPath = this.store.absPathFor(id);
     if (!absPath) return null;
     if (!this.serverPersistence) return null;
-    return await firstValueFrom(this.serverPersistence.readSidecar(absPath));
+    try {
+      const xml = await firstValueFrom(this.serverPersistence.readSidecar(absPath));
+      if (xml === null) return null;
+      const sidecar = {
+        ...this.parser.parseAdjustmentModel(xml),
+        culling: this.parser.parseCulling(xml),
+      };
+      this.xmpStore.rememberPassthrough(id, sidecar.passthrough);
+      return sidecar;
+    } catch (err) {
+      if (err instanceof HttpErrorResponse && err.status === 404) return null;
+      throw err;
+    }
   }
 
-  private _applyParsedSidecar(id: AssetId, xml: string): void {
-    const { model, passthrough } = this.parser.parseAdjustmentModel(xml);
-    // Keep the passthrough bucket so a later write round-trips unknown
-    // fields byte-for-byte — same contract as the openFolder() load.
-    this.xmpStore.rememberPassthrough(id, passthrough);
-    this.store.restoreAdjustment(id, model);
+  private _applyParsedSidecar(id: AssetId, sidecar: HydratedSidecar): void {
+    this.store.restoreAdjustment(id, sidecar.model);
+    this.store.mergePersistedCulling(id, sidecar.culling);
     // A 200 means a sidecar exists on disk — flip `edited` even when
     // `restoreAdjustment` refused to overwrite (the user edited while the
     // GET was in flight). The "Edited" filter chip tracks sidecar
     // EXISTENCE, and `openFolder()` sets the flag on every successful
     // sidecar read regardless of the model's content.
     this._markEdited(id);
-  }
-
-  private _onFetchError(id: AssetId, err: unknown): void {
-    if (err instanceof HttpErrorResponse && err.status === 404) return; // no sidecar — defaults stand
-    // Transient failure (network, 5xx): re-arm so a refocus can retry.
-    this._attempted.delete(id);
-    console.warn(`XmpAdjustmentRestore: sidecar read failed for ${id}`, err);
   }
 
   /**

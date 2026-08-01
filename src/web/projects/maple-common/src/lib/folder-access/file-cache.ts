@@ -39,6 +39,7 @@ export async function persistFile(id: string, file: File): Promise<void> {
     file,
     storedAt: Date.now(),
   };
+  tx.objectStore(IDB_STORE).clear();
   tx.objectStore(IDB_STORE).put(record);
   await txDone(tx).finally(() => db.close());
 }

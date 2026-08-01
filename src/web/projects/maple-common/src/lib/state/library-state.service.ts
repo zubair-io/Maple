@@ -81,6 +81,7 @@ export class LibraryStateService {
 
   // ── Current folder handle ─────────────────────────────────────────────────
   readonly currentFolder = this.store.currentFolder;
+  readonly singleFileMemoryOnly = this.store.singleFileMemoryOnly;
 
   // ── Sidebar open/collapsed state ───────────────────────────────────────────
   readonly sectionOpen = this.prefs.sectionOpen;
@@ -200,6 +201,15 @@ export class LibraryStateService {
     return this.fetch_.addImportedAsset(bytes, filename, explicitId);
   }
 
+  enterSingleFileWorkspace(
+    bytes: Uint8Array,
+    filename: string,
+    explicitId?: AssetId,
+    memoryOnly = false,
+  ): AssetId {
+    return this.fetch_.enterSingleFileWorkspace(bytes, filename, explicitId, memoryOnly);
+  }
+
   // ── Asset mutations ────────────────────────────────────────────────────────
   updateAssetDimensions(id: AssetId, width: number, height: number): void {
     this.store.updateAssetDimensions(id, width, height);
@@ -242,9 +252,9 @@ export class LibraryStateService {
   }
 
   updateAdjustment(id: AssetId, patch: Partial<AdjustmentModel>): void {
-    this.store.setAdjustment(id, patch);
+    const authoredPatch = this.store.setAdjustment(id, patch);
     // Schedule debounced sidecar write.
-    this.fetch_.scheduleSidecarWrite(id);
+    this.fetch_.scheduleSidecarWrite(id, authoredPatch);
     // Schedule the idle-debounced developed-preview persist (#2018) — ONLY
     // here, not on the culling mutators below (setRating/setFlag/etc.),
     // since those don't touch pixels. See EditPreviewPersistService's module
@@ -264,17 +274,17 @@ export class LibraryStateService {
 
   // ── Culling mutations (+ trigger debounced index write) ────────────────────
   setRating(id: AssetId, rating: number): void {
-    this.store.assets.update((list) => list.map((a) => (a.id === id ? { ...a, rating } : a)));
+    this.store.setCulling(id, { rating });
     this.fetch_.scheduleSidecarWrite(id);
   }
 
   setFlag(id: AssetId, flag: Flag): void {
-    this.store.assets.update((list) => list.map((a) => (a.id === id ? { ...a, flag } : a)));
+    this.store.setCulling(id, { flag });
     this.fetch_.scheduleSidecarWrite(id);
   }
 
   setColorLabel(id: AssetId, colorLabel: ColorLabel): void {
-    this.store.assets.update((list) => list.map((a) => (a.id === id ? { ...a, colorLabel } : a)));
+    this.store.setCulling(id, { colorLabel });
     this.fetch_.scheduleSidecarWrite(id);
   }
 
@@ -296,9 +306,7 @@ export class LibraryStateService {
       seen.add(trimmed);
       deduped.push(trimmed);
     }
-    this.store.assets.update((list) =>
-      list.map((a) => (a.id === id ? { ...a, keywords: deduped } : a)),
-    );
+    this.store.setCulling(id, { keywords: deduped });
     this.fetch_.scheduleSidecarWrite(id);
   }
 

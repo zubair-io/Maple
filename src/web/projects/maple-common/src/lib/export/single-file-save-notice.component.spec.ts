@@ -17,6 +17,7 @@ const ASSET = { id: 'asset-1', filename: 'IMG_0042.CR3' } as Asset;
 describe('SingleFileSaveNoticeComponent', () => {
   const focusedAsset = signal<Asset | null>(ASSET);
   const currentFolder = signal<{ write: boolean } | null>(null);
+  const singleFileMemoryOnly = signal(false);
   let downloadSidecar: ReturnType<typeof vi.fn>;
 
   function render(
@@ -26,7 +27,7 @@ describe('SingleFileSaveNoticeComponent', () => {
       providers: [
         {
           provide: LibraryStateService,
-          useValue: { focusedAsset, currentFolder },
+          useValue: { focusedAsset, currentFolder, singleFileMemoryOnly },
         },
         { provide: WORKSPACE_CAPABILITIES, useValue: policy },
         { provide: ImageExportService, useValue: { downloadSidecar } },
@@ -41,7 +42,17 @@ describe('SingleFileSaveNoticeComponent', () => {
     TestBed.resetTestingModule();
     focusedAsset.set(ASSET);
     currentFolder.set(null);
+    singleFileMemoryOnly.set(false);
     downloadSidecar = vi.fn();
+  });
+
+  it('warns that reload loses a memory-only single-file session', () => {
+    singleFileMemoryOnly.set(true);
+    const fixture = render(HOSTED_WORKSPACE_POLICY);
+
+    expect(fixture.nativeElement.textContent).toContain(
+      'Browser storage is unavailable. Reloading will discard this photo session.',
+    );
   });
 
   it('shows the persistence warning and action for a hosted single-file workspace', () => {
@@ -54,15 +65,27 @@ describe('SingleFileSaveNoticeComponent', () => {
     expect(fixture.nativeElement.querySelector('button')?.textContent).toContain('Download XMP');
   });
 
-  it('hides for a hosted writable folder and for Self Hosted', () => {
+  it('hides for a hosted writable folder', () => {
     currentFolder.set({ write: true });
-    const hostedFolder = render(HOSTED_WORKSPACE_POLICY);
-    expect(hostedFolder.nativeElement.querySelector('section')).toBeNull();
+    const fixture = render(HOSTED_WORKSPACE_POLICY);
+    expect(fixture.nativeElement.querySelector('section')).toBeNull();
+  });
 
-    TestBed.resetTestingModule();
-    currentFolder.set(null);
-    const selfHosted = render(SELF_HOSTED_WORKSPACE_POLICY);
-    expect(selfHosted.nativeElement.querySelector('section')).toBeNull();
+  it('shows a download warning for a hosted read-only folder', () => {
+    currentFolder.set({ write: false });
+    const fixture = render(HOSTED_WORKSPACE_POLICY);
+
+    expect(
+      fixture.nativeElement.querySelector('[aria-label="Read-only folder save"]'),
+    ).not.toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('This folder is read-only');
+    expect(fixture.nativeElement.querySelector('button')?.textContent).toContain('Download XMP');
+  });
+
+  it('hides in Self Hosted even without a folder capability', () => {
+    const fixture = render(SELF_HOSTED_WORKSPACE_POLICY);
+
+    expect(fixture.nativeElement.querySelector('section')).toBeNull();
   });
 
   it('downloads the focused asset through the shared sidecar exporter', () => {
