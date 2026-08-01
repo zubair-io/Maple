@@ -6,9 +6,9 @@ export const HOSTED_LOCAL_FONTS = [
 ] as const;
 
 export const HOSTED_ICONS = [
-  '/assets/icon-192.png',
-  '/assets/icon-512.png',
-  '/assets/icon-512-maskable.png',
+  '/assets/brand/icon-192.png',
+  '/assets/brand/icon-512.png',
+  '/assets/brand/icon-512-maskable.png',
 ] as const;
 
 export const HOSTED_WASM_ASSETS = [
