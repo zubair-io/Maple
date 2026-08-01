@@ -1,26 +1,27 @@
 import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, extname, join } from 'node:path';
 import { test, expect } from '../support/production-test';
 import { readProductionFixtureManifest } from '../support/production-fixtures';
 import { installProductionFolderPicker } from '../support/production-folder-picker';
 
+type CacheFormatMatcher = (bytes: Buffer) => boolean;
+
+const asciiAt = (bytes: Buffer, offset: number, expected: string): boolean =>
+  bytes.subarray(offset, offset + expected.length).toString('ascii') === expected;
+
+const CACHE_FORMAT_MATCHERS: Readonly<Record<string, CacheFormatMatcher>> = {
+  '.jpg': (bytes) => bytes[0] === 0xff && bytes[1] === 0xd8,
+  '.png': (bytes) =>
+    bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
+  '.webp': (bytes) => asciiAt(bytes, 0, 'RIFF') && asciiAt(bytes, 8, 'WEBP'),
+  '.avif': (bytes) =>
+    bytes.length >= 12 &&
+    asciiAt(bytes, 4, 'ftyp') &&
+    ['avif', 'avis'].some((brand) => bytes.subarray(8).toString('ascii').includes(brand)),
+};
+
 function cacheFormatMatches(path: string, bytes: Buffer): boolean {
-  if (path.endsWith('.jpg')) return bytes[0] === 0xff && bytes[1] === 0xd8;
-  if (path.endsWith('.png')) {
-    return bytes
-      .subarray(0, 8)
-      .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
-  }
-  if (path.endsWith('.webp')) {
-    return (
-      bytes.subarray(0, 4).toString('ascii') === 'RIFF' &&
-      bytes.subarray(8, 12).toString('ascii') === 'WEBP'
-    );
-  }
-  if (!path.endsWith('.avif') || bytes.length < 12) return false;
-  const box = bytes.subarray(4, 8).toString('ascii');
-  const brands = bytes.subarray(8).toString('ascii');
-  return box === 'ftyp' && (brands.includes('avif') || brands.includes('avis'));
+  return CACHE_FORMAT_MATCHERS[extname(path)]?.(bytes) ?? false;
 }
 
 test('serves a production build in installed Google Chrome', async ({ page }, testInfo) => {

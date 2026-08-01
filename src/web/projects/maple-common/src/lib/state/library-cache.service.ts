@@ -8,8 +8,7 @@ import { Asset, AssetId } from '../models/asset';
 import { SERVER_LIBRARY_IO } from '../workspace/server-library-io';
 import { FilesystemBrowseService, type DownloadProgress } from '../api/filesystem-browse.service';
 import { FolderEntry, MapleFolderHandle } from '../folder-access/folder-access.types';
-import { MapleCacheService, type PreviewSourceIdentity } from '../maple-cache/maple-cache.service';
-import { samePreviewSource } from '../maple-cache/preview-cache-protocol';
+import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { imageDataToBitmap, resizeBitmapToCanvas, canvasToBlob } from '../raw-pipeline/image-utils';
 import { sha256Prefix16 } from '../maple-cache/sha';
@@ -22,7 +21,8 @@ import { LruCache, ThumbLruCache } from './lru-cache';
 import { ThumbFailMemory } from './library-cache.thumb-fail';
 import { HostedPreviewResolver } from './hosted-preview-resolver.service';
 import { isM2Asset, readAssetBytes } from './library-cache.byte-source';
-import { previewLoader, sourceIdentity } from './library-cache.preview-loader';
+import { previewLoader } from './library-cache.preview-loader';
+import { HostedByteSnapshotCache } from './hosted-byte-snapshot-cache';
 
 @Injectable({ providedIn: 'root' })
 export class LibraryCache {
@@ -52,14 +52,13 @@ export class LibraryCache {
    * Configurable but 1 GB is a safe default for the browse view.
    */
   private readonly byteCache = new LruCache(1024 * 1024 * 1024);
-  /** Identity of the File snapshot behind a cached Hosted byte buffer. */
-  private readonly byteSourceIdentities = new Map<AssetId, PreviewSourceIdentity>();
+  readonly hostedBytes = new HostedByteSnapshotCache(this.byteCache);
 
   /**
    * Map from AssetId to the FolderEntry (file handle) for on-demand reads.
    * Populated by openFolder(); also populated for imported files.
    */
-  readonly fileHandles = new Map<AssetId, FolderEntry>();
+  readonly fileHandles = this.hostedBytes.fileHandles;
 
   /**
    * For legacy in-memory imports (drag-drop, <input> picker without FS Access),
@@ -186,7 +185,7 @@ export class LibraryCache {
       hostedPreview: this.hostedPreview,
       fileHandles: this.fileHandles,
       bytesForAsset: (assetId) => this.bytesForAsset(assetId),
-      hostedBytesSnapshotFor: (assetId) => this.hostedBytesSnapshotFor(assetId),
+      hostedBytesSnapshotFor: (assetId) => this.hostedBytes.snapshotFor(assetId),
     });
     if (!loader) return this.subscribeThumbUrl(id, cb);
     const unsubscribe = this.previewChannel.subscribe(id, cb);
@@ -199,8 +198,7 @@ export class LibraryCache {
   /** Clear all in-memory state. Called on folder switch. */
   clearAll(): void {
     this.byteCache.clear();
-    this.byteSourceIdentities.clear();
-    this.fileHandles.clear();
+    this.hostedBytes.clear();
     this.legacyBytes.clear();
     // Revoke all thumbnail blob URLs and notify subscribers via the channel.
     // Hard-reset path (sign-out / forced wipe); the LRU evicts old entries
@@ -234,41 +232,13 @@ export class LibraryCache {
   evictImportedAsset(id: AssetId): void {
     this.legacyBytes.delete(id);
     this.byteCache.delete(id);
-    this.byteSourceIdentities.delete(id);
-    this.fileHandles.delete(id);
+    this.hostedBytes.delete(id);
     this.byteReads.delete(id);
   }
 
   /** Register a folder entry for lazy reads. */
   registerHandle(id: AssetId, entry: FolderEntry): void {
-    this.fileHandles.set(id, entry);
-  }
-
-  /** Exact source identity used to invalidate Hosted preview artifacts. */
-  sourceIdentityFor(id: AssetId): Promise<PreviewSourceIdentity> {
-    return sourceIdentity(this.fileHandles, id);
-  }
-
-  /** Return bytes and identity from one coherent Hosted File snapshot.
-   * Cached bytes are reused only when their recorded snapshot still matches
-   * the current handle; otherwise the replacement file is read and re-keyed. */
-  async hostedBytesSnapshotFor(
-    id: AssetId,
-  ): Promise<{ bytes: Uint8Array; source: PreviewSourceIdentity }> {
-    const entry = this.fileHandles.get(id);
-    if (!entry) throw new Error(`source snapshot unavailable for ${id}`);
-    const file = await entry.getFile();
-    const source = { size: file.size, lastModified: file.lastModified };
-    const cached = this.byteCache.get(id);
-    const cachedSource = this.byteSourceIdentities.get(id);
-    if (cached && cachedSource && samePreviewSource(cachedSource, source)) {
-      return { bytes: cached, source };
-    }
-
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    this.byteCache.set(id, bytes);
-    this.byteSourceIdentities.set(id, source);
-    return { bytes, source };
+    this.hostedBytes.register(id, entry);
   }
 
   // ── Lazy byte access ───────────────────────────────────────────────────────
