@@ -117,7 +117,7 @@ try {
 
   const mongoUriFile = join(manifest.root, 'runtime', 'mongo-uri');
   await mkdir(join(manifest.root, 'runtime'), { recursive: true });
-  const mongo = Bun.spawn(['bun', 'scripts/serve-production-e2e-mongo.ts'], {
+  const mongo = Bun.spawn(['bun', 'run', 'test:production-mongo'], {
     cwd: API_ROOT,
     stdout: 'inherit',
     stderr: 'inherit',
