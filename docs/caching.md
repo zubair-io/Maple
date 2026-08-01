@@ -193,9 +193,13 @@ User returns to grid
 
 The Apple caches above have browser counterparts (in-memory blob URLs +
 IndexedDB; see `LibraryCache`). On top of those, both web builds — Hosted
-(`projects/maple-syrup`) and Self-Hosted (`projects/maple`) — register the
-Angular service worker (`ngsw-config.json`, wired via `provideServiceWorker`).
+(`projects/maple-syrup`) and Self-Hosted (`projects/maple`) — register an
+Angular service worker (wired via `provideServiceWorker`).
 It adds an HTTP-layer cache that the application code never has to manage.
+
+Hosted uses `src/web/ngsw-config.hosted.json`; Self Hosted uses
+`src/web/ngsw-config.json`. The asset groups are intentionally parallel, while
+only Self Hosted declares the HTTP thumbnail `dataGroup`.
 
 ### What the SW caches
 
@@ -205,7 +209,7 @@ It adds an HTTP-layer cache that the application code never has to manage.
 | `raw-wasm`   | assetGroup | lazy + prefetch-upd      | `raw_wasm_bg.wasm`, `raw_wasm.js`                                            |
 | `fonts`      | assetGroup | lazy + prefetch-upd      | Bundled webfonts                                                             |
 | `images`     | assetGroup | lazy                     | Static bundle images (`/assets/**`, root `svg/png/webp/…`)                   |
-| `thumbnails` | dataGroup  | performance (1500 / 30d) | Thumbnail **HTTP** responses: `/api/fs/thumb`, `/api/assets/*/thumb`         |
+| `thumbnails` | dataGroup  | performance (1500 / 30d) | Self Hosted only: `/api/fs/thumb`, `/api/assets/*/thumb`                     |
 
 The `thumbnails` dataGroup is the SW-owned thumbnail cache. It only matches
 HTTP thumbnail endpoints, which today means the **Self-Hosted** Bun API

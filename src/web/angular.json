@@ -73,7 +73,7 @@
               }
             ],
             "styles": ["projects/maple-syrup/src/styles.scss"],
-            "serviceWorker": "ngsw-config.json"
+            "serviceWorker": "ngsw-config.hosted.json"
           },
           "configurations": {
             "production": {
