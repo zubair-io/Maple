@@ -1,6 +1,9 @@
 //! Unit tests for `scene_linear_chain`. Split into this submodule to stay
 //! under the 600-LOC file budget (#1181).
 use super::*;
+// The fp16 converters moved out of the parent into `endcaps` (#1089), so
+// they no longer arrive via the `super::*` glob.
+use crate::pipeline::fp16::{f16_bits_to_f32, f32_to_f16_bits};
 
 /// `apply_scene_linear_chain` over a default model is the AgX-only
 /// transform (every other stage short-circuits at default values). On
