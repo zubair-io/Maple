@@ -32,7 +32,7 @@
                 "input": "projects/maple-syrup/public"
               },
               {
-                "glob": "**/*",
+                "glob": "*.png",
                 "input": "projects/maple-common/src/assets/brand",
                 "output": "assets/brand"
               },
@@ -148,7 +148,7 @@
                 "input": "projects/maple/public"
               },
               {
-                "glob": "**/*",
+                "glob": "*.png",
                 "input": "projects/maple-common/src/assets/brand",
                 "output": "assets/brand"
               },
