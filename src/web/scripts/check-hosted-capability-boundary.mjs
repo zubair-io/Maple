@@ -41,7 +41,11 @@ const SOURCE_BOUNDARIES = [
   },
   {
     path: new URL('../projects/maple-syrup/src/app/app.config.ts', import.meta.url),
-    forbidden: ['InfoEnrichmentComponent', 'SelfHostedSidebarExtensionComponent'],
+    forbidden: [
+      'InfoEnrichmentComponent',
+      'SelfHostedSidebarHeaderComponent',
+      'SelfHostedSidebarBodyComponent',
+    ],
   },
 ];
 
@@ -49,7 +53,9 @@ const SELF_HOSTED_COMPOSITION = {
   path: new URL('../projects/maple/src/app/app.config.ts', import.meta.url),
   required: [
     'provideInfoPanelExtension(InfoEnrichmentComponent)',
-    'provideFolderTreeExtension(SelfHostedSidebarExtensionComponent)',
+    'provideFolderTreeExtensions({',
+    'header: SelfHostedSidebarHeaderComponent',
+    'body: SelfHostedSidebarBodyComponent',
   ],
 };
 
@@ -76,7 +82,7 @@ for (const boundary of SOURCE_BOUNDARIES) {
   const marker = boundary.forbidden.find((candidate) => source.includes(candidate));
   if (marker) {
     throw new Error(
-      `Shared source ${boundary.path.pathname} contains server capability: ${marker}`,
+      `Guarded source ${boundary.path.pathname} contains forbidden Hosted capability: ${marker}`,
     );
   }
 }
