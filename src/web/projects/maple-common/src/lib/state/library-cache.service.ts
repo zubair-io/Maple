@@ -23,6 +23,7 @@ import { HostedPreviewResolver } from './hosted-preview-resolver.service';
 import { isM2Asset, readAssetBytes } from './library-cache.byte-source';
 import { previewLoader } from './library-cache.preview-loader';
 import { HostedByteSnapshotCache } from './hosted-byte-snapshot-cache';
+import { isSupportedRaw } from './raw-extensions';
 
 @Injectable({ providedIn: 'root' })
 export class LibraryCache {
@@ -309,8 +310,14 @@ export class LibraryCache {
           visible = true;
           publish();
         }, LibraryCache.OPEN_PROGRESS_DELAY_MS);
-        // Best-effort: stop the timer the moment the read settles.
-        void this.byteReads.get(id)?.finally(() => clearTimeout(timer));
+        // Stop the timer the moment the read settles. Handle BOTH outcomes on
+        // this derived promise: `.finally()` would mirror a rejected HTTP
+        // read into an otherwise-unobserved rejection even though the caller
+        // correctly catches it and shows the retry overlay.
+        void this.byteReads.get(id)?.then(
+          () => clearTimeout(timer),
+          () => clearTimeout(timer),
+        );
       }
     };
   }
@@ -519,19 +526,32 @@ export class LibraryCache {
     onThumbWritten?: (id: AssetId, sha: string) => void,
   ): Promise<void> {
     const folder = this.store.currentFolder();
-    // Hosted decode fallback: pull bytes, run them through the WASM
-    // pipeline, encode to AVIF (falling back to JPEG if the browser can't),
-    // store, and write through to the .maple/ cache.
-    let bytes: Uint8Array;
-    try {
-      bytes = await this.bytesForAsset(asset.id);
-    } catch {
-      return; // mock asset / no source — gradient stays.
-    }
+    // RAW thumbnails come from the camera's embedded JPEG. Besides avoiding a
+    // full develop per grid tile, this keeps formats whose sensor decoder is
+    // intentionally unsupported (Sigma Foveon X3F, #417) browsable.
     const ext = asset.filename.split('.').pop()?.toLowerCase() ?? '';
-    const decoded = await this.pipeline.decode(bytes, ext);
-    this.store.updateAssetDimensions(asset.id, decoded.width, decoded.height);
-    const bitmap = await imageDataToBitmap(decoded);
+    let bitmap: ImageBitmap;
+    if (isSupportedRaw(asset.filename)) {
+      const preview = await this.hostedPreview.resolve(
+        asset.id,
+        (id) => this.bytesForAsset(id),
+        (id) => this.hostedBytes.identityFor(id),
+        (id) => this.hostedBytes.snapshotFor(id),
+      );
+      if (!preview) throw new Error(`no embedded preview for ${asset.filename}`);
+      bitmap = await createImageBitmap(preview);
+      this.store.updateAssetDimensions(asset.id, bitmap.width, bitmap.height);
+    } else {
+      let bytes: Uint8Array;
+      try {
+        bytes = await this.bytesForAsset(asset.id);
+      } catch {
+        return; // mock asset / no source — gradient stays.
+      }
+      const decoded = await this.pipeline.decode(bytes, ext);
+      this.store.updateAssetDimensions(asset.id, decoded.width, decoded.height);
+      bitmap = await imageDataToBitmap(decoded);
+    }
     const canvas = await resizeBitmapToCanvas(bitmap, 512);
     bitmap.close();
     const { blob, format } = await canvasToBlob(canvas);

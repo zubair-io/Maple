@@ -67,6 +67,17 @@ pub fn extract_embedded_preview(
     raw_bytes: &[u8],
     ext: &str,
 ) -> Result<(image::DynamicImage, ExifOrientation)> {
+    // The X3F decoder's metadata implementation is a `todo!()` in rawler
+    // 0.7. Native unwind builds can catch that panic, but Maple's production
+    // WASM uses `panic_abort`, where invoking it terminates the extraction
+    // before the byte-scan fallback can run. X3F is a non-TIFF container with
+    // a camera-rendered JPEG, so take the same bounded scan directly and never
+    // enter the incomplete decoder. Full Foveon sensor decode remains #417.
+    if ext.eq_ignore_ascii_case("x3f") {
+        return crate::view::auto_profile::preview::largest_embedded_jpeg(raw_bytes)
+            .map(|image| (image, ExifOrientation::Normal))
+            .ok_or_else(|| Error::Preview("no embedded preview / thumbnail in X3F".into()));
+    }
     let hint_path = format!("rawfile.{}", ext);
     let extract = std::panic::catch_unwind(AssertUnwindSafe(|| {
         let source = rawler::rawsource::RawSource::new_from_slice(raw_bytes)
@@ -212,14 +223,8 @@ mod tests {
         assert!(w > 0 && h > 0);
     }
 
-    /// Regression for #2413: X3F (Sigma Foveon) thumbnails always failed
-    /// because `X3fDecoder::raw_metadata` is a vendored-rawler `todo!()` —
-    /// the panic used to propagate out of `extract_embedded_preview`
-    /// entirely (caught by the outer `catch_unwind`, but as an `Err` that
-    /// discarded the perfectly-extractable embedded JPEG preview along with
-    /// it). Orientation lookup is now isolated behind its own
-    /// `catch_unwind` so it degrades to `ExifOrientation::Normal` instead of
-    /// failing extraction.
+    /// Regression for #2413: X3F bypasses rawler's incomplete decoder so the
+    /// production WASM `panic_abort` build can reach its embedded JPEG.
     #[test]
     #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn fixture_x3f_orientation_panic_degrades_not_fails() {

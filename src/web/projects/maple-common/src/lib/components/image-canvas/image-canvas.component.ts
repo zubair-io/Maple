@@ -41,6 +41,7 @@ import { coldOpen2d, runRender2d, type Render2dHost } from './image-canvas.rende
 import { canUseLiveFastPath, buildLiveParams } from './image-canvas.live-params';
 import { fetchAndLoadBytes, type ByteLoadError, type ByteLoadHost } from './image-canvas.byteload';
 import { GpuFallbackNoticeService } from '../gpu-fallback-notice/gpu-fallback-notice.service';
+import { EmbeddedPreviewService } from '../../raw-pipeline/embedded-preview.service';
 
 @Component({
   selector: 'editor-image-canvas',
@@ -67,6 +68,7 @@ export class ImageCanvasComponent
   // Public for `GpuPresentHost` (serializes the model; 2D-fallback reporting, #2415).
   readonly xmpSerializer = inject(XmpSerializerService);
   readonly gpuFallback = inject(GpuFallbackNoticeService);
+  private readonly embeddedPreview = inject(EmbeddedPreviewService);
   private readonly injector = inject(Injector);
   private readonly cropSession = inject(CropSessionService);
 
@@ -442,7 +444,16 @@ export class ImageCanvasComponent
 
   // Public: also satisfies `ByteLoadHost` (called on a successful fetch).
   async loadReal(assetId: AssetId, filename: string, bytes: Uint8Array): Promise<void> {
-    const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+    let ext = filename.split('.').pop()?.toLowerCase() ?? '';
+    // rawler's Foveon sensor decoder is intentionally unsupported (#417),
+    // but X3F carries a camera-rendered JPEG. Keep the editor useful and
+    // nonblank by developing that embedded image; edits remain non-destructive
+    // XMP and the original X3F bytes are never changed.
+    if (ext === 'x3f') {
+      const preview = await this.embeddedPreview.extractEmbeddedPreview(bytes, ext);
+      bytes = new Uint8Array(await preview.blob.arrayBuffer());
+      ext = 'jpg';
+    }
     // Retain bytes + ext for adjustment-driven re-renders (no XMP on this
     // cold-open decode — raw-core substitutes the camera As-Shot WB).
     this.currentBytes = bytes;

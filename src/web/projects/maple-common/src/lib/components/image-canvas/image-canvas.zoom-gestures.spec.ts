@@ -188,6 +188,23 @@ describe('CanvasZoomGestures controller (#1100)', () => {
     g.stepZoom(-1);
     expect(pixelScale).toBe(0); // back to ~fit → snap
   });
+
+  it('leaves interactive descendants in control of their pointer stream', () => {
+    const wrap = document.createElement('div');
+    const button = document.createElement('button');
+    wrap.append(button);
+    const pointerDown = vi.spyOn(g, 'onPointerDown');
+    const clicked = vi.fn();
+    button.addEventListener('click', clicked);
+    const detach = g.attach(wrap);
+
+    button.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+    button.click();
+
+    expect(pointerDown).not.toHaveBeenCalled();
+    expect(clicked).toHaveBeenCalledOnce();
+    detach();
+  });
 });
 
 describe('ImageCanvasComponent zoom wiring (#1100)', () => {
