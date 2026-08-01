@@ -22,7 +22,7 @@
 
 <div class="sections">
   <app-rating-flags-row [asset]="asset()" />
-  <app-info-histogram [asset]="asset()" />
+  <app-info-histogram [asset]="asset()" [allowServerFallback]="allowServerHistogramFallback()" />
   <app-camera-location-grid [asset]="asset()" />
   <app-keyword-chips-row [asset]="asset()" />
   @if (extension; as extensionComponent) {

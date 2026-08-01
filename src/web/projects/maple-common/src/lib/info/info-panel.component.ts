@@ -66,6 +66,10 @@ export class InfoPanelComponent {
    * pane, where the parent tab bar already says "Info". */
   readonly insideSheet = input<boolean>(false);
 
+  /** Permit a server histogram when this surface has no live canvas pixels.
+   * Editor callers disable this; Browse/Preview retain the default fallback. */
+  readonly allowServerHistogramFallback = input<boolean>(true);
+
   /** Phone-only dismiss signal for the sheet's close X. Ignored when
    * `insideSheet=false`. */
   readonly close = output<void>();

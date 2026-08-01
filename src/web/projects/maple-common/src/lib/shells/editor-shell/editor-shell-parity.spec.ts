@@ -284,6 +284,7 @@ describe('EditorShellComponent — parity with the S5 editor (epic #1807 slice 5
       // output and assert the pane is actually removed afterward.
       const panelDebugEl = fixture.debugElement.query(By.directive(InfoPanelComponent));
       expect(panelDebugEl).not.toBeNull();
+      expect(panelDebugEl.componentInstance.allowServerHistogramFallback()).toBe(false);
       panelDebugEl.componentInstance.close.emit();
       fixture.detectChanges();
 
@@ -300,6 +301,8 @@ describe('EditorShellComponent — parity with the S5 editor (epic #1807 slice 5
       expect(fixture.nativeElement.querySelector('.info-pane')).toBeNull();
       const sheetPanel = fixture.nativeElement.querySelector('app-bottom-sheet app-info-panel');
       expect(sheetPanel).not.toBeNull();
+      const panelDebugEl = fixture.debugElement.query(By.directive(InfoPanelComponent));
+      expect(panelDebugEl.componentInstance.allowServerHistogramFallback()).toBe(false);
     });
 
     it('toggles closed on a second click', () => {

@@ -175,6 +175,77 @@ describe('InfoHistogramComponent', () => {
     expect(getHistogram).toHaveBeenNthCalledWith(2, 'two');
   });
 
+  it('keeps one Preview request when the same logical asset is enriched', () => {
+    const unsubscribe = vi.fn();
+    const getHistogram = vi.fn().mockReturnValue({
+      pipe: () => ({ subscribe: () => ({ unsubscribe }) }),
+    });
+    const api = makeApiStub({ getHistogram } as Partial<ServerLibraryIo>);
+    TestBed.configureTestingModule({
+      imports: [InfoHistogramComponent],
+      providers: [{ provide: SERVER_LIBRARY_IO, useValue: api }],
+    });
+    const fixture = TestBed.createComponent(InfoHistogramComponent);
+    fixture.componentRef.setInput('asset', makeAsset('stable-id'));
+    fixture.detectChanges();
+
+    fixture.componentRef.setInput('asset', {
+      ...makeAsset('stable-id'),
+      camera: 'Enriched camera',
+    });
+    fixture.detectChanges();
+
+    expect(getHistogram).toHaveBeenCalledOnce();
+    expect(unsubscribe).not.toHaveBeenCalled();
+  });
+
+  it('does not request a server histogram across editor asset and pixel refreshes', () => {
+    const getHistogram = vi.fn().mockReturnValue(of(emptyHistogram()));
+    const api = makeApiStub({ getHistogram } as Partial<ServerLibraryIo>);
+    TestBed.configureTestingModule({
+      imports: [InfoHistogramComponent],
+      providers: [{ provide: SERVER_LIBRARY_IO, useValue: api }],
+    });
+    const fixture = TestBed.createComponent(InfoHistogramComponent);
+    fixture.componentRef.setInput('asset', makeAsset('editor-asset'));
+    fixture.componentRef.setInput('allowServerFallback', false);
+    fixture.detectChanges();
+
+    fixture.componentRef.setInput('asset', makeAsset('editor-asset-refreshed'));
+    const canvas = TestBed.inject(ImageCanvasService);
+    canvas.currentPixels.set({
+      width: 1,
+      height: 1,
+      rgb: new Uint8Array([10, 20, 30]),
+      asShotTemperature: 5500,
+      asShotTint: 0,
+    });
+    fixture.detectChanges();
+
+    expect(getHistogram).not.toHaveBeenCalled();
+  });
+
+  it('cancels an in-flight fallback when the caller disables it', () => {
+    const unsubscribe = vi.fn();
+    const getHistogram = vi.fn().mockReturnValue({
+      pipe: () => ({ subscribe: () => ({ unsubscribe }) }),
+    });
+    const api = makeApiStub({ getHistogram } as Partial<ServerLibraryIo>);
+    TestBed.configureTestingModule({
+      imports: [InfoHistogramComponent],
+      providers: [{ provide: SERVER_LIBRARY_IO, useValue: api }],
+    });
+    const fixture = TestBed.createComponent(InfoHistogramComponent);
+    fixture.componentRef.setInput('asset', makeAsset('preview-asset'));
+    fixture.detectChanges();
+    expect(getHistogram).toHaveBeenCalledOnce();
+
+    fixture.componentRef.setInput('allowServerFallback', false);
+    fixture.detectChanges();
+
+    expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+
   it('does not request a server histogram in Hosted mode', () => {
     TestBed.configureTestingModule({
       imports: [InfoHistogramComponent],

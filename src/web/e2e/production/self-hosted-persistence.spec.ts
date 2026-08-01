@@ -86,12 +86,19 @@ test('Self Hosted persists adjustments and culling in a real sibling XMP', async
   await page.getByTestId('dev-sign-in').click();
   const asset = page.getByRole('button', { name: 'test_0006.DNG', exact: true });
   await expect(asset).toBeVisible({ timeout: 60_000 });
+  const workflowHistogramRequests: Request[] = [];
+  const trackWorkflowHistogram = (request: Request): void => {
+    if (request.url().includes('/histogram')) workflowHistogramRequests.push(request);
+  };
+  page.on('request', trackWorkflowHistogram);
   const histogramReady = page.waitForResponse(
     (response) => response.url().includes('/histogram') && response.ok(),
   );
   await asset.click();
   await histogramReady;
   await expect.poll(() => pendingHistogramRequests.size).toBe(0);
+  expect(workflowHistogramRequests, 'Preview must request one server histogram').toHaveLength(1);
+  const previewHistogramRequestCount = workflowHistogramRequests.length;
   const dismissLanBanner = page.getByRole('button', { name: 'Dismiss', exact: true });
   if (await dismissLanBanner.isVisible()) await dismissLanBanner.click();
   await page.getByLabel('Edit', { exact: true }).click();
@@ -149,11 +156,9 @@ test('Self Hosted persists adjustments and culling in a real sibling XMP', async
   await authenticatedReload;
   await expect(exposure).toBeVisible({ timeout: 60_000 });
   await expect(exposure).toHaveAttribute('aria-valuenow', editedExposure!);
-  const restoredHistogram = page.waitForResponse((response) =>
-    response.url().includes('/histogram'),
-  );
   await page.getByRole('button', { name: 'Info', exact: true }).click();
   await expect(page.getByTestId('info-enrichment')).toBeVisible();
+  await expect(page.getByTestId('info-histogram').locator('svg.live')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Pick', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
@@ -162,8 +167,6 @@ test('Self Hosted persists adjustments and culling in a real sibling XMP', async
     'aria-checked',
     'true',
   );
-  expect((await restoredHistogram).ok()).toBe(true);
-  await expect.poll(() => pendingHistogramRequests.size).toBe(0);
   await page.getByRole('button', { name: 'Info', exact: true }).click();
   savedXml = await readFile(sidecar, 'utf8');
 
@@ -224,5 +227,10 @@ test('Self Hosted persists adjustments and culling in a real sibling XMP', async
       };
     }, recoveredXml),
   ).toEqual({ opaque: 'keep-me', payload: 'opaque payload', version: '7' });
+  expect(
+    workflowHistogramRequests,
+    'Editor must derive its histogram from live pixels without another server request',
+  ).toHaveLength(previewHistogramRequestCount);
+  page.off('request', trackWorkflowHistogram);
   await verifyStagedRawHashes(manifest);
 });
