@@ -20,12 +20,13 @@ import {
   RenderConfigService,
   authInterceptor,
   provideAuthBootstrap,
-  provideFolderTreeExtension,
+  provideFolderTreeExtensions,
   provideInfoPanelExtension,
   provideSelfHostedWorkspace,
 } from '@maple-common';
 import { routes } from './app.routes';
-import { SelfHostedSidebarExtensionComponent } from './self-hosted-sidebar-extension/self-hosted-sidebar-extension.component';
+import { SelfHostedSidebarBodyComponent } from './self-hosted-sidebar-extension/self-hosted-sidebar-body.component';
+import { SelfHostedSidebarHeaderComponent } from './self-hosted-sidebar-extension/self-hosted-sidebar-header.component';
 
 // Self-Hosted: paired with the Bun API. The service worker caches the app
 // shell + JS/assets for fast, offline-resilient loads and caches thumbnail
@@ -44,7 +45,10 @@ export const appConfig: ApplicationConfig = {
     provideAuthBootstrap(),
     provideSelfHostedWorkspace(),
     provideInfoPanelExtension(InfoEnrichmentComponent),
-    provideFolderTreeExtension(SelfHostedSidebarExtensionComponent),
+    provideFolderTreeExtensions({
+      header: SelfHostedSidebarHeaderComponent,
+      body: SelfHostedSidebarBodyComponent,
+    }),
     {
       provide: PREVIEW_VIDEO_ACCESS,
       useFactory: () => {
