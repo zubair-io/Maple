@@ -3,6 +3,7 @@ import { basename, extname, join } from 'node:path';
 import { test, expect } from '../support/production-test';
 import { readProductionFixtureManifest } from '../support/production-fixtures';
 import { installProductionFolderPicker } from '../support/production-folder-picker';
+import { openHostedFolder, openHostedFolderEditor } from '../support/production-editor';
 import { HOSTED_SECURITY_HEADERS } from '../../scripts/hosted-security-header-contract';
 
 type CacheFormatMatcher = (bytes: Buffer) => boolean;
@@ -70,27 +71,6 @@ test('uses disposable RAW copies and records immutable source hashes', async () 
   );
 });
 
-async function openWritableFolder(
-  page: import('@playwright/test').Page,
-  filename = 'test_0006.DNG',
-): Promise<void> {
-  await page.goto('/');
-  await page.getByRole('button', { name: /open a folder/i }).click();
-  await expect(page).toHaveURL(/\/browse$/);
-  await expect(page.getByRole('button', { name: filename, exact: true })).toBeVisible({
-    timeout: 60_000,
-  });
-}
-
-async function openWritableRawEditor(page: import('@playwright/test').Page): Promise<void> {
-  await openWritableFolder(page);
-  await page.getByRole('button', { name: 'test_0006.DNG', exact: true }).click();
-  await expect(page).toHaveURL(/\/view\//);
-  await page.getByRole('button', { name: 'Edit', exact: true }).click();
-  await expect(page).toHaveURL(/\/edit\//);
-  await expect(page.getByRole('slider', { name: 'Exposure' })).toBeVisible({ timeout: 60_000 });
-}
-
 test('Hosted writable folder creates its .maple cache without modifying the RAW', async ({
   page,
 }, testInfo) => {
@@ -99,7 +79,7 @@ test('Hosted writable folder creates its .maple cache without modifying the RAW'
   await installProductionFolderPicker(page, manifest.writableFolder);
 
   const coldStarted = Date.now();
-  await openWritableFolder(page);
+  await openHostedFolder(page, 'test_0006.DNG');
   await expect(page.getByRole('status', { name: /save/i })).toHaveCount(0);
 
   await expect
@@ -125,7 +105,7 @@ test('Hosted writable folder creates its .maple cache without modifying the RAW'
 
   await page.goto('/');
   const warmStarted = Date.now();
-  await openWritableFolder(page);
+  await openHostedFolder(page, 'test_0006.DNG');
   const warmThumb = page.getByRole('button', { name: 'test_0006.DNG', exact: true }).locator('img');
   await expect(warmThumb).toBeVisible();
   await expect
@@ -154,7 +134,7 @@ test('Hosted uses an existing .maple preview before reading the RAW', async ({
   const picker = await installProductionFolderPicker(page, manifest.populatedFolder);
 
   const openStarted = Date.now();
-  await openWritableFolder(page, 'test_0017.dng');
+  await openHostedFolder(page, 'test_0017.dng');
   const browseReadyMs = Date.now() - openStarted;
   picker.clear();
 
@@ -195,7 +175,7 @@ test("Hosted records Chrome's actual preview format and reuses it without readin
   const manifest = await readProductionFixtureManifest();
   const picker = await installProductionFolderPicker(page, manifest.writableFolder);
 
-  await openWritableFolder(page);
+  await openHostedFolder(page, 'test_0006.DNG');
   picker.clear();
   await page.getByRole('button', { name: 'test_0006.DNG', exact: true }).click();
   const fullPreview = page.locator('.preview-img--full');
@@ -236,7 +216,7 @@ test("Hosted records Chrome's actual preview format and reuses it without readin
   expect(cacheFormatMatches(artifactPath, await readFile(artifactPath))).toBe(true);
 
   await page.goto('/');
-  await openWritableFolder(page);
+  await openHostedFolder(page, 'test_0006.DNG');
   picker.clear();
   await page.getByRole('button', { name: 'test_0006.DNG', exact: true }).click();
   await expect(page.locator('.preview-img--full')).toBeVisible({ timeout: 15_000 });
@@ -264,7 +244,7 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
     { timeout: 60_000 },
   );
 
-  await openWritableRawEditor(page);
+  await openHostedFolderEditor(page, 'test_0006.DNG');
   expect((await rayonHelper).ok(), 'the real RAW worker must initialize its Rayon helper').toBe(
     true,
   );
@@ -333,7 +313,7 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
 
   await page.reload();
   await expect(page).toHaveURL(/\/$/);
-  await openWritableFolder(page);
+  await openHostedFolder(page, 'test_0006.DNG');
   picker.clear();
   await page.getByRole('button', { name: 'test_0006.DNG', exact: true }).click();
   const fullPreview = page.locator('.preview-img--full');
