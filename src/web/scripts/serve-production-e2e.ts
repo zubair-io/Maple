@@ -100,6 +100,7 @@ try {
   // the release gate's most expensive compile and introduce an avoidable race.
   await run(['bun', 'run', 'raw-wasm'], { FORCE_WASM_REBUILD: '1' });
   await run(['bun', 'x', 'ng', 'build', 'maple-syrup', '--configuration', 'production']);
+  await run(['bun', 'run', 'check:hosted-artifact']);
   await run(['bun', 'x', 'ng', 'build', 'maple', '--configuration', 'production']);
 
   const api = Bun.spawn(['bun', 'src/index.ts'], {

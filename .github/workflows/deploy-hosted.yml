@@ -108,6 +108,10 @@ jobs:
         working-directory: src/web
         run: bun run build:syrup
 
+      - name: Hosted artifact contract
+        working-directory: src/web
+        run: bun run check:hosted-artifact
+
       - name: Azure Login
         uses: azure/login@v2
         with:
