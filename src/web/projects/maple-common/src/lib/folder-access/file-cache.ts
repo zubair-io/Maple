@@ -22,6 +22,7 @@ export interface PersistedFileRecord {
   filename: string;
   file: File;
   storedAt: number;
+  xmp?: string;
 }
 
 function openFileDb(): Promise<IDBDatabase> {
@@ -30,7 +31,7 @@ function openFileDb(): Promise<IDBDatabase> {
   });
 }
 
-export async function persistFile(id: string, file: File): Promise<void> {
+export async function persistFile(id: string, file: File, xmp?: string): Promise<void> {
   const db = await openFileDb();
   const tx = db.transaction(IDB_STORE, 'readwrite');
   const record: PersistedFileRecord = {
@@ -38,6 +39,7 @@ export async function persistFile(id: string, file: File): Promise<void> {
     filename: file.name,
     file,
     storedAt: Date.now(),
+    xmp,
   };
   tx.objectStore(IDB_STORE).clear();
   tx.objectStore(IDB_STORE).put(record);

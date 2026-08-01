@@ -27,6 +27,14 @@ export function routeSegmentsToAddress(slug: string, segments: string[]): MapleA
   return { slug, relPath: segments.join('/') };
 }
 
+/** ID used by Hosted's persisted single-file cache when a route is cold.
+ * Address routes retain their historical basename lookup, while a bare
+ * `/edit/<uuid>` or `/view/<uuid>` import must look up the UUID itself. */
+export function routeFileCacheId(slug: string, relPath: string): string {
+  if (!relPath) return slug;
+  return relPath.split('/').pop() ?? slug;
+}
+
 /**
  * Convert a MapleAddress into Router.navigate() segments for browsing, editing, or viewing.
  *

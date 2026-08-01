@@ -206,8 +206,9 @@ export class LibraryStateService {
     filename: string,
     explicitId?: AssetId,
     memoryOnly = false,
+    xmp?: string,
   ): AssetId {
-    return this.fetch_.enterSingleFileWorkspace(bytes, filename, explicitId, memoryOnly);
+    return this.fetch_.enterSingleFileWorkspace(bytes, filename, explicitId, memoryOnly, xmp);
   }
 
   // ── Asset mutations ────────────────────────────────────────────────────────

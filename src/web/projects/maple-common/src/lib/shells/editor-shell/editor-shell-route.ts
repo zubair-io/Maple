@@ -14,7 +14,7 @@ import type { LibraryStateService } from '../../state/library-state.service';
 import type { Asset, AssetId } from '../../models/asset';
 import { getPersistedFile } from '../../folder-access/file-cache';
 import { formatAddress, parseAddress } from '../../addressing/maple-address';
-import { routeSegmentsToAddress } from '../../addressing/route-address';
+import { routeFileCacheId, routeSegmentsToAddress } from '../../addressing/route-address';
 
 /**
  * Resolve the current `/edit/:slug/**` (or legacy `:id`) route to an asset
@@ -60,8 +60,7 @@ function resolveSlugRoute(
     return;
   }
   if (hydrateSlugDeepLink(addrStr, state)) return;
-  const filename = addr.relPath.split('/').pop() ?? addrStr;
-  void hydrateFromCache(state, router, filename);
+  void hydrateFromCache(state, router, routeFileCacheId(slug, addr.relPath));
 }
 
 /**
@@ -158,9 +157,7 @@ async function hydrateFromCache(
       return;
     }
     const bytes = new Uint8Array(await record.file.arrayBuffer());
-    state.addImportedAsset(bytes, record.filename, id);
-    state.selectedSourceId.set('f-imported');
-    state.selectAsset(id);
+    state.enterSingleFileWorkspace(bytes, record.filename, id, false, record.xmp);
   } catch (err) {
     console.error('EditorShell: hydrateFromCache failed', err);
     void router.navigate(['/']);

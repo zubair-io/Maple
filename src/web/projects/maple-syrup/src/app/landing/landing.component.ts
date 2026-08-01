@@ -14,12 +14,8 @@ import {
   viewChild,
 } from '@angular/core';
 import { Router } from '@angular/router';
-import {
-  FolderAccessService,
-  LibraryStateService,
-  isSupportedRaw,
-  persistFile,
-} from '@maple-common';
+import { FolderAccessService, LibraryStateService, persistFile } from '@maple-common';
+import { resolveSingleFileSelection } from './single-file-selection';
 
 export const SINGLE_FILE_PERSISTENCE = new InjectionToken<typeof persistFile>(
   'SINGLE_FILE_PERSISTENCE',
@@ -55,9 +51,9 @@ export class LandingComponent {
   /** Triggered by the hidden file input's `change` event. */
   async onFilePicked(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
+    const files = Array.from(input.files ?? []);
     input.value = ''; // reset so the same file can be re-picked
-    if (file) await this.openFile(file);
+    if (files.length > 0) await this.openFiles(files);
   }
 
   /** Triggered by the "Open a folder" button (Chromium only). */
@@ -94,9 +90,9 @@ export class LandingComponent {
         return;
       }
 
-      const file = transfer.files.item(0);
-      if (file) {
-        await this.openFile(file);
+      const files = Array.from(transfer.files);
+      if (files.length > 0) {
+        await this.openFiles(files);
         return;
       }
       this.errorMessage.set('Drop a supported RAW, image, or folder.');
@@ -105,24 +101,31 @@ export class LandingComponent {
     }
   }
 
-  private async openFile(file: File): Promise<void> {
+  private async openFiles(files: readonly File[]): Promise<void> {
     this.errorMessage.set(null);
-    if (!isSupportedRaw(file.name) && !file.type.startsWith('image/')) {
-      this.errorMessage.set(`“${file.name}” is not a supported RAW or image file.`);
+    let selection: Awaited<ReturnType<typeof resolveSingleFileSelection>>;
+    try {
+      selection = await resolveSingleFileSelection(files);
+    } catch (error) {
+      this.showError(
+        error instanceof Error ? error.message : 'Maple could not read those files.',
+        error,
+      );
       return;
     }
 
+    const { photo: file, xmp } = selection;
     try {
       const assetId = crypto.randomUUID();
       const bytes = new Uint8Array(await file.arrayBuffer());
       let memoryOnly = false;
       try {
-        await this.persistSingleFile(assetId, file);
+        await this.persistSingleFile(assetId, file, xmp);
       } catch (error) {
         console.warn('Maple could not persist this single-file session', error);
         memoryOnly = true;
       }
-      this.state.enterSingleFileWorkspace(bytes, file.name, assetId, memoryOnly);
+      this.state.enterSingleFileWorkspace(bytes, file.name, assetId, memoryOnly, xmp);
       await this.router.navigate(['/edit', assetId]);
     } catch (error) {
       this.showError(`Maple could not open “${file.name}”.`, error);

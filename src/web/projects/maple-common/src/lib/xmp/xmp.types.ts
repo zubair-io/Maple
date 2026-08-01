@@ -67,4 +67,8 @@ export interface PassthroughBucket {
   unknownAttributes: Array<{ name: string; value: string }>;
   /** Serialized XML of child elements of rdf:Description Maple doesn't model. */
   unknownNodes: string[];
+  /** Self-contained foreign siblings preserved beside Maple's canonical rdf:Description. */
+  unknownRdfNodes?: string[];
+  /** Self-contained foreign siblings preserved beside Maple's canonical rdf:RDF. */
+  unknownXmpmetaNodes?: string[];
 }

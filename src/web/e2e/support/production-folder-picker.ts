@@ -16,6 +16,7 @@ export interface FolderPickerOperation {
 export interface ProductionFolderPickerAudit {
   readonly operations: FolderPickerOperation[];
   clear(): void;
+  setWritePermission(granted: boolean): void;
 }
 
 function fixturePath(root: string, requested: string): string {
@@ -39,6 +40,7 @@ export async function installProductionFolderPicker(
   root: string,
 ): Promise<ProductionFolderPickerAudit> {
   const operations: FolderPickerOperation[] = [];
+  let writePermission: PermissionState = 'granted';
   await page.exposeBinding('__mapleE2eListDirectory', async (_source, requested: string) => {
     const entries = await readdir(fixturePath(root, requested), { withFileTypes: true });
     return entries
@@ -59,6 +61,9 @@ export async function installProductionFolderPicker(
   await page.exposeBinding(
     '__mapleE2eWriteFile',
     async (_source, requested: string, base64: string) => {
+      if (writePermission !== 'granted') {
+        throw new DOMException('Write permission was revoked', 'NotAllowedError');
+      }
       operations.push({ kind: 'write', path: requested, at: Date.now() });
       const path = fixturePath(root, requested);
       await mkdir(dirname(path), { recursive: true });
@@ -66,8 +71,12 @@ export async function installProductionFolderPicker(
     },
   );
   await page.exposeBinding('__mapleE2eEnsureDirectory', async (_source, requested: string) => {
+    if (writePermission !== 'granted') {
+      throw new DOMException('Write permission was revoked', 'NotAllowedError');
+    }
     await mkdir(fixturePath(root, requested), { recursive: true });
   });
+  await page.exposeBinding('__mapleE2eWritePermission', async () => writePermission);
 
   await page.addInitScript(
     ({ folderName }) => {
@@ -77,6 +86,7 @@ export async function installProductionFolderPicker(
         __mapleE2eFileMetadata(path: string): Promise<{ size: number; lastModified: number }>;
         __mapleE2eWriteFile(path: string, base64: string): Promise<void>;
         __mapleE2eEnsureDirectory(path: string): Promise<void>;
+        __mapleE2eWritePermission(): Promise<PermissionState>;
       };
 
       const joinPath = (parent: string, child: string) =>
@@ -135,10 +145,10 @@ export async function installProductionFolderPicker(
         kind: 'directory' as const,
         name,
         async queryPermission() {
-          return 'granted' as const;
+          return bindings.__mapleE2eWritePermission();
         },
         async requestPermission() {
-          return 'granted' as const;
+          return bindings.__mapleE2eWritePermission();
         },
         async *entries() {
           for (const entry of await bindings.__mapleE2eListDirectory(path)) {
@@ -172,5 +182,8 @@ export async function installProductionFolderPicker(
   return {
     operations,
     clear: () => operations.splice(0),
+    setWritePermission: (granted) => {
+      writePermission = granted ? 'granted' : 'denied';
+    },
   };
 }

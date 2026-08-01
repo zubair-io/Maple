@@ -27,6 +27,13 @@ import { resolveWbScaleVersion, normalizeParsedWb } from './xmp-wb-scale';
 import { parseMetadataBlock } from './xmp-metadata';
 import { parseCullingBlock } from './xmp-culling';
 import { collectXmpPassthrough } from './xmp-passthrough';
+import {
+  attrOf,
+  managedXmpName,
+  mergedXmpDescription,
+  PAPP_NAMESPACES,
+  primaryXmpDescription,
+} from './xmp-dom-utils';
 
 /**
  * Precomputed `xmpKey → alias` lookup for `LEGACY_READ_ALIASES`. Used by both
@@ -77,7 +84,7 @@ export class XmpParserService {
         console.warn('XmpParserService: malformed XML');
         return defaults;
       }
-      desc = doc.querySelector('rdf\\:Description') ?? doc.querySelector('Description');
+      desc = mergedXmpDescription(doc);
       if (!desc) return defaults;
     } catch {
       return defaults;
@@ -98,7 +105,7 @@ export class XmpParserService {
     try {
       const doc = new DOMParser().parseFromString(xml, 'text/xml');
       if (doc.querySelector('parseerror')) return {};
-      desc = doc.querySelector('rdf\\:Description') ?? doc.querySelector('Description');
+      desc = mergedXmpDescription(doc);
     } catch {
       return {};
     }
@@ -129,10 +136,13 @@ export class XmpParserService {
     };
 
     let desc: Element | null = null;
+    let sourceDescription: Element | null = null;
+    let document: Document | null = null;
     let sawPappAnywhere = false;
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(xml, 'text/xml');
+      document = doc;
 
       // Guard against parse errors.
       if (doc.querySelector('parseerror')) {
@@ -140,20 +150,23 @@ export class XmpParserService {
         return emptyResult;
       }
 
-      desc = doc.querySelector('rdf\\:Description') ?? doc.querySelector('Description');
+      sourceDescription = primaryXmpDescription(doc);
+      desc = mergedXmpDescription(doc);
 
       if (!desc) return emptyResult;
 
-      // Maple-authorship marker (#1780): raw-core and the Swift parser
-      // record the `papp:` namespace from ANY element (declaration or
-      // attribute) — a writer may declare `xmlns:papp` on an outer
-      // element like `x:xmpmeta`, not just `rdf:Description`. Computed
-      // here, where the whole Document is in scope; consumed by the WB
-      // scale-version resolution below.
-      sawPappAnywhere = Array.from(doc.getElementsByTagName('*')).some((el) =>
-        Array.from(el.attributes).some(
-          (a) => a.name === 'xmlns:papp' || a.name.startsWith('papp:'),
-        ),
+      // Maple-authorship marker (#1780): detect either recognized Maple URI
+      // from any declaration, element, or attribute in the document. A writer
+      // may declare it on xmpmeta rather than rdf:Description.
+      sawPappAnywhere = Array.from(doc.getElementsByTagName('*')).some(
+        (el) =>
+          PAPP_NAMESPACES.includes(el.namespaceURI as (typeof PAPP_NAMESPACES)[number]) ||
+          Array.from(el.attributes).some(
+            (attr) =>
+              PAPP_NAMESPACES.includes(attr.namespaceURI as (typeof PAPP_NAMESPACES)[number]) ||
+              (attr.namespaceURI === 'http://www.w3.org/2000/xmlns/' &&
+                PAPP_NAMESPACES.includes(attr.value as (typeof PAPP_NAMESPACES)[number])),
+          ),
       );
     } catch {
       return emptyResult;
@@ -178,7 +191,7 @@ export class XmpParserService {
     // rect fields — mirrors the two-pass approach in raw-core's xmp/mod.rs.
     // crs:CropAngle is independent of HasCrop (pure straighten; spec § 01
     // invariant 3). Missing or "False" → leave crop at identity default.
-    const hasCropAttr = desc.getAttribute('crs:HasCrop');
+    const hasCropAttr = attrOf(desc, ['crs:HasCrop']);
     const hasCrop = hasCropAttr === 'True' || hasCropAttr === 'true';
     let cropTop: number | undefined;
     let cropLeft: number | undefined;
@@ -195,7 +208,8 @@ export class XmpParserService {
     const legacyDeferred: Array<{ name: string; value: string }> = [];
     for (let i = 0; i < desc.attributes.length; i++) {
       const attr = desc.attributes[i];
-      const name = attr.name;
+      const name = managedXmpName(attr);
+      if (!name) continue;
 
       const mapping = ADJUSTMENT_FIELDS.find((f) => f.xmpKey === name);
       if (mapping) {
@@ -433,6 +447,9 @@ export class XmpParserService {
       model.crop = crop;
     }
 
-    return { model, passthrough: collectXmpPassthrough(desc, model) };
+    return {
+      model,
+      passthrough: collectXmpPassthrough(sourceDescription ?? desc, model, document ?? undefined),
+    };
   }
 }

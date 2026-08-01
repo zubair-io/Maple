@@ -350,6 +350,54 @@ describe('LibraryCache — M2 slug:relPath byte path (editor cold-open)', () => 
   });
 });
 
+describe('LibraryCache — coherent Hosted byte snapshots', () => {
+  it('does not reuse cached RAW bytes after the folder file is replaced', async () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        LibraryCache,
+        {
+          provide: LibraryStore,
+          useValue: {
+            backend: 'hosted',
+            assetAbsPaths: new Map(),
+            apiAssetIds: new Map(),
+            findAsset: () => undefined,
+            currentFolder: () => null,
+          },
+        },
+        { provide: LibrarySelection, useValue: { selectedSourceId: signal('') } },
+        { provide: BunApiBackendService, useValue: {} },
+        { provide: FilesystemBrowseService, useValue: { clearThumbCache: vi.fn() } },
+        { provide: MapleCacheService, useValue: {} },
+        { provide: RawPipelineService, useValue: {} },
+        {
+          provide: LIBRARY_SOURCE,
+          useValue: { thumbBlob: vi.fn(), previewBlob: vi.fn(), imageBlob: vi.fn() },
+        },
+      ],
+    });
+    const cache = TestBed.inject(LibraryCache);
+    const id = 'lib:a.dng' as AssetId;
+    let file = new File([new Uint8Array([1])], 'a.dng', { lastModified: 100 });
+    cache.registerHandle(id, {
+      name: 'a.dng',
+      kind: 'file',
+      getFile: async () => file,
+      getSubFolder: async () => Promise.reject(new Error('not a folder')),
+    });
+
+    const first = await cache.hostedBytesSnapshotFor(id);
+    file = new File([new Uint8Array([2, 3])], 'a.dng', { lastModified: 200 });
+    const replaced = await cache.hostedBytesSnapshotFor(id);
+
+    expect(Array.from(first.bytes)).toEqual([1]);
+    expect(first.source).toEqual({ size: 1, lastModified: 100 });
+    expect(Array.from(replaced.bytes)).toEqual([2, 3]);
+    expect(replaced.source).toEqual({ size: 2, lastModified: 200 });
+  });
+});
+
 describe('LibraryCache — thumbnail subscriptions (component-owned signals)', () => {
   let svc: LibraryCache;
 

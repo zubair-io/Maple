@@ -6,6 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   routeSegmentsToAddress,
+  routeFileCacheId,
   addressToRouteSegments,
   editRouteCommands,
   viewRouteCommands,
@@ -35,6 +36,18 @@ describe('routeSegmentsToAddress', () => {
     // "a%20b". Re-decoding here would corrupt it to "a b".
     const addr = routeSegmentsToAddress('library', ['a%20b']);
     expect(addr).toEqual({ slug: 'library', relPath: 'a%20b' });
+  });
+});
+
+describe('routeFileCacheId', () => {
+  it('uses the bare slug for a cold single-file route', () => {
+    expect(routeFileCacheId('969741c4-1522-4935-b509-c37e447caf8e', '')).toBe(
+      '969741c4-1522-4935-b509-c37e447caf8e',
+    );
+  });
+
+  it('keeps the basename lookup for an address route', () => {
+    expect(routeFileCacheId('library', '2026/photo.dng')).toBe('photo.dng');
   });
 });
 

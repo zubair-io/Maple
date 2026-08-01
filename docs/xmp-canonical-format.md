@@ -87,15 +87,12 @@ the API used that value while Apple used `http://ns.justmaple.app/1.0/`, and
 this document claimed a third (`http://ns.justmaple.com/maple-maple/1.0/`)
 that no writer has ever produced.
 
-Picking one is safe because **no parser on any platform resolves the URI**:
-raw-core's `xmp::parse` matches attribute names byte-wise (`papp:Profile`),
-Apple's `XMLParser` runs with namespace processing off so `attributeDict` is
-keyed on qualified names, and the TypeScript parser compares `attr.name`,
-which is also the qualified name. The `papp:` **prefix** is the discriminator
-everywhere — including the WB slider-scale authorship heuristic below, which
-is documented as keying on the prefix for this exact reason. Sidecars already
-on disk under the old Apple URI keep parsing unchanged and pick up the
-canonical URI the next time they are saved. Nothing rewrites them in place.
+The Web parser resolves namespace URI + local name and accepts both the
+canonical URI and Apple's historical `http://ns.justmaple.app/1.0/` URI.
+This prevents an unrelated document that reuses the text `papp:` from being
+interpreted as Maple metadata while keeping existing Maple sidecars readable.
+The Rust and Apple readers retain their historical qualified-name behavior;
+all three writers emit the canonical URI. Nothing rewrites a sidecar in place.
 
 The BOM (`\uFEFF`) inside `xpacket begin` is literal — do not strip it.
 
@@ -542,10 +539,9 @@ versioned on the sidecar:
   model to V3 (negating an explicitly authored `crs:Tint`, which
   preserves the authored look exactly since the two axis orientations are
   the same line with opposite sign). Fresh models are version 3.
-- **Absent stamp:** decided by authorship. A document that carries the
-  Maple `papp:` namespace (every Maple writer declares it unconditionally
-  — the _prefix_ is the discriminator, since the three writers bind it to
-  different URIs) AND an explicit `crs:Temperature`/`crs:Tint` predates
+- **Absent stamp:** decided by authorship. A document that carries a recognized
+  Maple `papp` namespace URI (every Maple writer declares one unconditionally)
+  AND an explicit `crs:Temperature`/`crs:Tint` predates
   the versioning and reads as **1**. Everything else reads as **3**: a
   document with no `papp:` namespace at all (ACR/Lightroom-authored) is
   expressed in ACR's own convention — which V3 matches — and a document

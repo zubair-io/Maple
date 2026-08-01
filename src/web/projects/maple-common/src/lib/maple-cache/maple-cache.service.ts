@@ -12,7 +12,24 @@ import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { MapleIndex, IndexedAsset } from './maple-cache.types';
 import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-model.generated';
 import { ThumbFormat } from '../raw-pipeline/image-utils';
-import { hasCacheImageSignature } from './cache-image-format';
+import {
+  hasCacheImageSignature,
+  PREVIEW_CACHE_FORMATS,
+  previewFormatForMime,
+} from './cache-image-format';
+import {
+  parsePreviewDescriptor,
+  previewArtifactPath,
+  previewCacheDir,
+  previewDescriptorPath,
+  previewIdentityPath,
+  samePreviewSource,
+  validPreviewSource,
+  type PreviewCacheDescriptor,
+  type PreviewSourceIdentity,
+} from './preview-cache-protocol';
+
+export type { PreviewSourceIdentity } from './preview-cache-protocol';
 
 /**
  * Pipeline version the Hosted thumb cache was developed at (#1927). Unlike
@@ -32,32 +49,6 @@ import { hasCacheImageSignature } from './cache-image-format';
  * `docs/pipeline-output-version.md`.
  */
 export const THUMB_PIPELINE_VERSION = PIPELINE_OUTPUT_VERSION;
-
-/** Directory holding an asset's unedited-preview cache, relative to the
- * library root. `relDir` is the asset's OWN directory (`''` for a root-level
- * asset) — the `.maple/previews/` folder sits alongside the asset, matching
- * the canonical cross-platform layout the server/Apple write
- * (`<dir>/.maple/previews/`), not the single root `.maple/thumbs/` the web
- * thumb tier still uses. */
-function previewCacheDir(relDir: string): string {
-  return relDir ? `${relDir}/.maple/previews` : '.maple/previews';
-}
-
-/** Canonical preview cache path: `<relDir>/.maple/previews/<filename>.avif`,
- * where `filename` includes the original extension (e.g. `IMG_1234.CR2` →
- * `.../previews/IMG_1234.CR2.avif`). */
-function previewCachePath(relDir: string, filename: string): string {
-  return `${previewCacheDir(relDir)}/${filename}.avif`;
-}
-
-export interface PreviewSourceIdentity {
-  size: number;
-  lastModified: number;
-}
-
-function previewIdentityPath(relDir: string, filename: string): string {
-  return `${previewCachePath(relDir, filename)}.source.json`;
-}
 
 @Injectable({ providedIn: 'root' })
 export class MapleCacheService {
@@ -249,29 +240,11 @@ export class MapleCacheService {
 
   // ── Previews (unedited embedded-RAW-preview tier, #2010 / epic #1993) ──────
 
-  /**
-   * Read a cached unedited-preview AVIF blob for the asset at
-   * `<relDir>/<filename>` within `folder`.
-   *
-   * Path is the canonical cross-platform preview contract, identical on
-   * server/Apple/web: `<relDir>/.maple/previews/<filename>.avif`, where
-   * `filename` is the asset's original name INCLUDING its extension and
-   * `relDir` is the asset's directory relative to the library root (`''` for a
-   * root-level asset). Path-keyed off directory+filename — NOT the
-   * content-addressed `maple_id` an earlier draft used, and NOT the
-   * filename-sha thumbs use — so a preview written by any client lands exactly
-   * where every other client looks for it.
-   *
-   * Returns null if not cached.
-   *
-   * No pipeline-version marker (contrast `readThumb`'s `.v` companion): a
-   * preview is a pure re-encode of the RAW's own camera-embedded JPEG
-   * (`EmbeddedPreviewService`), never touching raw-core's decode/demosaic/AgX
-   * chain, so a `PIPELINE_OUTPUT_VERSION` bump can't make it stale. Cache reuse
-   * is nevertheless source-gated: Hosted writes record the RAW's exact
-   * size+mtime, while unmarked cross-platform entries use the server's
-   * derivative-mtime freshness rule.
-   */
+  /** Read a Hosted-private preview descriptor and its declared artifact.
+   * New entries may be AVIF, JPEG, WebP, or PNG, but the descriptor's closed
+   * format/MIME mapping, source identity, and byte signature must all agree.
+   * A present malformed descriptor fails closed. When no descriptor exists,
+   * the legacy cross-platform `<filename>.avif` contract remains readable. */
   async readPreview(
     folder: MapleFolderHandle,
     relDir: string,
@@ -279,99 +252,148 @@ export class MapleCacheService {
     source: PreviewSourceIdentity,
   ): Promise<Blob | null> {
     try {
-      const path = previewCachePath(relDir, filename);
-      const bytes = await this.fs.readFile(folder, path);
-      if (!hasCacheImageSignature(bytes, 'avif')) return null;
-      if (!(await this._previewMatchesSource(folder, relDir, filename, source))) return null;
-      // `Blob`'s constructor accepts an `ArrayBufferView` (a `Uint8Array`)
-      // directly at runtime — passing `bytes` itself (not `bytes.buffer`) also
-      // respects its byteOffset/byteLength if `readFile` ever returns a view
-      // over a larger buffer, so this needs neither the extra copy nor the
-      // `ArrayBuffer`-only assumption `readThumb` above was written against.
-      // The cast is TS-only friction (`lib.dom.d.ts` narrows `BlobPart` to
-      // `ArrayBufferView<ArrayBuffer>` and can't statically rule out a
-      // `SharedArrayBuffer` backing `readFile` never produces) — same friction
-      // `image-utils.ts`'s canvas helpers already cast through.
-      return new Blob([bytes as unknown as BlobPart], { type: 'image/avif' });
+      const descriptor = await this._readPreviewDescriptor(folder, relDir, filename);
+      if (descriptor === 'absent') {
+        return await this._readLegacyAvifPreview(folder, relDir, filename, source);
+      }
+      if (!descriptor || !samePreviewSource(descriptor.source, source)) return null;
+
+      // Apple and the Self-Hosted API intentionally keep writing the portable
+      // fixed-name AVIF without this Hosted-only descriptor. Do not let an
+      // older local JPEG/WebP/PNG descriptor permanently shadow a newer
+      // cross-platform develop. This adds one metadata lookup only for the
+      // browser-native formats; the normal artifact read remains unchanged.
+      if (descriptor.format !== 'avif') {
+        const canonical = await this._readNewerCanonicalAvif(
+          folder,
+          relDir,
+          filename,
+          descriptor.artifactLastModified,
+        );
+        if (canonical === 'invalid') return null;
+        if (canonical) return canonical;
+      }
+
+      const bytes = await this.fs.readFile(
+        folder,
+        previewArtifactPath(relDir, filename, descriptor.format),
+      );
+      if (!hasCacheImageSignature(bytes, descriptor.format)) return null;
+      return new Blob([bytes as unknown as BlobPart], { type: descriptor.mimeType });
     } catch {
       return null;
     }
   }
 
-  /**
-   * Write an unedited-preview blob to the canonical
-   * `<relDir>/.maple/previews/<filename>.avif` path (see `readPreview`).
-   * Creates the `.maple/previews/` directory (in the asset's own folder) if
-   * necessary. Silently skips if the folder is read-only.
-   *
-   * `blob` MUST be genuine AVIF: the caller (`HostedPreviewResolver`) only
-   * reaches this after `encodePreviewBlobToAvif` produced real AVIF, precisely
-   * so a browser that can't encode AVIF never lands a mislabeled `.avif` here
-   * (exactly the format the server's #2014 validator rejects on a real decode).
-   * The `.avif` extension is fixed by the cross-platform contract, so unlike
-   * `writeThumb` there is no format parameter.
-   */
+  /** Write the browser's actual encoded format, then publish its descriptor.
+   * The artifact is written first so a partial first write cannot advertise
+   * missing bytes. Unknown MIME types and mismatched signatures are refused. */
   async writePreview(
     folder: MapleFolderHandle,
     relDir: string,
     filename: string,
     blob: Blob,
-    source?: PreviewSourceIdentity,
+    source: PreviewSourceIdentity,
   ): Promise<void> {
     if (!folder.write) return;
     try {
+      const format = previewFormatForMime(blob.type);
+      if (!format || !validPreviewSource(source)) {
+        console.warn(`MapleCacheService: refused invalid preview ${relDir}/${filename}`);
+        return;
+      }
       const bytes = new Uint8Array(await blob.arrayBuffer());
-      if (!hasCacheImageSignature(bytes, 'avif')) {
-        console.warn(`MapleCacheService: refused non-AVIF preview ${relDir}/${filename}`);
+      if (!hasCacheImageSignature(bytes, format)) {
+        console.warn(
+          `MapleCacheService: refused mislabeled ${format} preview ${relDir}/${filename}`,
+        );
         return;
       }
       await this.fs.ensureSubdirectory(folder, previewCacheDir(relDir));
-      await this.fs.writeFile(folder, previewCachePath(relDir, filename), bytes);
-      if (source) {
-        await this.fs.writeFile(
-          folder,
-          previewIdentityPath(relDir, filename),
-          new TextEncoder().encode(JSON.stringify(source)),
-        );
-      }
+      const artifactPath = previewArtifactPath(relDir, filename, format);
+      await this.fs.writeFile(folder, artifactPath, bytes);
+      const artifactLastModified = (await this.fs.fileMetadata(folder, artifactPath)).lastModified;
+      const descriptor: PreviewCacheDescriptor = {
+        version: 1,
+        format,
+        mimeType: PREVIEW_CACHE_FORMATS[format].mimeType,
+        source,
+        artifactLastModified,
+      };
+      await this.fs.writeFile(
+        folder,
+        previewDescriptorPath(relDir, filename),
+        new TextEncoder().encode(JSON.stringify(descriptor)),
+      );
     } catch (err) {
       console.warn(`MapleCacheService: failed to write preview ${relDir}/${filename}`, err);
     }
   }
 
-  private async _previewMatchesSource(
+  private async _readPreviewDescriptor(
+    folder: MapleFolderHandle,
+    relDir: string,
+    filename: string,
+  ): Promise<PreviewCacheDescriptor | 'absent' | null> {
+    let bytes: Uint8Array;
+    try {
+      bytes = await this.fs.readFile(folder, previewDescriptorPath(relDir, filename));
+    } catch {
+      return 'absent';
+    }
+    return parsePreviewDescriptor(bytes);
+  }
+
+  private async _readLegacyAvifPreview(
     folder: MapleFolderHandle,
     relDir: string,
     filename: string,
     source: PreviewSourceIdentity,
-  ): Promise<boolean> {
-    let identityBytes: Uint8Array;
+  ): Promise<Blob | null> {
+    const path = previewArtifactPath(relDir, filename, 'avif');
+    const bytes = await this.fs.readFile(folder, path);
+    if (!hasCacheImageSignature(bytes, 'avif')) return null;
+
+    let matches: boolean;
     try {
-      identityBytes = await this.fs.readFile(folder, previewIdentityPath(relDir, filename));
-    } catch {
-      // Cross-platform entries may predate the Hosted marker. Preserve the
-      // server's freshness rule only when that companion is genuinely absent
-      // or unreadable: derivative mtime must not precede the source.
+      const identityBytes = await this.fs.readFile(folder, previewIdentityPath(relDir, filename));
       try {
-        const metadata = await this.fs.fileMetadata(folder, previewCachePath(relDir, filename));
-        return metadata.lastModified >= source.lastModified;
+        const recorded = JSON.parse(
+          new TextDecoder().decode(identityBytes),
+        ) as PreviewSourceIdentity;
+        matches = validPreviewSource(recorded) && samePreviewSource(recorded, source);
       } catch {
-        return false;
+        return null;
       }
+    } catch {
+      const metadata = await this.fs.fileMetadata(folder, path);
+      matches = metadata.lastModified >= source.lastModified;
     }
+    if (!matches) return null;
+    return new Blob([bytes as unknown as BlobPart], { type: 'image/avif' });
+  }
+
+  private async _readNewerCanonicalAvif(
+    folder: MapleFolderHandle,
+    relDir: string,
+    filename: string,
+    describedArtifactMtime: number,
+  ): Promise<Blob | 'invalid' | null> {
+    const path = previewArtifactPath(relDir, filename, 'avif');
+    let canonicalMtime: number;
+    try {
+      canonicalMtime = (await this.fs.fileMetadata(folder, path)).lastModified;
+    } catch {
+      return null;
+    }
+    if (canonicalMtime <= describedArtifactMtime) return null;
 
     try {
-      const recorded = JSON.parse(new TextDecoder().decode(identityBytes)) as PreviewSourceIdentity;
-      return (
-        Number.isFinite(recorded.size) &&
-        Number.isFinite(recorded.lastModified) &&
-        recorded.size === source.size &&
-        recorded.lastModified === source.lastModified
-      );
+      const bytes = await this.fs.readFile(folder, path);
+      if (!hasCacheImageSignature(bytes, 'avif')) return 'invalid';
+      return new Blob([bytes as unknown as BlobPart], { type: 'image/avif' });
     } catch {
-      // A present but corrupt marker belongs to this preview and cannot be
-      // bypassed by a favorable derivative mtime.
-      return false;
+      return 'invalid';
     }
   }
 }

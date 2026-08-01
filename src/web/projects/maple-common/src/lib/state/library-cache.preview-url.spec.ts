@@ -72,11 +72,14 @@ describe('LibraryCache.subscribePreviewUrl', () => {
   });
 
   it('Hosted (FS-Access) id routes through HostedPreviewResolver and shows its blob', async () => {
-    const resolve = vi.fn(async (_id, _getBytes, getSourceIdentity) => {
+    const resolve = vi.fn(async (_id, _getBytes, getSourceIdentity, getSourceSnapshot) => {
       expect(await getSourceIdentity('lib:2026/a.dng')).toEqual({
         size: 3,
         lastModified: 1234,
       });
+      const snapshot = await getSourceSnapshot('lib:2026/a.dng');
+      expect(new TextDecoder().decode(snapshot.bytes)).toBe('raw');
+      expect(snapshot.source).toEqual({ size: 3, lastModified: 1234 });
       return new Blob(['avif'], { type: 'image/avif' });
     });
     const { svc } = setup({ previewBlob: vi.fn() }, { backend: 'hosted' }, { resolve });
@@ -96,10 +99,11 @@ describe('LibraryCache.subscribePreviewUrl', () => {
       svc.subscribePreviewUrl('lib:2026/a.dng' as AssetId, (url) => seen.push(url));
       await settle();
 
-      // Called with the id and a getBytes callback (LibraryCache.bytesForAsset).
+      // The fourth callback returns bytes + identity from one Hosted File snapshot.
       expect(resolve).toHaveBeenCalledTimes(1);
       expect(resolve).toHaveBeenCalledWith(
         'lib:2026/a.dng',
+        expect.any(Function),
         expect.any(Function),
         expect.any(Function),
       );

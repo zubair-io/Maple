@@ -215,31 +215,76 @@ describe('MapleCacheService — unedited-preview cache (#2010, canonical <dir>/.
     new Blob([new Uint8Array([0, 0, 0, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66])], {
       type: 'image/avif',
     });
+  const jpeg = () => new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], { type: 'image/jpeg' });
+  const webp = () =>
+    new Blob([new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50])], {
+      type: 'image/webp',
+    });
+  const png = () =>
+    new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], {
+      type: 'image/png',
+    });
+  const source = { size: 42, lastModified: 1234 };
 
   it('writePreview lands the AVIF in the asset OWN directory (per-directory .maple, not root)', async () => {
-    await svc.writePreview(folder(), '2024/France', 'IMG_1234.CR2', avif());
+    await svc.writePreview(folder(), '2024/France', 'IMG_1234.CR2', avif(), source);
     expect(files.has('2024/France/.maple/previews/IMG_1234.CR2.avif')).toBe(true);
+    expect(files.has('2024/France/.maple/previews/IMG_1234.CR2.preview.json')).toBe(true);
     expect(ensured).toContain('2024/France/.maple/previews');
   });
 
   it('writePreview for a root-level asset keys off dir="" (root .maple/previews)', async () => {
-    await svc.writePreview(folder(), '', 'top.dng', avif());
+    await svc.writePreview(folder(), '', 'top.dng', avif(), source);
     expect(files.has('.maple/previews/top.dng.avif')).toBe(true);
     expect(ensured).toContain('.maple/previews');
   });
 
   it('writePreview skips entirely on a read-only folder', async () => {
-    await svc.writePreview(folder(false), '2024', 'a.dng', avif());
+    await svc.writePreview(folder(false), '2024', 'a.dng', avif(), source);
     expect(files.size).toBe(0);
     expect(ensured).toEqual([]);
   });
 
   it('readPreview round-trips a written AVIF with image/avif type', async () => {
-    const source = { size: 42, lastModified: 1234 };
     await svc.writePreview(folder(), '2024', 'a.dng', avif(), source);
     const blob = await svc.readPreview(folder(), '2024', 'a.dng', source);
     expect(blob).not.toBeNull();
     expect(blob!.type).toBe('image/avif');
+  });
+
+  it.each([
+    ['jpeg', jpeg(), 'jpg', 'image/jpeg'],
+    ['webp', webp(), 'webp', 'image/webp'],
+    ['png', png(), 'png', 'image/png'],
+  ])(
+    'round-trips a Hosted-private %s artifact with its actual format',
+    async (_name, blob, ext, mime) => {
+      await svc.writePreview(folder(), '', 'format.dng', blob, source);
+      expect(files.has(`.maple/previews/format.dng.${ext}`)).toBe(true);
+      expect((await svc.readPreview(folder(), '', 'format.dng', source))?.type).toBe(mime);
+    },
+  );
+
+  it('prefers a newer canonical AVIF written by Apple/API over a Hosted descriptor', async () => {
+    await svc.writePreview(folder(), '', 'shared.dng', jpeg(), source);
+    const jpegPath = '.maple/previews/shared.dng.jpg';
+    const avifPath = '.maple/previews/shared.dng.avif';
+    files.set(avifPath, new Uint8Array(await avif().arrayBuffer()));
+    modified.set(avifPath, (modified.get(jpegPath) ?? 0) + 1);
+
+    const result = await svc.readPreview(folder(), '', 'shared.dng', source);
+
+    expect(result?.type).toBe('image/avif');
+  });
+
+  it('keeps the described artifact when a canonical AVIF is older', async () => {
+    await svc.writePreview(folder(), '', 'shared.dng', jpeg(), source);
+    const jpegPath = '.maple/previews/shared.dng.jpg';
+    const avifPath = '.maple/previews/shared.dng.avif';
+    files.set(avifPath, new Uint8Array(await avif().arrayBuffer()));
+    modified.set(avifPath, (modified.get(jpegPath) ?? 1) - 1);
+
+    expect((await svc.readPreview(folder(), '', 'shared.dng', source))?.type).toBe('image/jpeg');
   });
 
   it('readPreview returns null when nothing is cached', async () => {
@@ -296,17 +341,57 @@ describe('MapleCacheService — unedited-preview cache (#2010, canonical <dir>/.
     ).toBeNull();
   });
 
+  it('fails closed on a corrupt descriptor instead of falling back to legacy AVIF', async () => {
+    const previewPath = '.maple/previews/corrupt-descriptor.dng.avif';
+    files.set(
+      previewPath,
+      new Uint8Array([0, 0, 0, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66]),
+    );
+    files.set(
+      '.maple/previews/corrupt-descriptor.dng.preview.json',
+      new TextEncoder().encode('{not-json'),
+    );
+    modified.set(previewPath, 2_000);
+
+    expect(
+      await svc.readPreview(folder(), '', 'corrupt-descriptor.dng', {
+        size: 10,
+        lastModified: 1_000,
+      }),
+    ).toBeNull();
+  });
+
+  it('rejects descriptor keys inherited from Object.prototype', async () => {
+    files.set(
+      '.maple/previews/prototype.dng.preview.json',
+      new TextEncoder().encode(JSON.stringify({ version: 1, format: 'toString', source })),
+    );
+    expect(await svc.readPreview(folder(), '', 'prototype.dng', source)).toBeNull();
+  });
+
+  it('keeps a legacy AVIF without a descriptor readable', async () => {
+    const previewPath = '.maple/previews/legacy.dng.avif';
+    files.set(
+      previewPath,
+      new Uint8Array([0, 0, 0, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66]),
+    );
+    modified.set(previewPath, 2_000);
+    expect(
+      (await svc.readPreview(folder(), '', 'legacy.dng', { size: 10, lastModified: 1_000 }))?.type,
+    ).toBe('image/avif');
+  });
+
   it('writePreview refuses a JPEG carrying an image/avif MIME label', async () => {
     const mislabeled = new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], {
       type: 'image/avif',
     });
-    await svc.writePreview(folder(), '2024', 'a.dng', mislabeled);
+    await svc.writePreview(folder(), '2024', 'a.dng', mislabeled, source);
     expect(files.size).toBe(0);
     expect(ensured).toEqual([]);
   });
 
   it('preview cache filename includes the original extension (e.g. IMG.CR2.avif, not IMG.avif)', async () => {
-    await svc.writePreview(folder(), '', 'IMG.CR2', avif());
+    await svc.writePreview(folder(), '', 'IMG.CR2', avif(), source);
     expect(files.has('.maple/previews/IMG.CR2.avif')).toBe(true);
     expect(files.has('.maple/previews/IMG.avif')).toBe(false);
   });

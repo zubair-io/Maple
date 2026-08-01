@@ -24,7 +24,7 @@ describe('LandingComponent', () => {
   const router = {
     navigate: vi.fn<() => Promise<boolean>>(),
   };
-  const persistSingleFile = vi.fn<(id: string, file: File) => Promise<void>>();
+  const persistSingleFile = vi.fn<(id: string, file: File, xmp?: string) => Promise<void>>();
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -78,6 +78,7 @@ describe('LandingComponent', () => {
       'photo.DNG',
       assetId,
       false,
+      undefined,
     );
     expect(router.navigate).toHaveBeenCalledWith(['/edit', assetId]);
   });
@@ -94,8 +95,60 @@ describe('LandingComponent', () => {
       'photo.DNG',
       assetId,
       true,
+      undefined,
     );
     expect(router.navigate).toHaveBeenCalledWith(['/edit', assetId]);
+  });
+
+  it('imports a matching XMP with the photo and persists both across reload', async () => {
+    const photo = new File(['raw'], 'photo.DNG', { type: 'image/x-adobe-dng' });
+    const xmpText =
+      '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description /></rdf:RDF>';
+    const xmp = new File([xmpText], 'photo.xmp', { type: 'application/rdf+xml' });
+    const input = { files: [photo, xmp], value: 'photo.DNG' };
+
+    await component.onFilePicked({ target: input } as unknown as Event);
+
+    const assetId = persistSingleFile.mock.calls[0][0];
+    expect(persistSingleFile).toHaveBeenCalledWith(assetId, photo, xmpText);
+    expect(libraryState.enterSingleFileWorkspace).toHaveBeenCalledWith(
+      expect.any(Uint8Array),
+      'photo.DNG',
+      assetId,
+      false,
+      xmpText,
+    );
+  });
+
+  it('rejects an XMP that does not match the selected photo', async () => {
+    const photo = new File(['raw'], 'photo.DNG', { type: 'image/x-adobe-dng' });
+    const xmp = new File(['xmp'], 'other.xmp', { type: 'application/rdf+xml' });
+    const input = { files: [photo, xmp], value: 'photo.DNG' };
+
+    await component.onFilePicked({ target: input } as unknown as Event);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('[role="alert"]').textContent).toContain(
+      'does not match',
+    );
+    expect(persistSingleFile).not.toHaveBeenCalled();
+    expect(router.navigate).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed paired XMP before changing or persisting the session', async () => {
+    const photo = new File(['raw'], 'photo.DNG', { type: 'image/x-adobe-dng' });
+    const xmp = new File(['<not-xmp/>'], 'photo.xmp', { type: 'application/rdf+xml' });
+    const input = { files: [photo, xmp], value: 'photo.DNG' };
+
+    await component.onFilePicked({ target: input } as unknown as Event);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('[role="alert"]').textContent).toContain(
+      'not a valid sidecar',
+    );
+    expect(persistSingleFile).not.toHaveBeenCalled();
+    expect(libraryState.enterSingleFileWorkspace).not.toHaveBeenCalled();
+    expect(router.navigate).not.toHaveBeenCalled();
   });
 
   it('opens a dropped writable folder through the shared folder path', async () => {
