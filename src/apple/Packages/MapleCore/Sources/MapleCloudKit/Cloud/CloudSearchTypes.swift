@@ -180,6 +180,28 @@ public struct SearchResponse: Codable, Sendable {
   public let page: Int
   public let limit: Int
   public let results: [SearchAsset]
+  /// Opaque seek cursor for the next page (#2129). Non-nil only when the
+  /// server can resume this query with a range predicate on
+  /// `(exif.captured_at, _id)` instead of a SKIP — i.e. the
+  /// `captured_desc` / `captured_asc` sorts, off the relevance-ranked
+  /// `placeQuery` path. `nil` therefore means "keep using `page`", not
+  /// "no more rows"; the caller's own `results.count < total` gate is
+  /// what ends pagination in both modes.
+  ///
+  /// Optional so responses from a server predating the field still decode.
+  public let nextCursor: String?
+
+  public init(total: Int,
+              page: Int,
+              limit: Int,
+              results: [SearchAsset],
+              nextCursor: String? = nil) {
+    self.total = total
+    self.page = page
+    self.limit = limit
+    self.results = results
+    self.nextCursor = nextCursor
+  }
 }
 
 // MARK: - Facets
