@@ -17,6 +17,8 @@ function unexpectedAuditEntries(
   project: string,
   audit: BrowserAudit,
   expectedConsoleErrorPrefixes: readonly string[],
+  expectedRequestFailurePrefixes: readonly string[],
+  expectedErrorResponsePrefixes: readonly string[],
 ): string[] {
   const entries = [
     ...audit.consoleErrors
@@ -24,11 +26,14 @@ function unexpectedAuditEntries(
       .filter((value) => !expectedConsoleErrorPrefixes.some((prefix) => value.startsWith(prefix)))
       .map((value) => `console: ${value}`),
     ...audit.pageErrors.map((value) => `page: ${value}`),
-    ...audit.failedRequests.map((value) => `request: ${value}`),
+    ...audit.failedRequests
+      .filter((value) => !expectedRequestFailurePrefixes.some((prefix) => value.startsWith(prefix)))
+      .map((value) => `request: ${value}`),
     ...audit.errorResponses
       .filter(
         (value) =>
-          project !== 'chrome-self-hosted' || !EXPECTED_SELF_HOSTED_BOOTSTRAP_401.test(value),
+          (project !== 'chrome-self-hosted' || !EXPECTED_SELF_HOSTED_BOOTSTRAP_401.test(value)) &&
+          !expectedErrorResponsePrefixes.some((prefix) => value.startsWith(prefix)),
       )
       .map((value) => `response: ${value}`),
   ];
@@ -62,14 +67,17 @@ export const test = base.extend<{ browserAudit: void }>({
       });
 
       await use();
-      const manifest = await readProductionFixtureManifest();
+      const fixtureRoot =
+        process.env.MAPLE_E2E_HOSTED_ARTIFACT_ONLY === '1'
+          ? undefined
+          : (await readProductionFixtureManifest()).root;
       await testInfo.attach('production-browser-audit.json', {
         body: Buffer.from(
           JSON.stringify(
             {
               project: testInfo.project.name,
               baseURL: testInfo.project.use.baseURL,
-              fixtureRoot: manifest.root,
+              fixtureRoot,
               ...audit,
             },
             null,
@@ -84,6 +92,12 @@ export const test = base.extend<{ browserAudit: void }>({
           audit,
           testInfo.annotations
             .filter(({ type, description }) => type === 'expected-console-error' && description)
+            .map(({ description }) => description!),
+          testInfo.annotations
+            .filter(({ type, description }) => type === 'expected-request-failure' && description)
+            .map(({ description }) => description!),
+          testInfo.annotations
+            .filter(({ type, description }) => type === 'expected-error-response' && description)
             .map(({ description }) => description!),
         ),
         'Production browser emitted unexpected errors; see production-browser-audit.json',
