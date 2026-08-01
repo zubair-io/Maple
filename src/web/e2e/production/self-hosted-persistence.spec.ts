@@ -1,12 +1,13 @@
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import type { APIResponse, Request } from '@playwright/test';
+import type { Request } from '@playwright/test';
 import { test, expect } from '../support/production-test';
 import {
   readProductionFixtureManifest,
   verifyStagedRawHashes,
 } from '../support/production-fixtures';
+import { openSelfHostedFixture } from '../support/self-hosted-production';
 
 test('Self Hosted persists adjustments and culling in a real sibling XMP', async ({
   page,
@@ -49,25 +50,6 @@ test('Self Hosted persists adjustments and culling in a real sibling XMP', async
     '<?xpacket begin=""?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about=""/></rdf:RDF></x:xmpmeta><?xpacket end="w"?>',
   );
 
-  let setupLogin: APIResponse | null = null;
-  const loginAttempts: string[] = [];
-  for (let attempt = 1; attempt <= 20; attempt++) {
-    const response = await page.request.post('/api/auth/dev-login', { data: {} });
-    const body = await response.text();
-    loginAttempts.push(`attempt ${attempt}: ${response.status()} ${body.slice(0, 500)}`);
-    if (response.ok()) {
-      setupLogin = response;
-      break;
-    }
-    await page.waitForTimeout(250);
-  }
-  expect(setupLogin, `dev-login did not become ready:\n${loginAttempts.join('\n')}`).not.toBeNull();
-  const login = (await setupLogin!.json()) as { access_token: string };
-  const registration = await page.request.post('/api/folders', {
-    headers: { Authorization: `Bearer ${login.access_token}` },
-    data: { path: manifest.writableFolder, label: 'Persistence fixture' },
-  });
-  expect(registration.status()).toBe(201);
   const warmThumb = await readFile(
     join(manifest.populatedFolder, '.maple', 'thumbs', '5170a2440f3250ea.avif'),
   );
@@ -82,8 +64,7 @@ test('Self Hosted persists adjustments and culling in a real sibling XMP', async
     ),
   );
 
-  await page.goto('/sign-in');
-  await page.getByTestId('dev-sign-in').click();
+  await openSelfHostedFixture(page, manifest.writableFolder, 'Persistence fixture');
   const asset = page.getByRole('button', { name: 'test_0006.DNG', exact: true });
   await expect(asset).toBeVisible({ timeout: 60_000 });
   const workflowHistogramRequests: Request[] = [];
