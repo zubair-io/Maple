@@ -11,6 +11,13 @@ const appleLaunch = resolve(srcRoot, 'apple/Maple/Assets.xcassets/LaunchLogo.ima
 const brandRoot = resolve(webRoot, 'projects/maple-common/src/assets/brand');
 const checkOnly = process.argv.includes('--check');
 const REVIEWED_APP_ICON_HASH = 'b03b2f446f9d9ec625bb91197b9725565a7b51ecb032ea421a1fade1c5adba6d';
+const REQUIRED_BRAND_ASSETS = [
+  'favicon.ico',
+  'icon-192.png',
+  'icon-512-maskable.png',
+  'icon-512.png',
+  'maple-mark.png',
+];
 
 const copiedAssets = [
   [resolve(appleIcons, 'maple512.png'), resolve(brandRoot, 'icon-512.png')],
@@ -129,7 +136,17 @@ async function checkConsumers() {
   );
 }
 
-await mkdir(brandRoot, { recursive: true });
+if (checkOnly) {
+  const missingAssets = REQUIRED_BRAND_ASSETS.filter(
+    (asset) => !existsSync(resolve(brandRoot, asset)),
+  );
+  assert(
+    missingAssets.length === 0,
+    `missing brand assets: ${missingAssets.join(', ')}; run \`bun run brand:sync\``,
+  );
+} else {
+  await mkdir(brandRoot, { recursive: true });
+}
 assert(
   sha256(await readFile(resolve(appleIcons, 'maple512.png'))) === REVIEWED_APP_ICON_HASH,
   'Apple maple512.png changed; regenerate and review the 192px and maskable derivatives',
