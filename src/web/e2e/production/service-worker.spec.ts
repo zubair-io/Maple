@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 import { HOSTED_ICONS } from '../../scripts/hosted-artifact-contract';
+import { HOSTED_SECURITY_HEADERS } from '../../scripts/hosted-security-header-contract';
 import { test, expect } from '../support/production-test';
 
 interface NgswManifest {
@@ -38,6 +39,55 @@ const ASSETS = [
   { path: '/pkg/raw_wasm.js', contentType: 'application/javascript' },
   { path: '/pkg/workerHelpers.worker.js', contentType: 'application/javascript' },
 ] as const;
+
+test('Hosted enforces its production security policy in Chrome', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chrome-hosted');
+
+  const response = await page.goto('/');
+  expect(response?.ok()).toBe(true);
+  for (const [name, expected] of Object.entries(HOSTED_SECURITY_HEADERS)) {
+    expect(response?.headers()[name.toLowerCase()], `${name} must match the contract`).toBe(
+      expected,
+    );
+  }
+  await expect.poll(() => page.evaluate(() => crossOriginIsolated)).toBe(true);
+  expect(await page.evaluate(() => navigator.userAgent)).toContain('Chrome/');
+
+  const runtimeCapabilities = await page.evaluate(async (expectedHeaders) => {
+    const wasmResponse = await fetch('/raw_wasm_bg.wasm');
+    const wasmHeaders = Object.fromEntries(
+      Object.keys(expectedHeaders).map((name) => [
+        name,
+        wasmResponse.headers.get(name.toLowerCase()),
+      ]),
+    );
+    const wasm = await WebAssembly.compileStreaming(Promise.resolve(wasmResponse));
+    const workerSource = `self.postMessage({ isolated: self.crossOriginIsolated });`;
+    const workerUrl = URL.createObjectURL(new Blob([workerSource], { type: 'text/javascript' }));
+    try {
+      const isolated = await new Promise<boolean>((resolve, reject) => {
+        const worker = new Worker(workerUrl);
+        worker.onmessage = (event: MessageEvent<{ isolated: boolean }>) => {
+          worker.terminate();
+          resolve(event.data.isolated);
+        };
+        worker.onerror = (event) => reject(new Error(event.message));
+      });
+      return {
+        wasmCompiled: wasm instanceof WebAssembly.Module,
+        wasmHeaders,
+        workerIsolated: isolated,
+      };
+    } finally {
+      URL.revokeObjectURL(workerUrl);
+    }
+  }, HOSTED_SECURITY_HEADERS);
+  expect(runtimeCapabilities).toEqual({
+    wasmCompiled: true,
+    wasmHeaders: HOSTED_SECURITY_HEADERS,
+    workerIsolated: true,
+  });
+});
 
 async function fetchAssets(
   page: Page,
