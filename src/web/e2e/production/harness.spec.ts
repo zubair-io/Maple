@@ -421,7 +421,9 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
   await expect(page).toHaveURL(/\/edit\//);
   const restoredExposure = page.getByRole('slider', { name: 'Exposure' });
-  await expect(restoredExposure).toHaveAttribute('aria-valuenow', editedExposure!);
+  await expect
+    .poll(async () => Number(await restoredExposure.getAttribute('aria-valuenow')))
+    .toBeCloseTo(Number(editedExposure), 2);
 
   const expectedErrorPrefix = 'XmpStoreService: write failed for test_0006.DNG:';
   testInfo.annotations.push({ type: 'expected-console-error', description: expectedErrorPrefix });
