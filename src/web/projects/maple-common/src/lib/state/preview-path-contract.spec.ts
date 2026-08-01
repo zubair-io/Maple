@@ -48,7 +48,9 @@ describe('preview path contract — web resolver agrees with the shared golden (
   });
 
   const avif = () =>
-    new Blob([new Uint8Array([0, 0, 0, 0x1c, 0x66, 0x74, 0x79, 0x70])], { type: 'image/avif' });
+    new Blob([new Uint8Array([0, 0, 0, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66])], {
+      type: 'image/avif',
+    });
 
   it('fixture is non-empty and every case has the fields this test depends on', () => {
     expect(contract.cases.length).toBeGreaterThan(0);

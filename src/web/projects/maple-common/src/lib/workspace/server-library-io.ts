@@ -12,6 +12,7 @@ export type ServerLibraryIo = Pick<
   | 'scanFolder'
   | 'getThumb'
   | 'getRawBytes'
+  | 'getHistogram'
   | 'getDisplayConfig'
 >;
 

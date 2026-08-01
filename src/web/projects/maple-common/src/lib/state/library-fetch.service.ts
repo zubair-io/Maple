@@ -26,7 +26,7 @@ import { XmpParserService } from '../xmp/xmp-parser.service';
 import { XmpStoreService } from '../xmp/xmp-store.service';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
 import { SidecarStore } from '../xmp/sidecar.store';
-import { XmpCulling } from '../xmp/xmp.types';
+import { PassthroughBucket, XmpCulling } from '../xmp/xmp.types';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { IndexedAsset } from '../maple-cache/maple-cache.types';
 import { sha256Prefix16 } from '../maple-cache/sha';
@@ -40,6 +40,7 @@ import { isSupportedRaw } from './raw-extensions';
 import { TypedStorage } from '../util/typed-storage';
 import { SidecarSaveStateService } from '../xmp/sidecar-save-state.service';
 import { XmpAdjustmentRestoreService } from '../xmp/xmp-adjustment-restore.service';
+import { LibrarySlugRegistry } from '../addressing/library-slug-registry';
 
 const ASSET_RENDER_KEYS: readonly (keyof Asset)[] = [
   'id',
@@ -101,6 +102,7 @@ export class LibraryFetch {
   private readonly folderCache = inject(FOLDER_LISTING_CACHE);
   private readonly sidecarSave = inject(SidecarSaveStateService);
   private readonly xmpRestore = inject(XmpAdjustmentRestoreService);
+  private readonly slugRegistry = inject(LibrarySlugRegistry);
 
   // ── Index write debounce ──────────────────────────────────────────────────
   private _indexWriteTimer: ReturnType<typeof setTimeout> | null = null;
@@ -147,7 +149,12 @@ export class LibraryFetch {
    * 5. Store FolderEntry handles for lazy byte reads.
    */
   async openFolder(folder: MapleFolderHandle): Promise<void> {
-    this.store.currentFolder.set(folder);
+    // Detach the previous workspace before doing any asynchronous I/O. If the
+    // new handle has lost permission (or enumeration otherwise fails), keeping
+    // it current would let edits from the still-rendered previous view write a
+    // same-named sidecar into the wrong directory.
+    this.store.currentFolder.set(null);
+    this.store.singleFileMemoryOnly.set(false);
     this.cache_.clearAll();
 
     // 1. Load .maple/index.json for cached culling state.
@@ -163,13 +170,26 @@ export class LibraryFetch {
       (index?.assets ?? []).map((a) => [a.filename, a]),
     );
 
+    const folderSlug = await this._hostedFolderSlug(folder);
     const newAssets: Asset[] = [];
-    const folderId = `f-${folder.name}`;
+    const folderId = `f-${folderSlug}`;
     const newAdjustments = new Map<AssetId, AdjustmentModel>();
+    const newPassthroughs = new Map<AssetId, PassthroughBucket>();
+    const previousAssetIds = this.store
+      .assets()
+      .filter((asset) => asset.folderId === folderId)
+      .map((asset) => asset.id);
 
     for (const entry of rawEntries) {
-      const id = crypto.randomUUID();
       const filename = entry.name;
+      // A folder asset's id doubles as its stable local address. The preview
+      // cache resolver parses this relPath to reach
+      // `<dir>/.maple/previews/<filename>.avif`; UUIDs made every real folder
+      // open cacheless even though its file handle was available.
+      const id = formatAddress({ slug: folderSlug, relPath: filename });
+      // A sidecar miss is authoritative on reopen: never carry an in-memory
+      // adjustment forward merely because this stable id existed before.
+      newAdjustments.set(id, defaultAdjustmentModel());
 
       // Register file handle for lazy reads.
       this.cache_.registerHandle(id, entry);
@@ -202,9 +222,7 @@ export class LibraryFetch {
         const { model, passthrough } = this.xmpParser.parseAdjustmentModel(xmpText);
         const fullModel: AdjustmentModel = { ...defaultAdjustmentModel(), ...model };
         newAdjustments.set(id, fullModel);
-
-        // Cache the passthrough bucket for future writes.
-        this.xmpStore.rememberPassthrough(id, passthrough);
+        newPassthroughs.set(id, passthrough);
 
         edited = true;
       } catch {
@@ -234,20 +252,44 @@ export class LibraryFetch {
       return [...others, ...merged];
     });
 
-    // Merge loaded adjustments into the signal (only overwrite for this folder).
-    if (newAdjustments.size > 0) {
-      this.store.adjustmentModels.update((map) => {
-        const next = new Map(map);
-        for (const [id, adj] of newAdjustments) {
-          next.set(id, adj);
-        }
-        return next;
-      });
-    }
+    // Replace, rather than merge, persistence-derived state for this folder.
+    // Every current asset receives either its loaded model or defaults, while
+    // files removed since the prior enumeration lose their orphaned state.
+    this.store.adjustmentModels.update((map) => {
+      const next = new Map(map);
+      for (const id of previousAssetIds) next.delete(id);
+      for (const [id, adjustment] of newAdjustments) next.set(id, adjustment);
+      return next;
+    });
+    this.xmpStore.replacePassthroughs(
+      new Set([...previousAssetIds, ...newAdjustments.keys()]),
+      newPassthroughs,
+    );
+
+    // The handle becomes the active persistence target only after its assets
+    // and sidecars have finished loading. Until this point the previous view
+    // can still be rendered, so attaching the new folder sooner could route a
+    // last-second edit to the wrong directory.
+    this.store.currentFolder.set(folder);
 
     // 3. Ensure the folder appears in the sidebar tree.
     this.store.ensureFolder(folderId, folder.name);
     this.selection.selectedSourceId.set(folderId);
+  }
+
+  /** Stable Hosted address namespace for the selected folder. */
+  private async _hostedFolderSlug(folder: MapleFolderHandle): Promise<string> {
+    if (folder.native) {
+      try {
+        return await this.slugRegistry.register(folder.native);
+      } catch (err) {
+        // Cache addressing must not make a readable folder fail to open when
+        // native identity is unavailable. The session registry still keeps
+        // this folder distinct from same-named selections.
+        console.warn('LibraryFetch: could not persist the Hosted folder slug', err);
+      }
+    }
+    return this.slugRegistry.registerFallback(folder);
   }
 
   // ── Self-Hosted bootstrap (Bun API) ────────────────────────────────────────
@@ -1156,7 +1198,8 @@ export class LibraryFetch {
 
     // Rebuild the index from current signal state.
     let index = this.mapleCache.emptyIndex();
-    const assets = this.store.assets().filter((a) => a.folderId === `f-${folder.name}`);
+    const folderSlug = await this._hostedFolderSlug(folder);
+    const assets = this.store.assets().filter((a) => a.folderId === `f-${folderSlug}`);
 
     for (const asset of assets) {
       const sha = await sha256Prefix16(asset.filename);

@@ -31,9 +31,10 @@ import {
 } from '@angular/core';
 import { catchError, of } from 'rxjs';
 import type { Asset } from '../models/asset';
-import { BunApiBackendService, type ApiHistogram } from '../api/bun-api-backend.service';
+import type { ApiHistogram } from '../api/bun-api-backend.service';
 import { ImageCanvasService } from '../components/image-canvas/image-canvas.service';
 import { computeRgbHistograms } from '../raw-pipeline/image-utils';
+import { SERVER_LIBRARY_IO } from '../workspace/server-library-io';
 
 @Component({
   selector: 'app-info-histogram',
@@ -47,7 +48,7 @@ import { computeRgbHistograms } from '../raw-pipeline/image-utils';
   },
 })
 export class InfoHistogramComponent {
-  private readonly api = inject(BunApiBackendService);
+  private readonly serverIo = inject(SERVER_LIBRARY_IO, { optional: true });
   private readonly canvas = inject(ImageCanvasService);
 
   readonly asset = input<Asset | null>(null);
@@ -91,8 +92,8 @@ export class InfoHistogramComponent {
     effect((onCleanup) => {
       const a = this.asset();
       this.histogram.set(null);
-      if (!a?.id) return;
-      const sub = this.api
+      if (!a?.id || !this.serverIo) return;
+      const sub = this.serverIo
         .getHistogram(a.id)
         .pipe(
           catchError(() => {
