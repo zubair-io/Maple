@@ -94,7 +94,14 @@ pub fn composite_into_fp16(
     };
     crate::stages::inpaint_composite::apply(&mut img, patches);
     let alpha_one = f32_to_f16_bits(1.0);
-    let mut out: Vec<u16> = vec![0; expected_len];
+    // Size from the buffer actually being written rather than from
+    // `expected_len`. The two are provably equal here — the guard above pins
+    // `in_fp16_rgba.len() == expected_len`, `par_chunks_exact(4)` therefore
+    // yields exactly `pixel_count` pixels, and `inpaint_composite::apply`
+    // only mutates in place — but deriving the length from `img.pixels`
+    // means the `zip` below cannot silently truncate or zero-pad if that
+    // ever stops holding, and it matches `endcaps::pack_fp16`.
+    let mut out: Vec<u16> = vec![0; img.pixels.len() * 4];
     out.par_chunks_exact_mut(4)
         .zip(img.pixels.par_iter())
         .for_each(|(dst, p)| {
