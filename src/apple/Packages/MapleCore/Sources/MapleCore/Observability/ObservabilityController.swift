@@ -144,10 +144,12 @@ public final class ObservabilityController {
         refreshExecutor: any AuthenticatedRefreshExecutor =
             DirectAuthenticatedRefreshExecutor()
     ) {
-        // Adopt the executor before the didStart guard: a `selectServer` that
-        // beat `start()` to the punch has already kicked a refresh, and every
-        // later refresh on this controller should be protected regardless of
-        // which call won.
+        // Adopt the executor before the didStart guard, so a `selectServer`
+        // that ran before `start()` still gets its later refreshes protected.
+        // This is ordering only, not thread safety: the whole controller is
+        // `@MainActor`, so every read and write of `refreshExecutor` — here,
+        // in `refresh()`, and in `makeClient(for:)` — is serialized on the
+        // main actor and cannot overlap.
         self.refreshExecutor = refreshExecutor
 
         guard !didStart else {
