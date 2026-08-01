@@ -67,11 +67,6 @@ export class LibrarySlugRegistry {
   private readonly persistedKeySlugs = new Map<string, string>();
   private readonly fallbackNames = new Map<string, string>();
 
-  private async openStore(mode: IDBTransactionMode) {
-    const db = await openDb(DB_NAME, DB_VERSION, ensureSlugStore);
-    return { db, tx: db.transaction(STORE, mode), store: null as unknown as IDBObjectStore };
-  }
-
   /**
    * Register a FileSystemDirectoryHandle. If the handle refers to a directory
    * already registered (same OS identity, checked via isSameEntry), returns the
@@ -102,9 +97,13 @@ export class LibrarySlugRegistry {
 
     try {
       const db = await openDb(DB_NAME, DB_VERSION, ensureSlugStore);
-      const tx = db.transaction(STORE, 'readwrite');
-      tx.objectStore(STORE).put(handle, slug);
-      await txDone(tx).finally(() => db.close());
+      try {
+        const tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).put(handle, slug);
+        await txDone(tx);
+      } finally {
+        db.close();
+      }
     } catch (err) {
       // The in-memory registration above is sufficient for this open editor
       // session. Persisting the handle is an optional reload convenience, not
