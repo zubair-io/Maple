@@ -541,13 +541,13 @@ export async function writeConflictSidecarAtomic(
  * (with optional ` (N)` numeric suffix). Order is unspecified; callers that
  * care about ordering must sort.
  *
- * Reads the RAW's parent directory once and filters by name. Missing
- * directory or read errors return an empty array — the caller is moving
- * sidecars best-effort.
+ * `<base>` mirrors `xmpSidecarPath`'s stem(image)/full-name(video) split —
+ * else a video would match a same-stem photo's sidecar in a Live Photo
+ * pair (#1678). Missing directory or read errors return an empty array.
  */
 export async function listPairedSidecars(rawAbsPath: string): Promise<string[]> {
   const dir = path.dirname(rawAbsPath);
-  const rawBase = path.basename(rawAbsPath, path.extname(rawAbsPath));
+  const rawBase = isVideoFilename(rawAbsPath) ? path.basename(rawAbsPath) : path.basename(rawAbsPath, path.extname(rawAbsPath));
   let entries: string[];
   try {
     entries = await fs.readdir(dir);
