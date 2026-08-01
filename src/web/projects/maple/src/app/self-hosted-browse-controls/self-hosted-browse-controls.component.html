@@ -1,0 +1,52 @@
+<div
+  class="flex items-center h-8 rounded-md border-[0.5px] border-border bg-input-bg overflow-hidden"
+  role="group"
+  aria-label="View mode"
+>
+  <button
+    type="button"
+    class="view-mode-btn flex h-full items-center gap-1.5 px-2.5 text-[11px] text-text-muted transition-colors duration-[120ms] hover:text-text-main"
+    [class.is-active]="state.viewMode() === 'folder'"
+    [attr.aria-pressed]="state.viewMode() === 'folder'"
+    title="Folder view"
+    (click)="state.setViewMode('folder')"
+  >
+    <maple-icon name="grid-sm" [size]="12" />
+    <span>Folder</span>
+  </button>
+  <button
+    type="button"
+    class="view-mode-btn flex h-full items-center gap-1.5 px-2.5 text-[11px] text-text-muted transition-colors duration-[120ms] hover:text-text-main"
+    [class.is-active]="state.viewMode() === 'timeline'"
+    [attr.aria-pressed]="state.viewMode() === 'timeline'"
+    title="Timeline view"
+    (click)="state.setViewMode('timeline')"
+  >
+    <maple-icon name="history" [size]="12" />
+    <span>Timeline</span>
+  </button>
+</div>
+
+<div
+  class="toolbar-search flex items-center gap-2 h-8 px-3 rounded-md bg-input-bg border-[0.5px] border-border focus-within:border-text-muted"
+>
+  <maple-icon name="search" [size]="14" color="var(--color-text-muted)" />
+  <input
+    type="text"
+    placeholder="Filter filenames…"
+    aria-label="Filter filenames in current folder"
+    class="flex-1 min-w-0 border-0 outline-0 bg-transparent text-text-main text-[12px] py-0 placeholder:text-text-muted placeholder:opacity-70"
+    [value]="state.searchQuery()"
+    (input)="onSearchInput($event)"
+    (keydown.enter)="openSearch()"
+  />
+</div>
+
+<a
+  class="chrome-btn flex h-8 w-8 items-center justify-center rounded-md border-[0.5px] border-transparent cursor-pointer transition-colors duration-[120ms] hover:bg-surface-hover hover:border-border"
+  routerLink="/settings"
+  title="Settings"
+  aria-label="Open settings"
+>
+  <maple-icon name="gear" [size]="16" color="var(--color-text-muted)" />
+</a>

@@ -1,0 +1,39 @@
+<button
+  type="button"
+  class="export-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] border-[0.5px]"
+  [class.has-selection]="canEditMetadata()"
+  [class.no-selection]="!canEditMetadata()"
+  [class.bg-primary-dim]="canEditMetadata()"
+  [class.text-primary]="canEditMetadata()"
+  [class.border-primary]="canEditMetadata()"
+  [class.bg-input-bg]="!canEditMetadata()"
+  [class.text-text-muted]="!canEditMetadata()"
+  [class.border-border]="!canEditMetadata()"
+  [class.opacity-50]="!canEditMetadata()"
+  [disabled]="!canEditMetadata()"
+  title="Edit metadata for selected photos"
+  aria-label="Edit metadata"
+  (click)="controller.openMetadata()"
+>
+  <span>Edit Metadata…{{ canEditMetadata() ? ' (' + state.selectedCount() + ')' : '' }}</span>
+</button>
+
+<button
+  type="button"
+  class="export-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] border-[0.5px]"
+  [class.has-selection]="canMergePano()"
+  [class.no-selection]="!canMergePano()"
+  [class.bg-primary-dim]="canMergePano()"
+  [class.text-primary]="canMergePano()"
+  [class.border-primary]="canMergePano()"
+  [class.bg-input-bg]="!canMergePano()"
+  [class.text-text-muted]="!canMergePano()"
+  [class.border-border]="!canMergePano()"
+  [class.opacity-50]="!canMergePano()"
+  [disabled]="!canMergePano()"
+  title="Stitch selected images into a panorama"
+  aria-label="Merge to panorama"
+  (click)="controller.openPano()"
+>
+  <span>Merge to panorama…{{ canMergePano() ? ' (' + state.selectedCount() + ')' : '' }}</span>
+</button>
