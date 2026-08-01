@@ -12,6 +12,16 @@ test('Self Hosted persists adjustments and culling in a real sibling XMP', async
   page,
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'chrome-self-hosted');
+  const pendingHistogramRequests = new Set<Request>();
+  page.on('request', (request) => {
+    if (request.url().includes('/histogram')) pendingHistogramRequests.add(request);
+  });
+  const settleHistogram = (request: Request): void => {
+    pendingHistogramRequests.delete(request);
+  };
+  page.on('requestfinished', settleHistogram);
+  page.on('requestfailed', settleHistogram);
+
   const manifest = await readProductionFixtureManifest();
   const sidecar = join(manifest.writableFolder, 'test_0006.xmp');
   await writeFile(
@@ -81,6 +91,7 @@ test('Self Hosted persists adjustments and culling in a real sibling XMP', async
   );
   await asset.click();
   await histogramReady;
+  await expect.poll(() => pendingHistogramRequests.size).toBe(0);
   const dismissLanBanner = page.getByRole('button', { name: 'Dismiss', exact: true });
   if (await dismissLanBanner.isVisible()) await dismissLanBanner.click();
   await page.getByLabel('Edit', { exact: true }).click();
@@ -130,16 +141,6 @@ test('Self Hosted persists adjustments and culling in a real sibling XMP', async
       };
     }, savedXml),
   ).toEqual({ parseError: false, opaque: 'keep-me', payload: 'opaque payload', version: '7' });
-
-  const pendingHistogramRequests = new Set<Request>();
-  page.on('request', (request) => {
-    if (request.url().includes('/histogram')) pendingHistogramRequests.add(request);
-  });
-  const settleHistogram = (request: Request): void => {
-    pendingHistogramRequests.delete(request);
-  };
-  page.on('requestfinished', settleHistogram);
-  page.on('requestfailed', settleHistogram);
 
   const authenticatedReload = page.waitForResponse(
     (response) => response.url().includes('/api/xmp?') && response.ok(),
