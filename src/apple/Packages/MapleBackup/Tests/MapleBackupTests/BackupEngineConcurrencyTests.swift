@@ -188,19 +188,11 @@ final class BackupEngineRetryWakeupTests: XCTestCase {
     }
 
     /// Await `task` or fail if it hangs — a regression here would otherwise
-    /// stall the whole test run instead of failing fast.
+    /// stall the whole test run instead of failing fast. See `awaitBounded`
+    /// (`Helpers/TestShared.swift`) for why this can't be a `withTaskGroup`.
     private func awaitCompletion(of task: Task<Void, Never>, timeout: TimeInterval,
                                  file: StaticString = #filePath, line: UInt = #line) async {
-        let finished = await withTaskGroup(of: Bool.self) { group -> Bool in
-            group.addTask { await task.value; return true }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                return false
-            }
-            let first = await group.next() ?? false
-            group.cancelAll()
-            return first
-        }
+        let finished = await awaitBounded(timeout: timeout) { await task.value; return true } != nil
         XCTAssertTrue(finished, "did not complete within \(timeout)s — possible hang",
                       file: file, line: line)
     }
@@ -307,5 +299,52 @@ final class BackupEngineRetryWakeupTests: XCTestCase {
         await engine.stop()
         runnerTask.cancel()
         await awaitCompletion(of: runnerTask, timeout: 1.0)
+    }
+
+    /// (d) A second concurrent `run()` call must not strand the first.
+    /// `RetryWakeSignal` has exactly one continuation slot — two loops both
+    /// parking on it would race to overwrite one another's continuation,
+    /// permanently stranding whichever registered first once the retry
+    /// landed and only the other, still-registered waiter got woken. `run()`
+    /// guards against this with `isRunning`, making a second concurrent call
+    /// a safe no-op instead.
+    func testConcurrentRunCallsDoNotStrandTheFirst() async throws {
+        StubURLProtocol.stub = .sequence([
+            .status(500),
+            .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
+            .status(200),
+        ])
+        let (state, sidecars, tmpRoot) = try harness()
+        defer { try? FileManager.default.removeItem(at: tmpRoot) }
+        let queue = InProcessBackupQueue()
+        let upload = UploadClient(baseURL: URL(string: "https://server.example")!,
+                                  libraryId: "lib", deviceId: "d",
+                                  transport: stubTransport())
+        let engine = BackupEngine(queue: queue, state: state, upload: upload,
+                                  sidecars: sidecars, reader: StubAssetReader(),
+                                  maxConcurrency: 1)
+
+        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+        let task = BackupTask(id: id, state: .pending, priority: .background)
+        try await state.upsert(task)
+        await queue.enqueue(task, priority: .background)
+
+        let runnerA = Task { await engine.run() }
+        // Let A dequeue, fail, schedule the ~2s retry, and actually park on
+        // retryWake.wait() before starting B. This is precisely the window
+        // where an unguarded RetryWakeSignal lets a second waiter silently
+        // overwrite the first's parked continuation — starting B immediately
+        // alongside A doesn't reliably hit it, since B can just as easily
+        // race ahead and see an empty `retryTasks` (exiting via the
+        // queue-drained branch) before A has even scheduled its retry.
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        let runnerB = Task { await engine.run() }
+
+        await awaitCompletion(of: runnerA, timeout: 3.0)
+        await awaitCompletion(of: runnerB, timeout: 3.0)
+
+        let row = try await state.find(id)
+        XCTAssertEqual(row?.state, .uploaded,
+            "the retried upload must still complete despite a concurrent second run() call")
     }
 }
