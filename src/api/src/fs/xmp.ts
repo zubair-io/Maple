@@ -10,6 +10,7 @@ import * as path from 'node:path';
 // configured backup root(s). Same `fs/promises` surface — see `mirrored.ts`.
 import * as fs from './mirrored.ts';
 import { readFileWithFailover } from './mirror-read.ts';
+import { deleteSidecar, writeSidecarAtomic } from './sidecar-io.ts';
 // Conflict-copy sidecars (`<base> (conflict from <device>).xmp`) live in their
 // own module; the precondition write below is their only producer here.
 import { pickFreeConflictPath } from './xmp-conflict.ts';
@@ -67,44 +68,11 @@ export async function readXmp(rawAbsPath: string): Promise<OpResult<string>> {
   }
 }
 
-/**
- * Atomically write (or overwrite) an XMP sidecar.
- *
- * Steps:
- *   1. Check path is under an allowed root.
- *   2. Write to <sidecar>.tmp.
- *   3. fsync the temp file.
- *   4. rename() into place.
- */
+/** Atomically write (or overwrite) an XMP sidecar — jail check, temp, fsync,
+ * rename. See `sidecar-io.ts` for the mechanics every sidecar write shares. */
 export async function writeXmpAtomic(rawAbsPath: string, xmlContent: string): Promise<OpResult> {
-  const sidecar = xmpSidecarPath(rawAbsPath);
-  const tmp = `${sidecar}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
-
-  const allowed = await safeWriteAllowed(sidecar);
-  if (!allowed.ok) return { ok: false, error: allowed.error };
-
-  try {
-    // Ensure directory exists (it should, but be defensive).
-    await fs.mkdir(path.dirname(sidecar), { recursive: true });
-
-    const fh = await fs.open(tmp, 'w');
-    try {
-      await fh.writeFile(xmlContent, 'utf-8');
-      await fh.datasync();
-    } finally {
-      await fh.close();
-    }
-
-    await fs.rename(tmp, sidecar);
-    return { ok: true };
-  } catch (err) {
-    // Clean up temp file on error.
-    try {
-      await fs.unlink(tmp);
-    } catch {}
-    const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, error: `XMP write failed: ${msg}` };
-  }
+  const res = await writeSidecarAtomic(xmpSidecarPath(rawAbsPath), xmlContent, 'XMP write failed');
+  return res.ok ? { ok: true } : { ok: false, error: res.error };
 }
 
 /**
@@ -332,40 +300,19 @@ export async function writeXmpWithPrecondition(
     }
     if (onDiskEpoch !== ifMtimeMatchesEpoch) {
       const conflictPath = await pickFreeConflictPath(rawAbsPath, deviceName);
-      const allowed = await safeWriteAllowed(conflictPath);
-      if (!allowed.ok) return { kind: 'error', error: allowed.error ?? 'Path not allowed' };
-      const tmp = `${conflictPath}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
-      try {
-        await fs.mkdir(path.dirname(conflictPath), { recursive: true });
-        const fh = await fs.open(tmp, 'w');
-        try {
-          await fh.writeFile(xmlContent, 'utf-8');
-          await fh.datasync();
-        } finally {
-          await fh.close();
-        }
-        await fs.rename(tmp, conflictPath);
-        const st = await fs.stat(conflictPath);
-        return { kind: 'conflict', conflictPath, conflictMtime: st.mtime };
-      } catch (err) {
-        try {
-          await fs.unlink(tmp);
-        } catch {}
-        const msg = err instanceof Error ? err.message : String(err);
-        return { kind: 'error', error: `Conflict-copy write failed: ${msg}` };
-      }
+      const written = await writeSidecarAtomic(
+        conflictPath,
+        xmlContent,
+        'Conflict-copy write failed',
+      );
+      return written.ok
+        ? { kind: 'conflict', conflictPath, conflictMtime: written.mtime }
+        : { kind: 'error', error: written.error };
     }
   }
 
-  const result = await writeXmpAtomic(rawAbsPath, xmlContent);
-  if (!result.ok) return { kind: 'error', error: result.error ?? 'XMP write failed' };
-  try {
-    const st = await fs.stat(sidecar);
-    return { kind: 'ok', mtime: st.mtime };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { kind: 'error', error: `stat after write failed: ${msg}` };
-  }
+  const result = await writeSidecarAtomic(sidecar, xmlContent, 'XMP write failed');
+  return result.ok ? { kind: 'ok', mtime: result.mtime } : { kind: 'error', error: result.error };
 }
 
 /**
@@ -373,22 +320,5 @@ export async function writeXmpWithPrecondition(
  * existed. Never touches the paired RAW.
  */
 export async function deleteXmpSidecar(rawAbsPath: string): Promise<OpResult> {
-  const sidecar = xmpSidecarPath(rawAbsPath);
-  const allowed = await safeWriteAllowed(sidecar);
-  if (!allowed.ok) return { ok: false, error: allowed.error };
-  try {
-    await fs.unlink(sidecar);
-    return { ok: true };
-  } catch (err: unknown) {
-    if (
-      err &&
-      typeof err === 'object' &&
-      'code' in err &&
-      (err as { code: string }).code === 'ENOENT'
-    ) {
-      return { ok: true };
-    }
-    const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, error: `XMP delete failed: ${msg}` };
-  }
+  return deleteSidecar(xmpSidecarPath(rawAbsPath), 'XMP delete failed');
 }

@@ -15,12 +15,11 @@
  */
 
 import * as path from 'node:path';
-import { randomBytes } from 'node:crypto';
 // Mirror-aware drop-in: durable writes/moves replicate to the library's
 // configured backup root(s). Same `fs/promises` surface — see `mirrored.ts`.
 import * as fs from './mirrored.ts';
 import { readFileWithFailover } from './mirror-read.ts';
-import { safeWriteAllowed } from './root.ts';
+import { deleteSidecar, writeSidecarAtomic } from './sidecar-io.ts';
 import type { OpResult } from './root.ts';
 import { isVideoFilename } from '../indexer/media-types.ts';
 
@@ -112,10 +111,7 @@ export async function pickFreeConflictPath(
  *   conflictBasename = "IMG_2 (conflict from MacBook)"   // different RAW
  *   → null
  */
-export function resolveConflictSidecarPath(
-  rawAbsPath: string,
-  conflictBasename: string,
-): string | null {
+function resolveConflictSidecarPath(rawAbsPath: string, conflictBasename: string): string | null {
   if (conflictBasename.includes('/') || conflictBasename.includes('\\')) return null;
   if (conflictBasename.includes('..')) return null;
 
@@ -164,30 +160,7 @@ export async function writeConflictSidecarAtomic(
 ): Promise<{ ok: true; mtime: Date } | { ok: false; error: string }> {
   const sidecar = resolveConflictSidecarPath(rawAbsPath, conflictBasename);
   if (!sidecar) return { ok: false, error: 'Invalid conflict basename' };
-
-  const allowed = await safeWriteAllowed(sidecar);
-  if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Path not allowed' };
-
-  const tmp = `${sidecar}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
-  try {
-    await fs.mkdir(path.dirname(sidecar), { recursive: true });
-    const fh = await fs.open(tmp, 'w');
-    try {
-      await fh.writeFile(xmlContent, 'utf-8');
-      await fh.datasync();
-    } finally {
-      await fh.close();
-    }
-    await fs.rename(tmp, sidecar);
-    const st = await fs.stat(sidecar);
-    return { ok: true, mtime: st.mtime };
-  } catch (err) {
-    try {
-      await fs.unlink(tmp);
-    } catch {}
-    const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, error: `Conflict sidecar write failed: ${msg}` };
-  }
+  return writeSidecarAtomic(sidecar, xmlContent, 'Conflict sidecar write failed');
 }
 
 /**
@@ -234,21 +207,5 @@ export async function deleteConflictSidecar(
 ): Promise<OpResult> {
   const sidecar = resolveConflictSidecarPath(rawAbsPath, conflictBasename);
   if (!sidecar) return { ok: false, error: 'Invalid conflict basename' };
-  const allowed = await safeWriteAllowed(sidecar);
-  if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Path not allowed' };
-  try {
-    await fs.unlink(sidecar);
-    return { ok: true };
-  } catch (err: unknown) {
-    if (
-      err &&
-      typeof err === 'object' &&
-      'code' in err &&
-      (err as { code: string }).code === 'ENOENT'
-    ) {
-      return { ok: true };
-    }
-    const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, error: `Conflict sidecar delete failed: ${msg}` };
-  }
+  return deleteSidecar(sidecar, 'Conflict sidecar delete failed');
 }
