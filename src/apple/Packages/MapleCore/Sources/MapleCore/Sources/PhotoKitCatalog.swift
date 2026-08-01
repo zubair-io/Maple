@@ -70,22 +70,49 @@ public final class PhotoKitCatalog: @unchecked Sendable {
 
     private var observerToken: UUID?
 
-    private init() {
-        // Gated like every other subscription site (#2454): registering a
-        // `PHPhotoLibraryChangeObserver` while authorization is
-        // `.notDetermined` is itself an authorization request. This catalog is
-        // a lazily-initialised singleton, so whether it prompts depends on who
-        // touches it first — exactly the action-at-a-distance the gate exists
-        // to remove. There is nothing to invalidate before access anyway.
+    /// Deliberately does NOT subscribe. Registering a
+    /// `PHPhotoLibraryChangeObserver` while authorization is `.notDetermined`
+    /// is itself an authorization request (#2454), and this is a lazily
+    /// initialised singleton — subscribing here would make "does the app
+    /// prompt at launch?" depend on whoever touched the catalog first.
+    ///
+    /// Subscription happens at first use instead (`ensureObserving`), so a
+    /// catalog that was created before the user granted access still starts
+    /// observing once it is actually used afterwards. Gating in `init` alone
+    /// would leave the singleton permanently unsubscribed for the rest of the
+    /// session, silently serving stale caches — iOS does not relaunch the app
+    /// when permission is granted in-place.
+    private init() {}
+
+    /// Subscribe to library changes the first time the catalog is used with
+    /// access in hand. Cheap and idempotent: one relaxed check on the common
+    /// path, and never called while holding `lock` (the observer takes its own
+    /// lock, so nesting them would fix a lock order this class otherwise
+    /// doesn't have).
+    private func ensureObserving() {
+        lock.lock()
+        let alreadySubscribed = observerToken != nil
+        lock.unlock()
+        guard !alreadySubscribed else { return }
+
         let status = PhotoKitLibrary.authorizationStatus()
         guard status == .authorized || status == .limited else { return }
-        observerToken = PhotoKitChangeObserver.shared.subscribe { [weak self] in
+
+        let token = PhotoKitChangeObserver.shared.subscribe { [weak self] in
             // Synchronous invalidation — runs on the PhotoKit-private thread
             // but the lock makes mutation safe. By the time other subscribers'
             // handlers run, our caches are already cleared, so no subscriber
             // can read stale cachedImageIDs / assetByID from this catalog.
             self?.invalidate()
         }
+
+        lock.lock()
+        let won = observerToken == nil
+        if won { observerToken = token }
+        lock.unlock()
+        // Two callers can race through the gap above; the loser drops its
+        // duplicate rather than leaking a second subscription.
+        if !won { PhotoKitChangeObserver.shared.unsubscribe(token) }
     }
 
     deinit {
@@ -114,6 +141,7 @@ public final class PhotoKitCatalog: @unchecked Sendable {
     /// single-id `PHAsset.fetchAssets` call and memoise the result so the
     /// second call for the same id is free.
     public func asset(localId: String) -> PHAsset? {
+        ensureObserving()
         lock.lock()
         if let cached = assetByID[localId] {
             lock.unlock()
@@ -136,6 +164,7 @@ public final class PhotoKitCatalog: @unchecked Sendable {
     /// all returned assets are populated into `assetByID` so subsequent
     /// `asset(localId:)` calls for those ids are free.
     public func imageIdentifiers() -> [String] {
+        ensureObserving()
         lock.lock()
         if let cached = cachedImageIDs {
             lock.unlock()
@@ -171,6 +200,7 @@ public final class PhotoKitCatalog: @unchecked Sendable {
     ///
     /// Same shape and caching semantics as `imageIdentifiers()`.
     public func videoIdentifiers() -> [String] {
+        ensureObserving()
         lock.lock()
         if let cached = cachedVideoIDs {
             lock.unlock()
@@ -207,6 +237,7 @@ public final class PhotoKitCatalog: @unchecked Sendable {
     /// `pageSize` is clamped to at least 1 so callers can't accidentally
     /// request an infinite stream of empty chunks.
     public func paginatedImageIdentifiers(pageSize: Int = 1000) -> AsyncStream<[String]> {
+        ensureObserving()
         let safePageSize = max(1, pageSize)
         return AsyncStream { continuation in
             Task.detached {
@@ -246,6 +277,7 @@ public final class PhotoKitCatalog: @unchecked Sendable {
     /// Used by ChangeObserverWiring to exclude shared-album assets when
     /// `settings.includeSharedAlbums` is false. Result is memoised per cycle.
     public func sharedAlbumIdentifiers() -> Set<String> {
+        ensureObserving()
         lock.lock()
         if let cached = cachedSharedAlbumIDs {
             lock.unlock()
@@ -284,6 +316,20 @@ public final class PhotoKitCatalog: @unchecked Sendable {
     // MARK: Test-only helpers (internal visibility, not public API)
 
     /// Seed the image-id cache with a known value. Test use only.
+    /// Subscribe unconditionally, bypassing the authorization gate.
+    ///
+    /// Test-only. `ensureObserving()` refuses to register an observer without
+    /// PhotoKit access (registering one while `.notDetermined` is itself an
+    /// authorization request — #2454), and a test host has no access to grant,
+    /// so the fan-out tests need a way to reach the subscribed state that
+    /// production reaches on first use after a grant.
+    internal func testOnlyStartObserving() {
+        guard observerToken == nil else { return }
+        observerToken = PhotoKitChangeObserver.shared.subscribe { [weak self] in
+            self?.invalidate()
+        }
+    }
+
     internal func testOnlySetCache(imageIDs: [String]) {
         lock.lock(); defer { lock.unlock() }
         cachedImageIDs = imageIDs
