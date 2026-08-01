@@ -137,6 +137,14 @@ jobs:
         working-directory: src/web
         run: bun run check:hosted-artifact
 
+      - name: Install Google Chrome for Hosted service-worker test
+        working-directory: src/web
+        run: bun x playwright install --with-deps chrome
+
+      - name: Hosted service worker in installed Google Chrome
+        working-directory: src/web
+        run: bun run e2e:hosted-service-worker
+
   web-test:
     name: web-test (ng test maple)
     runs-on: ubuntu-latest
