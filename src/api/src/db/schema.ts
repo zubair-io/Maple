@@ -20,17 +20,22 @@ import type { ObjectId, WithId } from 'mongodb';
  * enabled mirror root (see `fs/mirrored.ts` + `fs/mirror-registry.ts`). The
  * mirror holds a shadow of the primary's originals and XMP sidecars, so it can
  * stand in as a recovery source if the primary disk is lost. The derived
- * `.maple/` thumbnail/preview cache is NOT replicated yet (those bytes are
- * written out-of-band by FFI / a child process); mirroring the cache and
- * serving reads from the mirror are tracked in the read-replica follow-up (#926).
+ * `.maple/` thumbnail/preview cache replicates too — its bytes are written
+ * out-of-band by FFI / a child process, so the renderers hand the committed
+ * path to `fs/mirrored.ts:replicatePath` explicitly (#926).
+ *
+ * An enabled mirror is also a READ replica: original bytes round-robin across
+ * primary + mirrors, and mutable XMP fails over to a mirror when the primary
+ * volume is unreachable. See `fs/mirror-read.ts`.
  */
 export interface MirrorLocation {
   /** Absolute filesystem path to the mirror root. */
   path: string;
-  /** When false, replication to this mirror is paused — the operator can
-   * disable a mirror whose disk is offline without losing the configuration.
-   * (Reads are always served from the primary today; mirror read failover is
-   * the read-replica follow-up, #926.) */
+  /** When false, replication to this mirror is paused AND no read is ever
+   * routed to it — the operator can disable a mirror whose disk is offline
+   * without losing the configuration. `mirror-config.ts` drops disabled
+   * mirrors when building the in-memory registry, which is what both the write
+   * fan-out and the read replica resolve against. */
   enabled: boolean;
 }
 

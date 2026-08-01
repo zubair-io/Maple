@@ -124,7 +124,11 @@ describe('mirror-scan detector', () => {
     const { resolveThumbPath, cachePathFor } = await import('../../fs/xmp.ts');
     const { PREVIEW_CACHE_SUFFIX } = await import('../../indexer/previewer.ts');
     const thumbPath = resolveThumbPath(join(primaryRoot, 'IMG.dng'));
-    const previewPath = cachePathFor(join(primaryRoot, 'IMG.dng'), 'previews', PREVIEW_CACHE_SUFFIX);
+    const previewPath = cachePathFor(
+      join(primaryRoot, 'IMG.dng'),
+      'previews',
+      PREVIEW_CACHE_SUFFIX,
+    );
     mkdirSync(dirname(thumbPath), { recursive: true });
     mkdirSync(dirname(previewPath), { recursive: true });
     writeFileSync(thumbPath, 'avif-thumb');
