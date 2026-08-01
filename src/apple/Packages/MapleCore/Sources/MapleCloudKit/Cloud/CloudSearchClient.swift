@@ -110,11 +110,16 @@ public actor CloudSearchClient {
   /// `GET /api/search?...` — full structured search. Serialises every
   /// filter the user set (mirrors the web `SearchService.search`) plus
   /// sort + pagination. `page` is zero-indexed to match the server.
+  ///
+  /// Pass `cursor` (from a previous response's `nextCursor`) to seek
+  /// instead of skipping — see `SearchParams.listQueryItems`. `page` is
+  /// ignored when a cursor is supplied.
   public func search(_ params: SearchParams,
                      page: Int,
-                     limit: Int) async throws -> SearchResponse {
+                     limit: Int,
+                     cursor: String? = nil) async throws -> SearchResponse {
     let url = makeURL(path: "/api/search",
-                      query: params.listQueryItems(page: page, limit: limit))
+                      query: params.listQueryItems(page: page, limit: limit, cursor: cursor))
     let (data, resp) = try await httpClient.data(for: URLRequest(url: url))
     try Self.checkOK(resp, data: data)
     do {
