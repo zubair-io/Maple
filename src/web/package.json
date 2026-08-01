@@ -22,6 +22,7 @@
     "build:syrup": "ng build maple-syrup",
     "watch": "ng build maple --watch --configuration development",
     "serve:dist-coep": "bun scripts/serve-dist-coep.mjs",
+    "check:hosted-artifact": "bun scripts/check-hosted-artifact.ts",
     "format": "bash scripts/format.sh --write",
     "format:check": "bash scripts/format.sh --check",
     "test": "ng test",
