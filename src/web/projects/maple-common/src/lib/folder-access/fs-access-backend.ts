@@ -122,7 +122,7 @@ async function folderPermissions(
 
 /**
  * Prompt the user to pick a directory via the FS Access API.
- * Returns null if the user cancels or denies permission.
+ * Returns null if the user cancels. Permission failures are named errors.
  */
 export async function fsAccessOpenFolder(): Promise<MapleFolderHandle | null> {
   let nativeHandle: FileSystemDirectoryHandle;
