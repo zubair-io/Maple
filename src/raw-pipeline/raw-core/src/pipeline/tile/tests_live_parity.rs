@@ -259,7 +259,13 @@ pub(super) const MIN_CASE_EFFECT: f32 = 1e-2;
 
 /// Flatten `buf` (f32 RGBA over [`RECT`]) to RGB lanes, keeping only the
 /// interior — see [`COMPARE_MARGIN_PX`].
-fn interior_lanes(buf: &[f32]) -> Vec<f32> {
+///
+/// Every kept lane is asserted FINITE. `f32::max` returns the non-NaN
+/// operand, so a NaN reaching the reductions below would be silently dropped
+/// and could leave `max_abs` at 0.0 — a render that produced NaN would then
+/// read as perfect agreement. Reject it here instead, at the one point every
+/// comparison funnels through.
+fn interior_lanes(label: &str, buf: &[f32]) -> Vec<f32> {
     let (w, h) = (RECT.src_w as usize, RECT.src_h as usize);
     assert_eq!(buf.len(), w * h * 4, "buffer is not RECT-shaped");
     assert!(
@@ -270,6 +276,12 @@ fn interior_lanes(buf: &[f32]) -> Vec<f32> {
     for y in COMPARE_MARGIN_PX..h - COMPARE_MARGIN_PX {
         for x in COMPARE_MARGIN_PX..w - COMPARE_MARGIN_PX {
             let i = (y * w + x) * 4;
+            for (c, v) in buf[i..i + 3].iter().enumerate() {
+                assert!(
+                    v.is_finite(),
+                    "{label} produced a non-finite lane at px ({x},{y}) ch {c}: {v}"
+                );
+            }
             out.extend_from_slice(&buf[i..i + 3]);
         }
     }
@@ -279,9 +291,9 @@ fn interior_lanes(buf: &[f32]) -> Vec<f32> {
 pub(super) fn agreement(live: &[f32], tile: &[f32], decoded: &[f32]) -> Agreement {
     assert_eq!(live.len(), tile.len(), "buffer length mismatch");
     let (l, t, d) = (
-        interior_lanes(live),
-        interior_lanes(tile),
-        interior_lanes(decoded),
+        interior_lanes("the live chain", live),
+        interior_lanes("the tile chain", tile),
+        interior_lanes("the decode develop", decoded),
     );
     let max_abs = l
         .iter()
