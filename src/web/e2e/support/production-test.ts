@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { expect, test as base } from '@playwright/test';
 import { readProductionFixtureManifest } from './production-fixtures';
 
@@ -12,6 +13,12 @@ const EXPECTED_SELF_HOSTED_BOOTSTRAP_401 =
   /^401 (?:GET http:\/\/(?:127\.0\.0\.1|localhost):\d+\/api\/(?:render|observability)\/config|POST http:\/\/(?:127\.0\.0\.1|localhost):\d+\/api\/auth\/refresh)$/;
 const CHROME_RESOURCE_401 =
   'Failed to load resource: the server responded with a status of 401 (Unauthorized)';
+
+function selfHostedTestClientIp(testId: string, retry: number): string {
+  const digest = createHash('sha256').update(`${testId}:${retry}`).digest('hex');
+  const groups = Array.from({ length: 6 }, (_, index) => digest.slice(index * 4, index * 4 + 4));
+  return `2001:db8:${groups.join(':')}`;
+}
 
 function unexpectedAuditEntries(
   project: string,
@@ -40,6 +47,21 @@ function unexpectedAuditEntries(
 export const test = base.extend<{ browserAudit: void }>({
   browserAudit: [
     async ({ page }, use, testInfo) => {
+      if (testInfo.project.name === 'chrome-self-hosted') {
+        // Every Playwright context represents a fresh browser client, but the
+        // direct test server otherwise sees all of them as one localhost IP.
+        // Emulate the trusted reverse-proxy hop for the rate-limited bootstrap
+        // request so one scenario cannot exhaust another scenario's auth
+        // bucket. Keep the header off unrelated cross-origin LAN discovery.
+        await page.route('**/api/auth/refresh', async (route) => {
+          await route.continue({
+            headers: {
+              ...route.request().headers(),
+              'X-Forwarded-For': selfHostedTestClientIp(testInfo.testId, testInfo.retry),
+            },
+          });
+        });
+      }
       const audit: BrowserAudit = {
         consoleErrors: [],
         pageErrors: [],
