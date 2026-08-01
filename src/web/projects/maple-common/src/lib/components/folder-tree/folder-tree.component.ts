@@ -7,7 +7,7 @@ import { LibraryStateService } from '../../state/library-state.service';
 import { MapleIconComponent, MapleIconName } from '../../icons/maple-icon.component';
 import { SidebarEntry } from '../../models/folder';
 import { selectSidebarEntry } from '../../shells/browse-shell/source-selection';
-import { FOLDER_TREE_EXTENSION } from './folder-tree-extension';
+import { FOLDER_TREE_EXTENSIONS } from './folder-tree-extension';
 
 @Component({
   selector: 'app-folder-tree',
@@ -19,7 +19,7 @@ import { FOLDER_TREE_EXTENSION } from './folder-tree-extension';
 })
 export class FolderTreeComponent {
   state = inject(LibraryStateService);
-  protected readonly extension = inject(FOLDER_TREE_EXTENSION);
+  protected readonly extensions = inject(FOLDER_TREE_EXTENSIONS);
 
   isFolderOpen(node: SidebarEntry): boolean {
     const map = this.state.folderOpen();
