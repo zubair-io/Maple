@@ -16,7 +16,7 @@
 // Mirror-aware drop-in: trash moves replicate to the library's backup root(s).
 import * as fs from './mirrored.ts';
 import * as path from 'node:path';
-import { listPairedSidecars } from './xmp.ts';
+import { listPairedSidecars } from './xmp-conflict.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('fs/trash');

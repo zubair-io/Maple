@@ -40,14 +40,12 @@ function markDeprecated(set: { headers: Record<string, unknown> }): void {
 }
 
 import { Elysia, t } from 'elysia';
+import { readXmp, writeXmpWithPrecondition, deleteXmpSidecar } from '../../fs/xmp.ts';
 import {
-  readXmp,
-  writeXmpWithPrecondition,
-  deleteXmpSidecar,
   readConflictSidecar,
   writeConflictSidecarAtomic,
   deleteConflictSidecar,
-} from '../../fs/xmp.ts';
+} from '../../fs/xmp-conflict.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import {
   findCoreInfoById,

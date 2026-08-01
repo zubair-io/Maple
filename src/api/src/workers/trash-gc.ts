@@ -15,7 +15,7 @@
 
 import { unlink } from 'node:fs/promises';
 import { assetsCollection } from '../db/client.ts';
-import { listPairedSidecars } from '../fs/xmp.ts';
+import { listPairedSidecars } from '../fs/xmp-conflict.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { child as childLogger } from '../log.ts';
