@@ -645,17 +645,16 @@ test('Self Hosted persists adjustments and culling in a real sibling XMP', async
     await chmod(manifest.writableFolder, 0o755);
   }
 
-  let recoveredExposure: string | null = null;
-  const recoveryWrite = page.waitForResponse((response) => {
-    if (response.request().method() !== 'POST' || !response.url().includes('/api/xmp?')) {
-      return false;
-    }
-    const body = response.request().postData() ?? '';
-    return recoveredExposure != null && body.includes(`crs:Exposure2012="${recoveredExposure}"`);
-  });
+  const recoveryWrite = page.waitForResponse(
+    (response) => response.request().method() === 'POST' && response.url().includes('/api/xmp?'),
+  );
   await exposure.press('ArrowRight');
-  recoveredExposure = await exposure.getAttribute('aria-valuenow');
-  expect((await recoveryWrite).ok()).toBe(true);
+  const recoveredExposure = await exposure.getAttribute('aria-valuenow');
+  const recoveryResponse = await recoveryWrite;
+  expect(recoveryResponse.ok()).toBe(true);
+  expect(recoveryResponse.request().postData()).toContain(
+    `crs:Exposure2012="${recoveredExposure}"`,
+  );
   expect(recoveredExposure).not.toBe(editedExposure);
   await expect
     .poll(async () => readFile(sidecar, 'utf8'))

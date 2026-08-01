@@ -33,9 +33,9 @@ describe('BunApiBackendService histogram addressing', () => {
           request.params.get('address') === 'library:folder/photo.dng',
       )
       .flush({ id: '507f1f77bcf86cd799439011' });
-    expect(http.expectOne('/api/assets/507f1f77bcf86cd799439011/histogram').request.method).toBe(
-      'GET',
-    );
+    const histogram = http.expectOne('/api/assets/507f1f77bcf86cd799439011/histogram');
+    expect(histogram.request.method).toBe('GET');
+    histogram.flush({ r: [], g: [], b: [] });
   });
 
   it('accepts the API XML echo after writing a sidecar', () => {
