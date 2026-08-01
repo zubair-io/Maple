@@ -501,6 +501,12 @@ mod gpu_live_nonraw_wb_tests;
 #[cfg(test)]
 #[path = "gpu_live_wb_frame_tests.rs"]
 mod gpu_live_wb_frame_tests;
+// #1732 legs (a) vs (b) beyond WB: the gpu-live surface against the REAL
+// `apply_scene_linear_chain_f32` (not a re-composed oracle) across a
+// parameterised model set, plus the non-RAW `input_shape` ⟷ `skip_agx` pair.
+#[cfg(test)]
+#[path = "gpu_live_chain_parity_tests.rs"]
+mod gpu_live_chain_parity_tests;
 #[cfg(test)]
 #[path = "gpu_live_wb_seam_tests.rs"]
 mod gpu_live_wb_seam_tests;
