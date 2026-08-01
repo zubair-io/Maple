@@ -12,8 +12,8 @@ Two applications share one Angular library:
   worker enabled (offline app shell). Deploys to Cloudflare Pages / Netlify / Vercel / Apache /
   nginx — see `DEPLOY.md`.
 - **`maple`** — paired with the Bun + Elysia API (`src/api/`). `/` redirects to
-  `/browse` because the server already hosts the library. Service worker disabled — refreshes
-  always hit the server.
+  `/browse` because the server already hosts the library. Its service worker keeps the app shell
+  and HTTP thumbnails available from cache while library APIs remain authoritative.
 
 Both apps are powered by the shared `maple-common` library, which owns all components, shells,
 state, and the XMP pipeline.
@@ -24,7 +24,8 @@ state, and the XMP pipeline.
 angular.json            workspace configuration (two applications + one library)
 package.json            npm scripts: start:syrup / start:maple / build:* / etc.
 tsconfig*.json          TypeScript configurations
-ngsw-config.json        Service worker asset manifest (maple-syrup only)
+ngsw-config.hosted.json Hosted service worker assets (no server API caches)
+ngsw-config.json        Self Hosted service worker assets + thumbnail API cache
 DEPLOY.md               Production deploy instructions for maple-syrup
 projects/
   maple-syrup/         Hosted SPA — Landing + /browse + /edit/:id
