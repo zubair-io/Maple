@@ -1,6 +1,6 @@
 // LibraryCache — subscribePreviewUrl: best display-still per backend.
 //
-// Three routes (see LibraryCache._previewLoader):
+// Three routes (see previewLoader):
 //   - Self-Hosted slug:relPath id → LibrarySource.previewBlob (/api/preview).
 //   - Hosted (FS-Access) id → HostedPreviewResolver.resolve (embedded-preview
 //     extraction + .maple/previews AVIF cache, #2010).
@@ -72,8 +72,22 @@ describe('LibraryCache.subscribePreviewUrl', () => {
   });
 
   it('Hosted (FS-Access) id routes through HostedPreviewResolver and shows its blob', async () => {
-    const resolve = vi.fn(async () => new Blob(['avif'], { type: 'image/avif' }));
+    const resolve = vi.fn(async (_id, _getBytes, getSourceIdentity) => {
+      expect(await getSourceIdentity('lib:2026/a.dng')).toEqual({
+        size: 3,
+        lastModified: 1234,
+      });
+      return new Blob(['avif'], { type: 'image/avif' });
+    });
     const { svc } = setup({ previewBlob: vi.fn() }, { backend: 'hosted' }, { resolve });
+    svc.registerHandle('lib:2026/a.dng', {
+      name: 'a.dng',
+      kind: 'file',
+      getFile: async () => new File(['raw'], 'a.dng', { lastModified: 1234 }),
+      getSubFolder: async () => {
+        throw new Error('not a folder');
+      },
+    });
 
     const originalCreate = URL.createObjectURL;
     URL.createObjectURL = vi.fn(() => 'blob:hosted-embedded-preview');
