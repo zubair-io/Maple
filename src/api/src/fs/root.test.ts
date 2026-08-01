@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+// Temp-only symlink fixtures intentionally bypass durable mirrored product I/O.
 import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
