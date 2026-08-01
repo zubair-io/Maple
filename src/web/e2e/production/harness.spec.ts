@@ -422,7 +422,11 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
   await expect(page).toHaveURL(/\/edit\//);
   const restoredExposure = page.getByRole('slider', { name: 'Exposure' });
   await expect
-    .poll(async () => Number(await restoredExposure.getAttribute('aria-valuenow')))
+    .poll(async () => {
+      const attribute = await restoredExposure.getAttribute('aria-valuenow');
+      const value = attribute === null ? Number.NaN : Number(attribute);
+      return Number.isFinite(value) ? value : Number.NaN;
+    })
     .toBeCloseTo(Number(editedExposure), 2);
 
   const expectedErrorPrefix = 'XmpStoreService: write failed for test_0006.DNG:';
