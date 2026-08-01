@@ -106,6 +106,11 @@ public actor BackupEngine {
     /// companion retry path (#700).
     private var retryTasks: Set<Task<Void, Never>> = []
 
+    /// Wakes `run()` when a sleeping retry re-enqueues, so it can park
+    /// instead of polling on a fixed interval while retries are outstanding
+    /// (#1026). See `RetryWakeSignal` for the concurrency contract.
+    private let retryWake = RetryWakeSignal()
+
     /// Per-task count of companions currently in their bounded detached-retry
     /// path (#702). A companion enters this set when its inline attempt fails
     /// (`runCompanion` catch) and leaves when it either lands on a retry or
@@ -179,8 +184,10 @@ public actor BackupEngine {
                     inFlight -= 1
                 } else if !retryTasks.isEmpty {
                     // Queue is momentarily empty but retry tasks are still sleeping.
-                    // Wait briefly so they can wake and re-enqueue before we exit.
-                    try? await Task.sleep(for: .seconds(1))
+                    // Park here — no fixed-interval wakeup (#1026) — until a retry
+                    // actually re-enqueues (or teardown signals us) and loop back
+                    // to re-check the queue.
+                    await retryWake.wait()
                 } else {
                     // Queue is drained and no tasks in flight or pending retries — done.
                     break
@@ -278,6 +285,7 @@ public actor BackupEngine {
             // is cheaper than sleeping the full window.
             let delay = min(retryAfterSeconds, 60)
             let queueRef = queue
+            let retryWakeRef = retryWake
             let deferTask = Task.detached(priority: .background) {
                 // `try?` would swallow CancellationError and we'd re-enqueue
                 // after `stop()` was called — re-checking isCancelled after
@@ -285,6 +293,7 @@ public actor BackupEngine {
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 if Task.isCancelled { return }
                 await queueRef.enqueue(task, priority: task.priority)
+                await retryWakeRef.signal() // wake a parked run() (#1026)
             }
             retryTasks.insert(deferTask)
             Task { [weak self] in
@@ -313,6 +322,7 @@ public actor BackupEngine {
                 // Re-enqueue from a detached Task that sleeps the backoff.
                 let backoff = Self.backoffSeconds(for: nextRetry)
                 let queueRef = queue
+                let retryWakeRef = retryWake
                 let retryTask = Task.detached(priority: .background) {
                     // Same cancellation discipline as the busy-elsewhere path —
                     // bail after the sleep if `stop()` cancelled us.
@@ -321,6 +331,7 @@ public actor BackupEngine {
                     var retry = task
                     retry.retryCount = nextRetry
                     await queueRef.enqueue(retry, priority: retry.priority)
+                    await retryWakeRef.signal() // wake a parked run() (#1026)
                 }
                 // Track for cancellation on stop().
                 retryTasks.insert(retryTask)
