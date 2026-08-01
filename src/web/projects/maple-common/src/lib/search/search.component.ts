@@ -131,6 +131,13 @@ export class SearchComponent implements OnInit, AfterViewInit {
   protected readonly isStale = signal<boolean>(false);
   protected readonly recent = signal<readonly string[]>(readRecents());
   protected readonly page = signal<number>(0);
+  /** Seek cursor for the next page (#2129), or `null` when the server has
+   * none for this query — a relevance-ordered `placeQuery` (the usual case
+   * here), or a server predating the field. `onLoadMore` falls back to
+   * `page + 1` then, so both pagination modes coexist. A query that is
+   * purely a natural-language date ("2023") *does* get one: the server
+   * folds it into `from`/`to` and runs the structured, seekable path. */
+  protected readonly nextCursor = signal<string | null>(null);
   protected readonly isLoadingMore = signal<boolean>(false);
 
   /** Top hits = head-of-`results` until a dedicated endpoint lands.
@@ -180,6 +187,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
         this.results.set([]);
         this.total.set(0);
         this.page.set(0);
+        this.nextCursor.set(null);
         this.isStale.set(false);
         return;
       }
@@ -199,10 +207,12 @@ export class SearchComponent implements OnInit, AfterViewInit {
           ...scopeToParams(sc),
         };
         this.page.set(0);
+        this.nextCursor.set(null);
         this.inFlight = this.searchService.search(params).subscribe({
           next: (res) => {
             this.results.set(res.results);
             this.total.set(res.total);
+            this.nextCursor.set(res.nextCursor ?? null);
             this.isStale.set(false);
           },
           error: () => {
@@ -295,10 +305,13 @@ export class SearchComponent implements OnInit, AfterViewInit {
     // NEW query before page 0 returns would desync `page` and mix results.
     if (this.isStale() || !this.canLoadMore() || this.isLoadingMore() || q.length === 0) return;
     this.isLoadingMore.set(true);
+    // Seek past the last row when the server gave us a cursor; fall back to
+    // the page counter otherwise (see `nextCursor`).
+    const cursor = this.nextCursor();
     const nextPage = this.page() + 1;
     const params: SearchParams = {
       placeQuery: q,
-      page: nextPage,
+      ...(cursor !== null ? { cursor } : { page: nextPage }),
       limit: 30,
       ...scopeToParams(this.scope()),
     };
@@ -307,7 +320,10 @@ export class SearchComponent implements OnInit, AfterViewInit {
       next: (res) => {
         this.results.update((prev) => [...prev, ...res.results]);
         this.total.set(res.total);
-        this.page.set(nextPage);
+        this.nextCursor.set(res.nextCursor ?? null);
+        // `page` is the skip-mode fallback counter — a seek request leaves
+        // it alone rather than adopting the server's echoed `page: 0`.
+        if (cursor === null) this.page.set(nextPage);
         this.isLoadingMore.set(false);
       },
       error: () => {

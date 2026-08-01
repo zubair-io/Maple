@@ -14,8 +14,10 @@
 // Pure derivation (param coercion, CSV-set plumbing, active-filter
 // predicate, date-preset math, `currentParams` builder, label helpers,
 // result → view-model adapter, option tables) lives next door in
-// `./search.vm.ts`. This file owns DI, signal wiring, route effects,
-// debounce timers, request fan-out, and the thumb-cache side effects.
+// `./search.vm.ts`; the thumbnail cache in `./search-thumbs.ts` and the
+// selection + batch-metadata dialog in `./search-batch-meta.ts`. This file
+// owns DI, signal wiring, route effects, debounce timers, and request
+// fan-out.
 
 import {
   ChangeDetectionStrategy,
@@ -31,10 +33,9 @@ import {
 import { ActivatedRoute, Params, Router } from '@angular/router';
 import { SlicePipe } from '@angular/common';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { firstValueFrom, Subscription } from 'rxjs';
+import { firstValueFrom } from 'rxjs';
 import {
   ApiFolder,
-  AssetMetadataSnapshot,
   BatchMetadataPanelComponent,
   BatchMetadataService,
   BunApiBackendService,
@@ -44,13 +45,14 @@ import {
   SearchFacets,
   SearchParams,
   SearchResponse,
-  SearchResult,
   SearchSceneType,
   SearchService,
   SearchSort,
   errorMessage,
   viewRouteCommands,
 } from '@maple-common';
+import { SearchBatchMetaController } from './search-batch-meta';
+import { SearchThumbLoader } from './search-thumbs';
 import {
   COLOR_LABELS,
   ColorValue,
@@ -171,14 +173,34 @@ export class SearchComponent implements OnInit, OnDestroy {
   readonly results = signal<ResultViewModel[]>([]);
   readonly total = signal<number>(0);
   readonly page = signal<number>(0);
+  /** Seek cursor for the next page (#2129), or `null` when the server has
+   * none to offer — an unseekable sort (`name` / `rating`), a relevance-
+   * ordered `placeQuery`, or a server predating the field. `runSearch`
+   * falls back to `page + 1` in that case, so both modes coexist. */
+  readonly nextCursor = signal<string | null>(null);
   readonly loading = signal<boolean>(false);
   readonly error = signal<string | null>(null);
 
-  readonly selectedIds = signal<ReadonlySet<string>>(new Set());
-  readonly batchMetaDialogVisible = signal(false);
-  readonly batchMetaAssetSnapshots = signal<AssetMetadataSnapshot[]>([]);
+  /** Thumbnail blob-URL cache + loader — see `search-thumbs.ts`. */
+  private readonly thumbs = new SearchThumbLoader(this.fs, this.results);
 
-  readonly selectedCount = computed(() => this.selectedIds().size);
+  /** Selection + batch-metadata dialog state. Lives next door in
+   * `search-batch-meta.ts`; the template reaches it as `batch.*`. */
+  readonly batch = new SearchBatchMetaController(this.batchMetadataService, {
+    loadedResults: () => this.results(),
+    setError: (message) => this.error.set(message),
+    refreshAfterEdit: () => {
+      // Editing metadata (e.g. toggling `hidden`) doesn't change any
+      // URL/search param, so `runSearch`'s cache key is identical before and
+      // after the edit — clear it so the refresh actually re-fetches instead
+      // of replaying the stale, pre-edit cached response. Facets
+      // (camera/lens/activity counts, ISO range) can go stale for the same
+      // reason, so refresh them alongside.
+      this.searchCache.clear();
+      void this.runSearch(/*append*/ false);
+      void this.runFacets();
+    },
+  });
 
   // ── Derived view-model bits ──────────────────────────────────────────────
   readonly sortOptions = SORT_OPTIONS;
@@ -213,21 +235,10 @@ export class SearchComponent implements OnInit, OnDestroy {
   private searchGen = 0;
   private facetsGen = 0;
 
-  /** Cache of `abs_path → blob:` thumbnail URL. Created blob URLs are revoked
-   * via the FilesystemBrowseService on sign-out; on this page we let them
-   * live for the duration so back-nav restores instantly. */
-  private thumbCache = new Map<string, string>();
-
   /** Cache of serialized search params → response. Re-issuing an identical
    * page-0 query (filter round-trips, the URL effect re-firing) serves from
    * here instead of re-hitting the network. Lives for the page session. */
   private searchCache = new Map<string, SearchResponse>();
-
-  /** In-flight `fetchSnapshots` subscription for the batch metadata panel.
-   * Torn down on re-invocation and on dismiss (mirrors
-   * `browse-shell.component.ts`'s `onEditMetadata`/`onBatchMetaDismiss`) so a
-   * rapid double-click can't race two fetches into `batchMetaAssetSnapshots`. */
-  private fetchSnapshotsSub: Subscription | null = null;
 
   constructor() {
     // URL → request. Refires whenever the query map changes. Sync the qInput
@@ -243,7 +254,7 @@ export class SearchComponent implements OnInit, OnDestroy {
       untracked(() => {
         if (urlQ !== this.qInput()) this.qInput.set(urlQ);
       });
-      this.clearSelection();
+      this.batch.clearSelection();
       this.scheduleSearch();
       this.scheduleFacets();
     });
@@ -264,7 +275,7 @@ export class SearchComponent implements OnInit, OnDestroy {
     if (this.qInputDebounce !== null) clearTimeout(this.qInputDebounce);
     if (this.searchDebounce !== null) clearTimeout(this.searchDebounce);
     if (this.facetsDebounce !== null) clearTimeout(this.facetsDebounce);
-    this.fetchSnapshotsSub?.unsubscribe();
+    this.batch.teardown();
   }
 
   // ── URL helpers ──────────────────────────────────────────────────────────
@@ -427,8 +438,17 @@ export class SearchComponent implements OnInit, OnDestroy {
 
   private async runSearch(append: boolean): Promise<void> {
     const gen = ++this.searchGen;
-    const page = append ? this.page() + 1 : 0;
-    const params: SearchParams = { ...this.currentParams(), page, limit: PAGE_SIZE };
+    // Seek pagination (#2129) when the server handed us a cursor for this
+    // result set; `page + 1` otherwise (unseekable sort, relevance-ordered
+    // placeQuery, or an older server). A fresh search always restarts at
+    // page 0 with no cursor.
+    const cursor = append ? this.nextCursor() : null;
+    const page = append && cursor === null ? this.page() + 1 : 0;
+    const params: SearchParams = {
+      ...this.currentParams(),
+      ...(cursor !== null ? { cursor } : { page }),
+      limit: PAGE_SIZE,
+    };
     const key = JSON.stringify(params);
 
     // Serve an identical (non-append) query from cache — bumping searchGen
@@ -449,7 +469,7 @@ export class SearchComponent implements OnInit, OnDestroy {
       const r = await firstValueFrom(this.search.search(params));
       if (gen !== this.searchGen) return; // a newer request superseded us
       this.searchCache.set(key, r);
-      this.applyResults(r, append);
+      this.applyResults(r, append, cursor !== null);
     } catch (e: unknown) {
       if (gen !== this.searchGen) return;
       this.error.set(errorMessage(e));
@@ -461,13 +481,16 @@ export class SearchComponent implements OnInit, OnDestroy {
 
   /** Apply a search response to the result signals and kick off thumb loads.
    * Shared by the cache-hit and network paths. */
-  private applyResults(r: SearchResponse, append: boolean): void {
+  private applyResults(r: SearchResponse, append: boolean, seeked = false): void {
     this.total.set(r.total);
-    this.page.set(r.page);
-    const vms = r.results.map((res) => this.toViewModel(res));
+    // `page` is the skip-mode fallback counter. A seek request echoes back
+    // `page: 0`, so adopting it there would rewind the counter mid-scroll.
+    if (!seeked) this.page.set(r.page);
+    this.nextCursor.set(r.nextCursor ?? null);
+    const vms = r.results.map((res) => toResultViewModel(res, this.thumbs.cached(res.abs_path)));
     this.results.update((prev) => (append ? prev.concat(vms) : vms));
     // Kick off thumb loads (fire-and-forget).
-    for (const vm of vms) void this.loadThumb(vm);
+    for (const vm of vms) void this.thumbs.load(vm);
   }
 
   private async runFacets(): Promise<void> {
@@ -487,97 +510,9 @@ export class SearchComponent implements OnInit, OnDestroy {
     void this.runSearch(/*append*/ true);
   }
 
-  // ── Result thumbnails ────────────────────────────────────────────────────
-  private toViewModel(r: SearchResult): ResultViewModel {
-    return toResultViewModel(r, this.thumbCache.get(r.abs_path) ?? null);
-  }
-
-  private async loadThumb(vm: ResultViewModel): Promise<void> {
-    if (vm.thumbUrl) return;
-    try {
-      const url = await this.fs.getThumbBlobUrl(vm.abs_path);
-      this.thumbCache.set(vm.abs_path, url);
-      this.results.update((list) =>
-        list.map((r) =>
-          r.abs_path === vm.abs_path ? { ...r, thumbUrl: url, thumbLoading: false } : r,
-        ),
-      );
-    } catch {
-      this.results.update((list) =>
-        list.map((r) => (r.abs_path === vm.abs_path ? { ...r, thumbLoading: false } : r)),
-      );
-    }
-  }
-
   // ── Result clicks → Preview ───────────────────────────────────────────────
   openResult(r: ResultViewModel): void {
     void this.router.navigate(viewRouteCommands(r.id));
-  }
-
-  // ── Selection ─────────────────────────────────────────────────────────────
-  toggleSelect(id: string): void {
-    this.selectedIds.update((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  selectAllLoaded(): void {
-    this.selectedIds.set(new Set(this.results().map((r) => r.id)));
-  }
-
-  clearSelection(): void {
-    this.selectedIds.set(new Set());
-  }
-
-  // ── Batch metadata dialog ────────────────────────────────────────────────
-  onEditMetadata(): void {
-    const ids = this.selectedIds();
-    const selected = this.results().filter((r) => ids.has(r.id));
-    const addresses = selected.map((r) => r.address).filter((a): a is string => a !== null);
-    if (addresses.length === 0) return;
-
-    // Assets whose library has no registered slug can't be resolved to a
-    // batch-editable address (see the `address` field's doc comment on
-    // SearchResult) — surface that they were silently excluded rather than
-    // letting the user believe every selected result was edited.
-    const skipped = selected.length - addresses.length;
-    this.error.set(
-      skipped > 0
-        ? `${skipped} selected result${skipped === 1 ? '' : 's'} could not be edited (unregistered library) and ${skipped === 1 ? 'was' : 'were'} skipped.`
-        : null,
-    );
-
-    this.fetchSnapshotsSub?.unsubscribe();
-    this.fetchSnapshotsSub = this.batchMetadataService.fetchSnapshots(addresses).subscribe({
-      next: (snapshots) => {
-        this.batchMetaAssetSnapshots.set(snapshots);
-        this.batchMetaDialogVisible.set(true);
-      },
-      error: () => {
-        this.error.set('Could not load metadata for the selected results.');
-      },
-    });
-  }
-
-  onBatchMetaDismiss(): void {
-    this.fetchSnapshotsSub?.unsubscribe();
-    this.fetchSnapshotsSub = null;
-    this.batchMetaDialogVisible.set(false);
-    this.batchMetaAssetSnapshots.set([]);
-    this.clearSelection();
-    // Editing metadata (e.g. toggling `hidden`) doesn't change any URL/search
-    // param, so `runSearch`'s cache key is identical before and after the
-    // edit — clear it so the post-dismiss refresh actually re-fetches instead
-    // of replaying the stale, pre-edit cached response.
-    this.searchCache.clear();
-    void this.runSearch(/*append*/ false);
-    // Facets (camera/lens/activity counts, ISO range, etc.) can also go
-    // stale after an edit that changes a faceted field (hidden, rating,
-    // flag) — refresh them alongside the results.
-    void this.runFacets();
   }
 
   // ── Template helpers ─────────────────────────────────────────────────────
