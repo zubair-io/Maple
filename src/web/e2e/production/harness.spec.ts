@@ -1,4 +1,4 @@
-import { access, readFile, readdir } from 'node:fs/promises';
+import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { test, expect } from '../support/production-test';
 import { readProductionFixtureManifest } from '../support/production-fixtures';
@@ -6,6 +6,17 @@ import { installProductionFolderPicker } from '../support/production-folder-pick
 
 function cacheFormatMatches(path: string, bytes: Buffer): boolean {
   if (path.endsWith('.jpg')) return bytes[0] === 0xff && bytes[1] === 0xd8;
+  if (path.endsWith('.png')) {
+    return bytes
+      .subarray(0, 8)
+      .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  }
+  if (path.endsWith('.webp')) {
+    return (
+      bytes.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      bytes.subarray(8, 12).toString('ascii') === 'WEBP'
+    );
+  }
   if (!path.endsWith('.avif') || bytes.length < 12) return false;
   const box = bytes.subarray(4, 8).toString('ascii');
   const brands = bytes.subarray(8).toString('ascii');
@@ -167,15 +178,101 @@ test('Hosted uses an existing .maple preview before reading the RAW', async ({
   });
 });
 
+test("Hosted records Chrome's actual preview format and reuses it without reading the RAW", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'chrome-hosted');
+  const manifest = await readProductionFixtureManifest();
+  const picker = await installProductionFolderPicker(page, manifest.writableFolder);
+
+  await openWritableFolder(page);
+  picker.clear();
+  await page.getByRole('button', { name: 'test_0006.DNG', exact: true }).click();
+  const fullPreview = page.locator('.preview-img--full');
+  await expect(fullPreview).toBeVisible({ timeout: 60_000 });
+  await expect
+    .poll(() => fullPreview.evaluate((image: HTMLImageElement) => image.naturalWidth))
+    .toBeGreaterThan(0);
+
+  const descriptorPath = join(
+    manifest.writableFolder,
+    '.maple',
+    'previews',
+    'test_0006.DNG.preview.json',
+  );
+  await expect
+    .poll(() => readFile(descriptorPath, 'utf8').catch(() => ''), { timeout: 90_000 })
+    .not.toBe('');
+  const descriptor = JSON.parse(await readFile(descriptorPath, 'utf8')) as {
+    version: number;
+    format: 'avif' | 'jpeg' | 'webp' | 'png';
+    mimeType: string;
+    source: { size: number; lastModified: number };
+  };
+  const extensions = { avif: 'avif', jpeg: 'jpg', webp: 'webp', png: 'png' } as const;
+  const mimeTypes = {
+    avif: 'image/avif',
+    jpeg: 'image/jpeg',
+    webp: 'image/webp',
+    png: 'image/png',
+  } as const;
+  const artifactName = `test_0006.DNG.${extensions[descriptor.format]}`;
+  const artifactPath = join(manifest.writableFolder, '.maple', 'previews', artifactName);
+  expect(descriptor).toMatchObject({
+    version: 1,
+    mimeType: mimeTypes[descriptor.format],
+    source: { size: expect.any(Number), lastModified: expect.any(Number) },
+  });
+  expect(cacheFormatMatches(artifactPath, await readFile(artifactPath))).toBe(true);
+
+  await page.goto('/');
+  await openWritableFolder(page);
+  picker.clear();
+  await page.getByRole('button', { name: 'test_0006.DNG', exact: true }).click();
+  await expect(page.locator('.preview-img--full')).toBeVisible({ timeout: 15_000 });
+  await expect
+    .poll(() =>
+      picker.operations.some(
+        ({ kind, path }) => kind === 'read' && path === `.maple/previews/${artifactName}`,
+      ),
+    )
+    .toBe(true);
+  expect(
+    picker.operations.some(({ kind, path }) => kind === 'read' && path === 'test_0006.DNG'),
+    'a valid descriptor/artifact pair must win before a RAW byte read',
+  ).toBe(false);
+});
+
 test('Hosted writable folder writes XMP and restores it after a reload and re-open', async ({
   page,
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'chrome-hosted');
   const manifest = await readProductionFixtureManifest();
-  await installProductionFolderPicker(page, manifest.writableFolder);
+  const picker = await installProductionFolderPicker(page, manifest.writableFolder);
 
   await openWritableRawEditor(page);
   await expect(page.locator('editor-filmstrip')).toBeVisible();
+  const descriptorPath = join(
+    manifest.writableFolder,
+    '.maple',
+    'previews',
+    'test_0006.DNG.preview.json',
+  );
+  await expect
+    .poll(() => readFile(descriptorPath, 'utf8').catch(() => ''), { timeout: 90_000 })
+    .not.toBe('');
+  const beforeEditDescriptor = JSON.parse(await readFile(descriptorPath, 'utf8')) as {
+    format: 'avif' | 'jpeg' | 'webp' | 'png';
+    artifactLastModified: number;
+  };
+  const extensions = { avif: 'avif', jpeg: 'jpg', webp: 'webp', png: 'png' } as const;
+  const beforeEditArtifact = join(
+    manifest.writableFolder,
+    '.maple',
+    'previews',
+    `test_0006.DNG.${extensions[beforeEditDescriptor.format]}`,
+  );
+  const beforeEditBytes = await readFile(beforeEditArtifact);
   const exposure = page.getByRole('slider', { name: 'Exposure' });
   const selectedUrl = page.url();
   await exposure.focus();
@@ -195,13 +292,77 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
     .poll(async () => readFile(sidecar, 'utf8').catch(() => ''))
     .toContain(`crs:Exposure2012="${editedExposure}"`);
 
+  await expect
+    .poll(
+      async () => {
+        const descriptor = JSON.parse(await readFile(descriptorPath, 'utf8')) as {
+          artifactLastModified: number;
+        };
+        return descriptor.artifactLastModified;
+      },
+      { timeout: 90_000 },
+    )
+    .toBeGreaterThan(beforeEditDescriptor.artifactLastModified);
+  const developedDescriptor = JSON.parse(await readFile(descriptorPath, 'utf8')) as {
+    format: 'avif' | 'jpeg' | 'webp' | 'png';
+  };
+  const developedArtifactName = `test_0006.DNG.${extensions[developedDescriptor.format]}`;
+  const developedBytes = await readFile(
+    join(manifest.writableFolder, '.maple', 'previews', developedArtifactName),
+  );
+  expect(developedBytes.equals(beforeEditBytes), 'the post-edit preview pixels must change').toBe(
+    false,
+  );
+
   await page.reload();
   await expect(page).toHaveURL(/\/$/);
-  await openWritableRawEditor(page);
-  await expect(page.getByRole('slider', { name: 'Exposure' })).toHaveAttribute(
-    'aria-valuenow',
-    editedExposure!,
-  );
+  await openWritableFolder(page);
+  picker.clear();
+  await page.getByRole('button', { name: 'test_0006.DNG', exact: true }).click();
+  const fullPreview = page.locator('.preview-img--full');
+  await expect(fullPreview).toBeVisible({ timeout: 15_000 });
+  await expect
+    .poll(() => fullPreview.evaluate((image: HTMLImageElement) => image.naturalWidth))
+    .toBeGreaterThan(0);
+  await expect
+    .poll(() =>
+      picker.operations.some(
+        ({ kind, path }) => kind === 'read' && path === `.maple/previews/${developedArtifactName}`,
+      ),
+    )
+    .toBe(true);
+  expect(
+    picker.operations.some(({ kind, path }) => kind === 'read' && path === 'test_0006.DNG'),
+    'the developed preview must paint before any RAW byte read',
+  ).toBe(false);
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(page).toHaveURL(/\/edit\//);
+  const restoredExposure = page.getByRole('slider', { name: 'Exposure' });
+  await expect(restoredExposure).toHaveAttribute('aria-valuenow', editedExposure!);
+
+  const expectedErrorPrefix = 'XmpStoreService: write failed for test_0006.DNG:';
+  testInfo.annotations.push({ type: 'expected-console-error', description: expectedErrorPrefix });
+  const expectedErrors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error' && message.text().startsWith(expectedErrorPrefix)) {
+      expectedErrors.push(message.text());
+    }
+  });
+
+  picker.setWritePermission(false);
+  await restoredExposure.focus();
+  await restoredExposure.press('ArrowRight');
+  await expect(page.getByRole('alert')).toContainText('Edits are not saved');
+  await expect.poll(() => expectedErrors).toHaveLength(1);
+
+  picker.setWritePermission(true);
+  await restoredExposure.press('ArrowRight');
+  const recoveredExposure = await restoredExposure.getAttribute('aria-valuenow');
+  expect(recoveredExposure).not.toBe(editedExposure);
+  await expect
+    .poll(async () => readFile(sidecar, 'utf8').catch(() => ''))
+    .toContain(`crs:Exposure2012="${recoveredExposure}"`);
+  await expect(page.getByRole('alert')).toHaveCount(0);
 });
 
 test('Hosted opens one RAW directly and downloads its XMP without a filmstrip', async ({
@@ -211,14 +372,33 @@ test('Hosted opens one RAW directly and downloads its XMP without a filmstrip', 
   const manifest = await readProductionFixtureManifest();
 
   await page.goto('/');
+  const pairedDir = join(manifest.root, 'single-file-paired-xmp');
+  const pairedXmp = join(pairedDir, 'test_0006.xmp');
+  await mkdir(pairedDir, { recursive: true });
+  await writeFile(
+    pairedXmp,
+    `<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      xmlns:foreign="urn:maple:e2e:foreign"
+      crs:Exposure2012="0"
+      foreign:opaque="keep-me">
+      <foreign:Payload foreign:version="7">opaque payload</foreign:Payload>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>`,
+  );
   await page
     .locator('input[type="file"]')
-    .setInputFiles(join(manifest.freshFolder, 'test_0006.DNG'));
+    .setInputFiles([join(manifest.freshFolder, 'test_0006.DNG'), pairedXmp]);
 
   await expect(page).toHaveURL(/\/edit\//);
   await expect(page.locator('editor-filmstrip')).toHaveCount(0);
   await expect(page.getByRole('status', { name: 'Single-file save' })).toContainText(
-    'Download the XMP to keep your edits',
+    'Paired XMP loaded',
   );
 
   const exposure = page.getByRole('slider', { name: 'Exposure' });
@@ -226,6 +406,8 @@ test('Hosted opens one RAW directly and downloads its XMP without a filmstrip', 
   await exposure.focus();
   await exposure.press('ArrowRight');
   await expect(exposure).not.toHaveAttribute('aria-valuenow', '0');
+  const editedExposure = await exposure.getAttribute('aria-valuenow');
+  expect(editedExposure).not.toBeNull();
   await expect(page.getByTestId('editor-shell-undo')).toBeEnabled();
 
   const downloadPromise = page.waitForEvent('download');
@@ -237,4 +419,53 @@ test('Hosted opens one RAW directly and downloads its XMP without a filmstrip', 
   const xml = await readFile(downloadPath!, 'utf8');
   expect(xml).toContain('<x:xmpmeta');
   expect(xml).toMatch(/crs:Exposure2012="(?!0(?:\.0+)?")/);
+  expect(
+    await page.evaluate((downloadedXml) => {
+      const document = new DOMParser().parseFromString(downloadedXml, 'application/xml');
+      const namespace = 'urn:maple:e2e:foreign';
+      const description = document.getElementsByTagNameNS(
+        'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
+        'Description',
+      )[0];
+      const payload = document.getElementsByTagNameNS(namespace, 'Payload')[0];
+      return {
+        parseError: document.getElementsByTagName('parsererror').length > 0,
+        opaque: description?.getAttributeNS(namespace, 'opaque'),
+        payload: payload?.textContent,
+        version: payload?.getAttributeNS(namespace, 'version'),
+      };
+    }, xml),
+  ).toEqual({
+    parseError: false,
+    opaque: 'keep-me',
+    payload: 'opaque payload',
+    version: '7',
+  });
+  await expect(page.getByRole('status', { name: 'Single-file save' })).toContainText(
+    'XMP downloaded',
+  );
+
+  await page.goto('/');
+  const reimportXmp = join(manifest.freshFolder, download.suggestedFilename());
+  await writeFile(reimportXmp, xml);
+  await page
+    .locator('input[type="file"]')
+    .setInputFiles([join(manifest.freshFolder, 'test_0006.DNG'), reimportXmp]);
+  await expect(page).toHaveURL(/\/edit\//);
+  await expect(page.locator('editor-filmstrip')).toHaveCount(0);
+  const restoredExposure = page.getByRole('slider', { name: 'Exposure' });
+  await expect(restoredExposure).toBeVisible({ timeout: 60_000 });
+  await expect(restoredExposure).toHaveAttribute('aria-valuenow', editedExposure!);
+  await expect(page.getByRole('status', { name: 'Single-file save' })).toContainText(
+    'Paired XMP loaded',
+  );
+
+  await page.reload();
+  await expect(restoredExposure).toBeVisible({ timeout: 60_000 });
+  await expect(restoredExposure).toHaveAttribute('aria-valuenow', editedExposure!);
+  await restoredExposure.focus();
+  await restoredExposure.press('ArrowRight');
+  await expect(page.getByRole('status', { name: 'Single-file save' })).toContainText(
+    'only in this browser session',
+  );
 });

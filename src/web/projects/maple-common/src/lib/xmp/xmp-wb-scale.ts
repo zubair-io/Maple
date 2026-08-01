@@ -5,9 +5,8 @@
 // Resolution rule (mirrors raw-core's `xmp::parse` and the Swift
 // `XMPParser`): an explicit `papp:WbScaleVersion` stamp wins; otherwise a
 // document carrying the Maple `papp:` namespace (declaration or attribute
-// — every Maple writer declares it unconditionally; the PREFIX is the
-// discriminator because the three Maple writers historically bound `papp`
-// to different URIs) AND an explicit authored `crs:Temperature`/`crs:Tint`
+// — every Maple writer declares it unconditionally; Web accepts the canonical
+// and historical Apple URIs) AND an explicit authored `crs:Temperature`/`crs:Tint`
 // predates the versioning (pre-#1756 scale, 1). Everything else — no
 // `papp:` namespace at all (ACR/Lightroom-authored, expressed in ACR's own
 // convention, which V5 (#1894) evaluates on directly — ACR derives its
@@ -32,6 +31,7 @@
 // at develop and the sidecar round-trips as V1.
 
 import { xyToTempTint } from './wb-dng-temperature';
+import { attrOf } from './xmp-dom-utils';
 
 /** Legacy (V2/V3, 1e-4 uv per unit) → V4 (`kTintScale`, 1/3000 uv per
  * unit) tint multiplier — mirrors raw-core's `TINT_SCALE_V3_TO_V4`. Also
@@ -215,12 +215,12 @@ function parseWbScaleStamp(raw: string | null): number | undefined {
 /**
  * Resolve the WB scale version for a parsed `rdf:Description` element.
  * `sawPappAnywhere` is the document-level Maple-authorship flag (any
- * element carrying `xmlns:papp` or a `papp:`-prefixed attribute).
+ * element carrying a recognized Maple namespace declaration or attribute).
  */
 export function resolveWbScaleVersion(desc: Element, sawPappAnywhere: boolean): WbScaleResolution {
   const sawExplicitWb =
-    desc.getAttribute('crs:Temperature') !== null || desc.getAttribute('crs:Tint') !== null;
-  const stamp = parseWbScaleStamp(desc.getAttribute('papp:WbScaleVersion'));
+    attrOf(desc, ['crs:Temperature']) !== null || attrOf(desc, ['crs:Tint']) !== null;
+  const stamp = parseWbScaleStamp(attrOf(desc, ['papp:WbScaleVersion']));
   const sourceVersion = stamp ?? (sawPappAnywhere && sawExplicitWb ? 1 : 5);
   return {
     modelVersion: sourceVersion === 1 ? 1 : 5,

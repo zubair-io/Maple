@@ -2,10 +2,9 @@
 //
 // Covers the write-policy contract (idle debounce, not per-tick; flushAll
 // for exit/navigate-away/teardown), the RAW-only gate, and the
-// Hosted-vs-server-backed branching (AVIF-when-possible, JPEG fallback only
-// on the server-backed path — Hosted has no server to transcode a JPEG, so
-// it must defer instead, mirroring `HostedPreviewResolver`'s #2010
-// precedent). Real `encodeDevelopedRenderToAvif`/`encodeDevelopedRenderToJpeg`
+// Hosted-vs-server-backed branching (AVIF-when-possible, JPEG fallback on
+// both paths while Hosted records the actual local format). Real
+// `encodeDevelopedRenderToAvif`/`encodeDevelopedRenderToJpeg`
 // run (not mocked — this codebase's Angular unit-test system disallows
 // `vi.mock` on relative imports, same reason
 // `hosted-preview-resolver.service.spec.ts` doesn't mock the encoder
@@ -101,6 +100,11 @@ function setup(opts: Setup = {}) {
         useValue: {
           bytesFor: () => new Uint8Array([1, 2, 3]),
           bytesForAsset: vi.fn(async () => new Uint8Array([1, 2, 3])),
+          hostedBytesSnapshotFor: vi.fn(async () => ({
+            bytes: new Uint8Array([1, 2, 3]),
+            source: { size: 3, lastModified: 1234 },
+          })),
+          sourceIdentityFor: vi.fn(async () => ({ size: 3, lastModified: 1234 })),
           ...opts.cache,
         },
       },
@@ -300,23 +304,58 @@ describe('EditPreviewPersistService — Hosted (File System Access folder handle
     await vi.advanceTimersByTimeAsync(PAST_DEBOUNCE_MS);
 
     expect(writePreview).toHaveBeenCalledTimes(1);
-    expect(writePreview).toHaveBeenCalledWith(folder, '2026', 'a.dng', expect.any(Blob));
+    expect(writePreview).toHaveBeenCalledWith(folder, '2026', 'a.dng', expect.any(Blob), {
+      size: 3,
+      lastModified: 1234,
+    });
     const written = writePreview.mock.calls[0][3];
     expect(written.type).toBe('image/avif');
   });
 
-  it('browser cannot genuinely encode AVIF: writes NOTHING (no server to fall back to — #2010 precedent)', async () => {
+  it('browser cannot genuinely encode AVIF: writes a JPEG with source identity', async () => {
     convertToBlobImpl = async ({ type }) =>
       new Blob(['x'], { type: type === 'image/avif' ? 'image/png' : type });
     const writePreview = vi.fn();
+    const folder = { write: true };
     const svc = setup({
-      store: { backend: 'hosted', currentFolder: () => ({ write: true }) },
+      store: { backend: 'hosted', currentFolder: () => folder },
+      mapleCache: { writePreview },
+    });
+
+    svc.schedule('lib:2026/a.dng' as AssetId);
+    await vi.advanceTimersByTimeAsync(PAST_DEBOUNCE_MS);
+    await settle();
+
+    expect(writePreview).toHaveBeenCalledWith(
+      expect.anything(),
+      '2026',
+      'a.dng',
+      expect.any(Blob),
+      { size: 3, lastModified: 1234 },
+    );
+    expect(writePreview.mock.calls[0][3].type).toBe('image/jpeg');
+  });
+
+  it('does not publish old developed pixels when the RAW is replaced during decode', async () => {
+    convertToBlobImpl = async ({ type }) => new Blob(['x'], { type });
+    const writePreview = vi.fn();
+    const hostedBytesSnapshotFor = vi.fn(async () => ({
+      bytes: new Uint8Array([1, 2, 3]),
+      source: { size: 3, lastModified: 100 },
+    }));
+    const sourceIdentityFor = vi.fn(async () => ({ size: 4, lastModified: 200 }));
+    const folder = { write: true };
+    const svc = setup({
+      store: { backend: 'hosted', currentFolder: () => folder },
+      cache: { hostedBytesSnapshotFor, sourceIdentityFor },
       mapleCache: { writePreview },
     });
 
     svc.schedule('lib:2026/a.dng' as AssetId);
     await vi.advanceTimersByTimeAsync(PAST_DEBOUNCE_MS);
 
+    expect(hostedBytesSnapshotFor).toHaveBeenCalledTimes(1);
+    expect(sourceIdentityFor).toHaveBeenCalledTimes(1);
     expect(writePreview).not.toHaveBeenCalled();
   });
 

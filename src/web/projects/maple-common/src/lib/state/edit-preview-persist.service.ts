@@ -4,9 +4,9 @@
 // On a PIXEL-affecting edit, re-renders the DEVELOPED image (RAW + current
 // XMP — the same develop the live canvas already shows) at the canonical
 // 1280px-long-edge preview size and persists it to
-// `<dir>/.maple/previews/<filename>.avif`, overwriting the unedited/prior
-// preview in place (the same pure-cache file `HostedPreviewResolver`
-// populates for the unedited tier, #2010).
+// `<dir>/.maple/previews/<filename>.<actual-format>`, replacing the
+// unedited/prior preview selected by the same Hosted-private descriptor
+// `HostedPreviewResolver` populates for the unedited tier (#2010).
 //
 // WRITE POLICY (load-bearing — see CLAUDE.md's performance invariants and
 // the #2018 ticket): `schedule()` is called from `LibraryStateService.
@@ -30,13 +30,10 @@
 //
 // AVIF-encode reality (#2018, following directly from #2010's measurement
 // that no shipping browser's canvas can genuinely encode AVIF today):
-//   - **Hosted (File System Access folder handle):** no server to fall back
-//     to. Only a genuine AVIF is ever written — a browser that can't encode
-//     AVIF writes NOTHING for this asset (never a JPEG wearing an `.avif`
-//     extension), exactly mirroring `HostedPreviewResolver._persistAvif`'s
-//     precedent for the unedited tier. It re-derives (from the still-current
-//     embedded preview, or a future AVIF-capable browser) rather than ever
-//     serving a stale/wrong developed preview.
+//   - **Hosted (File System Access folder handle):** stores genuine AVIF when
+//     available, otherwise a high-quality JPEG with its real extension/MIME in
+//     the Hosted-private descriptor. This cache stays local and is not an
+//     interchange contract.
 //   - **Server-backed (Self-Hosted):** `PUT /api/preview` (#2018) accepts
 //     JPEG as well as AVIF, transcoding server-side via the same isolated
 //     sharp pipeline the index-time preview stage uses
@@ -48,10 +45,15 @@
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import type { AssetId } from '../models/asset';
+import type { MapleFolderHandle } from '../folder-access/folder-access.types';
 import type { DecodedImage } from '../raw-pipeline/raw-pipeline.types';
 import { LibraryStore } from './library-store.service';
 import { LibraryCache } from './library-cache.service';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
+import {
+  samePreviewSource,
+  type PreviewSourceIdentity,
+} from '../maple-cache/preview-cache-protocol';
 import { SERVER_WORKSPACE_PERSISTENCE } from '../workspace/workspace-persistence';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
@@ -79,6 +81,12 @@ const IDLE_PERSIST_DEBOUNCE_MS = 2000;
 interface PreviewLocation {
   dir: string;
   filename: string;
+}
+
+interface HostedPreviewTarget {
+  folder: MapleFolderHandle;
+  location: PreviewLocation;
+  sourceBefore: PreviewSourceIdentity;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -144,21 +152,45 @@ export class EditPreviewPersistService {
     if (!asset || !isSupportedRaw(asset.filename)) return;
 
     try {
-      const bytes = this.cache.bytesFor(id) ?? (await this.cache.bytesForAsset(id));
-      const ext = asset.filename.split('.').pop()?.toLowerCase() ?? '';
-      const model = this.store.adjustmentFor(id)();
-      const xmp = this.xmpSerializer.serialize(model);
-      // Full quality (not the fast-phase half-res Preview demosaic) — this
-      // is a persisted cache artifact, not a live-render tick.
-      const img = await this.pipeline.decode(bytes, ext, xmp, PREVIEW_LONG_EDGE_PX, false);
-
-      if (this.store.backend === 'self-hosted') {
-        await this._persistServerBacked(id, img);
-      } else {
-        await this._persistHosted(id, img);
+      let hostedTarget: HostedPreviewTarget | null = null;
+      if (this.store.backend === 'hosted') {
+        const folder = this.store.currentFolder();
+        const location = this._locate(id);
+        if (!folder?.write || !location) return;
+        const snapshot = await this.cache.hostedBytesSnapshotFor(id);
+        hostedTarget = {
+          folder,
+          location,
+          sourceBefore: snapshot.source,
+        };
+        const bytes = snapshot.bytes;
+        await this._decodeAndPersist(id, asset.filename, bytes, hostedTarget);
+        return;
       }
+      const bytes = this.cache.bytesFor(id) ?? (await this.cache.bytesForAsset(id));
+      await this._decodeAndPersist(id, asset.filename, bytes, hostedTarget);
     } catch (err) {
       console.warn('[state] developed-preview persist failed for', id, err);
+    }
+  }
+
+  private async _decodeAndPersist(
+    id: AssetId,
+    filename: string,
+    bytes: Uint8Array,
+    hostedTarget: HostedPreviewTarget | null,
+  ): Promise<void> {
+    const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+    const model = this.store.adjustmentFor(id)();
+    const xmp = this.xmpSerializer.serialize(model);
+    // Full quality (not the fast-phase half-res Preview demosaic) — this
+    // is a persisted cache artifact, not a live-render tick.
+    const img = await this.pipeline.decode(bytes, ext, xmp, PREVIEW_LONG_EDGE_PX, false);
+
+    if (this.store.backend === 'self-hosted') {
+      await this._persistServerBacked(id, img);
+    } else if (hostedTarget) {
+      await this._persistHosted(id, img, hostedTarget);
     }
   }
 
@@ -179,19 +211,27 @@ export class EditPreviewPersistService {
     await firstValueFrom(this.serverPersistence.writePreview(absPath, jpeg, 'image/jpeg'));
   }
 
-  /** Hosted (File System Access folder handle): only a genuine AVIF is ever
-   * written (no server to transcode a JPEG fallback) — a browser that can't
-   * canvas-encode AVIF writes nothing for this asset, matching
-   * `HostedPreviewResolver._persistAvif`'s precedent for the unedited tier.
-   * No-ops on a read-only or not-yet-resolved folder, or an asset with no
-   * addressable on-disk location. */
-  private async _persistHosted(id: AssetId, img: DecodedImage): Promise<void> {
-    const folder = this.store.currentFolder();
-    const location = this._locate(id);
-    if (!folder?.write || !location) return;
+  /** Hosted (File System Access folder handle): genuine AVIF when supported,
+   * otherwise a high-quality JPEG stored under its actual declared format.
+   * No-ops on a read-only or not-yet-resolved folder, an asset with no
+   * addressable on-disk location, or unavailable source identity. */
+  private async _persistHosted(
+    id: AssetId,
+    img: DecodedImage,
+    target: HostedPreviewTarget,
+  ): Promise<void> {
+    if (this.store.currentFolder() !== target.folder || !target.folder.write) return;
     const avif = await encodeDevelopedRenderToAvif(img);
-    if (!avif) return; // browser can't encode AVIF — defer, don't mislabel.
-    await this.mapleCache.writePreview(folder, location.dir, location.filename, avif);
+    const blob = avif ?? (await encodeDevelopedRenderToJpeg(img));
+    const sourceAfter = await this.cache.sourceIdentityFor(id);
+    if (!samePreviewSource(target.sourceBefore, sourceAfter)) return;
+    await this.mapleCache.writePreview(
+      target.folder,
+      target.location.dir,
+      target.location.filename,
+      blob,
+      target.sourceBefore,
+    );
   }
 
   /** The asset's directory + basename, or `null` for an id with no

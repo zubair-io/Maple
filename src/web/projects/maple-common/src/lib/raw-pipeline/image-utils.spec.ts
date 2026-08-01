@@ -195,9 +195,8 @@ describe('canvasToBlob (thumbnail encoder: AVIF-first with verified JPEG fallbac
 describe('encodeDevelopedRenderToAvif / encodeDevelopedRenderToJpeg (#2018 edit-time persist)', () => {
   // Same fake-canvas approach as `canvasToBlob` above, extended with a fake
   // `createImageBitmap` (these functions start from a raw-pipeline
-  // `DecodedImage`, not an already-Blob source like `encodePreviewBlobToAvif`
-  // takes) and a `getContext('2d')` stub so `resizeBitmapToCanvas`'s
-  // `drawImage` call has somewhere to land.
+  // `DecodedImage`) and a `getContext('2d')` stub so
+  // `resizeBitmapToCanvas`'s `drawImage` call has somewhere to land.
   let convertToBlobImpl: (opts: { type: string; quality?: number }) => Promise<Blob>;
 
   class FakeCtx {

@@ -1,17 +1,11 @@
 // HostedPreviewResolver — Hosted-mode embedded-RAW-preview resolution
 // (#2010, epic #1993): directory+filename cache-keying, the canonical
-// `<dir>/.maple/previews/<filename>.avif` read/write-through cache, the
-// genuine-AVIF-or-defer write rule, the RAW/non-RAW split, and graceful
+// `<dir>/.maple/previews/<filename>.<actual-format>` read/write-through cache,
+// the AVIF-or-native-JPEG write rule, the RAW/non-RAW split, and graceful
 // degradation on any failure (never throws to the caller).
 //
-// The AVIF transcode (`encodePreviewBlobToAvif`) is a browser-canvas call.
-// Under jsdom there is no canvas AVIF encoder, so `canEncodeAvif()` reports
-// false and the transcode returns null — which is exactly the "browser can't
-// encode AVIF → write NOTHING (never a mislabeled .avif)" branch this tier is
-// contractually required to take. These tests therefore assert the real
-// defer behaviour directly (no encoder mock — the Angular unit-test system
-// disallows `vi.mock` on relative imports anyway). The AVIF-write happy path
-// on a capable browser is covered by the ticket's real-browser verification.
+// The extracted JPEG is already the right preview size and is persisted
+// directly; no redundant canvas transcode is part of this hot cache-miss path.
 
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, vi } from 'vitest';
@@ -70,7 +64,7 @@ describe('HostedPreviewResolver.resolve', () => {
     expect(blob).toBe(jpeg); // display uses the fast JPEG, not the AVIF
   });
 
-  it('browser cannot encode AVIF (jsdom): writes NOTHING — never a mislabeled .avif', async () => {
+  it('stores the extracted JPEG under its actual format', async () => {
     const readPreview = vi.fn(async () => null);
     const writePreview = vi.fn();
     const jpeg = new Blob(['jpeg'], { type: 'image/jpeg' });
@@ -89,6 +83,44 @@ describe('HostedPreviewResolver.resolve', () => {
     await settle();
 
     expect(blob).toBe(jpeg);
+    expect(writePreview).toHaveBeenCalledWith(expect.anything(), '2026', 'a.dng', jpeg, {
+      size: 0,
+      lastModified: 0,
+    });
+  });
+
+  it('does not publish old pixels when the RAW is replaced during extraction', async () => {
+    const writePreview = vi.fn();
+    const jpeg = new Blob(['jpeg'], { type: 'image/jpeg' });
+    const getSourceIdentity = vi
+      .fn<() => Promise<{ size: number; lastModified: number }>>()
+      .mockResolvedValueOnce({ size: 10, lastModified: 100 })
+      .mockResolvedValueOnce({ size: 11, lastModified: 200 });
+    const staleCachedBytes = vi.fn(async () => new Uint8Array([9]));
+    const getSourceSnapshot = vi.fn(async () => ({
+      bytes: new Uint8Array([1]),
+      source: { size: 10, lastModified: 100 },
+    }));
+    const resolver = setup(
+      { findAsset: () => rawAsset(), currentFolder: () => ({ write: true }) },
+      { readPreview: vi.fn(async () => null), writePreview },
+      {
+        extractEmbeddedPreview: vi.fn(async () => ({ width: 8, height: 6, blob: jpeg })),
+      },
+    );
+
+    const blob = await resolver.resolve(
+      'lib:2026/a.dng' as AssetId,
+      staleCachedBytes,
+      getSourceIdentity,
+      getSourceSnapshot,
+    );
+    await settle();
+
+    expect(blob).toBe(jpeg);
+    expect(getSourceSnapshot).toHaveBeenCalledTimes(1);
+    expect(staleCachedBytes).not.toHaveBeenCalled();
+    expect(getSourceIdentity).toHaveBeenCalledTimes(2);
     expect(writePreview).not.toHaveBeenCalled();
   });
 

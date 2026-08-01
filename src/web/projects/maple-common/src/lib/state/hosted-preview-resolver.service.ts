@@ -18,14 +18,14 @@ import type { Asset, AssetId } from '../models/asset';
 import { parseAddress } from '../addressing/maple-address';
 import { splitRelPath, validateRelPath } from '../addressing/fs-access-library-source';
 import { MapleCacheService, type PreviewSourceIdentity } from '../maple-cache/maple-cache.service';
+import { samePreviewSource } from '../maple-cache/preview-cache-protocol';
 import { EmbeddedPreviewService } from '../raw-pipeline/embedded-preview.service';
-import { encodePreviewBlobToAvif } from '../raw-pipeline/image-utils';
 import { isSupportedRaw } from './raw-extensions';
 import { LibraryStore } from './library-store.service';
 
 /** An asset's on-disk location within the granted library folder — the
  * directory (`''` for a root-level file) and basename that key the canonical
- * `<dir>/.maple/previews/<filename>.avif` cache. `null` when the asset has no
+ * `<dir>/.maple/previews/<filename>.<actual-format>` cache. `null` when the asset has no
  * addressable folder location (an in-memory drag-drop import), which can be
  * displayed but not persisted. */
 interface PreviewLocation {
@@ -47,14 +47,14 @@ export class HostedPreviewResolver {
    * shown image either way.
    *
    * The returned display blob is the extracted preview JPEG (fast, universal).
-   * The genuine-AVIF cache write (`<dir>/.maple/previews/<filename>.avif`)
-   * happens as a fire-and-forget side effect on a real cache miss, and only on
-   * a write-capable folder and a browser that can actually encode AVIF —
-   * mirroring `_loadHostedThumb`'s `folder?.write` guard. A warm revisit reads
-   * the AVIF straight back via `readPreview` without re-extracting.
+   * A cache write happens as a fire-and-forget side effect on a real miss.
+   * The already extracted JPEG is stored directly under its real format,
+   * avoiding a redundant browser transcode. A warm revisit reads that
+   * declared artifact via `readPreview` without re-extracting.
    *
-   * `getBytes` is `LibraryCache.bytesForAsset` — only called on a genuine cache
-   * miss, never for a cache hit.
+   * `getSourceSnapshot` is `LibraryCache.hostedBytesSnapshotFor`, associating
+   * cached bytes with the exact File identity on a genuine cache miss.
+   * `getBytes` remains the cacheless fallback for isolated/imported callers.
    */
   async resolve(
     id: AssetId,
@@ -63,6 +63,9 @@ export class HostedPreviewResolver {
       size: 0,
       lastModified: 0,
     }),
+    getSourceSnapshot?: (
+      id: AssetId,
+    ) => Promise<{ bytes: Uint8Array; source: PreviewSourceIdentity }>,
   ): Promise<Blob | null> {
     const asset = this.store.findAsset(id);
     if (!asset || !isSupportedRaw(asset.filename)) {
@@ -74,6 +77,7 @@ export class HostedPreviewResolver {
 
     const location = this._locate(id);
     const folder = this.store.currentFolder();
+    let sourceBefore: PreviewSourceIdentity | null = null;
 
     // Cache read: only possible with both a folder handle AND an addressable
     // on-disk location to key off. Absent either (a direct deep-link before a
@@ -82,6 +86,7 @@ export class HostedPreviewResolver {
     if (folder && location) {
       try {
         const source = await getSourceIdentity(id);
+        sourceBefore = source;
         const cached = await this.cache.readPreview(
           folder,
           location.dir,
@@ -95,7 +100,16 @@ export class HostedPreviewResolver {
       }
     }
 
-    return this._extractAndCache(id, asset, folder, location, getBytes, getSourceIdentity);
+    return this._extractAndCache(
+      id,
+      asset,
+      folder,
+      location,
+      getBytes,
+      getSourceIdentity,
+      sourceBefore,
+      getSourceSnapshot,
+    );
   }
 
   /** The asset's directory + basename, or `null` for an id with no addressable
@@ -117,10 +131,9 @@ export class HostedPreviewResolver {
     }
   }
 
-  /** Read `getBytes`, extract the embedded preview via the WASM worker, kick
-   * off a genuine-AVIF write-through when possible, and return the display
-   * JPEG. `null` on any failure (logged) — includes the "no embedded preview in
-   * this RAW" case (rare — see `raw_core::preview`'s module doc). */
+  /** Read a coherent source snapshot, extract via the WASM worker, kick off an
+   * actual-format write-through, and return the display JPEG. `null` on any
+   * failure (logged), including a RAW without an embedded preview. */
   private async _extractAndCache(
     id: AssetId,
     asset: Asset,
@@ -128,40 +141,35 @@ export class HostedPreviewResolver {
     location: PreviewLocation | null,
     getBytes: (id: AssetId) => Promise<Uint8Array>,
     getSourceIdentity: (id: AssetId) => Promise<PreviewSourceIdentity>,
+    sourceBefore: PreviewSourceIdentity | null,
+    getSourceSnapshot?: (
+      id: AssetId,
+    ) => Promise<{ bytes: Uint8Array; source: PreviewSourceIdentity }>,
   ): Promise<Blob | null> {
     try {
-      const bytes = await getBytes(id);
+      const snapshot = getSourceSnapshot ? await getSourceSnapshot(id) : null;
+      const bytes = snapshot?.bytes ?? (await getBytes(id));
+      const coherentSource = snapshot?.source ?? sourceBefore;
       const ext = asset.filename.split('.').pop()?.toLowerCase() ?? '';
       const { blob } = await this.previewExtractor.extractEmbeddedPreview(bytes, ext);
-      if (folder?.write && location) {
+      if (folder?.write && location && coherentSource) {
         void getSourceIdentity(id)
-          .then((source) => this._persistAvif(folder, location, blob, source))
+          .then((sourceAfter) => {
+            if (!samePreviewSource(coherentSource, sourceAfter)) return;
+            return this.cache.writePreview(
+              folder,
+              location.dir,
+              location.filename,
+              blob,
+              coherentSource,
+            );
+          })
           .catch(() => undefined);
       }
       return blob;
     } catch (err) {
       console.warn('[state] embedded preview extraction failed for', asset.filename, err);
       return null;
-    }
-  }
-
-  /** Transcode the extracted JPEG to genuine AVIF and write it to the canonical
-   * cache path. A browser that can't encode AVIF returns `null` here and we
-   * write NOTHING — never a JPEG wearing an `.avif` extension (the mislabel the
-   * server's #2014 validator rejects); the preview simply re-extracts next
-   * visit. Fire-and-forget: a write failure never affects the shown image. */
-  private async _persistAvif(
-    folder: NonNullable<ReturnType<LibraryStore['currentFolder']>>,
-    location: PreviewLocation,
-    jpeg: Blob,
-    source: PreviewSourceIdentity,
-  ): Promise<void> {
-    try {
-      const avif = await encodePreviewBlobToAvif(jpeg);
-      if (!avif) return; // browser can't encode AVIF — defer, don't mislabel.
-      await this.cache.writePreview(folder, location.dir, location.filename, avif, source);
-    } catch (err) {
-      console.warn('[state] preview AVIF cache write failed for', location.filename, err);
     }
   }
 }

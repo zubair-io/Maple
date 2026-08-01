@@ -41,6 +41,7 @@ import { TypedStorage } from '../util/typed-storage';
 import { SidecarSaveStateService } from '../xmp/sidecar-save-state.service';
 import { XmpAdjustmentRestoreService } from '../xmp/xmp-adjustment-restore.service';
 import { LibrarySlugRegistry } from '../addressing/library-slug-registry';
+import { SingleFileXmpService, assertValidSingleFileXmp } from '../xmp/single-file-xmp.service';
 
 const ASSET_RENDER_KEYS: readonly (keyof Asset)[] = [
   'id',
@@ -103,6 +104,7 @@ export class LibraryFetch {
   private readonly sidecarSave = inject(SidecarSaveStateService);
   private readonly xmpRestore = inject(XmpAdjustmentRestoreService);
   private readonly slugRegistry = inject(LibrarySlugRegistry);
+  private readonly singleFileXmp = inject(SingleFileXmpService);
 
   // ── Index write debounce ──────────────────────────────────────────────────
   private _indexWriteTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1023,7 +1025,9 @@ export class LibraryFetch {
     filename: string,
     explicitId?: AssetId,
     memoryOnly = false,
+    xmp?: string,
   ): AssetId {
+    if (xmp !== undefined) assertValidSingleFileXmp(xmp);
     const importedIds = new Set(
       this.store
         .assets()
@@ -1036,6 +1040,7 @@ export class LibraryFetch {
     this.store.assets.update((assets) => assets.filter((asset) => asset.folderId !== 'f-imported'));
     if (importedIds.size > 0) {
       for (const id of importedIds) this.cache_.evictImportedAsset(id);
+      this.xmpStore.replacePassthroughs(importedIds, new Map());
       this.store.adjustmentModels.update((models) => {
         const next = new Map(models);
         for (const id of importedIds) next.delete(id);
@@ -1044,6 +1049,7 @@ export class LibraryFetch {
     }
 
     const id = this.addImportedAsset(bytes, filename, explicitId);
+    this.singleFileXmp.open(id, xmp);
     this.selection.selectedSourceId.set('f-imported');
     this.selection.selectAsset(id);
     return id;
@@ -1086,7 +1092,10 @@ export class LibraryFetch {
     }
 
     const folder = this.store.currentFolder();
-    if (!folder?.write) return;
+    if (!folder?.write) {
+      this.singleFileXmp.markEdited(id);
+      return;
+    }
     this.xmpStore.scheduleWrite(id, folder, asset.filename, fullModel, culling);
   }
 

@@ -13,10 +13,15 @@ const EXPECTED_SELF_HOSTED_BOOTSTRAP_401 =
 const CHROME_RESOURCE_401 =
   'Failed to load resource: the server responded with a status of 401 (Unauthorized)';
 
-function unexpectedAuditEntries(project: string, audit: BrowserAudit): string[] {
+function unexpectedAuditEntries(
+  project: string,
+  audit: BrowserAudit,
+  expectedConsoleErrorPrefixes: readonly string[],
+): string[] {
   const entries = [
     ...audit.consoleErrors
       .filter((value) => project !== 'chrome-self-hosted' || value !== CHROME_RESOURCE_401)
+      .filter((value) => !expectedConsoleErrorPrefixes.some((prefix) => value.startsWith(prefix)))
       .map((value) => `console: ${value}`),
     ...audit.pageErrors.map((value) => `page: ${value}`),
     ...audit.failedRequests.map((value) => `request: ${value}`),
@@ -74,7 +79,13 @@ export const test = base.extend<{ browserAudit: void }>({
         contentType: 'application/json',
       });
       expect(
-        unexpectedAuditEntries(testInfo.project.name, audit),
+        unexpectedAuditEntries(
+          testInfo.project.name,
+          audit,
+          testInfo.annotations
+            .filter(({ type, description }) => type === 'expected-console-error' && description)
+            .map(({ description }) => description!),
+        ),
         'Production browser emitted unexpected errors; see production-browser-audit.json',
       ).toEqual([]);
     },
