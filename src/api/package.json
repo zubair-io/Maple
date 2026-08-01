@@ -11,6 +11,7 @@
     "indexer": "bun src/indexer.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test --timeout 20000",
+    "test:production-mongo": "bun scripts/serve-production-e2e-mongo.ts",
     "lint": "oxlint src",
     "lint:fix": "oxlint src --fix"
   },
