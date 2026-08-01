@@ -21,10 +21,11 @@
 // doesn't weaken the assertion) and then drives the UNMODIFIED, real
 // `_tryReadCachedThumb` read call site through the public `ensureThumbnailUrl`
 // entry point, against a real `MapleCacheService` backed by an in-memory
-// `FolderAccessService` fake. A `bytesForAsset` spy is the miss/hit oracle: a
+// `FolderAccessService` fake. A `HostedPreviewResolver.resolve` spy is the
+// miss/hit oracle: a
 // cache HIT returns from `_ensureThumbnailUrlInternal` before ever reaching
-// the network/decode fallback, so `bytesForAsset` — called only on that
-// fallback path — must stay uncalled; a genuine miss calls it.
+// the embedded-preview fallback, so the resolver must stay uncalled; a
+// genuine miss calls it.
 //
 // Model: src/api/src/fs/xmp.test.ts's "agrees with resolveThumbPath for the
 // same file". Apple sibling:
@@ -44,6 +45,7 @@ import { sha256Prefix16 } from '../maple-cache/sha';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { LIBRARY_SOURCE } from '../addressing/library-source';
 import { FolderAccessService } from '../folder-access/folder-access.service';
+import { HostedPreviewResolver } from './hosted-preview-resolver.service';
 import type { MapleFolderHandle } from '../folder-access/folder-access.types';
 import type { Asset, AssetId } from '../models/asset';
 
@@ -75,6 +77,7 @@ function setup() {
   const originalRevoke = URL.revokeObjectURL;
   URL.createObjectURL = vi.fn(() => 'blob:hosted-thumb');
   URL.revokeObjectURL = vi.fn();
+  const resolvePreview = vi.fn(async () => null);
 
   TestBed.configureTestingModule({
     providers: [
@@ -95,15 +98,14 @@ function setup() {
       { provide: BunApiBackendService, useValue: {} },
       { provide: FilesystemBrowseService, useValue: {} },
       { provide: RawPipelineService, useValue: {} },
+      { provide: HostedPreviewResolver, useValue: { resolve: resolvePreview } },
       { provide: LIBRARY_SOURCE, useValue: {} },
     ],
   });
 
   const svc = TestBed.inject(LibraryCache);
-  // The network/decode fallback (`_loadHostedThumb`) is the FIRST thing to
-  // call `bytesForAsset` — a real cache HIT never reaches it. Spying on the
-  // real public method (rather than stubbing it) lets it still reject
-  // naturally when exercised, while giving an unambiguous miss/hit oracle.
+  // Retain the byte spy for the cache-hit assertion below. RAW misses now enter
+  // the embedded-preview resolver first, avoiding the old duplicate byte read.
   const bytesForAsset = vi.spyOn(svc, 'bytesForAsset');
 
   return {
@@ -112,6 +114,7 @@ function setup() {
     files,
     folder,
     bytesForAsset,
+    resolvePreview,
     restore: () => {
       URL.createObjectURL = originalCreate;
       URL.revokeObjectURL = originalRevoke;
@@ -192,7 +195,7 @@ describe('LibraryCache Hosted thumbs — writer destination === reader source (#
   });
 
   it('a thumb written under the WRONG directory is invisible to the real read call site (sanity check for the assertion above)', async () => {
-    const { svc, files, bytesForAsset, restore } = setup();
+    const { svc, files, resolvePreview, restore } = setup();
     try {
       // Simulate the #1999 failure mode directly: a thumb landed at the
       // right stem but the wrong location (root instead of `.maple/thumbs/`).
@@ -202,14 +205,19 @@ describe('LibraryCache Hosted thumbs — writer destination === reader source (#
       const asset = { id: ASSET_ID, filename: FILENAME } as unknown as Asset;
       svc.ensureThumbnailUrl(asset);
       await settle(
-        () => bytesForAsset.mock.calls.length > 0,
-        'fell back to bytesForAsset (decode path)',
+        () => resolvePreview.mock.calls.length > 0,
+        'fell back to the embedded-preview path',
       );
 
       // Cache miss — the read call site fell through to the network/decode
       // fallback, proving the assertion above is actually discriminating and
       // not vacuously true.
-      expect(bytesForAsset).toHaveBeenCalledWith(ASSET_ID);
+      expect(resolvePreview).toHaveBeenCalledWith(
+        ASSET_ID,
+        expect.any(Function),
+        expect.any(Function),
+        expect.any(Function),
+      );
     } finally {
       restore();
     }
