@@ -24,9 +24,9 @@ import type {
 } from '../generated/adjustment-model.generated';
 import { ADJUSTMENT_FIELDS, LEGACY_READ_ALIASES, WB_PRESET_FIELD } from './xmp-fields';
 import { resolveWbScaleVersion, normalizeParsedWb } from './xmp-wb-scale';
-import { parseMetadataBlock, METADATA_ATTR_KEYS, METADATA_NESTED_ELEMENTS } from './xmp-metadata';
-import { DC_NAMESPACE, parseCullingBlock } from './xmp-culling';
-import { parseToneCurveElement, toneCurveElementKey } from './xmp-tone-curves';
+import { parseMetadataBlock } from './xmp-metadata';
+import { parseCullingBlock } from './xmp-culling';
+import { collectXmpPassthrough } from './xmp-passthrough';
 
 /**
  * Precomputed `xmpKey → alias` lookup for `LEGACY_READ_ALIASES`. Used by both
@@ -56,70 +56,6 @@ const matchVariant = <T extends string>(variants: readonly T[], raw: string): T 
   const lower = raw.toLowerCase();
   return variants.find((v) => v.toLowerCase() === lower);
 };
-
-/**
- * Attributes that Maple fully handles — used to separate the known set from
- * passthrough when collecting unknownAttributes.
- */
-const KNOWN_ATTRIBUTES = new Set<string>([
-  ...ADJUSTMENT_FIELDS.map((f) => f.xmpKey),
-  ...LEGACY_READ_ALIASES.map((f) => f.xmpKey),
-  WB_PRESET_FIELD.xmpKey,
-  // culling
-  'xmp:Rating',
-  'Rating',
-  'maple:Flag',
-  'papp:Flag',
-  'Flag',
-  'xmp:Label',
-  'Label',
-  'maple:ColorLabel',
-  'papp:ColorLabel',
-  'ColorLabel',
-  // DisplayLookCurve (#371; retired in #443) — kept here so pre-#443
-  // sidecars carrying `papp:Look` round-trip cleanly into the model
-  // (field is a no-op at the pipeline level post-#443).
-  'papp:Look',
-  // Auto Profile (Phase 1, #536) — canonical successor to `papp:Look`.
-  'papp:Profile',
-  // Hot/dead-pixel suppression (#1106) — decode-product enum field.
-  'papp:HotPixelSuppression',
-  // DNG lens corrections (#376) — master switch for the OpcodeList3
-  // corrections; parsed into the model and re-emitted by the serializer,
-  // so it must stay out of the passthrough bucket (double-emit otherwise).
-  'crs:LensProfileEnable',
-  // Enum mode fields (#2214) — parsed into the model and re-emitted by the
-  // serializer, so they must stay out of the passthrough bucket
-  // (double-emit otherwise).
-  'papp:HighlightRecoveryMode',
-  'papp:AutoExposure',
-  'papp:WbMethod',
-  'papp:ToneCurveMode',
-  // Black & white toggle (#276) — ACR/Lightroom-compatible `crs:` key,
-  // parsed into `blackWhite` and re-emitted by the serializer, so it must
-  // stay out of the passthrough bucket (double-emit otherwise). The 8
-  // gray-mixer weights are already covered via `ADJUSTMENT_FIELDS` above.
-  'crs:ConvertToGrayscale',
-  // WB slider-scale version (#1780) — parsed into `wbScaleVersion` and
-  // re-emitted by the serializer alongside explicit Temperature/Tint, so
-  // it must stay out of the passthrough bucket (double-emit otherwise).
-  'papp:WbScaleVersion',
-  // Crop / straighten group (ticket #277)
-  'crs:HasCrop',
-  'crs:CropTop',
-  'crs:CropLeft',
-  'crs:CropBottom',
-  'crs:CropRight',
-  'crs:CropAngle',
-  'crs:CropConstrainToWarp',
-  // structural / bookkeeping
-  'rdf:about',
-  'crs:Version',
-  'crs:ProcessVersion',
-  'crs:HasSettings',
-  // Batch Metadata block (spec 2026-06-26) — keep these out of passthrough.
-  ...METADATA_ATTR_KEYS,
-]);
 
 @Injectable({ providedIn: 'root' })
 export class XmpParserService {
@@ -497,99 +433,6 @@ export class XmpParserService {
       model.crop = crop;
     }
 
-    // Remember namespace declarations visible to rdf:Description. The final
-    // passthrough bucket keeps only declarations used by preserved QNames;
-    // keeping every source declaration would create false conflicts with
-    // Maple's canonical bindings (notably legacy papp URIs).
-    const visibleNamespaces = new Map<string, string>();
-    const ancestors: Element[] = [];
-    for (let element: Element | null = desc; element; element = element.parentElement) {
-      ancestors.unshift(element);
-    }
-    for (const element of ancestors) {
-      for (const attr of Array.from(element.attributes)) {
-        if (!attr.name.startsWith('xmlns:')) continue;
-        const prefix = attr.name.slice('xmlns:'.length);
-        visibleNamespaces.set(prefix, attr.value);
-      }
-    }
-
-    // Collect unknown attributes for the passthrough bucket.
-    const unknownAttributes: Array<{ name: string; value: string }> = [];
-    for (let i = 0; i < desc.attributes.length; i++) {
-      const attr = desc.attributes[i];
-      if (!KNOWN_ATTRIBUTES.has(attr.name) && !attr.name.startsWith('xmlns')) {
-        unknownAttributes.push({ name: attr.name, value: attr.value });
-      }
-    }
-
-    // Collect unknown child elements (ToneCurve, MaskGroupBasedCorrections, etc.).
-    //
-    // `dc:subject` is explicitly skipped — the keyword bag round-trips
-    // through `parseCulling` + `XmpSerializerService.serialize`'s keywords
-    // block. If we left it in `unknownNodes` it would emit twice: once as
-    // the canonical block, once via the passthrough pipe. Match by both
-    // namespaced and prefix-only forms because DOMParser normalisation
-    // varies across browsers.
-    const unknownNodes: string[] = [];
-    const passthroughPrefixes = new Set<string>();
-    const rememberPrefix = (node: Element | Attr): void => {
-      if (node.prefix && node.prefix !== 'xml' && node.prefix !== 'xmlns') {
-        passthroughPrefixes.add(node.prefix);
-      }
-    };
-    const isManaged = (child: Element): boolean => {
-      // dc:subject (keywords) stays excluded as before.
-      if (
-        (child.namespaceURI === DC_NAMESPACE && child.localName === 'subject') ||
-        child.tagName === 'dc:subject'
-      ) {
-        return true;
-      }
-      // Batch Metadata managed nested elements (spec 2026-06-26).
-      return METADATA_NESTED_ELEMENTS.some(
-        (e) =>
-          (child.namespaceURI === e.ns && child.localName === e.local) || child.tagName === e.tag,
-      );
-    };
-    for (let i = 0; i < desc.children.length; i++) {
-      const child = desc.children[i];
-      // Point tone curves (#365) — the only nested elements that carry
-      // develop settings. Parsed into the model and re-emitted by the
-      // serializer, so they must stay out of the passthrough bucket
-      // (double-emit otherwise). `crs:ToneCurvePV2012*` is deliberately not
-      // matched here: it is a display-referred curve, a different quantity
-      // from these scene-linear ones, and it rides the passthrough pipe
-      // untouched.
-      const curveKey = toneCurveElementKey(child);
-      if (curveKey) {
-        model[curveKey] = parseToneCurveElement(child);
-        continue;
-      }
-      if (isManaged(child)) continue;
-      for (const element of [child, ...Array.from(child.querySelectorAll('*'))]) {
-        rememberPrefix(element);
-        for (const attr of Array.from(element.attributes)) rememberPrefix(attr);
-      }
-      unknownNodes.push(child.outerHTML);
-    }
-
-    for (const attr of unknownAttributes) {
-      const colon = attr.name.indexOf(':');
-      if (colon > 0) passthroughPrefixes.add(attr.name.slice(0, colon));
-    }
-
-    const unknownNamespaces = Array.from(passthroughPrefixes)
-      .map((prefix) => ({ prefix, uri: visibleNamespaces.get(prefix) }))
-      .filter((namespace): namespace is { prefix: string; uri: string } => !!namespace.uri);
-
-    return {
-      model,
-      passthrough: {
-        unknownNamespaces,
-        unknownAttributes,
-        unknownNodes,
-      },
-    };
+    return { model, passthrough: collectXmpPassthrough(desc, model) };
   }
 }

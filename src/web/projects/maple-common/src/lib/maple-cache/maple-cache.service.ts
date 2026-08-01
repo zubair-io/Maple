@@ -345,20 +345,33 @@ export class MapleCacheService {
     filename: string,
     source: PreviewSourceIdentity,
   ): Promise<boolean> {
+    let identityBytes: Uint8Array;
     try {
-      const bytes = await this.fs.readFile(folder, previewIdentityPath(relDir, filename));
-      const recorded = JSON.parse(new TextDecoder().decode(bytes)) as PreviewSourceIdentity;
-      return recorded.size === source.size && recorded.lastModified === source.lastModified;
+      identityBytes = await this.fs.readFile(folder, previewIdentityPath(relDir, filename));
     } catch {
-      // Cross-platform entries predate the Hosted marker. Preserve the server's
-      // canonical freshness rule for those: derivative mtime must not precede
-      // the source. Hosted writes add the exact size+mtime marker above.
+      // Cross-platform entries may predate the Hosted marker. Preserve the
+      // server's freshness rule only when that companion is genuinely absent
+      // or unreadable: derivative mtime must not precede the source.
       try {
         const metadata = await this.fs.fileMetadata(folder, previewCachePath(relDir, filename));
         return metadata.lastModified >= source.lastModified;
       } catch {
         return false;
       }
+    }
+
+    try {
+      const recorded = JSON.parse(new TextDecoder().decode(identityBytes)) as PreviewSourceIdentity;
+      return (
+        Number.isFinite(recorded.size) &&
+        Number.isFinite(recorded.lastModified) &&
+        recorded.size === source.size &&
+        recorded.lastModified === source.lastModified
+      );
+    } catch {
+      // A present but corrupt marker belongs to this preview and cannot be
+      // bypassed by a favorable derivative mtime.
+      return false;
     }
   }
 }
