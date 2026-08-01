@@ -46,6 +46,10 @@ export function xmpSidecarPath(rawAbsPath: string): string {
   return rawAbsPath.slice(0, -ext.length) + '.xmp';
 }
 
+/** Same split as `xmpSidecarPath`, as a bare `<base>` shared by the sidecar-address fns below (#2481). */
+function sidecarBase(rawAbsPath: string): string {
+  return path.basename(rawAbsPath, isVideoFilename(rawAbsPath) ? '' : path.extname(rawAbsPath));
+}
 /** Read XMP sidecar. Returns ok:false if the sidecar does not exist. */
 export async function readXmp(rawAbsPath: string): Promise<OpResult<string>> {
   const sidecar = xmpSidecarPath(rawAbsPath);
@@ -302,10 +306,9 @@ function sanitizeDeviceName(raw: string | undefined): string {
   return trimmed.replace(/[/\\:*?"<>|]/g, '-').slice(0, 64);
 }
 
-/** Compose the conflict-copy path for a given RAW + device name. */
+/** Compose the conflict-copy path for a given RAW + device name (video-aware, #2481). */
 export function conflictCopyPath(rawAbsPath: string, deviceName: string): string {
-  const ext = path.extname(rawAbsPath);
-  const base = rawAbsPath.slice(0, -ext.length);
+  const base = path.join(path.dirname(rawAbsPath), sidecarBase(rawAbsPath));
   return `${base} (conflict from ${sanitizeDeviceName(deviceName)}).xmp`;
 }
 
@@ -464,8 +467,7 @@ export function resolveConflictSidecarPath(
   if (conflictBasename.includes('/') || conflictBasename.includes('\\')) return null;
   if (conflictBasename.includes('..')) return null;
 
-  const ext = path.extname(rawAbsPath);
-  const rawBase = path.basename(rawAbsPath, ext); // e.g. "IMG_1"
+  const rawBase = sidecarBase(rawAbsPath); // e.g. "IMG_1" (video: full filename)
 
   // The basename must start with the RAW's base and end with the
   // conflict-suffix (optionally followed by a numbered variant).
@@ -541,13 +543,11 @@ export async function writeConflictSidecarAtomic(
  * (with optional ` (N)` numeric suffix). Order is unspecified; callers that
  * care about ordering must sort.
  *
- * `<base>` mirrors `xmpSidecarPath`'s stem(image)/full-name(video) split (#1678,
- * avoids matching a same-stem photo's sidecar in a Live Photo pair).
+ * `<base>` is `sidecarBase` (#1678, avoids matching a same-stem photo's sidecar in a Live Photo pair). Missing directory or read errors return an empty array — the caller is moving sidecars best-effort.
  */
 export async function listPairedSidecars(rawAbsPath: string): Promise<string[]> {
   const dir = path.dirname(rawAbsPath);
-  const ext = isVideoFilename(rawAbsPath) ? '' : path.extname(rawAbsPath);
-  const rawBase = path.basename(rawAbsPath, ext);
+  const rawBase = sidecarBase(rawAbsPath);
   let entries: string[];
   try {
     entries = await fs.readdir(dir);

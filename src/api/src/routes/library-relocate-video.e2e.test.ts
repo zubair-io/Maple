@@ -21,6 +21,7 @@ import * as path from 'node:path';
 import { ObjectId } from 'mongodb';
 import { Elysia } from 'elysia';
 import { libraryRelocateRoutes } from './library-relocate.ts';
+import { conflictCopyPath } from '../fs/xmp.ts';
 import type { getDb } from '../db/client.ts';
 
 // Unique test DB so a stray run never touches the real `maple` DB.
@@ -222,6 +223,60 @@ describe('library-relocate end-to-end — video sidecars (#1678)', () => {
       // The still photo and ITS sidecar were never touched — still at the old dir.
       expect(await fs.readFile(path.join(dir, oldRel, 'IMG_1.HEIC'), 'utf8')).toBe('still-pixels');
       expect(await fs.readFile(path.join(dir, oldRel, 'IMG_1.xmp'), 'utf8')).toBe('still-edits');
+    } finally {
+      await assets.deleteOne({ _id });
+    }
+  });
+
+  it('round-trips a video conflict-copy sidecar through write → relocate (#2481)', async () => {
+    const db = await connectOrSkip('video conflict-copy relocate');
+    if (!db) return;
+    const assets = db.collection('assets');
+    const libId = new ObjectId();
+
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-video-conflict-'));
+    await seedLibrary(libId, dir);
+
+    const oldRel = '2024/Loose';
+    await fs.mkdir(path.join(dir, ...oldRel.split('/')), { recursive: true });
+    const movAbs = path.join(dir, oldRel, 'CLIP.MOV');
+    await fs.writeFile(movAbs, 'frames');
+    await fs.writeFile(path.join(dir, oldRel, 'CLIP.MOV.xmp'), 'canonical-edits');
+    // Write via the real conflictCopyPath — proves the writer and the relocate
+    // matcher (listPairedSidecars) agree on the video's full-name base.
+    const conflictAbs = conflictCopyPath(movAbs, 'MacBook');
+    await fs.writeFile(conflictAbs, 'conflict-edits');
+
+    const _id = new ObjectId();
+    await assets.insertOne({
+      _id,
+      maple_id: 'relocate-video-conflict-id',
+      fileinfo: [
+        {
+          path: oldRel,
+          filename: 'CLIP.MOV',
+          library_id: libId,
+          deleted_at: null,
+          missing_since: null,
+        },
+      ],
+      metadata_override: usPlaceText(),
+      exif: { captured_year: 2024 },
+      stages: { thumb: { version: 1 }, preview: { version: 1 } },
+    } as never);
+
+    try {
+      const res = await postRelocate([`${SLUG}:${oldRel}/CLIP.MOV`]);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { results: Array<{ ok: boolean; outcome?: string }> };
+      expect(body.results[0]!.ok).toBe(true);
+      expect(body.results[0]!.outcome).toBe('moved');
+
+      const newRel = '2024/California/Berkeley';
+      const newConflictPath = path.join(dir, newRel, 'CLIP.MOV (conflict from MacBook).xmp');
+      expect(await fs.readFile(newConflictPath, 'utf8')).toBe('conflict-edits');
+      // Source conflict copy gone — not stranded in the old folder.
+      await expect(fs.stat(conflictAbs)).rejects.toThrow();
     } finally {
       await assets.deleteOne({ _id });
     }
