@@ -29,6 +29,7 @@ import { parseCullingBlock } from './xmp-culling';
 import { collectXmpPassthrough } from './xmp-passthrough';
 import {
   attrOf,
+  hasXmlParseError,
   managedXmpName,
   mergedXmpDescription,
   PAPP_NAMESPACES,
@@ -80,7 +81,7 @@ export class XmpParserService {
     let desc: Element | null = null;
     try {
       const doc = new DOMParser().parseFromString(xml, 'text/xml');
-      if (doc.querySelector('parseerror')) {
+      if (hasXmlParseError(doc)) {
         console.warn('XmpParserService: malformed XML');
         return defaults;
       }
@@ -104,7 +105,7 @@ export class XmpParserService {
     let desc: Element | null = null;
     try {
       const doc = new DOMParser().parseFromString(xml, 'text/xml');
-      if (doc.querySelector('parseerror')) return {};
+      if (hasXmlParseError(doc)) return {};
       desc = mergedXmpDescription(doc);
     } catch {
       return {};
@@ -145,7 +146,7 @@ export class XmpParserService {
       document = doc;
 
       // Guard against parse errors.
-      if (doc.querySelector('parseerror')) {
+      if (hasXmlParseError(doc)) {
         console.warn('XmpParserService.parseAdjustmentModel: malformed XML');
         return emptyResult;
       }
