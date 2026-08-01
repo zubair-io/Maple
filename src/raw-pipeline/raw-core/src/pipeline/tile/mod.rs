@@ -33,6 +33,7 @@ mod tests_render;
 mod tests_render_anchors;
 
 use crate::{error::Result, image::RawImage, linearize, xmp::AdjustmentModel};
+use rayon::prelude::*;
 
 use super::{
     downsample::downsample_image_area, finite_or_zero, fp16::f32_to_f16_bits,
@@ -409,8 +410,14 @@ pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
 ) -> Result<(u32, u32, Vec<u16>)> {
     let (w, h, oriented_f32) =
         develop_tile_oriented_f32(raw, model, rect, quality, decoded_wb_anchor, 1.0)?;
+    // Parallel (#1089 item 8), same rationale as the full-frame packs in
+    // `render::scene_linear`: scalar software convert, order-preserving
+    // indexed collect, bit-identical output.
     let fp16: Vec<u16> = stage("tile_pack_fp16", || {
-        oriented_f32.iter().map(|&v| f32_to_f16_bits(v)).collect()
+        oriented_f32
+            .par_iter()
+            .map(|&v| f32_to_f16_bits(v))
+            .collect()
     });
     Ok((w, h, fp16))
 }

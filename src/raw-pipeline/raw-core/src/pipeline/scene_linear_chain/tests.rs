@@ -442,3 +442,43 @@ fn with_patches_empty_matches_plain_entry_fp16() {
         "fp16 empty patches must be bit-identical to the plain entry"
     );
 }
+
+/// The fp16 endcaps are parallel over pixels (#1089 item 8). They are pure
+/// element-wise maps, so the result must be *byte*-identical regardless of
+/// how rayon splits the buffer — a one-thread pool reproduces the serial
+/// loop they replaced exactly, so equality against a many-thread run is
+/// equality against the pre-#1089 output. This also covers the interior
+/// stages, which were already parallel.
+#[test]
+fn chain_output_is_identical_across_thread_counts() {
+    let (w, h) = (37u32, 23u32);
+    let n = (w * h) as usize;
+    // Varied, finite content so no stage short-circuits on a flat field and
+    // both the normal and round-to-nearest arms of the packer are hit.
+    let input: Vec<u16> = (0..n)
+        .flat_map(|i| {
+            let v = |k: usize| f32_to_f16_bits(0.05 + 0.3 * ((k % 17) as f32 / 17.0));
+            [v(i), v(i * 3 + 1), v(i * 7 + 2), f32_to_f16_bits(1.0)]
+        })
+        .collect();
+    let model = AdjustmentModel {
+        nr_luminance: 40.0,
+        nr_color: 40.0,
+        sharpen_amount: 35.0,
+        ..AdjustmentModel::default()
+    };
+    let run = |threads: usize| -> Vec<u16> {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .expect("build pool");
+        pool.install(|| {
+            apply_scene_linear_chain(&input, w, h, &model, &ChainOptions::default()).expect("chain")
+        })
+    };
+    assert_eq!(
+        run(1),
+        run(8),
+        "chain output must be byte-identical across thread counts"
+    );
+}

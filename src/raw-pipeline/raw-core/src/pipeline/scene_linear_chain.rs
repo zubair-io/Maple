@@ -29,6 +29,7 @@ use super::{
     stage,
 };
 use crate::{error::Result, view::encode::TargetPrimaries, xmp::AdjustmentModel};
+use rayon::prelude::*;
 
 /// Per-render options for [`apply_scene_linear_chain`] /
 /// [`apply_scene_linear_chain_f32`] (and their `_with_patches` wrappers) —
@@ -188,14 +189,24 @@ pub fn apply_scene_linear_chain(
     }
 
     // Decode fp16 RGBA -> Image (Vec<[f32; 3]>, alpha discarded).
+    //
+    // Parallel over pixels (#1089 item 8). `f16_bits_to_f32` is a scalar
+    // bit-twiddling routine, not a hardware convert, so this endcap is
+    // compute-bound rather than memory-bound — the f32 sibling's endcap moves
+    // more bytes in a fraction of the time on the same buffer shape. It is a
+    // pure element-wise map with no reduction, and rayon's indexed collect
+    // preserves order, so the output is bit-identical to the serial loop.
     let mut img = stage("ffi_chain_unpack_fp16", || {
-        let mut pixels: Vec<[f32; 3]> = Vec::with_capacity(pixel_count);
-        for chunk in in_fp16_rgba.chunks_exact(4) {
-            let r = f16_bits_to_f32(chunk[0]);
-            let g = f16_bits_to_f32(chunk[1]);
-            let b = f16_bits_to_f32(chunk[2]);
-            pixels.push([r, g, b]);
-        }
+        let pixels: Vec<[f32; 3]> = in_fp16_rgba
+            .par_chunks_exact(4)
+            .map(|chunk| {
+                [
+                    f16_bits_to_f32(chunk[0]),
+                    f16_bits_to_f32(chunk[1]),
+                    f16_bits_to_f32(chunk[2]),
+                ]
+            })
+            .collect();
         Image {
             width,
             height,
@@ -250,9 +261,7 @@ pub fn apply_scene_linear_chain(
     // HSL 8-band (#1112, tone/zoom design § 10.4) — scene-linear Oklab,
     // after saturation, before clarity. All-defaults is a bit-identical no-op
     // (the whole-stage short-circuit in hsl::apply guards this).
-    stage("ffi_chain_hsl", || {
-        hsl::apply_model(&mut img, model)
-    });
+    stage("ffi_chain_hsl", || hsl::apply_model(&mut img, model));
     stage("ffi_chain_clarity", || {
         clarity::apply(&mut img, model.clarity)
     });
@@ -335,15 +344,22 @@ pub fn apply_scene_linear_chain(
     // `finite_or_zero` scrubs NaN/Inf at the pack endcap (#1088) —
     // `f32_to_f16_bits` preserves NaN by design, and the caller hands
     // these lanes straight to a GPU texture.
+    //
+    // Parallel over pixels for the same reason as the unpack endcap above,
+    // and more urgently: `f32_to_f16_bits` carries the round-to-nearest-even
+    // and subnormal arms, which made this the most expensive non-denoise
+    // stage in the tick. Still a pure element-wise map — bit-identical.
     let fp16 = stage("ffi_chain_pack_fp16", || {
-        let mut v: Vec<u16> = Vec::with_capacity(pixel_count * 4);
         let alpha_one = f32_to_f16_bits(1.0);
-        for p in &img.pixels {
-            v.push(f32_to_f16_bits(finite_or_zero(p[0])));
-            v.push(f32_to_f16_bits(finite_or_zero(p[1])));
-            v.push(f32_to_f16_bits(finite_or_zero(p[2])));
-            v.push(alpha_one);
-        }
+        let mut v: Vec<u16> = vec![0; pixel_count * 4];
+        v.par_chunks_exact_mut(4)
+            .zip(img.pixels.par_iter())
+            .for_each(|(out, p)| {
+                out[0] = f32_to_f16_bits(finite_or_zero(p[0]));
+                out[1] = f32_to_f16_bits(finite_or_zero(p[1]));
+                out[2] = f32_to_f16_bits(finite_or_zero(p[2]));
+                out[3] = alpha_one;
+            });
         v
     });
     Ok(fp16)
@@ -462,9 +478,7 @@ pub fn apply_scene_linear_chain_f32(
         saturation::apply(&mut img, model.saturation)
     });
     // HSL 8-band (#1112) — same position as the fp16 sibling.
-    stage("ffi_chain_hsl", || {
-        hsl::apply_model(&mut img, model)
-    });
+    stage("ffi_chain_hsl", || hsl::apply_model(&mut img, model));
     stage("ffi_chain_clarity", || {
         clarity::apply(&mut img, model.clarity)
     });
