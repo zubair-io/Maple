@@ -61,6 +61,8 @@
         "src/tests/pano-injection.test.ts",
         "src/enrichment/place-parser.test.ts",
         "src/fs/mirrored.ts",
+        "src/fs/mirror-read.ts",
+        "src/fs/mirror-read.test.ts",
         "src/fs/root.ts",
         "src/fs/root.test.ts",
         "src/imports/scan.ts",

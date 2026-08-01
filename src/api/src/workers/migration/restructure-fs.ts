@@ -27,7 +27,8 @@ import type { Dirent } from 'node:fs';
 import * as path from 'node:path';
 import { filesIdentical } from '../../backup/fs-util.ts';
 import { pickFreePath } from '../../fs/trash.ts';
-import { listPairedSidecars, sha256Prefix16 } from '../../fs/xmp.ts';
+import { sha256Prefix16 } from '../../fs/xmp.ts';
+import { listPairedSidecars } from '../../fs/xmp-conflict.ts';
 import { child as childLogger } from '../../log.ts';
 
 const log = childLogger('migration:restructure-fs');
