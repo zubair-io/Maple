@@ -123,17 +123,19 @@ test('Hosted service worker controls, caches, and reloads the welcome offline', 
     cacheResources.filter((resource) => resource.includes('/api') || resource.includes('\\/api')),
   ).toEqual([]);
 
-  const apiFetchResponse = page.waitForResponse((response) =>
+  const apiProbePage = await context.newPage();
+  await apiProbePage.goto('/');
+  const apiFetchResponse = apiProbePage.waitForResponse((response) =>
     response.url().includes('/api/service-worker-fetch-probe'),
   );
-  await page.evaluate(async () => {
+  await apiProbePage.evaluate(async () => {
     await (await fetch('/api/service-worker-fetch-probe')).text();
   });
   expect((await apiFetchResponse).status()).toBe(200);
 
-  const apiNavigation = await page.goto('/api/service-worker-navigation-probe');
+  const apiNavigation = await apiProbePage.goto('/api/service-worker-navigation-probe');
   expect(apiNavigation?.status()).toBe(200);
-  await page.goto('/');
+  await apiProbePage.goto('/');
 
   const rayonHelper = ngsw.assetGroups
     .find(({ name }) => name === 'raw-wasm')
@@ -155,30 +157,6 @@ test('Hosted service worker controls, caches, and reloads the welcome offline', 
   for (const path of paths) expect(cachedPaths.has(path), `${path} must be cached`).toBe(true);
   expect([...cachedPaths].filter((path) => path.startsWith('/api/'))).toEqual([]);
 
-  const baseURL = String(testInfo.project.use.baseURL);
-  testInfo.annotations.push(
-    {
-      type: 'expected-console-error',
-      description: 'Failed to load resource: the server responded with a status of 504',
-    },
-    {
-      type: 'expected-error-response',
-      description: `504 GET ${baseURL}/api/service-worker-fetch-probe`,
-    },
-    {
-      type: 'expected-request-failure',
-      description: `GET ${baseURL}/api/service-worker-fetch-probe`,
-    },
-    {
-      type: 'expected-error-response',
-      description: `504 GET ${baseURL}/api/service-worker-navigation-probe`,
-    },
-    {
-      type: 'expected-request-failure',
-      description: `GET ${baseURL}/api/service-worker-navigation-probe`,
-    },
-  );
-
   await context.setOffline(true);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('button', { name: /open a photo/i })).toBeVisible();
@@ -192,16 +170,22 @@ test('Hosted service worker controls, caches, and reloads the welcome offline', 
   expect(offlineHelper).toMatchObject({ ok: true, status: 200 });
   expect(offlineHelper.byteLength).toBeGreaterThan(0);
 
-  const offlineApiStatus = await page.evaluate(
+  const offlineApiStatus = await apiProbePage.evaluate(
     async () => (await fetch('/api/service-worker-fetch-probe')).status,
   );
   expect(offlineApiStatus, 'Hosted must not serve an API fetch from its SPA cache').toBe(504);
-  const apiNavigationFailed = await page
+  const offlineNavigationResponse = apiProbePage.waitForResponse((response) =>
+    response.url().includes('/api/service-worker-navigation-probe'),
+  );
+  const apiNavigationFailed = await apiProbePage
     .goto('/api/service-worker-navigation-probe')
     .then(() => false)
     .catch(() => true);
   expect(apiNavigationFailed, 'Hosted must not serve an API navigation from its SPA cache').toBe(
     true,
   );
+  expect((await offlineNavigationResponse).status()).toBe(504);
+  await expect(apiProbePage.getByRole('button', { name: /open a photo/i })).toHaveCount(0);
+  await apiProbePage.close();
   await context.setOffline(false);
 });
