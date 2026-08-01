@@ -79,6 +79,7 @@
     type="button"
     class="pill-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] bg-surface text-text-main border-[0.5px] border-border hover:bg-surface-hover"
     [class.is-active]="state.sort() === 'date'"
+    [attr.aria-label]="'Sort: ' + (state.sort() === 'date' ? 'Date' : 'Name')"
     (click)="toggleSort()"
   >
     <maple-icon name="sort" [size]="12" />
@@ -90,6 +91,7 @@
     type="button"
     class="pill-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] bg-surface text-text-main border-[0.5px] border-border hover:bg-surface-hover"
     [class.is-active]="state.filter() !== 'all'"
+    [attr.aria-label]="'Filter: ' + filterLabel()"
     (click)="cycleFilter()"
   >
     <maple-icon name="filter" [size]="12" />

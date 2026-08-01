@@ -70,6 +70,8 @@ describe('BrowseShellComponent capability boundary', () => {
     expect(fixture.nativeElement.querySelector('app-asset-grid')).not.toBeNull();
     expect(fixture.nativeElement.querySelector('[aria-label="View mode"]')).toBeNull();
     expect(fixture.nativeElement.querySelector('[aria-label="Edit metadata"]')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[aria-label="Add folder"]')).toBeNull();
+    expect(fixture.nativeElement.querySelector('app-library-picker-modal')).toBeNull();
     expect(fixture.nativeElement.textContent).not.toContain('Merge to panorama');
     expect(http.match(() => true)).toEqual([]);
   });

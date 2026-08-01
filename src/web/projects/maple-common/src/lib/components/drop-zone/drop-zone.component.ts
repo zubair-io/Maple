@@ -12,8 +12,10 @@ import {
 import { LibraryStateService, isSupportedRaw } from '../../state/library-state.service';
 import { errorMessage } from '../../util/errors';
 import { AssetId } from '../../models/asset';
+import { Router } from '@angular/router';
 import { FolderAccessService } from '../../folder-access/folder-access.service';
 import { MapleFolderHandle } from '../../folder-access/folder-access.types';
+import { editRouteCommands } from '../../addressing/route-address';
 
 @Component({
   selector: 'app-drop-zone',
@@ -28,6 +30,7 @@ export class DropZoneComponent {
 
   readonly state = inject(LibraryStateService);
   readonly folderAccess = inject(FolderAccessService);
+  private readonly router = inject(Router);
 
   readonly dragOver = signal(false);
   readonly importing = signal(false);
@@ -140,6 +143,7 @@ export class DropZoneComponent {
       this.state.selectedSourceId.set('f-imported');
       this.state.selectAsset(ids[0]);
       this.imported.emit(ids);
+      if (ids.length === 1) void this.router.navigate(editRouteCommands(ids[0]));
     }
   }
 }

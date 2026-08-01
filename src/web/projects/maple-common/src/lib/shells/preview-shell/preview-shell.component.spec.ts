@@ -215,9 +215,12 @@ describe('PreviewShellComponent', () => {
     expect(comp.flagOpen()).toBe(false);
     const el = fixture.nativeElement as HTMLElement;
     const flagBtn = el.querySelector('[aria-label="Flag"]') as HTMLButtonElement;
+    expect(flagBtn.getAttribute('aria-expanded')).toBe('false');
     flagBtn.click();
     fixture.detectChanges();
     expect(comp.flagOpen()).toBe(true);
+    expect(flagBtn.getAttribute('aria-expanded')).toBe('true');
+    expect(flagBtn.getAttribute('aria-controls')).toBe('preview-flag-popover');
     expect((fixture.nativeElement as HTMLElement).querySelector('.flag-popover')).not.toBeNull();
   });
 
