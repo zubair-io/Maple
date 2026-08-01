@@ -42,6 +42,7 @@ import { canUseLiveFastPath, buildLiveParams } from './image-canvas.live-params'
 import { fetchAndLoadBytes, type ByteLoadError, type ByteLoadHost } from './image-canvas.byteload';
 import { GpuFallbackNoticeService } from '../gpu-fallback-notice/gpu-fallback-notice.service';
 import { EmbeddedPreviewService } from '../../raw-pipeline/embedded-preview.service';
+import { editorInput } from './image-canvas.input';
 
 @Component({
   selector: 'editor-image-canvas',
@@ -442,34 +443,22 @@ export class ImageCanvasComponent
     });
   }
 
-  // Public: also satisfies `ByteLoadHost` (called on a successful fetch).
   async loadReal(assetId: AssetId, filename: string, bytes: Uint8Array): Promise<void> {
-    let ext = filename.split('.').pop()?.toLowerCase() ?? '';
-    // rawler's Foveon sensor decoder is intentionally unsupported (#417),
-    // but X3F carries a camera-rendered JPEG. Keep the editor useful and
-    // nonblank by developing that embedded image; edits remain non-destructive
-    // XMP and the original X3F bytes are never changed.
-    if (ext === 'x3f') {
-      const preview = await this.embeddedPreview.extractEmbeddedPreview(bytes, ext);
-      bytes = new Uint8Array(await preview.blob.arrayBuffer());
-      ext = 'jpg';
-    }
-    // Retain bytes + ext for adjustment-driven re-renders (no XMP on this
-    // cold-open decode — raw-core substitutes the camera As-Shot WB).
-    this.currentBytes = bytes;
-    this.currentExt = ext;
-
+    const input = await editorInput(filename, bytes, this.embeddedPreview);
+    // Retain input for adjustment re-renders; cold-open uses camera As-Shot WB.
+    this.currentBytes = input.bytes;
+    this.currentExt = input.ext;
     // GPU live-render path (#1038): persistent worker session presenting to an
     // OffscreenCanvas; any failure falls back to the 2D decode path below.
-    if (this.gpuPresent.enabled && !isNonRawExtension(ext)) {
+    if (this.gpuPresent.enabled && !isNonRawExtension(input.ext)) {
       // A successful open recorded the reply's NATIVE dims (asset + `nativeDims`
       // via `recordNativeDims`) — the session itself is viewport-sized (#1080).
-      if (await this.gpuPresent.open(assetId, bytes, ext)) return;
+      if (await this.gpuPresent.open(assetId, input.bytes, input.ext)) return;
       // GPU open failed (e.g. non-gpu bundle / no WebGPU) — fall through to 2D.
     }
 
     // WASM-CPU cold-open decode + paint (image-canvas.render2d.ts).
-    await coldOpen2d(this, assetId, filename, ext, bytes);
+    await coldOpen2d(this, assetId, filename, input.ext, input.bytes);
   }
 
   /** Record the painted bitmap's long edge + aspect (`Render2dHost`). */
