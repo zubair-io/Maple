@@ -2,11 +2,13 @@ import { defineConfig, devices } from '@playwright/test';
 
 const configOnly = process.env.MAPLE_E2E_CONFIG_ONLY === '1';
 const artifactOnly = process.env.MAPLE_E2E_ARTIFACT_ONLY === '1';
+const hostedPort = process.env.MAPLE_E2E_HOSTED_PORT ?? '4400';
+const selfHostedPort = process.env.MAPLE_E2E_SELF_HOSTED_PORT ?? '4401';
 
 const artifactServers = [
   {
-    command: 'DIST=dist/maple-syrup/browser PORT=4400 bun scripts/serve-dist-coep.mjs',
-    url: 'http://127.0.0.1:4400',
+    command: `DIST=dist/maple-syrup/browser PORT=${hostedPort} bun scripts/serve-dist-coep.mjs`,
+    url: `http://127.0.0.1:${hostedPort}`,
     reuseExistingServer: false,
     timeout: 30_000,
     stdout: 'pipe' as const,
@@ -14,8 +16,9 @@ const artifactServers = [
   },
   {
     command:
-      'DIST=dist/maple/browser PORT=4401 API_UNAVAILABLE_STATUS=401 bun scripts/serve-dist-coep.mjs',
-    url: 'http://127.0.0.1:4401',
+      `DIST=dist/maple/browser PORT=${selfHostedPort} ` +
+      'API_UNAVAILABLE_STATUS=401 bun scripts/serve-dist-coep.mjs',
+    url: `http://127.0.0.1:${selfHostedPort}`,
     reuseExistingServer: false,
     timeout: 30_000,
     stdout: 'pipe' as const,
@@ -47,7 +50,7 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         channel: 'chrome',
-        baseURL: 'http://127.0.0.1:4400',
+        baseURL: `http://127.0.0.1:${hostedPort}`,
       },
     },
     {
@@ -55,7 +58,7 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         channel: 'chrome',
-        baseURL: 'http://127.0.0.1:4401',
+        baseURL: `http://127.0.0.1:${selfHostedPort}`,
       },
     },
   ],
@@ -65,7 +68,7 @@ export default defineConfig({
       ? artifactServers
       : {
           command: 'bun scripts/serve-production-e2e.ts',
-          url: 'http://127.0.0.1:4400',
+          url: `http://127.0.0.1:${hostedPort}`,
           reuseExistingServer: false,
           timeout: 600_000,
           stdout: 'pipe',
