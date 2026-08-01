@@ -267,6 +267,13 @@ public actor RenderedPreviewCache {
     /// actually drained `memCache` without exposing the dictionary itself.
     internal func _testMemCacheIsEmpty() -> Bool { memCache.isEmpty }
 
+    /// The Apple-local cache-generation integer folded into every key.
+    /// `internal` (test-visible via `@testable import`) so the upgrade-scenario
+    /// gate can build the PREVIOUS version's on-disk key and prove an entry
+    /// written under it is not served by this build (#1805) — the invalidation
+    /// guarantee #1801 turned out not to have.
+    internal func _testViewTransformVersion() -> UInt32 { viewTransformVersion }
+
     // MARK: - Hash (SHA256 prefix for key stability)
 
     /// The first 16 bytes of the string's SHA256, as 32 lowercase hex chars.
