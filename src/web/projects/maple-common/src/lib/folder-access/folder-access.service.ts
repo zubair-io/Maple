@@ -73,7 +73,7 @@ export class FolderAccessService {
 
   /**
    * Prompt the user to choose a folder.
-   * Returns `null` if the user cancelled or denied permission.
+   * Returns `null` if the user cancels. Permission failures are named errors.
    */
   async openFolder(): Promise<MapleFolderHandle | null> {
     if (this.backend === 'fs-access') {

@@ -29,7 +29,7 @@
     "test": "ng test",
     "e2e": "playwright test",
     "e2e:production": "playwright test --config playwright.production.config.ts",
-    "e2e:production-artifacts": "MAPLE_E2E_ARTIFACT_ONLY=1 playwright test e2e/production/brand-assets.spec.ts e2e/production/service-worker.spec.ts --config=playwright.production.config.ts",
+    "e2e:production-artifacts": "MAPLE_E2E_ARTIFACT_ONLY=1 playwright test e2e/production/brand-assets.spec.ts e2e/production/service-worker.spec.ts e2e/production/welcome-intake.spec.ts --config=playwright.production.config.ts",
     "e2e:production:hosted": "npm run e2e:production -- --project chrome-hosted",
     "e2e:production:self-hosted": "npm run e2e:production -- --project chrome-self-hosted",
     "storybook": "ng run maple:storybook",

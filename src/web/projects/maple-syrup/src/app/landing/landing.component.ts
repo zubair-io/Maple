@@ -14,7 +14,13 @@ import {
   viewChild,
 } from '@angular/core';
 import { Router } from '@angular/router';
-import { FolderAccessService, LibraryStateService, persistFile } from '@maple-common';
+import {
+  FolderAccessError,
+  FolderAccessService,
+  LibraryStateService,
+  folderUnreadableError,
+  persistFile,
+} from '@maple-common';
 import { resolveSingleFileSelection } from './single-file-selection';
 
 export const SINGLE_FILE_PERSISTENCE = new InjectionToken<typeof persistFile>(
@@ -136,11 +142,24 @@ export class LandingComponent {
     handle: Awaited<ReturnType<FolderAccessService['openFolder']>>,
   ): Promise<void> {
     if (!handle) return;
-    await this.state.openFolder(handle);
-    await this.router.navigate(['/browse']);
+    try {
+      await this.state.openFolder(handle);
+      await this.router.navigate(['/browse']);
+    } catch (error) {
+      if (error instanceof FolderAccessError) throw error;
+      throw folderUnreadableError(handle.name, error);
+    }
   }
 
-  private showError(message: string, _error: unknown): void {
-    this.errorMessage.set(message);
+  private showError(message: string, error: unknown): void {
+    if (error instanceof FolderAccessError) {
+      this.errorMessage.set(error.message);
+      return;
+    }
+    const reason =
+      error && typeof error === 'object' && 'message' in error && typeof error.message === 'string'
+        ? error.message.trim()
+        : '';
+    this.errorMessage.set(reason && reason !== message ? `${message} ${reason}` : message);
   }
 }
