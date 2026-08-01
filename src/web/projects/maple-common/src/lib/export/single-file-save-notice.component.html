@@ -1,35 +1,6 @@
-@if (visible()) {
-  <section
-    class="notice"
-    role="status"
-    [attr.aria-label]="
-      mode() === 'hosted-read-only-folder' ? 'Read-only folder save' : 'Single-file save'
-    "
-  >
-    @if (mode() === 'hosted-read-only-folder') {
-      <p>
-        This folder is read-only, so Maple can’t update its sibling <strong>.xmp</strong> or
-        <strong>.maple</strong> cache. Download the XMP to keep this edit.
-      </p>
-    } @else {
-      @if (xmpStatus()?.unsaved) {
-        <p>
-          These edits are only in this browser session. Download the XMP to keep your latest work.
-        </p>
-      } @else if (xmpStatus()?.durability === 'paired') {
-        <p>Paired XMP loaded. Download another XMP after making new edits.</p>
-      } @else if (xmpStatus()?.durability === 'downloaded') {
-        <p>XMP downloaded. Download it again after making new edits.</p>
-      } @else {
-        <p>
-          This single-file session can’t write a sibling <strong>.xmp</strong> or
-          <strong>.maple</strong> cache. Download the XMP to keep your edits.
-        </p>
-      }
-      @if (memoryOnly()) {
-        <p>Browser storage is unavailable. Reloading will discard this photo session.</p>
-      }
-    }
+@if (notice(); as notice) {
+  <section class="notice" role="status" [attr.aria-label]="notice.ariaLabel">
+    <p>{{ notice.message }}</p>
     <button type="button" (click)="downloadXmp()">Download XMP</button>
   </section>
 }

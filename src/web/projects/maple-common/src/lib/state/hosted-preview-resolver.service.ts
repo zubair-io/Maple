@@ -15,24 +15,19 @@
 
 import { Injectable, inject } from '@angular/core';
 import type { Asset, AssetId } from '../models/asset';
-import { parseAddress } from '../addressing/maple-address';
-import { splitRelPath, validateRelPath } from '../addressing/fs-access-library-source';
 import { MapleCacheService, type PreviewSourceIdentity } from '../maple-cache/maple-cache.service';
 import { samePreviewSource } from '../maple-cache/preview-cache-protocol';
 import { EmbeddedPreviewService } from '../raw-pipeline/embedded-preview.service';
 import { isSupportedRaw } from './raw-extensions';
 import { LibraryStore } from './library-store.service';
+import type { HostedByteSnapshot } from './hosted-byte-snapshot-cache';
+import { previewLocation, type PreviewLocation } from './preview-location';
 
 /** An asset's on-disk location within the granted library folder — the
  * directory (`''` for a root-level file) and basename that key the canonical
  * `<dir>/.maple/previews/<filename>.<actual-format>` cache. `null` when the asset has no
  * addressable folder location (an in-memory drag-drop import), which can be
  * displayed but not persisted. */
-interface PreviewLocation {
-  dir: string;
-  filename: string;
-}
-
 @Injectable({ providedIn: 'root' })
 export class HostedPreviewResolver {
   private readonly store = inject(LibraryStore);
@@ -63,9 +58,7 @@ export class HostedPreviewResolver {
       size: 0,
       lastModified: 0,
     }),
-    getSourceSnapshot?: (
-      id: AssetId,
-    ) => Promise<{ bytes: Uint8Array; source: PreviewSourceIdentity }>,
+    getSourceSnapshot?: (id: AssetId) => Promise<HostedByteSnapshot>,
   ): Promise<Blob | null> {
     const asset = this.store.findAsset(id);
     if (!asset || !isSupportedRaw(asset.filename)) {
@@ -75,7 +68,7 @@ export class HostedPreviewResolver {
       return null;
     }
 
-    const location = this._locate(id);
+    const location = previewLocation(id);
     const folder = this.store.currentFolder();
     let sourceBefore: PreviewSourceIdentity | null = null;
 
@@ -112,25 +105,6 @@ export class HostedPreviewResolver {
     );
   }
 
-  /** The asset's directory + basename, or `null` for an id with no addressable
-   * folder location (imported/legacy ids). Hosted FS-Access asset ids are
-   * `slug:relPath` addresses; `fs:<absPath>` and bare import ids are not. */
-  private _locate(id: AssetId): PreviewLocation | null {
-    if (typeof id !== 'string' || !id.includes(':') || id.startsWith('fs:')) return null;
-    try {
-      const { relPath } = parseAddress(id);
-      // Reject traversal / absolute / backslash relPaths before they reach the
-      // FS-Access walk — same guard every `FsAccessLibrarySource` method
-      // applies. A bad path throws here and degrades to a cacheless one-shot
-      // extraction (`_locate` → null), never touching `.maple/previews/`.
-      validateRelPath(relPath);
-      const { dir, filename } = splitRelPath(relPath);
-      return filename ? { dir, filename } : null;
-    } catch {
-      return null;
-    }
-  }
-
   /** Read a coherent source snapshot, extract via the WASM worker, kick off an
    * actual-format write-through, and return the display JPEG. `null` on any
    * failure (logged), including a RAW without an embedded preview. */
@@ -142,34 +116,55 @@ export class HostedPreviewResolver {
     getBytes: (id: AssetId) => Promise<Uint8Array>,
     getSourceIdentity: (id: AssetId) => Promise<PreviewSourceIdentity>,
     sourceBefore: PreviewSourceIdentity | null,
-    getSourceSnapshot?: (
-      id: AssetId,
-    ) => Promise<{ bytes: Uint8Array; source: PreviewSourceIdentity }>,
+    getSourceSnapshot?: (id: AssetId) => Promise<HostedByteSnapshot>,
   ): Promise<Blob | null> {
     try {
-      const snapshot = getSourceSnapshot ? await getSourceSnapshot(id) : null;
-      const bytes = snapshot?.bytes ?? (await getBytes(id));
-      const coherentSource = snapshot?.source ?? sourceBefore;
+      const snapshot = await this._sourceSnapshot(id, getBytes, sourceBefore, getSourceSnapshot);
       const ext = asset.filename.split('.').pop()?.toLowerCase() ?? '';
-      const { blob } = await this.previewExtractor.extractEmbeddedPreview(bytes, ext);
-      if (folder?.write && location && coherentSource) {
-        void getSourceIdentity(id)
-          .then((sourceAfter) => {
-            if (!samePreviewSource(coherentSource, sourceAfter)) return;
-            return this.cache.writePreview(
-              folder,
-              location.dir,
-              location.filename,
-              blob,
-              coherentSource,
-            );
-          })
-          .catch(() => undefined);
-      }
+      const { blob } = await this.previewExtractor.extractEmbeddedPreview(snapshot.bytes, ext);
+      this._scheduleWrite(folder, location, blob, snapshot.source, id, getSourceIdentity);
       return blob;
     } catch (err) {
       console.warn('[state] embedded preview extraction failed for', asset.filename, err);
       return null;
+    }
+  }
+
+  private async _sourceSnapshot(
+    id: AssetId,
+    getBytes: (id: AssetId) => Promise<Uint8Array>,
+    source: PreviewSourceIdentity | null,
+    getSnapshot?: (id: AssetId) => Promise<HostedByteSnapshot>,
+  ): Promise<{ bytes: Uint8Array; source: PreviewSourceIdentity | null }> {
+    if (getSnapshot) return getSnapshot(id);
+    return { bytes: await getBytes(id), source };
+  }
+
+  private _scheduleWrite(
+    folder: ReturnType<LibraryStore['currentFolder']>,
+    location: PreviewLocation | null,
+    blob: Blob,
+    source: PreviewSourceIdentity | null,
+    id: AssetId,
+    getSourceIdentity: (id: AssetId) => Promise<PreviewSourceIdentity>,
+  ): void {
+    if (!folder?.write || !location || !source) return;
+    void this._writeWhenCurrent(folder, location, blob, source, id, getSourceIdentity);
+  }
+
+  private async _writeWhenCurrent(
+    folder: NonNullable<ReturnType<LibraryStore['currentFolder']>>,
+    location: PreviewLocation,
+    blob: Blob,
+    source: PreviewSourceIdentity,
+    id: AssetId,
+    getSourceIdentity: (id: AssetId) => Promise<PreviewSourceIdentity>,
+  ): Promise<void> {
+    try {
+      if (!samePreviewSource(source, await getSourceIdentity(id))) return;
+      await this.cache.writePreview(folder, location.dir, location.filename, blob, source);
+    } catch {
+      // Cache writes are best-effort and never block the displayed preview.
     }
   }
 }

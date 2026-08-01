@@ -62,26 +62,14 @@ import {
   encodeDevelopedRenderToAvif,
   encodeDevelopedRenderToJpeg,
 } from '../raw-pipeline/image-utils';
-import { parseAddress } from '../addressing/maple-address';
-import { splitRelPath, validateRelPath } from '../addressing/fs-access-library-source';
 import { isSupportedRaw } from './raw-extensions';
+import { previewLocation, type PreviewLocation } from './preview-location';
 
 /** Idle debounce before a developed preview is persisted, in ms. Longer than
  * the 200ms sidecar-write debounce (`LibraryFetch.API_XMP_DEBOUNCE_MS`)
  * because this triggers a full decode + encode + disk/network write, not a
  * cheap text write — no value re-persisting mid-drag. */
 const IDLE_PERSIST_DEBOUNCE_MS = 2000;
-
-/** An asset's on-disk location within the granted Hosted library folder —
- * see `HostedPreviewResolver`'s identical type/helper, which this mirrors
- * (kept local rather than shared: the two resolvers key off different
- * inputs — an `AssetId` here as there, but this one has no `getBytes`
- * callback shape to unify around, so extracting a shared helper for ~10
- * lines would cost more than it saves). */
-interface PreviewLocation {
-  dir: string;
-  filename: string;
-}
 
 interface HostedPreviewTarget {
   folder: MapleFolderHandle;
@@ -155,9 +143,9 @@ export class EditPreviewPersistService {
       let hostedTarget: HostedPreviewTarget | null = null;
       if (this.store.backend === 'hosted') {
         const folder = this.store.currentFolder();
-        const location = this._locate(id);
+        const location = previewLocation(id);
         if (!folder?.write || !location) return;
-        const snapshot = await this.cache.hostedBytesSnapshotFor(id);
+        const snapshot = await this.cache.hostedBytes.snapshotFor(id);
         hostedTarget = {
           folder,
           location,
@@ -223,7 +211,7 @@ export class EditPreviewPersistService {
     if (this.store.currentFolder() !== target.folder || !target.folder.write) return;
     const avif = await encodeDevelopedRenderToAvif(img);
     const blob = avif ?? (await encodeDevelopedRenderToJpeg(img));
-    const sourceAfter = await this.cache.sourceIdentityFor(id);
+    const sourceAfter = await this.cache.hostedBytes.identityFor(id);
     if (!samePreviewSource(target.sourceBefore, sourceAfter)) return;
     await this.mapleCache.writePreview(
       target.folder,
@@ -232,21 +220,5 @@ export class EditPreviewPersistService {
       blob,
       target.sourceBefore,
     );
-  }
-
-  /** The asset's directory + basename, or `null` for an id with no
-   * addressable folder location — mirrors `HostedPreviewResolver._locate`
-   * (Hosted FS-Access asset ids are `slug:relPath` addresses; `fs:<absPath>`
-   * and bare import ids are not). */
-  private _locate(id: AssetId): PreviewLocation | null {
-    if (typeof id !== 'string' || !id.includes(':') || id.startsWith('fs:')) return null;
-    try {
-      const { relPath } = parseAddress(id);
-      validateRelPath(relPath);
-      const { dir, filename } = splitRelPath(relPath);
-      return filename ? { dir, filename } : null;
-    } catch {
-      return null;
-    }
   }
 }
