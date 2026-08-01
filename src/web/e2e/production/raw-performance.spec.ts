@@ -96,8 +96,8 @@ test('Hosted cold embedded preview and warm .maple preview meet the open budgets
 
   const coldPicker = await installProductionFolderPicker(page, manifest.writableFolder);
   await rm(join(manifest.writableFolder, '.maple'), { recursive: true, force: true });
-  await openFolder(page, DNG);
   coldPicker.clear();
+  await openFolder(page, DNG);
   const coldPreview = await inPagePreviewPhases(
     page.getByRole('button', { name: DNG, exact: true }),
   );
