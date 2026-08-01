@@ -100,11 +100,13 @@ function setup(opts: Setup = {}) {
         useValue: {
           bytesFor: () => new Uint8Array([1, 2, 3]),
           bytesForAsset: vi.fn(async () => new Uint8Array([1, 2, 3])),
-          hostedBytesSnapshotFor: vi.fn(async () => ({
-            bytes: new Uint8Array([1, 2, 3]),
-            source: { size: 3, lastModified: 1234 },
-          })),
-          sourceIdentityFor: vi.fn(async () => ({ size: 3, lastModified: 1234 })),
+          hostedBytes: {
+            snapshotFor: vi.fn(async () => ({
+              bytes: new Uint8Array([1, 2, 3]),
+              source: { size: 3, lastModified: 1234 },
+            })),
+            identityFor: vi.fn(async () => ({ size: 3, lastModified: 1234 })),
+          },
           ...opts.cache,
         },
       },
@@ -339,23 +341,23 @@ describe('EditPreviewPersistService — Hosted (File System Access folder handle
   it('does not publish old developed pixels when the RAW is replaced during decode', async () => {
     convertToBlobImpl = async ({ type }) => new Blob(['x'], { type });
     const writePreview = vi.fn();
-    const hostedBytesSnapshotFor = vi.fn(async () => ({
+    const snapshotFor = vi.fn(async () => ({
       bytes: new Uint8Array([1, 2, 3]),
       source: { size: 3, lastModified: 100 },
     }));
-    const sourceIdentityFor = vi.fn(async () => ({ size: 4, lastModified: 200 }));
+    const identityFor = vi.fn(async () => ({ size: 4, lastModified: 200 }));
     const folder = { write: true };
     const svc = setup({
       store: { backend: 'hosted', currentFolder: () => folder },
-      cache: { hostedBytesSnapshotFor, sourceIdentityFor },
+      cache: { hostedBytes: { snapshotFor, identityFor } },
       mapleCache: { writePreview },
     });
 
     svc.schedule('lib:2026/a.dng' as AssetId);
     await vi.advanceTimersByTimeAsync(PAST_DEBOUNCE_MS);
 
-    expect(hostedBytesSnapshotFor).toHaveBeenCalledTimes(1);
-    expect(sourceIdentityFor).toHaveBeenCalledTimes(1);
+    expect(snapshotFor).toHaveBeenCalledTimes(1);
+    expect(identityFor).toHaveBeenCalledTimes(1);
     expect(writePreview).not.toHaveBeenCalled();
   });
 

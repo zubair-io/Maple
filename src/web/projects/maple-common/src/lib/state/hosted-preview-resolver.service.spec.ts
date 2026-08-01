@@ -214,6 +214,29 @@ describe('HostedPreviewResolver.resolve', () => {
     expect(writePreview).not.toHaveBeenCalled();
   });
 
+  it('malformed runtime id: fails closed and extracts without touching the cache', async () => {
+    const readPreview = vi.fn();
+    const writePreview = vi.fn();
+    const jpeg = new Blob(['jpeg']);
+    const resolver = setup(
+      { findAsset: () => rawAsset(), currentFolder: () => ({ write: true }) },
+      { readPreview, writePreview },
+      {
+        extractEmbeddedPreview: vi.fn(async () => ({ width: 8, height: 6, blob: jpeg })),
+      },
+    );
+
+    const blob = await resolver.resolve(
+      null as unknown as AssetId,
+      vi.fn(async () => new Uint8Array([1])),
+    );
+    await settle();
+
+    expect(blob).toBe(jpeg);
+    expect(readPreview).not.toHaveBeenCalled();
+    expect(writePreview).not.toHaveBeenCalled();
+  });
+
   it('extraction failure (no embedded preview) is swallowed — returns null, not a throw', async () => {
     const extractEmbeddedPreview = vi.fn(async () => {
       throw new Error('no embedded preview / thumbnail in RAW');
