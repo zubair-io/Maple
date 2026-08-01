@@ -54,6 +54,59 @@ describe('planAndPlace — crash-safe ordering', () => {
     expect(await read('2024/Tokyo/IMG.HEIC')).toBe('pixels');
   });
 
+  test('copies a video + its full-name .mov.xmp sidecar (#1678)', async () => {
+    await write('2024/Tokyo/03-15/CLIP.mov', 'frames');
+    // M5 full-name sidecar convention: `clip.mov.xmp`, NOT stem-swapped `clip.xmp`.
+    await write('2024/Tokyo/03-15/CLIP.mov.xmp', 'video-edits');
+
+    const plan = await planAndPlace({
+      libRoot: root,
+      oldDir: '2024/Tokyo/03-15',
+      filename: 'CLIP.mov',
+      newDir: '2024/Tokyo',
+      renderedRelOld: null,
+    });
+
+    expect(plan.outcome).toBe('copied');
+    expect(plan.newRelPath).toBe('2024/Tokyo/CLIP.mov');
+    expect(await exists('2024/Tokyo/CLIP.mov')).toBe(true);
+    expect(await exists('2024/Tokyo/CLIP.mov.xmp')).toBe(true);
+    expect(await read('2024/Tokyo/CLIP.mov')).toBe('frames');
+    expect(await read('2024/Tokyo/CLIP.mov.xmp')).toBe('video-edits');
+    // Sources still present until finalize (crash-safe invariant).
+    expect(await exists('2024/Tokyo/03-15/CLIP.mov')).toBe(true);
+    expect(await exists('2024/Tokyo/03-15/CLIP.mov.xmp')).toBe(true);
+    expect(plan.sourcesToDelete).toContain(path.join(root, '2024/Tokyo/03-15/CLIP.mov'));
+    expect(plan.sourcesToDelete).toContain(path.join(root, '2024/Tokyo/03-15/CLIP.mov.xmp'));
+  });
+
+  test('a video sidecar does not pull in a same-stem photo sidecar (Live Photo pairing safety, #1678)', async () => {
+    // Live Photo pairing: same stem, independent still + motion clip, independent sidecars.
+    await write('2024/Tokyo/03-15/IMG_1.HEIC', 'still-pixels');
+    await write('2024/Tokyo/03-15/IMG_1.xmp', 'still-edits');
+    await write('2024/Tokyo/03-15/IMG_1.MOV', 'clip-frames');
+    await write('2024/Tokyo/03-15/IMG_1.MOV.xmp', 'clip-edits');
+
+    const plan = await planAndPlace({
+      libRoot: root,
+      oldDir: '2024/Tokyo/03-15',
+      filename: 'IMG_1.MOV',
+      newDir: '2024/Tokyo',
+      renderedRelOld: null,
+    });
+
+    expect(await exists('2024/Tokyo/IMG_1.MOV')).toBe(true);
+    expect(await exists('2024/Tokyo/IMG_1.MOV.xmp')).toBe(true);
+    // The still photo's own sidecar must NOT be swept up as a "companion".
+    expect(await exists('2024/Tokyo/IMG_1.xmp')).toBe(false);
+    expect(plan.sourcesToDelete).not.toContain(
+      path.join(root, '2024/Tokyo/03-15/IMG_1.xmp'),
+    );
+    // Still photo untouched at the old dir.
+    expect(await exists('2024/Tokyo/03-15/IMG_1.HEIC')).toBe(true);
+    expect(await exists('2024/Tokyo/03-15/IMG_1.xmp')).toBe(true);
+  });
+
   test('rendered companion travels and reports its new rel path', async () => {
     await write('2024/Tokyo/03-15/IMG.HEIC', 'pixels');
     await write('2024/Tokyo/03-15/IMG.rendered.JPEG', 'rendered');
