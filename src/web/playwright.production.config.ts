@@ -7,7 +7,7 @@ const selfHostedPort = process.env.MAPLE_E2E_SELF_HOSTED_PORT ?? '4401';
 
 const artifactServers = [
   {
-    command: `DIST=dist/maple-syrup/browser PORT=${hostedPort} bun scripts/serve-dist-coep.mjs`,
+    command: `PORT=${hostedPort} bun run serve:hosted-update-e2e`,
     url: `http://127.0.0.1:${hostedPort}`,
     reuseExistingServer: false,
     timeout: 30_000,
@@ -18,6 +18,7 @@ const artifactServers = [
     command:
       `DIST=dist/maple/browser PORT=${selfHostedPort} ` +
       'API_UNAVAILABLE_STATUS=401 MAPLE_HOSTED_SECURITY_POLICY=0 ' +
+      'MAPLE_E2E_SELF_HOSTED_CACHE_FIXTURES=1 ' +
       'bun scripts/serve-dist-coep.mjs',
     url: `http://127.0.0.1:${selfHostedPort}`,
     reuseExistingServer: false,
