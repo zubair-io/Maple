@@ -10,6 +10,7 @@ import { MongoClient, type Collection, type Db, type IndexDescriptionInfo } from
 
 const TEST_DB = `maple_test_client_pristine_${process.pid}`;
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+const ORIGINAL_MONGO_DB = process.env.MAPLE_MONGO_DB;
 process.env.MAPLE_MONGO_DB = TEST_DB;
 
 let mongo: MongoClient | null = null;
@@ -52,11 +53,16 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  const { closeDb } = await import('./client.ts');
-  await closeDb();
-  if (mongo) {
-    await mongo.db(TEST_DB).dropDatabase();
-    await mongo.close();
+  try {
+    const { closeDb } = await import('./client.ts');
+    await closeDb();
+    if (mongo) {
+      await mongo.db(TEST_DB).dropDatabase();
+      await mongo.close();
+    }
+  } finally {
+    if (ORIGINAL_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
+    else process.env.MAPLE_MONGO_DB = ORIGINAL_MONGO_DB;
   }
 });
 
