@@ -2,8 +2,9 @@ import type { AdjustmentModel } from '../models/adjustment-model';
 import type { PassthroughBucket } from './xmp.types';
 import { ADJUSTMENT_FIELDS, LEGACY_READ_ALIASES, WB_PRESET_FIELD } from './xmp-fields';
 import { DC_NAMESPACE } from './xmp-culling';
-import { METADATA_ATTR_KEYS, METADATA_NESTED_ELEMENTS } from './xmp-metadata';
+import { METADATA_ATTR_KEYS, METADATA_NAMESPACES, METADATA_NESTED_ELEMENTS } from './xmp-metadata';
 import { parseToneCurveElement, toneCurveElementKey } from './xmp-tone-curves';
+import { CRS_NAMESPACE, managedXmpName, RDF_NAMESPACE, XMP_NAMESPACE } from './xmp-dom-utils';
 
 /** Attributes fully owned by Maple and therefore excluded from passthrough. */
 const KNOWN_ATTRIBUTES = new Set<string>([
@@ -44,17 +45,20 @@ const KNOWN_ATTRIBUTES = new Set<string>([
   ...METADATA_ATTR_KEYS,
 ]);
 
+const CANONICAL_NAMESPACE_URIS: Readonly<Record<string, string>> = {
+  rdf: RDF_NAMESPACE,
+  xmp: XMP_NAMESPACE,
+  crs: CRS_NAMESPACE,
+  papp: 'http://ns.justmaple.app/photo/1.0/',
+  ...METADATA_NAMESPACES,
+};
+
 const isManagedChild = (child: Element): boolean => {
-  if (
-    (child.namespaceURI === DC_NAMESPACE && child.localName === 'subject') ||
-    child.tagName === 'dc:subject'
-  ) {
+  if (child.namespaceURI === DC_NAMESPACE && child.localName === 'subject') {
     return true;
   }
   return METADATA_NESTED_ELEMENTS.some(
-    (element) =>
-      (child.namespaceURI === element.ns && child.localName === element.local) ||
-      child.tagName === element.tag,
+    (element) => child.namespaceURI === element.ns && child.localName === element.local,
   );
 };
 
@@ -74,6 +78,89 @@ const visibleNamespaceUris = (description: Element): Map<string, string> => {
   return namespaces;
 };
 
+/** Serialize a foreign subtree with every namespace it inherited made explicit. */
+const usedPrefix = (attribute: Attr): string | null =>
+  attribute.prefix && attribute.prefix !== 'xmlns' && attribute.namespaceURI
+    ? attribute.prefix
+    : null;
+
+const elementPrefixes = (element: Element): string[] =>
+  [
+    element.namespaceURI ? (element.prefix ?? '') : null,
+    ...Array.from(element.attributes, usedPrefix),
+  ].filter((prefix): prefix is string => prefix !== null);
+
+const inScopeNamespaces = (source: Element): ReadonlyMap<string, string> => {
+  const prefixes = new Set([source, ...source.querySelectorAll('*')].flatMap(elementPrefixes));
+  return new Map(
+    Array.from(prefixes).flatMap((prefix) => {
+      const uri = source.lookupNamespaceURI(prefix || null);
+      return uri ? [[prefix, uri]] : [];
+    }),
+  );
+};
+
+const addExplicitNamespaces = (element: Element, namespaces: ReadonlyMap<string, string>): void => {
+  for (const [prefix, uri] of namespaces) {
+    if (prefix === 'xml') continue;
+    const name = prefix ? `xmlns:${prefix}` : 'xmlns';
+    if (!element.hasAttribute(name)) {
+      element.setAttributeNS('http://www.w3.org/2000/xmlns/', name, uri);
+    }
+  }
+};
+
+const selfContainedXml = (source: Element): string => {
+  const clone = source.cloneNode(true) as Element;
+  addExplicitNamespaces(clone, inScopeNamespaces(source));
+  return clone.outerHTML;
+};
+
+const isModeledAttribute = (attribute: Attr): boolean => {
+  const name = managedXmpName(attribute);
+  return name !== null && name !== 'rdf:about' && KNOWN_ATTRIBUTES.has(name);
+};
+
+const withoutModeledFields = (source: Element): Element => {
+  const clone = source.cloneNode(true) as Element;
+  for (const attribute of Array.from(source.attributes)) {
+    if (!isModeledAttribute(attribute)) continue;
+    if (attribute.namespaceURI)
+      clone.removeAttributeNS(attribute.namespaceURI, attribute.localName);
+    else clone.removeAttribute(attribute.name);
+  }
+  const clonedChildren = Array.from(clone.children);
+  Array.from(source.children).forEach((child, index) => {
+    if (toneCurveElementKey(child) || isManagedChild(child)) clonedChildren[index]?.remove();
+  });
+  return clone;
+};
+
+const preservedRdfNode = (element: Element): string => {
+  const isDescription =
+    element.namespaceURI === RDF_NAMESPACE && element.localName === 'Description';
+  return selfContainedXml(isDescription ? withoutModeledFields(element) : element);
+};
+
+const preservedStructure = (
+  description: Element,
+  document?: Document,
+): Pick<PassthroughBucket, 'unknownRdfNodes' | 'unknownXmpmetaNodes'> => {
+  if (!document) return {};
+  const rdf = description.parentElement;
+  if (!rdf) return {};
+  const unknownRdfNodes = Array.from(rdf.children)
+    .filter((child) => child !== description)
+    .map(preservedRdfNode);
+  const xmpmeta = rdf.parentElement;
+  const unknownXmpmetaNodes = xmpmeta
+    ? Array.from(xmpmeta.children)
+        .filter((child) => child !== rdf)
+        .map(selfContainedXml)
+    : [];
+  return { unknownRdfNodes, unknownXmpmetaNodes };
+};
+
 /**
  * Capture fields Maple does not model and hydrate Maple-owned point curves.
  * The parser intentionally delegates the whole child classification here so
@@ -82,18 +169,27 @@ const visibleNamespaceUris = (description: Element): Map<string, string> => {
 export function collectXmpPassthrough(
   description: Element,
   model: Partial<AdjustmentModel>,
+  document?: Document,
 ): PassthroughBucket {
   const visibleNamespaces = visibleNamespaceUris(description);
+  const passthroughNamespaceUris = new Map<string, string>();
   const unknownAttributes = Array.from(description.attributes)
-    .filter((attr) => !KNOWN_ATTRIBUTES.has(attr.name) && !attr.name.startsWith('xmlns'))
-    .map((attr) => ({ name: attr.name, value: attr.value }));
+    .filter((attr) => {
+      if (attr.name.startsWith('xmlns')) return false;
+      const managedName = managedXmpName(attr);
+      return managedName === null || !KNOWN_ATTRIBUTES.has(managedName);
+    })
+    .map((attr) => {
+      const canonicalUri = attr.prefix ? CANONICAL_NAMESPACE_URIS[attr.prefix] : undefined;
+      if (attr.prefix && attr.namespaceURI && canonicalUri && canonicalUri !== attr.namespaceURI) {
+        const prefix = `passthrough_${attr.prefix}`;
+        passthroughNamespaceUris.set(prefix, attr.namespaceURI);
+        return { name: `${prefix}:${attr.localName}`, value: attr.value };
+      }
+      return { name: attr.name, value: attr.value };
+    });
   const unknownNodes: string[] = [];
   const passthroughPrefixes = new Set<string>();
-  const rememberPrefix = (node: Element | Attr): void => {
-    if (node.prefix && node.prefix !== 'xml' && node.prefix !== 'xmlns') {
-      passthroughPrefixes.add(node.prefix);
-    }
-  };
 
   for (const child of Array.from(description.children)) {
     const curveKey = toneCurveElementKey(child);
@@ -102,11 +198,7 @@ export function collectXmpPassthrough(
       continue;
     }
     if (isManagedChild(child)) continue;
-    for (const element of [child, ...Array.from(child.querySelectorAll('*'))]) {
-      rememberPrefix(element);
-      for (const attr of Array.from(element.attributes)) rememberPrefix(attr);
-    }
-    unknownNodes.push(child.outerHTML);
+    unknownNodes.push(selfContainedXml(child));
   }
 
   for (const attr of unknownAttributes) {
@@ -115,7 +207,15 @@ export function collectXmpPassthrough(
   }
 
   const unknownNamespaces = Array.from(passthroughPrefixes)
-    .map((prefix) => ({ prefix, uri: visibleNamespaces.get(prefix) }))
+    .map((prefix) => ({
+      prefix,
+      uri: passthroughNamespaceUris.get(prefix) ?? visibleNamespaces.get(prefix),
+    }))
     .filter((namespace): namespace is { prefix: string; uri: string } => !!namespace.uri);
-  return { unknownNamespaces, unknownAttributes, unknownNodes };
+  return {
+    unknownNamespaces,
+    unknownAttributes,
+    unknownNodes,
+    ...preservedStructure(description, document),
+  };
 }

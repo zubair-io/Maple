@@ -10,6 +10,9 @@ interface PreviewLoaderDeps {
   hostedPreview: Pick<HostedPreviewResolver, 'resolve'>;
   fileHandles: ReadonlyMap<AssetId, FolderEntry>;
   bytesForAsset: (id: AssetId) => Promise<Uint8Array>;
+  hostedBytesSnapshotFor: (
+    id: AssetId,
+  ) => Promise<{ bytes: Uint8Array; source: { size: number; lastModified: number } }>;
 }
 
 export function previewLoader(
@@ -21,12 +24,15 @@ export function previewLoader(
     return isAddress ? (assetId) => deps.librarySource.previewBlob(parseAddress(assetId)) : null;
   }
   return (assetId) =>
-    deps.hostedPreview.resolve(assetId, deps.bytesForAsset, (sourceId) =>
-      sourceIdentity(deps.fileHandles, sourceId),
+    deps.hostedPreview.resolve(
+      assetId,
+      deps.bytesForAsset,
+      (sourceId) => sourceIdentity(deps.fileHandles, sourceId),
+      deps.hostedBytesSnapshotFor,
     );
 }
 
-async function sourceIdentity(
+export async function sourceIdentity(
   fileHandles: ReadonlyMap<AssetId, FolderEntry>,
   id: AssetId,
 ): Promise<{ size: number; lastModified: number }> {
