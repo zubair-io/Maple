@@ -111,6 +111,16 @@ public actor BackupEngine {
     /// (#1026). See `RetryWakeSignal` for the concurrency contract.
     private let retryWake = RetryWakeSignal()
 
+    /// Reentrancy guard for `run()`. `RetryWakeSignal` has exactly one
+    /// continuation slot, so two concurrent `run()` loops both parking on
+    /// `retryWake.wait()` would silently overwrite one another's
+    /// continuation and strand the first caller forever — `run()` is
+    /// `public`, so nothing about the type system stops a second concurrent
+    /// call. Set on entry, cleared on every exit (including cancellation)
+    /// via `defer`, so a second concurrent call is a safe no-op rather than
+    /// a trap or a hang.
+    private var isRunning = false
+
     /// Per-task count of companions currently in their bounded detached-retry
     /// path (#702). A companion enters this set when its inline attempt fails
     /// (`runCompanion` catch) and leaves when it either lands on a retry or
@@ -162,9 +172,15 @@ public actor BackupEngine {
     /// parallelism comes from the network I/O in `upload.session.data(for:)`,
     /// which suspends without holding the engine's actor isolation.
     ///
+    /// A second concurrent call while one is already running is a safe
+    /// no-op — see `isRunning`.
+    ///
     /// The host (MapleApp / MapleBackupAgent) runs this on a long-lived
     /// background Task.
     public func run() async {
+        guard !isRunning else { return }
+        isRunning = true
+        defer { isRunning = false }
         var inFlight = 0
         await withTaskGroup(of: Void.self) { group in
             while !Task.isCancelled {
