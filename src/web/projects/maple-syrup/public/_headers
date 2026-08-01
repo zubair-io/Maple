@@ -1,21 +1,14 @@
-# T10 — cross-origin isolation headers for maple-syrup.
-#
-# These two headers opt the page into a cross-origin-isolated context, which
-# is required for SharedArrayBuffer and therefore for the WASM rayon thread
-# pool (wasm-bindgen-rayon) used by the RAW decode path.
-#
-# Honoured by both Cloudflare Pages and Netlify. For Vercel, the equivalent
-# config is documented in DEPLOY.md under "WASM threading".
-#
-# Browsers without COOP+COEP (or where this file is missing) continue to
-# load the app normally — the JS wrapper detects `crossOriginIsolated` and
-# falls back to single-threaded decode.
+# Maple Hosted production security policy. Cloudflare Pages and Netlify merge
+# the wildcard policy with the WASM MIME override below. The artifact checker
+# keeps these values aligned with scripts/hosted-security-header-contract.ts.
 
 /*
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; frame-src 'none'; img-src 'self' blob: data:; manifest-src 'self'; object-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Embedder-Policy: require-corp
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()
 
 /raw_wasm_bg.wasm
   Content-Type: application/wasm
-  Cross-Origin-Opener-Policy: same-origin
-  Cross-Origin-Embedder-Policy: require-corp
