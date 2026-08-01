@@ -11,10 +11,23 @@ const temporaryRoots: string[] = [];
 afterEach(async () => {
   if (originalRoots === undefined) delete process.env.MAPLE_ROOTS;
   else process.env.MAPLE_ROOTS = originalRoots;
-  await Promise.all(temporaryRoots.splice(0).map((path) => rm(path, { recursive: true })));
+  await Promise.all(
+    temporaryRoots.splice(0).map((path) => rm(path, { recursive: true, force: true })),
+  );
 });
 
 describe('safeWriteAllowed', () => {
+  test('allows development writes when MAPLE_ROOTS is unset before the cache is initialized', async () => {
+    const fixture = await mkdtemp(join(tmpdir(), 'maple-root-unconfigured-'));
+    temporaryRoots.push(fixture);
+    delete process.env.MAPLE_ROOTS;
+
+    expect(await safeWriteAllowed(join(fixture, 'photo.xmp'))).toEqual({
+      ok: true,
+      data: join(fixture, 'photo.xmp'),
+    });
+  });
+
   test('normalizes symlinked MAPLE_ROOTS before authorizing a new sidecar', async () => {
     const fixture = await mkdtemp(join(tmpdir(), 'maple-root-alias-'));
     temporaryRoots.push(fixture);
