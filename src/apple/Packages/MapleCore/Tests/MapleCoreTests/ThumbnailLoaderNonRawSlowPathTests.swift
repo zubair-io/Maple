@@ -147,7 +147,20 @@ final class ThumbnailLoaderNonRawSlowPathTests: XCTestCase {
         let result = await ThumbnailLoader.shared.load(for: url)
         let data = try XCTUnwrap(result, "non-RAW asset must produce a thumbnail, not nil")
         XCTAssertFalse(data.isEmpty)
+        XCTAssertEqual(data[4..<8], Data("ftyp".utf8), "must be an AVIF container")
+        // This asset has no embedded thumbnail, but on a modern ImageIO the
+        // fast path's `FromImageIfAbsent: true` frequently synthesizes one
+        // successfully anyway (at its own 2x-Retina target, 512px — see
+        // `embeddedPreviewAVIF`), so this real end-to-end call is not
+        // guaranteed to land on the new slow path. Not asserting a specific
+        // tier's exact pixel size here: that's already pinned precisely by
+        // `testDownscalesToThumbnailLongEdge` against `nonRawSlowPathAVIF`
+        // directly. This test only pins the ticket's literal requirement —
+        // a non-RAW asset must produce a thumbnail, not nil — across
+        // whichever tier ends up serving it.
         let size = try extent(of: data)
-        XCTAssertEqual(max(size.width, size.height), ThumbnailDiskCache.defaultThumbSize.width)
+        let longEdge = max(size.width, size.height)
+        XCTAssertLessThanOrEqual(longEdge, ThumbnailDiskCache.defaultThumbSize.width * 2)
+        XCTAssertGreaterThanOrEqual(longEdge, ThumbnailDiskCache.defaultThumbSize.width)
     }
 }
