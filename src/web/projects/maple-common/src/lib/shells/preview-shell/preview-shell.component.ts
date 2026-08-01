@@ -38,6 +38,7 @@ import { getPersistedFile } from '../../folder-access/file-cache';
 import { formatAddress, parseAddress, toApiPath } from '../../addressing/maple-address';
 import {
   routeSegmentsToAddress,
+  routeFileCacheId,
   viewRouteCommands,
   editRouteCommands,
 } from '../../addressing/route-address';
@@ -323,8 +324,7 @@ export class PreviewShellComponent implements OnDestroy {
           return;
         }
       }
-      const filename = addr.relPath.split('/').pop() ?? addrStr;
-      void this.hydrateFromCache(filename);
+      void this.hydrateFromCache(routeFileCacheId(slug, addr.relPath));
       return;
     }
 
@@ -369,9 +369,7 @@ export class PreviewShellComponent implements OnDestroy {
         return;
       }
       const bytes = new Uint8Array(await record.file.arrayBuffer());
-      this.state.addImportedAsset(bytes, record.filename, id);
-      this.state.selectedSourceId.set('f-imported');
-      this.state.selectAsset(id);
+      this.state.enterSingleFileWorkspace(bytes, record.filename, id, false, record.xmp);
     } catch (err) {
       console.error('PreviewShell: hydrateFromCache failed', err);
       void this.router.navigate(['/']);

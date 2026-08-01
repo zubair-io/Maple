@@ -249,7 +249,10 @@ export class XmpSerializerService {
       extraNamespaces.push([namespace.prefix, namespace.uri]);
     }
 
-    return canonicalDocument(extraNamespaces, parts, children);
+    return canonicalDocument(extraNamespaces, parts, children, {
+      rdfNodes: passthrough?.unknownRdfNodes,
+      xmpmetaNodes: passthrough?.unknownXmpmetaNodes,
+    });
   }
 
   /**

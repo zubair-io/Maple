@@ -5,15 +5,9 @@
 // Swift one. The two are written to emit the same bytes for the same
 // attribute list, which is what the cross-engine zero-diff test pins.
 //
-// Namespace URI note (#1577): the `papp:` prefix — not the URI it is bound
-// to — is the discriminator every Maple parser keys on. raw-core's
-// `xmp::parse` matches attribute names byte-wise (`papp:Profile`), the Swift
-// `XMLParser` runs with namespace processing OFF so `attributeDict` is keyed
-// on qualified names, and the TypeScript parser compares `attr.name`, which
-// is also the qualified name. None of the three ever resolves a namespace
-// URI. The canonical URI below is therefore free to be chosen for tidiness
-// rather than compatibility, and existing sidecars written against the older
-// Swift URI keep parsing unchanged.
+// Namespace URI note (#1577/#2459): the writer always emits the canonical URI.
+// The Web reader resolves expanded names (URI + local name), accepts the older
+// Apple papp URI for compatibility, and never trusts a reusable source prefix.
 
 /**
  * Canonical `papp:` namespace URI — see the note above. Deliberately not
@@ -114,6 +108,10 @@ export function canonicalDocument(
   extraNamespaces: ReadonlyArray<readonly [string, string]>,
   attributes: readonly string[],
   children: string,
+  preserved?: {
+    readonly rdfNodes?: readonly string[];
+    readonly xmpmetaNodes?: readonly string[];
+  },
 ): string {
   const indent = DESCRIPTION_CHILD_INDENT;
   const namespaceUris = new Map([...ENVELOPE_NAMESPACES, ...CORE_NAMESPACES]);
@@ -137,6 +135,14 @@ export function canonicalDocument(
   const head = [...nsLines, ...attrLines].join('\n');
   const body = children.length === 0 ? '/>' : `>\n${children}\n    </rdf:Description>`;
 
+  const indentXml = (xml: string, indent: string): string =>
+    xml
+      .split('\n')
+      .map((line) => `${indent}${line}`)
+      .join('\n');
+  const rdfNodes = (preserved?.rdfNodes ?? []).map((node) => indentXml(node, '    '));
+  const xmpmetaNodes = (preserved?.xmpmetaNodes ?? []).map((node) => indentXml(node, '  '));
+
   return [
     // The `begin` attribute carries a real U+FEFF byte-order mark, written as an
     // explicit escape rather than a literal: this module defines the canonical
@@ -147,7 +153,9 @@ export function canonicalDocument(
     '  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">',
     '    <rdf:Description rdf:about=""',
     `${head}${body}`,
+    ...rdfNodes,
     '  </rdf:RDF>',
+    ...xmpmetaNodes,
     '</x:xmpmeta>',
     '<?xpacket end="w"?>',
   ].join('\n');

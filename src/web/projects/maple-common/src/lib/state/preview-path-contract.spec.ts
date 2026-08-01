@@ -37,6 +37,10 @@ describe('preview path contract — web resolver agrees with the shared golden (
       async writeFile(_f: MapleFolderHandle, path: string, data: Uint8Array): Promise<void> {
         files.set(path, data);
       },
+      async fileMetadata(_f: MapleFolderHandle, path: string) {
+        if (!files.has(path)) throw new Error(`ENOENT ${path}`);
+        return { size: files.get(path)!.byteLength, lastModified: 1 };
+      },
       async ensureSubdirectory(f: MapleFolderHandle, _name: string): Promise<MapleFolderHandle> {
         return f;
       },
@@ -63,12 +67,15 @@ describe('preview path contract — web resolver agrees with the shared golden (
 
   for (const c of contract.cases) {
     it(`writePreview(${c.id}) lands at the golden relPath "${c.relPath}"`, async () => {
-      await svc.writePreview(folder(), c.relDir, c.filename, avif());
+      await svc.writePreview(folder(), c.relDir, c.filename, avif(), {
+        size: 42,
+        lastModified: 1234,
+      });
       expect(files.has(c.relPath)).toBe(true);
-      // Exactly one file written — confirms the path is precise, not just a
-      // prefix match (e.g. a stray extra path segment would still contain
-      // c.relPath as a substring of a different key).
-      expect(files.size).toBe(1);
+      // The cross-platform AVIF artifact path remains exact. Hosted also
+      // writes a local descriptor beside it; API and Apple do not consume it.
+      expect(files.has(`${c.relPath.slice(0, -'.avif'.length)}.preview.json`)).toBe(true);
+      expect(files.size).toBe(2);
     });
   }
 });

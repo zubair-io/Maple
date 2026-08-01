@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { LibraryStateService } from '../state/library-state.service';
 import { WORKSPACE_CAPABILITIES } from '../workspace/workspace-capabilities';
 import { ImageExportService } from './image-export.service';
+import { SingleFileXmpService } from '../xmp/single-file-xmp.service';
 
 @Component({
   selector: 'maple-single-file-save-notice',
@@ -14,6 +15,7 @@ export class SingleFileSaveNoticeComponent {
   private readonly state = inject(LibraryStateService);
   private readonly capabilities = inject(WORKSPACE_CAPABILITIES, { optional: true });
   private readonly exporter = inject(ImageExportService);
+  private readonly singleFileXmp = inject(SingleFileXmpService);
 
   readonly mode = computed(() => {
     const folder = this.state.currentFolder?.();
@@ -25,6 +27,11 @@ export class SingleFileSaveNoticeComponent {
     return this.capabilities?.resolve(location).mode;
   });
   readonly memoryOnly = computed(() => this.state.singleFileMemoryOnly?.() === true);
+  readonly xmpStatus = computed(() => {
+    const asset = this.state.focusedAsset();
+    const status = this.singleFileXmp.status();
+    return asset?.id === status.assetId ? status : null;
+  });
   readonly visible = computed(() => {
     const mode = this.mode();
     return (
@@ -35,6 +42,8 @@ export class SingleFileSaveNoticeComponent {
 
   downloadXmp(): void {
     const asset = this.state.focusedAsset();
-    if (asset) this.exporter.downloadSidecar(asset);
+    if (!asset) return;
+    this.exporter.downloadSidecar(asset);
+    this.singleFileXmp.markDownloaded(asset.id);
   }
 }

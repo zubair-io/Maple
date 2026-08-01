@@ -11,6 +11,7 @@ import {
 } from '../workspace/workspace-capabilities';
 import { ImageExportService } from './image-export.service';
 import { SingleFileSaveNoticeComponent } from './single-file-save-notice.component';
+import { SingleFileXmpService, type SingleFileXmpStatus } from '../xmp/single-file-xmp.service';
 
 const ASSET = { id: 'asset-1', filename: 'IMG_0042.CR3' } as Asset;
 
@@ -18,7 +19,13 @@ describe('SingleFileSaveNoticeComponent', () => {
   const focusedAsset = signal<Asset | null>(ASSET);
   const currentFolder = signal<{ write: boolean } | null>(null);
   const singleFileMemoryOnly = signal(false);
+  const xmpStatus = signal<SingleFileXmpStatus>({
+    assetId: ASSET.id,
+    durability: 'none',
+    unsaved: false,
+  });
   let downloadSidecar: ReturnType<typeof vi.fn>;
+  let markDownloaded: ReturnType<typeof vi.fn>;
 
   function render(
     policy: WorkspaceCapabilityPolicy,
@@ -31,6 +38,10 @@ describe('SingleFileSaveNoticeComponent', () => {
         },
         { provide: WORKSPACE_CAPABILITIES, useValue: policy },
         { provide: ImageExportService, useValue: { downloadSidecar } },
+        {
+          provide: SingleFileXmpService,
+          useValue: { status: xmpStatus, markDownloaded },
+        },
       ],
     });
     const fixture = TestBed.createComponent(SingleFileSaveNoticeComponent);
@@ -44,6 +55,8 @@ describe('SingleFileSaveNoticeComponent', () => {
     currentFolder.set(null);
     singleFileMemoryOnly.set(false);
     downloadSidecar = vi.fn();
+    markDownloaded = vi.fn();
+    xmpStatus.set({ assetId: ASSET.id, durability: 'none', unsaved: false });
   });
 
   it('warns that reload loses a memory-only single-file session', () => {
@@ -94,6 +107,21 @@ describe('SingleFileSaveNoticeComponent', () => {
     (fixture.nativeElement.querySelector('button') as HTMLButtonElement).click();
 
     expect(downloadSidecar).toHaveBeenCalledWith(ASSET);
+    expect(markDownloaded).toHaveBeenCalledWith(ASSET.id);
+  });
+
+  it('makes unsaved single-file edits explicit', () => {
+    xmpStatus.set({ assetId: ASSET.id, durability: 'paired', unsaved: true });
+    const fixture = render(HOSTED_WORKSPACE_POLICY);
+
+    expect(fixture.nativeElement.textContent).toContain('only in this browser session');
+  });
+
+  it('confirms a downloaded XMP is durable until another edit', () => {
+    xmpStatus.set({ assetId: ASSET.id, durability: 'downloaded', unsaved: false });
+    const fixture = render(HOSTED_WORKSPACE_POLICY);
+
+    expect(fixture.nativeElement.textContent).toContain('XMP downloaded');
   });
 
   it('hides while there is no focused asset to save', () => {

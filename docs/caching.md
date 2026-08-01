@@ -251,16 +251,16 @@ pipeline). In **Hosted** (File System Access) mode this is produced client-side
 and cached on disk next to the photos, following the canonical cross-platform
 contract shared with the server and Apple app.
 
-**Location:** `{photo_directory}/.maple/previews/{original_filename}.avif` — the
-`.maple/` folder sits in the asset's **own** directory (per-directory, like the
-server/Apple write), and the filename keeps its original extension
-(`IMG_1234.CR2` → `.maple/previews/IMG_1234.CR2.avif`). No size token, no
-version token; one file per asset, overwritten in place, fully re-derivable.
+**Location:** `{photo_directory}/.maple/previews/{original_filename}.{ext}` plus
+`{original_filename}.preview.json`. The `.maple/` folder sits in the asset's
+**own** directory and the filename keeps its original extension
+(`IMG_1234.CR2` → `IMG_1234.CR2.jpg` + `IMG_1234.CR2.preview.json`). The
+descriptor records schema version, actual format/MIME, source identity, and
+the artifact mtime used for cross-platform freshness reconciliation.
 Keyed off **directory + filename**, not a content hash — a preview written by
-any client lands exactly where every other client looks for it. (Contrast the
-web **thumbnail** tier, which still uses a single root `.maple/thumbs/<sha>`
-convention; aligning thumbs to the canonical per-directory layout is a separate
-epic stage.)
+Hosted lands in one predictable slot. The fixed `<filename>.avif` artifact
+remains the cross-platform API/Apple contract; browser-native alternatives are
+Hosted-private local cache files and do not travel over the wire.
 
 **Derivation:** `EmbeddedPreviewService` (a dedicated Web Worker, separate from
 the decode/live-render worker so it never contends with that worker's
@@ -270,40 +270,17 @@ single-in-flight-decode gate) calls the shared Rust core
 preview/full/thumbnail-slot hunt + resize + baked EXIF orientation) the native
 server/Apple preview tier uses, so the pixels match across platforms.
 
-**Format decision — genuine AVIF, browser-native, or defer.** The cache file
-MUST be real AVIF: the server's #2014 validator decodes derivatives and rejects
-a JPEG wearing an `.avif` extension. `raw-core`'s `avif` feature is deliberately
-excluded from `raw-wasm` (keeps `ravif`/`rav1e` out of the wasm32 build), so the
-WASM binding emits JPEG. The AVIF is produced **in the browser** via the same
-canvas `convertToBlob('image/avif')` path the grid-thumb tier already uses
-(`image-utils.ts`'s `canEncodeAvif` probe → `encodePreviewBlobToAvif`):
+**Format decision — store what the browser actually produced.** The unedited
+tier stores its already-sized extracted JPEG directly, avoiding a redundant
+canvas transcode. Developed previews use genuine browser AVIF when available
+and the existing high-quality JPEG encoder otherwise. The closed descriptor
+registry also recognizes WebP and PNG for safe forward-compatible reads.
+Extension, declared MIME, and byte signature must agree; arbitrary descriptor
+paths and MIME types are rejected. This avoids a WASM AV1 encoder and never
+writes JPEG or PNG bytes under an `.avif` name.
 
-- **A browser whose canvas can genuinely encode AVIF** transcodes the extracted
-  preview to real AVIF and writes `<filename>.avif`.
-- **A browser that cannot** writes **nothing** — never a mislabeled `.avif`. The
-  extracted preview still displays in-memory (the fast JPEG blob drives the
-  `<img>`); only the on-disk interop cache is skipped, and it re-derives on the
-  next visit (pure cache, no correctness impact).
-
-**Reality of canvas AVIF-encode support (measured, not assumed):** it is _not_
-broadly available in shipping engines today — `canvas.convertToBlob('image/avif')`
-on current Chromium silently substitutes PNG (verified against Chrome 148:
-WebP/JPEG encode, AVIF does not), which the `blob.type === 'image/avif'` check
-catches and treats as "can't encode." So in practice **Hosted-web is primarily a
-_reader_ of the canonical `<filename>.avif`** (produced by the Self-Hosted
-server / Apple app / a future AVIF-capable browser) and writes it only where a
-browser genuinely can. This is precisely the ticket's option (b) — "defer AVIF
-production to the server/next-index and only READ `<filename>.avif` (writing …
-only where it genuinely can)." It avoids pulling an AV1 encoder (`ravif`/`rav1e`)
-into the wasm32 build, reuses the reviewed grid-thumb precedent, honors the
-strict genuine-AVIF contract, and lights up writes automatically as engines add
-canvas AVIF encode. The alternative — a wasm AVIF encoder for guaranteed
-Hosted-web writes today — was deliberately not taken here (it reverses a
-documented `raw-wasm` decision and adds real binary/encode cost); it remains a
-possible follow-up if guaranteed same-session Hosted-web interop is required.
-
-The display path is always the extracted JPEG (fast, universal); the AVIF write
-is a fire-and-forget side-effect gated on a write-capable folder.
+The display path is always the extracted JPEG (fast, universal); persistence is
+a fire-and-forget side effect gated on a write-capable folder.
 
 Implemented by `HostedPreviewResolver` (`lib/state/hosted-preview-resolver.service.ts`),
 routed through `LibraryCache.subscribePreviewUrl`. Read/write-through helpers:
@@ -312,14 +289,19 @@ marker (contrast the thumb tier): a preview is a pure re-encode of the camera's
 own embedded JPEG, never touching the develop pipeline, so a raw-core/AgX bump
 can't stale it.
 
-**Source replacement invalidation:** path portability does not make filename
-alone a freshness signal. Hosted writes an adjacent `.source.json` identity
-containing the RAW's `size` and `lastModified`; reuse requires an exact match.
-For an AVIF written by Apple or Self Hosted before that companion exists,
-Hosted applies the server's cross-platform freshness rule instead: the preview
-file's mtime must be at least the source RAW's mtime. Missing source metadata is
-a cache miss. The canonical AVIF filename is unchanged, so other clients keep
-reading and writing the same portable artifact.
+**Validation, invalidation, and migration:** writes publish the verified image
+artifact first and its descriptor last. Reads require the descriptor's format,
+MIME, signature, and exact RAW `size` + `lastModified` identity to agree. A
+present corrupt/stale descriptor fails closed. When the descriptor is absent,
+Hosted still reads legacy `<filename>.avif` plus its `.source.json` identity;
+older API/Apple AVIF entries without that companion use the derivative-mtime
+freshness rule. This preserves existing caches without allowing a corrupt new
+entry to fall through to unrelated stale bytes. A canonical AVIF written by
+Apple/API after a Hosted-native artifact supersedes its descriptor, so a
+local JPEG cannot permanently shadow a newer cross-platform develop. Cache
+generation also verifies RAW size/mtime before and after extraction or decode;
+a same-named file replaced while work is in flight is displayed for that
+request but never published under the replacement file's identity.
 
 | Cache                   | How to Clear                                     | Effect                            |
 | ----------------------- | ------------------------------------------------ | --------------------------------- |
@@ -329,7 +311,7 @@ reading and writing the same portable artifact.
 
 ## Web editor — edit-time developed-preview persist (#2018)
 
-The "developed preview" is the OTHER half of the same `.maple/previews/<filename>.avif`
+The "developed preview" is the OTHER half of the same `.maple/previews/<filename>`
 cache file (#2010 produces the unedited/camera-embedded tier above): on a
 pixel-affecting edit, the web editor (`EditorShellComponent`, `/edit/:slug/**`
 — the sole live editor since the S5 editor's retirement, epic #1807) re-renders
@@ -368,23 +350,20 @@ browser's canvas can genuinely encode AVIF today — see above):**
   (`validateAvifOutput`, #2014) before the atomic publish. Net effect: the
   server-backed path persists a genuine developed AVIF on every browser
   today, not just AVIF-capable ones.
-- **Hosted (File System Access folder handle):** no server to transcode a
-  JPEG fallback to. Only a genuine AVIF is ever written — a browser that
-  can't canvas-encode AVIF writes NOTHING for that edit (never a JPEG wearing
-  an `.avif` extension), exactly mirroring `HostedPreviewResolver`'s #2010
-  precedent for the unedited tier. It re-derives on a future write attempt
-  (the next idle-debounce firing, or a future AVIF-capable browser) rather
-  than ever serving a stale/wrong developed preview under a lie of a
-  filename.
+- **Hosted (File System Access folder handle):** encodes genuine AVIF when
+  available, otherwise writes the high-quality JPEG under `.jpg`. The local
+  descriptor records the actual format and source identity. No server
+  transcode is needed, and the cache remains local implementation detail.
 
 Implemented by `EditPreviewPersistService`
 (`lib/state/edit-preview-persist.service.ts`), which owns the debounce timers
 and the Hosted-vs-server-backed branch; the encode helpers
 (`encodeDevelopedRenderToAvif` / `encodeDevelopedRenderToJpeg`) live in
-`raw-pipeline/image-utils.ts` alongside the unedited tier's
-`encodePreviewBlobToAvif`, reusing the same `canEncodeAvif()` capability
-probe. The Hosted write path reuses `MapleCacheService.writePreview`
-unchanged; the server-backed path adds `BunApiBackendService.putPreview`.
+`raw-pipeline/image-utils.ts`, reusing the same `canEncodeAvif()` capability
+probe as the thumbnail tier. The Hosted write path reuses
+`MapleCacheService.writePreview`; the
+server-backed path uses `BunApiBackendService.putPreview` and retains its fixed
+AVIF final-artifact contract.
 
 Non-RAW assets (JPEG/PNG/HEIC sources) are out of scope for this tier:
 `RawPipelineService.decode`'s non-RAW branch decodes browser-natively and
