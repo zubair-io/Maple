@@ -111,6 +111,10 @@ jobs:
         working-directory: src/web
         run: bun install --frozen-lockfile
 
+      - name: Shared brand contract
+        working-directory: src/web
+        run: bun run brand:check
+
       # Build + sync the WASM pkg/ explicitly. Writes the build stamp so the
       # `prebuild` hook fired by `bun run build` below no-ops (no double
       # build), and the WASM is built even if bun skips the lifecycle hook.
@@ -137,13 +141,13 @@ jobs:
         working-directory: src/web
         run: bun run check:hosted-artifact
 
-      - name: Install Google Chrome for Hosted service-worker test
+      - name: Install Google Chrome for production artifact tests
         working-directory: src/web
         run: bun x playwright install --with-deps chrome
 
-      - name: Hosted service worker in installed Google Chrome
+      - name: Production artifacts in installed Google Chrome
         working-directory: src/web
-        run: bun run e2e:hosted-service-worker
+        run: bun run e2e:production-artifacts
 
   web-test:
     name: web-test (ng test maple)

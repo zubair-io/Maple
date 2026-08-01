@@ -1,7 +1,27 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const configOnly = process.env.MAPLE_E2E_CONFIG_ONLY === '1';
-const hostedArtifactOnly = process.env.MAPLE_E2E_HOSTED_ARTIFACT_ONLY === '1';
+const artifactOnly = process.env.MAPLE_E2E_ARTIFACT_ONLY === '1';
+
+const artifactServers = [
+  {
+    command: 'DIST=dist/maple-syrup/browser PORT=4400 bun scripts/serve-dist-coep.mjs',
+    url: 'http://127.0.0.1:4400',
+    reuseExistingServer: false,
+    timeout: 30_000,
+    stdout: 'pipe' as const,
+    stderr: 'pipe' as const,
+  },
+  {
+    command:
+      'DIST=dist/maple/browser PORT=4401 API_UNAVAILABLE_STATUS=401 bun scripts/serve-dist-coep.mjs',
+    url: 'http://127.0.0.1:4401',
+    reuseExistingServer: false,
+    timeout: 30_000,
+    stdout: 'pipe' as const,
+    stderr: 'pipe' as const,
+  },
+];
 
 export default defineConfig({
   testDir: './e2e',
@@ -14,7 +34,7 @@ export default defineConfig({
   expect: { timeout: 30_000 },
   outputDir: 'test-results/production-chrome',
   globalTeardown:
-    configOnly || hostedArtifactOnly ? undefined : './e2e/support/production-global-teardown.ts',
+    configOnly || artifactOnly ? undefined : './e2e/support/production-global-teardown.ts',
   use: {
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
@@ -41,15 +61,8 @@ export default defineConfig({
   ],
   webServer: configOnly
     ? undefined
-    : hostedArtifactOnly
-      ? {
-          command: 'DIST=dist/maple-syrup/browser PORT=4400 bun scripts/serve-dist-coep.mjs',
-          url: 'http://127.0.0.1:4400',
-          reuseExistingServer: false,
-          timeout: 30_000,
-          stdout: 'pipe',
-          stderr: 'pipe',
-        }
+    : artifactOnly
+      ? artifactServers
       : {
           command: 'bun scripts/serve-production-e2e.ts',
           url: 'http://127.0.0.1:4400',
