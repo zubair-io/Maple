@@ -36,7 +36,7 @@ async function normalizedEnvRoots(): Promise<string[]> {
   if (envRootsCache && envRootsCache.value === value) return envRootsCache.roots;
   const roots = Promise.all(
     (value ?? '')
-      .split(':')
+      .split(path.delimiter)
       .filter(Boolean)
       .map(async (root) => {
         try {
@@ -56,7 +56,7 @@ async function normalizedEnvRoots(): Promise<string[]> {
 /** Register a root so that file access under it is permitted.
  *  Resolves symlinks so that macOS /var → /private/var is handled correctly. */
 export function registerRoot(absPath: string): void {
-  const normalized = absPath.replace(/\/$/, '');
+  const normalized = path.resolve(absPath);
   // Eagerly resolve the real path synchronously; fall back to as-given.
   let real = normalized;
   try {
@@ -69,7 +69,7 @@ export function registerRoot(absPath: string): void {
 
 /** Unregister a root. */
 export function unregisterRoot(absPath: string): void {
-  const normalized = absPath.replace(/\/$/, '');
+  const normalized = path.resolve(absPath);
   _registeredRoots.delete(normalized);
   try {
     _registeredRoots.delete(require('fs').realpathSync(normalized));
@@ -106,8 +106,11 @@ async function checkAllowed(filePath: string): Promise<OpResult<string>> {
   }
 
   for (const root of allowedRoots) {
-    const normalRoot = root.replace(/\/$/, '');
-    if (real === normalRoot || real.startsWith(normalRoot + '/')) {
+    const relative = path.relative(root, real);
+    if (
+      relative === '' ||
+      (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
+    ) {
       return { ok: true, data: real };
     }
   }
