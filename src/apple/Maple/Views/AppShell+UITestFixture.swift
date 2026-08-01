@@ -30,6 +30,23 @@ extension AppShell {
     /// Returns `false` when no fixture is configured (the normal app path).
     func loadUITestFixtureIfPresent() async -> Bool {
         guard let fixtureURL = MapleApp.uitestFixtureURL else { return false }
+        // The fixture path deliberately skips `restoreLastSource()`, and with
+        // it the `RenderedPreviewCache.configure(folderURL:)` call every real
+        // folder-open path in `AppShell+FolderActions` makes. So the harness
+        // has always run with `cacheDir == nil` — the cross-session rendered-
+        // preview cache switched OFF — which is exactly why the cache-
+        // poisoning regression of #1801 was structurally invisible to every
+        // gate (#1805).
+        //
+        // Opt-in rather than unconditional: the golden and seam harnesses
+        // point at the shared `test-fixtures/raws/` tree, and writing a
+        // `.maple/previews/` store there would let one run's preview seed the
+        // next one's canvas. Only the upgrade-scenario gate, which stages its
+        // own throwaway directory, asks for the cache.
+        if ProcessInfo.processInfo.environment["MAPLE_UITEST_PREVIEW_CACHE"] == "1" {
+            await RenderedPreviewCache.shared.configure(
+                folderURL: fixtureURL.deletingLastPathComponent())
+        }
         browseVM.loadSingleAsset(url: fixtureURL)
         if let asset = browseVM.assets.first {
             let session = EditSession(asset: asset)

@@ -69,97 +69,6 @@ final class SliderMatrixUITests: XCTestCase {
     /// wait. Keep "" on main — CI must run the whole matrix.
     static let hardcodedCaseFilter = ""
 
-    // MARK: - Canvas settle (#2277)
-
-    /// Overall budget for getting the canvas sentinel into a settled state.
-    /// Generous versus the old flat 60s wait because settling may span
-    /// several render cycles on a 100 MP fixture.
-    static let settleDeadline: TimeInterval = 90
-
-    /// The sentinel must exist continuously across this window to count as
-    /// settled — long enough to outlast the gap between a fast-phase
-    /// publish and the debounced refine that follows it (150 ms debounce,
-    /// see `docs/architecture.md` § two-phase rendering).
-    private static let settleWindow: TimeInterval = 1.0
-
-    /// Poll interval inside the settle window.
-    private static let settlePoll: TimeInterval = 0.1
-
-    /// Final confirmation window immediately before the frame read, using
-    /// an INVERTED expectation (wait for the sentinel to vanish; require
-    /// that wait to time out). Shorter than `settleWindow` because it runs
-    /// after settling has already succeeded — its job is to shrink the gap
-    /// between the last observation and the capture, not to re-prove the
-    /// settle.
-    private static let settleConfirmWindow: TimeInterval = 0.5
-
-    /// Wait until `canvas` exists continuously for `settleWindow`, then
-    /// return its frame. Returns nil if `settleDeadline` expires first.
-    ///
-    /// A bare `exists == 1` wait is not enough: the sentinel is published
-    /// only between render cycles (see the call site), so a single match
-    /// can be a transient window that closes before the screenshot.
-    ///
-    /// Returning the FRAME (rather than a Bool the caller follows with its
-    /// own `canvas.frame`) is deliberate: reading any `XCUIElement`
-    /// attribute forces query resolution and raises the same unrecoverable
-    /// XCTest failure as `.screenshot()` when the element has vanished. The
-    /// only safe moment to read it is here, immediately after the settle
-    /// window confirmed the element was up — so the caller never touches an
-    /// unguarded attribute, and everything downstream works off this
-    /// snapshot of the geometry.
-    static func waitForSettledCanvas(_ canvas: XCUIElement) -> CGRect? {
-        let deadline = Date().addingTimeInterval(settleDeadline)
-        while Date() < deadline {
-            let remaining = deadline.timeIntervalSinceNow
-            guard remaining > 0 else { return nil }
-            let expectation = XCTNSPredicateExpectation(
-                predicate: NSPredicate(format: "exists == 1"), object: canvas)
-            guard XCTWaiter().wait(for: [expectation], timeout: remaining) == .completed else {
-                return nil
-            }
-            // Up — now confirm it STAYS up for the whole window. The
-            // explicit poll runs at `settlePoll` (100 ms), so it samples
-            // the window ~10x; `XCTNSPredicateExpectation` re-evaluates on
-            // a timer (`XCUIElement.exists` is not KVO-observable), which
-            // would sample it far more coarsely. The poll is therefore the
-            // sensitive detector for the brief render-cycle flips.
-            let checks = max(1, Int(settleWindow / settlePoll))
-            let stayedUp = (0..<checks).allSatisfy { _ in
-                Thread.sleep(forTimeInterval: settlePoll)
-                return canvas.exists
-            }
-            guard stayedUp else { continue }  // flipped; wait for ready again
-
-            // Then a final inverted confirmation adjacent to the frame
-            // read: wait for the sentinel to VANISH and require that wait
-            // to TIME OUT — a timeout is positive evidence it never
-            // disappeared across `settleConfirmWindow`. This is the
-            // idiomatic XCTest form, and unlike the poll it is continuous
-            // rather than sampled, so the two are complementary: the poll
-            // catches fast flips, this shrinks the gap before capture.
-            let vanished = XCTNSPredicateExpectation(
-                predicate: NSPredicate(format: "exists == 0"), object: canvas)
-            guard XCTWaiter().wait(for: [vanished], timeout: settleConfirmWindow) == .timedOut
-            else { continue }  // it DID vanish; re-wait for ready
-
-            // Read the frame while still inside the confirmed settled state.
-            if canvas.exists { return canvas.frame }
-            // Flipped back to `canvas-rendering`; loop and wait again.
-        }
-        return nil
-    }
-
-    /// Full-screen grab cropped to `frame`, PNG-encoded. Needs no live
-    /// element — this is the fallback whenever the sentinel can't be
-    /// screenshot directly, so it must not touch `canvas` at all.
-    private static func screenCropPNG(to frame: CGRect) -> Data? {
-        let screen = XCUIScreen.main.screenshot().image
-        return crop(screen, to: frame).tiffRepresentation
-            .flatMap { NSBitmapImageRep(data: $0) }
-            .flatMap { $0.representation(using: .png, properties: [:]) }
-    }
-
     // MARK: - Fixture / reference resolution
 
     private static let fixtureExtensions = [
@@ -332,27 +241,17 @@ final class SliderMatrixUITests: XCTestCase {
                                referencePNG: URL,
                                stem: String,
                                caseName: String) throws -> CaseResult {
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("maple-slider-matrix-\(UUID().uuidString)",
-                                    isDirectory: true)
-        try FileManager.default.createDirectory(at: tmp,
-                                                withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tmp) }
-
-        // Copy RAW + XMP into tmp under the canonical sidecar layout
-        // (`<stem>.<ext>` + `<stem>.xmp`). EditSession.sidecarURL drops
-        // the ext and re-appends `.xmp`, so the case-name renaming is
-        // load-bearing.
-        let stagedRaw = tmp.appendingPathComponent(rawURL.lastPathComponent)
-        let stagedXmp = tmp.appendingPathComponent(stem).appendingPathExtension("xmp")
-        try FileManager.default.copyItem(at: rawURL, to: stagedRaw)
-        try FileManager.default.copyItem(at: xmpURL, to: stagedXmp)
+        // Stage RAW + XMP into tmp under the canonical sidecar layout
+        // (`<stem>.<ext>` + `<stem>.xmp`) — see `StagedFixture`.
+        let staged = try StagedFixture.stage(raw: rawURL, sidecar: xmpURL,
+                                             label: "slider-matrix")
+        defer { staged.remove() }
 
         // Launch Maple pointed at the tmp dir, with the staged RAW as
         // the seed fixture.
         let app = XCUIApplication()
-        app.launchEnvironment["MAPLE_UITEST_FIXTURE"] = stagedRaw.lastPathComponent
-        app.launchEnvironment["MAPLE_UITEST_FIXTURE_ROOT"] = tmp.path
+        app.launchEnvironment["MAPLE_UITEST_FIXTURE"] = staged.raw.lastPathComponent
+        app.launchEnvironment["MAPLE_UITEST_FIXTURE_ROOT"] = staged.directory.path
         // Pin the CPU + Metal render path: each case diffs the canvas
         // against an ACR/CPU reference, so disable the default-on (#1064)
         // GPU live path and keep the render byte-comparable to the reference.
@@ -361,59 +260,24 @@ final class SliderMatrixUITests: XCTestCase {
         defer { app.terminate() }
 
         // Wait for the refine pass — and require the sentinel to SETTLE
-        // before capturing (#2277).
-        //
-        // `FullImageView+VM.canvasAccessibilityID(isRendering:hasPreview:)`
-        // publishes `canvas-render-ready` ONLY while `!isRendering &&
-        // hasPreview`; the element stops existing the moment another render
-        // cycle begins. Screenshotting the instant the predicate first
-        // matches therefore races a follow-on render, and
-        // `XCUIElement.screenshot()` on a vanished element raises an
-        // UNRECOVERABLE XCTest failure — which aborted the entire 606-case
-        // matrix instead of costing the one case (observed ~17 cases in).
-        // Settling first also captures the quiesced render rather than an
-        // intermediate one, which is what the CIEDE2000 diff wants anyway.
+        // before capturing (#2277). See `CanvasCapture` for why a bare
+        // `exists == 1` wait races a follow-on render.
         let canvas = app.otherElements["canvas-render-ready"]
-        guard let frame = Self.waitForSettledCanvas(canvas) else {
+        guard let frame = CanvasCapture.waitForSettledCanvas(canvas) else {
             return CaseResult(
                 stem: stem,
                 caseName: caseName,
                 metrics: nil,
                 failureReasons:
-                    ["canvas-render-ready never settled (\(Int(Self.settleDeadline))s)"]
+                    ["canvas-render-ready never settled "
+                     + "(\(Int(CanvasCapture.settleDeadline))s)"]
             )
         }
 
-        // Screenshot canvas (re-uses the same tight-vs-fullwindow
-        // heuristic as MapleAppDriver). We replicate the logic inline
-        // rather than build a Driver per case — Driver.launch() does its
-        // own fixture validation that's redundant here.
-        //
-        // `frame` came back from `waitForSettledCanvas` — read there while
-        // the element was known up. NOTHING below reads a `canvas`
-        // attribute outside an `exists` guard: attribute access forces
-        // query resolution and raises the same unrecoverable XCTest
-        // failure as `.screenshot()` on a vanished element (#2277).
-        //
-        // Exactly ONE `canvas.screenshot()` call: each one is a fresh IPC
-        // round trip to the app, so calling it twice (once for `.image`,
-        // once for `.pngRepresentation`) would re-open the very race this
-        // change closes. An `XCUIScreenshot` captures its pixels at
-        // creation, so `.image` and `.pngRepresentation` below describe
-        // the same instant.
-        //
-        // Either branch that can't produce a tight element grab falls
-        // through to `screenCropPNG`, which touches no element at all.
-        let elementPNG: Data? = {
-            guard canvas.exists else { return nil }
-            let snap = canvas.screenshot()
-            let elementSize = snap.image.size
-            let tight =
-                elementSize.width  <= frame.width  * 1.1 &&
-                elementSize.height <= frame.height * 1.1
-            return tight ? snap.pngRepresentation : nil
-        }()
-        let candidatePNG: Data? = elementPNG ?? Self.screenCropPNG(to: frame)
+        // `frame` came back from `waitForSettledCanvas`, read there while the
+        // element was known up; `CanvasCapture.canvasPNG` is the only thing
+        // that touches `canvas` afterwards, behind its own `exists` guard.
+        let candidatePNG: Data? = CanvasCapture.canvasPNG(canvas, frame: frame)
 
         guard let candidatePNG else {
             return CaseResult(
@@ -537,19 +401,6 @@ final class SliderMatrixUITests: XCTestCase {
         ctx.interpolationQuality = .high
         ctx.draw(img, in: CGRect(x: 0, y: 0, width: dstW, height: dstH))
         return (bytes, dstW, dstH)
-    }
-
-    /// Crop helper duplicated from MapleAppDriver — tiny, keeps this
-    /// file self-contained.
-    static func crop(_ image: NSImage, to frame: CGRect) -> NSImage {
-        let target = NSSize(width: frame.width, height: frame.height)
-        let cropped = NSImage(size: target)
-        cropped.lockFocus()
-        defer { cropped.unlockFocus() }
-        let drawRect = NSRect(origin: .zero, size: target)
-        let srcRect = NSRect(origin: frame.origin, size: target)
-        image.draw(in: drawRect, from: srcRect, operation: .copy, fraction: 1.0)
-        return cropped
     }
 
     // MARK: - JSON report
