@@ -110,7 +110,7 @@ See `DEPLOY.md` for per-host instructions covering:
 - **Vercel** — `vercel.json` with filesystem + fallback routes
 - **Apache / nginx** — `.htaccess` rewrite rules and nginx server block
 
-## WASM threading + cross-origin isolation (T10)
+## Hosted production security policy
 
 The RAW decode path uses [`wasm-bindgen-rayon`](https://github.com/RReverser/wasm-bindgen-rayon)
 to spin up a rayon thread pool backed by Web Workers. Browsers only allow
@@ -129,7 +129,22 @@ Where they're set:
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
 | Bun API (`src/api/`)           | `onBeforeHandle` hook in `src/api/src/index.ts` plus explicit `Response` headers in `src/api/src/routes/static_ui.ts` |
 | Angular dev server (both apps) | `architect.serve.options.headers` in `src/web/angular.json`                                                           |
-| `maple-syrup` production       | `projects/maple-syrup/public/_headers` (Cloudflare Pages / Netlify) + `vercel.json` snippet in `DEPLOY.md`            |
+| `maple-syrup` production       | `projects/maple-syrup/public/_headers`, checked against `scripts/hosted-security-header-contract.ts`                  |
+
+The same Hosted contract adds a least-privilege CSP, `nosniff`,
+`Referrer-Policy: no-referrer`, and a Permissions Policy that disables camera,
+microphone, location, sensors, payments, and USB. The CSP intentionally permits
+only same-origin app resources plus the narrow runtime exceptions Maple needs:
+inline Angular styles, WASM compilation, and `blob:` image/worker URLs. The local
+production artifact server imports the contract directly; the build checker
+proves the deploy `_headers` file expresses it exactly.
+
+The Hosted production build disables Angular's critical CSS inliner because
+Beasties otherwise emits a `media="print" onload="this.media='all'"` handler.
+Chrome correctly blocks that inline JavaScript under `script-src 'self'`.
+Keeping the stylesheet external avoids weakening `script-src` with
+`'unsafe-inline'`; production browser qualification records the resulting
+FCP/LCP tradeoff.
 
 The JS wrapper (`projects/maple-common/src/lib/raw-pipeline/raw-wasm-init.ts`)
 checks `crossOriginIsolated` at runtime. When it's `true` (Chrome + correct
@@ -137,6 +152,10 @@ headers), `initThreadPool(hardwareConcurrency)` runs and decodes use rayon.
 When it's `false` (Safari / Firefox or any host without the headers), the
 call is skipped and the pipeline continues single-threaded — slower on large
 RAWs but functionally identical.
+
+Azure Blob Storage does not interpret `_headers`. The public edge must apply the
+same contract; that Cloudflare/Azure work and deployed-browser proof are tracked
+under Milestone 20 issue #2474.
 
 `RawPipelineService` exposes `isThreaded$: Observable<boolean | null>` and
 `threadCount$: Observable<number>` so the UI can surface a "single-threaded
