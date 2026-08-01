@@ -23,7 +23,7 @@ import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
 import { STUB_IMAGE_EXTENSIONS, AUDIO_EXTENSIONS } from '../fs/browse.ts';
 import { moveToTrash } from '../fs/trash.ts';
 import { DUPLICATES_DIR_NAME } from '../fs/duplicates.ts';
-import { listPairedSidecars } from '../fs/xmp.ts';
+import { listPairedSidecars } from '../fs/xmp-conflict.ts';
 import { child as childLogger } from '../log.ts';
 import { computeBodyETag, ifNoneMatchEqual } from '../runtime/http-etag.ts';
 import { handleEvent } from '../workers/discover/index.ts';
