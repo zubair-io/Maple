@@ -5,21 +5,16 @@
 //   • insideSheet=true shows the inline header + close X; false hides it.
 //   • Close X emits `(close)`.
 //   • Null asset still renders the section shells (placeholder values).
-//   • The enrichment surface is gated by `LIBRARY_BACKEND` (#634):
-//     hidden on Hosted, rendered on Self-Hosted (orchestrator child
-//     `<app-info-enrichment>` mounts when the backend reports
-//     `self-hosted`).
+//   • The optional app-provided extension is absent by default and mounts
+//     only when the composition root provides one.
 
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { signal } from '@angular/core';
-import { of } from 'rxjs';
+import { Component, signal } from '@angular/core';
 
 import { InfoPanelComponent } from './info-panel.component';
+import { provideInfoPanelExtension } from './info-panel-extension';
 import { LibraryStateService } from '../state/library-state.service';
-import { LIBRARY_BACKEND } from '../api/library-backend.token';
-import { BunApiBackendService } from '../api/bun-api-backend.service';
-import { SERVER_LIBRARY_IO } from '../workspace/server-library-io';
 import type { Asset } from '../models/asset';
 
 const STUB_ASSET: Asset = {
@@ -51,37 +46,21 @@ class FakeLibraryStateService {
   apiIdFor = vi.fn().mockReturnValue(undefined);
 }
 
-class FakeBunApiBackendService {
-  // Empty-list status keeps the orchestrator quiet; no requeue / fetch
-  // calls fire because `apiIdFor` returns undefined on the fake state.
-  getWorkerStatus = vi.fn().mockReturnValue(of({ stages: [] }));
-  getAssetDetails = vi.fn();
-  setAssetPlaceOverride = vi.fn();
-  setAssetDescriptionOverride = vi.fn();
-  requeueEnrichmentStage = vi.fn();
-  // InfoHistogramComponent injects BunApiBackendService now (#633) — stub
-  // getHistogram so the InfoPanel spec doesn't pull the real HttpClient surface.
-  getHistogram = vi
-    .fn()
-    .mockReturnValue(
-      of({ r: new Array(256).fill(0), g: new Array(256).fill(0), b: new Array(256).fill(0) }),
-    );
-}
+@Component({ selector: 'app-test-info-extension', standalone: true, template: 'Extended info' })
+class TestInfoExtensionComponent {}
 
 function makeFixture(
   opts: {
     asset?: Asset | null;
     insideSheet?: boolean;
-    backend?: 'hosted' | 'self-hosted';
+    extension?: boolean;
   } = {},
 ) {
   TestBed.configureTestingModule({
     imports: [InfoPanelComponent],
     providers: [
       { provide: LibraryStateService, useValue: new FakeLibraryStateService() },
-      { provide: BunApiBackendService, useValue: new FakeBunApiBackendService() },
-      { provide: SERVER_LIBRARY_IO, useExisting: BunApiBackendService },
-      { provide: LIBRARY_BACKEND, useValue: opts.backend ?? 'hosted' },
+      ...(opts.extension ? [provideInfoPanelExtension(TestInfoExtensionComponent)] : []),
     ],
   });
   const fixture = TestBed.createComponent(InfoPanelComponent);
@@ -135,15 +114,15 @@ describe('InfoPanelComponent', () => {
     expect(rows.length).toBe(8);
   });
 
-  it('hides the enrichment surface on Hosted backend', () => {
-    const fixture = makeFixture({ backend: 'hosted' });
+  it('does not mount an app extension by default', () => {
+    const fixture = makeFixture();
     const el = fixture.nativeElement as HTMLElement;
-    expect(el.querySelector('[data-testid="info-enrichment"]')).toBeNull();
+    expect(el.textContent).not.toContain('Extended info');
   });
 
-  it('mounts the enrichment surface on Self-Hosted backend', () => {
-    const fixture = makeFixture({ backend: 'self-hosted' });
+  it('mounts the app-provided extension', () => {
+    const fixture = makeFixture({ extension: true });
     const el = fixture.nativeElement as HTMLElement;
-    expect(el.querySelector('[data-testid="info-enrichment"]')).not.toBeNull();
+    expect(el.textContent).toContain('Extended info');
   });
 });

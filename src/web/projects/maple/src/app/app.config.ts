@@ -13,15 +13,19 @@ import {
   AppUpdateService,
   API_BASE_URL,
   AuthService,
+  InfoEnrichmentComponent,
   MapleErrorHandler,
   ObservabilityService,
   PREVIEW_VIDEO_ACCESS,
   RenderConfigService,
   authInterceptor,
   provideAuthBootstrap,
+  provideFolderTreeExtension,
+  provideInfoPanelExtension,
   provideSelfHostedWorkspace,
 } from '@maple-common';
 import { routes } from './app.routes';
+import { SelfHostedSidebarExtensionComponent } from './self-hosted-sidebar-extension/self-hosted-sidebar-extension.component';
 
 // Self-Hosted: paired with the Bun API. The service worker caches the app
 // shell + JS/assets for fast, offline-resilient loads and caches thumbnail
@@ -39,6 +43,8 @@ export const appConfig: ApplicationConfig = {
     provideHttpClient(withFetch(), withInterceptors([authInterceptor])),
     provideAuthBootstrap(),
     provideSelfHostedWorkspace(),
+    provideInfoPanelExtension(InfoEnrichmentComponent),
+    provideFolderTreeExtension(SelfHostedSidebarExtensionComponent),
     {
       provide: PREVIEW_VIDEO_ACCESS,
       useFactory: () => {
