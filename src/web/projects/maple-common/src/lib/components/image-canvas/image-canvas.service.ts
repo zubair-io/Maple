@@ -16,6 +16,11 @@ export class ImageCanvasService {
   readonly pan = signal<{ x: number; y: number }>({ x: 0, y: 0 });
   readonly beforeAfterSplitX = signal<number | null>(null);
 
+  /** Native, display-oriented image dimensions for geometry consumers such as
+   * crop. Kept beside zoom/pan because the live renderer is the authoritative
+   * producer; asset metadata may still be hydrating when its first frame lands. */
+  readonly nativeDimensions = signal<{ w: number; h: number } | null>(null);
+
   /** Current decoded image pixels — set by ImageCanvasComponent on decode. */
   readonly currentPixels = signal<DecodedImage | null>(null);
 

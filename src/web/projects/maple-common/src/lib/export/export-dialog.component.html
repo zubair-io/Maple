@@ -24,11 +24,14 @@
 -->
 @if (visible()) {
   <div
+    #dialog
     class="export-backdrop"
     role="dialog"
     aria-modal="true"
     aria-label="Export image"
+    tabindex="-1"
     (click)="onBackdropClick()"
+    (keydown)="onDialogKeydown($event)"
   >
     <div class="export-card" (click)="$event.stopPropagation()">
       <!-- Header -->
