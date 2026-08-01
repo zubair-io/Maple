@@ -30,6 +30,10 @@ function fail(message: string): never {
   throw new Error(`Hosted artifact contract failed: ${message}`);
 }
 
+function assertContract(condition: unknown, message: string): asserts condition {
+  if (!condition) fail(message);
+}
+
 async function bytes(path: string): Promise<Uint8Array> {
   try {
     return new Uint8Array(await readFile(resolve(ARTIFACT_ROOT, `.${path}`)));
@@ -73,78 +77,107 @@ function requireUrls(
   required: readonly string[],
 ): void {
   const missing = required.filter((url) => !actual.includes(url));
-  if (missing.length > 0) fail(`${groupName} omits ${missing.join(', ')}`);
+  assertContract(missing.length === 0, `${groupName} omits ${missing.join(', ')}`);
 }
 
 async function verifyManifestAndIcons(): Promise<void> {
   const manifest = await json<WebManifest>('/manifest.webmanifest');
-  if (manifest.id !== '/' || manifest.scope !== '/' || manifest.start_url !== '/') {
-    fail('manifest id, scope, and start_url must all be /');
-  }
+  verifyManifestRoot(manifest);
   const declared = new Map((manifest.icons ?? []).map((icon) => [`/${icon.src}`, icon.sizes]));
   for (const icon of HOSTED_ICONS) {
-    const expectedSize = icon.includes('192') ? '192x192' : '512x512';
-    if (declared.get(icon) !== expectedSize)
-      fail(`manifest does not declare ${icon} as ${expectedSize}`);
-    const value = await bytes(icon);
-    if (!startsWith(value, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) {
-      fail(`${icon} is not a PNG`);
-    }
+    await verifyIcon(icon, declared);
   }
+}
+
+function verifyManifestRoot(manifest: WebManifest): void {
+  assertContract(manifest.id === '/', 'manifest id must be /');
+  assertContract(manifest.scope === '/', 'manifest scope must be /');
+  assertContract(manifest.start_url === '/', 'manifest start_url must be /');
+}
+
+async function verifyIcon(
+  icon: string,
+  declared: ReadonlyMap<string, string | undefined>,
+): Promise<void> {
+  const expectedSize = icon.includes('192') ? '192x192' : '512x512';
+  assertContract(
+    declared.get(icon) === expectedSize,
+    `manifest does not declare ${icon} as ${expectedSize}`,
+  );
+  assertContract(
+    startsWith(await bytes(icon), [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    `${icon} is not a PNG`,
+  );
 }
 
 async function verifyBinaryAssets(): Promise<string> {
   for (const font of HOSTED_LOCAL_FONTS) {
-    if (!startsWith(await bytes(font), [0x77, 0x4f, 0x46, 0x32])) fail(`${font} is not WOFF2`);
+    assertContract(startsWith(await bytes(font), [0x77, 0x4f, 0x46, 0x32]), `${font} is not WOFF2`);
   }
-  if (!startsWith(await bytes('/raw_wasm_bg.wasm'), [0x00, 0x61, 0x73, 0x6d])) {
-    fail('/raw_wasm_bg.wasm has invalid magic bytes');
-  }
+  assertContract(
+    startsWith(await bytes('/raw_wasm_bg.wasm'), [0x00, 0x61, 0x73, 0x6d]),
+    '/raw_wasm_bg.wasm has invalid magic bytes',
+  );
   for (const helper of HOSTED_WASM_ASSETS.slice(1)) {
-    if ((await bytes(helper)).byteLength === 0) fail(`${helper} is empty`);
+    assertContract((await bytes(helper)).byteLength > 0, `${helper} is empty`);
   }
 
   const snippetRoot = resolve(ARTIFACT_ROOT, 'pkg/snippets');
   const workerHelpers = (await allFiles(snippetRoot)).filter((path) =>
     path.endsWith('/workerHelpers.js'),
   );
-  if (workerHelpers.length !== 1)
-    fail(`expected one Rayon workerHelpers.js, found ${workerHelpers.length}`);
+  assertContract(
+    workerHelpers.length === 1,
+    `expected one Rayon workerHelpers.js, found ${workerHelpers.length}`,
+  );
   return `/${workerHelpers[0].slice(ARTIFACT_ROOT.length + 1)}`;
+}
+
+function urls(group: NgswAssetGroup): readonly string[] {
+  return group.urls ?? [];
+}
+
+function verifyNoHostedDataCaches(manifest: NgswManifest): void {
+  assertContract(
+    manifest.dataGroups === undefined || manifest.dataGroups.length === 0,
+    'Hosted ngsw.json must not contain dataGroups',
+  );
+  const cachedResources = manifest.assetGroups.flatMap((assetGroup) => [
+    ...urls(assetGroup),
+    ...(assetGroup.patterns ?? []),
+  ]);
+  assertContract(
+    !cachedResources.some((resource) => resource.replaceAll('\\', '').includes('/api')),
+    'Hosted ngsw.json contains an API cache URL',
+  );
+}
+
+function verifyAssetGroups(manifest: NgswManifest, rayonHelper: string): readonly string[] {
+  const appUrls = urls(group(manifest, 'app'));
+  requireUrls('app group', appUrls, ['/index.html', '/manifest.webmanifest']);
+  requireUrls('raw-wasm group', urls(group(manifest, 'raw-wasm')), [
+    ...HOSTED_WASM_ASSETS,
+    rayonHelper,
+  ]);
+  requireUrls('fonts group', urls(group(manifest, 'fonts')), HOSTED_LOCAL_FONTS);
+  requireUrls('images group', urls(group(manifest, 'images')), HOSTED_ICONS);
+  return appUrls;
 }
 
 async function verifyNgsw(rayonHelper: string): Promise<number> {
   const manifest = await json<NgswManifest>('/ngsw.json');
-  if ((manifest.dataGroups?.length ?? 0) !== 0)
-    fail('Hosted ngsw.json must not contain dataGroups');
-
-  const cachedResources = manifest.assetGroups.flatMap((assetGroup) => [
-    ...(assetGroup.urls ?? []),
-    ...(assetGroup.patterns ?? []),
-  ]);
-  if (
-    cachedResources.some((resource) => resource.includes('/api') || resource.includes('\\/api'))
-  ) {
-    fail('Hosted ngsw.json contains an API cache URL');
-  }
-
-  const appUrls = group(manifest, 'app').urls ?? [];
-  const rawUrls = group(manifest, 'raw-wasm').urls ?? [];
-  const fontUrls = group(manifest, 'fonts').urls ?? [];
-  const imageUrls = group(manifest, 'images').urls ?? [];
-  requireUrls('app group', appUrls, ['/index.html', '/manifest.webmanifest']);
-  requireUrls('raw-wasm group', rawUrls, [...HOSTED_WASM_ASSETS, rayonHelper]);
-  requireUrls('fonts group', fontUrls, HOSTED_LOCAL_FONTS);
-  requireUrls('images group', imageUrls, HOSTED_ICONS);
+  verifyNoHostedDataCaches(manifest);
+  const appUrls = verifyAssetGroups(manifest, rayonHelper);
 
   const appShellBytes = (
     await Promise.all(
       appUrls.map(async (url) => (await stat(resolve(ARTIFACT_ROOT, `.${url}`))).size),
     )
   ).reduce((sum, size) => sum + size, 0);
-  if (appShellBytes > MAX_APP_SHELL_BYTES) {
-    fail(`app shell is ${appShellBytes} bytes; budget is ${MAX_APP_SHELL_BYTES}`);
-  }
+  assertContract(
+    appShellBytes <= MAX_APP_SHELL_BYTES,
+    `app shell is ${appShellBytes} bytes; budget is ${MAX_APP_SHELL_BYTES}`,
+  );
   return appShellBytes;
 }
 
