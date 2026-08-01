@@ -148,7 +148,7 @@ jobs:
                 --overwrite true \
                 --account-name hornbeam \
                 --auth-mode login \
-                -d 'maple-syrup' \
+                -d 'mapleaperture' \
                 -s src/web/dist/maple-syrup/browser \
                 --pattern "$pattern" \
                 --content-cache-control 'no-cache'
