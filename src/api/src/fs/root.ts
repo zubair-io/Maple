@@ -9,9 +9,9 @@
  * per-folder (registered roots from the DB are the boundary).
  */
 
-import { stat, readFile } from "node:fs/promises";
-import * as path from "node:path";
-import { realpath } from "node:fs/promises";
+import { stat, readFile } from 'node:fs/promises';
+import * as path from 'node:path';
+import { realpath } from 'node:fs/promises';
 
 export interface OpResult<T = undefined> {
   ok: boolean;
@@ -24,15 +24,36 @@ export interface OpResult<T = undefined> {
  * Using a simple Set for O(1) prefix checks.
  */
 const _registeredRoots = new Set<string>();
+let cachedEnvValue: string | undefined;
+let cachedEnvRoots: string[] = [];
+
+async function normalizedEnvRoots(): Promise<string[]> {
+  const value = process.env.MAPLE_ROOTS;
+  if (value === cachedEnvValue) return cachedEnvRoots;
+  cachedEnvValue = value;
+  cachedEnvRoots = await Promise.all(
+    (value ?? '')
+      .split(':')
+      .filter(Boolean)
+      .map(async (root) => {
+        try {
+          return await realpath(root);
+        } catch {
+          return path.resolve(root);
+        }
+      }),
+  );
+  return cachedEnvRoots;
+}
 
 /** Register a root so that file access under it is permitted.
  *  Resolves symlinks so that macOS /var → /private/var is handled correctly. */
 export function registerRoot(absPath: string): void {
-  const normalized = absPath.replace(/\/$/, "");
+  const normalized = absPath.replace(/\/$/, '');
   // Eagerly resolve the real path synchronously; fall back to as-given.
   let real = normalized;
   try {
-    real = require("fs").realpathSync(normalized);
+    real = require('fs').realpathSync(normalized);
   } catch {}
   _registeredRoots.add(real);
   // Also add the original (pre-symlink) path in case realpath fails later.
@@ -41,10 +62,10 @@ export function registerRoot(absPath: string): void {
 
 /** Unregister a root. */
 export function unregisterRoot(absPath: string): void {
-  const normalized = absPath.replace(/\/$/, "");
+  const normalized = absPath.replace(/\/$/, '');
   _registeredRoots.delete(normalized);
   try {
-    _registeredRoots.delete(require("fs").realpathSync(normalized));
+    _registeredRoots.delete(require('fs').realpathSync(normalized));
   } catch {}
 }
 
@@ -69,9 +90,7 @@ async function checkAllowed(filePath: string): Promise<OpResult<string>> {
   }
 
   // Env-level roots take precedence.
-  const envRoots = process.env.MAPLE_ROOTS
-    ? process.env.MAPLE_ROOTS.split(":").filter(Boolean)
-    : [];
+  const envRoots = await normalizedEnvRoots();
   const allowedRoots = [...envRoots, ..._registeredRoots];
 
   if (allowedRoots.length === 0) {
@@ -80,16 +99,17 @@ async function checkAllowed(filePath: string): Promise<OpResult<string>> {
   }
 
   for (const root of allowedRoots) {
-    const normalRoot = root.replace(/\/$/, "");
-    if (real === normalRoot || real.startsWith(normalRoot + "/")) {
+    const normalRoot = root.replace(/\/$/, '');
+    if (real === normalRoot || real.startsWith(normalRoot + '/')) {
       return { ok: true, data: real };
     }
   }
 
   return {
     ok: false,
-    error: `Path "${real}" is outside all registered roots. ` +
-      `Registered: [${allowedRoots.join(", ")}]`,
+    error:
+      `Path "${real}" is outside all registered roots. ` +
+      `Registered: [${allowedRoots.join(', ')}]`,
   };
 }
 
@@ -101,7 +121,7 @@ async function checkAllowed(filePath: string): Promise<OpResult<string>> {
  */
 export async function validateRoot(dirPath: string): Promise<OpResult> {
   if (!path.isAbsolute(dirPath)) {
-    return { ok: false, error: "Path must be absolute." };
+    return { ok: false, error: 'Path must be absolute.' };
   }
   try {
     const s = await stat(dirPath);

@@ -17,6 +17,7 @@ function unexpectedAuditEntries(
   project: string,
   audit: BrowserAudit,
   expectedConsoleErrorPrefixes: readonly string[],
+  expectedResponseErrorPrefixes: readonly string[],
 ): string[] {
   const entries = [
     ...audit.consoleErrors
@@ -30,6 +31,7 @@ function unexpectedAuditEntries(
         (value) =>
           project !== 'chrome-self-hosted' || !EXPECTED_SELF_HOSTED_BOOTSTRAP_401.test(value),
       )
+      .filter((value) => !expectedResponseErrorPrefixes.some((prefix) => value.startsWith(prefix)))
       .map((value) => `response: ${value}`),
   ];
   return entries;
@@ -87,6 +89,9 @@ export const test = base.extend<{ browserAudit: void }>({
           audit,
           testInfo.annotations
             .filter(({ type, description }) => type === 'expected-console-error' && description)
+            .map(({ description }) => description!),
+          testInfo.annotations
+            .filter(({ type, description }) => type === 'expected-response-error' && description)
             .map(({ description }) => description!),
         ),
         'Production browser emitted unexpected errors; see production-browser-audit.json',

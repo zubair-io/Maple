@@ -299,4 +299,23 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
     expect(saveState.error()).toContain('disk is read-only');
     expect(saveState.hasUnsavedChanges()).toBe(true);
   });
+
+  it('clears a failed Self Hosted write after the next edit persists', async () => {
+    vi.useFakeTimers();
+    api.putXmp.mockImplementationOnce(() => throwError(() => new Error('disk is read-only')));
+    hydrateAndFocus();
+    await flushAsync();
+
+    state.updateAdjustment(ASSET_ID, { contrast: 12 });
+    await vi.advanceTimersByTimeAsync(200);
+    expect(saveState.phase()).toBe('error');
+
+    state.updateAdjustment(ASSET_ID, { contrast: 13 });
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(api.putXmp).toHaveBeenCalledTimes(2);
+    expect(saveState.phase()).toBe('saved');
+    expect(saveState.error()).toBeNull();
+    expect(saveState.hasUnsavedChanges()).toBe(false);
+  });
 });

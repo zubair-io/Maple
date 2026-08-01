@@ -41,6 +41,29 @@ describe('SaveStatusComponent', () => {
     expect(state.phase()).toBe('unsaved');
   });
 
+  it('clears an older failure after a later retry succeeds', () => {
+    const failed = state.queued('asset-1');
+    state.failed('asset-1', failed, new Error('Permission denied'));
+    const retry = state.queued('asset-1');
+    state.saving('asset-1', retry);
+    state.saved('asset-1', retry);
+
+    expect(state.phase()).toBe('saved');
+    expect(state.error()).toBeNull();
+    expect(state.hasUnsavedChanges()).toBe(false);
+  });
+
+  it('keeps a newer failure visible when an older write finishes', () => {
+    const stale = state.queued('asset-1');
+    const current = state.queued('asset-1');
+    state.failed('asset-1', current, new Error('Disk full'));
+
+    state.saved('asset-1', stale);
+
+    expect(state.phase()).toBe('error');
+    expect(state.error()).toBe('Disk full');
+  });
+
   it('keeps a failure visible when a different asset saves later', () => {
     const failed = state.queued('asset-1');
     const saved = state.queued('asset-2');

@@ -8,7 +8,7 @@
 
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpEventType, HttpParams } from '@angular/common/http';
-import { Observable, filter, map } from 'rxjs';
+import { Observable, filter, map, switchMap } from 'rxjs';
 import { API_BASE_URL } from './api-base-url.token';
 import type { DownloadProgress } from './filesystem-browse.service';
 // `ObservabilityConfigResponse` lives in `../observability/observability-config.model`
@@ -635,7 +635,11 @@ export class BunApiBackendService {
    * the component falls back to the placeholder block in that case.
    */
   getHistogram(assetId: string): Observable<ApiHistogram> {
-    return this.http.get<ApiHistogram>(`${this.base}/assets/${assetId}/histogram`);
+    const request = (mongoId: string): Observable<ApiHistogram> =>
+      this.http.get<ApiHistogram>(`${this.base}/assets/${encodeURIComponent(mongoId)}/histogram`);
+    return assetId.includes(':')
+      ? this.getAssetDetailsByAddress(assetId).pipe(switchMap(({ id }) => request(id)))
+      : request(assetId);
   }
 
   /**
@@ -657,9 +661,15 @@ export class BunApiBackendService {
    * contain `/`, spaces, and other URL-meaningful characters.
    */
   putXmp(path: string, xml: string): Observable<void> {
-    return this.http.post<void>(`${this.base}/xmp?path=${encodeURIComponent(path)}`, xml, {
-      headers: { 'Content-Type': 'application/xml' },
-    });
+    // The API deliberately echoes the written XML. Request text explicitly:
+    // treating that successful application/xml response as JSON makes
+    // HttpClient reject after the sidecar has already reached disk.
+    return this.http
+      .post(`${this.base}/xmp?path=${encodeURIComponent(path)}`, xml, {
+        headers: { 'Content-Type': 'application/xml' },
+        responseType: 'text',
+      })
+      .pipe(map(() => undefined));
   }
 
   /** Delete the XMP sidecar at `path`. */
