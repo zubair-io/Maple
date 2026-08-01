@@ -57,7 +57,7 @@ export const test = base.extend<{ browserAudit: void }>({
           await route.continue({
             headers: {
               ...route.request().headers(),
-              'X-Forwarded-For': selfHostedTestClientIp(testInfo.testId, testInfo.retry),
+              'x-forwarded-for': selfHostedTestClientIp(testInfo.testId, testInfo.retry),
             },
           });
         });
