@@ -21,6 +21,7 @@ import { LruCache, ThumbLruCache } from './lru-cache';
 import { ThumbFailMemory } from './library-cache.thumb-fail';
 import { HostedPreviewResolver } from './hosted-preview-resolver.service';
 import { isM2Asset, readAssetBytes } from './library-cache.byte-source';
+import { previewLoader } from './library-cache.preview-loader';
 
 @Injectable({ providedIn: 'root' })
 export class LibraryCache {
@@ -170,38 +171,23 @@ export class LibraryCache {
   /**
    * Subscribe to preview-URL changes for `id` — the best available _still_.
    * Prefers a richer source than the thumbnail when one exists (see
-   * {@link _previewLoader}): a Self-Hosted network preview, or a Hosted
+   * {@link previewLoader}): a Self-Hosted network preview, or a Hosted
    * (FS-Access) embedded-preview extraction cached as canonical
    * `<dir>/.maple/previews/<filename>.avif`. Falls back to
    * {@link subscribeThumbUrl} otherwise.
    */
   subscribePreviewUrl(id: AssetId, cb: (url: string | undefined) => void): () => void {
-    const loader = this._previewLoader(id);
+    const loader = previewLoader(id, {
+      backend: this.store.backend,
+      librarySource: this.librarySource,
+      hostedPreview: this.hostedPreview,
+      fileHandles: this.fileHandles,
+      bytesForAsset: (assetId) => this.bytesForAsset(assetId),
+    });
     if (!loader) return this.subscribeThumbUrl(id, cb);
     const unsubscribe = this.previewChannel.subscribe(id, cb);
     this.previewChannel.ensure(id, loader);
     return unsubscribe;
-  }
-
-  /**
-   * The richer-than-thumbnail preview loader for `id`, or `null` when the only
-   * source is the stacked thumbnail (a Self-Hosted legacy `fs:` id). Hosted
-   * (FS-Access) ids route through {@link HostedPreviewResolver}, which no-ops
-   * to `null` for non-RAW assets so the thumbnail stands.
-   */
-  private _previewLoader(id: AssetId): ((id: AssetId) => Promise<Blob | null>) | null {
-    const isAddress = typeof id === 'string' && id.includes(':') && !id.startsWith('fs:');
-    if (this.store.backend === 'self-hosted') {
-      return isAddress
-        ? (assetId) => this.librarySource.previewBlob(parseAddress(assetId as string))
-        : null;
-    }
-    return (assetId) =>
-      this.hostedPreview.resolve(
-        assetId,
-        (bid) => this.bytesForAsset(bid),
-        (bid) => this._sourceIdentityForAsset(bid),
-      );
   }
 
   // ── Reset ──────────────────────────────────────────────────────────────────
@@ -250,15 +236,6 @@ export class LibraryCache {
   /** Register a folder entry for lazy reads. */
   registerHandle(id: AssetId, entry: FolderEntry): void {
     this.fileHandles.set(id, entry);
-  }
-
-  private async _sourceIdentityForAsset(
-    id: AssetId,
-  ): Promise<{ size: number; lastModified: number }> {
-    const entry = this.fileHandles.get(id);
-    if (!entry) throw new Error(`source identity unavailable for ${id}`);
-    const file = await entry.getFile();
-    return { size: file.size, lastModified: file.lastModified };
   }
 
   // ── Lazy byte access ───────────────────────────────────────────────────────

@@ -145,10 +145,13 @@ export class LibrarySlugRegistry {
     if (session) return session;
     try {
       const db = await openDb(DB_NAME, DB_VERSION, ensureSlugStore);
-      const tx = db.transaction(STORE, 'readonly');
-      const result = await reqToPromise(tx.objectStore(STORE).get(slug));
-      db.close();
-      return (result as FileSystemDirectoryHandle | undefined) ?? null;
+      try {
+        const tx = db.transaction(STORE, 'readonly');
+        const result = await reqToPromise(tx.objectStore(STORE).get(slug));
+        return (result as FileSystemDirectoryHandle | undefined) ?? null;
+      } finally {
+        db.close();
+      }
     } catch {
       return null;
     }
@@ -160,15 +163,18 @@ export class LibrarySlugRegistry {
     for (const [slug, handle] of this.sessionHandles) entries.set(slug, handle.name);
     try {
       const db = await openDb(DB_NAME, DB_VERSION, ensureSlugStore);
-      const tx = db.transaction(STORE, 'readonly');
-      const store = tx.objectStore(STORE);
-      const keys = await reqToPromise(store.getAllKeys());
-      const values = await reqToPromise(store.getAll());
-      db.close();
-      (keys as string[]).forEach((slug, index) => {
-        if (!entries.has(slug))
-          entries.set(slug, (values[index] as FileSystemDirectoryHandle).name);
-      });
+      try {
+        const tx = db.transaction(STORE, 'readonly');
+        const store = tx.objectStore(STORE);
+        const keys = await reqToPromise(store.getAllKeys());
+        const values = await reqToPromise(store.getAll());
+        (keys as string[]).forEach((slug, index) => {
+          if (!entries.has(slug))
+            entries.set(slug, (values[index] as FileSystemDirectoryHandle).name);
+        });
+      } finally {
+        db.close();
+      }
     } catch {
       // Session registrations remain usable when IndexedDB is unavailable.
     }

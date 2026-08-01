@@ -282,6 +282,20 @@ describe('MapleCacheService — unedited-preview cache (#2010, canonical <dir>/.
     ).toBeNull();
   });
 
+  it('does not let a fresh derivative mtime bless a corrupt source marker', async () => {
+    const previewPath = '.maple/previews/corrupt.dng.avif';
+    files.set(
+      previewPath,
+      new Uint8Array([0, 0, 0, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66]),
+    );
+    files.set(`${previewPath}.source.json`, new TextEncoder().encode('{not-json'));
+    modified.set(previewPath, 2_000);
+
+    expect(
+      await svc.readPreview(folder(), '', 'corrupt.dng', { size: 10, lastModified: 1_000 }),
+    ).toBeNull();
+  });
+
   it('writePreview refuses a JPEG carrying an image/avif MIME label', async () => {
     const mislabeled = new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], {
       type: 'image/avif',
