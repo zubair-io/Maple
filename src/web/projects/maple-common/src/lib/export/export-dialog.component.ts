@@ -8,6 +8,9 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
+  OnDestroy,
+  ViewChild,
   computed,
   effect,
   inject,
@@ -15,6 +18,7 @@ import {
   output,
   signal,
 } from '@angular/core';
+import { DOCUMENT } from '@angular/common';
 import type { Asset } from '../models/asset';
 import type {
   ExportColorSpace,
@@ -33,6 +37,15 @@ import {
 
 type DialogPhase = 'options' | 'exporting' | 'done' | 'error';
 
+const FOCUSABLE_SELECTOR = [
+  'a[href]:not([tabindex="-1"])',
+  'button:not([disabled]):not([tabindex="-1"])',
+  'input:not([disabled]):not([tabindex="-1"])',
+  'select:not([disabled]):not([tabindex="-1"])',
+  'textarea:not([disabled]):not([tabindex="-1"])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(', ');
+
 @Component({
   selector: 'app-export-dialog',
   standalone: true,
@@ -40,7 +53,9 @@ type DialogPhase = 'options' | 'exporting' | 'done' | 'error';
   styleUrl: './export-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ExportDialogComponent {
+export class ExportDialogComponent implements OnDestroy {
+  @ViewChild('dialog') private dialog?: ElementRef<HTMLElement>;
+
   // ── inputs / outputs ───────────────────────────────────────────────────────
   readonly visible = input<boolean>(false);
   /** The image to export. `null` disables the confirm button. */
@@ -50,6 +65,9 @@ export class ExportDialogComponent {
 
   // ── services ───────────────────────────────────────────────────────────────
   private readonly exporter = inject(ImageExportService);
+  private readonly document = inject(DOCUMENT);
+  private previouslyFocused: HTMLElement | null = null;
+  private focusTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ── static choice tables (read by the template) ───────────────────────────
   readonly formatChoices = FORMAT_CHOICES;
@@ -111,11 +129,50 @@ export class ExportDialogComponent {
     // previous run's error or success banner never greets the next export.
     effect(() => {
       if (this.visible()) {
+        const active = this.document.activeElement;
+        if (active instanceof HTMLElement) this.previouslyFocused = active;
         this.phase.set('options');
         this.errorMessage.set('');
         this.outcome.set(null);
+        this.scheduleInitialFocus();
+      } else {
+        this.clearFocusTimer();
+        this.restoreFocus();
       }
     });
+  }
+
+  ngOnDestroy(): void {
+    this.clearFocusTimer();
+    this.restoreFocus();
+  }
+
+  /**
+   * Move focus into the modal after Angular has mounted its conditional DOM.
+   * A zero-delay task is intentional: the input effect runs before the next
+   * template pass, so a synchronous query would still see no dialog.
+   */
+  private scheduleInitialFocus(): void {
+    this.clearFocusTimer();
+    this.focusTimer = setTimeout(() => {
+      this.focusTimer = null;
+      if (!this.visible()) return;
+      const root = this.dialog?.nativeElement;
+      const close = root?.querySelector<HTMLElement>('.export-close');
+      (close ?? root)?.focus();
+    });
+  }
+
+  private clearFocusTimer(): void {
+    if (this.focusTimer === null) return;
+    clearTimeout(this.focusTimer);
+    this.focusTimer = null;
+  }
+
+  private restoreFocus(): void {
+    const target = this.previouslyFocused;
+    this.previouslyFocused = null;
+    if (target?.isConnected) target.focus();
   }
 
   onFormatChange(value: string): void {
@@ -166,6 +223,43 @@ export class ExportDialogComponent {
 
   onClose(): void {
     if (!this.busy()) this.dismiss.emit();
+  }
+
+  /** Keep keyboard interaction inside the modal and prevent Editor's global
+   * Escape handler from navigating away while Export is open. */
+  onDialogKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape') {
+      this.dismissFromEscape(event);
+      return;
+    }
+    if (event.key === 'Tab') this.trapTab(event);
+  }
+
+  private dismissFromEscape(event: KeyboardEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    if (this.busy()) return;
+    this.dismiss.emit();
+  }
+
+  private trapTab(event: KeyboardEvent): void {
+    const root = this.dialog?.nativeElement;
+    if (!root) return;
+    const focusable = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+    if (focusable.length === 0) {
+      event.preventDefault();
+      root.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && this.document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && this.document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
   }
 
   onRetry(): void {
