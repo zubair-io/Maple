@@ -395,6 +395,7 @@
         <app-info-panel
           [asset]="state.focusedAsset()"
           [insideSheet]="false"
+          [allowServerHistogramFallback]="false"
           (close)="infoOpen.set(false)"
         />
       </div>
@@ -404,6 +405,7 @@
       <app-info-panel
         [asset]="state.focusedAsset()"
         [insideSheet]="true"
+        [allowServerHistogramFallback]="false"
         (close)="infoOpen.set(false)"
       />
     </app-bottom-sheet>
