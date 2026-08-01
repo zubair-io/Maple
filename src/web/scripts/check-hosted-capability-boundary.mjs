@@ -6,7 +6,7 @@ const artifactRoot = resolve(
   process.env.MAPLE_HOSTED_ARTIFACT ??
     fileURLToPath(new URL('../dist/maple-syrup/browser', import.meta.url)),
 );
-const MAX_MAIN_BYTES = 880_000;
+const MAX_MAIN_BYTES = 840_000;
 const SERVER_ONLY_MARKERS = [
   '/api/metadata/snapshots',
   '/api/pano/stitch',
