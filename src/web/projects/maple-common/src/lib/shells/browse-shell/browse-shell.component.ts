@@ -6,16 +6,15 @@ import {
   ChangeDetectionStrategy,
   Component,
   HostListener,
-  OnDestroy,
-  OnInit,
   computed,
   effect,
   inject,
+  input,
+  output,
   signal,
 } from '@angular/core';
-import { Subscription } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
 import { LAST_SOURCE_KEY } from '../../state/library-fetch.service';
 import { TypedStorage } from '../../util/typed-storage';
@@ -31,16 +30,8 @@ import { SourcePickerDrawerComponent } from '../source-picker-drawer/source-pick
 import { ToolbarActionsComponent } from './toolbar-actions/toolbar-actions.component';
 import { AssetGridComponent } from '../../components/asset-grid/asset-grid.component';
 import { DropZoneComponent } from '../../components/drop-zone/drop-zone.component';
-import { LoadingBannerComponent } from '../../components/loading-banner/loading-banner.component';
-import { ErrorBannerComponent } from '../../components/error-banner/error-banner.component';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
-import { LibraryPickerComponent } from '../../components/library-picker/library-picker.component';
 import { LibraryPickerModalComponent } from '../../components/library-picker-modal/library-picker-modal.component';
-import { TimelineViewComponent } from '../../components/timeline-view/timeline-view.component';
-import { PanoDialogComponent } from '../../pano/pano-dialog.component';
-import { BatchMetadataPanelComponent } from '../../batch-metadata/batch-metadata-panel.component';
-import { BatchMetadataService } from '../../batch-metadata/batch-metadata.service';
-import type { AssetMetadataSnapshot } from '../../batch-metadata/batch-metadata.types';
 import { PasteSettingsDialogComponent } from '../../editor/copy-paste/paste-settings-dialog.component';
 import { AdjustmentClipboardService } from '../../editor/copy-paste/adjustment-clipboard.service';
 import {
@@ -54,18 +45,11 @@ import { selectSidebarEntry } from './source-selection';
   selector: 'browse-shell',
   standalone: true,
   imports: [
-    RouterLink,
     FolderTreeComponent,
     AssetGridComponent,
     DropZoneComponent,
-    LoadingBannerComponent,
-    ErrorBannerComponent,
     MapleIconComponent,
-    LibraryPickerComponent,
     LibraryPickerModalComponent,
-    TimelineViewComponent,
-    PanoDialogComponent,
-    BatchMetadataPanelComponent,
     PasteSettingsDialogComponent,
     SourcePickerDrawerComponent,
     ToolbarActionsComponent,
@@ -74,11 +58,13 @@ import { selectSidebarEntry } from './source-selection';
   styleUrl: './browse-shell.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class BrowseShellComponent implements OnInit, OnDestroy {
+export class BrowseShellComponent {
+  readonly showServerSearch = input(false);
+  readonly serverSearchRequested = output<void>();
+
   state = inject(LibraryStateService);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
-  private readonly svc = inject(BatchMetadataService);
   private readonly clipboard = inject(AdjustmentClipboardService);
   private readonly layoutService = inject(LayoutService);
 
@@ -97,30 +83,6 @@ export class BrowseShellComponent implements OnInit, OnDestroy {
   onDrawerSourceSelected(id: string): void {
     selectSidebarEntry(this.state, id);
   }
-
-  /** The drawer's search pill — same destination as the toolbar search's
-   * Enter key (#2280), just without a query to seed. */
-  onDrawerSearchPillTap(): void {
-    void this.router.navigate(['/search']);
-  }
-
-  /** True when the pano options dialog is open. */
-  readonly panoDialogVisible = signal(false);
-
-  /** Asset ids to stitch — snapshot of selected ids when the dialog opens. */
-  readonly panoAssetIds = signal<string[]>([]);
-
-  /** True when ≥2 assets are selected (enables the "Merge to panorama…" button). */
-  readonly canMergePano = computed(() => this.state.selectedCount() >= 2);
-
-  /** True when the batch metadata panel is open. */
-  readonly batchMetaDialogVisible = signal(false);
-
-  /** Snapshotted asset metadata when the panel opens. */
-  readonly batchMetaAssetSnapshots = signal<AssetMetadataSnapshot[]>([]);
-
-  /** True when ≥1 asset is selected (enables "Edit Metadata…" button). */
-  readonly canEditMetadata = computed(() => this.state.selectedCount() >= 1);
 
   // ── Copy / paste / sync develop settings (#944) ───────────────────────────
   /** True when the selective-paste dialog is open. */
@@ -142,8 +104,6 @@ export class BrowseShellComponent implements OnInit, OnDestroy {
 
   /** Clipboard source's filename, for the selective-paste dialog header. */
   readonly clipboardSourceLabel = computed(() => this.clipboard.entry()?.sourceLabel ?? '');
-
-  private fetchSnapshotsSub: Subscription | null = null;
 
   constructor() {
     // ── URL (slug:relPath) → selection ─────────────────────────────────────
@@ -190,71 +150,6 @@ export class BrowseShellComponent implements OnInit, OnDestroy {
         // Legacy id or unparseable — ignore.
       }
     });
-  }
-
-  // ── Pano dialog ───────────────────────────────────────────────────────────
-  onMergePano(): void {
-    // Snapshot the selection at click time so the dialog has a stable list.
-    this.panoAssetIds.set([...this.state.selectedAssetIds()]);
-    this.panoDialogVisible.set(true);
-  }
-
-  onPanoDismiss(): void {
-    this.panoDialogVisible.set(false);
-    this.panoAssetIds.set([]);
-  }
-
-  // ── Batch metadata dialog ─────────────────────────────────────────────────
-  onEditMetadata(): void {
-    const selectedIds = this.state.selectedAssetIds();
-    const assets = this.state.assetsInSelectedFolder().filter((a) => selectedIds.has(a.id));
-    const addresses = assets.map((a) => a.id);
-    if (addresses.length === 0) return;
-
-    // Fetch the full effective metadata from the API so computeMixedValues can
-    // show "(mixed)" across all 22 fields, not just the thin asset view-model subset.
-    this.fetchSnapshotsSub?.unsubscribe();
-    this.fetchSnapshotsSub = this.svc.fetchSnapshots(addresses).subscribe({
-      next: (snapshots) => {
-        this.batchMetaAssetSnapshots.set(snapshots);
-        this.batchMetaDialogVisible.set(true);
-      },
-      error: () => {
-        // API unavailable — fall back to the thin snapshot so the panel still opens.
-        const thinSnapshots: AssetMetadataSnapshot[] = assets.map((a) => ({
-          address: a.id,
-          metadata: {
-            gpsLatitude: a.gps?.lat,
-            gpsLongitude: a.gps?.lon,
-            city: a.city ?? undefined,
-            country: a.country ?? undefined,
-            title: a.title ?? undefined,
-            keywords: a.keywords,
-          },
-        }));
-        this.batchMetaAssetSnapshots.set(thinSnapshots);
-        this.batchMetaDialogVisible.set(true);
-      },
-    });
-  }
-
-  onBatchMetaDismiss(): void {
-    this.fetchSnapshotsSub?.unsubscribe();
-    this.fetchSnapshotsSub = null;
-    this.batchMetaDialogVisible.set(false);
-    this.batchMetaAssetSnapshots.set([]);
-    if (this.state.backend === 'self-hosted') {
-      this.state.loadFolderTree();
-      const currentId = this.state.selectedSourceId();
-      if (currentId && currentId.includes(':')) {
-        try {
-          const addr = parseAddress(currentId);
-          this.state.openSelfHostedSubfolder(addr.relPath, currentId);
-        } catch {
-          // ignore
-        }
-      }
-    }
   }
 
   // ── Copy / paste / sync develop settings (#944) ───────────────────────────
@@ -314,38 +209,6 @@ export class BrowseShellComponent implements OnInit, OnDestroy {
     for (const id of this.state.selectedAssetIds()) {
       this.state.updateAdjustment(id, patch);
     }
-  }
-
-  ngOnInit(): void {
-    // Self-Hosted: kick off folder enumeration once the browse page mounts.
-    // Lives here (not on the root App component) so it runs AFTER the
-    // authGuard passes — otherwise the unauthenticated request races the
-    // sign-in redirect and returns 401. `loadFolderTree` also handles the
-    // cold-start landing folder — see `_selectInitialFolder`.
-    this.state.loadFolderTree();
-  }
-
-  ngOnDestroy(): void {
-    this.fetchSnapshotsSub?.unsubscribe();
-  }
-
-  onRetryLoad(): void {
-    this.state.loadFolderTree();
-  }
-
-  // ── Toolbar search input ──────────────────────────────────────────────────
-  onSearchInput(e: Event): void {
-    const v = (e.target as HTMLInputElement).value;
-    this.state.searchQuery.set(v);
-  }
-
-  /** Enter on the search input — push the query to the structured /search
-   * page so the user can filter across the whole index, not just this folder. */
-  onSearchEnter(): void {
-    const q = this.state.searchQuery().trim();
-    void this.router.navigate(['/search'], {
-      queryParams: q.length > 0 ? { q } : {},
-    });
   }
 
   // ── Page unload — flush pending XMP writes ───────────────────────────────

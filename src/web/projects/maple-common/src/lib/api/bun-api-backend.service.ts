@@ -17,25 +17,14 @@ import type { DownloadProgress } from './filesystem-browse.service';
 import type { ObservabilityConfigResponse } from '../observability/observability-config.model';
 import type { NetworkConfigPatch, NetworkConfigResponse } from '../network/network-config.model';
 import type { RenderConfigPatch, RenderConfigResponse } from '../raw-pipeline/render-config.model';
+import type {
+  ApiFolder,
+  ApiHistogram,
+  FolderRescanResult,
+  FolderScanResult,
+} from '../workspace/server-library-io';
 
-export interface ApiFolder {
-  id: string;
-  path: string;
-  /**
-   * URL-safe slug identifying this library in the M1 addressing scheme.
-   * Populated by the server once M1 (#1326) merges; optional here so the
-   * client degrades gracefully on older API versions.
-   */
-  slug?: string;
-  /** Display label — defaults to the basename of `path` on the server side. */
-  label: string;
-  /** Last full-scan timestamp (ISO 8601), or null if the library has never been scanned. */
-  last_scan: string | null;
-  /** Cached count of files indexed under this library. */
-  file_count: number;
-  /** When the library was registered (ISO 8601). */
-  created_at: string;
-}
+export type { ApiFolder, ApiHistogram } from '../workspace/server-library-io';
 
 /** A backup/mirror location for a library (mirrors the server `MirrorLocation`). */
 export interface MirrorLocation {
@@ -374,18 +363,6 @@ export interface ApiDirListing {
   entries: ApiDirEntry[];
 }
 
-/**
- * Server-computed RGB histogram payload. Each channel is 256 bins,
- * unnormalised counts. Consumers normalise per-channel before drawing
- * (so a single hot bin doesn't squash the rest of the curve). See
- * `GET /api/assets/:id/histogram` (#633).
- */
-export interface ApiHistogram {
-  r: number[];
-  g: number[];
-  b: number[];
-}
-
 @Injectable({ providedIn: 'root' })
 export class BunApiBackendService {
   private readonly http = inject(HttpClient);
@@ -710,16 +687,11 @@ export class BunApiBackendService {
   /** Force a re-scan of one library folder. Resets every stage's version to 0
    * for all assets under the folder path tree so the pipeline re-processes them.
    * Returns immediately; the workers pick up the reset docs on their next poll. */
-  rescanFolder(
-    folderId: string,
-  ): Observable<{ ok: boolean; folderId: string; path: string; reset: number; error?: string }> {
-    return this.http.post<{
-      ok: boolean;
-      folderId: string;
-      path: string;
-      reset: number;
-      error?: string;
-    }>(`${this.base}/folders/${encodeURIComponent(folderId)}/rescan`, {});
+  rescanFolder(folderId: string): Observable<FolderRescanResult> {
+    return this.http.post<FolderRescanResult>(
+      `${this.base}/folders/${encodeURIComponent(folderId)}/rescan`,
+      {},
+    );
   }
 
   /** Content-aware re-discover of one library folder, for auto-scan-on-open
@@ -728,22 +700,11 @@ export class BunApiBackendService {
    * zero stage versions, so opening a folder doesn't reprocess the library.
    * Server-side gated by `last_scan` — a folder scanned within a recent window
    * short-circuits (`skipped: 'recent'`) without re-walking. */
-  scanFolder(folderId: string): Observable<{
-    ok: boolean;
-    folderId?: string;
-    path?: string;
-    skipped?: 'recent';
-    last_scan?: string;
-    error?: string;
-  }> {
-    return this.http.post<{
-      ok: boolean;
-      folderId?: string;
-      path?: string;
-      skipped?: 'recent';
-      last_scan?: string;
-      error?: string;
-    }>(`${this.base}/folders/${encodeURIComponent(folderId)}/scan`, {});
+  scanFolder(folderId: string): Observable<FolderScanResult> {
+    return this.http.post<FolderScanResult>(
+      `${this.base}/folders/${encodeURIComponent(folderId)}/scan`,
+      {},
+    );
   }
 
   // -------------------------------------------------------------------------

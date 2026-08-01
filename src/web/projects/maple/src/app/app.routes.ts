@@ -1,11 +1,11 @@
 import { Routes } from '@angular/router';
 import {
-  BrowseShellComponent,
   EditorShellComponent,
   PreviewShellComponent,
   ProtocolHandlerComponent,
   authGuard,
 } from '@maple-common';
+import { SelfHostedBrowseComponent } from './self-hosted-browse/self-hosted-browse.component';
 
 // Self-Hosted: the server already hosts the library, so the root path goes
 // straight to /browse. No landing page. All content routes are gated behind
@@ -27,9 +27,9 @@ export const routes: Routes = [
   {
     path: 'browse/:slug',
     canActivate: [authGuard],
-    children: [{ path: '**', component: BrowseShellComponent }],
+    children: [{ path: '**', component: SelfHostedBrowseComponent }],
   },
-  { path: 'browse', canActivate: [authGuard], component: BrowseShellComponent },
+  { path: 'browse', canActivate: [authGuard], component: SelfHostedBrowseComponent },
   {
     path: 'edit/:slug',
     canActivate: [authGuard],

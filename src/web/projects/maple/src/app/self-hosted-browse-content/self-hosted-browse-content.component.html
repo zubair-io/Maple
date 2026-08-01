@@ -1,0 +1,26 @@
+@if (state.backendLoading()) {
+  <app-loading-banner label="Loading folders…" />
+}
+@if (state.backendError(); as error) {
+  <app-error-banner [message]="error" (retry)="state.loadFolderTree()" />
+}
+@if (state.backendEmpty() && !state.backendLoading() && !state.backendError()) {
+  <app-library-picker (pick)="state.addLibraryFolder($event)" />
+}
+@if (state.viewMode() === 'timeline') {
+  <app-timeline-view />
+} @else {
+  <app-asset-grid />
+}
+
+<app-pano-dialog
+  [visible]="controller.panoVisible()"
+  [assetIds]="controller.panoAssetIds()"
+  (dismiss)="controller.dismissPano()"
+/>
+
+<app-batch-metadata-panel
+  [visible]="controller.metadataVisible()"
+  [assetSnapshots]="controller.metadataSnapshots()"
+  (dismiss)="controller.dismissMetadata()"
+/>

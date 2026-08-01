@@ -112,6 +112,10 @@ jobs:
         working-directory: src/web
         run: bun run check:hosted-artifact
 
+      - name: Hosted capability boundary
+        working-directory: src/web
+        run: bun run check:hosted-capabilities
+
       - name: Azure Login
         uses: azure/login@v2
         with:

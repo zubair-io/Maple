@@ -6,8 +6,8 @@
 //    toggle button and view-encapsulated styles don't cross the boundary.)
 // 3. `.panel-right.is-hidden` removes the left border when the inspector is
 //    collapsed (otherwise the 0.5px line stays visible against the bg).
-// 4. Responsive rules (#2280) — source sidebar width and toolbar
-//    wrap/scroll/search width. Breakpoints mirror `LayoutService` (768/1024
+// 4. Responsive rules (#2280) — source sidebar width and toolbar wrapping.
+//    Breakpoints mirror `LayoutService` (768/1024
 //    — see `layout-service.ts`); `@media` cutoffs are 767/1023 to match.
 //    The action-pills row + its overflow-menu popover moved to
 //    toolbar-actions/toolbar-actions.component.scss (#2293 fallow-audit-web
@@ -24,11 +24,6 @@
 .chrome-btn.is-active {
   background: rgba(255, 255, 255, 0.04);
   border-color: var(--color-border);
-}
-
-.view-mode-btn.is-active {
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--color-text-main);
 }
 
 .panel-right.is-hidden {
@@ -58,17 +53,5 @@
     height: auto;
     min-height: 2.75rem;
     row-gap: 6px;
-  }
-}
-
-.toolbar-search {
-  min-width: 0;
-  flex: 0 1 300px;
-  max-width: 340px;
-}
-@media (max-width: 767px) {
-  .toolbar-search {
-    flex: 1 1 auto;
-    max-width: none;
   }
 }
