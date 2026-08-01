@@ -1,0 +1,21 @@
+:host {
+  display: contents;
+}
+
+.view-mode-btn.is-active {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text-main);
+}
+
+.toolbar-search {
+  min-width: 0;
+  flex: 0 1 300px;
+  max-width: 340px;
+}
+
+@media (max-width: 767px) {
+  .toolbar-search {
+    flex: 1 1 auto;
+    max-width: none;
+  }
+}

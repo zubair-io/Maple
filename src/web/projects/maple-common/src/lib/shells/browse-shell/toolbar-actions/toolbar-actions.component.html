@@ -4,7 +4,7 @@
      fallow's offline `estimated` coverage heuristic (no --coverage/V8 data
      passed in CI) credits this brand-new file with partial coverage
      despite toolbar-actions.component.spec.ts covering every branch
-     (inline vs. collapsed, self-hosted gating, each pill's output, the
+     (inline vs. collapsed, projected actions, each pill's output, the
      disabled/selection-count states) — see fallow's own suggested fix
      for this exact finding (suppress-file). #2293 fallow-audit-web fix. -->
 @if (collapsed()) {
@@ -57,45 +57,15 @@
     <span>Select</span>
   </button>
 
-  <!-- Edit Metadata (self-hosted only; requires ≥1 selected) -->
-  @if (selfHosted()) {
-    <button
-      type="button"
-      class="export-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] border-[0.5px]"
-      [class.has-selection]="canEditMetadata()"
-      [class.no-selection]="!canEditMetadata()"
-      [disabled]="!canEditMetadata()"
-      title="Edit metadata for selected photos"
-      aria-label="Edit metadata"
-      (click)="editMetadata.emit()"
-    >
-      <span>Edit Metadata…{{ canEditMetadata() ? ' (' + selectedCount() + ')' : '' }}</span>
-    </button>
-  }
-
-  <!-- Merge to panorama (self-hosted only; requires ≥2 selected) -->
-  @if (selfHosted()) {
-    <button
-      type="button"
-      class="export-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] border-[0.5px]"
-      [class.has-selection]="canMergePano()"
-      [class.no-selection]="!canMergePano()"
-      [disabled]="!canMergePano()"
-      title="Stitch selected images into a panorama"
-      aria-label="Merge to panorama"
-      (click)="mergePano.emit()"
-    >
-      <span>Merge to panorama…{{ canMergePano() ? ' (' + selectedCount() + ')' : '' }}</span>
-    </button>
-  }
+  <ng-content />
 
   <!--
-    Copy / Paste / Sync develop settings (#944). Unlike the two buttons
-    above these are NOT gated on the Self Hosted backend: the write path
+    Copy / Paste / Sync develop settings (#944). These shared actions are
+    available in both applications: the write path
     (`LibraryStateService.updateAdjustment` → `scheduleSidecarWrite`)
-    branches on the backend internally and supports Hosted's FS Access
-    writer too, and the ⌘C / ⌘V shortcuts are ungated — hiding the buttons
-    on Hosted would leave the shortcuts as the only affordance.
+    supports Hosted's FS Access writer as well as the server adapter, and
+    the ⌘C / ⌘V shortcuts are ungated. App-specific actions are projected
+    immediately above this block.
   -->
   <!-- Copy Settings — requires a focused asset. -->
   <button

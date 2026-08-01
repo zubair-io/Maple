@@ -21,13 +21,6 @@ export class ToolbarActionsComponent {
    * kebab-triggered menu instead of an inline row. */
   readonly collapsed = input.required<boolean>();
 
-  /** Self-Hosted only gates Edit Metadata / Merge to panorama — see the
-   * comment ported from browse-shell.component.html on the Copy/Paste/Sync
-   * buttons for why those three (and Export) are NOT backend-gated. */
-  readonly selfHosted = input.required<boolean>();
-
-  readonly canEditMetadata = input.required<boolean>();
-  readonly canMergePano = input.required<boolean>();
   readonly canCopySettings = input.required<boolean>();
   readonly canPasteSettings = input.required<boolean>();
   readonly canSyncSettings = input.required<boolean>();
@@ -38,8 +31,6 @@ export class ToolbarActionsComponent {
    * active-tint style, same as Apple's `BrowseVM.isSelecting` toggle. */
   readonly isSelecting = input.required<boolean>();
 
-  readonly editMetadata = output<void>();
-  readonly mergePano = output<void>();
   readonly copySettings = output<void>();
   readonly openPasteDialog = output<void>();
   readonly syncSettings = output<void>();

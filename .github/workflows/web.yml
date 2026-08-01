@@ -141,6 +141,10 @@ jobs:
         working-directory: src/web
         run: bun run check:hosted-artifact
 
+      - name: Hosted capability boundary
+        working-directory: src/web
+        run: bun run check:hosted-capabilities
+
       - name: Install Google Chrome for production artifact tests
         working-directory: src/web
         run: bun x playwright install --with-deps chrome

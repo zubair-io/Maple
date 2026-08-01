@@ -1,7 +1,6 @@
 // ToolbarActionsComponent — extracted from BrowseShellComponent (#2293
 // fallow-audit-web fix). Covers the desktop inline-row vs collapsed-kebab
-// presentation, the self-hosted gating on Edit Metadata / Merge to
-// panorama, and that every pill emits its own output.
+// presentation, server-action projection, and shared action outputs.
 
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -15,36 +14,28 @@ import { ToolbarActionsComponent } from './toolbar-actions.component';
   template: `
     <app-toolbar-actions
       [collapsed]="collapsed()"
-      [selfHosted]="selfHosted()"
-      [canEditMetadata]="canEditMetadata()"
-      [canMergePano]="canMergePano()"
       [canCopySettings]="canCopySettings()"
       [canPasteSettings]="canPasteSettings()"
       [canSyncSettings]="canSyncSettings()"
       [selectedCount]="selectedCount()"
       [isSelecting]="isSelecting()"
-      (editMetadata)="editMetadataCount.update((v) => v + 1)"
-      (mergePano)="mergePanoCount.update((v) => v + 1)"
       (copySettings)="copySettingsCount.update((v) => v + 1)"
       (openPasteDialog)="openPasteDialogCount.update((v) => v + 1)"
       (syncSettings)="syncSettingsCount.update((v) => v + 1)"
       (toggleSelectMode)="toggleSelectModeCount.update((v) => v + 1)"
-    />
+    >
+      <button type="button" aria-label="Server extension">Server action</button>
+    </app-toolbar-actions>
   `,
 })
 class HostComponent {
   readonly collapsed = signal(false);
-  readonly selfHosted = signal(true);
-  readonly canEditMetadata = signal(false);
-  readonly canMergePano = signal(false);
   readonly canCopySettings = signal(false);
   readonly canPasteSettings = signal(false);
   readonly canSyncSettings = signal(false);
   readonly selectedCount = signal(0);
   readonly isSelecting = signal(false);
 
-  readonly editMetadataCount = signal(0);
-  readonly mergePanoCount = signal(0);
   readonly copySettingsCount = signal(0);
   readonly openPasteDialogCount = signal(0);
   readonly syncSettingsCount = signal(0);
@@ -72,19 +63,8 @@ describe('ToolbarActionsComponent', () => {
     expect(el().querySelector('[aria-label="Sync settings"]')).not.toBeNull();
   });
 
-  it('gates Edit Metadata and Merge to panorama on selfHosted', () => {
-    host.selfHosted.set(false);
-    fixture.detectChanges();
-    expect(el().querySelector('[aria-label="Edit metadata"]')).toBeNull();
-    expect(el().querySelector('[aria-label="Merge to panorama"]')).toBeNull();
-    // Copy/Paste/Sync stay visible — they have real Hosted persistence paths.
-    expect(el().querySelector('[aria-label="Copy settings"]')).not.toBeNull();
-    expect(el().textContent).not.toContain('Export');
-
-    host.selfHosted.set(true);
-    fixture.detectChanges();
-    expect(el().querySelector('[aria-label="Edit metadata"]')).not.toBeNull();
-    expect(el().querySelector('[aria-label="Merge to panorama"]')).not.toBeNull();
+  it('projects an app-provided server action into the shared action row', () => {
+    expect(el().querySelector('[aria-label="Server extension"]')).not.toBeNull();
   });
 
   it('collapses into a kebab menu that opens on toggle and closes on pill click', () => {
@@ -112,21 +92,15 @@ describe('ToolbarActionsComponent', () => {
     expect(el().querySelector('[data-testid="toolbar-overflow-menu"]')).toBeNull();
   });
 
-  it('emits editMetadata / mergePano / openPasteDialog / syncSettings from their own pills', () => {
-    host.canEditMetadata.set(true);
-    host.canMergePano.set(true);
+  it('emits openPasteDialog / syncSettings from their own pills', () => {
     host.canPasteSettings.set(true);
     host.canSyncSettings.set(true);
     fixture.detectChanges();
 
-    (el().querySelector('[aria-label="Edit metadata"]') as HTMLButtonElement).click();
-    (el().querySelector('[aria-label="Merge to panorama"]') as HTMLButtonElement).click();
     (el().querySelector('[aria-label="Paste settings"]') as HTMLButtonElement).click();
     (el().querySelector('[aria-label="Sync settings"]') as HTMLButtonElement).click();
     fixture.detectChanges();
 
-    expect(host.editMetadataCount()).toBe(1);
-    expect(host.mergePanoCount()).toBe(1);
     expect(host.openPasteDialogCount()).toBe(1);
     expect(host.syncSettingsCount()).toBe(1);
   });

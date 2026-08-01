@@ -7,6 +7,7 @@
     "sync-raw-wasm": "bash scripts/sync-raw-wasm.sh",
     "brand:sync": "node scripts/sync-brand-assets.mjs",
     "brand:check": "node scripts/sync-brand-assets.mjs --check",
+    "check:hosted-capabilities": "node scripts/check-hosted-capability-boundary.mjs",
     "raw-wasm": "npm run build-raw-wasm && npm run sync-raw-wasm",
     "prestart": "npm run raw-wasm",
     "prestart:maple": "npm run raw-wasm",
