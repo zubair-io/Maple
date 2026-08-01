@@ -133,6 +133,10 @@ jobs:
         working-directory: src/web
         run: bunx ng build maple-syrup
 
+      - name: Hosted artifact contract
+        working-directory: src/web
+        run: bun run check:hosted-artifact
+
   web-test:
     name: web-test (ng test maple)
     runs-on: ubuntu-latest
