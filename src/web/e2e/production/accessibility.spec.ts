@@ -77,7 +77,7 @@ async function expectVisibleFocusIndicator(asset: Locator): Promise<void> {
       const style = ring ? getComputedStyle(ring) : null;
       const colorProbe = document.createElement('span');
       colorProbe.style.color = 'var(--color-primary)';
-      ring?.append(colorProbe);
+      button.append(colorProbe);
       const targetBorderColor = getComputedStyle(colorProbe).color;
       colorProbe.remove();
       return {
@@ -88,12 +88,12 @@ async function expectVisibleFocusIndicator(asset: Locator): Promise<void> {
       };
     });
 
-  await expect
-    .poll(async () => {
-      const focus = await focusState();
-      return focus.borderColor === focus.targetBorderColor;
-    })
-    .toBe(true);
+  await expect(async () => {
+    const focus = await focusState();
+    expect(focus.borderColor).not.toBe('');
+    expect(focus.targetBorderColor).not.toBe('');
+    expect(focus.borderColor).toBe(focus.targetBorderColor);
+  }).toPass({ timeout: 1_000 });
 
   const focus = await focusState();
   expect(focus.focusVisible).toBe(true);
