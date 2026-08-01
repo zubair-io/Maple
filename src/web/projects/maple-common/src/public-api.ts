@@ -11,7 +11,6 @@ export * from './lib/models/folder';
 export * from './lib/models/adjustment-model';
 export * from './lib/data/mock-library';
 export * from './lib/icons/maple-icon.component';
-export * from './lib/icons/material-icon.component';
 export * from './lib/button/maple-button.component';
 export * from './lib/collapsible/maple-collapsible.component';
 export * from './lib/state/library-state.service';
