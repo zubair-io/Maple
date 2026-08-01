@@ -32,7 +32,7 @@ export function previewLoader(
     );
 }
 
-export async function sourceIdentity(
+async function sourceIdentity(
   fileHandles: ReadonlyMap<AssetId, FolderEntry>,
   id: AssetId,
 ): Promise<{ size: number; lastModified: number }> {
