@@ -62,6 +62,7 @@
         "src/enrichment/place-parser.test.ts",
         "src/fs/mirrored.ts",
         "src/fs/root.ts",
+        "src/fs/root.test.ts",
         "src/imports/scan.ts",
         "src/routes/folders.mkdir.test.ts",
         "src/routes/fs-thumbs.cache-hit.test.ts",
