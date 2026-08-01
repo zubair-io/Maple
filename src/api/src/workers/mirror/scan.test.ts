@@ -6,9 +6,9 @@
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
 import { MongoClient, type Db } from 'mongodb';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 
 const TEST_DB = `maple_test_mirrorscan_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
@@ -114,6 +114,37 @@ describe('mirror-scan detector', () => {
     expect(queued.sort()).toEqual(
       [join(mirrorRoot, 'IMG.dng'), join(mirrorRoot, 'IMG.xmp')].sort(),
     );
+  });
+
+  it("enqueues the asset's .maple thumb and preview so the cache backlog reaches the mirror", async () => {
+    if (!mongoReachable) return;
+    writeFileSync(join(primaryRoot, 'IMG.dng'), 'raw');
+    // Cache rendered before the mirror was configured — the inline
+    // `replicatePath` hook never ran for it, so the detector is what carries it.
+    const { resolveThumbPath, cachePathFor } = await import('../../fs/xmp.ts');
+    const { PREVIEW_CACHE_SUFFIX } = await import('../../indexer/previewer.ts');
+    const thumbPath = resolveThumbPath(join(primaryRoot, 'IMG.dng'));
+    const previewPath = cachePathFor(join(primaryRoot, 'IMG.dng'), 'previews', PREVIEW_CACHE_SUFFIX);
+    mkdirSync(dirname(thumbPath), { recursive: true });
+    mkdirSync(dirname(previewPath), { recursive: true });
+    writeFileSync(thumbPath, 'avif-thumb');
+    writeFileSync(previewPath, 'avif-preview');
+    await seedAsset('IMG.dng');
+    const { setMirrorRoots } = await import('../../fs/mirror-registry.ts');
+    setMirrorRoots({ [primaryRoot]: [mirrorRoot] });
+
+    const { runMirrorScanOnce } = await import('./scan.ts');
+    const summary = await runMirrorScanOnce();
+    expect(summary.enqueued).toBe(3); // original + thumb + preview (no sidecar)
+
+    const queued = await db!
+      .collection('mirror_queue')
+      .find({})
+      .map((d) => d.mirror_path as string)
+      .toArray();
+    const rel = (p: string) => join(mirrorRoot, relative(primaryRoot, p));
+    expect(queued).toContain(rel(thumbPath));
+    expect(queued).toContain(rel(previewPath));
   });
 
   it('skips an offline mirror root instead of flooding the queue', async () => {
