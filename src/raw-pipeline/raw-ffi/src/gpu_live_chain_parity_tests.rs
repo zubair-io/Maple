@@ -81,9 +81,16 @@ const DIMS: (u32, u32) = (32, 32);
 /// chain, not a re-composition of it — followed by the same view tail the
 /// GPU appends after its scene-linear passes:
 ///
-/// * `encode_display_srgb_f32` mirrors `DisplayEncodePass` + `SrgbGammaPass`
-///   (the chain leaves `target_primaries = Srgb` output in display-linear
-///   Rec.2020 for the caller to encode, which is exactly this call);
+/// * `encode_display_srgb_f32` mirrors `DisplayEncodePass` + `SrgbGammaPass`.
+///   At `skip_agx = false` the chain really does hand back display-linear
+///   Rec.2020 and this is the encode its callers owe it. At `skip_agx = true`
+///   the buffer is still SCENE-linear — the encode helper re-tags it
+///   `DisplayLinearRec2020` on the way in and encodes anyway. That is not a
+///   fudge for the test's benefit: it is exactly what the GPU does, since
+///   `DisplayEncodePass` + `SrgbGammaPass` run for non-RAW shapes too and
+///   the WGSL has no colour-space tag to consult. Both sides encode an
+///   already-display-referred JPEG buffer as if it were display-linear,
+///   which is what makes them comparable;
 /// * the identity Auto-Profile curve + residual LUT mirror
 ///   `AutoProfileCurvePass` + `ResidualLutPass`, which the GPU appends for
 ///   RAW shapes ONLY — so this reference appends them only when `skip_agx`
@@ -140,12 +147,21 @@ fn gpu_surface(input: &[f32], model: &AdjustmentModel, input_shape: u32) -> Vec<
 /// the stages whose `AdjustmentModel::default()` values are NON-zero
 /// (`sharpen_amount` = 40, `nr_color` = 25) zeroed.
 ///
-/// The spatial stages stay out of every case on purpose. Their GPU kernels
-/// are gated per-kernel against their raw-core counterparts by `raw-gpu`'s
-/// own suite, and on an 8x8 fixture a separable blur is almost entirely
-/// edge-clamped — it would contribute boundary-condition noise to a
-/// measurement about chain composition. What this file adds that the
-/// per-kernel suite cannot is the ORDER and the tail.
+/// The SLIDER-DRIVEN spatial stages — sharpen, luma/chroma NR, clarity,
+/// texture — stay out of every case on purpose. Their GPU kernels are gated
+/// per-kernel against their raw-core counterparts by `raw-gpu`'s own suite,
+/// and a separable blur or guided filter on a small fixture is largely
+/// edge-clamped, contributing boundary-condition noise to a measurement about
+/// chain composition. What this file adds that the per-kernel suite cannot is
+/// the ORDER and the tail.
+///
+/// Note that this does NOT make every case a pure point op: `highlights` and
+/// `shadows` run through `scene_tone_controls`' masked passes, which blur a
+/// luma plane. That is deliberate and safe here — unlike the tile gate in
+/// raw-core, both sides of THIS comparison run the mask over the identical
+/// buffer at the identical dimensions, so the mask radius matches and the
+/// boundary is the same one. (When the buffers differ in size it does not
+/// match, which is #2476.)
 fn base_model() -> AdjustmentModel {
     AdjustmentModel {
         temperature: ANCHOR.0,
