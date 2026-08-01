@@ -12,26 +12,29 @@ interface AssetSaveState {
 @Injectable({ providedIn: 'root' })
 export class SidecarSaveStateService {
   private readonly _assets = signal(new Map<AssetId, AssetSaveState>());
+  private readonly _settledPhase = signal<SidecarSavePhase>('idle');
+  private _nextRevision = 0;
 
   readonly phase = computed<SidecarSavePhase>(() => {
-    const phases = [...this._assets().values()].map((state) => state.phase);
-    if (phases.includes('error')) return 'error';
-    if (phases.includes('saving')) return 'saving';
-    if (phases.includes('unsaved')) return 'unsaved';
-    if (phases.includes('saved')) return 'saved';
-    return 'idle';
+    let phase: SidecarSavePhase = this._settledPhase();
+    for (const state of this._assets().values()) {
+      if (state.phase === 'error') return 'error';
+      if (state.phase === 'saving') phase = 'saving';
+      else if (state.phase === 'unsaved' && phase !== 'saving') phase = 'unsaved';
+    }
+    return phase;
   });
-  readonly error = computed(
-    () => [...this._assets().values()].find((state) => state.error)?.error ?? null,
-  );
-  readonly hasUnsavedChanges = computed(() =>
-    [...this._assets().values()].some((state) =>
-      ['unsaved', 'saving', 'error'].includes(state.phase),
-    ),
-  );
+  readonly error = computed(() => {
+    for (const state of this._assets().values()) {
+      if (state.error) return state.error;
+    }
+    return null;
+  });
+  readonly hasUnsavedChanges = computed(() => this._assets().size > 0);
 
   queued(assetId: AssetId): number {
-    const revision = (this._assets().get(assetId)?.revision ?? 0) + 1;
+    const revision = ++this._nextRevision;
+    this._settledPhase.set('idle');
     this.set(assetId, { revision, phase: 'unsaved', error: null });
     return revision;
   }
@@ -43,7 +46,12 @@ export class SidecarSaveStateService {
 
   saved(assetId: AssetId, revision: number): void {
     if (!this.isCurrent(assetId, revision)) return;
-    this.set(assetId, { revision, phase: 'saved', error: null });
+    this._assets.update((assets) => {
+      const next = new Map(assets);
+      next.delete(assetId);
+      return next;
+    });
+    this._settledPhase.set('saved');
   }
 
   failed(assetId: AssetId, revision: number, error: unknown): void {

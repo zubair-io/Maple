@@ -84,6 +84,36 @@ describe('LibraryStateService.addImportedAsset', () => {
     expect(assets.map((a) => a.filename).sort()).toEqual(['a.dng', 'b.dng']);
     expect(assets.every((a) => a.folderId === 'f-imported')).toBe(true);
   });
+
+  it('clears a stale writable folder when entering a single-file workspace', () => {
+    svc.currentFolder.set({ name: 'previous', read: true, write: true });
+    const id = svc.enterSingleFileWorkspace(new Uint8Array([2]), 'first.dng', 'first-id');
+
+    expect(svc.currentFolder()).toBeNull();
+    expect(svc.assets().filter((asset) => asset.folderId === 'f-imported')).toEqual([
+      expect.objectContaining({ id, filename: 'first.dng' }),
+    ]);
+    expect(svc.selectedSourceId()).toBe('f-imported');
+    expect(svc.focusedAssetId()).toBe(id);
+  });
+
+  it('replaces a prior single-file import instead of growing a filmstrip', () => {
+    svc.enterSingleFileWorkspace(new Uint8Array([1]), 'first.dng', 'first-id');
+
+    const secondId = svc.enterSingleFileWorkspace(new Uint8Array([3]), 'second.dng', 'second-id');
+    expect(svc.assets().filter((asset) => asset.folderId === 'f-imported')).toEqual([
+      expect.objectContaining({ id: secondId, filename: 'second.dng' }),
+    ]);
+    expect(svc.assetsInSelectedFolder()).toHaveLength(1);
+  });
+
+  it('releases the previous single-file RAW bytes when replacing it', async () => {
+    svc.enterSingleFileWorkspace(new Uint8Array([1]), 'first.dng', 'first-id');
+    svc.enterSingleFileWorkspace(new Uint8Array([3]), 'second.dng', 'second-id');
+
+    await expect(svc.bytesForAsset('first-id')).rejects.toThrow('no handle');
+    await expect(svc.bytesForAsset('second-id')).resolves.toEqual(new Uint8Array([3]));
+  });
 });
 
 describe('isSupportedRaw', () => {

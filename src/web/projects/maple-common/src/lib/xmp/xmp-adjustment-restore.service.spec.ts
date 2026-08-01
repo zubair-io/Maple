@@ -34,6 +34,8 @@ import { SidecarSaveStateService } from './sidecar-save-state.service';
 // `/photos` (slug `photos`) — mirroring the production audit's repro.
 const ASSET_ID = 'photos:raws/test_0004.fff' as AssetId;
 const SIDECAR_ABS_PATH = '/photos/raws/test_0004.fff';
+const NON_FOCUSED_ASSET_ID = 'photos:raws/test_0008.RAF' as AssetId;
+const NON_FOCUSED_SIDECAR_PATH = '/photos/raws/test_0008.RAF';
 
 const LIBRARY: ApiFolder = {
   id: 'lib1',
@@ -52,11 +54,17 @@ const SIDECAR_XML = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
   <rdf:Description rdf:about=""
     xmlns:xmp="http://ns.adobe.com/xap/1.0/"
     xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+    xmlns:maple="https://maple.app/ns/1.0/"
+    xmlns:dc="http://purl.org/dc/elements/1.1/"
     xmlns:vendor="https://example.test/vendor/1.0/"
+    xmp:Rating="3"
+    xmp:Label="Blue"
+    maple:Flag="pick"
     crs:Version="11.0"
     crs:Exposure2012="1.05"
     crs:Vibrance="26"
     vendor:OpaqueSetting="keep-me">
+    <dc:subject><rdf:Bag><rdf:li>existing-keyword</rdf:li></rdf:Bag></dc:subject>
   </rdf:Description>
  </rdf:RDF>
 </x:xmpmeta>
@@ -136,6 +144,12 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
     const model = store.adjustmentFor(ASSET_ID)();
     expect(model.exposure).toBeCloseTo(1.05);
     expect(model.vibrance).toBeCloseTo(26);
+    expect(store.assets().find((asset) => asset.id === ASSET_ID)).toMatchObject({
+      rating: 3,
+      flag: 'pick',
+      colorLabel: 'blue',
+      keywords: ['existing-keyword'],
+    });
   });
 
   it('leaves defaults in place when no sidecar exists (404)', async () => {
@@ -176,6 +190,63 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
     // sidecar read regardless of the model's content.
     const asset = store.assets().find((a) => a.id === ASSET_ID);
     expect(asset?.edited).toBe(true);
+  });
+
+  it('waits for a delayed restore before writing and merges the authored edit over persisted XML', async () => {
+    vi.useFakeTimers();
+    const deferred = new Subject<string>();
+    api.getXmpResult = deferred.asObservable();
+
+    hydrateAndFocus();
+    await flushAsync();
+    state.updateAdjustment(ASSET_ID, { contrast: 14 });
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(api.putXmp).not.toHaveBeenCalled();
+
+    deferred.next(SIDECAR_XML);
+    deferred.complete();
+    await flushAsync();
+
+    expect(api.putXmp).toHaveBeenCalledTimes(1);
+    const [, xml] = api.putXmp.mock.calls[0]!;
+    expect(xml).toContain('crs:Exposure2012="1.05"');
+    expect(xml).toContain('crs:Contrast2012="14"');
+    expect(xml).toContain('vendor:OpaqueSetting="keep-me"');
+    expect(store.adjustmentFor(ASSET_ID)().exposure).toBeCloseTo(1.05);
+    expect(store.adjustmentFor(ASSET_ID)().contrast).toBeCloseTo(14);
+    expect(xml).toContain('xmp:Rating="3"');
+    expect(xml).toContain('papp:Flag="pick"');
+    expect(xml).toContain('papp:ColorLabel="blue"');
+    expect(xml).toContain('<rdf:li>existing-keyword</rdf:li>');
+  });
+
+  it('hydrates a non-focused asset before a culling-only write', async () => {
+    vi.useFakeTimers();
+    store.registeredFolders.set([LIBRARY]);
+    const asset = state.hydrateSelfHostedFsAsset(NON_FOCUSED_ASSET_ID);
+    expect(asset).not.toBeNull();
+
+    state.setRating(NON_FOCUSED_ASSET_ID, 4);
+    await vi.advanceTimersByTimeAsync(200);
+    await flushAsync();
+
+    expect(api.getXmp).toHaveBeenCalledWith(NON_FOCUSED_SIDECAR_PATH);
+    expect(api.putXmp).toHaveBeenCalledTimes(1);
+    const [path, xml] = api.putXmp.mock.calls[0]!;
+    expect(path).toBe(NON_FOCUSED_SIDECAR_PATH);
+    expect(xml).toContain('crs:Exposure2012="1.05"');
+    expect(xml).toContain('vendor:OpaqueSetting="keep-me"');
+    expect(xml).toContain('xmp:Rating="4"');
+    expect(xml).toContain('papp:Flag="pick"');
+    expect(xml).toContain('papp:ColorLabel="blue"');
+    expect(xml).toContain('<rdf:li>existing-keyword</rdf:li>');
+    expect(store.assets().find((asset) => asset.id === NON_FOCUSED_ASSET_ID)).toMatchObject({
+      rating: 4,
+      flag: 'pick',
+      colorLabel: 'blue',
+      keywords: ['existing-keyword'],
+    });
   });
 
   it('restores once per asset and fetches lazily (no refetch on refocus)', async () => {

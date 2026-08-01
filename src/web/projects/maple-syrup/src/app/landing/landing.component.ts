@@ -8,6 +8,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  InjectionToken,
   inject,
   signal,
   viewChild,
@@ -20,6 +21,11 @@ import {
   persistFile,
 } from '@maple-common';
 
+export const SINGLE_FILE_PERSISTENCE = new InjectionToken<typeof persistFile>(
+  'SINGLE_FILE_PERSISTENCE',
+  { providedIn: 'root', factory: () => persistFile },
+);
+
 @Component({
   selector: 'app-landing',
   standalone: true,
@@ -31,6 +37,7 @@ export class LandingComponent {
   private readonly router = inject(Router);
   private readonly fs = inject(FolderAccessService);
   private readonly state = inject(LibraryStateService);
+  private readonly persistSingleFile = inject(SINGLE_FILE_PERSISTENCE);
 
   /** True when the browser exposes `showDirectoryPicker` (Chromium-only today). */
   readonly hasFsAccess = this.fs.hasFsAccess;
@@ -108,12 +115,14 @@ export class LandingComponent {
     try {
       const assetId = crypto.randomUUID();
       const bytes = new Uint8Array(await file.arrayBuffer());
-      this.state.addImportedAsset(bytes, file.name, assetId);
-      void persistFile(assetId, file).catch((error: unknown) => {
-        this.showError('This photo is open, but browser storage is unavailable.', error);
-      });
-      this.state.selectedSourceId.set('f-imported');
-      this.state.selectAsset(assetId);
+      let memoryOnly = false;
+      try {
+        await this.persistSingleFile(assetId, file);
+      } catch (error) {
+        console.warn('Maple could not persist this single-file session', error);
+        memoryOnly = true;
+      }
+      this.state.enterSingleFileWorkspace(bytes, file.name, assetId, memoryOnly);
       await this.router.navigate(['/edit', assetId]);
     } catch (error) {
       this.showError(`Maple could not open “${file.name}”.`, error);
