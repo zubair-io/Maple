@@ -208,10 +208,28 @@ public actor ThumbnailLoader {
             await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
             return data
         }
-        logger.warning("thumb fast-path MISS for \(assetURL.lastPathComponent, privacy: .public) — falling through to Rust develop")
+        logger.warning("thumb fast-path MISS for \(assetURL.lastPathComponent, privacy: .public) — falling through to slow path")
 
-        // SLOW PATH — RAW has no embedded preview (rare). Fall back to a
-        // full develop + downscale. Same cost as before.
+        // SLOW PATH — no embedded preview. Non-RAW bitmaps (imported JPEG/
+        // PNG/HEIF, stitched pano PNGs) already carry demosaiced sRGB /
+        // Display-P3 pixels, so they decode via ImageIO directly instead of
+        // the RAW developer — `PipelineRenderer.render(rawPath:)` only
+        // understands camera RAW containers and throws on these, which used
+        // to surface as a blank grey grid tile (#1366). Everything else
+        // (the actual `RAWExtensions.all` set, plus unrecognised
+        // extensions — same "assume RAW" default as `AssetRef.isRaw`) keeps
+        // the full develop + downscale path.
+        if NonRawImageExtensions.all.contains(ext) {
+            guard let data = nonRawSlowPathAVIF(at: assetURL) else {
+                logger.warning("non-RAW slow-path decode failed for \(assetURL.lastPathComponent, privacy: .public)")
+                return nil
+            }
+            let ms = Int(Date().timeIntervalSince(t0) * 1000)
+            logger.debug("thumb non-RAW slow-path \(assetURL.lastPathComponent, privacy: .public) \(ms)ms")
+            await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
+            return data
+        }
+
         do {
             let image = try PipelineRenderer.render(rawPath: assetURL, quality: .preview)
             guard let data = encodeThumbnail(image, ctx: staticEncodeCIContext) else {
