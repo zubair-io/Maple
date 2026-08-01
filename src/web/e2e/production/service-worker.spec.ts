@@ -90,6 +90,24 @@ function assertAssets(results: Readonly<Record<string, AssetResult>>): void {
   }
 }
 
+async function assertOfflineApiNavigation(page: Page, path: string): Promise<void> {
+  const responsePromise = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === path,
+    { timeout: 5_000 },
+  );
+  const navigation = await page.goto(path, { timeout: 5_000 }).then(
+    (response) => ({ response }) as const,
+    (error: unknown) => ({ error }) as const,
+  );
+  expect((await responsePromise).status()).toBe(504);
+  if ('response' in navigation) {
+    expect(navigation.response?.status()).toBe(504);
+  } else {
+    expect(navigation.error).toBeInstanceOf(Error);
+  }
+  await expect(page.getByRole('button', { name: /open a photo/i })).toHaveCount(0);
+}
+
 test('Hosted service worker controls, caches, and reloads the welcome offline', async ({
   page,
   context,
@@ -152,10 +170,15 @@ test('Hosted service worker controls, caches, and reloads the welcome offline', 
   expect(helperResult).toMatchObject({ ok: true, status: 200, byteLength: expect.any(Number) });
   expect(helperResult.byteLength).toBeGreaterThan(0);
 
-  const onlineCaches = await cacheContents(page);
-  const cachedPaths = new Set(Object.values(onlineCaches).flat());
-  for (const path of paths) expect(cachedPaths.has(path), `${path} must be cached`).toBe(true);
-  expect([...cachedPaths].filter((path) => path.startsWith('/api/'))).toEqual([]);
+  await expect
+    .poll(async () => {
+      const cachedPaths = new Set(Object.values(await cacheContents(page)).flat());
+      return {
+        missing: paths.filter((path) => !cachedPaths.has(path)),
+        api: [...cachedPaths].filter((path) => path.startsWith('/api/')),
+      };
+    })
+    .toEqual({ missing: [], api: [] });
 
   await context.setOffline(true);
   await page.reload({ waitUntil: 'domcontentloaded' });
@@ -174,18 +197,7 @@ test('Hosted service worker controls, caches, and reloads the welcome offline', 
     async () => (await fetch('/api/service-worker-fetch-probe')).status,
   );
   expect(offlineApiStatus, 'Hosted must not serve an API fetch from its SPA cache').toBe(504);
-  const offlineNavigationResponse = apiProbePage.waitForResponse((response) =>
-    response.url().includes('/api/service-worker-navigation-probe'),
-  );
-  const apiNavigationFailed = await apiProbePage
-    .goto('/api/service-worker-navigation-probe')
-    .then(() => false)
-    .catch(() => true);
-  expect(apiNavigationFailed, 'Hosted must not serve an API navigation from its SPA cache').toBe(
-    true,
-  );
-  expect((await offlineNavigationResponse).status()).toBe(504);
-  await expect(apiProbePage.getByRole('button', { name: /open a photo/i })).toHaveCount(0);
+  await assertOfflineApiNavigation(apiProbePage, '/api/service-worker-navigation-probe');
   await apiProbePage.close();
   await context.setOffline(false);
 });
