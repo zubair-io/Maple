@@ -1,6 +1,10 @@
 import type { Page } from '@playwright/test';
 import { HOSTED_ICONS } from '../../scripts/hosted-artifact-contract';
 import { HOSTED_SECURITY_HEADERS } from '../../scripts/hosted-security-header-contract';
+import {
+  SELF_HOSTED_THUMBNAIL_CACHE_PROBE,
+  SELF_HOSTED_UNCACHED_API_PROBES,
+} from '../support/production-cache-contract';
 import { test, expect } from '../support/production-test';
 
 interface NgswManifest {
@@ -250,4 +254,53 @@ test('Hosted service worker controls, caches, and reloads the welcome offline', 
   await assertOfflineApiNavigation(apiProbePage, '/api/service-worker-navigation-probe');
   await apiProbePage.close();
   await context.setOffline(false);
+});
+
+test('Self Hosted controls its root and caches only thumbnail API responses', async ({
+  page,
+  context,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'chrome-self-hosted');
+
+  await page.goto('/');
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.reload();
+  await expect
+    .poll(() => page.evaluate(() => navigator.serviceWorker.controller?.scriptURL))
+    .toBe(`${testInfo.project.use.baseURL}/ngsw-worker.js`);
+
+  const registrations = await page.evaluate(async () =>
+    (await navigator.serviceWorker.getRegistrations()).map((registration) => ({
+      scope: registration.scope,
+      state: registration.active?.state,
+    })),
+  );
+  expect(registrations).toEqual([
+    { scope: `${testInfo.project.use.baseURL}/`, state: 'activated' },
+  ]);
+
+  const probePaths = [SELF_HOSTED_THUMBNAIL_CACHE_PROBE, ...SELF_HOSTED_UNCACHED_API_PROBES];
+  const onlineStatuses = await page.evaluate(async (paths) => {
+    const responses = await Promise.all(paths.map((path) => fetch(path)));
+    return responses.map((response) => response.status);
+  }, probePaths);
+  expect(onlineStatuses).toEqual([200, 200, 200]);
+
+  await expect
+    .poll(async () => {
+      const cachedPaths = new Set(Object.values(await cacheContents(page)).flat());
+      return probePaths.filter((path) => cachedPaths.has(path));
+    })
+    .toEqual([SELF_HOSTED_THUMBNAIL_CACHE_PROBE]);
+
+  try {
+    await context.setOffline(true);
+    const offlineThumbnailStatus = await page.evaluate(
+      async (path) => (await fetch(path)).status,
+      SELF_HOSTED_THUMBNAIL_CACHE_PROBE,
+    );
+    expect(offlineThumbnailStatus).toBe(200);
+  } finally {
+    await context.setOffline(false);
+  }
 });
