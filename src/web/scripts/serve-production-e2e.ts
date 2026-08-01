@@ -1,4 +1,3 @@
-import { rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import {
   cleanupProductionFixtures,
@@ -14,7 +13,7 @@ const HOSTED_PORT = process.env.MAPLE_E2E_HOSTED_PORT ?? '4400';
 const SELF_HOSTED_PORT = process.env.MAPLE_E2E_SELF_HOSTED_PORT ?? '4401';
 const children: Bun.Subprocess[] = [];
 let manifest: ProductionFixtureManifest | undefined;
-let stopping = false;
+let shutdown: Promise<never> | null = null;
 
 async function run(command: string[], env: Record<string, string | undefined> = {}): Promise<void> {
   const process = Bun.spawn(command, {
@@ -38,25 +37,57 @@ async function waitFor(url: string, child: Bun.Subprocess): Promise<void> {
 
 async function endpointIsReady(url: string): Promise<boolean> {
   try {
-    return (await fetch(url)).ok;
+    return (await fetch(url, { signal: AbortSignal.timeout(1000) })).ok;
   } catch {
     return false;
   }
 }
 
-async function stop(exitCode: number): Promise<never> {
-  if (stopping) process.exit(exitCode);
-  stopping = true;
-  for (const child of children) child.kill('SIGTERM');
-  if (manifest) {
-    try {
-      await verifyOriginalRawHashes(manifest);
-      await verifyStagedRawHashes(manifest);
-    } finally {
-      await cleanupProductionFixtures(manifest);
-    }
+async function verifyAndCleanupFixtures(value: ProductionFixtureManifest): Promise<boolean> {
+  let valid = true;
+  try {
+    await verifyOriginalRawHashes(value);
+    await verifyStagedRawHashes(value);
+  } catch (error) {
+    console.error('Production Chrome tests failed RAW immutability verification', error);
+    valid = false;
   }
-  process.exit(exitCode);
+  try {
+    await cleanupProductionFixtures(value);
+  } catch (error) {
+    console.error('Production Chrome fixture cleanup failed', error);
+    valid = false;
+  }
+  return valid;
+}
+
+function killActiveChildren(signal: NodeJS.Signals): void {
+  children.filter((child) => child.exitCode === null).forEach((child) => child.kill(signal));
+}
+
+async function terminateChildren(): Promise<void> {
+  killActiveChildren('SIGTERM');
+  const exited = Promise.allSettled(children.map((child) => child.exited));
+  const timedOut = await Promise.race([exited.then(() => false), Bun.sleep(5000).then(() => true)]);
+  if (timedOut) {
+    killActiveChildren('SIGKILL');
+    await exited;
+  }
+}
+
+async function finalExitCode(exitCode: number): Promise<number> {
+  if (!manifest) return exitCode;
+  return (await verifyAndCleanupFixtures(manifest)) ? exitCode : 1;
+}
+
+async function performStop(exitCode: number): Promise<never> {
+  await terminateChildren();
+  process.exit(await finalExitCode(exitCode));
+}
+
+function stop(exitCode: number): Promise<never> {
+  shutdown ??= performStop(exitCode);
+  return shutdown;
 }
 
 process.on('SIGINT', () => void stop(0));
@@ -112,6 +143,5 @@ try {
   await stop(1);
 } catch (error) {
   console.error(error);
-  if (manifest) await rm(manifest.root, { recursive: true, force: true });
   await stop(1);
 }
