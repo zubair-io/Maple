@@ -1,6 +1,7 @@
 use crate::error::Result;
 use crate::image::{ColorSpace, Image};
 use crate::pipeline::fp16::{f16_bits_to_f32, f32_to_f16_bits};
+use rayon::prelude::*;
 
 /// Composite synthetic-raw `patches` into an f32 RGBA scene-linear buffer at the
 /// pre-user-grade seam, returning a new f32 RGBA buffer (alpha = 1.0).
@@ -75,8 +76,12 @@ pub fn composite_into_fp16(
     let mut img = Image {
         width,
         height,
+        // Parallel endcaps (#1089 item 8), matching `apply_scene_linear_chain`:
+        // the fp16 converters are scalar software routines, so both directions
+        // are compute-bound. Pure element-wise maps, order-preserving, so the
+        // output is bit-identical to the serial loops.
         pixels: in_fp16_rgba
-            .chunks_exact(4)
+            .par_chunks_exact(4)
             .map(|c| {
                 [
                     f16_bits_to_f32(c[0]),
@@ -89,12 +94,14 @@ pub fn composite_into_fp16(
     };
     crate::stages::inpaint_composite::apply(&mut img, patches);
     let alpha_one = f32_to_f16_bits(1.0);
-    let mut out = Vec::with_capacity(expected_len);
-    for p in &img.pixels {
-        out.push(f32_to_f16_bits(p[0]));
-        out.push(f32_to_f16_bits(p[1]));
-        out.push(f32_to_f16_bits(p[2]));
-        out.push(alpha_one);
-    }
+    let mut out: Vec<u16> = vec![0; expected_len];
+    out.par_chunks_exact_mut(4)
+        .zip(img.pixels.par_iter())
+        .for_each(|(dst, p)| {
+            dst[0] = f32_to_f16_bits(p[0]);
+            dst[1] = f32_to_f16_bits(p[1]);
+            dst[2] = f32_to_f16_bits(p[2]);
+            dst[3] = alpha_one;
+        });
     Ok(out)
 }
