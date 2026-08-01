@@ -6,7 +6,7 @@
  *   MAPLE_MONGO_DB   — database name (default: maple)
  */
 
-import { MongoClient, type Db, type Collection, ServerApiVersion } from 'mongodb';
+import { MongoClient, MongoServerError, type Db, type Collection, ServerApiVersion } from 'mongodb';
 import { child as childLogger } from '../log.ts';
 import { searchBlobUpdateExpression } from '../enrichment/search-blob.ts';
 import {
@@ -1423,7 +1423,11 @@ export async function ensureIndexes(): Promise<void> {
   try {
     await users.dropIndex('email_1');
   } catch (err) {
-    if (!(err instanceof Error) || !/IndexNotFound|index not found/i.test(err.message)) throw err;
+    // A pristine database has no users collection yet, so MongoDB reports
+    // NamespaceNotFound rather than IndexNotFound for this legacy-index drop.
+    // Both mean the old index is already absent; every other database error
+    // must still abort initialization.
+    if (!(err instanceof MongoServerError) || (err.code !== 26 && err.code !== 27)) throw err;
   }
   await users.createIndex({ email: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
 
