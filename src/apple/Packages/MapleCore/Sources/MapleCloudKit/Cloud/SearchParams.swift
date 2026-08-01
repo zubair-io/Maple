@@ -186,12 +186,24 @@ public struct SearchParams: Sendable, Equatable, Hashable {
   }
 
   /// Query items for `/api/search` — base filters plus sort + pagination.
-  public func listQueryItems(page: Int, limit: Int) -> [URLQueryItem] {
-    var items = baseItems()
-    items.append(URLQueryItem(name: "sort", value: sort.rawValue))
-    items.append(URLQueryItem(name: "page", value: "\(page)"))
-    items.append(URLQueryItem(name: "limit", value: "\(limit)"))
-    return items
+  ///
+  /// `cursor` (#2129) is an opaque seek token from a previous response's
+  /// `nextCursor`. When set it *replaces* `page`: the server resumes with a
+  /// range predicate on `(exif.captured_at, _id)` rather than a SKIP, so
+  /// deep pages cost the same as shallow ones. Sending both would be
+  /// ambiguous, so only one ever goes on the wire.
+  public func listQueryItems(page: Int, limit: Int, cursor: String? = nil) -> [URLQueryItem] {
+    let paging: URLQueryItem = {
+      guard let cursor, !cursor.isEmpty else {
+        return URLQueryItem(name: "page", value: "\(page)")
+      }
+      return URLQueryItem(name: "cursor", value: cursor)
+    }()
+    return baseItems() + [
+      URLQueryItem(name: "sort", value: sort.rawValue),
+      paging,
+      URLQueryItem(name: "limit", value: "\(limit)"),
+    ]
   }
 
   /// Shared filter serialisation. Mirrors the web `paramsFrom()` skip
