@@ -4,9 +4,8 @@
      which brought this template from 29 cyclomatic / 44 cognitive down to
      20 / 31 — a real reduction, but not under the 20/15 gate on its own.
      What's left is BrowseShell's top-level layout branching: the
-     phone-drawer-vs-inline-sidebar toggle, the Self-Hosted-only toolbar
-     controls (view mode / search / settings), and the
-     loading/error/empty/populated body state machine — each branch reads
+     phone-drawer-vs-inline-sidebar toggle, projected app capabilities, and
+     the shared Hosted content fallback — each branch reads
      as one deliberate structural decision, not accidental nesting, and
      further splitting risks the kind of prop-drilling / indirection this
      shell (like timeline-view.component.html, asset-thumb.component.html,
@@ -48,80 +47,7 @@
       </button>
     }
 
-    <!-- View-mode segmented control (Self-Hosted only — Timeline depends on
-         the Mongo-side EXIF index that Hosted doesn't have). -->
-    @if (state.backend === 'self-hosted') {
-      <div
-        class="flex items-center h-8 rounded-md border-[0.5px] border-border bg-input-bg overflow-hidden"
-        role="group"
-        aria-label="View mode"
-      >
-        <button
-          type="button"
-          class="view-mode-btn flex h-full items-center gap-1.5 px-2.5 text-[11px] text-text-muted transition-colors duration-[120ms] hover:text-text-main"
-          [class.is-active]="state.viewMode() === 'folder'"
-          [attr.aria-pressed]="state.viewMode() === 'folder'"
-          title="Folder view"
-          (click)="state.setViewMode('folder')"
-        >
-          <maple-icon
-            name="grid-sm"
-            [size]="12"
-            [color]="
-              state.viewMode() === 'folder' ? 'var(--color-text-main)' : 'var(--color-text-muted)'
-            "
-          />
-          <span>Folder</span>
-        </button>
-        <button
-          type="button"
-          class="view-mode-btn flex h-full items-center gap-1.5 px-2.5 text-[11px] text-text-muted transition-colors duration-[120ms] hover:text-text-main"
-          [class.is-active]="state.viewMode() === 'timeline'"
-          [attr.aria-pressed]="state.viewMode() === 'timeline'"
-          title="Timeline view"
-          (click)="state.setViewMode('timeline')"
-        >
-          <maple-icon
-            name="history"
-            [size]="12"
-            [color]="
-              state.viewMode() === 'timeline' ? 'var(--color-text-main)' : 'var(--color-text-muted)'
-            "
-          />
-          <span>Timeline</span>
-        </button>
-      </div>
-    }
-
-    <!-- Search input (Self-Hosted only — Hosted has no server-side index) -->
-    @if (state.backend === 'self-hosted') {
-      <div
-        class="toolbar-search flex items-center gap-2 h-8 px-3 rounded-md bg-input-bg border-[0.5px] border-border focus-within:border-text-muted"
-      >
-        <maple-icon name="search" [size]="14" color="var(--color-text-muted)" />
-        <input
-          type="text"
-          placeholder="Filter filenames…"
-          aria-label="Filter filenames in current folder"
-          class="flex-1 min-w-0 border-0 outline-0 bg-transparent text-text-main text-[12px] py-0 placeholder:text-text-muted placeholder:opacity-70"
-          [value]="state.searchQuery()"
-          (input)="onSearchInput($event)"
-          (keydown.enter)="onSearchEnter()"
-        />
-      </div>
-    }
-
-    <!-- Settings (Self-Hosted only — Hosted has no server-side surfaces). -->
-    @if (state.backend === 'self-hosted') {
-      <a
-        class="chrome-btn flex h-8 w-8 items-center justify-center rounded-md border-[0.5px] border-transparent cursor-pointer transition-colors duration-[120ms] hover:bg-surface-hover hover:border-border"
-        routerLink="/settings"
-        title="Settings"
-        aria-label="Open settings"
-      >
-        <maple-icon name="gear" [size]="16" color="var(--color-text-muted)" />
-      </a>
-    }
+    <ng-content select="[browse-controls]" />
 
     <div class="flex-1"></div>
 
@@ -131,21 +57,18 @@
          either way, the child owns the collapse/kebab presentation. -->
     <app-toolbar-actions
       [collapsed]="layout() !== 'desktop'"
-      [selfHosted]="state.backend === 'self-hosted'"
-      [canEditMetadata]="canEditMetadata()"
-      [canMergePano]="canMergePano()"
       [canCopySettings]="canCopySettings()"
       [canPasteSettings]="canPasteSettings()"
       [canSyncSettings]="canSyncSettings()"
       [selectedCount]="state.selectedCount()"
       [isSelecting]="state.isSelecting()"
-      (editMetadata)="onEditMetadata()"
-      (mergePano)="onMergePano()"
       (copySettings)="onCopySettings()"
       (openPasteDialog)="onOpenPasteDialog()"
       (syncSettings)="onSyncSettings()"
       (toggleSelectMode)="state.toggleSelectMode()"
-    />
+    >
+      <ng-content select="[browse-server-actions]" />
+    </app-toolbar-actions>
   </div>
 
   <!-- Body -->
@@ -167,26 +90,12 @@
       </div>
     }
 
-    <!-- Center: asset grid (Folder mode) or timeline (Timeline mode) -->
+    <!-- Center: Hosted fallback or app-provided Browse content. -->
     <div class="flex-1 flex flex-col min-w-0">
-      @if (state.backend === 'self-hosted') {
-        @if (state.backendLoading()) {
-          <app-loading-banner label="Loading folders…" />
-        }
-        @if (state.backendError(); as err) {
-          <app-error-banner [message]="err" (retry)="onRetryLoad()" />
-        }
-        @if (state.backendEmpty() && !state.backendLoading() && !state.backendError()) {
-          <app-library-picker (pick)="state.addLibraryFolder($event)" />
-        }
-      } @else {
+      <ng-content select="[browse-content]">
         <app-drop-zone />
-      }
-      @if (state.backend === 'self-hosted' && state.viewMode() === 'timeline') {
-        <app-timeline-view />
-      } @else {
         <app-asset-grid />
-      }
+      </ng-content>
     </div>
   </div>
 </div>
@@ -198,27 +107,13 @@
   <app-source-picker-drawer
     [(isOpen)]="sourceDrawerOpen"
     [sourceTree]="state.sidebarTree()"
-    [showSearch]="state.backend === 'self-hosted'"
+    [showSearch]="showServerSearch()"
     (sourceSelected)="onDrawerSourceSelected($event)"
-    (searchPillTap)="onDrawerSearchPillTap()"
+    (searchPillTap)="serverSearchRequested.emit()"
   />
 }
 
 <app-library-picker-modal />
-
-<!-- Pano stitch dialog (#1231) -->
-<app-pano-dialog
-  [visible]="panoDialogVisible()"
-  [assetIds]="panoAssetIds()"
-  (dismiss)="onPanoDismiss()"
-/>
-
-<!-- Batch metadata panel (#1606) -->
-<app-batch-metadata-panel
-  [visible]="batchMetaDialogVisible()"
-  [assetSnapshots]="batchMetaAssetSnapshots()"
-  (dismiss)="onBatchMetaDismiss()"
-/>
 
 <!-- Selective paste dialog (#944) -->
 <app-paste-settings-dialog
