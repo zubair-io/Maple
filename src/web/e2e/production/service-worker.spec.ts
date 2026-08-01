@@ -256,11 +256,15 @@ test('Hosted service worker controls, caches, and reloads the welcome offline', 
   await context.setOffline(false);
 });
 
-test('Self Hosted controls its root and caches only thumbnail API responses', async ({
+test('Self Hosted artifact controls its root and caches only thumbnail API responses', async ({
   page,
   context,
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'chrome-self-hosted');
+  test.skip(
+    process.env.MAPLE_E2E_ARTIFACT_ONLY !== '1',
+    'Cache probes are fixtures for the built-artifact server only',
+  );
 
   await page.goto('/');
   await page.evaluate(() => navigator.serviceWorker.ready);
