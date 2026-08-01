@@ -26,7 +26,13 @@ export async function openSelfHostedFixture(
     data: { path, label },
   });
   expect(registration.status(), await registration.text()).toBe(201);
+  const { slug } = (await registration.json()) as { slug: string };
 
   await page.goto('/sign-in');
   await page.getByTestId('dev-sign-in').click();
+  await page.waitForURL((url) => url.pathname !== '/sign-in');
+  const library = page.getByTestId('source-sidebar').getByText(label, { exact: true });
+  await expect(library).toBeVisible();
+  await library.click();
+  await expect(page).toHaveURL(new RegExp(`/browse/${slug}(?:/|$)`));
 }

@@ -1,5 +1,5 @@
 import { join, resolve } from 'node:path';
-import { mkdir, readFile } from 'node:fs/promises';
+import { access, mkdir, readFile } from 'node:fs/promises';
 import {
   cleanupProductionFixtures,
   stageProductionFixtures,
@@ -16,6 +16,18 @@ const SELF_HOSTED_PORT = process.env.MAPLE_E2E_SELF_HOSTED_PORT ?? '4401';
 const children: Bun.Subprocess[] = [];
 let manifest: ProductionFixtureManifest | undefined;
 let shutdown: Promise<never> | null = null;
+
+async function requireRawFfi(): Promise<void> {
+  const filename = process.platform === 'darwin' ? 'libraw_ffi.dylib' : 'libraw_ffi.so';
+  const path = resolve(API_ROOT, 'native', filename);
+  try {
+    await access(path);
+  } catch {
+    throw new Error(
+      `Production Chrome tests require ${path}. Build it with src/api/scripts/build-raw-ffi.sh.`,
+    );
+  }
+}
 
 async function run(command: string[], env: Record<string, string | undefined> = {}): Promise<void> {
   const process = Bun.spawn(command, {
@@ -107,6 +119,7 @@ process.on('SIGINT', () => void stop(0));
 process.on('SIGTERM', () => void stop(0));
 
 try {
+  await requireRawFfi();
   manifest = await stageProductionFixtures();
   // Build the shared WASM once, then build both Angular surfaces directly.
   // The package prebuild hooks each rebuild WASM; running both would duplicate
