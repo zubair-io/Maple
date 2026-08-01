@@ -48,7 +48,13 @@
     </div>
 
     <div class="action-bar" role="toolbar" aria-label="Preview actions">
-      <button class="action-btn" aria-label="Flag" (click)="flagOpen.set(!flagOpen())">
+      <button
+        class="action-btn"
+        aria-label="Flag"
+        [attr.aria-expanded]="flagOpen()"
+        aria-controls="preview-flag-popover"
+        (click)="flagOpen.set(!flagOpen())"
+      >
         <maple-icon name="flag" [size]="18" /> <span>Flag</span>
       </button>
       <button class="action-btn action-btn--primary" aria-label="Edit" (click)="edit()">
@@ -65,7 +71,9 @@
     </div>
 
     @if (flagOpen()) {
-      <div class="flag-popover"><app-rating-flags-row [asset]="state.focusedAsset()" /></div>
+      <div id="preview-flag-popover" class="flag-popover">
+        <app-rating-flags-row [asset]="state.focusedAsset()" />
+      </div>
     }
   </div>
 
