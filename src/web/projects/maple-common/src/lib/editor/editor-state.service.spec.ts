@@ -460,6 +460,10 @@ describe('EditorStateService', () => {
       expect(adj.shadows).toBe(before.shadows);
       expect(adj.whites).toBe(before.whites);
       expect(adj.blacks).toBe(before.blacks);
+      expect(svc.autoResult()).toBe('Auto applied · Exposure +0.50 EV');
+
+      svc.bind('other-image');
+      expect(svc.autoResult()).toBeNull();
     });
 
     it('creates exactly ONE undo entry and has in-flight guards', async () => {
@@ -507,6 +511,17 @@ describe('EditorStateService', () => {
       pipeline.computeAutoAdjustments.mockRejectedValue(new Error('decode failed'));
       expect(await svc.applyAuto(ID)).toBe(false);
       expect(svc.autoInFlight()).toBe(false);
+      expect(svc.autoResult()).toBe('Auto could not be applied');
+
+      let rejectAnalysis!: (error: Error) => void;
+      pipeline.computeAutoAdjustments.mockReturnValue(
+        new Promise((_, reject) => (rejectAnalysis = reject)),
+      );
+      const staleRequest = svc.applyAuto(ID);
+      svc.bind('other-image');
+      rejectAnalysis(new Error('stale decode failed'));
+      expect(await staleRequest).toBe(false);
+      expect(svc.autoResult()).toBeNull();
 
       svc.imageId.set(null);
       expect(await svc.applyAuto(ID)).toBe(false);

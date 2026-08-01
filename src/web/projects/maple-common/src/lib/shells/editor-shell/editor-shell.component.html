@@ -55,6 +55,9 @@
       >
         AUTO
       </button>
+      <span class="auto-result" role="status" aria-live="polite">{{
+        editorState.autoResult() ?? ''
+      }}</span>
 
       <!-- RESET (#1370 M1) — every develop slider to its factory default, WB
            to camera As Shot, profile to Auto; crop/rotation untouched. -->
