@@ -28,4 +28,21 @@ describe('safeWriteAllowed', () => {
       data: join(realRoot, 'photo.xmp'),
     });
   });
+
+  test('denies every concurrent write while MAPLE_ROOTS normalization is in flight', async () => {
+    const fixture = await mkdtemp(join(tmpdir(), 'maple-root-concurrency-'));
+    temporaryRoots.push(fixture);
+    const allowedRoot = join(fixture, 'allowed');
+    const outsideRoot = join(fixture, 'outside');
+    await Promise.all([mkdir(allowedRoot), mkdir(outsideRoot)]);
+    process.env.MAPLE_ROOTS = allowedRoot;
+
+    const outcomes = await Promise.all(
+      Array.from({ length: 100 }, (_, index) =>
+        safeWriteAllowed(join(outsideRoot, `photo-${index}.xmp`)),
+      ),
+    );
+
+    expect(outcomes.every((outcome) => !outcome.ok)).toBe(true);
+  });
 });
