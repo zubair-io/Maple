@@ -22,8 +22,12 @@
 #
 # Path filter: the Hosted bundle is a function of `src/web/` and the Rust
 # core it compiles to WASM, so those two trees (plus this file) are what
-# warrant a redeploy. `src/api/` is intentionally absent — the web app
-# imports types from it, and types don't survive into emitted JS.
+# warrant a redeploy. `src/api/` is intentionally absent because `src/web/`
+# has no import path into it at all — the only alias in src/web/tsconfig.json
+# is `@maple-common`, and every reference to `src/api/src/...` in the web tree
+# is a prose "mirror of" comment over a hand-copied type. (web.yml's header
+# says the web app imports API types; that claim is stale. It doesn't matter
+# there, since web.yml deliberately runs with no path filter.)
 #
 # Not handled here, because they are account configuration rather than
 # repo state: the `maple-syrup` container must exist on `hornbeam` with SPA
@@ -112,16 +116,43 @@ jobs:
       # upload-batch adds and overwrites but never deletes, which is what a
       # hash-named SPA bundle wants: a client mid-session can still fetch the
       # chunks of the build it loaded.
+      #
+      # Deliberately no blanket `immutable` Cache-Control on this pass. Only
+      # the JS/CSS bundles carry a content hash (`outputHashing: all`);
+      # raw_wasm_bg.wasm, pkg/*.js, assets/** and the icons keep stable names
+      # across builds, so stamping the whole batch as immutable would pin
+      # clients to a stale WASM binary for the life of the max-age.
       - name: Upload to blob storage
         uses: azure/CLI@v2
         with:
           inlineScript: |
+            set -euo pipefail
+
             az storage blob upload-batch \
               --overwrite true \
               --account-name hornbeam \
               --auth-mode login \
               -d 'maple-syrup' \
               -s src/web/dist/maple-syrup/browser
+
+            # Re-stamp the files that gate version rollover. index.html names
+            # the current bundles and ngsw.json is the hash manifest the
+            # service worker diffs against, so a cached copy of either strands
+            # returning clients on the previous deploy until it expires —
+            # src/web/DEPLOY.md states the same rule for the nginx host.
+            # upload-batch infers Content-Type from the extension even when
+            # other content settings are passed, so these keep text/html,
+            # application/json and application/javascript respectively.
+            for pattern in 'index.html' 'ngsw*'; do
+              az storage blob upload-batch \
+                --overwrite true \
+                --account-name hornbeam \
+                --auth-mode login \
+                -d 'maple-syrup' \
+                -s src/web/dist/maple-syrup/browser \
+                --pattern "$pattern" \
+                --content-cache-control 'no-cache'
+            done
 
       - name: Azure Logout
         run: az logout
