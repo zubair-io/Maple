@@ -191,6 +191,7 @@
           type="button"
           class="tool-btn flex h-7 cursor-pointer items-center justify-center rounded px-3 font-sans text-[11px] text-text-muted bg-surface-alt border-[0.5px] border-border transition-colors duration-100 hover:bg-surface-hover hover:text-text-main"
           [attr.aria-label]="'Retry loading ' + err.filename"
+          (pointerdown)="$event.stopPropagation()"
           (click)="retryByteLoad()"
         >
           Retry
