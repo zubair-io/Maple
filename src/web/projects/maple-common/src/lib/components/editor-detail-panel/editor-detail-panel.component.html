@@ -5,7 +5,11 @@
       `flex-1 min-h-0` lets the panel fill the tab body and own its own
       scroll (matches the prior info-tab behaviour).
     -->
-    <app-info-panel class="flex-1 min-h-0" [asset]="state.focusedAsset()" />
+    <app-info-panel
+      class="flex-1 min-h-0"
+      [asset]="state.focusedAsset()"
+      [allowServerHistogramFallback]="false"
+    />
   } @else {
     <editor-develop-tab />
   }
