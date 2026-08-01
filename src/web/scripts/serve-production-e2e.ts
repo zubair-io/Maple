@@ -7,6 +7,7 @@ import {
   verifyStagedRawHashes,
   type ProductionFixtureManifest,
 } from '../e2e/support/production-fixtures';
+import { prepareHostedUpdateFixtures } from './production-update-fixtures';
 
 const WEB_ROOT = resolve(import.meta.dirname, '..');
 const API_ROOT = resolve(WEB_ROOT, '../api');
@@ -113,6 +114,7 @@ try {
   await run(['bun', 'run', 'raw-wasm'], { FORCE_WASM_REBUILD: '1' });
   await run(['bun', 'x', 'ng', 'build', 'maple-syrup', '--configuration', 'production']);
   await run(['bun', 'run', 'check:hosted-artifact']);
+  const hostedUpdate = await prepareHostedUpdateFixtures();
   await run(['bun', 'x', 'ng', 'build', 'maple', '--configuration', 'production']);
 
   const mongoUriFile = join(manifest.root, 'runtime', 'mongo-uri');
@@ -153,7 +155,8 @@ try {
     stderr: 'inherit',
     env: {
       ...process.env,
-      DIST: resolve(WEB_ROOT, 'dist/maple-syrup/browser'),
+      DIST: hostedUpdate.v1,
+      MAPLE_E2E_UPDATE_DIST: hostedUpdate.v2,
       PORT: HOSTED_PORT,
     },
   });
