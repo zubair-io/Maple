@@ -17,6 +17,7 @@ interface NgswAssetGroup {
 interface NgswManifest {
   readonly assetGroups: readonly NgswAssetGroup[];
   readonly dataGroups?: readonly unknown[];
+  readonly navigationUrls?: readonly { readonly positive: boolean; readonly regex: string }[];
 }
 
 interface WebManifest {
@@ -149,6 +150,12 @@ function verifyNoHostedDataCaches(manifest: NgswManifest): void {
   assertContract(
     !cachedResources.some((resource) => resource.replaceAll('\\', '').includes('/api')),
     'Hosted ngsw.json contains an API cache URL',
+  );
+  assertContract(
+    manifest.navigationUrls?.some(
+      (rule) => !rule.positive && new RegExp(rule.regex).test('/api/contract-probe'),
+    ),
+    'Hosted ngsw.json does not exclude /api navigation',
   );
 }
 
