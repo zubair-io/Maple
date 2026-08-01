@@ -35,6 +35,7 @@ test('production Browse exposes only the app-provided capability surface', async
   if (testInfo.project.name === 'chrome-hosted') {
     await expect(page.getByRole('button', { name: 'Open folder' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Add folder' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Timeline' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: /Import folder/ })).toHaveCount(0);
     await expect(viewMode).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Edit metadata' })).toHaveCount(0);
@@ -45,6 +46,9 @@ test('production Browse exposes only the app-provided capability surface', async
 
   await expect(viewMode).toBeVisible();
   await expect(page.getByRole('button', { name: 'Add folder' })).toBeVisible();
+  await expect(
+    page.getByTestId('source-sidebar').getByRole('button', { name: 'Timeline', exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Edit metadata' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Merge to panorama' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Open settings' })).toBeVisible();

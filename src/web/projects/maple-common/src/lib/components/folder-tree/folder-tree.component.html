@@ -2,42 +2,10 @@
   <span class="flex-1 text-[11px] font-semibold tracking-[0.04em] text-text-muted uppercase"
     >Library</span
   >
-  @if (state.backend === 'self-hosted') {
-    <button
-      class="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border-none bg-transparent p-0 text-[18px] leading-none text-text-muted transition-[background,color] duration-[120ms] hover:bg-bg-hover hover:text-text-main"
-      type="button"
-      title="Add a folder to your library"
-      (click)="state.openLibraryPicker()"
-      aria-label="Add folder"
-    >
-      +
-    </button>
-  }
 </div>
 
-<!-- Timeline section header — first-class, top-of-sidebar entry (Self-Hosted
-     only, same gate as the Timeline/Folder toolbar toggle: Timeline depends
-     on the server-side Mongo EXIF index that Hosted doesn't have). Clicking
-     it drives the same state.setViewMode('timeline') the toolbar toggle
-     uses, so the two controls can never disagree about the active mode. -->
-@if (state.backend === 'self-hosted') {
-  <!-- A real <button> (not a click-<div>) so the top-level Timeline nav
-       control is keyboard-focusable and announced by assistive tech; the
-       `flex` display + reset classes keep it visually identical to the
-       sibling tree rows. -->
-  <button
-    type="button"
-    class="section-bar tree-row mx-2 flex cursor-pointer appearance-none items-center gap-1.5 rounded-md border-none bg-transparent pl-2 pr-3 text-left text-text-muted"
-    [class.selected]="state.viewMode() === 'timeline'"
-    (click)="state.setViewMode('timeline')"
-  >
-    <maple-icon
-      name="history"
-      [size]="12"
-      [color]="state.viewMode() === 'timeline' ? 'var(--color-primary)' : 'var(--color-text-muted)'"
-    />
-    <span class="flex-1 text-[10px] font-semibold uppercase tracking-[0.06em]">Timeline</span>
-  </button>
+@if (extension; as extensionComponent) {
+  <ng-container *ngComponentOutlet="extensionComponent" />
 }
 
 @for (section of state.sidebarTree(); track section.id) {
