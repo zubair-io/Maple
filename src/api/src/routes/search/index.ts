@@ -13,7 +13,9 @@
  *   - `query.ts`   — query schema, `buildFilter`, `applyLiveFilter`, helpers
  *   - `sort.ts`    — `pickSort` for the list endpoint
  *   - `project.ts` — wire-shape projection (`AssetDoc` → `SearchResult`)
- *   - `list.ts`    — `GET /` (incl. Meilisearch fallback)
+ *   - `list.ts`    — `GET /`
+ *   - `list-meili.ts`  — the Meilisearch branch + its Mongo `$text` fallback
+ *   - `list-paging.ts` — skip-vs-seek mode resolution for `GET /`
  *   - `cursor.ts`  — seek pagination on `(exif.captured_at, _id)` (#2129)
  *   - `total-cache.ts` — 30s `total` count cache for `GET /`
  *   - `facets.ts`  — `GET /facets`

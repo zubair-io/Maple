@@ -109,6 +109,7 @@ const app = new Elysia().use(listRoute);
 interface PageBody {
   total: number;
   results: Array<{ filename: string }>;
+  cursorPaging: boolean;
   nextCursor: string | null;
   error?: string;
 }
@@ -201,6 +202,10 @@ describe('GET /api/search — seek pagination (#2129)', () => {
     const { body } = await fetchPage('sort=captured_desc&limit=100');
     expect(body.results.length).toBe(TOTAL_SEEDED);
     expect(body.nextCursor).toBeNull();
+    // `cursorPaging: true` alongside a null cursor is what tells the client
+    // the chain is *exhausted* rather than unavailable — without it a stale
+    // cached `total` sends the grid back to deep SKIP paging.
+    expect(body.cursorPaging).toBe(true);
   });
 
   it('keeps `total` unshrunk as the cursor advances', async () => {
@@ -244,6 +249,9 @@ describe('GET /api/search — sorts without a seek story (#2129)', () => {
       const { body } = await fetchPage(`sort=${sort}&limit=4`);
       expect(body.results.length).toBe(4);
       expect(body.nextCursor).toBeNull();
+      // `false` here means "not available", not "exhausted" — the client
+      // keeps paging with `page`.
+      expect(body.cursorPaging).toBe(false);
     }
   });
 

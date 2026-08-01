@@ -41,7 +41,7 @@ import {
   signal,
 } from '@angular/core';
 import { Subscription } from 'rxjs';
-import { SearchParams, SearchResult, SearchService } from '../api/search.service';
+import { SearchParams, SearchResult, SearchService, seekExhausted } from '../api/search.service';
 import { SearchBarComponent } from './search-bar.component';
 import { SearchScopeChipsComponent } from './search-scope-chips.component';
 import { TopHitsSectionComponent } from './top-hits-section.component';
@@ -211,8 +211,8 @@ export class SearchComponent implements OnInit, AfterViewInit {
         this.inFlight = this.searchService.search(params).subscribe({
           next: (res) => {
             this.results.set(res.results);
-            this.total.set(res.total);
             this.nextCursor.set(res.nextCursor ?? null);
+            this.total.set(seekExhausted(res) ? res.results.length : res.total);
             this.isStale.set(false);
           },
           error: () => {
@@ -318,9 +318,10 @@ export class SearchComponent implements OnInit, AfterViewInit {
     this.loadMoreSub?.unsubscribe();
     this.loadMoreSub = this.searchService.search(params).subscribe({
       next: (res) => {
-        this.results.update((prev) => [...prev, ...res.results]);
-        this.total.set(res.total);
+        const merged = [...this.results(), ...res.results];
+        this.results.set(merged);
         this.nextCursor.set(res.nextCursor ?? null);
+        this.total.set(seekExhausted(res) ? merged.length : res.total);
         // `page` is the skip-mode fallback counter — a seek request leaves
         // it alone rather than adopting the server's echoed `page: 0`.
         if (cursor === null) this.page.set(nextPage);

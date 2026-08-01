@@ -122,8 +122,8 @@ public final class SearchViewModel {
     if let cachedPage = pageCache[pageKey], let cachedFacets = facetCache[requested] {
       loadError = nil
       results = cachedPage.results
-      total = cachedPage.total
       nextCursor = cachedPage.nextCursor
+      total = cachedPage.seekExhausted ? cachedPage.results.count : cachedPage.total
       facets = cachedFacets
       return
     }
@@ -143,8 +143,12 @@ public final class SearchViewModel {
       guard g == generation else { return }
       pageCache[pageKey] = resp
       results = resp.results
-      total = resp.total
       nextCursor = resp.nextCursor
+      // An exhausted seek chain means the rows we hold ARE the result set —
+      // see `SearchResponse.seekExhausted`. Believing a stale cached `total`
+      // instead would keep `canLoadMore` true and drop `loadMore()` back to
+      // deep page-based SKIP pagination.
+      total = resp.seekExhausted ? resp.results.count : resp.total
       if let facetsResult {
         facetCache[requested] = facetsResult
         facets = facetsResult
@@ -197,8 +201,8 @@ public final class SearchViewModel {
       guard g == generation else { return }
       page = next
       results.append(contentsOf: cached.results)
-      total = cached.total
       nextCursor = cached.nextCursor
+      total = cached.seekExhausted ? results.count : cached.total
       return
     }
 
@@ -208,8 +212,8 @@ public final class SearchViewModel {
       pageCache[pageKey] = resp
       page = next
       results.append(contentsOf: resp.results)
-      total = resp.total
       nextCursor = resp.nextCursor
+      total = resp.seekExhausted ? results.count : resp.total
     } catch {
       if Self.isCancellation(error) { return }
       guard g == generation else { return }
