@@ -2,22 +2,24 @@
 // Ported from _design-reference/lib/tree.jsx MapleFileTree / FolderNode / TreeSection.
 
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
-import { NgTemplateOutlet, DecimalPipe } from '@angular/common';
+import { DecimalPipe, NgComponentOutlet, NgTemplateOutlet } from '@angular/common';
 import { LibraryStateService } from '../../state/library-state.service';
 import { MapleIconComponent, MapleIconName } from '../../icons/maple-icon.component';
 import { SidebarEntry } from '../../models/folder';
 import { selectSidebarEntry } from '../../shells/browse-shell/source-selection';
+import { FOLDER_TREE_EXTENSION } from './folder-tree-extension';
 
 @Component({
   selector: 'app-folder-tree',
   standalone: true,
-  imports: [MapleIconComponent, NgTemplateOutlet, DecimalPipe],
+  imports: [MapleIconComponent, NgComponentOutlet, NgTemplateOutlet, DecimalPipe],
   styleUrl: './folder-tree.component.scss',
   templateUrl: './folder-tree.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FolderTreeComponent {
   state = inject(LibraryStateService);
+  protected readonly extension = inject(FOLDER_TREE_EXTENSION);
 
   isFolderOpen(node: SidebarEntry): boolean {
     const map = this.state.folderOpen();

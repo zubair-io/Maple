@@ -1,0 +1,15 @@
+:host {
+  display: block;
+  position: relative;
+}
+
+.tree-row:hover:not(.selected) {
+  background: var(--color-bg-hover);
+  color: var(--color-text-main);
+}
+
+.tree-row.selected {
+  background: var(--color-primary-dim);
+  color: var(--color-primary);
+  font-weight: 500;
+}
