@@ -3,7 +3,7 @@ import type { AssetId } from '../models/asset';
 import { LibraryStore } from '../state/library-store.service';
 import { XmpParserService } from './xmp-parser.service';
 import { XmpStoreService } from './xmp-store.service';
-import { rdfDescriptions } from './xmp-dom-utils';
+import { hasXmlParseError, rdfDescriptions } from './xmp-dom-utils';
 
 export type SingleFileXmpDurability = 'none' | 'paired' | 'downloaded';
 
@@ -21,7 +21,7 @@ const EMPTY_STATUS: SingleFileXmpStatus = {
 
 export function assertValidSingleFileXmp(xmp: string): void {
   const document = new DOMParser().parseFromString(xmp, 'text/xml');
-  if (document.querySelector('parseerror') || rdfDescriptions(document).length === 0) {
+  if (hasXmlParseError(document) || rdfDescriptions(document).length === 0) {
     throw new Error('The paired XMP is not a valid sidecar.');
   }
 }

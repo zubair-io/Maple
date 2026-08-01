@@ -287,6 +287,25 @@ describe('MapleCacheService — unedited-preview cache (#2010, canonical <dir>/.
     expect((await svc.readPreview(folder(), '', 'shared.dng', source))?.type).toBe('image/jpeg');
   });
 
+  it('keeps a valid described artifact when a newer canonical AVIF is corrupt', async () => {
+    await svc.writePreview(folder(), '', 'shared.dng', webp(), source);
+    const webpPath = '.maple/previews/shared.dng.webp';
+    const avifPath = '.maple/previews/shared.dng.avif';
+    files.set(avifPath, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
+    modified.set(avifPath, (modified.get(webpPath) ?? 0) + 1);
+
+    const result = await svc.readPreview(folder(), '', 'shared.dng', source);
+
+    expect(result?.type).toBe('image/webp');
+  });
+
+  it('fails closed when the described artifact is corrupt', async () => {
+    await svc.writePreview(folder(), '', 'described-corrupt.dng', png(), source);
+    files.set('.maple/previews/described-corrupt.dng.png', new Uint8Array([0xff, 0xd8]));
+
+    expect(await svc.readPreview(folder(), '', 'described-corrupt.dng', source)).toBeNull();
+  });
+
   it('readPreview returns null when nothing is cached', async () => {
     expect(
       await svc.readPreview(folder(), '2024', 'missing.dng', { size: 1, lastModified: 1 }),

@@ -43,6 +43,12 @@ export function rdfDescriptions(document: Document): Element[] {
   );
 }
 
+/** Browser-independent DOMParser failure detection (`parsererror` / `parseerror`). */
+export function hasXmlParseError(document: Document): boolean {
+  const name = document.documentElement?.localName.toLowerCase();
+  return name === 'parsererror' || name === 'parseerror';
+}
+
 /** Prefer the description carrying modeled XMP data, regardless of RDF sibling order. */
 export function primaryXmpDescription(document: Document): Element | null {
   const descriptions = rdfDescriptions(document);
