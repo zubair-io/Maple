@@ -7,6 +7,7 @@ import { openHostedFolder, openHostedFolderEditor } from '../support/production-
 import { HOSTED_SECURITY_HEADERS } from '../../scripts/hosted-security-header-contract';
 
 type CacheFormatMatcher = (bytes: Buffer) => boolean;
+const XMP_DISPATCH_BUDGET_MS = 250;
 
 const asciiAt = (bytes: Buffer, offset: number, expected: string): boolean =>
   bytes.subarray(offset, offset + expected.length).toString('ascii') === expected;
@@ -278,7 +279,39 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
   // 8-bit JPEG bytes. Keep that real key event as the wrong-asset routing
   // regression, then make a separate visible pointer edit whose developed
   // cache must differ from the embedded preview.
+  const commitActionStartedAt = Date.now();
   await exposure.press('ArrowRight');
+  await expect
+    .poll(
+      () =>
+        picker.operations.find(({ kind, path }) => kind === 'write' && path === 'test_0006.xmp')
+          ?.at ?? null,
+    )
+    .not.toBeNull();
+  const firstXmpWrite = picker.operations.find(
+    ({ kind, path }) => kind === 'write' && path === 'test_0006.xmp',
+  );
+  expect(firstXmpWrite).toBeDefined();
+  const xmpDispatchMs = firstXmpWrite!.at - commitActionStartedAt;
+  const xmpDispatchEvidence = {
+    action: 'Exposure ArrowRight commit',
+    path: firstXmpWrite!.path,
+    xmpDispatchMs,
+    budgetMs: XMP_DISPATCH_BUDGET_MS,
+  };
+  console.info(`[hosted-xmp-dispatch] ${JSON.stringify(xmpDispatchEvidence)}`);
+  await testInfo.attach('hosted-xmp-dispatch-timing.json', {
+    body: Buffer.from(JSON.stringify(xmpDispatchEvidence, null, 2)),
+    contentType: 'application/json',
+  });
+  expect(
+    xmpDispatchMs,
+    'the first real sibling-XMP write must dispatch within 250 ms',
+  ).toBeGreaterThanOrEqual(0);
+  expect(
+    xmpDispatchMs,
+    'the first real sibling-XMP write must dispatch within 250 ms',
+  ).toBeLessThanOrEqual(XMP_DISPATCH_BUDGET_MS);
   await expect(exposure).not.toHaveAttribute('aria-valuenow', '0');
   const exposureBox = await exposure.boundingBox();
   expect(exposureBox).not.toBeNull();
