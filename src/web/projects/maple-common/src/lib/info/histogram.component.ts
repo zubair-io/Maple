@@ -53,6 +53,16 @@ export class InfoHistogramComponent {
 
   readonly asset = input<Asset | null>(null);
 
+  /** Whether this surface may ask Self Hosted for a decoded histogram.
+   * Browse/Preview enable the fallback; Editor disables it because its live
+   * canvas pixels are the current, adjustment-aware source of truth. */
+  readonly allowServerFallback = input<boolean>(true);
+
+  /** Stable request identity. Asset records are enriched by replacement while
+   * Preview is open; depending on the full object would cancel and restart the
+   * same expensive native histogram request. */
+  private readonly assetId = computed(() => this.asset()?.id ?? null);
+
   /** Server-computed histogram (fallback), or null when not yet loaded /
    *  failed / no asset. The live local path below takes precedence. */
   readonly histogram = signal<ApiHistogram | null>(null);
@@ -85,16 +95,16 @@ export class InfoHistogramComponent {
   });
 
   constructor() {
-    // Refetch whenever the bound asset changes. The reactive read inside
-    // the `effect` re-binds the signal automatically. The `untracked`
-    // boundary isn't needed here — we WANT to refetch when the asset
-    // changes, and the request lifecycle is contained in the subscribe.
+    // Refetch only when the logical asset ID changes. Preview enriches its
+    // Asset record by object replacement, which must not restart this native
+    // request for the same file.
     effect((onCleanup) => {
-      const a = this.asset();
+      const assetId = this.assetId();
+      const allowServerFallback = this.allowServerFallback();
       this.histogram.set(null);
-      if (!a?.id || !this.serverIo) return;
+      if (!allowServerFallback || !assetId || !this.serverIo) return;
       const sub = this.serverIo
-        .getHistogram(a.id)
+        .getHistogram(assetId)
         .pipe(
           catchError(() => {
             // Network / 4xx / 5xx — fall back to the placeholder. The
