@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { planAndPlace, finalize, revertCreated, SourceMissingError } from './restructure-fs.ts';
+import { conflictCopyPath } from '../../fs/xmp.ts';
 
 let root: string;
 
@@ -103,6 +104,53 @@ describe('planAndPlace — crash-safe ordering', () => {
     // Still photo untouched at the old dir.
     expect(await exists('2024/Tokyo/03-15/IMG_1.HEIC')).toBe(true);
     expect(await exists('2024/Tokyo/03-15/IMG_1.xmp')).toBe(true);
+  });
+
+  test('a video conflict-copy sidecar round-trips: written by conflictCopyPath, picked up as a companion (#2481)', async () => {
+    const movAbs = await write('2024/Tokyo/03-15/CLIP.MOV', 'frames');
+    await write('2024/Tokyo/03-15/CLIP.MOV.xmp', 'canonical-edits');
+    // Use the real writer so the test fails if it ever regresses to stem-swap naming.
+    const conflictAbs = conflictCopyPath(movAbs, 'MacBook');
+    await fs.writeFile(conflictAbs, 'conflict-edits');
+    expect(path.basename(conflictAbs)).toBe('CLIP.MOV (conflict from MacBook).xmp');
+
+    const plan = await planAndPlace({
+      libRoot: root,
+      oldDir: '2024/Tokyo/03-15',
+      filename: 'CLIP.MOV',
+      newDir: '2024/Tokyo',
+      renderedRelOld: null,
+    });
+
+    expect(await exists('2024/Tokyo/CLIP.MOV')).toBe(true);
+    expect(await exists('2024/Tokyo/CLIP.MOV.xmp')).toBe(true);
+    expect(await exists('2024/Tokyo/CLIP.MOV (conflict from MacBook).xmp')).toBe(true);
+    expect(await read('2024/Tokyo/CLIP.MOV (conflict from MacBook).xmp')).toBe('conflict-edits');
+    // Source conflict copy is scheduled for deletion, not stranded.
+    expect(plan.sourcesToDelete).toContain(conflictAbs);
+  });
+
+  test('a video conflict-copy sidecar is not stolen by a same-stem photo relocation (Live Photo pairing safety, #2481)', async () => {
+    await write('2024/Tokyo/03-15/IMG_1.HEIC', 'still-pixels');
+    await write('2024/Tokyo/03-15/IMG_1.xmp', 'still-edits');
+    const movAbs = await write('2024/Tokyo/03-15/IMG_1.MOV', 'clip-frames');
+    const conflictAbs = conflictCopyPath(movAbs, 'MacBook');
+    await fs.writeFile(conflictAbs, 'clip-conflict-edits');
+
+    const plan = await planAndPlace({
+      libRoot: root,
+      oldDir: '2024/Tokyo/03-15',
+      filename: 'IMG_1.HEIC',
+      newDir: '2024/Tokyo',
+      renderedRelOld: null,
+    });
+
+    expect(await exists('2024/Tokyo/IMG_1.HEIC')).toBe(true);
+    expect(await exists('2024/Tokyo/IMG_1.xmp')).toBe(true);
+    // The video's conflict copy must stay put — it belongs to IMG_1.MOV, not IMG_1.HEIC.
+    expect(plan.sourcesToDelete).not.toContain(conflictAbs);
+    expect(await exists('2024/Tokyo/03-15/IMG_1 (conflict from MacBook).xmp')).toBe(false);
+    expect(await read(path.relative(root, conflictAbs))).toBe('clip-conflict-edits');
   });
 
   test('rendered companion travels and reports its new rel path', async () => {
