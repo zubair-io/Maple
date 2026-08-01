@@ -80,21 +80,12 @@ public actor PhotoKitSource {
         } catch {
             throw PhotoKitSourceError.sidecarRootUnavailable(error)
         }
-        // Subscribe to library-change notifications so a photo added in
-        // another app invalidates our cached snapshot. The handler runs on
-        // a PhotoKit-private thread; we hop to the actor with `Task`.
-        // Only once the user has actually opted in: subscribing registers a
-        // `PHPhotoLibraryChangeObserver`, and registering one while
-        // authorization is `.notDetermined` IS an authorization request —
-        // it raises the system permission dialog (#2454). A source built
-        // before the user has decided stays unsubscribed; there is nothing
-        // to invalidate until it can fetch anyway.
-        let token = PhotoKitSource.subscribeToChangesIfAuthorized { [weak self] in
-            guard let self else { return }
-            Task { await self.invalidateSnapshot() }
-        }
-        // `actor` init can write to `self` directly without an async hop.
-        self.changeObserverToken = token
+        // Subscription happens at fetch time (`ensureObserving`), not here.
+        // Registering a `PHPhotoLibraryChangeObserver` while authorization is
+        // `.notDetermined` IS an authorization request (#2454), and gating in
+        // `init` alone would leave a source built before the grant permanently
+        // unsubscribed — silently serving a stale snapshot for the rest of the
+        // session, since iOS doesn't relaunch on an in-place grant.
     }
 
     /// Test-only initialiser that injects an explicit sidecar store so a unit
@@ -102,17 +93,7 @@ public actor PhotoKitSource {
     /// touching the user's real Application Support folder.
     internal init(sidecarOverride: AppSupportSidecarStore) {
         self.sidecarStore = sidecarOverride
-        // Only once the user has actually opted in: subscribing registers a
-        // `PHPhotoLibraryChangeObserver`, and registering one while
-        // authorization is `.notDetermined` IS an authorization request —
-        // it raises the system permission dialog (#2454). A source built
-        // before the user has decided stays unsubscribed; there is nothing
-        // to invalidate until it can fetch anyway.
-        let token = PhotoKitSource.subscribeToChangesIfAuthorized { [weak self] in
-            guard let self else { return }
-            Task { await self.invalidateSnapshot() }
-        }
-        self.changeObserverToken = token
+        // Subscription deferred to fetch time — see the designated init.
     }
 
     deinit {
@@ -121,16 +102,19 @@ public actor PhotoKitSource {
         }
     }
 
-    /// Subscribe to library changes only when PhotoKit access has already
-    /// been granted, returning `nil` otherwise. See the call sites in `init`
-    /// for why the gate exists (#2454): observer registration is itself an
-    /// authorization request.
-    private static func subscribeToChangesIfAuthorized(
-        _ handler: @escaping @Sendable () -> Void
-    ) -> UUID? {
+    /// Subscribe to library changes on first fetch, once access is in hand.
+    /// Idempotent. Deferred out of `init` because observer registration is
+    /// itself an authorization request while `.notDetermined` (#2454), and
+    /// because a source constructed before the grant must still start
+    /// observing once it is actually used afterwards.
+    private func ensureObserving() {
+        guard changeObserverToken == nil else { return }
         let status = PhotoKitLibrary.authorizationStatus()
-        guard status == .authorized || status == .limited else { return nil }
-        return PhotoKitChangeObserver.shared.subscribe(handler)
+        guard status == .authorized || status == .limited else { return }
+        changeObserverToken = PhotoKitChangeObserver.shared.subscribe { [weak self] in
+            guard let self else { return }
+            Task { await self.invalidateSnapshot() }
+        }
     }
 
     /// Drop the cached fetch result so the next `images()` call re-queries.
@@ -157,6 +141,8 @@ public actor PhotoKitSource {
     /// Returns as soon as PhotoKit has run the predicate — no iteration
     /// of the result.
     public func fetchAssets(for filter: PhotoKitFilter) async throws {
+        // Start observing now if we couldn't at init (see `ensureObserving`).
+        ensureObserving()
         let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         authStatus = status
         guard status == .authorized || status == .limited else {
