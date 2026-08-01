@@ -82,12 +82,12 @@ export function markMirrorUnhealthy(mirrorRoot: string): void {
 }
 
 /** Clear a bench after a successful read from that root. */
-export function markMirrorHealthy(mirrorRoot: string): void {
+function markMirrorHealthy(mirrorRoot: string): void {
   _benchedUntil.delete(mirrorRoot);
 }
 
 /** True when reads may be routed to this mirror root. */
-export function isMirrorHealthy(mirrorRoot: string): boolean {
+function isMirrorHealthy(mirrorRoot: string): boolean {
   const until = _benchedUntil.get(mirrorRoot);
   if (until === undefined) return true;
   if (Date.now() >= until) {
