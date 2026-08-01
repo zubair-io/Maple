@@ -30,6 +30,7 @@
 
 import type { AdjustmentModel, ToneCurve, ToneCurvePoint } from '../models/adjustment-model';
 import { numericSerializer } from './xmp-fields';
+import { managedXmpName } from './xmp-dom-utils';
 
 /** Model keys of the four point curves, in canonical emit order. */
 export type ToneCurveKey = 'toneCurveLuma' | 'toneCurveRed' | 'toneCurveGreen' | 'toneCurveBlue';
@@ -55,9 +56,8 @@ const WIRE_SCALE = 255;
  * `dc:subject` / metadata passthrough exclusions already use.
  */
 export function toneCurveElementKey(child: Element): ToneCurveKey | undefined {
-  return TONE_CURVE_ELEMENTS.find(
-    (e) => child.tagName === e.tag || child.localName === e.tag.split(':')[1],
-  )?.modelKey;
+  const name = managedXmpName(child);
+  return TONE_CURVE_ELEMENTS.find((element) => name === element.tag)?.modelKey;
 }
 
 /**
