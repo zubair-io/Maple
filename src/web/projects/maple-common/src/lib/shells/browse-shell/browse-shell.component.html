@@ -37,6 +37,7 @@
         class="chrome-btn flex h-8 w-8 items-center justify-center rounded-md border-[0.5px] border-transparent bg-transparent cursor-pointer transition-colors duration-[120ms] hover:bg-surface-hover hover:border-border"
         [class.is-active]="state.sidebarVisible()"
         [title]="(state.sidebarVisible() ? 'Hide' : 'Show') + ' sidebar  ⌥⌘S'"
+        [attr.aria-label]="(state.sidebarVisible() ? 'Hide' : 'Show') + ' sidebar'"
         (click)="state.toggleSidebar()"
       >
         <maple-icon
@@ -112,8 +113,6 @@
     (searchPillTap)="serverSearchRequested.emit()"
   />
 }
-
-<app-library-picker-modal />
 
 <!-- Selective paste dialog (#944) -->
 <app-paste-settings-dialog
