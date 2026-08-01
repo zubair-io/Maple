@@ -39,6 +39,7 @@ import { BrowsePreferencesService } from './browse-preferences.service';
 import { isSupportedRaw } from './raw-extensions';
 import { TypedStorage } from '../util/typed-storage';
 import { SidecarSaveStateService } from '../xmp/sidecar-save-state.service';
+import { XmpAdjustmentRestoreService } from '../xmp/xmp-adjustment-restore.service';
 
 const ASSET_RENDER_KEYS: readonly (keyof Asset)[] = [
   'id',
@@ -99,6 +100,7 @@ export class LibraryFetch {
   private readonly prefs = inject(BrowsePreferencesService);
   private readonly folderCache = inject(FOLDER_LISTING_CACHE);
   private readonly sidecarSave = inject(SidecarSaveStateService);
+  private readonly xmpRestore = inject(XmpAdjustmentRestoreService);
 
   // ── Index write debounce ──────────────────────────────────────────────────
   private _indexWriteTimer: ReturnType<typeof setTimeout> | null = null;
@@ -115,11 +117,10 @@ export class LibraryFetch {
   // ── Self-Hosted XMP write debounce ────────────────────────────────────────
   private readonly API_XMP_DEBOUNCE_MS = 200;
   private readonly _apiXmpTimers = new Map<AssetId, ReturnType<typeof setTimeout>>();
-  private readonly _apiXmpPending = new Map<
-    AssetId,
-    { model: AdjustmentModel; culling: XmpCulling; revision: number }
-  >();
+  private readonly _apiXmpPending = new Map<AssetId, { culling: XmpCulling; revision: number }>();
   private readonly _apiXmpInFlight = new Map<AssetId, Promise<void>>();
+  /** User-authored adjustment fields layered over the persisted sidecar base. */
+  private readonly _apiAdjustmentPatches = new Map<AssetId, Partial<AdjustmentModel>>();
 
   constructor() {
     // Debounced index write: re-fires 500ms after the last culling change.
@@ -969,13 +970,50 @@ export class LibraryFetch {
     return id;
   }
 
+  /**
+   * Enter Hosted's single-file workspace with exactly one imported asset.
+   * Clears a previous folder handle before selection so sidecar scheduling can
+   * never target an unrelated folder, and replaces prior standalone imports so
+   * the editor cannot grow a filmstrip across separate single-file sessions.
+   */
+  enterSingleFileWorkspace(
+    bytes: Uint8Array,
+    filename: string,
+    explicitId?: AssetId,
+    memoryOnly = false,
+  ): AssetId {
+    const importedIds = new Set(
+      this.store
+        .assets()
+        .filter((asset) => asset.folderId === 'f-imported')
+        .map((asset) => asset.id),
+    );
+    this.store.currentFolder.set(null);
+    this.store.singleFileMemoryOnly.set(memoryOnly);
+    this.store.folderIndex = null;
+    this.store.assets.update((assets) => assets.filter((asset) => asset.folderId !== 'f-imported'));
+    if (importedIds.size > 0) {
+      for (const id of importedIds) this.cache_.evictImportedAsset(id);
+      this.store.adjustmentModels.update((models) => {
+        const next = new Map(models);
+        for (const id of importedIds) next.delete(id);
+        return next;
+      });
+    }
+
+    const id = this.addImportedAsset(bytes, filename, explicitId);
+    this.selection.selectedSourceId.set('f-imported');
+    this.selection.selectAsset(id);
+    return id;
+  }
+
   // ── Sidecar write helpers ──────────────────────────────────────────────────
 
   /**
    * Schedule a debounced XMP sidecar write for `id`.
    * Does nothing if there is no writable folder or asset.
    */
-  scheduleSidecarWrite(id: AssetId): void {
+  scheduleSidecarWrite(id: AssetId, adjustmentPatch?: Partial<AdjustmentModel>): void {
     const asset = this.store.findAsset(id);
     if (!asset) return;
 
@@ -995,7 +1033,13 @@ export class LibraryFetch {
     };
 
     if (this.store.backend === 'self-hosted') {
-      this._scheduleApiXmpWrite(id, fullModel, culling);
+      if (adjustmentPatch) {
+        this._apiAdjustmentPatches.set(id, {
+          ...this._apiAdjustmentPatches.get(id),
+          ...adjustmentPatch,
+        });
+      }
+      this._scheduleApiXmpWrite(id, culling);
       return;
     }
 
@@ -1004,7 +1048,7 @@ export class LibraryFetch {
     this.xmpStore.scheduleWrite(id, folder, asset.filename, fullModel, culling);
   }
 
-  private _scheduleApiXmpWrite(id: AssetId, model: AdjustmentModel, culling: XmpCulling): void {
+  private _scheduleApiXmpWrite(id: AssetId, culling: XmpCulling): void {
     // Gate on a resolvable source path — no path, no XMP target. `absPathFor`
     // resolves post-M2 `slug:relPath` addresses through the registered
     // library roots; the raw `assetAbsPaths` map only ever held legacy
@@ -1017,7 +1061,7 @@ export class LibraryFetch {
     }
 
     const revision = this.sidecarSave.queued(id);
-    this._apiXmpPending.set(id, { model, culling, revision });
+    this._apiXmpPending.set(id, { culling, revision });
 
     const existing = this._apiXmpTimers.get(id);
     if (existing) clearTimeout(existing);
@@ -1040,8 +1084,6 @@ export class LibraryFetch {
     // namespace attributes (Lightroom-specific tags, vendor extensions,
     // custom workflow metadata, etc.) survive a Maple edit cycle — matching
     // the Hosted path's round-trip guarantees.
-    const passthrough = this.xmpStore.passthroughFor(id);
-    const xml = this.xmpSerializer.serialize(pending.model, passthrough, pending.culling);
     // Route through SidecarStore so the in-memory + IDB caches reflect the
     // optimistic write and roll back coherently on a failed POST. The store's
     // `write()` returns a Promise that rejects on network failure; we log
@@ -1053,8 +1095,20 @@ export class LibraryFetch {
     const prior = this._apiXmpInFlight.get(id) ?? Promise.resolve();
     const write = prior
       .catch(() => undefined)
-      .then(() => {
+      .then(async () => {
         this.sidecarSave.saving(id, pending.revision);
+        const persisted = await this.xmpRestore.loadForWrite(id);
+        const model = this.store.mergePersistedAdjustment(
+          id,
+          persisted?.model ?? {},
+          this._apiAdjustmentPatches.get(id) ?? {},
+        );
+        const culling = this.store.mergePersistedCulling(id, persisted?.culling ?? pending.culling);
+        const xml = this.xmpSerializer.serialize(
+          model,
+          persisted?.passthrough ?? this.xmpStore.passthroughFor(id),
+          culling,
+        );
         return this.sidecarStore.write(absPath, xml);
       })
       .then(() => this.sidecarSave.saved(id, pending.revision))

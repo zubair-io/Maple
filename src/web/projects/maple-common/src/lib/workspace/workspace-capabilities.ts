@@ -1,6 +1,11 @@
 import { InjectionToken } from '@angular/core';
 
-export type WorkspaceMode = 'hosted-single-file' | 'hosted-writable-folder' | 'self-hosted';
+export type HostedWorkspaceLocation = 'single-file' | 'read-only-folder' | 'writable-folder';
+export type WorkspaceMode =
+  | 'hosted-single-file'
+  | 'hosted-read-only-folder'
+  | 'hosted-writable-folder'
+  | 'self-hosted';
 
 export interface WorkspaceCapabilities {
   readonly mode: WorkspaceMode;
@@ -10,7 +15,7 @@ export interface WorkspaceCapabilities {
 }
 
 export interface WorkspaceCapabilityPolicy {
-  resolve(writableFolder: boolean): WorkspaceCapabilities;
+  resolve(location: HostedWorkspaceLocation): WorkspaceCapabilities;
 }
 
 const HOSTED_SINGLE_FILE: WorkspaceCapabilities = Object.freeze({
@@ -27,6 +32,13 @@ const HOSTED_WRITABLE_FOLDER: WorkspaceCapabilities = Object.freeze({
   serverBacked: false,
 });
 
+const HOSTED_READ_ONLY_FOLDER: WorkspaceCapabilities = Object.freeze({
+  mode: 'hosted-read-only-folder',
+  xmpSave: 'download',
+  mapleCacheWrite: false,
+  serverBacked: false,
+});
+
 const SELF_HOSTED: WorkspaceCapabilities = Object.freeze({
   mode: 'self-hosted',
   xmpSave: 'sibling',
@@ -35,8 +47,11 @@ const SELF_HOSTED: WorkspaceCapabilities = Object.freeze({
 });
 
 export const HOSTED_WORKSPACE_POLICY: WorkspaceCapabilityPolicy = Object.freeze({
-  resolve: (writableFolder: boolean) =>
-    writableFolder ? HOSTED_WRITABLE_FOLDER : HOSTED_SINGLE_FILE,
+  resolve: (location: HostedWorkspaceLocation) => {
+    if (location === 'writable-folder') return HOSTED_WRITABLE_FOLDER;
+    if (location === 'read-only-folder') return HOSTED_READ_ONLY_FOLDER;
+    return HOSTED_SINGLE_FILE;
+  },
 });
 
 export const SELF_HOSTED_WORKSPACE_POLICY: WorkspaceCapabilityPolicy = Object.freeze({

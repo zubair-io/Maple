@@ -89,7 +89,7 @@ export class SidecarStore {
     const previousIdb = previousMem ? null : await this.cache.get(path).catch(() => null);
 
     // 1. Optimistic in-memory + IDB write.
-    this._ingest(path, xml, /* persist */ true);
+    await this._ingest(path, xml, /* persist */ true);
     try {
       // 2. Network. Only relevant on Self-Hosted; Hosted callers should keep
       //    using XmpStoreService.scheduleWrite (the FS Access debounced path).
@@ -135,14 +135,14 @@ export class SidecarStore {
 
   // ── Internals ────────────────────────────────────────────────────────────
 
-  private _ingest(path: string, xml: string, persist: boolean): void {
+  private async _ingest(path: string, xml: string, persist: boolean): Promise<void> {
     try {
       const { model, passthrough } = this.parser.parseAdjustmentModel(xml);
       const culling = this.parser.parseCulling(xml);
       const doc: SidecarDoc = { path, model, culling, passthrough, xml };
       this._docs.update((m) => new Map(m).set(path, doc));
       if (persist) {
-        void this.cache.put(path, xml).catch((err) => {
+        await this.cache.put(path, xml).catch((err) => {
           console.warn('SidecarStore: IDB write failed', err);
         });
       }

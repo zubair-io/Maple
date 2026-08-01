@@ -15,11 +15,23 @@ export class SingleFileSaveNoticeComponent {
   private readonly capabilities = inject(WORKSPACE_CAPABILITIES, { optional: true });
   private readonly exporter = inject(ImageExportService);
 
-  readonly visible = computed(
-    () =>
-      this.capabilities?.resolve(this.state.currentFolder?.()?.write === true).mode ===
-        'hosted-single-file' && this.state.focusedAsset() != null,
-  );
+  readonly mode = computed(() => {
+    const folder = this.state.currentFolder?.();
+    const location = folder
+      ? folder.write
+        ? 'writable-folder'
+        : 'read-only-folder'
+      : 'single-file';
+    return this.capabilities?.resolve(location).mode;
+  });
+  readonly memoryOnly = computed(() => this.state.singleFileMemoryOnly?.() === true);
+  readonly visible = computed(() => {
+    const mode = this.mode();
+    return (
+      (mode === 'hosted-single-file' || mode === 'hosted-read-only-folder') &&
+      this.state.focusedAsset() != null
+    );
+  });
 
   downloadXmp(): void {
     const asset = this.state.focusedAsset();
