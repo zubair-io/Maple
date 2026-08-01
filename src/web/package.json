@@ -5,6 +5,8 @@
     "ng": "ng",
     "build-raw-wasm": "bash ../raw-pipeline/raw-wasm/build.sh",
     "sync-raw-wasm": "bash scripts/sync-raw-wasm.sh",
+    "brand:sync": "node scripts/sync-brand-assets.mjs",
+    "brand:check": "node scripts/sync-brand-assets.mjs --check",
     "raw-wasm": "npm run build-raw-wasm && npm run sync-raw-wasm",
     "prestart": "npm run raw-wasm",
     "prestart:maple": "npm run raw-wasm",
