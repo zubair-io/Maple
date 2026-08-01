@@ -63,7 +63,7 @@ export const test = base.extend<{ browserAudit: void }>({
 
       await use();
       const fixtureRoot =
-        process.env.MAPLE_E2E_HOSTED_ARTIFACT_ONLY === '1'
+        process.env.MAPLE_E2E_ARTIFACT_ONLY === '1'
           ? undefined
           : (await readProductionFixtureManifest()).root;
       await testInfo.attach('production-browser-audit.json', {
