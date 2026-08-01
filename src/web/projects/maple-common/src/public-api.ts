@@ -141,10 +141,10 @@ export * from './lib/shells/source-picker-drawer/source-picker-drawer.component'
 
 // S6 (#621) — Info content (rating + flags + histogram + camera/location + keywords).
 // Lean Info renderer for the phone bottom-sheet + tablet/desktop inspector slots.
-// #634 follow-up folded the former `<maple-info-tab>` enrichment surface into
-// `<app-info-panel>` via the `<app-info-enrichment>` orchestrator (gated on
-// `LIBRARY_BACKEND === 'self-hosted'`).
+// Self Hosted adds enrichment through the optional application composition
+// slot; Hosted's dependency graph contains only the shared local sections.
 export * from './lib/info/info-panel.component';
+export * from './lib/info/info-panel-extension';
 export * from './lib/info/rating-flags-row.component';
 export * from './lib/info/histogram.component';
 export * from './lib/info/camera-location-grid.component';
@@ -181,6 +181,7 @@ export * from './lib/editor/copy-paste/adjustment-groups';
 export * from './lib/editor/copy-paste/adjustment-clipboard.service';
 export * from './lib/editor/copy-paste/paste-settings-dialog.component';
 export * from './lib/components/folder-tree/folder-tree.component';
+export * from './lib/components/folder-tree/folder-tree-extension';
 export * from './lib/components/asset-grid/asset-grid.component';
 export * from './lib/components/asset-thumb/asset-thumb.component';
 export * from './lib/components/drop-zone/drop-zone.component';

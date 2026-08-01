@@ -2,8 +2,8 @@
 //
 // Spec: docs/design/responsive-program/s6-info-inspector.md.
 // Tracking ticket: #621 (closed by PR #637). #634 follow-up consolidates
-// the former `<maple-info-tab>` enrichment surface into this component
-// (renders conditionally when `LIBRARY_BACKEND === 'self-hosted'`).
+// the former `<maple-info-tab>` enrichment surface into this panel. The
+// application now owns that optional extension at its composition root.
 //
 // One component, two slots:
 //   • Phone bottom sheet (`<app-bottom-sheet>`) triggered by the `i` icon
@@ -22,18 +22,17 @@
 //   4. <app-keyword-chips-row>     — read-only chips in v0.1; the `+ add`
 //                                    affordance opens a stub message until
 //                                    the keyword-editing model work lands.
-//   5. <app-info-enrichment>       — Self-Hosted only: place / description /
-//                                    vision / faces. Owns the detail fetch,
-//                                    worker-status cache, requeue, polling.
+//   5. App-provided extension      — Self Hosted supplies enrichment from its
+//                                    composition root; Hosted supplies none.
 
-import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
+import { NgComponentOutlet } from '@angular/common';
+import { ChangeDetectionStrategy, Component, inject, input, output } from '@angular/core';
 import type { Asset } from '../models/asset';
-import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import { RatingFlagsRowComponent } from './rating-flags-row.component';
 import { InfoHistogramComponent } from './histogram.component';
 import { CameraLocationGridComponent } from './camera-location-grid.component';
 import { KeywordChipsRowComponent } from './keyword-chips-row.component';
-import { InfoEnrichmentComponent } from './info-enrichment.component';
+import { INFO_PANEL_EXTENSION } from './info-panel-extension';
 
 @Component({
   selector: 'app-info-panel',
@@ -43,7 +42,7 @@ import { InfoEnrichmentComponent } from './info-enrichment.component';
     InfoHistogramComponent,
     CameraLocationGridComponent,
     KeywordChipsRowComponent,
-    InfoEnrichmentComponent,
+    NgComponentOutlet,
   ],
   templateUrl: './info-panel.component.html',
   styleUrl: './info-panel.component.scss',
@@ -55,7 +54,7 @@ import { InfoEnrichmentComponent } from './info-enrichment.component';
   },
 })
 export class InfoPanelComponent {
-  private readonly backend = inject(LIBRARY_BACKEND);
+  protected readonly extension = inject(INFO_PANEL_EXTENSION);
 
   /** Focused asset whose info to render. `null` keeps the layout stable
    * (each section degrades to placeholder values) so the panel doesn't
@@ -70,11 +69,6 @@ export class InfoPanelComponent {
   /** Phone-only dismiss signal for the sheet's close X. Ignored when
    * `insideSheet=false`. */
   readonly close = output<void>();
-
-  /** Self-Hosted is the only backend that serves the enrichment payload
-   * (place / description / vision / faces). Hosted browses the local
-   * FS via FSA — no server-side workers, so no enrichment surface. */
-  protected readonly showEnrichment = computed(() => this.backend === 'self-hosted');
 
   onClose(): void {
     this.close.emit();

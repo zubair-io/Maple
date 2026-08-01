@@ -12,12 +12,46 @@ const SERVER_ONLY_MARKERS = [
   '/api/pano/stitch',
   '/api/fs/list',
   '/api/xmp/batch',
+  '/assets/by-address',
+  '/enrichment/requeue',
+  '/workers/status',
+  '/display/config',
+  '/photos/hidden',
+  '/settings/workers',
   'Merge to panorama',
   'Timeline view',
+  'Add folder',
+  'Timeline',
   'app-batch-metadata-panel',
   'app-pano-dialog',
   'app-timeline-view',
 ];
+
+const SOURCE_BOUNDARIES = [
+  {
+    path: new URL('../projects/maple-common/src/lib/info/info-panel.component.ts', import.meta.url),
+    forbidden: ['InfoEnrichmentComponent', 'BunApiBackendService', 'LIBRARY_BACKEND'],
+  },
+  {
+    path: new URL(
+      '../projects/maple-common/src/lib/components/folder-tree/folder-tree.component.html',
+      import.meta.url,
+    ),
+    forbidden: ['Add folder', 'Timeline'],
+  },
+  {
+    path: new URL('../projects/maple-syrup/src/app/app.config.ts', import.meta.url),
+    forbidden: ['InfoEnrichmentComponent', 'SelfHostedSidebarExtensionComponent'],
+  },
+];
+
+const SELF_HOSTED_COMPOSITION = {
+  path: new URL('../projects/maple/src/app/app.config.ts', import.meta.url),
+  required: [
+    'provideInfoPanelExtension(InfoEnrichmentComponent)',
+    'provideFolderTreeExtension(SelfHostedSidebarExtensionComponent)',
+  ],
+};
 
 async function javascriptFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -35,6 +69,23 @@ const scripts = await javascriptFiles(artifactRoot);
 const mainScripts = scripts.filter((path) => /^main-[A-Z0-9]+\.js$/.test(basename(path)));
 if (mainScripts.length !== 1) {
   throw new Error(`Expected one Hosted main bundle, found ${mainScripts.length}`);
+}
+
+for (const boundary of SOURCE_BOUNDARIES) {
+  const source = await readFile(boundary.path, 'utf8');
+  const marker = boundary.forbidden.find((candidate) => source.includes(candidate));
+  if (marker) {
+    throw new Error(
+      `Shared source ${boundary.path.pathname} contains server capability: ${marker}`,
+    );
+  }
+}
+
+const selfHostedSource = await readFile(SELF_HOSTED_COMPOSITION.path, 'utf8');
+for (const marker of SELF_HOSTED_COMPOSITION.required) {
+  if (!selfHostedSource.includes(marker)) {
+    throw new Error(`Self Hosted composition is missing capability provider: ${marker}`);
+  }
 }
 
 for (const path of scripts) {

@@ -153,6 +153,7 @@ test('Self Hosted persists adjustments and culling in a real sibling XMP', async
     response.url().includes('/histogram'),
   );
   await page.getByRole('button', { name: 'Info', exact: true }).click();
+  await expect(page.getByTestId('info-enrichment')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Pick', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
