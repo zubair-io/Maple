@@ -352,12 +352,16 @@ describe('AssetThumbComponent — accessible name and selection state (#2414)', 
     expect(wrapper(fixture).getAttribute('aria-current')).toBe('true');
   });
 
-  it('filmstrip item: never reports aria-pressed — that state belongs to the grid', () => {
+  it('filmstrip item: exposes its focused state as pressed for browser accessibility trees', () => {
     const fixture = render('b.jpg');
     fixture.componentRef.setInput('variant', 'filmstrip');
+    fixture.componentRef.setInput('focused', false);
+    fixture.detectChanges();
+    expect(wrapper(fixture).getAttribute('aria-pressed')).toBe('false');
+
     fixture.componentRef.setInput('focused', true);
     fixture.detectChanges();
-    expect(wrapper(fixture).hasAttribute('aria-pressed')).toBe(false);
+    expect(wrapper(fixture).getAttribute('aria-pressed')).toBe('true');
   });
 
   it('keyboard focus: the focusable button contains the .thumb-ring overlay the :focus-visible SCSS rule lights', () => {
