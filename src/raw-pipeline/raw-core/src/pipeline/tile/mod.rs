@@ -30,6 +30,10 @@ mod tests;
 #[cfg(test)]
 mod tests_render;
 #[cfg(test)]
+mod tests_live_parity;
+#[cfg(test)]
+mod tests_live_parity_gaps;
+#[cfg(test)]
 mod tests_render_anchors;
 
 use crate::{error::Result, image::RawImage, linearize, xmp::AdjustmentModel};
