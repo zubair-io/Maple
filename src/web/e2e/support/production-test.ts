@@ -9,7 +9,7 @@ interface BrowserAudit {
 }
 
 const EXPECTED_SELF_HOSTED_BOOTSTRAP_401 =
-  /^401 (?:GET http:\/\/127\.0\.0\.1:\d+\/api\/(?:render|observability)\/config|POST http:\/\/127\.0\.0\.1:\d+\/api\/auth\/refresh)$/;
+  /^401 (?:GET http:\/\/(?:127\.0\.0\.1|localhost):\d+\/api\/(?:render|observability)\/config|POST http:\/\/(?:127\.0\.0\.1|localhost):\d+\/api\/auth\/refresh)$/;
 const CHROME_RESOURCE_401 =
   'Failed to load resource: the server responded with a status of 401 (Unauthorized)';
 
