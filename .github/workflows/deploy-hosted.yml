@@ -132,7 +132,7 @@ jobs:
               --overwrite true \
               --account-name hornbeam \
               --auth-mode login \
-              -d 'maple-syrup' \
+              -d 'mapleaperture' \
               -s src/web/dist/maple-syrup/browser
 
             # Re-stamp the files that gate version rollover. index.html names
