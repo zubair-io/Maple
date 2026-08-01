@@ -273,8 +273,24 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
   const exposure = page.getByRole('slider', { name: 'Exposure' });
   const selectedUrl = page.url();
   await exposure.focus();
+  picker.clear();
+  // A single 0.01 EV keyboard step can legitimately quantize to identical
+  // 8-bit JPEG bytes. Keep that real key event as the wrong-asset routing
+  // regression, then make a separate visible pointer edit whose developed
+  // cache must differ from the embedded preview.
   await exposure.press('ArrowRight');
   await expect(exposure).not.toHaveAttribute('aria-valuenow', '0');
+  const exposureBox = await exposure.boundingBox();
+  expect(exposureBox).not.toBeNull();
+  const exposureY = exposureBox!.y + exposureBox!.height / 2;
+  const exposureStartX = exposureBox!.x + exposureBox!.width / 2;
+  await page.mouse.move(exposureStartX, exposureY);
+  await page.mouse.down();
+  await page.mouse.move(exposureStartX + exposureBox!.width / 8, exposureY, { steps: 5 });
+  await page.mouse.up();
+  await expect
+    .poll(async () => Number(await exposure.getAttribute('aria-valuenow')))
+    .toBeGreaterThan(0.9);
   expect(page.url()).toBe(selectedUrl);
   await expect(page.getByRole('button', { name: 'test_0006.DNG', exact: true })).toHaveAttribute(
     'aria-current',
@@ -286,23 +302,39 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
 
   const sidecar = join(manifest.writableFolder, 'test_0006.xmp');
   await expect
-    .poll(async () => readFile(sidecar, 'utf8').catch(() => ''))
-    .toContain(`crs:Exposure2012="${editedExposure}"`);
+    .poll(async () => {
+      const xml = await readFile(sidecar, 'utf8').catch(() => '');
+      const serialized = /crs:Exposure2012="([^"]+)"/.exec(xml)?.[1];
+      return serialized === undefined ? null : Number(serialized);
+    })
+    .toBeCloseTo(Number(editedExposure), 2);
 
   await expect
     .poll(
       async () => {
         const descriptor = JSON.parse(await readFile(descriptorPath, 'utf8')) as {
-          artifactLastModified: number;
+          format: 'avif' | 'jpeg' | 'webp' | 'png';
         };
-        return descriptor.artifactLastModified;
+        const artifact = await readFile(
+          join(
+            manifest.writableFolder,
+            '.maple',
+            'previews',
+            `test_0006.DNG.${extensions[descriptor.format]}`,
+          ),
+        );
+        return !artifact.equals(beforeEditBytes);
       },
       { timeout: 90_000 },
     )
-    .toBeGreaterThan(beforeEditDescriptor.artifactLastModified);
+    .toBe(true);
   const developedDescriptor = JSON.parse(await readFile(descriptorPath, 'utf8')) as {
     format: 'avif' | 'jpeg' | 'webp' | 'png';
+    artifactLastModified: number;
   };
+  expect(developedDescriptor.artifactLastModified).toBeGreaterThan(
+    beforeEditDescriptor.artifactLastModified,
+  );
   const developedArtifactName = `test_0006.DNG.${extensions[developedDescriptor.format]}`;
   const developedBytes = await readFile(
     join(manifest.writableFolder, '.maple', 'previews', developedArtifactName),
@@ -310,6 +342,22 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
   expect(developedBytes.equals(beforeEditBytes), 'the post-edit preview pixels must change').toBe(
     false,
   );
+  expect(cacheFormatMatches(developedArtifactName, developedBytes)).toBe(true);
+  const operationPaths = picker.operations.map(({ kind, path }) => `${kind}:${path}`);
+  const artifactWriteIndex = operationPaths.lastIndexOf(
+    `write:.maple/previews/${developedArtifactName}`,
+  );
+  const descriptorWriteIndex = operationPaths.lastIndexOf(
+    'write:.maple/previews/test_0006.DNG.preview.json',
+  );
+  expect(
+    artifactWriteIndex,
+    'the developed artifact must be written after the edit',
+  ).toBeGreaterThan(-1);
+  expect(
+    descriptorWriteIndex,
+    'the descriptor must publish only after the developed artifact write',
+  ).toBeGreaterThan(artifactWriteIndex);
 
   await page.reload();
   await expect(page).toHaveURL(/\/$/);
