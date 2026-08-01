@@ -1,5 +1,5 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { basename, relative, resolve, sep } from 'node:path';
 import { HOSTED_ICONS, HOSTED_LOCAL_FONTS, HOSTED_WASM_ASSETS } from './hosted-artifact-contract';
 
 const WEB_ROOT = resolve(import.meta.dirname, '..');
@@ -124,14 +124,14 @@ async function verifyBinaryAssets(): Promise<string> {
   }
 
   const snippetRoot = resolve(ARTIFACT_ROOT, 'pkg/snippets');
-  const workerHelpers = (await allFiles(snippetRoot)).filter((path) =>
-    path.endsWith('/workerHelpers.js'),
+  const workerHelpers = (await allFiles(snippetRoot)).filter(
+    (path) => basename(path) === 'workerHelpers.js',
   );
   assertContract(
     workerHelpers.length === 1,
     `expected one Rayon workerHelpers.js, found ${workerHelpers.length}`,
   );
-  return `/${workerHelpers[0].slice(ARTIFACT_ROOT.length + 1)}`;
+  return `/${relative(ARTIFACT_ROOT, workerHelpers[0]).split(sep).join('/')}`;
 }
 
 function urls(group: NgswAssetGroup): readonly string[] {
