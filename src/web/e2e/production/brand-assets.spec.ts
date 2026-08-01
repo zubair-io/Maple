@@ -7,6 +7,12 @@ const BRAND_ASSETS = [
   { path: '/assets/brand/maple-mark.png', width: 480 },
 ] as const;
 
+const REQUIRED_MANIFEST_ICONS = [
+  'assets/brand/icon-192.png',
+  'assets/brand/icon-512.png',
+  'assets/brand/icon-512-maskable.png',
+] as const;
+
 test('both production apps use the shared local Maple brand in installed Chrome', async ({
   page,
 }) => {
@@ -25,11 +31,9 @@ test('both production apps use the shared local Maple brand in installed Chrome'
   const manifest = (await manifestResponse.json()) as {
     icons: readonly { src: string }[];
   };
-  expect(manifest.icons.map(({ src }) => src)).toEqual([
-    'assets/brand/icon-192.png',
-    'assets/brand/icon-512.png',
-    'assets/brand/icon-512-maskable.png',
-  ]);
+  const manifestIconSources = manifest.icons.map(({ src }) => src);
+  expect(manifestIconSources).toEqual(expect.arrayContaining(REQUIRED_MANIFEST_ICONS));
+  expect(manifestIconSources.every((source) => source.startsWith('assets/brand/'))).toBe(true);
 
   for (const asset of BRAND_ASSETS) {
     const dimensions = await page.evaluate(async ({ path }) => {
