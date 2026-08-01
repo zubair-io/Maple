@@ -1,6 +1,11 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
-import { FolderAccessService, LibraryStateService, MapleFolderHandle } from '@maple-common';
+import {
+  FolderAccessService,
+  LibraryStateService,
+  MapleFolderHandle,
+  folderPermissionError,
+} from '@maple-common';
 import { LandingComponent, SINGLE_FILE_PERSISTENCE } from './landing.component';
 
 describe('LandingComponent', () => {
@@ -91,6 +96,27 @@ describe('LandingComponent', () => {
     expect(router.navigate).toHaveBeenCalledWith(['/edit', assetId]);
   });
 
+  it('routes a dropped file through the same persisted single-file intake', async () => {
+    const file = new File(['raw'], 'dropped.DNG', { type: 'image/x-adobe-dng' });
+    const dataTransfer = { items: [], files: [file] } as unknown as DataTransfer;
+
+    await component.onDrop({
+      preventDefault: vi.fn(),
+      dataTransfer,
+    } as unknown as DragEvent);
+
+    const assetId = persistSingleFile.mock.calls[0][0];
+    expect(persistSingleFile).toHaveBeenCalledWith(assetId, file, undefined);
+    expect(libraryState.enterSingleFileWorkspace).toHaveBeenCalledWith(
+      expect.any(Uint8Array),
+      'dropped.DNG',
+      assetId,
+      false,
+      undefined,
+    );
+    expect(router.navigate).toHaveBeenCalledWith(['/edit', assetId]);
+  });
+
   it('opens memory-only and carries a persistent warning when browser persistence fails', async () => {
     persistSingleFile.mockRejectedValue(new Error('quota exceeded'));
     const file = new File(['raw'], 'photo.DNG', { type: 'image/x-adobe-dng' });
@@ -154,9 +180,30 @@ describe('LandingComponent', () => {
     expect(fixture.nativeElement.querySelector('[role="alert"]').textContent).toContain(
       'not a valid sidecar',
     );
+    expect(fixture.nativeElement.querySelector('[role="alert"]').textContent).toContain(
+      'photo.xmp',
+    );
     expect(persistSingleFile).not.toHaveBeenCalled();
     expect(libraryState.enterSingleFileWorkspace).not.toHaveBeenCalled();
     expect(router.navigate).not.toHaveBeenCalled();
+  });
+
+  it('names an unreadable paired XMP and reports the browser reason', async () => {
+    const photo = new File(['raw'], 'photo.DNG', { type: 'image/x-adobe-dng' });
+    const xmp = new File(['xmp'], 'photo.xmp', { type: 'application/rdf+xml' });
+    vi.spyOn(xmp, 'text').mockRejectedValue(
+      new DOMException('The sidecar is no longer readable.', 'NotReadableError'),
+    );
+
+    await component.onFilePicked({
+      target: { files: [photo, xmp], value: 'photo.DNG' },
+    } as unknown as Event);
+    fixture.detectChanges();
+
+    const alert = fixture.nativeElement.querySelector('[role="alert"]') as HTMLElement;
+    expect(alert.textContent).toContain('photo.xmp');
+    expect(alert.textContent).toContain('no longer readable');
+    expect(persistSingleFile).not.toHaveBeenCalled();
   });
 
   it('opens a dropped writable folder through the shared folder path', async () => {
@@ -170,6 +217,75 @@ describe('LandingComponent', () => {
     expect(folderAccess.openDroppedFolder).toHaveBeenCalledWith(dataTransfer);
     expect(libraryState.openFolder).toHaveBeenCalledWith(folder);
     expect(router.navigate).toHaveBeenCalledWith(['/browse']);
+  });
+
+  it('opens a picked writable folder through the same workspace path', async () => {
+    folderAccess.openFolder.mockResolvedValue(folder);
+
+    await component.openFolder();
+
+    expect(libraryState.openFolder).toHaveBeenCalledWith(folder);
+    expect(router.navigate).toHaveBeenCalledWith(['/browse']);
+  });
+
+  it('names a denied folder and tells the user how to recover', async () => {
+    folderAccess.openDroppedFolder.mockRejectedValue(folderPermissionError('Client RAWs'));
+    const dataTransfer = { items: [], files: [] } as unknown as DataTransfer;
+
+    await component.onDrop({
+      preventDefault: vi.fn(),
+      dataTransfer,
+    } as unknown as DragEvent);
+    fixture.detectChanges();
+
+    const alert = fixture.nativeElement.querySelector('[role="alert"]') as HTMLElement;
+    expect(alert.textContent).toContain('Client RAWs');
+    expect(alert.textContent).toContain('permission was denied or lost');
+    expect(alert.textContent).toContain('Choose the folder again');
+  });
+
+  it('names an unreadable file, reports the reason, and allows a retry', async () => {
+    const unreadable = new File(['raw'], 'damaged.DNG', { type: 'image/x-adobe-dng' });
+    vi.spyOn(unreadable, 'arrayBuffer').mockRejectedValue(
+      new DOMException('The file is no longer readable.', 'NotReadableError'),
+    );
+
+    await component.onFilePicked({
+      target: { files: [unreadable], value: 'damaged.DNG' },
+    } as unknown as Event);
+    fixture.detectChanges();
+
+    const alert = fixture.nativeElement.querySelector('[role="alert"]') as HTMLElement;
+    expect(alert.textContent).toContain('damaged.DNG');
+    expect(alert.textContent).toContain('no longer readable');
+
+    const retry = new File(['raw'], 'retry.DNG', { type: 'image/x-adobe-dng' });
+    await component.onFilePicked({
+      target: { files: [retry], value: 'retry.DNG' },
+    } as unknown as Event);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('[role="alert"]')).toBeNull();
+    expect(router.navigate).toHaveBeenCalledWith(['/edit', expect.any(String)]);
+  });
+
+  it('exposes keyboard-native named intake actions and an assertive error region', async () => {
+    const buttons = (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>(
+      'button',
+    );
+    expect(Array.from(buttons, (button) => button.textContent)).toEqual([
+      expect.stringContaining('Open a photo'),
+      expect.stringContaining('Open a folder'),
+    ]);
+    expect(Array.from(buttons).every((button) => button.getAttribute('type') === 'button')).toBe(
+      true,
+    );
+
+    await component.onFilePicked({
+      target: { files: [new File(['bad'], 'bad.txt')], value: 'bad.txt' },
+    } as unknown as Event);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[role="alert"]')).not.toBeNull();
   });
 
   it('announces an empty or unsupported drop instead of ignoring it', async () => {
