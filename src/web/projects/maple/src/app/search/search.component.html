@@ -68,29 +68,29 @@
     </button>
   </header>
 
-  @if (selectedCount() > 0) {
+  @if (batch.selectedCount() > 0) {
     <div
       class="flex h-9 flex-shrink-0 items-center gap-3 border-b-[0.5px] border-border bg-surface-alt px-4 text-[12px] text-text-main"
     >
-      <span>{{ selectedCount() }} selected</span>
+      <span>{{ batch.selectedCount() }} selected</span>
       <button
         type="button"
         class="cursor-pointer rounded border-[0.5px] border-border bg-input-bg px-2.5 py-1 text-[11px] hover:bg-surface-hover"
-        (click)="selectAllLoaded()"
+        (click)="batch.selectAllLoaded()"
       >
         Select all (loaded)
       </button>
       <button
         type="button"
         class="cursor-pointer rounded border-[0.5px] border-border bg-input-bg px-2.5 py-1 text-[11px] hover:bg-surface-hover"
-        (click)="onEditMetadata()"
+        (click)="batch.openDialog()"
       >
         Edit metadata…
       </button>
       <button
         type="button"
         class="ml-auto cursor-pointer rounded border-[0.5px] border-border bg-input-bg px-2.5 py-1 text-[11px] hover:bg-surface-hover"
-        (click)="clearSelection()"
+        (click)="batch.clearSelection()"
       >
         Clear
       </button>
@@ -610,12 +610,12 @@
             <input
               type="checkbox"
               class="absolute left-2 top-2 z-10 h-4 w-4 cursor-pointer"
-              [checked]="selectedIds().has(r.id)"
+              [checked]="batch.selectedIds().has(r.id)"
               [attr.aria-label]="'Select ' + r.filename"
               (click)="$event.stopPropagation()"
               (keydown.enter)="$event.stopPropagation()"
               (keydown.space)="$event.stopPropagation()"
-              (change)="toggleSelect(r.id)"
+              (change)="batch.toggleSelect(r.id)"
             />
             <div class="relative aspect-[3/2] overflow-hidden rounded bg-image-canvas">
               @if (r.thumbUrl) {
@@ -675,8 +675,8 @@
   </div>
 
   <app-batch-metadata-panel
-    [visible]="batchMetaDialogVisible()"
-    [assetSnapshots]="batchMetaAssetSnapshots()"
-    (dismiss)="onBatchMetaDismiss()"
+    [visible]="batch.dialogVisible()"
+    [assetSnapshots]="batch.assetSnapshots()"
+    (dismiss)="batch.dismissDialog()"
   />
 </div>
