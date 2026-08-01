@@ -52,8 +52,23 @@ export interface SearchParams {
   color?: SearchColor;
   /** Comma-separated extension list, e.g. "dng,cr3". */
   ext?: string;
-  /** 0-indexed page. */
+  /** 0-indexed page. Ignored when `cursor` is set. */
   page?: number;
+  /**
+   * Opaque seek cursor from a previous response's `nextCursor` (#2129).
+   * Replaces `page` entirely: the server resumes with a range predicate on
+   * `(exif.captured_at, _id)` instead of a SKIP, so deep pages stop costing
+   * more than shallow ones.
+   *
+   * Only the `captured_desc` / `captured_asc` sorts mint one, and never on
+   * the `placeQuery` text path (its ordering is a computed relevance score,
+   * which isn't a stored field and so can't be seeked). Callers must treat
+   * `nextCursor: null` as "keep using `page`" rather than "no more rows" —
+   * see `SearchResponse.nextCursor`. Sending a cursor the server didn't
+   * mint for this sort is a 400, deliberately: silently ignoring it would
+   * restart the scroll at page 0 and duplicate everything already shown.
+   */
+  cursor?: string;
   /** Max 200, default 100. */
   limit?: number;
   sort?: SearchSort;
@@ -114,6 +129,16 @@ export interface SearchResponse {
   page: number;
   limit: number;
   results: SearchResult[];
+  /**
+   * Seek cursor for the next page (#2129), or `null` when this query has
+   * no cursor to offer — either the result set is exhausted, or the sort
+   * isn't seekable (`name` / `rating` / the `placeQuery` relevance order).
+   *
+   * `null` therefore means "fall back to `page + 1`", not "stop". The
+   * caller's own end-of-list gate stays `results.length < total` in both
+   * modes. Absent on responses from a server predating this field.
+   */
+  nextCursor?: string | null;
   /** Set to `true` by the backend when the requested `scope` has no
    * underlying field today (currently only `albums`). The grid is empty
    * by definition; UIs surface "Coming soon" instead of "No matches". */
@@ -166,7 +191,10 @@ function paramsFrom(p: SearchParams): HttpParams {
   set('flag', p.flag);
   set('color', p.color);
   set('ext', p.ext);
-  set('page', p.page);
+  // A cursor supersedes `page` — send one or the other, never both, so a
+  // stale page counter left on the caller's params can't shadow the seek.
+  if (p.cursor !== undefined && p.cursor !== '') set('cursor', p.cursor);
+  else set('page', p.page);
   set('limit', p.limit);
   set('sort', p.sort);
   set('pathPrefix', p.pathPrefix);
