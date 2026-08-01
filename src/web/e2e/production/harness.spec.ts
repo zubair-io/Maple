@@ -7,6 +7,7 @@ import {
   verifyStagedRawHashes,
 } from '../support/production-fixtures';
 import { installProductionFolderPicker } from '../support/production-folder-picker';
+import type { APIResponse } from '@playwright/test';
 
 type CacheFormatMatcher = (bytes: Buffer) => boolean;
 
@@ -506,9 +507,20 @@ test('Self Hosted persists adjustments and culling in a real sibling XMP', async
     '<?xpacket begin=""?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about=""/></rdf:RDF></x:xmpmeta><?xpacket end="w"?>',
   );
 
-  const setupLogin = await page.request.post('/api/auth/dev-login', { data: {} });
-  expect(setupLogin.ok()).toBe(true);
-  const login = (await setupLogin.json()) as { access_token: string };
+  let setupLogin: APIResponse | null = null;
+  const loginAttempts: string[] = [];
+  for (let attempt = 1; attempt <= 20; attempt++) {
+    const response = await page.request.post('/api/auth/dev-login', { data: {} });
+    const body = await response.text();
+    loginAttempts.push(`attempt ${attempt}: ${response.status()} ${body.slice(0, 500)}`);
+    if (response.ok()) {
+      setupLogin = response;
+      break;
+    }
+    await page.waitForTimeout(250);
+  }
+  expect(setupLogin, `dev-login did not become ready:\n${loginAttempts.join('\n')}`).not.toBeNull();
+  const login = (await setupLogin!.json()) as { access_token: string };
   const registration = await page.request.post('/api/folders', {
     headers: { Authorization: `Bearer ${login.access_token}` },
     data: { path: manifest.writableFolder, label: 'Persistence fixture' },

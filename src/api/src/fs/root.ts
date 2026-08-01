@@ -24,14 +24,17 @@ export interface OpResult<T = undefined> {
  * Using a simple Set for O(1) prefix checks.
  */
 const _registeredRoots = new Set<string>();
-let cachedEnvValue: string | undefined;
-let cachedEnvRoots: string[] = [];
+let envRootsCache:
+  | {
+      value: string | undefined;
+      roots: Promise<string[]>;
+    }
+  | undefined;
 
 async function normalizedEnvRoots(): Promise<string[]> {
   const value = process.env.MAPLE_ROOTS;
-  if (value === cachedEnvValue) return cachedEnvRoots;
-  cachedEnvValue = value;
-  cachedEnvRoots = await Promise.all(
+  if (envRootsCache?.value === value) return envRootsCache.roots;
+  const roots = Promise.all(
     (value ?? '')
       .split(':')
       .filter(Boolean)
@@ -43,7 +46,11 @@ async function normalizedEnvRoots(): Promise<string[]> {
         }
       }),
   );
-  return cachedEnvRoots;
+  // Publish the value and its in-flight normalization atomically. Concurrent
+  // authorization checks must await the same promise; exposing an interim
+  // empty array would turn a configured-root policy into allow-all.
+  envRootsCache = { value, roots };
+  return roots;
 }
 
 /** Register a root so that file access under it is permitted.
