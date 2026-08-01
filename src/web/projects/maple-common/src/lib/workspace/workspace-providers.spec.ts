@@ -10,6 +10,7 @@ import { provideHostedWorkspace } from './hosted-workspace.providers';
 import { provideSelfHostedWorkspace } from './self-hosted-workspace.providers';
 import { WORKSPACE_CAPABILITIES } from './workspace-capabilities';
 import { SERVER_WORKSPACE_PERSISTENCE } from './workspace-persistence';
+import { SERVER_LIBRARY_IO } from './server-library-io';
 
 describe('workspace providers', () => {
   beforeEach(() => TestBed.resetTestingModule());
@@ -23,6 +24,7 @@ describe('workspace providers', () => {
     expect(TestBed.inject(LIBRARY_BACKEND)).toBe('hosted');
     expect(TestBed.inject(LIBRARY_SOURCE)).toBe(fsSource);
     expect(TestBed.inject(SERVER_WORKSPACE_PERSISTENCE)).toBeNull();
+    expect(TestBed.inject(SERVER_LIBRARY_IO)).toBeNull();
     expect(TestBed.inject(WORKSPACE_CAPABILITIES).resolve('single-file').mode).toBe(
       'hosted-single-file',
     );
@@ -45,6 +47,7 @@ describe('workspace providers', () => {
 
     const persistence = TestBed.inject(SERVER_WORKSPACE_PERSISTENCE)!;
     expect(TestBed.inject(LIBRARY_SOURCE)).toBe(httpSource);
+    expect(TestBed.inject(SERVER_LIBRARY_IO)).toBe(api);
     expect(TestBed.inject(WORKSPACE_CAPABILITIES).resolve('single-file').mode).toBe('self-hosted');
     await expect(firstValueFrom(persistence.readSidecar('/photos/a.raw'))).resolves.toBe('<xmp/>');
     await firstValueFrom(persistence.writeSidecar('/photos/a.raw', '<xmp/>'));
