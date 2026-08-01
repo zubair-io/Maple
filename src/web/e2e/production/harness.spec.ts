@@ -347,7 +347,11 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
       async () => {
         const descriptor = JSON.parse(await readFile(descriptorPath, 'utf8')) as {
           format: 'avif' | 'jpeg' | 'webp' | 'png';
+          artifactLastModified: number;
         };
+        if (descriptor.artifactLastModified <= beforeEditDescriptor.artifactLastModified) {
+          return false;
+        }
         const artifact = await readFile(
           join(
             manifest.writableFolder,
