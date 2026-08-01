@@ -65,6 +65,7 @@ export type MapleIconName =
   | 'album-stack'
   | 'keyword-hash'
   | 'person-circle'
+  | 'gear'
   // --- Tool glyphs (S5 Editor). Final artwork in `tool-glyph-shapes.ts`. ---
   | ToolIconName;
 
@@ -208,6 +209,10 @@ export const ICON_SHAPES: Record<MapleIconName, readonly IconShape[]> = {
   'keyword-hash': [path('M6 2.5l-1 11M11 2.5l-1 11M3 6h10M3 10h10')],
   // Head circle + shoulder curve inside an outer face circle — person.
   'person-circle': [circle(8, 8, 5.5), circle(8, 6.5, 1.75), path('M4.5 12.5a3.5 3.5 0 017 0')],
+  gear: [
+    circle(8, 8, 2.2),
+    path('M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6L13 13M3 13l1.4-1.4M11.6 4.4L13 3'),
+  ],
 
   // ── S5 Editor tool glyphs (#640) ─────────────────────────────────────────
   // Final artwork, drawn as one family — see `tool-glyph-shapes.ts` for the

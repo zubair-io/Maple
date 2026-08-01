@@ -33,8 +33,13 @@
               },
               {
                 "glob": "**/*",
-                "input": "projects/maple-syrup/src/assets",
-                "output": "assets"
+                "input": "projects/maple-common/src/assets/brand",
+                "output": "assets/brand"
+              },
+              {
+                "glob": "favicon.ico",
+                "input": "projects/maple-common/src/assets/brand",
+                "output": "/"
               },
               {
                 "glob": "**/*.woff2",
@@ -144,8 +149,13 @@
               },
               {
                 "glob": "**/*",
-                "input": "projects/maple/src/assets",
-                "output": "assets"
+                "input": "projects/maple-common/src/assets/brand",
+                "output": "assets/brand"
+              },
+              {
+                "glob": "favicon.ico",
+                "input": "projects/maple-common/src/assets/brand",
+                "output": "/"
               },
               {
                 "glob": "**/*.woff2",
