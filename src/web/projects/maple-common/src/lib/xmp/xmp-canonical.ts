@@ -33,6 +33,18 @@ const CORE_NAMESPACES: ReadonlyArray<readonly [string, string]> = [
   ['papp', PAPP_NAMESPACE_URI],
 ];
 
+const ENVELOPE_NAMESPACES: ReadonlyArray<readonly [string, string]> = [
+  ['x', 'adobe:ns:meta/'],
+  ['rdf', 'http://www.w3.org/1999/02/22-rdf-syntax-ns#'],
+];
+
+const escapeNamespaceUri = (uri: string): string =>
+  uri
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+
 /**
  * Sort rank per namespace prefix. Ranks the three core namespaces first (the
  * develop settings a reader cares about), then the metadata namespaces in the
@@ -104,8 +116,22 @@ export function canonicalDocument(
   children: string,
 ): string {
   const indent = DESCRIPTION_CHILD_INDENT;
-  const nsLines = [...CORE_NAMESPACES, ...extraNamespaces].map(
-    ([prefix, uri]) => `${indent}xmlns:${prefix}="${uri}"`,
+  const namespaceUris = new Map([...ENVELOPE_NAMESPACES, ...CORE_NAMESPACES]);
+  const renderedNamespaces = [...CORE_NAMESPACES];
+  for (const [prefix, uri] of extraNamespaces) {
+    const existing = namespaceUris.get(prefix);
+    if (existing && existing !== uri) {
+      throw new Error(
+        `XMP namespace conflict for prefix "${prefix}": "${existing}" cannot preserve "${uri}"`,
+      );
+    }
+    if (!existing) {
+      namespaceUris.set(prefix, uri);
+      renderedNamespaces.push([prefix, uri]);
+    }
+  }
+  const nsLines = renderedNamespaces.map(
+    ([prefix, uri]) => `${indent}xmlns:${prefix}="${escapeNamespaceUri(uri)}"`,
   );
   const attrLines = sortCanonicalAttributes(attributes).map((part) => `${indent}${part}`);
   const head = [...nsLines, ...attrLines].join('\n');

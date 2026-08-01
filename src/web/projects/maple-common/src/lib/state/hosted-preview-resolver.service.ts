@@ -17,7 +17,7 @@ import { Injectable, inject } from '@angular/core';
 import type { Asset, AssetId } from '../models/asset';
 import { parseAddress } from '../addressing/maple-address';
 import { splitRelPath, validateRelPath } from '../addressing/fs-access-library-source';
-import { MapleCacheService } from '../maple-cache/maple-cache.service';
+import { MapleCacheService, type PreviewSourceIdentity } from '../maple-cache/maple-cache.service';
 import { EmbeddedPreviewService } from '../raw-pipeline/embedded-preview.service';
 import { encodePreviewBlobToAvif } from '../raw-pipeline/image-utils';
 import { isSupportedRaw } from './raw-extensions';
@@ -56,7 +56,14 @@ export class HostedPreviewResolver {
    * `getBytes` is `LibraryCache.bytesForAsset` — only called on a genuine cache
    * miss, never for a cache hit.
    */
-  async resolve(id: AssetId, getBytes: (id: AssetId) => Promise<Uint8Array>): Promise<Blob | null> {
+  async resolve(
+    id: AssetId,
+    getBytes: (id: AssetId) => Promise<Uint8Array>,
+    getSourceIdentity: (id: AssetId) => Promise<PreviewSourceIdentity> = async () => ({
+      size: 0,
+      lastModified: 0,
+    }),
+  ): Promise<Blob | null> {
     const asset = this.store.findAsset(id);
     if (!asset || !isSupportedRaw(asset.filename)) {
       // No embedded-preview concept for a non-RAW still (already display-ready
@@ -73,11 +80,22 @@ export class HostedPreviewResolver {
     // listing populated the folder, or an in-memory import) ⇒ skip straight to
     // a one-shot extraction — a performance-only miss, not a correctness one.
     if (folder && location) {
-      const cached = await this.cache.readPreview(folder, location.dir, location.filename);
-      if (cached) return cached;
+      try {
+        const source = await getSourceIdentity(id);
+        const cached = await this.cache.readPreview(
+          folder,
+          location.dir,
+          location.filename,
+          source,
+        );
+        if (cached) return cached;
+      } catch {
+        // Missing source metadata is a cache miss: correctness beats reusing a
+        // derivative whose source identity cannot be established.
+      }
     }
 
-    return this._extractAndCache(id, asset, folder, location, getBytes);
+    return this._extractAndCache(id, asset, folder, location, getBytes, getSourceIdentity);
   }
 
   /** The asset's directory + basename, or `null` for an id with no addressable
@@ -109,13 +127,16 @@ export class HostedPreviewResolver {
     folder: ReturnType<LibraryStore['currentFolder']>,
     location: PreviewLocation | null,
     getBytes: (id: AssetId) => Promise<Uint8Array>,
+    getSourceIdentity: (id: AssetId) => Promise<PreviewSourceIdentity>,
   ): Promise<Blob | null> {
     try {
       const bytes = await getBytes(id);
       const ext = asset.filename.split('.').pop()?.toLowerCase() ?? '';
       const { blob } = await this.previewExtractor.extractEmbeddedPreview(bytes, ext);
       if (folder?.write && location) {
-        void this._persistAvif(folder, location, blob);
+        void getSourceIdentity(id)
+          .then((source) => this._persistAvif(folder, location, blob, source))
+          .catch(() => undefined);
       }
       return blob;
     } catch (err) {
@@ -133,11 +154,12 @@ export class HostedPreviewResolver {
     folder: NonNullable<ReturnType<LibraryStore['currentFolder']>>,
     location: PreviewLocation,
     jpeg: Blob,
+    source: PreviewSourceIdentity,
   ): Promise<void> {
     try {
       const avif = await encodePreviewBlobToAvif(jpeg);
       if (!avif) return; // browser can't encode AVIF — defer, don't mislabel.
-      await this.cache.writePreview(folder, location.dir, location.filename, avif);
+      await this.cache.writePreview(folder, location.dir, location.filename, avif, source);
     } catch (err) {
       console.warn('[state] preview AVIF cache write failed for', location.filename, err);
     }

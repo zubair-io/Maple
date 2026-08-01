@@ -196,7 +196,12 @@ export class LibraryCache {
         ? (assetId) => this.librarySource.previewBlob(parseAddress(assetId as string))
         : null;
     }
-    return (assetId) => this.hostedPreview.resolve(assetId, (bid) => this.bytesForAsset(bid));
+    return (assetId) =>
+      this.hostedPreview.resolve(
+        assetId,
+        (bid) => this.bytesForAsset(bid),
+        (bid) => this._sourceIdentityForAsset(bid),
+      );
   }
 
   // ── Reset ──────────────────────────────────────────────────────────────────
@@ -245,6 +250,15 @@ export class LibraryCache {
   /** Register a folder entry for lazy reads. */
   registerHandle(id: AssetId, entry: FolderEntry): void {
     this.fileHandles.set(id, entry);
+  }
+
+  private async _sourceIdentityForAsset(
+    id: AssetId,
+  ): Promise<{ size: number; lastModified: number }> {
+    const entry = this.fileHandles.get(id);
+    if (!entry) throw new Error(`source identity unavailable for ${id}`);
+    const file = await entry.getFile();
+    return { size: file.size, lastModified: file.lastModified };
   }
 
   // ── Lazy byte access ───────────────────────────────────────────────────────
