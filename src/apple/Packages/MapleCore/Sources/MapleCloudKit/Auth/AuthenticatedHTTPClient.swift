@@ -14,7 +14,7 @@ public let cloudHTTPLogger = Logger(
   category: "http"
 )
 
-public protocol AuthenticatedRefreshExecutor {
+public protocol AuthenticatedRefreshExecutor: Sendable {
   func execute(
     _ operation: @escaping AuthenticatedHTTPClient.RefreshOperation
   ) async throws -> AuthTokens
@@ -31,7 +31,7 @@ public struct DirectAuthenticatedRefreshExecutor: AuthenticatedRefreshExecutor {
 }
 
 public actor AuthenticatedHTTPClient {
-  public typealias RefreshOperation = () async throws -> AuthTokens
+  public typealias RefreshOperation = @Sendable () async throws -> AuthTokens
 
   public enum AuthenticationError: Error, Equatable {
     case notAuthenticated
