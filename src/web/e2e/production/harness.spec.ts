@@ -7,7 +7,7 @@ import {
   verifyStagedRawHashes,
 } from '../support/production-fixtures';
 import { installProductionFolderPicker } from '../support/production-folder-picker';
-import type { APIResponse } from '@playwright/test';
+import type { APIResponse, Request } from '@playwright/test';
 
 type CacheFormatMatcher = (bytes: Buffer) => boolean;
 
@@ -599,6 +599,16 @@ test('Self Hosted persists adjustments and culling in a real sibling XMP', async
     }, savedXml),
   ).toEqual({ parseError: false, opaque: 'keep-me', payload: 'opaque payload', version: '7' });
 
+  const pendingHistogramRequests = new Set<Request>();
+  page.on('request', (request) => {
+    if (request.url().includes('/histogram')) pendingHistogramRequests.add(request);
+  });
+  const settleHistogram = (request: Request): void => {
+    pendingHistogramRequests.delete(request);
+  };
+  page.on('requestfinished', settleHistogram);
+  page.on('requestfailed', settleHistogram);
+
   const authenticatedReload = page.waitForResponse(
     (response) => response.url().includes('/api/xmp?') && response.ok(),
   );
@@ -619,6 +629,7 @@ test('Self Hosted persists adjustments and culling in a real sibling XMP', async
     'true',
   );
   expect((await restoredHistogram).ok()).toBe(true);
+  await expect.poll(() => pendingHistogramRequests.size).toBe(0);
   await page.getByRole('button', { name: 'Info', exact: true }).click();
   savedXml = await readFile(sidecar, 'utf8');
 
@@ -661,6 +672,8 @@ test('Self Hosted persists adjustments and culling in a real sibling XMP', async
     .toContain(`crs:Exposure2012="${recoveredExposure}"`);
   await expect(page.getByRole('alert')).toHaveCount(0);
   const recoveredXml = await readFile(sidecar, 'utf8');
+  expect(recoveredXml).toContain('xmp:Rating="5"');
+  expect(recoveredXml).toContain('papp:Flag="pick"');
   expect(
     await page.evaluate((xml) => {
       const document = new DOMParser().parseFromString(xml, 'application/xml');
