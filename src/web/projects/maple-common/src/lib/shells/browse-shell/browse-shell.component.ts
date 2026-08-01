@@ -31,7 +31,6 @@ import { ToolbarActionsComponent } from './toolbar-actions/toolbar-actions.compo
 import { AssetGridComponent } from '../../components/asset-grid/asset-grid.component';
 import { DropZoneComponent } from '../../components/drop-zone/drop-zone.component';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
-import { LibraryPickerModalComponent } from '../../components/library-picker-modal/library-picker-modal.component';
 import { PasteSettingsDialogComponent } from '../../editor/copy-paste/paste-settings-dialog.component';
 import { AdjustmentClipboardService } from '../../editor/copy-paste/adjustment-clipboard.service';
 import {
@@ -49,7 +48,6 @@ import { selectSidebarEntry } from './source-selection';
     AssetGridComponent,
     DropZoneComponent,
     MapleIconComponent,
-    LibraryPickerModalComponent,
     PasteSettingsDialogComponent,
     SourcePickerDrawerComponent,
     ToolbarActionsComponent,

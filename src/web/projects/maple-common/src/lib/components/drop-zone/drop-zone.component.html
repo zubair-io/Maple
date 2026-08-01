@@ -20,16 +20,30 @@
     class="flex h-[22px] cursor-pointer items-center gap-[5px] rounded border-[0.5px] border-border bg-surface-alt px-2.5 text-[11px] text-text-main transition-[background] duration-[120ms] hover:bg-surface-hover"
     (click)="filePicker.click()"
     type="button"
+    aria-label="Import RAW files"
   >
     + Import files
   </button>
-  <button
-    class="flex h-[22px] cursor-pointer items-center gap-[5px] rounded border-[0.5px] border-border bg-surface-alt px-2.5 text-[11px] text-text-main transition-[background] duration-[120ms] hover:bg-surface-hover"
-    (click)="folderPicker.click()"
-    type="button"
-  >
-    {{ folderAccess.hasFsAccess ? 'Import folder (legacy)' : 'Import folder' }}
-  </button>
+  @if (!folderAccess.hasFsAccess) {
+    <!-- Browsers without File System Access cannot grant Maple a writable
+         folder handle. Keep the read-only fallback there, but do not expose
+         it alongside Chrome's production folder workflow: that duplicate
+         path cannot persist XMP or `.maple` caches. -->
+    <input
+      #folderPicker
+      type="file"
+      multiple
+      webkitdirectory
+      (change)="onFileInputChange($event)"
+    />
+    <button
+      class="flex h-[22px] cursor-pointer items-center gap-[5px] rounded border-[0.5px] border-border bg-surface-alt px-2.5 text-[11px] text-text-main transition-[background] duration-[120ms] hover:bg-surface-hover"
+      (click)="folderPicker.click()"
+      type="button"
+    >
+      Import folder (read-only)
+    </button>
+  }
 
   @if (importing()) {
     <span class="text-[11px] text-text-muted">Importing {{ pendingCount() }} file(s)...</span>
@@ -49,7 +63,6 @@
     accept=".dng,.cr2,.cr3,.nef,.arw,.raf,.orf,.rw2,.pef,.srw,.x3f,.3fr,.mef,.erf,.fff,.dcr,.mos,.iiq,.mrw,.raw"
     (change)="onFileInputChange($event)"
   />
-  <input #folderPicker type="file" multiple webkitdirectory (change)="onFileInputChange($event)" />
 </div>
 
 <!-- Read-only banner: shown when folder was opened without write permission -->
