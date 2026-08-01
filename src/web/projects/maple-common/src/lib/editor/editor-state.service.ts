@@ -17,7 +17,7 @@
 //
 // Spec: docs/design/responsive-program/s5-editor.md §4 + §6.
 
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, inject, signal, untracked } from '@angular/core';
 import { LibraryStateService } from '../state/library-state.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import type { AssetId } from '../models/asset';
@@ -169,6 +169,7 @@ export class EditorStateService {
    * state, so an image switch keeps the selection). */
   bind(id: AssetId, armed?: { group: ToolGroup; tool: ToolId }): void {
     this.imageId.set(id);
+    this.autoResult.set(null);
     this._undoStack.set([]);
     this._redoStack.set([]);
     this._discardDeferred();
@@ -176,7 +177,7 @@ export class EditorStateService {
       this.armedGroup.set(armed.group);
       this.armedTool.set(armed.tool);
     }
-    this.armedSubParamId.set(this._resolveSubParamId(this.armedTool()));
+    this.armedSubParamId.set(untracked(() => this._resolveSubParamId(this.armedTool())));
   }
 
   /** Snapshot the current model onto the undo stack. Call at the start
@@ -427,15 +428,19 @@ export class EditorStateService {
   /** True while an AUTO analysis is in flight (disables the AUTO button). */
   readonly autoInFlight = signal<boolean>(false);
 
+  /** Visible completion/error feedback for the most recent AUTO request. */
+  readonly autoResult = signal<string | null>(null);
+
   /**
    * Analyse the RAW for `id` and apply auto-adjustment sliders as ONE undo entry.
    */
   async applyAuto(id: AssetId): Promise<boolean> {
     if (this.autoInFlight()) return false;
     if (this.imageId() !== id || this.currentAdjustment() == null) return false;
+    const startId = id;
+    this.autoResult.set(null);
     this.autoInFlight.set(true);
     try {
-      const startId = id;
       let bytes = this.library.bytesFor(id);
       if (!bytes) {
         bytes = await this.library.bytesForAsset(id);
@@ -443,21 +448,25 @@ export class EditorStateService {
       const asset = this.library.assets().find((a) => a.id === id);
       const ext = asset?.filename.split('.').pop()?.toLowerCase() ?? 'dng';
       const patch = await this.pipeline.computeAutoAdjustments(bytes, ext);
-      if (this.imageId() !== startId) return false;
-      this.commit();
-      // Apply EXPOSURE ONLY (+ the AE-Off mode). White balance and tone are
-      // intentionally NOT written — WB stays at As-Shot, tone deferred to #1376.
-      this.library.updateAdjustment(id, {
-        exposure: patch.exposure,
-        autoExposure: 'Off',
-      });
-      return true;
+      return this._applyAutoExposure(startId, patch.exposure);
     } catch (err) {
       console.error('[EditorStateService] applyAuto failed:', err);
+      if (this.imageId() === startId) this.autoResult.set('Auto could not be applied');
       return false;
     } finally {
       this.autoInFlight.set(false);
     }
+  }
+
+  private _applyAutoExposure(id: AssetId, exposure: number): boolean {
+    if (this.imageId() !== id) return false;
+    this.commit();
+    // Apply EXPOSURE ONLY (+ the AE-Off mode). White balance and tone are
+    // intentionally NOT written — WB stays at As-Shot, tone deferred to #1376.
+    this.library.updateAdjustment(id, { exposure, autoExposure: 'Off' });
+    const sign = exposure >= 0 ? '+' : '';
+    this.autoResult.set(`Auto applied · Exposure ${sign}${exposure.toFixed(2)} EV`);
+    return true;
   }
 
   // ── Haptics (web — Vibration API w/ feature detection) ───────────────────
