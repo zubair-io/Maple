@@ -13,7 +13,9 @@
  *   - `query.ts`   — query schema, `buildFilter`, `applyLiveFilter`, helpers
  *   - `sort.ts`    — `pickSort` for the list endpoint
  *   - `project.ts` — wire-shape projection (`AssetDoc` → `SearchResult`)
- *   - `list.ts`    — `GET /` (incl. Meilisearch fallback) + total-count cache
+ *   - `list.ts`    — `GET /` (incl. Meilisearch fallback)
+ *   - `cursor.ts`  — seek pagination on `(exif.captured_at, _id)` (#2129)
+ *   - `total-cache.ts` — 30s `total` count cache for `GET /`
  *   - `facets.ts`  — `GET /facets`
  *   - `buckets.ts` — `GET /buckets` + response cache
  */
@@ -24,7 +26,7 @@ import { facetsRoute } from './facets.ts';
 import { bucketsRoute } from './buckets.ts';
 
 export { _resetBucketsCacheForTests } from './buckets.ts';
-export { _resetCacheForTests } from './list.ts';
+export { _resetCacheForTests } from './total-cache.ts';
 export { buildFilter } from './query.ts';
 export type { SearchQuery } from './query.ts';
 export type { SearchResult, SearchResultPHLink } from './project.ts';

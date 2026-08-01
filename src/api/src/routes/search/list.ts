@@ -1,6 +1,15 @@
 /**
  * `GET /api/search` — paginated result list.
  *
+ * Two pagination modes live side by side (#2129). The default sorts
+ * (`captured_desc` / `captured_asc`) answer with an opaque `nextCursor`;
+ * sending it back seeks with a range predicate on `(exif.captured_at,
+ * _id)` instead of skipping, so page depth stops costing anything. Every
+ * other sort — and the `placeQuery` text/Meili path, whose ordering is a
+ * computed `textScore` — keeps `page`/`limit` skip pagination and says so
+ * by returning `nextCursor: null`. See `cursor.ts` for why each of those
+ * can't be seeked.
+ *
  * When `placeQuery` is set and a Meilisearch sidecar is configured, we
  * query Meilisearch first (typo-tolerant, ranked) and re-fetch the full
  * asset rows from Mongo to preserve the source-of-truth projection. On
@@ -9,7 +18,7 @@
  */
 
 import { Elysia } from 'elysia';
-import type { Collection, ObjectId } from 'mongodb';
+import type { ObjectId } from 'mongodb';
 import type { Filter, Sort } from 'mongodb';
 import { assetsCollection } from '../../db/client.ts';
 import { hiddenPersonIds } from '../../people/people.repo.ts';
@@ -28,152 +37,18 @@ import {
   type SearchQuery,
 } from './query.ts';
 import { pickSort, SORT_OPTIONS } from './sort.ts';
+import {
+  cursorDirectionFor,
+  cursorFromDoc,
+  decodeCursor,
+  encodeCursor,
+  seekFilter,
+} from './cursor.ts';
+import { getCachedTotal } from './total-cache.ts';
 
 const searchLog = childLogger('search');
 
-// ── Total-count cache (#2128) ─────────────────────────────────────────
-// `countDocuments` runs the same non-indexable residual predicates as the
-// main find (deleted_at / hidden / the fileinfo liveness $elemMatch) — even
-// once the default-sort find is index-only, the count stays an O(N) scan.
-// `total`'s only consumer is the `canLoadMore` infinite-scroll gate in the
-// two search components (`search.component.ts:144` and `:175`), so brief
-// staleness is not user-visible. Cached for 30 s keyed on the full filter
-// set — mirrors the buckets cache in `buckets.ts` exactly (module-scoped
-// `Map`, same TTL, same `_resetCacheForTests` shape).
-const TOTAL_CACHE_TTL_MS = 30_000;
-interface CachedTotal {
-  total: number;
-  expiresMs: number;
-}
-const totalCache = new Map<string, CachedTotal>();
-
-/** Every field that feeds `buildFilter` (i.e. the full filter set the
- * count depends on), in a fixed order. `page`/`limit`/`sort` are
- * deliberately excluded because `countDocuments` doesn't depend on
- * pagination or ordering, and `people` is excluded because it only feeds
- * the Meilisearch path (never the Mongo filter this cache guards). */
-const TOTAL_CACHE_KEY_FIELDS = [
-  'pathPrefix',
-  'libraryId',
-  'q',
-  'placeQuery',
-  'camera',
-  'lens',
-  'isoMin',
-  'isoMax',
-  'apertureMin',
-  'apertureMax',
-  'focalMin',
-  'focalMax',
-  'from',
-  'to',
-  'rating',
-  'flag',
-  'color',
-  'ext',
-  'hasCapturedAt',
-  'sceneType',
-  'activity',
-  'subjects',
-  'isScreenshot',
-  'scope',
-  'hidden',
-] as const satisfies ReadonlyArray<keyof SearchQuery>;
-
-/** Stable JSON serialisation of a SearchQuery over `TOTAL_CACHE_KEY_FIELDS`.
- * Field order is fixed so that two requests with the same params produce
- * the same key regardless of how the URL was constructed. */
-function makeTotalCacheKey(q: SearchQuery): string {
-  const normalized: Partial<Record<keyof SearchQuery, string | null>> = {};
-  for (const field of TOTAL_CACHE_KEY_FIELDS) {
-    normalized[field] = q[field] ?? null;
-  }
-  return JSON.stringify(normalized);
-}
-
-/** Test-only: blow the cache so back-to-back tests don't see each other's
- * results. Safe in production too — just slower for 30 s. */
-export function _resetCacheForTests(): void {
-  totalCache.clear();
-}
-
-/**
- * `countDocuments`, hinting the narrow `fileinfo.library_id` index when
- * `canHint` is true (see the call site for why that's conditional on
- * `usingPlaceText`).
- *
- * Falls back to an unhinted count if the hint index doesn't exist —
- * Mongo raises `BadValue` (code 2) "hint provided does not correspond to
- * an existing index" in that case. That's not hypothetical: `ensureIndexes`
- * (`db/client.ts`) runs in the background at boot, and the index-creation
- * step this hint targets is itself gated on a migration that can be
- * pending on an older/partially-migrated database (see the
- * `drop-abs-path-2026-05-21` guard). A missing hint index must degrade to
- * the planner's own (slower) choice, not 500 the whole search route.
- */
-async function countTotal(
-  coll: Collection<AssetDoc>,
-  filter: Filter<AssetDoc>,
-  canHint: boolean,
-): Promise<number> {
-  if (!canHint) return coll.countDocuments(filter);
-  try {
-    return await coll.countDocuments(filter, { hint: { 'fileinfo.library_id': 1 } });
-  } catch (err) {
-    if (err instanceof Error && (err as { code?: number }).code === 2) {
-      return coll.countDocuments(filter);
-    }
-    throw err;
-  }
-}
-
-/**
- * Resolve `total` for this request: serve it from `totalCache` if a fresh
- * entry exists for this exact filter set, otherwise compute it via
- * `countTotal` and cache the result before returning.
- *
- * `$text` queries require the planner to use the text index — combining
- * `$text` with an explicit `hint` throws "text and hint not allowed in
- * same query", so `canHint` must be false whenever the filter carries
- * `$text` (i.e. `usingPlaceText` at the call site). Otherwise, hint the
- * narrower `fileinfo.library_id` index: adding the new
- * lib+captured+_id compound index in `db/client.ts` (needed to fix the
- * find) gives the planner a wider, slower index it will otherwise pick
- * for this count. Measured on the 333k-asset production library:
- * unhinted 3379ms vs hinted 2513ms (~1.34x). An earlier ~2.5x figure in
- * the #2128 commit message came from 723-byte synthetic documents; the
- * ratio compresses at production's ~6KB avgObjSize, because both plans
- * are dominated by the same FETCH volume.
- *
- * Both remain O(N): `hidden`/`deleted_at`/the `fileinfo` `$elemMatch`
- * appear in no index, so every candidate must be fetched and neither
- * index can make this an index-only COUNT_SCAN (the multikey
- * `fileinfo.library_id` path would force a FETCH to dedupe
- * array-generated entries regardless). The 30s cache bounds how often
- * that ~2.5s scan is paid, it does not remove it — see #2129.
- */
-async function getCachedTotal(
-  coll: Collection<AssetDoc>,
-  query: SearchQuery,
-  finalFilter: Filter<AssetDoc>,
-  canHint: boolean,
-): Promise<number> {
-  const cacheKey = makeTotalCacheKey(query);
-  const nowMs = Date.now();
-  const cached = totalCache.get(cacheKey);
-  if (cached && cached.expiresMs > nowMs) return cached.total;
-
-  const total = await countTotal(coll, finalFilter, canHint);
-  // Bound the cache so a parameterised attack can't grow it unboundedly.
-  // 500 unique filter sets is generous for a single server; eviction is
-  // FIFO via insertion order.
-  if (totalCache.size >= 500) {
-    const oldest = totalCache.keys().next().value;
-    if (oldest !== undefined) totalCache.delete(oldest);
-  }
-  totalCache.set(cacheKey, { total, expiresMs: nowMs + TOTAL_CACHE_TTL_MS });
-  return total;
-}
+export { _resetCacheForTests } from './total-cache.ts';
 
 export const listRoute = new Elysia().get(
   '/',
@@ -200,6 +75,33 @@ export const listRoute = new Elysia().get(
     const page = clampInt(query.page, 0, 10_000, 0);
     const limit = clampInt(query.limit, 1, 500, 100);
 
+    // When a residual placeQuery is set, sort by Mongo's textScore first
+    // so closer matches lead the page; tie-break on captured_at desc, then
+    // _id for pagination stability. Otherwise honour the caller's sort. A
+    // pure-date query ("2023") has an empty residual placeQuery here, so it
+    // bypasses both the Meili path and the Mongo `$text` path and runs as a
+    // plain structured filter on `exif.captured_at`.
+    const usingPlaceText =
+      typeof resolved.placeQuery === 'string' && resolved.placeQuery.trim().length > 0;
+
+    const sort = query.sort && SORT_OPTIONS.has(query.sort) ? query.sort : 'captured_desc';
+    // `null` here means "this request cannot be seeked" — an unseekable
+    // sort, or the textScore-ordered place path. A caller that sends a
+    // cursor anyway gets a 400 rather than a silent restart at page 0,
+    // which would re-serve every row they have already scrolled past.
+    const direction = usingPlaceText ? null : cursorDirectionFor(sort);
+    const rawCursor = typeof query.cursor === 'string' ? query.cursor.trim() : '';
+    const seek = rawCursor.length > 0 ? decodeCursor(rawCursor) : null;
+    if (rawCursor.length > 0 && (seek === null || seek.d !== direction)) {
+      set.status = 400;
+      return {
+        error:
+          direction === null
+            ? 'cursor pagination is not available for this sort; use page/limit'
+            : 'invalid cursor',
+      };
+    }
+
     // S7 scope chip: `albums` has no backing field today (PhotoKit
     // assetCollection ids are not stored on AssetDoc). Short-circuit
     // BEFORE the Mongo round-trip so an empty result is cheap, and stamp
@@ -217,26 +119,25 @@ export const listRoute = new Elysia().get(
         page,
         limit,
         results: [],
+        nextCursor: null,
         notImplemented: true as const,
       };
     }
-    const sort = query.sort && SORT_OPTIONS.has(query.sort) ? query.sort : 'captured_desc';
-    const skip = page * limit;
+    // A seek replaces the skip entirely; `page` is echoed back untouched so
+    // a mixed-mode client (page counter kept alongside the cursor) stays
+    // consistent.
+    const skip = seek ? 0 : page * limit;
 
     const coll = await assetsCollection();
     // Exclude soft-deleted rows from search results. We always wrap the
     // existing filter into a `$and` so a user-supplied `$or` (free-text
     // q + camera) doesn't shadow this constraint.
     const finalFilter = applyLiveFilter(filter);
-
-    // When a residual placeQuery is set, sort by Mongo's textScore first
-    // so closer matches lead the page; tie-break on captured_at desc, then
-    // _id for pagination stability. Otherwise honour the caller's sort. A
-    // pure-date query ("2023") has an empty residual placeQuery here, so it
-    // bypasses both the Meili path and the Mongo `$text` path and runs as a
-    // plain structured filter on `exif.captured_at`.
-    const usingPlaceText =
-      typeof resolved.placeQuery === 'string' && resolved.placeQuery.trim().length > 0;
+    // Same reasoning for the seek predicate, which is itself an `$or` in
+    // three of its four shapes: `$and` it on rather than merging keys.
+    const pagedFilter: Filter<AssetDoc> = seek
+      ? ({ $and: [finalFilter, seekFilter(seek)] } as Filter<AssetDoc>)
+      : finalFilter;
 
     // Explicit person-name picker — comma-separated names folded into the
     // Meili `people` filter. The Mongo `$text` fallback already covers
@@ -280,6 +181,7 @@ export const listRoute = new Elysia().get(
             page,
             limit,
             results: [],
+            nextCursor: null,
           };
         }
         // Fetch full asset summaries for the Meilisearch ids. Strip
@@ -319,6 +221,7 @@ export const listRoute = new Elysia().get(
           page,
           limit,
           results,
+          nextCursor: null,
         };
       } catch (err) {
         // Log and fall through to the Mongo `$text` path. The route
@@ -342,14 +245,14 @@ export const listRoute = new Elysia().get(
       : pickSort(sort);
     const projection = usingPlaceText ? { score: { $meta: 'textScore' } } : undefined;
 
-    const cursor = coll.find(finalFilter);
+    const cursor = coll.find(pagedFilter);
     if (projection) cursor.project(projection);
 
-    // `total` is cached — see `getCachedTotal` and the module-level
-    // comment. Keyed on the raw query (not `resolved`), matching
-    // `buckets.ts`: repeated infinite-scroll requests from the FE resend
-    // identical query params. Runs concurrently with the find below (the
-    // cache-miss path still calls `countDocuments` in parallel with it).
+    // `total` is cached — see `total-cache.ts`. Keyed on the raw query (not
+    // `resolved`), matching `buckets.ts`: repeated infinite-scroll requests
+    // from the FE resend identical query params. It counts `finalFilter`,
+    // never `pagedFilter`, so the seek predicate can't shrink `total` as the
+    // user scrolls. Runs concurrently with the find below.
     const totalPromise = getCachedTotal(coll, query as SearchQuery, finalFilter, !usingPlaceText);
 
     const [docs, total] = await Promise.all([
@@ -364,7 +267,16 @@ export const listRoute = new Elysia().get(
     const results = docs.map((d) =>
       projectAsset(d as AssetDoc & { _id: ObjectId }, libs, idToSlug),
     );
-    return { total, page, limit, results };
+    // A short page is the last page: no cursor, so the client stops. A full
+    // page always mints one, even if the next fetch turns out empty —
+    // knowing that would cost an extra document read per request.
+    const nextCursor =
+      direction !== null && docs.length === limit
+        ? encodeCursor(
+            cursorFromDoc(docs[docs.length - 1] as AssetDoc & { _id: ObjectId }, direction),
+          )
+        : null;
+    return { total, page, limit, results, nextCursor };
   },
   { query: SearchQueryT },
 );

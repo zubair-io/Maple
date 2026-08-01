@@ -204,6 +204,11 @@ export interface SearchQuery {
   page?: string;
   limit?: string;
   sort?: string;
+  /** Opaque seek cursor from a previous response's `nextCursor` (#2129).
+   * When present it replaces `page` entirely — see `cursor.ts`. Only the
+   * `captured_desc` / `captured_asc` sorts mint one; sending a cursor on
+   * any other sort, or alongside a residual `placeQuery`, is a 400. */
+  cursor?: string;
 }
 
 export const SearchQueryT = t.Object({
@@ -237,6 +242,7 @@ export const SearchQueryT = t.Object({
   page: t.Optional(t.String()),
   limit: t.Optional(t.String()),
   sort: t.Optional(t.String()),
+  cursor: t.Optional(t.String()),
 });
 
 /**
