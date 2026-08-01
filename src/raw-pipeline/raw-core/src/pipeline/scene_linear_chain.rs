@@ -22,14 +22,10 @@
 //! chain use (`vignette` → `sharpen` → `nr_luminance` → `nr_color`).
 
 mod composite;
+mod endcaps;
 
-use super::{
-    finite_or_zero,
-    fp16::{f16_bits_to_f32, f32_to_f16_bits},
-    stage,
-};
+use super::stage;
 use crate::{error::Result, view::encode::TargetPrimaries, xmp::AdjustmentModel};
-use rayon::prelude::*;
 
 /// Per-render options for [`apply_scene_linear_chain`] /
 /// [`apply_scene_linear_chain_f32`] (and their `_with_patches` wrappers) —
@@ -157,7 +153,6 @@ pub fn apply_scene_linear_chain(
         noise_profile,
         iso,
     } = *opts;
-    use crate::image::{ColorSpace, Image};
     use crate::stages::{
         clarity, color_grade, dehaze, grain, hsl, local_adjustments, noise_reduction, saturation,
         scene_tone_controls, sharpen, texture, tone_curves, vibrance, vignette, white_balance,
@@ -189,30 +184,8 @@ pub fn apply_scene_linear_chain(
     }
 
     // Decode fp16 RGBA -> Image (Vec<[f32; 3]>, alpha discarded).
-    //
-    // Parallel over pixels (#1089 item 8). `f16_bits_to_f32` is a scalar
-    // bit-twiddling routine, not a hardware convert, so this endcap is
-    // compute-bound rather than memory-bound — the f32 sibling's endcap moves
-    // more bytes in a fraction of the time on the same buffer shape. It is a
-    // pure element-wise map with no reduction, and rayon's indexed collect
-    // preserves order, so the output is bit-identical to the serial loop.
     let mut img = stage("ffi_chain_unpack_fp16", || {
-        let pixels: Vec<[f32; 3]> = in_fp16_rgba
-            .par_chunks_exact(4)
-            .map(|chunk| {
-                [
-                    f16_bits_to_f32(chunk[0]),
-                    f16_bits_to_f32(chunk[1]),
-                    f16_bits_to_f32(chunk[2]),
-                ]
-            })
-            .collect();
-        Image {
-            width,
-            height,
-            pixels,
-            space: ColorSpace::SceneLinearRec2020,
-        }
+        endcaps::unpack_fp16(in_fp16_rgba, width, height)
     });
 
     // Per-stage application — mirrors `develop_scene_linear_from_raw_with_quality`
@@ -341,27 +314,7 @@ pub fn apply_scene_linear_chain(
     // • skip_agx=true  → SceneLinearRec2020 (unbounded, no display encode)
     // • skip_agx=false, Srgb → DisplayLinearRec2020 (caller handles encode)
     // • skip_agx=false, P3  → DisplayLinearP3 (display encode applied above)
-    // `finite_or_zero` scrubs NaN/Inf at the pack endcap (#1088) —
-    // `f32_to_f16_bits` preserves NaN by design, and the caller hands
-    // these lanes straight to a GPU texture.
-    //
-    // Parallel over pixels for the same reason as the unpack endcap above,
-    // and more urgently: `f32_to_f16_bits` carries the round-to-nearest-even
-    // and subnormal arms, which made this the most expensive non-denoise
-    // stage in the tick. Still a pure element-wise map — bit-identical.
-    let fp16 = stage("ffi_chain_pack_fp16", || {
-        let alpha_one = f32_to_f16_bits(1.0);
-        let mut v: Vec<u16> = vec![0; pixel_count * 4];
-        v.par_chunks_exact_mut(4)
-            .zip(img.pixels.par_iter())
-            .for_each(|(out, p)| {
-                out[0] = f32_to_f16_bits(finite_or_zero(p[0]));
-                out[1] = f32_to_f16_bits(finite_or_zero(p[1]));
-                out[2] = f32_to_f16_bits(finite_or_zero(p[2]));
-                out[3] = alpha_one;
-            });
-        v
-    });
+    let fp16 = stage("ffi_chain_pack_fp16", || endcaps::pack_fp16(&img.pixels));
     Ok(fp16)
 }
 
@@ -401,7 +354,6 @@ pub fn apply_scene_linear_chain_f32(
         noise_profile,
         iso,
     } = *opts;
-    use crate::image::{ColorSpace, Image};
     use crate::stages::{
         clarity, color_grade, dehaze, grain, hsl, local_adjustments, noise_reduction, saturation,
         scene_tone_controls, sharpen, texture, tone_curves, vibrance, vignette, white_balance,
@@ -434,16 +386,7 @@ pub fn apply_scene_linear_chain_f32(
 
     // Decode f32 RGBA -> Image (Vec<[f32; 3]>, alpha discarded).
     let mut img = stage("ffi_chain_unpack_f32", || {
-        let mut pixels: Vec<[f32; 3]> = Vec::with_capacity(pixel_count);
-        for chunk in in_f32_rgba.chunks_exact(4) {
-            pixels.push([chunk[0], chunk[1], chunk[2]]);
-        }
-        Image {
-            width,
-            height,
-            pixels,
-            space: ColorSpace::SceneLinearRec2020,
-        }
+        endcaps::unpack_f32(in_f32_rgba, width, height)
     });
 
     // Per-stage application — mirrors `apply_scene_linear_chain` (fp16
@@ -538,18 +481,7 @@ pub fn apply_scene_linear_chain_f32(
     }
 
     // Pack the result back to f32 RGBA.
-    // Alpha is always 1.0 — see fp16 sibling's contract. `finite_or_zero`
-    // scrubs NaN/Inf at the pack endcap (#1088).
-    let out = stage("ffi_chain_pack_f32", || {
-        let mut v: Vec<f32> = Vec::with_capacity(pixel_count * 4);
-        for p in &img.pixels {
-            v.push(finite_or_zero(p[0]));
-            v.push(finite_or_zero(p[1]));
-            v.push(finite_or_zero(p[2]));
-            v.push(1.0);
-        }
-        v
-    });
+    let out = stage("ffi_chain_pack_f32", || endcaps::pack_f32(&img.pixels));
     Ok(out)
 }
 
