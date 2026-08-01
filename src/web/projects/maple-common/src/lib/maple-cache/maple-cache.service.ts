@@ -270,7 +270,6 @@ export class MapleCacheService {
           filename,
           descriptor.artifactLastModified,
         );
-        if (canonical === 'invalid') return null;
         if (canonical) return canonical;
       }
 
@@ -378,7 +377,7 @@ export class MapleCacheService {
     relDir: string,
     filename: string,
     describedArtifactMtime: number,
-  ): Promise<Blob | 'invalid' | null> {
+  ): Promise<Blob | null> {
     const path = previewArtifactPath(relDir, filename, 'avif');
     let canonicalMtime: number;
     try {
@@ -390,10 +389,10 @@ export class MapleCacheService {
 
     try {
       const bytes = await this.fs.readFile(folder, path);
-      if (!hasCacheImageSignature(bytes, 'avif')) return 'invalid';
+      if (!hasCacheImageSignature(bytes, 'avif')) return null;
       return new Blob([bytes as unknown as BlobPart], { type: 'image/avif' });
     } catch {
-      return 'invalid';
+      return null;
     }
   }
 }
