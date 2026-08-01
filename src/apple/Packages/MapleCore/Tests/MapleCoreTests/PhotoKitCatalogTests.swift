@@ -62,11 +62,15 @@ final class PhotoKitCatalogTests: XCTestCase {
 
     // MARK: - PhotoKitChangeObserver integration
 
-    /// The catalog subscribes to PhotoKitChangeObserver at init. After a
-    /// synthetic change fires, the catalog's image-id cache must be nil
-    /// (invalidation was called synchronously — same callstack, no Task hop).
+    /// Once subscribed, a synthetic change must leave the catalog's image-id
+    /// cache nil — invalidation runs synchronously, same callstack, no Task hop.
+    ///
+    /// Subscription is established explicitly: since #2454 the catalog
+    /// subscribes on first use *with access in hand*, never at init, and a test
+    /// host has no PhotoKit access to grant.
     func testCatalogInvalidatesOnPhotoKitChange() {
         let catalog = PhotoKitCatalog.shared
+        catalog.testOnlyStartObserving()
         // Seed a known cache entry so we can observe it being cleared.
         catalog.testOnlySetCache(imageIDs: ["test-id-1", "test-id-2"])
         XCTAssertNotNil(catalog.testOnlyCachedImageIDs())
@@ -91,6 +95,7 @@ final class PhotoKitCatalogTests: XCTestCase {
         defer { observer.unsubscribe(token) }
 
         // Seed the catalog so we can check the synchronous clear.
+        PhotoKitCatalog.shared.testOnlyStartObserving()
         PhotoKitCatalog.shared.testOnlySetCache(imageIDs: ["x"])
 
         observer.fireForTesting()
