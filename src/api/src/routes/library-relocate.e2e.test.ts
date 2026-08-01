@@ -7,8 +7,10 @@
  * They assert the crash-safe outcome — the photo file AND its `.xmp` sidecar
  * both land in `<libraryRoot>/<year>/<state>/<city>/`, the source paths are
  * gone, and the DB `fileinfo` is repointed — plus the collision auto-rename
- * (file + sidecar get a `.N` suffix; the pre-existing occupant is untouched),
- * the video exclusion (#1678), and the already-in-place no-op.
+ * (file + sidecar get a `.N` suffix; the pre-existing occupant is untouched)
+ * and the already-in-place no-op. Video relocation with its full-name
+ * `.mov.xmp` sidecar is covered separately in
+ * `library-relocate-video.e2e.test.ts` (#1678, split for file-size budget).
  *
  * Skips when MongoDB is unreachable (mirrors refile-backups.e2e.test.ts).
  * Pure wiring / validation is covered in library-relocate.test.ts.
@@ -302,53 +304,6 @@ describe('library-relocate end-to-end', () => {
       } | null;
       expect(doc?.fileinfo?.[0].path).toBe(newRel);
       expect(doc?.fileinfo?.[0].filename).toBe('IMG_2.1.dng');
-    } finally {
-      await assets.deleteOne({ _id });
-    }
-  });
-
-  it('excludes videos — a video asset with a place is not counted (#1678)', async () => {
-    const db = await connectOrSkip('video excluded');
-    if (!db) return;
-    const assets = db.collection('assets');
-    const libId = new ObjectId();
-
-    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-video-'));
-    await seedLibrary(libId, dir);
-
-    const oldRel = '2024/Loose';
-    await fs.mkdir(path.join(dir, ...oldRel.split('/')), { recursive: true });
-    await fs.writeFile(path.join(dir, oldRel, 'CLIP.mov'), 'frames');
-
-    const _id = new ObjectId();
-    await assets.insertOne({
-      _id,
-      maple_id: 'relocate-video-id',
-      fileinfo: [
-        {
-          path: oldRel,
-          filename: 'CLIP.mov',
-          library_id: libId,
-          deleted_at: null,
-          missing_since: null,
-        },
-      ],
-      metadata_override: usPlaceText(),
-      exif: { captured_year: 2024 },
-      stages: { thumb: { version: 1 }, preview: { version: 1 } },
-    } as never);
-
-    try {
-      const res = await postCount([`${SLUG}:${oldRel}/CLIP.mov`]);
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as { count: number };
-      expect(body.count).toBe(0);
-
-      // And a relocate leaves the video exactly where it was.
-      const relRes = await postRelocate([`${SLUG}:${oldRel}/CLIP.mov`]);
-      const relBody = (await relRes.json()) as { results: unknown[] };
-      expect(relBody.results).toHaveLength(0);
-      expect(await fs.readFile(path.join(dir, oldRel, 'CLIP.mov'), 'utf8')).toBe('frames');
     } finally {
       await assets.deleteOne({ _id });
     }

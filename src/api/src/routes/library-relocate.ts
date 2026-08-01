@@ -17,8 +17,10 @@
  * leaves a half-moved file (crash-safe copy→verify→repoint→delete order).
  *
  * The `.xmp` sidecar is handled automatically by `moveBackupAsset` →
- * `planAndPlace` via `listPairedSidecars`, which already includes it as a
- * companion. No change to the move machinery is needed.
+ * `planAndPlace` via `listPairedSidecars`, which includes it as a companion —
+ * for both the stem-swap convention images use (`photo.dng` → `photo.xmp`)
+ * and the full-name convention videos use (`clip.mov` → `clip.mov.xmp`).
+ * Videos are relocation candidates the same as any other asset (#1678).
  *
  * Does NOT stamp `backup_layout_version` — that marker belongs to the bulk
  * geo-migration sweep, not targeted on-demand relocates.
@@ -50,7 +52,6 @@ function assetActiveFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): FileInfo | null
   }
   return null;
 }
-import { isVideoFilename } from '../indexer/media-types.ts';
 import { backupLocationSegments } from '../backup/location-segments.ts';
 import { sanitizeLocationSegments, SCREENSHOT_DIR_SEGMENT } from '../backup/path-formatter.ts';
 import { moveBackupAsset } from '../workers/migration/move-backup-asset.ts';
@@ -128,13 +129,7 @@ function geoDir(doc: WithId<AssetDoc>): string | null {
  * replacing the old `isGeoBackupCandidate` which required `phasset_links`.
  */
 function isGeoCandidate(doc: WithId<AssetDoc>): boolean {
-  const primary = assetActiveFileInfo(doc);
-  if (!primary) return false;
-  // Videos are excluded until the full-name sidecar convention (clip.mov.xmp) is
-  // handled by listPairedSidecars/planAndPlace — otherwise relocating a video
-  // would strand its .mov.xmp sidecar in the old folder. Tracked by #1678.
-  if (isVideoFilename(primary.filename)) return false;
-  return true;
+  return assetActiveFileInfo(doc) !== null;
 }
 
 /**
