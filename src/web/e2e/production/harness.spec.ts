@@ -104,9 +104,8 @@ test('Hosted writable folder creates its .maple cache without modifying the RAW'
     .toContain('test_0006.DNG');
   const coldReadyMs = Date.now() - coldStarted;
 
-  // The warm-cache phase intentionally replaces the document. Let Chrome
-  // finish the current document's local font request first so that navigation
-  // does not manufacture a net::ERR_ABORTED browser-audit failure.
+  // Finish the local font request before warm-cache document replacement so
+  // Chrome does not report its intentional cancellation as a request failure.
   await page.evaluate(() => document.fonts.ready);
   await page.goto('/');
   const warmStarted = Date.now();
