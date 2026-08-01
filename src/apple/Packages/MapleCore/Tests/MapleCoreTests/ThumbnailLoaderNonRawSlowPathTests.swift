@@ -148,16 +148,34 @@ final class ThumbnailLoaderNonRawSlowPathTests: XCTestCase {
         let data = try XCTUnwrap(result, "non-RAW asset must produce a thumbnail, not nil")
         XCTAssertFalse(data.isEmpty)
         XCTAssertEqual(data[4..<8], Data("ftyp".utf8), "must be an AVIF container")
-        // This asset has no embedded thumbnail, but on a modern ImageIO the
-        // fast path's `FromImageIfAbsent: true` frequently synthesizes one
-        // successfully anyway (at its own 2x-Retina target, 512px — see
-        // `embeddedPreviewAVIF`), so this real end-to-end call is not
-        // guaranteed to land on the new slow path. Not asserting a specific
-        // tier's exact pixel size here: that's already pinned precisely by
-        // `testDownscalesToThumbnailLongEdge` against `nonRawSlowPathAVIF`
-        // directly. This test only pins the ticket's literal requirement —
-        // a non-RAW asset must produce a thumbnail, not nil — across
-        // whichever tier ends up serving it.
+        // NOT A PROOF OF ROUTING. This asset has no embedded thumbnail, but
+        // on this machine's ImageIO the fast path's
+        // `CGImageSourceCreateThumbnailAtIndex(...FromImageIfAbsent: true)`
+        // synthesizes one successfully anyway (confirmed empirically: it
+        // served this exact fixture at its own 2x-Retina target, 512px —
+        // see `embeddedPreviewAVIF`). ImageIO's synthesis fallback turned
+        // out to be extremely resilient in manual probing — it still
+        // recovered a thumbnail for a CMYK JPEG, an indexed-palette PNG, a
+        // 16-bit grayscale PNG, an interlaced PNG, a JPEG with truncated
+        // scan data, a 900-megapixel PNG, and even a JPEG whose EMBEDDED
+        // EXIF thumbnail bytes were deliberately corrupted (IFD1 present,
+        // scan data zeroed — ImageIO fell back to synthesizing from the
+        // full image instead of returning nil). No fixture constructed
+        // during this investigation could defeat the fast path while
+        // leaving the image fully decodable, so this end-to-end call is
+        // NOT guaranteed to land on the new slow path — it did not, here.
+        // The slow path itself is exhaustively covered at the unit level
+        // above (decode, downscale, no-upscale, EXIF orientation, graceful
+        // nil). The *routing* — that a non-RAW extension takes an early
+        // return into `nonRawSlowPathAVIF` and structurally cannot fall
+        // through to `PipelineRenderer.render(rawPath:)` — is verified by
+        // inspection of `ThumbnailLoader.produceThumbnail`'s
+        // `if NonRawImageExtensions.all.contains(ext) { ... return ... }`
+        // branch, together with `testPipelineRendererThrowsForNonRawFile`
+        // above proving what the OLD single-path code would have done with
+        // this same kind of input. This test only pins the ticket's literal
+        // requirement — a non-RAW asset must produce a thumbnail, not nil —
+        // across whichever tier ends up serving it.
         let size = try extent(of: data)
         let longEdge = max(size.width, size.height)
         XCTAssertLessThanOrEqual(longEdge, ThumbnailDiskCache.defaultThumbSize.width * 2)
