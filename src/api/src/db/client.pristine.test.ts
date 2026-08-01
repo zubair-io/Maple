@@ -10,11 +10,11 @@ import { MongoClient, type Collection, type Db, type IndexDescriptionInfo } from
 
 const TEST_DB = `maple_test_client_pristine_${process.pid}`;
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-const ORIGINAL_MONGO_DB = process.env.MAPLE_MONGO_DB;
-process.env.MAPLE_MONGO_DB = TEST_DB;
 
 let mongo: MongoClient | null = null;
 let db: Db | null = null;
+let originalMongoDb: string | undefined;
+let mongoDbOverridden = false;
 
 async function connect(): Promise<MongoClient | null> {
   const client = new MongoClient(MONGO_URI, {
@@ -43,6 +43,10 @@ function named(indexes: IndexDescriptionInfo[], name: string): IndexDescriptionI
 }
 
 beforeAll(async () => {
+  originalMongoDb = process.env.MAPLE_MONGO_DB;
+  process.env.MAPLE_MONGO_DB = TEST_DB;
+  mongoDbOverridden = true;
+
   mongo = await connect();
   if (!mongo) {
     console.log('[client.pristine.test] skipping: MongoDB unreachable');
@@ -61,8 +65,10 @@ afterAll(async () => {
       await mongo.close();
     }
   } finally {
-    if (ORIGINAL_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
-    else process.env.MAPLE_MONGO_DB = ORIGINAL_MONGO_DB;
+    if (mongoDbOverridden) {
+      if (originalMongoDb === undefined) delete process.env.MAPLE_MONGO_DB;
+      else process.env.MAPLE_MONGO_DB = originalMongoDb;
+    }
   }
 });
 
