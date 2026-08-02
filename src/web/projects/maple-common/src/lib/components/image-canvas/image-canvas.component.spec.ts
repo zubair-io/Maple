@@ -28,6 +28,7 @@ import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjus
 import type { Asset, AssetId } from '../../models/asset';
 import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
 import { patchSecureGpuContext, type SecureGpuContextPatch } from './gpu-context-test-helpers';
+import { EmbeddedPreviewService } from '../../raw-pipeline/embedded-preview.service';
 
 const REFINE_MS = 150;
 // jsdom wrap has no layout → the component falls back to 800×600 CSS px and
@@ -64,6 +65,7 @@ describe('ImageCanvasComponent — two-phase live re-render (#846/#1101)', () =>
   let decodeSpy: ReturnType<typeof vi.fn>;
   let canvasSvc: ImageCanvasService;
   let updateDimsSpy: ReturnType<typeof vi.fn>;
+  let previewSpy: ReturnType<typeof vi.fn>;
   let fixture: ComponentFixture<ImageCanvasComponent>;
 
   beforeEach(() => {
@@ -74,6 +76,7 @@ describe('ImageCanvasComponent — two-phase live re-render (#846/#1101)', () =>
       Promise.resolve(decodedAt(mle)),
     );
     updateDimsSpy = vi.fn();
+    previewSpy = vi.fn(() => Promise.reject(new Error('fixture has no embedded preview')));
 
     // jsdom has none of these; the component observes resize, builds an
     // ImageData per decode, and (de)allocates bitmaps. The ImageData stand-in
@@ -111,6 +114,10 @@ describe('ImageCanvasComponent — two-phase live re-render (#846/#1101)', () =>
       imports: [ImageCanvasComponent],
       providers: [
         XmpSerializerService,
+        {
+          provide: EmbeddedPreviewService,
+          useValue: { extractEmbeddedPreview: previewSpy },
+        },
         { provide: LibraryStateService, useValue: stateStub },
         {
           provide: RawPipelineService,
@@ -159,6 +166,45 @@ describe('ImageCanvasComponent — two-phase live re-render (#846/#1101)', () =>
     expect(preview).toBe(true);
     // Asset dims are the NATIVE dims from the sized reply, not the buffer's.
     expect(updateDimsSpy).toHaveBeenCalledWith('a', NATIVE_W, NATIVE_H);
+  });
+
+  it('shows the embedded JPEG while the full RAW decode is still running', async () => {
+    let finishDecode!: (decoded: DecodedImage) => void;
+    decodeSpy.mockImplementationOnce(
+      () => new Promise<DecodedImage>((resolve) => (finishDecode = resolve)),
+    );
+    previewSpy.mockResolvedValueOnce({
+      width: 640,
+      height: 400,
+      blob: new Blob(['preview'], { type: 'image/jpeg' }),
+    });
+
+    focused.set(fakeAsset('a'));
+    await settle(0);
+
+    expect(fixture.componentInstance.loading()).toBe(true);
+    expect(fixture.componentInstance.imageBitmap()).not.toBeNull();
+
+    finishDecode(decodedAt(VIEWPORT_LONG));
+    await settle(0);
+    expect(fixture.componentInstance.loading()).toBe(false);
+  });
+
+  it('keeps the embedded JPEG visible when the full RAW decode fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    decodeSpy.mockRejectedValueOnce(new Error('decode failed'));
+    previewSpy.mockResolvedValueOnce({
+      width: 640,
+      height: 400,
+      blob: new Blob(['preview'], { type: 'image/jpeg' }),
+    });
+
+    focused.set(fakeAsset('a'));
+    await settle(0);
+
+    expect(fixture.componentInstance.loading()).toBe(false);
+    expect(fixture.componentInstance.imageBitmap()).not.toBeNull();
+    consoleError.mockRestore();
   });
 
   it('an edit fires an immediate fast-phase decode; at fit no refine follows', async () => {
