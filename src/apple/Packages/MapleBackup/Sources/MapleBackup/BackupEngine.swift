@@ -223,6 +223,15 @@ public actor BackupEngine {
             task.cancel()
         }
         retryTasks.removeAll()
+        // Wake a parked runner so it observes teardown promptly. Without this,
+        // `run()`'s doc claim that it parks "until a retry re-enqueues (or
+        // teardown signals us)" is not actually true: a caller that invokes
+        // `stop()` WITHOUT also cancelling the runner Task would leave it
+        // parked forever on a `retryTasks` that is now empty. The cancelled
+        // retries above do each signal on their way out, but only once their
+        // sleep unwinds — and if `retryTasks` was already empty there is
+        // nothing to unwind at all.
+        Task { await retryWake.signal() }
         // Cancelled companion retries won't reach their decrement, so clear the
         // outstanding-companion counters too — a fresh run starts clean and we
         // never re-emit a stale `.companionsResolved` for a torn-down task (#702).
