@@ -79,7 +79,8 @@ public actor BackupEngine {
         case queueEmpty
     }
 
-    private let queue: any BackupQueue
+    /// `internal` for the same reason as `outstandingCompanions`.
+    let queue: any BackupQueue
     private let state: BackupStateStore
     private let upload: UploadClient
     private let sidecars: AppSupportSidecarStore
@@ -133,7 +134,9 @@ public actor BackupEngine {
     /// distinguish "uploaded, companions pending" from "done". The recursive
     /// reschedule does NOT re-increment — increment is once per failed inline
     /// attempt, decrement is once at each companion's terminus.
-    private var outstandingCompanions: [BackupTaskID: Int] = [:]
+    /// `internal` rather than `private` so the companion accounting in
+    /// `BackupEngine+Companions.swift` can reach it — still module-scoped.
+    var outstandingCompanions: [BackupTaskID: Int] = [:]
 
     /// Maximum retry attempts before a task is marked `.failedRetry`.
     private static let maxRetries = 8
@@ -539,37 +542,4 @@ public actor BackupEngine {
         await retryWake.signal()
     }
 
-    // MARK: - Outstanding-companion accounting (#702)
-
-    /// Record that one more companion for `taskId` has entered its bounded
-    /// retry path. Emits `.companionPending` only on the 0→1 transition so the
-    /// progress VM flips the photo to "uploaded, companions pending" exactly
-    /// once regardless of how many companions are outstanding.
-    private func companionBecamePending(_ taskId: BackupTaskID) async {
-        let prior = outstandingCompanions[taskId] ?? 0
-        outstandingCompanions[taskId] = prior + 1
-        if prior == 0 {
-            await queue.emit(.companionPending(taskId))
-        }
-    }
-
-    /// Record that one companion for `taskId` reached a terminal state (landed
-    /// or exhausted). Emits `.companionsResolved` only on the →0 transition so
-    /// the photo flips back to fully "done" exactly once.
-    private func companionResolved(_ taskId: BackupTaskID) async {
-        guard let prior = outstandingCompanions[taskId], prior > 0 else { return }
-        if prior == 1 {
-            outstandingCompanions.removeValue(forKey: taskId)
-            await queue.emit(.companionsResolved(taskId))
-        } else {
-            outstandingCompanions[taskId] = prior - 1
-        }
-    }
-
-    /// Exponential backoff capped at 1 hour. The `companionBackoff` default
-    /// argument inlines the same formula (a `public` init can't reference a
-    /// non-public member in a default value).
-    private static func backoffSeconds(for retryCount: Int) -> TimeInterval {
-        min(3600, pow(2.0, Double(retryCount)))
-    }
 }
