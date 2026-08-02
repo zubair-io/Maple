@@ -19,14 +19,26 @@ final class RevealTargetTests: XCTestCase {
             .cloud(serverID: URL(string: "https://maple.example")!,
                    folderID: "F1",
                    libraryPath: "/srv/lib/2026"))
-        XCTAssertEqual(ref.displayPath, "/srv/lib/2026/IMG_0042.dng")
+        // Displayed folder is the library-relative address, filename dropped,
+        // colon rendered as a slash — NOT the server /srv abs path.
+        XCTAssertEqual(ref.displayFolder, "lib/2026")
+    }
+
+    func testCloudAssetAtLibraryRootShowsSlugOnly() {
+        let ref = AssetRef(
+            displayName: "x.dng", hintExtension: "dng", stableID: "fs:/srv/lib/x.dng",
+            catalog: CatalogRef(
+                serverID: URL(string: "https://maple.example")!, folderID: "F1",
+                absPath: "/srv/lib/x.dng", address: "lib:x.dng"),
+            bytesProvider: { Data() })
+        XCTAssertEqual(ref.displayFolder, "lib")
     }
 
     func testLocalAssetRevealsParentFolder() {
         let url = URL(fileURLWithPath: "/photos/2026/IMG_0042.dng")
         let ref = AssetRef(url: url)
         XCTAssertEqual(ref.revealTarget, .local(parent: url.deletingLastPathComponent()))
-        XCTAssertEqual(ref.displayPath, "/photos/2026/IMG_0042.dng")
+        XCTAssertEqual(ref.displayFolder, "/photos/2026")
     }
 
     func testPhotoKitAssetHasNoRevealTarget() {
@@ -35,6 +47,6 @@ final class RevealTargetTests: XCTestCase {
             displayName: "IMG_0042", hintExtension: "heic",
             stableID: "phasset-local-id", bytesProvider: { Data() })
         XCTAssertEqual(ref.revealTarget, .none)
-        XCTAssertNil(ref.displayPath)
+        XCTAssertNil(ref.displayFolder)
     }
 }

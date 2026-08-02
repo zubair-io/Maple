@@ -42,7 +42,7 @@ struct CameraLocationGrid: View {
       from: exif,
       city: enrichment?.city,
       fileSize: enrichment?.fileSize,
-      path: asset?.displayPath
+      folder: asset?.displayFolder
     )
   }
 
@@ -60,7 +60,7 @@ struct CameraLocationGrid: View {
       sectionHeader("Camera & Location")
       VStack(spacing: 0) {
         ForEach(rows) { row in
-          if row.id == "path", canRevealFolder, row.value != "—" {
+          if row.id == "folder", canRevealFolder, row.value != "—" {
             KVRow(label: row.label, value: row.value, onTap: {
               if let asset { revealFolder?(asset) }
             })

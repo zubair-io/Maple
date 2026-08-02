@@ -25,7 +25,7 @@ final class InfoPanelVMTests: XCTestCase {
       rows.map(\.id),
       [
         "body", "taken", "lens", "aperture", "shutter", "iso", "focal",
-        "dimensions", "coords", "city", "size", "path",
+        "dimensions", "coords", "city", "size", "folder",
       ])
   }
 
@@ -92,12 +92,12 @@ final class InfoPanelVMTests: XCTestCase {
     XCTAssertEqual(value(exifOnly, "size"), "12.3 MB")
   }
 
-  func testCameraLocationRowsPathPrefersDisplayPathElseExif() {
-    let withPath = InfoPanelVM.cameraLocationRows(from: [], path: "/srv/lib/2026/x.dng")
-    XCTAssertEqual(value(withPath, "path"), "/srv/lib/2026/x.dng")
-    let exifOnly = InfoPanelVM.cameraLocationRows(
-      from: [.init(section: "File", label: "Path", value: "/local/x.dng")])
-    XCTAssertEqual(value(exifOnly, "path"), "/local/x.dng")
+  func testCameraLocationRowsFolderFromDisplayFolderElseEmDash() {
+    let withFolder = InfoPanelVM.cameraLocationRows(from: [], folder: "photos/2010/Family")
+    XCTAssertEqual(value(withFolder, "folder"), "photos/2010/Family")
+    // No folder (e.g. PhotoKit) → em-dash; no EXIF File/Path fallback.
+    let none = InfoPanelVM.cameraLocationRows(from: [])
+    XCTAssertEqual(value(none, "folder"), "—")
   }
 
   // MARK: - combineMakeModel
