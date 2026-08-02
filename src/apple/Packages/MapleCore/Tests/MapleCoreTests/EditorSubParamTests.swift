@@ -162,13 +162,39 @@ final class EditorSubParamTests: XCTestCase {
     func testEveryOtherToolIsSingleParam() {
         // Crop stays a stub. Vignette joined the multi-param set at #1109,
         // grain at #1110, color grading (superseding split tone) at
-        // #1111/#275, HSL at #274, B&W Mix at #276.
+        // #1111/#275, HSL at #274, B&W Mix at #276, tone curve at #367.
+        //
+        // `.toneCurve` declares the four PV2012 parametric REGION sliders
+        // (`ToolSubParam.swift`). Its four per-channel POINT curves are
+        // deliberately NOT sub-params — a sub-param is a scalar key path by
+        // construction and a curve is a point list — so this exclusion is
+        // about the region sliders only, not a blanket opt-out for the tool.
         for tool in Tool.allCases
         where tool != .noise && tool != .sharpen && tool != .vignette && tool != .grain
-            && tool != .colorGrade && tool != .hsl && tool != .bwMix {
+            && tool != .colorGrade && tool != .hsl && tool != .bwMix && tool != .toneCurve {
             XCTAssertTrue(tool.subParams.isEmpty, "\(tool) should be single-param")
             XCTAssertFalse(tool.isMultiParam)
             XCTAssertNil(tool.defaultSubParamId)
+        }
+    }
+
+    /// The allowlist above is hand-maintained, which is exactly how `.toneCurve`
+    /// went missing when #367 gave it sub-params: the tool became multi-param and
+    /// nothing forced the list to keep up, so `main` sat red (#2488).
+    ///
+    /// This pins the relationship the allowlist is *supposed* to express — every
+    /// excluded tool must genuinely declare sub-params — so a tool that is
+    /// excluded but has none (a stale entry, e.g. after a tool is simplified)
+    /// now fails too, rather than silently weakening the check above.
+    func testEveryExcludedToolActuallyDeclaresSubParams() {
+        let excluded: [Tool] = [.noise, .sharpen, .vignette, .grain,
+                                .colorGrade, .hsl, .bwMix, .toneCurve]
+        for tool in excluded {
+            XCTAssertFalse(tool.subParams.isEmpty,
+                "\(tool) is excluded from the single-param check but declares no sub-params — "
+                + "either it regained a single param, or the exclusion is stale")
+            XCTAssertTrue(tool.isMultiParam, "\(tool) is excluded but isn't multi-param")
+            XCTAssertNotNil(tool.defaultSubParamId, "\(tool) is excluded but has no default sub-param")
         }
     }
 
