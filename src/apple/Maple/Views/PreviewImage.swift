@@ -123,9 +123,10 @@ struct PreviewImage: View {
             if !Task.isCancelled { phase = .failed }
             return
         }
-        let image = await Task.detached(priority: .userInitiated) {
-            ThumbnailDecoder.decodeFullSync(data)
-        }.value
+        // decodeFull is nonisolated async: it decodes off-main AND inherits this
+        // task's cancellation, so a superseded page (prev/next swipe cancels the
+        // .task) stops decoding instead of finishing an off-screen image.
+        let image = await ThumbnailDecoder.decodeFull(data)
         // Stale-guard: a newer `.task(id:)` supersedes and cancels this one on
         // an id change, so `!Task.isCancelled` is the real check. (`sourceID`
         // is derived from the view's `source` prop; a re-created struct with a
@@ -140,9 +141,7 @@ struct PreviewImage: View {
         // the source for display-sized pixels and swap them in only if this
         // page is still current.
         guard let previewData = await provider.preview(for: source) else { return }
-        let enhanced = await Task.detached(priority: .utility) {
-            ThumbnailDecoder.decodeFullSync(previewData)
-        }.value
+        let enhanced = await ThumbnailDecoder.decodeFull(previewData)
         guard !Task.isCancelled, let enhanced else { return }
         decodedImage = enhanced
     }
