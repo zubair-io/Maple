@@ -12,6 +12,39 @@
 
 import Foundation
 
+// MARK: - CatalogRef
+
+/// Cloud catalog identity for a Self-Hosted asset — everything the info pane
+/// needs to (a) fetch the rich server-side detail and (b) reveal the asset's
+/// containing folder in browse, without overloading `stableID` (which is the
+/// thumbnail-cache key and must stay `fs:<absPath>` for `CloudSource`).
+///
+/// `nil` on `AssetRef` for filesystem and PhotoKit assets — those reveal via
+/// `primaryURL` and have no server detail to fetch. Plain data only (no app
+/// types) so it can live in MapleCore alongside `AssetRef`.
+public struct CatalogRef: Hashable, Sendable {
+    /// Canonical (registry-key) server URL — the same value the sidebar's
+    /// `.cloudLibrary` selection and `loadCloudLibrary(serverID:…)` use, NOT
+    /// the local-network-resolved `effectiveURL`.
+    public let serverID: URL
+    /// Library-root folder ObjectId (`SearchAsset.folder_id`).
+    public let folderID: String
+    /// Server-side absolute path of the asset (`SearchAsset.abs_path`). Its
+    /// parent directory is the reveal target; also shown as the "Path" row.
+    public let absPath: String
+    /// `slug:relPath` unified address used to fetch the detail DTO via
+    /// `GET /api/assets/by-address`. `nil` when the server response predates
+    /// the field (the detail fetch then degrades to hidden rather than 400).
+    public let address: String?
+
+    public init(serverID: URL, folderID: String, absPath: String, address: String?) {
+        self.serverID = serverID
+        self.folderID = folderID
+        self.absPath = absPath
+        self.address = address
+    }
+}
+
 // MARK: - AssetRef
 
 /// Lightweight reference to a source asset.
@@ -112,6 +145,12 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
         case cloud(server: URL)
     }
     public let thumbnailProvenance: ThumbnailProvenance?
+
+    /// Cloud catalog identity (server / folder / abs path / address). Set by
+    /// `prepareCloudSession` for Self-Hosted assets; `nil` for filesystem and
+    /// PhotoKit assets. Powers the info pane's rich-detail fetch, the "Path"
+    /// row, and the reveal-containing-folder action. See `CatalogRef`.
+    public let catalog: CatalogRef?
 
     public var sidecarURL: URL? {
         primaryURL.map { SidecarPath.sidecarURL(for: $0) }
@@ -286,6 +325,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
         self.scopeParentURL = scopeParentURL
         self.explicitIsRaw = nil
         self.thumbnailProvenance = nil
+        self.catalog = nil
     }
 
     /// Construct an `AssetRef` for a source without a filesystem URL
@@ -311,6 +351,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
                 explicitIsRaw: Bool? = nil,
                 thumbnailProvenance: ThumbnailProvenance? = nil,
                 displayPreviewProvider: DisplayPreviewProvider? = nil,
+                catalog: CatalogRef? = nil,
                 bytesProvider: @escaping BytesProvider) {
         self.id = UUID()
         self.primaryURL = nil
@@ -322,6 +363,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
         self.scopeParentURL = nil
         self.explicitIsRaw = explicitIsRaw
         self.thumbnailProvenance = thumbnailProvenance
+        self.catalog = catalog
     }
 
     public static func == (lhs: AssetRef, rhs: AssetRef) -> Bool {
