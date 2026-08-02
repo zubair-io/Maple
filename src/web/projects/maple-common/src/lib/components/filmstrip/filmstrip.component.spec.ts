@@ -32,6 +32,7 @@ function setup() {
     focusedAssetId: signal<string | null>(ASSET.id),
     selectAsset,
     ensureThumbnailUrl: vi.fn(),
+    cancelQueuedThumbnail: vi.fn(),
     subscribeThumbUrl: vi.fn(() => () => {}),
     isSelecting: () => false,
   };

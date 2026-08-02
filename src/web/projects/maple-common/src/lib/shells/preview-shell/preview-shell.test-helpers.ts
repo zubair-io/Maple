@@ -51,6 +51,7 @@ export function setupFixture(
     subscribeThumbUrl: vi.fn(() => () => {}),
     subscribePreviewUrl: vi.fn(() => () => {}),
     ensureThumbnailUrl: vi.fn(),
+    cancelQueuedThumbnail: vi.fn(),
     flushPendingXmpWrites: vi.fn(),
     setFlag: vi.fn(),
     setRating: vi.fn(),
