@@ -123,12 +123,14 @@ struct PhotoThumbnailCell: View {
             .accessibilityHint(accessibilityHintText)
             .task(id: item.id) {
                 let bytes = await provider.thumbnail(for: item.thumbnailSource)
-                // Skip the assignment if the cell scrolled away mid-load, and
-                // fade the thumbnail in — matches the original CloudTimelineCell.
+                // Skip the assignment if the cell scrolled away mid-load.
+                // No arrival animation: a `withAnimation` fade here runs a
+                // 0.18s opacity transition per tile on the main thread, so a
+                // scroll that resolves 20–30 tiles at once drives that many
+                // overlapping animations and hitches the scroll. Thumbnails
+                // just appear (Photos.app does the same during scroll).
                 guard !Task.isCancelled else { return }
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    thumb = bytes
-                }
+                thumb = bytes
             }
     }
 
