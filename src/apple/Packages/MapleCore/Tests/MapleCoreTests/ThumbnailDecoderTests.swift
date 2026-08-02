@@ -107,4 +107,24 @@ final class ThumbnailDecoderTests: XCTestCase {
         let result = await ThumbnailDecoder.image(for: Data([0xDE, 0xAD, 0xBE, 0xEF]))
         XCTAssertNil(result, "garbage bytes must not decode to an image")
     }
+
+    // MARK: - Cancellation
+
+    /// A decode whose caller was cancelled (the grid cell scrolled off-screen
+    /// before the decode started) must bail rather than decode a tile that's no
+    /// longer visible. Guards the structured-concurrency contract: `image(for:)`
+    /// must inherit the caller's cancellation, which it can only do because it
+    /// decodes inline (nonisolated async) rather than in an unstructured
+    /// `Task.detached`.
+    func test_image_bailsWhenCallerCancelled() async throws {
+        // A size not decoded elsewhere in this suite, so the cache can't satisfy
+        // the request before the cancellation guard is reached.
+        let bytes = try makePNG(width: 123, height: 77)
+        // Cancel synchronously before the first suspension point, so the task
+        // body observes cancellation deterministically once it runs.
+        let task = Task { await ThumbnailDecoder.image(for: bytes) }
+        task.cancel()
+        let result = await task.value
+        XCTAssertNil(result, "a decode whose caller was cancelled must return nil")
+    }
 }
