@@ -39,6 +39,10 @@ export interface Render2dHost {
   fastTargetPx(): number;
   /** Open the adjustment-effect gate once the cold open has painted. */
   markColdOpenDone(): void;
+  /** True when an embedded camera preview is already painted for this asset. */
+  hasProvisionalPreview(assetId: AssetId): boolean;
+  /** Record that final decoded pixels replaced the provisional camera preview. */
+  clearProvisionalPreview(assetId: AssetId): void;
   /** Record the decode's native (full-res, oriented) dims for refine/zoom math. */
   recordNativeDims(w: number, h: number): void;
   /** Record the painted bitmap's dims (long edge + aspect) for the refine guard
@@ -100,6 +104,7 @@ export async function coldOpen2d(
     host.imageBitmap()?.close();
     host.imageBitmap.set(bitmap);
     host.recordPaintedDims(decoded.width, decoded.height);
+    host.clearProvisionalPreview(assetId);
     performance.mark(`maple:open:${assetId}:paint`);
     performance.measure(`maple:open`, `maple:open:${assetId}:start`, `maple:open:${assetId}:paint`);
 
@@ -109,7 +114,7 @@ export async function coldOpen2d(
     }
   } catch (e) {
     console.error('Decode failed for', filename, e);
-    host.imageBitmap.set(null);
+    if (!host.hasProvisionalPreview(assetId)) host.imageBitmap.set(null);
   } finally {
     host.loading.set(false);
   }
