@@ -25,7 +25,7 @@
  */
 
 import { ObjectId, type Filter, type Db, type UpdateResult, type Collection } from 'mongodb';
-import { assetsCollection } from './client.ts';
+import { assetsCollection, peopleCollection } from './client.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import {
   normaliseEnrichment,
@@ -105,6 +105,38 @@ async function safeLoadLibraries(dbOverride?: Db): Promise<ReadonlyMap<string, s
   }
 }
 
+/**
+ * Resolve `person_id` hex → display name for a doc's faces, so the detail DTO
+ * can surface names instead of raw ObjectIds. One `$in` query over `people`;
+ * empty map when the doc has no assigned faces (skips the query entirely).
+ */
+async function loadPersonNames(
+  doc: AssetWithId,
+  dbOverride?: Db,
+): Promise<ReadonlyMap<string, string>> {
+  const ids = Array.from(
+    new Set((doc.faces ?? []).map((f) => f.person_id).filter((id): id is string => !!id)),
+  );
+  if (ids.length === 0) return new Map();
+  try {
+    const people = dbOverride
+      ? dbOverride.collection('people')
+      : await peopleCollection();
+    const rows = await people
+      .find({ _id: { $in: ids.map((id) => new ObjectId(id)) } })
+      .project({ name: 1 })
+      .toArray();
+    return new Map(
+      rows
+        .filter((r): r is { _id: ObjectId; name: string } => typeof r.name === 'string')
+        .map((r) => [r._id.toHexString(), r.name]),
+    );
+  } catch {
+    // Names are best-effort — a lookup failure just falls back to raw ids.
+    return new Map();
+  }
+}
+
 /** Single asset, full detail DTO (used by `GET /api/assets/:id`). */
 export async function findDetailById(
   id: ObjectId,
@@ -113,8 +145,11 @@ export async function findDetailById(
   const c = await coll(dbOverride);
   const doc = await c.findOne({ _id: id });
   if (!doc) return null;
-  const libs = await safeLoadLibraries(dbOverride);
-  return toDetailDto(doc as AssetWithId, libs);
+  const [libs, personNames] = await Promise.all([
+    safeLoadLibraries(dbOverride),
+    loadPersonNames(doc as AssetWithId, dbOverride),
+  ]);
+  return toDetailDto(doc as AssetWithId, libs, personNames);
 }
 
 /**
@@ -150,8 +185,11 @@ export async function findDetailByAddress(
     fileinfo: { $elemMatch: { library_id: libraryId, path: dirPath, filename } },
   });
   if (!doc) return null;
-  const libs = await safeLoadLibraries(dbOverride);
-  return toDetailDto(doc as AssetWithId, libs);
+  const [libs, personNames] = await Promise.all([
+    safeLoadLibraries(dbOverride),
+    loadPersonNames(doc as AssetWithId, dbOverride),
+  ]);
+  return toDetailDto(doc as AssetWithId, libs, personNames);
 }
 
 /** Single asset, minimal info used by routes that drive FS / change-feed

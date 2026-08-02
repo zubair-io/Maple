@@ -187,6 +187,24 @@ describe('assets.repo', () => {
       const dto = await findDetailById(new ObjectId(), db);
       expect(dto).toBeNull();
     });
+
+    it('resolves face person_id → name from the people collection', async () => {
+      if (!db) return;
+      const alice = new ObjectId();
+      await db.collection('people').insertOne({ _id: alice, name: 'Alice' } as never);
+      const unassigned = new ObjectId(); // present in faces, absent from people
+      const id = await seedAsset(db, {
+        faces: [
+          { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: alice.toHexString(), confidence: 0.9 },
+          { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.8 },
+          { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: unassigned.toHexString(), confidence: 0.7 },
+        ],
+      });
+      const dto = await findDetailById(id, db);
+      expect(dto!.faces.map((f) => f.name)).toEqual(['Alice', null, null]);
+      // The raw person_id is preserved alongside the resolved name.
+      expect(dto!.faces[0].person_id).toBe(alice.toHexString());
+    });
   });
 
   describe('findDetailByAddress', () => {
