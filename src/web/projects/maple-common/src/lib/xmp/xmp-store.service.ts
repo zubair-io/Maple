@@ -2,7 +2,7 @@
 //
 // Coordinates debounced, atomic sidecar writes for the Develop tab.
 //
-// - scheduleWrite()     debounces at 200ms then atomically writes the sidecar via
+// - scheduleWrite()     debounces at 150ms then atomically writes the sidecar via
 //                       FolderAccessService (FS Access writable-stream close is
 //                       atomic on Chromium; fallback backend writes to IndexedDB).
 // - rememberPassthrough stores the passthrough bucket from the last load so that
@@ -24,7 +24,9 @@ export class XmpStoreService {
   private serializer = inject(XmpSerializerService);
   private saveState = inject(SidecarSaveStateService);
 
-  private readonly DEBOUNCE_MS = 200;
+  // Leave 100ms for browser scheduling and File System Access dispatch while
+  // meeting the 250ms edit-to-sidecar contract in installed Chrome.
+  private readonly DEBOUNCE_MS = 150;
 
   /** Pending debounce handles keyed by AssetId. */
   private _pendingWrites = new Map<
@@ -130,7 +132,7 @@ export class XmpStoreService {
    * Call from a beforeunload handler — modern Chromium will still finish any
    * in-flight writable-stream operations that have already been flushed to
    * the OS, but pending debounce timers that haven't fired yet are lost.
-   * For the common case (user pauses, then closes tab) the 200ms debounce means
+   * For the common case (user pauses, then closes tab) the 150ms debounce means
    * the write will already have fired before unload.
    */
   async flushAll(): Promise<void> {

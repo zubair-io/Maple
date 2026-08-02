@@ -5,6 +5,7 @@ import { readProductionFixtureManifest } from '../support/production-fixtures';
 import { installProductionFolderPicker } from '../support/production-folder-picker';
 import { openHostedFolder, openHostedFolderEditor } from '../support/production-editor';
 import { HOSTED_SECURITY_HEADERS } from '../../scripts/hosted-security-header-contract';
+import { captureWorkerStatus, workerStatus } from '../support/raw-performance';
 
 type CacheFormatMatcher = (bytes: Buffer) => boolean;
 const XMP_DISPATCH_BUDGET_MS = 250;
@@ -243,15 +244,19 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
   test.skip(testInfo.project.name !== 'chrome-hosted');
   const manifest = await readProductionFixtureManifest();
   const picker = await installProductionFolderPicker(page, manifest.writableFolder);
-  const rayonHelper = page.waitForResponse(
-    (response) => new URL(response.url()).pathname.endsWith('/workerHelpers.js'),
-    { timeout: 60_000 },
-  );
+  await captureWorkerStatus(page);
+  const rayonHelperRequests: string[] = [];
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname.endsWith('/workerHelpers.js')) {
+      rayonHelperRequests.push(request.url());
+    }
+  });
 
   await openHostedFolderEditor(page, 'test_0006.DNG');
-  expect((await rayonHelper).ok(), 'the real RAW worker must initialize its Rayon helper').toBe(
-    true,
-  );
+  await expect.poll(() => page.evaluate(() => crossOriginIsolated)).toBe(true);
+  expect(await page.evaluate(() => navigator.userAgent)).toContain('Chrome/');
+  await expect.poll(() => workerStatus(page)).toEqual({ threaded: false, threads: 1 });
+  expect(rayonHelperRequests, 'Chromium must not initialize a Rayon helper').toEqual([]);
   await expect(page.locator('editor-filmstrip')).toBeVisible();
   const descriptorPath = join(
     manifest.writableFolder,
@@ -388,17 +393,20 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
   const artifactWriteIndex = operationPaths.lastIndexOf(
     `write:.maple/previews/${developedArtifactName}`,
   );
-  const descriptorWriteIndex = operationPaths.lastIndexOf(
-    'write:.maple/previews/test_0006.DNG.preview.json',
-  );
   expect(
     artifactWriteIndex,
     'the developed artifact must be written after the edit',
   ).toBeGreaterThan(-1);
-  expect(
-    descriptorWriteIndex,
-    'the descriptor must publish only after the developed artifact write',
-  ).toBeGreaterThan(artifactWriteIndex);
+  // A second generation can begin after the first valid descriptor satisfies
+  // the pixel poll above. Wait for the descriptor paired with the latest
+  // observed artifact instead of sampling between its two ordered writes.
+  await expect
+    .poll(() =>
+      picker.operations
+        .map(({ kind, path }) => `${kind}:${path}`)
+        .lastIndexOf('write:.maple/previews/test_0006.DNG.preview.json'),
+    )
+    .toBeGreaterThan(artifactWriteIndex);
 
   await page.reload();
   await expect(page).toHaveURL(/\/$/);

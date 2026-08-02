@@ -8,9 +8,9 @@
 // makes the path SAFE at runtime — it only calls the GPU entry when this is `true`
 // AND the runtime advertises WebGPU (`'gpu' in navigator`) AND the bundle exports
 // it; on a no-WebGPU browser, or if the WebGPU adapter is broken (`requestAdapter()`
-// fails), it falls back to the threaded-CPU `render_bytes`. So flipping this default
-// on does NOT change behaviour on a no-WebGPU host — that path stays byte-for-byte
-// the threaded CPU render it is today.
+// fails), it falls back to the WASM-CPU `render_bytes`. Chromium-family runtimes
+// currently keep that CPU path serial because of #2515; restoration is tracked in
+// #2516. Safe, isolated non-Chromium runtimes can still initialize Rayon.
 //
 // Build/deploy-time override in `app.config.ts`:
 //   { provide: GPU_LIVE_RENDER_ENABLED, useValue: false }
