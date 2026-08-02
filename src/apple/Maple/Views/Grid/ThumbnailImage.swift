@@ -109,7 +109,6 @@ struct ThumbnailImage: View {
                     Image(decorative: image, scale: 1)
                         .resizable()
                         .aspectRatio(contentMode: displayMode.contentMode)
-                        .transition(.opacity)
                 } else {
                     Image(systemName: "photo")
                         .foregroundStyle(MapleTokens.textMuted)
@@ -133,9 +132,10 @@ struct ThumbnailImage: View {
                 }
                 let image = await ThumbnailDecoder.image(for: data)
                 guard !Task.isCancelled else { return }
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    decoded = image
-                }
+                // No arrival animation — see PhotoThumbnailCell: a per-tile
+                // fade during scroll drives an opacity transition on the main
+                // thread for every arriving thumbnail and hitches the scroll.
+                decoded = image
             }
     }
 }
