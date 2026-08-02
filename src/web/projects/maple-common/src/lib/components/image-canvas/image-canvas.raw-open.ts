@@ -71,6 +71,7 @@ export class ImageCanvasRawOpen {
 
       this.deps.imageBitmap()?.close();
       this.deps.imageBitmap.set(bitmap);
+      this.host.canvasSvc.currentPixels.set(null);
       this.deps.recordPaintedDims(preview.width, preview.height);
       this.provisionalAssetId = assetId;
     } catch {
