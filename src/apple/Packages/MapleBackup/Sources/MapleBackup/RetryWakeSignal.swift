@@ -37,11 +37,21 @@ actor RetryWakeSignal {
     private var pending = false
 
     /// Park until `signal()` fires, or return immediately if one already
-    /// landed. Race-free by construction (for a single waiter — see the type
-    /// doc): nothing suspends between checking `pending` and parking the
-    /// continuation below, so a concurrent (also actor-isolated) `signal()`
-    /// call lands strictly before or strictly after this span — never inside
-    /// it — and a wake can never be dropped.
+    /// landed.
+    ///
+    /// The `pending` flag is checked TWICE, and the second check is the
+    /// load-bearing one. `await withTaskCancellationHandler` is a suspension
+    /// point, so actor isolation can be released between the first check and
+    /// the moment the continuation is stored. A `signal()` landing in that
+    /// window finds `continuation == nil`, sets `pending = true`, and would
+    /// then be dropped by a waiter that parked without looking again. The
+    /// re-check inside the continuation body runs back under isolation and
+    /// converts that into an immediate resume.
+    ///
+    /// That window is not theoretical here: `BackupEngine.finishRetry` signals
+    /// on every retry exit, and if the lost wake were the LAST retry's, `run()`
+    /// would park forever with `pending == true` — the exact stall this
+    /// primitive exists to prevent.
     ///
     /// Wrapped in `withTaskCancellationHandler` so a cancelled caller Task
     /// always wakes instead of parking forever — `onCancel` isn't
@@ -54,10 +64,19 @@ actor RetryWakeSignal {
         }
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
+                // Back under actor isolation. A signal may have landed while
+                // the enclosing `await` was suspended.
+                if pending {
+                    pending = false
+                    continuation.resume()
+                    return
+                }
                 self.continuation = continuation
             }
         } onCancel: { [weak self] in
-            Task { await self?.cancelWait() }
+            // Detached so the wake isn't born already-cancelled — an inherited
+            // cancelled context could drop the hop and leave the waiter parked.
+            Task.detached { await self?.cancelWait() }
         }
     }
 
