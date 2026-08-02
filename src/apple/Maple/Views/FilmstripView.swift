@@ -54,9 +54,10 @@ private struct FilmstripCell: View {
     let source: (any ImageSource)?
     let onSelect: (AssetRef) -> Void
 
-    /// JPEG bytes from `ThumbnailLoader`. `nil` while loading / on failure,
-    /// in which case the neutral tile stays visible.
-    @State private var thumbData: Data?
+    /// Decoded thumbnail bitmap from `ThumbnailLoader` + `ThumbnailDecoder`.
+    /// `nil` while loading / on failure, in which case the neutral tile stays
+    /// visible. Decoded off the main actor (never in `body`).
+    @State private var decoded: CGImage?
     /// In-flight load task — cancelled on `.onDisappear` so scrolling a
     /// large filmstrip doesn't queue up redundant decodes.
     @State private var loadTask: Task<Void, Never>?
@@ -72,18 +73,11 @@ private struct FilmstripCell: View {
                 RoundedRectangle(cornerRadius: 2)
                     .fill(MapleTokens.surfaceAlt)
 
-                if let data = thumbData, let cg = ThumbnailImage.cgImage(from: data) {
-                    #if os(macOS)
-                    Image(nsImage: NSImage(cgImage: cg, size: .zero))
+                if let decoded {
+                    Image(decorative: decoded, scale: 1)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                         .transition(.opacity)
-                    #else
-                    Image(uiImage: UIImage(cgImage: cg))
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .transition(.opacity)
-                    #endif
                 }
 
                 if isActive {
@@ -107,17 +101,21 @@ private struct FilmstripCell: View {
     }
 
     private func startLoad() {
-        if loadedForID == asset.id, thumbData != nil { return }
+        if loadedForID == asset.id, decoded != nil { return }
         guard loadTask == nil else { return }
         let capturedAsset = asset
         let capturedSource = source
         loadTask = Task { @MainActor in
-            let data = await ThumbnailLoader.shared.load(
+            let bytes = await ThumbnailLoader.shared.load(
                 for: capturedAsset, from: capturedSource
             )
             guard !Task.isCancelled else { return }
+            // Decode off the main actor before touching view state — never in
+            // `body`. `ThumbnailDecoder.image(for:)` hops off-actor and memoizes.
+            let image = await ThumbnailDecoder.image(for: bytes)
+            guard !Task.isCancelled else { return }
             withAnimation(.easeInOut(duration: 0.18)) {
-                thumbData = data
+                decoded = image
                 loadedForID = capturedAsset.id
             }
             loadTask = nil
