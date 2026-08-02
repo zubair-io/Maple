@@ -124,7 +124,7 @@ struct PreviewImage: View {
             return
         }
         let image = await Task.detached(priority: .userInitiated) {
-            ThumbnailImage.cgImage(from: data)
+            ThumbnailDecoder.decodeFullSync(data)
         }.value
         // Stale-guard: a newer `.task(id:)` supersedes and cancels this one on
         // an id change, so `!Task.isCancelled` is the real check. (`sourceID`
@@ -141,7 +141,7 @@ struct PreviewImage: View {
         // page is still current.
         guard let previewData = await provider.preview(for: source) else { return }
         let enhanced = await Task.detached(priority: .utility) {
-            ThumbnailImage.cgImage(from: previewData)
+            ThumbnailDecoder.decodeFullSync(previewData)
         }.value
         guard !Task.isCancelled, let enhanced else { return }
         decodedImage = enhanced
