@@ -21,7 +21,7 @@ import * as path from 'node:path';
 import { ObjectId } from 'mongodb';
 import { Elysia } from 'elysia';
 import { libraryRelocateRoutes } from './library-relocate.ts';
-import { conflictCopyPath } from '../fs/xmp.ts';
+import { conflictCopyPath } from '../fs/xmp-conflict.ts';
 import type { getDb } from '../db/client.ts';
 
 // Unique test DB so a stray run never touches the real `maple` DB.
