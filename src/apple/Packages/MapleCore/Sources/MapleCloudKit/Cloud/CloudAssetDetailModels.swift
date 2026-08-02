@@ -108,13 +108,18 @@ public struct CloudVisionMeta: Decodable, Equatable, Sendable {
   }
 }
 
-/// `AssetFaceDoc` (schema.ts) — only the identity fields the pane needs.
+/// `AssetFaceDoc` + the server-resolved person `name` (added to the detail DTO
+/// by `toDetailDto`) — only the identity fields the pane needs.
 public struct CloudFace: Decodable, Equatable, Sendable {
   public let personID: String?
+  /// Resolved display name for `personID` (from the `people` collection);
+  /// `null` when the face is unassigned or the person has no name.
+  public let name: String?
   public let confidence: Double?
 
   private enum CodingKeys: String, CodingKey {
     case personID = "person_id"
+    case name
     case confidence
   }
 }
@@ -170,15 +175,35 @@ public struct CloudVisionDisplay: Equatable, Sendable {
   }
 }
 
-/// Faces section, ready to render — mirrors web `info-faces`.
+/// One tagged (person-assigned) face, ready to render as a chip.
+public struct FaceTag: Equatable, Sendable, Identifiable {
+  public let personID: String
+  /// Resolved display name; `nil` when the person has no name yet.
+  public let name: String?
+
+  public init(personID: String, name: String?) {
+    self.personID = personID
+    self.name = name
+  }
+
+  public var id: String { personID }
+  /// Chip label — the name when known, else the raw id (last-resort).
+  public var label: String { name ?? personID }
+  /// The string to put in the search field when tapped; `nil` (not
+  /// searchable) when the person has no name.
+  public var searchName: String? { name }
+}
+
+/// Faces section, ready to render — mirrors web `info-faces`, but with the
+/// person NAME resolved (not the raw id) and each tagged chip searchable.
 public struct CloudFacesDisplay: Equatable, Sendable {
   public let count: Int
-  public let taggedPersonIDs: [String]
+  public let tagged: [FaceTag]
   public let untaggedCount: Int
 
-  public init(count: Int, taggedPersonIDs: [String], untaggedCount: Int) {
+  public init(count: Int, tagged: [FaceTag], untaggedCount: Int) {
     self.count = count
-    self.taggedPersonIDs = taggedPersonIDs
+    self.tagged = tagged
     self.untaggedCount = untaggedCount
   }
 }

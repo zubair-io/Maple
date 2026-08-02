@@ -18,18 +18,26 @@ import SwiftUI
 struct InfoChip: View {
   let text: String
   var muted: Bool = false
+  /// Accent-colored variant for tappable chips (e.g. a searchable face name).
+  var tint: Bool = false
+
+  private var textColor: Color {
+    if tint { return MapleTokens.primary }
+    return muted ? MapleTokens.textMuted : MapleTokens.textMain
+  }
 
   var body: some View {
     Text(text)
       .font(MapleTokens.Typography.chipLabel)
-      .foregroundStyle(muted ? MapleTokens.textMuted : MapleTokens.textMain)
+      .foregroundStyle(textColor)
       .padding(.horizontal, 6)
       .padding(.vertical, 2)
       .background(MapleTokens.surfaceAlt, in: RoundedRectangle(cornerRadius: 3))
       .overlay(
         RoundedRectangle(cornerRadius: 3)
-          .stroke(MapleTokens.border, lineWidth: 0.5)
+          .stroke(tint ? MapleTokens.primary.opacity(0.5) : MapleTokens.border, lineWidth: 0.5)
       )
+      .contentShape(Rectangle())
   }
 }
 
@@ -134,15 +142,35 @@ struct VisionBlock: View {
 struct FacesBlock: View {
   let faces: CloudFacesDisplay
 
+  @Environment(\.searchForText) private var searchForText
+  @Environment(\.dismiss) private var dismiss
+
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
       EnrichmentHeader(title: "Faces")
       Text("\(faces.count) \(faces.count == 1 ? "face" : "faces") detected")
         .font(MapleTokens.Typography.body)
         .foregroundStyle(MapleTokens.textMain)
-      if !faces.taggedPersonIDs.isEmpty || faces.untaggedCount > 0 {
+      if !faces.tagged.isEmpty || faces.untaggedCount > 0 {
         FlowLayout(spacing: 6) {
-          ForEach(faces.taggedPersonIDs, id: \.self) { InfoChip(text: $0) }
+          ForEach(faces.tagged) { tag in
+            if let name = tag.searchName, let searchForText {
+              // Named → tap to search for that person by name. Dismiss the
+              // info sheet first so the user lands on the results (harmless
+              // no-op for the inline mac/iPad inspector).
+              Button {
+                dismiss()
+                searchForText(name)
+              } label: {
+                InfoChip(text: tag.label, tint: true)
+              }
+              .buttonStyle(.plain)
+              .accessibilityHint("Searches for \(name)")
+            } else {
+              // No name (or no search action available) → plain chip.
+              InfoChip(text: tag.label)
+            }
+          }
           if faces.untaggedCount > 0 {
             InfoChip(text: "+ \(faces.untaggedCount) unnamed", muted: true)
           }

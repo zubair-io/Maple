@@ -163,10 +163,15 @@ public struct CloudAssetDetail: Decodable, Equatable, Sendable {
   }
 
   private static func facesDisplay(_ faces: [CloudFace]) -> CloudFacesDisplay {
-    let tagged = faces.compactMap { nonEmpty($0.personID) }
+    // A face is "tagged" when it has a person_id (named or not); the chip then
+    // shows the resolved name (falling back to the id).
+    let tagged = faces.compactMap { face -> FaceTag? in
+      guard let pid = nonEmpty(face.personID) else { return nil }
+      return FaceTag(personID: pid, name: nonEmpty(face.name))
+    }
     return CloudFacesDisplay(
       count: faces.count,
-      taggedPersonIDs: tagged,
+      tagged: tagged,
       untaggedCount: faces.count - tagged.count
     )
   }
@@ -215,7 +220,7 @@ public struct CloudEnrichmentSections: Equatable, Sendable {
     fileSize: Int64? = nil,
     place: CloudPlaceDisplay? = nil,
     vision: CloudVisionDisplay? = nil,
-    faces: CloudFacesDisplay = CloudFacesDisplay(count: 0, taggedPersonIDs: [], untaggedCount: 0)
+    faces: CloudFacesDisplay = CloudFacesDisplay(count: 0, tagged: [], untaggedCount: 0)
   ) {
     self.description = description
     self.ocrText = ocrText

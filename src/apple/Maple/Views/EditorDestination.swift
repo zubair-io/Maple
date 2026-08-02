@@ -35,8 +35,10 @@ struct EditorDestination: View {
     // and re-inject onto the sheet content below.
     @Environment(\.cloudAssetDetailClient) private var detailClient
     @Environment(\.cloudHistogramClient) private var histogramClient
-    // #2518 — the info pane's clickable path row needs the reveal action too.
+    // #2518 — the info pane's clickable path row + tappable face names need
+    // the reveal + search actions re-injected across the sheet.
     @Environment(\.revealFolderAction) private var revealFolder
+    @Environment(\.searchForText) private var searchForText
 
     var body: some View {
         Group {
@@ -61,6 +63,7 @@ struct EditorDestination: View {
                     .environment(\.cloudAssetDetailClient, detailClient)
                     .environment(\.cloudHistogramClient, histogramClient)
                     .environment(\.revealFolderAction, revealFolder)
+                    .environment(\.searchForText, searchForText)
                     .presentationDetents([.medium, .large])
                 }
             } else {
