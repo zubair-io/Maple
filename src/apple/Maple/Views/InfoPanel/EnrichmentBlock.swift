@@ -131,7 +131,10 @@ struct EnrichmentBlock: View {
       notableObjects: ["tractor"],
       colors: ["red", "gold"],
       footer: "qwen2.5-vl · prompt v6"),
-    faces: CloudFacesDisplay(count: 2, taggedPersonIDs: ["Ada"], untaggedCount: 1)))
+    faces: CloudFacesDisplay(
+      count: 2,
+      tagged: [FaceTag(personID: "p1", name: "Ada")],
+      untaggedCount: 1)))
     .frame(width: 280)
     .padding()
     .background(MapleTokens.bg)
