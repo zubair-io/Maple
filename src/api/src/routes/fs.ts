@@ -238,9 +238,30 @@ export const fsRoutes = new Elysia({ prefix: '/api/fs' })
         return { error: `Cannot read "${real}": no readable copy on the primary or a mirror` };
       }
       const st = source.stat;
+      // Re-assert the jail against the copy we are actually about to open.
+      //
+      // The `realpathOrResolve` check above can fall back to the UNRESOLVED
+      // path when `realpath` throws (a broken symlink), which on its own would
+      // be weaker than the pre-#926 handler — that one 404'd outright when
+      // `realpath` failed. A symlink can also be repointed between that check
+      // and this read (TOCTOU). Resolving here and streaming the resolved path
+      // restores the old guarantee: the bytes served always come from a path
+      // that is under a root at open time, with no symlink components left to
+      // swap. Only the primary needs this — a mirror path is derived from the
+      // already-jailed primary path rather than from client input.
+      const readPath =
+        source.origin === 'primary' ? await realpath(source.path).catch(() => null) : source.path;
+      if (readPath === null) {
+        set.status = 404;
+        return { error: `Cannot read "${real}": no readable copy on the primary or a mirror` };
+      }
+      if (source.origin === 'primary' && !roots.some((r) => isUnderRoot(readPath, r))) {
+        set.status = 403;
+        return { error: `Path "${readPath}" is outside MAPLE_ROOTS [${roots.join(', ')}]` };
+      }
       // Stream the bytes. Web ReadableStream is built from the Node stream
       // so we don't have to slurp 100MP RAWs (~200MB) into memory.
-      const nodeStream = createReadStream(source.path);
+      const nodeStream = createReadStream(readPath);
       // Cast through `unknown` because @types/node's `node:stream/web`
       // ReadableStream and the DOM ReadableStream lib types don't share a
       // structural overlap (different `getReader` overload signatures), but
