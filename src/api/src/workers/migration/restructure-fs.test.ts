@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { planAndPlace, finalize, revertCreated, SourceMissingError } from './restructure-fs.ts';
-import { conflictCopyPath } from '../../fs/xmp.ts';
+import { conflictCopyPath } from '../../fs/xmp-conflict.ts';
 
 let root: string;
 
