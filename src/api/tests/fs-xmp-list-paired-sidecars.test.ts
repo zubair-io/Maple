@@ -73,4 +73,42 @@ describe('listPairedSidecars', () => {
       await fs.rm(dir, { recursive: true, force: true });
     }
   });
+
+  test('matches a video by its FULL-NAME sidecar, not the stem-swapped one (#1678)', async () => {
+    // Videos use `clip.mov.xmp`, images use `clip.xmp`. Moving these functions
+    // into this module once silently reverted that split — the moved copies
+    // predated the fix — so pin it here, where the matcher now lives.
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-paired-video-'));
+    try {
+      const mov = path.join(dir, 'clip.mov');
+      await fs.writeFile(mov, 'video');
+      await fs.writeFile(path.join(dir, 'clip.mov.xmp'), 'canonical');
+      await fs.writeFile(path.join(dir, 'clip.mov (conflict from Mac).xmp'), 'variant');
+      // The stem-swapped name belongs to a DIFFERENT asset and must not match.
+      await fs.writeFile(path.join(dir, 'clip.xmp'), 'not-the-videos');
+
+      const names = (await listPairedSidecars(mov)).map((p) => path.basename(p)).sort();
+      expect(names).toEqual(['clip.mov (conflict from Mac).xmp', 'clip.mov.xmp']);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('a Live Photo still does not pick up its paired video sidecar (#1678)', async () => {
+    // `IMG_1234.HEIC` + `IMG_1234.MOV` are two independent same-stem assets.
+    // The photo must see only its own `IMG_1234.xmp`.
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-paired-livephoto-'));
+    try {
+      const heic = path.join(dir, 'IMG_1234.HEIC');
+      await fs.writeFile(heic, 'photo');
+      await fs.writeFile(path.join(dir, 'IMG_1234.MOV'), 'motion');
+      await fs.writeFile(path.join(dir, 'IMG_1234.xmp'), 'photo-sidecar');
+      await fs.writeFile(path.join(dir, 'IMG_1234.MOV.xmp'), 'video-sidecar');
+
+      const names = (await listPairedSidecars(heic)).map((p) => path.basename(p)).sort();
+      expect(names).toEqual(['IMG_1234.xmp']);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
 });
