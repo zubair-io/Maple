@@ -58,6 +58,11 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     /// iOS 26 `Tab(role: .search)` search bar). Bound into `PhoneSearchTab`.
     @State private var searchQuery: String = ""
 
+    /// The AppShell-root reveal action (loads the containing folder into
+    /// browse). The iPhone shell wraps it to ALSO switch to the Library tab —
+    /// AppShell can't do that itself because `activeTab` lives here (#2518).
+    @Environment(\.revealFolderAction) private var rootRevealFolder
+
     @Binding var isDrawerOpen: Bool
     let mode: AppShell.Mode
     let selectedSession: EditSession?
@@ -232,6 +237,13 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
         // the iPhone global Search tab. Re-injected across the info sheet by
         // `PreviewView` / `EditorDestination`.
         .environment(\.searchForText, SearchTextAction { text in searchFor(text) })
+        // Folder row → reveal the containing folder. Wrap the root action so
+        // it ALSO switches to the Library tab, where the folder was loaded —
+        // otherwise the user stays on the Search tab (#2518).
+        .environment(\.revealFolderAction, RevealFolderAction { asset in
+            rootRevealFolder?(asset)
+            activeTab = "library"
+        })
     }
 
     /// Prefill the Search tab with `text` and switch to it. `SearchView`'s

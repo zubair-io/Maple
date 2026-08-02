@@ -35,6 +35,7 @@ struct CameraLocationGrid: View {
   var enrichment: CloudEnrichmentSections?
 
   @Environment(\.revealFolderAction) private var revealFolder
+  @Environment(\.dismiss) private var dismiss
   @State private var exif: [ImageMetadataReader.ExifEntry] = []
 
   private var rows: [InfoPanelVM.Row] {
@@ -62,6 +63,9 @@ struct CameraLocationGrid: View {
         ForEach(rows) { row in
           if row.id == "folder", canRevealFolder, row.value != "—" {
             KVRow(label: row.label, value: row.value, onTap: {
+              // Close the info sheet first so the user lands on the folder
+              // grid (no-op for the inline mac/iPad inspector).
+              dismiss()
               if let asset { revealFolder?(asset) }
             })
           } else {
