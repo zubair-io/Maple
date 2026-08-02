@@ -75,6 +75,21 @@ struct InfoPanelView: View {
   /// can omit it entirely.
   var onClose: () -> Void = {}
 
+  // Self-Hosted rich detail (description / OCR / transcript / place / vision /
+  // faces / city / size), fetched once here and shared by the camera grid
+  // (City / Size) and the enrichment sections — so both read one server call
+  // (#2518). `nil` for local / PhotoKit assets or before the fetch resolves.
+  @Environment(\.cloudAssetDetailClient) private var detailClient
+  @State private var enrichment: CloudEnrichmentSections?
+  /// Identity of the asset `enrichment` was fetched for — clears stale
+  /// content on an asset switch.
+  @State private var shownAssetID: UUID?
+  /// Generation guard so a late fetch for a superseded asset can't clobber
+  /// the current one.
+  @State private var loadGeneration = 0
+
+  private var asset: AssetRef? { session?.asset }
+
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: MapleTokens.Spacing.sectionGap) {
@@ -85,9 +100,9 @@ struct InfoPanelView: View {
           RatingFlagsRow(session: session)
           HistogramBlock(session: session)
         }
-        CameraLocationGrid(asset: session?.asset)
+        CameraLocationGrid(asset: session?.asset, enrichment: enrichment)
         KeywordChipsRow(session: session)
-        EnrichmentBlock(session: session)
+        EnrichmentBlock(sections: enrichment)
       }
       .padding(MapleTokens.Spacing.panelInset)
       // 16pt bottom inset on the sheet so the last chip row clears the
@@ -97,6 +112,52 @@ struct InfoPanelView: View {
     }
     .background(MapleTokens.sidebar)
     .accessibilityIdentifier("info-panel")
+    .task(
+      id: EnrichmentKey(
+        assetID: asset?.id,
+        address: asset?.catalog?.address,
+        clientHost: detailClient?.server.absoluteString
+      )
+    ) {
+      await loadEnrichment()
+    }
+  }
+
+  /// Fetch the rich detail for the current (asset, client) tuple via the
+  /// address-based endpoint. Local / PhotoKit assets (no client, or no
+  /// catalog address) clear to `nil` and the dependent rows fall back to "—".
+  @MainActor
+  private func loadEnrichment() async {
+    loadGeneration &+= 1
+    let gen = loadGeneration
+
+    // Clear on an asset SWITCH so the previous asset's content doesn't linger
+    // while the new fetch is in flight.
+    if asset?.id != shownAssetID {
+      enrichment = nil
+    }
+
+    guard let detailClient, let asset, let address = asset.catalog?.address else {
+      enrichment = nil
+      return
+    }
+
+    do {
+      let detail = try await detailClient.detail(address: address)
+      guard gen == loadGeneration else { return }
+      enrichment = detail.sections
+      shownAssetID = asset.id
+    } catch {
+      // Fetch failed — leave any prior content rather than flashing empty; a
+      // genuinely enrichment-less asset stays nil from the asset-switch clear.
+    }
+  }
+
+  /// Hashable `.task(id:)` key — re-fetches on asset swap or server change.
+  private struct EnrichmentKey: Hashable {
+    let assetID: UUID?
+    let address: String?
+    let clientHost: String?
   }
 }
 

@@ -41,50 +41,32 @@ extension EnvironmentValues {
 
 // MARK: - EnrichmentBlock
 
+/// Renders the Self-Hosted enrichment sections. Pure — the detail fetch is
+/// owned by `InfoPanelView`, which passes the projected `sections` in (and
+/// `nil` for local / PhotoKit assets or before the fetch resolves, in which
+/// case the block renders nothing). Description / OCR / Transcript / Vision
+/// hide when empty; Place and Faces always render once the detail is fetched
+/// (mirroring the web pane, which shows "No place set" / "0 faces detected").
 struct EnrichmentBlock: View {
-  /// The active editing session. Enrichment is keyed on `session.asset`.
-  /// `nil` ⇒ nothing to show.
-  let session: EditSession?
-
-  @Environment(\.cloudAssetDetailClient) private var client
-  @State private var sections: CloudEnrichmentSections?
-  /// Identity of the asset the current `sections` were fetched for — used
-  /// to clear stale content on an asset switch.
-  @State private var shownAssetID: UUID?
-  /// Generation guard so a late fetch for a superseded asset can't clobber
-  /// the current one.
-  @State private var loadGeneration = 0
-
-  private var asset: AssetRef? { session?.asset }
+  let sections: CloudEnrichmentSections?
 
   var body: some View {
-    content
-      // Built in `body` (MainActor) so reading the asset is legal; `.task`
-      // re-runs whenever the (asset, client) tuple changes.
-      .task(
-        id: TaskKey(
-          assetID: asset?.id,
-          stableID: asset?.stableID,
-          clientHost: client?.server.absoluteString
-        )
-      ) {
-        await refresh()
-      }
-  }
-
-  @ViewBuilder
-  private var content: some View {
-    if let sections, !sections.isEmpty {
+    if let sections {
       VStack(alignment: .leading, spacing: MapleTokens.Spacing.sectionGap) {
+        PlaceBlock(place: sections.place)
         if let description = sections.description {
           textSection("Description", body: description)
         }
         if let ocrText = sections.ocrText {
           textSection("Text", body: ocrText, monospaced: true)
         }
+        if let vision = sections.vision {
+          VisionBlock(vision: vision)
+        }
         if let transcriptText = sections.transcriptText {
           textSection("Transcript", body: transcriptText, footer: sections.transcriptFooter)
         }
+        FacesBlock(faces: sections.faces)
       }
       .accessibilityElement(children: .contain)
       .accessibilityIdentifier("info-panel-enrichment")
@@ -120,53 +102,36 @@ struct EnrichmentBlock: View {
     .accessibilityElement(children: .combine)
     .accessibilityIdentifier("info-enrichment-\(title.lowercased())")
   }
-
-  // MARK: - Fetch
-
-  /// Fetch enrichment for the current (asset, client) tuple. Only the
-  /// Self-Hosted path exists — enrichment lives on the server, so a local
-  /// asset (no client / no stableID) clears to `nil` and the block hides.
-  @MainActor
-  private func refresh() async {
-    loadGeneration &+= 1
-    let gen = loadGeneration
-
-    // Clear stale content on an asset SWITCH so the previous asset's
-    // description doesn't linger while the new fetch is in flight.
-    if asset?.id != shownAssetID {
-      sections = nil
-    }
-
-    guard let client, let asset, let assetID = asset.stableID else {
-      sections = nil
-      return
-    }
-
-    do {
-      let detail = try await client.detail(assetID: assetID)
-      guard gen == loadGeneration else { return }
-      sections = detail.sections
-      shownAssetID = asset.id
-    } catch {
-      // Fetch failed — leave any prior content in place rather than
-      // flashing empty; a genuinely enrichment-less asset stays nil from
-      // the asset-switch clear above.
-    }
-  }
-
-  /// Hashable `.task(id:)` key — re-fetches on asset swap or server change.
-  private struct TaskKey: Hashable {
-    let assetID: UUID?
-    let stableID: String?
-    let clientHost: String?
-  }
 }
 
 // MARK: - Previews
 
-#Preview("EnrichmentBlock — no session") {
-  // No session ⇒ no client ⇒ renders nothing.
-  EnrichmentBlock(session: nil)
+#Preview("EnrichmentBlock — nil sections") {
+  // No sections ⇒ renders nothing (local / PhotoKit asset).
+  EnrichmentBlock(sections: nil)
+    .frame(width: 280)
+    .padding()
+    .background(MapleTokens.bg)
+}
+
+#Preview("EnrichmentBlock — populated") {
+  EnrichmentBlock(sections: CloudEnrichmentSections(
+    description: "A red barn at golden hour.",
+    ocrText: "OPEN 24 HOURS",
+    transcriptText: nil,
+    transcriptFooter: nil,
+    city: "Albany",
+    fileSize: 42_000_000,
+    place: CloudPlaceDisplay(rollupLine: "Albany, New York", displayName: "Albany, NY, USA"),
+    vision: CloudVisionDisplay(
+      isScreenshot: false,
+      subjects: ["barn", "field"],
+      primaryChips: ["outdoor", "farm"],
+      secondaryChips: ["warm", "golden hour"],
+      notableObjects: ["tractor"],
+      colors: ["red", "gold"],
+      footer: "qwen2.5-vl · prompt v6"),
+    faces: CloudFacesDisplay(count: 2, taggedPersonIDs: ["Ada"], untaggedCount: 1)))
     .frame(width: 280)
     .padding()
     .background(MapleTokens.bg)
