@@ -247,6 +247,11 @@ export class LibraryStateService {
     this.cache_.ensureThumbnailUrl(asset, (id, sha) => this.fetch_.updateIndexThumb(id, sha));
   }
 
+  /** Drop `id`'s queued thumbnail load when a tile unmounts; see LibraryCache. */
+  cancelQueuedThumbnail(id: AssetId): void {
+    this.cache_.cancelQueuedThumbnail(id);
+  }
+
   // ── Adjustment models ──────────────────────────────────────────────────────
   adjustmentFor(id: AssetId): Signal<AdjustmentModel> {
     return this.store.adjustmentFor(id);

@@ -2,7 +2,7 @@
 // All on-demand reads funnel through here so callers can `await` without
 // re-implementing dedup, eviction, or backend branching.
 
-import { Injectable, inject, signal, effect } from '@angular/core';
+import { Injectable, inject, signal, effect, untracked } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { Asset, AssetId } from '../models/asset';
 import { SERVER_LIBRARY_IO } from '../workspace/server-library-io';
@@ -24,6 +24,7 @@ import { isM2Asset, readAssetBytes } from './library-cache.byte-source';
 import { previewLoader } from './library-cache.preview-loader';
 import { HostedByteSnapshotCache } from './hosted-byte-snapshot-cache';
 import { decodeHostedThumb } from './library-cache.hosted-thumb';
+import { ThumbLoadQueue } from './library-cache.thumb-queue';
 
 @Injectable({ providedIn: 'root' })
 export class LibraryCache {
@@ -132,19 +133,13 @@ export class LibraryCache {
    * dedup because `_loadThumbInternal` is a multi-branch loader with an
    * `onThumbWritten` side effect, not `BlobUrlChannel.ensure()`'s simple shape.
    */
-  private readonly thumbLoadingTokens = new Map<AssetId, { token: symbol; sourceId: string }>();
+  private readonly thumbLoadingTokens = new Map<AssetId, symbol>();
   private readonly thumbFails = new ThumbFailMemory();
 
-  // ── Thumbnail load queue ──────────────────────────────────────────────────
-  private static readonly MAX_CONCURRENT_THUMB_LOADS = 4;
-  private _inflightThumbLoads = 0;
-  private readonly _thumbLoadQueue: Array<{
-    asset: Asset;
-    sourceId: string;
-    onThumbWritten?: (id: AssetId, sha: string) => void;
-    resolve: () => void;
-    reject: (err: any) => void;
-  }> = [];
+  /** Bounded (4-wide) FIFO of pending thumbnail loads — see
+   * `library-cache.thumb-queue.ts` for why the bound exists and why unmounted
+   * tiles must drop their queued work. */
+  private readonly thumbQueue = new ThumbLoadQueue();
 
   /**
    * Subscribe a tile to thumbnail-URL changes for `id`. Invokes `cb` immediately
@@ -379,62 +374,68 @@ export class LibraryCache {
   /** Idempotently load the blob-URL thumbnail for one asset. Grid + filmstrip
    * call this on every visible row; it short-circuits when the URL is cached,
    * a load is in flight, or the load already failed this session
-   * ({@link ThumbFailMemory}, #2413 — reset by `clearAll()`). Errors are swallowed + logged. */
+   * ({@link ThumbFailMemory}, #2413 — reset by `clearAll()`). Errors are swallowed + logged.
+   *
+   * The whole body runs `untracked`. Every caller invokes this from inside an
+   * Angular `effect()` (see `asset-thumb`, `library-cell`, `preview-shell`),
+   * and the body reads signals that change once per thumbnail load
+   * (`thumbnailUrls`) or once per source switch (`selectedSourceId`). Tracked,
+   * those reads subscribed EVERY mounted tile to state that churns while the
+   * grid fills: one thumbnail landing invalidated every tile's effect, and each
+   * re-run tore down and rebuilt that tile's `subscribeThumbUrl` registration.
+   * Measured at 40 tiles: 1,640 effect runs to fill a viewport instead of 40 —
+   * the grid freezing on first paint and janking on scroll. This is imperative
+   * loader bookkeeping, never rendering state; tiles repaint through their
+   * `subscribeThumbUrl` callback, so nothing here should make a caller reactive.
+   * See `library-cache.thumb-reactivity.spec.ts`. */
   ensureThumbnailUrl(asset: Asset, onThumbWritten?: (id: AssetId, sha: string) => void): void {
     if (!asset) return;
+    untracked(() => this._ensureThumbnailUrlUntracked(asset, onThumbWritten));
+  }
+
+  private _ensureThumbnailUrlUntracked(
+    asset: Asset,
+    onThumbWritten?: (id: AssetId, sha: string) => void,
+  ): void {
     if (this.thumbnailUrls().has(asset.id) || this.thumbFails.has(asset.id)) return;
     if (this.thumbLoadingTokens.has(asset.id)) return;
 
     const token = Symbol('thumb-load');
-    const sourceId = this.selection.selectedSourceId();
-    this.thumbLoadingTokens.set(asset.id, { token, sourceId });
+    this.thumbLoadingTokens.set(asset.id, token);
 
     void this._ensureThumbnailUrlInternal(asset, onThumbWritten)
       .catch((err) => {
         console.warn('[state] ensureThumbnailUrl failed:', err?.message || err);
       })
       .finally(() => {
-        if (this.thumbLoadingTokens.get(asset.id)?.token === token) {
+        if (this.thumbLoadingTokens.get(asset.id) === token) {
           this.thumbLoadingTokens.delete(asset.id);
         }
       });
   }
 
-  private _clearQueue(): void {
-    for (const item of this._thumbLoadQueue) {
-      try {
-        item.reject(new Error('Queue cleared'));
-      } catch (err) {
-        // Ignore if already resolved/rejected
-      }
-    }
-    this._thumbLoadQueue.length = 0;
-    this.thumbLoadingTokens.clear();
+  /**
+   * Drop `asset`'s thumbnail load if it is still queued. Called by a tile when
+   * it unmounts or is recycled onto a different asset, so the browse grid's
+   * virtual scroll stops spending its four connections on rows the reader has
+   * already scrolled past. A load already in flight is left to finish.
+   *
+   * Releasing the in-flight token is what makes the id immediately requestable
+   * again. A tile whose Asset object is rebuilt (rating edit, or the hosted
+   * decode's `updateAssetDimensions`) cancels and then re-requests the SAME id
+   * synchronously; the `.finally()` that normally clears the token only runs a
+   * microtask later, so without this the re-request would short-circuit on
+   * "already loading" and the tile would keep its gradient forever. Re-entry is
+   * safe because the token is identity-checked: a stale `.finally()` cannot
+   * delete the token belonging to the newer load.
+   */
+  cancelQueuedThumbnail(id: AssetId): void {
+    if (this.thumbQueue.cancel(id)) this.thumbLoadingTokens.delete(id);
   }
 
-  private _purgeQueueForStaleSource(currentSourceId: string): void {
-    // 1. Clear loading tokens for other source IDs
-    for (const [assetId, entry] of this.thumbLoadingTokens.entries()) {
-      if (entry.sourceId !== currentSourceId) {
-        this.thumbLoadingTokens.delete(assetId);
-      }
-    }
-
-    // 2. Reject and filter queue items that do not match the current source ID
-    const toKeep: typeof this._thumbLoadQueue = [];
-    for (const item of this._thumbLoadQueue) {
-      if (item.sourceId === currentSourceId) {
-        toKeep.push(item);
-      } else {
-        try {
-          item.reject(new Error('Queue cleared'));
-        } catch (err) {
-          // ignore
-        }
-      }
-    }
-    this._thumbLoadQueue.length = 0;
-    this._thumbLoadQueue.push(...toKeep);
+  private _clearQueue(): void {
+    this.thumbQueue.clear();
+    this.thumbLoadingTokens.clear();
   }
 
   private async _tryReadCachedThumb(folder: MapleFolderHandle, asset: Asset): Promise<boolean> {
@@ -471,28 +472,7 @@ export class LibraryCache {
     asset: Asset,
     onThumbWritten?: (id: AssetId, sha: string) => void,
   ): Promise<void> {
-    const sourceId = this.selection.selectedSourceId();
-    return new Promise<void>((resolve, reject) => {
-      this._thumbLoadQueue.push({ asset, sourceId, onThumbWritten, resolve, reject });
-      this._processNextThumbLoad();
-    });
-  }
-
-  private _processNextThumbLoad(): void {
-    if (this._inflightThumbLoads >= LibraryCache.MAX_CONCURRENT_THUMB_LOADS) {
-      return;
-    }
-    const next = this._thumbLoadQueue.shift();
-    if (!next) {
-      return;
-    }
-    this._inflightThumbLoads++;
-    void this._loadThumbInternal(next.asset, next.onThumbWritten)
-      .then(next.resolve, next.reject)
-      .finally(() => {
-        this._inflightThumbLoads--;
-        this._processNextThumbLoad();
-      });
+    return this.thumbQueue.enqueue(asset.id, () => this._loadThumbInternal(asset, onThumbWritten));
   }
 
   private async _loadSelfHostedThumb(asset: Asset): Promise<void> {
