@@ -50,21 +50,28 @@ public enum ThumbnailDecoder {
     }()
 
     /// Decode `data` into an eagerly-decoded, downsampled `CGImage`, off the
-    /// calling actor, returning a cached instance when the same bytes were
-    /// decoded before. Returns `nil` when the bytes are not a decodable image.
+    /// main actor, returning a cached instance when the same bytes were decoded
+    /// before. Returns `nil` when the bytes are not a decodable image, or when
+    /// the calling task has been cancelled.
     ///
-    /// Call this from a view's `.task` (never from `body`): the `await` hops the
-    /// heavy decode off the main thread, and the cache makes a re-request for
-    /// already-decoded bytes effectively free.
+    /// Call this from a view's `.task` (never from `body`). This function is
+    /// `nonisolated async`, so by SE-0338 its body runs on the cooperative pool,
+    /// NOT on the caller's actor — the synchronous `decodeSync` below therefore
+    /// runs off the main thread without a `Task.detached`. Using a detached task
+    /// here would be actively wrong: it is unstructured, so it would NOT inherit
+    /// the caller's cancellation, and a fast scroll would spawn thousands of
+    /// un-cancellable decodes that saturate the pool. Calling `decodeSync`
+    /// directly keeps the decode structured, so a cell that scrolls off-screen
+    /// (its `.task` cancelled) bails here instead of decoding a tile no longer
+    /// on screen.
     public static func image(for data: Data) async -> CGImage? {
         let key = data as NSData
         if let cached = cache.object(forKey: key) { return cached }
 
-        // Detach so the decode runs on the cooperative pool, never on the actor
-        // (typically MainActor) that awaited us.
-        let decoded = await Task.detached(priority: .utility) {
-            decodeSync(data)
-        }.value
+        // Scrolled past before the decode started — don't burn a decode on a
+        // tile that's no longer visible.
+        guard !Task.isCancelled else { return nil }
+        let decoded = decodeSync(data)
 
         if let decoded { cache.setObject(decoded, forKey: key) }
         return decoded
@@ -110,14 +117,25 @@ public enum ThumbnailDecoder {
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 
+    /// Full-resolution decode for the Preview tier, off the main actor and
+    /// cancellation-aware. Like `image(for:)` this is `nonisolated async`, so
+    /// the synchronous `decodeFullSync` below runs on the cooperative pool
+    /// (SE-0338) rather than the caller's actor — no `Task.detached` needed,
+    /// and cancellation propagates so a superseded page (prev/next swipe) stops
+    /// decoding. Returns nil on a non-image or a cancelled caller.
+    public static func decodeFull(_ data: Data) async -> CGImage? {
+        guard !Task.isCancelled else { return nil }
+        return decodeFullSync(data)
+    }
+
     /// Decode `data` at **full resolution** (no downsample), eagerly. For the
     /// large single-image Preview tier, whose display-sized pixels (up to a few
     /// thousand px) must not be clamped to the grid's `maxPixelSize`. Eager
     /// (`kCGImageSourceShouldCacheImmediately`) so no pixel decode is deferred
     /// to draw time on the main thread — the same reason the thumbnail path is
     /// eager. Not memoized: previews are large and viewed one at a time, so a
-    /// cache would only bloat memory. Callers already own their own off-main
-    /// `Task`, so this stays synchronous.
+    /// cache would only bloat memory. Prefer `decodeFull(_:)` from view code;
+    /// this synchronous form is for callers that already run off-main.
     public static func decodeFullSync(_ data: Data) -> CGImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         let options: [CFString: Any] = [
