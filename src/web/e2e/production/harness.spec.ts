@@ -6,13 +6,10 @@ import { installProductionFolderPicker } from '../support/production-folder-pick
 import { openHostedFolder, openHostedFolderEditor } from '../support/production-editor';
 import { HOSTED_SECURITY_HEADERS } from '../../scripts/hosted-security-header-contract';
 import { captureWorkerStatus, workerStatus } from '../support/raw-performance';
-
 type CacheFormatMatcher = (bytes: Buffer) => boolean;
 const XMP_DISPATCH_BUDGET_MS = 250;
-
 const asciiAt = (bytes: Buffer, offset: number, expected: string): boolean =>
   bytes.subarray(offset, offset + expected.length).toString('ascii') === expected;
-
 const CACHE_FORMAT_MATCHERS: Readonly<Record<string, CacheFormatMatcher>> = {
   '.jpg': (bytes) => bytes[0] === 0xff && bytes[1] === 0xd8,
   '.png': (bytes) =>
@@ -23,11 +20,9 @@ const CACHE_FORMAT_MATCHERS: Readonly<Record<string, CacheFormatMatcher>> = {
     asciiAt(bytes, 4, 'ftyp') &&
     ['avif', 'avis'].some((brand) => bytes.subarray(8).toString('ascii').includes(brand)),
 };
-
 function cacheFormatMatches(path: string, bytes: Buffer): boolean {
   return CACHE_FORMAT_MATCHERS[extname(path)]?.(bytes) ?? false;
 }
-
 test('serves a production build in installed Google Chrome', async ({ page }, testInfo) => {
   const response = await page.goto('/');
   expect(response?.ok()).toBe(true);
@@ -43,7 +38,6 @@ test('serves a production build in installed Google Chrome', async ({ page }, te
   }
   await expect.poll(() => page.evaluate(() => crossOriginIsolated)).toBe(true);
   expect(await page.evaluate(() => navigator.userAgent)).toContain('Chrome/');
-
   if (testInfo.project.name === 'chrome-hosted') {
     await expect(page.getByRole('button', { name: /open a photo/i })).toBeVisible();
   } else {
@@ -52,7 +46,6 @@ test('serves a production build in installed Google Chrome', async ({ page }, te
     expect(await health.json()).toMatchObject({ ok: true, product: 'maple' });
   }
 });
-
 test('uses disposable RAW copies and records immutable source hashes', async () => {
   const manifest = await readProductionFixtureManifest();
   expect(manifest.root).not.toContain('test-fixtures/raws');
@@ -72,18 +65,15 @@ test('uses disposable RAW copies and records immutable source hashes', async () 
     '<x:xmpmeta',
   );
 });
-
 test('Hosted writable folder creates its .maple cache without modifying the RAW', async ({
   page,
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'chrome-hosted');
   const manifest = await readProductionFixtureManifest();
   await installProductionFolderPicker(page, manifest.writableFolder);
-
   const coldStarted = Date.now();
   await openHostedFolder(page, 'test_0006.DNG');
   await expect(page.getByRole('status', { name: /save/i })).toHaveCount(0);
-
   await expect
     .poll(
       async () =>
@@ -104,7 +94,6 @@ test('Hosted writable folder creates its .maple cache without modifying the RAW'
     )
     .toContain('test_0006.DNG');
   const coldReadyMs = Date.now() - coldStarted;
-
   // Finish the local font request before warm-cache document replacement so
   // Chrome does not report its intentional cancellation as a request failure.
   await page.evaluate(() => document.fonts.ready);
@@ -130,19 +119,16 @@ test('Hosted writable folder creates its .maple cache without modifying the RAW'
     contentType: 'application/json',
   });
 });
-
 test('Hosted uses an existing .maple preview before reading the RAW', async ({
   page,
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'chrome-hosted');
   const manifest = await readProductionFixtureManifest();
   const picker = await installProductionFolderPicker(page, manifest.populatedFolder);
-
   const openStarted = Date.now();
   await openHostedFolder(page, 'test_0017.dng');
   const browseReadyMs = Date.now() - openStarted;
   picker.clear();
-
   const previewStarted = Date.now();
   await page.getByRole('button', { name: 'test_0017.dng', exact: true }).click();
   const fullPreview = page.locator('.preview-img--full');
@@ -151,7 +137,6 @@ test('Hosted uses an existing .maple preview before reading the RAW', async ({
     .poll(() => fullPreview.evaluate((image: HTMLImageElement) => image.naturalWidth))
     .toBeGreaterThan(0);
   const previewReadyMs = Date.now() - previewStarted;
-
   const previewRead = picker.operations.findIndex(
     ({ kind, path }) => kind === 'read' && path === '.maple/previews/test_0017.dng.avif',
   );
@@ -166,20 +151,17 @@ test('Hosted uses an existing .maple preview before reading the RAW', async ({
       await readFile(join(manifest.populatedFolder, '.maple', 'previews', 'test_0017.dng.avif')),
     ),
   ).toBe(true);
-
   await testInfo.attach('hosted-folder-cache-timing.json', {
     body: Buffer.from(JSON.stringify({ browseReadyMs, previewReadyMs }, null, 2)),
     contentType: 'application/json',
   });
 });
-
 test("Hosted records Chrome's actual preview format and reuses it without reading the RAW", async ({
   page,
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'chrome-hosted');
   const manifest = await readProductionFixtureManifest();
   const picker = await installProductionFolderPicker(page, manifest.writableFolder);
-
   await openHostedFolder(page, 'test_0006.DNG');
   picker.clear();
   await page.getByRole('button', { name: 'test_0006.DNG', exact: true }).click();
@@ -188,7 +170,6 @@ test("Hosted records Chrome's actual preview format and reuses it without readin
   await expect
     .poll(() => fullPreview.evaluate((image: HTMLImageElement) => image.naturalWidth))
     .toBeGreaterThan(0);
-
   const descriptorPath = join(
     manifest.writableFolder,
     '.maple',
@@ -219,7 +200,6 @@ test("Hosted records Chrome's actual preview format and reuses it without readin
     source: { size: expect.any(Number), lastModified: expect.any(Number) },
   });
   expect(cacheFormatMatches(artifactPath, await readFile(artifactPath))).toBe(true);
-
   await page.goto('/');
   await openHostedFolder(page, 'test_0006.DNG');
   picker.clear();
@@ -237,7 +217,6 @@ test("Hosted records Chrome's actual preview format and reuses it without readin
     'a valid descriptor/artifact pair must win before a RAW byte read',
   ).toBe(false);
 });
-
 test('Hosted writable folder writes XMP and restores it after a reload and re-open', async ({
   page,
 }, testInfo) => {
@@ -251,7 +230,6 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
       rayonHelperRequests.push(request.url());
     }
   });
-
   await openHostedFolderEditor(page, 'test_0006.DNG');
   await expect.poll(() => page.evaluate(() => crossOriginIsolated)).toBe(true);
   expect(await page.evaluate(() => navigator.userAgent)).toContain('Chrome/');
@@ -335,7 +313,6 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
   const editedExposure = await exposure.getAttribute('aria-valuenow');
   expect(editedExposure).not.toBeNull();
   expect(editedExposure).not.toBe('0');
-
   const sidecar = join(manifest.writableFolder, 'test_0006.xmp');
   await expect
     .poll(async () => {
@@ -344,7 +321,6 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
       return serialized === undefined ? null : Number(serialized);
     })
     .toBeCloseTo(Number(editedExposure), 2);
-
   await expect
     .poll(
       async () => {
@@ -407,7 +383,6 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
         .lastIndexOf('write:.maple/previews/test_0006.DNG.preview.json'),
     )
     .toBeGreaterThan(artifactWriteIndex);
-
   await page.reload();
   await expect(page).toHaveURL(/\/$/);
   await openHostedFolder(page, 'test_0006.DNG');
@@ -439,7 +414,6 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
       return Number.isFinite(value) ? value : Number.NaN;
     })
     .toBeCloseTo(Number(editedExposure), 2);
-
   const expectedErrorPrefix = 'XmpStoreService: write failed for test_0006.DNG:';
   testInfo.annotations.push({ type: 'expected-console-error', description: expectedErrorPrefix });
   const expectedErrors: string[] = [];
@@ -448,13 +422,11 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
       expectedErrors.push(message.text());
     }
   });
-
   picker.setWritePermission(false);
   await restoredExposure.focus();
   await restoredExposure.press('ArrowRight');
   await expect(page.getByRole('alert')).toContainText('Edits are not saved');
   await expect.poll(() => expectedErrors).toHaveLength(1);
-
   picker.setWritePermission(true);
   await restoredExposure.press('ArrowRight');
   const recoveredExposureAttribute = await restoredExposure.getAttribute('aria-valuenow');
@@ -471,13 +443,11 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
     .toBeCloseTo(recoveredExposure, 2);
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
-
 test('Hosted opens one RAW directly and downloads its XMP without a filmstrip', async ({
   page,
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'chrome-hosted');
   const manifest = await readProductionFixtureManifest();
-
   await page.goto('/');
   const pairedDir = join(manifest.root, 'single-file-paired-xmp');
   const pairedXmp = join(pairedDir, 'test_0006.xmp');
@@ -501,13 +471,11 @@ test('Hosted opens one RAW directly and downloads its XMP without a filmstrip', 
   await page
     .locator('input[type="file"]')
     .setInputFiles([join(manifest.freshFolder, 'test_0006.DNG'), pairedXmp]);
-
   await expect(page).toHaveURL(/\/edit\//);
   await expect(page.locator('editor-filmstrip')).toHaveCount(0);
   await expect(page.getByRole('status', { name: 'Single-file save' })).toContainText(
     'Paired XMP loaded',
   );
-
   const exposure = page.getByRole('slider', { name: 'Exposure' });
   await expect(exposure).toBeVisible({ timeout: 60_000 });
   await exposure.focus();
@@ -516,7 +484,6 @@ test('Hosted opens one RAW directly and downloads its XMP without a filmstrip', 
   const editedExposure = await exposure.getAttribute('aria-valuenow');
   expect(editedExposure).not.toBeNull();
   await expect(page.getByTestId('editor-shell-undo')).toBeEnabled();
-
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download XMP' }).click();
   const download = await downloadPromise;
@@ -551,7 +518,6 @@ test('Hosted opens one RAW directly and downloads its XMP without a filmstrip', 
   await expect(page.getByRole('status', { name: 'Single-file save' })).toContainText(
     'XMP downloaded',
   );
-
   await page.goto('/');
   const reimportXmp = join(manifest.freshFolder, download.suggestedFilename());
   await writeFile(reimportXmp, xml);
@@ -566,7 +532,6 @@ test('Hosted opens one RAW directly and downloads its XMP without a filmstrip', 
   await expect(page.getByRole('status', { name: 'Single-file save' })).toContainText(
     'Paired XMP loaded',
   );
-
   await page.reload();
   await expect(restoredExposure).toBeVisible({ timeout: 60_000 });
   await expect(restoredExposure).toHaveAttribute('aria-valuenow', editedExposure!);
