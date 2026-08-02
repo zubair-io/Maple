@@ -482,6 +482,9 @@ private struct InfoPresentation: ViewModifier {
     // diverging in a way a later reader has to re-derive.
     @Environment(\.cloudAssetDetailClient) private var detailClient
     @Environment(\.cloudHistogramClient) private var histogramClient
+    // #2518 — same sheet non-inheritance applies to the reveal-folder action
+    // that the info pane's clickable path row invokes; re-inject it too.
+    @Environment(\.revealFolderAction) private var revealFolder
 
     func body(content: Content) -> some View {
         if isRegular {
@@ -494,6 +497,7 @@ private struct InfoPresentation: ViewModifier {
                     )
                     .environment(\.cloudAssetDetailClient, detailClient)
                     .environment(\.cloudHistogramClient, histogramClient)
+                    .environment(\.revealFolderAction, revealFolder)
                     // Same clamps `AppShellMacLayout` applies to the
                     // editor's `DetailPanel` inspector.
                     .inspectorColumnWidth(min: 240, ideal: 280, max: 360)
@@ -508,6 +512,7 @@ private struct InfoPresentation: ViewModifier {
                 )
                 .environment(\.cloudAssetDetailClient, detailClient)
                 .environment(\.cloudHistogramClient, histogramClient)
+                .environment(\.revealFolderAction, revealFolder)
                 .presentationDetents([.medium, .large])
             }
             #else
@@ -516,6 +521,7 @@ private struct InfoPresentation: ViewModifier {
                     .frame(width: 320, height: 480)
                     .environment(\.cloudAssetDetailClient, detailClient)
                     .environment(\.cloudHistogramClient, histogramClient)
+                    .environment(\.revealFolderAction, revealFolder)
             }
             #endif
         }
