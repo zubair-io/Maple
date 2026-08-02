@@ -43,7 +43,9 @@ struct CameraLocationGrid: View {
       from: exif,
       city: enrichment?.city,
       fileSize: enrichment?.fileSize,
-      folder: asset?.displayFolder
+      // Search/local assets know their folder up front; cloud-browse assets
+      // get it from the fetched detail's address (#2518).
+      folder: asset?.displayFolder ?? enrichment?.folderDisplay
     )
   }
 
