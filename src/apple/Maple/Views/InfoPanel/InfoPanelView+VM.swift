@@ -26,20 +26,31 @@ enum InfoPanelVM {
     let value: String
   }
 
-  /// Project EXIF entries into the spec's 8-row grid. Missing rows
+  /// Project EXIF entries into the Camera & Location grid. Missing rows
   /// render as "—" so the layout reserves consistent vertical space
   /// regardless of the image (a phone snapshot and a 100MP RAW with
   /// full GPS produce the same row count).
+  ///
+  /// `city` and `fileSize` come from the Self-Hosted rich-detail fetch
+  /// (reverse-geocoded place + catalog size); `path` is the asset's display
+  /// path (cloud abs-path or local filesystem path) and drives the clickable
+  /// "Path" row. All three are `nil` for a plain local asset with no server
+  /// detail — the rows then fall back to EXIF (Size/Path) or "—" (#2518).
   static func cameraLocationRows(
-    from entries: [ImageMetadataReader.ExifEntry]
+    from entries: [ImageMetadataReader.ExifEntry],
+    city: String? = nil,
+    fileSize: Int64? = nil,
+    path: String? = nil
   ) -> [Row] {
     let make = value(entries, section: "Camera", label: "Make")
     let model = value(entries, section: "Camera", label: "Model")
     let lens = value(entries, section: "Camera", label: "Lens")
+    let date = value(entries, section: "Camera", label: "Date Taken")
     let aper = value(entries, section: "Exposure", label: "Aperture")
     let shut = value(entries, section: "Exposure", label: "Shutter")
     let iso = value(entries, section: "Exposure", label: "ISO")
     let focal = value(entries, section: "Exposure", label: "Focal Length")
+    let dimensions = value(entries, section: "Image", label: "Resolution")
     let lat = value(entries, section: "GPS", label: "Latitude")
     let lon = value(entries, section: "GPS", label: "Longitude")
 
@@ -47,20 +58,38 @@ enum InfoPanelVM {
     // camera identity (the spec table says "Body (camera + model)").
     let body = combineMakeModel(make: make, model: model)
 
-    // Coords pair lat + lon. City would come from a reverse geocode
-    // — not wired into MapleCore today; show raw coords for v0.1.
+    // Coords pair lat + lon; City is the reverse-geocoded name from the
+    // server place (falls back to "—" when un-geocoded / local).
     let coords = combineCoords(lat: lat, lon: lon)
+
+    // Size: prefer the catalog size from the detail fetch (cloud), else the
+    // EXIF File/Size row (local). Path: prefer the asset's display path, else
+    // the EXIF File/Path row.
+    let sizeValue = fileSize.map(formatBytes) ?? value(entries, section: "File", label: "Size")
+    let pathValue = path ?? value(entries, section: "File", label: "Path")
 
     return [
       Row(id: "body", label: "Body", value: body),
+      Row(id: "taken", label: "Taken", value: date ?? "—"),
       Row(id: "lens", label: "Lens", value: lens ?? "—"),
       Row(id: "aperture", label: "Aperture", value: aper ?? "—"),
       Row(id: "shutter", label: "Shutter", value: shut ?? "—"),
       Row(id: "iso", label: "ISO", value: iso ?? "—"),
       Row(id: "focal", label: "Focal", value: focal ?? "—"),
+      Row(id: "dimensions", label: "Dimensions", value: dimensions ?? "—"),
       Row(id: "coords", label: "Coords", value: coords),
-      Row(id: "city", label: "City", value: "—"),
+      Row(id: "city", label: "City", value: city ?? "—"),
+      Row(id: "size", label: "Size", value: sizeValue ?? "—"),
+      Row(id: "path", label: "Path", value: pathValue ?? "—"),
     ]
+  }
+
+  /// Human-readable byte count (e.g. "42.3 MB"), matching the EXIF File/Size
+  /// formatting so cloud (detail fetch) and local (EXIF) rows read the same.
+  static func formatBytes(_ bytes: Int64) -> String {
+    let f = ByteCountFormatter()
+    f.countStyle = .file
+    return f.string(fromByteCount: bytes)
   }
 
   static func combineMakeModel(make: String?, model: String?) -> String {
