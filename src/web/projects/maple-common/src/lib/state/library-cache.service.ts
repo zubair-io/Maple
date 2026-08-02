@@ -24,7 +24,7 @@ import { isM2Asset, readAssetBytes } from './library-cache.byte-source';
 import { previewLoader } from './library-cache.preview-loader';
 import { HostedByteSnapshotCache } from './hosted-byte-snapshot-cache';
 import { decodeHostedThumb } from './library-cache.hosted-thumb';
-import { ThumbLoadQueue } from './library-cache.thumb-queue';
+import { ThumbLoadQueue, QUEUE_CLEARED_MESSAGE } from './library-cache.thumb-queue';
 
 @Injectable({ providedIn: 'root' })
 export class LibraryCache {
@@ -405,6 +405,10 @@ export class LibraryCache {
 
     void this._ensureThumbnailUrlInternal(asset, onThumbWritten)
       .catch((err) => {
+        // A source/folder switch drops everything still queued. That is
+        // expected control flow, and warning per dropped thumbnail would bury
+        // real failures under a screenful of noise on every navigation.
+        if (err instanceof Error && err.message === QUEUE_CLEARED_MESSAGE) return;
         console.warn('[state] ensureThumbnailUrl failed:', err?.message || err);
       })
       .finally(() => {
@@ -420,6 +424,14 @@ export class LibraryCache {
    * virtual scroll stops spending its four connections on rows the reader has
    * already scrolled past. A load already in flight is left to finish.
    *
+   * Loads are deduped per asset id, so two mounted components showing the SAME
+   * asset share one queued load — Preview does this, subscribing to the focused
+   * asset's thumb while `<editor-filmstrip>` mounts a tile for that same asset.
+   * Cancelling unconditionally would strand whichever one stayed mounted on a
+   * thumbnail that never arrives, so this no-ops while anyone is still
+   * subscribed. Callers unsubscribe *before* cancelling (see `asset-thumb`), so
+   * by this point the departing consumer is already out of the count.
+   *
    * Releasing the in-flight token is what makes the id immediately requestable
    * again. A tile whose Asset object is rebuilt (rating edit, or the hosted
    * decode's `updateAssetDimensions`) cancels and then re-requests the SAME id
@@ -430,6 +442,7 @@ export class LibraryCache {
    * delete the token belonging to the newer load.
    */
   cancelQueuedThumbnail(id: AssetId): void {
+    if (this.thumbChannel.hasSubscribers(id)) return;
     if (this.thumbQueue.cancel(id)) this.thumbLoadingTokens.delete(id);
   }
 

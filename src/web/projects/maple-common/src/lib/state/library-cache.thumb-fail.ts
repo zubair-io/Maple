@@ -1,4 +1,5 @@
 import type { AssetId } from '../models/asset';
+import { QUEUE_CLEARED_MESSAGE } from './library-cache.thumb-queue';
 
 /**
  * Session-scoped negative cache for thumbnail loads (#2413).
@@ -32,7 +33,7 @@ export class ThumbFailMemory {
    * cancellation (source switch), which is not a verdict on the asset.
    */
   record(id: AssetId, err?: unknown): void {
-    if (err instanceof Error && err.message === 'Queue cleared') return;
+    if (err instanceof Error && err.message === QUEUE_CLEARED_MESSAGE) return;
     this.ids.add(id);
   }
 
