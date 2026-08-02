@@ -116,6 +116,7 @@ struct InfoPanelView: View {
       id: EnrichmentKey(
         assetID: asset?.id,
         address: asset?.catalog?.address,
+        absPath: asset?.catalog?.absPath,
         clientHost: detailClient?.server.absoluteString
       )
     ) {
@@ -123,9 +124,11 @@ struct InfoPanelView: View {
     }
   }
 
-  /// Fetch the rich detail for the current (asset, client) tuple via the
-  /// address-based endpoint. Local / PhotoKit assets (no client, or no
-  /// catalog address) clear to `nil` and the dependent rows fall back to "—".
+  /// Fetch the rich detail for the current (asset, client) tuple. Cloud assets
+  /// opened from Search/Timeline carry a `slug:relPath` address (→ by-address);
+  /// assets opened from the cloud browse grid carry only the server abs path
+  /// (→ by-fspath). Local / PhotoKit assets (no client, or no catalog) clear
+  /// to `nil` and the dependent rows fall back to "—".
   @MainActor
   private func loadEnrichment() async {
     loadGeneration &+= 1
@@ -137,16 +140,21 @@ struct InfoPanelView: View {
       enrichment = nil
     }
 
-    guard let detailClient, let asset, let address = asset.catalog?.address else {
+    guard let detailClient, let catalog = asset?.catalog else {
       enrichment = nil
       return
     }
 
     do {
-      let detail = try await detailClient.detail(address: address)
+      let detail: CloudAssetDetail
+      if let address = catalog.address {
+        detail = try await detailClient.detail(address: address)
+      } else {
+        detail = try await detailClient.detail(fsPath: catalog.absPath)
+      }
       guard gen == loadGeneration else { return }
       enrichment = detail.sections
-      shownAssetID = asset.id
+      shownAssetID = asset?.id
     } catch {
       // Fetch failed — leave any prior content rather than flashing empty; a
       // genuinely enrichment-less asset stays nil from the asset-switch clear.
@@ -157,6 +165,7 @@ struct InfoPanelView: View {
   private struct EnrichmentKey: Hashable {
     let assetID: UUID?
     let address: String?
+    let absPath: String?
     let clientHost: String?
   }
 }

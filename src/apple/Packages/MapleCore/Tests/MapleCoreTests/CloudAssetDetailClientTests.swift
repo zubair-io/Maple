@@ -183,6 +183,28 @@ final class CloudAssetDetailClientTests: XCTestCase {
                    "lib:2026/IMG 42.dng")
   }
 
+  func test_detail_byFsPath_targetsCorrectPathAndQuery() async throws {
+    nonisolated(unsafe) var capturedURL: URL?
+    let server = URL(string: "https://x")!
+    let session = URLSession.stubbedSequence { req in
+      capturedURL = req.url
+      let resp = HTTPURLResponse(
+        url: req.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+        headerFields: ["Content-Type": "application/json"])!
+      return (Data(#"{"id":"abc123","address":"photos:2010/Family/x.dng"}"#.utf8), resp)
+    }
+    let client = CloudAssetDetailClient(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
+    let detail = try await client.detail(fsPath: "/srv/photos/2010/Family/x.dng")
+    XCTAssertEqual(capturedURL?.path, "/api/assets/by-fspath")
+    let comps = URLComponents(url: capturedURL!, resolvingAgainstBaseURL: false)
+    XCTAssertEqual(comps?.queryItems?.first(where: { $0.name == "path" })?.value,
+                   "/srv/photos/2010/Family/x.dng")
+    // The by-fspath response carries the computed address → folder display.
+    XCTAssertEqual(detail.sections.folderDisplay, "photos/2010/Family")
+  }
+
   // MARK: - rich sections projection (place / vision / faces)
 
   private func decodeDetail(_ json: String) throws -> CloudAssetDetail {

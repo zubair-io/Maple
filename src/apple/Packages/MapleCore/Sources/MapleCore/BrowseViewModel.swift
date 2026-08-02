@@ -479,6 +479,16 @@ public final class BrowseViewModel {
                     displayName: displayName,
                     hintExtension: ext.isEmpty ? nil : ext,
                     stableID: id,
+                    // Cloud catalog identity so the info pane can fetch the
+                    // rich detail (by abs path — no `slug:relPath` address up
+                    // front) and reveal the containing folder (#2518). Address
+                    // is nil here; it arrives on the `by-fspath` response.
+                    catalog: CatalogRef(
+                        serverID: capturedSource.server,
+                        folderID: capturedSource.folderID,
+                        absPath: img.path,
+                        address: nil
+                    ),
                     bytesProvider: { [capturedSource, capturedRef] in
                         try await capturedSource.rawBytes(for: capturedRef)
                     }

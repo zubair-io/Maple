@@ -190,6 +190,12 @@ extension AppShell {
                 cloudTimelineVM = nil
                 let httpClient = makeAuthenticatedHTTPClient(server: serverID)
                 let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: serverID)
+                // Feed the info pane's enrichment fetch for assets opened from
+                // THIS cloud library's browse grid (#2518) — the per-asset
+                // `prepareCloudSession` path sets its own, but a plain browse
+                // tap doesn't go through there.
+                cloudAssetDetailClient = CloudAssetDetailClient(
+                    server: effectiveServer, httpClient: httpClient)
                 let source = CloudSource(server: effectiveServer,
                                          folderID: folderID,
                                          libraryPath: libraryPath,
