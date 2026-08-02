@@ -173,6 +173,58 @@ final class BackupEngineRetryWakeupTests: XCTestCase {
         StubURLProtocol.clearRecording()
     }
 
+    /// A companion retry outstanding must not strand `run()`.
+    ///
+    /// The companion path (`scheduleCompanionRetry`) puts an entry in
+    /// `retryTasks` but never enqueues to the upload queue — and before this
+    /// fix it never signalled either. So once the queue drained, `run()` saw a
+    /// non-empty `retryTasks`, parked on `retryWake.wait()`, and no wake could
+    /// ever arrive: the companion finished, its entry was removed silently, and
+    /// the runner stayed suspended forever. With `isRunning` latched, every
+    /// later `run()` was then a no-op and backup was dead until relaunch.
+    ///
+    /// The 1 s poll masked this — it re-checked `retryTasks` each tick and
+    /// exited once the entry cleared. Replacing the poll with an indefinite
+    /// park is what turned it fatal, so it is this ticket's regression to own.
+    ///
+    /// Deterministic, not a race: with the bug, `run()` cannot return.
+    func testCompanionRetryDoesNotStrandRun() async throws {
+        // ingest 200+json → sidecar 500 (inline attempt fails, schedules the
+        // companion retry) → sidecar 200 (the retry lands).
+        StubURLProtocol.stub = .sequence([
+            .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
+            .status(500),
+            .status(200),
+        ])
+        let (state, sidecars, tmpRoot) = try harness()
+        defer { try? FileManager.default.removeItem(at: tmpRoot) }
+        let queue = InProcessBackupQueue()
+        let upload = UploadClient(baseURL: URL(string: "https://server.example")!,
+                                  libraryId: "lib", deviceId: "d",
+                                  transport: stubTransport())
+        let engine = BackupEngine(queue: queue, state: state, upload: upload,
+                                  sidecars: sidecars, reader: StubAssetReader(),
+                                  maxConcurrency: 1,
+                                  companionBackoff: { _ in 0 })
+        defer { Task { await engine.stop() } }
+
+        // A local-edit sidecar makes the companion path run for real.
+        try sidecars.write(phassetLocalId: "P1", xmp: "<x:edit/>")
+        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+        let task = BackupTask(id: id, state: .pending, priority: .background)
+        try await state.upsert(task)
+        await queue.enqueue(task, priority: .background)
+
+        // `run()` must return on its own once the queue drains and the
+        // companion retires. Before the fix it parks here indefinitely.
+        let runner = Task { await engine.run() }
+        await awaitCompletion(of: runner, timeout: 5.0)
+
+        let row = try await state.find(id)
+        XCTAssertEqual(row?.state, .uploaded,
+                       "the photo still uploads — the companion is best-effort")
+    }
+
     /// Fresh state store + sidecar store in a throwaway tmp dir. Callers pick
     /// whichever `BackupQueue` implementation the test needs (a plain
     /// `InProcessBackupQueue`, or the timestamping `DequeueSpyQueue` below).
