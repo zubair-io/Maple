@@ -16,6 +16,7 @@ import {
   percentile,
   rawWorker,
   screenshotPixelEvidence,
+  sessionOpenDuration,
   sessionRenderDurations,
   workerStatus,
 } from '../support/raw-performance';
@@ -27,6 +28,9 @@ const MEASURED_TICKS = 16;
 const SLIDER_MEAN_BUDGET_MS = 16;
 const SLIDER_P95_BUDGET_MS = 35;
 const SLIDER_HARD_BUDGET_MS = 50;
+// Temporary Chromium serial-mode ratchet for the real 22MP test_0006.DNG.
+// #2516 restores safe Rayon and must lower this ceiling with browser evidence.
+const SERIAL_SESSION_OPEN_HARD_BUDGET_MS = 30_000;
 const COLD_PREVIEW_P95_BUDGET_MS = 1_000;
 const WARM_PREVIEW_MEDIAN_BUDGET_MS = 35;
 
@@ -144,7 +148,7 @@ test('Hosted cold embedded preview and warm .maple preview meet the open budgets
   });
 });
 
-test('Hosted initializes Rayon and renders live WebGPU slider ticks inside hard budgets', async ({
+test('Hosted keeps Chromium CPU work serial and renders live WebGPU slider ticks inside hard budgets', async ({
   page,
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'chrome-hosted');
@@ -155,16 +159,26 @@ test('Hosted initializes Rayon and renders live WebGPU slider ticks inside hard 
   await captureWorkerStatus(page);
   const observedWorkers: PlaywrightWorker[] = [];
   page.on('worker', (worker) => observedWorkers.push(worker));
-  const rayonHelper = page.waitForResponse(
-    (response) => new URL(response.url()).pathname.endsWith('/workerHelpers.js'),
-    { timeout: 90_000 },
-  );
+  const rayonHelperRequests: string[] = [];
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname.endsWith('/workerHelpers.js')) {
+      rayonHelperRequests.push(request.url());
+    }
+  });
 
+  const decodeStartedAt = Date.now();
   await openEditor(page);
-  expect((await rayonHelper).ok()).toBe(true);
-  await expect.poll(() => workerStatus(page)).toMatchObject({ threaded: true });
+  await expect.poll(() => page.evaluate(() => crossOriginIsolated)).toBe(true);
+  expect(await page.evaluate(() => navigator.userAgent)).toContain('Chrome/');
+  const editorUiMs = Date.now() - decodeStartedAt;
+  await expect.poll(() => workerStatus(page)).toEqual({ threaded: false, threads: 1 });
   const status = await workerStatus(page);
-  expect(status?.threads).toBeGreaterThan(1);
+  expect(rayonHelperRequests, 'Chromium must not initialize a Rayon helper').toEqual([]);
+  const worker = await rawWorker(page, observedWorkers);
+  const fullDecodeMs = Date.now() - decodeStartedAt;
+  const sessionOpenMs = await sessionOpenDuration(worker);
+  expect(sessionOpenMs).toBeGreaterThan(0);
+  expect(sessionOpenMs).toBeLessThanOrEqual(SERIAL_SESSION_OPEN_HARD_BUDGET_MS);
 
   const canvas = page.locator('canvas[data-gpu-live]');
   await expect(canvas).toBeVisible({ timeout: 90_000 });
@@ -177,8 +191,6 @@ test('Hosted initializes Rayon and renders live WebGPU slider ticks inside hard 
     'the WebGPU canvas must not be a blank/black present',
   ).toBeGreaterThan(0.05);
   await expect(page.getByText(/reduced-performance path/i)).toHaveCount(0);
-
-  const worker = await rawWorker(page, observedWorkers);
 
   const exposure = page.getByRole('slider', { name: 'Exposure' });
   await exposure.focus();
@@ -201,10 +213,18 @@ test('Hosted initializes Rayon and renders live WebGPU slider ticks inside hard 
   expect(p95Ms).toBeLessThanOrEqual(SLIDER_P95_BUDGET_MS);
   expect(maxMs).toBeLessThanOrEqual(SLIDER_HARD_BUDGET_MS);
   // eslint-disable-next-line no-console
-  console.info(`[raw-gpu-performance] ${JSON.stringify({ status, pixels, meanMs, p95Ms, maxMs })}`);
+  console.info(
+    `[raw-gpu-performance] ${JSON.stringify({ status, editorUiMs, fullDecodeMs, sessionOpenMs, pixels, meanMs, p95Ms, maxMs })}`,
+  );
 
   await testInfo.attach('raw-gpu-performance.json', {
-    body: Buffer.from(JSON.stringify({ status, pixels, samples, meanMs, p95Ms, maxMs }, null, 2)),
+    body: Buffer.from(
+      JSON.stringify(
+        { status, editorUiMs, fullDecodeMs, sessionOpenMs, pixels, samples, meanMs, p95Ms, maxMs },
+        null,
+        2,
+      ),
+    ),
     contentType: 'application/json',
   });
 });
@@ -225,6 +245,7 @@ test('Hosted visibly falls back without WebGPU and still renders, edits, and res
   const context = await browser.newContext({ baseURL: testInfo.project.use.baseURL as string });
   const page = await context.newPage();
   const errors: string[] = [];
+  const rayonHelperRequests: string[] = [];
   page.on('console', (message) => {
     if (message.type() === 'error') errors.push(`console: ${message.text()}`);
   });
@@ -232,6 +253,11 @@ test('Hosted visibly falls back without WebGPU and still renders, edits, and res
   page.on('requestfailed', (request) =>
     errors.push(`request: ${request.method()} ${request.url()} ${request.failure()?.errorText}`),
   );
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname.endsWith('/workerHelpers.js')) {
+      rayonHelperRequests.push(request.url());
+    }
+  });
   page.on('response', (response) => {
     if (response.status() >= 400) {
       errors.push(`${response.status()} ${response.request().method()} ${response.url()}`);
@@ -249,11 +275,13 @@ test('Hosted visibly falls back without WebGPU and still renders, edits, and res
     ).toBe(false);
 
     await openEditor(page);
+    await expect.poll(() => page.evaluate(() => crossOriginIsolated)).toBe(true);
+    expect(await page.evaluate(() => navigator.userAgent)).toContain('Chrome/');
     await expect(page.getByText(/reduced-performance path/i)).toBeVisible({ timeout: 90_000 });
     await expect(page.getByRole('slider', { name: 'Exposure' })).toBeVisible({ timeout: 90_000 });
-    await expect.poll(() => workerStatus(page)).toMatchObject({ threaded: true });
+    await expect.poll(() => workerStatus(page)).toEqual({ threaded: false, threads: 1 });
     const status = await workerStatus(page);
-    expect(status?.threads).toBeGreaterThan(1);
+    expect(rayonHelperRequests, 'Chromium must not initialize a Rayon helper').toEqual([]);
 
     const fallbackCanvas = page.locator('.canvas-wrap > canvas:not([data-gpu-live])');
     await expect(fallbackCanvas).toBeVisible();

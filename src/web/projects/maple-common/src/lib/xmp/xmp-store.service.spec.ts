@@ -27,11 +27,11 @@ describe('XmpStoreService persistence contract', () => {
 
   afterEach(() => vi.useRealTimers());
 
-  it('starts a real sibling-XMP write at 200ms and reports it saved', async () => {
+  it('starts a real sibling-XMP write at 150ms and reports it saved', async () => {
     const model = { ...defaultAdjustmentModel(), exposure: 1.25 };
     store.scheduleWrite('asset-1', FOLDER, 'IMG_0001.dng', model, CULLING);
 
-    await vi.advanceTimersByTimeAsync(199);
+    await vi.advanceTimersByTimeAsync(149);
     expect(writeFile).not.toHaveBeenCalled();
     expect(saveState.phase()).toBe('unsaved');
 
@@ -47,7 +47,7 @@ describe('XmpStoreService persistence contract', () => {
     let finishWrite!: () => void;
     writeFile.mockImplementation(() => new Promise<void>((resolve) => (finishWrite = resolve)));
     store.scheduleWrite('asset-1', FOLDER, 'IMG_0001.dng', defaultAdjustmentModel(), CULLING);
-    await vi.advanceTimersByTimeAsync(200);
+    await vi.advanceTimersByTimeAsync(150);
 
     let flushed = false;
     const flush = store.flushAll().then(() => (flushed = true));
@@ -70,7 +70,7 @@ describe('XmpStoreService persistence contract', () => {
       { ...defaultAdjustmentModel(), exposure: 1 },
       CULLING,
     );
-    await vi.advanceTimersByTimeAsync(200);
+    await vi.advanceTimersByTimeAsync(150);
     expect(writeFile).toHaveBeenCalledTimes(1);
 
     store.scheduleWrite(
@@ -80,7 +80,7 @@ describe('XmpStoreService persistence contract', () => {
       { ...defaultAdjustmentModel(), exposure: 2 },
       CULLING,
     );
-    await vi.advanceTimersByTimeAsync(200);
+    await vi.advanceTimersByTimeAsync(150);
     expect(writeFile).toHaveBeenCalledTimes(1);
 
     completions[0]!();
