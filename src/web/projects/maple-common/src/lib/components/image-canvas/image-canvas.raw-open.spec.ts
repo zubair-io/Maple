@@ -93,14 +93,15 @@ describe('ImageCanvasRawOpen', () => {
       setCurrentInput: vi.fn(),
       recordPaintedDims: vi.fn(),
     });
-    return { rawOpen, imageBitmap, loading };
+    return { rawOpen, imageBitmap, loading, pixels };
   }
 
   it('shows the embedded JPEG while the full RAW decode is pending', async () => {
     let finishDecode!: (value: DecodedImage) => void;
-    const { rawOpen, imageBitmap, loading } = harness(
+    const { rawOpen, imageBitmap, loading, pixels } = harness(
       () => new Promise((resolve) => (finishDecode = resolve)),
     );
+    pixels.set(decoded);
 
     const opening = rawOpen.load('a', 'photo.dng', new Uint8Array([1, 2, 3]));
     await Promise.resolve();
@@ -108,6 +109,7 @@ describe('ImageCanvasRawOpen', () => {
 
     expect(loading()).toBe(true);
     expect(imageBitmap()).toMatchObject({ kind: 'preview' });
+    expect(pixels()).toBeNull();
 
     finishDecode(decoded);
     await opening;
@@ -122,6 +124,20 @@ describe('ImageCanvasRawOpen', () => {
 
     expect(loading()).toBe(false);
     expect(imageBitmap()).toMatchObject({ kind: 'preview' });
+  });
+
+  it('closes a stale bitmap when decode fails without an embedded preview', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { rawOpen, imageBitmap } = harness(() => Promise.reject(new Error('failed')), {
+      extractPreview: () => Promise.reject(new Error('no embedded preview')),
+    });
+    const close = vi.fn();
+    imageBitmap.set({ close } as unknown as ImageBitmap);
+
+    await rawOpen.load('a', 'photo.dng', new Uint8Array([1, 2, 3]));
+
+    expect(close).toHaveBeenCalledOnce();
+    expect(imageBitmap()).toBeNull();
   });
 
   it('does not let a slow embedded preview overwrite a completed GPU open', async () => {

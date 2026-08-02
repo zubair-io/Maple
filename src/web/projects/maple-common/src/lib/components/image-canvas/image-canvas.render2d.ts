@@ -114,7 +114,10 @@ export async function coldOpen2d(
     }
   } catch (e) {
     console.error('Decode failed for', filename, e);
-    if (!host.hasProvisionalPreview(assetId)) host.imageBitmap.set(null);
+    if (!host.hasProvisionalPreview(assetId)) {
+      host.imageBitmap()?.close();
+      host.imageBitmap.set(null);
+    }
   } finally {
     host.loading.set(false);
   }
