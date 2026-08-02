@@ -17,14 +17,15 @@ import XCTest
 final class InfoPanelVMTests: XCTestCase {
   // MARK: - cameraLocationRows
 
-  func testCameraLocationRowsAlwaysProducesEightRows() {
+  func testCameraLocationRowsProducesTwelveRowsInOrder() {
     let entries: [ImageMetadataReader.ExifEntry] = []
     let rows = InfoPanelVM.cameraLocationRows(from: entries)
-    XCTAssertEqual(rows.count, 8)
+    XCTAssertEqual(rows.count, 12)
     XCTAssertEqual(
       rows.map(\.id),
       [
-        "body", "lens", "aperture", "shutter", "iso", "focal", "coords", "city",
+        "body", "taken", "lens", "aperture", "shutter", "iso", "focal",
+        "dimensions", "coords", "city", "size", "path",
       ])
   }
 
@@ -63,14 +64,40 @@ final class InfoPanelVMTests: XCTestCase {
     XCTAssertEqual(value(rows, "coords"), "48.8584, 2.2945")
   }
 
-  func testCameraLocationRowsCityIsAlwaysEmDashInV01() {
-    // City requires reverse-geocoding; not wired in v0.1.
+  func testCameraLocationRowsCityFromEnrichmentElseEmDash() {
+    // City comes from the server reverse-geocode (#2518); "—" when absent.
+    let noCity = InfoPanelVM.cameraLocationRows(from: [])
+    XCTAssertEqual(value(noCity, "city"), "—")
+    let withCity = InfoPanelVM.cameraLocationRows(from: [], city: "Albany")
+    XCTAssertEqual(value(withCity, "city"), "Albany")
+  }
+
+  func testCameraLocationRowsTakenAndDimensionsFromExif() {
     let entries: [ImageMetadataReader.ExifEntry] = [
-      .init(section: "GPS", label: "Latitude", value: "48.8584"),
-      .init(section: "GPS", label: "Longitude", value: "2.2945"),
+      .init(section: "Camera", label: "Date Taken", value: "Jul 30, 2026 at 4:15 PM"),
+      .init(section: "Image", label: "Resolution", value: "6000 × 4000"),
     ]
     let rows = InfoPanelVM.cameraLocationRows(from: entries)
-    XCTAssertEqual(value(rows, "city"), "—")
+    XCTAssertEqual(value(rows, "taken"), "Jul 30, 2026 at 4:15 PM")
+    XCTAssertEqual(value(rows, "dimensions"), "6000 × 4000")
+  }
+
+  func testCameraLocationRowsSizePrefersCatalogElseExif() {
+    // Catalog size (cloud) formats to a human string; EXIF File/Size is the
+    // local fallback when no catalog size is passed.
+    let withCatalog = InfoPanelVM.cameraLocationRows(from: [], fileSize: 42_000_000)
+    XCTAssertEqual(value(withCatalog, "size"), InfoPanelVM.formatBytes(42_000_000))
+    let exifOnly = InfoPanelVM.cameraLocationRows(
+      from: [.init(section: "File", label: "Size", value: "12.3 MB")])
+    XCTAssertEqual(value(exifOnly, "size"), "12.3 MB")
+  }
+
+  func testCameraLocationRowsPathPrefersDisplayPathElseExif() {
+    let withPath = InfoPanelVM.cameraLocationRows(from: [], path: "/srv/lib/2026/x.dng")
+    XCTAssertEqual(value(withPath, "path"), "/srv/lib/2026/x.dng")
+    let exifOnly = InfoPanelVM.cameraLocationRows(
+      from: [.init(section: "File", label: "Path", value: "/local/x.dng")])
+    XCTAssertEqual(value(exifOnly, "path"), "/local/x.dng")
   }
 
   // MARK: - combineMakeModel
