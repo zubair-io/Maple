@@ -12,6 +12,7 @@
  */
 
 import { Elysia } from 'elysia';
+import { ObjectId } from 'mongodb';
 import { stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { resolveAddressString } from '../../library/address.ts';
@@ -26,7 +27,30 @@ import {
   parseAssetId,
 } from '../../db/assets.repo.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
-import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { loadLibraryIdToSlug, loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+
+/**
+ * Resolve an absolute server path to the registered library that contains it.
+ * The jail: the path must live strictly UNDER a library root (a file, not the
+ * root itself, and not an escaping `..`). Returns the library id, the POSIX
+ * library-relative path, and the `slug:relPath` address when the library has a
+ * slug. `null` when no registered root contains the path. Pure — unit-tested.
+ */
+export function resolveFsPathToLibrary(
+  abs: string,
+  roots: ReadonlyMap<string, string>,
+  idToSlug: ReadonlyMap<string, string>,
+): { libraryId: string; relPath: string; address: string | null } | null {
+  for (const [libraryIdHex, root] of roots) {
+    const rel = path.relative(root, abs);
+    if (rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+      const relPath = rel.split(path.sep).join('/');
+      const slug = idToSlug.get(libraryIdHex);
+      return { libraryId: libraryIdHex, relPath, address: slug ? `${slug}:${relPath}` : null };
+    }
+  }
+  return null;
+}
 
 export const metadataRoutes = new Elysia()
   // Single asset metadata by `slug:relPath` address.
@@ -69,6 +93,38 @@ export const metadataRoutes = new Elysia()
       return { error: 'Asset not indexed' };
     }
     return dto;
+  })
+
+  // Single asset detail by absolute server path.
+  //
+  // The cloud FOLDER browse (`/api/fs/dir` → Apple `loadCloudDir`) carries
+  // only each file's absolute path — no Mongo id and no `slug:relPath`
+  // address (unlike the search projection). Without this route the info pane
+  // cannot reach enrichment (description / place / vision / faces / …) for
+  // anything opened from the cloud browse grid. Resolves the abs path to its
+  // library (jail: the path must live under a registered root), then reuses
+  // `findDetailByAddress`. Also returns the computed `slug:relPath` address so
+  // the client can show the library-relative folder.
+  //
+  // Declared BEFORE `/:id` so the literal segment isn't captured.
+  .get('/by-fspath', async ({ query, set }) => {
+    const abs = typeof query.path === 'string' ? query.path : '';
+    if (abs === '') {
+      set.status = 400;
+      return { error: 'Missing path' };
+    }
+    const [roots, idToSlug] = await Promise.all([loadLibraryRoots(), loadLibraryIdToSlug()]);
+    const hit = resolveFsPathToLibrary(abs, roots, idToSlug);
+    if (!hit) {
+      set.status = 404;
+      return { error: 'Path not in any library' };
+    }
+    const dto = await findDetailByAddress(new ObjectId(hit.libraryId), hit.relPath);
+    if (!dto) {
+      set.status = 404;
+      return { error: 'Asset not indexed' };
+    }
+    return hit.address ? { ...dto, address: hit.address } : dto;
   })
 
   // Single asset metadata
