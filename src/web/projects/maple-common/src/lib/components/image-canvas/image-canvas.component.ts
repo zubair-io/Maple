@@ -23,7 +23,6 @@ import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import { ImageCanvasService } from './image-canvas.service';
 import { AssetId } from '../../models/asset';
 import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
-import { isNonRawExtension } from '../../state/raw-extensions';
 import { ImageCanvasGpuPresent, type GpuPresentHost } from './image-canvas.gpu-present';
 import {
   computeEffectivePx,
@@ -37,12 +36,12 @@ import { CropOverlayComponent } from '../crop-overlay/crop-overlay.component';
 import { CropSessionService } from '../crop-overlay/crop-session.service';
 import { type AdjustmentModel } from '../../models/adjustment-model';
 import { cropStraightenTransform, displayDims, renderModelForCrop } from './image-canvas.crop';
-import { coldOpen2d, runRender2d, type Render2dHost } from './image-canvas.render2d';
+import { runRender2d, type Render2dHost } from './image-canvas.render2d';
 import { canUseLiveFastPath, buildLiveParams } from './image-canvas.live-params';
 import { fetchAndLoadBytes, type ByteLoadError, type ByteLoadHost } from './image-canvas.byteload';
 import { GpuFallbackNoticeService } from '../gpu-fallback-notice/gpu-fallback-notice.service';
 import { EmbeddedPreviewService } from '../../raw-pipeline/embedded-preview.service';
-import { editorInput } from './image-canvas.input';
+import { ImageCanvasRawOpen } from './image-canvas.raw-open';
 
 @Component({
   selector: 'editor-image-canvas',
@@ -75,7 +74,6 @@ export class ImageCanvasComponent
 
   readonly loading = signal(false);
   readonly imageBitmap = signal<ImageBitmap | null>(null);
-  // Recoverable byte-load error (#2407) — see image-canvas.byteload.ts.
   readonly byteLoadError = signal<ByteLoadError | null>(null);
 
   // GPU live-render path (epic #925, P4b-web / #1038). The GPU canvas lifecycle +
@@ -107,26 +105,27 @@ export class ImageCanvasComponent
     gpuActive: () => this.gpuPresent.active(),
     runRender: (xmp, generation, sizing) => this.runRender(xmp, generation, sizing),
   });
-  // Bytes + extension for the focused asset, retained so adjustment-driven
-  // re-renders don't re-read the byte cache. `decode()` slices a copy before
-  // transferring it into the worker, so the original view here stays attached.
+  // Retained focused-asset input; worker decode transfers a copy.
   private currentBytes: Uint8Array | null = null;
   private currentExt = '';
-  // The camera-rendered JPEG shown while the full RAW decode is in flight.
-  // Its asset id lets the decode error path preserve a valid provisional
-  // image without accidentally retaining pixels from the previous asset.
-  private provisionalPreviewAssetId: AssetId | null = null;
+  private readonly rawOpen = new ImageCanvasRawOpen(this, {
+    embeddedPreview: this.embeddedPreview,
+    imageBitmap: this.imageBitmap,
+    currentAssetId: () => this.currentAssetId,
+    coldOpenDone: () => this.coldOpenDone,
+    gpuEnabled: () => this.gpuPresent.enabled,
+    openGpu: (assetId, bytes, ext) => this.gpuPresent.open(assetId, bytes, ext),
+    setCurrentInput: (bytes, ext) => {
+      this.currentBytes = bytes;
+      this.currentExt = ext;
+    },
+    recordPaintedDims: (width, height) => this.recordPaintedDims(width, height),
+  });
   // Public for `GpuPresentHost` (the helper drops stale session renders on it); component-bumped.
   renderGeneration = 0;
-  // Native (full-resolution, oriented) image dims, from the sized decode's
-  // `nativeWidth`/`nativeHeight` (2D path) or the session dims (GPU path).
-  // Drives the refine-target math; null until the cold open lands.
-  // Long edge of the bitmap currently painted — refine only runs when it can
-  // beat this (so zoom-out never re-renders, and fit never refines).
+  // Long edge of the bitmap currently painted; refine runs only when sharper.
   private paintedLongEdge = 0;
-  // Aspect (w/h) of the bitmap currently painted — feeds the fit/draw geometry
-  // so a cropped render (different aspect) isn't stretched into the full-frame
-  // rect (#638 review). Null until the first paint → falls back to asset dims.
+  // Painted aspect keeps cropped renders from stretching to the full-frame rect.
   private paintedAspect = signal<{ w: number; h: number } | null>(null);
   // Gate the adjustment effect until the cold-open decode has finished and
   // recorded `lastRenderedXmp`. Without this, the synchronous-bytes path sets
@@ -289,7 +288,7 @@ export class ImageCanvasComponent
         this.gpuPresent.teardown();
         this.currentBytes = null;
         this.currentExt = '';
-        this.provisionalPreviewAssetId = null;
+        this.rawOpen.reset();
         this.lastRenderedXmp = null;
         this.coldOpenDone = false;
         this.canvasSvc.nativeDimensions.set(null);
@@ -448,29 +447,7 @@ export class ImageCanvasComponent
   }
 
   async loadReal(assetId: AssetId, filename: string, bytes: Uint8Array): Promise<void> {
-    const sourceExt = filename.split('.').pop()?.toLowerCase() ?? '';
-    if (!isNonRawExtension(sourceExt) && sourceExt !== 'x3f') {
-      void this.showEmbeddedPreview(assetId, bytes, sourceExt);
-    }
-
-    const input = await editorInput(filename, bytes, this.embeddedPreview);
-    // Retain input for adjustment re-renders; cold-open uses camera As-Shot WB.
-    this.currentBytes = input.bytes;
-    this.currentExt = input.ext;
-    // GPU live-render path (#1038): persistent worker session presenting to an
-    // OffscreenCanvas; any failure falls back to the 2D decode path below.
-    if (this.gpuPresent.enabled && !isNonRawExtension(input.ext)) {
-      // A successful open recorded the reply's NATIVE dims (asset + canvas service
-      // via `recordNativeDims`) — the session itself is viewport-sized (#1080).
-      if (await this.gpuPresent.open(assetId, input.bytes, input.ext)) {
-        this.discardProvisionalPreview(assetId);
-        return;
-      }
-      // GPU open failed (e.g. non-gpu bundle / no WebGPU) — fall through to 2D.
-    }
-
-    // WASM-CPU cold-open decode + paint (image-canvas.render2d.ts).
-    await coldOpen2d(this, assetId, filename, input.ext, input.bytes);
+    await this.rawOpen.load(assetId, filename, bytes);
   }
 
   /** Record the painted bitmap's long edge + aspect (`Render2dHost`). */
@@ -501,44 +478,12 @@ export class ImageCanvasComponent
 
   /** Whether the failed full decode still has a valid camera preview to show. */
   hasProvisionalPreview(assetId: AssetId): boolean {
-    return this.provisionalPreviewAssetId === assetId;
+    return this.rawOpen.hasProvisionalPreview(assetId);
   }
 
   /** The 2D decoder replaced the provisional camera preview with final pixels. */
   clearProvisionalPreview(assetId: AssetId): void {
-    if (this.provisionalPreviewAssetId === assetId) this.provisionalPreviewAssetId = null;
-  }
-
-  private async showEmbeddedPreview(
-    assetId: AssetId,
-    bytes: Uint8Array,
-    ext: string,
-  ): Promise<void> {
-    try {
-      const preview = await this.embeddedPreview.extractEmbeddedPreview(bytes, ext);
-      if (assetId !== this.currentAssetId || this.coldOpenDone) return;
-
-      const bitmap = await createImageBitmap(preview.blob);
-      if (assetId !== this.currentAssetId || this.coldOpenDone) {
-        bitmap.close();
-        return;
-      }
-
-      this.imageBitmap()?.close();
-      this.imageBitmap.set(bitmap);
-      this.recordPaintedDims(preview.width, preview.height);
-      this.provisionalPreviewAssetId = assetId;
-    } catch {
-      // Some RAWs have no embedded preview. The normal decode remains the
-      // fallback, so absence is not an editor error or a user-facing failure.
-    }
-  }
-
-  private discardProvisionalPreview(assetId: AssetId): void {
-    if (this.provisionalPreviewAssetId !== assetId) return;
-    this.imageBitmap()?.close();
-    this.imageBitmap.set(null);
-    this.provisionalPreviewAssetId = null;
+    this.rawOpen.clearProvisionalPreview(assetId);
   }
 
   /** The GPU canvas's CSS layout, mirrored from the 2D canvas. */
