@@ -34,10 +34,24 @@ extension AssetRef {
         return .none
     }
 
-    /// Best display path for the info pane's "Path" row: the cloud abs path
-    /// when present, else the local filesystem path. `nil` for PhotoKit.
-    public var displayPath: String? {
-        if let catalog { return catalog.absPath }
-        return primaryURL?.path
+    /// Library-relative CONTAINING FOLDER for the info pane's clickable row —
+    /// what the reveal action opens. Cloud assets derive it from the
+    /// `slug:relPath` address (drop the filename, render as a path), e.g.
+    /// "photos/2010/Family/Wedding" — NOT the server `/srv/…` abs path. Local
+    /// assets use the parent directory's path. `nil` for PhotoKit (no folder).
+    public var displayFolder: String? {
+        if let catalog, let address = catalog.address {
+            // address = "slug:relPath/filename".
+            if let slash = address.lastIndex(of: "/") {
+                // Drop the filename, then present "slug:relPath" as "slug/relPath".
+                return address[..<slash].replacingOccurrences(of: ":", with: "/")
+            }
+            // No "/" → the file sits at the library root; show just the library.
+            if let colon = address.firstIndex(of: ":") {
+                return String(address[..<colon])
+            }
+            return address
+        }
+        return primaryURL?.deletingLastPathComponent().path
     }
 }

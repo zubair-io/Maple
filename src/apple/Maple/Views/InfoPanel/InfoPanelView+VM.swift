@@ -40,7 +40,7 @@ enum InfoPanelVM {
     from entries: [ImageMetadataReader.ExifEntry],
     city: String? = nil,
     fileSize: Int64? = nil,
-    path: String? = nil
+    folder: String? = nil
   ) -> [Row] {
     let make = value(entries, section: "Camera", label: "Make")
     let model = value(entries, section: "Camera", label: "Model")
@@ -63,10 +63,10 @@ enum InfoPanelVM {
     let coords = combineCoords(lat: lat, lon: lon)
 
     // Size: prefer the catalog size from the detail fetch (cloud), else the
-    // EXIF File/Size row (local). Path: prefer the asset's display path, else
-    // the EXIF File/Path row.
+    // EXIF File/Size row (local). Folder: the asset's library-relative
+    // containing folder (clickable to reveal it); no EXIF fallback — a
+    // PhotoKit asset has no folder to open.
     let sizeValue = fileSize.map(formatBytes) ?? value(entries, section: "File", label: "Size")
-    let pathValue = path ?? value(entries, section: "File", label: "Path")
 
     return [
       Row(id: "body", label: "Body", value: body),
@@ -80,7 +80,7 @@ enum InfoPanelVM {
       Row(id: "coords", label: "Coords", value: coords),
       Row(id: "city", label: "City", value: city ?? "—"),
       Row(id: "size", label: "Size", value: sizeValue ?? "—"),
-      Row(id: "path", label: "Path", value: pathValue ?? "—"),
+      Row(id: "folder", label: "Folder", value: folder ?? "—"),
     ]
   }
 
