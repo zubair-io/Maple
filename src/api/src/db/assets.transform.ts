@@ -106,7 +106,7 @@ export interface AssetDetailDto {
   color_label: string;
   indexed_at: string;
   place: Place | null;
-  faces: AssetFaceDoc[];
+  faces: DetailFaceDto[];
   description: string | null;
   description_meta: unknown;
   ocr_text: string | null;
@@ -124,6 +124,12 @@ export interface AssetDetailDto {
   hidden_ack?: boolean;
   enrichment: Enrichment;
 }
+
+/** A detected face plus its resolved person display name. `name` is the
+ * `people` collection `name` for `person_id`, or `null` when the face is
+ * unassigned or the person has no name / was not found. The web + Apple info
+ * panes render `name` (falling back to `person_id`) instead of the raw id. */
+export type DetailFaceDto = AssetFaceDoc & { name: string | null };
 
 /** Display projection of `TranscriptDoc` (schema.ts). Drops `segments[]`
  * since the info pane shows the full `text` as one block. */
@@ -210,6 +216,10 @@ function toTranscriptDto(t: TranscriptDoc): TranscriptDto {
 export function toDetailDto(
   doc: AssetWithId,
   libraries: ReadonlyMap<string, string>,
+  /** `person_id` hex → display name, resolved by the caller from the `people`
+   * collection. Defaults to empty so callers that don't need names (and tests)
+   * still compile — those faces just carry `name: null`. */
+  personNames: ReadonlyMap<string, string> = new Map(),
 ): AssetDetailDto {
   // `description_meta` is not typed on `AssetDoc` (the describe stage
   // added it after the schema froze). Read through `Record<string,
@@ -230,7 +240,10 @@ export function toDetailDto(
     color_label: doc.color_label,
     indexed_at: doc.indexed_at,
     place: doc.place ?? null,
-    faces: doc.faces ?? [],
+    faces: (doc.faces ?? []).map((f) => ({
+      ...f,
+      name: f.person_id ? (personNames.get(f.person_id) ?? null) : null,
+    })),
     description: doc.description ?? null,
     description_meta: rawDoc.description_meta ?? null,
     ocr_text: doc.ocr_text ?? null,
