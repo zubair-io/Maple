@@ -145,7 +145,8 @@ private struct FilmstripRailCell: View {
     let source: (any ImageSource)?
     let onSelect: (AssetRef) -> Void
 
-    @State private var thumbData: Data?
+    /// Decoded thumbnail bitmap, produced off the main actor (never in `body`).
+    @State private var decoded: CGImage?
     @State private var loadTask: Task<Void, Never>?
     @State private var loadedForID: AssetRef.ID?
 
@@ -157,16 +158,10 @@ private struct FilmstripRailCell: View {
                 RoundedRectangle(cornerRadius: 5)
                     .fill(ProTokens.panel)
 
-                if let data = thumbData, let cg = ThumbnailImage.cgImage(from: data) {
-                    #if os(macOS)
-                    Image(nsImage: NSImage(cgImage: cg, size: .zero))
+                if let decoded {
+                    Image(decorative: decoded, scale: 1)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
-                    #else
-                    Image(uiImage: UIImage(cgImage: cg))
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                    #endif
                 }
 
                 if isActive {
@@ -188,17 +183,21 @@ private struct FilmstripRailCell: View {
     }
 
     private func startLoad() {
-        if loadedForID == asset.id, thumbData != nil { return }
+        if loadedForID == asset.id, decoded != nil { return }
         guard loadTask == nil else { return }
         let capturedAsset = asset
         let capturedSource = source
         loadTask = Task { @MainActor in
-            let data = await ThumbnailLoader.shared.load(
+            let bytes = await ThumbnailLoader.shared.load(
                 for: capturedAsset, from: capturedSource
             )
             guard !Task.isCancelled else { return }
+            // Decode off the main actor before touching view state — never in
+            // `body`. `ThumbnailDecoder.image(for:)` hops off-actor and memoizes.
+            let image = await ThumbnailDecoder.image(for: bytes)
+            guard !Task.isCancelled else { return }
             withAnimation(.easeInOut(duration: 0.18)) {
-                thumbData = data
+                decoded = image
                 loadedForID = capturedAsset.id
             }
             loadTask = nil

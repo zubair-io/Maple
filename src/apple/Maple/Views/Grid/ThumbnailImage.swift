@@ -8,11 +8,6 @@
 import SwiftUI
 import MapleCore
 import CoreGraphics
-#if canImport(AppKit)
-import AppKit
-#elseif canImport(UIKit)
-import UIKit
-#endif
 
 // MARK: - GridDisplayMode
 
@@ -88,22 +83,33 @@ struct ThumbnailImage: View {
     let thumbnailData: Data?
     let displayMode: GridDisplayMode
 
+    /// The decoded thumbnail bitmap. Populated off the main actor by the
+    /// `.task` below (never decoded in `body`). Starts nil, so the placeholder
+    /// shows until the first decode completes.
+    @State private var decoded: CGImage?
+
+    /// Image to render this frame: the async-decoded result if we have it, else
+    /// a synchronous peek into the decoded-image cache (instant when this tile
+    /// was decoded a moment ago and scrolled back — no placeholder flash), else
+    /// nil → placeholder. This is a pure read; the actual decode/caching happens
+    /// in the `.task`.
+    private var displayImage: CGImage? {
+        decoded ?? thumbnailData.flatMap(ThumbnailDecoder.cachedImage(for:))
+    }
+
     var body: some View {
         Rectangle()
             .fill(MapleTokens.surfaceAlt)
             .overlay {
-                if let data = thumbnailData, let cgImg = Self.cgImage(from: data) {
-                    #if os(macOS)
-                    Image(nsImage: NSImage(cgImage: cgImg, size: .zero))
+                if let image = displayImage {
+                    // `Image(decorative:)` takes a CGImage directly and is
+                    // cross-platform, so there's no AppKit/UIKit branch. The
+                    // bitmap is already eagerly decoded (ThumbnailDecoder), so
+                    // no pixel decode is deferred to draw time on the main thread.
+                    Image(decorative: image, scale: 1)
                         .resizable()
                         .aspectRatio(contentMode: displayMode.contentMode)
                         .transition(.opacity)
-                    #else
-                    Image(uiImage: UIImage(cgImage: cgImg))
-                        .resizable()
-                        .aspectRatio(contentMode: displayMode.contentMode)
-                        .transition(.opacity)
-                    #endif
                 } else {
                     Image(systemName: "photo")
                         .foregroundStyle(MapleTokens.textMuted)
@@ -111,17 +117,26 @@ struct ThumbnailImage: View {
             }
             .aspectRatio(1, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
-    }
-
-    /// Decode thumbnail bytes to a CGImage (format-agnostic via
-    /// CGImageSource). Same helper ThumbnailCell used — hoisted here so
-    /// both call sites share it.
-    static func cgImage(from data: Data) -> CGImage? {
-        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
-              let img = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
-            return nil
-        }
-        return img
+            // Decode OFF the main actor and cache the decoded bitmap. The old
+            // code decoded the AVIF synchronously inside `body` via
+            // `CGImageSourceCreateImageAtIndex` — on the main thread, re-run on
+            // every body evaluation, and lazily (decoding again at draw time).
+            // On a cold grid that serialized N decodes on the main thread and
+            // hitched every scroll. `ThumbnailDecoder.image(for:)` hops the
+            // decode off-main, downsamples, and memoizes by bytes so repeat
+            // requests are free. Keyed on `thumbnailData`, so a cell reused for
+            // new bytes re-decodes; `.task` cancellation covers scroll-away.
+            .task(id: thumbnailData) {
+                guard let data = thumbnailData else {
+                    decoded = nil
+                    return
+                }
+                let image = await ThumbnailDecoder.image(for: data)
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    decoded = image
+                }
+            }
     }
 }
 
