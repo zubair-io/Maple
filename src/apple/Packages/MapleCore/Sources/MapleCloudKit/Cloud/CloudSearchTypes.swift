@@ -68,6 +68,12 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
   public let id: String
   public let folder_id: String
   public let abs_path: String
+  /// `slug:relPath` unified address (`src/api/src/routes/search/project.ts`
+  /// emits it as `address`). Optional/absent-tolerant: `null` when the asset
+  /// has no slug mapping, and absent from responses predating unified
+  /// addressing. Threaded into `AssetRef.catalog` so the info pane can fetch
+  /// the rich detail via `GET /api/assets/by-address` (#2518).
+  public let address: String?
   public let filename: String
   public let size: Int64?
   /// Last-modified epoch ms. Wire format is a JSON number — usually an
@@ -117,6 +123,7 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
   public init(id: String,
               folder_id: String,
               abs_path: String,
+              address: String? = nil,
               filename: String,
               size: Int64? = nil,
               mtime: Double? = nil,
@@ -137,6 +144,7 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
     self.id = id
     self.folder_id = folder_id
     self.abs_path = abs_path
+    self.address = address
     self.filename = filename
     self.size = size
     self.mtime = mtime
