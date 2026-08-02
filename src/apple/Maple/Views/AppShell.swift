@@ -443,6 +443,11 @@ struct AppShell: View {
         // (local/PhotoKit assets, no cloud asset open). Set + cleared
         // alongside `cloudHistogramClient`.
         .environment(\.cloudAssetDetailClient, cloudAssetDetailClient)
+        // Info pane's clickable file-path row → open the asset's containing
+        // folder in browse (#2518). Re-injected across the iPhone info sheet.
+        .environment(\.revealFolderAction, RevealFolderAction { asset in
+          revealContainingFolder(of: asset)
+        })
         .preferredColorScheme(.dark)
         .fileImporter(isPresented: $showFilePicker,
                       allowedContentTypes: [.folder]) { result in

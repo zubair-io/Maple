@@ -434,10 +434,22 @@ extension AppShell {
         let downloadBox = CloudByteDownloadBox(
             source: source, imageRef: imageRef,
             expectedTotal: expectedTotal, progress: progress)
+        // Cloud catalog identity for the info pane: the rich-detail fetch
+        // (by-address), the "Path" row, and the reveal-containing-folder
+        // action. `serverID` is the CANONICAL server (registry key used by
+        // `loadCloudLibrary` / `librarySelection`), not the local-resolved
+        // `effectiveServer`. `stableID` stays `fs:<absPath>` for the
+        // thumbnail cache — the catalog is a separate carrier (#2518).
         let assetRef = AssetRef(
             displayName: asset.filename,
             hintExtension: (asset.filename as NSString).pathExtension.lowercased(),
             stableID: asset.id,
+            catalog: CatalogRef(
+                serverID: server,
+                folderID: asset.folder_id,
+                absPath: asset.abs_path,
+                address: asset.address
+            ),
             bytesProvider: { try await downloadBox.bytes() }
         )
         if sessions[assetRef.id] == nil {
