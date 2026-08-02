@@ -114,14 +114,21 @@ async function loadPersonNames(
   doc: AssetWithId,
   dbOverride?: Db,
 ): Promise<ReadonlyMap<string, string>> {
+  // Keep only well-formed 24-char hex ids: one malformed `person_id` in the
+  // `new ObjectId(id)` map would otherwise throw and drop the names for every
+  // face on the asset. Canonicalise to lowercase hex so the map key matches
+  // the `_id.toHexString()` key regardless of the stored id's case.
   const ids = Array.from(
-    new Set((doc.faces ?? []).map((f) => f.person_id).filter((id): id is string => !!id)),
+    new Set(
+      (doc.faces ?? [])
+        .map((f) => f.person_id)
+        .filter((id): id is string => !!id && ObjectId.isValid(id))
+        .map((id) => id.toLowerCase()),
+    ),
   );
   if (ids.length === 0) return new Map();
   try {
-    const people = dbOverride
-      ? dbOverride.collection('people')
-      : await peopleCollection();
+    const people = dbOverride ? dbOverride.collection('people') : await peopleCollection();
     const rows = await people
       .find({ _id: { $in: ids.map((id) => new ObjectId(id)) } })
       .project({ name: 1 })
