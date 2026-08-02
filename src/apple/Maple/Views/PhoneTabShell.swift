@@ -227,6 +227,21 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
         // behaviour the Search screen used to fake with a custom pill.
         .tabBarMinimizeBehavior(.onScrollDown)
         .tint(MapleTokens.primary)
+        // Face chips in the info pane → prefill the Search tab and run it
+        // (#2518). Overrides the AppShell-root (mac/iPad) `searchForText` for
+        // the iPhone global Search tab. Re-injected across the info sheet by
+        // `PreviewView` / `EditorDestination`.
+        .environment(\.searchForText, SearchTextAction { text in searchFor(text) })
+    }
+
+    /// Prefill the Search tab with `text` and switch to it. `SearchView`'s
+    /// `.onAppear` re-issues a non-empty query, so the search runs on arrival.
+    /// Clearing `libraryPath` pops any open editor/preview (and its info
+    /// sheet) so the user lands cleanly on the results.
+    private func searchFor(_ text: String) {
+        searchQuery = text
+        libraryPath = []
+        activeTab = "search"
     }
 
     /// Preview supplies its own non-interactive scale/fade presentation. Turn

@@ -350,6 +350,19 @@ extension AppShell {
         isSearchActive = true
     }
 
+    /// Open the cloud search overlay pre-filled with `query` and run it (#2518).
+    /// Used by the info pane's tappable face chips on mac/iPad. Best-effort:
+    /// `activateSearch()` only stands up a session for a cloud-library
+    /// selection, so this no-ops for non-cloud selections (the chip tap then
+    /// does nothing rather than searching the wrong scope).
+    @MainActor
+    func activateSearch(query: String) {
+        activateSearch()
+        guard isSearchActive else { return }
+        searchVM?.params.placeQuery = query
+        Task { await searchVM?.submit() }
+    }
+
     /// Drop the search session state without restoring the underlying view.
     /// Used when the selection itself is changing — the new selection's own
     /// load repopulates the center column, so a restore here would race it.

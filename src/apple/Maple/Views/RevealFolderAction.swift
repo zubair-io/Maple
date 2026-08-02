@@ -30,3 +30,25 @@ extension EnvironmentValues {
     set { self[RevealFolderActionKey.self] = newValue }
   }
 }
+
+/// Switches to the Search surface and runs a search for `text` (#2518). Used
+/// by the info pane's tappable face chips — tapping a named person searches
+/// for that name. Same delivery model as `RevealFolderAction`: an environment
+/// value set per shell (iPhone tab vs mac/iPad overlay) and re-injected across
+/// the info sheet. `nil` (default) = inert.
+struct SearchTextAction {
+  let run: @MainActor (String) -> Void
+
+  @MainActor func callAsFunction(_ text: String) { run(text) }
+}
+
+private struct SearchTextActionKey: EnvironmentKey {
+  static let defaultValue: SearchTextAction? = nil
+}
+
+extension EnvironmentValues {
+  var searchForText: SearchTextAction? {
+    get { self[SearchTextActionKey.self] }
+    set { self[SearchTextActionKey.self] = newValue }
+  }
+}

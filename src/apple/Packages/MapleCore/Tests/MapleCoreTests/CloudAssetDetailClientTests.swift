@@ -258,16 +258,22 @@ final class CloudAssetDetailClientTests: XCTestCase {
     XCTAssertNil(detail.sections.vision)
   }
 
-  func test_sections_faces_taggedAndUntagged() throws {
+  func test_sections_faces_resolvesNamesTaggedAndUntagged() throws {
     let detail = try decodeDetail(#"""
     {"id":"a","faces":[
-      {"person_id":"p1","confidence":0.9},
+      {"person_id":"p1","name":"Alice","confidence":0.9},
       {"person_id":null,"confidence":0.8},
       {"person_id":"p2","confidence":0.7}]}
     """#)
     let f = detail.sections.faces
     XCTAssertEqual(f.count, 3)
-    XCTAssertEqual(f.taggedPersonIDs, ["p1", "p2"])
+    XCTAssertEqual(f.tagged.map(\.personID), ["p1", "p2"])
+    // p1 shows its resolved name and is searchable; p2 has no name so its
+    // chip falls back to the id and is not searchable.
+    XCTAssertEqual(f.tagged[0].label, "Alice")
+    XCTAssertEqual(f.tagged[0].searchName, "Alice")
+    XCTAssertEqual(f.tagged[1].label, "p2")
+    XCTAssertNil(f.tagged[1].searchName)
     XCTAssertEqual(f.untaggedCount, 1)
   }
 }
