@@ -34,6 +34,18 @@ export class BlobUrlChannel<TId extends string> {
   }
 
   /**
+   * Whether any consumer is still watching `id`. The registry drops an id's
+   * set as soon as it empties, so presence alone is the answer.
+   *
+   * Used to decide whether queued work for `id` is still wanted: loads are
+   * deduped per id, so two mounted components showing the same asset share one
+   * queued load and only the last one to leave may cancel it.
+   */
+  hasSubscribers(id: TId): boolean {
+    return this.subscribersById.has(id);
+  }
+
+  /**
    * Subscribe to URL changes for `id`. Invokes `cb` immediately with the
    * current URL (warm-cache subscribers paint at once), then again whenever
    * it changes (load completes, or the LRU evicts it → `undefined`). Returns

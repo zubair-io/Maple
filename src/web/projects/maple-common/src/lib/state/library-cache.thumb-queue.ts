@@ -19,6 +19,15 @@
 /** Concurrent thumb requests allowed against the origin at any moment. */
 export const MAX_CONCURRENT_THUMB_LOADS = 4;
 
+/**
+ * Rejection message for work dropped by {@link ThumbLoadQueue.clear}. Expected
+ * control flow (a source or folder switch), not a failure: `ThumbFailMemory`
+ * refuses to brand the asset on it, and the loader's catch stays quiet rather
+ * than logging one warning per queued thumbnail. Shared so those three call
+ * sites cannot drift apart on a string literal.
+ */
+export const QUEUE_CLEARED_MESSAGE = 'Queue cleared';
+
 interface QueuedLoad {
   id: string;
   run: () => Promise<void>;
@@ -76,7 +85,7 @@ export class ThumbLoadQueue {
    */
   clear(): void {
     const dropped = this.queue.splice(0, this.queue.length);
-    for (const entry of dropped) entry.reject(new Error('Queue cleared'));
+    for (const entry of dropped) entry.reject(new Error(QUEUE_CLEARED_MESSAGE));
   }
 
   private _pump(): void {

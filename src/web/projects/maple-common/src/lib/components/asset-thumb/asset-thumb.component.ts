@@ -96,6 +96,10 @@ export class AssetThumbComponent {
         const unsub = this.state.subscribeThumbUrl(currentAsset.id, (url) => {
           this.thumbUrl.set(url);
         });
+        // Order matters: unsubscribe FIRST. `cancelQueuedThumbnail` only drops
+        // the queued load when no consumer is left watching that id, and this
+        // tile must already be out of that count for the check to mean
+        // anything. Swapping these two lines makes every cancel a no-op.
         onCleanup(() => {
           unsub();
           this.state.cancelQueuedThumbnail(currentAsset.id);
