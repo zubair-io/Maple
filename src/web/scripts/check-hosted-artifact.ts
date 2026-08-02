@@ -179,6 +179,21 @@ async function verifyBinaryAssets(): Promise<string> {
     startsWith(await bytes('/raw_wasm_bg.wasm'), [0x00, 0x61, 0x73, 0x6d]),
     '/raw_wasm_bg.wasm has invalid magic bytes',
   );
+  assertContract(
+    (await text('/pkg/raw_wasm.js')).includes('export function initThreadPool'),
+    '/pkg/raw_wasm.js omits the Rayon initThreadPool export',
+  );
+  const rawWorkerSources = await Promise.all(
+    (await allFiles(ARTIFACT_ROOT))
+      .filter((path) => basename(path).startsWith('worker-') && basename(path).endsWith('.js'))
+      .map((path) => readFile(path, 'utf8')),
+  );
+  const rawWorker = rawWorkerSources.find((source) => source.includes('[raw-wasm-init]'));
+  assertContract(rawWorker, 'missing the RAW pipeline worker bundle');
+  assertContract(
+    rawWorker.includes('Chrome|Chromium|Edg|OPR'),
+    'RAW worker is missing the Chromium shared-memory safety gate',
+  );
   for (const helper of HOSTED_WASM_ASSETS.slice(1)) {
     assertContract((await bytes(helper)).byteLength > 0, `${helper} is empty`);
   }
