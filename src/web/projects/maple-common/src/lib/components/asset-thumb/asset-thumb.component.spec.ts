@@ -23,6 +23,7 @@ describe('AssetThumbComponent — component-owned thumbnail signal', () => {
   let lastCb: ThumbCb | undefined;
   let unsubCount: number;
   let ensureCalls: AssetId[];
+  let cancelCalls: AssetId[];
 
   function configure(subscribeThumbUrl: (id: AssetId, cb: ThumbCb) => () => void) {
     TestBed.resetTestingModule();
@@ -32,6 +33,7 @@ describe('AssetThumbComponent — component-owned thumbnail signal', () => {
           provide: LibraryStateService,
           useValue: {
             ensureThumbnailUrl: (a: Asset) => ensureCalls.push(a.id),
+            cancelQueuedThumbnail: (id: AssetId) => cancelCalls.push(id),
             subscribeThumbUrl,
             isSelecting: () => false,
           },
@@ -44,6 +46,7 @@ describe('AssetThumbComponent — component-owned thumbnail signal', () => {
     lastCb = undefined;
     unsubCount = 0;
     ensureCalls = [];
+    cancelCalls = [];
   });
 
   // A stub that mirrors the real cache: it invokes `cb` SYNCHRONOUSLY with the
@@ -99,6 +102,34 @@ describe('AssetThumbComponent — component-owned thumbnail signal', () => {
     fixture.destroy();
     expect(unsubCount).toBe(1);
   });
+
+  // The browse grid virtualizes, so scrolling destroys tiles continuously. A
+  // destroyed tile's queued thumbnail request must be dropped, or the rows
+  // actually on screen wait behind requests for rows already scrolled past.
+  it('drops the queued thumbnail load on destroy (scroll-out)', () => {
+    configure(syncStub(undefined));
+    const fixture = TestBed.createComponent(AssetThumbComponent);
+    fixture.componentRef.setInput('asset', makeAsset('lib:a.jpg'));
+    fixture.detectChanges();
+    expect(cancelCalls).toEqual([]);
+
+    fixture.destroy();
+    expect(cancelCalls).toEqual(['lib:a.jpg']);
+  });
+
+  it('drops the previous asset queued load when a tile is recycled', () => {
+    configure(syncStub(undefined));
+    const fixture = TestBed.createComponent(AssetThumbComponent);
+    fixture.componentRef.setInput('asset', makeAsset('lib:a.jpg'));
+    fixture.detectChanges();
+
+    fixture.componentRef.setInput('asset', makeAsset('lib:b.jpg'));
+    fixture.detectChanges();
+
+    // Only the recycled-away asset is cancelled; the new one stays queued.
+    expect(cancelCalls).toEqual(['lib:a.jpg']);
+    expect(ensureCalls).toEqual(['lib:a.jpg', 'lib:b.jpg']);
+  });
 });
 
 describe('AssetThumbComponent — no-preview badge', () => {
@@ -110,6 +141,7 @@ describe('AssetThumbComponent — no-preview badge', () => {
           provide: LibraryStateService,
           useValue: {
             ensureThumbnailUrl: () => {},
+            cancelQueuedThumbnail: () => {},
             subscribeThumbUrl,
             isSelecting: () => false,
           },
@@ -173,6 +205,7 @@ describe('AssetThumbComponent — Select-mode checkbox (#2404)', () => {
           provide: LibraryStateService,
           useValue: {
             ensureThumbnailUrl: () => {},
+            cancelQueuedThumbnail: () => {},
             subscribeThumbUrl: (_id: AssetId, cb: ThumbCb) => {
               cb(undefined);
               return () => {};
@@ -256,6 +289,7 @@ describe('AssetThumbComponent — accessible name and selection state (#2414)', 
           provide: LibraryStateService,
           useValue: {
             ensureThumbnailUrl: () => {},
+            cancelQueuedThumbnail: () => {},
             subscribeThumbUrl,
             isSelecting: () => false,
           },
