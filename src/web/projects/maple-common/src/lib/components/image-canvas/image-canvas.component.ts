@@ -112,6 +112,10 @@ export class ImageCanvasComponent
   // transferring it into the worker, so the original view here stays attached.
   private currentBytes: Uint8Array | null = null;
   private currentExt = '';
+  // The camera-rendered JPEG shown while the full RAW decode is in flight.
+  // Its asset id lets the decode error path preserve a valid provisional
+  // image without accidentally retaining pixels from the previous asset.
+  private provisionalPreviewAssetId: AssetId | null = null;
   // Public for `GpuPresentHost` (the helper drops stale session renders on it); component-bumped.
   renderGeneration = 0;
   // Native (full-resolution, oriented) image dims, from the sized decode's
@@ -285,6 +289,7 @@ export class ImageCanvasComponent
         this.gpuPresent.teardown();
         this.currentBytes = null;
         this.currentExt = '';
+        this.provisionalPreviewAssetId = null;
         this.lastRenderedXmp = null;
         this.coldOpenDone = false;
         this.canvasSvc.nativeDimensions.set(null);
@@ -443,6 +448,11 @@ export class ImageCanvasComponent
   }
 
   async loadReal(assetId: AssetId, filename: string, bytes: Uint8Array): Promise<void> {
+    const sourceExt = filename.split('.').pop()?.toLowerCase() ?? '';
+    if (!isNonRawExtension(sourceExt) && sourceExt !== 'x3f') {
+      void this.showEmbeddedPreview(assetId, bytes, sourceExt);
+    }
+
     const input = await editorInput(filename, bytes, this.embeddedPreview);
     // Retain input for adjustment re-renders; cold-open uses camera As-Shot WB.
     this.currentBytes = input.bytes;
@@ -452,7 +462,10 @@ export class ImageCanvasComponent
     if (this.gpuPresent.enabled && !isNonRawExtension(input.ext)) {
       // A successful open recorded the reply's NATIVE dims (asset + canvas service
       // via `recordNativeDims`) — the session itself is viewport-sized (#1080).
-      if (await this.gpuPresent.open(assetId, input.bytes, input.ext)) return;
+      if (await this.gpuPresent.open(assetId, input.bytes, input.ext)) {
+        this.discardProvisionalPreview(assetId);
+        return;
+      }
       // GPU open failed (e.g. non-gpu bundle / no WebGPU) — fall through to 2D.
     }
 
@@ -484,6 +497,48 @@ export class ImageCanvasComponent
   /** Open the adjustment-effect gate once the GPU cold-open has presented. */
   markColdOpenDone(): void {
     this.coldOpenDone = true;
+  }
+
+  /** Whether the failed full decode still has a valid camera preview to show. */
+  hasProvisionalPreview(assetId: AssetId): boolean {
+    return this.provisionalPreviewAssetId === assetId;
+  }
+
+  /** The 2D decoder replaced the provisional camera preview with final pixels. */
+  clearProvisionalPreview(assetId: AssetId): void {
+    if (this.provisionalPreviewAssetId === assetId) this.provisionalPreviewAssetId = null;
+  }
+
+  private async showEmbeddedPreview(
+    assetId: AssetId,
+    bytes: Uint8Array,
+    ext: string,
+  ): Promise<void> {
+    try {
+      const preview = await this.embeddedPreview.extractEmbeddedPreview(bytes, ext);
+      if (assetId !== this.currentAssetId || this.coldOpenDone) return;
+
+      const bitmap = await createImageBitmap(preview.blob);
+      if (assetId !== this.currentAssetId || this.coldOpenDone) {
+        bitmap.close();
+        return;
+      }
+
+      this.imageBitmap()?.close();
+      this.imageBitmap.set(bitmap);
+      this.recordPaintedDims(preview.width, preview.height);
+      this.provisionalPreviewAssetId = assetId;
+    } catch {
+      // Some RAWs have no embedded preview. The normal decode remains the
+      // fallback, so absence is not an editor error or a user-facing failure.
+    }
+  }
+
+  private discardProvisionalPreview(assetId: AssetId): void {
+    if (this.provisionalPreviewAssetId !== assetId) return;
+    this.imageBitmap()?.close();
+    this.imageBitmap.set(null);
+    this.provisionalPreviewAssetId = null;
   }
 
   /** The GPU canvas's CSS layout, mirrored from the 2D canvas. */
