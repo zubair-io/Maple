@@ -35,6 +35,8 @@ struct EditorDestination: View {
     // and re-inject onto the sheet content below.
     @Environment(\.cloudAssetDetailClient) private var detailClient
     @Environment(\.cloudHistogramClient) private var histogramClient
+    // #2518 — the info pane's clickable path row needs the reveal action too.
+    @Environment(\.revealFolderAction) private var revealFolder
 
     var body: some View {
         Group {
@@ -58,6 +60,7 @@ struct EditorDestination: View {
                     }
                     .environment(\.cloudAssetDetailClient, detailClient)
                     .environment(\.cloudHistogramClient, histogramClient)
+                    .environment(\.revealFolderAction, revealFolder)
                     .presentationDetents([.medium, .large])
                 }
             } else {
