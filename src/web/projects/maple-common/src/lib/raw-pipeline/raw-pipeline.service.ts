@@ -2,10 +2,10 @@
 // Lazy-creates the worker on first call, reuses for subsequent calls,
 // terminates on app destroy. All decodes run off the main thread.
 //
-// T10: exposes `isThreaded$` (Observable<boolean>) so UI can surface a
-// "single-threaded mode" indicator on browsers without cross-origin isolation
-// (Safari / Firefox default, or any host without COOP+COEP). The observable
-// starts undefined and emits once the worker's WASM init reports back.
+// T10: exposes `isThreaded$` (Observable<boolean>) so UI can surface the actual
+// runtime mode. Hosts without COOP+COEP are serial; Chromium-family runtimes are
+// also serial while #2515 is mitigated (#2516 tracks safe Rayon restoration).
+// The observable starts undefined and emits once WASM init reports back.
 
 import { Injectable, OnDestroy, inject, signal } from '@angular/core';
 import { BehaviorSubject, Observable } from 'rxjs';
@@ -121,7 +121,7 @@ export class RawPipelineService implements OnDestroy {
   /**
    * @param maxLongEdge Cap the render's long edge in REAL (backing-store)
    *   pixels (#1101, spec §5.1) — the editor passes viewport × devicePixelRatio
-   *   for the fast phase. Routes the threaded-CPU sized entry
+   *   for the fast phase. Routes the WASM-CPU sized entry
    *   (`render_bytes_sized`): the develop downsamples right after demosaic so
    *   every later stage runs at the capped size. Never upscales; the reply
    *   carries the NATIVE oriented dims in `nativeWidth`/`nativeHeight` so the

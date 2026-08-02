@@ -66,7 +66,7 @@ import { isSupportedRaw } from './raw-extensions';
 import { previewLocation, type PreviewLocation } from './preview-location';
 
 /** Idle debounce before a developed preview is persisted, in ms. Longer than
- * the 200ms sidecar-write debounce (`LibraryFetch.API_XMP_DEBOUNCE_MS`)
+ * the 150ms sidecar-write debounce (`XmpStoreService`)
  * because this triggers a full decode + encode + disk/network write, not a
  * cheap text write — no value re-persisting mid-drag. */
 const IDLE_PERSIST_DEBOUNCE_MS = 2000;

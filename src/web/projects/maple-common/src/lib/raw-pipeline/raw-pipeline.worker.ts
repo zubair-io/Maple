@@ -94,8 +94,8 @@ function ensureReady(): Promise<RawWasmInitResult> {
   if (!readyPromise) {
     readyPromise = initRawWasm().then((result) => {
       installDeepDenoiseProgress();
-      // Let the main thread know whether threading is live so the UI can
-      // show a "single-threaded mode" indicator on non-isolated hosts.
+      // Report the runtime policy result so the UI can surface serial mode on
+      // non-isolated hosts and on Chromium while #2515 is mitigated.
       const statusMsg: WorkerResponse = {
         id: 0,
         type: 'status',
@@ -175,7 +175,7 @@ async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
     await ensureReady();
     const bytes = new Uint8Array(req.bytes);
     // Sized decode (#1101, spec §5.1): a `maxLongEdge` request routes to the
-    // threaded-CPU sized entry — the editor's 2D fast/refine phases, whose
+    // WASM-CPU sized entry — the editor's 2D fast/refine phases, whose
     // `qualityPreview` demosaic profile and per-tick cost the one-shot GPU
     // entry can't honour (it rebuilds the whole GPU context per call). The GPU
     // live path renders through the persistent session (`WebLiveSession`)
@@ -191,7 +191,7 @@ async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
     //      non-null on EVERY browser — without this check we'd call
     //      `render_bytes_gpu` on a no-WebGPU browser and its `requestAdapter()`
     //      would fail. Gating here keeps the no-WebGPU path byte-for-byte the
-    //      threaded-CPU `render_bytes` it is today;
+    //      WASM-CPU `render_bytes` path;
     //   3. the loaded bundle actually exports `render_bytes_gpu` (the `gpu`
     //      feature). Belt-and-braces — false against a hypothetical gpu-off
     //      bundle, true here.
@@ -224,7 +224,7 @@ async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
         // `requestAdapter()` returned null, or device creation/render failed.
         // Without this retry the whole decode would error and the canvas would
         // stay blank on a machine whose GPU path is dead-on-arrival. Re-run the
-        // SAME develop on the threaded-CPU `render_bytes` so the image still
+        // SAME develop on the WASM-CPU `render_bytes` so the image still
         // renders (slower, but correct). The outer catch still handles a genuine
         // CPU decode failure.
         console.warn(
@@ -244,7 +244,7 @@ async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
         req.maxLongEdge as number,
       );
     } else {
-      // Unchanged threaded-CPU path — byte-for-byte today's no-GPU behaviour.
+      // Unchanged WASM-CPU path — byte-for-byte today's no-GPU behaviour.
       result = render_bytes(bytes, req.ext, req.xmp ?? null);
     }
     markEnd(wasmStartMark, `maple:wasm:${req.id}:end`, markTag);
@@ -410,7 +410,7 @@ async function handleOpenSession(req: OpenSessionRequest): Promise<void> {
       // the `'gpu' in navigator` check is what keeps a no-WebGPU browser from
       // attempting (and failing) to open a session. Either miss posts a
       // session-error → the component (`ImageCanvasGpuPresent.open`) falls back to
-      // the 2D `decode()` path, which on a no-WebGPU runtime routes threaded-CPU.
+      // the 2D `decode()` path, which on a no-WebGPU runtime routes WASM-CPU.
       const ctor = 'gpu' in navigator ? liveSessionCtor() : null;
       if (!ctor) {
         postSessionError(
