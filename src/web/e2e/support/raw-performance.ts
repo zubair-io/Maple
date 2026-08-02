@@ -149,6 +149,20 @@ export async function sessionRenderDurations(worker: PlaywrightWorker): Promise<
   );
 }
 
+export async function sessionOpenDuration(worker: PlaywrightWorker): Promise<number> {
+  return settleWithin(
+    worker.evaluate(() => {
+      const duration = performance
+        .getEntriesByType('measure')
+        .find((entry) => entry.name === 'maple:session-open')?.duration;
+      if (duration === undefined)
+        throw new Error('RAW worker has no completed session-open measure');
+      return duration;
+    }),
+    Number.NaN,
+  );
+}
+
 export function percentile(sorted: readonly number[], fraction: number): number {
   return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * fraction))];
 }
