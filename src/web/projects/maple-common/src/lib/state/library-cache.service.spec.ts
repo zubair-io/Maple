@@ -259,7 +259,7 @@ describe('LibraryCache — M2 slug:relPath thumbnail path', () => {
     await settle();
 
     // Check that we have 2 items enqueued in the queue (cap is 4)
-    expect((svc as any)._thumbLoadQueue.length).toBe(2);
+    expect((svc as any).thumbQueue.depth).toBe(2);
     expect((svc as any).thumbLoadingTokens.size).toBe(6);
 
     // Now change the folder selection!
@@ -267,8 +267,47 @@ describe('LibraryCache — M2 slug:relPath thumbnail path', () => {
     await settle();
 
     // The queue and loading states should be completely cleared!
-    expect((svc as any)._thumbLoadQueue.length).toBe(0);
+    expect((svc as any).thumbQueue.depth).toBe(0);
     expect((svc as any).thumbLoadingTokens.size).toBe(0);
+  });
+
+  // A tile cancels its queued load when it is recycled onto a new asset OR
+  // when its own Asset object is replaced (a rating edit, or the hosted
+  // decode's `updateAssetDimensions`, both rebuild the object). In that second
+  // case the very next thing the tile does is re-request the SAME id, in the
+  // same tick. If cancelling left the in-flight token behind, that re-request
+  // short-circuits on "already loading" and the tile keeps its gradient
+  // forever — the load it cancelled is never replaced.
+  it('re-enqueues an id that was cancelled and immediately requested again', async () => {
+    const selectedSourceId = signal('lib:folder_a');
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        LibraryCache,
+        { provide: LibraryStore, useValue: { backend: 'self-hosted' } },
+        { provide: LibrarySelection, useValue: { selectedSourceId } },
+        { provide: BunApiBackendService, useValue: {} },
+        { provide: FilesystemBrowseService, useValue: {} },
+        { provide: MapleCacheService, useValue: {} },
+        { provide: RawPipelineService, useValue: {} },
+        { provide: LIBRARY_SOURCE, useValue: { thumbBlob: vi.fn(() => new Promise(() => {})) } }, // never resolves
+      ],
+    });
+    const svc = TestBed.inject(LibraryCache);
+    const asset = (i: number) =>
+      ({ id: `lib:folder_a/img_${i}.jpg`, filename: `img_${i}.jpg` }) as unknown as Asset;
+
+    // Saturate the 4 concurrent slots, then queue a fifth behind them.
+    for (let i = 0; i < 5; i++) svc.ensureThumbnailUrl(asset(i));
+    await settle();
+    expect((svc as any).thumbQueue.depth).toBe(1);
+
+    // The tile showing img_4 is handed a rebuilt Asset object: cleanup cancels,
+    // then the re-run immediately re-requests the same id.
+    svc.cancelQueuedThumbnail('lib:folder_a/img_4.jpg' as AssetId);
+    svc.ensureThumbnailUrl(asset(4));
+
+    expect((svc as any).thumbQueue.depth).toBe(1);
   });
 });
 
