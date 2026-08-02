@@ -36,7 +36,13 @@ describe('ImageCanvasRawOpen', () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  function harness(decode: () => Promise<DecodedImage>) {
+  function harness(
+    decode: () => Promise<DecodedImage>,
+    options: {
+      gpuOpen?: boolean;
+      extractPreview?: () => Promise<{ width: number; height: number; blob: Blob }>;
+    } = {},
+  ) {
     const imageBitmap = signal<ImageBitmap | null>(null);
     const loading = signal(false);
     const pixels = signal<DecodedImage | null>(null);
@@ -66,19 +72,24 @@ describe('ImageCanvasRawOpen', () => {
     } as unknown as Render2dHost;
     rawOpen = new ImageCanvasRawOpen(host, {
       embeddedPreview: {
-        extractEmbeddedPreview: vi.fn(() =>
-          Promise.resolve({
-            width: 640,
-            height: 400,
-            blob: new Blob(['preview'], { type: 'image/jpeg' }),
-          }),
+        extractEmbeddedPreview: vi.fn(
+          options.extractPreview ??
+            (() =>
+              Promise.resolve({
+                width: 640,
+                height: 400,
+                blob: new Blob(['preview'], { type: 'image/jpeg' }),
+              })),
         ),
       },
       imageBitmap,
       currentAssetId: () => 'a',
       coldOpenDone: () => coldOpenDone,
-      gpuEnabled: () => false,
-      openGpu: vi.fn(() => Promise.resolve(false)),
+      gpuEnabled: () => options.gpuOpen === true,
+      openGpu: vi.fn(async () => {
+        if (options.gpuOpen) host.markColdOpenDone();
+        return options.gpuOpen === true;
+      }),
       setCurrentInput: vi.fn(),
       recordPaintedDims: vi.fn(),
     });
@@ -111,5 +122,23 @@ describe('ImageCanvasRawOpen', () => {
 
     expect(loading()).toBe(false);
     expect(imageBitmap()).toMatchObject({ kind: 'preview' });
+  });
+
+  it('does not let a slow embedded preview overwrite a completed GPU open', async () => {
+    let finishPreview!: (value: { width: number; height: number; blob: Blob }) => void;
+    const { rawOpen, imageBitmap } = harness(() => Promise.resolve(decoded), {
+      gpuOpen: true,
+      extractPreview: () => new Promise((resolve) => (finishPreview = resolve)),
+    });
+
+    await rawOpen.load('a', 'photo.dng', new Uint8Array([1, 2, 3]));
+    finishPreview({
+      width: 640,
+      height: 400,
+      blob: new Blob(['preview'], { type: 'image/jpeg' }),
+    });
+    await Promise.resolve();
+
+    expect(imageBitmap()).toBeNull();
   });
 });
