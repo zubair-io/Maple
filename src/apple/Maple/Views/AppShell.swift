@@ -448,6 +448,12 @@ struct AppShell: View {
         .environment(\.revealFolderAction, RevealFolderAction { asset in
           revealContainingFolder(of: asset)
         })
+        // Face chips → search for a person by name (#2518). This is the
+        // mac/iPad behavior (cloud search overlay); `PhoneTabShell` overrides
+        // it for the iPhone global Search tab.
+        .environment(\.searchForText, SearchTextAction { query in
+          activateSearch(query: query)
+        })
         .preferredColorScheme(.dark)
         .fileImporter(isPresented: $showFilePicker,
                       allowedContentTypes: [.folder]) { result in
