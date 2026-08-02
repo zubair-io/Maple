@@ -40,6 +40,10 @@ public struct CloudAssetDetail: Decodable, Equatable, Sendable {
   public let visionMeta: CloudVisionMeta?
   /// Detected faces. Empty until the face stage runs.
   public let faces: [CloudFace]
+  /// `slug:relPath` address — present on the `by-fspath` response (cloud
+  /// browse) so the pane can show the library-relative folder; absent on the
+  /// plain `/:id` / `by-address` responses.
+  public let address: String?
 
   private enum CodingKeys: String, CodingKey {
     case description
@@ -49,6 +53,7 @@ public struct CloudAssetDetail: Decodable, Equatable, Sendable {
     case size, place, vision
     case visionMeta = "vision_meta"
     case faces
+    case address
   }
 
   public init(
@@ -60,7 +65,8 @@ public struct CloudAssetDetail: Decodable, Equatable, Sendable {
     place: CloudPlace? = nil,
     vision: CloudVision? = nil,
     visionMeta: CloudVisionMeta? = nil,
-    faces: [CloudFace] = []
+    faces: [CloudFace] = [],
+    address: String? = nil
   ) {
     self.description = description
     self.ocrText = ocrText
@@ -71,6 +77,7 @@ public struct CloudAssetDetail: Decodable, Equatable, Sendable {
     self.vision = vision
     self.visionMeta = visionMeta
     self.faces = faces
+    self.address = address
   }
 
   public init(from decoder: Decoder) throws {
@@ -84,6 +91,7 @@ public struct CloudAssetDetail: Decodable, Equatable, Sendable {
     vision = try c.decodeIfPresent(CloudVision.self, forKey: .vision)
     visionMeta = try c.decodeIfPresent(CloudVisionMeta.self, forKey: .visionMeta)
     faces = try c.decodeIfPresent([CloudFace].self, forKey: .faces) ?? []
+    address = try c.decodeIfPresent(String.self, forKey: .address)
   }
 
   /// Presentation projection: trims/formats every field so the section views
@@ -96,6 +104,7 @@ public struct CloudAssetDetail: Decodable, Equatable, Sendable {
       transcriptFooter: transcript.flatMap { Self.footer(parts: [$0.language, $0.model]) },
       city: Self.city(from: place),
       fileSize: size,
+      folderDisplay: address.map(Self.folder(fromAddress:)),
       place: Self.placeDisplay(place),
       vision: Self.visionDisplay(vision, meta: visionMeta),
       faces: Self.facesDisplay(faces)
@@ -124,6 +133,20 @@ public struct CloudAssetDetail: Decodable, Equatable, Sendable {
       ?? nonEmpty(place.address?.town)
       ?? nonEmpty(place.address?.village)
       ?? nonEmpty(place.rollups?.locality)
+  }
+
+  /// `slug:relPath/filename` → `slug/relPathFolder` (drop the filename,
+  /// render the colon as a slash) — the library-relative containing folder.
+  /// Mirrors `AssetRef.displayFolder`; used for cloud browse assets, whose
+  /// `address` arrives via the `by-fspath` fetch rather than up front.
+  private static func folder(fromAddress address: String) -> String {
+    if let slash = address.lastIndex(of: "/") {
+      return address[..<slash].replacingOccurrences(of: ":", with: "/")
+    }
+    if let colon = address.firstIndex(of: ":") {
+      return String(address[..<colon])
+    }
+    return address
   }
 
   private static func placeDisplay(_ place: CloudPlace?) -> CloudPlaceDisplay? {
@@ -204,6 +227,10 @@ public struct CloudEnrichmentSections: Equatable, Sendable {
   public let city: String?
   /// File size in bytes for the camera grid's "Size" row.
   public let fileSize: Int64?
+  /// Library-relative containing folder for the camera grid's "Folder" row.
+  /// Populated from the fetched `address` (cloud browse assets that had no
+  /// address up front); `nil` when the asset already carried one.
+  public let folderDisplay: String?
   /// Place section (rollup line + display name); `nil` when un-geocoded.
   public let place: CloudPlaceDisplay?
   /// Vision section; `nil` when the asset has no vision tags.
@@ -218,6 +245,7 @@ public struct CloudEnrichmentSections: Equatable, Sendable {
     transcriptFooter: String?,
     city: String? = nil,
     fileSize: Int64? = nil,
+    folderDisplay: String? = nil,
     place: CloudPlaceDisplay? = nil,
     vision: CloudVisionDisplay? = nil,
     faces: CloudFacesDisplay = CloudFacesDisplay(count: 0, tagged: [], untaggedCount: 0)
@@ -228,6 +256,7 @@ public struct CloudEnrichmentSections: Equatable, Sendable {
     self.transcriptFooter = transcriptFooter
     self.city = city
     self.fileSize = fileSize
+    self.folderDisplay = folderDisplay
     self.place = place
     self.vision = vision
     self.faces = faces
@@ -280,6 +309,31 @@ public actor CloudAssetDetailClient {
       throw NSError(
         domain: "CloudAssetDetailClient", code: -1,
         userInfo: [NSLocalizedDescriptionKey: "could not build by-address URL"])
+    }
+    let (data, resp) = try await httpClient.data(for: URLRequest(url: url))
+    if let http = resp as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+      throw NSError(
+        domain: "CloudAssetDetailClient",
+        code: http.statusCode,
+        userInfo: [NSLocalizedDescriptionKey: String(data: data, encoding: .utf8) ?? ""])
+    }
+    return try JSONDecoder().decode(CloudAssetDetail.self, from: data)
+  }
+
+  /// Fetch the detail for a server ABSOLUTE path via
+  /// `GET /api/assets/by-fspath?path=…`. Used for cloud-BROWSE-opened assets
+  /// (`loadCloudDir`), which carry only the abs path — no ObjectId and no
+  /// `slug:relPath` address. The server resolves the path to its library and
+  /// returns the same DTO (plus the computed `address`). Throws on non-2xx.
+  public func detail(fsPath: String) async throws -> CloudAssetDetail {
+    var components = URLComponents(
+      url: server.appending(path: "/api/assets/by-fspath"),
+      resolvingAgainstBaseURL: false)
+    components?.queryItems = [URLQueryItem(name: "path", value: fsPath)]
+    guard let url = components?.url else {
+      throw NSError(
+        domain: "CloudAssetDetailClient", code: -1,
+        userInfo: [NSLocalizedDescriptionKey: "could not build by-fspath URL"])
     }
     let (data, resp) = try await httpClient.data(for: URLRequest(url: url))
     if let http = resp as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
