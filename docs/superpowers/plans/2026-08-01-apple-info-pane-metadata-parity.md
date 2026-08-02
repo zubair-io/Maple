@@ -1,6 +1,8 @@
 # Apple info pane metadata parity Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+This document is a historical implementation plan for #2518. It describes the
+tasks that were carried out; the checkbox markers below record their completion
+state and are not directions for any reader or tool.
 
 **Goal:** Bring the Apple info pane to full parity with the web info pane (date, path, place, vision, faces, size, dimensions) and fix the broken cloud detail fetch, with a clickable path that opens the asset's containing folder in Maple.
 
@@ -21,10 +23,12 @@
 ### Task 1: `CatalogRef` value + `AssetRef.catalog` field
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/AssetRef.swift`
 - Test: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/AssetRefCatalogTests.swift` (create)
 
 **Interfaces:**
+
 - Produces: `public struct CatalogRef: Hashable, Sendable { public let serverID: URL; public let folderID: String; public let absPath: String; public let address: String? }` and `public var catalog: CatalogRef?` on `AssetRef`; both initializers accept `catalog: CatalogRef? = nil` (defaulted so all existing call sites compile unchanged). `AssetRef.init(url:)` sets `catalog = nil`.
 
 - [ ] Write `AssetRefCatalogTests`: a URL-backed ref has `catalog == nil`; a bytes-backed ref built with a `CatalogRef` round-trips `serverID/folderID/absPath/address`.
@@ -35,10 +39,12 @@
 ### Task 2: `SearchAsset.address` decode
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCloudKit/Cloud/CloudSearchTypes.swift`
-- Test: `src/apple/Packages/MapleCore/Tests/MapleCloudKitTests/SearchAssetAddressTests.swift` (create; match existing MapleCloudKit test dir)
+- Test: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SearchAssetAddressTests.swift` (create; the unified test target covers both packages)
 
 **Interfaces:**
+
 - Produces: `public let address: String?` on `SearchAsset` (synthesized `Codable` picks up the wire `address` key by name); `init(... address: String? = nil ...)`.
 
 - [ ] Write test: decode a JSON fixture containing `"address":"lib:2026/x.dng"` → `asset.address == "lib:2026/x.dng"`; decode one without the key → `nil` (backward compat).
@@ -49,11 +55,13 @@
 ### Task 3: expand `CloudAssetDetail` + address-based fetch
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCloudKit/Cloud/CloudAssetDetailClient.swift`
 - Create: `src/apple/Packages/MapleCore/Sources/MapleCloudKit/Cloud/CloudAssetDetailModels.swift` (place/vision/faces Codable structs — keep the client file lean)
-- Test: `src/apple/Packages/MapleCore/Tests/MapleCloudKitTests/CloudAssetDetailTests.swift` (extend/create)
+- Test: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/CloudAssetDetailClientTests.swift` (extend)
 
 **Interfaces:**
+
 - Produces: on `CloudAssetDetail`, add `absPath: String?` (`abs_path`), `size: Int64?`, `place: CloudPlace?`, `vision: CloudVision?`, `faces: [CloudFace]?`. New structs `CloudPlace` (display_name + structured address fields: city/town/village, state, country + `rollups`), `CloudVision` (caption, subjects[], scene_type, setting, activity, time_of_day, lighting, weather, mood, colors[], shot_type, is_screenshot, text_visible), `CloudFace` (person_id?, confidence?). Expand `CloudEnrichmentSections` with `place`, `vision`, `faces` projections (trimmed/empty-collapsed). Add `func detail(address: String) async throws -> CloudAssetDetail` calling `GET /api/assets/by-address?address=<pct-encoded>`; keep `detail(assetID:)` for compatibility.
 - Consumes: nothing from other tasks.
 
@@ -65,9 +73,11 @@
 ### Task 4: `prepareCloudSession` populates `AssetRef.catalog`
 
 **Files:**
+
 - Modify: `src/apple/Maple/Views/AppShell+CloudActions.swift` (the `AssetRef(...)` build at ~437-442)
 
 **Interfaces:**
+
 - Consumes: `CatalogRef` (Task 1), `SearchAsset.address` (Task 2).
 - Produces: the cloud `AssetRef` now carries `catalog: CatalogRef(serverID: server, folderID: asset.folder_id, absPath: asset.abs_path, address: asset.address)`. Use the canonical `server` param (registry key), not `effectiveServer`.
 
@@ -78,6 +88,7 @@
 ### Task 5: reveal-containing-folder action
 
 **Files:**
+
 - Create: `src/apple/Maple/Views/RevealFolderAction.swift` (the `EnvironmentKey` + `EnvironmentValues` accessor + a small `RevealFolderAction` wrapper struct so `nil` = inert)
 - Modify: `src/apple/Maple/Views/AppShell+CloudActions.swift` or a new `AppShell+Reveal.swift` — add `@MainActor func revealContainingFolder(of asset: AssetRef)`
 - Modify: `src/apple/Maple/Views/AppShell.swift` — set `.environment(\.revealFolderAction, ...)` at the root (near the existing cloud-client `.environment` sites)
@@ -85,6 +96,7 @@
 - Test: `src/apple/MapleTests/RevealTargetTests.swift` (pure derivation, no UI)
 
 **Interfaces:**
+
 - Consumes: `AssetRef.catalog` (Task 1); existing `loadCloudLibrary(serverID:folderID:libraryPath:)`, `openSubFolder(url:rootBookmark:)`, `openSavedFolder(_:)`, `mode`, `libraryPath`.
 - Produces: `revealContainingFolder(of:)`; `@MainActor struct RevealFolderAction { let run: (AssetRef) -> Void; func callAsFunction(_ a: AssetRef) }`; `EnvironmentValues.revealFolderAction: RevealFolderAction?`. Pure helper `static func revealTarget(for: AssetRef) -> RevealTarget` returning `.cloud(serverID,folderID,libraryPath)` / `.local(URL)` / `.none` for unit testing.
 
@@ -96,6 +108,7 @@
 ### Task 6: info-pane UI — overview rows + Place/Vision/Faces sections
 
 **Files:**
+
 - Modify: `src/apple/Maple/Views/DetailPanel+VM.swift` + `ImageMetadataReader` — extract `DateTimeOriginal` (→ formatted "Taken") and `PixelXDimension`/`PixelYDimension` (→ "W × H") from the already-read EXIF properties
 - Modify: `src/apple/Maple/Views/InfoPanel/CameraLocationGrid.swift` + `InfoPanelView+VM.swift` — add Taken, Dimensions, Path (clickable → `revealFolderAction`), Size rows; populate City from detail `place` instead of `"—"`
 - Create: `src/apple/Maple/Views/InfoPanel/PlaceBlock.swift`, `VisionBlock.swift`, `FacesBlock.swift` (mirror the web `info-place`/`info-vision`/`info-faces` field selection; each driven by `CloudEnrichmentSections`)
@@ -104,6 +117,7 @@
 - Test: extend `InfoPanelView+VM` tests + a `CloudEnrichmentSections` projection test for the new sections
 
 **Interfaces:**
+
 - Consumes: `CloudEnrichmentSections` (Task 3), `AssetRef.catalog` (Task 1), `revealFolderAction` (Task 5), EXIF date/dimensions (this task).
 
 - [ ] Write VM tests: EXIF with `DateTimeOriginal` → formatted Taken string; EXIF with pixel dims → "6000 × 4000"; a `place` with `city` → City row non-dash; empty enrichment → sections hidden.

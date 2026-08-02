@@ -29,7 +29,7 @@ public struct CatalogRef: Hashable, Sendable {
     public let serverID: URL
     public let folderID: String
     public let absPath: String
-    public let address: String   // slug:relPath
+    public let address: String?   // slug:relPath — optional: null / absent from older servers
 }
 ```
 

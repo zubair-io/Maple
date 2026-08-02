@@ -242,7 +242,9 @@ export function toDetailDto(
     place: doc.place ?? null,
     faces: (doc.faces ?? []).map((f) => ({
       ...f,
-      name: f.person_id ? (personNames.get(f.person_id) ?? null) : null,
+      // Lowercase the id so the lookup is case-insensitive vs the map's
+      // `_id.toHexString()` keys (see `loadPersonNames`).
+      name: f.person_id ? (personNames.get(f.person_id.toLowerCase()) ?? null) : null,
     })),
     description: doc.description ?? null,
     description_meta: rawDoc.description_meta ?? null,
