@@ -83,6 +83,12 @@ export class AssetThumbComponent {
   constructor() {
     // Load + subscribe to this asset's thumbnail URL. effect onCleanup unsubs on
     // asset-input change and on destroy. Restructured to bypass duplicate warnings.
+    //
+    // Cleanup also drops the asset's *queued* thumbnail load. The browse grid
+    // virtualizes, so scrolling destroys tiles continuously; without this their
+    // requests stayed in the 4-wide queue and the rows actually on screen
+    // waited behind hundreds of rows already scrolled past. A load already in
+    // flight is left to finish.
     effect((onCleanup) => {
       const currentAsset = this.asset();
       if (currentAsset) {
@@ -90,7 +96,10 @@ export class AssetThumbComponent {
         const unsub = this.state.subscribeThumbUrl(currentAsset.id, (url) => {
           this.thumbUrl.set(url);
         });
-        onCleanup(() => unsub());
+        onCleanup(() => {
+          unsub();
+          this.state.cancelQueuedThumbnail(currentAsset.id);
+        });
       }
     });
   }
