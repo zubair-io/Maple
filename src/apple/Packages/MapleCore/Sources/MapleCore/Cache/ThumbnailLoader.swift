@@ -84,7 +84,16 @@ public actor ThumbnailLoader {
     func releaseDecodeSlot() {
         activeDecodes -= 1
         if !waiters.isEmpty {
-            let next = waiters.removeFirst()
+            // LIFO — serve the MOST-recently-parked waiter first. Grid cells
+            // request thumbnails as they scroll into view, so the newest waiter
+            // is the tile nearest the current viewport; the oldest waiters are
+            // rows the user has already scrolled past. Serving newest-first
+            // makes on-screen thumbnails load ahead of ones that are no longer
+            // visible, instead of the viewport waiting behind a FIFO backlog of
+            // scrolled-past rows. (Off-screen waiters aren't dropped here — that
+            // is the separate cancel-on-disappear work; this just reorders who
+            // gets the freed slot next.)
+            let next = waiters.removeLast()
             next.resume()
         }
     }
