@@ -6,6 +6,11 @@
 
 @use 'tailwindcss';
 @use '../../maple-common/src/lib/tokens';
+// Pro Editor canvas-first design tokens (#1535). Hosted mounts the same
+// `EditorShellComponent` as Self Hosted, so it needs the same tokens — without
+// this every `var(--pro-*)` resolves to nothing and the editor renders with no
+// glass, no dock circles and no borders (#2557).
+@use '../../maple-common/src/lib/pro-tokens';
 // Emits `--safe-area-inset-{top,right,bottom,left}` at :root — one canonical
 // name for every shell surface that hugs a screen edge. PWA polish (#620).
 @use '../../maple-common/src/lib/safe-area';
