@@ -329,9 +329,10 @@
   pointer-events: auto;
 }
 
-// Shared placeholder for the phone flyout panels (curve/crop/presets/HSL) —
-// same bottom-anchored, full-width glass card geometry, extended rather than
-// repeated per panel to stay under the component style budget (CONTRIBUTING.md).
+// Shared placeholder for the phone flyout panels (curve/crop/presets/
+// sub-param) — same bottom-anchored, full-width glass card geometry,
+// extended rather than repeated per panel to stay under the component style
+// budget (CONTRIBUTING.md).
 %phone-flyout-panel {
   position: absolute;
   bottom: calc(78px + var(--safe-area-inset-bottom));
@@ -360,10 +361,11 @@
   --maple-font-mono: ui-monospace, monospace;
 }
 
-// Shared `--mpl-*` → `--pro-*` bridge for the reused S5 presets/HSL
+// Shared `--mpl-*` → `--pro-*` bridge for the reused S5 presets/sub-param
 // components (hardcoded fallbacks otherwise, since `--mpl-*` is never
-// defined globally). Extended by both the tablet/desktop and phone
-// presets/HSL panels.
+// defined globally). Extended by the tablet/desktop and phone presets/
+// sub-param panels, and by the HSL/bwMix body projected into the control
+// card (`.subparam-body` below) — same reused components, same bridge.
 %mpl-theme-bridge {
   --mpl-primary: var(--pro-accent);
   --mpl-text-main: var(--pro-text);
@@ -409,10 +411,12 @@
   }
 }
 
-// HSL panel (epic #1807 slice 4) on phone — same shared chip selector + drag
-// bar + value chip as tablet/desktop (`.hsl-panel` below), floats above the
-// dock like the phone curve panel above.
-.phone-hsl-panel {
+// Sub-param panel (#1153) on phone — Noise-only (#1807 Task 4 moved HSL's
+// equivalent into the phone control card's projected `cardBodySubParam`
+// slot, styled by `.subparam-body`/`.hsl-panel` below). Same shared chip
+// selector + drag bar + value chip as tablet/desktop's `.subparam-panel`,
+// floats above the dock like the phone curve panel above.
+.phone-subparam-panel {
   @extend %phone-flyout-panel;
   @extend %mpl-theme-bridge;
   display: flex;
@@ -420,56 +424,6 @@
   align-items: center;
   gap: 10px;
   padding: 16px 0;
-
-  app-value-chip {
-    pointer-events: none;
-  }
-
-  // Same wrapper-scroll rationale as `.hsl-panel .hsl-panel-chips` below —
-  // the shared chip row's host is `display: contents`, so the width/scroll
-  // constraint has to live on a wrapper div rather than the element itself.
-  .hsl-panel-chips {
-    width: 100%;
-    overflow-x: auto;
-  }
-
-  app-drag-bar {
-    width: 100%;
-  }
-}
-
-// B&W panel (#276) on phone — same shared chip selector + drag bar + value
-// chip as tablet/desktop (`.bw-panel` below), plus the toggle control, floats
-// above the dock like the phone curve panel above.
-.phone-bw-panel {
-  @extend %phone-flyout-panel;
-  @extend %mpl-theme-bridge;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 16px 0;
-
-  .bw-panel-sliders {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-  }
-
-  app-value-chip {
-    pointer-events: none;
-  }
-
-  .hsl-panel-chips {
-    width: 100%;
-    overflow-x: auto;
-  }
-
-  app-drag-bar {
-    width: 100%;
-  }
 }
 
 // Left filmstrip rail (tablet+). editor-filmstrip is a vertical strip; it fills
@@ -523,9 +477,9 @@
 }
 
 // Shared placeholder for the tablet/desktop dock-side panels (curve/crop/
-// presets/HSL) — same anchor position to the left of the vertical dock,
-// extended rather than repeated per panel to stay under the component style
-// budget (CONTRIBUTING.md). All four are mutually exclusive (see
+// presets/sub-param) — same anchor position to the left of the vertical
+// dock, extended rather than repeated per panel to stay under the component
+// style budget (CONTRIBUTING.md). All four are mutually exclusive (see
 // `onPresetsPanelToggle`/`onCurvePanelToggle`/`onToolChange`) except Curve,
 // whose exclusivity is documented on its own rule below.
 %dock-side-panel {
@@ -601,18 +555,20 @@
   }
 }
 
-// ── HSL panel (epic #1807 slice 4 — glass card hosting the shared chip
-// selector + drag bar + value chip) ─────────────────────────────────────────
-// Same anchor position as the curve/crop/presets panels. `app-sub-param-row`
-// / `app-drag-bar` / `app-value-chip` style themselves off `--mpl-*` custom
-// properties (with hardcoded-orange fallbacks, since `--mpl-*` is never
-// defined globally — see sub-param-row.component.scss /
+// ── Sub-param panel (#1153 — glass card hosting the shared chip selector +
+// drag bar + value chip) ─────────────────────────────────────────────────
+// Noise-only (#1807 Task 4 moved HSL's equivalent into the control card's
+// projected `cardBodySubParam` slot — see `.subparam-body`/`.hsl-panel`
+// below). Same anchor position as the curve/crop/presets panels.
+// `app-sub-param-row` / `app-drag-bar` / `app-value-chip` style themselves
+// off `--mpl-*` custom properties (with hardcoded-orange fallbacks, since
+// `--mpl-*` is never defined globally — see sub-param-row.component.scss /
 // drag-bar.component.scss / value-chip.component.scss) plus the globally-
 // defined `--color-*` design tokens (tokens.scss), which already resolve
 // correctly here. Bridging the `--mpl-*` set (`%mpl-theme-bridge`, defined
 // above) keeps the reused S5 components on-theme without touching their
 // shared styles (which would affect the S5 editor too).
-.hsl-panel {
+.subparam-panel {
   @extend %dock-side-panel;
   @extend %mpl-theme-bridge;
   width: 340px;
@@ -621,76 +577,81 @@
   align-items: center;
   gap: 10px;
   padding: 16px 0;
-
-  app-value-chip {
-    pointer-events: none;
-  }
-
-  // The shared chip row (sub-param-row.component.scss) lays its 8-per-row
-  // chips out with `display: flex` and no wrap — full-bleed in the S5
-  // editor's column, but tighter here at a fixed panel width. Its host is
-  // `display: contents` (deliberately, so it stays byte-identical for
-  // single-param tools), so the width/scroll constraint has to live on a
-  // wrapper div rather than the element itself.
-  .hsl-panel-chips {
-    width: 100%;
-    overflow-x: auto;
-  }
-
-  app-drag-bar {
-    width: 100%;
-  }
 }
 
-// ── B&W panel (#276 — glass card hosting the Black & White toggle + the
-// shared chip selector / drag bar / value chip driving the 8 gray-mixer
-// weights) ───────────────────────────────────────────────────────────────
-// Same anchor + theme-bridge rationale as `.hsl-panel` above — bwMix reuses
-// the identical `app-sub-param-row` / `app-drag-bar` / `app-value-chip` trio.
-.bw-panel {
-  @extend %dock-side-panel;
+// Shared by every surface that mounts the chip selector/drag bar/value chip
+// trio (the sub-param panel above, the phone sub-param panel, and the HSL/
+// bwMix bodies projected into the control card below) — consolidated here
+// rather than repeated per parent now that #1807 Task 4 gave the trio a
+// fourth home. `app-sub-param-row`'s host is `display: contents`
+// (deliberately, so it stays byte-identical for single-param tools), so the
+// width/scroll constraint has to live on the `.hsl-panel-chips` wrapper div
+// rather than the element itself.
+app-value-chip {
+  pointer-events: none;
+}
+
+.hsl-panel-chips {
+  width: 100%;
+  overflow-x: auto;
+}
+
+app-drag-bar {
+  width: 100%;
+}
+
+// ── HSL / bwMix sub-param body projected into the control card (#1807 Task
+// 4) ─────────────────────────────────────────────────────────────────────
+// The colour sub-tool row's HSL and B&W chips both arm a tool with no
+// primary slider field, so the shell projects this body into the control
+// card's `cardBodySubParam` slot instead (`ControlCardComponent`'s
+// `[cardBodySubParam]`/`[cardBodyGrade]` `ng-content` selectors). Unlike the
+// dock-side `.subparam-panel` above, this content lives INSIDE the card's
+// own glass chrome and 300px column, so it owns only layout — no position,
+// background, border or fixed width of its own.
+.subparam-body {
   @extend %mpl-theme-bridge;
-  width: 340px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  padding: 16px 0;
+  gap: 10px;
+}
 
-  .bw-panel-sliders {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-    transition: opacity 0.15s ease;
+// Structural markers only (`display: contents`) — `.subparam-body` above
+// owns the actual flex layout for both branches. Kept as distinct classes
+// (rather than folded into `.subparam-body` outright) so the two branches
+// stay individually identifiable in the DOM, the same way the dock-side
+// panels used to be before they moved in here.
+.hsl-panel,
+.bw-panel {
+  display: contents;
+}
 
-    // De-emphasise + disable interaction while Black & White is Off — the
-    // 8 gray-mixer weights are inert until the toggle is On (#276).
-    &--inactive {
-      opacity: 0.4;
-      pointer-events: none;
-    }
-  }
+// ── B&W toggle + gray-mixer sliders (#276) ──────────────────────────────
+// `.bw-panel-sliders` wraps the shared chip selector/drag bar/value chip
+// trio (styled above) so Black & White Off can de-emphasise and disable
+// them without touching the toggle button itself.
+.bw-panel-sliders {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  transition: opacity 0.15s ease;
 
-  app-value-chip {
+  // De-emphasise + disable interaction while Black & White is Off — the
+  // 8 gray-mixer weights are inert until the toggle is On (#276).
+  &--inactive {
+    opacity: 0.4;
     pointer-events: none;
-  }
-
-  .hsl-panel-chips {
-    width: 100%;
-    overflow-x: auto;
-  }
-
-  app-drag-bar {
-    width: 100%;
   }
 }
 
-// Black & White toggle control (#276) — shared by the tablet/desktop
-// `.bw-panel` and the phone `.phone-bw-panel`. Track + thumb switch built
-// from `--pro-*` tokens (no external toggle component in maple-common),
-// mirroring the visual language of the top-bar's icon toggle buttons.
+// Black & White toggle control (#276) — shared by the tablet/desktop and
+// phone control cards' projected sub-param bodies. Track + thumb switch
+// built from `--pro-*` tokens (no external toggle component in
+// maple-common), mirroring the visual language of the top-bar's icon toggle
+// buttons.
 .bw-toggle {
   display: flex;
   align-items: center;
@@ -744,8 +705,8 @@
 // Bottom-sheet presentation on phone is handled entirely by
 // `app-bottom-sheet`'s own styles; this only covers the tablet/desktop split.
 // Full-height, glass-edged strip anchored to the right — distinct from the
-// floating curve/crop/presets/HSL panel anchor (Info is not part of that
-// mutually-exclusive group and can be open alongside any of them).
+// floating curve/crop/presets/sub-param panel anchor (Info is not part of
+// that mutually-exclusive group and can be open alongside any of them).
 .info-pane {
   position: absolute;
   top: 0;
@@ -754,7 +715,8 @@
   // column) — an unconditional `right: 0` here painted the pane OVER the
   // dock (`.info-pane` is z-index 15, `.chrome-layer`/the dock is 10), making
   // the dock invisible and unclickable while Info is open (#1816 review).
-  // `right: 64px` matches the curve/crop/presets/HSL side panels' anchor.
+  // `right: 64px` matches the curve/crop/presets/sub-param side panels'
+  // anchor.
   right: 64px;
   width: min(340px, 30vw);
   z-index: 15;
@@ -766,20 +728,4 @@
   border-right: 0.5px solid var(--pro-glass-border);
   border-radius: var(--pro-glass-radius-card-desktop);
   overflow-y: auto;
-}
-
-// Color Grading panel (#275) — the four-wheel surface. Shares the
-// dock-side glass card with the curve / HSL / presets panels; wider than
-// `.hsl-panel` because four wheels need the radius to aim a hue at.
-.color-grade-panel {
-  @extend %dock-side-panel;
-  @extend %mpl-theme-bridge;
-  width: 420px;
-}
-
-// Phone: same content, floating above the dock like the phone curve panel.
-.phone-color-grade-panel {
-  @extend %phone-flyout-panel;
-  @extend %mpl-theme-bridge;
-  overflow: hidden;
 }
