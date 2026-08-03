@@ -88,7 +88,11 @@ describe('ControlCardComponent — always visible, no closeable state (#1807 Tas
     const { fixture } = render({ activeGroup: 'color' });
     expect(fixture.nativeElement.querySelector('.group-chips')).toBeFalsy();
     const title = fixture.nativeElement.querySelector('.group-title');
-    expect(title?.textContent?.trim()).toBe('COLOR');
+    // The real casing ('Color') is the text content — the all-caps look is
+    // `text-transform: uppercase` in CSS (jules perf nit: moved off a
+    // `.toUpperCase()` call re-run every change-detection cycle), which
+    // jsdom doesn't apply to `textContent`.
+    expect(title?.textContent?.trim()).toBe('Color');
   });
 
   it('renders the card with sliders', () => {
@@ -186,7 +190,10 @@ describe('flyout header (FlyoutSliderPanel parity)', () => {
   it('shows the accent group title and no group-chip row', () => {
     const { fixture } = render({ activeGroup: 'color' });
     const el = fixture.nativeElement as HTMLElement;
-    expect(el.querySelector('.group-title')?.textContent?.trim()).toBe('COLOR');
+    // Real casing ('Color') — the all-caps look is CSS `text-transform`,
+    // which jsdom's `textContent` doesn't apply. See the identical note
+    // above.
+    expect(el.querySelector('.group-title')?.textContent?.trim()).toBe('Color');
     expect(el.querySelector('.group-chips')).toBeNull();
     expect(el.querySelector('.grab-handle')).toBeNull();
   });
@@ -345,5 +352,31 @@ describe('sub-tool row', () => {
     ).click();
     expect(effectsGroupsEmitted).toEqual(['effects']);
     expect(effectsToolsEmitted).toEqual([]);
+  });
+
+  // The chip row used to be marked up as a WAI-ARIA tabs pattern
+  // (`role="tablist"`/`role="tab"`/`aria-selected`) without the machinery
+  // that pattern requires — no `aria-controls`, no tabpanel association, no
+  // roving tabindex/arrow-key nav — which misleads assistive tech (three
+  // independent reviewers flagged it). It's an honest segmented control
+  // instead: plain buttons with `aria-pressed` reflecting which body is
+  // showing.
+  it('marks the chip row as a plain button group, not a WAI-ARIA tabs pattern', () => {
+    const { fixture } = render({ activeGroup: 'color', activeTool: 'hsl' });
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('.subtool-row[role="tablist"]')).toBeNull();
+    expect(el.querySelector('[role="tab"]')).toBeNull();
+    expect(el.querySelector('[aria-selected]')).toBeNull();
+  });
+
+  it('reflects the active chip via aria-pressed, not aria-selected', () => {
+    const { fixture } = render({ activeGroup: 'color', activeTool: 'hsl' });
+    const chips = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.subtool-chip'),
+    );
+    const byLabel = (label: string) => chips.find((c) => c.textContent!.trim() === label)!;
+    expect(byLabel('HSL').getAttribute('aria-pressed')).toBe('true');
+    expect(byLabel('Basic').getAttribute('aria-pressed')).toBe('false');
+    expect(byLabel('B&W').getAttribute('aria-pressed')).toBe('false');
   });
 });
