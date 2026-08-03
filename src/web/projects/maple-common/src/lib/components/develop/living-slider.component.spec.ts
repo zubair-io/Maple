@@ -288,3 +288,37 @@ describe('LivingSliderComponent — dragStart/dragEnd gesture boundary (#2411)',
     expect(startCount).toBe(0);
   });
 });
+
+describe('stacked layout (Apple LivingSlider parity)', () => {
+  it('puts label and value in a head row above the track', () => {
+    function render(
+      overrides: Partial<{ label: string; value: number; min: number; max: number }> = {},
+    ) {
+      TestBed.configureTestingModule({ imports: [LivingSliderComponent] });
+      const fixture = TestBed.createComponent(LivingSliderComponent);
+      fixture.componentRef.setInput('label', overrides.label ?? 'Exposure');
+      fixture.componentRef.setInput('value', overrides.value ?? 0);
+      fixture.componentRef.setInput('min', overrides.min ?? -5);
+      fixture.componentRef.setInput('max', overrides.max ?? 5);
+      fixture.detectChanges();
+      return fixture;
+    }
+
+    const fixture = render({ label: 'Exposure', value: 0, min: -5, max: 5 });
+    const el = fixture.nativeElement as HTMLElement;
+
+    const head = el.querySelector('.slider-head');
+    expect(head).toBeTruthy();
+    expect(head!.querySelector('.slider-label')?.textContent?.trim()).toBe('Exposure');
+    expect(head!.querySelector('.value-chip')).toBeTruthy();
+
+    // Track is a SIBLING of the head, not inside it — that is what makes it
+    // span the full card width rather than share a row with the label.
+    const row = el.querySelector('.slider-row')!;
+    const children = Array.from(row.children);
+    expect(children.indexOf(head!)).toBeLessThan(
+      children.indexOf(row.querySelector('.track-wrap')!),
+    );
+    expect(head!.querySelector('.track-wrap')).toBeNull();
+  });
+});
