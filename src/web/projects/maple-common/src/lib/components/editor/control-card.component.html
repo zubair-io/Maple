@@ -4,8 +4,8 @@
      dock instead of the fixed 300px tablet/desktop column. -->
 <div class="card">
   <div class="card-header">
-    <maple-icon [name]="$any(groupIcon(activeGroup()))" [size]="12" color="var(--pro-accent)" />
-    <span class="group-title">{{ groupLabel(activeGroup()).toUpperCase() }}</span>
+    <maple-icon [name]="groupIcon(activeGroup())" [size]="12" color="var(--pro-accent)" />
+    <span class="group-title">{{ groupLabel(activeGroup()) }}</span>
 
     <button
       class="reset-btn"
@@ -21,19 +21,23 @@
        belong to the active group (Colour: HSL/B&W; Effects: Grade; Light
        and Detail: none — `showSubtools`/`subtools()`). Picking a chip
        re-arms the group (Basic) or arms the tool directly, mirroring what
-       their former dock buttons did. -->
+       their former dock buttons did.
+
+       Marked up as a plain segmented control (`aria-pressed`), not the
+       WAI-ARIA tabs pattern — three independent reviewers flagged the
+       former `role="tablist"`/`role="tab"`/`aria-selected` markup as
+       incomplete (no `aria-controls`, no tabpanel association, no roving
+       tabindex or arrow-key navigation), which misleads assistive tech into
+       expecting tab machinery this row doesn't implement. A chip toggles
+       which body renders below, the same shape as any other pressed-state
+       button group. -->
   @if (showSubtools()) {
-    <div
-      class="subtool-row"
-      role="tablist"
-      [attr.aria-label]="groupLabel(activeGroup()) + ' sub-tools'"
-    >
+    <div class="subtool-row" [attr.aria-label]="groupLabel(activeGroup()) + ' sub-tools'">
       @for (sub of subtools(); track sub.label) {
         <button
           class="subtool-chip"
           [class.subtool-chip--active]="isSubtoolActive(sub.id)"
-          role="tab"
-          [attr.aria-selected]="isSubtoolActive(sub.id)"
+          [attr.aria-pressed]="isSubtoolActive(sub.id)"
           (click)="onSubtoolClick(sub.id)"
         >
           {{ sub.label }}
