@@ -413,7 +413,19 @@ extension AppShell {
                 // would otherwise match the ambient gate below and be handed
                 // a bogus `CloudSidecarStore` keyed on its PHAsset
                 // localIdentifier instead of a real Mongo asset id.
-                return nil
+                //
+                // #2555: route through PhotoKitSidecarStore instead of nil
+                // so edits persist into AppSupportSidecarStore (keyed by
+                // this PHAsset's localIdentifier, i.e. `assetID` here — see
+                // AssetRef's PhotoKit init doc). Without this, edits to
+                // Photos-library photos lived only in this session's
+                // in-memory EditSession and BackupEngine's
+                // local-edit-preferred sidecar upload never found anything
+                // to upload. `try?` degrades to session-local (the pre-fix
+                // behaviour) on the same rare failure `PhotoKitSource.init`
+                // already tolerates — an unavailable Application Support
+                // directory.
+                return try? PhotoKitSidecarStore(phassetLocalId: assetID)
             case nil:
                 // No explicit provenance — the folder/SMB browse flow's
                 // cloud refs never set it (only the Timeline sibling
