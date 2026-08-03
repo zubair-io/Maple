@@ -248,10 +248,12 @@ describe('EditorShellComponent — HSL / color-mix port (epic #1807 slice 4)', (
     // First sub-param (Hue Red) is armed by default.
     expect(editorState.armedSubParamId()).toBe('hueRed');
 
-    // The control card (living sliders) is hidden while HSL is armed — HSL
-    // has no single primary drag-bar field, matching Crop's control-card
-    // hiding.
-    expect(fixture.nativeElement.querySelector('pro-control-card')).toBeNull();
+    // The control card stays mounted while HSL is armed (#1807 Task 4) — HSL
+    // has no single primary drag-bar field, so its shared sub-param surface
+    // (`hslPanel()` above) now renders INSIDE the card via content
+    // projection instead of suppressing it, keeping the colour sub-tool row
+    // (Basic/HSL/B&W/Grade) reachable to switch back.
+    expect(fixture.nativeElement.querySelector('pro-control-card')).not.toBeNull();
   });
 
   it('HSL highlights active in the dock while armed, and Color does not', () => {
