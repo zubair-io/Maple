@@ -281,15 +281,23 @@
       <!-- ── Phone CARD editor (#1807): always-visible slider card + bottom
            dock, MobileControlBar.swift's two-card VStack (#1807 Task 5) ── -->
 
-      <!-- Slider card — always visible, stacked directly above the dock
+      <!-- Slider card — visible by default, stacked directly above the dock
            (`.phone-card-anchor`, 8px gap — MobileControlBar.swift:38-43).
-           Hidden only while Crop is armed: the crop toolbar below owns the
-           phone card anchor while armed, matching the tablet/desktop crop
-           panel. HSL, bwMix and Color Grading render INSIDE it via content
-           projection (#1807 Task 4), same as tablet/desktop above — no
-           closeable-flyout machinery left to keep them visible while
-           armed. -->
-      @if (!cropArmed()) {
+           HSL, bwMix and Color Grading render INSIDE it via content
+           projection (#1807 Task 4), same as tablet/desktop above, so
+           arming any of the three must NOT hide the card — it's the one
+           surface they render on.
+
+           Crop, Curve, Presets, and the Noise sub-param panel are
+           different: each is its OWN full-width panel that floats in this
+           same anchor slot (`%phone-flyout-panel`, immediately below), so
+           the card must hide while any of them is open or it would render
+           right on top of them (review round 1 finding — on tablet/desktop
+           these panels anchor to the separate `.tool-dock-anchor` column
+           and genuinely cannot overlap `.control-card-anchor`; phone has no
+           such separation, both anchors are the same full-width strip
+           above the dock). -->
+      @if (!cropArmed() && !curveOpen() && !presetsOpen() && !noiseArmed()) {
         <div class="phone-card-anchor">
           <pro-control-card
             [activeGroup]="activeGroup()"
