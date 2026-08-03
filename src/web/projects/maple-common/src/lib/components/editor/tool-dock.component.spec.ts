@@ -141,6 +141,25 @@ describe('ToolDockComponent — accent dot (isModified, fix round 1)', () => {
     expect(dotFor(fixture, 'Effects')).not.toBeNull();
     expect(dotFor(fixture, 'Color')).toBeNull();
   });
+
+  // Crop is a STUB_TOOLS entry (`isWired('crop')` is false) and has no
+  // sub-params or `fieldFor` entry, so before this fix `isToolModified`
+  // returned `false` on its first line for every crop edit — the Crop
+  // entry's own dot, and the Detail group's roll-up dot, could never light
+  // no matter how the user cropped. Apple special-cases crop against
+  // `crop.isIdentity` ahead of the `isWired` guard (ToolDock.swift:174);
+  // these lock down the same behavior here.
+  it('lights the Crop dot for a non-identity crop and rolls up into Detail', () => {
+    renderModified({ crop: { top: 0.1, left: 0, bottom: 1, right: 0.9, angle: 0 } });
+    expect(dotFor(fixture, 'Crop')).not.toBeNull();
+    expect(dotFor(fixture, 'Detail')).not.toBeNull();
+  });
+
+  it('does NOT light the Crop dot (or Detail) at the identity crop', () => {
+    renderModified({});
+    expect(dotFor(fixture, 'Crop')).toBeNull();
+    expect(dotFor(fixture, 'Detail')).toBeNull();
+  });
 });
 
 describe('ToolDockComponent — vertical (default) orientation', () => {
