@@ -17,7 +17,9 @@
 // Colour-only row containing Grade would hide itself the instant it's
 // armed — arming it flips `activeGroup` to 'effects', off the row that
 // launched it. So Colour gets `Basic · HSL · B&W`, Effects gets
-// `Basic · Grade`, and Light/Detail get no row at all (see `SUBTOOLS`).
+// `Basic · Grade`, and Light/Detail get no row at all (see `SUBTOOLS`). The
+// HSL chip drops out of Colour's row while Black & White is On (#276) — see
+// `blackWhiteOn`/`subtools()` — since HSL's 24 sliders are inert then.
 //
 // Phone (#1807 Task 5 — CARD editor): the horizontal tool dock still owns
 // group selection; the card itself is always visible, stacked directly
@@ -101,6 +103,15 @@ export class ControlCardComponent {
   activeGroup = input.required<ToolGroup>();
   /** Armed tool — drives which sub-tool chip reads active. */
   activeTool = input<ToolId | null>(null);
+  /** True while Black & White is On (#276) — filters the HSL chip out of
+   *  the Colour sub-tool row: HSL's 24 sliders are inert while B&W drives
+   *  the same 8-band Oklab stage instead. Restores #276's dock-hiding
+   *  behaviour, which moved here once HSL/B&W stopped being dock entries and
+   *  became sub-tool chips instead (#1807 Task 4 review — the chip used to
+   *  be offered unconditionally, so tapping it while B&W was On visibly
+   *  flickered the panel body before the shell's safety-net effect bounced
+   *  back to bwMix). */
+  blackWhiteOn = input<boolean>(false);
 
   // ── Outputs ───────────────────────────────────────────────────────────
   /**
@@ -137,8 +148,12 @@ export class ControlCardComponent {
   }
 
   /** Sub-tool chips for the active group, or empty when it has none
-   *  (Light/Detail). */
-  readonly subtools = computed<readonly Subtool[]>(() => SUBTOOLS[this.activeGroup()] ?? []);
+   *  (Light/Detail). Filters out the HSL chip while Black & White is On
+   *  (#276) — see `blackWhiteOn` above. */
+  readonly subtools = computed<readonly Subtool[]>(() => {
+    const all = SUBTOOLS[this.activeGroup()] ?? [];
+    return this.blackWhiteOn() ? all.filter((s) => s.id !== 'hsl') : all;
+  });
 
   /** Sub-tool row shows only for a group that has field-less tools. */
   readonly showSubtools = computed<boolean>(() => this.subtools().length > 0);
