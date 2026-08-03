@@ -21,6 +21,14 @@ import re
 BUCKET_SUBSTRING = re.compile(r"(dcim|jpe?g|canon)", re.I)
 BUCKET_NUMERIC = re.compile(r"^\d+$")
 
+# What an OS calls a folder nobody named. Says strictly less than the folder
+# above it, so it loses the same way DCIM does.
+BUCKET_PLACEHOLDER = re.compile(r"^(untitled|new folder|folder\s*\d*)\b", re.I)
+
+# A shot number is sequence information a photographer assigned, so chains
+# involving one are left alone rather than renamed around.
+SHOT_NAME = re.compile(r"\bshot[-_ ]?\d+", re.I)
+
 # A capture date. Unlike a bucket name this is real information, so a chain
 # ending in one is left alone entirely rather than renamed.
 DATE_NAME = re.compile(r"^\d{1,4}[-._]\d{1,2}([-._]\d{1,2})?$")
@@ -50,7 +58,11 @@ MIN_INHERITABLE_LENGTH = 4
 
 def is_bucket(name: str) -> bool:
     """True when ``name`` describes a container rather than its contents."""
-    return bool(BUCKET_SUBSTRING.search(name) or BUCKET_NUMERIC.match(name))
+    return bool(
+        BUCKET_SUBSTRING.search(name)
+        or BUCKET_NUMERIC.match(name)
+        or BUCKET_PLACEHOLDER.match(name)
+    )
 
 
 def is_date(name: str) -> bool:
@@ -89,6 +101,10 @@ def skip_reason(rel_terminal: str, rel_parent: str, link_names: list[str]) -> st
 
     if is_date(terminal_name):
         return f"terminal {terminal_name!r} is a date"
+
+    shot = next((n for n in link_names + [terminal_name] if SHOT_NAME.search(n)), None)
+    if shot:
+        return f"{shot!r} is a shot number"
 
     return None
 
