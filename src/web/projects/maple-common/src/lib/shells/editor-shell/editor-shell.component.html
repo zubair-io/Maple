@@ -178,16 +178,20 @@
           </div>
         }
 
-        <!-- Sub-param panel (epic #1807 slice 4; extended at #1153) — glass
-             card hosting the shared chip selector + drag bar + value chip.
-             The same (tool, subParam) arming machinery the S5 editor's HSL
-             pill uses (#1112): tapping a chip arms a sub-param, the drag
-             bar/value chip then read and write that sub-param's
-             AdjustmentModel field. Mounted for HSL's 24 bands and for the
-             Noise pill's four tiers — the control card only projects a
-             tool's primary field, so Deep / Prefilter need this surface. -->
-        @if (subParamPanelArmed()) {
-          <div class="hsl-panel">
+        <!-- Sub-param panel (#1153) — glass card hosting the shared chip
+             selector + drag bar + value chip. The same (tool, subParam)
+             arming machinery the S5 editor's HSL pill uses (#1112): tapping
+             a chip arms a sub-param, the drag bar/value chip then read and
+             write that sub-param's AdjustmentModel field. Noise-only now —
+             HSL's 24 bands moved into the control card's projected
+             `cardBodySubParam` slot below (#1807 Task 4, colour sub-tool
+             row), since HSL's route no longer needs to suppress the card.
+             Noise stays here: it's a Detail-group tool reached from the
+             control card's own Noise slider (which is what arms it), not
+             from the colour chip row, so the control card stays mounted
+             alongside — unlike HSL/bwMix/Color Grading below. -->
+        @if (noiseArmed()) {
+          <div class="subparam-panel">
             <app-value-chip />
             <div class="hsl-panel-chips">
               <app-sub-param-row />
@@ -195,86 +199,164 @@
             <app-drag-bar />
           </div>
         }
-
-        <!-- B&W panel (#276) — glass card hosting the Black & White toggle
-             plus the shared chip selector + drag bar + value chip driving
-             the 8 gray-mixer weights. Same (tool, subParam) arming
-             machinery as the HSL panel above. -->
-        @if (bwMixArmed()) {
-          <div class="bw-panel">
-            <button
-              class="bw-toggle"
-              [class.bw-toggle--on]="blackWhiteOn()"
-              role="switch"
-              [attr.aria-checked]="blackWhiteOn()"
-              aria-label="Black & White"
-              data-testid="bw-toggle"
-              (click)="onBlackWhiteToggle()"
-            >
-              <span class="bw-toggle-track">
-                <span class="bw-toggle-thumb"></span>
-              </span>
-              <span class="bw-toggle-label">Black &amp; White</span>
-            </button>
-            <div
-              class="bw-panel-sliders"
-              [class.bw-panel-sliders--inactive]="!blackWhiteOn()"
-              [attr.aria-disabled]="!blackWhiteOn()"
-              data-testid="bw-panel-sliders"
-            >
-              <app-value-chip />
-              <div class="hsl-panel-chips">
-                <app-sub-param-row />
-              </div>
-              <app-drag-bar />
-            </div>
-          </div>
-        }
-
-        <!-- Color Grading panel (#275) — four wheels (Shadows / Midtones /
-             Highlights / Global), each over its luminance slider, plus the
-             balance slider. Supersedes the Split Tone pill: this is the
-             editor's only colour-toning surface. -->
-        @if (colorGradeArmed()) {
-          <div class="color-grade-panel">
-            <pro-color-grading-panel />
-          </div>
-        }
       </div>
 
       <!-- ── Tablet/desktop bottom control card ─────────────────── -->
-      <!-- Hidden while cropping: its living sliders are for the `detail`
-           group (sharpen/noise/colorNR), which armGroup('detail') via
-           armTool('crop') would otherwise show alongside — the crop toolbar
-           (in the dock-side panel above) is the only control surface while
-           armed, matching the S5 editor swapping its drag-bar area for the
-           crop toolbar. Hidden while HSL, bwMix or Color Grading is armed
-           for the same reason: none of them has a single primary drag-bar
-           field (control-card.component.ts's SLIDER_TOOLS deliberately
-           excludes all three), so their own panel above is the only
-           control surface while armed. -->
-      @if (!cropArmed() && !hslArmed() && !bwMixArmed() && !colorGradeArmed()) {
+      <!-- Hidden only while cropping: the crop toolbar (in the dock-side
+           panel above) is a full replacement control surface with no group
+           sliders behind it, matching the S5 editor swapping its drag-bar
+           area for the crop toolbar while armed. HSL, bwMix and Color
+           Grading no longer suppress the card (#1807 Task 4): they render
+           INSIDE it via content projection — the shell still composes their
+           panel bodies (`cardBodySubParam`/`cardBodyGrade` below), and the
+           card's colour sub-tool row (`onSubtoolClick`) is what stays
+           reachable to switch back to Basic. -->
+      @if (!cropArmed()) {
         <div class="control-card-anchor">
-          <pro-control-card [activeGroup]="activeGroup()" (groupChange)="onGroupChange($event)" />
+          <pro-control-card
+            [activeGroup]="activeGroup()"
+            [activeTool]="activeTool()"
+            (groupChange)="onGroupChange($event)"
+            (toolChange)="onToolChange($event)"
+          >
+            <!-- HSL / bwMix shared sub-param body (#1807 Task 4) — same
+                 chip selector + drag bar + value chip as the Noise panel
+                 above, plus bwMix's Black & White toggle. Projected into
+                 the control card's `cardBodySubParam` slot, shown whenever
+                 `activeTool()` is 'hsl' or 'bwMix'. -->
+            <div cardBodySubParam class="subparam-body">
+              @if (bwMixArmed()) {
+                <div class="bw-panel">
+                  <button
+                    class="bw-toggle"
+                    [class.bw-toggle--on]="blackWhiteOn()"
+                    role="switch"
+                    [attr.aria-checked]="blackWhiteOn()"
+                    aria-label="Black & White"
+                    data-testid="bw-toggle"
+                    (click)="onBlackWhiteToggle()"
+                  >
+                    <span class="bw-toggle-track">
+                      <span class="bw-toggle-thumb"></span>
+                    </span>
+                    <span class="bw-toggle-label">Black &amp; White</span>
+                  </button>
+                  <div
+                    class="bw-panel-sliders"
+                    [class.bw-panel-sliders--inactive]="!blackWhiteOn()"
+                    [attr.aria-disabled]="!blackWhiteOn()"
+                    data-testid="bw-panel-sliders"
+                  >
+                    <app-value-chip />
+                    <div class="hsl-panel-chips">
+                      <app-sub-param-row />
+                    </div>
+                    <app-drag-bar />
+                  </div>
+                </div>
+              } @else {
+                <div class="hsl-panel">
+                  <app-value-chip />
+                  <div class="hsl-panel-chips">
+                    <app-sub-param-row />
+                  </div>
+                  <app-drag-bar />
+                </div>
+              }
+            </div>
+
+            <!-- Color Grading body (#275) — four wheels (Shadows / Midtones
+                 / Highlights / Global), each over its luminance slider, plus
+                 the balance slider. Projected into the control card's
+                 `cardBodyGrade` slot, shown whenever `activeTool()` is
+                 'colorGrade'. Supersedes the Split Tone pill: this is the
+                 editor's only colour-toning surface. -->
+            <div cardBodyGrade>
+              <pro-color-grading-panel />
+            </div>
+          </pro-control-card>
         </div>
       }
     } @else {
       <!-- ── Phone CARD editor (#1807): flyout card + bottom dock ──── -->
 
-      <!-- Flyout slider card — floats above the dock, closeable. Hidden
-           while Crop/HSL/bwMix/Color Grading is armed for the same reason
-           as the tablet/desktop control card above: all four own the phone
-           flyout anchor while armed (crop/HSL/B&W/Grade panels below), so
-           the group slider card can't also show. -->
-      @if (!cropArmed() && !hslArmed() && !bwMixArmed() && !colorGradeArmed()) {
+      <!-- Flyout slider card — floats above the dock, closeable. Hidden only
+           while Crop is armed: the crop toolbar below owns the phone flyout
+           anchor while armed, matching the tablet/desktop crop panel. HSL,
+           bwMix and Color Grading no longer suppress the card (#1807 Task
+           4): they render INSIDE it via content projection, same as
+           tablet/desktop above.
+
+           `closed` additionally stays open (false) whenever one of the
+           three is armed, even if `phoneCardOpen` says otherwise — the
+           phone dock's own HSL/B&W/Grade buttons (`onPhoneToolChange`)
+           still close the flyout on the assumption that arming one of these
+           tools opens a SEPARATE standalone panel, which was true before
+           this task moved that panel's content in here. Once a later task
+           retires those dock buttons in favour of the colour sub-tool row
+           (which arms via `onToolChange`, leaving `phoneCardOpen` alone),
+           this extra clause becomes redundant and can drop. -->
+      @if (!cropArmed()) {
         <div class="phone-card-anchor">
           <pro-control-card
             [activeGroup]="activeGroup()"
+            [activeTool]="activeTool()"
             [phone]="true"
-            [closed]="!phoneCardOpen()"
+            [closed]="!phoneCardOpen() && !hslArmed() && !bwMixArmed() && !colorGradeArmed()"
             (groupChange)="onGroupChange($event)"
+            (toolChange)="onToolChange($event)"
             (closeRequest)="closePhoneCard()"
-          />
+          >
+            <!-- HSL / bwMix shared sub-param body (#1807 Task 4) — same
+                 content as the tablet/desktop card's `cardBodySubParam`
+                 slot. -->
+            <div cardBodySubParam class="subparam-body">
+              @if (bwMixArmed()) {
+                <div class="bw-panel">
+                  <button
+                    class="bw-toggle"
+                    [class.bw-toggle--on]="blackWhiteOn()"
+                    role="switch"
+                    [attr.aria-checked]="blackWhiteOn()"
+                    aria-label="Black & White"
+                    data-testid="bw-toggle"
+                    (click)="onBlackWhiteToggle()"
+                  >
+                    <span class="bw-toggle-track">
+                      <span class="bw-toggle-thumb"></span>
+                    </span>
+                    <span class="bw-toggle-label">Black &amp; White</span>
+                  </button>
+                  <div
+                    class="bw-panel-sliders"
+                    [class.bw-panel-sliders--inactive]="!blackWhiteOn()"
+                    [attr.aria-disabled]="!blackWhiteOn()"
+                    data-testid="bw-panel-sliders"
+                  >
+                    <app-value-chip />
+                    <div class="hsl-panel-chips">
+                      <app-sub-param-row />
+                    </div>
+                    <app-drag-bar />
+                  </div>
+                </div>
+              } @else {
+                <div class="hsl-panel">
+                  <app-value-chip />
+                  <div class="hsl-panel-chips">
+                    <app-sub-param-row />
+                  </div>
+                  <app-drag-bar />
+                </div>
+              }
+            </div>
+
+            <!-- Color Grading body (#275) — same content as tablet/desktop's
+                 `cardBodyGrade` slot. -->
+            <div cardBodyGrade>
+              <pro-color-grading-panel />
+            </div>
+          </pro-control-card>
         </div>
       }
 
@@ -285,13 +367,6 @@
           <pro-tone-curve />
           <div class="curve-panel-divider"></div>
           <pro-wb-pad />
-        </div>
-      }
-      <!-- Color Grading panel (#275) — same content as tablet/desktop,
-           floats above the dock like the phone curve panel. -->
-      @if (colorGradeArmed()) {
-        <div class="phone-color-grade-panel">
-          <pro-color-grading-panel />
         </div>
       }
 
@@ -311,50 +386,16 @@
         </div>
       }
 
-      <!-- HSL panel (epic #1807 slice 4) — same shared chip selector + drag
-           bar + value chip as tablet/desktop, floats above the dock like the
-           phone curve panel. -->
-      @if (subParamPanelArmed()) {
-        <div class="phone-hsl-panel">
+      <!-- Sub-param panel (#1153) — Noise-only, same as tablet/desktop's
+           renamed dock-side panel above: HSL's equivalent moved into the
+           phone control card's projected `cardBodySubParam` slot above. -->
+      @if (noiseArmed()) {
+        <div class="phone-subparam-panel">
           <app-value-chip />
           <div class="hsl-panel-chips">
             <app-sub-param-row />
           </div>
           <app-drag-bar />
-        </div>
-      }
-
-      <!-- B&W panel (#276) — same toggle + shared chip selector/drag bar/
-           value chip as tablet/desktop, floats above the dock like the
-           phone curve panel. -->
-      @if (bwMixArmed()) {
-        <div class="phone-bw-panel">
-          <button
-            class="bw-toggle"
-            [class.bw-toggle--on]="blackWhiteOn()"
-            role="switch"
-            [attr.aria-checked]="blackWhiteOn()"
-            aria-label="Black & White"
-            data-testid="bw-toggle"
-            (click)="onBlackWhiteToggle()"
-          >
-            <span class="bw-toggle-track">
-              <span class="bw-toggle-thumb"></span>
-            </span>
-            <span class="bw-toggle-label">Black &amp; White</span>
-          </button>
-          <div
-            class="bw-panel-sliders"
-            [class.bw-panel-sliders--inactive]="!blackWhiteOn()"
-            [attr.aria-disabled]="!blackWhiteOn()"
-            data-testid="bw-panel-sliders"
-          >
-            <app-value-chip />
-            <div class="hsl-panel-chips">
-              <app-sub-param-row />
-            </div>
-            <app-drag-bar />
-          </div>
         </div>
       }
 
