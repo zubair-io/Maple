@@ -8,24 +8,38 @@
 
 .slider-row {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.slider-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
   gap: 8px;
-  padding: 5px 12px;
 }
 
 .slider-label {
-  flex: 0 0 80px;
-  font-size: 11px;
-  color: var(--pro-text-muted);
-  white-space: nowrap;
+  font-size: 12px;
+  color: var(--pro-text);
   overflow: hidden;
   text-overflow: ellipsis;
-  user-select: none;
+  white-space: nowrap;
+}
+
+.value-chip {
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--pro-text-muted);
+  flex-shrink: 0;
+
+  &.value-chip--modified {
+    color: var(--pro-accent);
+  }
 }
 
 .track-wrap {
-  flex: 1 1 0;
-  min-width: 0;
+  width: 100%;
   cursor: ew-resize;
   padding: 6px 0; // finger/pointer target buffer
   user-select: none;
@@ -77,21 +91,5 @@
       0 0 0 1px rgba(0, 0, 0, 0.45),
       0 1px 4px rgba(0, 0, 0, 0.4),
       0 0 0 2px var(--pro-accent);
-  }
-}
-
-// Value chip
-.value-chip {
-  flex: 0 0 42px;
-  font-family: var(--font-mono, monospace);
-  font-variant-numeric: tabular-nums;
-  font-size: 10px;
-  text-align: right;
-  color: var(--pro-text-dim);
-  user-select: none;
-  white-space: nowrap;
-
-  &.value-chip--modified {
-    color: var(--pro-accent);
   }
 }
