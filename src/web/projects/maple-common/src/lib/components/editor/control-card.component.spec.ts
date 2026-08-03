@@ -217,28 +217,47 @@ describe('flyout header (FlyoutSliderPanel parity)', () => {
   });
 });
 
-describe('colour sub-tool row', () => {
-  it('renders Basic/HSL/B&W/Grade only for the colour group', () => {
+// Group-parameterised (#1807 Task 4 review correction): Colour Grading's
+// real group is Effects (`TOOLS_IN_GROUP.effects`), so a single Colour-only
+// row containing Grade would hide itself the instant it's armed. Colour
+// gets `Basic · HSL · B&W`, Effects gets `Basic · Grade`, Light/Detail get
+// no row.
+describe('sub-tool row', () => {
+  it('renders Basic/HSL/B&W for the colour group, Basic/Grade for effects, and nothing for light/detail', () => {
     const colour = render({ activeGroup: 'color' });
-    const chips = Array.from(
+    const colourChips = Array.from(
       (colour.nativeElement as HTMLElement).querySelectorAll('.subtool-chip'),
     ).map((n) => n.textContent!.trim());
-    expect(chips).toEqual(['Basic', 'HSL', 'B&W', 'Grade']);
+    expect(colourChips).toEqual(['Basic', 'HSL', 'B&W']);
+
+    const effects = render({ activeGroup: 'effects' });
+    const effectsChips = Array.from(
+      (effects.nativeElement as HTMLElement).querySelectorAll('.subtool-chip'),
+    ).map((n) => n.textContent!.trim());
+    expect(effectsChips).toEqual(['Basic', 'Grade']);
 
     const light = render({ activeGroup: 'light' });
     expect((light.nativeElement as HTMLElement).querySelector('.subtool-row')).toBeNull();
+
+    const detail = render({ activeGroup: 'detail' });
+    expect((detail.nativeElement as HTMLElement).querySelector('.subtool-row')).toBeNull();
   });
 
-  it('emits the same tool a dock button used to arm', () => {
-    const fixture = render({ activeGroup: 'color' });
-    const emitted: string[] = [];
-    fixture.componentInstance.toolChange.subscribe((t: string) => emitted.push(t));
+  it('emits the same tool a dock button used to arm, in each group', () => {
+    const colour = render({ activeGroup: 'color' });
+    const colourEmitted: string[] = [];
+    colour.componentInstance.toolChange.subscribe((t: string) => colourEmitted.push(t));
+    const colourChips = (colour.nativeElement as HTMLElement).querySelectorAll('.subtool-chip');
+    (colourChips[1] as HTMLButtonElement).click(); // HSL
+    (colourChips[2] as HTMLButtonElement).click(); // B&W
+    expect(colourEmitted).toEqual(['hsl', 'bwMix']);
 
-    const chips = (fixture.nativeElement as HTMLElement).querySelectorAll('.subtool-chip');
-    (chips[1] as HTMLButtonElement).click(); // HSL
-    (chips[2] as HTMLButtonElement).click(); // B&W
-    (chips[3] as HTMLButtonElement).click(); // Grade
-    expect(emitted).toEqual(['hsl', 'bwMix', 'colorGrade']);
+    const effects = render({ activeGroup: 'effects' });
+    const effectsEmitted: string[] = [];
+    effects.componentInstance.toolChange.subscribe((t: string) => effectsEmitted.push(t));
+    const effectsChips = (effects.nativeElement as HTMLElement).querySelectorAll('.subtool-chip');
+    (effectsChips[1] as HTMLButtonElement).click(); // Grade
+    expect(effectsEmitted).toEqual(['colorGrade']);
   });
 
   it('marks the chip matching the armed tool active, defaulting to Basic', () => {
@@ -255,45 +274,73 @@ describe('colour sub-tool row', () => {
         .querySelector('.subtool-chip--active')
         ?.textContent?.trim(),
     ).toBe('Basic');
+
+    const grade = render({ activeGroup: 'effects', activeTool: 'colorGrade' });
+    expect(
+      (grade.nativeElement as HTMLElement)
+        .querySelector('.subtool-chip--active')
+        ?.textContent?.trim(),
+    ).toBe('Grade');
   });
 
   // `EditorStateService.armGroup` deliberately retains the currently-armed
   // tool when the target group is already the armed group (own spec:
   // "retains tool when arming the same group") — right for the dock's group
-  // buttons, but this row only ever shows once the group is ALREADY 'color'
-  // (`showSubtools`), so a naive `groupChange.emit('color')` on Basic would
-  // always hit that retain branch and never actually leave HSL/bwMix. Basic
-  // must arm the group's first slider tool directly to be a real escape
-  // hatch.
-  it('Basic arms the first slider tool directly when escaping a field-less sub-tool', () => {
-    const fixture = render({ activeGroup: 'color', activeTool: 'hsl' });
-    const toolsEmitted: string[] = [];
-    const groupsEmitted: string[] = [];
-    fixture.componentInstance.toolChange.subscribe((t: string) => toolsEmitted.push(t));
-    fixture.componentInstance.groupChange.subscribe((g: string) => groupsEmitted.push(g));
+  // buttons, but this row only ever shows once the group already matches
+  // (`showSubtools`), so a naive `groupChange.emit(activeGroup())` on Basic
+  // would always hit that retain branch and never actually leave HSL/bwMix/
+  // Grade. Basic must arm the group's first slider tool directly to be a
+  // real escape hatch — verified in both rows since each group's first
+  // slider tool differs (`temp` vs `clarity`).
+  it('Basic arms the group’s first slider tool directly when escaping a field-less sub-tool', () => {
+    const hsl = render({ activeGroup: 'color', activeTool: 'hsl' });
+    const hslToolsEmitted: string[] = [];
+    const hslGroupsEmitted: string[] = [];
+    hsl.componentInstance.toolChange.subscribe((t: string) => hslToolsEmitted.push(t));
+    hsl.componentInstance.groupChange.subscribe((g: string) => hslGroupsEmitted.push(g));
+    (
+      (hsl.nativeElement as HTMLElement).querySelectorAll('.subtool-chip')[0] as HTMLButtonElement
+    ).click();
+    expect(hslToolsEmitted).toEqual(['temp']);
+    expect(hslGroupsEmitted).toEqual([]);
 
-    const basicChip = (fixture.nativeElement as HTMLElement).querySelectorAll(
-      '.subtool-chip',
-    )[0] as HTMLButtonElement;
-    basicChip.click();
-
-    expect(toolsEmitted).toEqual(['temp']);
-    expect(groupsEmitted).toEqual([]);
+    const grade = render({ activeGroup: 'effects', activeTool: 'colorGrade' });
+    const gradeToolsEmitted: string[] = [];
+    const gradeGroupsEmitted: string[] = [];
+    grade.componentInstance.toolChange.subscribe((t: string) => gradeToolsEmitted.push(t));
+    grade.componentInstance.groupChange.subscribe((g: string) => gradeGroupsEmitted.push(g));
+    (
+      (grade.nativeElement as HTMLElement).querySelectorAll('.subtool-chip')[0] as HTMLButtonElement
+    ).click();
+    expect(gradeToolsEmitted).toEqual(['clarity']);
+    expect(gradeGroupsEmitted).toEqual([]);
   });
 
-  it('Basic re-affirms the group (not a tool) when a plain slider is already armed', () => {
-    const fixture = render({ activeGroup: 'color', activeTool: 'temp' });
-    const toolsEmitted: string[] = [];
-    const groupsEmitted: string[] = [];
-    fixture.componentInstance.toolChange.subscribe((t: string) => toolsEmitted.push(t));
-    fixture.componentInstance.groupChange.subscribe((g: string) => groupsEmitted.push(g));
+  it('Basic re-affirms the active group (not a tool) when a plain slider is already armed', () => {
+    const colour = render({ activeGroup: 'color', activeTool: 'temp' });
+    const colourToolsEmitted: string[] = [];
+    const colourGroupsEmitted: string[] = [];
+    colour.componentInstance.toolChange.subscribe((t: string) => colourToolsEmitted.push(t));
+    colour.componentInstance.groupChange.subscribe((g: string) => colourGroupsEmitted.push(g));
+    (
+      (colour.nativeElement as HTMLElement).querySelectorAll(
+        '.subtool-chip',
+      )[0] as HTMLButtonElement
+    ).click();
+    expect(colourGroupsEmitted).toEqual(['color']);
+    expect(colourToolsEmitted).toEqual([]);
 
-    const basicChip = (fixture.nativeElement as HTMLElement).querySelectorAll(
-      '.subtool-chip',
-    )[0] as HTMLButtonElement;
-    basicChip.click();
-
-    expect(groupsEmitted).toEqual(['color']);
-    expect(toolsEmitted).toEqual([]);
+    const effects = render({ activeGroup: 'effects', activeTool: 'clarity' });
+    const effectsToolsEmitted: string[] = [];
+    const effectsGroupsEmitted: string[] = [];
+    effects.componentInstance.toolChange.subscribe((t: string) => effectsToolsEmitted.push(t));
+    effects.componentInstance.groupChange.subscribe((g: string) => effectsGroupsEmitted.push(g));
+    (
+      (effects.nativeElement as HTMLElement).querySelectorAll(
+        '.subtool-chip',
+      )[0] as HTMLButtonElement
+    ).click();
+    expect(effectsGroupsEmitted).toEqual(['effects']);
+    expect(effectsToolsEmitted).toEqual([]);
   });
 });
