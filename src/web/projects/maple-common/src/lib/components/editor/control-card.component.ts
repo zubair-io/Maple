@@ -32,7 +32,7 @@
 
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import { LivingSliderComponent } from '../develop/living-slider.component';
-import { MapleIconComponent } from '../../icons/maple-icon.component';
+import { MapleIconComponent, type MapleIconName } from '../../icons/maple-icon.component';
 import {
   type ToolGroup,
   type ToolId,
@@ -131,9 +131,11 @@ export class ControlCardComponent {
   }
 
   /** Accent glyph beside the group title — same icon the dock's group button
-   *  uses, so the panel header and the dock entry read as the same object. */
-  groupIcon(group: ToolGroup): string {
-    const icons: Record<ToolGroup, string> = {
+   *  uses, so the panel header and the dock entry read as the same object.
+   *  Typed as the icon-name union `maple-icon` itself accepts, so the
+   *  template can bind `[name]` directly without an `$any` escape hatch. */
+  groupIcon(group: ToolGroup): MapleIconName {
+    const icons: Record<ToolGroup, MapleIconName> = {
       light: 'tool-exposure',
       color: 'tool-tint',
       effects: 'tool-vignette',
@@ -242,10 +244,6 @@ export class ControlCardComponent {
 
   defaultFor(tool: ToolId): number {
     return defaultDisplayValue(tool);
-  }
-
-  isBipolar(tool: ToolId): boolean {
-    return this.bipolarFor(tool);
   }
 
   // ── Value edits ───────────────────────────────────────────────────────
