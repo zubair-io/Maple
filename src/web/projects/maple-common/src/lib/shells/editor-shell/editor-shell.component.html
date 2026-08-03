@@ -1,5 +1,55 @@
 <!-- EditorShell — canvas-first layered layout (#1535) -->
 <!-- Chrome opacity controlled by chromeState signal -->
+
+<!-- Shared `pro-control-card` projected-content bodies (#1807 Task 4/5) —
+     authored once, referenced from both the tablet/desktop card and the
+     phone card via `ngTemplateOutlet` (fallow-audit-web complexity finding:
+     these two bodies used to be duplicated near-verbatim in each branch). -->
+<ng-template #cardBodySubParamTpl>
+  @if (bwMixArmed()) {
+    <div class="bw-panel">
+      <button
+        class="bw-toggle"
+        [class.bw-toggle--on]="blackWhiteOn()"
+        role="switch"
+        [attr.aria-checked]="blackWhiteOn()"
+        aria-label="Black & White"
+        data-testid="bw-toggle"
+        (click)="onBlackWhiteToggle()"
+      >
+        <span class="bw-toggle-track">
+          <span class="bw-toggle-thumb"></span>
+        </span>
+        <span class="bw-toggle-label">Black &amp; White</span>
+      </button>
+      <div
+        class="bw-panel-sliders"
+        [class.bw-panel-sliders--inactive]="!blackWhiteOn()"
+        [attr.aria-disabled]="!blackWhiteOn()"
+        data-testid="bw-panel-sliders"
+      >
+        <app-value-chip />
+        <div class="hsl-panel-chips">
+          <app-sub-param-row />
+        </div>
+        <app-drag-bar />
+      </div>
+    </div>
+  } @else {
+    <div class="hsl-panel">
+      <app-value-chip />
+      <div class="hsl-panel-chips">
+        <app-sub-param-row />
+      </div>
+      <app-drag-bar />
+    </div>
+  }
+</ng-template>
+
+<ng-template #cardBodyGradeTpl>
+  <pro-color-grading-panel />
+</ng-template>
+
 <div class="shell" [class.shell--desktop]="isDesktop()">
   <!-- ── Full-bleed canvas (back layer) ──────────────────────────────── -->
   <div #canvasWrap class="canvas-layer" (pointerdown)="onCanvasPointerDown($event)">
@@ -236,46 +286,10 @@
                  chip selector + drag bar + value chip as the Noise panel
                  above, plus bwMix's Black & White toggle. Projected into
                  the control card's `cardBodySubParam` slot, shown whenever
-                 `activeTool()` is 'hsl' or 'bwMix'. -->
+                 `activeTool()` is 'hsl' or 'bwMix'. Body authored once in
+                 `cardBodySubParamTpl` above (shared with the phone card). -->
             <div cardBodySubParam class="subparam-body">
-              @if (bwMixArmed()) {
-                <div class="bw-panel">
-                  <button
-                    class="bw-toggle"
-                    [class.bw-toggle--on]="blackWhiteOn()"
-                    role="switch"
-                    [attr.aria-checked]="blackWhiteOn()"
-                    aria-label="Black & White"
-                    data-testid="bw-toggle"
-                    (click)="onBlackWhiteToggle()"
-                  >
-                    <span class="bw-toggle-track">
-                      <span class="bw-toggle-thumb"></span>
-                    </span>
-                    <span class="bw-toggle-label">Black &amp; White</span>
-                  </button>
-                  <div
-                    class="bw-panel-sliders"
-                    [class.bw-panel-sliders--inactive]="!blackWhiteOn()"
-                    [attr.aria-disabled]="!blackWhiteOn()"
-                    data-testid="bw-panel-sliders"
-                  >
-                    <app-value-chip />
-                    <div class="hsl-panel-chips">
-                      <app-sub-param-row />
-                    </div>
-                    <app-drag-bar />
-                  </div>
-                </div>
-              } @else {
-                <div class="hsl-panel">
-                  <app-value-chip />
-                  <div class="hsl-panel-chips">
-                    <app-sub-param-row />
-                  </div>
-                  <app-drag-bar />
-                </div>
-              }
+              <ng-container *ngTemplateOutlet="cardBodySubParamTpl" />
             </div>
 
             <!-- Color Grading body (#275) — four wheels (Shadows / Midtones
@@ -283,9 +297,10 @@
                  the balance slider. Projected into the control card's
                  `cardBodyGrade` slot, shown whenever `activeTool()` is
                  'colorGrade'. Supersedes the Split Tone pill: this is the
-                 editor's only colour-toning surface. -->
+                 editor's only colour-toning surface. Body authored once in
+                 `cardBodyGradeTpl` above (shared with the phone card). -->
             <div cardBodyGrade>
-              <pro-color-grading-panel />
+              <ng-container *ngTemplateOutlet="cardBodyGradeTpl" />
             </div>
           </pro-control-card>
         </div>
@@ -321,52 +336,16 @@
           >
             <!-- HSL / bwMix shared sub-param body (#1807 Task 4) — same
                  content as the tablet/desktop card's `cardBodySubParam`
-                 slot. -->
+                 slot, authored once in `cardBodySubParamTpl` above. -->
             <div cardBodySubParam class="subparam-body">
-              @if (bwMixArmed()) {
-                <div class="bw-panel">
-                  <button
-                    class="bw-toggle"
-                    [class.bw-toggle--on]="blackWhiteOn()"
-                    role="switch"
-                    [attr.aria-checked]="blackWhiteOn()"
-                    aria-label="Black & White"
-                    data-testid="bw-toggle"
-                    (click)="onBlackWhiteToggle()"
-                  >
-                    <span class="bw-toggle-track">
-                      <span class="bw-toggle-thumb"></span>
-                    </span>
-                    <span class="bw-toggle-label">Black &amp; White</span>
-                  </button>
-                  <div
-                    class="bw-panel-sliders"
-                    [class.bw-panel-sliders--inactive]="!blackWhiteOn()"
-                    [attr.aria-disabled]="!blackWhiteOn()"
-                    data-testid="bw-panel-sliders"
-                  >
-                    <app-value-chip />
-                    <div class="hsl-panel-chips">
-                      <app-sub-param-row />
-                    </div>
-                    <app-drag-bar />
-                  </div>
-                </div>
-              } @else {
-                <div class="hsl-panel">
-                  <app-value-chip />
-                  <div class="hsl-panel-chips">
-                    <app-sub-param-row />
-                  </div>
-                  <app-drag-bar />
-                </div>
-              }
+              <ng-container *ngTemplateOutlet="cardBodySubParamTpl" />
             </div>
 
             <!-- Color Grading body (#275) — same content as tablet/desktop's
-                 `cardBodyGrade` slot. -->
+                 `cardBodyGrade` slot, authored once in `cardBodyGradeTpl`
+                 above. -->
             <div cardBodyGrade>
-              <pro-color-grading-panel />
+              <ng-container *ngTemplateOutlet="cardBodyGradeTpl" />
             </div>
           </pro-control-card>
         </div>
