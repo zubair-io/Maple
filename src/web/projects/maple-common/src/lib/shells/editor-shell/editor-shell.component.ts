@@ -67,6 +67,7 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { NgTemplateOutlet } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
 import { LayoutService } from '../../layout-service';
@@ -127,6 +128,7 @@ type ChromeState = 'full' | 'receded' | 'scrubbing';
   selector: 'editor-shell',
   standalone: true,
   imports: [
+    NgTemplateOutlet,
     MapleIconComponent,
     FilmstripComponent,
     ImageCanvasComponent,
@@ -235,13 +237,6 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
    *  (shared with the S5 editor) and gated on the same `CropSessionService`. */
   readonly cropArmed = computed<boolean>(() => this.editorState.armedTool() === 'crop');
 
-  /** True while the HSL tool is armed (epic #1807 slice 4) — mounts the HSL
-   *  panel (chip selector + drag bar + value chip) next to the dock, the
-   *  same shared multi-param editing surface the S5 editor uses for its HSL
-   *  pill (#1112). HSL has no canvas overlay of its own — unlike Crop, it
-   *  only needs the panel. */
-  readonly hslArmed = computed<boolean>(() => this.editorState.armedTool() === 'hsl');
-
   /** True while the Noise tool is armed (#1153) — mounts the SAME shared
    *  multi-param panel HSL uses, so the Noise pill's four tiers (Luminance,
    *  Color, Deep, Prefilter) are all reachable. The control card only
@@ -252,8 +247,9 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly noiseArmed = computed<boolean>(() => this.editorState.armedTool() === 'noise');
 
   /** True while the bwMix (Black & White) tool is armed (#276) — mounts the
-   *  B&W panel (toggle + chip selector + drag bar + value chip) next to the
-   *  dock, the same shared multi-param editing surface as HSL. */
+   *  B&W panel (toggle + chip selector + drag bar + value chip), projected
+   *  into `pro-control-card` via the `cardBodySubParam` slot (#1807 Task 4),
+   *  the same shared multi-param editing surface as HSL. */
   readonly bwMixArmed = computed<boolean>(() => this.editorState.armedTool() === 'bwMix');
 
   /** True while Black & White is On for the focused asset (#276) — drives
@@ -263,13 +259,6 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly blackWhiteOn = computed<boolean>(
     () => this.editorState.currentAdjustment()?.blackWhite === 'On',
   );
-
-  /** True while the Color Grading tool is armed (#275) — mounts the
-   *  four-wheel grading panel in the same shared anchor Crop/HSL/Curve/
-   *  Presets use. Like HSL it has no canvas overlay: the wheels and their
-   *  luminance/balance sliders are the whole surface, so the control card
-   *  hides while it is armed. */
-  readonly colorGradeArmed = computed<boolean>(() => this.editorState.armedTool() === 'colorGrade');
 
   /** True when LayoutService.layout() is tablet or desktop (≥768px). */
   readonly isTabletPlus = computed<boolean>(() => this.layoutService.layout() !== 'phone');
