@@ -14,7 +14,8 @@
 // Curve panel: glass card that opens/closes via the Curve dock entry (#1540).
 // Tablet/desktop anchors to the dock column; phone floats above the bottom
 // dock in the same anchor slot the always-visible slider card uses, so
-// `onPhoneDockGroupChange` closes it when a group icon is tapped.
+// `onPhoneDockGroupChange` closes it (and Presets) when a group icon is
+// tapped.
 // Crop panel: glass card that opens while the Crop dock entry is armed
 // (#1813) — hosts the shared `CropToolbarComponent`/`CropSessionService` also
 // used by the S5 editor (`EditorComponent`, #638), so a crop commits through
@@ -29,28 +30,23 @@
 // (#1815) — hosts the shared `PresetsPanelComponent`, also used by the S5
 // editor (#1115), so apply/save/delete route through the identical
 // `PresetsService` / `EditorStateService.applyPreset` path on both editors.
-// HSL panel: glass card that opens while the HSL dock entry is armed (epic
-// #1807 slice 4) — hosts the shared `SubParamRowComponent` (chip selector)
-// + `DragBarComponent` + `ValueChipComponent`, the same generic multi-param
-// (tool, subParam) arming machinery the S5 editor's HSL pill uses (#1112),
-// so a hue/sat/lum edit writes the identical `AdjustmentModel` field on both
-// editors. HSL has no single primary drag-bar field (24 sub-params across
-// 3 rows), so — like Crop — it does not appear in the control card's living-
-// slider grid; the control card hides entirely while HSL is armed. HSL's
-// dock entry, tool-list membership, and panel are all hidden while Black &
-// White is On (#276) — see `blackWhiteOn`/`bwMixArmed` below.
-// B&W panel (#276): glass card that opens while the bwMix dock entry is
-// armed — same shared chip selector + drag bar + value chip as HSL, hosting
-// the 8 gray-mixer weights, plus an explicit toggle control for
-// `model.blackWhite` (`onBlackWhiteToggle`). Routed through
-// `EditorStateService.setBlackWhite` so the toggle is undoable. The 8
-// sliders are de-emphasised (not disabled — still previewable) while the
-// toggle is Off, since they're inert until B&W is On.
-// Presets, Curve, Crop, HSL, and bwMix all share the same panel anchor and
-// are mutually exclusive (see `onPresetsPanelToggle`/`onCurvePanelToggle`/
-// `onToolChange`) — on phone the always-visible slider card floats in that
-// same anchor too, so `onPhoneDockGroupChange` closes an open curve panel
-// before arming a group, keeping the exclusion consistent there.
+// HSL / B&W bodies (epic #1807 slice 4, #276): neither has a dock entry —
+// both are reached from the Colour sub-tool row and render INSIDE the
+// control card via content projection (`cardBodySubParam`), not in a
+// dock-side panel of their own — hosting the shared `SubParamRowComponent` +
+// `DragBarComponent` + `ValueChipComponent` multi-param surface the S5
+// editor's HSL pill uses (#1112); B&W adds an explicit toggle for
+// `model.blackWhite` (`onBlackWhiteToggle`, routed through
+// `EditorStateService.setBlackWhite` for undo). HSL's sub-tool chip is
+// hidden while Black & White is On (#276) — see `blackWhiteOn`/`bwMixArmed`
+// below and `ControlCardComponent.subtools()`.
+// Curve, Crop, Presets, and Noise share one dock-side panel anchor and are
+// mutually exclusive there (`onPresetsPanelToggle`/`onCurvePanelToggle`/
+// `onToolChange`); on phone the always-visible slider card floats in that
+// same anchor slot too. HSL/bwMix/Color Grading project into the control
+// card instead, so it's the card — not a dock-side panel — that must not
+// collide with Curve/Presets/Noise/Crop/Info: the card hides while any of
+// them is open (`.control-card-anchor`'s `@if` guard, Critical 1 review).
 // Canvas scrub: horizontal drag at fit-zoom moves the armed tool at 0.5:1.
 // Chrome recede: dims to 30% after 3s idle; restores on pointer move (180ms).
 // Desktop opts out of auto-recede.
@@ -255,20 +251,15 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
    *  arms the tool in the first place. */
   readonly noiseArmed = computed<boolean>(() => this.editorState.armedTool() === 'noise');
 
-  /** Armed tool has a sub-param panel (chip selector + drag bar + chip).
-   *  bwMix deliberately does NOT join this: it needs the Black & White
-   *  toggle above the same three controls, so it mounts its own block in
-   *  the template. Adding it here would render both blocks at once. */
-  readonly subParamPanelArmed = computed<boolean>(() => this.hslArmed() || this.noiseArmed());
-
   /** True while the bwMix (Black & White) tool is armed (#276) — mounts the
    *  B&W panel (toggle + chip selector + drag bar + value chip) next to the
    *  dock, the same shared multi-param editing surface as HSL. */
   readonly bwMixArmed = computed<boolean>(() => this.editorState.armedTool() === 'bwMix');
 
   /** True while Black & White is On for the focused asset (#276) — drives
-   *  hiding the HSL dock entry (`ToolDockComponent`'s `blackWhiteOn` input)
-   *  and de-emphasising the B&W panel's 8 gray-mixer sliders when Off. */
+   *  hiding the HSL sub-tool chip (`ControlCardComponent`'s `blackWhiteOn`
+   *  input) and de-emphasising the B&W panel's 8 gray-mixer sliders when
+   *  Off. */
   readonly blackWhiteOn = computed<boolean>(
     () => this.editorState.currentAdjustment()?.blackWhite === 'On',
   );
@@ -399,11 +390,15 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
    *  row (`ToolPillRowComponent.select`): tapping always arms; exiting crop
    *  is an explicit action (the crop toolbar's Done button), not a second
    *  tap on the dock entry — HSL/bwMix/Color Grading have no such action
-   *  and simply stay armed until another tool is picked. Crop, HSL, bwMix,
-   *  Color Grading, Curve, and Presets share the same panel anchor and are
-   *  mutually exclusive — arming Crop, HSL, bwMix, or Color Grading closes
-   *  the curve and presets panels so no two can ever render on top of each
-   *  other (the newly-armed tool wins). */
+   *  and simply stay armed until another tool is picked. Crop owns the
+   *  shared dock-side panel anchor Curve/Presets/Noise also use, so arming
+   *  it closes both. HSL/bwMix/Color Grading don't share that anchor — they
+   *  render inside the control card instead — but arming any of them still
+   *  closes Curve/Presets too, because the card itself hides while either
+   *  is open (Critical 1, `.control-card-anchor`'s `@if` guard); closing
+   *  them here is what makes the card (and the tool just armed) visible
+   *  again immediately, rather than leaving the user to close Curve/Presets
+   *  by hand first. */
   onToolChange(tool: ToolId): void {
     if (tool === 'crop' || tool === 'hsl' || tool === 'bwMix' || tool === 'colorGrade') {
       this.curveOpen.set(false);
@@ -421,43 +416,52 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
     this.editorState.setBlackWhite(this.blackWhiteOn() ? 'Off' : 'On');
   }
 
-  /** Toggle the curve panel. No-op while Crop, HSL, bwMix, or Color Grading
-   *  is armed: all four own the shared panel anchor, so Curve can't open
-   *  over any of them. Opening Curve also closes Presets, since they share
-   *  the same anchor too (the mutual-exclusion half that keeps the panels
-   *  from overlapping — the other halves are `onToolChange` closing
-   *  curve/presets when Crop/HSL/bwMix/Color Grading arms, and
-   *  `onPresetsPanelToggle` closing curve when Presets opens). */
+  /** Toggle the curve panel. No-op while Crop is armed: Crop owns the shared
+   *  dock-side panel anchor with a full-replacement toolbar (no group
+   *  sliders behind it), so Curve can't open over it. HSL, bwMix, and Color
+   *  Grading no longer need to be in this guard (#1807 review, Critical 1):
+   *  they render INSIDE the control card via content projection rather than
+   *  owning the dock-side anchor, and the card itself now hides whenever
+   *  Curve is open (`.control-card-anchor`'s `@if` guard in the template),
+   *  so there is nothing left for Curve to open over. Opening Curve also
+   *  closes Presets, since they share the same dock-side anchor too (the
+   *  mutual-exclusion half that keeps the panels from overlapping — the
+   *  other half is `onPresetsPanelToggle` closing curve when Presets
+   *  opens). */
   onCurvePanelToggle(): void {
-    if (this.cropArmed() || this.hslArmed() || this.bwMixArmed() || this.colorGradeArmed()) return;
+    if (this.cropArmed()) return;
     this.presetsOpen.set(false);
     this.curveOpen.update((v) => !v);
   }
 
   /**
    * Phone bottom dock (#1807 Task 5): arms the tapped group, closing an open
-   * curve panel first. The slider card is visible by default (no closeable
-   * flyout) and the template hides it whenever `curveOpen()`,
+   * curve or presets panel first. The slider card is visible by default (no
+   * closeable flyout) and the template hides it whenever `curveOpen()`,
    * `presetsOpen()`, or `noiseArmed()` is true — that `@if` guard is what
-   * actually keeps the card and the curve panel from rendering on top of
-   * each other (they float in the same anchor slot above the dock, unlike
-   * tablet/desktop where the curve/presets/noise panels live in the
+   * actually keeps the card and the curve/presets panel from rendering on
+   * top of each other (they float in the same anchor slot above the dock,
+   * unlike tablet/desktop where the curve/presets/noise panels live in the
    * separate `.tool-dock-anchor` column). This handler's own
-   * `curveOpen.set(false)` closes an already-open curve panel so tapping a
-   * group tool brings the card back — `onGroupChange` alone doesn't touch
-   * `curveOpen`, and Crop/HSL/bwMix/Color Grading already get the same
-   * close via `onToolChange`.
+   * `curveOpen.set(false)`/`presetsOpen.set(false)` close an already-open
+   * panel so tapping a group tool brings the card back — `onGroupChange`
+   * alone doesn't touch either signal, and Crop/HSL/bwMix/Color Grading
+   * already get the same close via `onToolChange` (review round 2: a
+   * group tap while Presets was open left `presetsOpen` true and the card
+   * hidden underneath it, since only `curveOpen` was cleared here).
    */
   onPhoneDockGroupChange(group: ToolGroup): void {
     this.curveOpen.set(false);
+    this.presetsOpen.set(false);
     this.onGroupChange(group);
   }
 
-  /** Toggle the presets panel (#1815). No-op while Crop, HSL, bwMix, or
-   *  Color Grading is armed, and closes Curve if open — same shared-anchor
-   *  mutual exclusion as Curve/Crop/HSL/bwMix/Color Grading. */
+  /** Toggle the presets panel (#1815). No-op while Crop is armed, and closes
+   *  Curve if open — same shared dock-side-anchor mutual exclusion as
+   *  Curve/Crop. See `onCurvePanelToggle` for why HSL/bwMix/Color Grading
+   *  dropped out of this guard (#1807 review, Critical 1). */
   onPresetsPanelToggle(): void {
-    if (this.cropArmed() || this.hslArmed() || this.bwMixArmed() || this.colorGradeArmed()) return;
+    if (this.cropArmed()) return;
     this.curveOpen.set(false);
     this.presetsOpen.update((v) => !v);
   }

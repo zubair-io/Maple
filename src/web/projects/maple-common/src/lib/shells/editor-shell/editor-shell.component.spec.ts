@@ -176,6 +176,21 @@ describe('EditorShellComponent — phone dock wiring (#1807 Task 5)', () => {
     expect(comp.curveOpen()).toBe(false);
     expect(comp.activeGroup()).toBe('color');
   });
+
+  // Important 3 (#1807 review): `onPhoneDockGroupChange` cleared `curveOpen`
+  // but not `presetsOpen` — open Presets, tap a dock group icon, and the
+  // group armed but the card stayed hidden underneath the still-open
+  // presets panel (both float in the same anchor slot on phone).
+  it('tapping a group icon closes an open presets panel — both float in the same anchor', () => {
+    const { comp } = setup({ slug: null });
+    comp.onPresetsPanelToggle();
+    expect(comp.presetsOpen()).toBe(true);
+
+    comp.onPhoneDockGroupChange('color');
+
+    expect(comp.presetsOpen()).toBe(false);
+    expect(comp.activeGroup()).toBe('color');
+  });
 });
 
 // ── Phone two-card layout (#1807 Task 5) ────────────────────────────────
@@ -387,5 +402,114 @@ describe('EditorShellComponent — phone two-card layout (#1807 Task 5)', () => 
     editorState.armTool('colorGrade');
     fixture.detectChanges();
     expect(phoneCard(fixture)).not.toBeNull();
+  });
+});
+
+// ── Desktop control card vs. other right-side surfaces (Critical 1) ─────────
+// `.control-card-anchor` (right: 88px, width: 300px) and the dock-side panel
+// anchor `%dock-side-panel` (right: 64px) both sit vertically centred on the
+// same axis, so Curve/Presets/Noise's panels and the 340px `.info-pane`
+// paint straight over the card (neither surface has a z-index — whichever is
+// later in the DOM wins) once both are showing. Before this fix the card's
+// only visibility guard was `!cropArmed()`. Mirrors the phone "hides the
+// card while..." tests above; the phone anchor has no Info-collision
+// equivalent to mirror (Info is a bottom sheet there), so that case is
+// desktop-only.
+describe('EditorShellComponent — desktop control card yields to other right-side surfaces (Critical 1)', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  function controlCard(fixture: ComponentFixture<EditorShellComponent>): Element | null {
+    return (fixture.nativeElement as HTMLElement).querySelector(
+      '.control-card-anchor pro-control-card .card',
+    );
+  }
+
+  function dockButton(
+    fixture: ComponentFixture<EditorShellComponent>,
+    label: string,
+  ): HTMLButtonElement {
+    const buttons = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('pro-tool-dock button'),
+    ) as HTMLButtonElement[];
+    const btn = buttons.find((b) => b.getAttribute('aria-label') === label);
+    expect(btn, `dock button "${label}" must be present`).not.toBeNull();
+    return btn!;
+  }
+
+  it('hides the card while the Curve panel is open, and restores it when Curve closes', () => {
+    const fixture = renderShell({ layout: 'desktop' });
+    expect(controlCard(fixture)).not.toBeNull();
+
+    dockButton(fixture, 'Tone Curve').click();
+    fixture.detectChanges();
+
+    expect(controlCard(fixture)).toBeNull();
+    expect(fixture.nativeElement.querySelector('.curve-panel')).not.toBeNull();
+
+    dockButton(fixture, 'Tone Curve').click();
+    fixture.detectChanges();
+
+    expect(controlCard(fixture)).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.curve-panel')).toBeNull();
+  });
+
+  it('hides the card while the Presets panel is open', () => {
+    const fixture = renderShell({ layout: 'desktop' });
+    expect(controlCard(fixture)).not.toBeNull();
+
+    dockButton(fixture, 'Presets').click();
+    fixture.detectChanges();
+
+    expect(controlCard(fixture)).toBeNull();
+    expect(fixture.nativeElement.querySelector('.presets-panel')).not.toBeNull();
+  });
+
+  it('hides the card while Noise is armed', () => {
+    const fixture = renderShell({ layout: 'desktop' });
+    const editorState = TestBed.inject(EditorStateService);
+    expect(controlCard(fixture)).not.toBeNull();
+
+    editorState.armTool('noise');
+    fixture.detectChanges();
+
+    expect(controlCard(fixture)).toBeNull();
+    expect(fixture.nativeElement.querySelector('.subparam-panel')).not.toBeNull();
+  });
+
+  it('hides the card while the Info pane is open', () => {
+    const fixture = renderShell({ layout: 'desktop' });
+    expect(controlCard(fixture)).not.toBeNull();
+
+    fixture.componentInstance.infoOpen.set(true);
+    fixture.detectChanges();
+
+    expect(controlCard(fixture)).toBeNull();
+    expect(fixture.nativeElement.querySelector('.info-pane')).not.toBeNull();
+
+    fixture.componentInstance.infoOpen.set(false);
+    fixture.detectChanges();
+
+    expect(controlCard(fixture)).not.toBeNull();
+  });
+
+  // HSL/bwMix/colorGrade render INSIDE the card (#1807 Task 4) — arming any
+  // of them must NOT hide it, same as the phone card above.
+  it('does not hide the card while HSL, B&W, or Color Grading is armed — they render inside it', () => {
+    const fixture = renderShell({ layout: 'desktop' });
+    const editorState = TestBed.inject(EditorStateService);
+
+    editorState.armTool('hsl');
+    fixture.detectChanges();
+    expect(controlCard(fixture)).not.toBeNull();
+
+    editorState.armTool('bwMix');
+    fixture.detectChanges();
+    expect(controlCard(fixture)).not.toBeNull();
+
+    editorState.armTool('colorGrade');
+    fixture.detectChanges();
+    expect(controlCard(fixture)).not.toBeNull();
   });
 });

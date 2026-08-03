@@ -141,7 +141,6 @@
           [activeTool]="activeTool()"
           [curveOpen]="curveOpen()"
           [presetsOpen]="presetsOpen()"
-          [blackWhiteOn]="blackWhiteOn()"
           (groupChange)="onGroupChange($event)"
           (toolChange)="onToolChange($event)"
           (curvePanelToggle)="onCurvePanelToggle()"
@@ -202,20 +201,34 @@
       </div>
 
       <!-- ── Tablet/desktop bottom control card ─────────────────── -->
-      <!-- Hidden only while cropping: the crop toolbar (in the dock-side
-           panel above) is a full replacement control surface with no group
+      <!-- Hidden while cropping: the crop toolbar (in the dock-side panel
+           above) is a full replacement control surface with no group
            sliders behind it, matching the S5 editor swapping its drag-bar
            area for the crop toolbar while armed. HSL, bwMix and Color
            Grading no longer suppress the card (#1807 Task 4): they render
            INSIDE it via content projection — the shell still composes their
            panel bodies (`cardBodySubParam`/`cardBodyGrade` below), and the
            card's colour sub-tool row (`onSubtoolClick`) is what stays
-           reachable to switch back to Basic. -->
-      @if (!cropArmed()) {
+           reachable to switch back to Basic.
+
+           ALSO hidden while Curve, Presets, Noise, or Info is open (Critical
+           1 review): `.control-card-anchor` (right: 88px, width: 300px) and
+           the dock-side panel anchor `%dock-side-panel` (right: 64px) both
+           sit vertically centred on the same axis, so the curve/presets/
+           subparam panels above and the 340px-wide `.info-pane` all overlap
+           this card unconditionally once both are showing — neither surface
+           has a z-index, so whichever is later in the DOM just paints over
+           the other. The phone `@if` guard below already does this for
+           curve/presets/noise (there both float in literally the same
+           anchor slot); this extends the same guard to tablet/desktop, plus
+           Info, which has no phone equivalent of the collision (Info is a
+           bottom sheet there, not a competing floating panel). -->
+      @if (!cropArmed() && !curveOpen() && !presetsOpen() && !noiseArmed() && !infoOpen()) {
         <div class="control-card-anchor">
           <pro-control-card
             [activeGroup]="activeGroup()"
             [activeTool]="activeTool()"
+            [blackWhiteOn]="blackWhiteOn()"
             (groupChange)="onGroupChange($event)"
             (toolChange)="onToolChange($event)"
           >
@@ -292,16 +305,17 @@
            different: each is its OWN full-width panel that floats in this
            same anchor slot (`%phone-flyout-panel`, immediately below), so
            the card must hide while any of them is open or it would render
-           right on top of them (review round 1 finding — on tablet/desktop
-           these panels anchor to the separate `.tool-dock-anchor` column
-           and genuinely cannot overlap `.control-card-anchor`; phone has no
-           such separation, both anchors are the same full-width strip
-           above the dock). -->
+           right on top of them (review round 1 finding; the tablet/desktop
+           `.control-card-anchor` guard just below picks up the same
+           requirement there — Critical 1 — since that card and the
+           dock-side panels turned out to overlap too, just not as
+           obviously as phone's single shared anchor slot). -->
       @if (!cropArmed() && !curveOpen() && !presetsOpen() && !noiseArmed()) {
         <div class="phone-card-anchor">
           <pro-control-card
             [activeGroup]="activeGroup()"
             [activeTool]="activeTool()"
+            [blackWhiteOn]="blackWhiteOn()"
             (groupChange)="onGroupChange($event)"
             (toolChange)="onToolChange($event)"
           >
@@ -404,7 +418,6 @@
           [activeGroup]="activeGroup()"
           [activeTool]="activeTool()"
           [curveOpen]="curveOpen()"
-          [blackWhiteOn]="blackWhiteOn()"
           [presetsOpen]="presetsOpen()"
           (groupChange)="onPhoneDockGroupChange($event)"
           (toolChange)="onToolChange($event)"
