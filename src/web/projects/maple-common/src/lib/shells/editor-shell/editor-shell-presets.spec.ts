@@ -178,7 +178,7 @@ describe('EditorShellComponent — presets port (#1815)', () => {
 
   function curveDockButton(): HTMLButtonElement {
     const btn = fixture.nativeElement.querySelector(
-      'pro-tool-dock button[aria-label="Curve"]',
+      'pro-tool-dock button[aria-label="Tone Curve"]',
     ) as HTMLButtonElement | null;
     expect(btn).not.toBeNull();
     return btn!;

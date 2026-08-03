@@ -1,35 +1,43 @@
-// ToolDockComponent — glass icon dock, vertical on tablet/desktop, horizontal
-// on phone (#1535, phone dock: #1807).
-// Icons: Light · Color · HSL · B&W · Curve · Grade · Effects · Detail ·
-// Crop · Presets · Optics · Mask · Heal (Crop also has a phone-only
-// horizontal entry).
+// ToolDockComponent — glass circle-and-label dock, vertical on tablet/desktop,
+// horizontal (scrolling) on phone (#1535, phone dock: #1807).
+// Nine Apple-parity entries: Light · Color · Effects · Detail · Crop ·
+// Tone Curve · Presets · Mask · Heal. Same set in both orientations
+// (MobileControlBar.swift:124) — a divider separates the four group buttons
+// from the special tools (ToolDock.swift:34).
 // Light / Color / Effects / Detail switch the active ToolGroup.
+// HSL, B&W and Grade no longer have dock buttons of their own — Apple's dock
+// carries none either. They're reached from the group-parameterised sub-tool
+// chip row inside the flyout panel instead (`control-card.component.ts`'s
+// `SUBTOOLS` map: Colour shows Basic·HSL·B&W, Effects shows Basic·Grade).
+// Their modified state still needs to surface somewhere, so it rolls up into
+// their owning group's dot (`isModified` below, via `TOOLS_IN_GROUP`).
 // Curve opens the tone-curve panel (M2 #1540).
-// HSL arms the HSL tool directly (canvas-first HSL port, epic #1807 slice 4;
-// reuses SubParamRowComponent/DragBarComponent/ValueChipComponent verbatim
-// from the S5 editor, #1112). HSL's entry is hidden entirely while Black &
-// White is On (`blackWhiteOn` input, #276) — its 24 sliders are inert then,
-// so the dock shouldn't offer a way to arm it.
-// B&W arms the bwMix tool directly (#276) — same shared multi-param arming
-// machinery as HSL, hosting the Black & White toggle + 8 gray-mixer weights.
-// Always visible regardless of `blackWhiteOn`, since it's the surface that
-// owns the toggle.
 // Crop arms the Crop tool directly (#1813 — canvas-first crop port; reuses
 // CropSessionService/CropOverlayComponent/CropToolbarComponent from the S5
-// editor, #638). The phone dock's Crop entry is the same tool, now enabled
-// now that crop is wired (previously a disabled placeholder for #1807).
+// editor, #638).
 // Presets opens the presets panel (#1815 — canvas-first presets port; reuses
 // PresetsPanelComponent/PresetsService verbatim from the S5 editor, #1115).
-// Optics / Mask / Heal are visibly disabled with a tooltip + code
-// comment referencing the milestone ticket — NOT fake panels (CLAUDE.md #6).
+// Optics is dropped entirely: Apple has no such button, and Mask/Heal already
+// signal that more tools are coming.
+// Mask / Heal are visibly disabled with a tooltip + code comment referencing
+// the milestone ticket — NOT fake panels (CLAUDE.md #6) — and kept out of the
+// accessibility tree entirely (`aria-hidden`, `tabindex="-1"`, no
+// `aria-label`), mirroring Apple's `DisabledDockPlaceholder.accessibilityHidden(true)`.
 
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
-import type { ToolGroup, ToolId } from '../../editor/tool-model';
+import {
+  TOOLS_IN_GROUP,
+  defaultDisplayValue,
+  fieldFor,
+  isWired,
+  type ToolGroup,
+  type ToolId,
+} from '../../editor/tool-model';
+import { LibraryStateService } from '../../state/library-state.service';
+import type { AdjustmentModel } from '../../models/adjustment-model';
 
 export type DockOrientation = 'vertical' | 'horizontal';
-
-const BOTH_ORIENTATIONS: readonly DockOrientation[] = ['vertical', 'horizontal'];
 
 export interface DockEntry {
   id: string;
@@ -50,91 +58,49 @@ export interface DockEntry {
   ticket?: string;
   /** If true, clicking this entry opens a floating panel rather than switching a group. */
   panel?: boolean;
-  /**
-   * Which orientation(s) show this entry. Defaults to both. The phone
-   * horizontal dock (#1807's mockup) shows only Light/Color/HSL/Curve/
-   * Effects/Detail/Crop/Presets — Optics/Mask/Heal stay tablet+-only until
-   * they're actually wired. Crop has separate vertical- and horizontal-only
-   * entries (both wired to the same `tool: 'crop'`) purely for dock-order
-   * placement — the phone mockup ends the row in Crop.
-   */
-  orientations?: readonly DockOrientation[];
+  /** Draw a horizontal rule above this entry — separates the four group
+   *  entries from the special tools (ToolDock.swift:34). */
+  divideBefore?: boolean;
 }
 
 const DOCK_ENTRIES: DockEntry[] = [
   { id: 'light', icon: 'tool-exposure', label: 'Light', group: 'light' },
   { id: 'color', icon: 'tool-tint', label: 'Color', group: 'color' },
-  // HSL: arms the HSL tool directly (canvas-first port, epic #1807 slice 4).
-  // Mounts the shared SubParamRowComponent (chip selector) + DragBarComponent
-  // + ValueChipComponent — same (tool, subParam) arming machinery the S5
-  // editor's HSL pill uses, so a hue/sat/lum edit writes the identical
-  // AdjustmentModel field on both editors.
-  { id: 'hsl', icon: 'tool-hsl', label: 'HSL', tool: 'hsl' },
-  // B&W: arms the bwMix tool directly (#276 — Black & White toggle + 8
-  // gray-mixer weights). Mounts the same shared chip selector + drag bar +
-  // value chip HSL uses, plus an explicit toggle control for
-  // `model.blackWhite`. Placed right after HSL — the two tools are mutually
-  // exclusive views onto the same 8-hue-band Oklab stage.
-  { id: 'bwMix', icon: 'tool-bw', label: 'B&W', tool: 'bwMix' },
-  // Curve: enabled in #1540 (web M2 — tone curve + WB pad)
-  { id: 'curve', icon: 'tool-contrast', label: 'Curve', panel: true },
-  // Grade: arms the Color Grading tool (#275), which mounts the four-wheel
-  // panel. It supersedes the old Split Tone pill — there is exactly one
-  // colour-toning surface in the editor.
-  { id: 'colorGrade', icon: 'tool-color-grade', label: 'Grade', tool: 'colorGrade' },
   { id: 'effects', icon: 'tool-vignette', label: 'Effects', group: 'effects' },
   { id: 'detail', icon: 'tool-sharpen', label: 'Detail', group: 'detail' },
-  // Crop: arms the Crop tool directly (#1813). Mounts the shared crop overlay
-  // over the canvas + the shared crop toolbar (aspect/straighten/reset/done) —
-  // same CropSessionService the S5 editor uses, so output is byte-identical.
-  // Tablet/desktop vertical-dock entry; the phone horizontal dock has its own
-  // Crop entry below (now enabled — see that entry's comment).
-  { id: 'crop', icon: 'tool-crop', label: 'Crop', tool: 'crop', orientations: ['vertical'] },
-  // Presets: opens the presets panel (#1815). Mounts the shared
-  // PresetsPanelComponent (list/save/apply/delete) — same PresetsService +
-  // EditorStateService.applyPreset the S5 editor uses.
-  { id: 'presets', icon: 'tool-presets', label: 'Presets', panel: true },
-  // Optics: out of v0.1 scope — tracked in epic #1534. Not part of the phone
-  // dock's mockup (#1807) — tablet/desktop only.
+  // Divider: groups above, special tools below — mirrors ToolDock.swift:34.
   {
-    id: 'optics',
-    icon: 'zoom-in',
-    label: 'Optics',
-    disabled: true,
-    ticket: '#1534',
-    orientations: ['vertical'],
+    id: 'crop',
+    icon: 'tool-crop',
+    label: 'Crop',
+    tool: 'crop',
+    divideBefore: true,
   },
-  // Mask: coming in #1541 (web M3 — masking). No masking exists yet; a fake
-  // contour would violate CLAUDE.md principle #6. Tablet/desktop only.
+  { id: 'curve', icon: 'tool-contrast', label: 'Tone Curve', panel: true },
+  { id: 'presets', icon: 'tool-presets', label: 'Presets', panel: true },
+  // HSL, B&W and Grade are reached from the Colour sub-tool row inside the
+  // flyout panel (see control-card.component.ts), not from the dock — Apple's
+  // dock carries no button for them either. Optics is dropped: Apple has no
+  // such button and Mask/Heal already signal that more tools are coming.
   {
     id: 'mask',
     icon: 'tool-dehaze',
     label: 'Mask',
     disabled: true,
     ticket: '#1541',
-    orientations: ['vertical'],
   },
-  // Heal: tracked in #1472 (local AI inpainting / Remove) — not wired in M1.
-  // Tablet/desktop only.
   {
     id: 'heal',
     icon: 'tool-texture',
     label: 'Heal',
     disabled: true,
     ticket: '#1472',
-    orientations: ['vertical'],
   },
-  // Crop: arms the Crop tool directly, same as the vertical dock's Crop entry
-  // above (#1813 wired the crop overlay/toolbar; this was a disabled
-  // placeholder for exactly that landing — #1807). Phone-only entry — the
-  // mockup's bottom dock ends in Crop.
-  { id: 'crop', icon: 'tool-crop', label: 'Crop', tool: 'crop', orientations: ['horizontal'] },
 ];
 
-/** Tools that have their own dock entry (Crop, HSL, bwMix) — a group entry
- *  must NOT show active while one of these is armed, even though the tool
- *  lives inside that group (Crop is in `detail`; HSL and bwMix are in
- *  `color`). */
+/** Tools that have their own dock entry (Crop) — a group entry must NOT show
+ *  active while one of these is armed, even though the tool lives inside
+ *  that group (Crop is in `detail`). */
 const DOCK_TOOL_IDS = new Set<ToolId>(
   DOCK_ENTRIES.map((e) => e.tool).filter((t): t is ToolId => t != null),
 );
@@ -177,15 +143,37 @@ export class ToolDockComponent {
   /** Fired when user taps the Presets entry (toggle, #1815). */
   presetsPanelToggle = output<void>();
 
-  /** Entries visible for the current orientation, with the HSL entry
-   *  dropped entirely while Black & White is On (#276). */
-  readonly entries = computed<DockEntry[]>(() => {
-    const axis = this.orientation();
-    const hideHsl = this.blackWhiteOn();
-    return DOCK_ENTRIES.filter((e) => (e.orientations ?? BOTH_ORIENTATIONS).includes(axis)).filter(
-      (e) => !(hideHsl && e.id === 'hsl'),
-    );
+  private libraryState = inject(LibraryStateService);
+
+  /** Adjustment model for the focused asset, or null when none is focused. */
+  private readonly currentAdj = computed<AdjustmentModel | null>(() => {
+    const id = this.libraryState.focusedAssetId();
+    return id ? this.libraryState.adjustmentFor(id)() : null;
   });
+
+  /** The nine dock entries. No longer orientation-dependent: the phone bar
+   *  and the desktop column show the same set (MobileControlBar.swift:124). */
+  readonly entries = computed<DockEntry[]>(() => DOCK_ENTRIES);
+
+  /** Accent dot: true when any tool this entry covers holds a non-default
+   *  value. For a GROUP entry that means every tool in the group — including
+   *  HSL, B&W and Grade, which no longer have buttons of their own, so their
+   *  modified state has to surface on Color's dot. */
+  isModified(entry: DockEntry): boolean {
+    const adj = this.currentAdj();
+    if (!adj || entry.disabled) return false;
+    const tools = entry.group
+      ? TOOLS_IN_GROUP[entry.group]
+      : entry.tool
+        ? [entry.tool]
+        : ([] as readonly ToolId[]);
+    return tools.some((tool) => {
+      if (!isWired(tool)) return false;
+      const field = fieldFor(tool);
+      if (!field) return false;
+      return Math.abs((adj[field] as number) - defaultDisplayValue(tool)) > 1e-6;
+    });
+  }
 
   /** Whether a given `panel: true` entry's panel is currently open — keyed
    *  by entry id so a second panel entry (Presets, #1815) doesn't need its
