@@ -436,12 +436,17 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
 
   /**
    * Phone bottom dock (#1807 Task 5): arms the tapped group, closing an open
-   * curve panel first. The slider card is always visible now (no closeable
-   * flyout), but it and the curve panel still float in the same anchor
-   * above the dock, so only one of the two can show at a time — Crop,
-   * HSL, bwMix, and Color Grading already get this via `onToolChange`; a
-   * plain group tap needs its own handler since `onGroupChange` alone
-   * doesn't touch `curveOpen`.
+   * curve panel first. The slider card is visible by default (no closeable
+   * flyout) and the template hides it whenever `curveOpen()`,
+   * `presetsOpen()`, or `noiseArmed()` is true — that `@if` guard is what
+   * actually keeps the card and the curve panel from rendering on top of
+   * each other (they float in the same anchor slot above the dock, unlike
+   * tablet/desktop where the curve/presets/noise panels live in the
+   * separate `.tool-dock-anchor` column). This handler's own
+   * `curveOpen.set(false)` closes an already-open curve panel so tapping a
+   * group tool brings the card back — `onGroupChange` alone doesn't touch
+   * `curveOpen`, and Crop/HSL/bwMix/Color Grading already get the same
+   * close via `onToolChange`.
    */
   onPhoneDockGroupChange(group: ToolGroup): void {
     this.curveOpen.set(false);
