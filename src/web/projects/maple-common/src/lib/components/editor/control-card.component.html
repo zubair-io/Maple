@@ -1,7 +1,7 @@
 <!-- ControlCard — floating glass flyout panel, FlyoutSliderPanel parity (#1535) -->
 <!-- Phone (#1807): header still shows a close button; `closed` hides the card -->
 @if (!phone() || !closed()) {
-  <div class="card" [class.card--phone]="phone()">
+  <div class="card">
     <div class="card-header">
       <maple-icon [name]="$any(groupIcon(activeGroup()))" [size]="12" color="var(--pro-accent)" />
       <span class="group-title">{{ groupLabel(activeGroup()).toUpperCase() }}</span>
