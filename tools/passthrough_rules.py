@@ -81,7 +81,10 @@ def skip_reason(rel_terminal: str, rel_parent: str, link_names: list[str]) -> st
     if any(PROTECTED_COMPONENT.search(part) for part in rel_terminal.split(os.sep)):
         return "inside a .lrdata package"
 
-    if any(rel_terminal.startswith(p + os.sep) or rel_terminal == p for p in PROTECTED_SUBPATHS):
+    # Matched anywhere in the path, not just as a prefix: the same project trees
+    # exist again under _duplicates/, and they are protected for the same reason.
+    padded = os.sep + rel_terminal + os.sep
+    if any(os.sep + p + os.sep in padded for p in PROTECTED_SUBPATHS):
         return "inside a protected project tree"
 
     if is_date(terminal_name):
