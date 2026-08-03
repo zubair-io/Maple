@@ -39,24 +39,26 @@ Self-contained and touched by no other task. Do it first so later screenshots sh
 Append to `living-slider.component.spec.ts`:
 
 ```typescript
-describe('stacked layout (Apple LivingSlider parity)', () => {
-  it('puts label and value in a head row above the track', () => {
-    const fixture = render({ label: 'Exposure', value: 0, min: -5, max: 5 });
+describe("stacked layout (Apple LivingSlider parity)", () => {
+  it("puts label and value in a head row above the track", () => {
+    const fixture = render({ label: "Exposure", value: 0, min: -5, max: 5 });
     const el = fixture.nativeElement as HTMLElement;
 
-    const head = el.querySelector('.slider-head');
+    const head = el.querySelector(".slider-head");
     expect(head).toBeTruthy();
-    expect(head!.querySelector('.slider-label')?.textContent?.trim()).toBe('Exposure');
-    expect(head!.querySelector('.value-chip')).toBeTruthy();
+    expect(head!.querySelector(".slider-label")?.textContent?.trim()).toBe(
+      "Exposure",
+    );
+    expect(head!.querySelector(".value-chip")).toBeTruthy();
 
     // Track is a SIBLING of the head, not inside it — that is what makes it
     // span the full card width rather than share a row with the label.
-    const row = el.querySelector('.slider-row')!;
+    const row = el.querySelector(".slider-row")!;
     const children = Array.from(row.children);
     expect(children.indexOf(head!)).toBeLessThan(
-      children.indexOf(row.querySelector('.track-wrap')!),
+      children.indexOf(row.querySelector(".track-wrap")!),
     );
-    expect(head!.querySelector('.track-wrap')).toBeNull();
+    expect(head!.querySelector(".track-wrap")).toBeNull();
   });
 });
 ```
@@ -76,7 +78,9 @@ Replace the whole of `living-slider.component.html` with:
 <div class="slider-row">
   <div class="slider-head">
     <span class="slider-label" [title]="label()">{{ label() }}</span>
-    <span class="value-chip" [class.value-chip--modified]="isModified()">{{ valueLabel() }}</span>
+    <span class="value-chip" [class.value-chip--modified]="isModified()"
+      >{{ valueLabel() }}</span
+    >
   </div>
 
   <div
@@ -97,7 +101,11 @@ Replace the whole of `living-slider.component.html` with:
       @if (bipolar()) {
       <div class="zero-notch"></div>
       }
-      <div class="thumb" [class.thumb--modified]="isModified()" [style.left.%]="thumbPct()"></div>
+      <div
+        class="thumb"
+        [class.thumb--modified]="isModified()"
+        [style.left.%]="thumbPct()"
+      ></div>
     </div>
   </div>
 </div>
@@ -183,55 +191,63 @@ git commit -m "feat(web): stack living-slider label and value above a full-width
 Append to `tool-dock.component.spec.ts`:
 
 ```typescript
-describe('Apple 9-entry parity', () => {
-  it('renders exactly the nine Apple entries in order, both orientations', () => {
+describe("Apple 9-entry parity", () => {
+  it("renders exactly the nine Apple entries in order, both orientations", () => {
     const expected = [
-      'Light',
-      'Color',
-      'Effects',
-      'Detail',
-      'Crop',
-      'Tone Curve',
-      'Presets',
-      'Mask',
-      'Heal',
+      "Light",
+      "Color",
+      "Effects",
+      "Detail",
+      "Crop",
+      "Tone Curve",
+      "Presets",
+      "Mask",
+      "Heal",
     ];
-    for (const orientation of ['vertical', 'horizontal'] as const) {
+    for (const orientation of ["vertical", "horizontal"] as const) {
       const fixture = render({ orientation });
       const labels = Array.from(
-        (fixture.nativeElement as HTMLElement).querySelectorAll('.dock-btn .dock-label'),
+        (fixture.nativeElement as HTMLElement).querySelectorAll(
+          ".dock-btn .dock-label",
+        ),
       ).map((n) => n.textContent!.trim());
       expect(labels, orientation).toEqual(expected);
     }
   });
 
-  it('no longer offers HSL, B&W, Grade or Optics buttons', () => {
+  it("no longer offers HSL, B&W, Grade or Optics buttons", () => {
     const fixture = render({});
     const labels = Array.from(
-      (fixture.nativeElement as HTMLElement).querySelectorAll('.dock-btn'),
-    ).map((n) => n.getAttribute('aria-label'));
-    for (const gone of ['HSL', 'B&W', 'Grade', 'Optics']) {
+      (fixture.nativeElement as HTMLElement).querySelectorAll(".dock-btn"),
+    ).map((n) => n.getAttribute("aria-label"));
+    for (const gone of ["HSL", "B&W", "Grade", "Optics"]) {
       expect(labels).not.toContain(gone);
     }
   });
 
-  it('draws a divider before Crop', () => {
+  it("draws a divider before Crop", () => {
     const fixture = render({});
     const el = fixture.nativeElement as HTMLElement;
-    const nodes = Array.from(el.querySelectorAll('.dock-divider, .dock-btn'));
-    const dividerIndex = nodes.findIndex((n) => n.classList.contains('dock-divider'));
-    const cropIndex = nodes.findIndex((n) => n.getAttribute('aria-label') === 'Crop');
+    const nodes = Array.from(el.querySelectorAll(".dock-divider, .dock-btn"));
+    const dividerIndex = nodes.findIndex((n) =>
+      n.classList.contains("dock-divider"),
+    );
+    const cropIndex = nodes.findIndex(
+      (n) => n.getAttribute("aria-label") === "Crop",
+    );
     expect(dividerIndex).toBeGreaterThan(-1);
     expect(dividerIndex).toBe(cropIndex - 1);
   });
 
-  it('keeps disabled placeholders out of the accessibility tree', () => {
+  it("keeps disabled placeholders out of the accessibility tree", () => {
     const fixture = render({});
-    const mask = (fixture.nativeElement as HTMLElement).querySelector('[aria-label="Mask"]');
-    expect(mask).toBeNull();
-    const placeholders = (fixture.nativeElement as HTMLElement).querySelectorAll(
-      '.dock-btn--disabled[aria-hidden="true"]',
+    const mask = (fixture.nativeElement as HTMLElement).querySelector(
+      '[aria-label="Mask"]',
     );
+    expect(mask).toBeNull();
+    const placeholders = (
+      fixture.nativeElement as HTMLElement
+    ).querySelectorAll('.dock-btn--disabled[aria-hidden="true"]');
     expect(placeholders.length).toBe(2);
   });
 });
@@ -256,37 +272,37 @@ Then replace `DOCK_ENTRIES` (currently lines 64-132) with:
 
 ```typescript
 const DOCK_ENTRIES: DockEntry[] = [
-  { id: 'light', icon: 'tool-exposure', label: 'Light', group: 'light' },
-  { id: 'color', icon: 'tool-tint', label: 'Color', group: 'color' },
-  { id: 'effects', icon: 'tool-vignette', label: 'Effects', group: 'effects' },
-  { id: 'detail', icon: 'tool-sharpen', label: 'Detail', group: 'detail' },
+  { id: "light", icon: "tool-exposure", label: "Light", group: "light" },
+  { id: "color", icon: "tool-tint", label: "Color", group: "color" },
+  { id: "effects", icon: "tool-vignette", label: "Effects", group: "effects" },
+  { id: "detail", icon: "tool-sharpen", label: "Detail", group: "detail" },
   // Divider: groups above, special tools below — mirrors ToolDock.swift:34.
   {
-    id: 'crop',
-    icon: 'tool-crop',
-    label: 'Crop',
-    tool: 'crop',
+    id: "crop",
+    icon: "tool-crop",
+    label: "Crop",
+    tool: "crop",
     divideBefore: true,
   },
-  { id: 'curve', icon: 'tool-contrast', label: 'Tone Curve', panel: true },
-  { id: 'presets', icon: 'tool-presets', label: 'Presets', panel: true },
+  { id: "curve", icon: "tool-contrast", label: "Tone Curve", panel: true },
+  { id: "presets", icon: "tool-presets", label: "Presets", panel: true },
   // HSL, B&W and Grade are reached from the Colour sub-tool row inside the
   // flyout panel (see control-card.component.ts), not from the dock — Apple's
   // dock carries no button for them either. Optics is dropped: Apple has no
   // such button and Mask/Heal already signal that more tools are coming.
   {
-    id: 'mask',
-    icon: 'tool-dehaze',
-    label: 'Mask',
+    id: "mask",
+    icon: "tool-dehaze",
+    label: "Mask",
     disabled: true,
-    ticket: '#1541',
+    ticket: "#1541",
   },
   {
-    id: 'heal',
-    icon: 'tool-texture',
-    label: 'Heal',
+    id: "heal",
+    icon: "tool-texture",
+    label: "Heal",
     disabled: true,
-    ticket: '#1472',
+    ticket: "#1472",
   },
 ];
 ```
@@ -336,8 +352,8 @@ Add the injected state and the dot predicate to the class body:
 Extend the existing import from `../../editor/tool-model` with `TOOLS_IN_GROUP`, `isWired`, `fieldFor` and `defaultDisplayValue`, add `inject` to the `@angular/core` import, and add:
 
 ```typescript
-import { LibraryStateService } from '../../state/library-state.service';
-import type { AdjustmentModel } from '../../models/adjustment-model';
+import { LibraryStateService } from "../../state/library-state.service";
+import type { AdjustmentModel } from "../../models/adjustment-model";
 ```
 
 - [ ] **Step 5: Rewrite the template**
@@ -533,13 +549,13 @@ git commit -m "feat(web): collapse the tool dock to Apple's nine circle-and-labe
 Append to `control-card.component.spec.ts`:
 
 ```typescript
-describe('flyout header (FlyoutSliderPanel parity)', () => {
-  it('shows the accent group title and no group-chip row', () => {
-    const fixture = render({ activeGroup: 'color' });
+describe("flyout header (FlyoutSliderPanel parity)", () => {
+  it("shows the accent group title and no group-chip row", () => {
+    const fixture = render({ activeGroup: "color" });
     const el = fixture.nativeElement as HTMLElement;
-    expect(el.querySelector('.group-title')?.textContent?.trim()).toBe('COLOR');
-    expect(el.querySelector('.group-chips')).toBeNull();
-    expect(el.querySelector('.grab-handle')).toBeNull();
+    expect(el.querySelector(".group-title")?.textContent?.trim()).toBe("COLOR");
+    expect(el.querySelector(".group-chips")).toBeNull();
+    expect(el.querySelector(".grab-handle")).toBeNull();
   });
 });
 ```
@@ -555,7 +571,11 @@ In `control-card.component.html`, delete the `.grab-handle` button entirely and 
 
 ```html
 <div class="card-header">
-  <maple-icon [name]="$any(groupIcon(activeGroup()))" [size]="12" color="var(--pro-accent)" />
+  <maple-icon
+    [name]="$any(groupIcon(activeGroup()))"
+    [size]="12"
+    color="var(--pro-accent)"
+  />
   <span class="group-title">{{ groupLabel(activeGroup()).toUpperCase() }}</span>
 
   <button
@@ -568,8 +588,17 @@ In `control-card.component.html`, delete the `.grab-handle` button entirely and 
   </button>
 
   @if (phone()) {
-  <button class="close-btn" title="Close panel" aria-label="Close panel" (click)="onCloseClick()">
-    <maple-icon name="clear-circle-fill" [size]="16" color="var(--pro-text-muted)" />
+  <button
+    class="close-btn"
+    title="Close panel"
+    aria-label="Close panel"
+    (click)="onCloseClick()"
+  >
+    <maple-icon
+      name="clear-circle-fill"
+      [size]="16"
+      color="var(--pro-text-muted)"
+    />
   </button>
   }
 </div>
@@ -681,9 +710,14 @@ git commit -m "feat(web): float the control panel beside the dock at a fixed 300
 
 ---
 
-### Task 4: Colour sub-tool row
+### Task 4: Sub-tool rows
 
 This is what keeps HSL, B&W and Grade reachable after Task 2 removes their dock buttons. **It must land before the branch merges.** The three panels move inside the flyout, mirroring `FlyoutSliderPanel`'s `armedTool` branches, because the shell hides the flyout while they are armed today — leaving the chip row unreachable exactly when it is needed.
+
+> **Correction applied during execution (human ruling).** Two defects in the task text below were found while implementing it, and both are verified against source:
+>
+> 1. **Grade belongs to Effects, not Colour.** `TOOLS_IN_GROUP.effects` contains `colorGrade` (`tool-model.ts:111`), and `armTool` sets `armedGroup = groupOf(tool)` (`editor-state.service.ts:237`). A single Colour-only row containing Grade would flip the group to Effects on selection and hide itself. The chip row is therefore **group-parameterised**: Colour shows `Basic · HSL · B&W`, Effects shows `Basic · Grade`, Light and Detail show none. Wherever the steps below say the row is Colour-only or list four Colour chips, this correction governs.
+> 2. **Basic cannot route through `armGroup`.** `armGroup(g)` preserves the armed tool when it already belongs to `g` (`editor-state.service.ts:241-245`), which is correct for the dock's group buttons but makes `groupChange.emit('color')` a no-op in exactly the case Basic serves — escaping HSL or B&W. Basic must arm the group's first slider tool directly.
 
 **Files:**
 
@@ -703,44 +737,50 @@ This is what keeps HSL, B&W and Grade reachable after Task 2 removes their dock 
 Append to `control-card.component.spec.ts`:
 
 ```typescript
-describe('colour sub-tool row', () => {
-  it('renders Basic/HSL/B&W/Grade only for the colour group', () => {
-    const colour = render({ activeGroup: 'color' });
+describe("colour sub-tool row", () => {
+  it("renders Basic/HSL/B&W/Grade only for the colour group", () => {
+    const colour = render({ activeGroup: "color" });
     const chips = Array.from(
-      (colour.nativeElement as HTMLElement).querySelectorAll('.subtool-chip'),
+      (colour.nativeElement as HTMLElement).querySelectorAll(".subtool-chip"),
     ).map((n) => n.textContent!.trim());
-    expect(chips).toEqual(['Basic', 'HSL', 'B&W', 'Grade']);
+    expect(chips).toEqual(["Basic", "HSL", "B&W", "Grade"]);
 
-    const light = render({ activeGroup: 'light' });
-    expect((light.nativeElement as HTMLElement).querySelector('.subtool-row')).toBeNull();
+    const light = render({ activeGroup: "light" });
+    expect(
+      (light.nativeElement as HTMLElement).querySelector(".subtool-row"),
+    ).toBeNull();
   });
 
-  it('emits the same tool a dock button used to arm', () => {
-    const fixture = render({ activeGroup: 'color' });
+  it("emits the same tool a dock button used to arm", () => {
+    const fixture = render({ activeGroup: "color" });
     const emitted: string[] = [];
-    fixture.componentInstance.toolChange.subscribe((t: string) => emitted.push(t));
+    fixture.componentInstance.toolChange.subscribe((t: string) =>
+      emitted.push(t),
+    );
 
-    const chips = (fixture.nativeElement as HTMLElement).querySelectorAll('.subtool-chip');
+    const chips = (fixture.nativeElement as HTMLElement).querySelectorAll(
+      ".subtool-chip",
+    );
     (chips[1] as HTMLButtonElement).click(); // HSL
     (chips[2] as HTMLButtonElement).click(); // B&W
     (chips[3] as HTMLButtonElement).click(); // Grade
-    expect(emitted).toEqual(['hsl', 'bwMix', 'colorGrade']);
+    expect(emitted).toEqual(["hsl", "bwMix", "colorGrade"]);
   });
 
-  it('marks the chip matching the armed tool active, defaulting to Basic', () => {
-    const hsl = render({ activeGroup: 'color', activeTool: 'hsl' });
+  it("marks the chip matching the armed tool active, defaulting to Basic", () => {
+    const hsl = render({ activeGroup: "color", activeTool: "hsl" });
     expect(
       (hsl.nativeElement as HTMLElement)
-        .querySelector('.subtool-chip--active')
+        .querySelector(".subtool-chip--active")
         ?.textContent?.trim(),
-    ).toBe('HSL');
+    ).toBe("HSL");
 
-    const basic = render({ activeGroup: 'color', activeTool: 'temp' });
+    const basic = render({ activeGroup: "color", activeTool: "temp" });
     expect(
       (basic.nativeElement as HTMLElement)
-        .querySelector('.subtool-chip--active')
+        .querySelector(".subtool-chip--active")
         ?.textContent?.trim(),
-    ).toBe('Basic');
+    ).toBe("Basic");
   });
 });
 ```
@@ -779,10 +819,10 @@ const COLOR_SUBTOOLS: readonly {
   readonly id: ToolId | null;
   readonly label: string;
 }[] = [
-  { id: null, label: 'Basic' },
-  { id: 'hsl', label: 'HSL' },
-  { id: 'bwMix', label: 'B&W' },
-  { id: 'colorGrade', label: 'Grade' },
+  { id: null, label: "Basic" },
+  { id: "hsl", label: "HSL" },
+  { id: "bwMix", label: "B&W" },
+  { id: "colorGrade", label: "Grade" },
 ];
 ```
 
@@ -871,7 +911,9 @@ In `editor-shell.component.html`, change the tablet/desktop control-card block (
         data-testid="bw-toggle"
         (click)="onBlackWhiteToggle()"
       >
-        <span class="bw-toggle-track"><span class="bw-toggle-thumb"></span></span>
+        <span class="bw-toggle-track"
+          ><span class="bw-toggle-thumb"></span
+        ></span>
         <span class="bw-toggle-label">Black &amp; White</span>
       </button>
       }
@@ -965,11 +1007,11 @@ git commit -m "feat(web): reach HSL, B&W and Grade from a colour sub-tool row"
 Append to `editor-shell.component.spec.ts`:
 
 ```typescript
-it('shows the phone slider panel without requiring a dock tap', () => {
-  const fixture = renderShell({ layout: 'phone' });
+it("shows the phone slider panel without requiring a dock tap", () => {
+  const fixture = renderShell({ layout: "phone" });
   const el = fixture.nativeElement as HTMLElement;
-  expect(el.querySelector('.phone-card-anchor pro-control-card')).toBeTruthy();
-  expect(el.querySelector('.close-btn')).toBeNull();
+  expect(el.querySelector(".phone-card-anchor pro-control-card")).toBeTruthy();
+  expect(el.querySelector(".close-btn")).toBeNull();
 });
 ```
 
@@ -1001,7 +1043,9 @@ In `editor-shell.component.html`, replace the phone `@else` branch's control-car
         data-testid="bw-toggle"
         (click)="onBlackWhiteToggle()"
       >
-        <span class="bw-toggle-track"><span class="bw-toggle-thumb"></span></span>
+        <span class="bw-toggle-track"
+          ><span class="bw-toggle-thumb"></span
+        ></span>
         <span class="bw-toggle-label">Black &amp; White</span>
       </button>
       }
