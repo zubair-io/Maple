@@ -80,28 +80,18 @@ struct ThumbnailImage: View {
     /// away as it opens.
     static let cornerRadius: CGFloat = 4
 
-    let thumbnailData: Data?
+    /// The already-decoded thumbnail bitmap, or nil to show the placeholder.
+    /// Decoding happens OFF the main actor in the owning cell's `.task` (via
+    /// `ThumbnailDecoder`); this view is a pure renderer and never decodes —
+    /// decoding in `body` on the main thread was the original grid-jank source.
+    let image: CGImage?
     let displayMode: GridDisplayMode
-
-    /// The decoded thumbnail bitmap. Populated off the main actor by the
-    /// `.task` below (never decoded in `body`). Starts nil, so the placeholder
-    /// shows until the first decode completes.
-    @State private var decoded: CGImage?
-
-    /// Image to render this frame: the async-decoded result if we have it, else
-    /// a synchronous peek into the decoded-image cache (instant when this tile
-    /// was decoded a moment ago and scrolled back — no placeholder flash), else
-    /// nil → placeholder. This is a pure read; the actual decode/caching happens
-    /// in the `.task`.
-    private var displayImage: CGImage? {
-        decoded ?? thumbnailData.flatMap(ThumbnailDecoder.cachedImage(for:))
-    }
 
     var body: some View {
         Rectangle()
             .fill(MapleTokens.surfaceAlt)
             .overlay {
-                if let image = displayImage {
+                if let image {
                     // `Image(decorative:)` takes a CGImage directly and is
                     // cross-platform, so there's no AppKit/UIKit branch. The
                     // bitmap is already eagerly decoded (ThumbnailDecoder), so
@@ -116,32 +106,11 @@ struct ThumbnailImage: View {
             }
             .aspectRatio(1, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
-            // Decode OFF the main actor and cache the decoded bitmap. The old
-            // code decoded the AVIF synchronously inside `body` via
-            // `CGImageSourceCreateImageAtIndex` — on the main thread, re-run on
-            // every body evaluation, and lazily (decoding again at draw time).
-            // On a cold grid that serialized N decodes on the main thread and
-            // hitched every scroll. `ThumbnailDecoder.image(for:)` hops the
-            // decode off-main, downsamples, and memoizes by bytes so repeat
-            // requests are free. Keyed on `thumbnailData`, so a cell reused for
-            // new bytes re-decodes; `.task` cancellation covers scroll-away.
-            .task(id: thumbnailData) {
-                guard let data = thumbnailData else {
-                    decoded = nil
-                    return
-                }
-                let image = await ThumbnailDecoder.image(for: data)
-                guard !Task.isCancelled else { return }
-                // No arrival animation — see PhotoThumbnailCell: a per-tile
-                // fade during scroll drives an opacity transition on the main
-                // thread for every arriving thumbnail and hitches the scroll.
-                decoded = image
-            }
     }
 }
 
 #Preview("ThumbnailImage — placeholder") {
-    ThumbnailImage(thumbnailData: nil, displayMode: .fill)
+    ThumbnailImage(image: nil, displayMode: .fill)
         .frame(width: 180, height: 180)
         .padding()
         .background(MapleTokens.bg)

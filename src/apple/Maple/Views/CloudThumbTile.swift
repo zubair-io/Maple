@@ -50,15 +50,21 @@ struct CloudThumbTile: View {
     let host: String
     var displayMode: GridDisplayMode = .fill
 
-    @State private var thumbData: Data?
+    /// Decoded thumbnail bitmap, produced off the main actor in the `.task`.
+    @State private var decoded: CGImage?
 
     var body: some View {
-        ThumbnailImage(thumbnailData: thumbData, displayMode: displayMode)
+        ThumbnailImage(image: decoded ?? ThumbnailDecoder.cachedImage(forKey: absPath),
+                       displayMode: displayMode)
             .task(id: absPath) {
                 let bytes = await fetchCloudThumbBytes(
                     host: host, absPath: absPath, cache: thumbCache, client: thumbClient)
                 guard !Task.isCancelled else { return }
-                withAnimation(.easeInOut(duration: 0.18)) { thumbData = bytes }
+                // Decode off-main, keyed on the lightweight abs-path; no arrival
+                // fade (it hitches scroll — see PhotoThumbnailCell).
+                let image = await ThumbnailDecoder.image(for: bytes, key: absPath)
+                guard !Task.isCancelled else { return }
+                decoded = image
             }
     }
 }

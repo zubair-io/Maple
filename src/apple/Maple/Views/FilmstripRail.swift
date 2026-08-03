@@ -193,13 +193,13 @@ private struct FilmstripRailCell: View {
             )
             guard !Task.isCancelled else { return }
             // Decode off the main actor before touching view state — never in
-            // `body`. `ThumbnailDecoder.image(for:)` hops off-actor and memoizes.
-            let image = await ThumbnailDecoder.image(for: bytes)
+            // `body`. Keyed on the asset's stable id; no arrival fade (it
+            // hitches scroll the same way it does in the grid).
+            let image = await ThumbnailDecoder.image(
+                for: bytes, key: capturedAsset.stableID ?? capturedAsset.id.uuidString)
             guard !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: 0.18)) {
-                decoded = image
-                loadedForID = capturedAsset.id
-            }
+            decoded = image
+            loadedForID = capturedAsset.id
             loadTask = nil
         }
     }

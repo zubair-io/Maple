@@ -55,7 +55,9 @@ struct PhotoThumbnailCell: View {
 
     // MARK: State
 
-    @State private var thumb: Data?
+    /// Decoded thumbnail bitmap. Fetched + decoded OFF the main actor in the
+    /// `.task` below and cached by `item.id`; never decoded in `body`.
+    @State private var decoded: CGImage?
 
     /// Multi-select-aware accessibility label — restores the per-cell
     /// "<name>, selected / not selected" announcement BrowseGrid had before the
@@ -76,10 +78,11 @@ struct PhotoThumbnailCell: View {
     // MARK: Body
 
     var body: some View {
-        // Sync peek first: if the thumbnail is already in the memory cache
-        // (from a prior load), show it immediately without a placeholder frame.
-        // `thumb` (async-loaded) takes precedence once the .task completes.
-        ThumbnailImage(thumbnailData: thumb ?? provider.cachedThumbnail(for: item.thumbnailSource),
+        // Render the decoded bitmap. `decoded` is set by the async `.task`; the
+        // sync `cachedImage(forKey:)` peek (an O(1) string lookup) shows a
+        // previously-decoded tile immediately on scroll-back, with no
+        // placeholder flash and no main-thread decode.
+        ThumbnailImage(image: decoded ?? ThumbnailDecoder.cachedImage(forKey: item.id),
                        displayMode: displayMode)
             .opacity(item.overlays.hidden ? 0.4 : 1.0)
             .overlay {
@@ -122,15 +125,20 @@ struct PhotoThumbnailCell: View {
             .accessibilityLabel(accessibilityLabelText)
             .accessibilityHint(accessibilityHintText)
             .task(id: item.id) {
+                // Fetch bytes, then decode — both OFF the main actor. The whole
+                // load is one task keyed on the lightweight `item.id`, and it is
+                // cancelled when the cell scrolls off-screen, so a fast fling
+                // doesn't decode tiles that are no longer visible. No arrival
+                // animation: a `withAnimation` fade here runs a 0.18s opacity
+                // transition per tile on the main thread, so a scroll that
+                // resolves 20–30 tiles at once drives that many overlapping
+                // animations and hitches the scroll. Thumbnails just appear
+                // (Photos.app does the same during scroll).
                 let bytes = await provider.thumbnail(for: item.thumbnailSource)
-                // Skip the assignment if the cell scrolled away mid-load.
-                // No arrival animation: a `withAnimation` fade here runs a
-                // 0.18s opacity transition per tile on the main thread, so a
-                // scroll that resolves 20–30 tiles at once drives that many
-                // overlapping animations and hitches the scroll. Thumbnails
-                // just appear (Photos.app does the same during scroll).
                 guard !Task.isCancelled else { return }
-                thumb = bytes
+                let image = await ThumbnailDecoder.image(for: bytes, key: item.id)
+                guard !Task.isCancelled else { return }
+                decoded = image
             }
     }
 
