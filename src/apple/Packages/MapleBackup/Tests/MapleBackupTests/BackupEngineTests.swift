@@ -254,6 +254,36 @@ final class BackupEngineTests: XCTestCase {
             "no sidecar should be uploaded for a photo with no local Maple edit")
     }
 
+    /// A local sidecar that fails to read (e.g. corrupt/non-UTF8 bytes,
+    /// `AppSupportSidecarStoreError.decodeFailed`) must not crash or hang
+    /// the companion step — it's treated as "no local edit" for this run
+    /// (surfaced via an error log, not silently as a clean no-op) and the
+    /// photo itself still uploads.
+    func testCorruptLocalSidecarDoesNotBlockUpload() async throws {
+        StubURLProtocol.stub = .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#)
+        let (engine, queue, state, _, _, tmpRoot) = try freshHarness()
+        defer { try? FileManager.default.removeItem(at: tmpRoot) }
+
+        // Write invalid UTF-8 bytes directly to the underlying sidecar file,
+        // bypassing AppSupportSidecarStore.write (which only accepts String).
+        let sidecarFile = tmpRoot.appendingPathComponent("sidecars").appendingPathComponent("P1.xmp")
+        try Data([0xFE, 0xFF, 0x00, 0xFF]).write(to: sidecarFile)
+
+        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+        let task = BackupTask(id: id, state: .pending, priority: .background)
+        try await state.upsert(task)
+        await queue.enqueue(task, priority: .background)
+
+        try await engine.processOne()
+
+        let row = try await state.find(id)
+        XCTAssertEqual(row?.state, .uploaded, "a corrupt local sidecar must not block the photo upload")
+
+        let requests = StubURLProtocol.recordedRequests
+        XCTAssertFalse(requests.contains { $0.url?.path.contains("backup/sidecar") == true },
+            "a sidecar that fails to read must not be uploaded")
+    }
+
     /// Regression test for Issue 2: when a local-edit XMP exists, the sidecar
     /// POST body must contain that XMP, not the Apple-metadata-generated one.
     func testSidecarPostUsesLocalEditXmpWhenAvailable() async throws {
