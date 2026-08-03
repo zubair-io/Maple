@@ -48,12 +48,14 @@ PROTECTED_COMPONENT = re.compile(r"\.lrdata", re.I)
 
 FALLBACK_NAME = "Misc"
 
-# Shortest ancestor name worth inheriting. A fragment like "Un" or "cf" says no
-# more than Misc does, so the search passes over it. This applies only when
-# looking upward for a replacement -- a folder actually named "bmw" or "Sky"
-# keeps its own name, since the rule is about what is worth inheriting, not
-# about what is worth having.
-MIN_INHERITABLE_LENGTH = 4
+# Shortest ancestor name worth inheriting. A one or two letter fragment like
+# "Un", "cf" or "dc" says no more than Misc does, so the search passes over it.
+# Three letters is the floor rather than four because "ice", "Run", "Sky" and
+# "cat" are all real subjects in this library, and rejecting them sent real
+# folders to Misc. This applies only when looking upward for a replacement -- a
+# folder actually named "bmw" keeps its own name, since the rule is about what
+# is worth inheriting, not about what is worth having.
+MIN_INHERITABLE_LENGTH = 3
 
 
 def is_bucket(name: str) -> bool:
