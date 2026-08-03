@@ -227,6 +227,23 @@ describe('ToolDockComponent — horizontal (phone) orientation', () => {
     const curveBtn = buttonFor(fixture, 'Tone Curve');
     expect(curveBtn.classList.contains('dock-btn--active')).toBe(true);
   });
+
+  // Regression guard for the #1807 follow-up (72px→64px dock-height fix):
+  // the horizontal bar genuinely overflows nine labelled buttons at 375px
+  // and must stay scrollable — only the scrollbar's *visual chrome* was
+  // hidden to reclaim the box-model height the gap arithmetic assumes.
+  // jsdom has no box model or real scrollbar rendering, so this cannot
+  // assert the 8px gap or the 64px bar height directly (that was verified
+  // in a real browser instead). What jsdom's CSS engine *can* confirm is
+  // that the stylesheet still declares `overflow-x: auto` on `.dock` — a
+  // regression that flipped it to `hidden`/`scroll`/`visible` while adding
+  // the scrollbar-hiding rules would break real scrolling and this test
+  // would catch it.
+  it('keeps overflow-x: auto on the horizontal dock (scrolling stays live; only scrollbar chrome is hidden)', () => {
+    const fixture = render({ orientation: 'horizontal' });
+    const dockEl = nativeEl(fixture).querySelector('.dock') as HTMLElement;
+    expect(getComputedStyle(dockEl).overflowX).toBe('auto');
+  });
 });
 
 // ── Crop entry tool-arming semantics (#1813) ────────────────────────────────

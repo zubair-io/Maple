@@ -44,6 +44,19 @@
     padding: 6px;
     overflow-x: auto;
 
+    // Scrollbar chrome (classic desktop Chrome: ~8-10px track) would push
+    // the bar's rendered height past its box-model 64px and eat the 8px
+    // gap to `.phone-card-anchor` above it (`bottom: calc(72px + 12px +
+    // safe-area)` assumes exactly 64px — see #1807 follow-up). iOS/Android
+    // overlay scrollbars occupy 0px already, so hiding the track here only
+    // affects desktop-narrow rendering, not real phones; scrolling itself
+    // (`overflow-x: auto`) is untouched.
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
+
     .dock-btn {
       flex: 0 0 auto;
     }
