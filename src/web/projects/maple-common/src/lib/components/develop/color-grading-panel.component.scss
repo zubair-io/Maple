@@ -24,9 +24,18 @@
   min-width: 0;
 }
 
-// Phones and narrow flyouts: two wheels per row rather than a squeezed
-// four, so each wheel keeps enough radius to aim at a hue.
-@media (max-width: 520px) {
+// Two wheels per row rather than a squeezed four, so each wheel keeps enough
+// radius to aim at a hue. A CONTAINER query, not a viewport one (#1807
+// review, Critical 2): this panel is always projected into
+// `ControlCardComponent`'s `.card` (`container-type: inline-size` there),
+// which is a fixed 300px column on tablet/desktop no matter how wide the
+// viewport is — a `@media (max-width: …)` query never fires there, so on a
+// 1280px desktop the deleted `.color-grade-panel { width: 420px }` panel's
+// four wheels got squeezed to ~54px each with nowhere to go. The threshold
+// (420px) is picked so the fixed 300px card always gets 2x2 (comfortably
+// under it), while a wide phone card just under the 768px tablet breakpoint
+// (up to ~743px) still gets the roomier 4-across layout.
+@container (max-width: 420px) {
   .wheel-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
