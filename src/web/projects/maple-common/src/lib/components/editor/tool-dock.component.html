@@ -6,7 +6,7 @@
   role="navigation"
   aria-label="Editor tools"
 >
-  @for (entry of entries(); track entry.id) {
+  @for (entry of entries; track entry.id) {
     @if (entry.divideBefore) {
       <div class="dock-divider"></div>
     }

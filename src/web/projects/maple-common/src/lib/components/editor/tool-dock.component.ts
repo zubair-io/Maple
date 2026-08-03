@@ -139,10 +139,6 @@ export class ToolDockComponent {
   orientation = input<DockOrientation>('vertical');
   /** True when the presets panel is open (#1815). */
   presetsOpen = input<boolean>(false);
-  /** True while Black & White is On (#276) — hides the HSL dock entry
-   *  entirely, since HSL's 24 sliders are inert while B&W drives the same
-   *  8-band Oklab stage instead. */
-  blackWhiteOn = input<boolean>(false);
   /** Fired when the user taps an enabled group entry. */
   groupChange = output<ToolGroup>();
   /** Fired when the user taps a specific-tool entry (e.g. Crop). */
@@ -161,8 +157,10 @@ export class ToolDockComponent {
   });
 
   /** The nine dock entries. No longer orientation-dependent: the phone bar
-   *  and the desktop column show the same set (MobileControlBar.swift:124). */
-  readonly entries = computed<DockEntry[]>(() => DOCK_ENTRIES);
+   *  and the desktop column show the same set (MobileControlBar.swift:124).
+   *  A plain reference to the module constant, not a computed — nothing it
+   *  could recompute from ever changes. */
+  readonly entries = DOCK_ENTRIES;
 
   /** Accent dot: true when any tool this entry covers holds a non-default
    *  value. For a GROUP entry that means every tool in the group — including
