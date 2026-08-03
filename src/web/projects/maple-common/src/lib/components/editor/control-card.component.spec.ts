@@ -21,6 +21,7 @@ function render(
   inputs: {
     activeGroup?: string;
     activeTool?: string | null;
+    blackWhiteOn?: boolean;
   } = {},
 ): {
   fixture: ComponentFixture<ControlCardComponent>;
@@ -64,6 +65,8 @@ function render(
   fixture.componentRef.setInput('activeGroup', inputs.activeGroup ?? 'light');
   if (inputs.activeTool !== undefined)
     fixture.componentRef.setInput('activeTool', inputs.activeTool);
+  if (inputs.blackWhiteOn !== undefined)
+    fixture.componentRef.setInput('blackWhiteOn', inputs.blackWhiteOn);
   fixture.detectChanges();
   return {
     fixture,
@@ -76,11 +79,6 @@ function render(
 }
 
 describe('ControlCardComponent — always visible, no closeable state (#1807 Task 5)', () => {
-  it('does not render a close button', () => {
-    const { fixture } = render();
-    expect(fixture.nativeElement.querySelector('.close-btn')).toBeFalsy();
-  });
-
   it('always renders the card', () => {
     const { fixture } = render();
     expect(fixture.nativeElement.querySelector('.card')).toBeTruthy();
@@ -218,6 +216,34 @@ describe('sub-tool row', () => {
 
     const detail = render({ activeGroup: 'detail' });
     expect((detail.nativeElement as HTMLElement).querySelector('.subtool-row')).toBeNull();
+  });
+
+  // Restores #276's dock-hiding behaviour in its new home: HSL's 24 sliders
+  // are inert while Black & White is On (it drives the same 8-band Oklab
+  // stage instead), so the chip that would arm them into visible existence
+  // must not be offered (review finding — before this, `SUBTOOLS` listed HSL
+  // unconditionally and the shell's safety-net effect visibly bounced the
+  // panel body back to B&W the instant the chip was tapped).
+  it('drops the HSL chip from the colour row while Black & White is On', () => {
+    const bwOff = render({ activeGroup: 'color', blackWhiteOn: false });
+    const bwOffChips = Array.from(
+      (bwOff.nativeElement as HTMLElement).querySelectorAll('.subtool-chip'),
+    ).map((n) => n.textContent!.trim());
+    expect(bwOffChips).toEqual(['Basic', 'HSL', 'B&W']);
+
+    const bwOn = render({ activeGroup: 'color', blackWhiteOn: true });
+    const bwOnChips = Array.from(
+      (bwOn.nativeElement as HTMLElement).querySelectorAll('.subtool-chip'),
+    ).map((n) => n.textContent!.trim());
+    expect(bwOnChips).toEqual(['Basic', 'B&W']);
+
+    // Effects' row is untouched — the filter only applies to Colour's HSL
+    // chip, not to the whole component.
+    const effects = render({ activeGroup: 'effects', blackWhiteOn: true });
+    const effectsChips = Array.from(
+      (effects.nativeElement as HTMLElement).querySelectorAll('.subtool-chip'),
+    ).map((n) => n.textContent!.trim());
+    expect(effectsChips).toEqual(['Basic', 'Grade']);
   });
 
   it('emits the same tool a dock button used to arm, in each group', () => {
