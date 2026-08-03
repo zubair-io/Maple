@@ -298,10 +298,94 @@ describe('EditorShellComponent — phone two-card layout (#1807 Task 5)', () => 
     TestBed.resetTestingModule();
   });
 
+  function phoneCard(fixture: ComponentFixture<EditorShellComponent>): Element | null {
+    return (fixture.nativeElement as HTMLElement).querySelector(
+      '.phone-card-anchor pro-control-card .card',
+    );
+  }
+
+  function dockButton(
+    fixture: ComponentFixture<EditorShellComponent>,
+    label: string,
+  ): HTMLButtonElement {
+    const buttons = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('pro-tool-dock button'),
+    ) as HTMLButtonElement[];
+    const btn = buttons.find((b) => b.getAttribute('aria-label') === label);
+    expect(btn, `dock button "${label}" must be present`).not.toBeNull();
+    return btn!;
+  }
+
   it('shows the phone slider panel without requiring a dock tap', () => {
     const fixture = renderShell({ layout: 'phone' });
     const el = fixture.nativeElement as HTMLElement;
     expect(el.querySelector('.phone-card-anchor pro-control-card .card')).toBeTruthy();
     expect(el.querySelector('.close-btn')).toBeNull();
+  });
+
+  // Review round 1 (Critical): the always-visible card and the Curve/
+  // Presets/Noise panels float in the SAME anchor slot on phone (unlike
+  // tablet/desktop, where those panels live in the separate dock-side
+  // column and can never overlap the control card) — so the card must hide
+  // while any of the three is open, or two glass panels render on top of
+  // each other.
+  it('hides the card while the Curve panel is open, and restores it when Curve closes', () => {
+    const fixture = renderShell({ layout: 'phone' });
+    expect(phoneCard(fixture)).not.toBeNull();
+
+    dockButton(fixture, 'Tone Curve').click();
+    fixture.detectChanges();
+
+    expect(phoneCard(fixture)).toBeNull();
+    expect(fixture.nativeElement.querySelector('.phone-curve-panel')).not.toBeNull();
+
+    dockButton(fixture, 'Tone Curve').click();
+    fixture.detectChanges();
+
+    expect(phoneCard(fixture)).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.phone-curve-panel')).toBeNull();
+  });
+
+  it('hides the card while the Presets panel is open', () => {
+    const fixture = renderShell({ layout: 'phone' });
+    expect(phoneCard(fixture)).not.toBeNull();
+
+    dockButton(fixture, 'Presets').click();
+    fixture.detectChanges();
+
+    expect(phoneCard(fixture)).toBeNull();
+    expect(fixture.nativeElement.querySelector('.phone-presets-panel')).not.toBeNull();
+  });
+
+  it('hides the card while Noise is armed', () => {
+    const fixture = renderShell({ layout: 'phone' });
+    const editorState = TestBed.inject(EditorStateService);
+    expect(phoneCard(fixture)).not.toBeNull();
+
+    editorState.armTool('noise');
+    fixture.detectChanges();
+
+    expect(phoneCard(fixture)).toBeNull();
+    expect(fixture.nativeElement.querySelector('.phone-subparam-panel')).not.toBeNull();
+  });
+
+  // HSL/bwMix/colorGrade are the one group of tools that DO belong inside
+  // the card (#1807 Task 4 projects their body into it via
+  // cardBodySubParam/cardBodyGrade) — arming any of them must NOT hide it.
+  it('does not hide the card while HSL, B&W, or Color Grading is armed — they render inside it', () => {
+    const fixture = renderShell({ layout: 'phone' });
+    const editorState = TestBed.inject(EditorStateService);
+
+    editorState.armTool('hsl');
+    fixture.detectChanges();
+    expect(phoneCard(fixture)).not.toBeNull();
+
+    editorState.armTool('bwMix');
+    fixture.detectChanges();
+    expect(phoneCard(fixture)).not.toBeNull();
+
+    editorState.armTool('colorGrade');
+    fixture.detectChanges();
+    expect(phoneCard(fixture)).not.toBeNull();
   });
 });
