@@ -404,7 +404,21 @@ public actor BackupEngine {
         // the record of an edit, not a default artifact of every backup). No
         // local edit → no sidecar at all; a photo with nothing to say about
         // it gets no `.xmp`, matching the local-file backup path.
-        if let localEditXmp = try? sidecars.read(phassetLocalId: task.id.phassetLocalId) {
+        //
+        // A read failure (e.g. `.decodeFailed` for a corrupt/non-UTF8 local
+        // sidecar) is NOT treated as "no local edit" silently — the store's
+        // contract says corruption should surface, not be swallowed, since
+        // that would quietly drop the user's edit. Logged at error level;
+        // the photo upload still succeeds either way (best-effort companion).
+        let localEditXmp: String?
+        do {
+            localEditXmp = try sidecars.read(phassetLocalId: task.id.phassetLocalId)
+        } catch {
+            localEditXmp = nil
+            Self.companionLog.error(
+                "local-edit sidecar read failed, phasset=\(task.id.phassetLocalId, privacy: .private): \(String(describing: error), privacy: .public)")
+        }
+        if let localEditXmp {
             await runCompanion(
                 taskId: task.id,
                 label: "sidecar",
