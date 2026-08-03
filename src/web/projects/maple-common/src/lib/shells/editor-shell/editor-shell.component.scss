@@ -339,10 +339,18 @@
 // Shared placeholder for the phone flyout panels (curve/crop/presets/
 // sub-param) — same bottom-anchored, full-width glass card geometry,
 // extended rather than repeated per panel to stay under the component style
-// budget (CONTRIBUTING.md).
+// budget (CONTRIBUTING.md). Curve, Presets, and the Noise sub-param panel
+// each replace the always-visible slider card in the SAME visual slot while
+// open (`.phone-card-anchor` hides via `curveOpen()`/`presetsOpen()`/
+// `noiseArmed()` — see the template), so this uses the identical offset as
+// `.phone-card-anchor` above rather than its own stale figure: review round
+// 1 caught that bumping `.phone-dock-anchor`'s inset 10px→12px (to match
+// MobileControlBar.swift) had shrunk this placeholder's old 78px clearance
+// over the dock's real ~64px height to just 2px, without anyone touching
+// this rule.
 %phone-flyout-panel {
   position: absolute;
-  bottom: calc(78px + var(--safe-area-inset-bottom));
+  bottom: calc(72px + 12px + var(--safe-area-inset-bottom));
   left: 12px;
   right: 12px;
   pointer-events: auto;
