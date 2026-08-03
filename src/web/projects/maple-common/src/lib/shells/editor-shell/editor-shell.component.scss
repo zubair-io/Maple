@@ -302,28 +302,35 @@
   pointer-events: auto;
 }
 
-// ── Phone CARD editor (#1807) ───────────────────────────────────────────────
+// ── Phone CARD editor (#1807 Task 5 — MobileControlBar two-card layout) ────
 // Bottom horizontal tool dock — full-width, pinned to the bottom edge. The
 // safe-area inset (`--safe-area-inset-bottom`, from safe-area.scss) lifts it
-// clear of the home indicator on notched devices / PWA standalone.
+// clear of the home indicator on notched devices / PWA standalone. 12px
+// bottom inset matches MobileControlBar.swift:38-43's
+// `.padding(.bottom, 12)`.
 .phone-dock-anchor {
   position: absolute;
-  bottom: calc(10px + var(--safe-area-inset-bottom));
+  bottom: calc(12px + var(--safe-area-inset-bottom));
   left: 12px;
   right: 12px;
   pointer-events: auto;
 }
 
-// Flyout slider card — floats just above the dock. Its own `closed` input
-// (driven by phoneCardOpen()) hides the card contents; this anchor keeps
-// the reserved space so opening/closing doesn't reflow the dock underneath.
-// Adds the same safe-area inset as the dock so both shift up together and the
-// card never collides with the home indicator.
+// Slider panel card — always visible, stacked directly above the dock, 8px
+// gap — MobileControlBar.swift:38's `VStack(spacing: 8)`. No `closed` input
+// any more (#1807 Task 5 retired the closeable flyout): the card renders
+// unconditionally, so this anchor only needs to clear the dock underneath.
+//
+// 72px = 8px gap + the dock's own rendered height, measured against the
+// real Task 2 nine-entry horizontal dock (not the stale 44px single-row
+// figure this comment used to cite): `.dock--horizontal`'s 6px top/bottom
+// padding + ~1px top/bottom border (0.5px each, rounded up) + a `.dock-btn`
+// column — 36px `.dock-circle` + 4px gap + a 9px/1.1-line-height
+// `.dock-label` (~9.9px) — measured end-to-end at ~63.9px, rounded up to
+// 64px. Then the dock's own 12px bottom inset on top of that.
 .phone-card-anchor {
   position: absolute;
-  bottom: calc(
-    78px + var(--safe-area-inset-bottom)
-  ); // clears the 44px dock + its 10px inset + a gap
+  bottom: calc(72px + 12px + var(--safe-area-inset-bottom));
   left: 12px;
   right: 12px;
   pointer-events: auto;
