@@ -26,10 +26,11 @@
 // Apple-rendered twin, Live Photo .mov) are uploaded best-effort AFTER that
 // commit. A companion failure must NOT fail the photo, re-upload the bytes,
 // or burn the photo's retry budget; instead each companion retries on its
-// own bounded detached path. The local-edit sidecar is the durability-
-// critical companion (it carries the user's intentional Maple edits), so it
-// retries harder than the re-derivable generated sidecar / rendered / mov,
-// and its local copy is deleted only after the server confirms it landed.
+// own bounded detached path. The sidecar only exists when there's a genuine
+// local Maple edit to carry (#2553); it's the durability-critical companion
+// (not re-derivable from PHAsset state), so it retries harder than the
+// re-derivable rendered / mov twins, and its local copy is deleted only
+// after the server confirms it landed.
 //
 // Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §13, §15, §17.
 
@@ -398,31 +399,27 @@ public actor BackupEngine {
     private func uploadCompanionsBestEffort(task: BackupTask,
                                             read: AssetReadResult,
                                             result: UploadClient.Result) async {
-        // Sidecar: prefer the user's local-edit XMP if one exists (their
-        // intentional Maple edit wins); fall back to the Apple-metadata XMP
-        // generated from PHAsset state. Track whether this is a local edit —
-        // that's the durability-critical case: it isn't re-derivable from
-        // PHAsset state, so it retries harder and its local copy is deleted
-        // only after the server confirms it landed.
-        let localEditXmp = try? sidecars.read(phassetLocalId: task.id.phassetLocalId)
-        let isLocalEdit = localEditXmp != nil
-        let sidecarXmp = localEditXmp ?? PayloadAssembler.buildSidecarXMP(input: read.sidecar)
-
-        await runCompanion(
-            taskId: task.id,
-            label: "sidecar",
-            maxAttempts: isLocalEdit ? Self.localEditCompanionRetries
-                                     : Self.derivedCompanionRetries
-        ) { [self] in
-            try await upload.uploadSidecar(
-                phassetLocalId: task.id.phassetLocalId,
-                targetRelPath: result.targetRelPath,
-                xmp: sidecarXmp,
-                mapleId: read.mapleId)
-            // Delete the local-edit XMP only after the sidecar actually lands on
-            // the server, so a failed attempt re-derives correctly on retry and
-            // a crash before delivery leaves the user's edit on disk.
-            try? sidecars.delete(phassetLocalId: task.id.phassetLocalId)
+        // Sidecar: only uploaded when the user has a genuine local Maple edit
+        // for this photo (#2553 — non-destructive invariant: the sidecar is
+        // the record of an edit, not a default artifact of every backup). No
+        // local edit → no sidecar at all; a photo with nothing to say about
+        // it gets no `.xmp`, matching the local-file backup path.
+        if let localEditXmp = try? sidecars.read(phassetLocalId: task.id.phassetLocalId) {
+            await runCompanion(
+                taskId: task.id,
+                label: "sidecar",
+                maxAttempts: Self.localEditCompanionRetries
+            ) { [self] in
+                try await upload.uploadSidecar(
+                    phassetLocalId: task.id.phassetLocalId,
+                    targetRelPath: result.targetRelPath,
+                    xmp: localEditXmp,
+                    mapleId: read.mapleId)
+                // Delete the local-edit XMP only after the sidecar actually lands on
+                // the server, so a failed attempt re-derives correctly on retry and
+                // a crash before delivery leaves the user's edit on disk.
+                try? sidecars.delete(phassetLocalId: task.id.phassetLocalId)
+            }
         }
 
         // Apple-rendered companion, when present. Re-derivable → light retry.
