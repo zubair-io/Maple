@@ -1,9 +1,11 @@
-<!-- LivingSlider — gradient track + bipolar zero notch + accent ring thumb -->
+<!-- LivingSlider — label + value above a full-width gradient track (Apple
+     LivingSlider.swift:161 parity: VStack of an HStack head over the track). -->
 <div class="slider-row">
-  <!-- Label -->
-  <span class="slider-label" [title]="label()">{{ label() }}</span>
+  <div class="slider-head">
+    <span class="slider-label" [title]="label()">{{ label() }}</span>
+    <span class="value-chip" [class.value-chip--modified]="isModified()">{{ valueLabel() }}</span>
+  </div>
 
-  <!-- Track area -->
   <div
     #trackEl
     class="track-wrap"
@@ -18,18 +20,11 @@
     (keydown)="onTrackKeyDown($event)"
     (keyup)="onTrackKeyUp($event)"
   >
-    <!-- Track gradient fill -->
     <div class="track" [style.background]="gradient()">
-      <!-- Zero notch (bipolar only) -->
       @if (bipolar()) {
         <div class="zero-notch"></div>
       }
-
-      <!-- Thumb -->
       <div class="thumb" [class.thumb--modified]="isModified()" [style.left.%]="thumbPct()"></div>
     </div>
   </div>
-
-  <!-- Value chip -->
-  <span class="value-chip" [class.value-chip--modified]="isModified()">{{ valueLabel() }}</span>
 </div>
