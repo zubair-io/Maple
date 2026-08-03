@@ -1,85 +1,73 @@
-<!-- ControlCard — floating glass flyout panel, FlyoutSliderPanel parity (#1535) -->
-<!-- Phone (#1807): header still shows a close button; `closed` hides the card -->
-@if (!phone() || !closed()) {
-  <div class="card">
-    <div class="card-header">
-      <maple-icon [name]="$any(groupIcon(activeGroup()))" [size]="12" color="var(--pro-accent)" />
-      <span class="group-title">{{ groupLabel(activeGroup()).toUpperCase() }}</span>
+<!-- ControlCard — floating glass panel, FlyoutSliderPanel parity (#1535).
+     Always renders on every breakpoint (#1807 Task 5 retired phone's
+     closeable-flyout state) — phone just stacks it full-width above the
+     dock instead of the fixed 300px tablet/desktop column. -->
+<div class="card">
+  <div class="card-header">
+    <maple-icon [name]="$any(groupIcon(activeGroup()))" [size]="12" color="var(--pro-accent)" />
+    <span class="group-title">{{ groupLabel(activeGroup()).toUpperCase() }}</span>
 
-      <button
-        class="reset-btn"
-        title="Reset {{ groupLabel(activeGroup()) }}"
-        aria-label="Reset {{ groupLabel(activeGroup()) }} adjustments"
-        (click)="resetGroup()"
-      >
-        <maple-icon name="revert" [size]="11" color="var(--pro-text-muted)" />
-      </button>
+    <button
+      class="reset-btn"
+      title="Reset {{ groupLabel(activeGroup()) }}"
+      aria-label="Reset {{ groupLabel(activeGroup()) }} adjustments"
+      (click)="resetGroup()"
+    >
+      <maple-icon name="revert" [size]="11" color="var(--pro-text-muted)" />
+    </button>
+  </div>
 
-      @if (phone()) {
-        <!-- Close button — collapses the flyout back to just the dock. -->
+  <!-- Sub-tool row (#1807 Task 4) — Basic plus whichever field-less tools
+       belong to the active group (Colour: HSL/B&W; Effects: Grade; Light
+       and Detail: none — `showSubtools`/`subtools()`). Picking a chip
+       re-arms the group (Basic) or arms the tool directly, mirroring what
+       their former dock buttons did. -->
+  @if (showSubtools()) {
+    <div
+      class="subtool-row"
+      role="tablist"
+      [attr.aria-label]="groupLabel(activeGroup()) + ' sub-tools'"
+    >
+      @for (sub of subtools(); track sub.label) {
         <button
-          class="close-btn"
-          title="Close panel"
-          aria-label="Close panel"
-          (click)="onCloseClick()"
+          class="subtool-chip"
+          [class.subtool-chip--active]="isSubtoolActive(sub.id)"
+          role="tab"
+          [attr.aria-selected]="isSubtoolActive(sub.id)"
+          (click)="onSubtoolClick(sub.id)"
         >
-          <maple-icon name="clear-circle-fill" [size]="16" color="var(--pro-text-muted)" />
+          {{ sub.label }}
         </button>
       }
     </div>
+  }
 
-    <!-- Sub-tool row (#1807 Task 4) — Basic plus whichever field-less tools
-         belong to the active group (Colour: HSL/B&W; Effects: Grade; Light
-         and Detail: none — `showSubtools`/`subtools()`). Picking a chip
-         re-arms the group (Basic) or arms the tool directly, mirroring what
-         their former dock buttons did. -->
-    @if (showSubtools()) {
-      <div
-        class="subtool-row"
-        role="tablist"
-        [attr.aria-label]="groupLabel(activeGroup()) + ' sub-tools'"
-      >
-        @for (sub of subtools(); track sub.label) {
-          <button
-            class="subtool-chip"
-            [class.subtool-chip--active]="isSubtoolActive(sub.id)"
-            role="tab"
-            [attr.aria-selected]="isSubtoolActive(sub.id)"
-            (click)="onSubtoolClick(sub.id)"
-          >
-            {{ sub.label }}
-          </button>
-        }
-      </div>
-    }
-
-    <!-- HSL and bwMix have no primary slider field — the shell projects
-         their shared sub-param editing surface (chip selector + drag bar +
-         value chip) in here instead. Colour Grading projects its four-wheel
-         panel. Anything else falls back to the plain slider grid. -->
-    @if (activeTool() === 'hsl' || activeTool() === 'bwMix') {
-      <ng-content select="[cardBodySubParam]" />
-    } @else if (activeTool() === 'colorGrade') {
-      <ng-content select="[cardBodyGrade]" />
-    } @else {
-      <div class="slider-grid">
-        @for (tool of slidersFor(activeGroup()); track tool) {
-          <pro-living-slider
-            [attr.aria-label]="labelFor(tool)"
-            [label]="labelFor(tool)"
-            [value]="valueFor(tool)"
-            [min]="minFor(tool)"
-            [max]="maxFor(tool)"
-            [step]="stepFor(tool)"
-            [gradient]="gradientFor(tool)"
-            [bipolar]="bipolarFor(tool)"
-            [defaultValue]="defaultFor(tool)"
-            (dragStart)="onSliderDragStart(tool)"
-            (valueChange)="onSliderChange(tool, $event)"
-            (resetRequest)="onSliderReset(tool)"
-          />
-        }
-      </div>
-    }
-  </div>
-}
+  <!-- HSL and bwMix have no primary slider field — the shell projects
+       their shared sub-param editing surface (chip selector + drag bar +
+       value chip) in here instead. Colour Grading projects its four-wheel
+       panel. Anything else falls back to the plain slider grid. -->
+  @if (activeTool() === 'hsl' || activeTool() === 'bwMix') {
+    <ng-content select="[cardBodySubParam]" />
+  } @else if (activeTool() === 'colorGrade') {
+    <ng-content select="[cardBodyGrade]" />
+  } @else {
+    <div class="slider-grid">
+      @for (tool of slidersFor(activeGroup()); track tool) {
+        <pro-living-slider
+          [attr.aria-label]="labelFor(tool)"
+          [label]="labelFor(tool)"
+          [value]="valueFor(tool)"
+          [min]="minFor(tool)"
+          [max]="maxFor(tool)"
+          [step]="stepFor(tool)"
+          [gradient]="gradientFor(tool)"
+          [bipolar]="bipolarFor(tool)"
+          [defaultValue]="defaultFor(tool)"
+          (dragStart)="onSliderDragStart(tool)"
+          (valueChange)="onSliderChange(tool, $event)"
+          (resetRequest)="onSliderReset(tool)"
+        />
+      }
+    </div>
+  }
+</div>
