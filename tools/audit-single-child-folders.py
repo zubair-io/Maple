@@ -141,14 +141,21 @@ def build_chains(root: str, include_duplicates: bool) -> list[dict]:
     return chains
 
 
-def collapse_preview(root: str, chain: dict) -> str:
-    """Render ``parent/a/b/terminal`` -> ``parent/terminal`` for one chain."""
-    rel_start = os.path.relpath(chain["root"], root)
-    parent = os.path.dirname(rel_start)
+def collapse_preview(root: str, chain: dict) -> tuple[str, str]:
+    """Render one chain as ``(annotated_current, flattened)``.
+
+    The current path marks the redundant segments with ``[...]`` so they are
+    distinguishable from surrounding context. Printing the bare path invites
+    reading an unmarked parent as part of the finding when it is only the
+    location of it.
+    """
+    parent = os.path.dirname(os.path.relpath(chain["root"], root))
+    link_names = [os.path.basename(link) for link in chain["links"]]
     terminal_name = os.path.basename(chain["terminal"])
-    buried = os.path.relpath(chain["terminal"], os.path.dirname(chain["root"]))
+
+    segments = ([parent] if parent else []) + [f"[{n}]" for n in link_names] + [terminal_name]
     flattened = os.path.join(parent, terminal_name) if parent else terminal_name
-    return f"{os.path.join(parent, buried) if parent else buried}  ->  {flattened}"
+    return "/".join(segments), flattened
 
 
 def main() -> int:
@@ -184,6 +191,7 @@ def main() -> int:
         by_depth[c["depth"]] = by_depth.get(c["depth"], 0) + 1
 
     print(f"\n{len(chains)} chains  ({len(main_tree)} main tree, {len(dupes)} _duplicates/)")
+    print("Segments in [brackets] are the redundant layers; everything else is context.")
     print("\nchain length   count   meaning")
     print("-" * 58)
     for depth in sorted(by_depth):
@@ -211,8 +219,10 @@ def main() -> int:
             if c["drops_names"]:
                 flags.append("renames")
             suffix = f"   <{' , '.join(flags)}>" if flags else ""
+            current, flattened = collapse_preview(root, c)
             print(f"\n  [depth {c['depth']}] {' , '.join(note)}{suffix}")
-            print(f"    {collapse_preview(root, c)}")
+            print(f"    {current}")
+            print(f"    -> {flattened}")
 
     total_layers = sum(c["depth"] for c in chains)
     collisions = [c for c in chains if c["collides"]]
