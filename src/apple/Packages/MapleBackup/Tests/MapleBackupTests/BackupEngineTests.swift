@@ -36,9 +36,12 @@ final class BackupEngineTests: XCTestCase {
     }
 
     /// Variant exposing the #700 `companionBackoff` injection point. Returns the
-    /// 5 handles the companion tests need (the reader stub is not inspected).
+    /// 5 handles the companion tests need. `reader` defaults to the sidecar-only
+    /// `StubAssetReader`; pass e.g. `RenderedAssetReader()` to exercise a
+    /// companion that's always attempted regardless of local-edit state.
     private func freshHarness(
-        companionBackoff: @escaping @Sendable (Int) -> TimeInterval
+        companionBackoff: @escaping @Sendable (Int) -> TimeInterval,
+        reader: any AssetReader = StubAssetReader()
     ) throws -> (BackupEngine, InProcessBackupQueue, BackupStateStore, AppSupportSidecarStore, URL) {
         let tmpRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("engine-test-\(UUID().uuidString)", isDirectory: true)
@@ -50,7 +53,6 @@ final class BackupEngineTests: XCTestCase {
         let queue = InProcessBackupQueue()
         let state = try BackupStateStore(databaseURL: stateURL)
         let sidecars = AppSupportSidecarStore(root: sidecarRoot)
-        let reader = StubAssetReader()
         let upload = UploadClient(baseURL: URL(string: "https://server.example")!,
                                   libraryId: "lib", deviceId: "d",
                                   transport: stubTransport())
@@ -199,11 +201,14 @@ final class BackupEngineTests: XCTestCase {
 
     // MARK: - Issue 1 & 2: Sidecar upload ordering + local-edit preference
 
-    /// Assert the sidecar request is sent after the original ingest request.
+    /// Assert the sidecar request is sent after the original ingest request,
+    /// when there's a local edit to send one for at all.
     func testSidecarRequestSentAfterOriginal() async throws {
         StubURLProtocol.stub = Self.ingestAndSidecarStub(relPath: "2024/03/15/IMG.heic")
-        let (engine, queue, state, _, _, tmpRoot) = try freshHarness()
+        let (engine, queue, state, sidecars, _, tmpRoot) = try freshHarness()
         defer { try? FileManager.default.removeItem(at: tmpRoot) }
+
+        try sidecars.write(phassetLocalId: "P1", xmp: "<x:edit/>")
 
         let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
         let task = BackupTask(id: id, state: .pending, priority: .background)
@@ -221,6 +226,32 @@ final class BackupEngineTests: XCTestCase {
         // Second request must be the sidecar (hits /backup/sidecar).
         XCTAssertTrue(requests[1].url?.path.contains("backup/sidecar") == true,
             "Second request should be sidecar, got \(requests[1].url?.path ?? "nil")")
+    }
+
+    /// Regression test for #2553: a photo backed up with no local Maple edit
+    /// must not generate any sidecar upload at all. The engine used to fall
+    /// back to a synthetic XMP built from bare PHAsset metadata, littering
+    /// the cloud library with an empty `.xmp` next to every untouched photo
+    /// the backup walk touched — violating the non-destructive invariant
+    /// that a sidecar is the record of an edit, not a default backup artifact.
+    func testNoSidecarUploadedWithoutLocalEdit() async throws {
+        StubURLProtocol.stub = .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#)
+        let (engine, queue, state, _, _, tmpRoot) = try freshHarness()
+        defer { try? FileManager.default.removeItem(at: tmpRoot) }
+
+        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+        let task = BackupTask(id: id, state: .pending, priority: .background)
+        try await state.upsert(task)
+        await queue.enqueue(task, priority: .background)
+
+        try await engine.processOne()
+
+        let row = try await state.find(id)
+        XCTAssertEqual(row?.state, .uploaded, "the photo itself must still upload fine")
+
+        let requests = StubURLProtocol.recordedRequests
+        XCTAssertFalse(requests.contains { $0.url?.path.contains("backup/sidecar") == true },
+            "no sidecar should be uploaded for a photo with no local Maple edit")
     }
 
     /// Regression test for Issue 2: when a local-edit XMP exists, the sidecar
@@ -501,17 +532,19 @@ final class BackupEngineTests: XCTestCase {
                        "exactly one resolved signal at the →0 terminus")
     }
 
-    /// A derived companion (no local edit → derivedCompanionRetries=2) that
-    /// never succeeds must still emit `.companionsResolved` when its budget
-    /// exhausts — otherwise the photo leaks as permanently "pending".
+    /// A derived companion (rendered twin, derivedCompanionRetries=2 — the
+    /// sidecar is skipped entirely without a local edit since #2553, so this
+    /// exercises the rendered companion instead) that never succeeds must
+    /// still emit `.companionsResolved` when its budget exhausts — otherwise
+    /// the photo leaks as permanently "pending".
     func testCompanionResolvedFiresOnExhaustion() async throws {
-        // ingest 200+json → sidecar 500 forever (sequence exhausts → 500).
+        // ingest 200+json → rendered 500 forever (sequence exhausts → 500).
         StubURLProtocol.stub = .sequence([
             .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
             .status(500),
         ])
         let (engine, queue, state, _, tmpRoot) =
-            try freshHarness(companionBackoff: { _ in 0 })
+            try freshHarness(companionBackoff: { _ in 0 }, reader: RenderedAssetReader())
         defer { try? FileManager.default.removeItem(at: tmpRoot) }
         let engineRef = engine
         defer { Task { await engineRef.stop() } }
@@ -520,7 +553,8 @@ final class BackupEngineTests: XCTestCase {
         await sink.attach(to: queue)
         defer { sink.stop() }
 
-        // No local-edit sidecar written → derived path, 2 attempts then drop.
+        // No local-edit sidecar written → sidecar companion skipped entirely,
+        // 2 rendered-companion attempts then drop.
         let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
         let task = BackupTask(id: id, state: .pending, priority: .background)
         try await state.upsert(task)
