@@ -39,6 +39,22 @@
   align-items: center;
   gap: 6px;
   margin-bottom: 12px;
+
+  // Sticky within `.card`'s own `overflow-y: auto` (a tall group — Light's
+  // 7 sliders is the worst case — scrolls past 480px): without this the
+  // title + Reset button scroll out of view along with the sliders (jules
+  // NIT, raised independently twice). Needs an opaque-enough background of
+  // its own so slider content doesn't show through underneath while pinned
+  // — matches `.card`'s own background at each breakpoint exactly, so there
+  // is no visible seam between the sticky header and the card behind it.
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--pro-glass-bg);
+
+  @media (min-width: 768px) {
+    background: var(--pro-glass-bg-heavy);
+  }
 }
 
 .group-title {
@@ -46,6 +62,7 @@
   font-weight: 600;
   letter-spacing: 0.6px;
   color: var(--pro-accent);
+  text-transform: uppercase;
 }
 
 // Reset button
