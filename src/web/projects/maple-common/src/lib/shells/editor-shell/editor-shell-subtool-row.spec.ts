@@ -12,16 +12,18 @@
 // `.subtool-chip` inside the real shell template and checks that
 // `EditorStateService.armedTool()` changed — this file does.
 //
-// Also covers review finding #1: on phone, both close paths for the flyout
-// (`closeRequest` from the card's own X button, and re-tapping the active
-// dock group icon) used to only flip `phoneCardOpen`, which does nothing
-// while a field-less sub-tool is armed — the `[closed]` binding is ALSO kept
-// open by `hslArmed()`/`bwMixArmed()`/`colorGradeArmed()` (needed so the OLD
-// phone dock's HSL/B&W/Grade buttons don't close the card out from under
-// the content they just armed). Closing must therefore escape the armed
-// sub-tool too (`editor-shell-subtool.ts`), or the X button visibly does
-// nothing and a later "Basic" tap closes the card instead of showing its
-// sliders.
+// Also covered review finding #1 (now retired by #1807 Task 5): on phone,
+// both close paths for the OLD closeable flyout (`closeRequest` from the
+// card's own X button, and re-tapping the active dock group icon) used to
+// only flip `phoneCardOpen`, which did nothing while a field-less sub-tool
+// was armed — the `[closed]` binding was ALSO kept open by
+// `hslArmed()`/`bwMixArmed()`/`colorGradeArmed()`. Task 5 deleted the whole
+// closeable-flyout mechanism (`phoneCardOpen`, `closed`, `closeRequest`,
+// `editor-shell-subtool.ts`'s `closePhoneCard`): the phone card is now
+// always visible, same as tablet/desktop, so there is no close path left to
+// test. The phone describe block below instead proves HSL/B&W/Grade stay
+// reachable through the sub-tool row on the always-visible card, and that no
+// close button renders.
 //
 // Boilerplate follows editor-shell-hsl.spec.ts / editor-shell-auto-reset
 // .spec.ts's `setWindowWidth` pattern for the phone-breakpoint cases.
@@ -241,22 +243,27 @@ describe('EditorShellComponent — colour/effects sub-tool row reachability (#18
     });
   });
 
-  describe('phone — closing the flyout while a sub-tool is armed (review finding #1)', () => {
+  describe('phone — the always-visible card keeps HSL/B&W/Grade reachable (#1807 Task 5)', () => {
     beforeEach(() => setup(375));
 
     function phoneCard(): Element | null {
       return fixture.nativeElement.querySelector('.phone-card-anchor pro-control-card .card');
     }
 
-    function closeBtn(): HTMLButtonElement {
-      const btn = fixture.nativeElement.querySelector(
-        '.phone-card-anchor .close-btn',
-      ) as HTMLButtonElement | null;
-      expect(btn, 'phone flyout close button must be present').not.toBeNull();
-      return btn!;
-    }
+    it('the card is visible before any dock tap — no tap is required to reach it', () => {
+      expect(phoneCard()).not.toBeNull();
+    });
 
-    it('the X button hides the card and escapes HSL back to a plain slider', () => {
+    it('no close button renders in the phone card header', () => {
+      dockButton('Color').click();
+      fixture.detectChanges();
+      subtoolChip('HSL').click();
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelector('.phone-card-anchor .close-btn')).toBeNull();
+    });
+
+    it('arming HSL then B&W through the sub-tool row stays reachable on the always-visible card', () => {
       const editorState = TestBed.inject(EditorStateService);
       dockButton('Color').click();
       fixture.detectChanges();
@@ -265,36 +272,15 @@ describe('EditorShellComponent — colour/effects sub-tool row reachability (#18
       subtoolChip('HSL').click();
       fixture.detectChanges();
       expect(editorState.armedTool()).toBe('hsl');
-      // The card must still be showing HSL's content, not closed out from
-      // under it — this is what review finding #1's `[closed]` fix protects.
       expect(phoneCard()).not.toBeNull();
 
-      closeBtn().click();
-      fixture.detectChanges();
-
-      expect(phoneCard()).toBeNull();
-      expect(editorState.armedTool()).toBe('temp');
-    });
-
-    it('re-tapping the active Color dock icon closes the card and escapes bwMix', () => {
-      const editorState = TestBed.inject(EditorStateService);
-      dockButton('Color').click();
-      fixture.detectChanges();
       subtoolChip('B&W').click();
       fixture.detectChanges();
       expect(editorState.armedTool()).toBe('bwMix');
       expect(phoneCard()).not.toBeNull();
-
-      // Re-tapping the already-active group icon is the OTHER close path
-      // (`onPhoneDockGroupChange`), distinct from the X button above.
-      dockButton('Color').click();
-      fixture.detectChanges();
-
-      expect(phoneCard()).toBeNull();
-      expect(editorState.armedTool()).toBe('temp');
     });
 
-    it('the X button hides the card and escapes Color Grading to the effects group’s first slider', () => {
+    it('arming Color Grading through the effects row stays reachable, and Basic escapes back', () => {
       const editorState = TestBed.inject(EditorStateService);
       dockButton('Effects').click();
       fixture.detectChanges();
@@ -303,11 +289,10 @@ describe('EditorShellComponent — colour/effects sub-tool row reachability (#18
       expect(editorState.armedTool()).toBe('colorGrade');
       expect(phoneCard()).not.toBeNull();
 
-      closeBtn().click();
+      subtoolChip('Basic').click();
       fixture.detectChanges();
-
-      expect(phoneCard()).toBeNull();
       expect(editorState.armedTool()).toBe('clarity');
+      expect(editorState.armedGroup()).toBe('effects');
     });
   });
 });

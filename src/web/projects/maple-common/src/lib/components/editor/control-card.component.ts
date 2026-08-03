@@ -19,10 +19,11 @@
 // launched it. So Colour gets `Basic · HSL · B&W`, Effects gets
 // `Basic · Grade`, and Light/Detail get no row at all (see `SUBTOOLS`).
 //
-// Phone (#1807 — CARD editor): the horizontal tool dock still owns group
-// selection; the card is a closeable flyout driven by the `closed` input —
-// closed hides the whole card and leaves only the dock visible. A close
-// button in the header dismisses the panel back to the dock.
+// Phone (#1807 Task 5 — CARD editor): the horizontal tool dock still owns
+// group selection; the card itself is always visible, stacked directly
+// above the dock (`EditorShellComponent`'s `.phone-card-anchor`) — same as
+// tablet/desktop, just full-width instead of a fixed 300px column. There is
+// no closeable-flyout state here any more.
 //
 // Reset button in header zeroes the visible group.
 // Per-slider double-click zeroes that one slider (handled via resetRequest).
@@ -100,18 +101,6 @@ export class ControlCardComponent {
   activeGroup = input.required<ToolGroup>();
   /** Armed tool — drives which sub-tool chip reads active. */
   activeTool = input<ToolId | null>(null);
-  /**
-   * Phone layout (#1807): shows a close button in the header alongside the
-   * group title, so the flyout can be dismissed back to the dock.
-   */
-  phone = input<boolean>(false);
-  /**
-   * Phone-only: the card is fully hidden, leaving just the dock. Driven by
-   * the shell from dock taps — the card itself doesn't own open/closed
-   * because opening is triggered by the dock, which lives outside this
-   * component. Ignored (card always shown) when `phone` is false.
-   */
-  closed = input<boolean>(false);
 
   // ── Outputs ───────────────────────────────────────────────────────────
   /**
@@ -119,19 +108,11 @@ export class ControlCardComponent {
    * switching. Re-armed one step removed: the "Basic" entry of the sub-tool
    * row (`onSubtoolClick`, any group with field-less tools — Colour or
    * Effects) emits this to re-arm the group itself, but only when a plain
-   * slider is already armed there (see `onSubtoolClick`). Not part of the
-   * `phone`/`closed`/`closeRequest` retirement — those are phone-flyout-only;
-   * this output is live for both layouts.
+   * slider is already armed there (see `onSubtoolClick`).
    */
   groupChange = output<ToolGroup>();
   /** Fired when the user picks a sub-tool chip (HSL / B&W / Grade). */
   toolChange = output<ToolId>();
-  /** Fired when the user taps the phone close button. */
-  closeRequest = output<void>();
-
-  onCloseClick(): void {
-    this.closeRequest.emit();
-  }
 
   // ── Data helpers ──────────────────────────────────────────────────────
   groupLabel(g: ToolGroup): string {
