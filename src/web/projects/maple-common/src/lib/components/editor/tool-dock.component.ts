@@ -38,6 +38,7 @@ import { subParamsFor } from '../../editor/tool-sub-param';
 import { LibraryStateService } from '../../state/library-state.service';
 import {
   defaultGeneratedAdjustmentModel,
+  isIdentityCrop,
   type AdjustmentModel,
 } from '../../models/adjustment-model';
 
@@ -46,7 +47,10 @@ import {
  *  `defaultDisplayValue` follows). */
 const GENERATED_DEFAULTS = defaultGeneratedAdjustmentModel();
 
-export type DockOrientation = 'vertical' | 'horizontal';
+// Not exported: nothing outside this file imports `DockOrientation` (fallow
+// dead-code finding) — it's still used internally as the `orientation`
+// input's type below.
+type DockOrientation = 'vertical' | 'horizontal';
 
 export interface DockEntry {
   id: string;
@@ -186,6 +190,13 @@ export class ToolDockComponent {
    *  Black & White toggle itself, which carries no numeric field of its
    *  own (#276) but still counts as "modified" the moment it's On. */
   private isToolModified(adj: AdjustmentModel, tool: ToolId): boolean {
+    // Crop is a STUB_TOOLS entry — it rejects drag-bar writes and is edited
+    // through the canvas overlay/crop toolbar instead — so the `isWired`
+    // guard below would always report it unmodified. It is a genuine
+    // non-destructive edit stored in `AdjustmentModel.crop`, so it must be
+    // special-cased ahead of that guard (Apple parity: ToolDock.swift:174
+    // checks `crop.isIdentity` before its own `isWired` guard).
+    if (tool === 'crop') return !isIdentityCrop(adj.crop);
     if (!isWired(tool)) return false;
     const subParams = subParamsFor(tool);
     if (subParams.length > 0) {
