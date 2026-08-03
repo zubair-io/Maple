@@ -14,7 +14,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 
-import { ToolDockComponent } from './tool-dock.component';
+import { ToolDockComponent, type DockEntry } from './tool-dock.component';
 import type { ToolGroup, ToolId } from '../../editor/tool-model';
 import { LibraryStateService } from '../../state/library-state.service';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
