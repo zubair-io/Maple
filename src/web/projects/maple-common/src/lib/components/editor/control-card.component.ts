@@ -6,12 +6,18 @@
 // GROUP switching, so there is no group-chip row here. Sliders render as a
 // single living-slider column for the active group.
 //
-// Colour sub-tool row (#1807 Task 4): HSL, B&W and Colour Grading have no
-// single primary slider field, so they can't join SLIDER_TOOLS below. A
-// Basic/HSL/B&W/Grade chip row shows only for the colour group
-// (`showSubtools`) and swaps the body for content the shell projects in via
+// Sub-tool row (#1807 Task 4): HSL, B&W and Colour Grading have no single
+// primary slider field, so they can't join SLIDER_TOOLS below. A Basic/…
+// chip row shows for any group that has field-less tools (`showSubtools`)
+// and swaps the body for content the shell projects in via
 // `[cardBodySubParam]`/`[cardBodyGrade]` — this component never imports
 // those panel components directly, so its own import list stays small.
+// Group-parameterised (review correction, not the original design): Colour
+// Grading's real group is Effects (`TOOLS_IN_GROUP.effects`), so a single
+// Colour-only row containing Grade would hide itself the instant it's
+// armed — arming it flips `activeGroup` to 'effects', off the row that
+// launched it. So Colour gets `Basic · HSL · B&W`, Effects gets
+// `Basic · Grade`, and Light/Detail get no row at all (see `SUBTOOLS`).
 //
 // Phone (#1807 — CARD editor): the horizontal tool dock still owns group
 // selection; the card is a closeable flyout driven by the `closed` input —
@@ -50,19 +56,32 @@ const SLIDER_TOOLS: Partial<Record<ToolGroup, readonly ToolId[]>> = {
   detail: ['sharpen', 'noise', 'colorNR'],
 };
 
-/** Colour sub-tools that have no primary slider field, so they cannot appear
- *  in SLIDER_TOOLS and need their own route. `null` is Basic — the group's
- *  plain sliders. Mirrors the tools Apple's Card variant cannot reach at all
- *  (ToolDock.swift has no button for any of them). */
-const COLOR_SUBTOOLS: readonly {
+/** A sub-tool row entry: `id` is the `ToolId` it arms, `null` for Basic —
+ *  the group's plain sliders. */
+interface Subtool {
   readonly id: ToolId | null;
   readonly label: string;
-}[] = [
-  { id: null, label: 'Basic' },
-  { id: 'hsl', label: 'HSL' },
-  { id: 'bwMix', label: 'B&W' },
-  { id: 'colorGrade', label: 'Grade' },
-];
+}
+
+/** Field-less tools that need their own row instead of a slider, by the
+ *  group each genuinely belongs to (`groupOf` / `TOOLS_IN_GROUP` in
+ *  tool-model.ts) — NOT by which group's sliders they're conceptually
+ *  "about". Colour Grading reads as a colour tool but its real group is
+ *  Effects, so it lives in the Effects row, not Colour's. Groups absent
+ *  here (Light, Detail) have no field-less tools and get no row. Mirrors
+ *  the tools Apple's Card variant cannot reach at all (ToolDock.swift has no
+ *  button for any of them). */
+const SUBTOOLS: Partial<Record<ToolGroup, readonly Subtool[]>> = {
+  color: [
+    { id: null, label: 'Basic' },
+    { id: 'hsl', label: 'HSL' },
+    { id: 'bwMix', label: 'B&W' },
+  ],
+  effects: [
+    { id: null, label: 'Basic' },
+    { id: 'colorGrade', label: 'Grade' },
+  ],
+};
 
 @Component({
   selector: 'pro-control-card',
@@ -97,11 +116,12 @@ export class ControlCardComponent {
   // ── Outputs ───────────────────────────────────────────────────────────
   /**
    * No longer fired by a group chip — that row is gone; the dock owns group
-   * switching. Re-armed one step removed: the "Basic" entry of the colour
-   * sub-tool row (`onSubtoolClick`, colour group only) emits this to re-arm
-   * the group itself. Not part of the `phone`/`closed`/`closeRequest`
-   * retirement — those are phone-flyout-only; this output is live for both
-   * layouts.
+   * switching. Re-armed one step removed: the "Basic" entry of the sub-tool
+   * row (`onSubtoolClick`, any group with field-less tools — Colour or
+   * Effects) emits this to re-arm the group itself, but only when a plain
+   * slider is already armed there (see `onSubtoolClick`). Not part of the
+   * `phone`/`closed`/`closeRequest` retirement — those are phone-flyout-only;
+   * this output is live for both layouts.
    */
   groupChange = output<ToolGroup>();
   /** Fired when the user picks a sub-tool chip (HSL / B&W / Grade). */
@@ -135,16 +155,23 @@ export class ControlCardComponent {
     return SLIDER_TOOLS[group] ?? [];
   }
 
-  readonly colorSubtools = COLOR_SUBTOOLS;
+  /** Sub-tool chips for the active group, or empty when it has none
+   *  (Light/Detail). */
+  readonly subtools = computed<readonly Subtool[]>(() => SUBTOOLS[this.activeGroup()] ?? []);
 
-  /** Sub-tool chips show for Colour only — the other three groups have no
-   *  field-less tools. */
-  readonly showSubtools = computed<boolean>(() => this.activeGroup() === 'color');
+  /** Sub-tool row shows only for a group that has field-less tools. */
+  readonly showSubtools = computed<boolean>(() => this.subtools().length > 0);
+
+  /** Whether `id` (or Basic, for `null`) is the armed field-less tool for
+   *  the active group's row — shared by the template highlight and by
+   *  `onSubtoolClick`'s own escape check below. */
+  private isArmedSubtool(id: ToolId | null): boolean {
+    return this.subtools().some((s) => s.id !== null && s.id === id);
+  }
 
   isSubtoolActive(id: ToolId | null): boolean {
     const armed = this.activeTool();
-    const armedSubtool = COLOR_SUBTOOLS.some((s) => s.id !== null && s.id === armed);
-    return id === null ? !armedSubtool : id === armed;
+    return id === null ? !this.isArmedSubtool(armed) : id === armed;
   }
 
   onSubtoolClick(id: ToolId | null): void {
@@ -154,25 +181,22 @@ export class ControlCardComponent {
       return;
     }
     // Basic re-arms the group, which arms its first slider tool — but
-    // `groupChange.emit('color')` alone only does that when a DIFFERENT
-    // group was previously armed. This row only shows once the group is
-    // already 'color' (`showSubtools`), and
-    // `EditorStateService.armGroup` deliberately RETAINS the currently-armed
-    // tool when the group doesn't change (see its
+    // `groupChange` alone only does that when a DIFFERENT group was
+    // previously armed. `EditorStateService.armGroup` deliberately RETAINS
+    // the currently-armed tool when the group doesn't change (see its
     // 'retains tool when arming the same group' spec) — the right behavior
     // for the dock's own group buttons (re-tapping Color shouldn't reset you
-    // off Saturation), but HSL and bwMix both already belong to 'color', so
-    // that retain rule would otherwise leave Basic a permanent no-op exactly
-    // when it's needed: escaping HSL/bwMix back to plain sliders. Arm the
-    // group's first slider tool directly in that case; otherwise a plain
-    // slider is already armed, so just re-affirm the group (also emitted
-    // from a plain-slider tap so `groupChange` stays live for callers other
-    // than the escape case above).
-    const armed = this.activeTool();
-    const armedSubtool = COLOR_SUBTOOLS.some((s) => s.id !== null && s.id === armed);
+    // off Saturation), but every sub-tool in `subtools()` already belongs to
+    // the active group, so that retain rule would otherwise leave Basic a
+    // permanent no-op exactly when it's needed: escaping HSL/bwMix/Grade
+    // back to plain sliders. Arm the group's first slider tool directly in
+    // that case; otherwise a plain slider is already armed, so just
+    // re-affirm the group (also emitted from a plain-slider tap so
+    // `groupChange` stays live for callers other than the escape case
+    // above).
     const firstSlider = this.slidersFor(this.activeGroup())[0];
-    if (armedSubtool && firstSlider) this.toolChange.emit(firstSlider);
-    else this.groupChange.emit('color');
+    if (this.isArmedSubtool(this.activeTool()) && firstSlider) this.toolChange.emit(firstSlider);
+    else this.groupChange.emit(this.activeGroup());
   }
 
   /** Current adjustment model for the focused asset. */
