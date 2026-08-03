@@ -17,7 +17,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { ToolDockComponent } from './tool-dock.component';
 import type { ToolGroup, ToolId } from '../../editor/tool-model';
 import { LibraryStateService } from '../../state/library-state.service';
-import { defaultAdjustmentModel } from '../../models/adjustment-model';
+import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
 
 // No focused asset — `isModified` (the dock's accent-dot predicate) simply
 // reads null and returns false; the dot's real behavior is covered by the
@@ -78,6 +78,74 @@ function buttons(fixture: { nativeElement: unknown }): HTMLButtonElement[] {
 function buttonFor(fixture: { nativeElement: unknown }, label: string): HTMLButtonElement {
   return buttons(fixture).find((b) => b.getAttribute('aria-label') === label)!;
 }
+
+function dotFor(fixture: { nativeElement: unknown }, label: string): Element | null {
+  return buttonFor(fixture, label).querySelector('.dock-dot');
+}
+
+// ── Accent dot (`isModified`, fix round 1) ──────────────────────────────────
+// HSL and bwMix have no primary drag-bar field (`fieldFor` returns null for
+// both — tool-model.ts:279-286), so a naive "check the tool's one field"
+// predicate can never see either tool's 24/8 sub-params go non-default.
+// Since neither has its own dock button any more, Colour's dot is the ONLY
+// place their modified state can surface — these tests drive a real focused
+// asset through the dock and assert the dot actually lights for each shape:
+// HSL's hue/sat/lum sub-params, bwMix's gray-mixer weights, the bwMix
+// toggle alone (no slider touched), and a Color Grading wheel field that
+// isn't the schema-declared primary (`splitToneBalance`).
+describe('ToolDockComponent — accent dot (isModified, fix round 1)', () => {
+  let fixture: ComponentFixture<ToolDockComponent>;
+
+  function renderModified(patch: Partial<AdjustmentModel>): void {
+    const model = signal<AdjustmentModel>({ ...defaultAdjustmentModel(), ...patch });
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [ToolDockComponent],
+      providers: [
+        {
+          provide: LibraryStateService,
+          useValue: {
+            focusedAssetId: () => 'a',
+            adjustmentFor: () => model,
+          },
+        },
+      ],
+    });
+    fixture = TestBed.createComponent(ToolDockComponent);
+    fixture.componentRef.setInput('activeGroup', 'light');
+    fixture.detectChanges();
+  }
+
+  it('does NOT render a dot on any group entry at defaults (baseline — has teeth in both directions)', () => {
+    renderModified({});
+    for (const label of ['Light', 'Color', 'Effects', 'Detail']) {
+      expect(dotFor(fixture, label), label).toBeNull();
+    }
+  });
+
+  it('lights the Colour dot when an HSL sub-param is non-default', () => {
+    renderModified({ hueAdjustmentRed: 40 });
+    expect(dotFor(fixture, 'Color')).not.toBeNull();
+    expect(dotFor(fixture, 'Light')).toBeNull();
+    expect(dotFor(fixture, 'Effects')).toBeNull();
+  });
+
+  it('lights the Colour dot when a gray-mixer (bwMix) weight is non-default', () => {
+    renderModified({ grayMixerRed: -30 });
+    expect(dotFor(fixture, 'Color')).not.toBeNull();
+  });
+
+  it('lights the Colour dot from the Black & White toggle alone, with every slider at default', () => {
+    renderModified({ blackWhite: 'On' });
+    expect(dotFor(fixture, 'Color')).not.toBeNull();
+  });
+
+  it('lights the Effects dot when a Color Grading wheel field is non-default (not just the primary splitToneBalance)', () => {
+    renderModified({ colorGradeMidtoneHue: 50 });
+    expect(dotFor(fixture, 'Effects')).not.toBeNull();
+    expect(dotFor(fixture, 'Color')).toBeNull();
+  });
+});
 
 describe('ToolDockComponent — vertical (default) orientation', () => {
   it('defaults to vertical orientation', () => {

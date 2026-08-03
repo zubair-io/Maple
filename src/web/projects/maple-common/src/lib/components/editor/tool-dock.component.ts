@@ -34,8 +34,17 @@ import {
   type ToolGroup,
   type ToolId,
 } from '../../editor/tool-model';
+import { subParamsFor } from '../../editor/tool-sub-param';
 import { LibraryStateService } from '../../state/library-state.service';
-import type { AdjustmentModel } from '../../models/adjustment-model';
+import {
+  defaultGeneratedAdjustmentModel,
+  type AdjustmentModel,
+} from '../../models/adjustment-model';
+
+/** Canonical field defaults, read once so the modified-dot check can't
+ *  drift from the generated schema (same rule `tool-model.ts`'s own
+ *  `defaultDisplayValue` follows). */
+const GENERATED_DEFAULTS = defaultGeneratedAdjustmentModel();
 
 export type DockOrientation = 'vertical' | 'horizontal';
 
@@ -158,7 +167,7 @@ export class ToolDockComponent {
   /** Accent dot: true when any tool this entry covers holds a non-default
    *  value. For a GROUP entry that means every tool in the group — including
    *  HSL, B&W and Grade, which no longer have buttons of their own, so their
-   *  modified state has to surface on Color's dot. */
+   *  modified state has to surface on Color's/Effects' dot. */
   isModified(entry: DockEntry): boolean {
     const adj = this.currentAdj();
     if (!adj || entry.disabled) return false;
@@ -167,12 +176,33 @@ export class ToolDockComponent {
       : entry.tool
         ? [entry.tool]
         : ([] as readonly ToolId[]);
-    return tools.some((tool) => {
-      if (!isWired(tool)) return false;
-      const field = fieldFor(tool);
-      if (!field) return false;
-      return Math.abs((adj[field] as number) - defaultDisplayValue(tool)) > 1e-6;
-    });
+    return tools.some((tool) => this.isToolModified(adj, tool));
+  }
+
+  /** Whether a single tool's model state differs from default. HSL, bwMix
+   *  and colorGrade have no single primary drag-bar field (`fieldFor`
+   *  returns null for HSL/bwMix; colorGrade's primary, `splitToneBalance`,
+   *  is only ONE of its thirteen fields) — for any tool with sub-params
+   *  (`tool-sub-param.ts`), check every sub-param field the chip row can
+   *  write, not just the drag-bar's primary. bwMix additionally has the
+   *  Black & White toggle itself, which carries no numeric field of its
+   *  own (#276) but still counts as "modified" the moment it's On. */
+  private isToolModified(adj: AdjustmentModel, tool: ToolId): boolean {
+    if (!isWired(tool)) return false;
+    const subParams = subParamsFor(tool);
+    if (subParams.length > 0) {
+      const anySubParamModified = subParams.some((sub) => {
+        const v = adj[sub.field] as number;
+        const d = GENERATED_DEFAULTS[sub.field] as number;
+        return Math.abs(v - d) > 1e-6;
+      });
+      return tool === 'bwMix'
+        ? anySubParamModified || adj.blackWhite !== GENERATED_DEFAULTS.blackWhite
+        : anySubParamModified;
+    }
+    const field = fieldFor(tool);
+    if (!field) return false;
+    return Math.abs((adj[field] as number) - defaultDisplayValue(tool)) > 1e-6;
   }
 
   /** Whether a given `panel: true` entry's panel is currently open — keyed
