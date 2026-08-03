@@ -6,6 +6,13 @@
 }
 
 .card {
+  // Query container for descendants that need to react to the CARD's own
+  // width rather than the viewport's — the card is a fixed 300px column on
+  // tablet/desktop regardless of how wide the viewport is, which a `@media`
+  // query can never see (#1807 review, Critical 2 — `pro-color-grading-
+  // panel`'s wheel-row 2x2 fallback uses this; see that component's SCSS).
+  container-type: inline-size;
+
   padding: 16px;
   background: var(--pro-glass-bg);
   backdrop-filter: var(--pro-glass-blur);
@@ -13,6 +20,12 @@
   border: 0.5px solid var(--pro-glass-border);
   box-shadow: var(--pro-glass-shadow);
   border-radius: 18px;
+
+  // Light group at 300px single-column runs ~405px tall — cap and scroll
+  // rather than clip on a short window or iPad Split View landscape.
+  // `.presets-panel` (editor-shell.component.scss) models the same fix.
+  max-height: min(480px, calc(100vh - 120px));
+  overflow-y: auto;
 
   @media (min-width: 768px) {
     background: var(--pro-glass-bg-heavy);
