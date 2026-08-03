@@ -31,6 +31,28 @@ actor FailingAssetReader: AssetReader {
     }
 }
 
+/// Supplies non-empty `renderedBytes` (Apple-rendered JPEG twin) — the
+/// rendered companion is attempted unconditionally whenever it's present, so
+/// this reader lets tests exercise that companion path without a local edit.
+actor RenderedAssetReader: AssetReader {
+    func read(phassetLocalId: String) async throws -> AssetReadResult {
+        return AssetReadResult(
+            originalBytes: Data(count: 256),
+            renderedBytes: Data(count: 64),
+            sidecar: PayloadAssembler.SidecarInput(
+                phassetLocalId: phassetLocalId,
+                deviceId: "d",
+                captureDate: Date(timeIntervalSince1970: 1_700_000_000),
+                latitude: nil, longitude: nil,
+                favorite: false, caption: nil,
+                keywords: [], tags: [],
+                livePhotoCompanion: nil, burstStackId: nil,
+                originalFilename: "IMG.heic",
+                mtime: 0),
+            mapleId: "hash-\(phassetLocalId)")
+    }
+}
+
 actor LivePhotoAssetReader: AssetReader {
     func read(phassetLocalId: String) async throws -> AssetReadResult {
         return AssetReadResult(
