@@ -11,7 +11,11 @@
 // EditorStateService.armSubParam/setArmedDisplayValue — rather than
 // reinventing sub-param arming or value mapping:
 //
-//   - the tool dock's HSL entry arms EditorStateService.armedTool = 'hsl'
+//   - the Colour sub-tool row's HSL chip arms EditorStateService.armedTool =
+//     'hsl' (the dock itself carries no HSL button — #1807 Task 5 collapsed
+//     the dock to Apple's nine entries; HSL is reached via the group-
+//     parameterised chip row `control-card.component.ts` mounts instead, see
+//     `editor-shell-subtool-row.spec.ts` for the base reachability proof)
 //   - the shared chip row, drag bar, and value chip all mount in the DOM
 //     (verbatim, no editor-A-specific inputs)
 //   - selecting a chip arms that (tool, subParam) pair via
@@ -171,17 +175,36 @@ describe('EditorShellComponent — HSL / color-mix port (epic #1807 slice 4)', (
     TestBed.resetTestingModule();
   });
 
-  function hslDockButton(): HTMLButtonElement {
+  function colorDockButton(): HTMLButtonElement {
     const btn = fixture.nativeElement.querySelector(
-      'pro-tool-dock button[aria-label="HSL"]',
+      'pro-tool-dock button[aria-label="Color"]',
     ) as HTMLButtonElement | null;
     expect(btn).not.toBeNull();
     return btn!;
   }
 
+  function subtoolChip(label: string): HTMLButtonElement {
+    const chips = Array.from(
+      fixture.nativeElement.querySelectorAll('pro-control-card .subtool-chip'),
+    ) as HTMLButtonElement[];
+    const chip = chips.find((c) => c.textContent?.trim() === label);
+    expect(chip, `"${label}" sub-tool chip must be present`).not.toBeNull();
+    return chip!;
+  }
+
+  /** Arms HSL the way a real user does post-#1807-Task-5: the dock has no
+   *  HSL button any more, so this goes through the Color group dock entry
+   *  and then the Colour sub-tool row's HSL chip. */
+  function armHsl(): void {
+    colorDockButton().click();
+    fixture.detectChanges();
+    subtoolChip('HSL').click();
+    fixture.detectChanges();
+  }
+
   function curveDockButton(): HTMLButtonElement {
     const btn = fixture.nativeElement.querySelector(
-      'pro-tool-dock button[aria-label="Curve"]',
+      'pro-tool-dock button[aria-label="Tone Curve"]',
     ) as HTMLButtonElement | null;
     expect(btn).not.toBeNull();
     return btn!;
@@ -215,23 +238,16 @@ describe('EditorShellComponent — HSL / color-mix port (epic #1807 slice 4)', (
     return fixture.nativeElement.querySelector('.presets-panel');
   }
 
-  it('dock renders an HSL entry with an accessible label', () => {
-    const btn = hslDockButton();
-    expect(btn.disabled).toBe(false);
-    expect(btn.getAttribute('aria-label')).toBe('HSL');
-  });
-
   it('does NOT mount the HSL panel for a non-HSL tool', () => {
     expect(hslPanel()).toBeNull();
     expect(fixture.nativeElement.querySelector('pro-control-card')).not.toBeNull();
   });
 
-  it('clicking the HSL dock entry arms the tool and mounts the shared sub-param editing surface', () => {
+  it('clicking the Colour sub-tool row HSL chip arms the tool and mounts the shared sub-param editing surface', () => {
     const editorState = TestBed.inject(EditorStateService);
     expect(editorState.armedTool()).not.toBe('hsl');
 
-    hslDockButton().click();
-    fixture.detectChanges();
+    armHsl();
 
     expect(editorState.armedTool()).toBe('hsl');
     expect(editorState.armedGroup()).toBe('color');
@@ -256,20 +272,19 @@ describe('EditorShellComponent — HSL / color-mix port (epic #1807 slice 4)', (
     expect(fixture.nativeElement.querySelector('pro-control-card')).not.toBeNull();
   });
 
-  it('HSL highlights active in the dock while armed, and Color does not', () => {
-    hslDockButton().click();
-    fixture.detectChanges();
+  it('HSL highlights active on the Colour dock entry and on its own sub-tool chip', () => {
+    armHsl();
 
-    expect(hslDockButton().classList.contains('dock-btn--active')).toBe(true);
-    const colorBtn = fixture.nativeElement.querySelector(
-      'pro-tool-dock button[aria-label="Color"]',
-    ) as HTMLButtonElement;
-    expect(colorBtn.classList.contains('dock-btn--active')).toBe(false);
+    // The dock's Color entry is a GROUP entry — it stays highlighted for
+    // any tool armed within `color`, HSL included (it's the sub-tool row's
+    // own chip, checked below, that distinguishes HSL from a plain slider).
+    expect(colorDockButton().classList.contains('dock-btn--active')).toBe(true);
+    expect(subtoolChip('HSL').classList.contains('subtool-chip--active')).toBe(true);
+    expect(subtoolChip('B&W').classList.contains('subtool-chip--active')).toBe(false);
   });
 
   it('selecting a chip arms that (tool, subParam) pair via EditorStateService.armSubParam', () => {
-    hslDockButton().click();
-    fixture.detectChanges();
+    armHsl();
 
     const editorState = TestBed.inject(EditorStateService);
     expect(editorState.armedSubParamId()).toBe('hueRed');
@@ -287,8 +302,7 @@ describe('EditorShellComponent — HSL / color-mix port (epic #1807 slice 4)', (
   });
 
   it('a drag-bar edit on the default-armed sub-param writes hueAdjustmentRed', () => {
-    hslDockButton().click();
-    fixture.detectChanges();
+    armHsl();
 
     const editorState = TestBed.inject(EditorStateService);
     expect(editorState.armedSubParamId()).toBe('hueRed');
@@ -312,8 +326,7 @@ describe('EditorShellComponent — HSL / color-mix port (epic #1807 slice 4)', (
   });
 
   it('after arming a different sub-param, a value edit writes THAT field, not the default one', () => {
-    hslDockButton().click();
-    fixture.detectChanges();
+    armHsl();
 
     const editorState = TestBed.inject(EditorStateService);
     const orangeChip = fixture.nativeElement.querySelector(
@@ -332,8 +345,7 @@ describe('EditorShellComponent — HSL / color-mix port (epic #1807 slice 4)', (
   });
 
   it('the value chip reflects the armed sub-param label', () => {
-    hslDockButton().click();
-    fixture.detectChanges();
+    armHsl();
 
     const subParamEyebrow = fixture.nativeElement.querySelector(
       '[data-testid="editor-value-chip-subparam"]',
@@ -362,8 +374,7 @@ describe('EditorShellComponent — HSL / color-mix port (epic #1807 slice 4)', (
     fixture.detectChanges();
     expect(curvePanel()).not.toBeNull();
 
-    hslDockButton().click();
-    fixture.detectChanges();
+    armHsl();
 
     expect(curvePanel()).toBeNull();
     expect(hslPanel()).not.toBeNull();
@@ -374,16 +385,14 @@ describe('EditorShellComponent — HSL / color-mix port (epic #1807 slice 4)', (
     fixture.detectChanges();
     expect(presetsPanel()).not.toBeNull();
 
-    hslDockButton().click();
-    fixture.detectChanges();
+    armHsl();
 
     expect(presetsPanel()).toBeNull();
     expect(hslPanel()).not.toBeNull();
   });
 
   it('toggling Curve while HSL is armed is a no-op — the curve panel never opens over the HSL panel', () => {
-    hslDockButton().click();
-    fixture.detectChanges();
+    armHsl();
     expect(hslPanel()).not.toBeNull();
 
     curveDockButton().click();
@@ -395,8 +404,7 @@ describe('EditorShellComponent — HSL / color-mix port (epic #1807 slice 4)', (
   });
 
   it('toggling Presets while HSL is armed is a no-op — the presets panel never opens over the HSL panel', () => {
-    hslDockButton().click();
-    fixture.detectChanges();
+    armHsl();
     expect(hslPanel()).not.toBeNull();
 
     presetsDockButton().click();
@@ -408,8 +416,7 @@ describe('EditorShellComponent — HSL / color-mix port (epic #1807 slice 4)', (
   });
 
   it('arming Crop closes an open HSL panel', () => {
-    hslDockButton().click();
-    fixture.detectChanges();
+    armHsl();
     expect(hslPanel()).not.toBeNull();
 
     cropDockButton().click();
@@ -424,8 +431,7 @@ describe('EditorShellComponent — HSL / color-mix port (epic #1807 slice 4)', (
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('[data-testid="crop-toolbar"]')).not.toBeNull();
 
-    hslDockButton().click();
-    fixture.detectChanges();
+    armHsl();
 
     expect(fixture.nativeElement.querySelector('[data-testid="crop-toolbar"]')).toBeNull();
     expect(hslPanel()).not.toBeNull();
