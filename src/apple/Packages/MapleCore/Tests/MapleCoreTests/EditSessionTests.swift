@@ -263,6 +263,45 @@ final class EditSessionTests: XCTestCase {
         XCTAssertEqual(c.keywords, ["paris", "travel"])
     }
 
+    /// `flushPendingSidecarWrite()` must force an immediate PUT for a
+    /// `CloudSidecarStore`-backed session, not just `XMPSidecarStore` /
+    /// `PhotoKitSidecarStore` — `CloudSidecarStore.flush()` cancels the
+    /// pending debounce Task and writes now, the same "force it now" shape
+    /// as the other two stores (PR #2556 review fix — this branch was
+    /// previously missing, so backgrounding the app right after a cloud
+    /// edit could drop it before the 750ms debounce fired).
+    func testFlushPendingSidecarWriteForcesCloudSidecarStorePUT() async throws {
+        let server = URL(string: "https://x")!
+        let session = URLSession.stubbedSequence { req in
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 204,
+                                       httpVersion: "HTTP/1.1", headerFields: nil)!
+            return (Data(), resp)
+        }
+        let cloudStore = CloudSidecarStore(
+            server: server, assetID: "a1",
+            httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
+
+        let asset = AssetRef(
+            displayName: "IMG_CLOUD",
+            hintExtension: "dng",
+            stableID: "a1",
+            bytesProvider: { throw NSError(domain: "test", code: -1) }
+        )
+        let editSession = EditSession(asset: asset, remoteSidecarStore: cloudStore)
+
+        var edited = editSession.model
+        edited.exposure = 1.75
+        editSession.model = edited
+
+        for _ in 0..<5 { await Task.yield() }
+        await editSession.flushPendingSidecarWrite()
+
+        let body = URLProtocolStub.capturedBodies["https://x/api/assets/a1/xmp"]
+        let xml = try XCTUnwrap(body.flatMap { String(data: $0, encoding: .utf8) },
+            "flushPendingSidecarWrite() never forced the CloudSidecarStore PUT")
+        XCTAssertTrue(xml.contains("xmpmeta"))
+    }
+
     /// Duplicate + blank entries are normalized out before the list
     /// hits `culling.keywords` so the sidecar never carries
     /// `<rdf:li></rdf:li>` blanks or repeated bag members.
