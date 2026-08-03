@@ -29,9 +29,11 @@
 
 .value-chip {
   font-size: 11px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono, monospace);
+  font-variant-numeric: tabular-nums;
   color: var(--pro-text-muted);
   flex-shrink: 0;
+  user-select: none;
 
   &.value-chip--modified {
     color: var(--pro-accent);
