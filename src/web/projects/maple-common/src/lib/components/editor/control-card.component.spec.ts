@@ -17,12 +17,29 @@ import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import { makeLibraryStub } from '../../editor/editor-state.test-helpers';
 import { defaultAdjustmentModel } from '../../models/adjustment-model';
 
-function render(inputs: { phone?: boolean; closed?: boolean; activeGroup?: string } = {}): {
+function render(
+  inputs: {
+    phone?: boolean;
+    closed?: boolean;
+    activeGroup?: string;
+    activeTool?: string | null;
+  } = {},
+): {
   fixture: ComponentFixture<ControlCardComponent>;
   updateAdjustment: ReturnType<typeof vi.fn>;
   commit: ReturnType<typeof vi.fn>;
   haptic: ReturnType<typeof vi.fn>;
+  // Convenience passthroughs so callers that only need the rendered DOM or
+  // the component instance (the colour sub-tool row tests below) don't have
+  // to destructure `.fixture` first.
+  nativeElement: HTMLElement;
+  componentInstance: ControlCardComponent;
 } {
+  // Some callers (the colour sub-tool row tests below) render twice within a
+  // single `it()` to compare two states — TestBed refuses a second
+  // `configureTestingModule` once a prior call has instantiated a component,
+  // so each `render()` starts from a clean module.
+  TestBed.resetTestingModule();
   const focusedAssetId = signal<string | null>('asset-1');
   const adjustmentFor = vi.fn(() => signal(defaultAdjustmentModel()));
   const updateAdjustment = vi.fn();
@@ -49,8 +66,17 @@ function render(inputs: { phone?: boolean; closed?: boolean; activeGroup?: strin
   fixture.componentRef.setInput('activeGroup', inputs.activeGroup ?? 'light');
   if (inputs.phone !== undefined) fixture.componentRef.setInput('phone', inputs.phone);
   if (inputs.closed !== undefined) fixture.componentRef.setInput('closed', inputs.closed);
+  if (inputs.activeTool !== undefined)
+    fixture.componentRef.setInput('activeTool', inputs.activeTool);
   fixture.detectChanges();
-  return { fixture, updateAdjustment, commit, haptic };
+  return {
+    fixture,
+    updateAdjustment,
+    commit,
+    haptic,
+    nativeElement: fixture.nativeElement,
+    componentInstance: fixture.componentInstance,
+  };
 }
 
 describe('ControlCardComponent — tablet/desktop (default)', () => {
@@ -188,5 +214,86 @@ describe('flyout header (FlyoutSliderPanel parity)', () => {
     expect(el.querySelector('.group-title')?.textContent?.trim()).toBe('COLOR');
     expect(el.querySelector('.group-chips')).toBeNull();
     expect(el.querySelector('.grab-handle')).toBeNull();
+  });
+});
+
+describe('colour sub-tool row', () => {
+  it('renders Basic/HSL/B&W/Grade only for the colour group', () => {
+    const colour = render({ activeGroup: 'color' });
+    const chips = Array.from(
+      (colour.nativeElement as HTMLElement).querySelectorAll('.subtool-chip'),
+    ).map((n) => n.textContent!.trim());
+    expect(chips).toEqual(['Basic', 'HSL', 'B&W', 'Grade']);
+
+    const light = render({ activeGroup: 'light' });
+    expect((light.nativeElement as HTMLElement).querySelector('.subtool-row')).toBeNull();
+  });
+
+  it('emits the same tool a dock button used to arm', () => {
+    const fixture = render({ activeGroup: 'color' });
+    const emitted: string[] = [];
+    fixture.componentInstance.toolChange.subscribe((t: string) => emitted.push(t));
+
+    const chips = (fixture.nativeElement as HTMLElement).querySelectorAll('.subtool-chip');
+    (chips[1] as HTMLButtonElement).click(); // HSL
+    (chips[2] as HTMLButtonElement).click(); // B&W
+    (chips[3] as HTMLButtonElement).click(); // Grade
+    expect(emitted).toEqual(['hsl', 'bwMix', 'colorGrade']);
+  });
+
+  it('marks the chip matching the armed tool active, defaulting to Basic', () => {
+    const hsl = render({ activeGroup: 'color', activeTool: 'hsl' });
+    expect(
+      (hsl.nativeElement as HTMLElement)
+        .querySelector('.subtool-chip--active')
+        ?.textContent?.trim(),
+    ).toBe('HSL');
+
+    const basic = render({ activeGroup: 'color', activeTool: 'temp' });
+    expect(
+      (basic.nativeElement as HTMLElement)
+        .querySelector('.subtool-chip--active')
+        ?.textContent?.trim(),
+    ).toBe('Basic');
+  });
+
+  // `EditorStateService.armGroup` deliberately retains the currently-armed
+  // tool when the target group is already the armed group (own spec:
+  // "retains tool when arming the same group") — right for the dock's group
+  // buttons, but this row only ever shows once the group is ALREADY 'color'
+  // (`showSubtools`), so a naive `groupChange.emit('color')` on Basic would
+  // always hit that retain branch and never actually leave HSL/bwMix. Basic
+  // must arm the group's first slider tool directly to be a real escape
+  // hatch.
+  it('Basic arms the first slider tool directly when escaping a field-less sub-tool', () => {
+    const fixture = render({ activeGroup: 'color', activeTool: 'hsl' });
+    const toolsEmitted: string[] = [];
+    const groupsEmitted: string[] = [];
+    fixture.componentInstance.toolChange.subscribe((t: string) => toolsEmitted.push(t));
+    fixture.componentInstance.groupChange.subscribe((g: string) => groupsEmitted.push(g));
+
+    const basicChip = (fixture.nativeElement as HTMLElement).querySelectorAll(
+      '.subtool-chip',
+    )[0] as HTMLButtonElement;
+    basicChip.click();
+
+    expect(toolsEmitted).toEqual(['temp']);
+    expect(groupsEmitted).toEqual([]);
+  });
+
+  it('Basic re-affirms the group (not a tool) when a plain slider is already armed', () => {
+    const fixture = render({ activeGroup: 'color', activeTool: 'temp' });
+    const toolsEmitted: string[] = [];
+    const groupsEmitted: string[] = [];
+    fixture.componentInstance.toolChange.subscribe((t: string) => toolsEmitted.push(t));
+    fixture.componentInstance.groupChange.subscribe((g: string) => groupsEmitted.push(g));
+
+    const basicChip = (fixture.nativeElement as HTMLElement).querySelectorAll(
+      '.subtool-chip',
+    )[0] as HTMLButtonElement;
+    basicChip.click();
+
+    expect(groupsEmitted).toEqual(['color']);
+    expect(toolsEmitted).toEqual([]);
   });
 });

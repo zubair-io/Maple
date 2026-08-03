@@ -28,23 +28,54 @@
       }
     </div>
 
-    <div class="slider-grid">
-      @for (tool of slidersFor(activeGroup()); track tool) {
-        <pro-living-slider
-          [attr.aria-label]="labelFor(tool)"
-          [label]="labelFor(tool)"
-          [value]="valueFor(tool)"
-          [min]="minFor(tool)"
-          [max]="maxFor(tool)"
-          [step]="stepFor(tool)"
-          [gradient]="gradientFor(tool)"
-          [bipolar]="bipolarFor(tool)"
-          [defaultValue]="defaultFor(tool)"
-          (dragStart)="onSliderDragStart(tool)"
-          (valueChange)="onSliderChange(tool, $event)"
-          (resetRequest)="onSliderReset(tool)"
-        />
-      }
-    </div>
+    <!-- Colour sub-tool row (#1807 Task 4) — Basic/HSL/B&W/Grade. Only the
+         colour group has field-less tools, so this is the only group that
+         shows chips (`showSubtools`). Picking a chip re-arms the group
+         (Basic) or arms the tool directly (HSL/B&W/Grade), mirroring what
+         their former dock buttons did. -->
+    @if (showSubtools()) {
+      <div class="subtool-row" role="tablist" aria-label="Colour sub-tools">
+        @for (sub of colorSubtools; track sub.label) {
+          <button
+            class="subtool-chip"
+            [class.subtool-chip--active]="isSubtoolActive(sub.id)"
+            role="tab"
+            [attr.aria-selected]="isSubtoolActive(sub.id)"
+            (click)="onSubtoolClick(sub.id)"
+          >
+            {{ sub.label }}
+          </button>
+        }
+      </div>
+    }
+
+    <!-- HSL and bwMix have no primary slider field — the shell projects
+         their shared sub-param editing surface (chip selector + drag bar +
+         value chip) in here instead. Colour Grading projects its four-wheel
+         panel. Anything else falls back to the plain slider grid. -->
+    @if (activeTool() === 'hsl' || activeTool() === 'bwMix') {
+      <ng-content select="[cardBodySubParam]" />
+    } @else if (activeTool() === 'colorGrade') {
+      <ng-content select="[cardBodyGrade]" />
+    } @else {
+      <div class="slider-grid">
+        @for (tool of slidersFor(activeGroup()); track tool) {
+          <pro-living-slider
+            [attr.aria-label]="labelFor(tool)"
+            [label]="labelFor(tool)"
+            [value]="valueFor(tool)"
+            [min]="minFor(tool)"
+            [max]="maxFor(tool)"
+            [step]="stepFor(tool)"
+            [gradient]="gradientFor(tool)"
+            [bipolar]="bipolarFor(tool)"
+            [defaultValue]="defaultFor(tool)"
+            (dragStart)="onSliderDragStart(tool)"
+            (valueChange)="onSliderChange(tool, $event)"
+            (resetRequest)="onSliderReset(tool)"
+          />
+        }
+      </div>
+    }
   </div>
 }

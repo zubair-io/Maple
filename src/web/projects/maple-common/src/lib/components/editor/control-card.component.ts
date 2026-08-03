@@ -3,8 +3,15 @@
 // Tablet/desktop: fixed 300px column, vertically centred just left of the
 // dock (see editor-shell.component.scss `.control-card-anchor`). Header is
 // an accent group glyph + title (FlyoutSliderPanel parity) — the dock owns
-// group switching, so there is no chip row here. Sliders render as a single
-// living-slider column for the active group.
+// GROUP switching, so there is no group-chip row here. Sliders render as a
+// single living-slider column for the active group.
+//
+// Colour sub-tool row (#1807 Task 4): HSL, B&W and Colour Grading have no
+// single primary slider field, so they can't join SLIDER_TOOLS below. A
+// Basic/HSL/B&W/Grade chip row shows only for the colour group
+// (`showSubtools`) and swaps the body for content the shell projects in via
+// `[cardBodySubParam]`/`[cardBodyGrade]` — this component never imports
+// those panel components directly, so its own import list stays small.
 //
 // Phone (#1807 — CARD editor): the horizontal tool dock still owns group
 // selection; the card is a closeable flyout driven by the `closed` input —
@@ -43,6 +50,20 @@ const SLIDER_TOOLS: Partial<Record<ToolGroup, readonly ToolId[]>> = {
   detail: ['sharpen', 'noise', 'colorNR'],
 };
 
+/** Colour sub-tools that have no primary slider field, so they cannot appear
+ *  in SLIDER_TOOLS and need their own route. `null` is Basic — the group's
+ *  plain sliders. Mirrors the tools Apple's Card variant cannot reach at all
+ *  (ToolDock.swift has no button for any of them). */
+const COLOR_SUBTOOLS: readonly {
+  readonly id: ToolId | null;
+  readonly label: string;
+}[] = [
+  { id: null, label: 'Basic' },
+  { id: 'hsl', label: 'HSL' },
+  { id: 'bwMix', label: 'B&W' },
+  { id: 'colorGrade', label: 'Grade' },
+];
+
 @Component({
   selector: 'pro-control-card',
   standalone: true,
@@ -58,6 +79,8 @@ export class ControlCardComponent {
   // ── Inputs ────────────────────────────────────────────────────────────
   /** Currently active tool group. */
   activeGroup = input.required<ToolGroup>();
+  /** Armed tool — drives which sub-tool chip reads active. */
+  activeTool = input<ToolId | null>(null);
   /**
    * Phone layout (#1807): shows a close button in the header alongside the
    * group title, so the flyout can be dismissed back to the dock.
@@ -81,6 +104,8 @@ export class ControlCardComponent {
    * layouts.
    */
   groupChange = output<ToolGroup>();
+  /** Fired when the user picks a sub-tool chip (HSL / B&W / Grade). */
+  toolChange = output<ToolId>();
   /** Fired when the user taps the phone close button. */
   closeRequest = output<void>();
 
@@ -108,6 +133,46 @@ export class ControlCardComponent {
   /** Tools that appear as sliders for a given group. */
   slidersFor(group: ToolGroup): readonly ToolId[] {
     return SLIDER_TOOLS[group] ?? [];
+  }
+
+  readonly colorSubtools = COLOR_SUBTOOLS;
+
+  /** Sub-tool chips show for Colour only — the other three groups have no
+   *  field-less tools. */
+  readonly showSubtools = computed<boolean>(() => this.activeGroup() === 'color');
+
+  isSubtoolActive(id: ToolId | null): boolean {
+    const armed = this.activeTool();
+    const armedSubtool = COLOR_SUBTOOLS.some((s) => s.id !== null && s.id === armed);
+    return id === null ? !armedSubtool : id === armed;
+  }
+
+  onSubtoolClick(id: ToolId | null): void {
+    if (id !== null) {
+      // The others arm directly, exactly as their former dock buttons did.
+      this.toolChange.emit(id);
+      return;
+    }
+    // Basic re-arms the group, which arms its first slider tool — but
+    // `groupChange.emit('color')` alone only does that when a DIFFERENT
+    // group was previously armed. This row only shows once the group is
+    // already 'color' (`showSubtools`), and
+    // `EditorStateService.armGroup` deliberately RETAINS the currently-armed
+    // tool when the group doesn't change (see its
+    // 'retains tool when arming the same group' spec) — the right behavior
+    // for the dock's own group buttons (re-tapping Color shouldn't reset you
+    // off Saturation), but HSL and bwMix both already belong to 'color', so
+    // that retain rule would otherwise leave Basic a permanent no-op exactly
+    // when it's needed: escaping HSL/bwMix back to plain sliders. Arm the
+    // group's first slider tool directly in that case; otherwise a plain
+    // slider is already armed, so just re-affirm the group (also emitted
+    // from a plain-slider tap so `groupChange` stays live for callers other
+    // than the escape case above).
+    const armed = this.activeTool();
+    const armedSubtool = COLOR_SUBTOOLS.some((s) => s.id !== null && s.id === armed);
+    const firstSlider = this.slidersFor(this.activeGroup())[0];
+    if (armedSubtool && firstSlider) this.toolChange.emit(firstSlider);
+    else this.groupChange.emit('color');
   }
 
   /** Current adjustment model for the focused asset. */
