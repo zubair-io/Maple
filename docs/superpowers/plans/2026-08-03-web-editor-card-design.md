@@ -1,6 +1,6 @@
 # Web Editor Apple Card-Layout Fidelity Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> This plan was executed task-by-task using a subagent-driven workflow; the checkbox (`- [ ]`) syntax on each step tracked progress to completion.
 
 **Goal:** Bring the web editor's dock, control surface and sliders to visual and structural parity with the Apple `FlyoutSliderPanel` + `ToolDock` Card layout, without stranding any shipped tool.
 
