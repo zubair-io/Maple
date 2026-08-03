@@ -1,28 +1,20 @@
-// ControlCardComponent — floating glass card at bottom of canvas (#1535).
+// ControlCardComponent — floating flyout panel beside the tool dock (#1535).
 //
-// Tablet/desktop: group chip row (active = accent28 fill + accent border) +
-// living-slider column (2-col) for the active group. Grab handle collapses
-// between peek (chips only) and full.
+// Tablet/desktop: fixed 300px column, vertically centred just left of the
+// dock (see editor-shell.component.scss `.control-card-anchor`). Header is
+// an accent group glyph + title (FlyoutSliderPanel parity) — the dock owns
+// group switching, so there is no chip row here. Sliders render as a single
+// living-slider column for the active group.
 //
-// Phone (#1807 — CARD editor): the horizontal tool dock now owns group
-// selection, so the chip row is suppressed (`phone` input); the card is
-// instead a closeable flyout driven by the `closed` input — closed hides the
-// whole card and leaves only the dock visible. A close button replaces the
-// chip row's role of dismissing the panel; the grab handle still toggles
-// full/peek for a one-handed "peek at the group name" affordance.
+// Phone (#1807 — CARD editor): the horizontal tool dock still owns group
+// selection; the card is a closeable flyout driven by the `closed` input —
+// closed hides the whole card and leaves only the dock visible. A close
+// button in the header dismisses the panel back to the dock.
 //
 // Reset button in header zeroes the visible group.
 // Per-slider double-click zeroes that one slider (handled via resetRequest).
 
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  inject,
-  input,
-  output,
-  signal,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import { LivingSliderComponent } from '../develop/living-slider.component';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
 import {
@@ -39,10 +31,6 @@ import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { gradientFor } from '../develop/gradient-catalog';
 import type { AdjustmentModel } from '../../models/adjustment-model';
-
-export type CardState = 'full' | 'peek';
-
-const ALL_GROUPS: ToolGroup[] = ['light', 'color', 'effects', 'detail'];
 
 /** Tools shown as sliders in the control card (excludes crop/presets/hsl/
  *  bwMix — bwMix (#276) has no single primary drag-bar field, same reason
@@ -71,8 +59,8 @@ export class ControlCardComponent {
   /** Currently active tool group. */
   activeGroup = input.required<ToolGroup>();
   /**
-   * Phone layout (#1807): suppresses the text group-chip row (the bottom
-   * tool dock now owns group selection) and shows a close button instead.
+   * Phone layout (#1807): shows a close button in the header alongside the
+   * group title, so the flyout can be dismissed back to the dock.
    */
   phone = input<boolean>(false);
   /**
@@ -84,28 +72,34 @@ export class ControlCardComponent {
   closed = input<boolean>(false);
 
   // ── Outputs ───────────────────────────────────────────────────────────
-  /** Fired when user taps a group chip. */
+  /**
+   * Retained for the parent binding — group switching is now entirely
+   * dock-owned, so nothing in this component emits it. Task 5 retires it
+   * alongside `phone`/`closed`.
+   */
   groupChange = output<ToolGroup>();
   /** Fired when the user taps the phone close button. */
   closeRequest = output<void>();
-
-  // ── Card collapse state (tablet/desktop grab-handle peek) ──────────────
-  readonly cardState = signal<CardState>('full');
-  readonly isPeek = computed(() => this.cardState() === 'peek');
-
-  toggleCardState(): void {
-    this.cardState.update((s) => (s === 'full' ? 'peek' : 'full'));
-  }
 
   onCloseClick(): void {
     this.closeRequest.emit();
   }
 
   // ── Data helpers ──────────────────────────────────────────────────────
-  readonly allGroups = ALL_GROUPS;
-
   groupLabel(g: ToolGroup): string {
     return TOOL_GROUP_DISPLAY[g];
+  }
+
+  /** Accent glyph beside the group title — same icon the dock's group button
+   *  uses, so the panel header and the dock entry read as the same object. */
+  groupIcon(group: ToolGroup): string {
+    const icons: Record<ToolGroup, string> = {
+      light: 'tool-exposure',
+      color: 'tool-tint',
+      effects: 'tool-vignette',
+      detail: 'tool-sharpen',
+    };
+    return icons[group];
   }
 
   /** Tools that appear as sliders for a given group. */

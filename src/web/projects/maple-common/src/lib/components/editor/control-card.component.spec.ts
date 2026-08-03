@@ -1,6 +1,7 @@
-// control-card.component.spec.ts — group chips (tablet/desktop) vs the phone
-// flyout (#1807): suppressed chip row, close button, and the `closed` input
-// hiding the whole card so only the bottom dock remains visible.
+// control-card.component.spec.ts — flyout header parity (accent group title,
+// no chip row, no grab handle) vs the phone flyout (#1807): close button and
+// the `closed` input hiding the whole card so only the bottom dock remains
+// visible.
 
 import { describe, it, expect, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
@@ -53,11 +54,6 @@ function render(inputs: { phone?: boolean; closed?: boolean; activeGroup?: strin
 }
 
 describe('ControlCardComponent — tablet/desktop (default)', () => {
-  it('renders the group-chips row', () => {
-    const { fixture } = render();
-    expect(fixture.nativeElement.querySelector('.group-chips')).toBeTruthy();
-  });
-
   it('does not render a close button', () => {
     const { fixture } = render();
     expect(fixture.nativeElement.querySelector('.close-btn')).toBeFalsy();
@@ -67,26 +63,14 @@ describe('ControlCardComponent — tablet/desktop (default)', () => {
     const { fixture } = render({ closed: true });
     expect(fixture.nativeElement.querySelector('.card')).toBeTruthy();
   });
-
-  it('clicking a chip emits groupChange', () => {
-    const { fixture } = render({ activeGroup: 'light' });
-    let emitted: string | undefined;
-    fixture.componentInstance.groupChange.subscribe((g) => (emitted = g));
-    const chips = Array.from(
-      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.group-chip'),
-    );
-    const colorChip = chips.find((c) => c.textContent?.trim() === 'Color')!;
-    colorChip.click();
-    expect(emitted).toBe('color');
-  });
 });
 
 describe('ControlCardComponent — phone flyout (#1807)', () => {
-  it('suppresses the group-chips row and shows the active group label instead', () => {
+  it('suppresses the group-chips row and shows the active group title instead', () => {
     const { fixture } = render({ phone: true, activeGroup: 'color', closed: false });
     expect(fixture.nativeElement.querySelector('.group-chips')).toBeFalsy();
-    const label = fixture.nativeElement.querySelector('.phone-group-label');
-    expect(label?.textContent?.trim()).toBe('Color');
+    const title = fixture.nativeElement.querySelector('.group-title');
+    expect(title?.textContent?.trim()).toBe('COLOR');
   });
 
   it('shows a close button that emits closeRequest', () => {
@@ -194,5 +178,15 @@ describe('ControlCardComponent — pointer/keyboard slider gestures push undo en
     expect(editorState.canUndo()).toBe(true);
     editorState.undo();
     expect(lib.adjustmentFor('asset-1')().exposure).toBe(0);
+  });
+});
+
+describe('flyout header (FlyoutSliderPanel parity)', () => {
+  it('shows the accent group title and no group-chip row', () => {
+    const { fixture } = render({ activeGroup: 'color' });
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('.group-title')?.textContent?.trim()).toBe('COLOR');
+    expect(el.querySelector('.group-chips')).toBeNull();
+    expect(el.querySelector('.grab-handle')).toBeNull();
   });
 });
