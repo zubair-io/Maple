@@ -28,14 +28,18 @@
       }
     </div>
 
-    <!-- Colour sub-tool row (#1807 Task 4) — Basic/HSL/B&W/Grade. Only the
-         colour group has field-less tools, so this is the only group that
-         shows chips (`showSubtools`). Picking a chip re-arms the group
-         (Basic) or arms the tool directly (HSL/B&W/Grade), mirroring what
+    <!-- Sub-tool row (#1807 Task 4) — Basic plus whichever field-less tools
+         belong to the active group (Colour: HSL/B&W; Effects: Grade; Light
+         and Detail: none — `showSubtools`/`subtools()`). Picking a chip
+         re-arms the group (Basic) or arms the tool directly, mirroring what
          their former dock buttons did. -->
     @if (showSubtools()) {
-      <div class="subtool-row" role="tablist" aria-label="Colour sub-tools">
-        @for (sub of colorSubtools; track sub.label) {
+      <div
+        class="subtool-row"
+        role="tablist"
+        [attr.aria-label]="groupLabel(activeGroup()) + ' sub-tools'"
+      >
+        @for (sub of subtools(); track sub.label) {
           <button
             class="subtool-chip"
             [class.subtool-chip--active]="isSubtoolActive(sub.id)"
