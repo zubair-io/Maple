@@ -85,16 +85,28 @@ peek mode.
 The component keeps its `control-card` filename. "Card" no longer describes the shape precisely, but
 renaming reaches both shells and three spec files while changing no behaviour.
 
-### Colour sub-tool row
+### Sub-tool rows
 
-A chip row reading Basic, HSL, B&W and Grade renders inside the panel when Color is the active group.
-Selecting a chip swaps the panel body for that tool's existing panel, driven by the same `armTool`
-calls the dock buttons make today; no adjustment logic or field binding moves. Light, Effects and
-Detail have no sub-tools and render no row.
+A chip row renders inside the panel for any group holding tools with no primary slider field.
+Colour shows Basic, HSL and B&W; Effects shows Basic and Grade. Light and Detail have no such
+tools and render no row. Selecting a chip swaps the panel body for that tool's existing panel,
+driven by the same `armTool` calls the dock buttons make today; no adjustment logic or field
+binding moves.
 
-The row renders on every breakpoint. Because the three tools leave the dock in both orientations,
-this row is their only route on phone as well as on desktop, and it is what keeps the phone bar's
-nine entries from stranding them.
+The row is keyed to the group each tool actually belongs to, per `TOOLS_IN_GROUP`. An earlier
+draft of this spec put Grade in the Colour row and asserted that Effects had no sub-tools; both
+were wrong. `colorGrade` is an Effects tool, and since `armTool` sets `armedGroup` to the tool's
+own group, arming Grade from a Colour row would have flipped the group to Effects and hidden the
+row that launched it.
+
+Selecting Basic must re-arm the group's first slider tool directly rather than routing through
+`armGroup`. `armGroup(g)` deliberately preserves the armed tool when it already belongs to `g`,
+which is correct for the dock's group buttons but makes it a no-op in exactly the case Basic
+exists to serve — escaping HSL or B&W back to the Colour sliders.
+
+Both rows render on every breakpoint. Because HSL, B&W and Grade leave the dock in both
+orientations, these rows are their only route on phone as well as on desktop, and they are what
+keeps the phone bar's nine entries from stranding them.
 
 This surface exists on web and not on Apple. A follow-up ticket should track the equivalent gap in
 the Swift Card variant so the two do not drift again. No Swift changes land in this work.
