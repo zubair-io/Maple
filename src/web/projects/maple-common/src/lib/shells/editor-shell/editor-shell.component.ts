@@ -120,6 +120,7 @@ import {
 } from './editor-shell-undo';
 import { type ToolGroup, type ToolId } from '../../editor/tool-model';
 import { hudEyebrowText, hudValueLabel, hudProgressFraction } from './editor-shell-hud';
+import { closePhoneCard as closePhoneCardImpl } from './editor-shell-subtool';
 
 /** Chrome visibility states driven by idle timer + scrub. */
 type ChromeState = 'full' | 'receded' | 'scrubbing';
@@ -487,8 +488,7 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   closePhoneCard(): void {
-    this.phoneCardOpen.set(false);
-    this.editorState.haptic('switch');
+    closePhoneCardImpl(this);
   }
 
   /** Toggle the presets panel (#1815). No-op while Crop, HSL, bwMix, or
