@@ -53,16 +53,22 @@ struct CloudThumbTile: View {
     /// Decoded thumbnail bitmap, produced off the main actor in the `.task`.
     @State private var decoded: CGImage?
 
+    /// Identity for the `.task` and the decode cache. `absPath` alone is NOT
+    /// unique across servers — the all-sources Timeline can show the same path
+    /// (e.g. `/DCIM/IMG_0001.JPG`) on two different hosts — so it's namespaced
+    /// by host to avoid a cross-host thumbnail collision and a stale `.task`.
+    private var cacheKey: String { "\(host):\(absPath)" }
+
     var body: some View {
-        ThumbnailImage(image: decoded ?? ThumbnailDecoder.cachedImage(forKey: absPath),
+        ThumbnailImage(image: decoded ?? ThumbnailDecoder.cachedImage(forKey: cacheKey),
                        displayMode: displayMode)
-            .task(id: absPath) {
+            .task(id: cacheKey) {
                 let bytes = await fetchCloudThumbBytes(
                     host: host, absPath: absPath, cache: thumbCache, client: thumbClient)
                 guard !Task.isCancelled else { return }
-                // Decode off-main, keyed on the lightweight abs-path; no arrival
-                // fade (it hitches scroll — see PhotoThumbnailCell).
-                let image = await ThumbnailDecoder.image(for: bytes, key: absPath)
+                // Decode off-main, keyed on host+path; no arrival fade (it
+                // hitches scroll — see PhotoThumbnailCell).
+                let image = await ThumbnailDecoder.image(for: bytes, key: cacheKey)
                 guard !Task.isCancelled else { return }
                 decoded = image
             }
