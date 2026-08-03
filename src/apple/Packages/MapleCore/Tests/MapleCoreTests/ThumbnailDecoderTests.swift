@@ -84,13 +84,13 @@ final class ThumbnailDecoderTests: XCTestCase {
 
     func test_image_returnsCachedInstanceForIdenticalBytes() async throws {
         let bytes = try makePNG(width: 640, height: 640)
-        let firstDecode = await ThumbnailDecoder.image(for: bytes)
-        let secondDecode = await ThumbnailDecoder.image(for: bytes)
+        let firstDecode = await ThumbnailDecoder.image(for: bytes, key: "cache-identity")
+        let secondDecode = await ThumbnailDecoder.image(for: bytes, key: "cache-identity")
         let first = try XCTUnwrap(firstDecode)
         let second = try XCTUnwrap(secondDecode)
         XCTAssertTrue(
             first === second,
-            "identical bytes must resolve to the same cached CGImage (decode-once)"
+            "the same key must resolve to the same cached CGImage (decode-once)"
         )
     }
 
@@ -104,7 +104,7 @@ final class ThumbnailDecoderTests: XCTestCase {
     }
 
     func test_image_returnsNilForNonImageBytes() async {
-        let result = await ThumbnailDecoder.image(for: Data([0xDE, 0xAD, 0xBE, 0xEF]))
+        let result = await ThumbnailDecoder.image(for: Data([0xDE, 0xAD, 0xBE, 0xEF]), key: "garbage")
         XCTAssertNil(result, "garbage bytes must not decode to an image")
     }
 
@@ -122,7 +122,7 @@ final class ThumbnailDecoderTests: XCTestCase {
         let bytes = try makePNG(width: 123, height: 77)
         // Cancel synchronously before the first suspension point, so the task
         // body observes cancellation deterministically once it runs.
-        let task = Task { await ThumbnailDecoder.image(for: bytes) }
+        let task = Task { await ThumbnailDecoder.image(for: bytes, key: "cancelled") }
         task.cancel()
         let result = await task.value
         XCTAssertNil(result, "a decode whose caller was cancelled must return nil")

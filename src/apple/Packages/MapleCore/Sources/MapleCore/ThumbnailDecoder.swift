@@ -28,7 +28,8 @@ import ImageIO
 import CoreGraphics
 
 /// Decodes encoded thumbnail bytes (AVIF/JPEG/PNG/…) into eagerly-decoded,
-/// downsampled `CGImage`s off the main actor, memoizing by bytes.
+/// downsampled `CGImage`s off the main actor, memoizing by a lightweight
+/// caller-supplied key.
 public enum ThumbnailDecoder {
 
     /// Long-edge cap of the decoded bitmap, in pixels. The grid's stored thumbs
@@ -37,22 +38,37 @@ public enum ThumbnailDecoder {
     /// bitmap for smaller ones. A source already ≤ this is never upscaled.
     public static let maxPixelSize = 512
 
-    /// Decoded-image cache, keyed on the encoded bytes. `NSCache` is thread-safe
-    /// and evicts under memory pressure. Keyed on the bytes (not a per-asset id)
-    /// so two surfaces showing the same asset — e.g. the browse grid and the
-    /// filmstrip — share one decoded bitmap.
-    private static let cache: NSCache<NSData, CGImage> = {
-        let cache = NSCache<NSData, CGImage>()
-        // A realized grid viewport is well under this; the cap just bounds the
-        // decoded-bitmap footprint. NSCache also purges on memory pressure.
-        cache.countLimit = 512
+    /// Decoded-image cache, keyed by a lightweight caller-supplied string (the
+    /// grid item's stable id / cloud abs-path), NOT the raw bytes. Byte keys
+    /// would strongly retain a copy of every encoded thumbnail purely as a key,
+    /// and every lookup would hash / `memcmp` the whole byte array — the exact
+    /// main-thread cost this type exists to remove, since `cachedImage(forKey:)`
+    /// is read synchronously in `ThumbnailImage`. A string key is O(1). `NSCache`
+    /// is thread-safe and evicts under memory pressure; `totalCostLimit` bounds
+    /// the DECODED-bitmap footprint (cost = pixels × 4 bytes) rather than a bare
+    /// count, since a 512 px bitmap is ~0.75 MB and a count cap would let the
+    /// cache grow into hundreds of MB.
+    private static let cache: NSCache<NSString, CGImage> = {
+        let cache = NSCache<NSString, CGImage>()
+        cache.totalCostLimit = 64 * 1024 * 1024   // ~64 MB of decoded bitmaps
         return cache
     }()
 
+    /// Byte cost of a decoded bitmap, for `NSCache.totalCostLimit` accounting.
+    private static func cost(of image: CGImage) -> Int {
+        image.bytesPerRow * image.height
+    }
+
     /// Decode `data` into an eagerly-decoded, downsampled `CGImage`, off the
-    /// main actor, returning a cached instance when the same bytes were decoded
-    /// before. Returns `nil` when the bytes are not a decodable image, or when
-    /// the calling task has been cancelled.
+    /// main actor, caching the result under `key`. Returns a cached instance
+    /// when `key` was decoded before, `nil` when the bytes are not a decodable
+    /// image or the calling task has been cancelled.
+    ///
+    /// `key` is a lightweight stable identifier for the asset (e.g. the grid
+    /// item id) — never the bytes. Callers that show the same asset at the same
+    /// tier reuse one decoded bitmap; callers must pick keys that already encode
+    /// content identity (the grid ids do), so a stale key never maps to fresh
+    /// bytes.
     ///
     /// Call this from a view's `.task` (never from `body`). This function is
     /// `nonisolated async`, so by SE-0338 its body runs on the cooperative pool,
@@ -64,35 +80,33 @@ public enum ThumbnailDecoder {
     /// directly keeps the decode structured, so a cell that scrolls off-screen
     /// (its `.task` cancelled) bails here instead of decoding a tile no longer
     /// on screen.
-    public static func image(for data: Data) async -> CGImage? {
-        let key = data as NSData
-        if let cached = cache.object(forKey: key) { return cached }
+    public static func image(for data: Data, key: String) async -> CGImage? {
+        let nsKey = key as NSString
+        if let cached = cache.object(forKey: nsKey) { return cached }
 
         // Scrolled past before the decode started — don't burn a decode on a
         // tile that's no longer visible.
         guard !Task.isCancelled else { return nil }
         let decoded = decodeSync(data)
 
-        if let decoded { cache.setObject(decoded, forKey: key) }
+        if let decoded { cache.setObject(decoded, forKey: nsKey, cost: cost(of: decoded)) }
         return decoded
     }
 
     /// Convenience for the common `Data?` call site (bytes may still be
     /// loading): returns nil when `data` is nil, otherwise decodes as above.
-    public static func image(for data: Data?) async -> CGImage? {
+    public static func image(for data: Data?, key: String) async -> CGImage? {
         guard let data else { return nil }
-        return await image(for: data)
+        return await image(for: data, key: key)
     }
 
-    /// Synchronous, non-decoding peek into the decoded-image cache. Returns a
-    /// decoded image only when these exact bytes were already decoded (e.g. the
-    /// tile was on screen a moment ago and scrolled back); never decodes and
-    /// never blocks. Lets a view render an already-decoded thumbnail on its very
-    /// first frame instead of flashing a placeholder while `image(for:)` hops
-    /// off-actor. Mirrors `ThumbnailProvider.cachedThumbnail`'s sync-peek role,
-    /// one tier down (decoded bitmap vs. encoded bytes).
-    public static func cachedImage(for data: Data) -> CGImage? {
-        cache.object(forKey: data as NSData)
+    /// Synchronous, non-decoding, O(1) peek into the decoded-image cache. Returns
+    /// a decoded image only when `key` was already decoded (e.g. the tile was on
+    /// screen a moment ago and scrolled back); never decodes and never blocks.
+    /// Lets a view render an already-decoded thumbnail on its very first frame
+    /// instead of flashing a placeholder while `image(for:key:)` runs off-actor.
+    public static func cachedImage(forKey key: String) -> CGImage? {
+        cache.object(forKey: key as NSString)
     }
 
     /// Synchronous eager + downsampled decode. Exposed for tests and for the
