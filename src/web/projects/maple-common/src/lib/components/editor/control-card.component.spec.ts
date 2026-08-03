@@ -1,7 +1,7 @@
 // control-card.component.spec.ts — flyout header parity (accent group title,
-// no chip row, no grab handle) vs the phone flyout (#1807): close button and
-// the `closed` input hiding the whole card so only the bottom dock remains
-// visible.
+// no chip row, no grab handle). The card renders identically on every
+// breakpoint (#1807 Task 5 retired the phone-only close button and `closed`
+// input — the card is always visible now, tablet/desktop and phone alike).
 
 import { describe, it, expect, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
@@ -19,8 +19,6 @@ import { defaultAdjustmentModel } from '../../models/adjustment-model';
 
 function render(
   inputs: {
-    phone?: boolean;
-    closed?: boolean;
     activeGroup?: string;
     activeTool?: string | null;
   } = {},
@@ -64,8 +62,6 @@ function render(
 
   const fixture = TestBed.createComponent(ControlCardComponent);
   fixture.componentRef.setInput('activeGroup', inputs.activeGroup ?? 'light');
-  if (inputs.phone !== undefined) fixture.componentRef.setInput('phone', inputs.phone);
-  if (inputs.closed !== undefined) fixture.componentRef.setInput('closed', inputs.closed);
   if (inputs.activeTool !== undefined)
     fixture.componentRef.setInput('activeTool', inputs.activeTool);
   fixture.detectChanges();
@@ -79,52 +75,33 @@ function render(
   };
 }
 
-describe('ControlCardComponent — tablet/desktop (default)', () => {
+describe('ControlCardComponent — always visible, no closeable state (#1807 Task 5)', () => {
   it('does not render a close button', () => {
     const { fixture } = render();
     expect(fixture.nativeElement.querySelector('.close-btn')).toBeFalsy();
   });
 
-  it('ignores the closed input entirely — card always renders', () => {
-    const { fixture } = render({ closed: true });
+  it('always renders the card', () => {
+    const { fixture } = render();
     expect(fixture.nativeElement.querySelector('.card')).toBeTruthy();
   });
-});
 
-describe('ControlCardComponent — phone flyout (#1807)', () => {
   it('suppresses the group-chips row and shows the active group title instead', () => {
-    const { fixture } = render({ phone: true, activeGroup: 'color', closed: false });
+    const { fixture } = render({ activeGroup: 'color' });
     expect(fixture.nativeElement.querySelector('.group-chips')).toBeFalsy();
     const title = fixture.nativeElement.querySelector('.group-title');
     expect(title?.textContent?.trim()).toBe('COLOR');
   });
 
-  it('shows a close button that emits closeRequest', () => {
-    const { fixture } = render({ phone: true, closed: false });
-    let closed = 0;
-    fixture.componentInstance.closeRequest.subscribe(() => closed++);
-    const closeBtn = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
-      '.close-btn',
-    );
-    expect(closeBtn).toBeTruthy();
-    closeBtn!.click();
-    expect(closed).toBe(1);
-  });
-
-  it('renders nothing when closed=true', () => {
-    const { fixture } = render({ phone: true, closed: true });
-    expect(fixture.nativeElement.querySelector('.card')).toBeFalsy();
-  });
-
-  it('renders the card (with sliders) when closed=false', () => {
-    const { fixture } = render({ phone: true, closed: false, activeGroup: 'light' });
+  it('renders the card with sliders', () => {
+    const { fixture } = render({ activeGroup: 'light' });
     expect(fixture.nativeElement.querySelector('.card')).toBeTruthy();
     expect(fixture.nativeElement.querySelector('.slider-grid')).toBeTruthy();
     expect(fixture.nativeElement.querySelectorAll('pro-living-slider').length).toBeGreaterThan(0);
   });
 
-  it('still exposes the reset button when open', () => {
-    const { fixture } = render({ phone: true, closed: false });
+  it('exposes the reset button', () => {
+    const { fixture } = render();
     expect(fixture.nativeElement.querySelector('.reset-btn')).toBeTruthy();
   });
 });

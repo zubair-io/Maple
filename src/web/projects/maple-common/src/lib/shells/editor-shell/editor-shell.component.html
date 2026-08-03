@@ -278,34 +278,24 @@
         </div>
       }
     } @else {
-      <!-- ── Phone CARD editor (#1807): flyout card + bottom dock ──── -->
+      <!-- ── Phone CARD editor (#1807): always-visible slider card + bottom
+           dock, MobileControlBar.swift's two-card VStack (#1807 Task 5) ── -->
 
-      <!-- Flyout slider card — floats above the dock, closeable. Hidden only
-           while Crop is armed: the crop toolbar below owns the phone flyout
-           anchor while armed, matching the tablet/desktop crop panel. HSL,
-           bwMix and Color Grading no longer suppress the card (#1807 Task
-           4): they render INSIDE it via content projection, same as
-           tablet/desktop above.
-
-           `closed` additionally stays open (false) whenever one of the
-           three is armed, even if `phoneCardOpen` says otherwise — the
-           phone dock's own HSL/B&W/Grade buttons (`onPhoneToolChange`)
-           still close the flyout on the assumption that arming one of these
-           tools opens a SEPARATE standalone panel, which was true before
-           this task moved that panel's content in here. Once a later task
-           retires those dock buttons in favour of the colour sub-tool row
-           (which arms via `onToolChange`, leaving `phoneCardOpen` alone),
-           this extra clause becomes redundant and can drop. -->
+      <!-- Slider card — always visible, stacked directly above the dock
+           (`.phone-card-anchor`, 8px gap — MobileControlBar.swift:38-43).
+           Hidden only while Crop is armed: the crop toolbar below owns the
+           phone card anchor while armed, matching the tablet/desktop crop
+           panel. HSL, bwMix and Color Grading render INSIDE it via content
+           projection (#1807 Task 4), same as tablet/desktop above — no
+           closeable-flyout machinery left to keep them visible while
+           armed. -->
       @if (!cropArmed()) {
         <div class="phone-card-anchor">
           <pro-control-card
             [activeGroup]="activeGroup()"
             [activeTool]="activeTool()"
-            [phone]="true"
-            [closed]="!phoneCardOpen() && !hslArmed() && !bwMixArmed() && !colorGradeArmed()"
             (groupChange)="onGroupChange($event)"
             (toolChange)="onToolChange($event)"
-            (closeRequest)="closePhoneCard()"
           >
             <!-- HSL / bwMix shared sub-param body (#1807 Task 4) — same
                  content as the tablet/desktop card's `cardBodySubParam`
@@ -409,9 +399,9 @@
           [blackWhiteOn]="blackWhiteOn()"
           [presetsOpen]="presetsOpen()"
           (groupChange)="onPhoneDockGroupChange($event)"
-          (toolChange)="onPhoneToolChange($event)"
-          (curvePanelToggle)="onPhoneCurvePanelToggle()"
-          (presetsPanelToggle)="onPhonePresetsPanelToggle()"
+          (toolChange)="onToolChange($event)"
+          (curvePanelToggle)="onCurvePanelToggle()"
+          (presetsPanelToggle)="onPresetsPanelToggle()"
         />
       </div>
     }

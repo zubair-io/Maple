@@ -2,8 +2,9 @@
 //
 // Full-bleed <image-canvas> at the back; all chrome floats above.
 // Responsive breakpoints (LayoutService — #2279):
-//   <768px (phone):      top glass bar + bottom horizontal tool dock +
-//                        closeable flyout control card (#1807 phone CARD)
+//   <768px (phone):      top glass bar + always-visible slider card stacked
+//                        above the bottom horizontal tool dock, Apple's
+//                        MobileControlBar two-card layout (#1807 Task 5)
 //   768–1024px (tablet): top bar + right vertical tool dock + control card
 //   >1024px (desktop):  same as tablet + hover affordances, no auto-recede
 //
@@ -12,7 +13,8 @@
 //
 // Curve panel: glass card that opens/closes via the Curve dock entry (#1540).
 // Tablet/desktop anchors to the dock column; phone floats above the bottom
-// dock (`onPhoneCurvePanelToggle`).
+// dock in the same anchor slot the always-visible slider card uses, so
+// `onPhoneDockGroupChange` closes it when a group icon is tapped.
 // Crop panel: glass card that opens while the Crop dock entry is armed
 // (#1813) — hosts the shared `CropToolbarComponent`/`CropSessionService` also
 // used by the S5 editor (`EditorComponent`, #638), so a crop commits through
@@ -20,8 +22,9 @@
 // crop rectangle is the shared `CropOverlayComponent`, already mounted
 // inside `ImageCanvasComponent` (which both editors embed) and gated on
 // `CropSessionService.active` — no per-editor overlay wiring needed. Wired on
-// phone too (`onPhoneToolChange`) — the phone dock's Crop entry shipped
-// disabled in #1811 pending this landing, and is now enabled.
+// phone too, straight through `onToolChange` (#1807 Task 5 retired the
+// phone-specific `onPhoneToolChange` wrapper — closing the now-removed
+// flyout was its only phone-specific behaviour).
 // Presets panel: glass card that opens/closes via the Presets dock entry
 // (#1815) — hosts the shared `PresetsPanelComponent`, also used by the S5
 // editor (#1115), so apply/save/delete route through the identical
@@ -45,9 +48,9 @@
 // toggle is Off, since they're inert until B&W is On.
 // Presets, Curve, Crop, HSL, and bwMix all share the same panel anchor and
 // are mutually exclusive (see `onPresetsPanelToggle`/`onCurvePanelToggle`/
-// `onToolChange`) — the phone equivalents (`onPhone*`) close the flyout
-// control card first, then delegate to the same shared handler, so the
-// exclusion holds identically on phone.
+// `onToolChange`) — on phone the always-visible slider card floats in that
+// same anchor too, so `onPhoneDockGroupChange` closes an open curve panel
+// before arming a group, keeping the exclusion consistent there.
 // Canvas scrub: horizontal drag at fit-zoom moves the armed tool at 0.5:1.
 // Chrome recede: dims to 30% after 3s idle; restores on pointer move (180ms).
 // Desktop opts out of auto-recede.
@@ -120,7 +123,6 @@ import {
 } from './editor-shell-undo';
 import { type ToolGroup, type ToolId } from '../../editor/tool-model';
 import { hudEyebrowText, hudValueLabel, hudProgressFraction } from './editor-shell-hud';
-import { closePhoneCard as closePhoneCardImpl } from './editor-shell-subtool';
 
 /** Chrome visibility states driven by idle timer + scrub. */
 type ChromeState = 'full' | 'receded' | 'scrubbing';
@@ -286,15 +288,6 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   /** True when the curve panel (tone curve + WB pad) is open (#1540). */
   readonly curveOpen = signal<boolean>(false);
 
-  /**
-   * Phone only (#1807): whether the flyout control card is open above the
-   * bottom horizontal dock. Tapping a dock group icon opens it (and arms
-   * that group); tapping the active group's icon again, or the card's own
-   * close button, closes it. Independent of `curveOpen`, which drives its
-   * own floating curve panel.
-   */
-  readonly phoneCardOpen = signal<boolean>(false);
-
   /** True when the presets panel is open (#1815). Shares the same panel
    *  anchor as curve/crop — mutually exclusive with both (see
    *  `onPresetsPanelToggle`/`onCurvePanelToggle`/`onToolChange`). */
@@ -442,53 +435,17 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   /**
-   * Phone bottom dock (#1807): tapping a group icon arms that group and opens
-   * the flyout card; tapping the already-active group's icon again closes it
-   * (mirrors the mockup's "tap active icon to collapse" affordance). Only one
-   * flyout (slider card or curve panel) is ever open at a time, since both
-   * float in the same anchor slot above the dock.
+   * Phone bottom dock (#1807 Task 5): arms the tapped group, closing an open
+   * curve panel first. The slider card is always visible now (no closeable
+   * flyout), but it and the curve panel still float in the same anchor
+   * above the dock, so only one of the two can show at a time — Crop,
+   * HSL, bwMix, and Color Grading already get this via `onToolChange`; a
+   * plain group tap needs its own handler since `onGroupChange` alone
+   * doesn't touch `curveOpen`.
    */
   onPhoneDockGroupChange(group: ToolGroup): void {
-    if (this.phoneCardOpen() && !this.curveOpen() && group === this.activeGroup()) {
-      this.closePhoneCard();
-      return;
-    }
     this.curveOpen.set(false);
     this.onGroupChange(group);
-    this.phoneCardOpen.set(true);
-  }
-
-  /**
-   * Phone bottom dock's Curve entry: toggles the curve panel, closing the
-   * slider flyout card first so only one flyout is open at a time.
-   */
-  onPhoneCurvePanelToggle(): void {
-    this.phoneCardOpen.set(false);
-    this.onCurvePanelToggle();
-  }
-
-  /**
-   * Phone bottom dock's Crop/HSL entries: arms the tool, closing the slider
-   * flyout card first so only one flyout (card or crop/HSL panel) is open at
-   * a time — same role `onPhoneDockGroupChange`/`onPhoneCurvePanelToggle`
-   * play for groups/Curve.
-   */
-  onPhoneToolChange(tool: ToolId): void {
-    this.phoneCardOpen.set(false);
-    this.onToolChange(tool);
-  }
-
-  /**
-   * Phone bottom dock's Presets entry: toggles the presets panel, closing
-   * the slider flyout card first so only one flyout is open at a time.
-   */
-  onPhonePresetsPanelToggle(): void {
-    this.phoneCardOpen.set(false);
-    this.onPresetsPanelToggle();
-  }
-
-  closePhoneCard(): void {
-    closePhoneCardImpl(this);
   }
 
   /** Toggle the presets panel (#1815). No-op while Crop, HSL, bwMix, or
