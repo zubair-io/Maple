@@ -36,7 +36,6 @@ function render(inputs: {
   curveOpen?: boolean;
   presetsOpen?: boolean;
   orientation?: 'vertical' | 'horizontal';
-  blackWhiteOn?: boolean;
 }) {
   // Reset first: the "Apple 9-entry parity" suite calls `render()` twice in
   // one `it` (once per orientation) — TestBed refuses to reconfigure a
@@ -59,9 +58,6 @@ function render(inputs: {
   }
   if (inputs.orientation !== undefined) {
     fixture.componentRef.setInput('orientation', inputs.orientation);
-  }
-  if (inputs.blackWhiteOn !== undefined) {
-    fixture.componentRef.setInput('blackWhiteOn', inputs.blackWhiteOn);
   }
   fixture.detectChanges();
   return fixture;

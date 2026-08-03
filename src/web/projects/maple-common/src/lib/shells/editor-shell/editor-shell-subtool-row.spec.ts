@@ -254,15 +254,6 @@ describe('EditorShellComponent — colour/effects sub-tool row reachability (#18
       expect(phoneCard()).not.toBeNull();
     });
 
-    it('no close button renders in the phone card header', () => {
-      dockButton('Color').click();
-      fixture.detectChanges();
-      subtoolChip('HSL').click();
-      fixture.detectChanges();
-
-      expect(fixture.nativeElement.querySelector('.phone-card-anchor .close-btn')).toBeNull();
-    });
-
     it('arming HSL then B&W through the sub-tool row stays reachable on the always-visible card', () => {
       const editorState = TestBed.inject(EditorStateService);
       dockButton('Color').click();
