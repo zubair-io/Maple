@@ -289,16 +289,17 @@
   pointer-events: auto;
 }
 
-// ── Bottom control card anchor (tablet/desktop only — phone: below) ────────
+// ── Flyout slider panel anchor (tablet/desktop) ───────────────────────────
+// Fixed 300px column floating just left of the dock, vertically centred —
+// FlyoutSliderPanel.swift:71 + EditorView.swift:205-210, where the 88px
+// offset is 12px dock inset + 64px dock width + 12px gap.
 .control-card-anchor {
   position: absolute;
-  bottom: 0;
+  top: 50%;
+  right: 88px;
+  transform: translateY(-50%);
+  width: 300px;
   pointer-events: auto;
-
-  // Centered between the left filmstrip rail and the right tool dock (#1564).
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(860px, calc(100vw - 320px));
 }
 
 // ── Phone CARD editor (#1807) ───────────────────────────────────────────────

@@ -1,42 +1,18 @@
-<!-- ControlCard — floating glass bottom card with group chips + living sliders -->
-<!-- Phone (#1807): chip row is replaced by a close button; `closed` hides the card -->
+<!-- ControlCard — floating glass flyout panel, FlyoutSliderPanel parity (#1535) -->
+<!-- Phone (#1807): header still shows a close button; `closed` hides the card -->
 @if (!phone() || !closed()) {
-  <div class="card" [class.card--peek]="isPeek()" [class.card--phone]="phone()">
-    <!-- Grab handle — real button so it's keyboard-focusable (Enter/Space toggle) -->
-    <button class="grab-handle" (click)="toggleCardState()" aria-label="Toggle panel">
-      <div class="grab-bar"></div>
-    </button>
-
-    <!-- Header row: group chips (tablet/desktop) or group label + close (phone) -->
+  <div class="card" [class.card--phone]="phone()">
     <div class="card-header">
-      @if (phone()) {
-        <!-- Phone: the bottom tool dock owns group selection — show the active
-             group's name instead of a redundant chip row. -->
-        <span class="phone-group-label">{{ groupLabel(activeGroup()) }}</span>
-      } @else {
-        <div class="group-chips" role="tablist" aria-label="Tool groups">
-          @for (group of allGroups; track group) {
-            <button
-              class="group-chip"
-              [class.group-chip--active]="group === activeGroup()"
-              role="tab"
-              [attr.aria-selected]="group === activeGroup()"
-              (click)="groupChange.emit(group)"
-            >
-              {{ groupLabel(group) }}
-            </button>
-          }
-        </div>
-      }
+      <maple-icon [name]="$any(groupIcon(activeGroup()))" [size]="12" color="var(--pro-accent)" />
+      <span class="group-title">{{ groupLabel(activeGroup()).toUpperCase() }}</span>
 
-      <!-- Reset group button -->
       <button
         class="reset-btn"
         title="Reset {{ groupLabel(activeGroup()) }}"
         aria-label="Reset {{ groupLabel(activeGroup()) }} adjustments"
         (click)="resetGroup()"
       >
-        <maple-icon name="revert" [size]="13" color="var(--pro-text-muted)" />
+        <maple-icon name="revert" [size]="11" color="var(--pro-text-muted)" />
       </button>
 
       @if (phone()) {
@@ -52,26 +28,23 @@
       }
     </div>
 
-    <!-- Slider grid (hidden in peek mode) -->
-    @if (!isPeek()) {
-      <div class="slider-grid">
-        @for (tool of slidersFor(activeGroup()); track tool) {
-          <pro-living-slider
-            [attr.aria-label]="labelFor(tool)"
-            [label]="labelFor(tool)"
-            [value]="valueFor(tool)"
-            [min]="minFor(tool)"
-            [max]="maxFor(tool)"
-            [step]="stepFor(tool)"
-            [gradient]="gradientFor(tool)"
-            [bipolar]="bipolarFor(tool)"
-            [defaultValue]="defaultFor(tool)"
-            (dragStart)="onSliderDragStart(tool)"
-            (valueChange)="onSliderChange(tool, $event)"
-            (resetRequest)="onSliderReset(tool)"
-          />
-        }
-      </div>
-    }
+    <div class="slider-grid">
+      @for (tool of slidersFor(activeGroup()); track tool) {
+        <pro-living-slider
+          [attr.aria-label]="labelFor(tool)"
+          [label]="labelFor(tool)"
+          [value]="valueFor(tool)"
+          [min]="minFor(tool)"
+          [max]="maxFor(tool)"
+          [step]="stepFor(tool)"
+          [gradient]="gradientFor(tool)"
+          [bipolar]="bipolarFor(tool)"
+          [defaultValue]="defaultFor(tool)"
+          (dragStart)="onSliderDragStart(tool)"
+          (valueChange)="onSliderChange(tool, $event)"
+          (resetRequest)="onSliderReset(tool)"
+        />
+      }
+    </div>
   </div>
 }
