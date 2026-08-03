@@ -73,9 +73,12 @@ export class ControlCardComponent {
 
   // ── Outputs ───────────────────────────────────────────────────────────
   /**
-   * Retained for the parent binding — group switching is now entirely
-   * dock-owned, so nothing in this component emits it. Task 5 retires it
-   * alongside `phone`/`closed`.
+   * No longer fired by a group chip — that row is gone; the dock owns group
+   * switching. Re-armed one step removed: the "Basic" entry of the colour
+   * sub-tool row (`onSubtoolClick`, colour group only) emits this to re-arm
+   * the group itself. Not part of the `phone`/`closed`/`closeRequest`
+   * retirement — those are phone-flyout-only; this output is live for both
+   * layouts.
    */
   groupChange = output<ToolGroup>();
   /** Fired when the user taps the phone close button. */
