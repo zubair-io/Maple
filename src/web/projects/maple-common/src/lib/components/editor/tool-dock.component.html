@@ -1,4 +1,5 @@
-<!-- ToolDock — glass column (vertical) or bar (horizontal, phone) -->
+<!-- ToolDock — glass column (vertical) or bar (horizontal, phone).
+     Nine entries, circle glyph + label + modified dot (ToolDock.swift). -->
 <nav
   class="dock"
   [class.dock--horizontal]="orientation() === 'horizontal'"
@@ -6,28 +7,39 @@
   aria-label="Editor tools"
 >
   @for (entry of entries(); track entry.id) {
+    @if (entry.divideBefore) {
+      <div class="dock-divider"></div>
+    }
     <button
       class="dock-btn"
       [class.dock-btn--active]="isActive(entry)"
       [class.dock-btn--disabled]="entry.disabled"
       [disabled]="entry.disabled"
       [title]="entry.disabled ? entry.label + ' — coming in ' + entry.ticket : entry.label"
-      [attr.aria-label]="entry.label"
+      [attr.aria-hidden]="entry.disabled ? 'true' : null"
+      [attr.tabindex]="entry.disabled ? -1 : null"
+      [attr.aria-label]="entry.disabled ? null : entry.label"
       [attr.aria-current]="!entry.panel && isActive(entry) ? 'page' : null"
       [attr.aria-pressed]="entry.panel ? isActive(entry) : null"
       (click)="onEntryClick(entry)"
     >
-      <maple-icon
-        [name]="$any(entry.icon)"
-        [size]="18"
-        [color]="
-          isActive(entry)
-            ? 'var(--pro-accent)'
-            : entry.disabled
-              ? 'var(--pro-text-dim)'
-              : 'var(--pro-text-muted)'
-        "
-      />
+      <span class="dock-circle">
+        <maple-icon
+          [name]="$any(entry.icon)"
+          [size]="16"
+          [color]="
+            isActive(entry)
+              ? 'var(--pro-accent)'
+              : entry.disabled
+                ? 'var(--pro-text-dim)'
+                : 'var(--pro-text)'
+          "
+        />
+        @if (isModified(entry)) {
+          <span class="dock-dot"></span>
+        }
+      </span>
+      <span class="dock-label">{{ entry.label }}</span>
     </button>
   }
 </nav>

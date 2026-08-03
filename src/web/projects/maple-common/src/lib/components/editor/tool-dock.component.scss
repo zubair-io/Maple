@@ -32,62 +32,112 @@
   }
 
   // Horizontal bar (phone bottom dock, #1807): row of icons, full-width card.
-  // 6 entries at 375px viewport width — buttons shrink from the vertical
-  // dock's fixed 46px so the row never overflows a phone screen.
+  // Nine labelled buttons no longer fit a 375px viewport, so the row scrolls
+  // horizontally instead of shrinking to fit — Apple's phone bar does the
+  // same (MobileControlBar.swift:122).
   &.dock--horizontal {
     flex-direction: row;
     align-items: center;
-    justify-content: space-evenly;
+    justify-content: flex-start;
     gap: 2px;
     width: 100%;
     padding: 6px;
+    overflow-x: auto;
 
     .dock-btn {
-      width: 44px;
-      height: 44px;
-      flex: 1 1 0;
-      max-width: 52px;
+      flex: 0 0 auto;
     }
   }
 }
 
 .dock-btn {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  width: 46px;
-  height: 46px;
-  border-radius: 10px;
-  border: 0.5px solid transparent;
+  gap: 4px;
+  width: 52px;
+  padding: 0;
+  border: none;
   background: transparent;
   cursor: pointer;
-  transition:
-    background 120ms ease-out,
-    border-color 120ms ease-out;
-
-  &:hover:not(.dock-btn--disabled):not(.dock-btn--active) {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: var(--pro-border);
-  }
-
-  &.dock-btn--active {
-    background: var(--pro-accent-30);
-    border-color: var(--pro-accent);
-  }
-
-  &.dock-btn--disabled {
-    cursor: default;
-    opacity: 0.35;
-  }
-
-  // Remove default button styles
-  padding: 0;
   -webkit-appearance: none;
   appearance: none;
   outline: none;
 
-  &:focus-visible {
+  &.dock-btn--disabled {
+    cursor: default;
+    opacity: 0.4;
+  }
+
+  &:focus-visible .dock-circle {
     outline: 2px solid var(--pro-accent);
     outline-offset: 2px;
+  }
+}
+
+.dock-circle {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--pro-panel);
+  border: 0.5px solid var(--pro-border);
+  transition:
+    background 120ms ease-out,
+    border-color 120ms ease-out;
+
+  .dock-btn--active & {
+    background: var(--pro-accent-28);
+    border-color: var(--pro-accent);
+  }
+
+  .dock-btn:hover:not(.dock-btn--disabled):not(.dock-btn--active) & {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: var(--pro-border-hi);
+  }
+}
+
+.dock-dot {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--pro-accent);
+}
+
+.dock-label {
+  font-size: 9px;
+  line-height: 1.1;
+  color: var(--pro-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+
+  .dock-btn--active & {
+    color: var(--pro-accent);
+    font-weight: 600;
+  }
+
+  .dock-btn--disabled & {
+    color: var(--pro-text-dim);
+  }
+}
+
+.dock-divider {
+  width: 34px;
+  height: 1px;
+  background: var(--pro-border);
+  margin: 5px 0;
+
+  .dock--horizontal & {
+    width: 1px;
+    height: 34px;
+    margin: 0 5px;
   }
 }
