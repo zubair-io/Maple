@@ -22,9 +22,13 @@
 //     EditorStateService.armSubParam — the SAME state B's chip row drives
 //   - a drag-bar edit writes the exact AdjustmentModel field the armed
 //     sub-param declares (e.g. hueAdjustmentRed / hueAdjustmentOrange)
-//   - HSL, Crop, Curve, and Presets share one panel anchor and are mutually
-//     exclusive, extending the guards `editor-shell-crop.spec.ts` /
-//     `editor-shell-presets.spec.ts` locked down.
+//   - arming HSL closes an open Crop/Curve/Presets, and vice versa — Crop
+//     still owns a shared dock-side panel anchor with Curve/Presets, but
+//     HSL renders inside the control card instead (#1807 Task 4), so it's
+//     the CARD that must not collide with Curve/Presets/Crop now (Critical
+//     1 review) rather than HSL sharing their anchor directly; extends the
+//     guards `editor-shell-crop.spec.ts` / `editor-shell-presets.spec.ts`
+//     locked down.
 //
 // Full template render (not just class instantiation) so the dock → panel
 // DOM wiring is actually exercised. Follows `editor-shell-crop.spec.ts`'s
@@ -374,7 +378,13 @@ describe('EditorShellComponent — HSL / color-mix port (epic #1807 slice 4)', (
     fixture.detectChanges();
     expect(curvePanel()).not.toBeNull();
 
-    armHsl();
+    // `armHsl()`'s chip click isn't reachable here — the card that hosts the
+    // Colour sub-tool row is hidden while Curve is open (Critical 1) — so
+    // arm HSL through the same `onToolChange` handler the chip itself calls,
+    // the way a route that bypasses the chip (a preset apply, undo/redo
+    // landing on it) would too.
+    fixture.componentInstance.onToolChange('hsl');
+    fixture.detectChanges();
 
     expect(curvePanel()).toBeNull();
     expect(hslPanel()).not.toBeNull();
@@ -385,34 +395,52 @@ describe('EditorShellComponent — HSL / color-mix port (epic #1807 slice 4)', (
     fixture.detectChanges();
     expect(presetsPanel()).not.toBeNull();
 
-    armHsl();
+    // Same reachability note as the Curve case above.
+    fixture.componentInstance.onToolChange('hsl');
+    fixture.detectChanges();
 
     expect(presetsPanel()).toBeNull();
     expect(hslPanel()).not.toBeNull();
   });
 
-  it('toggling Curve while HSL is armed is a no-op — the curve panel never opens over the HSL panel', () => {
+  // Important 4 (#1807 review): these used to be no-ops — HSL owned the
+  // guard on `onCurvePanelToggle`/`onPresetsPanelToggle` because its panel
+  // used to share the dock-side anchor Curve/Presets open into. HSL's panel
+  // lives inside the control card now (#1807 Task 4), and the card hides
+  // whenever Curve or Presets is open (Critical 1), so there's nothing left
+  // for either to open over — toggling them now genuinely opens the panel,
+  // at the cost of the card (and the HSL body it hosts) hiding until it
+  // closes again.
+  it('toggling Curve while HSL is armed opens Curve and hides the card that hosts HSL', () => {
     armHsl();
     expect(hslPanel()).not.toBeNull();
 
     curveDockButton().click();
     fixture.detectChanges();
 
-    expect(curvePanel()).toBeNull();
+    expect(curvePanel()).not.toBeNull();
+    // HSL stays the armed tool — only the card (which projects its body)
+    // hides, per Critical 1's guard on `.control-card-anchor`.
     expect(TestBed.inject(EditorStateService).armedTool()).toBe('hsl');
+    expect(hslPanel()).toBeNull();
+
+    curveDockButton().click();
+    fixture.detectChanges();
+
+    expect(curvePanel()).toBeNull();
     expect(hslPanel()).not.toBeNull();
   });
 
-  it('toggling Presets while HSL is armed is a no-op — the presets panel never opens over the HSL panel', () => {
+  it('toggling Presets while HSL is armed opens Presets and hides the card that hosts HSL', () => {
     armHsl();
     expect(hslPanel()).not.toBeNull();
 
     presetsDockButton().click();
     fixture.detectChanges();
 
-    expect(presetsPanel()).toBeNull();
+    expect(presetsPanel()).not.toBeNull();
     expect(TestBed.inject(EditorStateService).armedTool()).toBe('hsl');
-    expect(hslPanel()).not.toBeNull();
+    expect(hslPanel()).toBeNull();
   });
 
   it('arming Crop closes an open HSL panel', () => {
