@@ -1,4 +1,4 @@
-// ControlCard — floating glass bottom panel (#1535).
+// ControlCard — floating flyout panel beside the tool dock (#1535).
 // Pro tokens imported once globally in styles.scss (#1537).
 
 :host {
@@ -6,121 +6,33 @@
 }
 
 .card {
+  padding: 16px;
   background: var(--pro-glass-bg);
   backdrop-filter: var(--pro-glass-blur);
   -webkit-backdrop-filter: var(--pro-glass-blur);
   border: 0.5px solid var(--pro-glass-border);
   box-shadow: var(--pro-glass-shadow);
-  border-radius: var(--pro-glass-radius-card) var(--pro-glass-radius-card) 0 0;
-  overflow: hidden;
-  transition: height var(--pro-motion-card);
+  border-radius: 18px;
 
   @media (min-width: 768px) {
     background: var(--pro-glass-bg-heavy);
     backdrop-filter: var(--pro-glass-blur-heavy);
     -webkit-backdrop-filter: var(--pro-glass-blur-heavy);
-    border-radius: var(--pro-glass-radius-card-desktop) var(--pro-glass-radius-card-desktop) 0 0;
-  }
-
-  // Phone flyout (#1807): the card floats fully above the bottom dock rather
-  // than sitting flush against the viewport edge, so it gets all four
-  // corners rounded instead of just the top two.
-  &.card--phone {
-    border-radius: var(--pro-glass-radius-card);
   }
 }
 
-// Grab handle — styled as a <button> so it's keyboard-accessible
-.grab-handle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 20px;
-  cursor: pointer;
-  flex-shrink: 0;
-  border: none;
-  background: transparent;
-  padding: 0;
-  -webkit-appearance: none;
-  appearance: none;
-  outline: none;
-
-  &:focus-visible .grab-bar {
-    background: rgba(255, 255, 255, 0.4);
-  }
-}
-
-.grab-bar {
-  width: 32px;
-  height: 4px;
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 2px;
-}
-
-// Header: chips + reset
 .card-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 12px 10px;
-}
-
-// Group chips row
-.group-chips {
-  display: flex;
-  flex: 1;
   gap: 6px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  &::-webkit-scrollbar {
-    display: none;
-  }
+  margin-bottom: 12px;
 }
 
-.group-chip {
-  flex-shrink: 0;
-  padding: 4px 12px;
-  border-radius: 20px;
-  border: 0.5px solid transparent;
-  background: transparent;
-  font-size: 12px;
-  color: var(--pro-text-muted);
-  cursor: pointer;
-  transition:
-    background var(--pro-motion-group),
-    color var(--pro-motion-group),
-    border-color var(--pro-motion-group);
-  -webkit-appearance: none;
-  appearance: none;
-  outline: none;
-  white-space: nowrap;
-
-  &:hover:not(.group-chip--active) {
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--pro-text);
-  }
-
-  &.group-chip--active {
-    background: var(--pro-accent-28);
-    border-color: var(--pro-accent);
-    color: var(--pro-accent);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--pro-accent);
-    outline-offset: 2px;
-  }
-}
-
-// Phone group label (replaces the chip row — the dock owns group selection)
-.phone-group-label {
-  flex: 1;
-  font-size: 12px;
+.group-title {
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  color: var(--pro-text);
+  letter-spacing: 0.6px;
+  color: var(--pro-accent);
 }
 
 // Reset button
@@ -135,6 +47,7 @@
   background: transparent;
   cursor: pointer;
   flex-shrink: 0;
+  margin-left: auto;
   transition:
     background 120ms ease-out,
     border-color 120ms ease-out;
@@ -185,13 +98,10 @@
   }
 }
 
-// Slider grid — 1 col phone / 2 col tablet+desktop
+// Single column — FlyoutSliderPanel.swift:63 uses a single VStack for the
+// same reason: a 300px-wide fixed panel has no room for a second column.
 .slider-grid {
-  padding: 4px 0 12px;
-  display: grid;
-  grid-template-columns: 1fr;
-
-  @media (min-width: 768px) {
-    grid-template-columns: 1fr 1fr;
-  }
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
