@@ -42,10 +42,13 @@ extension EditSession {
             // edit could kill the process before the debounced write fires,
             // silently dropping the edit the durability fix exists to keep.
             await photoKit.flush()
+        } else if let cloud = store as? CloudSidecarStore {
+            // `CloudSidecarStore.flush()` cancels the pending debounce Task
+            // and issues the PUT immediately — the same "force it now" shape
+            // as the other two stores, not merely waiting on an inflight
+            // request. Backgrounding right after an edit can kill the process
+            // before the 750ms debounce fires here too.
+            await cloud.flush()
         }
-        // CloudSidecarStore is left on its own debounce: the inflight write
-        // is a network POST, not disk I/O — there's no synchronous
-        // "force now" that's meaningfully faster than letting the pending
-        // request land, and it coalesces per-request already.
     }
 }
