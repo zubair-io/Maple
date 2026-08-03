@@ -224,8 +224,12 @@ describe('EditorShellComponent — B&W / gray-mixer port (#276)', () => {
 
     expect(editorState.armedSubParamId()).toBe('bwRed');
 
-    // Control card hidden while bwMix is armed — same as HSL/Crop.
-    expect(fixture.nativeElement.querySelector('pro-control-card')).toBeNull();
+    // Control card stays mounted while bwMix is armed (#1807 Task 4) — its
+    // shared sub-param surface (`bwPanel()` above) now renders INSIDE the
+    // card via content projection instead of suppressing it, keeping the
+    // colour sub-tool row (Basic/HSL/B&W/Grade) reachable to switch back.
+    // Crop is unaffected: it still hides the card entirely (own spec).
+    expect(fixture.nativeElement.querySelector('pro-control-card')).not.toBeNull();
   });
 
   it('B&W highlights active in the dock while armed, and Color does not', () => {
