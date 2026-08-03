@@ -252,6 +252,60 @@ export class ToolDockComponent {
     return !!entry.group && entry.group === this.activeGroup();
   }
 
+  // ── Template view-model accessors ─────────────────────────────────────────
+  // The circle+label+dot markup (Apple parity) needs several state-dependent
+  // attributes per entry. Named accessors here (rather than inline template
+  // ternaries) keep the template a flat list of bindings and make the a11y
+  // logic unit-testable in isolation (docs/best-practices.md § "Angular" —
+  // "view models in components").
+
+  /** Tooltip text: the label alone when enabled, or the label plus the
+   *  milestone ticket when disabled — surfaces the same info a screen
+   *  reader user loses by being routed around the disabled button. */
+  titleFor(entry: DockEntry): string {
+    return entry.disabled ? `${entry.label} — coming in ${entry.ticket}` : entry.label;
+  }
+
+  /** Disabled placeholders are hidden from the accessibility tree entirely,
+   *  mirroring Apple's `DisabledDockPlaceholder.accessibilityHidden(true)`. */
+  ariaHiddenFor(entry: DockEntry): 'true' | null {
+    return entry.disabled ? 'true' : null;
+  }
+
+  /** Disabled placeholders are pulled out of tab order (paired with the
+   *  `aria-hidden` above — both are needed to fully remove them from
+   *  keyboard and screen-reader navigation). */
+  tabIndexFor(entry: DockEntry): number | null {
+    return entry.disabled ? -1 : null;
+  }
+
+  /** Enabled entries expose their label as the accessible name; disabled
+   *  placeholders carry none (they're already `aria-hidden`, so a label
+   *  would be dead weight, not a fallback). */
+  ariaLabelFor(entry: DockEntry): string | null {
+    return entry.disabled ? null : entry.label;
+  }
+
+  /** `aria-current="page"` marks a GROUP entry as the current view. Panel
+   *  entries (Curve/Presets) use `aria-pressed` instead — they're toggles,
+   *  not navigation — so this is explicitly gated to non-panel entries. */
+  ariaCurrentFor(entry: DockEntry): 'page' | null {
+    return !entry.panel && this.isActive(entry) ? 'page' : null;
+  }
+
+  /** `aria-pressed` marks a PANEL entry (Curve/Presets) as a toggle button;
+   *  group and tool entries are navigation, not toggles, so they get null. */
+  ariaPressedFor(entry: DockEntry): boolean | null {
+    return entry.panel ? this.isActive(entry) : null;
+  }
+
+  /** Icon tint: accent when active, dimmed when disabled, default text
+   *  color otherwise. */
+  iconColor(entry: DockEntry): string {
+    if (this.isActive(entry)) return 'var(--pro-accent)';
+    return entry.disabled ? 'var(--pro-text-dim)' : 'var(--pro-text)';
+  }
+
   onEntryClick(entry: DockEntry): void {
     if (entry.disabled) return;
     if (entry.panel) {

@@ -15,26 +15,16 @@
       [class.dock-btn--active]="isActive(entry)"
       [class.dock-btn--disabled]="entry.disabled"
       [disabled]="entry.disabled"
-      [title]="entry.disabled ? entry.label + ' — coming in ' + entry.ticket : entry.label"
-      [attr.aria-hidden]="entry.disabled ? 'true' : null"
-      [attr.tabindex]="entry.disabled ? -1 : null"
-      [attr.aria-label]="entry.disabled ? null : entry.label"
-      [attr.aria-current]="!entry.panel && isActive(entry) ? 'page' : null"
-      [attr.aria-pressed]="entry.panel ? isActive(entry) : null"
+      [title]="titleFor(entry)"
+      [attr.aria-hidden]="ariaHiddenFor(entry)"
+      [attr.tabindex]="tabIndexFor(entry)"
+      [attr.aria-label]="ariaLabelFor(entry)"
+      [attr.aria-current]="ariaCurrentFor(entry)"
+      [attr.aria-pressed]="ariaPressedFor(entry)"
       (click)="onEntryClick(entry)"
     >
       <span class="dock-circle">
-        <maple-icon
-          [name]="$any(entry.icon)"
-          [size]="16"
-          [color]="
-            isActive(entry)
-              ? 'var(--pro-accent)'
-              : entry.disabled
-                ? 'var(--pro-text-dim)'
-                : 'var(--pro-text)'
-          "
-        />
+        <maple-icon [name]="$any(entry.icon)" [size]="16" [color]="iconColor(entry)" />
         @if (isModified(entry)) {
           <span class="dock-dot"></span>
         }
