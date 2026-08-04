@@ -5,10 +5,12 @@
 // PhotoKitAssetReader (Phase 3 Task 3.2). This file has no PhotoKit imports
 // so it's testable in `swift test`.
 //
-// Currently exposes `buildSidecarXMP(input:)` which produces the `.xmp`
-// payload that lands alongside the asset bytes in the cloud library. The XMP
-// is also stored in AppSupportSidecarStore for not-yet-uploaded edits
-// (spec §11).
+// `SidecarInput` carries the PHAsset-derived fields `BackupEngine` needs for
+// the primary ingest request and companion headers (capture date, GPS,
+// phassetCloudId, ...). It no longer builds a synthetic `.xmp` payload from
+// this data (#2553) — a sidecar is only ever the user's real local Maple
+// edit, read from AppSupportSidecarStore, never derived from bare PHAsset
+// metadata.
 //
 // Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §8.
 
@@ -59,50 +61,5 @@ public enum PayloadAssembler {
             self.originalFilename = originalFilename
             self.mtime = mtime
         }
-    }
-
-    public static func buildSidecarXMP(input: SidecarInput) -> String {
-        let iso = ISO8601DateFormatter().string(from: input.captureDate)
-        let lat = input.latitude.map { String($0) } ?? ""
-        let lon = input.longitude.map { String($0) } ?? ""
-        let caption = xmlEscape(input.caption ?? "")
-        let live = xmlEscape(input.livePhotoCompanion ?? "")
-        let burst = xmlEscape(input.burstStackId ?? "")
-        let filename = xmlEscape(input.originalFilename)
-        let kw = input.keywords.map { "<rdf:li>\(xmlEscape($0))</rdf:li>" }.joined()
-        let tags = input.tags.map { "<rdf:li>\(xmlEscape($0))</rdf:li>" }.joined()
-
-        return """
-        <x:xmpmeta xmlns:x="adobe:ns:meta/">
-          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-                   xmlns:maple="https://justmaple.app/ns/maple/1.0/">
-            <rdf:Description
-              maple:phassetLocalId="\(input.phassetLocalId)"
-              maple:deviceId="\(input.deviceId)"
-              maple:captureDate="\(iso)"
-              maple:gpsLat="\(lat)"
-              maple:gpsLon="\(lon)"
-              maple:favorite="\(input.favorite ? "True" : "False")"
-              maple:caption="\(caption)"
-              maple:livePhotoCompanion="\(live)"
-              maple:burstStackId="\(burst)"
-              maple:originalFilename="\(filename)"
-              maple:mtime="\(input.mtime)">
-              <maple:keywords><rdf:Bag>\(kw)</rdf:Bag></maple:keywords>
-              <maple:tags><rdf:Bag>\(tags)</rdf:Bag></maple:tags>
-            </rdf:Description>
-          </rdf:RDF>
-        </x:xmpmeta>
-        """
-    }
-
-    /// Minimal XML-attribute / element escaping. Order matters — `&` first,
-    /// then the four chars that can break an attribute value or element body.
-    private static func xmlEscape(_ s: String) -> String {
-        s.replacingOccurrences(of: "&", with: "&amp;")
-         .replacingOccurrences(of: "<", with: "&lt;")
-         .replacingOccurrences(of: ">", with: "&gt;")
-         .replacingOccurrences(of: "\"", with: "&quot;")
-         .replacingOccurrences(of: "'", with: "&apos;")
     }
 }

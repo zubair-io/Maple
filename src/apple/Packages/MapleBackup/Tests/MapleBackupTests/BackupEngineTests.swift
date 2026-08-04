@@ -15,63 +15,13 @@ final class BackupEngineTests: XCTestCase {
         StubURLProtocol.clearRecording()
     }
 
-    private func freshHarness() throws -> (BackupEngine, InProcessBackupQueue, BackupStateStore, AppSupportSidecarStore, StubAssetReader, URL) {
-        let tmpRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("engine-test-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
-        let stateURL = tmpRoot.appendingPathComponent("state.sqlite")
-        let sidecarRoot = tmpRoot.appendingPathComponent("sidecars", isDirectory: true)
-        try FileManager.default.createDirectory(at: sidecarRoot, withIntermediateDirectories: true)
-
-        let queue = InProcessBackupQueue()
-        let state = try BackupStateStore(databaseURL: stateURL)
-        let sidecars = AppSupportSidecarStore(root: sidecarRoot)
-        let reader = StubAssetReader()
-        let upload = UploadClient(baseURL: URL(string: "https://server.example")!,
-                                  libraryId: "lib", deviceId: "d",
-                                  transport: stubTransport())
-        let engine = BackupEngine(queue: queue, state: state, upload: upload,
-                                  sidecars: sidecars, reader: reader)
-        return (engine, queue, state, sidecars, reader, tmpRoot)
-    }
-
-    /// Variant exposing the #700 `companionBackoff` injection point. Returns the
-    /// 5 handles the companion tests need (the reader stub is not inspected).
-    private func freshHarness(
-        companionBackoff: @escaping @Sendable (Int) -> TimeInterval
-    ) throws -> (BackupEngine, InProcessBackupQueue, BackupStateStore, AppSupportSidecarStore, URL) {
-        let tmpRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("engine-test-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
-        let stateURL = tmpRoot.appendingPathComponent("state.sqlite")
-        let sidecarRoot = tmpRoot.appendingPathComponent("sidecars", isDirectory: true)
-        try FileManager.default.createDirectory(at: sidecarRoot, withIntermediateDirectories: true)
-
-        let queue = InProcessBackupQueue()
-        let state = try BackupStateStore(databaseURL: stateURL)
-        let sidecars = AppSupportSidecarStore(root: sidecarRoot)
-        let reader = StubAssetReader()
-        let upload = UploadClient(baseURL: URL(string: "https://server.example")!,
-                                  libraryId: "lib", deviceId: "d",
-                                  transport: stubTransport())
-        let engine = BackupEngine(queue: queue, state: state, upload: upload,
-                                  sidecars: sidecars, reader: reader,
-                                  companionBackoff: companionBackoff)
-        return (engine, queue, state, sidecars, tmpRoot)
-    }
-
-    // Convenience: a sequence stub for the standard two-request happy path
-    // (ingest → 200+JSON, sidecar → 200 empty).
-    private static func ingestAndSidecarStub(mapleId: String = "hash-P1",
-                                              relPath: String = "2024/03/15/IMG.heic") -> StubURLProtocol.Stub {
-        .sequence([
-            .ok(json: #"{"maple_id":"\#(mapleId)","target_rel_path":"\#(relPath)"}"#),
-            .status(200)
-        ])
-    }
+    // `freshHarness()` / `freshHarness(companionBackoff:reader:)` /
+    // `ingestAndSidecarStub(...)` live in Helpers/TestShared.swift — shared
+    // with BackupEngineSidecarTests (split out in #2554 to stay under the
+    // file-budget hard limit; see #2311).
 
     func testProcessOneUploadsAndPersistsUploadedState() async throws {
-        StubURLProtocol.stub = Self.ingestAndSidecarStub()
+        StubURLProtocol.stub = ingestAndSidecarStub()
         let (engine, queue, state, _, _, tmpRoot) = try freshHarness()
         defer { try? FileManager.default.removeItem(at: tmpRoot) }
 
@@ -86,7 +36,7 @@ final class BackupEngineTests: XCTestCase {
     }
 
     func testProcessOneDeletesAppSupportSidecarOnSuccess() async throws {
-        StubURLProtocol.stub = Self.ingestAndSidecarStub()
+        StubURLProtocol.stub = ingestAndSidecarStub()
         let (engine, queue, state, sidecars, _, tmpRoot) = try freshHarness()
         defer { try? FileManager.default.removeItem(at: tmpRoot) }
 
@@ -105,7 +55,7 @@ final class BackupEngineTests: XCTestCase {
     }
 
     func testProcessOnePersistsUploadingThenUploaded() async throws {
-        StubURLProtocol.stub = Self.ingestAndSidecarStub()
+        StubURLProtocol.stub = ingestAndSidecarStub()
         let (engine, queue, state, _, _, tmpRoot) = try freshHarness()
         defer { try? FileManager.default.removeItem(at: tmpRoot) }
 
@@ -195,65 +145,6 @@ final class BackupEngineTests: XCTestCase {
         // State transitions to .pending (retry queued for later).
         let row = try await state.find(id)
         XCTAssertEqual(row?.state, .pending)
-    }
-
-    // MARK: - Issue 1 & 2: Sidecar upload ordering + local-edit preference
-
-    /// Assert the sidecar request is sent after the original ingest request.
-    func testSidecarRequestSentAfterOriginal() async throws {
-        StubURLProtocol.stub = Self.ingestAndSidecarStub(relPath: "2024/03/15/IMG.heic")
-        let (engine, queue, state, _, _, tmpRoot) = try freshHarness()
-        defer { try? FileManager.default.removeItem(at: tmpRoot) }
-
-        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
-        let task = BackupTask(id: id, state: .pending, priority: .background)
-        try await state.upsert(task)
-        await queue.enqueue(task, priority: .background)
-
-        try await engine.processOne()
-
-        let requests = StubURLProtocol.recordedRequests
-        XCTAssertGreaterThanOrEqual(requests.count, 2,
-            "Expected at least 2 requests (ingest + sidecar), got \(requests.count)")
-        // First request must be the ingest (hits /backup/ingest).
-        XCTAssertTrue(requests[0].url?.path.contains("backup/ingest") == true,
-            "First request should be ingest, got \(requests[0].url?.path ?? "nil")")
-        // Second request must be the sidecar (hits /backup/sidecar).
-        XCTAssertTrue(requests[1].url?.path.contains("backup/sidecar") == true,
-            "Second request should be sidecar, got \(requests[1].url?.path ?? "nil")")
-    }
-
-    /// Regression test for Issue 2: when a local-edit XMP exists, the sidecar
-    /// POST body must contain that XMP, not the Apple-metadata-generated one.
-    func testSidecarPostUsesLocalEditXmpWhenAvailable() async throws {
-        StubURLProtocol.stub = Self.ingestAndSidecarStub(relPath: "2024/03/15/IMG.heic")
-        let (engine, queue, state, sidecars, _, tmpRoot) = try freshHarness()
-        defer { try? FileManager.default.removeItem(at: tmpRoot) }
-
-        let localEditXmp = "<x:xmpmeta><maple:exposure>1.5</maple:exposure></x:xmpmeta>"
-        try sidecars.write(phassetLocalId: "P1", xmp: localEditXmp)
-
-        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
-        let task = BackupTask(id: id, state: .pending, priority: .background)
-        try await state.upsert(task)
-        await queue.enqueue(task, priority: .background)
-
-        try await engine.processOne()
-
-        // The sidecar should be gone (deleted after upload).
-        XCTAssertNil(try sidecars.read(phassetLocalId: "P1"),
-            "Local-edit sidecar should be deleted after successful upload")
-
-        // The sidecar POST body must be the local-edit XMP.
-        let requests = StubURLProtocol.recordedRequests
-        let sidecarReq = requests.first(where: { $0.url?.path.contains("backup/sidecar") == true })
-        XCTAssertNotNil(sidecarReq, "No sidecar POST found")
-        if let body = sidecarReq?.httpBody, let bodyStr = String(data: body, encoding: .utf8) {
-            XCTAssertTrue(bodyStr.contains("maple:exposure"),
-                "Sidecar body should be local-edit XMP, got: \(bodyStr.prefix(200))")
-        } else {
-            XCTFail("Sidecar POST had no readable body")
-        }
     }
 
     // MARK: - Cross-device coordination (HTTP 423 busy-elsewhere)
@@ -501,17 +392,19 @@ final class BackupEngineTests: XCTestCase {
                        "exactly one resolved signal at the →0 terminus")
     }
 
-    /// A derived companion (no local edit → derivedCompanionRetries=2) that
-    /// never succeeds must still emit `.companionsResolved` when its budget
-    /// exhausts — otherwise the photo leaks as permanently "pending".
+    /// A derived companion (rendered twin, derivedCompanionRetries=2 — the
+    /// sidecar is skipped entirely without a local edit since #2553, so this
+    /// exercises the rendered companion instead) that never succeeds must
+    /// still emit `.companionsResolved` when its budget exhausts — otherwise
+    /// the photo leaks as permanently "pending".
     func testCompanionResolvedFiresOnExhaustion() async throws {
-        // ingest 200+json → sidecar 500 forever (sequence exhausts → 500).
+        // ingest 200+json → rendered 500 forever (sequence exhausts → 500).
         StubURLProtocol.stub = .sequence([
             .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
             .status(500),
         ])
         let (engine, queue, state, _, tmpRoot) =
-            try freshHarness(companionBackoff: { _ in 0 })
+            try freshHarness(companionBackoff: { _ in 0 }, reader: RenderedAssetReader())
         defer { try? FileManager.default.removeItem(at: tmpRoot) }
         let engineRef = engine
         defer { Task { await engineRef.stop() } }
@@ -520,7 +413,8 @@ final class BackupEngineTests: XCTestCase {
         await sink.attach(to: queue)
         defer { sink.stop() }
 
-        // No local-edit sidecar written → derived path, 2 attempts then drop.
+        // No local-edit sidecar written → sidecar companion skipped entirely,
+        // 2 rendered-companion attempts then drop.
         let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
         let task = BackupTask(id: id, state: .pending, priority: .background)
         try await state.upsert(task)

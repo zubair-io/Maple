@@ -1,4 +1,4 @@
-// ControlCard — floating glass bottom panel (#1535).
+// ControlCard — floating flyout panel beside the tool dock (#1535).
 // Pro tokens imported once globally in styles.scss (#1537).
 
 :host {
@@ -6,121 +6,71 @@
 }
 
 .card {
+  // Query container for descendants that need to react to the CARD's own
+  // width rather than the viewport's — the card is a fixed 300px column on
+  // tablet/desktop regardless of how wide the viewport is, which a `@media`
+  // query can never see (#1807 review, Critical 2 — `pro-color-grading-
+  // panel`'s wheel-row 2x2 fallback uses this; see that component's SCSS).
+  container-type: inline-size;
+
+  padding: 16px;
   background: var(--pro-glass-bg);
   backdrop-filter: var(--pro-glass-blur);
   -webkit-backdrop-filter: var(--pro-glass-blur);
   border: 0.5px solid var(--pro-glass-border);
   box-shadow: var(--pro-glass-shadow);
-  border-radius: var(--pro-glass-radius-card) var(--pro-glass-radius-card) 0 0;
-  overflow: hidden;
-  transition: height var(--pro-motion-card);
+  border-radius: 18px;
+
+  // Light group at 300px single-column runs ~405px tall — cap and scroll
+  // rather than clip on a short window or iPad Split View landscape.
+  // `.presets-panel` (editor-shell.component.scss) models the same fix.
+  max-height: min(480px, calc(100vh - 120px));
+  overflow-y: auto;
 
   @media (min-width: 768px) {
     background: var(--pro-glass-bg-heavy);
     backdrop-filter: var(--pro-glass-blur-heavy);
     -webkit-backdrop-filter: var(--pro-glass-blur-heavy);
-    border-radius: var(--pro-glass-radius-card-desktop) var(--pro-glass-radius-card-desktop) 0 0;
-  }
-
-  // Phone flyout (#1807): the card floats fully above the bottom dock rather
-  // than sitting flush against the viewport edge, so it gets all four
-  // corners rounded instead of just the top two.
-  &.card--phone {
-    border-radius: var(--pro-glass-radius-card);
   }
 }
 
-// Grab handle — styled as a <button> so it's keyboard-accessible
-.grab-handle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 20px;
-  cursor: pointer;
-  flex-shrink: 0;
-  border: none;
-  background: transparent;
-  padding: 0;
-  -webkit-appearance: none;
-  appearance: none;
-  outline: none;
-
-  &:focus-visible .grab-bar {
-    background: rgba(255, 255, 255, 0.4);
-  }
-}
-
-.grab-bar {
-  width: 32px;
-  height: 4px;
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 2px;
-}
-
-// Header: chips + reset
 .card-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 12px 10px;
-}
-
-// Group chips row
-.group-chips {
-  display: flex;
-  flex: 1;
   gap: 6px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  &::-webkit-scrollbar {
-    display: none;
+  margin-bottom: 12px;
+
+  // Sticky within `.card`'s own `overflow-y: auto` (a tall group — Light's
+  // 7 sliders is the worst case — scrolls past 480px): without this the
+  // title + Reset button scroll out of view along with the sliders (jules
+  // NIT, raised independently twice). Needs an opaque-enough background of
+  // its own so slider content doesn't show through underneath while pinned
+  // — matches `.card`'s own background at each breakpoint exactly, so there
+  // is no visible seam between the sticky header and the card behind it.
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--pro-glass-bg);
+  // The background tokens are translucent (0.58 / 0.62 alpha), so a pinned
+  // header without its own blur lets the slider grid scroll past legibly
+  // underneath it. `.card`'s blur does not apply here — a sticky child is
+  // painted above its scrolling siblings, not behind the parent's backdrop.
+  backdrop-filter: var(--pro-glass-blur);
+  -webkit-backdrop-filter: var(--pro-glass-blur);
+
+  @media (min-width: 768px) {
+    background: var(--pro-glass-bg-heavy);
+    backdrop-filter: var(--pro-glass-blur-heavy);
+    -webkit-backdrop-filter: var(--pro-glass-blur-heavy);
   }
 }
 
-.group-chip {
-  flex-shrink: 0;
-  padding: 4px 12px;
-  border-radius: 20px;
-  border: 0.5px solid transparent;
-  background: transparent;
-  font-size: 12px;
-  color: var(--pro-text-muted);
-  cursor: pointer;
-  transition:
-    background var(--pro-motion-group),
-    color var(--pro-motion-group),
-    border-color var(--pro-motion-group);
-  -webkit-appearance: none;
-  appearance: none;
-  outline: none;
-  white-space: nowrap;
-
-  &:hover:not(.group-chip--active) {
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--pro-text);
-  }
-
-  &.group-chip--active {
-    background: var(--pro-accent-28);
-    border-color: var(--pro-accent);
-    color: var(--pro-accent);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--pro-accent);
-    outline-offset: 2px;
-  }
-}
-
-// Phone group label (replaces the chip row — the dock owns group selection)
-.phone-group-label {
-  flex: 1;
-  font-size: 12px;
+.group-title {
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.6px;
+  color: var(--pro-accent);
   text-transform: uppercase;
-  color: var(--pro-text);
 }
 
 // Reset button
@@ -135,6 +85,7 @@
   background: transparent;
   cursor: pointer;
   flex-shrink: 0;
+  margin-left: auto;
   transition:
     background 120ms ease-out,
     border-color 120ms ease-out;
@@ -154,44 +105,44 @@
   }
 }
 
-// Close button (phone only) — collapses the flyout back to the dock
-.close-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  border: 0.5px solid transparent;
-  background: transparent;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition:
-    background 120ms ease-out,
-    border-color 120ms ease-out;
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: var(--pro-border);
-  }
-
-  -webkit-appearance: none;
-  appearance: none;
-  outline: none;
-
-  &:focus-visible {
-    outline: 2px solid var(--pro-accent);
-    outline-offset: 2px;
-  }
-}
-
-// Slider grid — 1 col phone / 2 col tablet+desktop
+// Single column — FlyoutSliderPanel.swift:63 uses a single VStack for the
+// same reason: a 300px-wide fixed panel has no room for a second column.
 .slider-grid {
-  padding: 4px 0 12px;
-  display: grid;
-  grid-template-columns: 1fr;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 
-  @media (min-width: 768px) {
-    grid-template-columns: 1fr 1fr;
+// Colour sub-tool row (#1807 Task 4) — Basic/HSL/B&W/Grade chips, shown only
+// for the colour group (see `showSubtools`).
+.subtool-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.subtool-chip {
+  flex-shrink: 0;
+  padding: 3px 11px;
+  border-radius: 20px;
+  border: 0.5px solid var(--pro-border);
+  background: transparent;
+  font-size: 11px;
+  color: var(--pro-text-muted);
+  cursor: pointer;
+  transition:
+    background 120ms ease-out,
+    border-color 120ms ease-out;
+
+  &.subtool-chip--active {
+    background: var(--pro-accent-28);
+    border-color: var(--pro-accent);
+    color: var(--pro-accent);
+    font-weight: 600;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--pro-accent);
+    outline-offset: 2px;
   }
 }

@@ -100,3 +100,6 @@ __pycache__/
 # Build-stamp markers from build-xcframework.sh — regenerated on every build.
 src/apple/Frameworks/.xcframework-stamp.*
 
+
+# Brainstorming companion mockups (superpowers)
+.superpowers/

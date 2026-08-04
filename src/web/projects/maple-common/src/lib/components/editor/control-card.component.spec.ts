@@ -1,6 +1,7 @@
-// control-card.component.spec.ts — group chips (tablet/desktop) vs the phone
-// flyout (#1807): suppressed chip row, close button, and the `closed` input
-// hiding the whole card so only the bottom dock remains visible.
+// control-card.component.spec.ts — flyout header parity (accent group title,
+// no chip row, no grab handle). The card renders identically on every
+// breakpoint (#1807 Task 5 retired the phone-only close button and `closed`
+// input — the card is always visible now, tablet/desktop and phone alike).
 
 import { describe, it, expect, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
@@ -16,12 +17,28 @@ import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import { makeLibraryStub } from '../../editor/editor-state.test-helpers';
 import { defaultAdjustmentModel } from '../../models/adjustment-model';
 
-function render(inputs: { phone?: boolean; closed?: boolean; activeGroup?: string } = {}): {
+function render(
+  inputs: {
+    activeGroup?: string;
+    activeTool?: string | null;
+    blackWhiteOn?: boolean;
+  } = {},
+): {
   fixture: ComponentFixture<ControlCardComponent>;
   updateAdjustment: ReturnType<typeof vi.fn>;
   commit: ReturnType<typeof vi.fn>;
   haptic: ReturnType<typeof vi.fn>;
+  // Convenience passthroughs so callers that only need the rendered DOM or
+  // the component instance (the colour sub-tool row tests below) don't have
+  // to destructure `.fixture` first.
+  nativeElement: HTMLElement;
+  componentInstance: ControlCardComponent;
 } {
+  // Some callers (the colour sub-tool row tests below) render twice within a
+  // single `it()` to compare two states — TestBed refuses a second
+  // `configureTestingModule` once a prior call has instantiated a component,
+  // so each `render()` starts from a clean module.
+  TestBed.resetTestingModule();
   const focusedAssetId = signal<string | null>('asset-1');
   const adjustmentFor = vi.fn(() => signal(defaultAdjustmentModel()));
   const updateAdjustment = vi.fn();
@@ -46,75 +63,47 @@ function render(inputs: { phone?: boolean; closed?: boolean; activeGroup?: strin
 
   const fixture = TestBed.createComponent(ControlCardComponent);
   fixture.componentRef.setInput('activeGroup', inputs.activeGroup ?? 'light');
-  if (inputs.phone !== undefined) fixture.componentRef.setInput('phone', inputs.phone);
-  if (inputs.closed !== undefined) fixture.componentRef.setInput('closed', inputs.closed);
+  if (inputs.activeTool !== undefined)
+    fixture.componentRef.setInput('activeTool', inputs.activeTool);
+  if (inputs.blackWhiteOn !== undefined)
+    fixture.componentRef.setInput('blackWhiteOn', inputs.blackWhiteOn);
   fixture.detectChanges();
-  return { fixture, updateAdjustment, commit, haptic };
+  return {
+    fixture,
+    updateAdjustment,
+    commit,
+    haptic,
+    nativeElement: fixture.nativeElement,
+    componentInstance: fixture.componentInstance,
+  };
 }
 
-describe('ControlCardComponent — tablet/desktop (default)', () => {
-  it('renders the group-chips row', () => {
+describe('ControlCardComponent — always visible, no closeable state (#1807 Task 5)', () => {
+  it('always renders the card', () => {
     const { fixture } = render();
-    expect(fixture.nativeElement.querySelector('.group-chips')).toBeTruthy();
-  });
-
-  it('does not render a close button', () => {
-    const { fixture } = render();
-    expect(fixture.nativeElement.querySelector('.close-btn')).toBeFalsy();
-  });
-
-  it('ignores the closed input entirely — card always renders', () => {
-    const { fixture } = render({ closed: true });
     expect(fixture.nativeElement.querySelector('.card')).toBeTruthy();
   });
 
-  it('clicking a chip emits groupChange', () => {
-    const { fixture } = render({ activeGroup: 'light' });
-    let emitted: string | undefined;
-    fixture.componentInstance.groupChange.subscribe((g) => (emitted = g));
-    const chips = Array.from(
-      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.group-chip'),
-    );
-    const colorChip = chips.find((c) => c.textContent?.trim() === 'Color')!;
-    colorChip.click();
-    expect(emitted).toBe('color');
-  });
-});
-
-describe('ControlCardComponent — phone flyout (#1807)', () => {
-  it('suppresses the group-chips row and shows the active group label instead', () => {
-    const { fixture } = render({ phone: true, activeGroup: 'color', closed: false });
+  it('suppresses the group-chips row and shows the active group title instead', () => {
+    const { fixture } = render({ activeGroup: 'color' });
     expect(fixture.nativeElement.querySelector('.group-chips')).toBeFalsy();
-    const label = fixture.nativeElement.querySelector('.phone-group-label');
-    expect(label?.textContent?.trim()).toBe('Color');
+    const title = fixture.nativeElement.querySelector('.group-title');
+    // The real casing ('Color') is the text content — the all-caps look is
+    // `text-transform: uppercase` in CSS (jules perf nit: moved off a
+    // `.toUpperCase()` call re-run every change-detection cycle), which
+    // jsdom doesn't apply to `textContent`.
+    expect(title?.textContent?.trim()).toBe('Color');
   });
 
-  it('shows a close button that emits closeRequest', () => {
-    const { fixture } = render({ phone: true, closed: false });
-    let closed = 0;
-    fixture.componentInstance.closeRequest.subscribe(() => closed++);
-    const closeBtn = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
-      '.close-btn',
-    );
-    expect(closeBtn).toBeTruthy();
-    closeBtn!.click();
-    expect(closed).toBe(1);
-  });
-
-  it('renders nothing when closed=true', () => {
-    const { fixture } = render({ phone: true, closed: true });
-    expect(fixture.nativeElement.querySelector('.card')).toBeFalsy();
-  });
-
-  it('renders the card (with sliders) when closed=false', () => {
-    const { fixture } = render({ phone: true, closed: false, activeGroup: 'light' });
+  it('renders the card with sliders', () => {
+    const { fixture } = render({ activeGroup: 'light' });
     expect(fixture.nativeElement.querySelector('.card')).toBeTruthy();
     expect(fixture.nativeElement.querySelector('.slider-grid')).toBeTruthy();
     expect(fixture.nativeElement.querySelectorAll('pro-living-slider').length).toBeGreaterThan(0);
   });
 
-  it('still exposes the reset button when open', () => {
-    const { fixture } = render({ phone: true, closed: false });
+  it('exposes the reset button', () => {
+    const { fixture } = render();
     expect(fixture.nativeElement.querySelector('.reset-btn')).toBeTruthy();
   });
 });
@@ -194,5 +183,200 @@ describe('ControlCardComponent — pointer/keyboard slider gestures push undo en
     expect(editorState.canUndo()).toBe(true);
     editorState.undo();
     expect(lib.adjustmentFor('asset-1')().exposure).toBe(0);
+  });
+});
+
+describe('flyout header (FlyoutSliderPanel parity)', () => {
+  it('shows the accent group title and no group-chip row', () => {
+    const { fixture } = render({ activeGroup: 'color' });
+    const el = fixture.nativeElement as HTMLElement;
+    // Real casing ('Color') — the all-caps look is CSS `text-transform`,
+    // which jsdom's `textContent` doesn't apply. See the identical note
+    // above.
+    expect(el.querySelector('.group-title')?.textContent?.trim()).toBe('Color');
+    expect(el.querySelector('.group-chips')).toBeNull();
+    expect(el.querySelector('.grab-handle')).toBeNull();
+  });
+});
+
+// Group-parameterised (#1807 Task 4 review correction): Colour Grading's
+// real group is Effects (`TOOLS_IN_GROUP.effects`), so a single Colour-only
+// row containing Grade would hide itself the instant it's armed. Colour
+// gets `Basic · HSL · B&W`, Effects gets `Basic · Grade`, Light/Detail get
+// no row.
+describe('sub-tool row', () => {
+  it('renders Basic/HSL/B&W for the colour group, Basic/Grade for effects, and nothing for light/detail', () => {
+    const colour = render({ activeGroup: 'color' });
+    const colourChips = Array.from(
+      (colour.nativeElement as HTMLElement).querySelectorAll('.subtool-chip'),
+    ).map((n) => n.textContent!.trim());
+    expect(colourChips).toEqual(['Basic', 'HSL', 'B&W']);
+
+    const effects = render({ activeGroup: 'effects' });
+    const effectsChips = Array.from(
+      (effects.nativeElement as HTMLElement).querySelectorAll('.subtool-chip'),
+    ).map((n) => n.textContent!.trim());
+    expect(effectsChips).toEqual(['Basic', 'Grade']);
+
+    const light = render({ activeGroup: 'light' });
+    expect((light.nativeElement as HTMLElement).querySelector('.subtool-row')).toBeNull();
+
+    const detail = render({ activeGroup: 'detail' });
+    expect((detail.nativeElement as HTMLElement).querySelector('.subtool-row')).toBeNull();
+  });
+
+  // Restores #276's dock-hiding behaviour in its new home: HSL's 24 sliders
+  // are inert while Black & White is On (it drives the same 8-band Oklab
+  // stage instead), so the chip that would arm them into visible existence
+  // must not be offered (review finding — before this, `SUBTOOLS` listed HSL
+  // unconditionally and the shell's safety-net effect visibly bounced the
+  // panel body back to B&W the instant the chip was tapped).
+  it('drops the HSL chip from the colour row while Black & White is On', () => {
+    const bwOff = render({ activeGroup: 'color', blackWhiteOn: false });
+    const bwOffChips = Array.from(
+      (bwOff.nativeElement as HTMLElement).querySelectorAll('.subtool-chip'),
+    ).map((n) => n.textContent!.trim());
+    expect(bwOffChips).toEqual(['Basic', 'HSL', 'B&W']);
+
+    const bwOn = render({ activeGroup: 'color', blackWhiteOn: true });
+    const bwOnChips = Array.from(
+      (bwOn.nativeElement as HTMLElement).querySelectorAll('.subtool-chip'),
+    ).map((n) => n.textContent!.trim());
+    expect(bwOnChips).toEqual(['Basic', 'B&W']);
+
+    // Effects' row is untouched — the filter only applies to Colour's HSL
+    // chip, not to the whole component.
+    const effects = render({ activeGroup: 'effects', blackWhiteOn: true });
+    const effectsChips = Array.from(
+      (effects.nativeElement as HTMLElement).querySelectorAll('.subtool-chip'),
+    ).map((n) => n.textContent!.trim());
+    expect(effectsChips).toEqual(['Basic', 'Grade']);
+  });
+
+  it('emits the same tool a dock button used to arm, in each group', () => {
+    const colour = render({ activeGroup: 'color' });
+    const colourEmitted: string[] = [];
+    colour.componentInstance.toolChange.subscribe((t: string) => colourEmitted.push(t));
+    const colourChips = (colour.nativeElement as HTMLElement).querySelectorAll('.subtool-chip');
+    (colourChips[1] as HTMLButtonElement).click(); // HSL
+    (colourChips[2] as HTMLButtonElement).click(); // B&W
+    expect(colourEmitted).toEqual(['hsl', 'bwMix']);
+
+    const effects = render({ activeGroup: 'effects' });
+    const effectsEmitted: string[] = [];
+    effects.componentInstance.toolChange.subscribe((t: string) => effectsEmitted.push(t));
+    const effectsChips = (effects.nativeElement as HTMLElement).querySelectorAll('.subtool-chip');
+    (effectsChips[1] as HTMLButtonElement).click(); // Grade
+    expect(effectsEmitted).toEqual(['colorGrade']);
+  });
+
+  it('marks the chip matching the armed tool active, defaulting to Basic', () => {
+    const hsl = render({ activeGroup: 'color', activeTool: 'hsl' });
+    expect(
+      (hsl.nativeElement as HTMLElement)
+        .querySelector('.subtool-chip--active')
+        ?.textContent?.trim(),
+    ).toBe('HSL');
+
+    const basic = render({ activeGroup: 'color', activeTool: 'temp' });
+    expect(
+      (basic.nativeElement as HTMLElement)
+        .querySelector('.subtool-chip--active')
+        ?.textContent?.trim(),
+    ).toBe('Basic');
+
+    const grade = render({ activeGroup: 'effects', activeTool: 'colorGrade' });
+    expect(
+      (grade.nativeElement as HTMLElement)
+        .querySelector('.subtool-chip--active')
+        ?.textContent?.trim(),
+    ).toBe('Grade');
+  });
+
+  // `EditorStateService.armGroup` deliberately retains the currently-armed
+  // tool when the target group is already the armed group (own spec:
+  // "retains tool when arming the same group") — right for the dock's group
+  // buttons, but this row only ever shows once the group already matches
+  // (`showSubtools`), so a naive `groupChange.emit(activeGroup())` on Basic
+  // would always hit that retain branch and never actually leave HSL/bwMix/
+  // Grade. Basic must arm the group's first slider tool directly to be a
+  // real escape hatch — verified in both rows since each group's first
+  // slider tool differs (`temp` vs `clarity`).
+  it('Basic arms the group’s first slider tool directly when escaping a field-less sub-tool', () => {
+    const hsl = render({ activeGroup: 'color', activeTool: 'hsl' });
+    const hslToolsEmitted: string[] = [];
+    const hslGroupsEmitted: string[] = [];
+    hsl.componentInstance.toolChange.subscribe((t: string) => hslToolsEmitted.push(t));
+    hsl.componentInstance.groupChange.subscribe((g: string) => hslGroupsEmitted.push(g));
+    (
+      (hsl.nativeElement as HTMLElement).querySelectorAll('.subtool-chip')[0] as HTMLButtonElement
+    ).click();
+    expect(hslToolsEmitted).toEqual(['temp']);
+    expect(hslGroupsEmitted).toEqual([]);
+
+    const grade = render({ activeGroup: 'effects', activeTool: 'colorGrade' });
+    const gradeToolsEmitted: string[] = [];
+    const gradeGroupsEmitted: string[] = [];
+    grade.componentInstance.toolChange.subscribe((t: string) => gradeToolsEmitted.push(t));
+    grade.componentInstance.groupChange.subscribe((g: string) => gradeGroupsEmitted.push(g));
+    (
+      (grade.nativeElement as HTMLElement).querySelectorAll('.subtool-chip')[0] as HTMLButtonElement
+    ).click();
+    expect(gradeToolsEmitted).toEqual(['clarity']);
+    expect(gradeGroupsEmitted).toEqual([]);
+  });
+
+  it('Basic re-affirms the active group (not a tool) when a plain slider is already armed', () => {
+    const colour = render({ activeGroup: 'color', activeTool: 'temp' });
+    const colourToolsEmitted: string[] = [];
+    const colourGroupsEmitted: string[] = [];
+    colour.componentInstance.toolChange.subscribe((t: string) => colourToolsEmitted.push(t));
+    colour.componentInstance.groupChange.subscribe((g: string) => colourGroupsEmitted.push(g));
+    (
+      (colour.nativeElement as HTMLElement).querySelectorAll(
+        '.subtool-chip',
+      )[0] as HTMLButtonElement
+    ).click();
+    expect(colourGroupsEmitted).toEqual(['color']);
+    expect(colourToolsEmitted).toEqual([]);
+
+    const effects = render({ activeGroup: 'effects', activeTool: 'clarity' });
+    const effectsToolsEmitted: string[] = [];
+    const effectsGroupsEmitted: string[] = [];
+    effects.componentInstance.toolChange.subscribe((t: string) => effectsToolsEmitted.push(t));
+    effects.componentInstance.groupChange.subscribe((g: string) => effectsGroupsEmitted.push(g));
+    (
+      (effects.nativeElement as HTMLElement).querySelectorAll(
+        '.subtool-chip',
+      )[0] as HTMLButtonElement
+    ).click();
+    expect(effectsGroupsEmitted).toEqual(['effects']);
+    expect(effectsToolsEmitted).toEqual([]);
+  });
+
+  // The chip row used to be marked up as a WAI-ARIA tabs pattern
+  // (`role="tablist"`/`role="tab"`/`aria-selected`) without the machinery
+  // that pattern requires — no `aria-controls`, no tabpanel association, no
+  // roving tabindex/arrow-key nav — which misleads assistive tech (three
+  // independent reviewers flagged it). It's an honest segmented control
+  // instead: plain buttons with `aria-pressed` reflecting which body is
+  // showing.
+  it('marks the chip row as a plain button group, not a WAI-ARIA tabs pattern', () => {
+    const { fixture } = render({ activeGroup: 'color', activeTool: 'hsl' });
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('.subtool-row[role="tablist"]')).toBeNull();
+    expect(el.querySelector('[role="tab"]')).toBeNull();
+    expect(el.querySelector('[aria-selected]')).toBeNull();
+  });
+
+  it('reflects the active chip via aria-pressed, not aria-selected', () => {
+    const { fixture } = render({ activeGroup: 'color', activeTool: 'hsl' });
+    const chips = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.subtool-chip'),
+    );
+    const byLabel = (label: string) => chips.find((c) => c.textContent!.trim() === label)!;
+    expect(byLabel('HSL').getAttribute('aria-pressed')).toBe('true');
+    expect(byLabel('Basic').getAttribute('aria-pressed')).toBe('false');
+    expect(byLabel('B&W').getAttribute('aria-pressed')).toBe('false');
   });
 });

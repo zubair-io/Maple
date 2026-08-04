@@ -1,18 +1,34 @@
 // tool-dock.component.spec.ts — vertical (tablet/desktop) vs horizontal
-// (phone, #1807) orientation, entry filtering, group/curve wiring, the Crop
-// entry's tool-arming semantics (#1813), and the Presets panel entry (#1815).
+// (phone) orientation, group/curve wiring, the Crop entry's tool-arming
+// semantics (#1813), the Presets panel entry (#1815), and the nine-entry
+// Apple-parity shape (#1807 Task 5).
 //
 // The dock has three entry shapes: `group` entries (arm the group's first
-// tool), `panel` entries (Curve, Presets — toggle a floating panel), and
-// `tool` entries (Crop, HSL — arm ONE SPECIFIC tool without disturbing which
-// group's sliders would otherwise show). Crop has both a vertical-only and a
-// horizontal-only entry (same `tool: 'crop'`) purely for dock ordering.
+// tool), `panel` entries (Tone Curve, Presets — toggle a floating panel),
+// and `tool` entries (Crop — arms ONE SPECIFIC tool without disturbing which
+// group's sliders would otherwise show). HSL/B&W/Grade have no dock entry any
+// more — they're reached from the Colour/Effects sub-tool row instead (see
+// `control-card.component.ts`, `editor-shell-subtool-row.spec.ts`).
 
 import { describe, it, expect, beforeEach } from 'vitest';
+import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 
-import { ToolDockComponent } from './tool-dock.component';
+import { ToolDockComponent, type DockEntry } from './tool-dock.component';
 import type { ToolGroup, ToolId } from '../../editor/tool-model';
+import { LibraryStateService } from '../../state/library-state.service';
+import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
+
+// No focused asset — `isModified` (the dock's accent-dot predicate) simply
+// reads null and returns false; the dot's real behavior is covered by the
+// shell-level specs that drive a real AdjustmentModel through the dock
+// (e.g. `editor-shell-subtool-row.spec.ts`). This isolated fixture only
+// needs the injector satisfied so `ToolDockComponent`'s `LibraryStateService`
+// dependency (Step 4) doesn't throw NG0201.
+const NO_FOCUS_LIBRARY_STATE = {
+  focusedAssetId: () => null,
+  adjustmentFor: () => signal(defaultAdjustmentModel()),
+};
 
 function render(inputs: {
   activeGroup?: string;
@@ -20,9 +36,15 @@ function render(inputs: {
   curveOpen?: boolean;
   presetsOpen?: boolean;
   orientation?: 'vertical' | 'horizontal';
-  blackWhiteOn?: boolean;
 }) {
-  TestBed.configureTestingModule({ imports: [ToolDockComponent] });
+  // Reset first: the "Apple 9-entry parity" suite calls `render()` twice in
+  // one `it` (once per orientation) — TestBed refuses to reconfigure a
+  // module it has already instantiated within the same test.
+  TestBed.resetTestingModule();
+  TestBed.configureTestingModule({
+    imports: [ToolDockComponent],
+    providers: [{ provide: LibraryStateService, useValue: NO_FOCUS_LIBRARY_STATE }],
+  });
   const fixture = TestBed.createComponent(ToolDockComponent);
   fixture.componentRef.setInput('activeGroup', inputs.activeGroup ?? 'light');
   if (inputs.activeTool !== undefined) {
@@ -36,9 +58,6 @@ function render(inputs: {
   }
   if (inputs.orientation !== undefined) {
     fixture.componentRef.setInput('orientation', inputs.orientation);
-  }
-  if (inputs.blackWhiteOn !== undefined) {
-    fixture.componentRef.setInput('blackWhiteOn', inputs.blackWhiteOn);
   }
   fixture.detectChanges();
   return fixture;
@@ -56,81 +75,97 @@ function buttonFor(fixture: { nativeElement: unknown }, label: string): HTMLButt
   return buttons(fixture).find((b) => b.getAttribute('aria-label') === label)!;
 }
 
+function dotFor(fixture: { nativeElement: unknown }, label: string): Element | null {
+  return buttonFor(fixture, label).querySelector('.dock-dot');
+}
+
+// ── Accent dot (`isModified`, fix round 1) ──────────────────────────────────
+// HSL and bwMix have no primary drag-bar field (`fieldFor` returns null for
+// both — tool-model.ts:279-286), so a naive "check the tool's one field"
+// predicate can never see either tool's 24/8 sub-params go non-default.
+// Since neither has its own dock button any more, Colour's dot is the ONLY
+// place their modified state can surface — these tests drive a real focused
+// asset through the dock and assert the dot actually lights for each shape:
+// HSL's hue/sat/lum sub-params, bwMix's gray-mixer weights, the bwMix
+// toggle alone (no slider touched), and a Color Grading wheel field that
+// isn't the schema-declared primary (`splitToneBalance`).
+describe('ToolDockComponent — accent dot (isModified, fix round 1)', () => {
+  let fixture: ComponentFixture<ToolDockComponent>;
+
+  function renderModified(patch: Partial<AdjustmentModel>): void {
+    const model = signal<AdjustmentModel>({ ...defaultAdjustmentModel(), ...patch });
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [ToolDockComponent],
+      providers: [
+        {
+          provide: LibraryStateService,
+          useValue: {
+            focusedAssetId: () => 'a',
+            adjustmentFor: () => model,
+          },
+        },
+      ],
+    });
+    fixture = TestBed.createComponent(ToolDockComponent);
+    fixture.componentRef.setInput('activeGroup', 'light');
+    fixture.detectChanges();
+  }
+
+  it('does NOT render a dot on any group entry at defaults (baseline — has teeth in both directions)', () => {
+    renderModified({});
+    for (const label of ['Light', 'Color', 'Effects', 'Detail']) {
+      expect(dotFor(fixture, label), label).toBeNull();
+    }
+  });
+
+  it('lights the Colour dot when an HSL sub-param is non-default', () => {
+    renderModified({ hueAdjustmentRed: 40 });
+    expect(dotFor(fixture, 'Color')).not.toBeNull();
+    expect(dotFor(fixture, 'Light')).toBeNull();
+    expect(dotFor(fixture, 'Effects')).toBeNull();
+  });
+
+  it('lights the Colour dot when a gray-mixer (bwMix) weight is non-default', () => {
+    renderModified({ grayMixerRed: -30 });
+    expect(dotFor(fixture, 'Color')).not.toBeNull();
+  });
+
+  it('lights the Colour dot from the Black & White toggle alone, with every slider at default', () => {
+    renderModified({ blackWhite: 'On' });
+    expect(dotFor(fixture, 'Color')).not.toBeNull();
+  });
+
+  it('lights the Effects dot when a Color Grading wheel field is non-default (not just the primary splitToneBalance)', () => {
+    renderModified({ colorGradeMidtoneHue: 50 });
+    expect(dotFor(fixture, 'Effects')).not.toBeNull();
+    expect(dotFor(fixture, 'Color')).toBeNull();
+  });
+
+  // Crop is a STUB_TOOLS entry (`isWired('crop')` is false) and has no
+  // sub-params or `fieldFor` entry, so before this fix `isToolModified`
+  // returned `false` on its first line for every crop edit — the Crop
+  // entry's own dot, and the Detail group's roll-up dot, could never light
+  // no matter how the user cropped. Apple special-cases crop against
+  // `crop.isIdentity` ahead of the `isWired` guard (ToolDock.swift:174);
+  // these lock down the same behavior here.
+  it('lights the Crop dot for a non-identity crop and rolls up into Detail', () => {
+    renderModified({ crop: { top: 0.1, left: 0, bottom: 1, right: 0.9, angle: 0 } });
+    expect(dotFor(fixture, 'Crop')).not.toBeNull();
+    expect(dotFor(fixture, 'Detail')).not.toBeNull();
+  });
+
+  it('does NOT light the Crop dot (or Detail) at the identity crop', () => {
+    renderModified({});
+    expect(dotFor(fixture, 'Crop')).toBeNull();
+    expect(dotFor(fixture, 'Detail')).toBeNull();
+  });
+});
+
 describe('ToolDockComponent — vertical (default) orientation', () => {
   it('defaults to vertical orientation', () => {
     const fixture = render({});
     expect(fixture.componentInstance.orientation()).toBe('vertical');
-  });
-
-  it('renders the 13 tablet/desktop entries, including Crop/HSL/B&W/Grade/Presets', () => {
-    const fixture = render({});
-    const labels = buttons(fixture).map((b) => b.getAttribute('aria-label'));
-    expect(labels).toEqual([
-      'Light',
-      'Color',
-      'HSL',
-      'B&W',
-      'Curve',
-      'Grade',
-      'Effects',
-      'Detail',
-      'Crop',
-      'Presets',
-      'Optics',
-      'Mask',
-      'Heal',
-    ]);
-  });
-
-  it('hides the HSL entry (only) while Black & White is On (#276)', () => {
-    const fixture = render({ blackWhiteOn: true });
-    const labels = buttons(fixture).map((b) => b.getAttribute('aria-label'));
-    expect(labels).not.toContain('HSL');
-    expect(labels).toContain('B&W');
-    expect(labels).toEqual([
-      'Light',
-      'Color',
-      'B&W',
-      'Curve',
-      'Grade',
-      'Effects',
-      'Detail',
-      'Crop',
-      'Presets',
-      'Optics',
-      'Mask',
-      'Heal',
-    ]);
-  });
-
-  it('HSL reappears once Black & White is switched back Off', () => {
-    const fixture = render({ blackWhiteOn: true });
-    expect(
-      buttons(fixture)
-        .map((b) => b.getAttribute('aria-label'))
-        .includes('HSL'),
-    ).toBe(false);
-    fixture.componentRef.setInput('blackWhiteOn', false);
-    fixture.detectChanges();
-    expect(
-      buttons(fixture)
-        .map((b) => b.getAttribute('aria-label'))
-        .includes('HSL'),
-    ).toBe(true);
-  });
-
-  it('B&W entry arms the bwMix tool directly', () => {
-    const fixture = render({});
-    let toolEmitted: ToolId | null = null;
-    fixture.componentInstance.toolChange.subscribe((t) => (toolEmitted = t));
-    buttonFor(fixture, 'B&W').click();
-    expect(toolEmitted).toBe('bwMix');
-  });
-
-  it('B&W entry highlights only when bwMix is armed', () => {
-    const fixture = render({ activeTool: 'bwMix', activeGroup: 'color' });
-    expect(buttonFor(fixture, 'B&W').classList.contains('dock-btn--active')).toBe(true);
-    expect(buttonFor(fixture, 'Color').classList.contains('dock-btn--active')).toBe(false);
   });
 
   it('does not add the horizontal host class', () => {
@@ -149,22 +184,27 @@ describe('ToolDockComponent — vertical (default) orientation', () => {
     expect(emitted).toBe('detail');
   });
 
-  it('Curve entry fires curvePanelToggle instead of groupChange', () => {
+  it('Tone Curve entry fires curvePanelToggle instead of groupChange', () => {
     const fixture = render({});
     let toggled = 0;
     let groupEmitted = false;
     fixture.componentInstance.curvePanelToggle.subscribe(() => toggled++);
     fixture.componentInstance.groupChange.subscribe(() => (groupEmitted = true));
-    buttonFor(fixture, 'Curve').click();
+    buttonFor(fixture, 'Tone Curve').click();
     expect(toggled).toBe(1);
     expect(groupEmitted).toBe(false);
   });
 
-  it('disabled entries (Optics/Mask/Heal) are non-interactive and show a ticket tooltip', () => {
+  it('disabled entries (Mask/Heal) are non-interactive and show a ticket tooltip', () => {
     const fixture = render({});
-    const opticsBtn = buttonFor(fixture, 'Optics');
-    expect(opticsBtn.disabled).toBe(true);
-    expect(opticsBtn.title).toBe('Optics — coming in #1534');
+    // Disabled entries carry no `aria-label` (kept out of the a11y tree, see
+    // the "Apple 9-entry parity" suite), so locate by title instead.
+    const maskBtn = nativeEl(fixture).querySelector(
+      '.dock-btn[title^="Mask"]',
+    ) as HTMLButtonElement | null;
+    expect(maskBtn).not.toBeNull();
+    expect(maskBtn!.disabled).toBe(true);
+    expect(maskBtn!.title).toBe('Mask — coming in #1541');
   });
 });
 
@@ -172,23 +212,6 @@ describe('ToolDockComponent — horizontal (phone) orientation', () => {
   it('adds the horizontal host class', () => {
     const fixture = render({ orientation: 'horizontal' });
     expect(nativeEl(fixture).classList.contains('dock-host--horizontal')).toBe(true);
-  });
-
-  it('renders exactly Light/Color/HSL/B&W/Curve/Grade/Effects/Detail/Presets/Crop, excluding Optics/Mask/Heal', () => {
-    const fixture = render({ orientation: 'horizontal' });
-    const labels = buttons(fixture).map((b) => b.getAttribute('aria-label'));
-    expect(labels).toEqual([
-      'Light',
-      'Color',
-      'HSL',
-      'B&W',
-      'Curve',
-      'Grade',
-      'Effects',
-      'Detail',
-      'Presets',
-      'Crop',
-    ]);
   });
 
   it('Crop is enabled and arms the crop tool (#1813 wired it; no longer a #1807 placeholder)', () => {
@@ -210,18 +233,35 @@ describe('ToolDockComponent — horizontal (phone) orientation', () => {
     expect(emitted).toBe('effects');
   });
 
-  it('Curve entry still fires curvePanelToggle on phone', () => {
+  it('Tone Curve entry still fires curvePanelToggle on phone', () => {
     const fixture = render({ orientation: 'horizontal' });
     let toggled = 0;
     fixture.componentInstance.curvePanelToggle.subscribe(() => toggled++);
-    buttonFor(fixture, 'Curve').click();
+    buttonFor(fixture, 'Tone Curve').click();
     expect(toggled).toBe(1);
   });
 
-  it('reflects curveOpen as the active state on the Curve entry', () => {
+  it('reflects curveOpen as the active state on the Tone Curve entry', () => {
     const fixture = render({ orientation: 'horizontal', curveOpen: true });
-    const curveBtn = buttonFor(fixture, 'Curve');
+    const curveBtn = buttonFor(fixture, 'Tone Curve');
     expect(curveBtn.classList.contains('dock-btn--active')).toBe(true);
+  });
+
+  // Regression guard for the #1807 follow-up (72px→64px dock-height fix):
+  // the horizontal bar genuinely overflows nine labelled buttons at 375px
+  // and must stay scrollable — only the scrollbar's *visual chrome* was
+  // hidden to reclaim the box-model height the gap arithmetic assumes.
+  // jsdom has no box model or real scrollbar rendering, so this cannot
+  // assert the 8px gap or the 64px bar height directly (that was verified
+  // in a real browser instead). What jsdom's CSS engine *can* confirm is
+  // that the stylesheet still declares `overflow-x: auto` on `.dock` — a
+  // regression that flipped it to `hidden`/`scroll`/`visible` while adding
+  // the scrollbar-hiding rules would break real scrolling and this test
+  // would catch it.
+  it('keeps overflow-x: auto on the horizontal dock (scrolling stays live; only scrollbar chrome is hidden)', () => {
+    const fixture = render({ orientation: 'horizontal' });
+    const dockEl = nativeEl(fixture).querySelector('.dock') as HTMLElement;
+    expect(getComputedStyle(dockEl).overflowX).toBe('auto');
   });
 });
 
@@ -251,7 +291,10 @@ describe('ToolDockComponent — Crop entry (#1813)', () => {
   }
 
   beforeEach(() => {
-    TestBed.configureTestingModule({ imports: [ToolDockComponent] });
+    TestBed.configureTestingModule({
+      imports: [ToolDockComponent],
+      providers: [{ provide: LibraryStateService, useValue: NO_FOCUS_LIBRARY_STATE }],
+    });
   });
 
   it('renders an enabled Crop entry', () => {
@@ -318,7 +361,10 @@ describe('ToolDockComponent — Presets entry (#1815)', () => {
   }
 
   beforeEach(() => {
-    TestBed.configureTestingModule({ imports: [ToolDockComponent] });
+    TestBed.configureTestingModule({
+      imports: [ToolDockComponent],
+      providers: [{ provide: LibraryStateService, useValue: NO_FOCUS_LIBRARY_STATE }],
+    });
   });
 
   it('renders an enabled Presets entry', () => {
@@ -339,28 +385,81 @@ describe('ToolDockComponent — Presets entry (#1815)', () => {
     expect(curveToggled).toBe(0);
   });
 
-  it('clicking Curve still emits only curvePanelToggle', () => {
+  it('clicking Tone Curve still emits only curvePanelToggle', () => {
     renderPresets(false, false);
     let presetsToggled = 0;
     let curveToggled = 0;
     fixture.componentInstance.presetsPanelToggle.subscribe(() => presetsToggled++);
     fixture.componentInstance.curvePanelToggle.subscribe(() => curveToggled++);
 
-    button('Curve').click();
+    button('Tone Curve').click();
 
     expect(curveToggled).toBe(1);
     expect(presetsToggled).toBe(0);
   });
 
-  it('Presets highlights only from presetsOpen — Curve is independent', () => {
+  it('Presets highlights only from presetsOpen — Tone Curve is independent', () => {
     renderPresets(true, false);
-    expect(button('Curve').classList.contains('dock-btn--active')).toBe(true);
+    expect(button('Tone Curve').classList.contains('dock-btn--active')).toBe(true);
     expect(button('Presets').classList.contains('dock-btn--active')).toBe(false);
   });
 
-  it('Curve highlights only from curveOpen — Presets is independent', () => {
+  it('Tone Curve highlights only from curveOpen — Presets is independent', () => {
     renderPresets(false, true);
     expect(button('Presets').classList.contains('dock-btn--active')).toBe(true);
-    expect(button('Curve').classList.contains('dock-btn--active')).toBe(false);
+    expect(button('Tone Curve').classList.contains('dock-btn--active')).toBe(false);
+  });
+});
+
+describe('Apple 9-entry parity', () => {
+  it('renders exactly the nine Apple entries in order, both orientations', () => {
+    const expected = [
+      'Light',
+      'Color',
+      'Effects',
+      'Detail',
+      'Crop',
+      'Tone Curve',
+      'Presets',
+      'Mask',
+      'Heal',
+    ];
+    for (const orientation of ['vertical', 'horizontal'] as const) {
+      const fixture = render({ orientation });
+      const labels = Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll('.dock-btn .dock-label'),
+      ).map((n) => n.textContent!.trim());
+      expect(labels, orientation).toEqual(expected);
+    }
+  });
+
+  it('no longer offers HSL, B&W, Grade or Optics buttons', () => {
+    const fixture = render({});
+    const labels = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('.dock-btn'),
+    ).map((n) => n.getAttribute('aria-label'));
+    for (const gone of ['HSL', 'B&W', 'Grade', 'Optics']) {
+      expect(labels).not.toContain(gone);
+    }
+  });
+
+  it('draws a divider before Crop', () => {
+    const fixture = render({});
+    const el = fixture.nativeElement as HTMLElement;
+    const nodes = Array.from(el.querySelectorAll('.dock-divider, .dock-btn'));
+    const dividerIndex = nodes.findIndex((n) => n.classList.contains('dock-divider'));
+    const cropIndex = nodes.findIndex((n) => n.getAttribute('aria-label') === 'Crop');
+    expect(dividerIndex).toBeGreaterThan(-1);
+    expect(dividerIndex).toBe(cropIndex - 1);
+  });
+
+  it('keeps disabled placeholders out of the accessibility tree', () => {
+    const fixture = render({});
+    const mask = (fixture.nativeElement as HTMLElement).querySelector('[aria-label="Mask"]');
+    expect(mask).toBeNull();
+    const placeholders = (fixture.nativeElement as HTMLElement).querySelectorAll(
+      '.dock-btn--disabled[aria-hidden="true"]',
+    );
+    expect(placeholders.length).toBe(2);
   });
 });

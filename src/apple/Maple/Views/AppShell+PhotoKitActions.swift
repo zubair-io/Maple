@@ -104,10 +104,15 @@ extension AppShell {
     /// Build a PhotoKit-backed `AssetRef` for a `.localOnly` cell selected
     /// from the merged cloud timeline and ensure its `EditSession` exists.
     /// These are PhotoKit photos that haven't been uploaded yet, so there is
-    /// no `SearchAsset` to route through `prepareCloudSession` — edits stay
-    /// session-local (matches the regular PhotoKit-filter flow).
+    /// no `SearchAsset` to route through `prepareCloudSession` — but edits
+    /// still need to be durable (#2555): the session is wired with a
+    /// `PhotoKitSidecarStore` so they land in `AppSupportSidecarStore`
+    /// (matches the regular PhotoKit-filter flow's `ensureSession`) instead
+    /// of living only in this session's in-memory state.
     ///
-    /// Synchronous + throwing: the only failable call is `PhotoKitSource()`.
+    /// Synchronous + throwing: the failable calls are `PhotoKitSource()` and
+    /// `PhotoKitSidecarStore.init(phassetLocalId:)` — both fail only on the
+    /// same rare condition (Application Support unavailable).
     /// Shared by the Mac / iPad `openLocalPhotoKitAsset` (flips
     /// `mode = imageOpenMode`, i.e. `.preview`) and the iPhone tap that pushes
     /// the S5 editor onto the Library tab's `NavigationStack` (#809).
@@ -126,7 +131,8 @@ extension AppShell {
             }
         )
         if sessions[assetRef.id] == nil {
-            let session = EditSession(asset: assetRef)
+            let sidecarStore = try PhotoKitSidecarStore(phassetLocalId: ref.id)
+            let session = EditSession(asset: assetRef, remoteSidecarStore: sidecarStore)
             sessions[assetRef.id] = session
             Task { await session.loadSidecar() }
         }

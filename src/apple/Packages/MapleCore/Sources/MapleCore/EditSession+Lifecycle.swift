@@ -35,10 +35,20 @@ extension EditSession {
         guard let store = sidecarStore else { return }
         if let xmp = store as? XMPSidecarStore {
             await xmp.flush()
+        } else if let photoKit = store as? PhotoKitSidecarStore {
+            // Local disk I/O, same shape as XMPSidecarStore (#2555) — force
+            // it now rather than leaving it to the 750ms debounce. Without
+            // this, backgrounding (or force-quitting) the app right after an
+            // edit could kill the process before the debounced write fires,
+            // silently dropping the edit the durability fix exists to keep.
+            await photoKit.flush()
+        } else if let cloud = store as? CloudSidecarStore {
+            // `CloudSidecarStore.flush()` cancels the pending debounce Task
+            // and issues the PUT immediately — the same "force it now" shape
+            // as the other two stores, not merely waiting on an inflight
+            // request. Backgrounding right after an edit can kill the process
+            // before the 750ms debounce fires here too.
+            await cloud.flush()
         }
-        // Other SidecarStoreProtocol conformers (CloudSidecarStore) have
-        // their own flush semantics — they coalesce per-request and
-        // there's no synchronous "force now" call. Their inflight POST
-        // either lands or doesn't on the next request cycle.
     }
 }

@@ -501,6 +501,21 @@ export interface AssetDoc {
    */
   backup_layout_version?: number;
   /**
+   * Legacy backup day-dir cleanup generation, stamped by
+   * `workers/migration/refile-legacy-daydir.ts` as its done-marker — NOT a
+   * correctness oracle. Set once that migration has resolved (moved, or found
+   * already correct) or given up on (no EXIF and no parseable filename date —
+   * left in place for manual review) an asset whose live path is still in
+   * the old day-dir layout — `<year>/<location>/<MM>-<DD>` with a location,
+   * or `<year>/<MM>/<DD>` without one (see `restructure-path.ts`). Unlike
+   * `backup_layout_version`, this migration trusts EXIF/filename over the
+   * asset's existing path year — it exists specifically for day-dir assets
+   * `refile-backups` can't reach (no `phasset_links`) or won't correct
+   * (deliberately never crosses year folders). The `{ $ne: N }` selector
+   * re-sweeps the whole backlog once per bump.
+   */
+  legacy_daydir_version?: number;
+  /**
    * Video-metadata backfill generation (`workers/migration/backfill-video-exif.ts`).
    * Stamped once that migration has read a video's QuickTime `moov` capture date +
    * GPS into `exif` (#1525); its `{ $ne: N }` selector re-sweeps videos once per

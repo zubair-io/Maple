@@ -5,14 +5,24 @@
 // component class with mocked injectables and let the constructor's route.url
 // subscription run applyRouteAddress — no heavy template render needed.
 
-import { TestBed } from '@angular/core/testing';
-import { describe, it, expect, vi } from 'vitest';
+import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { signal, type WritableSignal } from '@angular/core';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { of } from 'rxjs';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 
 import { EditorShellComponent } from './editor-shell.component';
 import { LibraryStateService } from '../../state/library-state.service';
 import { ImageCanvasService } from '../../components/image-canvas/image-canvas.service';
+import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
+import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
+import { EditorStateService } from '../../editor/editor-state.service';
+import { CropSessionService } from '../../components/crop-overlay/crop-session.service';
+import { LIBRARY_BACKEND } from '../../api/library-backend.token';
+import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
+import type { Asset, AssetId } from '../../models/asset';
 
 interface Synth {
   id: string;
@@ -137,72 +147,369 @@ describe('EditorShellComponent.applyRouteAddress', () => {
   });
 });
 
-// Phone CARD editor (#1807): the bottom horizontal dock arms a group AND
-// opens the flyout control card; tapping the active group's icon again (or
-// the card's own close button) closes it. Only one flyout — slider card or
-// curve panel — is open at a time since both float in the same anchor slot.
-describe('EditorShellComponent — phone dock wiring (#1807)', () => {
-  it('tapping a group icon arms that group and opens the flyout card', () => {
+// Phone CARD editor (#1807 Task 5): the slider card is now always visible
+// above the bottom horizontal dock — no closeable flyout (see the full-render
+// test below). `onPhoneDockGroupChange` still exists as its own handler
+// because tapping a dock group icon must also close an open curve panel: the
+// always-visible card and the curve panel float in the same anchor above the
+// dock, so they'd stack on top of each other otherwise. Curve, Crop, and
+// Presets no longer need a phone-specific wrapper — closing the (now-removed)
+// flyout was their only phone-specific behaviour — so the template wires
+// them straight to `onCurvePanelToggle`/`onToolChange`/`onPresetsPanelToggle`,
+// same as tablet/desktop.
+describe('EditorShellComponent — phone dock wiring (#1807 Task 5)', () => {
+  it('tapping a group icon arms that group', () => {
     const { comp } = setup({ slug: null });
-    expect(comp.phoneCardOpen()).toBe(false);
 
     comp.onPhoneDockGroupChange('color');
 
     expect(comp.activeGroup()).toBe('color');
-    expect(comp.phoneCardOpen()).toBe(true);
   });
 
-  it('tapping the already-active group icon again closes the flyout card', () => {
+  it('tapping a group icon closes an open curve panel — both float in the same anchor', () => {
     const { comp } = setup({ slug: null });
-    comp.onPhoneDockGroupChange('light');
-    expect(comp.phoneCardOpen()).toBe(true);
-
-    comp.onPhoneDockGroupChange('light');
-
-    expect(comp.phoneCardOpen()).toBe(false);
-    // Group stays armed — closing the flyout doesn't reset the selection.
-    expect(comp.activeGroup()).toBe('light');
-  });
-
-  it('tapping a different group while the card is open re-arms without closing', () => {
-    const { comp } = setup({ slug: null });
-    comp.onPhoneDockGroupChange('light');
-    comp.onPhoneDockGroupChange('effects');
-
-    expect(comp.activeGroup()).toBe('effects');
-    expect(comp.phoneCardOpen()).toBe(true);
-  });
-
-  it('closePhoneCard() closes the flyout without changing the armed group', () => {
-    const { comp } = setup({ slug: null });
-    comp.onPhoneDockGroupChange('detail');
-
-    comp.closePhoneCard();
-
-    expect(comp.phoneCardOpen()).toBe(false);
-    expect(comp.activeGroup()).toBe('detail');
-  });
-
-  it('onPhoneCurvePanelToggle() opens the curve panel and closes the slider flyout', () => {
-    const { comp } = setup({ slug: null });
-    comp.onPhoneDockGroupChange('light');
-    expect(comp.phoneCardOpen()).toBe(true);
-
-    comp.onPhoneCurvePanelToggle();
-
-    expect(comp.curveOpen()).toBe(true);
-    expect(comp.phoneCardOpen()).toBe(false);
-  });
-
-  it('onPhoneDockGroupChange() closes an open curve panel before opening the slider flyout', () => {
-    const { comp } = setup({ slug: null });
-    comp.onPhoneCurvePanelToggle();
+    comp.onCurvePanelToggle();
     expect(comp.curveOpen()).toBe(true);
 
     comp.onPhoneDockGroupChange('color');
 
     expect(comp.curveOpen()).toBe(false);
-    expect(comp.phoneCardOpen()).toBe(true);
     expect(comp.activeGroup()).toBe('color');
+  });
+
+  // Important 3 (#1807 review): `onPhoneDockGroupChange` cleared `curveOpen`
+  // but not `presetsOpen` — open Presets, tap a dock group icon, and the
+  // group armed but the card stayed hidden underneath the still-open
+  // presets panel (both float in the same anchor slot on phone).
+  it('tapping a group icon closes an open presets panel — both float in the same anchor', () => {
+    const { comp } = setup({ slug: null });
+    comp.onPresetsPanelToggle();
+    expect(comp.presetsOpen()).toBe(true);
+
+    comp.onPhoneDockGroupChange('color');
+
+    expect(comp.presetsOpen()).toBe(false);
+    expect(comp.activeGroup()).toBe('color');
+  });
+});
+
+// ── Phone two-card layout (#1807 Task 5) ────────────────────────────────
+// Full template render (not just class instantiation like `setup()` above)
+// — the always-visible card only shows up in the assembled DOM. Harness
+// mirrors `editor-shell-subtool-row.spec.ts` / `editor-shell-hsl.spec.ts`'s
+// full-render setup.
+
+function stubGlobalsForRender(): void {
+  const observerStub = class {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  };
+  (globalThis as { ResizeObserver?: unknown }).ResizeObserver = observerStub;
+  (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver = observerStub;
+  (globalThis as unknown as { ImageData: unknown }).ImageData = class {
+    constructor(
+      readonly data: Uint8ClampedArray,
+      readonly width: number,
+      readonly height: number,
+    ) {}
+  };
+  (globalThis as unknown as { createImageBitmap: unknown }).createImageBitmap = vi.fn(() =>
+    Promise.resolve({ close: vi.fn() } as unknown as ImageBitmap),
+  );
+}
+
+function setWindowWidth(w: number): void {
+  Object.defineProperty(window, 'innerWidth', { value: w, configurable: true, writable: true });
+}
+
+const RENDER_ASSET_ID = 'library:2026/render.dng' as AssetId;
+
+function renderShell(opts: {
+  layout: 'phone' | 'tablet' | 'desktop';
+}): ComponentFixture<EditorShellComponent> {
+  stubGlobalsForRender();
+  const width = opts.layout === 'phone' ? 375 : opts.layout === 'tablet' ? 900 : 1280;
+  setWindowWidth(width);
+
+  const models = new Map<AssetId, WritableSignal<AdjustmentModel>>();
+  const modelFor = (id: AssetId): WritableSignal<AdjustmentModel> => {
+    if (!models.has(id)) models.set(id, signal(defaultAdjustmentModel()));
+    return models.get(id)!;
+  };
+  const focused = signal<Asset | null>({
+    id: RENDER_ASSET_ID,
+    filename: 'render.dng',
+    width: 6240,
+    height: 4160,
+  } as Asset);
+
+  const route = { url: of([]), snapshot: { paramMap: convertToParamMap({}), url: [] } };
+
+  const stateStub = {
+    backend: 'self-hosted',
+    focusedAsset: focused,
+    focusedAssetId: () => focused()?.id ?? null,
+    assets: () => [focused()!].filter(Boolean),
+    assetsInSelectedFolder: () => [focused()!].filter(Boolean),
+    isSelecting: () => false,
+    adjustmentFor: (id: AssetId) => modelFor(id),
+    updateAdjustment: (id: AssetId, patch: Partial<AdjustmentModel>) => {
+      modelFor(id).update((m) => ({ ...m, ...patch }));
+    },
+    selectAsset: vi.fn(),
+    bytesFor: () => new Uint8Array([0x44, 0x4e, 0x47]),
+    seedAsShotWhiteBalance: vi.fn(),
+    updateAssetDimensions: vi.fn(),
+    openDownloadProgress: signal(null),
+    flushPendingXmpWrites: vi.fn(),
+    flushPendingPreviewWrites: vi.fn(),
+    hydrateSelfHostedFsAsset: vi.fn(() => null),
+    openSelfHostedSubfolder: vi.fn(),
+  } as unknown as Partial<LibraryStateService>;
+
+  TestBed.resetTestingModule();
+  TestBed.configureTestingModule({
+    imports: [EditorShellComponent],
+    providers: [
+      provideHttpClient(),
+      provideHttpClientTesting(),
+      XmpSerializerService,
+      { provide: ActivatedRoute, useValue: route },
+      { provide: Router, useValue: { navigate: vi.fn() } },
+      { provide: LibraryStateService, useValue: stateStub },
+      { provide: LIBRARY_BACKEND, useValue: 'hosted' },
+      {
+        provide: RawPipelineService,
+        useValue: {
+          decode: vi.fn(() =>
+            Promise.resolve({
+              width: 800,
+              height: 533,
+              nativeWidth: 6240,
+              nativeHeight: 4160,
+              rgb: new Uint8Array([0x80, 0x80, 0x80]),
+              asShotTemperature: 5200,
+              asShotTint: 0,
+            }),
+          ),
+          deepDenoiseProgress: signal<{ pass: 1 | 2; fraction: number } | null>(null),
+        },
+      },
+    ],
+  });
+
+  TestBed.inject(ImageCanvasService);
+  TestBed.inject(EditorStateService).bind(RENDER_ASSET_ID);
+  TestBed.inject(CropSessionService);
+
+  const fixture = TestBed.createComponent(EditorShellComponent);
+  fixture.detectChanges();
+  return fixture;
+}
+
+describe('EditorShellComponent — phone two-card layout (#1807 Task 5)', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  function phoneCard(fixture: ComponentFixture<EditorShellComponent>): Element | null {
+    return (fixture.nativeElement as HTMLElement).querySelector(
+      '.phone-card-anchor pro-control-card .card',
+    );
+  }
+
+  function dockButton(
+    fixture: ComponentFixture<EditorShellComponent>,
+    label: string,
+  ): HTMLButtonElement {
+    const buttons = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('pro-tool-dock button'),
+    ) as HTMLButtonElement[];
+    const btn = buttons.find((b) => b.getAttribute('aria-label') === label);
+    expect(btn, `dock button "${label}" must be present`).not.toBeNull();
+    return btn!;
+  }
+
+  it('shows the phone slider panel without requiring a dock tap', () => {
+    const fixture = renderShell({ layout: 'phone' });
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('.phone-card-anchor pro-control-card .card')).toBeTruthy();
+    expect(el.querySelector('.close-btn')).toBeNull();
+  });
+
+  // Review round 1 (Critical): the always-visible card and the Curve/
+  // Presets/Noise panels float in the SAME anchor slot on phone (unlike
+  // tablet/desktop, where those panels live in the separate dock-side
+  // column and can never overlap the control card) — so the card must hide
+  // while any of the three is open, or two glass panels render on top of
+  // each other.
+  it('hides the card while the Curve panel is open, and restores it when Curve closes', () => {
+    const fixture = renderShell({ layout: 'phone' });
+    expect(phoneCard(fixture)).not.toBeNull();
+
+    dockButton(fixture, 'Tone Curve').click();
+    fixture.detectChanges();
+
+    expect(phoneCard(fixture)).toBeNull();
+    expect(fixture.nativeElement.querySelector('.phone-curve-panel')).not.toBeNull();
+
+    dockButton(fixture, 'Tone Curve').click();
+    fixture.detectChanges();
+
+    expect(phoneCard(fixture)).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.phone-curve-panel')).toBeNull();
+  });
+
+  it('hides the card while the Presets panel is open', () => {
+    const fixture = renderShell({ layout: 'phone' });
+    expect(phoneCard(fixture)).not.toBeNull();
+
+    dockButton(fixture, 'Presets').click();
+    fixture.detectChanges();
+
+    expect(phoneCard(fixture)).toBeNull();
+    expect(fixture.nativeElement.querySelector('.phone-presets-panel')).not.toBeNull();
+  });
+
+  it('hides the card while Noise is armed', () => {
+    const fixture = renderShell({ layout: 'phone' });
+    const editorState = TestBed.inject(EditorStateService);
+    expect(phoneCard(fixture)).not.toBeNull();
+
+    editorState.armTool('noise');
+    fixture.detectChanges();
+
+    expect(phoneCard(fixture)).toBeNull();
+    expect(fixture.nativeElement.querySelector('.phone-subparam-panel')).not.toBeNull();
+  });
+
+  // HSL/bwMix/colorGrade are the one group of tools that DO belong inside
+  // the card (#1807 Task 4 projects their body into it via
+  // cardBodySubParam/cardBodyGrade) — arming any of them must NOT hide it.
+  it('does not hide the card while HSL, B&W, or Color Grading is armed — they render inside it', () => {
+    const fixture = renderShell({ layout: 'phone' });
+    const editorState = TestBed.inject(EditorStateService);
+
+    editorState.armTool('hsl');
+    fixture.detectChanges();
+    expect(phoneCard(fixture)).not.toBeNull();
+
+    editorState.armTool('bwMix');
+    fixture.detectChanges();
+    expect(phoneCard(fixture)).not.toBeNull();
+
+    editorState.armTool('colorGrade');
+    fixture.detectChanges();
+    expect(phoneCard(fixture)).not.toBeNull();
+  });
+});
+
+// ── Desktop control card vs. other right-side surfaces (Critical 1) ─────────
+// `.control-card-anchor` (right: 88px, width: 300px) and the dock-side panel
+// anchor `%dock-side-panel` (right: 64px) both sit vertically centred on the
+// same axis, so Curve/Presets/Noise's panels and the 340px `.info-pane`
+// paint straight over the card (neither surface has a z-index — whichever is
+// later in the DOM wins) once both are showing. Before this fix the card's
+// only visibility guard was `!cropArmed()`. Mirrors the phone "hides the
+// card while..." tests above; the phone anchor has no Info-collision
+// equivalent to mirror (Info is a bottom sheet there), so that case is
+// desktop-only.
+describe('EditorShellComponent — desktop control card yields to other right-side surfaces (Critical 1)', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  function controlCard(fixture: ComponentFixture<EditorShellComponent>): Element | null {
+    return (fixture.nativeElement as HTMLElement).querySelector(
+      '.control-card-anchor pro-control-card .card',
+    );
+  }
+
+  function dockButton(
+    fixture: ComponentFixture<EditorShellComponent>,
+    label: string,
+  ): HTMLButtonElement {
+    const buttons = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('pro-tool-dock button'),
+    ) as HTMLButtonElement[];
+    const btn = buttons.find((b) => b.getAttribute('aria-label') === label);
+    expect(btn, `dock button "${label}" must be present`).not.toBeNull();
+    return btn!;
+  }
+
+  it('hides the card while the Curve panel is open, and restores it when Curve closes', () => {
+    const fixture = renderShell({ layout: 'desktop' });
+    expect(controlCard(fixture)).not.toBeNull();
+
+    dockButton(fixture, 'Tone Curve').click();
+    fixture.detectChanges();
+
+    expect(controlCard(fixture)).toBeNull();
+    expect(fixture.nativeElement.querySelector('.curve-panel')).not.toBeNull();
+
+    dockButton(fixture, 'Tone Curve').click();
+    fixture.detectChanges();
+
+    expect(controlCard(fixture)).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.curve-panel')).toBeNull();
+  });
+
+  it('hides the card while the Presets panel is open', () => {
+    const fixture = renderShell({ layout: 'desktop' });
+    expect(controlCard(fixture)).not.toBeNull();
+
+    dockButton(fixture, 'Presets').click();
+    fixture.detectChanges();
+
+    expect(controlCard(fixture)).toBeNull();
+    expect(fixture.nativeElement.querySelector('.presets-panel')).not.toBeNull();
+  });
+
+  it('hides the card while Noise is armed', () => {
+    const fixture = renderShell({ layout: 'desktop' });
+    const editorState = TestBed.inject(EditorStateService);
+    expect(controlCard(fixture)).not.toBeNull();
+
+    editorState.armTool('noise');
+    fixture.detectChanges();
+
+    expect(controlCard(fixture)).toBeNull();
+    expect(fixture.nativeElement.querySelector('.subparam-panel')).not.toBeNull();
+  });
+
+  it('hides the card while the Info pane is open', () => {
+    const fixture = renderShell({ layout: 'desktop' });
+    expect(controlCard(fixture)).not.toBeNull();
+
+    fixture.componentInstance.infoOpen.set(true);
+    fixture.detectChanges();
+
+    expect(controlCard(fixture)).toBeNull();
+    expect(fixture.nativeElement.querySelector('.info-pane')).not.toBeNull();
+
+    fixture.componentInstance.infoOpen.set(false);
+    fixture.detectChanges();
+
+    expect(controlCard(fixture)).not.toBeNull();
+  });
+
+  // HSL/bwMix/colorGrade render INSIDE the card (#1807 Task 4) — arming any
+  // of them must NOT hide it, same as the phone card above.
+  it('does not hide the card while HSL, B&W, or Color Grading is armed — they render inside it', () => {
+    const fixture = renderShell({ layout: 'desktop' });
+    const editorState = TestBed.inject(EditorStateService);
+
+    editorState.armTool('hsl');
+    fixture.detectChanges();
+    expect(controlCard(fixture)).not.toBeNull();
+
+    editorState.armTool('bwMix');
+    fixture.detectChanges();
+    expect(controlCard(fixture)).not.toBeNull();
+
+    editorState.armTool('colorGrade');
+    fixture.detectChanges();
+    expect(controlCard(fixture)).not.toBeNull();
   });
 });

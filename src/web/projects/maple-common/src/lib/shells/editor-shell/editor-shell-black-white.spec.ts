@@ -2,17 +2,29 @@
 // port (#276).
 //
 // bwMix mirrors HSL's shape (editor-shell-hsl.spec.ts): 8 sub-params with no
-// single primary drag-bar field, so it gets the same dock-entry → shared
-// panel treatment (SubParamRowComponent / DragBarComponent /
-// ValueChipComponent) plus an explicit toggle control for `model.blackWhite`.
+// single primary drag-bar field. Neither has a dock button of its own any
+// more (#1807 Task 5 collapsed the dock to Apple's nine entries) — both are
+// reached via the Colour sub-tool row instead (`control-card.component.ts`'s
+// `SUBTOOLS` map; see `editor-shell-subtool-row.spec.ts` for the base
+// reachability proof). Once armed, bwMix gets the same shared panel
+// treatment (SubParamRowComponent / DragBarComponent / ValueChipComponent)
+// plus an explicit toggle control for `model.blackWhite`.
 //
 // The acceptance-critical piece this spec locks down beyond the HSL parity
-// checks: while Black & White is On, the ENTIRE HSL surface must be
-// hidden — the HSL dock entry does not render, the HSL panel cannot be
-// armed into existence, and it reappears the moment B&W is switched back
-// Off. If HSL happens to be the armed tool at the moment B&W turns On,
-// arming moves off it onto bwMix rather than pointing the drag bar at a
-// tool with no visible way to reach it.
+// checks: the shell still guards against HSL being the *armed* tool while
+// Black & White is On (its 24 sliders are inert then, since B&W drives the
+// same 8-band Oklab stage instead) — arming moves off it onto bwMix. This is
+// belt-and-braces on top of a visibility guard now (review finding — the
+// sub-tool row used to show the HSL chip unconditionally, so a tap on it
+// while B&W was On visibly flickered the panel body before snapping back):
+// `EditorShellComponent` passes `blackWhiteOn` to `ControlCardComponent`,
+// whose `subtools()` filters HSL out of the Colour row while it's On (see
+// `control-card.component.spec.ts`'s "drops the HSL chip..." case), so the
+// chip is gone before a tap is even possible. The shell's own effect below
+// remains as the defense-in-depth for routes that bypass the chip entirely —
+// a preset apply or undo/redo landing directly on `armedTool() === 'hsl'`
+// while B&W is On — which this spec exercises directly via
+// `EditorStateService`.
 
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { signal, type WritableSignal } from '@angular/core';
@@ -168,6 +180,33 @@ describe('EditorShellComponent — B&W / gray-mixer port (#276)', () => {
     return btn!;
   }
 
+  function subtoolChip(label: string): HTMLButtonElement {
+    const chips = Array.from(
+      fixture.nativeElement.querySelectorAll('pro-control-card .subtool-chip'),
+    ) as HTMLButtonElement[];
+    const chip = chips.find((c) => c.textContent?.trim() === label);
+    expect(chip, `"${label}" sub-tool chip must be present`).not.toBeNull();
+    return chip!;
+  }
+
+  /** Arms B&W the way a real user does post-#1807-Task-5: the dock has no
+   *  B&W button any more, so this goes through the Color group dock entry
+   *  and then the Colour sub-tool row's B&W chip. */
+  function armBw(): void {
+    requireDockButton('Color').click();
+    fixture.detectChanges();
+    subtoolChip('B&W').click();
+    fixture.detectChanges();
+  }
+
+  /** Same as `armBw`, for HSL's chip. */
+  function armHsl(): void {
+    requireDockButton('Color').click();
+    fixture.detectChanges();
+    subtoolChip('HSL').click();
+    fixture.detectChanges();
+  }
+
   function bwPanel(): Element | null {
     return fixture.nativeElement.querySelector('.bw-panel');
   }
@@ -192,24 +231,18 @@ describe('EditorShellComponent — B&W / gray-mixer port (#276)', () => {
     return btn!;
   }
 
-  // ── Dock entry + panel mount (HSL parity) ──────────────────────────────
-
-  it('dock renders a B&W entry with an accessible label', () => {
-    const btn = requireDockButton('B&W');
-    expect(btn.disabled).toBe(false);
-  });
+  // ── Sub-tool row entry + panel mount (HSL parity) ──────────────────────
 
   it('does NOT mount the B&W panel for a non-bwMix tool', () => {
     expect(bwPanel()).toBeNull();
     expect(fixture.nativeElement.querySelector('pro-control-card')).not.toBeNull();
   });
 
-  it('clicking the B&W dock entry arms the tool and mounts the toggle + shared sub-param surface', () => {
+  it('clicking the Colour sub-tool row B&W chip arms the tool and mounts the toggle + shared sub-param surface', () => {
     const editorState = TestBed.inject(EditorStateService);
     expect(editorState.armedTool()).not.toBe('bwMix');
 
-    requireDockButton('B&W').click();
-    fixture.detectChanges();
+    armBw();
 
     expect(editorState.armedTool()).toBe('bwMix');
     expect(editorState.armedGroup()).toBe('color');
@@ -224,21 +257,27 @@ describe('EditorShellComponent — B&W / gray-mixer port (#276)', () => {
 
     expect(editorState.armedSubParamId()).toBe('bwRed');
 
-    // Control card hidden while bwMix is armed — same as HSL/Crop.
-    expect(fixture.nativeElement.querySelector('pro-control-card')).toBeNull();
+    // Control card stays mounted while bwMix is armed (#1807 Task 4) — its
+    // shared sub-param surface (`bwPanel()` above) now renders INSIDE the
+    // card via content projection instead of suppressing it, keeping the
+    // colour sub-tool row (Basic/HSL/B&W/Grade) reachable to switch back.
+    // Crop is unaffected: it still hides the card entirely (own spec).
+    expect(fixture.nativeElement.querySelector('pro-control-card')).not.toBeNull();
   });
 
-  it('B&W highlights active in the dock while armed, and Color does not', () => {
-    requireDockButton('B&W').click();
-    fixture.detectChanges();
+  it('B&W highlights active on the Colour dock entry and on its own sub-tool chip', () => {
+    armBw();
 
-    expect(requireDockButton('B&W').classList.contains('dock-btn--active')).toBe(true);
-    expect(requireDockButton('Color').classList.contains('dock-btn--active')).toBe(false);
+    // The dock's Color entry is a GROUP entry — it stays highlighted for any
+    // tool armed within `color`, bwMix included (it's the sub-tool row's own
+    // chip, checked below, that distinguishes bwMix from a plain slider).
+    expect(requireDockButton('Color').classList.contains('dock-btn--active')).toBe(true);
+    expect(subtoolChip('B&W').classList.contains('subtool-chip--active')).toBe(true);
+    expect(subtoolChip('HSL').classList.contains('subtool-chip--active')).toBe(false);
   });
 
   it('selecting a chip arms that (tool, subParam) pair', () => {
-    requireDockButton('B&W').click();
-    fixture.detectChanges();
+    armBw();
 
     const editorState = TestBed.inject(EditorStateService);
     expect(editorState.armedSubParamId()).toBe('bwRed');
@@ -255,8 +294,7 @@ describe('EditorShellComponent — B&W / gray-mixer port (#276)', () => {
   });
 
   it('a drag-bar edit on the default-armed sub-param writes grayMixerRed', () => {
-    requireDockButton('B&W').click();
-    fixture.detectChanges();
+    armBw();
 
     const editorState = TestBed.inject(EditorStateService);
     expect(modelFor(ASSET_ID)().grayMixerRed).toBe(0);
@@ -273,8 +311,7 @@ describe('EditorShellComponent — B&W / gray-mixer port (#276)', () => {
   // ── B&W toggle control ──────────────────────────────────────────────────
 
   it('the toggle has an accessible label and reflects model.blackWhite', () => {
-    requireDockButton('B&W').click();
-    fixture.detectChanges();
+    armBw();
 
     const toggle = bwToggle();
     expect(toggle.getAttribute('aria-label')).toBe('Black & White');
@@ -283,8 +320,7 @@ describe('EditorShellComponent — B&W / gray-mixer port (#276)', () => {
   });
 
   it('clicking the toggle flips model.blackWhite through the commit/undo path', () => {
-    requireDockButton('B&W').click();
-    fixture.detectChanges();
+    armBw();
 
     const editorState = TestBed.inject(EditorStateService);
     expect(editorState.canUndo()).toBe(false);
@@ -303,8 +339,7 @@ describe('EditorShellComponent — B&W / gray-mixer port (#276)', () => {
   });
 
   it('the 8 sub-param sliders are visibly de-emphasised while the toggle is Off', () => {
-    requireDockButton('B&W').click();
-    fixture.detectChanges();
+    armBw();
 
     const sliders = fixture.nativeElement.querySelector('[data-testid="bw-panel-sliders"]')!;
     expect(sliders.classList.contains('bw-panel-sliders--inactive')).toBe(true);
@@ -320,11 +355,16 @@ describe('EditorShellComponent — B&W / gray-mixer port (#276)', () => {
   // ── B&W / Curve / Crop / Presets / HSL mutual exclusion ─────────────────
 
   it('arming B&W closes an open Curve panel', () => {
-    requireDockButton('Curve').click();
+    requireDockButton('Tone Curve').click();
     fixture.detectChanges();
     expect(curvePanel()).not.toBeNull();
 
-    requireDockButton('B&W').click();
+    // `armBw()`'s chip click isn't reachable here — the card that hosts the
+    // Colour sub-tool row is hidden while Curve is open (Critical 1) — so
+    // arm bwMix through the same `onToolChange` handler the chip itself
+    // calls, the way a route that bypasses the chip (a preset apply,
+    // undo/redo landing on it) would too.
+    fixture.componentInstance.onToolChange('bwMix');
     fixture.detectChanges();
 
     expect(curvePanel()).toBeNull();
@@ -336,28 +376,43 @@ describe('EditorShellComponent — B&W / gray-mixer port (#276)', () => {
     fixture.detectChanges();
     expect(presetsPanel()).not.toBeNull();
 
-    requireDockButton('B&W').click();
+    // Same reachability note as the Curve case above.
+    fixture.componentInstance.onToolChange('bwMix');
     fixture.detectChanges();
 
     expect(presetsPanel()).toBeNull();
     expect(bwPanel()).not.toBeNull();
   });
 
-  it('toggling Curve while B&W is armed is a no-op', () => {
-    requireDockButton('B&W').click();
+  // Important 4 (#1807 review): this used to be a no-op — B&W owned the
+  // guard on `onCurvePanelToggle` because its panel used to share the
+  // dock-side anchor Curve opens into. B&W's panel lives inside the control
+  // card now (#1807 Task 4), and the card hides whenever Curve is open
+  // (Critical 1), so there's nothing left for Curve to open over — toggling
+  // it now genuinely opens the curve panel, at the cost of the card (and the
+  // B&W body it hosts) hiding until Curve closes again.
+  it('toggling Curve while B&W is armed opens Curve and hides the card that hosts the B&W panel', () => {
+    armBw();
+    expect(bwPanel()).not.toBeNull();
+
+    requireDockButton('Tone Curve').click();
     fixture.detectChanges();
 
-    requireDockButton('Curve').click();
+    expect(curvePanel()).not.toBeNull();
+    // bwMix stays the armed tool — only the card (which projects its body)
+    // hides, per Critical 1's guard on `.control-card-anchor`.
+    expect(TestBed.inject(EditorStateService).armedTool()).toBe('bwMix');
+    expect(bwPanel()).toBeNull();
+
+    requireDockButton('Tone Curve').click();
     fixture.detectChanges();
 
     expect(curvePanel()).toBeNull();
-    expect(TestBed.inject(EditorStateService).armedTool()).toBe('bwMix');
     expect(bwPanel()).not.toBeNull();
   });
 
   it('arming Crop closes an open B&W panel', () => {
-    requireDockButton('B&W').click();
-    fixture.detectChanges();
+    armBw();
     expect(bwPanel()).not.toBeNull();
 
     requireDockButton('Crop').click();
@@ -367,31 +422,39 @@ describe('EditorShellComponent — B&W / gray-mixer port (#276)', () => {
     expect(fixture.nativeElement.querySelector('[data-testid="crop-toolbar"]')).not.toBeNull();
   });
 
-  // ── Acceptance requirement: the HSL surface is fully hidden while B&W is
-  // On, and returns the moment it's switched back Off (#276) ──────────────
+  // ── Acceptance requirement: HSL cannot be the ARMED tool while B&W is On,
+  // and arming moves onto bwMix instead (#276) — enforced first by the chip
+  // simply not being offered (below), with the shell's effect as
+  // defense-in-depth for routes that bypass the chip (see the file header
+  // comment). ────────────────────────────────────────────────────────────
 
-  it('the HSL dock entry disappears once Black & White is switched On', () => {
-    expect(dockButton('HSL')).not.toBeNull();
+  it('the HSL chip is not offered in the colour row while Black & White is On', () => {
+    armBw();
+    expect(subtoolChip('B&W')).toBeTruthy(); // sanity: the row itself renders
 
-    requireDockButton('B&W').click();
-    fixture.detectChanges();
     bwToggle().click();
     fixture.detectChanges();
-
     expect(modelFor(ASSET_ID)().blackWhite).toBe('On');
-    expect(dockButton('HSL')).toBeNull();
+
+    const chips = Array.from(
+      fixture.nativeElement.querySelectorAll('pro-control-card .subtool-chip'),
+    ) as HTMLButtonElement[];
+    expect(chips.map((c) => c.textContent?.trim())).toEqual(['Basic', 'B&W']);
+
+    bwToggle().click();
+    fixture.detectChanges();
+    expect(subtoolChip('HSL')).toBeTruthy(); // and comes back once B&W is Off
   });
 
   it('the HSL panel cannot be armed into existence while Black & White is On', () => {
-    requireDockButton('B&W').click();
-    fixture.detectChanges();
+    armBw();
     bwToggle().click();
     fixture.detectChanges();
+    expect(modelFor(ASSET_ID)().blackWhite).toBe('On');
 
-    expect(dockButton('HSL')).toBeNull();
-    // Even a direct arm (bypassing the now-absent dock entry) must not
-    // leave HSL as the visible surface — the shell's safety-net effect
-    // re-arms bwMix.
+    // A direct arm (bypassing the chip tap, which would also trigger the
+    // same effect) must not leave HSL as the visible surface — the shell's
+    // safety-net effect re-arms bwMix.
     TestBed.inject(EditorStateService).armTool('hsl');
     fixture.detectChanges();
 
@@ -400,33 +463,12 @@ describe('EditorShellComponent — B&W / gray-mixer port (#276)', () => {
     expect(bwPanel()).not.toBeNull();
   });
 
-  it('the HSL dock entry and surface reappear once Black & White is switched back Off', () => {
-    requireDockButton('B&W').click();
-    fixture.detectChanges();
-    bwToggle().click();
-    fixture.detectChanges();
-    expect(dockButton('HSL')).toBeNull();
-
-    bwToggle().click(); // back to Off
-    fixture.detectChanges();
-
-    expect(modelFor(ASSET_ID)().blackWhite).toBe('Off');
-    expect(dockButton('HSL')).not.toBeNull();
-
-    requireDockButton('HSL').click();
-    fixture.detectChanges();
-    expect(hslPanel()).not.toBeNull();
-  });
-
   it('re-arms bwMix if HSL was the armed tool at the moment B&W switches On', () => {
-    requireDockButton('HSL').click();
-    fixture.detectChanges();
+    armHsl();
     expect(TestBed.inject(EditorStateService).armedTool()).toBe('hsl');
     expect(hslPanel()).not.toBeNull();
 
-    // Flip the model directly (as a preset apply or undo/redo landing would)
-    // rather than going through the dock, since the dock entry that could
-    // reach the toggle while HSL is armed doesn't exist.
+    // Flip the model directly (as a preset apply or undo/redo landing would).
     TestBed.inject(EditorStateService).setBlackWhite('On');
     fixture.detectChanges();
 
