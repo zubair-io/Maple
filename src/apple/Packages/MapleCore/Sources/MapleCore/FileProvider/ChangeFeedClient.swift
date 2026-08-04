@@ -215,10 +215,10 @@ final class ChangeFeedClient {
         }
     }
 
-    private func decodeEvent(_ data: String) -> AssetChange? {
+    /// Internal (not `private`) so tests can drive it directly with a
+    /// stubbed-catalog-free payload string.
+    func decodeEvent(_ data: String) -> AssetChange? {
         guard let raw = data.data(using: .utf8) else { return nil }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try? decoder.decode(AssetChange.self, from: raw)
+        return try? JSONDecoder.mapleFileProviderDecoder().decode(AssetChange.self, from: raw)
     }
 }

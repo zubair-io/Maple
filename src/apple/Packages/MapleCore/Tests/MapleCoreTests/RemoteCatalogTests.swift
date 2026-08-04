@@ -181,21 +181,10 @@ final class RemoteCatalogTests: XCTestCase {
         XCTAssertNoThrow(try decoder.decode(UploadResponse.self, from: withoutFractional))
     }
 
-    /// Mirrors `RemoteCatalog`'s actor-private decoder. Kept in lockstep
-    /// with that definition; if you change one, change both.
+    /// `RemoteCatalog`'s actor-private decoder is the shared
+    /// `JSONDecoder.mapleFileProviderDecoder()` (#2534) — use that
+    /// directly instead of re-declaring the same logic here.
     private static func fractionalISODecoder() -> JSONDecoder {
-        let d = JSONDecoder()
-        let withFractional = ISO8601DateFormatter()
-        withFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        d.dateDecodingStrategy = .custom { decoder in
-            let c = try decoder.singleValueContainer()
-            let raw = try c.decode(String.self)
-            if let dt = withFractional.date(from: raw) { return dt }
-            if let dt = plain.date(from: raw) { return dt }
-            throw DecodingError.dataCorruptedError(in: c, debugDescription: "Invalid ISO-8601: \(raw)")
-        }
-        return d
+        .mapleFileProviderDecoder()
     }
 }
