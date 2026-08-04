@@ -8,93 +8,452 @@
     Title="Maple — Professional RAW Photo Editor">
 
     <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
-        <Grid.ColumnDefinitions>
-            <!-- Column 0: Sources Tree -->
-            <ColumnDefinition Width="260" MinWidth="200" MaxWidth="400" />
-            <ColumnDefinition Width="Auto" />
-            <!-- Column 1: Viewport / Grid -->
-            <ColumnDefinition Width="*" MinWidth="400" />
-            <ColumnDefinition Width="Auto" />
-            <!-- Column 2: Detail Inspector Panel -->
-            <ColumnDefinition Width="320" MinWidth="280" MaxWidth="450" />
-        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <!-- Row 0: Top CommandBar Header -->
+            <RowDefinition Height="Auto" />
+            <!-- Row 1: Main 3-Column Shell -->
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
 
-        <!-- Column 0: Sources Tree Panel -->
-        <Border Grid.Column="0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,1,0" Padding="12">
+        <!-- Row 0: Top Navigation Header -->
+        <Border Grid.Row="0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Padding="12,8">
             <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-                <TextBlock Text="SOURCES" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="0,0,0,8" />
-                <TreeView Grid.Row="1" x:Name="SourcesTreeView">
-                    <TreeView.RootNodes>
-                        <TreeViewNode Content="Local Pictures" />
-                        <TreeViewNode Content="External Drives" />
-                        <TreeViewNode Content="Network Shares (SMB)" />
-                    </TreeView.RootNodes>
-                </TreeView>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Left Section: App Brand & Sidebar Toggle -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                    <Button x:Name="PaneToggleBtn" Click="OnToggleSidebar" Padding="8,6">
+                        <FontIcon Glyph="&#xE700;" FontSize="14" />
+                    </Button>
+                    <TextBlock Text="MAPLE" FontWeight="Bold" FontSize="16" CharacterSpacing="100" VerticalAlignment="Center" Foreground="{ThemeResource AccentFillColorDefaultBrush}" />
+                </StackPanel>
+
+                <!-- Center Section: Mode Switcher (Browse vs Develop) -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="4" VerticalAlignment="Center">
+                    <Button x:Name="BrowseModeBtn" Click="OnSwitchToBrowse" Style="{StaticResource AccentButtonStyle}" Padding="16,6">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE8A1;" FontSize="14" />
+                            <TextBlock Text="Browse" FontWeight="SemiBold" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="DevelopModeBtn" Click="OnSwitchToDevelop" Padding="16,6">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE790;" FontSize="14" />
+                            <TextBlock Text="Develop" FontWeight="SemiBold" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+
+                <!-- Right Section: Search & Quick Actions -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <AutoSuggestBox Width="180" PlaceholderText="Search metadata..." />
+                    <Button Click="OnOpenDirectory" ToolTipService.ToolTip="Open Photo Directory (Ctrl+O)" Padding="8,6">
+                        <FontIcon Glyph="&#xE8DA;" FontSize="14" />
+                    </Button>
+                    <Button Click="OnOpenPanoStitch" ToolTipService.ToolTip="Panorama Stitcher (maple-pano)" Padding="8,6">
+                        <FontIcon Glyph="&#xE799;" FontSize="14" />
+                    </Button>
+                    <Button Click="OnExportPhotos" ToolTipService.ToolTip="Batch Export Photos (Ctrl+E)" Style="{StaticResource AccentButtonStyle}" Padding="12,6">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon Glyph="&#xEDE1;" FontSize="14" />
+                            <TextBlock Text="Export" FontWeight="SemiBold" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="InspectorToggleBtn" Click="OnToggleInspector" ToolTipService.ToolTip="Toggle Inspector Panel" Padding="8,6">
+                        <FontIcon Glyph="&#xE990;" FontSize="14" />
+                    </Button>
+                </StackPanel>
             </Grid>
         </Border>
 
-        <GridSplitter Grid.Column="1" Width="1" HorizontalAlignment="Center" ResizeBehavior="PreviousAndNext" />
+        <!-- Row 1: Main 3-Column Shell -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <!-- Column 0: Sources Tree / Navigation Sidebar -->
+                <ColumnDefinition x:Name="SidebarColDef" Width="260" MinWidth="180" MaxWidth="400" />
+                <ColumnDefinition Width="Auto" />
+                <!-- Column 1: Viewport / Browse Grid Container -->
+                <ColumnDefinition Width="*" MinWidth="350" />
+                <ColumnDefinition Width="Auto" />
+                <!-- Column 2: Detail Inspector Panel -->
+                <ColumnDefinition x:Name="InspectorColDef" Width="320" MinWidth="260" MaxWidth="450" />
+            </Grid.ColumnDefinitions>
 
-        <!-- Column 1: Image Viewport (SwapChainPanel) -->
-        <Grid Grid.Column="2" Background="#111111">
-            <SwapChainPanel x:Name="ViewportSwapChainPanel" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
-            <TextBlock Text="Scene-Linear Rec.2020 D65 f32 Viewport (DirectX 12 / wgpu)" 
-                       Foreground="#888888" 
-                       HorizontalAlignment="Center" 
-                       VerticalAlignment="Bottom" 
-                       Margin="0,0,0,16" />
+            <!-- Column 0: Sources Navigation Sidebar -->
+            <Border Grid.Column="0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,1,0" Padding="8">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="16">
+                        <!-- LIBRARY SECTION -->
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="LIBRARY" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="8,4,0,4" FontWeight="SemiBold" />
+                            <ListView SelectionMode="Single" SelectedIndex="0" SelectionChanged="OnSelectSidebarItem">
+                                <ListViewItem x:Name="AllPhotosItem">
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <FontIcon Glyph="&#xE8B9;" FontSize="16" Foreground="{ThemeResource AccentFillColorDefaultBrush}" />
+                                        <TextBlock Text="All Photos" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </ListViewItem>
+                                <ListViewItem>
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <FontIcon Glyph="&#xE825;" FontSize="16" />
+                                        <TextBlock Text="Recents" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </ListViewItem>
+                                <ListViewItem>
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <FontIcon Glyph="&#xE735;" FontSize="16" Foreground="#E5C158" />
+                                        <TextBlock Text="Favorites" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </ListViewItem>
+                                <ListViewItem>
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <FontIcon Glyph="&#xE7C1;" FontSize="16" Foreground="#4CAF50" />
+                                        <TextBlock Text="Flagged" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </ListViewItem>
+                                <ListViewItem>
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <FontIcon Glyph="&#xE711;" FontSize="16" Foreground="#F44336" />
+                                        <TextBlock Text="Rejected" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </ListViewItem>
+                            </ListView>
+                        </StackPanel>
+
+                        <!-- SOURCES SECTION -->
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="SOURCES" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="8,4,0,4" FontWeight="SemiBold" />
+                             <TreeView x:Name="SourcesTreeView" ItemInvoked="OnSelectTreeViewNode">
+                                <TreeView.RootNodes>
+                                    <TreeViewNode x:Name="LocalPicturesNode" Content="Local Pictures" IsExpanded="True" />
+                                    <TreeViewNode Content="External Drives" />
+                                    <TreeViewNode Content="Network Shares (SMB)" />
+                                    <TreeViewNode Content="Cloud Sync (Self-Hosted)" />
+                                </TreeView.RootNodes>
+                            </TreeView>
+                        </StackPanel>
+
+                        <!-- TIMELINE SECTION -->
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="TIMELINES" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="8,4,0,4" FontWeight="SemiBold" />
+                            <ListView SelectionMode="Single">
+                                <ListViewItem>
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <FontIcon Glyph="&#xE787;" FontSize="16" />
+                                        <TextBlock Text="2026 (August)" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </ListViewItem>
+                                <ListViewItem>
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <FontIcon Glyph="&#xE787;" FontSize="16" />
+                                        <TextBlock Text="2025" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </ListViewItem>
+                            </ListView>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <Border Grid.Column="1" Width="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" HorizontalAlignment="Center" />
+
+            <!-- Column 1: Center Content Area (Browse Grid vs Develop Viewport) -->
+            <Grid Grid.Column="2">
+                <!-- BROWSE MODE GRID CONTAINER -->
+                <Grid x:Name="BrowseGridContainer" Visibility="Visible">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Filter Bar -->
+                    <Border Grid.Row="0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Padding="12,8">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="Filter:" Style="{StaticResource CaptionTextBlockStyle}" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <ComboBox SelectedIndex="0" Width="110" FontSize="12">
+                                <ComboBoxItem Content="All Formats" />
+                                <ComboBoxItem Content="DNG Only" />
+                                <ComboBoxItem Content="ARW Only" />
+                                <ComboBoxItem Content="CR3 Only" />
+                            </ComboBox>
+                            <ComboBox SelectedIndex="0" Width="110" FontSize="12">
+                                <ComboBoxItem Content="All Ratings" />
+                                <ComboBoxItem Content="5 Stars ★" />
+                                <ComboBoxItem Content="4+ Stars ★" />
+                            </ComboBox>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Photo Items Grid -->
+                    <GridView Grid.Row="1" ItemsSource="{Binding Photos}" SelectedItem="{Binding SelectedPhoto, Mode=TwoWay}" Padding="16" ItemClick="OnPhotoItemClick" IsItemClickEnabled="True">
+                        <GridView.ItemTemplate>
+                            <DataTemplate>
+                                <Border Width="190" Height="210" CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" Padding="12" Margin="0,0,12,12">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="*" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+
+                                        <!-- Photo Thumbnail Image & Card Graphic -->
+                                        <Border Grid.Row="0" CornerRadius="4" Background="#1E1E1E">
+                                            <Grid>
+                                                <FontIcon Glyph="&#xEB9F;" FontSize="42" Foreground="#444444" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                <Image Source="{Binding ThumbnailUri}" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                <Border HorizontalAlignment="Right" VerticalAlignment="Top" Margin="6" Padding="6,2" CornerRadius="4" Background="#CC111111">
+                                                    <TextBlock Text="{Binding Format}" FontSize="10" FontWeight="Bold" Foreground="#FFFFFF" />
+                                                </Border>
+                                            </Grid>
+                                        </Border>
+
+                                        <!-- Photo File Info -->
+                                        <StackPanel Grid.Row="1" Margin="0,8,0,0" Spacing="2">
+                                            <TextBlock Text="{Binding FileName}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" FontSize="12" />
+                                            <Grid>
+                                                <TextBlock Text="{Binding RatingStars}" Foreground="#E5C158" FontSize="11" HorizontalAlignment="Left" />
+                                                <TextBlock Text="{Binding Iso}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" />
+                                            </Grid>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </GridView.ItemTemplate>
+                    </GridView>
+                </Grid>
+
+                <!-- DEVELOP MODE VIEWPORT CONTAINER -->
+                <Grid x:Name="DevelopContainer" Visibility="Collapsed" Background="#0C0C0C">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Top Floating Info Strip -->
+                    <Border Grid.Row="0" Background="#1A1A1A" Padding="12,6" BorderBrush="#2A2A2A" BorderThickness="0,0,0,1">
+                        <Grid>
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <TextBlock Text="{Binding SelectedPhoto.FileName}" FontWeight="SemiBold" VerticalAlignment="Center" Foreground="#DDDDDD" />
+                                <TextBlock Text="{Binding SelectedPhoto.Dimensions}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="#888888" VerticalAlignment="Center" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                                <TextBlock Text="Fit 100%" Style="{StaticResource CaptionTextBlockStyle}" Foreground="#888888" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- Direct3D 12 Scene-Linear Viewport -->
+                    <Grid Grid.Row="1">
+                        <SwapChainPanel x:Name="ViewportSwapChainPanel" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+                        <TextBlock Text="Scene-Linear Rec.2020 D65 f32 Viewport (DirectX 12 / wgpu)" 
+                                   Foreground="#666666" 
+                                   HorizontalAlignment="Center" 
+                                   VerticalAlignment="Bottom" 
+                                   Margin="0,0,0,16" />
+                    </Grid>
+
+                    <!-- Bottom 80px Filmstrip Rail -->
+                    <Border Grid.Row="2" Height="84" Background="#141414" BorderBrush="#222222" BorderThickness="0,1,0,0" Padding="8,4">
+                        <ListView ItemsSource="{Binding Photos}" SelectedItem="{Binding SelectedPhoto, Mode=TwoWay}" ScrollViewer.HorizontalScrollMode="Enabled" ScrollViewer.VerticalScrollMode="Disabled">
+                            <ListView.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" Spacing="8" />
+                                </ItemsPanelTemplate>
+                            </ListView.ItemsPanel>
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Width="90" Height="64" CornerRadius="4" Background="#262626" BorderBrush="#444444" BorderThickness="1">
+                                        <Grid>
+                                            <FontIcon Glyph="&#xEB9F;" FontSize="20" Foreground="#555555" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            <Image Source="{Binding ThumbnailUri}" Stretch="UniformToFill" />
+                                            <Border Background="#CC111111" VerticalAlignment="Bottom" Padding="4,2">
+                                                <TextBlock Text="{Binding FileName}" TextTrimming="CharacterEllipsis" FontSize="9" Foreground="#CCCCCC" HorizontalAlignment="Center" />
+                                            </Border>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </Border>
+                </Grid>
+            </Grid>
+
+            <Border Grid.Column="3" Width="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" HorizontalAlignment="Center" />
+
+            <!-- Column 2: Detail Inspector Panel -->
+            <Border Grid.Column="4" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1,0,0,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Inspector Header Tabs -->
+                    <Border Grid.Row="0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Padding="8">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <Button x:Name="TabAdjustmentsBtn" Click="OnSelectInspectorTab" Style="{StaticResource AccentButtonStyle}" Padding="12,4" FontSize="12">Adjustments</Button>
+                            <Button x:Name="TabInfoBtn" Click="OnSelectInspectorTab" Padding="12,4" FontSize="12">Info &amp; EXIF</Button>
+                            <Button x:Name="TabPresetsBtn" Click="OnSelectInspectorTab" Padding="12,4" FontSize="12">Presets</Button>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Inspector Content Container -->
+                    <Grid Grid.Row="1">
+                        <!-- TAB 1: ADJUSTMENTS PANEL -->
+                        <ScrollViewer x:Name="AdjustmentsPanel" Visibility="Visible" Padding="12">
+                            <StackPanel Spacing="16">
+                                <!-- Tone Controls -->
+                                <Expander Header="Tone Controls" IsExpanded="True" HorizontalAlignment="Stretch">
+                                    <Expander.Content>
+                                        <StackPanel Spacing="12" Margin="0,8,0,0">
+                                            <Grid>
+                                                <TextBlock Text="Exposure" Style="{StaticResource CaptionTextBlockStyle}" />
+                                                <TextBlock Text="{Binding ExposureFormatted}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" />
+                                            </Grid>
+                                            <Slider x:Name="ExposureSlider" Minimum="-5.0" Maximum="5.0" StepFrequency="0.05" Value="{Binding Exposure, Mode=TwoWay}" ValueChanged="OnAdjustmentChanged" />
+
+                                            <Grid>
+                                                <TextBlock Text="Contrast" Style="{StaticResource CaptionTextBlockStyle}" />
+                                                <TextBlock Text="{Binding ContrastFormatted}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" />
+                                            </Grid>
+                                            <Slider x:Name="ContrastSlider" Minimum="-100" Maximum="100" Value="{Binding Contrast, Mode=TwoWay}" ValueChanged="OnAdjustmentChanged" />
+
+                                            <Grid>
+                                                <TextBlock Text="Highlights" Style="{StaticResource CaptionTextBlockStyle}" />
+                                                <TextBlock Text="{Binding HighlightsFormatted}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" />
+                                            </Grid>
+                                            <Slider x:Name="HighlightsSlider" Minimum="-100" Maximum="100" Value="{Binding Highlights, Mode=TwoWay}" ValueChanged="OnAdjustmentChanged" />
+
+                                            <Grid>
+                                                <TextBlock Text="Shadows" Style="{StaticResource CaptionTextBlockStyle}" />
+                                                <TextBlock Text="{Binding ShadowsFormatted}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" />
+                                            </Grid>
+                                            <Slider x:Name="ShadowsSlider" Minimum="-100" Maximum="100" Value="{Binding Shadows, Mode=TwoWay}" ValueChanged="OnAdjustmentChanged" />
+                                        </StackPanel>
+                                    </Expander.Content>
+                                </Expander>
+
+                                <!-- Color Controls -->
+                                <Expander Header="Color &amp; WB" IsExpanded="True" HorizontalAlignment="Stretch">
+                                    <Expander.Content>
+                                        <StackPanel Spacing="12" Margin="0,8,0,0">
+                                            <Grid>
+                                                <TextBlock Text="Temperature" Style="{StaticResource CaptionTextBlockStyle}" />
+                                                <TextBlock Text="{Binding TemperatureFormatted}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" />
+                                            </Grid>
+                                            <Slider x:Name="TempSlider" Minimum="2000" Maximum="12000" Value="{Binding Temperature, Mode=TwoWay}" ValueChanged="OnAdjustmentChanged" />
+
+                                            <Grid>
+                                                <TextBlock Text="Vibrance" Style="{StaticResource CaptionTextBlockStyle}" />
+                                                <TextBlock Text="{Binding VibranceFormatted}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" />
+                                            </Grid>
+                                            <Slider x:Name="VibranceSlider" Minimum="-100" Maximum="100" Value="{Binding Vibrance, Mode=TwoWay}" ValueChanged="OnAdjustmentChanged" />
+                                        </StackPanel>
+                                    </Expander.Content>
+                                </Expander>
+
+                                <!-- Detail Controls -->
+                                <Expander Header="Detail &amp; Dehaze" IsExpanded="True" HorizontalAlignment="Stretch">
+                                    <Expander.Content>
+                                        <StackPanel Spacing="12" Margin="0,8,0,0">
+                                            <Grid>
+                                                <TextBlock Text="Texture" Style="{StaticResource CaptionTextBlockStyle}" />
+                                                <TextBlock Text="{Binding TextureFormatted}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" />
+                                            </Grid>
+                                            <Slider x:Name="TextureSlider" Minimum="-100" Maximum="100" Value="{Binding Texture, Mode=TwoWay}" ValueChanged="OnAdjustmentChanged" />
+
+                                            <Grid>
+                                                <TextBlock Text="Dehaze" Style="{StaticResource CaptionTextBlockStyle}" />
+                                                <TextBlock Text="{Binding DehazeFormatted}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" />
+                                            </Grid>
+                                            <Slider x:Name="DehazeSlider" Minimum="-100" Maximum="100" Value="{Binding Dehaze, Mode=TwoWay}" ValueChanged="OnAdjustmentChanged" />
+                                        </StackPanel>
+                                    </Expander.Content>
+                                </Expander>
+                            </StackPanel>
+                        </ScrollViewer>
+
+                        <!-- TAB 2: INFO & EXIF PANEL -->
+                        <ScrollViewer x:Name="InfoPanel" Visibility="Collapsed" Padding="12">
+                            <StackPanel Spacing="16">
+                                <!-- Mini Histogram Container -->
+                                <Border Height="100" CornerRadius="6" Background="#181818" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" Padding="8">
+                                    <Grid>
+                                        <TextBlock Text="RGB LOG HISTOGRAM" FontSize="10" Foreground="#777777" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                                        <FontIcon Glyph="&#xE9D9;" FontSize="36" Foreground="#444444" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+
+                                <!-- Camera Metadata Block -->
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="CAMERA METADATA" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontWeight="SemiBold" />
+                                    <Grid Padding="4">
+                                        <TextBlock Text="Camera" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock Text="{Binding SelectedPhoto.CameraModel}" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                    </Grid>
+                                    <Grid Padding="4">
+                                        <TextBlock Text="Lens" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock Text="{Binding SelectedPhoto.LensInfo}" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                    </Grid>
+                                    <Grid Padding="4">
+                                        <TextBlock Text="ISO" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock Text="{Binding SelectedPhoto.Iso}" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                    </Grid>
+                                    <Grid Padding="4">
+                                        <TextBlock Text="Aperture" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock Text="{Binding SelectedPhoto.Aperture}" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                    </Grid>
+                                    <Grid Padding="4">
+                                        <TextBlock Text="Shutter Speed" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock Text="{Binding SelectedPhoto.ShutterSpeed}" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                    </Grid>
+                                    <Grid Padding="4">
+                                        <TextBlock Text="Date Taken" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock Text="{Binding SelectedPhoto.DateTaken}" Style="{StaticResource CaptionTextBlockStyle}" HorizontalAlignment="Right" />
+                                    </Grid>
+                                </StackPanel>
+
+                                <!-- Sidecar Metadata Block -->
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="SIDECAR CONTRACT" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontWeight="SemiBold" />
+                                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" Padding="8" CornerRadius="4">
+                                        <TextBlock Text="Non-destructive XML (.xmp)" FontSize="11" Foreground="{ThemeResource AccentFillColorDefaultBrush}" />
+                                    </Border>
+                                </StackPanel>
+                            </StackPanel>
+                        </ScrollViewer>
+
+                        <!-- TAB 3: PRESETS PANEL -->
+                        <ScrollViewer x:Name="PresetsPanel" Visibility="Collapsed" Padding="12">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="PRESET CATALOG" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontWeight="SemiBold" Margin="0,0,0,4" />
+                                <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="12,8" Margin="0,0,0,4">
+                                    <StackPanel>
+                                        <TextBlock Text="Standard Neutral" FontWeight="SemiBold" />
+                                        <TextBlock Text="Rec.2020 D65 baseline" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                </Button>
+                                <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="12,8" Margin="0,0,0,4">
+                                    <StackPanel>
+                                        <TextBlock Text="Vivid Landscape" FontWeight="SemiBold" />
+                                        <TextBlock Text="+0.5 EV, +15 Vibrance, Dehaze +10" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                </Button>
+                                <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="12,8" Margin="0,0,0,4">
+                                    <StackPanel>
+                                        <TextBlock Text="High Contrast B&amp;W" FontWeight="SemiBold" />
+                                        <TextBlock Text="Monochrome AgX view transform" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Grid>
+                </Grid>
+            </Border>
         </Grid>
-
-        <GridSplitter Grid.Column="3" Width="1" HorizontalAlignment="Center" ResizeBehavior="PreviousAndNext" />
-
-        <!-- Column 2: Detail Inspector Panel -->
-        <ScrollViewer Grid.Column="4" Padding="16">
-            <StackPanel Spacing="16">
-                <TextBlock Text="INSPECTOR" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                
-                <!-- Tone Controls -->
-                <Expander Header="Tone Controls" IsExpanded="True" HorizontalAlignment="Stretch">
-                    <StackPanel Spacing="12" Margin="0,8,0,0">
-                        <TextBlock Text="Exposure" Style="{StaticResource CaptionTextBlockStyle}" />
-                        <Slider x:Name="ExposureSlider" Minimum="-5.0" Maximum="5.0" StepFrequency="0.05" Value="0.0" ValueChanged="OnAdjustmentChanged" />
-                        
-                        <TextBlock Text="Contrast" Style="{StaticResource CaptionTextBlockStyle}" />
-                        <Slider x:Name="ContrastSlider" Minimum="-100" Maximum="100" Value="0" ValueChanged="OnAdjustmentChanged" />
-
-                        <TextBlock Text="Highlights" Style="{StaticResource CaptionTextBlockStyle}" />
-                        <Slider x:Name="HighlightsSlider" Minimum="-100" Maximum="100" Value="0" ValueChanged="OnAdjustmentChanged" />
-
-                        <TextBlock Text="Shadows" Style="{StaticResource CaptionTextBlockStyle}" />
-                        <Slider x:Name="ShadowsSlider" Minimum="-100" Maximum="100" Value="0" ValueChanged="OnAdjustmentChanged" />
-                    </StackPanel>
-                </Expander>
-
-                <!-- Color Controls -->
-                <Expander Header="Color &amp; WB" IsExpanded="True" HorizontalAlignment="Stretch">
-                    <StackPanel Spacing="12" Margin="0,8,0,0">
-                        <TextBlock Text="Temperature" Style="{StaticResource CaptionTextBlockStyle}" />
-                        <Slider x:Name="TempSlider" Minimum="2000" Maximum="12000" Value="5500" ValueChanged="OnAdjustmentChanged" />
-
-                        <TextBlock Text="Vibrance" Style="{StaticResource CaptionTextBlockStyle}" />
-                        <Slider x:Name="VibranceSlider" Minimum="-100" Maximum="100" Value="0" ValueChanged="OnAdjustmentChanged" />
-                    </StackPanel>
-                </Expander>
-
-                <!-- Detail Controls -->
-                <Expander Header="Detail &amp; Dehaze" IsExpanded="True" HorizontalAlignment="Stretch">
-                    <StackPanel Spacing="12" Margin="0,8,0,0">
-                        <TextBlock Text="Texture" Style="{StaticResource CaptionTextBlockStyle}" />
-                        <Slider x:Name="TextureSlider" Minimum="-100" Maximum="100" Value="0" ValueChanged="OnAdjustmentChanged" />
-
-                        <TextBlock Text="Dehaze" Style="{StaticResource CaptionTextBlockStyle}" />
-                        <Slider x:Name="DehazeSlider" Minimum="-100" Maximum="100" Value="0" ValueChanged="OnAdjustmentChanged" />
-                    </StackPanel>
-                </Expander>
-            </StackPanel>
-        </ScrollViewer>
     </Grid>
 </Window>

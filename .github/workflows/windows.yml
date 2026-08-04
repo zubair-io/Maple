@@ -50,7 +50,7 @@ jobs:
 
       - name: Build WinUI 3 Native C# Application
         run: |
-          dotnet build src/windows/Maple.WinUI/Maple.WinUI.csproj -c Release
+          dotnet build src/windows/Maple.WinUI/Maple.WinUI.csproj -c Release -r win-x64
 
       - name: Verify Codegen Execution on Windows
         shell: bash
