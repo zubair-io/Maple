@@ -43,3 +43,32 @@ pub unsafe extern "C" fn maple_gpu_free_winui_dxgi_swapchain(swapchain_ptr: *mut
         // Cleanup DXGI SwapChain reference
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ptr;
+
+    #[test]
+    fn test_winui_swapchain_null_pointer_validation() {
+        unsafe {
+            let mut ptr: *mut c_void = ptr::null_mut();
+            let res = maple_gpu_create_winui_dxgi_swapchain(ptr::null_mut(), 1920, 1080, &mut ptr);
+            assert_eq!(res, -1);
+
+            let dummy_hwnd = 0x1234 as *mut c_void;
+            let res_null_out = maple_gpu_create_winui_dxgi_swapchain(dummy_hwnd, 1920, 1080, ptr::null_mut());
+            assert_eq!(res_null_out, -1);
+        }
+    }
+
+    #[test]
+    fn test_winui_swapchain_zero_dimensions_validation() {
+        unsafe {
+            let mut ptr: *mut c_void = ptr::null_mut();
+            let dummy_hwnd = 0x1234 as *mut c_void;
+            let res = maple_gpu_create_winui_dxgi_swapchain(dummy_hwnd, 0, 1080, &mut ptr);
+            assert_eq!(res, -2);
+        }
+    }
+}
