@@ -32,8 +32,14 @@ function findEntry(entries: readonly SidebarEntry[], id: string): SidebarEntry |
  * plain id select (smart collection, album, legacy root). Mirrors the branch
  * `FolderTreeComponent.onFolderClick` previously inlined, resolving `absPath`
  * from the entry in `state.sidebarTree()` since the drawer only has the id.
+ *
+ * Also exits Timeline mode: the sidebar's dedicated TIMELINE row is the only
+ * other place `viewMode` is set to `'timeline'`, so without resetting it here
+ * a tree pick while in Timeline mode would leave the grid stuck showing the
+ * timeline instead of the newly-selected folder/collection.
  */
 export function selectSidebarEntry(state: LibraryStateService, id: string): void {
+  state.setViewMode('folder');
   const absPath = findEntry(state.sidebarTree(), id)?.absPath;
   if (absPath || id.includes(':')) {
     // After M2, id is `slug:relPath`; derive relPath from it when there's no
