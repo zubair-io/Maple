@@ -51,9 +51,17 @@
   top: 0;
   z-index: 1;
   background: var(--pro-glass-bg);
+  // The background tokens are translucent (0.58 / 0.62 alpha), so a pinned
+  // header without its own blur lets the slider grid scroll past legibly
+  // underneath it. `.card`'s blur does not apply here — a sticky child is
+  // painted above its scrolling siblings, not behind the parent's backdrop.
+  backdrop-filter: var(--pro-glass-blur);
+  -webkit-backdrop-filter: var(--pro-glass-blur);
 
   @media (min-width: 768px) {
     background: var(--pro-glass-bg-heavy);
+    backdrop-filter: var(--pro-glass-blur-heavy);
+    -webkit-backdrop-filter: var(--pro-glass-blur-heavy);
   }
 }
 
