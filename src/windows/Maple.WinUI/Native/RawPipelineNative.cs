@@ -44,6 +44,14 @@ namespace Maple.WinUI.Native
         public static extern void maple_gpu_free_winui_dxgi_swapchain(IntPtr swapchainPtr);
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr maple_open_session(
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string rawFilePath,
+            out int errorCode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void maple_close_session(IntPtr sessionHandle);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr maple_last_error();
     }
 }
