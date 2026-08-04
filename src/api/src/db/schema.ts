@@ -505,8 +505,9 @@ export interface AssetDoc {
    * `workers/migration/refile-legacy-daydir.ts` as its done-marker — NOT a
    * correctness oracle. Set once that migration has resolved (moved, or found
    * already correct) or given up on (no EXIF and no parseable filename date —
-   * left in place for manual review) an asset whose live path still ends in
-   * the old `<year>/<location>/<MM>-<DD>` day segment. Unlike
+   * left in place for manual review) an asset whose live path is still in
+   * the old day-dir layout — `<year>/<location>/<MM>-<DD>` with a location,
+   * or `<year>/<MM>/<DD>` without one (see `restructure-path.ts`). Unlike
    * `backup_layout_version`, this migration trusts EXIF/filename over the
    * asset's existing path year — it exists specifically for day-dir assets
    * `refile-backups` can't reach (no `phasset_links`) or won't correct
