@@ -12,7 +12,24 @@ import FileProvider
 import OSLog
 
 final class ChangeFeedClient {
-    private let server: URL
+    /// The address the SSE connection is opened against. Starts as the
+    /// identity URL the extension was configured with; `updateServer(_:)`
+    /// swaps it to the server's LAN address once
+    /// `FileProviderExtensionCore.init` resolves one — mirroring
+    /// `RemoteCatalog.server`'s migration, which every OTHER request
+    /// already followed. Without this the SSE change feed stayed on the
+    /// identity URL forever, which could mean it never connects at all on
+    /// a LAN-only self-hosted deployment while every other request works
+    /// fine over LAN (#2533). Not an actor (this class's start/stop are
+    /// synchronous, called from `invalidate()`), so the single piece of
+    /// mutable state is guarded by a lock instead — same pattern as
+    /// `WorkingSet`/`ChangeCursorStore` in this directory.
+    private let serverLock = NSLock()
+    private var _server: URL
+    var server: URL {
+        serverLock.lock(); defer { serverLock.unlock() }
+        return _server
+    }
     private let http: AuthenticatedHTTPClient
     private let cursorStore: ChangeCursorStore
     private let domainID: String
@@ -39,7 +56,7 @@ final class ChangeFeedClient {
          catalog: RemoteCatalog? = nil,
          onEvent: @escaping @Sendable (AssetChange) async -> Void,
          onStaleCursor: (@Sendable (Int64) async -> Void)? = nil) {
-        self.server = server
+        self._server = server
         self.http = http
         self.cursorStore = cursorStore
         self.domainID = domainID
@@ -56,6 +73,15 @@ final class ChangeFeedClient {
     func stop() {
         task?.cancel()
         task = nil
+    }
+
+    /// Swap the address future connections are opened against. Takes
+    /// effect on the next reconnect — `runOneConnection()` reads `server`
+    /// fresh each time it builds the request URL, so an in-flight
+    /// connection isn't interrupted, only the next attempt after it ends.
+    func updateServer(_ url: URL) {
+        serverLock.lock(); defer { serverLock.unlock() }
+        _server = url
     }
 
     /// Floor delay between any two reconnect attempts. Even a perfectly

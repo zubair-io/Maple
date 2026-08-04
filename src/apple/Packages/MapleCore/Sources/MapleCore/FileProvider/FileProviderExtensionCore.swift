@@ -130,9 +130,15 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         // URL (correct immediately) and swaps to the LAN address, if any, once
         // resolution completes — every request issued before then simply
         // goes out over the identity URL, matching today's behavior.
-        Task { [catalog] in
+        Task { [catalog, weak self] in
             let effective = await LocalNetworkResolving.resolveEffectiveURL(identity: cfg.serverURL)
             await catalog.updateServer(effective)
+            // The SSE change feed must follow the same migration — it
+            // used to stay on the identity URL forever, which could mean
+            // it never connects at all on a LAN-only self-hosted
+            // deployment even though every other request works fine
+            // over LAN (#2533).
+            self?.changeFeed?.updateServer(effective)
         }
         let hasTokens = (try? TokenStore.load(server: cfg.serverURL)) != nil
         log.notice("init domain=\(domain.identifier.rawValue, privacy: .public) serverURL=\(cfg.serverURL.absoluteString, privacy: .public) hasTokens=\(hasTokens, privacy: .public) device=\(resolvedDeviceName, privacy: .public)")
