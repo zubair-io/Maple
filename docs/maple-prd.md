@@ -71,7 +71,7 @@ If a photographer pulls a 100MP RAW open in Maple on their iPad on a train, make
 ### Non-goals (intentionally NOT in this product)
 
 - **Pixel-level retouching with layers and masks.** Out of scope for v1. Local adjustments via parametric masks ship; full Photoshop-style layer compositing does not.
-- **Asset management / DAM features beyond the source tree.** Maple is an editor, not a catalog. No proprietary catalog format, no metadata-database lock-in. Source tree + filesystem-native + XMP sidecars.
+- **Virtual catalog / DAM features decoupled from the source tree.** Maple is an editor with file management, not a database-catalog app: no smart albums, no tag-based virtual collections divorced from real folders, no checksum-based duplicate detection, no proprietary catalog format. The filesystem is always authoritative; any server-side index (Self Hosted) is a disposable cache of it, never the source of truth. Rename, move, copy, delete, and folder operations on real files are in scope — see `docs/superpowers/specs/2026-08-04-file-management-design.md`.
 - **Generative / "AI" features (sky replacement, background removal, generative fill).** Distracting, brittle, and works against the trust pillar. Revisit only after the two core pillars are unambiguous strengths.
 - **Video.** Hard no. RAW stills only.
 - **Plugin ecosystem at launch.** Will revisit; building the host before defining the API gives us room to choose right.
@@ -240,16 +240,16 @@ The architecture is the product. Cross-platform parity, color trust, and perf he
 
 ## 10. Open questions
 
-| # | Question | Owner | Blocking? |
-|---|----------|-------|-----------|
-| Q1 | What is the v1 pricing on Maple Hosted? Single tier? Annual-only? Free read-only viewer? | Founders / GTM | Blocks launch |
-| Q2 | Which sensor / camera combinations are the GA reference set, and which is "supported but unverified"? | Color lead | Blocks color GA |
-| Q3 | Does Self Hosted ship at GA or post-GA? | Founders / GTM | Affects scope |
-| Q4 | How do we handle iPad-only camera connection kit imports vs. desktop import flow — same code path or platform-specific? | Engineering | Non-blocking, can resolve in iPad slice |
-| Q5 | What is the minimum supported macOS / iOS / browser version at GA? Driven by Metal feature levels and WebGL2 / WebGPU availability. | Engineering | Blocks marketing copy |
-| Q6 | Sidecar schema — do we add a `maple:` namespace at GA or stay strictly within the Adobe-compatible namespace? | Engineering / standards | Blocks v1 schema freeze |
-| Q7 | Telemetry policy — what do we collect on the desktop / iOS apps by default, what's opt-in, and what does Self Hosted do? Especially given the "Anti-Adobe" positioning. | Founders / legal | Blocks privacy policy |
-| Q8 | At what point do we publish our color science as a paper? `docs/maple-paper.md` is in flight — what's the GA-day disclosure posture? | Founders | Non-blocking, marketing decision |
+| #   | Question                                                                                                                                                                | Owner                   | Blocking?                               |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- | --------------------------------------- |
+| Q1  | What is the v1 pricing on Maple Hosted? Single tier? Annual-only? Free read-only viewer?                                                                                | Founders / GTM          | Blocks launch                           |
+| Q2  | Which sensor / camera combinations are the GA reference set, and which is "supported but unverified"?                                                                   | Color lead              | Blocks color GA                         |
+| Q3  | Does Self Hosted ship at GA or post-GA?                                                                                                                                 | Founders / GTM          | Affects scope                           |
+| Q4  | How do we handle iPad-only camera connection kit imports vs. desktop import flow — same code path or platform-specific?                                                 | Engineering             | Non-blocking, can resolve in iPad slice |
+| Q5  | What is the minimum supported macOS / iOS / browser version at GA? Driven by Metal feature levels and WebGL2 / WebGPU availability.                                     | Engineering             | Blocks marketing copy                   |
+| Q6  | Sidecar schema — do we add a `maple:` namespace at GA or stay strictly within the Adobe-compatible namespace?                                                           | Engineering / standards | Blocks v1 schema freeze                 |
+| Q7  | Telemetry policy — what do we collect on the desktop / iOS apps by default, what's opt-in, and what does Self Hosted do? Especially given the "Anti-Adobe" positioning. | Founders / legal        | Blocks privacy policy                   |
+| Q8  | At what point do we publish our color science as a paper? `docs/maple-paper.md` is in flight — what's the GA-day disclosure posture?                                    | Founders                | Non-blocking, marketing decision        |
 
 ---
 
@@ -288,7 +288,7 @@ Phasing rule for any feature: cannot ship behind a flag if it regresses either p
 For sharpness, the following are explicitly NOT in this PRD and not in v1:
 
 - Layers, blend modes, pixel-level retouching.
-- Catalog / DAM beyond the source tree.
+- Virtual catalog / DAM features decoupled from the source tree (smart albums, tag-based collections, duplicate detection). Real file operations (rename, move, copy, delete, folder CRUD) are in scope.
 - Generative AI features.
 - Video.
 - Plugin ecosystem.
@@ -325,4 +325,4 @@ When a feature request lands that fits one of these buckets, the answer is "note
 
 ---
 
-*End of PRD.*
+_End of PRD._
