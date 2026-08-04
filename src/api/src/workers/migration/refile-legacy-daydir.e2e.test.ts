@@ -38,7 +38,8 @@ describe('refile-legacy-daydir end-to-end', () => {
   });
 
   async function runTick(): Promise<void> {
-    const { setMigrationEnabled, resetMigrationState } = await import('../migration-config.repo.ts');
+    const { setMigrationEnabled, resetMigrationState } =
+      await import('../migration-config.repo.ts');
     await resetMigrationState(MIGRATION_ID);
     await setMigrationEnabled(MIGRATION_ID, true, new Date().toISOString());
     await runMigrationTickOnce(50, new Date().toISOString());
@@ -268,6 +269,138 @@ describe('refile-legacy-daydir end-to-end', () => {
       } | null;
       expect(doc?.fileinfo?.[0].path).toBe('2021/Misc');
       expect(doc?.legacy_daydir_version).toBe(LEGACY_DAYDIR_VERSION);
+    } finally {
+      await assets.deleteOne({ _id });
+      await resetMigrationState(MIGRATION_ID);
+      setLibraryRootsForTests(null);
+    }
+  });
+
+  it('does not stamp a SourceMissingError when the library root itself is unavailable (offline mount)', async () => {
+    const db = await connectOrSkip('offline mount e2e');
+    if (!db) return;
+    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
+    const { resetMigrationState } = await import('../migration-config.repo.ts');
+    const assets = db.collection('assets');
+    const libId = new ObjectId();
+
+    // A library root that doesn't exist on disk at all — simulates an
+    // unmounted network/bind mount, where every child path ENOENTs
+    // indistinguishably from a genuinely deleted file.
+    const offlineRoot = path.join(
+      os.tmpdir(),
+      `refile-legacy-daydir-offline-${libId.toHexString()}`,
+    );
+    setLibraryRootsForTests(new Map([[libId.toHexString(), offlineRoot]]));
+
+    const oldRel = '2021/61st Street/01-05';
+    const _id = new ObjectId();
+    await assets.insertOne({
+      _id,
+      maple_id: 'legacy-daydir-offline-root',
+      fileinfo: [
+        {
+          path: oldRel,
+          filename: 'IMG_20170930_121056_345.jpg',
+          library_id: libId,
+          deleted_at: null,
+        },
+      ],
+      place: null,
+      is_screenshot: false,
+      exif: { captured_at: null, captured_year: null, captured_month: null },
+      size: 6,
+      mtime: Date.now(),
+      rating: 0,
+      flag: 0,
+      color_label: '',
+      indexed_at: new Date().toISOString(),
+      stages: {},
+    } as never);
+
+    try {
+      await runTick();
+      const doc = (await assets.findOne({ _id })) as {
+        fileinfo?: { path: string }[];
+        legacy_daydir_version?: number;
+      } | null;
+      // Left exactly where it was and NOT stamped — a later tick, once the
+      // mount returns, re-verifies instead of permanently giving up on a
+      // false "file deleted" read.
+      expect(doc?.fileinfo?.[0].path).toBe(oldRel);
+      expect(doc?.legacy_daydir_version).toBeUndefined();
+    } finally {
+      await assets.deleteOne({ _id });
+      await resetMigrationState(MIGRATION_ID);
+      setLibraryRootsForTests(null);
+    }
+  });
+
+  it('moves the validated live day-dir entry, not a stale missing_since-tagged earlier entry', async () => {
+    const db = await connectOrSkip('multi-entry primary-mismatch e2e');
+    if (!db) return;
+    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
+    const { resetMigrationState } = await import('../migration-config.repo.ts');
+    const assets = db.collection('assets');
+    const libId = new ObjectId();
+
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'refile-legacy-daydir-multientry-'));
+    setLibraryRootsForTests(new Map([[libId.toHexString(), dir]]));
+
+    // Only the SECOND (live, day-dir) entry has a real file on disk — the
+    // first entry is tagged missing_since (not deleted_at), so
+    // assetActiveFileInfo's "first non-deleted" pick (which ignores
+    // missing_since) would wrongly select it if the whole doc were handed to
+    // moveBackupAsset unnarrowed.
+    const liveRel = '2021/61st Street/01-05';
+    await fs.mkdir(path.join(dir, ...liveRel.split('/')), { recursive: true });
+    await fs.writeFile(path.join(dir, liveRel, 'IMG_20170930_121056_345.jpg'), 'pixels');
+
+    const _id = new ObjectId();
+    await assets.insertOne({
+      _id,
+      maple_id: 'legacy-daydir-multientry',
+      fileinfo: [
+        {
+          path: '2021/StaleEntry',
+          filename: 'GHOST.HEIC',
+          library_id: libId,
+          deleted_at: null,
+          missing_since: '2020-01-01T00:00:00.000Z',
+        },
+        {
+          path: liveRel,
+          filename: 'IMG_20170930_121056_345.jpg',
+          library_id: libId,
+          deleted_at: null,
+          missing_since: null,
+        },
+      ],
+      place: null,
+      is_screenshot: false,
+      exif: { captured_at: null, captured_year: null, captured_month: null },
+      size: 6,
+      mtime: Date.now(),
+      rating: 0,
+      flag: 0,
+      color_label: '',
+      indexed_at: new Date().toISOString(),
+      stages: {},
+    } as never);
+
+    try {
+      await runTick();
+      const doc = (await assets.findOne({ _id })) as {
+        fileinfo?: { path: string; filename: string; missing_since?: string | null }[];
+        legacy_daydir_version?: number;
+      } | null;
+      const live = doc?.fileinfo?.find((fi) => fi.filename === 'IMG_20170930_121056_345.jpg');
+      expect(live?.path).toBe('2017/Misc');
+      expect(doc?.legacy_daydir_version).toBe(LEGACY_DAYDIR_VERSION);
+
+      expect(
+        await fs.readFile(path.join(dir, '2017', 'Misc', 'IMG_20170930_121056_345.jpg'), 'utf8'),
+      ).toBe('pixels');
     } finally {
       await assets.deleteOne({ _id });
       await resetMigrationState(MIGRATION_ID);
