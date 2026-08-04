@@ -64,10 +64,18 @@ def count_content_files(directory: str) -> int:
     Used both for the initial survey and for the immediately-before-move
     re-verification, so the two can never disagree about what "empty" means.
     """
+    failures: list[OSError] = []
     total = 0
-    for _, dirnames, filenames in os.walk(directory, followlinks=False):
+    for _, dirnames, filenames in os.walk(
+        directory, followlinks=False, onerror=failures.append
+    ):
         dirnames[:] = [d for d in dirnames if not d.startswith(".")]
         total += sum(1 for fn in filenames if not is_disposable(fn))
+    if failures:
+        # A directory we could not read might hold anything. Report it as
+        # content so the folder is never treated as empty on the strength of a
+        # listing that did not happen.
+        raise failures[0]
     return total
 
 
@@ -120,11 +128,25 @@ def find_candidates(root: str, include_duplicates: bool) -> list[str]:
         if has_dot_component(os.path.relpath(dirpath, root)):
             continue
         own = sum(1 for fn in filenames if not is_disposable(fn))
-        below = sum(
-            content_counts.get(os.path.join(dirpath, d), 0)
-            for d in dirnames
-            if not d.startswith(".")
-        )
+
+        # A child that failed to list is never yielded by os.walk, so it has no
+        # entry here. Defaulting that to zero would read "could not look" as
+        # "nothing inside" and mark the parent empty -- on a network volume that
+        # is how a folder of untouched video gets swept. Count it as content.
+        below = 0
+        unreadable = False
+        for d in dirnames:
+            if d.startswith("."):
+                continue
+            child = os.path.join(dirpath, d)
+            if child in content_counts:
+                below += content_counts[child]
+            else:
+                unreadable = True
+        if unreadable:
+            content_counts[dirpath] = own + below + 1
+            continue
+
         content_counts[dirpath] = own + below
         if own + below == 0 and dirpath != root:
             media_free.add(dirpath)
@@ -252,7 +274,11 @@ def apply_moves(root: str, entries: list[tuple[str, str, int, int]]) -> int:
         if not os.path.isdir(path):
             skipped.append((rel, "vanished since the scan"))
             continue
-        remaining = count_content_files(path)
+        try:
+            remaining = count_content_files(path)
+        except OSError as exc:
+            skipped.append((rel, f"could not be fully read ({exc.strerror}); left in place"))
+            continue
         if remaining:
             skipped.append((rel, f"gained {remaining} file(s) since the scan"))
             continue
