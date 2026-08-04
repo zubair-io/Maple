@@ -273,7 +273,8 @@ export type XmpWriteOutcome =
   | { kind: 'error'; error: string };
 
 /**
- * Atomic XMP write with an optional mtime precondition.
+ * Atomic XMP write with an optional mtime precondition, or a create-only
+ * precondition.
  *
  * When `ifMtimeMatchesEpoch` is provided and the on-disk file's mtime in
  * seconds differs, the bytes are written to a conflict-copy file instead
@@ -281,16 +282,44 @@ export type XmpWriteOutcome =
  *
  * mtime granularity is one second. XMP saves happen at human cadence
  * (one save per editor flush) so this is sufficient.
+ *
+ * `requireAbsent`, when true, takes priority over `ifMtimeMatchesEpoch`: the
+ * write only proceeds if no sidecar exists yet, otherwise it's treated the
+ * same as an mtime mismatch (conflict-copy, canonical untouched). This is
+ * the create-only mode a genuine "this file doesn't exist yet" caller (e.g.
+ * the FileProvider extension's `createItem`) must use instead of passing
+ * `ifMtimeMatchesEpoch: null` — `null` alone means "overwrite unconditionally",
+ * which is correct for a modify with no known prior version but silently
+ * destroys an existing sidecar when used from a create path (#2532).
  */
 export async function writeXmpWithPrecondition(
   rawAbsPath: string,
   xmlContent: string,
   ifMtimeMatchesEpoch: number | null,
   deviceName: string,
+  requireAbsent: boolean = false,
 ): Promise<XmpWriteOutcome> {
   const sidecar = xmpSidecarPath(rawAbsPath);
 
-  if (ifMtimeMatchesEpoch !== null) {
+  const writeConflictCopy = async (): Promise<XmpWriteOutcome> => {
+    const conflictPath = await pickFreeConflictPath(rawAbsPath, deviceName);
+    const written = await writeSidecarAtomic(
+      conflictPath,
+      xmlContent,
+      'Conflict-copy write failed',
+    );
+    return written.ok
+      ? { kind: 'conflict', conflictPath, conflictMtime: written.mtime }
+      : { kind: 'error', error: written.error };
+  };
+
+  if (requireAbsent) {
+    const alreadyExists = await fs
+      .stat(sidecar)
+      .then(() => true)
+      .catch(() => false);
+    if (alreadyExists) return writeConflictCopy();
+  } else if (ifMtimeMatchesEpoch !== null) {
     let onDiskEpoch: number | null = null;
     try {
       const st = await fs.stat(sidecar);
@@ -298,17 +327,7 @@ export async function writeXmpWithPrecondition(
     } catch {
       onDiskEpoch = null;
     }
-    if (onDiskEpoch !== ifMtimeMatchesEpoch) {
-      const conflictPath = await pickFreeConflictPath(rawAbsPath, deviceName);
-      const written = await writeSidecarAtomic(
-        conflictPath,
-        xmlContent,
-        'Conflict-copy write failed',
-      );
-      return written.ok
-        ? { kind: 'conflict', conflictPath, conflictMtime: written.mtime }
-        : { kind: 'error', error: written.error };
-    }
+    if (onDiskEpoch !== ifMtimeMatchesEpoch) return writeConflictCopy();
   }
 
   const result = await writeSidecarAtomic(sidecar, xmlContent, 'XMP write failed');
