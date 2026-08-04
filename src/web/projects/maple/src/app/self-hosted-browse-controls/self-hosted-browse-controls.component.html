@@ -1,33 +1,4 @@
 <div
-  class="flex items-center h-8 rounded-md border-[0.5px] border-border bg-input-bg overflow-hidden"
-  role="group"
-  aria-label="View mode"
->
-  <button
-    type="button"
-    class="view-mode-btn flex h-full items-center gap-1.5 px-2.5 text-[11px] text-text-muted transition-colors duration-[120ms] hover:text-text-main"
-    [class.is-active]="state.viewMode() === 'folder'"
-    [attr.aria-pressed]="state.viewMode() === 'folder'"
-    title="Folder view"
-    (click)="state.setViewMode('folder')"
-  >
-    <maple-icon name="grid-sm" [size]="12" />
-    <span>Folder</span>
-  </button>
-  <button
-    type="button"
-    class="view-mode-btn flex h-full items-center gap-1.5 px-2.5 text-[11px] text-text-muted transition-colors duration-[120ms] hover:text-text-main"
-    [class.is-active]="state.viewMode() === 'timeline'"
-    [attr.aria-pressed]="state.viewMode() === 'timeline'"
-    title="Timeline view"
-    (click)="state.setViewMode('timeline')"
-  >
-    <maple-icon name="history" [size]="12" />
-    <span>Timeline</span>
-  </button>
-</div>
-
-<div
   class="toolbar-search flex items-center gap-2 h-8 px-3 rounded-md bg-input-bg border-[0.5px] border-border focus-within:border-text-muted"
 >
   <maple-icon name="search" [size]="14" color="var(--color-text-muted)" />
