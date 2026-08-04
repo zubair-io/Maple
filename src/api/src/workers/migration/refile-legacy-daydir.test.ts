@@ -129,6 +129,27 @@ describe('resolveLegacyCapturedYear', () => {
     const year = resolveLegacyCapturedYear({ exif: null }, 'DSC_0001.jpg');
     expect(year).toBeNull();
   });
+
+  test('falls back to the filename date when EXIF captured_year is non-finite (NaN)', () => {
+    const year = resolveLegacyCapturedYear(
+      { exif: { captured_year: Number.NaN } },
+      'IMG_20170930_121056_345.jpg',
+    );
+    expect(year).toBe(2017);
+  });
+
+  test('falls back to the filename date when EXIF captured_year is Infinity', () => {
+    const year = resolveLegacyCapturedYear(
+      { exif: { captured_year: Number.POSITIVE_INFINITY } },
+      'IMG_20170930_121056_345.jpg',
+    );
+    expect(year).toBe(2017);
+  });
+
+  test('truncates a fractional EXIF captured_year instead of propagating a decimal', () => {
+    const year = resolveLegacyCapturedYear({ exif: { captured_year: 2021.9 } }, 'DSC_0001.jpg');
+    expect(year).toBe(2021);
+  });
 });
 
 describe('computeCorrectedDir', () => {
