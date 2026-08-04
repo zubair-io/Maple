@@ -40,10 +40,13 @@ YEAR_NAME = re.compile(r"^(19|20)\d{2}$")
 
 # Application-managed layouts. The app requires the directory structure, so
 # reorganising it breaks the project rather than tidying it.
-PROTECTED_SUBPATHS = (
-    "2007/College/Grad School/Fashion Project",
-    "2007/College/Grad School/_A Mirror Dimly",
-)
+#
+# Matched as a path component wherever it appears, never as a fixed prefix.
+# These were originally written as full paths under 2007/College/Grad School,
+# which stopped matching the moment a collapse removed the College layer -- the
+# protection silently lapsed on the very trees it was written for, and the same
+# would happen again to any copy under _duplicates/.
+PROTECTED_NAMES = ("Fashion Project", "_A Mirror Dimly")
 PROTECTED_COMPONENT = re.compile(r"\.lrdata", re.I)
 
 FALLBACK_NAME = "Misc"
@@ -95,10 +98,8 @@ def skip_reason(rel_terminal: str, rel_parent: str, link_names: list[str]) -> st
     if any(PROTECTED_COMPONENT.search(part) for part in rel_terminal.split(os.sep)):
         return "inside a .lrdata package"
 
-    # Matched anywhere in the path, not just as a prefix: the same project trees
-    # exist again under _duplicates/, and they are protected for the same reason.
-    padded = os.sep + rel_terminal + os.sep
-    if any(os.sep + p + os.sep in padded for p in PROTECTED_SUBPATHS):
+    parts = rel_terminal.split(os.sep)
+    if any(p in PROTECTED_NAMES for p in parts):
         return "inside a protected project tree"
 
     if is_date(terminal_name):
