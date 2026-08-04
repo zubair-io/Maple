@@ -5,6 +5,7 @@
  */
 import type { Migration } from './types.ts';
 import { refileBackups } from './refile-backups.ts';
+import { refileLegacyDaydir } from './refile-legacy-daydir.ts';
 import { scrubMirrorOrphans } from './scrub-mirror-orphans.ts';
 import { backfillLiveLocationCount } from './backfill-live-location-count.ts';
 import { backfillVideoExif } from './backfill-video-exif.ts';
@@ -17,6 +18,7 @@ import { clearVideoScreenshotFlags } from './clear-video-screenshot-flags.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   refileBackups,
+  refileLegacyDaydir,
   scrubMirrorOrphans,
   backfillLiveLocationCount,
   backfillVideoExif,
