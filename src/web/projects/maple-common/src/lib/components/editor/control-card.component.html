@@ -32,7 +32,15 @@
        which body renders below, the same shape as any other pressed-state
        button group. -->
   @if (showSubtools()) {
-    <div class="subtool-row" [attr.aria-label]="groupLabel(activeGroup()) + ' sub-tools'">
+    <!-- `role="group"` is what makes the aria-label announceable: screen
+         readers ignore aria-label on a generic div with no semantic role.
+         The row is a segmented control (buttons + aria-pressed), not a
+         tablist — see the chips below. -->
+    <div
+      class="subtool-row"
+      role="group"
+      [attr.aria-label]="groupLabel(activeGroup()) + ' sub-tools'"
+    >
       @for (sub of subtools(); track sub.label) {
         <button
           class="subtool-chip"
