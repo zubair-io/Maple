@@ -107,6 +107,12 @@ export const xmpRoutes = new Elysia()
   //   X-If-Mtime-Matches: <epoch-seconds>  Precondition for conflict-copy
   //                                        mode. Omit to write
   //                                        unconditionally.
+  //   X-Maple-Require-Absent: true         Create-only precondition — write
+  //                                        only if no sidecar exists yet;
+  //                                        takes priority over
+  //                                        X-If-Mtime-Matches. For callers
+  //                                        (e.g. FileProvider createItem)
+  //                                        that believe the file is new.
   //   X-Maple-Device-Name: <string>        Used in the conflict-copy
   //                                        filename. Defaults to
   //                                        "Unknown device".
@@ -176,12 +182,14 @@ export const xmpRoutes = new Elysia()
           : null;
       const deviceHeader = headers['x-maple-device-name'];
       const deviceName = typeof deviceHeader === 'string' ? deviceHeader : '';
+      const requireAbsent = headers['x-maple-require-absent'] === 'true';
 
       const outcome = await writeXmpWithPrecondition(
         absPath,
         xmlContent,
         ifMtimeMatchesEpoch,
         deviceName,
+        requireAbsent,
       );
 
       if (outcome.kind === 'error') {
