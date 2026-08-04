@@ -911,17 +911,33 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                 code: NSFileProviderError.noSuchItem.rawValue))
                     return
                 }
-                // Create-only precondition (#2532). `createItem` fires when
-                // the OS's local FileProvider view doesn't know about this
-                // sidecar yet — that is NOT the same as it being new
-                // server-side. A freshly re-enabled domain or a cleared
+                // Two-layer create-only guard (#2532, #2784). `createItem`
+                // fires when the OS's local FileProvider view doesn't know
+                // about this sidecar yet — that is NOT the same as it being
+                // new server-side. A freshly re-enabled domain or a cleared
                 // local cache both hit this path for a sidecar that already
-                // holds real edit history. `nil` used to be passed
-                // unconditionally here, which skips the server's precondition
-                // check entirely and silently overwrites whatever is
-                // already there. `createOnlyPrecondition` stats the target
-                // path directly (bypassing the OS's cache) so that can't
-                // happen: `nil` only when the path is confirmed absent.
+                // holds real edit history.
+                //
+                // Layer 1 (fast, local): `createOnlyPrecondition` stats the
+                // target path directly via `RemoteCatalog.statFile`,
+                // bypassing the OS's cache, so the common non-concurrent
+                // case (domain re-enable, cleared cache) gets a same-round-
+                // trip mismatch signal without waiting on the write.
+                //
+                // Layer 2 (atomic, server-side): `requireAbsent: true` is
+                // sent unconditionally alongside that precondition. The stat
+                // above is inherently racy — another device or process can
+                // create the sidecar between the stat and this write landing
+                // — so the server re-checks existence atomically at write
+                // time and takes the same conflict-copy fallback if
+                // anything won that race (#2784). `requireAbsent` takes
+                // priority over `ifMtimeMatches` in `putXMP`/
+                // `writeXmpWithPrecondition`, so the local stat's sentinel
+                // is redundant-but-harmless once `requireAbsent` is set —
+                // it's kept because it still reflects Layer 1's local
+                // finding in logs/telemetry, and because a caller of
+                // `putXMP` that later drops `requireAbsent` should not
+                // silently regress to an unconditional overwrite.
                 guard case .folder(let folderID, let parentRelative) =
                     try FileProviderIdentifier(rawValue: parentID.rawValue) else {
                     completionHandler(nil, [], false,
@@ -939,7 +955,8 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     assetID: assetID,
                     data: xmpBytes,
                     ifMtimeMatches: precondition,
-                    deviceName: self.deviceName
+                    deviceName: self.deviceName,
+                    requireAbsent: true
                 )
                 switch result {
                 case .ok(let mtime):

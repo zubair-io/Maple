@@ -810,17 +810,25 @@ public actor RemoteCatalog {
     ///
     /// - `conflictBasename`: when non-nil, addresses a specific conflict
     ///   copy via `?conflict=<basename>`. Unconditional write — the
-    ///   `ifMtimeMatches` precondition is ignored in this mode because
-    ///   the caller is editing this exact file directly.
-    /// - `ifMtimeMatches`: only used when `conflictBasename == nil`.
-    ///   nil = unconditional create; otherwise precondition.
+    ///   `ifMtimeMatches`/`requireAbsent` preconditions are ignored in this
+    ///   mode because the caller is editing this exact file directly.
+    /// - `ifMtimeMatches`: only used when `conflictBasename == nil` and
+    ///   `requireAbsent == false`. nil = unconditional overwrite; otherwise
+    ///   precondition (mismatch → conflict copy, canonical untouched).
     /// - `deviceName`: stamped into conflict-copy filenames the server
     ///   may create on precondition mismatch (canonical-write mode only).
+    /// - `requireAbsent`: create-only precondition, for a caller (e.g.
+    ///   FileProvider `createItem`) that believes this sidecar doesn't
+    ///   exist yet. Takes priority over `ifMtimeMatches` — passing
+    ///   `ifMtimeMatches: nil` alone means "overwrite unconditionally",
+    ///   which is correct for a modify with no known prior version but
+    ///   would silently destroy an existing sidecar on create (#2532).
     public func putXMP(
         assetID: String,
         data: Data,
         ifMtimeMatches: Date?,
         deviceName: String,
+        requireAbsent: Bool = false,
         conflictBasename: String? = nil
     ) async throws -> XMPWriteResult {
         try Self.validateAssetID(assetID)
@@ -835,8 +843,10 @@ public actor RemoteCatalog {
         req.httpMethod = "PUT"
         req.setValue("text/plain; charset=utf-8", forHTTPHeaderField: "Content-Type")
         req.setValue(deviceName, forHTTPHeaderField: "X-Maple-Device-Name")
-        // Precondition only applies to the canonical write path.
-        if conflictBasename == nil, let prior = ifMtimeMatches {
+        // Preconditions only apply to the canonical write path.
+        if conflictBasename == nil, requireAbsent {
+            req.setValue("true", forHTTPHeaderField: "X-Maple-Require-Absent")
+        } else if conflictBasename == nil, let prior = ifMtimeMatches {
             req.setValue(String(Int(prior.timeIntervalSince1970)), forHTTPHeaderField: "X-If-Mtime-Matches")
         }
         req.httpBody = data

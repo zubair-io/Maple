@@ -171,4 +171,24 @@ describe('PUT /api/assets/:id/xmp — conflict copies', () => {
     const body = (await res.json()) as { conflict_path: string };
     expect(body.conflict_path).toContain('(conflict from Unknown device)');
   });
+
+  // #2532 — createItem's create-only precondition. Unlike the mtime headers
+  // above (which model a modify that has a known — or deliberately absent —
+  // prior version), this models Finder creating a sidecar it believes is
+  // brand new. It must never silently clobber one that already exists.
+  it('X-Maple-Require-Absent refuses to overwrite an existing sidecar (writes conflict copy instead)', async () => {
+    if (!mongoReachable) return;
+    const before = await fs.readFile(xmpPath, 'utf8'); // still "v2" from an earlier test
+    const res = await callPut('<x:xmpmeta>from-a-create</x:xmpmeta>', {
+      'x-maple-require-absent': 'true',
+      'x-maple-device-name': 'test-create-device',
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { conflict_path: string };
+    expect(body.conflict_path).toContain('IMG_1 (conflict from test-create-device).xmp');
+    const conflictContent = await fs.readFile(body.conflict_path, 'utf8');
+    expect(conflictContent).toContain('from-a-create');
+    const canonical = await fs.readFile(xmpPath, 'utf8');
+    expect(canonical).toBe(before); // untouched
+  });
 });
