@@ -28,6 +28,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { resolveThumbPath } from '../fs/xmp.ts';
+import { replicatePath } from '../fs/mirrored.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
 import { isUndecodableFilename, isVideoFilename } from './media-types.ts';
@@ -134,6 +135,11 @@ export async function generateThumb(absPath: string, thumbPathOverride?: string)
 
   if (ok) {
     _rendered++;
+    // The AVIF was written by an FFI worker / imgdecode child straight to disk,
+    // so the mirror-aware fs drop-in never saw it. Hand the committed path to
+    // the mirror explicitly so a backup disk holds the derived cache too and can
+    // serve reads without regenerating (#926).
+    replicatePath(thumbPath);
   } else {
     _failed++;
     log.warn({ absPath }, 'failed');

@@ -8,11 +8,6 @@
 import SwiftUI
 import MapleCore
 import CoreGraphics
-#if canImport(AppKit)
-import AppKit
-#elseif canImport(UIKit)
-import UIKit
-#endif
 
 // MARK: - GridDisplayMode
 
@@ -85,25 +80,25 @@ struct ThumbnailImage: View {
     /// away as it opens.
     static let cornerRadius: CGFloat = 4
 
-    let thumbnailData: Data?
+    /// The already-decoded thumbnail bitmap, or nil to show the placeholder.
+    /// Decoding happens OFF the main actor in the owning cell's `.task` (via
+    /// `ThumbnailDecoder`); this view is a pure renderer and never decodes —
+    /// decoding in `body` on the main thread was the original grid-jank source.
+    let image: CGImage?
     let displayMode: GridDisplayMode
 
     var body: some View {
         Rectangle()
             .fill(MapleTokens.surfaceAlt)
             .overlay {
-                if let data = thumbnailData, let cgImg = Self.cgImage(from: data) {
-                    #if os(macOS)
-                    Image(nsImage: NSImage(cgImage: cgImg, size: .zero))
+                if let image {
+                    // `Image(decorative:)` takes a CGImage directly and is
+                    // cross-platform, so there's no AppKit/UIKit branch. The
+                    // bitmap is already eagerly decoded (ThumbnailDecoder), so
+                    // no pixel decode is deferred to draw time on the main thread.
+                    Image(decorative: image, scale: 1)
                         .resizable()
                         .aspectRatio(contentMode: displayMode.contentMode)
-                        .transition(.opacity)
-                    #else
-                    Image(uiImage: UIImage(cgImage: cgImg))
-                        .resizable()
-                        .aspectRatio(contentMode: displayMode.contentMode)
-                        .transition(.opacity)
-                    #endif
                 } else {
                     Image(systemName: "photo")
                         .foregroundStyle(MapleTokens.textMuted)
@@ -112,21 +107,10 @@ struct ThumbnailImage: View {
             .aspectRatio(1, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
     }
-
-    /// Decode thumbnail bytes to a CGImage (format-agnostic via
-    /// CGImageSource). Same helper ThumbnailCell used — hoisted here so
-    /// both call sites share it.
-    static func cgImage(from data: Data) -> CGImage? {
-        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
-              let img = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
-            return nil
-        }
-        return img
-    }
 }
 
 #Preview("ThumbnailImage — placeholder") {
-    ThumbnailImage(thumbnailData: nil, displayMode: .fill)
+    ThumbnailImage(image: nil, displayMode: .fill)
         .frame(width: 180, height: 180)
         .padding()
         .background(MapleTokens.bg)

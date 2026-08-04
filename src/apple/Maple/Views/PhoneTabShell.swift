@@ -58,6 +58,11 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     /// iOS 26 `Tab(role: .search)` search bar). Bound into `PhoneSearchTab`.
     @State private var searchQuery: String = ""
 
+    /// The AppShell-root reveal action (loads the containing folder into
+    /// browse). The iPhone shell wraps it to ALSO switch to the Library tab —
+    /// AppShell can't do that itself because `activeTab` lives here (#2518).
+    @Environment(\.revealFolderAction) private var rootRevealFolder
+
     @Binding var isDrawerOpen: Bool
     let mode: AppShell.Mode
     let selectedSession: EditSession?
@@ -227,6 +232,28 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
         // behaviour the Search screen used to fake with a custom pill.
         .tabBarMinimizeBehavior(.onScrollDown)
         .tint(MapleTokens.primary)
+        // Face chips in the info pane → prefill the Search tab and run it
+        // (#2518). Overrides the AppShell-root (mac/iPad) `searchForText` for
+        // the iPhone global Search tab. Re-injected across the info sheet by
+        // `PreviewView` / `EditorDestination`.
+        .environment(\.searchForText, SearchTextAction { text in searchFor(text) })
+        // Folder row → reveal the containing folder. Wrap the root action so
+        // it ALSO switches to the Library tab, where the folder was loaded —
+        // otherwise the user stays on the Search tab (#2518).
+        .environment(\.revealFolderAction, RevealFolderAction { asset in
+            rootRevealFolder?(asset)
+            activeTab = "library"
+        })
+    }
+
+    /// Prefill the Search tab with `text` and switch to it. `SearchView`'s
+    /// `.onAppear` re-issues a non-empty query, so the search runs on arrival.
+    /// Clearing `libraryPath` pops any open editor/preview (and its info
+    /// sheet) so the user lands cleanly on the results.
+    private func searchFor(_ text: String) {
+        searchQuery = text
+        libraryPath = []
+        activeTab = "search"
     }
 
     /// Preview supplies its own non-interactive scale/fade presentation. Turn

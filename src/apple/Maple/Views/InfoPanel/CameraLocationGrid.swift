@@ -30,16 +30,50 @@ import SwiftUI
 
 struct CameraLocationGrid: View {
   let asset: AssetRef?
+  /// Self-Hosted rich detail (City / Size), fetched once by `InfoPanelView`.
+  /// `nil` for local / PhotoKit assets or before the fetch resolves.
+  var enrichment: CloudEnrichmentSections?
 
+  @Environment(\.revealFolderAction) private var revealFolder
+  @Environment(\.dismiss) private var dismiss
   @State private var exif: [ImageMetadataReader.ExifEntry] = []
 
+  private var rows: [InfoPanelVM.Row] {
+    InfoPanelVM.cameraLocationRows(
+      from: exif,
+      city: enrichment?.city,
+      fileSize: enrichment?.fileSize,
+      // Search/local assets know their folder up front; cloud-browse assets
+      // get it from the fetched detail's address (#2518).
+      folder: asset?.displayFolder ?? enrichment?.folderDisplay
+    )
+  }
+
+  /// The clickable "Path" row reveals the containing folder only when the
+  /// asset actually has one (cloud catalog, or a local URL) and the action
+  /// is present in the environment.
+  private var canRevealFolder: Bool {
+    guard revealFolder != nil, let asset else { return false }
+    return asset.revealTarget != .none
+  }
+
   var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
+    let rows = rows
+    return VStack(alignment: .leading, spacing: 6) {
       sectionHeader("Camera & Location")
       VStack(spacing: 0) {
-        ForEach(InfoPanelVM.cameraLocationRows(from: exif)) { row in
-          KVRow(label: row.label, value: row.value)
-          if row.id != InfoPanelVM.cameraLocationRows(from: exif).last?.id {
+        ForEach(rows) { row in
+          if row.id == "folder", canRevealFolder, row.value != "—" {
+            KVRow(label: row.label, value: row.value, onTap: {
+              // Close the info sheet first so the user lands on the folder
+              // grid (no-op for the inline mac/iPad inspector).
+              dismiss()
+              if let asset { revealFolder?(asset) }
+            })
+          } else {
+            KVRow(label: row.label, value: row.value)
+          }
+          if row.id != rows.last?.id {
             Rectangle()
               .fill(MapleTokens.border)
               .frame(height: 0.5)
@@ -79,6 +113,9 @@ struct CameraLocationGrid: View {
 struct KVRow: View {
   let label: String
   let value: String
+  /// When set, the value renders as a tappable link (accent color) that runs
+  /// this action — used by the "Path" row to open the containing folder.
+  var onTap: (() -> Void)? = nil
 
   var body: some View {
     HStack(alignment: .top, spacing: 12) {
@@ -86,13 +123,28 @@ struct KVRow: View {
         .font(MapleTokens.Typography.body)
         .foregroundStyle(MapleTokens.textMuted)
         .frame(width: 72, alignment: .leading)
-      Text(value)
-        .font(MapleTokens.Typography.valueChip)
-        .monospacedDigit()
-        .foregroundStyle(MapleTokens.textMain)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .lineLimit(2)
-        .textSelection(.enabled)
+      if let onTap {
+        Button(action: onTap) {
+          Text(value)
+            .font(MapleTokens.Typography.valueChip)
+            .foregroundStyle(MapleTokens.primary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .lineLimit(2)
+            .truncationMode(.middle)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens the containing folder")
+        .accessibilityIdentifier("info-path-reveal")
+      } else {
+        Text(value)
+          .font(MapleTokens.Typography.valueChip)
+          .monospacedDigit()
+          .foregroundStyle(MapleTokens.textMain)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .lineLimit(2)
+          .textSelection(.enabled)
+      }
     }
     .padding(.vertical, 7)
     .accessibilityElement(children: .combine)

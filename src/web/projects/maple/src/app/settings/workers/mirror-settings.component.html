@@ -113,6 +113,25 @@
       </div>
     }
 
+    <!-- Read-replica health. Reads normally load-balance across the primary and
+         its backup; a backup that fails or times out on I/O is benched until the
+         cooldown expires. Backups are still WRITTEN to (the queue retries) —
+         only read serving pauses. -->
+    @if (benchedReads().length > 0) {
+      <div class="error-log" data-testid="mirror-reads-benched">
+        <div class="error-log-head">Not serving reads</div>
+        @for (b of benchedReads(); track b.root) {
+          <div class="error-line mono">
+            <span class="error-path" [title]="b.root">{{ b.root }}</span>
+            <span class="error-msg">
+              I/O failure or timeout — retrying in {{ retrySeconds(b.retryInMs) }}s. Backups still
+              queue and retry.
+            </span>
+          </div>
+        }
+      </div>
+    }
+
     @if (error()) {
       <p class="banner-error">{{ error() }}</p>
     }

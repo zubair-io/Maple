@@ -38,7 +38,11 @@
  *   each sweep is O(files-in-library).
  */
 import type { Dirent } from 'node:fs';
-import * as fs from 'node:fs/promises';
+// Mirror-aware drop-in: an orphan reclaimed here is reclaimed on the library's
+// backup root too, so replicating the `.maple/` cache (#926) can't turn this
+// sweep into a one-way accumulation of dead files on the mirror. Reads
+// (readdir/stat) pass straight through.
+import * as fs from '../fs/mirrored.ts';
 import * as path from 'node:path';
 import { ObjectId } from 'mongodb';
 import { assetsCollection } from '../db/client.ts';

@@ -443,6 +443,17 @@ struct AppShell: View {
         // (local/PhotoKit assets, no cloud asset open). Set + cleared
         // alongside `cloudHistogramClient`.
         .environment(\.cloudAssetDetailClient, cloudAssetDetailClient)
+        // Info pane's clickable file-path row → open the asset's containing
+        // folder in browse (#2518). Re-injected across the iPhone info sheet.
+        .environment(\.revealFolderAction, RevealFolderAction { asset in
+          revealContainingFolder(of: asset)
+        })
+        // Face chips → search for a person by name (#2518). This is the
+        // mac/iPad behavior (cloud search overlay); `PhoneTabShell` overrides
+        // it for the iPhone global Search tab.
+        .environment(\.searchForText, SearchTextAction { query in
+          activateSearch(query: query)
+        })
         .preferredColorScheme(.dark)
         .fileImporter(isPresented: $showFilePicker,
                       allowedContentTypes: [.folder]) { result in

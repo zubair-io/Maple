@@ -47,6 +47,7 @@ describe('LibraryGridComponent', () => {
     const stateStub = {
       thumbnailUrlFor: () => undefined,
       ensureThumbnailUrl: () => {},
+      cancelQueuedThumbnail: () => {},
       // Mirror the real cache: invoke the callback synchronously (so the cell's
       // effect actually exercises the signal write — an empty stub would mask an
       // NG0600 on mount).

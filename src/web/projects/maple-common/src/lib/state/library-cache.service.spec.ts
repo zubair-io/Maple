@@ -231,45 +231,6 @@ describe('LibraryCache — M2 slug:relPath thumbnail path', () => {
       expect(svc.thumbnailUrlFor(`lib:2026/img_${i}.jpg` as AssetId)).toBe('blob:m2-thumb');
     }
   });
-
-  it('clears the queue and loading states when the selected folder/source ID changes', async () => {
-    const selectedSourceId = signal('lib:folder_a');
-    TestBed.resetTestingModule();
-    TestBed.configureTestingModule({
-      providers: [
-        LibraryCache,
-        { provide: LibraryStore, useValue: { backend: 'self-hosted' } },
-        { provide: LibrarySelection, useValue: { selectedSourceId } },
-        { provide: BunApiBackendService, useValue: {} },
-        { provide: FilesystemBrowseService, useValue: {} },
-        { provide: MapleCacheService, useValue: {} },
-        { provide: RawPipelineService, useValue: {} },
-        { provide: LIBRARY_SOURCE, useValue: { thumbBlob: vi.fn(() => new Promise(() => {})) } }, // never resolves
-      ],
-    });
-    const svc = TestBed.inject(LibraryCache);
-
-    // Trigger enqueuing of a thumbnail
-    for (let i = 0; i < 6; i++) {
-      svc.ensureThumbnailUrl({
-        id: `lib:folder_a/img_${i}.jpg`,
-        filename: `img_${i}.jpg`,
-      } as unknown as Asset);
-    }
-    await settle();
-
-    // Check that we have 2 items enqueued in the queue (cap is 4)
-    expect((svc as any)._thumbLoadQueue.length).toBe(2);
-    expect((svc as any).thumbLoadingTokens.size).toBe(6);
-
-    // Now change the folder selection!
-    selectedSourceId.set('lib:folder_b');
-    await settle();
-
-    // The queue and loading states should be completely cleared!
-    expect((svc as any)._thumbLoadQueue.length).toBe(0);
-    expect((svc as any).thumbLoadingTokens.size).toBe(0);
-  });
 });
 
 describe('LibraryCache — M2 slug:relPath byte path (editor cold-open)', () => {

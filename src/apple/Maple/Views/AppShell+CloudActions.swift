@@ -190,6 +190,12 @@ extension AppShell {
                 cloudTimelineVM = nil
                 let httpClient = makeAuthenticatedHTTPClient(server: serverID)
                 let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: serverID)
+                // Feed the info pane's enrichment fetch for assets opened from
+                // THIS cloud library's browse grid (#2518) — the per-asset
+                // `prepareCloudSession` path sets its own, but a plain browse
+                // tap doesn't go through there.
+                cloudAssetDetailClient = CloudAssetDetailClient(
+                    server: effectiveServer, httpClient: httpClient)
                 let source = CloudSource(server: effectiveServer,
                                          folderID: folderID,
                                          libraryPath: libraryPath,
@@ -350,6 +356,19 @@ extension AppShell {
         isSearchActive = true
     }
 
+    /// Open the cloud search overlay pre-filled with `query` and run it (#2518).
+    /// Used by the info pane's tappable face chips on mac/iPad. Best-effort:
+    /// `activateSearch()` only stands up a session for a cloud-library
+    /// selection, so this no-ops for non-cloud selections (the chip tap then
+    /// does nothing rather than searching the wrong scope).
+    @MainActor
+    func activateSearch(query: String) {
+        activateSearch()
+        guard isSearchActive else { return }
+        searchVM?.params.placeQuery = query
+        Task { await searchVM?.submit() }
+    }
+
     /// Drop the search session state without restoring the underlying view.
     /// Used when the selection itself is changing — the new selection's own
     /// load repopulates the center column, so a restore here would race it.
@@ -434,10 +453,22 @@ extension AppShell {
         let downloadBox = CloudByteDownloadBox(
             source: source, imageRef: imageRef,
             expectedTotal: expectedTotal, progress: progress)
+        // Cloud catalog identity for the info pane: the rich-detail fetch
+        // (by-address), the "Path" row, and the reveal-containing-folder
+        // action. `serverID` is the CANONICAL server (registry key used by
+        // `loadCloudLibrary` / `librarySelection`), not the local-resolved
+        // `effectiveServer`. `stableID` stays `fs:<absPath>` for the
+        // thumbnail cache — the catalog is a separate carrier (#2518).
         let assetRef = AssetRef(
             displayName: asset.filename,
             hintExtension: (asset.filename as NSString).pathExtension.lowercased(),
             stableID: asset.id,
+            catalog: CatalogRef(
+                serverID: server,
+                folderID: asset.folder_id,
+                absPath: asset.abs_path,
+                address: asset.address
+            ),
             bytesProvider: { try await downloadBox.bytes() }
         )
         if sessions[assetRef.id] == nil {

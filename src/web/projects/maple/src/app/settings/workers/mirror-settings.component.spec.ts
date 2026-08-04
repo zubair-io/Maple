@@ -167,4 +167,27 @@ describe('MirrorSettingsComponent', () => {
     expect(copied?.textContent).toContain('Copied (2)');
     expect(copied?.querySelectorAll('.copied-line').length).toBe(2);
   });
+
+  it('surfaces a backup benched for reads, and nothing when none is', async () => {
+    await init();
+    expand();
+    // Healthy: no benched-reads block at all.
+    expect(el().querySelector('[data-testid="mirror-reads-benched"]')).toBeNull();
+
+    el().querySelector<HTMLButtonElement>('[data-testid="mirror-reconcile-now"]')!.click();
+    http.expectOne('/api/mirror/reconcile').flush({ started: true, phase: 'idle' });
+    await tick();
+    http.expectOne('/api/mirror/status').flush({
+      queue: { pending: 0, dead: 0 },
+      reads: { benched: [{ root: '/mnt/backup/photos', retryInMs: 42_000 }] },
+    });
+    await tick();
+    fixture.detectChanges();
+
+    const benched = el().querySelector('[data-testid="mirror-reads-benched"]');
+    expect(benched?.textContent).toContain('/mnt/backup/photos');
+    expect(benched?.textContent).toContain('retrying in 42s');
+    // The operator must not read this as "backups stopped".
+    expect(benched?.textContent).toContain('Backups still queue and retry');
+  });
 });

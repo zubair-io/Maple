@@ -27,6 +27,10 @@
  * replicate the temp churn — we replicate the *result* of the publishing
  * `rename`/`copyFile`/`link`, so the mirror only ever sees committed files.
  *
+ * Bytes written by an FFI worker or a child process never pass through this
+ * module at all (the `.maple/` thumbnail + preview tiers). Those callers invoke
+ * `replicatePath` explicitly once their artefact is committed.
+ *
  * ## Consistency
  *
  * The primary operation runs first and throws exactly as the real fs would —
@@ -315,6 +319,26 @@ export async function rename(oldPath: string, newPath: string): Promise<void> {
       ...src.filter((t) => !dstRoots.has(t.mirrorRoot)).map((t) => removeMirrorEntry(t)),
     ]);
   });
+}
+
+/**
+ * Explicitly replicate an already-committed file at `absPath`.
+ *
+ * The escape hatch for bytes this module cannot intercept: the thumbnail and
+ * preview tiers are rendered *out-of-band* — an FFI worker or an imgdecode
+ * child process writes straight to the path — so no fs verb here ever sees
+ * them. The renderer calls this once, after its validate-then-publish rename
+ * has committed the artefact, and the `.maple/` cache lands on the mirror like
+ * every other durable write.
+ *
+ * Same contract as the verbs above: fire-and-forget, never throws, failures go
+ * to the sink (and from there to the durable retry queue), and a path with no
+ * mirror target costs one registry lookup. Call it only for a *committed*
+ * path — never a temp — and only after the write succeeded.
+ */
+export function replicatePath(absPath: string): void {
+  const targets = targetsFor(absPath);
+  if (targets.length) schedule(() => Promise.all(targets.map((t) => replicateFile(t, absPath))));
 }
 
 export async function copyFile(src: string, dest: string, mode?: number): Promise<void> {

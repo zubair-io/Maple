@@ -79,7 +79,8 @@ public actor BackupEngine {
         case queueEmpty
     }
 
-    private let queue: any BackupQueue
+    /// `internal` for the same reason as `outstandingCompanions`.
+    let queue: any BackupQueue
     private let state: BackupStateStore
     private let upload: UploadClient
     private let sidecars: AppSupportSidecarStore
@@ -104,7 +105,26 @@ public actor BackupEngine {
     /// In-flight retry tasks, tracked so stop() can cancel them cleanly.
     /// Covers both the primary-bytes retry/backoff path and the best-effort
     /// companion retry path (#700).
-    private var retryTasks: Set<Task<Void, Never>> = []
+    ///
+    /// Keyed by a token rather than held in a `Set<Task>` so a retry can
+    /// retire its OWN entry from inside its closure, before it signals. That
+    /// ordering is load-bearing — see `finishRetry(_:)`.
+    private var retryTasks: [UUID: Task<Void, Never>] = [:]
+
+    /// Wakes `run()` when a sleeping retry re-enqueues, so it can park
+    /// instead of polling on a fixed interval while retries are outstanding
+    /// (#1026). See `RetryWakeSignal` for the concurrency contract.
+    private let retryWake = RetryWakeSignal()
+
+    /// Reentrancy guard for `run()`. `RetryWakeSignal` has exactly one
+    /// continuation slot, so two concurrent `run()` loops both parking on
+    /// `retryWake.wait()` would silently overwrite one another's
+    /// continuation and strand the first caller forever — `run()` is
+    /// `public`, so nothing about the type system stops a second concurrent
+    /// call. Set on entry, cleared on every exit (including cancellation)
+    /// via `defer`, so a second concurrent call is a safe no-op rather than
+    /// a trap or a hang.
+    private var isRunning = false
 
     /// Per-task count of companions currently in their bounded detached-retry
     /// path (#702). A companion enters this set when its inline attempt fails
@@ -114,7 +134,9 @@ public actor BackupEngine {
     /// distinguish "uploaded, companions pending" from "done". The recursive
     /// reschedule does NOT re-increment — increment is once per failed inline
     /// attempt, decrement is once at each companion's terminus.
-    private var outstandingCompanions: [BackupTaskID: Int] = [:]
+    /// `internal` rather than `private` so the companion accounting in
+    /// `BackupEngine+Companions.swift` can reach it — still module-scoped.
+    var outstandingCompanions: [BackupTaskID: Int] = [:]
 
     /// Maximum retry attempts before a task is marked `.failedRetry`.
     private static let maxRetries = 8
@@ -157,9 +179,15 @@ public actor BackupEngine {
     /// parallelism comes from the network I/O in `upload.session.data(for:)`,
     /// which suspends without holding the engine's actor isolation.
     ///
+    /// A second concurrent call while one is already running is a safe
+    /// no-op — see `isRunning`.
+    ///
     /// The host (MapleApp / MapleBackupAgent) runs this on a long-lived
     /// background Task.
     public func run() async {
+        guard !isRunning else { return }
+        isRunning = true
+        defer { isRunning = false }
         var inFlight = 0
         await withTaskGroup(of: Void.self) { group in
             while !Task.isCancelled {
@@ -179,8 +207,10 @@ public actor BackupEngine {
                     inFlight -= 1
                 } else if !retryTasks.isEmpty {
                     // Queue is momentarily empty but retry tasks are still sleeping.
-                    // Wait briefly so they can wake and re-enqueue before we exit.
-                    try? await Task.sleep(for: .seconds(1))
+                    // Park here — no fixed-interval wakeup (#1026) — until a retry
+                    // actually re-enqueues (or teardown signals us) and loop back
+                    // to re-check the queue.
+                    await retryWake.wait()
                 } else {
                     // Queue is drained and no tasks in flight or pending retries — done.
                     break
@@ -192,10 +222,19 @@ public actor BackupEngine {
     /// Cancel all pending retry tasks. Called by EngineHost.stop() before
     /// cancelling the runner Task so retries are torn down cleanly.
     public func stop() {
-        for task in retryTasks {
+        for task in retryTasks.values {
             task.cancel()
         }
         retryTasks.removeAll()
+        // Wake a parked runner so it observes teardown promptly. Without this,
+        // `run()`'s doc claim that it parks "until a retry re-enqueues (or
+        // teardown signals us)" is not actually true: a caller that invokes
+        // `stop()` WITHOUT also cancelling the runner Task would leave it
+        // parked forever on a `retryTasks` that is now empty. The cancelled
+        // retries above do each signal on their way out, but only once their
+        // sleep unwinds — and if `retryTasks` was already empty there is
+        // nothing to unwind at all.
+        Task { await retryWake.signal() }
         // Cancelled companion retries won't reach their decrement, so clear the
         // outstanding-companion counters too — a fresh run starts clean and we
         // never re-emit a stale `.companionsResolved` for a torn-down task (#702).
@@ -278,19 +317,23 @@ public actor BackupEngine {
             // is cheaper than sleeping the full window.
             let delay = min(retryAfterSeconds, 60)
             let queueRef = queue
-            let deferTask = Task.detached(priority: .background) {
+            let token = UUID()
+            let deferTask = Task.detached(priority: .background) { [weak self] in
                 // `try?` would swallow CancellationError and we'd re-enqueue
                 // after `stop()` was called — re-checking isCancelled after
                 // the sleep keeps the cleanup contract intact.
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                if Task.isCancelled { return }
+                if Task.isCancelled {
+                    // Still retire the entry: a cancelled retry that stayed in
+                    // `retryTasks` would leave `run()` parked on a wake that
+                    // can never arrive.
+                    await self?.finishRetry(token)
+                    return
+                }
                 await queueRef.enqueue(task, priority: task.priority)
+                await self?.finishRetry(token) // retire, THEN wake run() (#1026)
             }
-            retryTasks.insert(deferTask)
-            Task { [weak self] in
-                _ = await deferTask.value
-                await self?.removeRetryTask(deferTask)
-            }
+            retryTasks[token] = deferTask
             await queue.emit(.failed(task.id, error: "busy elsewhere", willRetry: true))
             throw UploadClient.UploadError.busyElsewhere(
                 retryAfterSeconds: retryAfterSeconds)
@@ -313,22 +356,22 @@ public actor BackupEngine {
                 // Re-enqueue from a detached Task that sleeps the backoff.
                 let backoff = Self.backoffSeconds(for: nextRetry)
                 let queueRef = queue
-                let retryTask = Task.detached(priority: .background) {
+                let token = UUID()
+                let retryTask = Task.detached(priority: .background) { [weak self] in
                     // Same cancellation discipline as the busy-elsewhere path —
                     // bail after the sleep if `stop()` cancelled us.
                     try? await Task.sleep(nanoseconds: UInt64(backoff * 1_000_000_000))
-                    if Task.isCancelled { return }
+                    if Task.isCancelled {
+                        await self?.finishRetry(token)
+                        return
+                    }
                     var retry = task
                     retry.retryCount = nextRetry
                     await queueRef.enqueue(retry, priority: retry.priority)
+                    await self?.finishRetry(token) // retire, THEN wake run() (#1026)
                 }
                 // Track for cancellation on stop().
-                retryTasks.insert(retryTask)
-                // Auto-clean when the task finishes.
-                Task { [weak self] in
-                    _ = await retryTask.value
-                    await self?.removeRetryTask(retryTask)
-                }
+                retryTasks[token] = retryTask
             }
             await queue.emit(.failed(task.id, error: "\(error)", willRetry: willRetry))
             throw error
@@ -456,9 +499,13 @@ public actor BackupEngine {
             return
         }
         let backoff = companionBackoff(attempt)
+        let token = UUID()
         let retryTask = Task.detached(priority: .background) { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(backoff * 1_000_000_000))
-            if Task.isCancelled { return }
+            if Task.isCancelled {
+                await self?.finishRetry(token)
+                return
+            }
             do {
                 try await op()
                 // Terminal: the companion landed on this retry. Decrement once.
@@ -470,49 +517,29 @@ public actor BackupEngine {
                                                    attempt: attempt + 1,
                                                    maxAttempts: maxAttempts, op: op)
             }
+            // Retire on EVERY exit. A companion retry never enqueues to the
+            // upload queue and used to never signal at all, so a `retryTasks`
+            // holding only companions parked `run()` on a wake that could not
+            // arrive — the 1 s poll used to paper over that.
+            await self?.finishRetry(token)
         }
-        retryTasks.insert(retryTask)
-        Task { [weak self] in
-            _ = await retryTask.value
-            await self?.removeRetryTask(retryTask)
-        }
+        retryTasks[token] = retryTask
     }
 
-    private func removeRetryTask(_ task: Task<Void, Never>) {
-        retryTasks.remove(task)
+    /// Retire a finished retry and wake `run()` — in that order.
+    ///
+    /// The ordering is the whole point. `run()` parks precisely because
+    /// `retryTasks` was non-empty, so if a retry signalled *before* removing
+    /// itself, `run()` could consume that wake, drain the queue, loop, still
+    /// observe the stale entry, and park again on a signal already spent —
+    /// with `isRunning` latched, no later `run()` could recover it and uploads
+    /// would stop until relaunch. Removing first means any wake `run()` acts on
+    /// is evaluated against a `retryTasks` that already reflects this task's
+    /// exit. Signalling unconditionally (not just when the queue gained work)
+    /// is what covers the companion path, which never enqueues anything.
+    private func finishRetry(_ token: UUID) async {
+        retryTasks[token] = nil
+        await retryWake.signal()
     }
 
-    // MARK: - Outstanding-companion accounting (#702)
-
-    /// Record that one more companion for `taskId` has entered its bounded
-    /// retry path. Emits `.companionPending` only on the 0→1 transition so the
-    /// progress VM flips the photo to "uploaded, companions pending" exactly
-    /// once regardless of how many companions are outstanding.
-    private func companionBecamePending(_ taskId: BackupTaskID) async {
-        let prior = outstandingCompanions[taskId] ?? 0
-        outstandingCompanions[taskId] = prior + 1
-        if prior == 0 {
-            await queue.emit(.companionPending(taskId))
-        }
-    }
-
-    /// Record that one companion for `taskId` reached a terminal state (landed
-    /// or exhausted). Emits `.companionsResolved` only on the →0 transition so
-    /// the photo flips back to fully "done" exactly once.
-    private func companionResolved(_ taskId: BackupTaskID) async {
-        guard let prior = outstandingCompanions[taskId], prior > 0 else { return }
-        if prior == 1 {
-            outstandingCompanions.removeValue(forKey: taskId)
-            await queue.emit(.companionsResolved(taskId))
-        } else {
-            outstandingCompanions[taskId] = prior - 1
-        }
-    }
-
-    /// Exponential backoff capped at 1 hour. The `companionBackoff` default
-    /// argument inlines the same formula (a `public` init can't reference a
-    /// non-public member in a default value).
-    private static func backoffSeconds(for retryCount: Int) -> TimeInterval {
-        min(3600, pow(2.0, Double(retryCount)))
-    }
 }

@@ -482,6 +482,11 @@ private struct InfoPresentation: ViewModifier {
     // diverging in a way a later reader has to re-derive.
     @Environment(\.cloudAssetDetailClient) private var detailClient
     @Environment(\.cloudHistogramClient) private var histogramClient
+    // #2518 — same sheet non-inheritance applies to the reveal-folder action
+    // (clickable path row) and the search action (tappable face names) that
+    // the info pane invokes; re-inject both.
+    @Environment(\.revealFolderAction) private var revealFolder
+    @Environment(\.searchForText) private var searchForText
 
     func body(content: Content) -> some View {
         if isRegular {
@@ -494,6 +499,8 @@ private struct InfoPresentation: ViewModifier {
                     )
                     .environment(\.cloudAssetDetailClient, detailClient)
                     .environment(\.cloudHistogramClient, histogramClient)
+                    .environment(\.revealFolderAction, revealFolder)
+                    .environment(\.searchForText, searchForText)
                     // Same clamps `AppShellMacLayout` applies to the
                     // editor's `DetailPanel` inspector.
                     .inspectorColumnWidth(min: 240, ideal: 280, max: 360)
@@ -508,6 +515,8 @@ private struct InfoPresentation: ViewModifier {
                 )
                 .environment(\.cloudAssetDetailClient, detailClient)
                 .environment(\.cloudHistogramClient, histogramClient)
+                .environment(\.revealFolderAction, revealFolder)
+                    .environment(\.searchForText, searchForText)
                 .presentationDetents([.medium, .large])
             }
             #else
@@ -516,6 +525,8 @@ private struct InfoPresentation: ViewModifier {
                     .frame(width: 320, height: 480)
                     .environment(\.cloudAssetDetailClient, detailClient)
                     .environment(\.cloudHistogramClient, histogramClient)
+                    .environment(\.revealFolderAction, revealFolder)
+                    .environment(\.searchForText, searchForText)
             }
             #endif
         }

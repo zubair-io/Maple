@@ -187,6 +187,7 @@ describe('assets.repo', () => {
       const dto = await findDetailById(new ObjectId(), db);
       expect(dto).toBeNull();
     });
+    // Face person_id → name resolution lives in `assets.repo.person-names.test.ts`.
   });
 
   describe('findDetailByAddress', () => {

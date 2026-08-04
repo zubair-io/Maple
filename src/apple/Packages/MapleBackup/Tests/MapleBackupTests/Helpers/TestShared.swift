@@ -52,6 +52,49 @@ actor LivePhotoAssetReader: AssetReader {
     }
 }
 
+/// Thread-safe "resume exactly once" gate for racing two unstructured Tasks
+/// past a single `CheckedContinuation` — see `awaitBounded(_:timeout:)`.
+final class ResumeOnceGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var claimed = false
+    /// Returns `true` for the first caller only; every later caller gets
+    /// `false`, so a slow winner racing a timeout can't double-resume.
+    func claim() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard !claimed else { return false }
+        claimed = true
+        return true
+    }
+}
+
+/// Await an async `operation` or give up after `timeout`, returning `nil` on
+/// timeout — a regression that genuinely hangs `operation` forever must fail
+/// the test fast, not stall the whole suite.
+///
+/// Deliberately NOT a `withTaskGroup`: a group's closure doesn't return until
+/// every child task finishes, and `cancelAll()` only sets a flag — it can't
+/// force a child to stop early. A child awaiting a truly stuck operation
+/// (e.g. a stranded `CheckedContinuation`, exactly the class of bug this
+/// exists to catch) ignores that flag and never returns, so a TaskGroup-based
+/// version of this helper hangs right alongside the bug it's meant to report
+/// on. Racing two independent, unstructured `Task`s past a single
+/// `resume`-once continuation avoids that: whichever fires first wins, and
+/// the loser is simply abandoned rather than awaited.
+func awaitBounded<T: Sendable>(timeout: TimeInterval,
+                               _ operation: @escaping @Sendable () async -> T) async -> T? {
+    let gate = ResumeOnceGate()
+    return await withCheckedContinuation { (continuation: CheckedContinuation<T?, Never>) in
+        Task {
+            let result = await operation()
+            if gate.claim() { continuation.resume(returning: result) }
+        }
+        Task {
+            try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+            if gate.claim() { continuation.resume(returning: nil) }
+        }
+    }
+}
+
 /// Thread-safe sink that drains a queue's event stream into a list so a test
 /// can assert which companion-lifecycle events fired and in what order.
 final class EventSink: @unchecked Sendable {
