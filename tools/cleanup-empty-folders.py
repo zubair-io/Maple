@@ -56,11 +56,17 @@ def has_dot_component(relpath: str) -> bool:
 def count_content_files(directory: str) -> int:
     """Recursively count files in ``directory`` that are not disposable.
 
+    Hidden directories are pruned, not just hidden filenames. A cached preview
+    inside ``.maple/previews`` is named like ``sha16_1600.jpg`` -- the directory
+    is hidden, the file is not -- so counting by filename alone made every
+    folder with a populated cache look like it still held photos.
+
     Used both for the initial survey and for the immediately-before-move
     re-verification, so the two can never disagree about what "empty" means.
     """
     total = 0
-    for _, _, filenames in os.walk(directory, followlinks=False):
+    for _, dirnames, filenames in os.walk(directory, followlinks=False):
+        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
         total += sum(1 for fn in filenames if not is_disposable(fn))
     return total
 
@@ -108,8 +114,17 @@ def find_candidates(root: str, include_duplicates: bool) -> list[str]:
     media_free: set[str] = set()
 
     for dirpath, dirnames, filenames in os.walk(root, topdown=False, followlinks=False):
+        # Hidden trees hold regenerable caches, never content. Skipping them
+        # here matches count_content_files, so the survey and the move-time
+        # re-check cannot disagree about what counts as empty.
+        if has_dot_component(os.path.relpath(dirpath, root)):
+            continue
         own = sum(1 for fn in filenames if not is_disposable(fn))
-        below = sum(content_counts.get(os.path.join(dirpath, d), 0) for d in dirnames)
+        below = sum(
+            content_counts.get(os.path.join(dirpath, d), 0)
+            for d in dirnames
+            if not d.startswith(".")
+        )
         content_counts[dirpath] = own + below
         if own + below == 0 and dirpath != root:
             media_free.add(dirpath)
