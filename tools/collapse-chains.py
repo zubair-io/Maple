@@ -210,6 +210,12 @@ def main() -> int:
         epilog="Dry run by default. Pass --apply to move anything.",
     )
     parser.add_argument("--root", required=True, help="library root, e.g. /Volumes/Photos-1")
+    parser.add_argument(
+        "--mirror",
+        help="also apply every move here, e.g. /Volumes/Photos/Library. The plan is "
+        "always derived from --root; the mirror is only replicated to, never scanned "
+        "for chains of its own.",
+    )
     parser.add_argument("--apply", action="store_true", help="perform the moves")
     parser.add_argument("--limit", type=int, help="only act on the first N chains")
     parser.add_argument(
@@ -223,6 +229,11 @@ def main() -> int:
         print(f"error: {args.root} is not a directory (is the volume mounted?)", file=sys.stderr)
         return 1
 
+    mirror = os.path.realpath(args.mirror) if args.mirror else None
+    if mirror and not os.path.isdir(mirror):
+        print(f"error: {args.mirror} is not a directory (is the volume mounted?)", file=sys.stderr)
+        return 1
+
     print(f"Scanning {root} ...")
     actionable, skipped = build_plan(root, args.include_duplicates)
     if args.limit is not None:
@@ -234,6 +245,15 @@ def main() -> int:
     if len(actionable) > 400:
         print(f"  ... and {len(actionable) - 400} more")
 
+    if mirror:
+        divergent = [(e["src"], still_valid(mirror, e)) for e in actionable]
+        divergent = [(s, r) for s, r in divergent if r]
+        print(f"\nMirror {mirror}")
+        print(f"  {len(actionable) - len(divergent)} of {len(actionable)} replicate; "
+              f"{len(divergent)} differ and will be left for you to handle:")
+        for src, why in divergent:
+            print(f"    {src}  -- {why}")
+
     if not args.apply:
         print("\nDry run -- nothing was touched. Re-run with --apply.")
         return 0
@@ -241,44 +261,71 @@ def main() -> int:
         return 0
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    quarantine = os.path.join(root, f"{QUARANTINE_PREFIX}{stamp}")
-    os.makedirs(quarantine, exist_ok=False)
-    print(f"\nQuarantine: {quarantine}\n")
+    targets = [("primary", root)] + ([("mirror", mirror)] if mirror else [])
+    quarantines = {}
+    op_log: dict[str, list[tuple[str, str, str]]] = {}
+    for label, base in targets:
+        quarantines[label] = os.path.join(base, f"{QUARANTINE_PREFIX}{stamp}")
+        os.makedirs(quarantines[label], exist_ok=False)
+        op_log[label] = []
+        print(f"\nQuarantine ({label}): {quarantines[label]}")
+    print()
 
-    ops: list[tuple[str, str, str]] = []
     done = 0
     blocked: list[tuple[str, str]] = []
+    unmirrored: list[tuple[str, str]] = []
     for entry in actionable:
         reason = still_valid(root, entry)
         if reason:
             blocked.append((entry["src"], reason))
             continue
+        # Decide the mirror before touching anything, so a mirror that has
+        # drifted is reported rather than half-applied.
+        mirror_reason = still_valid(mirror, entry) if mirror else None
         try:
-            print(f"  {collapse(root, entry, quarantine, ops)}")
+            print(f"  {collapse(root, entry, quarantines['primary'], op_log['primary'])}")
             done += 1
         except (OSError, FileExistsError) as exc:
             blocked.append((entry["src"], f"failed: {exc}"))
+            continue
+        if not mirror:
+            continue
+        if mirror_reason:
+            unmirrored.append((entry["src"], mirror_reason))
+            continue
+        try:
+            collapse(mirror, entry, quarantines["mirror"], op_log["mirror"])
+        except (OSError, FileExistsError) as exc:
+            unmirrored.append((entry["src"], f"mirror failed: {exc}"))
 
-    stage_dir = os.path.join(quarantine, STAGING)
-    if os.path.isdir(stage_dir) and not os.listdir(stage_dir):
-        os.rmdir(stage_dir)
-
-    if ops:
+    for label, base in targets:
+        quarantine = quarantines[label]
+        ops = op_log[label]
+        stage_dir = os.path.join(quarantine, STAGING)
+        if os.path.isdir(stage_dir) and not os.listdir(stage_dir):
+            os.rmdir(stage_dir)
+        if not ops:
+            shutil.rmtree(quarantine)
+            print(f"\n{label}: nothing moved; removed the empty quarantine directory.")
+            continue
         with open(os.path.join(quarantine, "manifest.tsv"), "w", newline="") as fh:
             writer = csv.writer(fh, delimiter="\t", lineterminator="\n")
             writer.writerow(["kind", "from", "to"])
             writer.writerows(ops)
-        restore = write_restore(root, quarantine, ops)
-        print(f"\nCollapsed {done} chains in {len(ops)} moves.")
-        print(f"Undo everything:  bash {shlex.quote(restore)}")
-        print(f"Accept everything: rm -rf {shlex.quote(quarantine)}")
-    else:
-        os.rmdir(quarantine)
-        print("\nNothing moved; removed the empty quarantine directory.")
+        restore = write_restore(base, quarantine, ops)
+        print(f"\n{label}: {len(ops)} moves.")
+        print(f"  Undo:   bash {shlex.quote(restore)}")
+        print(f"  Accept: rm -rf {shlex.quote(quarantine)}")
 
+    print(f"\nCollapsed {done} chains on the primary.")
     if blocked:
-        print(f"\nSkipped {len(blocked)}:")
+        print(f"\nSkipped {len(blocked)} on the primary:")
         for src, why in blocked:
+            print(f"    {src}  -- {why}")
+    if unmirrored:
+        print(f"\nApplied to the primary but NOT mirrored ({len(unmirrored)}) "
+              f"-- these two libraries now differ here:")
+        for src, why in unmirrored:
             print(f"    {src}  -- {why}")
     return 0
 

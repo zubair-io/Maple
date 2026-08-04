@@ -95,8 +95,15 @@ def build_chains(root: str, include_duplicates: bool) -> list[dict]:
 
         links = [start]
         current = start
+        terminal = None
         while True:
             visible_dirs, _, _, _ = classify(current)
+            if not visible_dirs:
+                # The folder had one child when the set was built and has none
+                # now: it changed underneath us, or the mount stopped answering
+                # for it. Either way this chain no longer describes the tree, so
+                # drop it rather than guess at what it became.
+                break
             child = os.path.join(current, visible_dirs[0])
             if child in passthrough:
                 links.append(child)
@@ -104,6 +111,9 @@ def build_chains(root: str, include_duplicates: bool) -> list[dict]:
                 continue
             terminal = child
             break
+
+        if terminal is None:
+            continue
 
         t_dirs, t_files, t_hidden_dirs, t_hidden_files = classify(terminal)
         # Hidden clutter anywhere along the chain travels with a cleanup.
