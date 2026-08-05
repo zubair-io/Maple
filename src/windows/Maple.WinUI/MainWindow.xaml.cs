@@ -11,13 +11,20 @@ using Maple.WinUI.ViewModels;
 
 namespace Maple.WinUI
 {
+    /// <summary>Shell navigation follows the product's three-stage flow:
+    /// Browse (grid) → Preview (full image + filmstrip + culling) → Edit
+    /// (full-bleed canvas with the floating tool rail and group panels).
+    /// Sliders exist only in Edit.</summary>
+    public enum ShellMode { Browse, Preview, Edit }
+
     public sealed partial class MainWindow : Window
     {
         public EditSessionViewModel ViewModel { get; }
 
         private WriteableBitmap? _viewportBitmap;
         private readonly AppSettings _settings = AppSettings.Load();
-        private bool _inDevelopMode;
+        private ShellMode _mode = ShellMode.Browse;
+        private uint[]? _lastHistogramBins;
 
         public MainWindow()
         {
@@ -42,12 +49,66 @@ namespace Maple.WinUI
                 LibraryCountText.Text = $"{ViewModel.Photos.Count} photos";
 
             SidebarColDef.Width = new GridLength(_settings.LeftPanelHidden ? 0 : _settings.LeftPanelWidth);
-            InspectorColDef.Width = new GridLength(_settings.DetailPanelHidden ? 0 : _settings.DetailPanelWidth);
-            SetActiveModeButton(browse: true);
-            SetActiveTab(TabDevelopBtn);
+            PhotoGrid.PreviewKeyDown += (_, e) =>
+            {
+                if (e.Key == VirtualKey.Enter)
+                {
+                    EnterPreview();
+                    e.Handled = true;
+                }
+            };
             BuildStarRow();
+            BuildEditRail();
+            SetMode(ShellMode.Browse);
             this.Closed += (_, _) => ViewModel.Dispose();
         }
+
+        // --- Mode state machine ---
+
+        private void SetMode(ShellMode mode)
+        {
+            _mode = mode;
+            var browse = mode == ShellMode.Browse;
+            var edit = mode == ShellMode.Edit;
+
+            BrowseToolbar.Visibility = browse ? Visibility.Visible : Visibility.Collapsed;
+            SidebarPane.Visibility = browse ? Visibility.Visible : Visibility.Collapsed;
+            SidebarColDef.Width = browse
+                ? new GridLength(_settings.LeftPanelHidden ? 0 : _settings.LeftPanelWidth)
+                : new GridLength(0);
+
+            BrowseGridContainer.Visibility = browse ? Visibility.Visible : Visibility.Collapsed;
+            ViewerContainer.Visibility = browse ? Visibility.Collapsed : Visibility.Visible;
+
+            PreviewTopBar.Visibility = mode == ShellMode.Preview ? Visibility.Visible : Visibility.Collapsed;
+            FilmstripBar.Visibility = mode == ShellMode.Preview ? Visibility.Visible : Visibility.Collapsed;
+            EditTopBar.Visibility = edit ? Visibility.Visible : Visibility.Collapsed;
+            EditRail.Visibility = edit ? Visibility.Visible : Visibility.Collapsed;
+            if (!edit)
+            {
+                CloseGroupPanel();
+                return;
+            }
+            // The histogram canvas has zero size until the pill first lays out,
+            // so replay the newest bins once the layout pass completes.
+            HistogramCanvas.DispatcherQueue.TryEnqueue(() =>
+            {
+                if (_lastHistogramBins != null)
+                    HistogramView.Draw(HistogramCanvas, _lastHistogramBins);
+            });
+        }
+
+        private void EnterPreview()
+        {
+            if (ViewModel.SelectedPhoto == null && ViewModel.Photos.Count > 0)
+                ViewModel.SelectedPhoto = ViewModel.Photos[0];
+            if (ViewModel.SelectedPhoto != null)
+                SetMode(ShellMode.Preview);
+        }
+
+        private void OnViewerBack(object sender, RoutedEventArgs e) => SetMode(ShellMode.Browse);
+        private void OnEnterEdit(object sender, RoutedEventArgs e) => SetMode(ShellMode.Edit);
+        private void OnExitEdit(object sender, RoutedEventArgs e) => SetMode(ShellMode.Preview);
 
         // --- Rendering ---
 
@@ -68,34 +129,14 @@ namespace Maple.WinUI
                     stream.Write(copy, 0, copy.Length);
                 }
                 _viewportBitmap.Invalidate();
-                RenderStatsText.Text = $"{width}×{height} · chain {millis:0} ms";
+                RenderStatsText.Text = $"{millis:0} ms";
                 ViewModel.LastRenderMillis = millis;
+                _lastHistogramBins = bins;
                 HistogramView.Draw(HistogramCanvas, bins);
             });
         }
 
-        // --- Mode / panel chrome ---
-
-        private void OnSwitchToBrowse(object sender, RoutedEventArgs e) => SwitchMode(develop: false);
-
-        private void OnSwitchToDevelop(object sender, RoutedEventArgs e) => SwitchMode(develop: true);
-
-        private void SwitchMode(bool develop)
-        {
-            _inDevelopMode = develop;
-            BrowseGridContainer.Visibility = develop ? Visibility.Collapsed : Visibility.Visible;
-            DevelopContainer.Visibility = develop ? Visibility.Visible : Visibility.Collapsed;
-            SetActiveModeButton(browse: !develop);
-            if (develop && ViewModel.SelectedPhoto == null && ViewModel.Photos.Count > 0)
-                ViewModel.SelectedPhoto = ViewModel.Photos[0];
-        }
-
-        private void SetActiveModeButton(bool browse)
-        {
-            var accent = (Style)Application.Current.Resources["AccentButtonStyle"];
-            BrowseModeBtn.Style = browse ? accent : (Style)Application.Current.Resources["DefaultButtonStyle"];
-            DevelopModeBtn.Style = browse ? (Style)Application.Current.Resources["DefaultButtonStyle"] : accent;
-        }
+        // --- Browse chrome ---
 
         private void OnToggleSidebar(object sender, RoutedEventArgs e)
         {
@@ -105,39 +146,15 @@ namespace Maple.WinUI
             _settings.Save();
         }
 
-        private void OnToggleInspector(object sender, RoutedEventArgs e)
-        {
-            var hidden = InspectorColDef.Width.Value > 0;
-            InspectorColDef.Width = new GridLength(hidden ? 0 : Math.Max(_settings.DetailPanelWidth, 280));
-            _settings.DetailPanelHidden = hidden;
-            _settings.Save();
-        }
-
-        private void OnSelectInspectorTab(object sender, RoutedEventArgs e) =>
-            SetActiveTab((Button)sender);
-
-        private void SetActiveTab(Button active)
-        {
-            var accent = (Style)Application.Current.Resources["AccentButtonStyle"];
-            var normal = (Style)Application.Current.Resources["DefaultButtonStyle"];
-            TabDevelopBtn.Style = active == TabDevelopBtn ? accent : normal;
-            TabInfoBtn.Style = active == TabInfoBtn ? accent : normal;
-            AdjustmentsPanel.Visibility = active == TabDevelopBtn ? Visibility.Visible : Visibility.Collapsed;
-            InfoPanel.Visibility = active == TabInfoBtn ? Visibility.Visible : Visibility.Collapsed;
-            if (active == TabInfoBtn)
-                RefreshInfoPanel();
-        }
-
         // --- Selection ---
 
         private void OnPhotoItemClick(object sender, ItemClickEventArgs e)
         {
             if (e.ClickedItem is PhotoItem photo)
-            {
                 ViewModel.SelectedPhoto = photo;
-                SwitchMode(develop: true);
-            }
         }
+
+        private void OnGridDoubleTapped(object sender, DoubleTappedRoutedEventArgs e) => EnterPreview();
 
         private void OnGridSelectionChanged(object sender, SelectionChangedEventArgs e)
         {
@@ -161,8 +178,6 @@ namespace Maple.WinUI
                 Filmstrip.ScrollIntoView(photo);
             }
             UpdateStarRow();
-            if (InfoPanel.Visibility == Visibility.Visible)
-                RefreshInfoPanel();
         }
 
         // --- Library scopes / filters ---
@@ -183,7 +198,7 @@ namespace Maple.WinUI
             {
                 ViewModel.DateFilterDay = null;
                 ViewModel.LoadDirectory(folder);
-                SwitchMode(develop: false);
+                SetMode(ShellMode.Browse);
             }
         }
 
@@ -192,7 +207,7 @@ namespace Maple.WinUI
             if (sender is ListView list && list.SelectedItem is TimelineGroup group)
             {
                 ViewModel.DateFilterDay = group.SortKey;
-                SwitchMode(develop: false);
+                SetMode(ShellMode.Browse);
             }
         }
 
@@ -211,7 +226,7 @@ namespace Maple.WinUI
         private void OnSearchChanged(object sender, TextChangedEventArgs e) =>
             ViewModel.SearchText = SearchBox.Text;
 
-        // --- Adjustments chrome ---
+        // --- Edit actions ---
 
         private void OnSliderRowDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
@@ -220,14 +235,13 @@ namespace Maple.WinUI
         }
 
         private void OnApplyAuto(object sender, RoutedEventArgs e) => ViewModel.ApplyAuto();
-
+        private void OnResetAll(object sender, RoutedEventArgs e) => ViewModel.ResetToDefaults();
         private void OnRevert(object sender, RoutedEventArgs e) => ViewModel.RevertToOriginal();
 
         // --- Culling ---
 
         private void OnFlagPick(object sender, RoutedEventArgs e) => ViewModel.SetFlag("pick");
         private void OnFlagReject(object sender, RoutedEventArgs e) => ViewModel.SetFlag("reject");
-        private void OnFlagNone(object sender, RoutedEventArgs e) => ViewModel.SetFlag("none");
 
         // --- Keyboard (culling + navigation + edit) ---
 
@@ -257,9 +271,12 @@ namespace Maple.WinUI
                 case VirtualKey.U when !ctrl: ViewModel.SetFlag("none"); break;
                 case VirtualKey.Left: ViewModel.SelectNeighbor(-1); break;
                 case VirtualKey.Right: ViewModel.SelectNeighbor(1); break;
-                case VirtualKey.Up: ViewModel.SelectNeighbor(-10); break;
-                case VirtualKey.Down: ViewModel.SelectNeighbor(10); break;
-                case VirtualKey.Escape when _inDevelopMode: SwitchMode(develop: false); break;
+                case VirtualKey.Up when _mode != ShellMode.Browse: ViewModel.SelectNeighbor(-10); break;
+                case VirtualKey.Down when _mode != ShellMode.Browse: ViewModel.SelectNeighbor(10); break;
+                case VirtualKey.Enter when _mode == ShellMode.Browse: EnterPreview(); break;
+                case VirtualKey.E when !ctrl && _mode == ShellMode.Preview: SetMode(ShellMode.Edit); break;
+                case VirtualKey.Escape when _mode == ShellMode.Edit: SetMode(ShellMode.Preview); break;
+                case VirtualKey.Escape when _mode == ShellMode.Preview: SetMode(ShellMode.Browse); break;
                 case VirtualKey.Z when ctrl && shift: ViewModel.Redo(); break;
                 case VirtualKey.Z when ctrl: ViewModel.Undo(); break;
                 case VirtualKey.R when ctrl: ViewModel.RevertToOriginal(); break;
