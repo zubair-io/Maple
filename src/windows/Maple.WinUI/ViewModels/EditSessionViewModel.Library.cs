@@ -60,12 +60,18 @@ namespace Maple.WinUI.ViewModels
     }
 
     /// <summary>One node of the sidebar folder tree: a library root or one of
-    /// its subfolders. Invoking a node loads its subtree into the grid.</summary>
+    /// its subfolders. Invoking a node loads that folder's own photos; children
+    /// materialize lazily on expand so a huge tree is never walked eagerly.</summary>
     public sealed class FolderNode
     {
         public string Name { get; init; } = string.Empty;
         public string Path { get; init; } = string.Empty;
         public ObservableCollection<FolderNode> Children { get; } = new();
+        /// <summary>True once the real children replaced the expander stub.</summary>
+        public bool ChildrenLoaded { get; set; }
+        /// <summary>Marker child that makes the expander chevron show before
+        /// the real children have been enumerated.</summary>
+        public bool IsPlaceholder { get; init; }
     }
 
     public partial class EditSessionViewModel
@@ -74,9 +80,6 @@ namespace Maple.WinUI.ViewModels
         public ObservableCollection<PhotoDayGroup> PhotoGroups { get; } = new();
         public ObservableCollection<FolderNode> FolderTree { get; } = new();
 
-        private const int FolderTreeDepth = 5;
-        private const int RecurseMaxDepth = 6;
-        private const int RecurseMaxFiles = 20000;
         public List<PhotoItem> AllPhotos { get; } = new();
         public ObservableCollection<string> LibraryFolders { get; } = new();
         public TimelineViewModel Timeline { get; } = new();
@@ -134,20 +137,22 @@ namespace Maple.WinUI.ViewModels
             {
                 _ = Task.Run(() =>
                 {
-                    // Off the UI thread: Exists + the subtree walk can block on
+                    // Off the UI thread: Exists + enumeration can block on
                     // unreachable network roots without freezing the shell.
                     if (!Directory.Exists(root))
                     {
                         DiagLog.Write($"[library] root unavailable: {root}");
                         return;
                     }
-                    var node = BuildFolderNode(root, FolderTreeDepth);
+                    var node = BuildFolderNode(root);
                     App.MainDispatcherQueue?.TryEnqueue(() => FolderTree.Add(node));
                 });
             }
         }
 
-        private static FolderNode BuildFolderNode(string path, int depth)
+        /// <summary>Build ONE tree node: name + an expander stub when the
+        /// folder has subfolders. No recursion — children load on expand.</summary>
+        private static FolderNode BuildFolderNode(string path)
         {
             var name = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar));
             var node = new FolderNode
@@ -155,22 +160,87 @@ namespace Maple.WinUI.ViewModels
                 Name = name.Length > 0 ? name : path,
                 Path = path,
             };
-            if (depth <= 0)
-                return node;
+            if (HasVisibleSubdirectory(path))
+                node.Children.Add(new FolderNode { Name = "…", IsPlaceholder = true });
+            return node;
+        }
+
+        private static bool HasVisibleSubdirectory(string path)
+        {
             try
             {
-                foreach (var dir in Directory.EnumerateDirectories(path)
-                             .OrderBy(d => d, StringComparer.OrdinalIgnoreCase))
-                {
-                    if (IsSkippableDirectory(dir))
-                        continue;
-                    node.Children.Add(BuildFolderNode(dir, depth - 1));
-                }
+                return Directory.EnumerateDirectories(path).Any(d => !IsSkippableDirectory(d));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                return false;
             }
-            return node;
+        }
+
+        public bool IsLibraryRoot(string path) =>
+            LibraryFolders.Contains(path, StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Unregister a library root. Never touches the folder on
+        /// disk — originals and sidecars stay exactly where they are.</summary>
+        public void RemoveLibraryFolder(string path)
+        {
+            var match = LibraryFolders.FirstOrDefault(
+                f => string.Equals(f, path, StringComparison.OrdinalIgnoreCase));
+            if (match == null)
+                return;
+            LibraryFolders.Remove(match);
+            var settings = AppSettings.Load();
+            settings.LibraryFolders = LibraryFolders.ToList();
+            settings.Save();
+
+            var node = FolderTree.FirstOrDefault(
+                n => string.Equals(n.Path, path, StringComparison.OrdinalIgnoreCase));
+            if (node != null)
+                FolderTree.Remove(node);
+
+            if (CurrentFolderPath.StartsWith(path, StringComparison.OrdinalIgnoreCase))
+            {
+                _libraryCts?.Cancel();
+                AllPhotos.Clear();
+                ApplyFilters();
+                Timeline.GroupPhotosByDate(AllPhotos);
+                CurrentFolderPath = string.Empty;
+                ActiveSectionName = "All Photos";
+                var first = LibraryFolders.FirstOrDefault();
+                if (first != null)
+                    LoadDirectory(first);
+            }
+        }
+
+        /// <summary>Lazy expand: replace the stub with the folder's immediate
+        /// subfolders, enumerated off the UI thread.</summary>
+        public void LoadFolderChildren(FolderNode node)
+        {
+            if (node.ChildrenLoaded || node.IsPlaceholder)
+                return;
+            node.ChildrenLoaded = true;
+            _ = Task.Run(() =>
+            {
+                List<FolderNode> children;
+                try
+                {
+                    children = Directory.EnumerateDirectories(node.Path)
+                        .Where(d => !IsSkippableDirectory(d))
+                        .OrderBy(d => d, StringComparer.OrdinalIgnoreCase)
+                        .Select(BuildFolderNode)
+                        .ToList();
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    children = new List<FolderNode>();
+                }
+                App.MainDispatcherQueue?.TryEnqueue(() =>
+                {
+                    node.Children.Clear();
+                    foreach (var child in children)
+                        node.Children.Add(child);
+                });
+            });
         }
 
         private static bool IsSkippableDirectory(string dir)
@@ -255,36 +325,22 @@ namespace Maple.WinUI.ViewModels
             }, cts.Token);
         }
 
-        /// <summary>Depth-first recursive enumeration with hidden/system-dir
-        /// skipping and depth/count caps, so a library root shows the images
-        /// of its whole subtree (nested shoot folders included).</summary>
+        /// <summary>A folder shows its OWN images only — subfolders are reached
+        /// through the tree. No recursion: a click on a huge library root must
+        /// never trigger a full subtree walk.</summary>
         private static IEnumerable<string> EnumerateImageFiles(string folderPath)
         {
-            var results = new List<string>();
-            var stack = new Stack<(string Path, int Depth)>();
-            stack.Push((folderPath, 0));
-            while (stack.Count > 0 && results.Count < RecurseMaxFiles)
+            try
             {
-                var (current, depth) = stack.Pop();
-                try
-                {
-                    results.AddRange(Directory
-                        .EnumerateFiles(current, "*.*", SearchOption.TopDirectoryOnly)
-                        .Where(f => SupportedExtensions.Contains(Path.GetExtension(f)))
-                        .Take(RecurseMaxFiles - results.Count));
-                    if (depth >= RecurseMaxDepth)
-                        continue;
-                    foreach (var dir in Directory.EnumerateDirectories(current))
-                    {
-                        if (!IsSkippableDirectory(dir))
-                            stack.Push((dir, depth + 1));
-                    }
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                }
+                return Directory.EnumerateFiles(folderPath, "*.*", SearchOption.TopDirectoryOnly)
+                    .Where(f => SupportedExtensions.Contains(Path.GetExtension(f)))
+                    .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
             }
-            return results.OrderBy(f => f, StringComparer.OrdinalIgnoreCase);
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return Enumerable.Empty<string>();
+            }
         }
 
         /// <summary>Thumbnails + EXIF, off the UI thread, cancellable when the
