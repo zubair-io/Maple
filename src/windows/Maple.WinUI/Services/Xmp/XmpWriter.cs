@@ -1,0 +1,228 @@
+// XmpWriter — canonical sidecar serializer for the Windows shell.
+//
+// Emits the byte-canonical document shape pinned by
+// `docs/xmp-canonical-format.md` and implemented by the TypeScript
+// `XmpSerializerService` / `xmp-canonical.ts`: fixed envelope, LF line
+// endings, two-space indentation ladder, the three core namespace
+// declarations in fixed order, attributes sorted by namespace priority then
+// name, non-default fields only, and passthrough re-emitted verbatim.
+
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using Maple.WinUI.Models;
+
+namespace Maple.WinUI.Services.Xmp
+{
+    public static class XmpWriter
+    {
+        /// <summary>Indent of `rdf:Description`'s namespace declarations, attributes and children.</summary>
+        private const string ChildIndent = "      ";
+
+        public static string Serialize(XmpSidecarDocument doc)
+        {
+            var parts = new List<string>
+            {
+                $"crs:Version=\"{XmpSchema.EscapeAttr(doc.Version)}\"",
+                $"crs:ProcessVersion=\"{XmpSchema.EscapeAttr(doc.ProcessVersion)}\"",
+                "crs:HasSettings=\"True\"",
+            };
+
+            var emittedKeys = AppendNumericFields(parts, doc.Adjustments);
+            if (emittedKeys.Contains("crs:Temperature") || emittedKeys.Contains("crs:Tint"))
+            {
+                parts.Add($"papp:WbScaleVersion=\"{doc.WbScaleVersion.ToString(CultureInfo.InvariantCulture)}\"");
+            }
+
+            AppendEnumFields(parts, doc.Adjustments);
+            AppendCullingFields(parts, doc);
+
+            foreach (var attr in doc.PassthroughAttributes)
+            {
+                parts.Add($"{attr.Name}=\"{XmpSchema.EscapeAttr(attr.Value)}\"");
+            }
+
+            var children = BuildChildren(doc);
+            return AssembleDocument(doc, parts, children);
+        }
+
+        // ── Attribute groups ────────────────────────────────────────────────
+
+        /// <summary>
+        /// Numeric sliders, emitted only when non-default. The comparison is
+        /// between serialized wire forms, not raw doubles, so near-default
+        /// values that round to the default wire string are omitted too
+        /// (mirrors the web writer, PR #2192).
+        /// </summary>
+        private static HashSet<string> AppendNumericFields(List<string> parts, AdjustmentState state)
+        {
+            var emitted = new HashSet<string>();
+            foreach (var field in XmpSchema.NumericFields)
+            {
+                var wire = XmpSchema.FormatNumber(field.Get(state));
+                var defaultWire = XmpSchema.FormatNumber(field.Get(XmpSchema.Defaults));
+                if (wire == defaultWire) continue;
+                parts.Add($"{field.Key}=\"{wire}\"");
+                emitted.Add(field.Key);
+            }
+            return emitted;
+        }
+
+        /// <summary>Enum fields — each emitted only when non-default, canonical wire spelling.</summary>
+        private static void AppendEnumFields(List<string> parts, AdjustmentState state)
+        {
+            if (state.HighlightRecovery != HighlightRecoveryMode.ChromaticAdaptation)
+            {
+                parts.Add($"papp:HighlightRecoveryMode=\"{state.HighlightRecovery}\"");
+            }
+            if (state.AutoExposure != ToggleMode.On)
+            {
+                parts.Add("papp:AutoExposure=\"Off\"");
+            }
+            if (state.Look != LookMode.Default)
+            {
+                parts.Add($"papp:Look=\"{state.Look}\"");
+            }
+            if (state.Profile != ProfileMode.Auto)
+            {
+                parts.Add($"papp:Profile=\"{state.Profile}\"");
+            }
+            if (state.HotPixelSuppression != ToggleMode.Off)
+            {
+                parts.Add("papp:HotPixelSuppression=\"On\"");
+            }
+            if (state.LensProfileEnable == ToggleMode.Off)
+            {
+                // ACR's "0" spelling so Lightroom reads it back (#376).
+                parts.Add("crs:LensProfileEnable=\"0\"");
+            }
+            if (state.WbMethod != WbMethod.Cat16)
+            {
+                parts.Add($"papp:WbMethod=\"{state.WbMethod}\"");
+            }
+            if (state.ToneCurveMode != ToneCurveMode.PerChannel)
+            {
+                parts.Add($"papp:ToneCurveMode=\"{state.ToneCurveMode}\"");
+            }
+            if (state.BlackWhite == ToggleMode.On)
+            {
+                parts.Add("crs:ConvertToGrayscale=\"True\"");
+            }
+        }
+
+        private static void AppendCullingFields(List<string> parts, XmpSidecarDocument doc)
+        {
+            if (doc.Rating is > 0)
+            {
+                var rating = Math.Min(doc.Rating.Value, 5);
+                parts.Add($"xmp:Rating=\"{rating.ToString(CultureInfo.InvariantCulture)}\"");
+            }
+            if (doc.Flag is "pick" or "reject")
+            {
+                parts.Add($"papp:Flag=\"{doc.Flag}\"");
+            }
+            if (!string.IsNullOrEmpty(doc.ColorLabel))
+            {
+                parts.Add($"papp:ColorLabel=\"{XmpSchema.EscapeAttr(doc.ColorLabel)}\"");
+            }
+        }
+
+        // ── Nested children ─────────────────────────────────────────────────
+
+        private static string BuildChildren(XmpSidecarDocument doc)
+        {
+            var blocks = new List<string>();
+            var curveBlock = ToneCurveBlocks(doc.Adjustments);
+            if (curveBlock.Length > 0) blocks.Add(curveBlock);
+
+            // Preserved unknown nodes: first line re-indented onto the
+            // canonical ladder, interior whitespace kept as authored.
+            blocks.AddRange(doc.PassthroughNodes.Select(n => $"{ChildIndent}{n}"));
+
+            return string.Join("\n", blocks);
+        }
+
+        /// <summary>
+        /// The four `papp:SceneLinearToneCurve*` blocks (#365), canonical order,
+        /// identity (empty) curves emitting nothing. Coordinates are stored on
+        /// the Windows model in the wire domain `[0, 255]` already, so they go
+        /// straight through the number codec.
+        /// </summary>
+        private static string ToneCurveBlocks(AdjustmentState state)
+        {
+            var blocks = XmpSchema.ToneCurveElements
+                .Select(e => (e.Tag, Points: e.Curve(state)))
+                .Where(e => e.Points.Count > 0)
+                .Select(e => string.Join("\n", new[]
+                    {
+                        $"{ChildIndent}<{e.Tag}>",
+                        $"{ChildIndent}  <rdf:Seq>",
+                    }
+                    .Concat(e.Points.Select(p =>
+                        $"{ChildIndent}    <rdf:li>{XmpSchema.FormatNumber(p.X)}, {XmpSchema.FormatNumber(p.Y)}</rdf:li>"))
+                    .Concat(new[]
+                    {
+                        $"{ChildIndent}  </rdf:Seq>",
+                        $"{ChildIndent}</{e.Tag}>",
+                    })));
+            return string.Join("\n", blocks);
+        }
+
+        // ── Document assembly ───────────────────────────────────────────────
+
+        /// <summary>
+        /// Canonical attribute order: namespace priority (xmp, crs, papp, dc,
+        /// exif, photoshop, Iptc4xmpCore, xmpRights, then unknown) and
+        /// alphabetical by fully-qualified name within each namespace.
+        /// </summary>
+        private static List<string> SortedAttributeParts(IEnumerable<string> parts) =>
+            parts.OrderBy(p => XmpSchema.PrefixPriority(AttributeName(p)))
+                 .ThenBy(AttributeName, StringComparer.Ordinal)
+                 .ToList();
+
+        private static string AttributeName(string part) => part[..part.IndexOf('=')];
+
+        private static string AssembleDocument(
+            XmpSidecarDocument doc, List<string> parts, string children)
+        {
+            var namespaces = new List<(string Prefix, string Uri)>
+            {
+                ("xmp", XmpSchema.XmpNs),
+                ("crs", XmpSchema.CrsNs),
+                ("papp", XmpSchema.PappNs),
+            };
+            var declared = new HashSet<string> { "x", "rdf", "xmp", "crs", "papp" };
+            foreach (var ns in doc.PassthroughNamespaces
+                         .OrderBy(n => n.Prefix, StringComparer.Ordinal))
+            {
+                if (declared.Add(ns.Prefix)) namespaces.Add((ns.Prefix, ns.Uri));
+            }
+
+            var head = namespaces
+                .Select(ns => $"{ChildIndent}xmlns:{ns.Prefix}=\"{XmpSchema.EscapeAttr(ns.Uri)}\"")
+                .Concat(SortedAttributeParts(parts).Select(p => $"{ChildIndent}{p}"));
+            var body = children.Length == 0 ? "/>" : $">\n{children}\n    </rdf:Description>";
+
+            var lines = new List<string>
+            {
+                // The `begin` value is a literal U+FEFF byte-order mark,
+                // written as an explicit escape so an editor pass can never
+                // silently strip it (mirrors xmp-canonical.ts).
+                "<?xpacket begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>",
+                "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">",
+                "  <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">",
+                "    <rdf:Description rdf:about=\"\"",
+                $"{string.Join("\n", head)}{body}",
+            };
+            // Preserved rdf:RDF / x:xmpmeta siblings: first line re-indented
+            // onto the canonical ladder, interior kept as authored.
+            lines.AddRange(doc.PassthroughRdfNodes.Select(n => $"    {n}"));
+            lines.Add("  </rdf:RDF>");
+            lines.AddRange(doc.PassthroughXmpmetaNodes.Select(n => $"  {n}"));
+            lines.Add("</x:xmpmeta>");
+            lines.Add("<?xpacket end=\"w\"?>");
+            return string.Join("\n", lines);
+        }
+    }
+}
