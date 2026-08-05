@@ -26,6 +26,23 @@ namespace Maple.WinUI.Services
         /// <summary>Raw copy of the wb_frame_* export block, in struct order,
         /// applied verbatim onto MapleAdjustmentParams for each tick.</summary>
         public required float[] WbFrame { get; init; }
+
+        // --- Auto Profile tail (#550/#924): fitted per image from the embedded
+        //     JPEG. Without it a Profile::Auto decode renders 2-3x darker and
+        //     ΔE00 ≈ 19 off the camera look (measured). Null ⇒ no tail applies
+        //     (Neutral profile, or no embedded JPEG) ⇒ plain AgX. ---
+        /// <summary>ProfileCurve::to_flat() (220 floats) for the GPU live
+        /// chain's curve pass; null when the fit produced no curve.</summary>
+        public float[]? ProfileCurve { get; set; }
+        /// <summary>Residual 3D LUT (n³×3 floats, R fastest) for the GPU live
+        /// chain's residual pass; null when absent.</summary>
+        public float[]? ResidualLut { get; set; }
+        public uint ResidualLutSize { get; set; }
+        /// <summary>The COMPOSED display-domain LUT (n³×3, R fastest) for the
+        /// CPU fallback — applied post display-encode, the CIColorCube
+        /// equivalent.</summary>
+        public float[]? DisplayLut { get; set; }
+        public int DisplayLutN { get; set; }
     }
 
     /// <summary>
@@ -84,7 +101,10 @@ namespace Maple.WinUI.Services
             m.SharpenAmount = 0; m.SharpenRadius = d.SharpenRadius;
             m.SharpenDetail = d.SharpenDetail; m.SharpenMasking = 0;
             m.NrLuminance = 0; m.NrColor = 0;
-            m.Profile = ProfileMode.Neutral;
+            // Profile is PRESERVED (Auto by default): the decode owns the
+            // AE-off anchor decision under Auto, and the fitted tail is applied
+            // per tick (GPU curve/residual passes, CPU display LUT). Forcing
+            // Neutral here measured mean ΔE00 ≈ 19 off the embedded JPEG.
             return m;
         }
 
@@ -96,8 +116,9 @@ namespace Maple.WinUI.Services
         public static DecodedImage Decode(
             string rawPath, AdjustmentState model, int maxLongEdge, IntPtr cancelFlag)
         {
+            var stripped = StripChainStages(model);
             var strippedXmp = Xmp.XmpWriter.Serialize(
-                new Xmp.XmpSidecarDocument { Adjustments = StripChainStages(model) });
+                new Xmp.XmpSidecarDocument { Adjustments = stripped });
             var tempXmpPath = Path.Combine(
                 Path.GetTempPath(), $"maple-decode-{Guid.NewGuid():N}.xmp");
             File.WriteAllText(tempXmpPath, strippedXmp);
@@ -119,7 +140,7 @@ namespace Maple.WinUI.Services
                         new ReadOnlySpan<float>(buffer.noise_profile_data, (int)buffer.noise_profile_len)
                             .CopyTo(noise);
                     var framePresent = buffer.wb_frame_scene_cct > 0f;
-                    return new DecodedImage
+                    var decoded = new DecodedImage
                     {
                         Pixels = pixels,
                         Width = (int)buffer.width,
@@ -131,6 +152,13 @@ namespace Maple.WinUI.Services
                         DecodedTint = framePresent ? buffer.wb_frame_as_shot_tint : 0f,
                         WbFrame = CopyWbFrame(&buffer),
                     };
+                    if (stripped.Profile == ProfileMode.Auto)
+                        FitAutoProfile(decoded, rawPath, tempXmpPath);
+                    DiagLog.Write(
+                        $"[decode] {System.IO.Path.GetFileName(rawPath)} ae_gain={decoded.AeGain:0.###} " +
+                        $"curve={(decoded.ProfileCurve != null ? "yes" : "no")} " +
+                        $"residual_n={decoded.ResidualLutSize} displayLut={(decoded.DisplayLut != null ? "yes" : "no")}");
+                    return decoded;
                 }
                 finally
                 {
@@ -179,6 +207,11 @@ namespace Maple.WinUI.Services
                         $"per-tick chain failed (rc={rc}): {RawFfi.LastError() ?? "unknown"}");
             }
 
+            // Auto Profile tail on the CPU fallback path: the composed
+            // display-domain LUT post-encode (the CIColorCube equivalent).
+            if (image.DisplayLut != null)
+                ApplyDisplayLut(chainScratch, floatCount, image.DisplayLut, image.DisplayLutN);
+
             var src = chainScratch;
             for (int i = 0, o = 0; i < floatCount; i += 4, o += 4)
             {
@@ -186,6 +219,100 @@ namespace Maple.WinUI.Services
                 bgraOut[o + 1] = ToByte(src[i + 1]);
                 bgraOut[o + 2] = ToByte(src[i]);
                 bgraOut[o + 3] = 255;
+            }
+        }
+
+        /// <summary>Fit the per-image Auto Profile tail (cached natively per
+        /// (path, mtime, quality)): the separate curve + residual artifacts for
+        /// the GPU live chain, and the composed display-domain LUT for the CPU
+        /// fallback. rc 1 = no tail applies (plain AgX) — not an error.</summary>
+        private static void FitAutoProfile(DecodedImage decoded, string rawPath, string xmpPath)
+        {
+            const int curveLen = 220;                 // MAPLE_PROFILE_CURVE_FLAT_LEN
+            const int lutCapacityEdge = 33;
+            var curve = new float[curveLen];
+            var residual = new float[lutCapacityEdge * lutCapacityEdge * lutCapacityEdge * 3];
+            int curvePresent;
+            uint lutSize;
+            int rc;
+            fixed (float* curvePtr = curve)
+            fixed (float* lutPtr = residual)
+            {
+                rc = RawFfi.maple_gpu_fit_auto_profile(
+                    rawPath, xmpPath, 1, curvePtr, &curvePresent,
+                    lutPtr, (nuint)residual.Length, &lutSize);
+                if (rc == -2 && lutSize > 0)
+                {
+                    // Residual larger than the default capacity — reallocate to
+                    // the advertised edge and re-call (the fit is cached).
+                    residual = new float[(int)lutSize * (int)lutSize * (int)lutSize * 3];
+                    fixed (float* lutPtr2 = residual)
+                    {
+                        rc = RawFfi.maple_gpu_fit_auto_profile(
+                            rawPath, xmpPath, 1, curvePtr, &curvePresent,
+                            lutPtr2, (nuint)residual.Length, &lutSize);
+                    }
+                }
+            }
+            if (rc != 0)
+            {
+                if (rc != 1)
+                    DiagLog.Write($"[profile] gpu fit rc={rc}: {RawFfi.LastError()}");
+                return;
+            }
+            if (curvePresent != 0)
+                decoded.ProfileCurve = curve;
+            if (lutSize > 0)
+            {
+                var lutFloats = (int)lutSize * (int)lutSize * (int)lutSize * 3;
+                decoded.ResidualLut = residual.AsSpan(0, lutFloats).ToArray();
+                decoded.ResidualLutSize = lutSize;
+            }
+
+            // Composed display-domain LUT for the CPU fallback path.
+            const int displayN = 33;
+            var displayLut = new float[displayN * displayN * displayN * 3];
+            fixed (float* displayPtr = displayLut)
+            {
+                var lutRc = RawFfi.maple_compute_auto_profile_lut(
+                    rawPath, xmpPath, 1, displayN, displayPtr);
+                if (lutRc == 0)
+                {
+                    decoded.DisplayLut = displayLut;
+                    decoded.DisplayLutN = displayN;
+                }
+                else
+                {
+                    DiagLog.Write($"[profile] cpu lut rc={lutRc}: {RawFfi.LastError()}");
+                }
+            }
+        }
+
+        /// <summary>Trilinear 3D-LUT application over display-encoded RGB —
+        /// the CPU-fallback equivalent of Apple's post-encode CIColorCube.
+        /// Layout: data[((b*n+g)*n+r)*3+c], R fastest.</summary>
+        public static void ApplyDisplayLut(float[] rgba, int floatCount, float[] lut, int n)
+        {
+            var maxIndex = n - 1;
+            for (var i = 0; i < floatCount; i += 4)
+            {
+                var r = Math.Clamp(rgba[i], 0f, 1f) * maxIndex;
+                var g = Math.Clamp(rgba[i + 1], 0f, 1f) * maxIndex;
+                var b = Math.Clamp(rgba[i + 2], 0f, 1f) * maxIndex;
+                int r0 = (int)r, g0 = (int)g, b0 = (int)b;
+                int r1 = Math.Min(r0 + 1, maxIndex), g1 = Math.Min(g0 + 1, maxIndex), b1 = Math.Min(b0 + 1, maxIndex);
+                float fr = r - r0, fg = g - g0, fb = b - b0;
+                for (var c = 0; c < 3; c++)
+                {
+                    float At(int bi, int gi, int ri) => lut[(((bi * n) + gi) * n + ri) * 3 + c];
+                    var c00 = At(b0, g0, r0) * (1 - fr) + At(b0, g0, r1) * fr;
+                    var c01 = At(b0, g1, r0) * (1 - fr) + At(b0, g1, r1) * fr;
+                    var c10 = At(b1, g0, r0) * (1 - fr) + At(b1, g0, r1) * fr;
+                    var c11 = At(b1, g1, r0) * (1 - fr) + At(b1, g1, r1) * fr;
+                    var c0 = c00 * (1 - fg) + c01 * fg;
+                    var c1 = c10 * (1 - fg) + c11 * fg;
+                    rgba[i + c] = c0 * (1 - fb) + c1 * fb;
+                }
             }
         }
 
@@ -228,6 +355,11 @@ namespace Maple.WinUI.Services
                 DecodedTemperature = src.DecodedTemperature,
                 DecodedTint = src.DecodedTint,
                 WbFrame = src.WbFrame,
+                ProfileCurve = src.ProfileCurve,
+                ResidualLut = src.ResidualLut,
+                ResidualLutSize = src.ResidualLutSize,
+                DisplayLut = src.DisplayLut,
+                DisplayLutN = src.DisplayLutN,
             };
         }
 
