@@ -142,12 +142,23 @@
                             </Grid>
                             <TreeView ItemsSource="{Binding FolderTree}" SelectionMode="None"
                                       ItemInvoked="OnFolderNodeInvoked"
+                                      Expanding="OnFolderExpanding"
                                       AutomationProperties.Name="Folders">
                                 <TreeView.ItemTemplate>
                                     <DataTemplate x:DataType="vm:FolderNode">
                                         <TreeViewItem ItemsSource="{Binding Children}"
                                                       ToolTipService.ToolTip="{Binding Path}"
                                                       AutomationProperties.Name="{Binding Name}">
+                                            <TreeViewItem.ContextFlyout>
+                                                <MenuFlyout>
+                                                    <MenuFlyoutItem Text="Remove from Library" Click="OnRemoveFolder"
+                                                                    AutomationProperties.Name="Remove folder from library">
+                                                        <MenuFlyoutItem.Icon>
+                                                            <FontIcon Glyph="&#xE738;" />
+                                                        </MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                </MenuFlyout>
+                                            </TreeViewItem.ContextFlyout>
                                             <StackPanel Orientation="Horizontal" Spacing="8">
                                                 <FontIcon Glyph="&#xE8B7;" FontSize="13"
                                                           Foreground="{StaticResource MapleTextMuted}" />

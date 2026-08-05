@@ -312,12 +312,33 @@ namespace Maple.WinUI
 
         private void OnFolderNodeInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
         {
-            if (args.InvokedItem is FolderNode node)
+            if (args.InvokedItem is FolderNode { IsPlaceholder: false } node)
             {
                 ViewModel.SetDateFilter(null, null);
                 ViewModel.LoadDirectory(node.Path);
                 SetMode(ShellMode.Browse);
             }
+        }
+
+        private void OnFolderExpanding(TreeView sender, TreeViewExpandingEventArgs args)
+        {
+            if (args.Item is FolderNode node)
+                ViewModel.LoadFolderChildren(node);
+        }
+
+        private async void OnRemoveFolder(object sender, RoutedEventArgs e)
+        {
+            if ((sender as FrameworkElement)?.DataContext is not FolderNode node)
+                return;
+            if (!ViewModel.IsLibraryRoot(node.Path))
+            {
+                await ShowMessageAsync("Folders",
+                    "Only top-level library folders can be removed — subfolders are part "
+                    + "of their library root.");
+                return;
+            }
+            // Unregisters only; nothing on disk (originals, sidecars) is touched.
+            ViewModel.RemoveLibraryFolder(node.Path);
         }
 
         private void OnTimelineNodeInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
