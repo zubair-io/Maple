@@ -26,10 +26,13 @@ namespace Maple.WinUI
 
         protected override void OnLaunched(LaunchActivatedEventArgs args)
         {
+            Maple.WinUI.Services.DiagLog.Write("[boot] OnLaunched");
             RawFfi.VerifyAbi();
             MainDispatcherQueue = DispatcherQueue.GetForCurrentThread();
             _window = new MainWindow();
+            Maple.WinUI.Services.DiagLog.Write("[boot] MainWindow constructed");
             _window.Activate();
+            Maple.WinUI.Services.DiagLog.Write("[boot] activated");
         }
     }
 }
