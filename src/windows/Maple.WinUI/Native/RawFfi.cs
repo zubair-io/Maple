@@ -93,6 +93,29 @@ namespace Maple.WinUI.Native
             [MarshalAs(UnmanagedType.LPUTF8Str)] string? xmpPath,
             uint* outBins);
 
+        // --- GPU live chain + WinUI SwapChainPanel present (#2561) ---
+
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int maple_gpu_live_open(
+            float* pixels, uint width, uint height,
+            MapleGpuLiveSession* handleOut);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void maple_gpu_live_close(
+            MapleGpuLiveSession* handle);
+
+        /// <summary>Render one edit on the live session and present it into the
+        /// DXGI composition swapchain bound to the SwapChainPanel. panelNative
+        /// is the ISwapChainPanelNative* (WinUI 3 DXInterop QI). 0 = presented;
+        /// 4 = cancelled; any other nonzero = fall back to the CPU path.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int maple_gpu_present_chain_winui(
+            MapleGpuLiveSession* handle,
+            MapleGpuLiveParams* p,
+            IntPtr panelNative,
+            IntPtr cancelFlag,
+            ulong surfaceGeneration);
+
         // --- AUTO adjustments ---
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]

@@ -1,3 +1,4 @@
+using System;
 using System.Runtime.InteropServices;
 
 namespace Maple.WinUI.Native
@@ -37,6 +38,16 @@ namespace Maple.WinUI.Native
         public fixed float wb_frame_render_fm_cold[9];
         public fixed float wb_frame_render_fm_warm[9];
         public float ae_gain;
+    }
+
+    /// <summary>
+    /// C-ABI mirror of raw-ffi's MapleGpuLiveSession (gpu_live.rs): an opaque
+    /// handle struct the host allocates and maple_gpu_live_open fills in.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MapleGpuLiveSession
+    {
+        public IntPtr inner;
     }
 
     /// <summary>

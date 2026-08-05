@@ -46,6 +46,9 @@ namespace Maple.WinUI.ViewModels
         private bool _sidecarDirty;
         private float _asShotTemperature = 6500f;
         private float _asShotTint;
+        /// <summary>The photo the scene-linear decode has run (or is running)
+        /// for — decode is lazy and only starts on Edit entry.</summary>
+        private PhotoItem? _decodedPhoto;
 
         [ObservableProperty]
         private PhotoItem? _selectedPhoto;
@@ -95,6 +98,13 @@ namespace Maple.WinUI.ViewModels
             FlushSidecarNow();
             _openPhoto = photo;
             _sidecarDirty = false;
+            _decodedPhoto = null;
+            CancelActiveDecode();
+            // Never let a stale image produce frames for the new photo; the
+            // Preview screen shows the embedded JPEG until Edit decodes.
+            Renderer.SetImage(null);
+            IsDecoding = false;
+            DecodeStatus = string.Empty;
 
             var doc = SidecarStore.Load(photo.FilePath);
             Adjustments = doc?.Adjustments ?? new AdjustmentState();
@@ -105,6 +115,33 @@ namespace Maple.WinUI.ViewModels
             SyncSlidersFromModel();
 
             _sidecarWatcher.WatchDirectory(System.IO.Path.GetDirectoryName(photo.FilePath) ?? string.Empty);
+            RequestEmbeddedPreview(photo);
+        }
+
+        /// <summary>Extract the full-screen embedded JPEG for the Preview
+        /// screen (cached; instant after first visit).</summary>
+        private void RequestEmbeddedPreview(PhotoItem photo)
+        {
+            if (photo.PreviewPath != null)
+                return;
+            _ = Task.Run(async () =>
+            {
+                var path = await _thumbnails.GetOrCreateAsync(
+                    photo.FilePath, CancellationToken.None, ThumbnailService.PreviewMaxPx);
+                if (path != null)
+                    OnUi(() => photo.PreviewPath = new Uri(path).AbsoluteUri);
+            });
+        }
+
+        /// <summary>Start the scene-linear decode for the current photo if it
+        /// has not run yet — called when the Edit screen is entered. The
+        /// embedded-JPEG preview stays on screen until the first chain frame.</summary>
+        public void EnsureDecoded()
+        {
+            var photo = SelectedPhoto;
+            if (photo == null || ReferenceEquals(_decodedPhoto, photo))
+                return;
+            _decodedPhoto = photo;
             DecodeCurrent(photo);
         }
 
