@@ -1,267 +1,272 @@
 using System;
-using System.IO;
+using System.Runtime.InteropServices.WindowsRuntime;
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media.Imaging;
+using Windows.System;
+using Maple.WinUI.Services;
 using Maple.WinUI.ViewModels;
 
 namespace Maple.WinUI
 {
-    public partial class MainWindow : Window
+    public sealed partial class MainWindow : Window
     {
         public EditSessionViewModel ViewModel { get; }
+
+        private WriteableBitmap? _viewportBitmap;
+        private readonly AppSettings _settings = AppSettings.Load();
+        private bool _inDevelopMode;
 
         public MainWindow()
         {
             ViewModel = new EditSessionViewModel();
             this.InitializeComponent();
 
-            if (this.Content is FrameworkElement rootElement)
+            if (this.Content is FrameworkElement root)
             {
-                rootElement.DataContext = ViewModel;
+                root.DataContext = ViewModel;
+                root.KeyDown += OnRootKeyDown;
             }
-        }
 
-        private void OnAdjustmentChanged(object sender, RangeBaseValueChangedEventArgs e)
-        {
-            // Real-time 60Hz adjustment tick
-        }
-
-        private void OnSwitchToBrowse(object sender, RoutedEventArgs e)
-        {
-            if (ViewModel == null || BrowseGridContainer == null || DevelopContainer == null) return;
-
-            ViewModel.SwitchToBrowseMode();
-            BrowseGridContainer.Visibility = Visibility.Visible;
-            DevelopContainer.Visibility = Visibility.Collapsed;
-
-            if (BrowseModeBtn != null) BrowseModeBtn.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
-            if (DevelopModeBtn != null) DevelopModeBtn.Style = null;
-        }
-
-        private void OnSwitchToDevelop(object sender, RoutedEventArgs e)
-        {
-            if (ViewModel == null || BrowseGridContainer == null || DevelopContainer == null) return;
-
-            ViewModel.SwitchToDevelopMode();
-            BrowseGridContainer.Visibility = Visibility.Collapsed;
-            DevelopContainer.Visibility = Visibility.Visible;
-
-            if (BrowseModeBtn != null) BrowseModeBtn.Style = null;
-            if (DevelopModeBtn != null) DevelopModeBtn.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
-        }
-
-        private void OnPhotoItemClick(object sender, ItemClickEventArgs e)
-        {
-            if (ViewModel == null) return;
-            if (e.ClickedItem is PhotoItem photo)
+            ViewModel.Renderer.FrameReady += OnFrameReady;
+            ViewModel.Renderer.RenderFailed += message =>
+                App.MainDispatcherQueue?.TryEnqueue(() => RenderStatsText.Text = $"render error: {message}");
+            ViewModel.PropertyChanged += (_, e) =>
             {
-                ViewModel.SelectedPhoto = photo;
-                OnSwitchToDevelop(sender, new RoutedEventArgs());
-            }
+                if (e.PropertyName == nameof(ViewModel.SelectedPhoto))
+                    OnSelectedPhotoChanged();
+            };
+            ViewModel.Photos.CollectionChanged += (_, _) =>
+                LibraryCountText.Text = $"{ViewModel.Photos.Count} photos";
+
+            SidebarColDef.Width = new GridLength(_settings.LeftPanelHidden ? 0 : _settings.LeftPanelWidth);
+            InspectorColDef.Width = new GridLength(_settings.DetailPanelHidden ? 0 : _settings.DetailPanelWidth);
+            SetActiveModeButton(browse: true);
+            SetActiveTab(TabDevelopBtn);
+            BuildStarRow();
+            this.Closed += (_, _) => ViewModel.Dispose();
+        }
+
+        // --- Rendering ---
+
+        private void OnFrameReady(byte[] bgra, int width, int height, uint[] bins, double millis)
+        {
+            var copy = new byte[bgra.Length];
+            Buffer.BlockCopy(bgra, 0, copy, 0, bgra.Length);
+            App.MainDispatcherQueue?.TryEnqueue(() =>
+            {
+                if (_viewportBitmap == null || _viewportBitmap.PixelWidth != width
+                    || _viewportBitmap.PixelHeight != height)
+                {
+                    _viewportBitmap = new WriteableBitmap(width, height);
+                    ViewportImage.Source = _viewportBitmap;
+                }
+                using (var stream = _viewportBitmap.PixelBuffer.AsStream())
+                {
+                    stream.Write(copy, 0, copy.Length);
+                }
+                _viewportBitmap.Invalidate();
+                RenderStatsText.Text = $"{width}×{height} · chain {millis:0} ms";
+                ViewModel.LastRenderMillis = millis;
+                HistogramView.Draw(HistogramCanvas, bins);
+            });
+        }
+
+        // --- Mode / panel chrome ---
+
+        private void OnSwitchToBrowse(object sender, RoutedEventArgs e) => SwitchMode(develop: false);
+
+        private void OnSwitchToDevelop(object sender, RoutedEventArgs e) => SwitchMode(develop: true);
+
+        private void SwitchMode(bool develop)
+        {
+            _inDevelopMode = develop;
+            BrowseGridContainer.Visibility = develop ? Visibility.Collapsed : Visibility.Visible;
+            DevelopContainer.Visibility = develop ? Visibility.Visible : Visibility.Collapsed;
+            SetActiveModeButton(browse: !develop);
+            if (develop && ViewModel.SelectedPhoto == null && ViewModel.Photos.Count > 0)
+                ViewModel.SelectedPhoto = ViewModel.Photos[0];
+        }
+
+        private void SetActiveModeButton(bool browse)
+        {
+            var accent = (Style)Application.Current.Resources["AccentButtonStyle"];
+            BrowseModeBtn.Style = browse ? accent : (Style)Application.Current.Resources["DefaultButtonStyle"];
+            DevelopModeBtn.Style = browse ? (Style)Application.Current.Resources["DefaultButtonStyle"] : accent;
         }
 
         private void OnToggleSidebar(object sender, RoutedEventArgs e)
         {
-            if (SidebarColDef == null) return;
-            if (SidebarColDef.Width.Value > 0)
-            {
-                SidebarColDef.Width = new GridLength(0);
-            }
-            else
-            {
-                SidebarColDef.Width = new GridLength(260);
-            }
+            var hidden = SidebarColDef.Width.Value > 0;
+            SidebarColDef.Width = new GridLength(hidden ? 0 : Math.Max(_settings.LeftPanelWidth, 200));
+            _settings.LeftPanelHidden = hidden;
+            _settings.Save();
         }
 
         private void OnToggleInspector(object sender, RoutedEventArgs e)
         {
-            if (InspectorColDef == null) return;
-            if (InspectorColDef.Width.Value > 0)
+            var hidden = InspectorColDef.Width.Value > 0;
+            InspectorColDef.Width = new GridLength(hidden ? 0 : Math.Max(_settings.DetailPanelWidth, 280));
+            _settings.DetailPanelHidden = hidden;
+            _settings.Save();
+        }
+
+        private void OnSelectInspectorTab(object sender, RoutedEventArgs e) =>
+            SetActiveTab((Button)sender);
+
+        private void SetActiveTab(Button active)
+        {
+            var accent = (Style)Application.Current.Resources["AccentButtonStyle"];
+            var normal = (Style)Application.Current.Resources["DefaultButtonStyle"];
+            TabDevelopBtn.Style = active == TabDevelopBtn ? accent : normal;
+            TabInfoBtn.Style = active == TabInfoBtn ? accent : normal;
+            AdjustmentsPanel.Visibility = active == TabDevelopBtn ? Visibility.Visible : Visibility.Collapsed;
+            InfoPanel.Visibility = active == TabInfoBtn ? Visibility.Visible : Visibility.Collapsed;
+            if (active == TabInfoBtn)
+                RefreshInfoPanel();
+        }
+
+        // --- Selection ---
+
+        private void OnPhotoItemClick(object sender, ItemClickEventArgs e)
+        {
+            if (e.ClickedItem is PhotoItem photo)
             {
-                InspectorColDef.Width = new GridLength(0);
-            }
-            else
-            {
-                InspectorColDef.Width = new GridLength(320);
+                ViewModel.SelectedPhoto = photo;
+                SwitchMode(develop: true);
             }
         }
 
-        private void OnSelectInspectorTab(object sender, RoutedEventArgs e)
+        private void OnGridSelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (sender is Button btn)
+            if (sender is ListViewBase list && list.SelectedItem is PhotoItem photo
+                && !ReferenceEquals(photo, ViewModel.SelectedPhoto))
             {
-                if (TabAdjustmentsBtn != null) TabAdjustmentsBtn.Style = null;
-                if (TabInfoBtn != null) TabInfoBtn.Style = null;
-                if (TabPresetsBtn != null) TabPresetsBtn.Style = null;
-
-                if (AdjustmentsPanel != null) AdjustmentsPanel.Visibility = Visibility.Collapsed;
-                if (InfoPanel != null) InfoPanel.Visibility = Visibility.Collapsed;
-                if (PresetsPanel != null) PresetsPanel.Visibility = Visibility.Collapsed;
-
-                btn.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
-
-                if (btn == TabAdjustmentsBtn && AdjustmentsPanel != null)
-                {
-                    AdjustmentsPanel.Visibility = Visibility.Visible;
-                }
-                else if (btn == TabInfoBtn && InfoPanel != null)
-                {
-                    InfoPanel.Visibility = Visibility.Visible;
-                }
-                else if (btn == TabPresetsBtn && PresetsPanel != null)
-                {
-                    PresetsPanel.Visibility = Visibility.Visible;
-                }
+                ViewModel.SelectedPhoto = photo;
             }
         }
 
-        private async void OnOpenDirectory(object sender, RoutedEventArgs e)
+        private void OnSelectedPhotoChanged()
         {
-            var picker = new Windows.Storage.Pickers.FolderPicker();
-            picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.PicturesLibrary;
-            picker.FileTypeFilter.Add("*");
-
-            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-            WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
-
-            var folder = await picker.PickSingleFolderAsync();
-            if (folder != null && ViewModel != null)
+            var photo = ViewModel.SelectedPhoto;
+            if (photo == null)
+                return;
+            if (PhotoGrid.SelectedItem != photo)
+                PhotoGrid.SelectedItem = photo;
+            if (Filmstrip.SelectedItem != photo)
             {
-                ViewModel.LoadDirectory(folder.Path);
-                OnSwitchToBrowse(sender, new RoutedEventArgs());
+                Filmstrip.SelectedItem = photo;
+                Filmstrip.ScrollIntoView(photo);
+            }
+            UpdateStarRow();
+            if (InfoPanel.Visibility == Visibility.Visible)
+                RefreshInfoPanel();
+        }
 
-                // Add folder to TreeView under Local Pictures node
-                if (LocalPicturesNode != null)
-                {
-                    bool exists = false;
-                    foreach (var child in LocalPicturesNode.Children)
-                    {
-                        if (child.Content is string path && string.Equals(path, folder.Path, StringComparison.OrdinalIgnoreCase))
-                        {
-                            exists = true;
-                            break;
-                        }
-                    }
+        // --- Library scopes / filters ---
 
-                    if (!exists)
-                    {
-                        var folderNode = new TreeViewNode
-                        {
-                            Content = folder.Path
-                        };
-                        LocalPicturesNode.Children.Add(folderNode);
-                    }
-                    LocalPicturesNode.IsExpanded = true;
-                }
+        private void OnSelectLibraryScope(object sender, SelectionChangedEventArgs e)
+        {
+            if (LibraryList.SelectedItem is not ListViewItem item)
+                return;
+            var scope = item.Tag as string;
+            ViewModel.DateFilterDay = null;
+            ViewModel.FlagFilter = scope is "pick" or "reject" ? scope : "all";
+            ViewModel.MinRatingFilter = scope == "rated4" ? 4 : 0;
+        }
+
+        private void OnSelectFolder(object sender, SelectionChangedEventArgs e)
+        {
+            if (FoldersList.SelectedItem is string folder)
+            {
+                ViewModel.DateFilterDay = null;
+                ViewModel.LoadDirectory(folder);
+                SwitchMode(develop: false);
             }
         }
 
-        private void OnSelectSidebarItem(object sender, SelectionChangedEventArgs e)
+        private void OnSelectTimelineGroup(object sender, SelectionChangedEventArgs e)
         {
-            if (ViewModel == null) return;
-            if (sender is ListView lv && lv.SelectedItem is ListViewItem item)
+            if (sender is ListView list && list.SelectedItem is TimelineGroup group)
             {
-                string myPictures = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
-                if (Directory.Exists(myPictures))
-                {
-                    ViewModel.LoadDirectory(myPictures);
-                }
+                ViewModel.DateFilterDay = group.SortKey;
+                SwitchMode(develop: false);
             }
         }
 
-        private void OnSelectTreeViewNode(TreeView sender, TreeViewItemInvokedEventArgs args)
+        private void OnFormatFilterChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (ViewModel == null) return;
-            if (args.InvokedItem is TreeViewNode node && node.Content is string text)
-            {
-                if (Directory.Exists(text))
-                {
-                    ViewModel.LoadDirectory(text);
-                    OnSwitchToBrowse(sender, new RoutedEventArgs());
-                }
-                else if (text == "Local Pictures")
-                {
-                    string myPictures = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
-                    if (Directory.Exists(myPictures))
-                    {
-                        ViewModel.LoadDirectory(myPictures);
-                        OnSwitchToBrowse(sender, new RoutedEventArgs());
-                    }
-                }
-            }
+            if (FormatFilterBox.SelectedItem is ComboBoxItem item && item.Tag is string tag)
+                ViewModel.FormatFilter = tag;
         }
 
-        private async void OnOpenPanoStitch(object sender, RoutedEventArgs e)
+        private void OnRatingFilterChanged(object sender, SelectionChangedEventArgs e)
         {
-            var panel = new StackPanel { Spacing = 12, Width = 360 };
-            panel.Children.Add(new TextBlock
-            {
-                Text = "Select projection mode and feature matching alignment options for the selected RAW frames.",
-                TextWrapping = TextWrapping.Wrap,
-                Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"]
-            });
-
-            var modeCombo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, SelectedIndex = 0 };
-            modeCombo.Items.Add("Spherical (Best for wide landscapes)");
-            modeCombo.Items.Add("Cylindrical (Best for tall architecture)");
-            modeCombo.Items.Add("Perspective (Flat rectilinear projection)");
-            panel.Children.Add(modeCombo);
-
-            var cropCheck = new CheckBox { Content = "Auto-Crop Black Borders", IsChecked = true };
-            panel.Children.Add(cropCheck);
-
-            var dialog = new ContentDialog
-            {
-                Title = "Panorama Stitcher (maple-pano)",
-                Content = panel,
-                PrimaryButtonText = "Stitch Panorama",
-                CloseButtonText = "Cancel",
-                DefaultButton = ContentDialogButton.Primary
-            };
-
-            if (this.Content is FrameworkElement rootElement)
-            {
-                dialog.XamlRoot = rootElement.XamlRoot;
-            }
-
-            await dialog.ShowAsync();
+            if (RatingFilterBox.SelectedItem is ComboBoxItem item && item.Tag is string tag)
+                ViewModel.MinRatingFilter = int.Parse(tag);
         }
 
-        private async void OnExportPhotos(object sender, RoutedEventArgs e)
+        private void OnSearchChanged(object sender, TextChangedEventArgs e) =>
+            ViewModel.SearchText = SearchBox.Text;
+
+        // --- Adjustments chrome ---
+
+        private void OnSliderRowDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
-            var panel = new StackPanel { Spacing = 12, Width = 360 };
+            if (sender is FrameworkElement { DataContext: AdjustmentSliderViewModel slider })
+                slider.Reset();
+        }
 
-            var formatCombo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, SelectedIndex = 0 };
-            formatCombo.Items.Add("JPEG (sRGB 8-bit)");
-            formatCombo.Items.Add("TIFF (Display P3 16-bit)");
-            formatCombo.Items.Add("PNG (sRGB 8-bit)");
-            formatCombo.Items.Add("DNG (Linear DNG RAW)");
-            panel.Children.Add(new TextBlock { Text = "Export Format", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-            panel.Children.Add(formatCombo);
+        private void OnApplyAuto(object sender, RoutedEventArgs e) => ViewModel.ApplyAuto();
 
-            var qualitySlider = new Slider { Minimum = 50, Maximum = 100, Value = 92, StepFrequency = 1 };
-            panel.Children.Add(new TextBlock { Text = "Quality / Compression (92%)" });
-            panel.Children.Add(qualitySlider);
+        private void OnRevert(object sender, RoutedEventArgs e) => ViewModel.RevertToOriginal();
 
-            var sidecarCheck = new CheckBox { Content = "Preserve Original XMP Sidecar Metadata", IsChecked = true };
-            panel.Children.Add(sidecarCheck);
+        // --- Culling ---
 
-            var dialog = new ContentDialog
+        private void OnFlagPick(object sender, RoutedEventArgs e) => ViewModel.SetFlag("pick");
+        private void OnFlagReject(object sender, RoutedEventArgs e) => ViewModel.SetFlag("reject");
+        private void OnFlagNone(object sender, RoutedEventArgs e) => ViewModel.SetFlag("none");
+
+        // --- Keyboard (culling + navigation + edit) ---
+
+        private void OnRootKeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            if (FocusManager.GetFocusedElement(this.Content.XamlRoot) is TextBox)
+                return;
+            var ctrl = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control)
+                .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+            var shift = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift)
+                .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+            var key = (int)e.Key;
+            if (!ctrl && key >= (int)VirtualKey.Number0 && key <= (int)VirtualKey.Number5)
             {
-                Title = "Batch Export Photos",
-                Content = panel,
-                PrimaryButtonText = "Export",
-                CloseButtonText = "Cancel",
-                DefaultButton = ContentDialogButton.Primary
-            };
-
-            if (this.Content is FrameworkElement rootElement)
-            {
-                dialog.XamlRoot = rootElement.XamlRoot;
+                ViewModel.SetRating(key - (int)VirtualKey.Number0);
+                UpdateStarRow();
+                e.Handled = true;
+                return;
             }
 
-            await dialog.ShowAsync();
+            e.Handled = true;
+            switch (e.Key)
+            {
+                case VirtualKey.P when !ctrl: ViewModel.SetFlag("pick"); break;
+                case VirtualKey.X when !ctrl: ViewModel.SetFlag("reject"); break;
+                case VirtualKey.U when !ctrl: ViewModel.SetFlag("none"); break;
+                case VirtualKey.Left: ViewModel.SelectNeighbor(-1); break;
+                case VirtualKey.Right: ViewModel.SelectNeighbor(1); break;
+                case VirtualKey.Up: ViewModel.SelectNeighbor(-10); break;
+                case VirtualKey.Down: ViewModel.SelectNeighbor(10); break;
+                case VirtualKey.Escape when _inDevelopMode: SwitchMode(develop: false); break;
+                case VirtualKey.Z when ctrl && shift: ViewModel.Redo(); break;
+                case VirtualKey.Z when ctrl: ViewModel.Undo(); break;
+                case VirtualKey.R when ctrl: ViewModel.RevertToOriginal(); break;
+                case VirtualKey.E when ctrl: OnExportPhotos(this, new RoutedEventArgs()); break;
+                case VirtualKey.O when ctrl: OnOpenDirectory(this, new RoutedEventArgs()); break;
+                default: e.Handled = false; break;
+            }
         }
     }
 }

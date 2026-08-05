@@ -6,43 +6,42 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Maple.WinUI.ViewModels
 {
-    public class TimelineGroup
+    public sealed class TimelineGroup
     {
-        public string DateLabel { get; set; } = string.Empty;
-        public int PhotoCount { get; set; }
+        public string DateLabel { get; init; } = string.Empty;
+        public int PhotoCount { get; init; }
+        public DateTime SortKey { get; init; }
         public ObservableCollection<PhotoItem> Items { get; } = new();
     }
 
+    /// <summary>Date grouping for the sidebar timeline, keyed on EXIF capture
+    /// date with file mtime as the fallback.</summary>
     public partial class TimelineViewModel : ObservableObject
     {
         public ObservableCollection<TimelineGroup> DateGroups { get; } = new();
 
         public void GroupPhotosByDate(IEnumerable<PhotoItem> photos)
         {
+            var groups = photos
+                .GroupBy(p => (p.CaptureDate ?? p.FileModifiedUtc.ToLocalTime()).Date)
+                .OrderByDescending(g => g.Key)
+                .Select(g =>
+                {
+                    var tg = new TimelineGroup
+                    {
+                        DateLabel = g.Key.ToString("yyyy-MM-dd (dddd)"),
+                        PhotoCount = g.Count(),
+                        SortKey = g.Key,
+                    };
+                    foreach (var item in g)
+                        tg.Items.Add(item);
+                    return tg;
+                })
+                .ToList();
+
             DateGroups.Clear();
-
-            var groups = photos.GroupBy(p =>
-            {
-                if (DateTime.TryParse(p.DateTaken, out var dt))
-                {
-                    return dt.ToString("yyyy-MM-dd (dddd)");
-                }
-                return "Unknown Date";
-            }).OrderByDescending(g => g.Key);
-
             foreach (var group in groups)
-            {
-                var tg = new TimelineGroup
-                {
-                    DateLabel = group.Key,
-                    PhotoCount = group.Count()
-                };
-                foreach (var item in group)
-                {
-                    tg.Items.Add(item);
-                }
-                DateGroups.Add(tg);
-            }
+                DateGroups.Add(group);
         }
     }
 }
