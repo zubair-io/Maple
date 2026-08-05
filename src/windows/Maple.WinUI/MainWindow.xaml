@@ -2,21 +2,46 @@
     x:Class="Maple.WinUI.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:Maple.WinUI.ViewModels"
+    xmlns:conv="using:Maple.WinUI.Converters"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
     Title="Maple — Professional RAW Photo Editor">
 
-    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+    <Grid Background="{StaticResource MapleBg}" KeyboardAcceleratorPlacementMode="Hidden">
+
+        <Grid.Resources>
+            <conv:PickFlagVisibleConverter x:Key="PickVisible" />
+            <conv:BoolVisibleConverter x:Key="BoolVisible" />
+            <DataTemplate x:Key="SliderRowTemplate" x:DataType="vm:AdjustmentSliderViewModel">
+                <StackPanel Margin="0,2,0,6" DoubleTapped="OnSliderRowDoubleTapped">
+                    <Grid>
+                        <TextBlock Text="{Binding Label}" Style="{StaticResource MapleRowLabel}" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6">
+                            <Ellipse Width="6" Height="6" Fill="{StaticResource MaplePrimary}"
+                                     Visibility="{Binding IsModified, Converter={StaticResource BoolVisible}}"
+                                     VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding FormattedValue}" Style="{StaticResource MapleValueChip}" />
+                        </StackPanel>
+                    </Grid>
+                    <Slider Minimum="{Binding Minimum}" Maximum="{Binding Maximum}"
+                            StepFrequency="{Binding StepFrequency}"
+                            Value="{Binding Value, Mode=TwoWay}"
+                            AutomationProperties.Name="{Binding Label}"
+                            Margin="0,-4,0,0" IsThumbToolTipEnabled="False" />
+                </StackPanel>
+            </DataTemplate>
+        </Grid.Resources>
+
         <Grid.RowDefinitions>
-            <!-- Row 0: Top CommandBar Header -->
             <RowDefinition Height="Auto" />
-            <!-- Row 1: Main 3-Column Shell -->
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- Row 0: Top Navigation Header -->
-        <Border Grid.Row="0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Padding="12,8">
+        <!-- ===== Toolbar ===== -->
+        <Border Grid.Row="0" Background="{StaticResource MapleBg}"
+                BorderBrush="{StaticResource MapleBorder}" BorderThickness="0,0,0,1" Padding="12,6">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
@@ -24,257 +49,270 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <!-- Left Section: App Brand & Sidebar Toggle -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                    <Button x:Name="PaneToggleBtn" Click="OnToggleSidebar" Padding="8,6">
-                        <FontIcon Glyph="&#xE700;" FontSize="14" />
+                    <Button Style="{StaticResource MapleToolButton}" Click="OnToggleSidebar"
+                            AutomationProperties.Name="Toggle sources panel">
+                        <FontIcon Glyph="&#xE700;" FontSize="13" />
                     </Button>
-                    <TextBlock Text="MAPLE" FontWeight="Bold" FontSize="16" CharacterSpacing="100" VerticalAlignment="Center" Foreground="{ThemeResource AccentFillColorDefaultBrush}" />
+                    <TextBlock Text="MAPLE" FontWeight="Bold" FontSize="15" CharacterSpacing="180"
+                               VerticalAlignment="Center" Foreground="{StaticResource MaplePrimary}" />
                 </StackPanel>
 
-                <!-- Center Section: Mode Switcher (Browse vs Develop) -->
-                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="4" VerticalAlignment="Center">
-                    <Button x:Name="BrowseModeBtn" Click="OnSwitchToBrowse" Style="{StaticResource AccentButtonStyle}" Padding="16,6">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <FontIcon Glyph="&#xE8A1;" FontSize="14" />
-                            <TextBlock Text="Browse" FontWeight="SemiBold" />
-                        </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="2"
+                            VerticalAlignment="Center">
+                    <Button x:Name="BrowseModeBtn" Click="OnSwitchToBrowse" Padding="16,5"
+                            AutomationProperties.Name="Browse mode">
+                        <TextBlock Text="Browse" FontWeight="SemiBold" FontSize="13" />
                     </Button>
-                    <Button x:Name="DevelopModeBtn" Click="OnSwitchToDevelop" Padding="16,6">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <FontIcon Glyph="&#xE790;" FontSize="14" />
-                            <TextBlock Text="Develop" FontWeight="SemiBold" />
-                        </StackPanel>
+                    <Button x:Name="DevelopModeBtn" Click="OnSwitchToDevelop" Padding="16,5"
+                            AutomationProperties.Name="Develop mode">
+                        <TextBlock Text="Develop" FontWeight="SemiBold" FontSize="13" />
                     </Button>
                 </StackPanel>
 
-                <!-- Right Section: Search & Quick Actions -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <AutoSuggestBox Width="180" PlaceholderText="Search metadata..." />
-                    <Button Click="OnOpenDirectory" ToolTipService.ToolTip="Open Photo Directory (Ctrl+O)" Padding="8,6">
-                        <FontIcon Glyph="&#xE8DA;" FontSize="14" />
+                    <TextBox x:Name="SearchBox" Width="190" PlaceholderText="Search name, camera, lens…"
+                             Background="{StaticResource MapleInputBg}" FontSize="12"
+                             TextChanged="OnSearchChanged"
+                             AutomationProperties.Name="Search library" />
+                    <Button Style="{StaticResource MapleToolButton}" Click="OnOpenDirectory"
+                            ToolTipService.ToolTip="Add photo folder (Ctrl+O)"
+                            AutomationProperties.Name="Add photo folder">
+                        <FontIcon Glyph="&#xE8F4;" FontSize="13" />
                     </Button>
-                    <Button Click="OnOpenPanoStitch" ToolTipService.ToolTip="Panorama Stitcher (maple-pano)" Padding="8,6">
-                        <FontIcon Glyph="&#xE799;" FontSize="14" />
-                    </Button>
-                    <Button Click="OnExportPhotos" ToolTipService.ToolTip="Batch Export Photos (Ctrl+E)" Style="{StaticResource AccentButtonStyle}" Padding="12,6">
+                    <Button Style="{StaticResource MapleToolButton}" Click="OnExportPhotos"
+                            ToolTipService.ToolTip="Export JPEG (Ctrl+Shift+E)"
+                            AutomationProperties.Name="Export photo">
                         <StackPanel Orientation="Horizontal" Spacing="6">
-                            <FontIcon Glyph="&#xEDE1;" FontSize="14" />
-                            <TextBlock Text="Export" FontWeight="SemiBold" />
+                            <FontIcon Glyph="&#xEDE1;" FontSize="13" />
+                            <TextBlock Text="Export" FontSize="12" FontWeight="SemiBold" />
                         </StackPanel>
                     </Button>
-                    <Button x:Name="InspectorToggleBtn" Click="OnToggleInspector" ToolTipService.ToolTip="Toggle Inspector Panel" Padding="8,6">
-                        <FontIcon Glyph="&#xE990;" FontSize="14" />
+                    <Button Style="{StaticResource MapleToolButton}" Click="OnToggleInspector"
+                            ToolTipService.ToolTip="Toggle inspector"
+                            AutomationProperties.Name="Toggle inspector panel">
+                        <FontIcon Glyph="&#xE90D;" FontSize="13" />
                     </Button>
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- Row 1: Main 3-Column Shell -->
+        <!-- ===== Main three-column shell ===== -->
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <!-- Column 0: Sources Tree / Navigation Sidebar -->
-                <ColumnDefinition x:Name="SidebarColDef" Width="260" MinWidth="180" MaxWidth="400" />
-                <ColumnDefinition Width="Auto" />
-                <!-- Column 1: Viewport / Browse Grid Container -->
-                <ColumnDefinition Width="*" MinWidth="350" />
-                <ColumnDefinition Width="Auto" />
-                <!-- Column 2: Detail Inspector Panel -->
-                <ColumnDefinition x:Name="InspectorColDef" Width="320" MinWidth="260" MaxWidth="450" />
+                <ColumnDefinition x:Name="SidebarColDef" Width="260" MinWidth="0" MaxWidth="420" />
+                <ColumnDefinition Width="*" MinWidth="300" />
+                <ColumnDefinition x:Name="InspectorColDef" Width="320" MinWidth="0" MaxWidth="460" />
             </Grid.ColumnDefinitions>
 
-            <!-- Column 0: Sources Navigation Sidebar -->
-            <Border Grid.Column="0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,1,0" Padding="8">
+            <!-- Sources sidebar -->
+            <Border Grid.Column="0" Background="{StaticResource MapleSidebar}"
+                    BorderBrush="{StaticResource MapleBorder}" BorderThickness="0,0,1,0">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel Spacing="16">
-                        <!-- LIBRARY SECTION -->
-                        <StackPanel Spacing="4">
-                            <TextBlock Text="LIBRARY" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="8,4,0,4" FontWeight="SemiBold" />
-                            <ListView SelectionMode="Single" SelectedIndex="0" SelectionChanged="OnSelectSidebarItem">
-                                <ListViewItem x:Name="AllPhotosItem">
-                                    <StackPanel Orientation="Horizontal" Spacing="12">
-                                        <FontIcon Glyph="&#xE8B9;" FontSize="16" Foreground="{ThemeResource AccentFillColorDefaultBrush}" />
-                                        <TextBlock Text="All Photos" VerticalAlignment="Center" />
+                    <StackPanel Spacing="14" Padding="10,12">
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="LIBRARY" Style="{StaticResource MapleEyebrow}" Margin="8,0,0,6" />
+                            <ListView x:Name="LibraryList" SelectionMode="Single" SelectedIndex="0"
+                                      SelectionChanged="OnSelectLibraryScope">
+                                <ListViewItem Tag="all">
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <FontIcon Glyph="&#xE8B9;" FontSize="14" Foreground="{StaticResource MaplePrimary}" />
+                                        <TextBlock Text="All Photos" FontSize="13" VerticalAlignment="Center" />
                                     </StackPanel>
                                 </ListViewItem>
-                                <ListViewItem>
-                                    <StackPanel Orientation="Horizontal" Spacing="12">
-                                        <FontIcon Glyph="&#xE825;" FontSize="16" />
-                                        <TextBlock Text="Recents" VerticalAlignment="Center" />
+                                <ListViewItem Tag="pick">
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <FontIcon Glyph="&#xE73E;" FontSize="14" Foreground="#4CAF50" />
+                                        <TextBlock Text="Picks" FontSize="13" VerticalAlignment="Center" />
                                     </StackPanel>
                                 </ListViewItem>
-                                <ListViewItem>
-                                    <StackPanel Orientation="Horizontal" Spacing="12">
-                                        <FontIcon Glyph="&#xE735;" FontSize="16" Foreground="#E5C158" />
-                                        <TextBlock Text="Favorites" VerticalAlignment="Center" />
+                                <ListViewItem Tag="reject">
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <FontIcon Glyph="&#xE711;" FontSize="14" Foreground="{StaticResource MapleErrorText}" />
+                                        <TextBlock Text="Rejected" FontSize="13" VerticalAlignment="Center" />
                                     </StackPanel>
                                 </ListViewItem>
-                                <ListViewItem>
-                                    <StackPanel Orientation="Horizontal" Spacing="12">
-                                        <FontIcon Glyph="&#xE7C1;" FontSize="16" Foreground="#4CAF50" />
-                                        <TextBlock Text="Flagged" VerticalAlignment="Center" />
-                                    </StackPanel>
-                                </ListViewItem>
-                                <ListViewItem>
-                                    <StackPanel Orientation="Horizontal" Spacing="12">
-                                        <FontIcon Glyph="&#xE711;" FontSize="16" Foreground="#F44336" />
-                                        <TextBlock Text="Rejected" VerticalAlignment="Center" />
+                                <ListViewItem Tag="rated4">
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <FontIcon Glyph="&#xE735;" FontSize="14" Foreground="{StaticResource MapleStar}" />
+                                        <TextBlock Text="4+ Stars" FontSize="13" VerticalAlignment="Center" />
                                     </StackPanel>
                                 </ListViewItem>
                             </ListView>
                         </StackPanel>
 
-                        <!-- SOURCES SECTION -->
-                        <StackPanel Spacing="4">
-                            <TextBlock Text="SOURCES" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="8,4,0,4" FontWeight="SemiBold" />
-                             <TreeView x:Name="SourcesTreeView" ItemInvoked="OnSelectTreeViewNode">
-                                <TreeView.RootNodes>
-                                    <TreeViewNode x:Name="LocalPicturesNode" Content="Local Pictures" IsExpanded="True" />
-                                    <TreeViewNode Content="External Drives" />
-                                    <TreeViewNode Content="Network Shares (SMB)" />
-                                    <TreeViewNode Content="Cloud Sync (Self-Hosted)" />
-                                </TreeView.RootNodes>
-                            </TreeView>
+                        <StackPanel Spacing="2">
+                            <Grid Margin="8,0,4,6">
+                                <TextBlock Text="FOLDERS" Style="{StaticResource MapleEyebrow}" VerticalAlignment="Center" />
+                                <Button HorizontalAlignment="Right" Padding="4,2" Background="Transparent"
+                                        BorderThickness="0" Click="OnOpenDirectory"
+                                        AutomationProperties.Name="Add folder">
+                                    <FontIcon Glyph="&#xE710;" FontSize="11" Foreground="{StaticResource MapleTextMuted}" />
+                                </Button>
+                            </Grid>
+                            <ListView x:Name="FoldersList" ItemsSource="{Binding LibraryFolders}"
+                                      SelectionMode="Single" SelectionChanged="OnSelectFolder">
+                                <ListView.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Spacing="10">
+                                            <FontIcon Glyph="&#xE8B7;" FontSize="14" Foreground="{StaticResource MapleTextMuted}" />
+                                            <TextBlock Text="{Binding}" FontSize="12" VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
                         </StackPanel>
 
-                        <!-- TIMELINE SECTION -->
-                        <StackPanel Spacing="4">
-                            <TextBlock Text="TIMELINES" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="8,4,0,4" FontWeight="SemiBold" />
-                            <ListView SelectionMode="Single">
-                                <ListViewItem>
-                                    <StackPanel Orientation="Horizontal" Spacing="12">
-                                        <FontIcon Glyph="&#xE787;" FontSize="16" />
-                                        <TextBlock Text="2026 (August)" VerticalAlignment="Center" />
-                                    </StackPanel>
-                                </ListViewItem>
-                                <ListViewItem>
-                                    <StackPanel Orientation="Horizontal" Spacing="12">
-                                        <FontIcon Glyph="&#xE787;" FontSize="16" />
-                                        <TextBlock Text="2025" VerticalAlignment="Center" />
-                                    </StackPanel>
-                                </ListViewItem>
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="TIMELINE" Style="{StaticResource MapleEyebrow}" Margin="8,0,0,6" />
+                            <ListView ItemsSource="{Binding Timeline.DateGroups}" SelectionMode="Single"
+                                      SelectionChanged="OnSelectTimelineGroup">
+                                <ListView.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid>
+                                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                                <FontIcon Glyph="&#xE787;" FontSize="13" Foreground="{StaticResource MapleTextMuted}" />
+                                                <TextBlock Text="{Binding DateLabel}" FontSize="12" VerticalAlignment="Center" />
+                                            </StackPanel>
+                                            <TextBlock Text="{Binding PhotoCount}" FontSize="11"
+                                                       Foreground="{StaticResource MapleTextMuted}"
+                                                       HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
                             </ListView>
                         </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
             </Border>
 
-            <Border Grid.Column="1" Width="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" HorizontalAlignment="Center" />
-
-            <!-- Column 1: Center Content Area (Browse Grid vs Develop Viewport) -->
-            <Grid Grid.Column="2">
-                <!-- BROWSE MODE GRID CONTAINER -->
+            <!-- Center: Browse grid / Develop viewport -->
+            <Grid Grid.Column="1">
                 <Grid x:Name="BrowseGridContainer" Visibility="Visible">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <!-- Filter Bar -->
-                    <Border Grid.Row="0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Padding="12,8">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock Text="Filter:" Style="{StaticResource CaptionTextBlockStyle}" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            <ComboBox SelectedIndex="0" Width="110" FontSize="12">
-                                <ComboBoxItem Content="All Formats" />
-                                <ComboBoxItem Content="DNG Only" />
-                                <ComboBoxItem Content="ARW Only" />
-                                <ComboBoxItem Content="CR3 Only" />
+                    <Border Grid.Row="0" BorderBrush="{StaticResource MapleBorder}" BorderThickness="0,0,0,1"
+                            Padding="12,8">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <ComboBox x:Name="FormatFilterBox" SelectedIndex="0" Width="120" FontSize="12"
+                                      SelectionChanged="OnFormatFilterChanged"
+                                      AutomationProperties.Name="Format filter">
+                                <ComboBoxItem Content="All Formats" Tag="All" />
+                                <ComboBoxItem Content="DNG" Tag="DNG" />
+                                <ComboBoxItem Content="CR2" Tag="CR2" />
+                                <ComboBoxItem Content="CR3" Tag="CR3" />
+                                <ComboBoxItem Content="ARW" Tag="ARW" />
+                                <ComboBoxItem Content="NEF" Tag="NEF" />
                             </ComboBox>
-                            <ComboBox SelectedIndex="0" Width="110" FontSize="12">
-                                <ComboBoxItem Content="All Ratings" />
-                                <ComboBoxItem Content="5 Stars ★" />
-                                <ComboBoxItem Content="4+ Stars ★" />
+                            <ComboBox x:Name="RatingFilterBox" SelectedIndex="0" Width="120" FontSize="12"
+                                      SelectionChanged="OnRatingFilterChanged"
+                                      AutomationProperties.Name="Rating filter">
+                                <ComboBoxItem Content="All Ratings" Tag="0" />
+                                <ComboBoxItem Content="★ 3+" Tag="3" />
+                                <ComboBoxItem Content="★ 4+" Tag="4" />
+                                <ComboBoxItem Content="★ 5" Tag="5" />
                             </ComboBox>
+                            <TextBlock x:Name="LibraryCountText" VerticalAlignment="Center" FontSize="12"
+                                       Foreground="{StaticResource MapleTextMuted}" Margin="8,0,0,0" />
                         </StackPanel>
                     </Border>
 
-                    <!-- Photo Items Grid -->
-                    <GridView Grid.Row="1" ItemsSource="{Binding Photos}" SelectedItem="{Binding SelectedPhoto, Mode=TwoWay}" Padding="16" ItemClick="OnPhotoItemClick" IsItemClickEnabled="True">
+                    <GridView x:Name="PhotoGrid" Grid.Row="1" ItemsSource="{Binding Photos}"
+                              SelectionMode="Single" Padding="12" IsItemClickEnabled="True"
+                              ItemClick="OnPhotoItemClick" SelectionChanged="OnGridSelectionChanged"
+                              AutomationProperties.Name="Photo grid">
                         <GridView.ItemTemplate>
                             <DataTemplate>
-                                <Border Width="190" Height="210" CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" Padding="12" Margin="0,0,12,12">
-                                    <Grid>
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="*" />
-                                            <RowDefinition Height="Auto" />
-                                        </Grid.RowDefinitions>
-
-                                        <!-- Photo Thumbnail Image & Card Graphic -->
-                                        <Border Grid.Row="0" CornerRadius="4" Background="#1E1E1E">
-                                            <Grid>
-                                                <FontIcon Glyph="&#xEB9F;" FontSize="42" Foreground="#444444" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                                <Image Source="{Binding ThumbnailUri}" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                                <Border HorizontalAlignment="Right" VerticalAlignment="Top" Margin="6" Padding="6,2" CornerRadius="4" Background="#CC111111">
-                                                    <TextBlock Text="{Binding Format}" FontSize="10" FontWeight="Bold" Foreground="#FFFFFF" />
-                                                </Border>
-                                            </Grid>
-                                        </Border>
-
-                                        <!-- Photo File Info -->
-                                        <StackPanel Grid.Row="1" Margin="0,8,0,0" Spacing="2">
-                                            <TextBlock Text="{Binding FileName}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" FontSize="12" />
-                                            <Grid>
-                                                <TextBlock Text="{Binding RatingStars}" Foreground="#E5C158" FontSize="11" HorizontalAlignment="Left" />
-                                                <TextBlock Text="{Binding Iso}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" />
-                                            </Grid>
-                                        </StackPanel>
-                                    </Grid>
-                                </Border>
+                                <Grid Width="180" Height="180" Margin="2" CornerRadius="4"
+                                      AutomationProperties.Name="{Binding FileName}"
+                                      Background="{StaticResource MapleSurface}">
+                                    <FontIcon Glyph="&#xEB9F;" FontSize="34" Foreground="{StaticResource MapleBorder}"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    <Image Source="{Binding ThumbnailPath}" Stretch="UniformToFill" />
+                                    <Border HorizontalAlignment="Right" VerticalAlignment="Top" Margin="4"
+                                            Padding="5,1" CornerRadius="3" Background="#CC141210">
+                                        <TextBlock Text="{Binding Format}" FontSize="9" FontWeight="Bold"
+                                                   Foreground="{StaticResource MapleTextMuted}" />
+                                    </Border>
+                                    <Ellipse Width="8" Height="8" Fill="#4CAF50" Margin="6"
+                                             HorizontalAlignment="Left" VerticalAlignment="Top"
+                                             Visibility="{Binding FlagStatus, Converter={StaticResource PickVisible}}" />
+                                    <Border VerticalAlignment="Bottom" Background="#B3141210" Padding="6,3">
+                                        <Grid>
+                                            <TextBlock Text="{Binding FileName}" FontSize="10"
+                                                       Foreground="{StaticResource MapleTextMain}"
+                                                       TextTrimming="CharacterEllipsis" Margin="0,0,48,0" />
+                                            <TextBlock Text="{Binding RatingStars}" FontSize="9"
+                                                       Foreground="{StaticResource MapleStar}"
+                                                       HorizontalAlignment="Right" />
+                                        </Grid>
+                                    </Border>
+                                </Grid>
                             </DataTemplate>
                         </GridView.ItemTemplate>
                     </GridView>
                 </Grid>
 
-                <!-- DEVELOP MODE VIEWPORT CONTAINER -->
-                <Grid x:Name="DevelopContainer" Visibility="Collapsed" Background="#0C0C0C">
+                <Grid x:Name="DevelopContainer" Visibility="Collapsed" Background="{StaticResource MapleImageCanvas}">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <!-- Top Floating Info Strip -->
-                    <Border Grid.Row="0" Background="#1A1A1A" Padding="12,6" BorderBrush="#2A2A2A" BorderThickness="0,0,0,1">
+                    <Border Grid.Row="0" Background="{StaticResource MapleBg}" Padding="12,5"
+                            BorderBrush="{StaticResource MapleBorder}" BorderThickness="0,0,0,1">
                         <Grid>
-                            <StackPanel Orientation="Horizontal" Spacing="12">
-                                <TextBlock Text="{Binding SelectedPhoto.FileName}" FontWeight="SemiBold" VerticalAlignment="Center" Foreground="#DDDDDD" />
-                                <TextBlock Text="{Binding SelectedPhoto.Dimensions}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="#888888" VerticalAlignment="Center" />
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <TextBlock Text="{Binding SelectedPhoto.FileName}" FontWeight="SemiBold" FontSize="12"
+                                           VerticalAlignment="Center" Foreground="{StaticResource MapleTextMain}" />
+                                <TextBlock Text="{Binding SelectedPhoto.Dimensions}" FontSize="11"
+                                           Foreground="{StaticResource MapleTextMuted}" VerticalAlignment="Center" />
+                                <ProgressRing IsActive="{Binding IsDecoding}" Width="14" Height="14" />
+                                <TextBlock Text="{Binding DecodeStatus}" FontSize="11"
+                                           Foreground="{StaticResource MapleWarn}" VerticalAlignment="Center" />
                             </StackPanel>
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-                                <TextBlock Text="Fit 100%" Style="{StaticResource CaptionTextBlockStyle}" Foreground="#888888" VerticalAlignment="Center" />
-                            </StackPanel>
+                            <TextBlock x:Name="RenderStatsText" FontSize="10" HorizontalAlignment="Right"
+                                       Foreground="{StaticResource MapleTextMuted}" VerticalAlignment="Center" />
                         </Grid>
                     </Border>
 
-                    <!-- Direct3D 12 Scene-Linear Viewport -->
                     <Grid Grid.Row="1">
-                        <SwapChainPanel x:Name="ViewportSwapChainPanel" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
-                        <TextBlock Text="Scene-Linear Rec.2020 D65 f32 Viewport (DirectX 12 / wgpu)" 
-                                   Foreground="#666666" 
-                                   HorizontalAlignment="Center" 
-                                   VerticalAlignment="Bottom" 
-                                   Margin="0,0,0,16" />
+                        <Image x:Name="ViewportImage" Stretch="Uniform" Margin="16"
+                               AutomationProperties.Name="Rendered preview canvas" />
                     </Grid>
 
-                    <!-- Bottom 80px Filmstrip Rail -->
-                    <Border Grid.Row="2" Height="84" Background="#141414" BorderBrush="#222222" BorderThickness="0,1,0,0" Padding="8,4">
-                        <ListView ItemsSource="{Binding Photos}" SelectedItem="{Binding SelectedPhoto, Mode=TwoWay}" ScrollViewer.HorizontalScrollMode="Enabled" ScrollViewer.VerticalScrollMode="Disabled">
+                    <Border Grid.Row="2" Height="80" Background="{StaticResource MapleBg}"
+                            BorderBrush="{StaticResource MapleBorder}" BorderThickness="0,1,0,0" Padding="6,4">
+                        <ListView x:Name="Filmstrip" ItemsSource="{Binding Photos}"
+                                  SelectionMode="Single" SelectionChanged="OnGridSelectionChanged"
+                                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                  ScrollViewer.HorizontalScrollMode="Enabled"
+                                  ScrollViewer.VerticalScrollMode="Disabled"
+                                  AutomationProperties.Name="Filmstrip">
                             <ListView.ItemsPanel>
                                 <ItemsPanelTemplate>
-                                    <StackPanel Orientation="Horizontal" Spacing="8" />
+                                    <ItemsStackPanel Orientation="Horizontal" />
                                 </ItemsPanelTemplate>
                             </ListView.ItemsPanel>
                             <ListView.ItemTemplate>
                                 <DataTemplate>
-                                    <Border Width="90" Height="64" CornerRadius="4" Background="#262626" BorderBrush="#444444" BorderThickness="1">
-                                        <Grid>
-                                            <FontIcon Glyph="&#xEB9F;" FontSize="20" Foreground="#555555" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                            <Image Source="{Binding ThumbnailUri}" Stretch="UniformToFill" />
-                                            <Border Background="#CC111111" VerticalAlignment="Bottom" Padding="4,2">
-                                                <TextBlock Text="{Binding FileName}" TextTrimming="CharacterEllipsis" FontSize="9" Foreground="#CCCCCC" HorizontalAlignment="Center" />
-                                            </Border>
-                                        </Grid>
-                                    </Border>
+                                    <Grid Width="86" Height="60" Margin="2" CornerRadius="3"
+                                          AutomationProperties.Name="{Binding FileName}"
+                                          Background="{StaticResource MapleSurface}">
+                                        <Image Source="{Binding ThumbnailPath}" Stretch="UniformToFill" />
+                                        <Ellipse Width="6" Height="6" Fill="#4CAF50" Margin="4"
+                                                 HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                 Visibility="{Binding FlagStatus, Converter={StaticResource PickVisible}}" />
+                                        <Border Background="#B3141210" VerticalAlignment="Bottom" Padding="3,1">
+                                            <TextBlock Text="{Binding RatingStars}" FontSize="8"
+                                                       Foreground="{StaticResource MapleStar}" HorizontalAlignment="Left" />
+                                        </Border>
+                                    </Grid>
                                 </DataTemplate>
                             </ListView.ItemTemplate>
                         </ListView>
@@ -282,176 +320,126 @@
                 </Grid>
             </Grid>
 
-            <Border Grid.Column="3" Width="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" HorizontalAlignment="Center" />
-
-            <!-- Column 2: Detail Inspector Panel -->
-            <Border Grid.Column="4" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1,0,0,0">
+            <!-- Detail inspector -->
+            <Border Grid.Column="2" Background="{StaticResource MapleSurface}"
+                    BorderBrush="{StaticResource MapleBorder}" BorderThickness="1,0,0,0">
                 <Grid>
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <!-- Inspector Header Tabs -->
-                    <Border Grid.Row="0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Padding="8">
-                        <StackPanel Orientation="Horizontal" Spacing="4">
-                            <Button x:Name="TabAdjustmentsBtn" Click="OnSelectInspectorTab" Style="{StaticResource AccentButtonStyle}" Padding="12,4" FontSize="12">Adjustments</Button>
-                            <Button x:Name="TabInfoBtn" Click="OnSelectInspectorTab" Padding="12,4" FontSize="12">Info &amp; EXIF</Button>
-                            <Button x:Name="TabPresetsBtn" Click="OnSelectInspectorTab" Padding="12,4" FontSize="12">Presets</Button>
+                    <!-- Histogram + culling header, always visible -->
+                    <StackPanel Grid.Row="0" Padding="12,10,12,0" Spacing="8">
+                        <Border Height="72" CornerRadius="6" Background="{StaticResource MapleImageCanvas}"
+                                BorderBrush="{StaticResource MapleBorder}" BorderThickness="1">
+                            <Grid>
+                                <Canvas x:Name="HistogramCanvas" Margin="4" />
+                                <TextBlock Text="RGB HISTOGRAM" FontSize="8" Margin="6,4"
+                                           Foreground="{StaticResource MapleTextMuted}"
+                                           HorizontalAlignment="Left" VerticalAlignment="Top" />
+                            </Grid>
+                        </Border>
+                        <Grid>
+                            <StackPanel x:Name="StarRow" Orientation="Horizontal" Spacing="2" />
+                            <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right">
+                                <Button x:Name="PickBtn" Style="{StaticResource MapleToolButton}" Padding="7,4"
+                                        Click="OnFlagPick" ToolTipService.ToolTip="Pick (P)"
+                                        AutomationProperties.Name="Flag as pick">
+                                    <FontIcon Glyph="&#xE73E;" FontSize="11" Foreground="#4CAF50" />
+                                </Button>
+                                <Button x:Name="UnflagBtn" Style="{StaticResource MapleToolButton}" Padding="7,4"
+                                        Click="OnFlagNone" ToolTipService.ToolTip="Unflag (U)"
+                                        AutomationProperties.Name="Remove flag">
+                                    <FontIcon Glyph="&#xE738;" FontSize="11" />
+                                </Button>
+                                <Button x:Name="RejectBtn" Style="{StaticResource MapleToolButton}" Padding="7,4"
+                                        Click="OnFlagReject" ToolTipService.ToolTip="Reject (X)"
+                                        AutomationProperties.Name="Flag as reject">
+                                    <FontIcon Glyph="&#xE711;" FontSize="11" Foreground="{StaticResource MapleErrorText}" />
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- Tabs -->
+                    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="4" Padding="12,8">
+                        <Button x:Name="TabDevelopBtn" Click="OnSelectInspectorTab" Padding="12,4" FontSize="12"
+                                AutomationProperties.Name="Develop tab">Develop</Button>
+                        <Button x:Name="TabInfoBtn" Click="OnSelectInspectorTab" Padding="12,4" FontSize="12"
+                                AutomationProperties.Name="Info tab">Info</Button>
+                    </StackPanel>
+
+                    <!-- Develop tab -->
+                    <ScrollViewer x:Name="AdjustmentsPanel" Grid.Row="2" Padding="12,0,12,12"
+                                  VerticalScrollBarVisibility="Auto">
+                        <StackPanel Spacing="8">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <Button Style="{StaticResource MapleToolButton}" Padding="9,4" FontSize="11"
+                                        Click="OnApplyAuto" ToolTipService.ToolTip="Auto adjustments"
+                                        AutomationProperties.Name="Auto adjust">Auto</Button>
+                                <Button Style="{StaticResource MapleToolButton}" Padding="9,4" FontSize="11"
+                                        Click="OnRevert" ToolTipService.ToolTip="Revert to original (Ctrl+R)"
+                                        AutomationProperties.Name="Revert edits">Revert</Button>
+                                <ToggleSwitch Header="" OnContent="B&amp;W" OffContent="Color" FontSize="11"
+                                              IsOn="{Binding BlackWhiteOn, Mode=TwoWay}" Margin="8,-6,0,0"
+                                              AutomationProperties.Name="Black and white toggle" />
+                            </StackPanel>
+
+                            <ItemsControl x:Name="SectionsHost" ItemsSource="{Binding Sections}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:AdjustmentSectionViewModel">
+                                        <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                                  Header="{Binding Title}" IsExpanded="{Binding InitiallyExpanded}"
+                                                  Margin="0,0,0,6">
+                                            <ItemsControl ItemsSource="{Binding Sliders}"
+                                                          ItemTemplate="{StaticResource SliderRowTemplate}" />
+                                        </Expander>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <Expander Header="HSL" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                                <ItemsControl ItemsSource="{Binding HslBands}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:HslBandViewModel">
+                                            <StackPanel Margin="0,0,0,8">
+                                                <TextBlock Text="{Binding Band}" FontSize="11" FontWeight="SemiBold"
+                                                           Foreground="{StaticResource MapleTextMuted}" Margin="0,4,0,2" />
+                                                <ContentControl Content="{Binding Hue}"
+                                                                ContentTemplate="{StaticResource SliderRowTemplate}"
+                                                                HorizontalContentAlignment="Stretch" />
+                                                <ContentControl Content="{Binding Sat}"
+                                                                ContentTemplate="{StaticResource SliderRowTemplate}"
+                                                                HorizontalContentAlignment="Stretch" />
+                                                <ContentControl Content="{Binding Lum}"
+                                                                ContentTemplate="{StaticResource SliderRowTemplate}"
+                                                                HorizontalContentAlignment="Stretch" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Expander>
                         </StackPanel>
-                    </Border>
+                    </ScrollViewer>
 
-                    <!-- Inspector Content Container -->
-                    <Grid Grid.Row="1">
-                        <!-- TAB 1: ADJUSTMENTS PANEL -->
-                        <ScrollViewer x:Name="AdjustmentsPanel" Visibility="Visible" Padding="12">
-                            <StackPanel Spacing="16">
-                                <!-- Tone Controls -->
-                                <Expander Header="Tone Controls" IsExpanded="True" HorizontalAlignment="Stretch">
-                                    <Expander.Content>
-                                        <StackPanel Spacing="12" Margin="0,8,0,0">
-                                            <Grid>
-                                                <TextBlock Text="Exposure" Style="{StaticResource CaptionTextBlockStyle}" />
-                                                <TextBlock Text="{Binding ExposureFormatted}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" />
-                                            </Grid>
-                                            <Slider x:Name="ExposureSlider" Minimum="-5.0" Maximum="5.0" StepFrequency="0.05" Value="{Binding Exposure, Mode=TwoWay}" ValueChanged="OnAdjustmentChanged" />
-
-                                            <Grid>
-                                                <TextBlock Text="Contrast" Style="{StaticResource CaptionTextBlockStyle}" />
-                                                <TextBlock Text="{Binding ContrastFormatted}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" />
-                                            </Grid>
-                                            <Slider x:Name="ContrastSlider" Minimum="-100" Maximum="100" Value="{Binding Contrast, Mode=TwoWay}" ValueChanged="OnAdjustmentChanged" />
-
-                                            <Grid>
-                                                <TextBlock Text="Highlights" Style="{StaticResource CaptionTextBlockStyle}" />
-                                                <TextBlock Text="{Binding HighlightsFormatted}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" />
-                                            </Grid>
-                                            <Slider x:Name="HighlightsSlider" Minimum="-100" Maximum="100" Value="{Binding Highlights, Mode=TwoWay}" ValueChanged="OnAdjustmentChanged" />
-
-                                            <Grid>
-                                                <TextBlock Text="Shadows" Style="{StaticResource CaptionTextBlockStyle}" />
-                                                <TextBlock Text="{Binding ShadowsFormatted}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" />
-                                            </Grid>
-                                            <Slider x:Name="ShadowsSlider" Minimum="-100" Maximum="100" Value="{Binding Shadows, Mode=TwoWay}" ValueChanged="OnAdjustmentChanged" />
-                                        </StackPanel>
-                                    </Expander.Content>
-                                </Expander>
-
-                                <!-- Color Controls -->
-                                <Expander Header="Color &amp; WB" IsExpanded="True" HorizontalAlignment="Stretch">
-                                    <Expander.Content>
-                                        <StackPanel Spacing="12" Margin="0,8,0,0">
-                                            <Grid>
-                                                <TextBlock Text="Temperature" Style="{StaticResource CaptionTextBlockStyle}" />
-                                                <TextBlock Text="{Binding TemperatureFormatted}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" />
-                                            </Grid>
-                                            <Slider x:Name="TempSlider" Minimum="2000" Maximum="12000" Value="{Binding Temperature, Mode=TwoWay}" ValueChanged="OnAdjustmentChanged" />
-
-                                            <Grid>
-                                                <TextBlock Text="Vibrance" Style="{StaticResource CaptionTextBlockStyle}" />
-                                                <TextBlock Text="{Binding VibranceFormatted}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" />
-                                            </Grid>
-                                            <Slider x:Name="VibranceSlider" Minimum="-100" Maximum="100" Value="{Binding Vibrance, Mode=TwoWay}" ValueChanged="OnAdjustmentChanged" />
-                                        </StackPanel>
-                                    </Expander.Content>
-                                </Expander>
-
-                                <!-- Detail Controls -->
-                                <Expander Header="Detail &amp; Dehaze" IsExpanded="True" HorizontalAlignment="Stretch">
-                                    <Expander.Content>
-                                        <StackPanel Spacing="12" Margin="0,8,0,0">
-                                            <Grid>
-                                                <TextBlock Text="Texture" Style="{StaticResource CaptionTextBlockStyle}" />
-                                                <TextBlock Text="{Binding TextureFormatted}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" />
-                                            </Grid>
-                                            <Slider x:Name="TextureSlider" Minimum="-100" Maximum="100" Value="{Binding Texture, Mode=TwoWay}" ValueChanged="OnAdjustmentChanged" />
-
-                                            <Grid>
-                                                <TextBlock Text="Dehaze" Style="{StaticResource CaptionTextBlockStyle}" />
-                                                <TextBlock Text="{Binding DehazeFormatted}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" />
-                                            </Grid>
-                                            <Slider x:Name="DehazeSlider" Minimum="-100" Maximum="100" Value="{Binding Dehaze, Mode=TwoWay}" ValueChanged="OnAdjustmentChanged" />
-                                        </StackPanel>
-                                    </Expander.Content>
-                                </Expander>
-                            </StackPanel>
-                        </ScrollViewer>
-
-                        <!-- TAB 2: INFO & EXIF PANEL -->
-                        <ScrollViewer x:Name="InfoPanel" Visibility="Collapsed" Padding="12">
-                            <StackPanel Spacing="16">
-                                <!-- Mini Histogram Container -->
-                                <Border Height="100" CornerRadius="6" Background="#181818" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" Padding="8">
-                                    <Grid>
-                                        <TextBlock Text="RGB LOG HISTOGRAM" FontSize="10" Foreground="#777777" HorizontalAlignment="Left" VerticalAlignment="Top" />
-                                        <FontIcon Glyph="&#xE9D9;" FontSize="36" Foreground="#444444" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
-
-                                <!-- Camera Metadata Block -->
-                                <StackPanel Spacing="8">
-                                    <TextBlock Text="CAMERA METADATA" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontWeight="SemiBold" />
-                                    <Grid Padding="4">
-                                        <TextBlock Text="Camera" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                        <TextBlock Text="{Binding SelectedPhoto.CameraModel}" FontWeight="SemiBold" HorizontalAlignment="Right" />
-                                    </Grid>
-                                    <Grid Padding="4">
-                                        <TextBlock Text="Lens" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                        <TextBlock Text="{Binding SelectedPhoto.LensInfo}" FontWeight="SemiBold" HorizontalAlignment="Right" />
-                                    </Grid>
-                                    <Grid Padding="4">
-                                        <TextBlock Text="ISO" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                        <TextBlock Text="{Binding SelectedPhoto.Iso}" FontWeight="SemiBold" HorizontalAlignment="Right" />
-                                    </Grid>
-                                    <Grid Padding="4">
-                                        <TextBlock Text="Aperture" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                        <TextBlock Text="{Binding SelectedPhoto.Aperture}" FontWeight="SemiBold" HorizontalAlignment="Right" />
-                                    </Grid>
-                                    <Grid Padding="4">
-                                        <TextBlock Text="Shutter Speed" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                        <TextBlock Text="{Binding SelectedPhoto.ShutterSpeed}" FontWeight="SemiBold" HorizontalAlignment="Right" />
-                                    </Grid>
-                                    <Grid Padding="4">
-                                        <TextBlock Text="Date Taken" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                        <TextBlock Text="{Binding SelectedPhoto.DateTaken}" Style="{StaticResource CaptionTextBlockStyle}" HorizontalAlignment="Right" />
-                                    </Grid>
-                                </StackPanel>
-
-                                <!-- Sidecar Metadata Block -->
-                                <StackPanel Spacing="8">
-                                    <TextBlock Text="SIDECAR CONTRACT" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontWeight="SemiBold" />
-                                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" Padding="8" CornerRadius="4">
-                                        <TextBlock Text="Non-destructive XML (.xmp)" FontSize="11" Foreground="{ThemeResource AccentFillColorDefaultBrush}" />
-                                    </Border>
-                                </StackPanel>
-                            </StackPanel>
-                        </ScrollViewer>
-
-                        <!-- TAB 3: PRESETS PANEL -->
-                        <ScrollViewer x:Name="PresetsPanel" Visibility="Collapsed" Padding="12">
-                            <StackPanel Spacing="8">
-                                <TextBlock Text="PRESET CATALOG" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="12,8" Margin="0,0,0,4">
-                                    <StackPanel>
-                                        <TextBlock Text="Standard Neutral" FontWeight="SemiBold" />
-                                        <TextBlock Text="Rec.2020 D65 baseline" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                    </StackPanel>
-                                </Button>
-                                <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="12,8" Margin="0,0,0,4">
-                                    <StackPanel>
-                                        <TextBlock Text="Vivid Landscape" FontWeight="SemiBold" />
-                                        <TextBlock Text="+0.5 EV, +15 Vibrance, Dehaze +10" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                    </StackPanel>
-                                </Button>
-                                <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="12,8" Margin="0,0,0,4">
-                                    <StackPanel>
-                                        <TextBlock Text="High Contrast B&amp;W" FontWeight="SemiBold" />
-                                        <TextBlock Text="Monochrome AgX view transform" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                    </StackPanel>
-                                </Button>
-                            </StackPanel>
-                        </ScrollViewer>
-                    </Grid>
+                    <!-- Info tab -->
+                    <ScrollViewer x:Name="InfoPanel" Grid.Row="2" Padding="12,0,12,12" Visibility="Collapsed"
+                                  VerticalScrollBarVisibility="Auto">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="CAMERA" Style="{StaticResource MapleEyebrow}" />
+                            <StackPanel x:Name="ExifRows" Spacing="6" />
+                            <TextBlock Text="FILE" Style="{StaticResource MapleEyebrow}" Margin="0,8,0,0" />
+                            <StackPanel x:Name="FileRows" Spacing="6" />
+                            <Border Background="{StaticResource MapleSurfaceAlt}" Padding="8" CornerRadius="4"
+                                    Margin="0,8,0,0">
+                                <TextBlock Text="Edits persist to a non-destructive .xmp sidecar; the RAW file is never modified."
+                                           FontSize="11" TextWrapping="Wrap"
+                                           Foreground="{StaticResource MapleTextMuted}" />
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
                 </Grid>
             </Border>
         </Grid>
