@@ -24,6 +24,12 @@ namespace Maple.WinUI.ViewModels
         /// <summary>Full-screen embedded-JPEG preview (extracted on demand when
         /// the photo is opened in Preview mode).</summary>
         [ObservableProperty] private string? _previewPath;
+
+        /// <summary>Cloud asset marker (#2588): the photo lives on a Maple
+        /// Self-Hosted server, addressed by slug:relPath. Cloud assets browse,
+        /// preview and cull; editing needs the original locally.</summary>
+        public bool IsCloud { get; init; }
+        public string? CloudAddress { get; init; }
         [ObservableProperty] private int _rating;
         [ObservableProperty] private string _flagStatus = "none";   // pick | reject | none
         [ObservableProperty] private string? _colorLabel;
@@ -44,9 +50,19 @@ namespace Maple.WinUI.ViewModels
         partial void OnRatingChanged(int value) => OnPropertyChanged(nameof(RatingStars));
     }
 
+    /// <summary>One capture-day section of the grouped browse grid (#2570).
+    /// Extends ObservableCollection so CollectionViewSource.IsSourceGrouped can
+    /// enumerate it directly; the header template binds Label/Count.</summary>
+    public sealed class PhotoDayGroup : ObservableCollection<PhotoItem>
+    {
+        public string Label { get; init; } = string.Empty;
+        public DateTime Day { get; init; }
+    }
+
     public partial class EditSessionViewModel
     {
         public ObservableCollection<PhotoItem> Photos { get; } = new();
+        public ObservableCollection<PhotoDayGroup> PhotoGroups { get; } = new();
         public List<PhotoItem> AllPhotos { get; } = new();
         public ObservableCollection<string> LibraryFolders { get; } = new();
         public TimelineViewModel Timeline { get; } = new();
@@ -61,7 +77,8 @@ namespace Maple.WinUI.ViewModels
         [ObservableProperty] private int _minRatingFilter;
         [ObservableProperty] private string _flagFilter = "all";    // all | pick | reject
         [ObservableProperty] private string _searchText = string.Empty;
-        [ObservableProperty] private DateTime? _dateFilterDay;
+        public DateTime? DateFilterStart { get; private set; }
+        public DateTime? DateFilterEndExclusive { get; private set; }
 
         private static readonly HashSet<string> SupportedExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -126,6 +143,7 @@ namespace Maple.WinUI.ViewModels
             }
 
             ApplyFilters();
+            Timeline.GroupPhotosByDate(AllPhotos);
             _ = Task.Run(() => HydrateLibraryAsync(AllPhotos.ToList(), cts.Token), cts.Token);
         }
 
@@ -178,7 +196,12 @@ namespace Maple.WinUI.ViewModels
                             : $"{item.FileSizeBytes / (1024.0 * 1024.0):0.0} MB";
                     }
                     if (ReferenceEquals(item, items[^1]))
+                    {
+                        // EXIF capture dates are now in; regroup the timeline
+                        // and the grid sections (mtime was the placeholder).
                         Timeline.GroupPhotosByDate(AllPhotos);
+                        ApplyFilters();
+                    }
                 });
             }
         }
@@ -205,7 +228,15 @@ namespace Maple.WinUI.ViewModels
         partial void OnMinRatingFilterChanged(int value) => ApplyFilters();
         partial void OnFlagFilterChanged(string value) => ApplyFilters();
         partial void OnSearchTextChanged(string value) => ApplyFilters();
-        partial void OnDateFilterDayChanged(DateTime? value) => ApplyFilters();
+
+        /// <summary>Filter to a timeline period (month or day), or clear with
+        /// (null, null).</summary>
+        public void SetDateFilter(DateTime? start, DateTime? endExclusive)
+        {
+            DateFilterStart = start;
+            DateFilterEndExclusive = endExclusive;
+            ApplyFilters();
+        }
 
         public void ApplyFilters()
         {
@@ -218,8 +249,9 @@ namespace Maple.WinUI.ViewModels
                 query = query.Where(p => p.FlagStatus == "pick");
             else if (FlagFilter == "reject")
                 query = query.Where(p => p.FlagStatus == "reject");
-            if (DateFilterDay is { } day)
-                query = query.Where(p => (p.CaptureDate ?? p.FileModifiedUtc.ToLocalTime()).Date == day);
+            if (DateFilterStart is { } start && DateFilterEndExclusive is { } end)
+                query = query.Where(p =>
+                    TimelineViewModel.CaptureDay(p) >= start && TimelineViewModel.CaptureDay(p) < end);
             if (!string.IsNullOrWhiteSpace(SearchText))
             {
                 var needle = SearchText.Trim();
@@ -229,10 +261,34 @@ namespace Maple.WinUI.ViewModels
                     || p.LensInfo.Contains(needle, StringComparison.OrdinalIgnoreCase));
             }
 
-            var results = query.ToList();
+            // Timeline order: newest day first, capture order within the day.
+            // The flat list is the concatenation of the day groups so the grid,
+            // filmstrip, and arrow-key navigation all agree on ordering.
+            var groups = query
+                .GroupBy(TimelineViewModel.CaptureDay)
+                .OrderByDescending(g => g.Key)
+                .Select(g =>
+                {
+                    var dayGroup = new PhotoDayGroup
+                    {
+                        Label = g.Key.ToString("dddd, MMMM d, yyyy"),
+                        Day = g.Key,
+                    };
+                    foreach (var item in g.OrderBy(p => p.CaptureDate ?? p.FileModifiedUtc.ToLocalTime())
+                                          .ThenBy(p => p.FileName, StringComparer.OrdinalIgnoreCase))
+                        dayGroup.Add(item);
+                    return dayGroup;
+                })
+                .ToList();
+
+            PhotoGroups.Clear();
             Photos.Clear();
-            foreach (var item in results)
-                Photos.Add(item);
+            foreach (var dayGroup in groups)
+            {
+                PhotoGroups.Add(dayGroup);
+                foreach (var item in dayGroup)
+                    Photos.Add(item);
+            }
             HasPhotos = Photos.Count > 0;
         }
 

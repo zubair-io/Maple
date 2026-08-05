@@ -83,6 +83,13 @@ namespace Maple.WinUI.ViewModels
             HslBands = AdjustmentSections.BuildHslBands(this);
             _sidecarWatcher.SidecarChangedOnDisk += OnSidecarChangedOnDisk;
             InitializeLibrary();
+
+            var settings = Services.AppSettings.Load();
+            if (!string.IsNullOrEmpty(settings.CloudServerUrl))
+            {
+                CloudStatus = $"Reconnecting to {settings.CloudServerUrl}…";
+                _ = ConnectCloudAsync(settings.CloudServerUrl!, settings.CloudEmail);
+            }
         }
 
         // --- Open / decode ---
@@ -105,6 +112,21 @@ namespace Maple.WinUI.ViewModels
             Renderer.SetImage(null);
             IsDecoding = false;
             DecodeStatus = string.Empty;
+
+            if (photo.IsCloud)
+            {
+                // Cloud assets browse/preview/cull; the adjustment session
+                // needs the original locally (download-to-edit is follow-up
+                // work on #2588). Culling state came from the server.
+                Adjustments = new AdjustmentState();
+                _originalModel = Adjustments.Clone();
+                _undoBaseline = Adjustments.Clone();
+                _undoStack.Clear();
+                _redoStack.Clear();
+                SyncSlidersFromModel();
+                RequestCloudPreview(photo);
+                return;
+            }
 
             var doc = SidecarStore.Load(photo.FilePath);
             Adjustments = doc?.Adjustments ?? new AdjustmentState();
@@ -139,7 +161,7 @@ namespace Maple.WinUI.ViewModels
         public void EnsureDecoded()
         {
             var photo = SelectedPhoto;
-            if (photo == null || ReferenceEquals(_decodedPhoto, photo))
+            if (photo == null || photo.IsCloud || ReferenceEquals(_decodedPhoto, photo))
                 return;
             _decodedPhoto = photo;
             DecodeCurrent(photo);
@@ -368,7 +390,7 @@ namespace Maple.WinUI.ViewModels
         private void FlushSidecarNow()
         {
             var photo = _openPhoto;
-            if (photo == null || !_sidecarDirty)
+            if (photo == null || photo.IsCloud || !_sidecarDirty)
                 return;
             _sidecarDirty = false;
             try
@@ -427,7 +449,7 @@ namespace Maple.WinUI.ViewModels
             if (photo == null || stars < 0 || stars > 5)
                 return;
             photo.Rating = stars;
-            ScheduleSidecarWrite();
+            PersistCulling(photo);
         }
 
         public void SetFlag(string flag)
@@ -436,7 +458,7 @@ namespace Maple.WinUI.ViewModels
             if (photo == null)
                 return;
             photo.FlagStatus = flag;
-            ScheduleSidecarWrite();
+            PersistCulling(photo);
         }
 
         public void SetColorLabel(string? label)
@@ -445,7 +467,15 @@ namespace Maple.WinUI.ViewModels
             if (photo == null)
                 return;
             photo.ColorLabel = label;
-            ScheduleSidecarWrite();
+            PersistCulling(photo);
+        }
+
+        private void PersistCulling(PhotoItem photo)
+        {
+            if (photo.IsCloud)
+                PushCloudCulling(photo);
+            else
+                ScheduleSidecarWrite();
         }
 
         // --- Export (JPEG via the Rust develop chain, Amaze quality) ---
