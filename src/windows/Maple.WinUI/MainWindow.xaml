@@ -14,6 +14,7 @@
         <Grid.Resources>
             <conv:PickFlagVisibleConverter x:Key="PickVisible" />
             <conv:BoolVisibleConverter x:Key="BoolVisible" />
+            <conv:InverseBoolVisibleConverter x:Key="InverseBoolVisible" />
             <CollectionViewSource x:Key="GroupedPhotosSource" IsSourceGrouped="True" />
             <DataTemplate x:Key="SliderRowTemplate" x:DataType="vm:AdjustmentSliderViewModel">
                 <StackPanel Margin="0,2,0,6" DoubleTapped="OnSliderRowDoubleTapped">
@@ -187,6 +188,15 @@
                             </Grid>
                             <TextBlock Text="{Binding CloudStatus}" FontSize="10" Margin="8,0,4,4"
                                        TextWrapping="Wrap" Foreground="{StaticResource MapleTextMuted}" />
+                            <Button HorizontalAlignment="Stretch" Margin="4,2,4,4" Padding="8,6"
+                                    Click="OnConnectCloud"
+                                    Visibility="{Binding CloudConnected, Converter={StaticResource InverseBoolVisible}}"
+                                    AutomationProperties.Name="Connect to Maple Cloud server">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE753;" FontSize="13" Foreground="{StaticResource MaplePrimary}" />
+                                    <TextBlock Text="Connect to server…" FontSize="12" />
+                                </StackPanel>
+                            </Button>
                             <ListView x:Name="CloudFoldersList" ItemsSource="{Binding CloudFolders}"
                                       SelectionMode="Single" SelectionChanged="OnSelectCloudFolder">
                                 <ListView.ItemTemplate>

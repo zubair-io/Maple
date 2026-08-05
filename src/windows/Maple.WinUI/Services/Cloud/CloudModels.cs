@@ -75,4 +75,18 @@ namespace Maple.WinUI.Services.Cloud
     {
         [JsonPropertyName("access_token")] public string AccessToken { get; set; } = string.Empty;
     }
+
+    public sealed class CloudRedeemResponse
+    {
+        [JsonPropertyName("access_token")] public string AccessToken { get; set; } = string.Empty;
+        [JsonPropertyName("refresh_token")] public string? RefreshToken { get; set; }
+        [JsonPropertyName("user")] public CloudUser? User { get; set; }
+    }
+
+    public sealed class CloudUser
+    {
+        [JsonPropertyName("id")] public string Id { get; set; } = string.Empty;
+        [JsonPropertyName("email")] public string Email { get; set; } = string.Empty;
+        [JsonPropertyName("role")] public string Role { get; set; } = string.Empty;
+    }
 }
