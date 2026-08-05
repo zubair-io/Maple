@@ -15,7 +15,34 @@ namespace Maple.WinUI.Services
     {
         public List<string> LibraryFolders { get; set; } = new();
         public string? CloudServerUrl { get; set; }
-        public string? CloudEmail { get; set; }
+        /// <summary>DPAPI-protected (current user) device refresh token from the
+        /// native-code sign-in — never stored in plain text.</summary>
+        public string? CloudRefreshTokenProtected { get; set; }
+
+        public void ProtectCloudRefreshToken(string refreshToken)
+        {
+            var blob = System.Security.Cryptography.ProtectedData.Protect(
+                System.Text.Encoding.UTF8.GetBytes(refreshToken), null,
+                System.Security.Cryptography.DataProtectionScope.CurrentUser);
+            CloudRefreshTokenProtected = Convert.ToBase64String(blob);
+        }
+
+        public string? UnprotectCloudRefreshToken()
+        {
+            if (string.IsNullOrEmpty(CloudRefreshTokenProtected))
+                return null;
+            try
+            {
+                var raw = System.Security.Cryptography.ProtectedData.Unprotect(
+                    Convert.FromBase64String(CloudRefreshTokenProtected),
+                    null, System.Security.Cryptography.DataProtectionScope.CurrentUser);
+                return System.Text.Encoding.UTF8.GetString(raw);
+            }
+            catch (System.Security.Cryptography.CryptographicException)
+            {
+                return null;
+            }
+        }
         public bool LeftPanelHidden { get; set; }
         public bool DetailPanelHidden { get; set; }
         public double LeftPanelWidth { get; set; } = 260;
