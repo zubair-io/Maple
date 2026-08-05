@@ -54,10 +54,14 @@ namespace Maple.WinUI.Services.Cloud
 
         // --- Connection / auth ---
 
-        /// <summary>Health-check the server and authenticate. Dev-login is the
-        /// only non-interactive path today (requires MAPLE_DEV_AUTH=1 server
-        /// side); passkey/native-code auth is the production follow-up.</summary>
-        public async Task<(bool Ok, string Message)> ConnectAsync(string? email, CancellationToken ct)
+        /// <summary>The device-scoped refresh token from the native-code
+        /// redeem (rotated on every refresh). The caller persists it
+        /// DPAPI-protected for silent reconnect.</summary>
+        public string? RefreshToken { get; private set; }
+        public event Action<string>? RefreshTokenRotated;
+
+        /// <summary>Health + auth-mode probe — step 1 of any connect flow.</summary>
+        public async Task<(bool Ok, string Message, bool DevLoginEnabled)> ProbeAsync(CancellationToken ct)
         {
             CloudHealth? health;
             try
@@ -66,28 +70,86 @@ namespace Maple.WinUI.Services.Cloud
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or UriFormatException)
             {
-                return (false, $"Server unreachable: {ex.Message}");
+                return (false, $"Server unreachable: {ex.Message}", false);
             }
             if (health is not { Ok: true } || health.Product != "maple")
-                return (false, "Not a Maple Self-Hosted server (bad /api/health response).");
+                return (false, "Not a Maple Self-Hosted server (bad /api/health response).", false);
             if (!health.DbConnected)
-                return (false, "Server is up but its database is down (db_connected=false).");
-
+                return (false, "Server is up but its database is down (db_connected=false).", false);
             var bootstrap = await GetJsonAsync<CloudAuthBootstrap>("api/auth/bootstrap", ct, authenticated: false);
-            if (bootstrap is not { DevLoginEnabled: true })
-                return (false,
-                    "Server requires passkey sign-in, which the Windows client does not support yet. " +
-                    "Start the server with MAPLE_DEV_AUTH=1 to use dev-login.");
+            return (true, $"Connected to {ServerUrl} (v{health.Version}).",
+                bootstrap?.DevLoginEnabled == true);
+        }
 
-            var body = JsonContent(new Dictionary<string, string?> { ["email"] = email });
-            using var response = await _http.PostAsync("api/auth/dev-login", body, ct);
+        /// <summary>The browser sign-in URL for the PKCE native-code ceremony:
+        /// the web app completes the passkey login, mints a one-time code and
+        /// redirects it to maple-app://auth-success (the only scheme the web
+        /// allowlists).</summary>
+        public string BuildBrowserSignInUrl(string codeChallenge, string state) =>
+            $"{ServerUrl}/?native_callback=maple-app" +
+            $"&code_challenge={Uri.EscapeDataString(codeChallenge)}" +
+            $"&state={Uri.EscapeDataString(state)}";
+
+        /// <summary>Redeem the one-time code + private PKCE verifier for
+        /// device-scoped tokens (POST /api/auth/native-code/redeem).</summary>
+        public async Task<(bool Ok, string Message)> RedeemNativeCodeAsync(
+            string code, string codeVerifier, CancellationToken ct)
+        {
+            using var response = await _http.PostAsync("api/auth/native-code/redeem",
+                JsonContent(new { code, code_verifier = codeVerifier }), ct);
+            if (!response.IsSuccessStatusCode)
+                return (false, $"code redeem failed ({(int)response.StatusCode}) — the code may have expired; try signing in again.");
+            var tokens = await ReadJsonAsync<CloudRedeemResponse>(response, ct);
+            if (string.IsNullOrEmpty(tokens?.AccessToken))
+                return (false, "code redeem returned no access token.");
+            _accessToken = tokens!.AccessToken;
+            RefreshToken = tokens.RefreshToken;
+            return (true, $"Signed in as {tokens.User?.Email ?? "user"}.");
+        }
+
+        /// <summary>Silent reconnect from a persisted refresh token
+        /// (POST /api/auth/refresh with the body token; server rotates it).</summary>
+        public async Task<bool> RestoreSessionAsync(string refreshToken, CancellationToken ct)
+        {
+            RefreshToken = refreshToken;
+            return await RefreshAccessTokenAsync(ct);
+        }
+
+        /// <summary>Dev-only fallback (server started with MAPLE_DEV_AUTH=1);
+        /// no email needed — the server defaults the dev identity.</summary>
+        public async Task<(bool Ok, string Message)> DevLoginAsync(CancellationToken ct)
+        {
+            using var response = await _http.PostAsync("api/auth/dev-login",
+                JsonContent(new Dictionary<string, string?>()), ct);
             if (!response.IsSuccessStatusCode)
                 return (false, $"dev-login failed ({(int)response.StatusCode}).");
             var token = await ReadJsonAsync<CloudTokenResponse>(response, ct);
             if (string.IsNullOrEmpty(token?.AccessToken))
                 return (false, "dev-login returned no access token.");
-            _accessToken = token.AccessToken;
-            return (true, $"Connected to {ServerUrl} (v{health.Version}).");
+            _accessToken = token!.AccessToken;
+            return (true, "Signed in (dev).");
+        }
+
+        private async Task<bool> RefreshAccessTokenAsync(CancellationToken ct)
+        {
+            // Native clients refresh with the body token (the cookie variant is
+            // the browser's); the server rotates and returns a fresh raw token.
+            var payload = RefreshToken != null
+                ? JsonContent(new { refresh_token = RefreshToken })
+                : JsonContent(new Dictionary<string, string?>());
+            using var refresh = await _http.PostAsync("api/auth/refresh", payload, ct);
+            if (!refresh.IsSuccessStatusCode)
+                return false;
+            var tokens = await ReadJsonAsync<CloudRedeemResponse>(refresh, ct);
+            if (string.IsNullOrEmpty(tokens?.AccessToken))
+                return false;
+            _accessToken = tokens!.AccessToken;
+            if (!string.IsNullOrEmpty(tokens.RefreshToken))
+            {
+                RefreshToken = tokens.RefreshToken;
+                RefreshTokenRotated?.Invoke(tokens.RefreshToken!);
+            }
+            return true;
         }
 
         // --- Library browsing ---
@@ -203,13 +265,7 @@ namespace Maple.WinUI.Services.Cloud
                 return response;
             response.Dispose();
 
-            using var refresh = await _http.PostAsync("api/auth/refresh", null, ct);
-            if (refresh.IsSuccessStatusCode)
-            {
-                var token = await ReadJsonAsync<CloudTokenResponse>(refresh, ct);
-                if (!string.IsNullOrEmpty(token?.AccessToken))
-                    _accessToken = token.AccessToken;
-            }
+            await RefreshAccessTokenAsync(ct);
             return await SendOnceAsync(makeRequest(), ct);
         }
 

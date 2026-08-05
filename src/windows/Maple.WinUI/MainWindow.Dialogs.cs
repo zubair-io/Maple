@@ -1,3 +1,4 @@
+using System;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
@@ -99,24 +100,19 @@ namespace Maple.WinUI
         private async void OnConnectCloud(object sender, RoutedEventArgs e)
         {
             var settings = Services.AppSettings.Load();
-            var panel = new StackPanel { Spacing = 10, Width = 340 };
+            var panel = new StackPanel { Spacing = 10, Width = 360 };
             var urlBox = new TextBox
             {
                 Header = "Server URL",
-                Text = settings.CloudServerUrl ?? "http://localhost:3000",
-                PlaceholderText = "http://server:3000",
+                Text = settings.CloudServerUrl ?? "https://",
+                PlaceholderText = "https://your-maple-server",
             };
             panel.Children.Add(urlBox);
-            var emailBox = new TextBox
-            {
-                Header = "Email (dev-login)",
-                Text = settings.CloudEmail ?? "dev@maple.local",
-            };
-            panel.Children.Add(emailBox);
             panel.Children.Add(new TextBlock
             {
-                Text = "Connects to a Maple Self-Hosted server. Dev-login requires "
-                     + "MAPLE_DEV_AUTH=1 on the server; passkey sign-in is a follow-up.",
+                Text = "“Sign in with browser” opens your server's passkey sign-in; the app "
+                     + "receives a one-time code and never sees your credentials. "
+                     + "“Dev sign-in” only works on servers started with MAPLE_DEV_AUTH=1.",
                 TextWrapping = TextWrapping.Wrap,
                 FontSize = 11,
                 Foreground = (Microsoft.UI.Xaml.Media.SolidColorBrush)
@@ -127,18 +123,39 @@ namespace Maple.WinUI
             {
                 Title = "Connect to Maple Cloud",
                 Content = panel,
-                PrimaryButtonText = "Connect",
+                PrimaryButtonText = "Sign in with browser",
+                SecondaryButtonText = "Dev sign-in",
                 CloseButtonText = "Cancel",
                 DefaultButton = ContentDialogButton.Primary,
                 XamlRoot = (this.Content as FrameworkElement)?.XamlRoot,
             };
-            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            var result = await dialog.ShowAsync();
+            var serverUrl = urlBox.Text.Trim().TrimEnd('/');
+            if (result == ContentDialogResult.None || serverUrl.Length == 0)
                 return;
 
-            var (ok, message) = await ViewModel.ConnectCloudAsync(
-                urlBox.Text.Trim(), emailBox.Text.Trim());
-            if (!ok)
-                await ShowMessageAsync("Maple Cloud", message);
+            if (result == ContentDialogResult.Primary)
+            {
+                var (ok, message, _) = await ViewModel.StartBrowserSignInAsync(serverUrl);
+                if (!ok)
+                    await ShowMessageAsync("Maple Cloud", message);
+                // Success continues in HandleAuthCallback when the browser
+                // redirects maple-app://auth-success.
+            }
+            else
+            {
+                var (ok, message) = await ViewModel.DevSignInAsync(serverUrl);
+                if (!ok)
+                    await ShowMessageAsync("Maple Cloud", message);
+            }
+        }
+
+        /// <summary>maple-app://auth-success?code=…&state=… — routed here from
+        /// the protocol activation (Program/App).</summary>
+        public async void HandleAuthCallback(Uri uri)
+        {
+            this.Activate();  // bring the app back in front of the browser
+            await ViewModel.CompleteAuthCallbackAsync(uri);
         }
 
         private async void OnSelectCloudFolder(object sender, SelectionChangedEventArgs e)
