@@ -321,6 +321,17 @@ impl GpuContext {
     /// without WebGPU), and a panic here unwinds across the `extern "C"` FFI on
     /// Apple — an abort. Hosts treat the `Err` as "fall back to the CPU path".
     pub async fn new_async() -> Result<Self, String> {
+        // Windows pins the DX12 backend (#2561): the `SwapChainPanel` present
+        // surface only carries a DX12 handle, and wgpu's default enumeration
+        // order (Vulkan first) would otherwise hand back a Vulkan adapter whose
+        // `get_capabilities` on that surface is empty — no present possible.
+        // Every other target keeps wgpu's default backend selection.
+        #[cfg(target_os = "windows")]
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::DX12,
+            ..Default::default()
+        });
+        #[cfg(not(target_os = "windows"))]
         let instance = wgpu::Instance::default();
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions::default())

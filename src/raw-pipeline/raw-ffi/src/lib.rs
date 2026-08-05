@@ -85,9 +85,12 @@ mod wb_frame_flat;
 #[cfg(any(feature = "pano", feature = "pano-ios"))]
 mod pano;
 
-// Windows WinUI 3 DXGI SwapChain interop exports (epic #925 / Windows Native UI)
-#[cfg(all(feature = "gpu", target_os = "windows"))]
-mod winui_swapchain;
+// The Windows WinUI 3 present path (#2561) lives in `gpu_live::present_winui`
+// (`maple_gpu_present_chain_winui`), the DX12 twin of the Apple
+// `gpu_live::present` entry. The former `winui_swapchain` E_NOTIMPL stub
+// (`maple_gpu_create_winui_dxgi_swapchain`) is retired: wgpu's DX12 HAL owns
+// swapchain creation and the `ISwapChainPanelNative::SetSwapChain` binding, so
+// no raw swapchain pointer ever crosses the ABI.
 
 // Re-export every C ABI type so cbindgen sees the same surface it always has.
 // `#[no_mangle] extern "C"` functions are exported regardless of `pub use`,
