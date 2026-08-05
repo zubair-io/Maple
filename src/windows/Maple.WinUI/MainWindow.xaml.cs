@@ -25,6 +25,13 @@ namespace Maple.WinUI
         private readonly AppSettings _settings = AppSettings.Load();
         private ShellMode _mode = ShellMode.Browse;
         private uint[]? _lastHistogramBins;
+        private IntPtr _panelNative;
+        private (int Width, int Height)? _gpuFrameDims;
+
+        /// <summary>WinUI 3 DXInterop ISwapChainPanelNative IID — the interface
+        /// wgpu's DX12 surface QIs SetSwapChain through.</summary>
+        private static Guid _swapChainPanelNativeIid =
+            new("63AAD0B8-7C24-40FF-85A8-640D944CC325");
 
         public MainWindow()
         {
@@ -38,8 +45,35 @@ namespace Maple.WinUI
             }
 
             ViewModel.Renderer.FrameReady += OnFrameReady;
+            ViewModel.Renderer.GpuFrameReady += OnGpuFrameReady;
+            ViewModel.Renderer.HistogramReady += bins =>
+                App.MainDispatcherQueue?.TryEnqueue(() =>
+                {
+                    _lastHistogramBins = bins;
+                    HistogramView.Draw(HistogramCanvas, bins);
+                });
+            ViewModel.Renderer.GpuUnavailable += reason =>
+            {
+                System.Diagnostics.Debug.WriteLine($"[Gpu] downgraded to CPU path: {reason}");
+                App.MainDispatcherQueue?.TryEnqueue(() =>
+                {
+                    ViewportSwapChainPanel.Visibility = Visibility.Collapsed;
+                    ViewportImage.Visibility = Visibility.Visible;
+                });
+            };
             ViewModel.Renderer.RenderFailed += message =>
                 App.MainDispatcherQueue?.TryEnqueue(() => RenderStatsText.Text = $"render error: {message}");
+
+            // Hand the DX12 present target to the render loop. QI once; the
+            // panel outlives the scheduler (window lifetime).
+            var panelUnknown = ((WinRT.IWinRTObject)ViewportSwapChainPanel).NativeObject.ThisPtr;
+            if (System.Runtime.InteropServices.Marshal.QueryInterface(
+                    panelUnknown, ref _swapChainPanelNativeIid, out _panelNative) == 0)
+            {
+                ViewModel.Renderer.SetPresentTarget(_panelNative);
+            }
+            ViewportSwapChainPanel.CompositionScaleChanged += (_, _) =>
+                ViewModel.Renderer.BumpSurfaceGeneration();
             ViewModel.PropertyChanged += (_, e) =>
             {
                 if (e.PropertyName == nameof(ViewModel.SelectedPhoto))
@@ -107,10 +141,46 @@ namespace Maple.WinUI
         }
 
         private void OnViewerBack(object sender, RoutedEventArgs e) => SetMode(ShellMode.Browse);
-        private void OnEnterEdit(object sender, RoutedEventArgs e) => SetMode(ShellMode.Edit);
+
+        private void OnEnterEdit(object sender, RoutedEventArgs e)
+        {
+            SetMode(ShellMode.Edit);
+            ViewModel.EnsureDecoded();
+        }
+
         private void OnExitEdit(object sender, RoutedEventArgs e) => SetMode(ShellMode.Preview);
 
         // --- Rendering ---
+
+        private void OnGpuFrameReady(int width, int height, double millis)
+        {
+            App.MainDispatcherQueue?.TryEnqueue(() =>
+            {
+                _gpuFrameDims = (width, height);
+                UpdatePanelFit();
+                ViewportSwapChainPanel.Visibility = Visibility.Visible;
+                ViewportImage.Visibility = Visibility.Collapsed;
+                RenderStatsText.Text = $"{width}×{height} · GPU {millis:0} ms";
+                ViewModel.LastRenderMillis = millis;
+            });
+        }
+
+        /// <summary>Size the SwapChainPanel to exactly the session dims in DIPs:
+        /// a SwapChainPanel composites its swapchain at 1 buffer pixel = 1 DIP
+        /// (no stretch-to-element), so any other element size leaves bands or
+        /// crops. Fit-to-viewport is achieved by choosing the decode size, not
+        /// by scaling the panel.</summary>
+        private void UpdatePanelFit()
+        {
+            if (_gpuFrameDims is not { } dims)
+                return;
+            ViewportSwapChainPanel.Width = dims.Width;
+            ViewportSwapChainPanel.Height = dims.Height;
+            ViewportSwapChainPanel.Margin = new Thickness(0, 48, 0, 0);
+        }
+
+        private void OnCanvasHostSizeChanged(object sender, SizeChangedEventArgs e) =>
+            UpdatePanelFit();
 
         private void OnFrameReady(byte[] bgra, int width, int height, uint[] bins, double millis)
         {
@@ -118,6 +188,8 @@ namespace Maple.WinUI
             Buffer.BlockCopy(bgra, 0, copy, 0, bgra.Length);
             App.MainDispatcherQueue?.TryEnqueue(() =>
             {
+                ViewportSwapChainPanel.Visibility = Visibility.Collapsed;
+                ViewportImage.Visibility = Visibility.Visible;
                 if (_viewportBitmap == null || _viewportBitmap.PixelWidth != width
                     || _viewportBitmap.PixelHeight != height)
                 {
@@ -165,6 +237,8 @@ namespace Maple.WinUI
             }
         }
 
+        private PhotoItem? _previewSubscribed;
+
         private void OnSelectedPhotoChanged()
         {
             var photo = ViewModel.SelectedPhoto;
@@ -178,6 +252,39 @@ namespace Maple.WinUI
                 Filmstrip.ScrollIntoView(photo);
             }
             UpdateStarRow();
+
+            // The viewer shows the embedded JPEG until the Edit decode delivers
+            // its first chain frame (the spec's placeholder-then-crossfade).
+            _viewportBitmap = null;
+            _gpuFrameDims = null;
+            ViewportSwapChainPanel.Visibility = Visibility.Collapsed;
+            ViewportImage.Visibility = Visibility.Visible;
+            ShowEmbeddedPreview(photo);
+            if (_previewSubscribed != null)
+                _previewSubscribed.PropertyChanged -= OnCurrentPhotoPropertyChanged;
+            _previewSubscribed = photo;
+            photo.PropertyChanged += OnCurrentPhotoPropertyChanged;
+
+            if (_mode == ShellMode.Edit)
+                ViewModel.EnsureDecoded();
+        }
+
+        private void OnCurrentPhotoPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName is not (nameof(PhotoItem.PreviewPath) or nameof(PhotoItem.ThumbnailPath)))
+                return;
+            var photo = ViewModel.SelectedPhoto;
+            // Only refresh while the embedded preview is still what's on screen.
+            if (photo != null && ReferenceEquals(sender, photo) && _viewportBitmap == null)
+                ShowEmbeddedPreview(photo);
+        }
+
+        private void ShowEmbeddedPreview(PhotoItem photo)
+        {
+            var source = photo.PreviewPath ?? photo.ThumbnailPath;
+            ViewportImage.Source = source != null
+                ? new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(source))
+                : null;
         }
 
         // --- Library scopes / filters ---
@@ -274,7 +381,10 @@ namespace Maple.WinUI
                 case VirtualKey.Up when _mode != ShellMode.Browse: ViewModel.SelectNeighbor(-10); break;
                 case VirtualKey.Down when _mode != ShellMode.Browse: ViewModel.SelectNeighbor(10); break;
                 case VirtualKey.Enter when _mode == ShellMode.Browse: EnterPreview(); break;
-                case VirtualKey.E when !ctrl && _mode == ShellMode.Preview: SetMode(ShellMode.Edit); break;
+                case VirtualKey.E when !ctrl && _mode == ShellMode.Preview:
+                    SetMode(ShellMode.Edit);
+                    ViewModel.EnsureDecoded();
+                    break;
                 case VirtualKey.Escape when _mode == ShellMode.Edit: SetMode(ShellMode.Preview); break;
                 case VirtualKey.Escape when _mode == ShellMode.Preview: SetMode(ShellMode.Browse); break;
                 case VirtualKey.Z when ctrl && shift: ViewModel.Redo(); break;

@@ -239,6 +239,12 @@ mod present_chain_pipeline;
 // gated inside). Absent on wasm.
 #[cfg(not(target_arch = "wasm32"))]
 mod present_chain;
+// Windows chain-output present (#2561): the live chain's final f32 buffer → a
+// DXGI composition swapchain bound to a WinUI 3 `SwapChainPanel`, via wgpu's
+// `SurfaceTargetUnsafe::SwapChainPanel`. Shares `present_chain.wgsl` +
+// `present_chain_pipeline` with the Apple + web paths. Windows-only.
+#[cfg(all(target_os = "windows", not(target_arch = "wasm32")))]
+mod present_chain_winui;
 // Web counterpart (P1c / #989): wgpu → HTML `<canvas>` present. wasm-only —
 // `SurfaceTarget::Canvas` is wgpu-gated on `#[cfg(any(webgpu, webgl))]`, active
 // on the wasm32 target. Absent on Apple / Linux host. Shares `present.wgsl`.
@@ -322,6 +328,10 @@ pub use present::present_test_pattern;
 pub use present_chain::present_chain_to_offscreen;
 #[cfg(target_vendor = "apple")]
 pub use present_chain::{present_chain_to_surface, PersistentPresentSurface};
+// Windows chain-output present (#2561): the SwapChainPanel twin of the Apple
+// surface entry above.
+#[cfg(all(target_os = "windows", not(target_arch = "wasm32")))]
+pub use present_chain_winui::{present_chain_to_swapchain_panel, PersistentSwapChainPanelSurface};
 
 #[cfg(target_arch = "wasm32")]
 pub use present_web::{present_test_pattern_web, PresentReport, TARGET_COLOR_SPACE};

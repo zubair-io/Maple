@@ -254,9 +254,15 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <Grid Grid.Row="0">
+                    <Grid Grid.Row="0" x:Name="CanvasHost" SizeChanged="OnCanvasHostSizeChanged">
                         <Image x:Name="ViewportImage" Stretch="Uniform" Margin="24,72,24,24"
                                AutomationProperties.Name="Rendered preview canvas" />
+                        <!-- DX12 present target (#2561): the wgpu live chain draws
+                             straight into this panel's composition swapchain; sized
+                             from code to the session's aspect fit. -->
+                        <SwapChainPanel x:Name="ViewportSwapChainPanel" Visibility="Collapsed"
+                                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                                        AutomationProperties.Name="GPU preview canvas" />
 
                         <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center"
                                     VerticalAlignment="Center"
