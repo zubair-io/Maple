@@ -21,6 +21,9 @@ namespace Maple.WinUI.ViewModels
         public DateTime FileModifiedUtc { get; init; }
 
         [ObservableProperty] private string? _thumbnailPath;
+        /// <summary>Full-screen embedded-JPEG preview (extracted on demand when
+        /// the photo is opened in Preview mode).</summary>
+        [ObservableProperty] private string? _previewPath;
         [ObservableProperty] private int _rating;
         [ObservableProperty] private string _flagStatus = "none";   // pick | reject | none
         [ObservableProperty] private string? _colorLabel;

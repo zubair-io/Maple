@@ -72,6 +72,11 @@ struct GpuShared {
     /// dims)`, reused across presents AND across handle re-opens.
     #[cfg(target_vendor = "apple")]
     present_surface: Option<raw_gpu::PersistentPresentSurface>,
+    /// The cached WinUI 3 `SwapChainPanel` present surface (#2561) — the
+    /// Windows twin of `present_surface`, created on the first
+    /// `maple_gpu_present_chain_winui` call with identical cache semantics.
+    #[cfg(target_os = "windows")]
+    present_surface_winui: Option<raw_gpu::PersistentSwapChainPanelSurface>,
 }
 
 static GPU_SHARED: Mutex<Option<GpuShared>> = Mutex::new(None);
@@ -426,6 +431,8 @@ pub unsafe extern "C" fn maple_gpu_live_open(
                         ctx,
                         #[cfg(target_vendor = "apple")]
                         present_surface: None,
+                        #[cfg(target_os = "windows")]
+                        present_surface_winui: None,
                     });
                 }
                 Err(e) => {
@@ -467,6 +474,11 @@ pub use entries::*;
 // inline; cbindgen still wraps the declaration in `#if defined(__APPLE__)`.
 #[cfg(target_vendor = "apple")]
 mod present;
+
+// The Windows `SwapChainPanel` present entry (`maple_gpu_present_chain_winui`,
+// #2561) — the DX12 twin of `present`, same sibling-module split.
+#[cfg(target_os = "windows")]
+mod present_winui;
 
 // The C-params -> FullChainInputs marshalling lives in a sibling module
 // (600-LOC file budget; same split pattern as raw_gpu's live_session/limits).
