@@ -184,6 +184,8 @@ namespace Maple.WinUI
 
         private void UpdateStarRow()
         {
+            if (_starButtons[0] == null)
+                return;  // selection can fire before the chrome is built
             var rating = ViewModel.SelectedPhoto?.Rating ?? 0;
             var star = (SolidColorBrush)Application.Current.Resources["MapleStar"];
             var muted = (SolidColorBrush)Application.Current.Resources["MapleBorderHi"];

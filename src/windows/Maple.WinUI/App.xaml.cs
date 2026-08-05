@@ -15,6 +15,13 @@ namespace Maple.WinUI
         public App()
         {
             this.InitializeComponent();
+            this.UnhandledException += (_, e) =>
+            {
+                Maple.WinUI.Services.DiagLog.Write($"[crash] {e.Exception}");
+                e.Handled = false;
+            };
+            AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+                Maple.WinUI.Services.DiagLog.Write($"[crash-domain] {e.ExceptionObject}");
         }
 
         protected override void OnLaunched(LaunchActivatedEventArgs args)

@@ -93,6 +93,10 @@ namespace Maple.WinUI
             };
             BuildStarRow();
             BuildEditRail();
+            // Wire the grouped grid source only after the chrome exists —
+            // setting Source synchronously raises the grid's first selection.
+            ((Microsoft.UI.Xaml.Data.CollectionViewSource)
+                ((FrameworkElement)Content).Resources["GroupedPhotosSource"]).Source = ViewModel.PhotoGroups;
             SetMode(ShellMode.Browse);
             this.Closed += (_, _) => ViewModel.Dispose();
         }
@@ -142,8 +146,15 @@ namespace Maple.WinUI
 
         private void OnViewerBack(object sender, RoutedEventArgs e) => SetMode(ShellMode.Browse);
 
-        private void OnEnterEdit(object sender, RoutedEventArgs e)
+        private async void OnEnterEdit(object sender, RoutedEventArgs e)
         {
+            if (ViewModel.SelectedPhoto is { IsCloud: true })
+            {
+                await ShowMessageAsync("Maple Cloud",
+                    "Cloud photos can be browsed and culled; editing needs the original "
+                    + "on this machine. Download-to-edit is tracked on #2588.");
+                return;
+            }
             SetMode(ShellMode.Edit);
             ViewModel.EnsureDecoded();
         }
@@ -294,7 +305,7 @@ namespace Maple.WinUI
             if (LibraryList.SelectedItem is not ListViewItem item)
                 return;
             var scope = item.Tag as string;
-            ViewModel.DateFilterDay = null;
+            ViewModel.SetDateFilter(null, null);
             ViewModel.FlagFilter = scope is "pick" or "reject" ? scope : "all";
             ViewModel.MinRatingFilter = scope == "rated4" ? 4 : 0;
         }
@@ -303,20 +314,23 @@ namespace Maple.WinUI
         {
             if (FoldersList.SelectedItem is string folder)
             {
-                ViewModel.DateFilterDay = null;
+                ViewModel.SetDateFilter(null, null);
                 ViewModel.LoadDirectory(folder);
                 SetMode(ShellMode.Browse);
             }
         }
 
-        private void OnSelectTimelineGroup(object sender, SelectionChangedEventArgs e)
+        private void OnTimelineNodeInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
         {
-            if (sender is ListView list && list.SelectedItem is TimelineGroup group)
+            if (args.InvokedItem is TimelineNode node)
             {
-                ViewModel.DateFilterDay = group.SortKey;
+                ViewModel.SetDateFilter(node.PeriodStart, node.PeriodEndExclusive);
                 SetMode(ShellMode.Browse);
             }
         }
+
+        private void OnClearTimelineFilter(object sender, RoutedEventArgs e) =>
+            ViewModel.SetDateFilter(null, null);
 
         private void OnFormatFilterChanged(object sender, SelectionChangedEventArgs e)
         {
@@ -381,7 +395,8 @@ namespace Maple.WinUI
                 case VirtualKey.Up when _mode != ShellMode.Browse: ViewModel.SelectNeighbor(-10); break;
                 case VirtualKey.Down when _mode != ShellMode.Browse: ViewModel.SelectNeighbor(10); break;
                 case VirtualKey.Enter when _mode == ShellMode.Browse: EnterPreview(); break;
-                case VirtualKey.E when !ctrl && _mode == ShellMode.Preview:
+                case VirtualKey.E when !ctrl && _mode == ShellMode.Preview
+                        && ViewModel.SelectedPhoto is not { IsCloud: true }:
                     SetMode(ShellMode.Edit);
                     ViewModel.EnsureDecoded();
                     break;
