@@ -80,7 +80,11 @@ namespace Maple.WinUI
                     OnSelectedPhotoChanged();
             };
             ViewModel.Photos.CollectionChanged += (_, _) =>
+            {
                 LibraryCountText.Text = $"{ViewModel.Photos.Count} photos";
+                EmptyStateText.Visibility =
+                    ViewModel.Photos.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            };
 
             SidebarColDef.Width = new GridLength(_settings.LeftPanelHidden ? 0 : _settings.LeftPanelWidth);
             PhotoGrid.PreviewKeyDown += (_, e) =>

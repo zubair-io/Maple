@@ -140,9 +140,13 @@
                                     <FontIcon Glyph="&#xE710;" FontSize="11" Foreground="{StaticResource MapleTextMuted}" />
                                 </Button>
                             </Grid>
+                            <!-- Own capped scroll area: a deep archive must not
+                                 swallow the whole sidebar and push the other
+                                 sections out of reach. -->
                             <TreeView ItemsSource="{Binding FolderTree}" SelectionMode="None"
                                       ItemInvoked="OnFolderNodeInvoked"
                                       Expanding="OnFolderExpanding"
+                                      MaxHeight="440"
                                       AutomationProperties.Name="Folders">
                                 <TreeView.ItemTemplate>
                                     <DataTemplate x:DataType="vm:FolderNode">
@@ -214,6 +218,7 @@
                             </Grid>
                             <TreeView ItemsSource="{Binding Timeline.Nodes}" SelectionMode="None"
                                       ItemInvoked="OnTimelineNodeInvoked"
+                                      MaxHeight="360"
                                       AutomationProperties.Name="Timeline">
                                 <TreeView.ItemTemplate>
                                     <DataTemplate x:DataType="vm:TimelineNode">
@@ -322,6 +327,11 @@
                             </DataTemplate>
                         </GridView.ItemTemplate>
                     </GridView>
+                    <TextBlock x:Name="EmptyStateText" Grid.Row="1" Visibility="Collapsed"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                               FontSize="13" TextWrapping="Wrap" MaxWidth="420" TextAlignment="Center"
+                               Foreground="{StaticResource MapleTextMuted}"
+                               Text="No photos directly in this folder — its photos live in subfolders. Pick a subfolder from the FOLDERS tree." />
                 </Grid>
 
                 <!-- PREVIEW + EDIT share the canvas -->
