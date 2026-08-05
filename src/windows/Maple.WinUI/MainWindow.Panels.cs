@@ -1,5 +1,6 @@
 using System;
-using System.IO;
+using System.Collections.Generic;
+using System.Linq;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -8,11 +9,154 @@ using Maple.WinUI.ViewModels;
 
 namespace Maple.WinUI
 {
-    /// <summary>Inspector chrome: star row, EXIF info rows, histogram plot,
-    /// and the folder / export dialogs.</summary>
+    /// <summary>Edit-screen chrome: the floating tool rail and group panels,
+    /// star row, EXIF flyout, and histogram plot.</summary>
     public sealed partial class MainWindow
     {
         private readonly Button[] _starButtons = new Button[5];
+        private readonly Dictionary<string, Button> _railButtons = new();
+        private string? _activeGroup;
+        private string _colorTab = "Basic";
+
+        // --- Tool rail ---
+
+        private static readonly (string Title, string Glyph, string? DisabledNote)[] RailGroups =
+        {
+            ("Light", "\uE706", null),
+            ("Color", "\uE790", null),
+            ("Effects", "\uE71C", null),
+            ("Detail", "\uE9D9", null),
+            ("Tone Curve", "\uE9E9", null),
+            ("Crop", "\uE7A8", "Crop overlay ships with #2582"),
+        };
+
+        private void BuildEditRail()
+        {
+            foreach (var (title, glyph, disabledNote) in RailGroups)
+            {
+                var button = new Button
+                {
+                    Style = (Style)((FrameworkElement)Content).Resources["PillButton"],
+                    Width = 44,
+                    Height = 40,
+                    Content = new FontIcon { Glyph = glyph, FontSize = 15 },
+                    IsEnabled = disabledNote == null,
+                };
+                ToolTipService.SetToolTip(button, disabledNote ?? title);
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, $"{title} tools");
+                var group = title;
+                button.Click += (_, _) => ToggleGroupPanel(group);
+                _railButtons[title] = button;
+
+                var label = new TextBlock
+                {
+                    Text = title,
+                    FontSize = 9,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Foreground = (SolidColorBrush)Application.Current.Resources["MapleTextMuted"],
+                    Margin = new Thickness(0, -2, 0, 4),
+                };
+                EditRailStack.Children.Add(button);
+                EditRailStack.Children.Add(label);
+            }
+        }
+
+        private void ToggleGroupPanel(string group)
+        {
+            if (_activeGroup == group)
+            {
+                CloseGroupPanel();
+                return;
+            }
+            _activeGroup = group;
+            foreach (var (title, button) in _railButtons)
+            {
+                button.Background = title == group
+                    ? (SolidColorBrush)Application.Current.Resources["MaplePrimaryDim"]
+                    : null;
+            }
+            EditPanel.Visibility = Visibility.Visible;
+            EditPanelTitle.Text = group.ToUpperInvariant();
+            ColorTabRow.Visibility = group == "Color" ? Visibility.Visible : Visibility.Collapsed;
+            PanelFootnote.Visibility = Visibility.Collapsed;
+
+            if (group == "Color")
+            {
+                ShowColorTab(_colorTab);
+                return;
+            }
+
+            PanelBwHeader.Visibility = Visibility.Collapsed;
+            PanelHslBands.ItemsSource = null;
+            PanelHslBands.Visibility = Visibility.Collapsed;
+            PanelSliders.Visibility = Visibility.Visible;
+            PanelSliders.ItemsSource = AdjustmentSections.Section(ViewModel.Sections, group).Sliders;
+            if (group == "Tone Curve")
+            {
+                PanelFootnote.Text = "Parametric region controls. The interactive point-curve plot ships with #2576.";
+                PanelFootnote.Visibility = Visibility.Visible;
+            }
+        }
+
+        private void CloseGroupPanel()
+        {
+            _activeGroup = null;
+            EditPanel.Visibility = Visibility.Collapsed;
+            foreach (var button in _railButtons.Values)
+                button.Background = null;
+        }
+
+        private void OnColorTab(object sender, RoutedEventArgs e)
+        {
+            if (sender == ColorTabBasic) ShowColorTab("Basic");
+            else if (sender == ColorTabHsl) ShowColorTab("HSL");
+            else ShowColorTab("B&W");
+        }
+
+        private void ShowColorTab(string tab)
+        {
+            _colorTab = tab;
+            var accent = (SolidColorBrush)Application.Current.Resources["MaplePrimaryDim"];
+            ColorTabBasic.Background = tab == "Basic" ? accent : null;
+            ColorTabHsl.Background = tab == "HSL" ? accent : null;
+            ColorTabBw.Background = tab == "B&W" ? accent : null;
+
+            PanelBwHeader.Visibility = tab == "B&W" ? Visibility.Visible : Visibility.Collapsed;
+            PanelHslBands.Visibility = tab == "HSL" ? Visibility.Visible : Visibility.Collapsed;
+            PanelHslBands.ItemsSource = tab == "HSL" ? ViewModel.HslBands : null;
+            PanelSliders.Visibility = tab == "HSL" ? Visibility.Collapsed : Visibility.Visible;
+            PanelSliders.ItemsSource = tab switch
+            {
+                "Basic" => AdjustmentSections.Section(ViewModel.Sections, "Color").Sliders,
+                "B&W" => AdjustmentSections.Section(ViewModel.Sections, "B&W").Sliders,
+                _ => null,
+            };
+        }
+
+        private void OnResetGroup(object sender, RoutedEventArgs e)
+        {
+            if (_activeGroup == null)
+                return;
+            if (_activeGroup == "Color" && _colorTab == "HSL")
+            {
+                foreach (var band in ViewModel.HslBands)
+                {
+                    band.Hue.Reset();
+                    band.Sat.Reset();
+                    band.Lum.Reset();
+                }
+                return;
+            }
+            var sectionTitle = _activeGroup == "Color"
+                ? (_colorTab == "B&W" ? "B&W" : "Color")
+                : _activeGroup;
+            foreach (var slider in AdjustmentSections.Section(ViewModel.Sections, sectionTitle).Sliders)
+                slider.Reset();
+            if (sectionTitle == "B&W")
+                ViewModel.BlackWhiteOn = false;
+        }
+
+        // --- Star row (Preview pill) ---
 
         private void BuildStarRow()
         {
@@ -21,8 +165,8 @@ namespace Maple.WinUI
                 var stars = i + 1;
                 var button = new Button
                 {
-                    Content = new FontIcon { Glyph = "\uE734", FontSize = 13 },
-                    Padding = new Thickness(4, 2, 4, 2),
+                    Content = new FontIcon { Glyph = "\uE734", FontSize = 12 },
+                    Padding = new Thickness(3, 2, 3, 2),
                     Background = null,
                     BorderThickness = new Thickness(0),
                 };
@@ -51,7 +195,9 @@ namespace Maple.WinUI
             }
         }
 
-        private void RefreshInfoPanel()
+        // --- Info flyout (Preview pill) ---
+
+        private void OnInfoFlyoutOpening(object? sender, object e)
         {
             var photo = ViewModel.SelectedPhoto;
             ExifRows.Children.Clear();
@@ -89,110 +235,6 @@ namespace Maple.WinUI
             AddRow(FileRows, "Format", photo.Format);
             AddRow(FileRows, "Size", $"{photo.FileSizeBytes / (1024.0 * 1024.0):0.0} MB");
             AddRow(FileRows, "Pixels", photo.Dimensions);
-        }
-
-        // --- Dialogs ---
-
-        private async void OnOpenDirectory(object sender, RoutedEventArgs e)
-        {
-            var picker = new Windows.Storage.Pickers.FolderPicker
-            {
-                SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.PicturesLibrary,
-            };
-            picker.FileTypeFilter.Add("*");
-            WinRT.Interop.InitializeWithWindow.Initialize(
-                picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
-
-            var folder = await picker.PickSingleFolderAsync();
-            if (folder != null)
-            {
-                ViewModel.AddLibraryFolder(folder.Path);
-                SwitchMode(develop: false);
-            }
-        }
-
-        private async void OnExportPhotos(object sender, RoutedEventArgs e)
-        {
-            var photo = ViewModel.SelectedPhoto;
-            if (photo == null)
-            {
-                await ShowMessageAsync("Export", "Select a photo to export first.");
-                return;
-            }
-
-            var panel = new StackPanel { Spacing = 10, Width = 340 };
-            panel.Children.Add(new TextBlock
-            {
-                Text = "Exports through the full Rust develop chain (Amaze quality) with the "
-                     + "current sidecar adjustments applied. JPEG output.",
-                TextWrapping = TextWrapping.Wrap,
-                FontSize = 12,
-            });
-            var qualitySlider = new Slider
-            {
-                Minimum = 50, Maximum = 100, Value = 92, StepFrequency = 1,
-                Header = "JPEG quality",
-            };
-            panel.Children.Add(qualitySlider);
-            var sizeCombo = new ComboBox
-            {
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                SelectedIndex = 0,
-                Header = "Long edge",
-            };
-            sizeCombo.Items.Add("Full resolution");
-            sizeCombo.Items.Add("4096 px");
-            sizeCombo.Items.Add("2048 px");
-            sizeCombo.Items.Add("1024 px");
-            panel.Children.Add(sizeCombo);
-
-            var dialog = new ContentDialog
-            {
-                Title = $"Export {photo.FileName}",
-                Content = panel,
-                PrimaryButtonText = "Export…",
-                CloseButtonText = "Cancel",
-                DefaultButton = ContentDialogButton.Primary,
-                XamlRoot = (this.Content as FrameworkElement)?.XamlRoot,
-            };
-            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
-                return;
-
-            var savePicker = new Windows.Storage.Pickers.FileSavePicker
-            {
-                SuggestedFileName = System.IO.Path.GetFileNameWithoutExtension(photo.FileName),
-                SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.PicturesLibrary,
-            };
-            savePicker.FileTypeChoices.Add("JPEG image", new[] { ".jpg" });
-            WinRT.Interop.InitializeWithWindow.Initialize(
-                savePicker, WinRT.Interop.WindowNative.GetWindowHandle(this));
-            var file = await savePicker.PickSaveFileAsync();
-            if (file == null)
-                return;
-
-            var maxPx = sizeCombo.SelectedIndex switch
-            {
-                1 => 4096u,
-                2 => 2048u,
-                3 => 1024u,
-                _ => 65535u,
-            };
-            var (ok, error) = await ViewModel.ExportJpegAsync(
-                photo, file.Path, maxPx, (byte)qualitySlider.Value);
-            await ShowMessageAsync("Export",
-                ok ? $"Exported to {file.Path}" : $"Export failed: {error}");
-        }
-
-        private async System.Threading.Tasks.Task ShowMessageAsync(string title, string message)
-        {
-            var dialog = new ContentDialog
-            {
-                Title = title,
-                Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
-                CloseButtonText = "OK",
-                XamlRoot = (this.Content as FrameworkElement)?.XamlRoot,
-            };
-            await dialog.ShowAsync();
         }
     }
 
