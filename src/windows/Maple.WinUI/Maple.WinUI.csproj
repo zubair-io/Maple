@@ -13,6 +13,7 @@
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
@@ -22,8 +23,10 @@
     <PackageReference Include="CommunityToolkit.WinUI.UI.Controls" Version="7.1.2" />
   </ItemGroup>
 
-  <ItemGroup>
-    <None Update="Native\maple_core.dll">
+  <!-- Native Rust core: built by `cargo build - -release -p raw-ffi - -features gpu`
+       in src/raw-pipeline (see ../scripts/build-windows.sh). Not committed. -->
+  <ItemGroup Condition="Exists('..\..\raw-pipeline\target\release\raw_ffi.dll')">
+    <None Include="..\..\raw-pipeline\target\release\raw_ffi.dll" Link="raw_ffi.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
