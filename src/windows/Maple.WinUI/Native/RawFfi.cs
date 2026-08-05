@@ -116,6 +116,29 @@ namespace Maple.WinUI.Native
             IntPtr cancelFlag,
             ulong surfaceGeneration);
 
+        // --- Auto Profile tail fit (#550/#924): separate curve + residual for
+        //     the GPU live chain, composed display LUT for the CPU fallback.
+        //     Both are cached natively per (path, mtime, quality). ---
+
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int maple_gpu_fit_auto_profile(
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string rawPath,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string? xmpPath,
+            int qualityPreview,
+            float* curveOut,          // >= 220 floats (MAPLE_PROFILE_CURVE_FLAT_LEN)
+            int* curvePresent,
+            float* lutOut,
+            nuint lutCapacityFloats,
+            uint* lutSize);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int maple_compute_auto_profile_lut(
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string rawPath,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string? xmpPath,
+            int qualityPreview,
+            uint n,
+            float* outLut);           // n³ × 3 floats
+
         // --- AUTO adjustments ---
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]

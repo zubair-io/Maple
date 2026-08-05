@@ -24,6 +24,8 @@
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <!-- Diagnostic frame dumps (MAPLE_DUMP_FRAME) for the color parity checks. -->
+    <PackageReference Include="System.Drawing.Common" Version="8.0.7" />
     <PackageReference Include="CommunityToolkit.WinUI.UI.Controls" Version="7.1.2" />
   </ItemGroup>
 

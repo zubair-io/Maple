@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Maple.WinUI.Models;
@@ -65,6 +66,13 @@ namespace Maple.WinUI.Services
         /// scheduler.</summary>
         public void SetPresentTarget(IntPtr panelNative)
         {
+            // Diagnostic escape hatch: MAPLE_FORCE_CPU=1 keeps the CPU fallback
+            // active so GPU-vs-CPU output can be A/B'd on screen.
+            if (Environment.GetEnvironmentVariable("MAPLE_FORCE_CPU") == "1")
+            {
+                DiagLog.Write("[gpu] disabled by MAPLE_FORCE_CPU");
+                return;
+            }
             lock (_gate)
             {
                 _panelNative = panelNative;
@@ -295,12 +303,28 @@ namespace Maple.WinUI.Services
                     return int.MinValue;
                 int rc;
                 fixed (float* noisePtr = image.NoiseProfile)
+                fixed (float* curvePtr = image.ProfileCurve)
+                fixed (float* residualPtr = image.ResidualLut)
                 fixed (MapleGpuLiveSession* handle = &_gpuSession)
                 {
                     if (image.NoiseProfile.Length > 0)
                     {
                         p.noise_profile_ptr = noisePtr;
                         p.noise_profile_len = (uint)image.NoiseProfile.Length;
+                    }
+                    // Auto Profile tail (#550/#924): fitted curve + residual LUT
+                    // — without these a Profile::Auto decode renders ΔE00 ≈ 19
+                    // off the embedded-JPEG look (measured on the CR2 set).
+                    if (image.ProfileCurve is { Length: > 0 })
+                    {
+                        p.profile_curve_ptr = curvePtr;
+                        p.profile_curve_len = (nuint)image.ProfileCurve.Length;
+                    }
+                    if (image.ResidualLut is { Length: > 0 })
+                    {
+                        p.residual_lut_ptr = residualPtr;
+                        p.residual_lut_len = (nuint)image.ResidualLut.Length;
+                        p.residual_lut_size = image.ResidualLutSize;
                     }
                     rc = RawFfi.maple_gpu_present_chain_winui(
                         handle, &p, panel, IntPtr.Zero, generation);
@@ -325,6 +349,7 @@ namespace Maple.WinUI.Services
                 if (emitFrame)
                     FrameReady?.Invoke(_bgra, image.Width, image.Height,
                         ComputeHistogram(_bgra), elapsed);
+                DumpFrameIfRequested(_bgra, image.Width, image.Height);
                 return true;
             }
             catch (Exception ex)
@@ -347,6 +372,33 @@ namespace Maple.WinUI.Services
             catch (Exception ex)
             {
                 RenderFailed?.Invoke(ex.Message);
+            }
+        }
+
+        /// <summary>Diagnostic: MAPLE_DUMP_FRAME=&lt;path.png&gt; writes the next
+        /// CPU-rendered frame to disk — pixel-exact app output for the color
+        /// parity harness, independent of screenshots/DWM.</summary>
+        private static void DumpFrameIfRequested(byte[] bgra, int width, int height)
+        {
+            var path = Environment.GetEnvironmentVariable("MAPLE_DUMP_FRAME");
+            if (string.IsNullOrEmpty(path) || File.Exists(path))
+                return;
+            try
+            {
+                using var bitmap = new System.Drawing.Bitmap(
+                    width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                var data = bitmap.LockBits(
+                    new System.Drawing.Rectangle(0, 0, width, height),
+                    System.Drawing.Imaging.ImageLockMode.WriteOnly,
+                    System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                System.Runtime.InteropServices.Marshal.Copy(bgra, 0, data.Scan0, bgra.Length);
+                bitmap.UnlockBits(data);
+                bitmap.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+                DiagLog.Write($"[dump] frame {width}x{height} -> {path}");
+            }
+            catch (Exception ex)
+            {
+                DiagLog.Write($"[dump] failed: {ex.Message}");
             }
         }
 
