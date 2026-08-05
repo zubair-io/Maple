@@ -32,6 +32,21 @@
                             Margin="0,-4,0,0" IsThumbToolTipEnabled="False" />
                 </StackPanel>
             </DataTemplate>
+
+            <!-- Floating pill chrome shared by the Preview bar, Edit bar, rail and panel -->
+            <Style x:Key="FloatingPill" TargetType="Border">
+                <Setter Property="Background" Value="#F21C1917" />
+                <Setter Property="BorderBrush" Value="{StaticResource MapleBorder}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="10" />
+            </Style>
+            <Style x:Key="PillButton" TargetType="Button">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="CornerRadius" Value="6" />
+                <Setter Property="Padding" Value="8,5" />
+                <Setter Property="Foreground" Value="{StaticResource MapleTextMain}" />
+            </Style>
         </Grid.Resources>
 
         <Grid.RowDefinitions>
@@ -39,17 +54,11 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- ===== Toolbar ===== -->
-        <Border Grid.Row="0" Background="{StaticResource MapleBg}"
+        <!-- ===== Browse toolbar (hidden in Preview / Edit) ===== -->
+        <Border x:Name="BrowseToolbar" Grid.Row="0" Background="{StaticResource MapleBg}"
                 BorderBrush="{StaticResource MapleBorder}" BorderThickness="0,0,0,1" Padding="12,6">
             <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                     <Button Style="{StaticResource MapleToolButton}" Click="OnToggleSidebar"
                             AutomationProperties.Name="Toggle sources panel">
                         <FontIcon Glyph="&#xE700;" FontSize="13" />
@@ -57,24 +66,10 @@
                     <TextBlock Text="MAPLE" FontWeight="Bold" FontSize="15" CharacterSpacing="180"
                                VerticalAlignment="Center" Foreground="{StaticResource MaplePrimary}" />
                 </StackPanel>
-
-                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="2"
-                            VerticalAlignment="Center">
-                    <Button x:Name="BrowseModeBtn" Click="OnSwitchToBrowse" Padding="16,5"
-                            AutomationProperties.Name="Browse mode">
-                        <TextBlock Text="Browse" FontWeight="SemiBold" FontSize="13" />
-                    </Button>
-                    <Button x:Name="DevelopModeBtn" Click="OnSwitchToDevelop" Padding="16,5"
-                            AutomationProperties.Name="Develop mode">
-                        <TextBlock Text="Develop" FontWeight="SemiBold" FontSize="13" />
-                    </Button>
-                </StackPanel>
-
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" VerticalAlignment="Center">
                     <TextBox x:Name="SearchBox" Width="190" PlaceholderText="Search name, camera, lens…"
                              Background="{StaticResource MapleInputBg}" FontSize="12"
-                             TextChanged="OnSearchChanged"
-                             AutomationProperties.Name="Search library" />
+                             TextChanged="OnSearchChanged" AutomationProperties.Name="Search library" />
                     <Button Style="{StaticResource MapleToolButton}" Click="OnOpenDirectory"
                             ToolTipService.ToolTip="Add photo folder (Ctrl+O)"
                             AutomationProperties.Name="Add photo folder">
@@ -88,25 +83,19 @@
                             <TextBlock Text="Export" FontSize="12" FontWeight="SemiBold" />
                         </StackPanel>
                     </Button>
-                    <Button Style="{StaticResource MapleToolButton}" Click="OnToggleInspector"
-                            ToolTipService.ToolTip="Toggle inspector"
-                            AutomationProperties.Name="Toggle inspector panel">
-                        <FontIcon Glyph="&#xE90D;" FontSize="13" />
-                    </Button>
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- ===== Main three-column shell ===== -->
+        <!-- ===== Main ===== -->
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="SidebarColDef" Width="260" MinWidth="0" MaxWidth="420" />
                 <ColumnDefinition Width="*" MinWidth="300" />
-                <ColumnDefinition x:Name="InspectorColDef" Width="320" MinWidth="0" MaxWidth="460" />
             </Grid.ColumnDefinitions>
 
-            <!-- Sources sidebar -->
-            <Border Grid.Column="0" Background="{StaticResource MapleSidebar}"
+            <!-- Sources sidebar (Browse only) -->
+            <Border x:Name="SidebarPane" Grid.Column="0" Background="{StaticResource MapleSidebar}"
                     BorderBrush="{StaticResource MapleBorder}" BorderThickness="0,0,1,0">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Spacing="14" Padding="10,12">
@@ -187,14 +176,15 @@
                 </ScrollViewer>
             </Border>
 
-            <!-- Center: Browse grid / Develop viewport -->
+            <!-- Center -->
             <Grid Grid.Column="1">
+
+                <!-- BROWSE -->
                 <Grid x:Name="BrowseGridContainer" Visibility="Visible">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
-
                     <Border Grid.Row="0" BorderBrush="{StaticResource MapleBorder}" BorderThickness="0,0,0,1"
                             Padding="12,8">
                         <StackPanel Orientation="Horizontal" Spacing="6">
@@ -220,10 +210,10 @@
                                        Foreground="{StaticResource MapleTextMuted}" Margin="8,0,0,0" />
                         </StackPanel>
                     </Border>
-
                     <GridView x:Name="PhotoGrid" Grid.Row="1" ItemsSource="{Binding Photos}"
                               SelectionMode="Single" Padding="12" IsItemClickEnabled="True"
                               ItemClick="OnPhotoItemClick" SelectionChanged="OnGridSelectionChanged"
+                              DoubleTapped="OnGridDoubleTapped"
                               AutomationProperties.Name="Photo grid">
                         <GridView.ItemTemplate>
                             <DataTemplate>
@@ -257,36 +247,183 @@
                     </GridView>
                 </Grid>
 
-                <Grid x:Name="DevelopContainer" Visibility="Collapsed" Background="{StaticResource MapleImageCanvas}">
+                <!-- PREVIEW + EDIT share the canvas -->
+                <Grid x:Name="ViewerContainer" Visibility="Collapsed" Background="{StaticResource MapleImageCanvas}">
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <Border Grid.Row="0" Background="{StaticResource MapleBg}" Padding="12,5"
-                            BorderBrush="{StaticResource MapleBorder}" BorderThickness="0,0,0,1">
-                        <Grid>
-                            <StackPanel Orientation="Horizontal" Spacing="10">
-                                <TextBlock Text="{Binding SelectedPhoto.FileName}" FontWeight="SemiBold" FontSize="12"
+                    <Grid Grid.Row="0">
+                        <Image x:Name="ViewportImage" Stretch="Uniform" Margin="24,72,24,24"
+                               AutomationProperties.Name="Rendered preview canvas" />
+
+                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Visibility="{Binding IsDecoding, Converter={StaticResource BoolVisible}}">
+                            <ProgressRing IsActive="{Binding IsDecoding}" Width="20" Height="20" />
+                            <TextBlock Text="{Binding DecodeStatus}" FontSize="12"
+                                       Foreground="{StaticResource MapleTextMuted}" VerticalAlignment="Center" />
+                        </StackPanel>
+
+                        <!-- Preview top pill -->
+                        <Border x:Name="PreviewTopBar" Style="{StaticResource FloatingPill}"
+                                HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,14,0,0"
+                                Padding="10,6">
+                            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                <Button Style="{StaticResource PillButton}" Click="OnViewerBack"
+                                        ToolTipService.ToolTip="Back to Browse (Esc)"
+                                        AutomationProperties.Name="Back to browse">
+                                    <FontIcon Glyph="&#xE72B;" FontSize="13" />
+                                </Button>
+                                <TextBlock Text="{Binding SelectedPhoto.FileName}" FontSize="12" FontWeight="SemiBold"
                                            VerticalAlignment="Center" Foreground="{StaticResource MapleTextMain}" />
                                 <TextBlock Text="{Binding SelectedPhoto.Dimensions}" FontSize="11"
-                                           Foreground="{StaticResource MapleTextMuted}" VerticalAlignment="Center" />
-                                <ProgressRing IsActive="{Binding IsDecoding}" Width="14" Height="14" />
-                                <TextBlock Text="{Binding DecodeStatus}" FontSize="11"
-                                           Foreground="{StaticResource MapleWarn}" VerticalAlignment="Center" />
+                                           VerticalAlignment="Center" Foreground="{StaticResource MapleTextMuted}" />
+                                <StackPanel x:Name="StarRow" Orientation="Horizontal" Spacing="0" VerticalAlignment="Center" />
+                                <Button x:Name="PickBtn" Style="{StaticResource PillButton}" Click="OnFlagPick"
+                                        ToolTipService.ToolTip="Pick (P)" AutomationProperties.Name="Flag as pick">
+                                    <FontIcon Glyph="&#xE73E;" FontSize="12" Foreground="#4CAF50" />
+                                </Button>
+                                <Button x:Name="RejectBtn" Style="{StaticResource PillButton}" Click="OnFlagReject"
+                                        ToolTipService.ToolTip="Reject (X)" AutomationProperties.Name="Flag as reject">
+                                    <FontIcon Glyph="&#xE711;" FontSize="12" Foreground="{StaticResource MapleErrorText}" />
+                                </Button>
+                                <Button Style="{StaticResource PillButton}"
+                                        ToolTipService.ToolTip="Info &amp; EXIF" AutomationProperties.Name="Photo info">
+                                    <FontIcon Glyph="&#xE946;" FontSize="12" />
+                                    <Button.Flyout>
+                                        <Flyout Opening="OnInfoFlyoutOpening">
+                                            <StackPanel Width="260" Spacing="10">
+                                                <TextBlock Text="CAMERA" Style="{StaticResource MapleEyebrow}" />
+                                                <StackPanel x:Name="ExifRows" Spacing="6" />
+                                                <TextBlock Text="FILE" Style="{StaticResource MapleEyebrow}" Margin="0,6,0,0" />
+                                                <StackPanel x:Name="FileRows" Spacing="6" />
+                                            </StackPanel>
+                                        </Flyout>
+                                    </Button.Flyout>
+                                </Button>
+                                <Button Style="{StaticResource AccentButtonStyle}" Padding="14,5" Click="OnEnterEdit"
+                                        AutomationProperties.Name="Edit photo">
+                                    <TextBlock Text="Edit" FontSize="12" FontWeight="SemiBold" />
+                                </Button>
                             </StackPanel>
-                            <TextBlock x:Name="RenderStatsText" FontSize="10" HorizontalAlignment="Right"
-                                       Foreground="{StaticResource MapleTextMuted}" VerticalAlignment="Center" />
-                        </Grid>
-                    </Border>
+                        </Border>
 
-                    <Grid Grid.Row="1">
-                        <Image x:Name="ViewportImage" Stretch="Uniform" Margin="16"
-                               AutomationProperties.Name="Rendered preview canvas" />
+                        <!-- Edit top pill -->
+                        <Border x:Name="EditTopBar" Style="{StaticResource FloatingPill}" Visibility="Collapsed"
+                                HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,14,0,0"
+                                Padding="10,6">
+                            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                <Button Style="{StaticResource PillButton}" Click="OnExitEdit"
+                                        ToolTipService.ToolTip="Back to Preview (Esc)"
+                                        AutomationProperties.Name="Back to preview">
+                                    <FontIcon Glyph="&#xE72B;" FontSize="13" />
+                                </Button>
+                                <TextBlock Text="{Binding SelectedPhoto.FileName}" FontSize="12" FontWeight="SemiBold"
+                                           VerticalAlignment="Center" Foreground="{StaticResource MapleTextMain}" />
+                                <Border Width="96" Height="30" CornerRadius="4" Background="{StaticResource MapleImageCanvas}"
+                                        BorderBrush="{StaticResource MapleBorder}" BorderThickness="1">
+                                    <Canvas x:Name="HistogramCanvas" Margin="2" />
+                                </Border>
+                                <Button Style="{StaticResource PillButton}" Click="OnApplyAuto"
+                                        AutomationProperties.Name="Auto adjust">
+                                    <TextBlock Text="AUTO" FontSize="11" FontWeight="SemiBold" />
+                                </Button>
+                                <Button Style="{StaticResource PillButton}" Click="OnResetAll"
+                                        ToolTipService.ToolTip="Reset all adjustments"
+                                        AutomationProperties.Name="Reset adjustments">
+                                    <TextBlock Text="RESET" FontSize="11" FontWeight="SemiBold" />
+                                </Button>
+                                <Button Style="{StaticResource PillButton}" Click="OnRevert"
+                                        ToolTipService.ToolTip="Revert to sidecar state at open (Ctrl+R)"
+                                        AutomationProperties.Name="Revert edits">
+                                    <FontIcon Glyph="&#xE7A7;" FontSize="12" />
+                                </Button>
+                                <TextBlock x:Name="RenderStatsText" FontSize="10" VerticalAlignment="Center"
+                                           Foreground="{StaticResource MapleTextMuted}" />
+                                <Button Style="{StaticResource PillButton}" Click="OnExportPhotos"
+                                        ToolTipService.ToolTip="Export JPEG (Ctrl+Shift+E)"
+                                        AutomationProperties.Name="Export photo">
+                                    <FontIcon Glyph="&#xEDE1;" FontSize="12" Foreground="{StaticResource MaplePrimary}" />
+                                </Button>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Edit tool rail -->
+                        <Border x:Name="EditRail" Style="{StaticResource FloatingPill}" Visibility="Collapsed"
+                                HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0"
+                                Padding="6,10">
+                            <StackPanel x:Name="EditRailStack" Spacing="4" />
+                        </Border>
+
+                        <!-- Floating group panel -->
+                        <Border x:Name="EditPanel" Style="{StaticResource FloatingPill}" Visibility="Collapsed"
+                                Width="300" MaxHeight="620"
+                                HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,86,0"
+                                Padding="14,10">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <Grid Grid.Row="0" Margin="0,0,0,6">
+                                    <TextBlock x:Name="EditPanelTitle" FontSize="11" FontWeight="Bold"
+                                               CharacterSpacing="120" Foreground="{StaticResource MaplePrimary}" />
+                                    <Button Style="{StaticResource PillButton}" Padding="4,2" HorizontalAlignment="Right"
+                                            Click="OnResetGroup" ToolTipService.ToolTip="Reset this group"
+                                            AutomationProperties.Name="Reset group">
+                                        <FontIcon Glyph="&#xE7A7;" FontSize="11" Foreground="{StaticResource MapleTextMuted}" />
+                                    </Button>
+                                </Grid>
+                                <StackPanel x:Name="ColorTabRow" Grid.Row="1" Orientation="Horizontal" Spacing="4"
+                                            Margin="0,0,0,6" Visibility="Collapsed">
+                                    <Button x:Name="ColorTabBasic" Style="{StaticResource PillButton}" FontSize="11"
+                                            Click="OnColorTab" AutomationProperties.Name="Color basic tab">Basic</Button>
+                                    <Button x:Name="ColorTabHsl" Style="{StaticResource PillButton}" FontSize="11"
+                                            Click="OnColorTab" AutomationProperties.Name="Color HSL tab">HSL</Button>
+                                    <Button x:Name="ColorTabBw" Style="{StaticResource PillButton}" FontSize="11"
+                                            Click="OnColorTab" AutomationProperties.Name="Color B&amp;W tab">B&amp;W</Button>
+                                </StackPanel>
+                                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                                    <StackPanel>
+                                        <ItemsControl x:Name="PanelSliders"
+                                                      ItemTemplate="{StaticResource SliderRowTemplate}" />
+                                        <StackPanel x:Name="PanelBwHeader" Visibility="Collapsed" Margin="0,0,0,6">
+                                            <ToggleSwitch OnContent="Black &amp; White" OffContent="Color" FontSize="11"
+                                                          IsOn="{Binding BlackWhiteOn, Mode=TwoWay}"
+                                                          AutomationProperties.Name="Black and white toggle" />
+                                        </StackPanel>
+                                        <ItemsControl x:Name="PanelHslBands" Visibility="Collapsed">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:HslBandViewModel">
+                                                    <StackPanel Margin="0,0,0,8">
+                                                        <TextBlock Text="{Binding Band}" FontSize="11" FontWeight="SemiBold"
+                                                                   Foreground="{StaticResource MapleTextMuted}" Margin="0,4,0,2" />
+                                                        <ContentControl Content="{Binding Hue}"
+                                                                        ContentTemplate="{StaticResource SliderRowTemplate}"
+                                                                        HorizontalContentAlignment="Stretch" />
+                                                        <ContentControl Content="{Binding Sat}"
+                                                                        ContentTemplate="{StaticResource SliderRowTemplate}"
+                                                                        HorizontalContentAlignment="Stretch" />
+                                                        <ContentControl Content="{Binding Lum}"
+                                                                        ContentTemplate="{StaticResource SliderRowTemplate}"
+                                                                        HorizontalContentAlignment="Stretch" />
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <TextBlock x:Name="PanelFootnote" FontSize="10" TextWrapping="Wrap"
+                                                   Foreground="{StaticResource MapleTextMuted}" Visibility="Collapsed" />
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </Grid>
+                        </Border>
                     </Grid>
 
-                    <Border Grid.Row="2" Height="80" Background="{StaticResource MapleBg}"
+                    <!-- Filmstrip (Preview only) -->
+                    <Border x:Name="FilmstripBar" Grid.Row="1" Height="80" Background="{StaticResource MapleBg}"
                             BorderBrush="{StaticResource MapleBorder}" BorderThickness="0,1,0,0" Padding="6,4">
                         <ListView x:Name="Filmstrip" ItemsSource="{Binding Photos}"
                                   SelectionMode="Single" SelectionChanged="OnGridSelectionChanged"
@@ -319,129 +456,6 @@
                     </Border>
                 </Grid>
             </Grid>
-
-            <!-- Detail inspector -->
-            <Border Grid.Column="2" Background="{StaticResource MapleSurface}"
-                    BorderBrush="{StaticResource MapleBorder}" BorderThickness="1,0,0,0">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-
-                    <!-- Histogram + culling header, always visible -->
-                    <StackPanel Grid.Row="0" Padding="12,10,12,0" Spacing="8">
-                        <Border Height="72" CornerRadius="6" Background="{StaticResource MapleImageCanvas}"
-                                BorderBrush="{StaticResource MapleBorder}" BorderThickness="1">
-                            <Grid>
-                                <Canvas x:Name="HistogramCanvas" Margin="4" />
-                                <TextBlock Text="RGB HISTOGRAM" FontSize="8" Margin="6,4"
-                                           Foreground="{StaticResource MapleTextMuted}"
-                                           HorizontalAlignment="Left" VerticalAlignment="Top" />
-                            </Grid>
-                        </Border>
-                        <Grid>
-                            <StackPanel x:Name="StarRow" Orientation="Horizontal" Spacing="2" />
-                            <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right">
-                                <Button x:Name="PickBtn" Style="{StaticResource MapleToolButton}" Padding="7,4"
-                                        Click="OnFlagPick" ToolTipService.ToolTip="Pick (P)"
-                                        AutomationProperties.Name="Flag as pick">
-                                    <FontIcon Glyph="&#xE73E;" FontSize="11" Foreground="#4CAF50" />
-                                </Button>
-                                <Button x:Name="UnflagBtn" Style="{StaticResource MapleToolButton}" Padding="7,4"
-                                        Click="OnFlagNone" ToolTipService.ToolTip="Unflag (U)"
-                                        AutomationProperties.Name="Remove flag">
-                                    <FontIcon Glyph="&#xE738;" FontSize="11" />
-                                </Button>
-                                <Button x:Name="RejectBtn" Style="{StaticResource MapleToolButton}" Padding="7,4"
-                                        Click="OnFlagReject" ToolTipService.ToolTip="Reject (X)"
-                                        AutomationProperties.Name="Flag as reject">
-                                    <FontIcon Glyph="&#xE711;" FontSize="11" Foreground="{StaticResource MapleErrorText}" />
-                                </Button>
-                            </StackPanel>
-                        </Grid>
-                    </StackPanel>
-
-                    <!-- Tabs -->
-                    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="4" Padding="12,8">
-                        <Button x:Name="TabDevelopBtn" Click="OnSelectInspectorTab" Padding="12,4" FontSize="12"
-                                AutomationProperties.Name="Develop tab">Develop</Button>
-                        <Button x:Name="TabInfoBtn" Click="OnSelectInspectorTab" Padding="12,4" FontSize="12"
-                                AutomationProperties.Name="Info tab">Info</Button>
-                    </StackPanel>
-
-                    <!-- Develop tab -->
-                    <ScrollViewer x:Name="AdjustmentsPanel" Grid.Row="2" Padding="12,0,12,12"
-                                  VerticalScrollBarVisibility="Auto">
-                        <StackPanel Spacing="8">
-                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                <Button Style="{StaticResource MapleToolButton}" Padding="9,4" FontSize="11"
-                                        Click="OnApplyAuto" ToolTipService.ToolTip="Auto adjustments"
-                                        AutomationProperties.Name="Auto adjust">Auto</Button>
-                                <Button Style="{StaticResource MapleToolButton}" Padding="9,4" FontSize="11"
-                                        Click="OnRevert" ToolTipService.ToolTip="Revert to original (Ctrl+R)"
-                                        AutomationProperties.Name="Revert edits">Revert</Button>
-                                <ToggleSwitch Header="" OnContent="B&amp;W" OffContent="Color" FontSize="11"
-                                              IsOn="{Binding BlackWhiteOn, Mode=TwoWay}" Margin="8,-6,0,0"
-                                              AutomationProperties.Name="Black and white toggle" />
-                            </StackPanel>
-
-                            <ItemsControl x:Name="SectionsHost" ItemsSource="{Binding Sections}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:AdjustmentSectionViewModel">
-                                        <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                                                  Header="{Binding Title}" IsExpanded="{Binding InitiallyExpanded}"
-                                                  Margin="0,0,0,6">
-                                            <ItemsControl ItemsSource="{Binding Sliders}"
-                                                          ItemTemplate="{StaticResource SliderRowTemplate}" />
-                                        </Expander>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-
-                            <Expander Header="HSL" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
-                                <ItemsControl ItemsSource="{Binding HslBands}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate x:DataType="vm:HslBandViewModel">
-                                            <StackPanel Margin="0,0,0,8">
-                                                <TextBlock Text="{Binding Band}" FontSize="11" FontWeight="SemiBold"
-                                                           Foreground="{StaticResource MapleTextMuted}" Margin="0,4,0,2" />
-                                                <ContentControl Content="{Binding Hue}"
-                                                                ContentTemplate="{StaticResource SliderRowTemplate}"
-                                                                HorizontalContentAlignment="Stretch" />
-                                                <ContentControl Content="{Binding Sat}"
-                                                                ContentTemplate="{StaticResource SliderRowTemplate}"
-                                                                HorizontalContentAlignment="Stretch" />
-                                                <ContentControl Content="{Binding Lum}"
-                                                                ContentTemplate="{StaticResource SliderRowTemplate}"
-                                                                HorizontalContentAlignment="Stretch" />
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </Expander>
-                        </StackPanel>
-                    </ScrollViewer>
-
-                    <!-- Info tab -->
-                    <ScrollViewer x:Name="InfoPanel" Grid.Row="2" Padding="12,0,12,12" Visibility="Collapsed"
-                                  VerticalScrollBarVisibility="Auto">
-                        <StackPanel Spacing="10">
-                            <TextBlock Text="CAMERA" Style="{StaticResource MapleEyebrow}" />
-                            <StackPanel x:Name="ExifRows" Spacing="6" />
-                            <TextBlock Text="FILE" Style="{StaticResource MapleEyebrow}" Margin="0,8,0,0" />
-                            <StackPanel x:Name="FileRows" Spacing="6" />
-                            <Border Background="{StaticResource MapleSurfaceAlt}" Padding="8" CornerRadius="4"
-                                    Margin="0,8,0,0">
-                                <TextBlock Text="Edits persist to a non-destructive .xmp sidecar; the RAW file is never modified."
-                                           FontSize="11" TextWrapping="Wrap"
-                                           Foreground="{StaticResource MapleTextMuted}" />
-                            </Border>
-                        </StackPanel>
-                    </ScrollViewer>
-                </Grid>
-            </Border>
         </Grid>
     </Grid>
 </Window>

@@ -100,15 +100,12 @@ namespace Maple.WinUI.ViewModels
             var deg = (Func<double, string>)(v => $"{v:0}°");
             var plain = (Func<double, string>)(v => $"{v:+0;-0;0}");
 
+            // Section names follow the editor group/tool taxonomy from
+            // s5-editor.md ("Groups & tools") — the Edit screen's tool rail
+            // opens exactly one of these per group pill.
             return new List<AdjustmentSectionViewModel>
             {
-                new("White Balance", new[]
-                {
-                    Sl("Temperature", 2000, 12000, 50, m => m.Temperature, (m, v) => m.Temperature = v, kelvin),
-                    Sl("Tint", -150, 150, 1, m => m.Tint, (m, v) => m.Tint = v, plain),
-                }, expanded: true),
-
-                new("Tone", new[]
+                new("Light", new[]
                 {
                     Sl("Exposure", -4, 4, 0.05, m => m.Exposure, (m, v) => m.Exposure = v, ev),
                     Sl("Contrast", -100, 100, 1, m => m.Contrast, (m, v) => m.Contrast = v, plain),
@@ -119,7 +116,51 @@ namespace Maple.WinUI.ViewModels
                     Sl("Brightness", -100, 100, 1, m => m.Brightness, (m, v) => m.Brightness = v, plain),
                 }, expanded: true),
 
-                new("Parametric Curve", new[]
+                new("Color", new[]
+                {
+                    Sl("Temp", 2000, 12000, 50, m => m.Temperature, (m, v) => m.Temperature = v, kelvin),
+                    Sl("Tint", -150, 150, 1, m => m.Tint, (m, v) => m.Tint = v, plain),
+                    Sl("Vibrance", -100, 100, 1, m => m.Vibrance, (m, v) => m.Vibrance = v, plain),
+                    Sl("Saturation", -100, 100, 1, m => m.Saturation, (m, v) => m.Saturation = v, plain),
+                }, expanded: true),
+
+                new("Effects", new[]
+                {
+                    Sl("Clarity", -100, 100, 1, m => m.Clarity, (m, v) => m.Clarity = v, plain),
+                    Sl("Texture", -100, 100, 1, m => m.Texture, (m, v) => m.Texture = v, plain),
+                    Sl("Dehaze", -100, 100, 1, m => m.Dehaze, (m, v) => m.Dehaze = v, plain),
+                    Sl("Vignette", -100, 100, 1, m => m.VignetteAmount, (m, v) => m.VignetteAmount = v, plain),
+                    Sl("Vignette Feather", 0, 100, 1, m => m.VignetteFeather, (m, v) => m.VignetteFeather = v),
+                    Sl("Grain", 0, 100, 1, m => m.GrainAmount, (m, v) => m.GrainAmount = v),
+                    Sl("Grain Size", 0, 100, 1, m => m.GrainSize, (m, v) => m.GrainSize = v),
+                    Sl("Grain Roughness", 0, 100, 1, m => m.GrainRoughness, (m, v) => m.GrainRoughness = v),
+                    Sl("Shadow Hue", 0, 360, 1, m => m.SplitToneShadowHue, (m, v) => m.SplitToneShadowHue = v, deg),
+                    Sl("Shadow Sat", 0, 100, 1, m => m.SplitToneShadowSaturation, (m, v) => m.SplitToneShadowSaturation = v),
+                    Sl("Highlight Hue", 0, 360, 1, m => m.SplitToneHighlightHue, (m, v) => m.SplitToneHighlightHue = v, deg),
+                    Sl("Highlight Sat", 0, 100, 1, m => m.SplitToneHighlightSaturation, (m, v) => m.SplitToneHighlightSaturation = v),
+                    Sl("Balance", -100, 100, 1, m => m.SplitToneBalance, (m, v) => m.SplitToneBalance = v, plain),
+                    Sl("Grade Shadow Lum", -100, 100, 1, m => m.ColorGradeShadowLuminance, (m, v) => m.ColorGradeShadowLuminance = v, plain),
+                    Sl("Grade Midtone Hue", 0, 360, 1, m => m.ColorGradeMidtoneHue, (m, v) => m.ColorGradeMidtoneHue = v, deg),
+                    Sl("Grade Midtone Sat", 0, 100, 1, m => m.ColorGradeMidtoneSaturation, (m, v) => m.ColorGradeMidtoneSaturation = v),
+                    Sl("Grade Midtone Lum", -100, 100, 1, m => m.ColorGradeMidtoneLuminance, (m, v) => m.ColorGradeMidtoneLuminance = v, plain),
+                    Sl("Grade Highlight Lum", -100, 100, 1, m => m.ColorGradeHighlightLuminance, (m, v) => m.ColorGradeHighlightLuminance = v, plain),
+                    Sl("Grade Global Hue", 0, 360, 1, m => m.ColorGradeGlobalHue, (m, v) => m.ColorGradeGlobalHue = v, deg),
+                    Sl("Grade Global Sat", 0, 100, 1, m => m.ColorGradeGlobalSaturation, (m, v) => m.ColorGradeGlobalSaturation = v),
+                    Sl("Grade Global Lum", -100, 100, 1, m => m.ColorGradeGlobalLuminance, (m, v) => m.ColorGradeGlobalLuminance = v, plain),
+                }, expanded: false),
+
+                new("Detail", new[]
+                {
+                    Sl("Sharpen", 0, 150, 1, m => m.SharpenAmount, (m, v) => m.SharpenAmount = v),
+                    Sl("Sharpen Radius", 0.5, 3, 0.1, m => m.SharpenRadius, (m, v) => m.SharpenRadius = v,
+                        v => v.ToString("0.0")),
+                    Sl("Sharpen Detail", 0, 100, 1, m => m.SharpenDetail, (m, v) => m.SharpenDetail = v),
+                    Sl("Sharpen Masking", 0, 100, 1, m => m.SharpenMasking, (m, v) => m.SharpenMasking = v),
+                    Sl("Noise", 0, 100, 1, m => m.NrLuminance, (m, v) => m.NrLuminance = v),
+                    Sl("Color NR", 0, 100, 1, m => m.NrColor, (m, v) => m.NrColor = v),
+                }, expanded: false),
+
+                new("Tone Curve", new[]
                 {
                     Sl("Highlights", -100, 100, 1, m => m.ParametricHighlights, (m, v) => m.ParametricHighlights = v, plain),
                     Sl("Lights", -100, 100, 1, m => m.ParametricLights, (m, v) => m.ParametricLights = v, plain),
@@ -127,45 +168,7 @@ namespace Maple.WinUI.ViewModels
                     Sl("Shadows", -100, 100, 1, m => m.ParametricShadows, (m, v) => m.ParametricShadows = v, plain),
                 }, expanded: false),
 
-                new("Presence", new[]
-                {
-                    Sl("Vibrance", -100, 100, 1, m => m.Vibrance, (m, v) => m.Vibrance = v, plain),
-                    Sl("Saturation", -100, 100, 1, m => m.Saturation, (m, v) => m.Saturation = v, plain),
-                    Sl("Clarity", -100, 100, 1, m => m.Clarity, (m, v) => m.Clarity = v, plain),
-                    Sl("Texture", -100, 100, 1, m => m.Texture, (m, v) => m.Texture = v, plain),
-                    Sl("Dehaze", -100, 100, 1, m => m.Dehaze, (m, v) => m.Dehaze = v, plain),
-                }, expanded: true),
-
-                new("Detail", new[]
-                {
-                    Sl("Sharpen Amount", 0, 150, 1, m => m.SharpenAmount, (m, v) => m.SharpenAmount = v),
-                    Sl("Sharpen Radius", 0.5, 3, 0.1, m => m.SharpenRadius, (m, v) => m.SharpenRadius = v,
-                        v => v.ToString("0.0")),
-                    Sl("Sharpen Detail", 0, 100, 1, m => m.SharpenDetail, (m, v) => m.SharpenDetail = v),
-                    Sl("Sharpen Masking", 0, 100, 1, m => m.SharpenMasking, (m, v) => m.SharpenMasking = v),
-                    Sl("Luminance NR", 0, 100, 1, m => m.NrLuminance, (m, v) => m.NrLuminance = v),
-                    Sl("Color NR", 0, 100, 1, m => m.NrColor, (m, v) => m.NrColor = v),
-                }, expanded: false),
-
-                new("Effects", new[]
-                {
-                    Sl("Vignette", -100, 100, 1, m => m.VignetteAmount, (m, v) => m.VignetteAmount = v, plain),
-                    Sl("Vignette Feather", 0, 100, 1, m => m.VignetteFeather, (m, v) => m.VignetteFeather = v),
-                    Sl("Grain", 0, 100, 1, m => m.GrainAmount, (m, v) => m.GrainAmount = v),
-                    Sl("Grain Size", 0, 100, 1, m => m.GrainSize, (m, v) => m.GrainSize = v),
-                    Sl("Grain Roughness", 0, 100, 1, m => m.GrainRoughness, (m, v) => m.GrainRoughness = v),
-                }, expanded: false),
-
-                new("Split Toning", new[]
-                {
-                    Sl("Shadow Hue", 0, 360, 1, m => m.SplitToneShadowHue, (m, v) => m.SplitToneShadowHue = v, deg),
-                    Sl("Shadow Saturation", 0, 100, 1, m => m.SplitToneShadowSaturation, (m, v) => m.SplitToneShadowSaturation = v),
-                    Sl("Highlight Hue", 0, 360, 1, m => m.SplitToneHighlightHue, (m, v) => m.SplitToneHighlightHue = v, deg),
-                    Sl("Highlight Saturation", 0, 100, 1, m => m.SplitToneHighlightSaturation, (m, v) => m.SplitToneHighlightSaturation = v),
-                    Sl("Balance", -100, 100, 1, m => m.SplitToneBalance, (m, v) => m.SplitToneBalance = v, plain),
-                }, expanded: false),
-
-                new("B&W Mix", new[]
+                new("B&W", new[]
                 {
                     Sl("Red", -100, 100, 1, m => m.GrayMixerRed, (m, v) => m.GrayMixerRed = v, plain),
                     Sl("Orange", -100, 100, 1, m => m.GrayMixerOrange, (m, v) => m.GrayMixerOrange = v, plain),
@@ -176,19 +179,17 @@ namespace Maple.WinUI.ViewModels
                     Sl("Purple", -100, 100, 1, m => m.GrayMixerPurple, (m, v) => m.GrayMixerPurple = v, plain),
                     Sl("Magenta", -100, 100, 1, m => m.GrayMixerMagenta, (m, v) => m.GrayMixerMagenta = v, plain),
                 }, expanded: false),
-
-                new("Color Grading", new[]
-                {
-                    Sl("Shadow Luminance", -100, 100, 1, m => m.ColorGradeShadowLuminance, (m, v) => m.ColorGradeShadowLuminance = v, plain),
-                    Sl("Midtone Hue", 0, 360, 1, m => m.ColorGradeMidtoneHue, (m, v) => m.ColorGradeMidtoneHue = v, deg),
-                    Sl("Midtone Saturation", 0, 100, 1, m => m.ColorGradeMidtoneSaturation, (m, v) => m.ColorGradeMidtoneSaturation = v),
-                    Sl("Midtone Luminance", -100, 100, 1, m => m.ColorGradeMidtoneLuminance, (m, v) => m.ColorGradeMidtoneLuminance = v, plain),
-                    Sl("Highlight Luminance", -100, 100, 1, m => m.ColorGradeHighlightLuminance, (m, v) => m.ColorGradeHighlightLuminance = v, plain),
-                    Sl("Global Hue", 0, 360, 1, m => m.ColorGradeGlobalHue, (m, v) => m.ColorGradeGlobalHue = v, deg),
-                    Sl("Global Saturation", 0, 100, 1, m => m.ColorGradeGlobalSaturation, (m, v) => m.ColorGradeGlobalSaturation = v),
-                    Sl("Global Luminance", -100, 100, 1, m => m.ColorGradeGlobalLuminance, (m, v) => m.ColorGradeGlobalLuminance = v, plain),
-                }, expanded: false),
             };
+        }
+
+        /// <summary>Section lookup for the Edit screen's tool-rail panels.</summary>
+        public static AdjustmentSectionViewModel Section(
+            IEnumerable<AdjustmentSectionViewModel> sections, string title)
+        {
+            foreach (var section in sections)
+                if (section.Title == title)
+                    return section;
+            throw new ArgumentException($"unknown section '{title}'");
         }
 
         /// <summary>The 8 HSL bands for the banded panel (hue/sat/lum per band).</summary>
