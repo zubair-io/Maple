@@ -22,4 +22,13 @@ namespace Maple.WinUI.Converters
         public object ConvertBack(object value, Type targetType, object parameter, string language) =>
             throw new NotSupportedException();
     }
+
+    public sealed class InverseBoolVisibleConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, string language) =>
+            value is true ? Visibility.Collapsed : Visibility.Visible;
+
+        public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+            throw new NotSupportedException();
+    }
 }

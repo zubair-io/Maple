@@ -84,12 +84,7 @@ namespace Maple.WinUI.ViewModels
             _sidecarWatcher.SidecarChangedOnDisk += OnSidecarChangedOnDisk;
             InitializeLibrary();
 
-            var settings = Services.AppSettings.Load();
-            if (!string.IsNullOrEmpty(settings.CloudServerUrl))
-            {
-                CloudStatus = $"Reconnecting to {settings.CloudServerUrl}…";
-                _ = ConnectCloudAsync(settings.CloudServerUrl!, settings.CloudEmail);
-            }
+            _ = RestoreCloudSessionAsync();
         }
 
         // --- Open / decode ---
