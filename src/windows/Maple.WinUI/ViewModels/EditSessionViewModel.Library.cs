@@ -59,10 +59,24 @@ namespace Maple.WinUI.ViewModels
         public DateTime Day { get; init; }
     }
 
+    /// <summary>One node of the sidebar folder tree: a library root or one of
+    /// its subfolders. Invoking a node loads its subtree into the grid.</summary>
+    public sealed class FolderNode
+    {
+        public string Name { get; init; } = string.Empty;
+        public string Path { get; init; } = string.Empty;
+        public ObservableCollection<FolderNode> Children { get; } = new();
+    }
+
     public partial class EditSessionViewModel
     {
         public ObservableCollection<PhotoItem> Photos { get; } = new();
         public ObservableCollection<PhotoDayGroup> PhotoGroups { get; } = new();
+        public ObservableCollection<FolderNode> FolderTree { get; } = new();
+
+        private const int FolderTreeDepth = 5;
+        private const int RecurseMaxDepth = 6;
+        private const int RecurseMaxFiles = 20000;
         public List<PhotoItem> AllPhotos { get; } = new();
         public ObservableCollection<string> LibraryFolders { get; } = new();
         public TimelineViewModel Timeline { get; } = new();
@@ -88,8 +102,13 @@ namespace Maple.WinUI.ViewModels
 
         private void InitializeLibrary()
         {
-            foreach (var folder in AppSettings.Load().LibraryFolders.Where(Directory.Exists))
+            // No filesystem calls on the UI thread here: a dead network drive
+            // (e.g. a mapped X:\ share) blocks Directory.Exists/enumeration for
+            // tens of seconds and hangs startup. Roots are added verbatim; the
+            // tree build and the existence checks happen on the thread pool.
+            foreach (var folder in AppSettings.Load().LibraryFolders)
                 LibraryFolders.Add(folder);
+            RebuildFolderTree();
             var first = LibraryFolders.FirstOrDefault();
             if (first != null)
                 LoadDirectory(first);
@@ -103,13 +122,80 @@ namespace Maple.WinUI.ViewModels
                 var settings = AppSettings.Load();
                 settings.LibraryFolders = LibraryFolders.ToList();
                 settings.Save();
+                RebuildFolderTree();
             }
             LoadDirectory(folderPath);
         }
 
+        private void RebuildFolderTree()
+        {
+            FolderTree.Clear();
+            foreach (var root in LibraryFolders.ToList())
+            {
+                _ = Task.Run(() =>
+                {
+                    // Off the UI thread: Exists + the subtree walk can block on
+                    // unreachable network roots without freezing the shell.
+                    if (!Directory.Exists(root))
+                    {
+                        DiagLog.Write($"[library] root unavailable: {root}");
+                        return;
+                    }
+                    var node = BuildFolderNode(root, FolderTreeDepth);
+                    App.MainDispatcherQueue?.TryEnqueue(() => FolderTree.Add(node));
+                });
+            }
+        }
+
+        private static FolderNode BuildFolderNode(string path, int depth)
+        {
+            var name = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar));
+            var node = new FolderNode
+            {
+                Name = name.Length > 0 ? name : path,
+                Path = path,
+            };
+            if (depth <= 0)
+                return node;
+            try
+            {
+                foreach (var dir in Directory.EnumerateDirectories(path)
+                             .OrderBy(d => d, StringComparer.OrdinalIgnoreCase))
+                {
+                    if (IsSkippableDirectory(dir))
+                        continue;
+                    node.Children.Add(BuildFolderNode(dir, depth - 1));
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+            }
+            return node;
+        }
+
+        private static bool IsSkippableDirectory(string dir)
+        {
+            var name = Path.GetFileName(dir);
+            if (name.StartsWith('.'))
+                return true;
+            try
+            {
+                var attrs = File.GetAttributes(dir);
+                // ReparsePoint skip keeps the walk out of junction cycles and
+                // cloud-placeholder mounts below a root.
+                return attrs.HasFlag(FileAttributes.Hidden)
+                    || attrs.HasFlag(FileAttributes.System)
+                    || attrs.HasFlag(FileAttributes.ReparsePoint);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return true;
+            }
+        }
+
         public void LoadDirectory(string folderPath)
         {
-            if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
+            if (string.IsNullOrWhiteSpace(folderPath))
                 return;
 
             _libraryCts?.Cancel();
@@ -119,46 +205,86 @@ namespace Maple.WinUI.ViewModels
             CurrentFolderPath = folderPath;
             ActiveSectionName = Path.GetFileName(folderPath) is { Length: > 0 } name ? name : folderPath;
 
-            AllPhotos.Clear();
-            var files = EnumerateImageFiles(folderPath).ToList();
-            foreach (var filePath in files)
+            // The scan (recursive enumeration + sidecar reads) runs off the UI
+            // thread — a slow or dead network folder must never freeze the
+            // shell. Results land back on the dispatcher unless superseded.
+            _ = Task.Run(() =>
             {
-                var info = new FileInfo(filePath);
-                var item = new PhotoItem
+                if (!Directory.Exists(folderPath))
                 {
-                    FilePath = filePath,
-                    FileName = info.Name,
-                    Format = info.Extension.TrimStart('.').ToUpperInvariant(),
-                    FileSizeBytes = info.Length,
-                    FileModifiedUtc = info.LastWriteTimeUtc,
-                };
-                var sidecar = SidecarStore.Load(filePath);
-                if (sidecar != null)
-                {
-                    item.Rating = sidecar.Rating ?? 0;
-                    item.FlagStatus = sidecar.Flag ?? "none";
-                    item.ColorLabel = sidecar.ColorLabel;
+                    DiagLog.Write($"[library] folder unavailable: {folderPath}");
+                    return;
                 }
-                AllPhotos.Add(item);
-            }
+                var items = EnumerateImageFiles(folderPath)
+                    .TakeWhile(_ => !cts.Token.IsCancellationRequested)
+                    .Select(filePath =>
+                    {
+                        var info = new FileInfo(filePath);
+                        var item = new PhotoItem
+                        {
+                            FilePath = filePath,
+                            FileName = info.Name,
+                            Format = info.Extension.TrimStart('.').ToUpperInvariant(),
+                            FileSizeBytes = info.Length,
+                            FileModifiedUtc = info.LastWriteTimeUtc,
+                        };
+                        var sidecar = SidecarStore.Load(filePath);
+                        if (sidecar != null)
+                        {
+                            item.Rating = sidecar.Rating ?? 0;
+                            item.FlagStatus = sidecar.Flag ?? "none";
+                            item.ColorLabel = sidecar.ColorLabel;
+                        }
+                        return item;
+                    })
+                    .ToList();
+                if (cts.Token.IsCancellationRequested)
+                    return;
 
-            ApplyFilters();
-            Timeline.GroupPhotosByDate(AllPhotos);
-            _ = Task.Run(() => HydrateLibraryAsync(AllPhotos.ToList(), cts.Token), cts.Token);
+                App.MainDispatcherQueue?.TryEnqueue(() =>
+                {
+                    if (cts.Token.IsCancellationRequested)
+                        return;
+                    AllPhotos.Clear();
+                    foreach (var item in items)
+                        AllPhotos.Add(item);
+                    ApplyFilters();
+                    Timeline.GroupPhotosByDate(AllPhotos);
+                    _ = Task.Run(() => HydrateLibraryAsync(items, cts.Token), cts.Token);
+                });
+            }, cts.Token);
         }
 
+        /// <summary>Depth-first recursive enumeration with hidden/system-dir
+        /// skipping and depth/count caps, so a library root shows the images
+        /// of its whole subtree (nested shoot folders included).</summary>
         private static IEnumerable<string> EnumerateImageFiles(string folderPath)
         {
-            try
+            var results = new List<string>();
+            var stack = new Stack<(string Path, int Depth)>();
+            stack.Push((folderPath, 0));
+            while (stack.Count > 0 && results.Count < RecurseMaxFiles)
             {
-                return Directory.EnumerateFiles(folderPath, "*.*", SearchOption.TopDirectoryOnly)
-                    .Where(f => SupportedExtensions.Contains(Path.GetExtension(f)))
-                    .OrderBy(f => f, StringComparer.OrdinalIgnoreCase);
+                var (current, depth) = stack.Pop();
+                try
+                {
+                    results.AddRange(Directory
+                        .EnumerateFiles(current, "*.*", SearchOption.TopDirectoryOnly)
+                        .Where(f => SupportedExtensions.Contains(Path.GetExtension(f)))
+                        .Take(RecurseMaxFiles - results.Count));
+                    if (depth >= RecurseMaxDepth)
+                        continue;
+                    foreach (var dir in Directory.EnumerateDirectories(current))
+                    {
+                        if (!IsSkippableDirectory(dir))
+                            stack.Push((dir, depth + 1));
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                }
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                return Enumerable.Empty<string>();
-            }
+            return results.OrderBy(f => f, StringComparer.OrdinalIgnoreCase);
         }
 
         /// <summary>Thumbnails + EXIF, off the UI thread, cancellable when the

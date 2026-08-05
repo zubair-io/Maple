@@ -140,18 +140,24 @@
                                     <FontIcon Glyph="&#xE710;" FontSize="11" Foreground="{StaticResource MapleTextMuted}" />
                                 </Button>
                             </Grid>
-                            <ListView x:Name="FoldersList" ItemsSource="{Binding LibraryFolders}"
-                                      SelectionMode="Single" SelectionChanged="OnSelectFolder">
-                                <ListView.ItemTemplate>
-                                    <DataTemplate>
-                                        <StackPanel Orientation="Horizontal" Spacing="10">
-                                            <FontIcon Glyph="&#xE8B7;" FontSize="14" Foreground="{StaticResource MapleTextMuted}" />
-                                            <TextBlock Text="{Binding}" FontSize="12" VerticalAlignment="Center"
-                                                       TextTrimming="CharacterEllipsis" />
-                                        </StackPanel>
+                            <TreeView ItemsSource="{Binding FolderTree}" SelectionMode="None"
+                                      ItemInvoked="OnFolderNodeInvoked"
+                                      AutomationProperties.Name="Folders">
+                                <TreeView.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:FolderNode">
+                                        <TreeViewItem ItemsSource="{Binding Children}"
+                                                      ToolTipService.ToolTip="{Binding Path}"
+                                                      AutomationProperties.Name="{Binding Name}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <FontIcon Glyph="&#xE8B7;" FontSize="13"
+                                                          Foreground="{StaticResource MapleTextMuted}" />
+                                                <TextBlock Text="{Binding Name}" FontSize="12" VerticalAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+                                        </TreeViewItem>
                                     </DataTemplate>
-                                </ListView.ItemTemplate>
-                            </ListView>
+                                </TreeView.ItemTemplate>
+                            </TreeView>
                         </StackPanel>
 
                         <StackPanel Spacing="2">

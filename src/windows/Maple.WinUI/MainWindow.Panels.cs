@@ -25,8 +25,8 @@ namespace Maple.WinUI
             ("Light", "\uE706", null),
             ("Color", "\uE790", null),
             ("Effects", "\uE71C", null),
-            ("Detail", "\uE9D9", null),
-            ("Tone Curve", "\uE9E9", null),
+            ("Detail", "\uE721", null),
+            ("Tone Curve", "\uE9D9", null),
             ("Crop", "\uE7A8", "Crop overlay ships with #2582"),
         };
 

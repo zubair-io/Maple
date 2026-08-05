@@ -310,12 +310,12 @@ namespace Maple.WinUI
             ViewModel.MinRatingFilter = scope == "rated4" ? 4 : 0;
         }
 
-        private void OnSelectFolder(object sender, SelectionChangedEventArgs e)
+        private void OnFolderNodeInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
         {
-            if (FoldersList.SelectedItem is string folder)
+            if (args.InvokedItem is FolderNode node)
             {
                 ViewModel.SetDateFilter(null, null);
-                ViewModel.LoadDirectory(folder);
+                ViewModel.LoadDirectory(node.Path);
                 SetMode(ShellMode.Browse);
             }
         }
