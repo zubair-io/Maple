@@ -44,6 +44,8 @@ namespace Maple.WinUI.ViewModels
         /// NEXT photo while the previous session is being flushed.</summary>
         private PhotoItem? _openPhoto;
         private bool _sidecarDirty;
+        private float _asShotTemperature = 6500f;
+        private float _asShotTint;
 
         [ObservableProperty]
         private PhotoItem? _selectedPhoto;
@@ -130,6 +132,11 @@ namespace Maple.WinUI.ViewModels
                     Renderer.SetImage(decoded);
                     OnUi(() =>
                     {
+                        if (decoded.DecodedTemperature > 0)
+                        {
+                            _asShotTemperature = decoded.DecodedTemperature;
+                            _asShotTint = decoded.DecodedTint;
+                        }
                         // The WB sliders' identity is the decode-exported as-shot
                         // frame; an untouched model must sit AT that identity or
                         // the delta-WB chain applies an unintended shift.
@@ -209,6 +216,21 @@ namespace Maple.WinUI.ViewModels
             _undoStack.Add(Adjustments.Clone());
             Adjustments = _redoStack[^1];
             _redoStack.RemoveAt(_redoStack.Count - 1);
+            _undoBaseline = Adjustments.Clone();
+            AfterModelReplaced(before);
+        }
+
+        /// <summary>RESET: back to canonical defaults with WB at the as-shot
+        /// identity. Pushes the current state so it is undoable.</summary>
+        public void ResetToDefaults()
+        {
+            var before = Adjustments;
+            _undoStack.Add(Adjustments.Clone());
+            Adjustments = new AdjustmentState
+            {
+                Temperature = _asShotTemperature,
+                Tint = _asShotTint,
+            };
             _undoBaseline = Adjustments.Clone();
             AfterModelReplaced(before);
         }
