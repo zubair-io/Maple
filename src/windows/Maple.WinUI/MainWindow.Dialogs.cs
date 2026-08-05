@@ -96,6 +96,61 @@ namespace Maple.WinUI
                 ok ? $"Exported to {file.Path}" : $"Export failed: {error}");
         }
 
+        private async void OnConnectCloud(object sender, RoutedEventArgs e)
+        {
+            var settings = Services.AppSettings.Load();
+            var panel = new StackPanel { Spacing = 10, Width = 340 };
+            var urlBox = new TextBox
+            {
+                Header = "Server URL",
+                Text = settings.CloudServerUrl ?? "http://localhost:3000",
+                PlaceholderText = "http://server:3000",
+            };
+            panel.Children.Add(urlBox);
+            var emailBox = new TextBox
+            {
+                Header = "Email (dev-login)",
+                Text = settings.CloudEmail ?? "dev@maple.local",
+            };
+            panel.Children.Add(emailBox);
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Connects to a Maple Self-Hosted server. Dev-login requires "
+                     + "MAPLE_DEV_AUTH=1 on the server; passkey sign-in is a follow-up.",
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = 11,
+                Foreground = (Microsoft.UI.Xaml.Media.SolidColorBrush)
+                    Application.Current.Resources["MapleTextMuted"],
+            });
+
+            var dialog = new ContentDialog
+            {
+                Title = "Connect to Maple Cloud",
+                Content = panel,
+                PrimaryButtonText = "Connect",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = (this.Content as FrameworkElement)?.XamlRoot,
+            };
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+                return;
+
+            var (ok, message) = await ViewModel.ConnectCloudAsync(
+                urlBox.Text.Trim(), emailBox.Text.Trim());
+            if (!ok)
+                await ShowMessageAsync("Maple Cloud", message);
+        }
+
+        private async void OnSelectCloudFolder(object sender, SelectionChangedEventArgs e)
+        {
+            if (CloudFoldersList.SelectedItem is Services.Cloud.CloudFolder folder)
+            {
+                ViewModel.SetDateFilter(null, null);
+                SetMode(ShellMode.Browse);
+                await ViewModel.LoadCloudFolderAsync(folder);
+            }
+        }
+
         private async System.Threading.Tasks.Task ShowMessageAsync(string title, string message)
         {
             var dialog = new ContentDialog

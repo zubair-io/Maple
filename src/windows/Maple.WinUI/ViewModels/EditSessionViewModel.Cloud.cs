@@ -1,0 +1,176 @@
+using System;
+using System.Collections.ObjectModel;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using CommunityToolkit.Mvvm.ComponentModel;
+using Maple.WinUI.Services;
+using Maple.WinUI.Services.Cloud;
+
+namespace Maple.WinUI.ViewModels
+{
+    /// <summary>Maple Cloud (#2588): browsing, previewing and culling a
+    /// Self-Hosted server's library. Cloud assets flow through the same
+    /// AllPhotos/filters/timeline machinery as local folders.</summary>
+    public partial class EditSessionViewModel
+    {
+        public ObservableCollection<CloudFolder> CloudFolders { get; } = new();
+
+        [ObservableProperty] private string _cloudStatus = "Not connected";
+        [ObservableProperty] private bool _cloudConnected;
+
+        private CloudClient? _cloud;
+        private const int CloudPageLimit = 200;
+        private const int CloudMaxAssets = 2000;
+
+        public async Task<(bool Ok, string Message)> ConnectCloudAsync(string serverUrl, string? email)
+        {
+            _cloud?.Dispose();
+            _cloud = new CloudClient(serverUrl);
+            var (ok, message) = await _cloud.ConnectAsync(email, CancellationToken.None);
+            CloudConnected = ok;
+            CloudStatus = ok ? message : $"Connection failed: {message}";
+            if (!ok)
+            {
+                _cloud.Dispose();
+                _cloud = null;
+                return (ok, message);
+            }
+
+            var settings = AppSettings.Load();
+            settings.CloudServerUrl = serverUrl;
+            settings.CloudEmail = email;
+            settings.Save();
+
+            var folders = await _cloud.GetFoldersAsync(CancellationToken.None);
+            CloudFolders.Clear();
+            foreach (var folder in folders ?? Array.Empty<CloudFolder>())
+                CloudFolders.Add(folder);
+            return (ok, message);
+        }
+
+        /// <summary>Load a server library into the browse grid via the search
+        /// feed (culling state, capture dates and camera come straight from the
+        /// server), then hydrate AVIF thumbnails into the local cache.</summary>
+        public async Task LoadCloudFolderAsync(CloudFolder folder)
+        {
+            if (_cloud == null)
+                return;
+
+            _libraryCts?.Cancel();
+            var cts = new CancellationTokenSource();
+            _libraryCts = cts;
+
+            CurrentFolderPath = $"{_cloud.ServerUrl} · {folder.DisplayName}";
+            ActiveSectionName = folder.DisplayName;
+            AllPhotos.Clear();
+
+            string? cursor = null;
+            while (AllPhotos.Count < CloudMaxAssets && !cts.Token.IsCancellationRequested)
+            {
+                var page = await _cloud.SearchAsync(folder.Id, cursor, CloudPageLimit, cts.Token);
+                if (page == null)
+                {
+                    CloudStatus = "Listing failed — see maple.log";
+                    break;
+                }
+                foreach (var result in page.Results)
+                {
+                    if (result.Address == null)
+                        continue;
+                    AllPhotos.Add(CloudPhotoItem(result));
+                }
+                cursor = page.NextCursor;
+                if (string.IsNullOrEmpty(cursor) || page.Results.Length == 0)
+                    break;
+            }
+            if (AllPhotos.Count >= CloudMaxAssets)
+                CloudStatus = $"Showing the newest {CloudMaxAssets} photos of {folder.FileCount}.";
+
+            ApplyFilters();
+            Timeline.GroupPhotosByDate(AllPhotos);
+            _ = Task.Run(() => HydrateCloudThumbnailsAsync(AllPhotos.ToList(), cts.Token), cts.Token);
+        }
+
+        private static PhotoItem CloudPhotoItem(CloudSearchResult result)
+        {
+            var ext = System.IO.Path.GetExtension(result.Filename).TrimStart('.').ToUpperInvariant();
+            var item = new PhotoItem
+            {
+                IsCloud = true,
+                CloudAddress = result.Address,
+                FilePath = result.AbsPath,
+                FileName = result.Filename,
+                Format = ext.Length > 0 ? ext : "RAW",
+                FileSizeBytes = result.Size,
+                FileModifiedUtc = result.CapturedAtLocal?.ToUniversalTime() ?? DateTime.UtcNow,
+                Rating = result.Rating,
+                FlagStatus = result.Flag switch { 1 => "pick", -1 => "reject", _ => "none" },
+                ColorLabel = string.IsNullOrEmpty(result.ColorLabel) ? null : result.ColorLabel,
+                CaptureDate = result.CapturedAtLocal,
+            };
+            item.CameraModel = result.Camera is { } camera
+                ? $"{camera.Make} {camera.Model}".Trim()
+                : "—";
+            item.LensInfo = result.Lens ?? "—";
+            item.IsoDisplay = result.Iso is { } iso ? $"ISO {iso}" : "—";
+            item.Aperture = result.Aperture is { } f ? $"f/{f:0.#}" : "—";
+            item.ShutterSpeed = result.Shutter ?? "—";
+            item.DateTaken = result.CapturedAtLocal?.ToString("yyyy-MM-dd HH:mm") ?? "—";
+            item.Dimensions = $"{result.Size / (1024.0 * 1024.0):0.0} MB";
+            return item;
+        }
+
+        private async Task HydrateCloudThumbnailsAsync(
+            System.Collections.Generic.List<PhotoItem> items, CancellationToken ct)
+        {
+            var gate = new SemaphoreSlim(4);
+            var tasks = items.Select(async item =>
+            {
+                await gate.WaitAsync(ct);
+                try
+                {
+                    var path = await _cloud!.FetchImageAsync("thumb", item.CloudAddress!, ct);
+                    if (path != null)
+                        App.MainDispatcherQueue?.TryEnqueue(() =>
+                            item.ThumbnailPath = new Uri(path).AbsoluteUri);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    DiagLog.Write($"[cloud] thumb failed for {item.FileName}: {ex.Message}");
+                }
+                finally
+                {
+                    gate.Release();
+                }
+            });
+            await Task.WhenAll(tasks);
+        }
+
+        /// <summary>Preview-screen image for a cloud asset: the server's 1280px
+        /// AVIF preview, cached locally.</summary>
+        private void RequestCloudPreview(PhotoItem photo)
+        {
+            _ = Task.Run(async () =>
+            {
+                var path = await _cloud!.FetchImageAsync(
+                    "preview", photo.CloudAddress!, CancellationToken.None);
+                if (path != null)
+                    OnUi(() => photo.PreviewPath = new Uri(path).AbsoluteUri);
+            });
+        }
+
+        /// <summary>Push a cloud asset's culling change to the server
+        /// (POST /api/xmp/batch merges into the server-side sidecar).</summary>
+        private void PushCloudCulling(PhotoItem photo)
+        {
+            if (_cloud == null || photo.CloudAddress == null)
+                return;
+            var rating = photo.Rating;
+            var flag = photo.FlagStatus;
+            var label = photo.ColorLabel;
+            _ = Task.Run(() => _cloud.WriteCullingAsync(
+                photo.CloudAddress, rating, flag, label, CancellationToken.None));
+        }
+    }
+}

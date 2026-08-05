@@ -14,6 +14,8 @@ namespace Maple.WinUI.Services
     public sealed class AppSettings
     {
         public List<string> LibraryFolders { get; set; } = new();
+        public string? CloudServerUrl { get; set; }
+        public string? CloudEmail { get; set; }
         public bool LeftPanelHidden { get; set; }
         public bool DetailPanelHidden { get; set; }
         public double LeftPanelWidth { get; set; } = 260;
