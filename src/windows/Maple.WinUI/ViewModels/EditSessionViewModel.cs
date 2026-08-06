@@ -557,6 +557,7 @@ namespace Maple.WinUI.ViewModels
             _sidecarTimer?.Dispose();
             _undoTimer?.Dispose();
             _sidecarWatcher.Dispose();
+            _libraryWatcher?.Dispose();
             Renderer.Dispose();
         }
     }
