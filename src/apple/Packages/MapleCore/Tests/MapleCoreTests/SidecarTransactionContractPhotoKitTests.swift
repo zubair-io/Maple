@@ -28,10 +28,26 @@ import XCTest
 
 final class SidecarTransactionContractPhotoKitTests: XCTestCase {
 
-  private func freshBacking() throws -> (AppSupportSidecarStore, URL) {
-    let tmpRoot = try SidecarContractIO.makeTempDirectory(prefix: "sidecar-contract-photokit")
-    addTeardownBlock { try? FileManager.default.removeItem(at: tmpRoot) }
-    return (AppSupportSidecarStore(root: tmpRoot), tmpRoot)
+  /// Returns a `PhotoKitSidecarStore` backing, its root, and a dedicated
+  /// SANDBOX parent directory that only this test process ever touches.
+  /// `test100CycleTransactionContract`'s "nothing escaped this store's own
+  /// root" check needs to list a directory's contents before and after —
+  /// listing the shared system temp directory (`tmpRoot`'s literal parent
+  /// would be `NSTemporaryDirectory()`) races every other test and
+  /// background process on the machine that creates or removes its own
+  /// temp entries during the run (jules review). Nesting `tmpRoot` one
+  /// level inside a freshly minted, single-purpose `sandbox` directory
+  /// makes that listing deterministic: nothing else on the system has any
+  /// reason to write into this UUID-named directory.
+  private func freshBacking() throws -> (
+    backing: AppSupportSidecarStore, tmpRoot: URL, sandbox: URL
+  ) {
+    let sandbox = try SidecarContractIO.makeTempDirectory(
+      prefix: "sidecar-contract-photokit-sandbox")
+    addTeardownBlock { try? FileManager.default.removeItem(at: sandbox) }
+    let tmpRoot = sandbox.appendingPathComponent("store-root", isDirectory: true)
+    try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+    return (AppSupportSidecarStore(root: tmpRoot), tmpRoot, sandbox)
   }
 
   // MARK: - 100-cycle transaction contract (acceptance criterion #2)
@@ -44,13 +60,11 @@ final class SidecarTransactionContractPhotoKitTests: XCTestCase {
   /// silently dropped on the very first PhotoKit-adapter edit — this test
   /// would have failed on `cycle == 0`.
   func test100CycleTransactionContract() async throws {
-    let (backing, tmpRoot) = try freshBacking()
-    // Snapshot the SHARED system temp directory's other entries (other
-    // processes on this machine also use it) before any writes, so the
-    // "did the store escape its own root" check below only looks at
-    // what THIS test caused to appear, not everything already there.
+    let (backing, tmpRoot, sandbox) = try freshBacking()
+    // Snapshot the dedicated sandbox's entries before any writes — only
+    // `store-root` (== `tmpRoot`) should ever appear here, before or after.
     let siblingsBefore = try FileManager.default.contentsOfDirectory(
-      at: tmpRoot.deletingLastPathComponent(), includingPropertiesForKeys: nil)
+      at: sandbox, includingPropertiesForKeys: nil)
     let phassetLocalId = "ABCD1234-5678-90AB-CDEF-1234567890AB/L0/001"
 
     // Seed the backing store with a real Lightroom-authored sidecar —
@@ -106,9 +120,10 @@ final class SidecarTransactionContractPhotoKitTests: XCTestCase {
 
     // "Original bytes unchanged" is structural for this adapter: the
     // store can only ever write inside its own root, never a new
-    // sibling of it.
+    // sibling of it — checked against the isolated sandbox, not the
+    // shared system temp directory.
     let siblingsAfter = try FileManager.default.contentsOfDirectory(
-      at: tmpRoot.deletingLastPathComponent(), includingPropertiesForKeys: nil)
+      at: sandbox, includingPropertiesForKeys: nil)
     XCTAssertEqual(
       Set(siblingsAfter), Set(siblingsBefore),
       "PhotoKitSidecarStore must never write outside its own root")
@@ -117,7 +132,7 @@ final class SidecarTransactionContractPhotoKitTests: XCTestCase {
   // MARK: - Golden migration fixture readability (acceptance criterion #6)
 
   func testGoldenMigrationFixtureRemainsReadable() async throws {
-    let (backing, _) = try freshBacking()
+    let (backing, _, _) = try freshBacking()
     let phassetLocalId = "MIGRATION/L0/001"
     try backing.write(
       phassetLocalId: phassetLocalId, xmp: SidecarContractVectors.passthroughLadenDocument)
