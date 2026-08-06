@@ -8,7 +8,7 @@ For deep dives into specific systems, see the companion docs:
 
 - [Image Pipeline & Editing](./pipeline.md) — decode, the scene-linear chain, the view transform, render entry points
 - [Caching](./caching.md) — the cache layers, locations, eviction, flow
-- [Sidecar schema](./sidecar-schema.md) — the XMP contract
+- [Sidecar schema](./xmp-canonical-format.md) — the XMP contract
 - [Testing](./testing.md) — parity gates and diagnostic tools
 
 ---
@@ -133,4 +133,4 @@ All edits are non-destructive; the original file is never modified. The adjustme
 | SMB network share       | Sibling `.xmp` file on the share           |
 | Apple Photos (PhotoKit) | App Support directory, keyed by asset UUID |
 
-The sidecar is the contract; the pixels are derived. See [`sidecar-schema.md`](./sidecar-schema.md).
+The sidecar is the contract; the pixels are derived. See [`xmp-canonical-format.md`](./xmp-canonical-format.md).

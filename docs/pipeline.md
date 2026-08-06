@@ -240,4 +240,4 @@ The export path develops the full-resolution image at `RenderQuality::Amaze`, ru
 
 ## Non-destructive editing & sidecars
 
-Every edit is non-destructive: the original file is never modified. Adjustments serialize to an **XMP sidecar** (`crs:` namespace for Adobe-compatible fields, `papp:` for Maple-specific fields like `papp:Profile`, `papp:Brightness`, `papp:AutoExposure`). The sidecar is the contract; the pixels are derived. See [`sidecar-schema.md`](./sidecar-schema.md) for the schema and [Architecture](./architecture.md) for how the Swift and TypeScript writers stay in lockstep.
+Every edit is non-destructive: the original file is never modified. Adjustments serialize to an **XMP sidecar** (`crs:` namespace for Adobe-compatible fields, `papp:` for Maple-specific fields like `papp:Profile`, `papp:Brightness`, `papp:AutoExposure`). The sidecar is the contract; the pixels are derived. See [`xmp-canonical-format.md`](./xmp-canonical-format.md) for the schema and [Architecture](./architecture.md) for how the Swift and TypeScript writers stay in lockstep.
