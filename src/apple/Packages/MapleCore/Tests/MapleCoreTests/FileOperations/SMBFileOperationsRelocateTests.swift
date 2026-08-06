@@ -149,4 +149,53 @@ final class SMBFileOperationsRelocateTests: XCTestCase {
             // expected
         }
     }
+
+    // MARK: - Same-file guard (PR #2676 review)
+
+    func testRelocatingToItsOwnExactPathThrowsSameFile() async throws {
+        let t = FakeSMBTransport()
+        await t.seed("pixels", at: "/Source/IMG_1.dng")
+        do {
+            _ = try await SMBFileOperations.relocate("/Source/IMG_1.dng", to: "/Source", mode: .move, transport: t)
+            XCTFail("expected .sameFile")
+        } catch FileOperationError.sameFile {
+            // expected
+        }
+        let sourceStillThere = await t.fileExists(at: "/Source/IMG_1.dng")
+        XCTAssertTrue(sourceStillThere)
+    }
+
+    /// A case-only rename (`img.cr3` -> `IMG.CR3`) is detected purely from
+    /// the path strings (no share round-trip needed) and routed through a
+    /// direct `moveItem` rather than collision handling.
+    func testCaseOnlyRenameMoveSucceedsAndTheSidecarFollows() async throws {
+        let t = FakeSMBTransport()
+        await t.seed("pixels", at: "/Source/img.cr3")
+        await t.seed("<xmp/>", at: "/Source/img.xmp")
+
+        let outcome = try await SMBFileOperations.relocate(
+            "/Source/img.cr3", to: "/Source", newBasename: "IMG.CR3", mode: .move, transport: t)
+
+        XCTAssertEqual(outcome.primaryPath, "/Source/IMG.CR3")
+        let oldGone = await !t.fileExists(at: "/Source/img.cr3")
+        XCTAssertTrue(oldGone)
+        let newContents = await t.fileContents(at: "/Source/IMG.CR3")
+        XCTAssertEqual(newContents, "pixels")
+        XCTAssertTrue(outcome.sidecarFollowed)
+        XCTAssertEqual(outcome.sidecarPath, "/Source/IMG.xmp")
+    }
+
+    func testCaseOnlyRenameCopyIsRefused() async throws {
+        let t = FakeSMBTransport()
+        await t.seed("pixels", at: "/Source/img.cr3")
+        do {
+            _ = try await SMBFileOperations.relocate(
+                "/Source/img.cr3", to: "/Source", newBasename: "IMG.CR3", mode: .copy, transport: t)
+            XCTFail("expected .sameFile")
+        } catch FileOperationError.sameFile {
+            // expected
+        }
+        let sourceStillThere = await t.fileExists(at: "/Source/img.cr3")
+        XCTAssertTrue(sourceStillThere)
+    }
 }
