@@ -466,6 +466,12 @@
                                 <SwapChainPanel x:Name="ViewportSwapChainPanel" Visibility="Collapsed"
                                                 HorizontalAlignment="Center" VerticalAlignment="Center"
                                                 AutomationProperties.Name="GPU preview canvas" />
+                                <!-- Clipping overlay (#2574): transparent except
+                                     red (blown highlights) / blue (crushed shadows);
+                                     zooms and pans with the frame. -->
+                                <Image x:Name="ClipOverlayImage" Stretch="Uniform" Visibility="Collapsed"
+                                       IsHitTestVisible="False"
+                                       AutomationProperties.Name="Clipping overlay" />
                             </Grid>
                         </ScrollViewer>
 
@@ -543,7 +549,29 @@
                                            VerticalAlignment="Center" Foreground="{StaticResource MapleTextMain}" />
                                 <Border Width="96" Height="30" CornerRadius="4" Background="{StaticResource MapleImageCanvas}"
                                         BorderBrush="{StaticResource MapleBorder}" BorderThickness="1">
-                                    <Canvas x:Name="HistogramCanvas" Margin="2" />
+                                    <Grid>
+                                        <Canvas x:Name="HistogramCanvas" Margin="2" />
+                                        <!-- Clipping indicators (#2574): lit when channels clip;
+                                             click toggles the canvas clipping overlay. -->
+                                        <Button x:Name="ShadowClipButton" Width="12" Height="12" Padding="0"
+                                                HorizontalAlignment="Left" VerticalAlignment="Top" Margin="1"
+                                                Background="Transparent" BorderThickness="0"
+                                                Click="OnToggleShadowClip"
+                                                ToolTipService.ToolTip="Show shadow clipping (J)"
+                                                AutomationProperties.Name="Shadow clipping indicator">
+                                            <Ellipse x:Name="ShadowClipDot" Width="6" Height="6"
+                                                     Fill="{StaticResource MapleBorderHi}" />
+                                        </Button>
+                                        <Button x:Name="HighlightClipButton" Width="12" Height="12" Padding="0"
+                                                HorizontalAlignment="Right" VerticalAlignment="Top" Margin="1"
+                                                Background="Transparent" BorderThickness="0"
+                                                Click="OnToggleHighlightClip"
+                                                ToolTipService.ToolTip="Show highlight clipping (J)"
+                                                AutomationProperties.Name="Highlight clipping indicator">
+                                            <Ellipse x:Name="HighlightClipDot" Width="6" Height="6"
+                                                     Fill="{StaticResource MapleBorderHi}" />
+                                        </Button>
+                                    </Grid>
                                 </Border>
                                 <Button Style="{StaticResource PillButton}" Click="OnApplyAuto"
                                         AutomationProperties.Name="Auto adjust">
