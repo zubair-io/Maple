@@ -105,6 +105,7 @@ namespace Maple.WinUI.ViewModels
         private void OpenForEditing(PhotoItem photo)
         {
             FlushSidecarNow();
+            PublishPendingCloudPreview();
             _openPhoto = photo;
             _sidecarDirty = false;
             _decodedPhoto = null;
@@ -117,16 +118,20 @@ namespace Maple.WinUI.ViewModels
 
             if (photo.IsCloud)
             {
-                // Cloud assets browse/preview/cull; the adjustment session
-                // needs the original locally (download-to-edit is follow-up
-                // work on #2588). Culling state came from the server.
+                // Cloud assets: culling state came from the search feed; the
+                // full adjustment sidecar is fetched from the server (with
+                // passthrough intact, so our full-document POST on flush never
+                // drops server-side metadata). The original downloads lazily on
+                // Edit entry (#2588 download-to-edit).
                 Adjustments = new AdjustmentState();
                 _originalModel = Adjustments.Clone();
                 _undoBaseline = Adjustments.Clone();
                 _undoStack.Clear();
                 _redoStack.Clear();
                 SyncSlidersFromModel();
+                _cloudDoc = null;
                 RequestCloudPreview(photo);
+                _ = LoadCloudSidecarAsync(photo);
                 return;
             }
 
@@ -163,8 +168,13 @@ namespace Maple.WinUI.ViewModels
         public void EnsureDecoded()
         {
             var photo = SelectedPhoto;
-            if (photo == null || photo.IsCloud || ReferenceEquals(_decodedPhoto, photo))
+            if (photo == null || ReferenceEquals(_decodedPhoto, photo))
                 return;
+            if (photo.IsCloud && photo.LocalCachePath == null)
+            {
+                _ = DownloadThenDecodeAsync(photo);
+                return;
+            }
             _decodedPhoto = photo;
             DecodeCurrent(photo);
         }
@@ -187,7 +197,7 @@ namespace Maple.WinUI.ViewModels
                 try
                 {
                     var decoded = RenderEngine.Decode(
-                        photo.FilePath, model, PreviewLongEdge, cancelFlag);
+                        photo.EditPath, model, PreviewLongEdge, cancelFlag);
                     if (generation != _decodeGeneration)
                         return;
                     Renderer.SetImage(decoded);
@@ -395,9 +405,14 @@ namespace Maple.WinUI.ViewModels
         private void FlushSidecarNow()
         {
             var photo = _openPhoto;
-            if (photo == null || photo.IsCloud || !_sidecarDirty)
+            if (photo == null || !_sidecarDirty)
                 return;
             _sidecarDirty = false;
+            if (photo.IsCloud)
+            {
+                PushCloudSidecar(photo);
+                return;
+            }
             try
             {
                 var doc = new XmpSidecarDocument
@@ -491,12 +506,33 @@ namespace Maple.WinUI.ViewModels
             FlushSidecarNow();
             return Task.Run(() =>
             {
-                var rc = RawFfi.maple_render_develop_jpeg_to_file(
-                    photo.FilePath, ExistingSidecar(photo.FilePath),
-                    maxPx, quality, outPath);
-                return rc == 0
-                    ? (true, (string?)null)
-                    : (false, RawFfi.LastError() ?? $"export failed (rc={rc})");
+                // Cloud assets have no local sidecar — develop from the session
+                // document serialized to a temp file (the original is the
+                // downloaded cache copy via EditPath).
+                string? tempXmp = null;
+                if (photo.IsCloud)
+                {
+                    if (photo.LocalCachePath == null)
+                        return (false, (string?)"Open the photo in Edit once so the original downloads.");
+                    tempXmp = System.IO.Path.Combine(
+                        System.IO.Path.GetTempPath(), $"maple-export-{Guid.NewGuid():N}.xmp");
+                    System.IO.File.WriteAllText(tempXmp, XmpWriter.Serialize(
+                        new XmpSidecarDocument { Adjustments = Adjustments.Clone() }));
+                }
+                try
+                {
+                    var rc = RawFfi.maple_render_develop_jpeg_to_file(
+                        photo.EditPath, tempXmp ?? ExistingSidecar(photo.FilePath),
+                        maxPx, quality, outPath);
+                    return rc == 0
+                        ? (true, (string?)null)
+                        : (false, RawFfi.LastError() ?? $"export failed (rc={rc})");
+                }
+                finally
+                {
+                    if (tempXmp != null)
+                        try { System.IO.File.Delete(tempXmp); } catch { /* best effort */ }
+                }
             });
         }
 
