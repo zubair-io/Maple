@@ -115,7 +115,12 @@ test('Hosted editor commits Undo/Redo and Auto as visible, bounded, persistent a
     .toBeLessThan(0.005);
   await expect(undo).toBeEnabled();
 
-  await page.getByRole('tab', { name: 'Color', exact: true }).click();
+  // HSL/B&W/Grade aside, group switching itself is owned by the tool dock's
+  // plain buttons (aria-current="page"), not a WAI-ARIA tablist — the former
+  // role="tab" markup was retired for being accessibility-incomplete (see
+  // control-card.component.html).
+  const dock = page.getByRole('navigation', { name: 'Editor tools' });
+  await dock.getByRole('button', { name: 'Color', exact: true }).click();
   await expect(undo).toBeEnabled();
   const tint = page.getByRole('slider', { name: 'Tint' });
   const [minimum, maximum, value] = await Promise.all(
@@ -128,7 +133,7 @@ test('Hosted editor commits Undo/Redo and Auto as visible, bounded, persistent a
   expect(value).toBeGreaterThanOrEqual(minimum);
   expect(value).toBeLessThanOrEqual(maximum);
 
-  await page.getByRole('tab', { name: 'Light', exact: true }).click();
+  await dock.getByRole('button', { name: 'Light', exact: true }).click();
   await expect(undo).toBeEnabled();
   await undo.click();
   await expect(exposure).toHaveAttribute('aria-valuenow', String(editedExposure));
