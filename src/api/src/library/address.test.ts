@@ -14,6 +14,8 @@ import {
   parseAddressString,
   resolveAddress,
   resolveAddressString,
+  resolveRelPathUnderRoot,
+  validateRelPathShape,
 } from './address';
 
 import { ObjectId } from 'mongodb';
@@ -170,6 +172,72 @@ describe('resolveAddress', () => {
     // when the non-existent tail is more than one segment deep. The walk-up
     // must reach the nearest EXISTING ancestor (escape-link) and resolve it.
     await expect(resolveAddress(TEST_SLUG, 'escape-link/nope/deeper')).rejects.toMatchObject({
+      status: 400,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateRelPathShape / resolveRelPathUnderRoot — the root-based jail
+// extracted from resolveAddress (#2669 review) so a root-holding caller
+// (e.g. library/relocate-asset.ts's destination validation) that doesn't
+// have a slug can reuse the exact same rules instead of hand-rolling a
+// second, subtly different jail.
+// ---------------------------------------------------------------------------
+
+describe('validateRelPathShape', () => {
+  it('passes an empty relPath', () => {
+    expect(validateRelPathShape('')).toEqual({ ok: true });
+  });
+
+  it('passes an ordinary multi-segment relPath', () => {
+    expect(validateRelPathShape('2026/France/0002')).toEqual({ ok: true });
+  });
+
+  it('rejects traversal, absolute paths, backslashes, and dot segments', () => {
+    for (const bad of ['../../etc/passwd', '/etc/passwd', 'a\\b', 'a/./b', 'a/../b']) {
+      const result = validateRelPathShape(bad);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.status).toBe(400);
+    }
+  });
+});
+
+describe('resolveRelPathUnderRoot', () => {
+  it('resolves a valid relPath under the root', async () => {
+    const abs = await resolveRelPathUnderRoot(tmpRoot, '2026/France/0002');
+    expect(abs).toBe(path.join(tmpRoot, '2026', 'France', '0002'));
+  });
+
+  it('resolves empty relPath to the root itself', async () => {
+    expect(await resolveRelPathUnderRoot(tmpRoot, '')).toBe(tmpRoot);
+  });
+
+  it('tolerates a destination that does not exist yet (the common relocate case)', async () => {
+    const abs = await resolveRelPathUnderRoot(tmpRoot, 'brand-new-folder/not-there-yet');
+    expect(abs).toBe(path.join(tmpRoot, 'brand-new-folder', 'not-there-yet'));
+  });
+
+  it('rejects traversal with .. (status 400)', async () => {
+    await expect(resolveRelPathUnderRoot(tmpRoot, '../../etc/passwd')).rejects.toMatchObject({
+      status: 400,
+    });
+  });
+
+  it('rejects an absolute relPath (status 400)', async () => {
+    await expect(resolveRelPathUnderRoot(tmpRoot, '/etc/passwd')).rejects.toMatchObject({
+      status: 400,
+    });
+  });
+
+  it('rejects a backslash variant (status 400)', async () => {
+    await expect(resolveRelPathUnderRoot(tmpRoot, 'a\\..\\..\\etc\\passwd')).rejects.toMatchObject({
+      status: 400,
+    });
+  });
+
+  it('blocks a symlink escape, matching resolveAddress', async () => {
+    await expect(resolveRelPathUnderRoot(tmpRoot, 'escape-link/secret')).rejects.toMatchObject({
       status: 400,
     });
   });
