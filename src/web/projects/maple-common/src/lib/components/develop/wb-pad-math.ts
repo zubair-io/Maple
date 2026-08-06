@@ -1,7 +1,7 @@
 // wb-pad-math.ts — pure math for the WB pad widget (#1540).
 // No Angular dependencies — importable by both the component and unit tests.
 
-import { ADJUSTMENT_RANGES } from '../../generated/adjustment-model.generated';
+import { ADJUSTMENT_RANGES } from '../../generated/adjustment-tables.generated';
 
 const TEMP_MIN = ADJUSTMENT_RANGES.temperature[0];
 const TEMP_MAX = ADJUSTMENT_RANGES.temperature[1];
