@@ -16,6 +16,12 @@
 //!         preview JPEG (not a re-render), matching Apple/server's
 //!         `maple_render_thumbnail_preview_jpeg_to_file` derivation.
 //!
+//!   render_filename_template(template, originalStem, ext, capturedAt, seqStart, seqIndex, seqPadWidth)
+//!       → string (#2628, `filename.rs`) — batch-rename template engine,
+//!         shared with Apple/Windows via `raw-ffi` over the same
+//!         `raw_core::filename` implementation. `validate_filename(name)`
+//!         checks a manually-typed name against the same rules.
+//!
 //! Threading (T10):
 //! When compiled with `--features parallel` and the `+atomics,+bulk-memory`
 //! target features, `initThreadPool(num_threads)` is re-exported from
@@ -33,6 +39,10 @@ pub mod auto_tone;
 /// Edited-image export — full-res render + in-wasm encode, drained in chunks
 /// so a 100 MP deliverable never lands on the JS heap in one piece (#943).
 pub mod export;
+/// Batch-rename filename-template engine (#2628) — thin wasm-bindgen
+/// pass-through over `raw_core::filename`, shared with Apple/Windows via
+/// `raw-ffi` so a template renders byte-identically on every surface.
+pub mod filename;
 pub mod id;
 pub mod preview;
 
