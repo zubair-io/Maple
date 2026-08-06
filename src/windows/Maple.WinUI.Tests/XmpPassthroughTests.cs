@@ -63,7 +63,13 @@ namespace Maple.WinUI.Tests
 
             var resaved = XmpWriter.Serialize(doc!);
 
-            Assert.Contains("<xmpMM:History>", resaved);
+            // The opening tag carries an inline `xmlns:xmpMM` declaration: the
+            // parser captures passthrough nodes with `XElement.ToString()`
+            // (XmpParser.cs), which self-declares any prefix inherited from an
+            // ancestor because the element is being serialized as its own root.
+            // So match the tag name only — asserting `"<xmpMM:History>"` would
+            // fail on preserved-and-correct output.
+            Assert.Contains("<xmpMM:History", resaved);
             Assert.Contains("<rdf:li>edited in Lightroom</rdf:li>", resaved);
             Assert.Contains("</xmpMM:History>", resaved);
         }
