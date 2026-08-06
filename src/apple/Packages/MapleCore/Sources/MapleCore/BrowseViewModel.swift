@@ -200,10 +200,22 @@ public final class BrowseViewModel {
                 let displayName = ref.displayName
                 // Best-effort extension hint from the display name.
                 let ext = (ref.displayName as NSString).pathExtension.lowercased()
+                // #2674: SMB-sourced refs must carry `.smb` provenance so
+                // `AppShell+FolderActions.ensureSession` can wire a real
+                // `SMBSidecarStore` instead of falling through to the
+                // `.cloudLibrary`-only ambient gate (SMB browsing sets
+                // `librarySelection = .smbShare`, which that gate never
+                // matches — the root cause of #2674's silent-data-loss bug).
+                // This is currently the only caller of `loadSource` — any
+                // future sourceless adapter added here should get its own
+                // explicit tag the same way, not fall through untagged.
+                let provenance: AssetRef.ThumbnailProvenance? =
+                    (source is SMBSource) ? .smb : nil
                 return AssetRef(
                     displayName: displayName,
                     hintExtension: ext.isEmpty ? nil : ext,
                     stableID: capturedRef.id,
+                    thumbnailProvenance: provenance,
                     bytesProvider: { [capturedSource, capturedRef] in
                         try await capturedSource.rawBytes(for: capturedRef)
                     }

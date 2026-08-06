@@ -143,6 +143,19 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
         /// multi-server sibling list has no single ambient server to fall
         /// back on the way a single-library flow does.
         case cloud(server: URL)
+        /// SMB (network share)-backed (#2674). No filesystem URL (the Rust
+        /// decoder can't open an `smb://` URL — `SMBSource.images()` leaves
+        /// `url` nil deliberately) and no server-issued asset id the way
+        /// Cloud has. Unlike `.cloud`, this carries no associated identity:
+        /// resolving a sidecar store needs a LIVE, already-authenticated
+        /// `SMB2Manager` connection (not a fresh per-request client the way
+        /// Cloud's stateless HTTP is), so `ensureSession` resolves it via
+        /// the CONNECTED `SMBSource` actor the browse session already holds
+        /// (`BrowseViewModel.currentSource`) at the moment this ref's
+        /// session is created — mirroring `.photoKit`'s "resolve via the
+        /// live session-scoped backend" shape rather than `.cloud`'s
+        /// value-type identity.
+        case smb
     }
     public let thumbnailProvenance: ThumbnailProvenance?
 
