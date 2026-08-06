@@ -116,45 +116,62 @@ export async function resolveAddressString(addr: string): Promise<ResolvedAddres
 }
 
 /**
- * Resolve a (slug, relPath) pair to an on-disk absolute path inside the
- * library jail.
+ * Pure, I/O-free shape check for a `relPath`: not absolute, no backslashes,
+ * no `.`/`..` segment. Empty string always passes (callers treat it as
+ * "the root itself"). Split out of `resolveRelPathUnderRoot` so an HTTP
+ * boundary can reject an obviously-hostile string (`../../etc/passwd`, an
+ * absolute path, a backslash variant) with a fast 400 before touching Mongo
+ * or the filesystem — the deeper symlink-jail check below still runs
+ * wherever the library root is known, as defense in depth for callers that
+ * skip (or can't reach) the HTTP layer.
+ */
+export function validateRelPathShape(
+  relPath: string,
+): { ok: true } | { ok: false; status: number; error: string } {
+  if (relPath === '') return { ok: true };
+  if (path.isAbsolute(relPath)) {
+    return { ok: false, status: 400, error: 'relPath must not be absolute' };
+  }
+  if (relPath.includes('\\')) {
+    return { ok: false, status: 400, error: 'relPath must not contain backslashes' };
+  }
+  for (const seg of relPath.split('/')) {
+    if (seg === '..' || seg === '.') {
+      return { ok: false, status: 400, error: "relPath must not contain '.' or '..' segments" };
+    }
+  }
+  return { ok: true };
+}
+
+/**
+ * Validate `relPath` and resolve it to an absolute path under `root`.
  *
  * Throws an object with `{ status: 400 }` on traversal / escape attempts.
- * Throws an object with `{ status: 404 }` for unknown slugs.
  *
  * Security model (consolidating the strongest parts of the five existing jails):
- *   1. slug → libraryRoot via the in-memory cache (no DB).
- *   2. Reject absolute relPath, any `..` or `.` segment, or backslash.
- *   3. realpath(absPath) must be under realpath(libraryRoot) — symlink-safe.
+ *   1. Reject absolute relPath, any `..` or `.` segment, or backslash
+ *      (`validateRelPathShape`).
+ *   2. realpath(absPath) must be under realpath(root) — symlink-safe, and
+ *      tolerant of `absPath` not existing yet (relocate's destination
+ *      commonly doesn't): walks up to the nearest EXISTING ancestor and
+ *      realpaths that instead, so an escaping symlink anywhere in the
+ *      existing portion is still caught, then re-appends the (already
+ *      `.`/`..`-free) non-existent tail.
+ *
+ * The single shared core behind `resolveAddress` (slug-based, for the M1
+ * addressing routes) and any root-based caller that already knows the
+ * library root (e.g. `library/relocate-asset.ts`'s destination validation)
+ * — extracted so both stay on exactly the same jail instead of drifting
+ * into two subtly different ones.
  */
-export async function resolveAddress(slug: string, relPath: string): Promise<ResolvedAddress> {
-  // 1. Slug lookup.
-  const lib = await getLibraryBySlug(slug);
-  if (!lib) {
-    throw Object.assign(new Error(`Unknown library slug: ${slug}`), { status: 404 });
+export async function resolveRelPathUnderRoot(root: string, relPath: string): Promise<string> {
+  const shape = validateRelPathShape(relPath);
+  if (!shape.ok) {
+    throw Object.assign(new Error(shape.error), { status: shape.status });
   }
-  const { libraryId, root } = lib;
+  if (relPath === '') return root;
 
-  // 2. Validate relPath.
-  if (relPath !== '') {
-    if (path.isAbsolute(relPath)) {
-      throw Object.assign(new Error('relPath must not be absolute'), { status: 400 });
-    }
-    if (relPath.includes('\\')) {
-      throw Object.assign(new Error('relPath must not contain backslashes'), { status: 400 });
-    }
-    const segments = relPath.split('/');
-    for (const seg of segments) {
-      if (seg === '..' || seg === '.') {
-        throw Object.assign(new Error(`relPath must not contain '.' or '..' segments`), {
-          status: 400,
-        });
-      }
-    }
-  }
-
-  // 3. Compute absPath and realpath-jail check.
-  const absPath = relPath === '' ? root : path.join(root, relPath);
+  const absPath = path.join(root, relPath);
 
   // Resolve symlinks. If the target doesn't exist yet, walk up to the nearest
   // EXISTING ancestor and realpath that — so an escaping symlink anywhere in
@@ -192,5 +209,22 @@ export async function resolveAddress(slug: string, relPath: string): Promise<Res
     throw Object.assign(new Error('Path escapes library jail'), { status: 400 });
   }
 
+  return absPath;
+}
+
+/**
+ * Resolve a (slug, relPath) pair to an on-disk absolute path inside the
+ * library jail.
+ *
+ * Throws an object with `{ status: 400 }` on traversal / escape attempts.
+ * Throws an object with `{ status: 404 }` for unknown slugs.
+ */
+export async function resolveAddress(slug: string, relPath: string): Promise<ResolvedAddress> {
+  const lib = await getLibraryBySlug(slug);
+  if (!lib) {
+    throw Object.assign(new Error(`Unknown library slug: ${slug}`), { status: 404 });
+  }
+  const { libraryId, root } = lib;
+  const absPath = await resolveRelPathUnderRoot(root, relPath);
   return { libraryId, libraryRoot: root, absPath };
 }
