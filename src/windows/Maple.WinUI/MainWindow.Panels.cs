@@ -19,27 +19,30 @@ namespace Maple.WinUI
         private string _colorTab = "Basic";
 
         // --- Tool rail ---
+        // Icons come from the shared Maple stroke family (MapleIconShapes) \u2014
+        // the same names/artwork the web tool dock and Apple use.
 
-        private static readonly (string Title, string Glyph, string? DisabledNote)[] RailGroups =
+        private static readonly (string Title, string Icon, string? DisabledNote)[] RailGroups =
         {
-            ("Light", "\uE706", null),
-            ("Color", "\uE790", null),
-            ("Effects", "\uE71C", null),
-            ("Detail", "\uE721", null),
-            ("Tone Curve", "\uE9D9", null),
-            ("Crop", "\uE7A8", "Crop overlay ships with #2582"),
+            ("Light", "tool-exposure", null),
+            ("Color", "tool-tint", null),
+            ("Effects", "tool-vignette", null),
+            ("Detail", "tool-sharpen", null),
+            ("Tone Curve", "tool-contrast", null),
+            ("Crop", "tool-crop", "Crop overlay ships with #2582"),
         };
 
         private void BuildEditRail()
         {
-            foreach (var (title, glyph, disabledNote) in RailGroups)
+            foreach (var (title, icon, disabledNote) in RailGroups)
             {
                 var button = new Button
                 {
                     Style = (Style)((FrameworkElement)Content).Resources["PillButton"],
                     Width = 44,
                     Height = 40,
-                    Content = new FontIcon { Glyph = glyph, FontSize = 15 },
+                    Content = Controls.MapleIconControl.Build(
+                        icon, 18, (SolidColorBrush)Application.Current.Resources["MapleTextMain"]),
                     IsEnabled = disabledNote == null,
                 };
                 ToolTipService.SetToolTip(button, disabledNote ?? title);
@@ -69,12 +72,7 @@ namespace Maple.WinUI
                 return;
             }
             _activeGroup = group;
-            foreach (var (title, button) in _railButtons)
-            {
-                button.Background = title == group
-                    ? (SolidColorBrush)Application.Current.Resources["MaplePrimaryDim"]
-                    : null;
-            }
+            RefreshRailArming(group);
             EditPanel.Visibility = Visibility.Visible;
             EditPanelTitle.Text = group.ToUpperInvariant();
             ColorTabRow.Visibility = group == "Color" ? Visibility.Visible : Visibility.Collapsed;
@@ -102,8 +100,25 @@ namespace Maple.WinUI
         {
             _activeGroup = null;
             EditPanel.Visibility = Visibility.Collapsed;
-            foreach (var button in _railButtons.Values)
-                button.Background = null;
+            RefreshRailArming(null);
+        }
+
+        /// <summary>Armed pill: primary-dim fill + primary stroke on the glyph
+        /// (the web dock's iconColor behavior).</summary>
+        private void RefreshRailArming(string? armedGroup)
+        {
+            var primary = (SolidColorBrush)Application.Current.Resources["MaplePrimary"];
+            var normal = (SolidColorBrush)Application.Current.Resources["MapleTextMain"];
+            foreach (var (title, icon, _) in RailGroups)
+            {
+                if (!_railButtons.TryGetValue(title, out var button))
+                    continue;
+                var armed = title == armedGroup;
+                button.Background = armed
+                    ? (SolidColorBrush)Application.Current.Resources["MaplePrimaryDim"]
+                    : null;
+                button.Content = Controls.MapleIconControl.Build(icon, 18, armed ? primary : normal);
+            }
         }
 
         private void OnColorTab(object sender, RoutedEventArgs e)
@@ -165,7 +180,8 @@ namespace Maple.WinUI
                 var stars = i + 1;
                 var button = new Button
                 {
-                    Content = new FontIcon { Glyph = "\uE734", FontSize = 12 },
+                    Content = Controls.MapleIconControl.Build(
+                        "star", 13, (SolidColorBrush)Application.Current.Resources["MapleBorderHi"]),
                     Padding = new Thickness(3, 2, 3, 2),
                     Background = null,
                     BorderThickness = new Thickness(0),
@@ -191,9 +207,9 @@ namespace Maple.WinUI
             var muted = (SolidColorBrush)Application.Current.Resources["MapleBorderHi"];
             for (var i = 0; i < 5; i++)
             {
-                var icon = (FontIcon)_starButtons[i].Content;
-                icon.Glyph = i < rating ? "\uE735" : "\uE734";
-                icon.Foreground = i < rating ? star : muted;
+                _starButtons[i].Content = i < rating
+                    ? Controls.MapleIconControl.Build("star-filled", 13, star)
+                    : Controls.MapleIconControl.Build("star", 13, muted);
             }
         }
 

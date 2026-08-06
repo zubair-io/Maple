@@ -4,6 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:Maple.WinUI.ViewModels"
     xmlns:conv="using:Maple.WinUI.Converters"
+    xmlns:controls="using:Maple.WinUI.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
@@ -63,7 +64,8 @@
                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                     <Button Style="{StaticResource MapleToolButton}" Click="OnToggleSidebar"
                             AutomationProperties.Name="Toggle sources panel">
-                        <FontIcon Glyph="&#xE700;" FontSize="13" />
+                        <controls:MapleIconControl IconName="sidebar" Size="15"
+                                                   IconBrush="{StaticResource MapleTextMain}" />
                     </Button>
                     <TextBlock Text="MAPLE" FontWeight="Bold" FontSize="15" CharacterSpacing="180"
                                VerticalAlignment="Center" Foreground="{StaticResource MaplePrimary}" />
@@ -75,13 +77,15 @@
                     <Button Style="{StaticResource MapleToolButton}" Click="OnOpenDirectory"
                             ToolTipService.ToolTip="Add photo folder (Ctrl+O)"
                             AutomationProperties.Name="Add photo folder">
-                        <FontIcon Glyph="&#xE8F4;" FontSize="13" />
+                        <controls:MapleIconControl IconName="folder-open" Size="15"
+                                                   IconBrush="{StaticResource MapleTextMain}" />
                     </Button>
                     <Button Style="{StaticResource MapleToolButton}" Click="OnExportPhotos"
                             ToolTipService.ToolTip="Export JPEG (Ctrl+Shift+E)"
                             AutomationProperties.Name="Export photo">
                         <StackPanel Orientation="Horizontal" Spacing="6">
-                            <FontIcon Glyph="&#xEDE1;" FontSize="13" />
+                            <controls:MapleIconControl IconName="export" Size="14"
+                                                       IconBrush="{StaticResource MapleTextMain}" />
                             <TextBlock Text="Export" FontSize="12" FontWeight="SemiBold" />
                         </StackPanel>
                     </Button>
@@ -107,25 +111,32 @@
                                       SelectionChanged="OnSelectLibraryScope">
                                 <ListViewItem Tag="all">
                                     <StackPanel Orientation="Horizontal" Spacing="10">
-                                        <FontIcon Glyph="&#xE8B9;" FontSize="14" Foreground="{StaticResource MaplePrimary}" />
+                                        <controls:MapleIconControl IconName="photos" Size="14"
+                                                                   IconBrush="{StaticResource MaplePrimary}" />
                                         <TextBlock Text="All Photos" FontSize="13" VerticalAlignment="Center" />
                                     </StackPanel>
                                 </ListViewItem>
                                 <ListViewItem Tag="pick">
                                     <StackPanel Orientation="Horizontal" Spacing="10">
-                                        <FontIcon Glyph="&#xE73E;" FontSize="14" Foreground="#4CAF50" />
+                                        <controls:MapleIconControl IconName="check" Size="14">
+                                            <controls:MapleIconControl.IconBrush>
+                                                <SolidColorBrush Color="#4CAF50" />
+                                            </controls:MapleIconControl.IconBrush>
+                                        </controls:MapleIconControl>
                                         <TextBlock Text="Picks" FontSize="13" VerticalAlignment="Center" />
                                     </StackPanel>
                                 </ListViewItem>
                                 <ListViewItem Tag="reject">
                                     <StackPanel Orientation="Horizontal" Spacing="10">
-                                        <FontIcon Glyph="&#xE711;" FontSize="14" Foreground="{StaticResource MapleErrorText}" />
+                                        <controls:MapleIconControl IconName="x" Size="14"
+                                                                   IconBrush="{StaticResource MapleErrorText}" />
                                         <TextBlock Text="Rejected" FontSize="13" VerticalAlignment="Center" />
                                     </StackPanel>
                                 </ListViewItem>
                                 <ListViewItem Tag="rated4">
                                     <StackPanel Orientation="Horizontal" Spacing="10">
-                                        <FontIcon Glyph="&#xE735;" FontSize="14" Foreground="{StaticResource MapleStar}" />
+                                        <controls:MapleIconControl IconName="star-filled" Size="14"
+                                                                   IconBrush="{StaticResource MapleStar}" />
                                         <TextBlock Text="4+ Stars" FontSize="13" VerticalAlignment="Center" />
                                     </StackPanel>
                                 </ListViewItem>
@@ -138,7 +149,8 @@
                                 <Button HorizontalAlignment="Right" Padding="4,2" Background="Transparent"
                                         BorderThickness="0" Click="OnOpenDirectory"
                                         AutomationProperties.Name="Add folder">
-                                    <FontIcon Glyph="&#xE710;" FontSize="11" Foreground="{StaticResource MapleTextMuted}" />
+                                    <controls:MapleIconControl IconName="plus" Size="12"
+                                                               IconBrush="{StaticResource MapleTextMuted}" />
                                 </Button>
                             </Grid>
                             <!-- Own capped scroll area: a deep archive must not
@@ -165,8 +177,8 @@
                                                 </MenuFlyout>
                                             </TreeViewItem.ContextFlyout>
                                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <FontIcon Glyph="&#xE8B7;" FontSize="13"
-                                                          Foreground="{StaticResource MapleTextMuted}" />
+                                                <controls:MapleIconControl IconName="folder" Size="13"
+                                                                           IconBrush="{StaticResource MapleTextMuted}" />
                                                 <TextBlock Text="{Binding Name}" FontSize="12" VerticalAlignment="Center"
                                                            TextTrimming="CharacterEllipsis" />
                                             </StackPanel>
@@ -223,7 +235,8 @@
                                         BorderThickness="0" Click="OnClearTimelineFilter"
                                         ToolTipService.ToolTip="Show all dates"
                                         AutomationProperties.Name="Clear timeline filter">
-                                    <FontIcon Glyph="&#xE894;" FontSize="11" Foreground="{StaticResource MapleTextMuted}" />
+                                    <controls:MapleIconControl IconName="x" Size="11"
+                                                               IconBrush="{StaticResource MapleTextMuted}" />
                                 </Button>
                             </Grid>
                             <TreeView ItemsSource="{Binding Timeline.Nodes}" SelectionMode="None"
@@ -312,8 +325,9 @@
                                 <Grid Width="180" Height="180" Margin="2" CornerRadius="4"
                                       AutomationProperties.Name="{Binding FileName}"
                                       Background="{StaticResource MapleSurface}">
-                                    <FontIcon Glyph="&#xEB9F;" FontSize="34" Foreground="{StaticResource MapleBorder}"
-                                              HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    <controls:MapleIconControl IconName="photos" Size="36"
+                                                               IconBrush="{StaticResource MapleBorder}"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
                                     <Image Source="{Binding ThumbnailPath}" Stretch="UniformToFill" />
                                     <Border HorizontalAlignment="Right" VerticalAlignment="Top" Margin="4"
                                             Padding="5,1" CornerRadius="3" Background="#CC141210">
@@ -377,7 +391,8 @@
                                 <Button Style="{StaticResource PillButton}" Click="OnViewerBack"
                                         ToolTipService.ToolTip="Back to Browse (Esc)"
                                         AutomationProperties.Name="Back to browse">
-                                    <FontIcon Glyph="&#xE72B;" FontSize="13" />
+                                    <controls:MapleIconControl IconName="back" Size="14"
+                                                               IconBrush="{StaticResource MapleTextMain}" />
                                 </Button>
                                 <TextBlock Text="{Binding SelectedPhoto.FileName}" FontSize="12" FontWeight="SemiBold"
                                            VerticalAlignment="Center" Foreground="{StaticResource MapleTextMain}" />
@@ -386,15 +401,21 @@
                                 <StackPanel x:Name="StarRow" Orientation="Horizontal" Spacing="0" VerticalAlignment="Center" />
                                 <Button x:Name="PickBtn" Style="{StaticResource PillButton}" Click="OnFlagPick"
                                         ToolTipService.ToolTip="Pick (P)" AutomationProperties.Name="Flag as pick">
-                                    <FontIcon Glyph="&#xE73E;" FontSize="12" Foreground="#4CAF50" />
+                                    <controls:MapleIconControl IconName="check" Size="13">
+                                        <controls:MapleIconControl.IconBrush>
+                                            <SolidColorBrush Color="#4CAF50" />
+                                        </controls:MapleIconControl.IconBrush>
+                                    </controls:MapleIconControl>
                                 </Button>
                                 <Button x:Name="RejectBtn" Style="{StaticResource PillButton}" Click="OnFlagReject"
                                         ToolTipService.ToolTip="Reject (X)" AutomationProperties.Name="Flag as reject">
-                                    <FontIcon Glyph="&#xE711;" FontSize="12" Foreground="{StaticResource MapleErrorText}" />
+                                    <controls:MapleIconControl IconName="x" Size="13"
+                                                               IconBrush="{StaticResource MapleErrorText}" />
                                 </Button>
                                 <Button Style="{StaticResource PillButton}"
                                         ToolTipService.ToolTip="Info &amp; EXIF" AutomationProperties.Name="Photo info">
-                                    <FontIcon Glyph="&#xE946;" FontSize="12" />
+                                    <controls:MapleIconControl IconName="info" Size="13"
+                                                               IconBrush="{StaticResource MapleTextMain}" />
                                     <Button.Flyout>
                                         <Flyout Opening="OnInfoFlyoutOpening">
                                             <StackPanel Width="260" Spacing="10">
@@ -421,7 +442,8 @@
                                 <Button Style="{StaticResource PillButton}" Click="OnExitEdit"
                                         ToolTipService.ToolTip="Back to Preview (Esc)"
                                         AutomationProperties.Name="Back to preview">
-                                    <FontIcon Glyph="&#xE72B;" FontSize="13" />
+                                    <controls:MapleIconControl IconName="back" Size="14"
+                                                               IconBrush="{StaticResource MapleTextMain}" />
                                 </Button>
                                 <TextBlock Text="{Binding SelectedPhoto.FileName}" FontSize="12" FontWeight="SemiBold"
                                            VerticalAlignment="Center" Foreground="{StaticResource MapleTextMain}" />
@@ -441,14 +463,16 @@
                                 <Button Style="{StaticResource PillButton}" Click="OnRevert"
                                         ToolTipService.ToolTip="Revert to sidecar state at open (Ctrl+R)"
                                         AutomationProperties.Name="Revert edits">
-                                    <FontIcon Glyph="&#xE7A7;" FontSize="12" />
+                                    <controls:MapleIconControl IconName="revert" Size="13"
+                                                               IconBrush="{StaticResource MapleTextMain}" />
                                 </Button>
                                 <TextBlock x:Name="RenderStatsText" FontSize="10" VerticalAlignment="Center"
                                            Foreground="{StaticResource MapleTextMuted}" />
                                 <Button Style="{StaticResource PillButton}" Click="OnExportPhotos"
                                         ToolTipService.ToolTip="Export JPEG (Ctrl+Shift+E)"
                                         AutomationProperties.Name="Export photo">
-                                    <FontIcon Glyph="&#xEDE1;" FontSize="12" Foreground="{StaticResource MaplePrimary}" />
+                                    <controls:MapleIconControl IconName="export" Size="13"
+                                                               IconBrush="{StaticResource MaplePrimary}" />
                                 </Button>
                             </StackPanel>
                         </Border>
@@ -477,7 +501,8 @@
                                     <Button Style="{StaticResource PillButton}" Padding="4,2" HorizontalAlignment="Right"
                                             Click="OnResetGroup" ToolTipService.ToolTip="Reset this group"
                                             AutomationProperties.Name="Reset group">
-                                        <FontIcon Glyph="&#xE7A7;" FontSize="11" Foreground="{StaticResource MapleTextMuted}" />
+                                        <controls:MapleIconControl IconName="revert" Size="12"
+                                                                   IconBrush="{StaticResource MapleTextMuted}" />
                                     </Button>
                                 </Grid>
                                 <StackPanel x:Name="ColorTabRow" Grid.Row="1" Orientation="Horizontal" Spacing="4"
