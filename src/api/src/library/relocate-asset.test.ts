@@ -178,7 +178,7 @@ describe('relocateAsset', () => {
     expect(row.stages.meili!.version).toBe(0);
   });
 
-  test('copy: DB repoints to the new location, source file is preserved on disk', async () => {
+  test('copy: DB row stays untouched — the source asset keeps its identity', async () => {
     if (!db) return;
     await write('a/IMG_1.dng', 'pixels');
     const { id } = await seedAsset(db, 'a', 'IMG_1.dng');
@@ -193,6 +193,55 @@ describe('relocateAsset', () => {
     expect(result.kind).toBe('relocated');
     expect(await exists('a/IMG_1.dng')).toBe(true); // copy mode: source survives
     expect(await read('b/IMG_1.dng')).toBe('pixels');
+
+    // The load-bearing half: a copy must NOT repoint the original asset's
+    // fileinfo to the duplicate — that would catalog-orphan the untouched
+    // source file. The duplicate is the indexer's to discover. The stage
+    // rows equally stay dirty: nothing about the source changed.
+    const row = await fetchAssetRow(db, id);
+    expect(row.fileinfo[0]!.path).toBe('a');
+    expect(row.fileinfo[0]!.filename).toBe('IMG_1.dng');
+    expect(row.stages.thumb!.version).toBe(3);
+  });
+
+  test('multi-location asset: relocate targets the live entry, not a missing-tagged one', async () => {
+    if (!db) return;
+    await write('live/IMG_9.dng', 'pixels');
+    const libraryId = new ObjectId();
+    const id = new ObjectId();
+    // First entry is missing-tagged (stale/offline location), second is
+    // live. The 7173f5e6f selector bug class: a plain "first non-deleted"
+    // pick targets the stale copy instead of the live one.
+    await db.collection('assets').insertOne({
+      _id: id,
+      fileinfo: [
+        {
+          path: 'stale',
+          filename: 'IMG_9.dng',
+          library_id: libraryId,
+          deleted_at: null,
+          missing_since: new Date(),
+        },
+        { path: 'live', filename: 'IMG_9.dng', library_id: libraryId, deleted_at: null },
+      ],
+      stages: dirtyStagesFixture(),
+    } as never);
+    setLibraryRootsForTests(new Map([[libraryId.toHexString(), root]]));
+
+    const result = await relocateAsset({
+      id,
+      mode: 'move',
+      collision: 'auto-suffix',
+      destinationPath: 'b',
+    });
+
+    expect(result.kind).toBe('relocated');
+    expect(await read('b/IMG_9.dng')).toBe('pixels');
+    const row = await fetchAssetRow(db, id);
+    // Only the live entry was repointed; the stale one is untouched.
+    expect(row.fileinfo.find((f) => f.path === 'b')?.filename).toBe('IMG_9.dng');
+    expect(row.fileinfo.find((f) => f.path === 'stale')).toBeTruthy();
+    expect(row.fileinfo.find((f) => f.path === 'live')).toBeUndefined();
   });
 
   test('sidecar follows the asset relocate end-to-end', async () => {
