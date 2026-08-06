@@ -234,6 +234,7 @@ Lightroom does for `crs:` fields.
 | `grainAmount`                  | `crs:GrainAmount`                    | 0       |
 | `grainSize`                    | `crs:GrainSize`                      | 25      |
 | `grainRoughness`               | `crs:GrainFrequency`                 | 50      |
+| `filmStrength`                 | `papp:FilmStrength`                  | 100     |
 | `splitToneShadowHue`           | `crs:SplitToningShadowHue`           | 0       |
 | `splitToneShadowSaturation`    | `crs:SplitToningShadowSaturation`    | 0       |
 | `splitToneHighlightHue`        | `crs:SplitToningHighlightHue`        | 0       |
@@ -290,6 +291,17 @@ and the same raised-cosine partition as the HSL block above. Range −100…+100
 default 0, omitted on write when 0. They only affect the render while the
 `crs:ConvertToGrayscale` toggle below is `True`; a sidecar may carry a mix
 alongside a colour render without changing it.
+
+**Film look** (epic #2683, film design 2026-08-06): `papp:FilmLook` is a
+free-form string attribute — the selected look's id in the film catalog —
+emitted only when non-empty; the empty default omits the attribute (stage
+no-op). Unlike the enum fields below, an unrecognised id is not a parse
+error: the catalog lookup happens at render time, and an id the current
+catalog doesn't know resolves as identity (unstyled) rather than failing the
+sidecar. The attribute value is XML-escaped, since a catalog id is free text
+rather than a closed vocabulary. `papp:FilmStrength` is the paired numeric
+field in the table above (range 0–100, default 100) — blend strength against
+the pre-look value, meaningless while `papp:FilmLook` is absent.
 
 **Enum fields** (emit only when non-default, string-valued):
 

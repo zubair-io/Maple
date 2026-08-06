@@ -315,6 +315,25 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         enum_name: "",
         doc: "Grain roughness (#1110) — mixes a second noise octave at 2x frequency.",
     },
+    // Film emulation (epic #2683, film design 2026-08-06): a catalog id
+    // selecting a baked `.mlut` grade, plus its blend strength. See the
+    // `AdjustmentModel` struct docs.
+    FieldSpec {
+        name: "film_look",
+        kind: FieldKind::String,
+        range: (0.0, 0.0),
+        default_f32: 0.0,
+        enum_name: "",
+        doc: "Film emulation look id from the film catalog (film design 2026-08-06); empty = none. XMP: papp:FilmLook.",
+    },
+    FieldSpec {
+        name: "film_strength",
+        kind: FieldKind::F32,
+        range: (0.0, 100.0),
+        default_f32: 100.0,
+        enum_name: "",
+        doc: "Film look blend strength in percent; 100 = full look, lerped in display-linear against the pre-look value. XMP: papp:FilmStrength.",
+    },
     color_grade::SPLIT_TONE_SHADOW_HUE,
     color_grade::SPLIT_TONE_SHADOW_SATURATION,
     color_grade::SPLIT_TONE_HIGHLIGHT_HUE,
