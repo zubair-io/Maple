@@ -25,6 +25,16 @@ namespace Maple.WinUI
             }
         }
 
+        // The canonical export dialog options (web export-dialog.vm.ts, #943):
+        // formats + detail lines, color spaces, long-edge presets, quality 92.
+        private static readonly (string Value, string Label, string Detail, string Extension, string TypeLabel)[]
+            ExportFormats =
+        {
+            ("jpeg", "JPEG", "8-bit, compressed — for sharing and the web.", ".jpg", "JPEG image"),
+            ("tiff", "TIFF", "16-bit, lossless — the master for further grading.", ".tif", "TIFF image"),
+            ("png", "PNG", "8-bit, lossless — larger files, no compression artefacts.", ".png", "PNG image"),
+        };
+
         private async void OnExportPhotos(object sender, RoutedEventArgs e)
         {
             var photo = ViewModel.SelectedPhoto;
@@ -34,20 +44,41 @@ namespace Maple.WinUI
                 return;
             }
 
-            var panel = new StackPanel { Spacing = 10, Width = 340 };
-            panel.Children.Add(new TextBlock
+            var panel = new StackPanel { Spacing = 10, Width = 360 };
+            var formatRadios = new RadioButtons { Header = "Format" };
+            foreach (var (_, label, detail, _, _) in ExportFormats)
             {
-                Text = "Exports through the full Rust develop chain (Amaze quality) with the "
-                     + "current sidecar adjustments applied. JPEG output.",
-                TextWrapping = TextWrapping.Wrap,
-                FontSize = 12,
-            });
-            var qualitySlider = new Slider
+                formatRadios.Items.Add(new RadioButton
+                {
+                    Content = new StackPanel
+                    {
+                        Children =
+                        {
+                            new TextBlock { Text = label, FontSize = 13 },
+                            new TextBlock
+                            {
+                                Text = detail,
+                                FontSize = 11,
+                                TextWrapping = TextWrapping.Wrap,
+                                Opacity = 0.6,
+                            },
+                        },
+                    },
+                });
+            }
+            formatRadios.SelectedIndex = 0;
+            panel.Children.Add(formatRadios);
+
+            var colorCombo = new ComboBox
             {
-                Minimum = 50, Maximum = 100, Value = 92, StepFrequency = 1,
-                Header = "JPEG quality",
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                SelectedIndex = 0,
+                Header = "Color space",
             };
-            panel.Children.Add(qualitySlider);
+            colorCombo.Items.Add("sRGB — safest everywhere");
+            colorCombo.Items.Add("Display P3 — wider gamut");
+            panel.Children.Add(colorCombo);
+
             var sizeCombo = new ComboBox
             {
                 HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -55,15 +86,37 @@ namespace Maple.WinUI
                 Header = "Long edge",
             };
             sizeCombo.Items.Add("Full resolution");
-            sizeCombo.Items.Add("4096 px");
-            sizeCombo.Items.Add("2048 px");
-            sizeCombo.Items.Add("1024 px");
+            foreach (var preset in new[] { 4096, 2560, 2048, 1024 })
+                sizeCombo.Items.Add($"{preset} px");
             panel.Children.Add(sizeCombo);
+
+            var qualitySlider = new Slider
+            {
+                Minimum = 1, Maximum = 100, Value = 92, StepFrequency = 1,
+                Header = "Quality",
+            };
+            var qualityHint = new TextBlock
+            {
+                Text = "Higher keeps more detail and makes a larger file. "
+                     + "90–95 is visually lossless on most photographs.",
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+                Opacity = 0.6,
+            };
+            panel.Children.Add(qualitySlider);
+            panel.Children.Add(qualityHint);
+            // Quality applies to JPEG only (the lossless formats ignore it).
+            formatRadios.SelectionChanged += (_, _) =>
+            {
+                var isJpeg = formatRadios.SelectedIndex == 0;
+                qualitySlider.Visibility = isJpeg ? Visibility.Visible : Visibility.Collapsed;
+                qualityHint.Visibility = isJpeg ? Visibility.Visible : Visibility.Collapsed;
+            };
 
             var dialog = new ContentDialog
             {
                 Title = $"Export {photo.FileName}",
-                Content = panel,
+                Content = new ScrollViewer { Content = panel, MaxHeight = 520 },
                 PrimaryButtonText = "Export…",
                 CloseButtonText = "Cancel",
                 DefaultButton = ContentDialogButton.Primary,
@@ -72,27 +125,31 @@ namespace Maple.WinUI
             if (await dialog.ShowAsync() != ContentDialogResult.Primary)
                 return;
 
+            var format = ExportFormats[Math.Max(0, formatRadios.SelectedIndex)];
             var savePicker = new Windows.Storage.Pickers.FileSavePicker
             {
                 SuggestedFileName = System.IO.Path.GetFileNameWithoutExtension(photo.FileName),
                 SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.PicturesLibrary,
             };
-            savePicker.FileTypeChoices.Add("JPEG image", new[] { ".jpg" });
+            savePicker.FileTypeChoices.Add(format.TypeLabel, new[] { format.Extension });
             WinRT.Interop.InitializeWithWindow.Initialize(
                 savePicker, WinRT.Interop.WindowNative.GetWindowHandle(this));
             var file = await savePicker.PickSaveFileAsync();
             if (file == null)
                 return;
 
-            var maxPx = sizeCombo.SelectedIndex switch
+            var maxLongEdge = sizeCombo.SelectedIndex switch
             {
                 1 => 4096u,
-                2 => 2048u,
-                3 => 1024u,
-                _ => 65535u,
+                2 => 2560u,
+                3 => 2048u,
+                4 => 1024u,
+                _ => 0u,        // native resolution
             };
-            var (ok, error) = await ViewModel.ExportJpegAsync(
-                photo, file.Path, maxPx, (byte)qualitySlider.Value);
+            var colorSpace = colorCombo.SelectedIndex == 1 ? "display-p3" : "srgb";
+            var (ok, error) = await ViewModel.ExportAsync(
+                photo, file.Path, format.Value, (byte)qualitySlider.Value,
+                colorSpace, maxLongEdge);
             await ShowMessageAsync("Export",
                 ok ? $"Exported to {file.Path}" : $"Export failed: {error}");
         }
