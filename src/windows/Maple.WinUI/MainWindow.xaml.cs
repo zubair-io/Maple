@@ -529,7 +529,9 @@ namespace Maple.WinUI
                 case VirtualKey.Up when _mode != ShellMode.Browse: ViewModel.SelectNeighbor(-10); break;
                 case VirtualKey.Down when _mode != ShellMode.Browse: ViewModel.SelectNeighbor(10); break;
                 case VirtualKey.Enter when _mode == ShellMode.Browse: EnterPreview(); break;
-                case VirtualKey.A when ctrl && _mode == ShellMode.Browse: PhotoGrid.SelectAllItems(); break;
+                // ListViewBase.SelectAll — valid because PhotoGrid is
+                // SelectionMode="Extended" (it throws only in Single/None).
+                case VirtualKey.A when ctrl && _mode == ShellMode.Browse: PhotoGrid.SelectAll(); break;
                 case VirtualKey.E when !ctrl && _mode == ShellMode.Preview:
                     SetMode(ShellMode.Edit);
                     ViewModel.EnsureDecoded();
