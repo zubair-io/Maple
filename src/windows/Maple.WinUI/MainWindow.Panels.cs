@@ -17,6 +17,17 @@ namespace Maple.WinUI
         private readonly Dictionary<string, Button> _railButtons = new();
         private string? _activeGroup;
         private string _colorTab = "Basic";
+        private string _effectsTab = "Basic";
+        private string _curveChannel = "Luma";
+        private readonly Dictionary<string, Controls.ColorWheelControl> _gradeWheels = new();
+
+        private static readonly Dictionary<string, Windows.UI.Color> CurveChannelColors = new()
+        {
+            ["Luma"] = Windows.UI.Color.FromArgb(0xFF, 0xC4, 0x49, 0x3A),   // --pro-accent
+            ["Red"] = Windows.UI.Color.FromArgb(0xFF, 0xD1, 0x58, 0x4A),
+            ["Green"] = Windows.UI.Color.FromArgb(0xFF, 0x5A, 0xA3, 0x61),
+            ["Blue"] = Windows.UI.Color.FromArgb(0xFF, 0x4F, 0x7F, 0xC4),
+        };
 
         // --- Tool rail ---
         // Icons come from the shared Maple stroke family (MapleIconShapes) \u2014
@@ -76,11 +87,19 @@ namespace Maple.WinUI
             EditPanel.Visibility = Visibility.Visible;
             EditPanelTitle.Text = group.ToUpperInvariant();
             ColorTabRow.Visibility = group == "Color" ? Visibility.Visible : Visibility.Collapsed;
+            EffectsTabRow.Visibility = group == "Effects" ? Visibility.Visible : Visibility.Collapsed;
             PanelFootnote.Visibility = Visibility.Collapsed;
+            PanelGradeHost.Visibility = Visibility.Collapsed;
+            PanelCurveHost.Visibility = group == "Tone Curve" ? Visibility.Visible : Visibility.Collapsed;
 
             if (group == "Color")
             {
                 ShowColorTab(_colorTab);
+                return;
+            }
+            if (group == "Effects")
+            {
+                ShowEffectsTab(_effectsTab);
                 return;
             }
 
@@ -90,10 +109,65 @@ namespace Maple.WinUI
             PanelSliders.Visibility = Visibility.Visible;
             PanelSliders.ItemsSource = AdjustmentSections.Section(ViewModel.Sections, group).Sliders;
             if (group == "Tone Curve")
-            {
-                PanelFootnote.Text = "Parametric region controls. The interactive point-curve plot ships with #2576.";
-                PanelFootnote.Visibility = Visibility.Visible;
-            }
+                RefreshCurvePlot();
+        }
+
+        // --- Tone curve plot (#2576) ---
+
+        private List<Models.CurvePoint> CurveChannelPoints() => _curveChannel switch
+        {
+            "Red" => ViewModel.Adjustments.ToneCurveRed,
+            "Green" => ViewModel.Adjustments.ToneCurveGreen,
+            "Blue" => ViewModel.Adjustments.ToneCurveBlue,
+            _ => ViewModel.Adjustments.ToneCurveLuma,
+        };
+
+        private void OnCurveChannel(object sender, RoutedEventArgs e)
+        {
+            _curveChannel = ReferenceEquals(sender, CurveTabRed) ? "Red"
+                : ReferenceEquals(sender, CurveTabGreen) ? "Green"
+                : ReferenceEquals(sender, CurveTabBlue) ? "Blue"
+                : "Luma";
+            RefreshCurvePlot();
+        }
+
+        private void OnCurvePointsChanged(List<Models.CurvePoint> points)
+        {
+            var target = CurveChannelPoints();
+            target.Clear();
+            target.AddRange(points);
+            ViewModel.NotifyAdjustmentEdited();
+            CurveResetButton.IsEnabled = points.Count > 0;
+        }
+
+        private void OnCurveReset(object sender, RoutedEventArgs e)
+        {
+            CurveChannelPoints().Clear();
+            ViewModel.NotifyAdjustmentEdited();
+            RefreshCurvePlot();
+        }
+
+        private void RefreshCurvePlot()
+        {
+            var accent = (SolidColorBrush)Application.Current.Resources["MaplePrimaryDim"];
+            CurveTabLuma.Background = _curveChannel == "Luma" ? accent : null;
+            CurveTabRed.Background = _curveChannel == "Red" ? accent : null;
+            CurveTabGreen.Background = _curveChannel == "Green" ? accent : null;
+            CurveTabBlue.Background = _curveChannel == "Blue" ? accent : null;
+            var points = CurveChannelPoints();
+            CurvePlot.SetChannelColor(CurveChannelColors[_curveChannel]);
+            CurvePlot.SetPoints(points);
+            CurveResetButton.IsEnabled = points.Count > 0;
+            UpdateCurveHistogram();
+        }
+
+        /// <summary>Feed the luma bins (ComputeHistogram tail) to the plot
+        /// backdrop; called whenever new histogram bins arrive.</summary>
+        private void UpdateCurveHistogram()
+        {
+            if (PanelCurveHost.Visibility != Visibility.Visible || _lastHistogramBins is not { Length: >= 1024 } bins)
+                return;
+            CurvePlot.SetHistogram(bins[768..1024]);
         }
 
         private void CloseGroupPanel()
@@ -148,6 +222,104 @@ namespace Maple.WinUI
             };
         }
 
+        private void OnEffectsTab(object sender, RoutedEventArgs e)
+        {
+            ShowEffectsTab(ReferenceEquals(sender, EffectsTabGrade) ? "Grade" : "Basic");
+        }
+
+        private void ShowEffectsTab(string tab)
+        {
+            _effectsTab = tab;
+            var accent = (SolidColorBrush)Application.Current.Resources["MaplePrimaryDim"];
+            EffectsTabBasic.Background = tab == "Basic" ? accent : null;
+            EffectsTabGrade.Background = tab == "Grade" ? accent : null;
+
+            PanelBwHeader.Visibility = Visibility.Collapsed;
+            PanelHslBands.ItemsSource = null;
+            PanelHslBands.Visibility = Visibility.Collapsed;
+            PanelGradeHost.Visibility = tab == "Grade" ? Visibility.Visible : Visibility.Collapsed;
+            PanelSliders.Visibility = tab == "Grade" ? Visibility.Collapsed : Visibility.Visible;
+            PanelSliders.ItemsSource = tab == "Grade"
+                ? null
+                : AdjustmentSections.Section(ViewModel.Sections, "Effects").Sliders;
+            if (tab == "Grade")
+                SyncGradeWheels();
+        }
+
+        /// <summary>Build the four wheel cells (wheel + caption + luminance
+        /// slider) and the balance slider. Wheels are code-built because their
+        /// pointer math and puck placement live in ColorWheelControl.</summary>
+        private void BuildGradePanel()
+        {
+            var cells = new Dictionary<string, StackPanel>
+            {
+                ["Shadows"] = GradeCellShadows,
+                ["Midtones"] = GradeCellMidtones,
+                ["Highlights"] = GradeCellHighlights,
+                ["Global"] = GradeCellGlobal,
+            };
+            var gradeSliders = AdjustmentSections.Section(ViewModel.Sections, "Grade").Sliders;
+            foreach (var zone in ViewModel.GradeZones)
+            {
+                var wheel = new Controls.ColorWheelControl
+                {
+                    Width = 108,
+                    Height = 108,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                };
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(
+                    wheel, $"{zone.Name} color wheel");
+                var vm = zone;
+                wheel.WheelChanged += (h, s) => vm.ApplyWheel(h, s);
+                wheel.ResetRequested += () => vm.Reset();
+                _gradeWheels[zone.Name] = wheel;
+
+                var label = new TextBlock
+                {
+                    Text = zone.Name,
+                    FontSize = 11,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Foreground = (SolidColorBrush)Application.Current.Resources["MapleTextMain"],
+                };
+                var value = new TextBlock
+                {
+                    FontSize = 10,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Foreground = (SolidColorBrush)Application.Current.Resources["MapleTextMuted"],
+                };
+                void SyncCaption()
+                {
+                    value.Text = vm.ValueText;
+                    wheel.SetValue(vm.Hue, vm.Saturation);
+                }
+                vm.PropertyChanged += (_, _) => SyncCaption();
+                SyncCaption();
+
+                var cell = cells[zone.Name];
+                cell.Children.Add(wheel);
+                cell.Children.Add(label);
+                cell.Children.Add(value);
+                var lum = gradeSliders.FirstOrDefault(s => s.Label == $"{zone.Name} Lum");
+                if (lum != null)
+                {
+                    cell.Children.Add(new ContentControl
+                    {
+                        Content = lum,
+                        ContentTemplate = (DataTemplate)((FrameworkElement)Content).Resources["SliderRowTemplate"],
+                        HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                    });
+                }
+            }
+            GradeBalanceHost.Content = gradeSliders.First(s => s.Label == "Balance");
+        }
+
+        private void SyncGradeWheels()
+        {
+            foreach (var zone in ViewModel.GradeZones)
+                if (_gradeWheels.TryGetValue(zone.Name, out var wheel))
+                    wheel.SetValue(zone.Hue, zone.Saturation);
+        }
+
         private void OnResetGroup(object sender, RoutedEventArgs e)
         {
             if (_activeGroup == null)
@@ -160,6 +332,26 @@ namespace Maple.WinUI
                     band.Sat.Reset();
                     band.Lum.Reset();
                 }
+                return;
+            }
+            if (_activeGroup == "Effects" && _effectsTab == "Grade")
+            {
+                foreach (var zone in ViewModel.GradeZones)
+                    zone.Reset();
+                foreach (var slider in AdjustmentSections.Section(ViewModel.Sections, "Grade").Sliders)
+                    slider.Reset();
+                return;
+            }
+            if (_activeGroup == "Tone Curve")
+            {
+                ViewModel.Adjustments.ToneCurveLuma.Clear();
+                ViewModel.Adjustments.ToneCurveRed.Clear();
+                ViewModel.Adjustments.ToneCurveGreen.Clear();
+                ViewModel.Adjustments.ToneCurveBlue.Clear();
+                foreach (var slider in AdjustmentSections.Section(ViewModel.Sections, "Tone Curve").Sliders)
+                    slider.Reset();
+                ViewModel.NotifyAdjustmentEdited();
+                RefreshCurvePlot();
                 return;
             }
             var sectionTitle = _activeGroup == "Color"

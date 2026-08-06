@@ -41,6 +41,25 @@ namespace Maple.WinUI.Native
     }
 
     /// <summary>
+    /// C-ABI mirror of raw-ffi's MapleToneCurves (scene_linear_chain_curves.rs,
+    /// #2576): flat [x0,y0,x1,y1,...] knot lists for the curves-aware CPU chain
+    /// entry; len counts floats (2× points). Null/empty = identity.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct MapleToneCurves
+    {
+        public float* luma_ptr;
+        public nuint luma_len;
+        public float* red_ptr;
+        public nuint red_len;
+        public float* green_ptr;
+        public nuint green_len;
+        public float* blue_ptr;
+        public nuint blue_len;
+        public uint mode;                  // 0 = PerChannel, 1 = RatioPreserving
+    }
+
+    /// <summary>
     /// C-ABI mirror of raw-ffi's MapleGpuLiveSession (gpu_live.rs): an opaque
     /// handle struct the host allocates and maple_gpu_live_open fills in.
     /// </summary>
