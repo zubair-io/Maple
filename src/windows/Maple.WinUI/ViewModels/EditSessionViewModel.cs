@@ -500,8 +500,12 @@ namespace Maple.WinUI.ViewModels
 
         // --- Export (JPEG via the Rust develop chain, Amaze quality) ---
 
-        public Task<(bool ok, string? error)> ExportJpegAsync(
-            PhotoItem photo, string outPath, uint maxPx, byte quality)
+        /// <summary>Develop + encode a deliverable via the canonical exporter
+        /// (#2584): format "jpeg" | "tiff" | "png", colorSpace "srgb" |
+        /// "display-p3", maxLongEdge 0 = native resolution.</summary>
+        public Task<(bool ok, string? error)> ExportAsync(
+            PhotoItem photo, string outPath, string format, byte quality,
+            string colorSpace, uint maxLongEdge)
         {
             FlushSidecarNow();
             return Task.Run(() =>
@@ -521,9 +525,9 @@ namespace Maple.WinUI.ViewModels
                 }
                 try
                 {
-                    var rc = RawFfi.maple_render_develop_jpeg_to_file(
+                    var rc = RawFfi.maple_export_developed_to_file(
                         photo.EditPath, tempXmp ?? ExistingSidecar(photo.FilePath),
-                        maxPx, quality, outPath);
+                        format, quality, colorSpace, maxLongEdge, outPath);
                     return rc == 0
                         ? (true, (string?)null)
                         : (false, RawFfi.LastError() ?? $"export failed (rc={rc})");
