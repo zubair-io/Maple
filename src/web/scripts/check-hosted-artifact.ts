@@ -183,6 +183,14 @@ async function verifyBinaryAssets(): Promise<string> {
     (await text('/pkg/raw_wasm.js')).includes('export function initThreadPool'),
     '/pkg/raw_wasm.js omits the Rayon initThreadPool export',
   );
+  assertContract(
+    (await text('/pkg/raw_wasm.js')).includes('export function prepare_threaded_heap'),
+    // #2516: without this export, `raw-wasm-init.ts` falls back to keeping
+    // Chromium serial (the pre-#2516 #2515 mitigation) rather than risk the
+    // growth race with no guard — a silent regression that no functional
+    // test would catch until an installed-Chrome run.
+    '/pkg/raw_wasm.js omits the #2516 prepare_threaded_heap heap-guard export',
+  );
   const rawWorkerSources = await Promise.all(
     (await allFiles(ARTIFACT_ROOT))
       .filter((path) => basename(path).startsWith('worker-') && basename(path).endsWith('.js'))
@@ -192,7 +200,7 @@ async function verifyBinaryAssets(): Promise<string> {
   assertContract(rawWorker, 'missing the RAW pipeline worker bundle');
   assertContract(
     rawWorker.includes('Chrome|Chromium|Edg|OPR'),
-    'RAW worker is missing the Chromium shared-memory safety gate',
+    'RAW worker is missing the Chromium runtime-detection gate',
   );
   for (const helper of HOSTED_WASM_ASSETS.slice(1)) {
     assertContract((await bytes(helper)).byteLength > 0, `${helper} is empty`);

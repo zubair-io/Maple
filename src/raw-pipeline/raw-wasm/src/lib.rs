@@ -111,6 +111,17 @@ pub use scene_linear::{
     render_bytes_scene_linear, render_bytes_scene_linear_sized, MapleSceneLinearRender,
 };
 
+// #2516 — safe Rayon restoration on Chromium: grow the shared WASM memory
+// ONCE, before any Rayon worker isolate exists, so no growth ever races an
+// idle worker's stale cross-isolate bounds. `parallel`-gated: only relevant
+// to the threaded build, and the intrinsics it uses only exist for the
+// `parallel` feature's caller (raw-wasm-init.ts calls it right before
+// `initThreadPool`).
+#[cfg(feature = "parallel")]
+pub mod shared_heap;
+#[cfg(feature = "parallel")]
+pub use shared_heap::{prepare_threaded_heap, wasm_memory_mib};
+
 /// `true` when this WASM binary was built with atomics + the parallel feature.
 /// JS can still override by refusing to call `initThreadPool` when
 /// `crossOriginIsolated` is false (e.g. Safari or Firefox without COOP/COEP).
