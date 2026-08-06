@@ -86,6 +86,11 @@ namespace Maple.WinUI
                     ViewModel.Photos.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             };
 
+            // Title-bar / taskbar icon (the exe icon covers Explorer; unpackaged
+            // windows need the runtime SetIcon too).
+            this.AppWindow.SetIcon(System.IO.Path.Combine(
+                AppContext.BaseDirectory, "Assets", "maple.ico"));
+
             SidebarColDef.Width = new GridLength(_settings.LeftPanelHidden ? 0 : _settings.LeftPanelWidth);
             PhotoGrid.PreviewKeyDown += (_, e) =>
             {
@@ -114,7 +119,6 @@ namespace Maple.WinUI
             var browse = mode == ShellMode.Browse;
             var edit = mode == ShellMode.Edit;
 
-            BrowseToolbar.Visibility = browse ? Visibility.Visible : Visibility.Collapsed;
             SidebarPane.Visibility = browse ? Visibility.Visible : Visibility.Collapsed;
             SidebarColDef.Width = browse
                 ? new GridLength(_settings.LeftPanelHidden ? 0 : _settings.LeftPanelWidth)
