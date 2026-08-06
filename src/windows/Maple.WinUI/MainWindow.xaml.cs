@@ -97,6 +97,7 @@ namespace Maple.WinUI
             };
             BuildStarRow();
             BuildEditRail();
+            HookViewerPan();
             // Wire the grouped grid source only after the chrome exists —
             // setting Source synchronously raises the grid's first selection.
             ((Microsoft.UI.Xaml.Data.CollectionViewSource)
@@ -191,11 +192,106 @@ namespace Maple.WinUI
                 return;
             ViewportSwapChainPanel.Width = dims.Width;
             ViewportSwapChainPanel.Height = dims.Height;
-            ViewportSwapChainPanel.Margin = new Thickness(0, 48, 0, 0);
+            SizeZoomHost();
         }
 
-        private void OnCanvasHostSizeChanged(object sender, SizeChangedEventArgs e) =>
+        private void OnCanvasHostSizeChanged(object sender, SizeChangedEventArgs e)
+        {
             UpdatePanelFit();
+            SizeZoomHost();
+        }
+
+        // --- Zoom / pan (#2572): factor 1 = fit; drag pans when zoomed ---
+
+        private bool _panning;
+        private Windows.Foundation.Point _panStart;
+        private (double H, double V) _panStartOffsets;
+
+        /// <summary>The zoom host tracks the scroll viewport at factor 1, so
+        /// "fit" is always zoomFactor 1 regardless of window size.</summary>
+        private void SizeZoomHost()
+        {
+            var width = ViewerScroll.ViewportWidth;
+            var height = ViewerScroll.ViewportHeight;
+            if (width > 0 && height > 0)
+            {
+                ZoomHost.Width = width;
+                ZoomHost.Height = height;
+            }
+        }
+
+        private void ResetZoom() =>
+            ViewerScroll.ChangeView(0, 0, 1.0f, disableAnimation: true);
+
+        /// <summary>1:1 = one content pixel (GPU session, rendered frame, or
+        /// embedded-preview JPEG) per physical screen pixel.</summary>
+        private float OneToOneZoomFactor()
+        {
+            double contentPixels = _gpuFrameDims?.Width
+                ?? _viewportBitmap?.PixelWidth
+                ?? (ViewportImage.Source as Microsoft.UI.Xaml.Media.Imaging.BitmapImage)?.PixelWidth
+                ?? 0;
+            var displayedDips = _gpuFrameDims is { } dims
+                ? dims.Width
+                : ViewportImage.ActualWidth;
+            var rasterScale = ViewportSwapChainPanel.CompositionScaleX is > 0 and var s ? s : 1.0;
+            if (contentPixels <= 0 || displayedDips <= 0)
+                return 1f;
+            // Content pixels per displayed DIP at zoom 1, corrected to physical.
+            return (float)Math.Clamp(contentPixels / (displayedDips * rasterScale), 0.4, 8.0);
+        }
+
+        private void SetZoom(float factor, Windows.Foundation.Point? focus = null)
+        {
+            factor = Math.Clamp(factor, (float)ViewerScroll.MinZoomFactor, (float)ViewerScroll.MaxZoomFactor);
+            var current = ViewerScroll.ZoomFactor;
+            if (Math.Abs(factor - current) < 0.001f)
+                return;
+            // Keep the focus point (content coords) stationary in the viewport.
+            var focusContent = focus ?? new Windows.Foundation.Point(
+                (ViewerScroll.HorizontalOffset + ViewerScroll.ViewportWidth / 2) / current,
+                (ViewerScroll.VerticalOffset + ViewerScroll.ViewportHeight / 2) / current);
+            var offsetX = focusContent.X * factor - ViewerScroll.ViewportWidth / 2;
+            var offsetY = focusContent.Y * factor - ViewerScroll.ViewportHeight / 2;
+            ViewerScroll.ChangeView(Math.Max(0, offsetX), Math.Max(0, offsetY), factor,
+                disableAnimation: false);
+        }
+
+        private void OnViewerDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+        {
+            var position = e.GetPosition(ZoomHost);
+            SetZoom(ViewerScroll.ZoomFactor > 1.01f ? 1f : OneToOneZoomFactor(), position);
+            e.Handled = true;
+        }
+
+        private void HookViewerPan()
+        {
+            ZoomHost.PointerPressed += (_, e) =>
+            {
+                if (ViewerScroll.ZoomFactor <= 1.01f)
+                    return;
+                _panning = true;
+                _panStart = e.GetCurrentPoint(this.Content).Position;
+                _panStartOffsets = (ViewerScroll.HorizontalOffset, ViewerScroll.VerticalOffset);
+                ZoomHost.CapturePointer(e.Pointer);
+            };
+            ZoomHost.PointerMoved += (_, e) =>
+            {
+                if (!_panning)
+                    return;
+                var position = e.GetCurrentPoint(this.Content).Position;
+                ViewerScroll.ChangeView(
+                    _panStartOffsets.H - (position.X - _panStart.X),
+                    _panStartOffsets.V - (position.Y - _panStart.Y),
+                    null, disableAnimation: true);
+            };
+            ZoomHost.PointerReleased += (_, e) =>
+            {
+                _panning = false;
+                ZoomHost.ReleasePointerCapture(e.Pointer);
+            };
+            ZoomHost.PointerCanceled += (_, _) => _panning = false;
+        }
 
         private void OnFrameReady(byte[] bgra, int width, int height, uint[] bins, double millis)
         {
@@ -274,6 +370,7 @@ namespace Maple.WinUI
             _gpuFrameDims = null;
             ViewportSwapChainPanel.Visibility = Visibility.Collapsed;
             ViewportImage.Visibility = Visibility.Visible;
+            ResetZoom();  // zoom is per-image and resets on navigation (spec)
             ShowEmbeddedPreview(photo);
             if (_previewSubscribed != null)
                 _previewSubscribed.PropertyChanged -= OnCurrentPhotoPropertyChanged;
@@ -427,6 +524,18 @@ namespace Maple.WinUI
                     break;
                 case VirtualKey.Escape when _mode == ShellMode.Edit: SetMode(ShellMode.Preview); break;
                 case VirtualKey.Escape when _mode == ShellMode.Preview: SetMode(ShellMode.Browse); break;
+                case VirtualKey.Number0 when ctrl && _mode != ShellMode.Browse:
+                    ResetZoom();
+                    break;
+                case VirtualKey.Number1 when ctrl && _mode != ShellMode.Browse:
+                    SetZoom(OneToOneZoomFactor());
+                    break;
+                case (VirtualKey)0xBB when ctrl && _mode != ShellMode.Browse:  // '=' / '+'
+                    SetZoom(ViewerScroll.ZoomFactor * 1.5f);
+                    break;
+                case (VirtualKey)0xBD when ctrl && _mode != ShellMode.Browse:  // '-'
+                    SetZoom(ViewerScroll.ZoomFactor / 1.5f);
+                    break;
                 case VirtualKey.Z when ctrl && shift: ViewModel.Redo(); break;
                 case VirtualKey.Z when ctrl: ViewModel.Undo(); break;
                 case VirtualKey.R when ctrl: ViewModel.RevertToOriginal(); break;
