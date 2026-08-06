@@ -454,16 +454,33 @@ extension AppShell {
                 // already tolerates — an unavailable Application Support
                 // directory.
                 return try? PhotoKitSidecarStore(phassetLocalId: assetID)
+            case .smb:
+                // SMB (network share)-backed asset (#2674). Resolve the
+                // sidecar store via the CONNECTED `SMBSource` actor the
+                // browse session already holds — `connectSMB` sets
+                // `browseVM.currentSource` to the same instance that
+                // enumerated this asset (`images()` populated its
+                // `pathByMapleId` map), so `assetID` (the maple_id) resolves
+                // back to the real share-relative path without a second
+                // connect/re-walk. If the source has since been replaced
+                // (browsed to a different share/folder before this cell's
+                // `.onAppear` fired) there is no live connection to use and
+                // the edit stays session-local — same degrade-to-nil
+                // contract `PhotoKit`'s `try?` above already accepts on its
+                // own rare failure path.
+                guard let smb = browseVM.currentSource as? SMBSource else { return nil }
+                return SMBSidecarStore(
+                    source: smb,
+                    ref: ImageRef(id: assetID, displayName: asset.displayName))
             case nil:
-                // No explicit provenance — the folder/SMB browse flow's
-                // cloud refs never set it (only the Timeline sibling
-                // builder and the PhotoKit construction sites do). Fall back
+                // No explicit provenance — only the Timeline sibling builder
+                // and the PhotoKit/SMB construction sites set it. Fall back
                 // to the pre-#2299 ambient-selection gate: cloud-backed
                 // asset routes XMP through CloudSidecarStore so edits
-                // round-trip via PUT /api/assets/<id>/xmp; local files
-                // (folder/SMB) keep using XMPSidecarStore via EditSession's
-                // primaryURL branch. Cloud refs carry the upstream asset id
-                // in stableID (set by BrowseViewModel.loadSource).
+                // round-trip via PUT /api/assets/<id>/xmp; local files keep
+                // using XMPSidecarStore via EditSession's primaryURL branch.
+                // Cloud refs carry the upstream asset id in stableID (set by
+                // BrowseViewModel.loadSource).
                 guard case .cloudLibrary(let serverID, _) = librarySelection
                 else { return nil }
                 return CloudSidecarStore(
