@@ -1,0 +1,58 @@
+name: windows
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  windows-build-and-test:
+    name: windows-x64 (MSVC build + rust tests + color parity)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src/raw-pipeline -> target
+            src/windows -> target
+
+      - name: Build raw-core & raw-ffi on Windows
+        run: |
+          cargo check --manifest-path src/raw-pipeline/Cargo.toml --target x86_64-pc-windows-msvc -p raw-core
+          cargo check --manifest-path src/raw-pipeline/Cargo.toml --target x86_64-pc-windows-msvc -p raw-ffi --features gpu
+
+      - name: Run raw-core Unit Tests on Windows
+        run: |
+          cargo test --manifest-path src/raw-pipeline/Cargo.toml -p raw-core --lib
+
+      - name: Build Windows Native App
+        run: |
+          cargo build --manifest-path src/windows/Cargo.toml --release
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build WinUI 3 Native C# Application
+        run: |
+          dotnet build src/windows/Maple.WinUI/Maple.WinUI.csproj -c Release -r win-x64
+
+      - name: Verify Codegen Execution on Windows
+        shell: bash
+        run: |
+          ./tools/codegen.sh
