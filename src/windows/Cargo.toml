@@ -1,0 +1,30 @@
+[package]
+name = "maple-windows"
+version = "0.1.0"
+edition = "2021"
+description = "Native Windows desktop host for Maple RAW Photo Editor"
+
+[dependencies]
+raw-core = { path = "../raw-pipeline/raw-core", features = ["avif", "gpu"] }
+raw-ffi = { path = "../raw-pipeline/raw-ffi", features = ["gpu"] }
+raw-gpu = { path = "../raw-pipeline/raw-gpu" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tokio = { version = "1.0", features = ["full"] }
+notify = "6.1"
+rfd = "0.15"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+quick-xml = "0.37"
+bytemuck = { version = "1.14", features = ["derive"] }
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["winuser", "fileapi", "shellapi"] }
+
+[build-dependencies]
+tauri-build = { version = "2.0", optional = true }
+
+[features]
+default = []
+tauri = ["dep:tauri-build"]

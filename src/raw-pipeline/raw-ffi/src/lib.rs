@@ -85,6 +85,10 @@ mod wb_frame_flat;
 #[cfg(any(feature = "pano", feature = "pano-ios"))]
 mod pano;
 
+// Windows WinUI 3 DXGI SwapChain interop exports (epic #925 / Windows Native UI)
+#[cfg(all(feature = "gpu", target_os = "windows"))]
+mod winui_swapchain;
+
 // Re-export every C ABI type so cbindgen sees the same surface it always has.
 // `#[no_mangle] extern "C"` functions are exported regardless of `pub use`,
 // but cbindgen also needs visibility on the `#[repr(C)]` structs to emit

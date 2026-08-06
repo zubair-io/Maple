@@ -22,8 +22,17 @@ test-fixtures/*
 
 # Rust
 target/
+**/target/
 **/*.rs.bk
 Cargo.lock.bak
+
+# Windows / WinUI 3 / Visual Studio
+.vs/
+**/bin/
+**/obj/
+*.user
+*.suo
+*.userosv
 
 # wasm-pack / wasm-bindgen output
 src/raw-pipeline/raw-wasm/pkg/
