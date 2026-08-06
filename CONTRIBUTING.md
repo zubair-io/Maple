@@ -198,7 +198,7 @@ shared state; the seed stories in this PR avoid that surface deliberately
 | Decide how a screen should look or behave | `docs/ui-spec.md`                                |
 | Pick a pattern for an Angular component   | `docs/best-practices.md` § "Angular"             |
 | Pick a pattern for a Swift view           | `docs/best-practices.md` § "Swift"               |
-| Change the XMP schema                     | `docs/sidecar-schema.md`                         |
+| Change the XMP schema                     | `docs/xmp-canonical-format.md`                   |
 | Touch a color-pipeline stage              | `docs/architecture.md` + `docs/testing.md`       |
 | Add a cache                               | `docs/caching.md`                                |
 | Understand the build matrix               | `CLAUDE.md` § "Build & test — Apple / Web / API" |
