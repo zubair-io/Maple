@@ -272,6 +272,170 @@ namespace Maple.WinUI.ViewModels
             });
         }
 
+        // --- Download-to-edit (#2588) ---
+
+        /// <summary>Server sidecar for the open cloud photo, parsed with
+        /// passthrough intact so the full-document POST on flush preserves
+        /// server-side metadata this app doesn't model.</summary>
+        private Services.Xmp.XmpSidecarDocument? _cloudDoc;
+        /// <summary>Cloud photo whose developed preview should re-publish when
+        /// the session moves off it (set on every cloud adjustment flush).</summary>
+        private PhotoItem? _cloudPreviewPending;
+
+        /// <summary>Fetch + apply the server sidecar after a cloud photo opens.
+        /// No sidecar (404) keeps the default state.</summary>
+        private async Task LoadCloudSidecarAsync(PhotoItem photo)
+        {
+            if (_cloud == null)
+                return;
+            try
+            {
+                var xml = await _cloud.GetXmpAsync(photo.FilePath, CancellationToken.None);
+                if (xml == null || !ReferenceEquals(_openPhoto, photo))
+                    return;
+                var doc = Services.Xmp.XmpParser.Parse(xml);
+                OnUi(() =>
+                {
+                    if (!ReferenceEquals(_openPhoto, photo))
+                        return;
+                    _cloudDoc = doc;
+                    Adjustments = doc.Adjustments;
+                    _originalModel = Adjustments.Clone();
+                    _undoBaseline = Adjustments.Clone();
+                    if (doc.Rating is { } rating) photo.Rating = rating;
+                    if (doc.Flag is { } flag) photo.FlagStatus = flag;
+                    if (doc.ColorLabel != null) photo.ColorLabel = doc.ColorLabel;
+                    SyncSlidersFromModel();
+                    Renderer.RequestRender(Adjustments.Clone());
+                });
+            }
+            catch (Exception ex)
+            {
+                DiagLog.Write($"[cloud] sidecar fetch failed for {photo.FileName}: {ex.Message}");
+            }
+        }
+
+        /// <summary>Edit entry for a cloud asset: stream the original into the
+        /// local cache (with progress), then run the normal decode. Selection
+        /// changes mid-download are abandoned quietly.</summary>
+        private async Task DownloadThenDecodeAsync(PhotoItem photo)
+        {
+            if (_cloud == null)
+            {
+                DecodeStatus = "Not connected to Maple Cloud.";
+                return;
+            }
+            IsDecoding = true;
+            DecodeStatus = $"Downloading {photo.FileName}…";
+            try
+            {
+                var lastPercent = -1;
+                var path = await _cloud.DownloadOriginalAsync(
+                    photo.CloudAddress!, photo.FilePath, photo.FileSizeBytes,
+                    (received, total) =>
+                    {
+                        if (total <= 0)
+                            return;
+                        var percent = (int)(received * 100 / total);
+                        if (percent == lastPercent)
+                            return;
+                        lastPercent = percent;
+                        OnUi(() =>
+                        {
+                            if (ReferenceEquals(SelectedPhoto, photo) && _decodedPhoto == null)
+                                DecodeStatus = $"Downloading {photo.FileName}… {percent}%";
+                        });
+                    },
+                    CancellationToken.None);
+                if (!ReferenceEquals(SelectedPhoto, photo))
+                    return;
+                if (path == null)
+                {
+                    IsDecoding = false;
+                    DecodeStatus = "Download failed — see maple.log";
+                    return;
+                }
+                photo.LocalCachePath = path;
+                _decodedPhoto = photo;
+                DecodeCurrent(photo);
+            }
+            catch (Exception ex)
+            {
+                DiagLog.Write($"[cloud] original download failed for {photo.FileName}: {ex.Message}");
+                if (ReferenceEquals(SelectedPhoto, photo))
+                {
+                    IsDecoding = false;
+                    DecodeStatus = $"Download failed: {ex.Message}";
+                }
+            }
+        }
+
+        /// <summary>Cloud flush path: fold the session state into the fetched
+        /// server document (passthrough intact) and overwrite the server
+        /// sidecar. Also arms the developed-preview re-publish.</summary>
+        private void PushCloudSidecar(PhotoItem photo)
+        {
+            if (_cloud == null)
+                return;
+            var doc = _cloudDoc ?? new Services.Xmp.XmpSidecarDocument();
+            doc.Adjustments = Adjustments.Clone();
+            doc.Rating = photo.Rating;
+            doc.Flag = photo.FlagStatus;
+            doc.ColorLabel = photo.ColorLabel;
+            _cloudDoc = doc;
+            _cloudPreviewPending = photo;
+            var xml = Services.Xmp.XmpWriter.Serialize(doc);
+            var serverPath = photo.FilePath;
+            _ = Task.Run(async () =>
+            {
+                if (!await _cloud.PostXmpAsync(serverPath, xml, CancellationToken.None))
+                    OnUi(() => CloudStatus = "Sidecar sync failed — see maple.log");
+            });
+        }
+
+        /// <summary>Develop + publish the edited asset's preview when leaving
+        /// it (the web publishes on idle/exit; this is the switch-away moment).
+        /// Best-effort — a failure only logs.</summary>
+        private void PublishPendingCloudPreview()
+        {
+            var photo = _cloudPreviewPending;
+            _cloudPreviewPending = null;
+            if (photo?.LocalCachePath == null || _cloud == null)
+                return;
+            var doc = _cloudDoc;
+            var cloud = _cloud;
+            _ = Task.Run(async () =>
+            {
+                var xmpTemp = System.IO.Path.Combine(
+                    System.IO.Path.GetTempPath(), $"maple-preview-{Guid.NewGuid():N}.xmp");
+                var jpegTemp = System.IO.Path.Combine(
+                    System.IO.Path.GetTempPath(), $"maple-preview-{Guid.NewGuid():N}.jpg");
+                try
+                {
+                    System.IO.File.WriteAllText(xmpTemp, Services.Xmp.XmpWriter.Serialize(
+                        doc ?? new Services.Xmp.XmpSidecarDocument()));
+                    var rc = Native.RawFfi.maple_render_develop_jpeg_to_file(
+                        photo.LocalCachePath!, xmpTemp, 1280, 82, jpegTemp);
+                    if (rc != 0)
+                    {
+                        DiagLog.Write($"[cloud] preview develop failed rc={rc}: {Native.RawFfi.LastError()}");
+                        return;
+                    }
+                    var bytes = await System.IO.File.ReadAllBytesAsync(jpegTemp);
+                    await cloud.PublishPreviewAsync(photo.FilePath, bytes, CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    DiagLog.Write($"[cloud] preview publish failed for {photo.FileName}: {ex.Message}");
+                }
+                finally
+                {
+                    try { System.IO.File.Delete(xmpTemp); } catch { /* best effort */ }
+                    try { System.IO.File.Delete(jpegTemp); } catch { /* best effort */ }
+                }
+            });
+        }
+
         /// <summary>Push a cloud asset's culling change to the server
         /// (POST /api/xmp/batch merges into the server-side sidecar).</summary>
         private void PushCloudCulling(PhotoItem photo)
