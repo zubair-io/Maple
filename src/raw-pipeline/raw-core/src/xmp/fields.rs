@@ -133,6 +133,15 @@ pub(super) fn set_field(
         "crs:GrainAmount" => m.grain_amount = v()?,
         "crs:GrainSize" => m.grain_size = v()?,
         "crs:GrainFrequency" => m.grain_roughness = v()?,
+        // Film emulation look (epic #2683, film design 2026-08-06).
+        // Maple-proprietary `papp:` keys — no ACR equivalent (`FilmLook` is
+        // a catalog id, not a numeric slider). Absent attribute -> default
+        // ("" / 100), stage no-op. An id the catalog doesn't recognise is
+        // accepted here rather than rejected: it resolves as identity at
+        // render time (see `raw_core::film`), so a sidecar authored against
+        // a newer catalog still opens instead of failing the whole parse.
+        "papp:FilmLook" => m.film_look = value.to_string(),
+        "papp:FilmStrength" => m.film_strength = v()?,
         "crs:SplitToningShadowHue" => m.split_tone_shadow_hue = v()?,
         "crs:SplitToningShadowSaturation" => m.split_tone_shadow_saturation = v()?,
         "crs:SplitToningHighlightHue" => m.split_tone_highlight_hue = v()?,

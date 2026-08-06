@@ -98,6 +98,10 @@ export interface GeneratedAdjustmentModel {
   grainSize: number;
   /** Grain roughness (#1110) — mixes a second noise octave at 2x frequency. Range: [0.0, 100.0]. */
   grainRoughness: number;
+  /** Film emulation look id from the film catalog (film design 2026-08-06); empty = none. XMP: papp:FilmLook. */
+  filmLook: string;
+  /** Film look blend strength in percent; 100 = full look, lerped in display-linear against the pre-look value. XMP: papp:FilmStrength. Range: [0.0, 100.0]. */
+  filmStrength: number;
   /** Split-tone shadow hue in degrees (#1111, tone/zoom design spec § 10.3) — display-linear Oklab tint. Range: [0.0, 360.0]. */
   splitToneShadowHue: number;
   /** Split-tone shadow saturation (#1111); 0 disables the shadow tint. Range: [0.0, 100.0]. */
@@ -258,6 +262,7 @@ export const ADJUSTMENT_RANGES = {
   grainAmount: [0.0, 100.0] as const,
   grainSize: [0.0, 100.0] as const,
   grainRoughness: [0.0, 100.0] as const,
+  filmStrength: [0.0, 100.0] as const,
   splitToneShadowHue: [0.0, 360.0] as const,
   splitToneShadowSaturation: [0.0, 100.0] as const,
   splitToneHighlightHue: [0.0, 360.0] as const,
@@ -346,6 +351,8 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     grainAmount: 0.0,
     grainSize: 25.0,
     grainRoughness: 50.0,
+    filmLook: '',
+    filmStrength: 100.0,
     splitToneShadowHue: 0.0,
     splitToneShadowSaturation: 0.0,
     splitToneHighlightHue: 0.0,
@@ -573,6 +580,8 @@ export const ADJUSTMENT_GROUPS: readonly AdjustmentGroupSpec[] = [
       'grain_amount',
       'grain_size',
       'grain_roughness',
+      'film_look',
+      'film_strength',
     ],
   },
   {

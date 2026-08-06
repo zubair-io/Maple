@@ -130,7 +130,7 @@ pub(crate) fn emit_swift(schema: &[FieldSpec]) -> String {
                     f(spec.range.1),
                 ));
             }
-            FieldKind::Enum | FieldKind::ToneCurve => {}
+            FieldKind::Enum | FieldKind::ToneCurve | FieldKind::String => {}
         }
     }
 
@@ -277,6 +277,12 @@ pub(crate) fn emit_ts(schema: &[FieldSpec]) -> String {
                 // the interface is hand-written in `models/adjustment-model.ts`.
                 s.push_str(&format!("  /** {} */\n  {}: ToneCurve;\n", doc, camel));
             }
+            FieldKind::String => {
+                // Free-form string scalar (e.g. a film-catalog id, #2683).
+                // `string` is TypeScript's native type — no hand-written
+                // mirror needed, unlike `ToneCurve`.
+                s.push_str(&format!("  /** {} */\n  {}: string;\n", doc, camel));
+            }
         }
     }
     s.push_str("}\n\n");
@@ -298,7 +304,7 @@ pub(crate) fn emit_ts(schema: &[FieldSpec]) -> String {
                     f(spec.range.1),
                 ));
             }
-            FieldKind::Enum | FieldKind::ToneCurve => {}
+            FieldKind::Enum | FieldKind::ToneCurve | FieldKind::String => {}
         }
     }
     s.push_str("} as const;\n\n");
@@ -358,6 +364,11 @@ pub(crate) fn emit_ts(schema: &[FieldSpec]) -> String {
                 // object per call so callers can mutate the model in place
                 // without aliasing another model's curve.
                 s.push_str(&format!("    {}: {{ points: [] }},\n", camel));
+            }
+            FieldKind::String => {
+                // Canonical raw-core default is always the empty string
+                // (see `FieldKind::String`'s doc comment).
+                s.push_str(&format!("    {}: '',\n", camel));
             }
         }
     }
