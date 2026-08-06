@@ -1,9 +1,16 @@
 // WindowsFixtureModel — the Windows-shell analogue of
 // `XMPCanonicalFormatTests.canonicalFixtureModel` (Swift) /
-// `canonicalFixtureModel` (`xmp-canonical.spec.ts`, TypeScript): every field
+// `canonicalFixtureModel` (`xmp-canonical.spec.ts`, TypeScript): EVERY field
 // the Windows model actually carries, set to a distinctive non-default
 // value, so the writer's omit-at-default rule can't hide a field this suite
-// forgot to exercise.
+// forgot to exercise — including the 24 HSL band fields, the 8 GrayMixer
+// bands, and all four tone curves, none of which are allowed to sit at a
+// shared default (an earlier version of this fixture left 28 of these at
+// their compiled-in defaults, which meant an omit-at-default bug in any of
+// them was invisible to `XmpCanonicalEnvelopeTests`, `XmpRoundTripTests`, and
+// `SidecarStoreRoundTripTests` alike). Cross-checked field-by-field against
+// `AdjustmentState.cs` — see the verification note in the PR description for
+// how.
 //
 // It is deliberately NOT the same field set as the two-platform golden in
 // `docs/xmp-canonical-format.md` / `XMPCanonicalFormatTests.swift` /
@@ -87,16 +94,56 @@ namespace Maple.WinUI.Tests.Support
             ColorGradeGlobalHue = 300,
             ColorGradeGlobalSaturation = 9,
             ColorGradeGlobalLuminance = 1,
-            HueAdjustmentRed = 5,
-            HueAdjustmentAqua = -7,
-            SaturationAdjustmentGreen = 11,
-            LuminanceAdjustmentBlue = -13,
+            // All eight bands per HSL group, and both GrayMixer bands not
+            // otherwise covered, ascending and distinct within each group —
+            // every field non-default (so the writer's omit-at-default rule
+            // can't hide one), and a value swapped between two bands (e.g. a
+            // Red/Orange mapping bug) still shows up as a mismatch on the
+            // affected band specifically, not silently as 0-equals-0.
+            HueAdjustmentRed = 2,
+            HueAdjustmentOrange = 4,
+            HueAdjustmentYellow = 6,
+            HueAdjustmentGreen = 8,
+            HueAdjustmentAqua = 10,
+            HueAdjustmentBlue = 12,
+            HueAdjustmentPurple = 14,
+            HueAdjustmentMagenta = 16,
+            SaturationAdjustmentRed = 3,
+            SaturationAdjustmentOrange = 6,
+            SaturationAdjustmentYellow = 9,
+            SaturationAdjustmentGreen = 12,
+            SaturationAdjustmentAqua = 15,
+            SaturationAdjustmentBlue = 18,
+            SaturationAdjustmentPurple = 21,
+            SaturationAdjustmentMagenta = 24,
+            LuminanceAdjustmentRed = -3,
+            LuminanceAdjustmentOrange = -6,
+            LuminanceAdjustmentYellow = -9,
+            LuminanceAdjustmentGreen = -12,
+            LuminanceAdjustmentAqua = -15,
+            LuminanceAdjustmentBlue = -18,
+            LuminanceAdjustmentPurple = -21,
+            LuminanceAdjustmentMagenta = -24,
             BlackWhite = ToggleMode.On,
-            GrayMixerRed = 22,
-            GrayMixerMagenta = -18,
+            GrayMixerRed = 5,
+            GrayMixerOrange = 10,
+            GrayMixerYellow = 15,
+            GrayMixerGreen = 20,
+            GrayMixerAqua = 25,
+            GrayMixerBlue = 30,
+            GrayMixerPurple = 35,
+            GrayMixerMagenta = 40,
             ToneCurveLuma = new List<CurvePoint>
             {
                 new(0, 0), new(127.5, 140.25), new(255, 255),
+            },
+            ToneCurveRed = new List<CurvePoint>
+            {
+                new(0, 0), new(64, 90), new(255, 255),
+            },
+            ToneCurveGreen = new List<CurvePoint>
+            {
+                new(0, 20), new(160, 150), new(255, 255),
             },
             ToneCurveBlue = new List<CurvePoint> { new(0, 0), new(255, 204) },
             ToneCurveMode = ToneCurveMode.RatioPreserving,
