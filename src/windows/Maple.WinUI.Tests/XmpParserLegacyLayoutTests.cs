@@ -4,6 +4,7 @@
 // `XMPCanonicalFormatTests.testLegacyLayoutSidecarStillParses` (Swift),
 // scoped to the fields `XmpParser` actually models.
 
+using Maple.WinUI.Models;
 using Maple.WinUI.Services.Xmp;
 using Xunit;
 

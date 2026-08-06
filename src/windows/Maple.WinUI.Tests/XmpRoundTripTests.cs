@@ -5,6 +5,7 @@
 // `XMPCanonicalFormatTests.testLegacySidecarUpgradesOnResave` (Swift) minus
 // the real-file plumbing, which `SidecarStoreRoundTripTests` covers instead.
 
+using Maple.WinUI.Models;
 using Maple.WinUI.Services.Xmp;
 using Maple.WinUI.Tests.Support;
 using Xunit;
