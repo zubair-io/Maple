@@ -15,8 +15,8 @@
 //! `maple_apply_chain_and_encode_display_f32`.
 
 use crate::error::set_last_error;
-use crate::scene_linear_chain::{maple_encode_display_srgb_f32, MapleAdjustmentParams};
 use crate::scene_linear_chain::chain_inputs_from_params;
+use crate::scene_linear_chain::{maple_encode_display_srgb_f32, MapleAdjustmentParams};
 use raw_core::types::{ToneCurve, ToneCurveMode};
 
 /// User point tone curves for the curves-aware chain entry. Each pointer is
