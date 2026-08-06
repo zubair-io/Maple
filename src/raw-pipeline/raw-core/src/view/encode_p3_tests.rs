@@ -3,7 +3,8 @@
 //! `view::auto_profile::{apply, curve, lut}`).
 //!
 //! Every test here targets the P3 display-primary path or the `TargetPrimaries`
-//! discriminant itself. sRGB-path and quantize/dither tests stay in `encode.rs`.
+//! discriminant itself. sRGB-path tests stay in `encode.rs`; quantize/dither
+//! tests split out to `encode_quantize_tests.rs` (#2683).
 
 use super::*;
 
@@ -186,7 +187,9 @@ fn p3_export_reaches_beyond_srgb_gamut() {
     // Choose it in linear P3 space, then express it as the Rec.2020 input the
     // encode entry expects.
     let target_p3 = [0.05f32, 0.92, 0.10];
-    let m_p3_to_rec2020 = M_REC2020_TO_P3.inverse().expect("M_REC2020_TO_P3 invertible");
+    let m_p3_to_rec2020 = M_REC2020_TO_P3
+        .inverse()
+        .expect("M_REC2020_TO_P3 invertible");
     let input_rec2020 = m_p3_to_rec2020.mul_vec(target_p3);
 
     // Preconditions: the chosen color really is P3-in-gamut and sRGB-out-of-gamut.
