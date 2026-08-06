@@ -79,10 +79,12 @@ namespace Maple.WinUI
             {
                 if (e.PropertyName == nameof(ViewModel.SelectedPhoto))
                     OnSelectedPhotoChanged();
+                else if (e.PropertyName == nameof(ViewModel.SelectionSummary))
+                    UpdateLibraryCountText();
             };
             ViewModel.Photos.CollectionChanged += (_, _) =>
             {
-                LibraryCountText.Text = $"{ViewModel.Photos.Count} photos";
+                UpdateLibraryCountText();
                 EmptyStateText.Visibility =
                     ViewModel.Photos.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             };
@@ -154,10 +156,15 @@ namespace Maple.WinUI
             });
         }
 
+        /// <summary>Enters Preview targeting a single, well-defined photo even
+        /// when the grid has a multi-selection. See
+        /// EditSessionViewModel.ResolvePrimaryTarget for the fallback order.</summary>
         private void EnterPreview()
         {
-            if (ViewModel.SelectedPhoto == null && ViewModel.Photos.Count > 0)
-                ViewModel.SelectedPhoto = ViewModel.Photos[0];
+            var target = EditSessionViewModel.ResolvePrimaryTarget(
+                ViewModel.SelectedPhotos, ViewModel.SelectedPhoto, ViewModel.Photos);
+            if (target != null)
+                ViewModel.SelectedPhoto = target;
             if (ViewModel.SelectedPhoto != null)
                 SetMode(ShellMode.Preview);
         }
@@ -337,12 +344,10 @@ namespace Maple.WinUI
         }
 
         // --- Selection ---
-
-        private void OnPhotoItemClick(object sender, ItemClickEventArgs e)
-        {
-            if (e.ClickedItem is PhotoItem photo)
-                ViewModel.SelectedPhoto = photo;
-        }
+        // PhotoGrid's own SelectionChanged (Extended mode, multi-select) is
+        // OnPhotoGridSelectionChanged in MainWindow.Selection.cs. This handler
+        // stays for the Filmstrip, which is single-select (one photo at a time
+        // while paging through Preview).
 
         private void OnGridDoubleTapped(object sender, DoubleTappedRoutedEventArgs e) => EnterPreview();
 
@@ -524,6 +529,7 @@ namespace Maple.WinUI
                 case VirtualKey.Up when _mode != ShellMode.Browse: ViewModel.SelectNeighbor(-10); break;
                 case VirtualKey.Down when _mode != ShellMode.Browse: ViewModel.SelectNeighbor(10); break;
                 case VirtualKey.Enter when _mode == ShellMode.Browse: EnterPreview(); break;
+                case VirtualKey.A when ctrl && _mode == ShellMode.Browse: PhotoGrid.SelectAllItems(); break;
                 case VirtualKey.E when !ctrl && _mode == ShellMode.Preview:
                     SetMode(ShellMode.Edit);
                     ViewModel.EnsureDecoded();
