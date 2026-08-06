@@ -277,28 +277,13 @@ public actor RemoteCatalog {
     /// builds the token-refresh request and stays on the identity URL.
     internal var server: URL
     private let log = Logger(subsystem: "app.justmaple.aperture.fileprovider", category: "catalog")
-    private let decoder: JSONDecoder = {
-        let d = JSONDecoder()
-        // `Date.toISOString()` (the server's emitter) always includes
-        // fractional seconds (`2026-05-15T10:00:00.123Z`), but
-        // `.iso8601` does NOT parse them — every trash/upload/restore
-        // decode would fail. Try fractional first, then plain.
-        let withFractional = ISO8601DateFormatter()
-        withFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        d.dateDecodingStrategy = .custom { decoder in
-            let container = try decoder.singleValueContainer()
-            let raw = try container.decode(String.self)
-            if let date = withFractional.date(from: raw) { return date }
-            if let date = plain.date(from: raw) { return date }
-            throw DecodingError.dataCorruptedError(
-                in: container,
-                debugDescription: "Invalid ISO-8601 date: \(raw)",
-            )
-        }
-        return d
-    }()
+    // `Date.toISOString()` (the server's emitter) always includes
+    // fractional seconds (`2026-05-15T10:00:00.123Z`), but `.iso8601`
+    // does NOT parse them — every trash/upload/restore decode would
+    // fail. `ISO8601FlexibleDateDecoding` tries fractional first, then
+    // plain; shared with `ChangeFeedClient` so both decoders can't drift
+    // out of sync again (#2534).
+    private let decoder: JSONDecoder = ISO8601FlexibleDateDecoding.decoder
 
     /// In-memory cache of `(etag, decoded value)` keyed by absolute URL.
     /// One entry per URL — sufficient for `/api/folders` (one URL),

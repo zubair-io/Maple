@@ -12,7 +12,17 @@ import FileProvider
 import OSLog
 
 final class ChangeFeedClient {
-    private let server: URL
+    /// The address used to build the SSE subscribe request. Starts as the
+    /// identity URL the extension was configured with; `updateServer(_:)`
+    /// swaps it to the server's LAN address once
+    /// `FileProviderExtensionCore.init` resolves one — mirrors
+    /// `RemoteCatalog.server` (see that type's doc comment). Guarded by
+    /// `serverLock` because it's read from the long-lived `runForever()`
+    /// reconnect Task and written from the LAN-resolution Task the
+    /// extension kicks off in parallel; unlike `RemoteCatalog` (an actor),
+    /// this class isn't isolated, so the swap needs its own lock.
+    private var server: URL
+    private let serverLock = NSLock()
     private let http: AuthenticatedHTTPClient
     private let cursorStore: ChangeCursorStore
     private let domainID: String
@@ -56,6 +66,24 @@ final class ChangeFeedClient {
     func stop() {
         task?.cancel()
         task = nil
+    }
+
+    /// Swaps the address used for future subscribe requests — see the
+    /// `server` doc comment above. Thread-safe: safe to call from a
+    /// different Task than the one running `runForever()`. Does not tear
+    /// down an in-flight connection; the new address takes effect on the
+    /// next reconnect, same as `RemoteCatalog.updateServer(_:)` takes
+    /// effect on the next request.
+    func updateServer(_ url: URL) {
+        serverLock.lock()
+        server = url
+        serverLock.unlock()
+    }
+
+    private func currentServer() -> URL {
+        serverLock.lock()
+        defer { serverLock.unlock() }
+        return server
     }
 
     /// Floor delay between any two reconnect attempts. Even a perfectly
@@ -112,17 +140,26 @@ final class ChangeFeedClient {
         }
     }
 
-    private func runOneConnection() async throws {
-        let since = cursorStore.load(domain: domainID)
-        log.notice("SSE connect since=\(since, privacy: .public)")
+    /// Builds the SSE subscribe request against the current `server` (see
+    /// `updateServer(_:)`) and `since` cursor. Factored out of
+    /// `runOneConnection()` so the LAN-migration behaviour can be asserted
+    /// without opening a live socket — see `ChangeFeedClientServerMigrationTests`.
+    func subscribeRequest(since: Int64) -> URLRequest {
         var comps = URLComponents(
-            url: server.appending(path: "/api/changes/subscribe"),
+            url: currentServer().appending(path: "/api/changes/subscribe"),
             resolvingAgainstBaseURL: false
         )!
         comps.queryItems = [.init(name: "since", value: String(since))]
         var req = URLRequest(url: comps.url!)
         req.timeoutInterval = 0  // indefinite — SSE
         req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        return req
+    }
+
+    private func runOneConnection() async throws {
+        let since = cursorStore.load(domain: domainID)
+        log.notice("SSE connect since=\(since, privacy: .public)")
+        let req = subscribeRequest(since: since)
         let (bytes, resp) = try await http.refreshIfNeededAndRetry(request: req) { signed in
             try await URLSession.shared.bytes(for: signed)
         }
@@ -215,10 +252,11 @@ final class ChangeFeedClient {
         }
     }
 
-    private func decodeEvent(_ data: String) -> AssetChange? {
+    /// Decodes one SSE `data:` payload into an `AssetChange`. Internal
+    /// (not `private`) so `ChangeFeedClientDateDecodingTests` can exercise
+    /// the date-parsing fix directly — see `ISO8601FlexibleDateDecoding`.
+    func decodeEvent(_ data: String) -> AssetChange? {
         guard let raw = data.data(using: .utf8) else { return nil }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try? decoder.decode(AssetChange.self, from: raw)
+        return try? ISO8601FlexibleDateDecoding.decoder.decode(AssetChange.self, from: raw)
     }
 }
