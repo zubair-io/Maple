@@ -38,6 +38,16 @@ public enum FileOperationError: Error, LocalizedError, Equatable {
     /// subtree.
     case invalidDestination(String)
 
+    /// The destination names the SAME on-disk file as the source — directly,
+    /// or through a symlinked ancestor directory. Refused before any
+    /// remove/copy runs: without this guard, `.replace`'s pre-copy removal
+    /// (or a same-path no-op) could delete the only copy of the file. Does
+    /// NOT fire for a case-only rename on a case-insensitive-but-case-
+    /// preserving filesystem (APFS/SMB default) — that's a legitimate
+    /// rename, handled as a direct atomic move instead. See
+    /// `LocalFileOperations.classifySameFile`.
+    case sameFile(String)
+
     /// A lower-level `FileManager`/SMB error, wrapped with context. Kept as
     /// a `String` (not the original `Error`) so this type can stay
     /// `Equatable` for tests.
@@ -55,6 +65,8 @@ public enum FileOperationError: Error, LocalizedError, Equatable {
             return "Destination already exists: \(s)"
         case .invalidDestination(let s):
             return "Invalid destination: \(s)"
+        case .sameFile(let s):
+            return "Source and destination are the same file: \(s)"
         case .underlying(let s):
             return s
         }

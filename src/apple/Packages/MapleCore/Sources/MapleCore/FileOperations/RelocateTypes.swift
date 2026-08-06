@@ -56,12 +56,23 @@ public struct RelocatePlan: Sendable, Equatable {
     /// Paths this planning step created (the staged copies). `revert` (and
     /// a `finalize` that decides not to proceed) removes exactly these,
     /// leaving the source and everything else untouched. Mirrors
-    /// `PlacePlan.createdPaths` in `restructure-fs.ts`.
+    /// `PlacePlan.createdPaths` in `restructure-fs.ts`. Empty for a
+    /// case-only rename (`sourceAlreadyRelocated`) — nothing was COPIED,
+    /// the source itself was renamed in place.
     public let createdPaths: [String]
+    /// True when `planRelocate` already fully relocated the source itself
+    /// — the case-only-rename shape (see `classifySameFile`), performed as
+    /// a single atomic `moveItem` because source and target are the SAME
+    /// underlying file on a case-insensitive-but-case-preserving
+    /// filesystem. `finalize` must NOT attempt to delete
+    /// `sourcePrimaryPath` when this is true: on such a filesystem that
+    /// path now resolves to the very file that was just renamed.
+    public let sourceAlreadyRelocated: Bool
 
     public init(mode: RelocateMode, sourcePrimaryPath: String, sourceSidecarPath: String?,
                 finalPrimaryPath: String, finalSidecarPath: String?,
-                renamedDueToCollision: Bool, createdPaths: [String]) {
+                renamedDueToCollision: Bool, createdPaths: [String],
+                sourceAlreadyRelocated: Bool = false) {
         self.mode = mode
         self.sourcePrimaryPath = sourcePrimaryPath
         self.sourceSidecarPath = sourceSidecarPath
@@ -69,12 +80,33 @@ public struct RelocatePlan: Sendable, Equatable {
         self.finalSidecarPath = finalSidecarPath
         self.renamedDueToCollision = renamedDueToCollision
         self.createdPaths = createdPaths
+        self.sourceAlreadyRelocated = sourceAlreadyRelocated
     }
 
-    /// True when the plan is a genuine no-op (destination resolved to the
-    /// exact source path — nothing was copied). `finalize` must never
-    /// delete the source in this case.
-    public var isNoop: Bool { createdPaths.isEmpty && finalPrimaryPath == sourcePrimaryPath }
+    /// True when `finalize` has nothing left to do — either a case-only
+    /// rename already did everything (`sourceAlreadyRelocated`), or
+    /// (defensively, for a plan built by hand rather than by
+    /// `planRelocate`) nothing was ever staged.
+    public var isNoop: Bool { createdPaths.isEmpty }
+}
+
+// MARK: - SameFileClassification
+
+/// Classifies whether a relocate's source and (pre-collision-resolution)
+/// target name the same on-disk location, versus merely differing in case
+/// on a case-insensitive-but-case-preserving filesystem (APFS/SMB default),
+/// versus genuinely different locations. `LocalFileOperations` and
+/// `SMBFileOperations` each implement their own `classifySameFile` (the
+/// Filesystem engine can resolve a symlinked ancestor directory; SMB, with
+/// no local realpath, can only compare the given paths) but share this
+/// result type and the safety contract it encodes: `.identical` must be
+/// refused before any remove/copy runs, `.caseOnlyRename` must be handled
+/// as a direct atomic move rather than copy-verify-delete or the collision
+/// branch.
+public enum SameFileClassification: Sendable, Equatable {
+    case different
+    case identical
+    case caseOnlyRename
 }
 
 // MARK: - RelocateOutcome
