@@ -19,11 +19,14 @@
  * Deliberately does NOT (yet) handle the `apple_rendered_path` companion or
  * the byte-identical dedupe short-circuit that
  * `workers/migration/move-backup-asset.ts` (`moveBackupAsset`) implements
- * for the geo-relocate route (`routes/library-relocate.ts`). That module is
- * shared with the day-dir-refile migration and carries behavior outside
- * this ticket's 8-step contract; rewriting its call site risked silently
- * orphaning Apple-rendered companions for backed-up assets. Left as-is —
- * see the PR description for #2629 and the tracked follow-up issue.
+ * for the geo-relocate route (`routes/library-relocate.ts`). Both are
+ * outside this ticket's (#2629) 8-step contract, and `moveBackupAsset` is
+ * also shared with the just-landed day-dir-refile migration
+ * (`workers/migration/refile-legacy-daydir.ts`) — rewriting its call site
+ * risked either silently orphaning Apple-rendered companions for backed-up
+ * assets or regressing that migration. `routes/library-relocate.ts` is left
+ * calling `moveBackupAsset` as-is; generalizing this primitive to subsume
+ * it is tracked as a follow-up: #2667.
  */
 
 import * as path from 'node:path';
