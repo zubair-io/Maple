@@ -35,6 +35,9 @@ cargo build --release \
   -p codegen
 
 BIN="src/raw-pipeline/target/release/codegen"
+if [ -f "${BIN}.exe" ]; then
+  BIN="${BIN}.exe"
+fi
 
 # --- Adjustment schema ----------------------------------------------------
 
