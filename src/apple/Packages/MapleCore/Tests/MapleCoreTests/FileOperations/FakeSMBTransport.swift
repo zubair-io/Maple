@@ -93,7 +93,8 @@ actor FakeSMBTransport: SMBFileTransport {
         if files.removeValue(forKey: path) != nil { return }
         if directories.contains(path) {
             let prefix = path + "/"
-            for key in files.keys where key.hasPrefix(prefix) { files.removeValue(forKey: key) }
+            let doomed = files.keys.filter { $0.hasPrefix(prefix) }
+            for key in doomed { files.removeValue(forKey: key) }
             directories = directories.filter { $0 != path && !$0.hasPrefix(prefix) }
             return
         }
@@ -112,10 +113,10 @@ actor FakeSMBTransport: SMBFileTransport {
         }
         guard directories.contains(path) else { throw FakeSMBTransportError.notFound(path) }
         let prefix = path + "/"
-        for (key, entry) in files where key.hasPrefix(prefix) {
-            let renamed = toPath + key.dropFirst(path.count)
+        let moved = files.filter { $0.key.hasPrefix(prefix) }
+        for (key, entry) in moved {
             files.removeValue(forKey: key)
-            files[renamed] = entry
+            files[toPath + key.dropFirst(path.count)] = entry
         }
         directories.remove(path)
         registerDirectory(toPath)
