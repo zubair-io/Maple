@@ -78,16 +78,18 @@ export type RelocateAssetResult =
   | { kind: 'invalid'; error: string }
   | { kind: 'error'; error: string };
 
-/** First fileinfo entry that isn't soft-deleted — the same "canonical live
- * entry" definition `routes/library-relocate.ts` and
- * `workers/migration/move-backup-asset.ts` each keep their own copy of. */
+/** Canonical live fileinfo entry. Prefers a non-deleted entry that is NOT
+ * missing-tagged, falling back to any non-deleted entry only when every
+ * live entry is missing-tagged. The plain "first non-deleted" selector that
+ * `routes/library-relocate.ts` / `workers/migration/move-backup-asset.ts`
+ * keep copies of was identified as unsafe for multi-location assets in the
+ * refile-legacy-daydir review (7173f5e6f): when an earlier entry is
+ * missing-tagged but not deleted, it targets the stale/offline copy instead
+ * of the live one. */
 function activeFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): FileInfo | null {
-  const list = asset.fileinfo;
-  if (!list || list.length === 0) return null;
-  for (const entry of list) {
-    if (!entry.deleted_at) return entry;
-  }
-  return null;
+  const list = asset.fileinfo ?? [];
+  const live = list.filter((entry) => !entry.deleted_at);
+  return live.find((entry) => !entry.missing_since) ?? live[0] ?? null;
 }
 
 /** Split an absolute path back into the `(path, filename)` shape
@@ -137,44 +139,53 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
     return { kind: 'skipped', reason: 'already at destination' };
   }
 
+  // The DB repoint below is a MOVE-only concern: a copy leaves the source
+  // asset exactly where it is (same path, same caches, same search rows),
+  // and the duplicate file at the destination is discovered by the indexer
+  // like any other new file — the filesystem is authoritative, the catalog
+  // is a cache of it. Wiring the repoint unconditionally would re-address
+  // the ORIGINAL asset doc at the copy's location and catalog-orphan the
+  // untouched source file.
+  const repointToNewLocation = async ({ newAbsPath }: { newAbsPath: string }) => {
+    const split = splitRelPath(libRoot, newAbsPath);
+    const set: Record<string, unknown> = {
+      'fileinfo.$.path': split.relPath,
+      'fileinfo.$.filename': split.filename,
+      'fileinfo.$.missing_since': null,
+      ...MEILI_REARM_SET,
+    };
+    for (const stage of CACHE_STAGES) {
+      set[`stages.${stage}.version`] = 0;
+      set[`stages.${stage}.attempts`] = 0;
+      set[`stages.${stage}.last_error`] = null;
+      set[`stages.${stage}.dead`] = false;
+    }
+    const res = await c.updateOne(
+      {
+        _id: input.id,
+        fileinfo: {
+          $elemMatch: {
+            library_id: primary.library_id,
+            path: primary.path,
+            filename: primary.filename,
+            deleted_at: null,
+          },
+        },
+      },
+      { $set: set } as never,
+    );
+    if (res.matchedCount === 0) {
+      throw new Error('asset fileinfo entry changed concurrently — aborting relocate');
+    }
+  };
+
   const outcome = await relocateFile({
     sourceAbsPath,
     destAbsPath,
     mode: input.mode,
     collision: input.collision,
     callerTag: 'relocateAsset',
-    onVerified: async ({ newAbsPath }) => {
-      const split = splitRelPath(libRoot, newAbsPath);
-      const set: Record<string, unknown> = {
-        'fileinfo.$.path': split.relPath,
-        'fileinfo.$.filename': split.filename,
-        'fileinfo.$.missing_since': null,
-        ...MEILI_REARM_SET,
-      };
-      for (const stage of CACHE_STAGES) {
-        set[`stages.${stage}.version`] = 0;
-        set[`stages.${stage}.attempts`] = 0;
-        set[`stages.${stage}.last_error`] = null;
-        set[`stages.${stage}.dead`] = false;
-      }
-      const res = await c.updateOne(
-        {
-          _id: input.id,
-          fileinfo: {
-            $elemMatch: {
-              library_id: primary.library_id,
-              path: primary.path,
-              filename: primary.filename,
-              deleted_at: null,
-            },
-          },
-        },
-        { $set: set } as never,
-      );
-      if (res.matchedCount === 0) {
-        throw new Error('asset fileinfo entry changed concurrently — aborting relocate');
-      }
-    },
+    ...(input.mode === 'move' ? { onVerified: repointToNewLocation } : {}),
   });
 
   switch (outcome.kind) {
