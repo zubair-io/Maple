@@ -18,6 +18,7 @@
 
 mod adjustment;
 mod adjustment_groups;
+mod adjustment_tables;
 mod color_matrices;
 mod ui_tokens;
 
@@ -29,11 +30,18 @@ use raw_core::types::ADJUSTMENT_SCHEMA;
 use raw_core::ui_tokens::{COLOR_TOKENS, MOTION_TOKENS};
 
 use adjustment::{emit_swift, emit_ts};
+use adjustment_tables::emit_ts_tables;
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
 enum Target {
     Swift,
     Ts,
+    /// TypeScript field-lookup tables (`ADJUSTMENT_RANGES` + the copy/paste
+    /// group tables) — only valid for `--schema adjustment`. Split into its
+    /// own output file (#2683) so neither generated TS file grows toward
+    /// the 600-line hard budget as `ADJUSTMENT_SCHEMA` gains fields; see
+    /// `adjustment_tables::emit_ts_tables`.
+    TsTables,
     /// SCSS / CSS custom-property output. Only valid for `--schema ui-tokens`;
     /// the adjustment schema has no SCSS surface.
     Scss,
@@ -79,20 +87,21 @@ fn main() {
     let out = match (cli.schema, cli.target) {
         (Schema::Adjustment, Target::Swift) => emit_swift(ADJUSTMENT_SCHEMA),
         (Schema::Adjustment, Target::Ts) => emit_ts(ADJUSTMENT_SCHEMA),
+        (Schema::Adjustment, Target::TsTables) => emit_ts_tables(ADJUSTMENT_SCHEMA),
         (Schema::Adjustment, Target::Scss | Target::Wgsl) => {
-            eprintln!("codegen: --schema adjustment supports only swift / ts targets");
+            eprintln!("codegen: --schema adjustment supports only swift / ts / ts-tables targets");
             std::process::exit(2);
         }
         (Schema::UiTokens, Target::Swift) => ui_tokens::emit_swift(COLOR_TOKENS, MOTION_TOKENS),
         (Schema::UiTokens, Target::Ts) => ui_tokens::emit_ts(COLOR_TOKENS, MOTION_TOKENS),
         (Schema::UiTokens, Target::Scss) => ui_tokens::emit_scss(COLOR_TOKENS, MOTION_TOKENS),
-        (Schema::UiTokens, Target::Wgsl) => {
-            eprintln!("codegen: --schema ui-tokens has no WGSL target");
+        (Schema::UiTokens, Target::TsTables | Target::Wgsl) => {
+            eprintln!("codegen: --schema ui-tokens has no ts-tables / WGSL target");
             std::process::exit(2);
         }
         (Schema::ColorMatrices, Target::Wgsl) => color_matrices::emit_wgsl(),
         (Schema::ColorMatrices, Target::Ts) => color_matrices::emit_ts(),
-        (Schema::ColorMatrices, Target::Swift | Target::Scss) => {
+        (Schema::ColorMatrices, Target::Swift | Target::Scss | Target::TsTables) => {
             eprintln!("codegen: --schema color-matrices supports only the wgsl / ts targets");
             std::process::exit(2);
         }

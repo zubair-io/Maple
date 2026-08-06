@@ -18,7 +18,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { WbPadComponent } from './wb-pad.component';
 import { LibraryStateService } from '../../state/library-state.service';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
-import { ADJUSTMENT_RANGES } from '../../generated/adjustment-model.generated';
+import { ADJUSTMENT_RANGES } from '../../generated/adjustment-tables.generated';
 
 const ID = 'asset-wb-1';
 const [TEMP_MIN, TEMP_MAX] = ADJUSTMENT_RANGES.temperature;

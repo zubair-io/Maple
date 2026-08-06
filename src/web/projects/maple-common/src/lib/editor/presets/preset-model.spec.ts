@@ -9,13 +9,12 @@
 
 import { describe, expect, it } from 'vitest';
 
-import {
-  ADJUSTMENT_RANGES,
-  defaultGeneratedAdjustmentModel,
-} from '../../generated/adjustment-model.generated';
+import { defaultGeneratedAdjustmentModel } from '../../generated/adjustment-model.generated';
+import { ADJUSTMENT_RANGES } from '../../generated/adjustment-tables.generated';
 import { defaultAdjustmentModel } from '../../models/adjustment-model';
 import {
   ENUM_FIELD_VALUES,
+  FREE_FORM_STRING_FIELDS,
   PRESET_NAME_MAX,
   buildApplyPatch,
   camelToSnakeField,
@@ -30,12 +29,31 @@ const GENERATED_DEFAULTS = defaultGeneratedAdjustmentModel() as unknown as Recor
 >;
 
 describe('ENUM_FIELD_VALUES golden pin (vs generated module)', () => {
-  it('lists exactly the non-numeric generated fields', () => {
+  it('lists exactly the non-numeric, non-free-form generated fields', () => {
     const expected = Object.keys(GENERATED_DEFAULTS)
       .filter((k) => typeof GENERATED_DEFAULTS[k] === 'string')
       .map(camelToSnakeField)
+      .filter((snakeKey) => !FREE_FORM_STRING_FIELDS.has(snakeKey))
       .sort();
     expect(Object.keys(ENUM_FIELD_VALUES).sort()).toEqual(expected);
+  });
+
+  // Every string-valued generated field is EITHER a known enum (checked
+  // above) OR listed in FREE_FORM_STRING_FIELDS — never neither. A field
+  // in neither set would silently fall out of ENUM_FIELD_VALUES's coverage
+  // without buildApplyPatch's free-form fallback picking it up, exactly
+  // the `film_look` gap #2683 introduced (buildApplyPatch dropped it: not
+  // numeric, and `ENUM_FIELD_VALUES['film_look']` was undefined).
+  it('every string-valued generated field is enum-known or free-form, never neither', () => {
+    const stringFields = Object.keys(GENERATED_DEFAULTS)
+      .filter((k) => typeof GENERATED_DEFAULTS[k] === 'string')
+      .map(camelToSnakeField);
+    for (const snakeKey of stringFields) {
+      const isEnum = Object.prototype.hasOwnProperty.call(ENUM_FIELD_VALUES, snakeKey);
+      const isFreeForm = FREE_FORM_STRING_FIELDS.has(snakeKey);
+      expect(isEnum || isFreeForm).toBe(true);
+      expect(isEnum && isFreeForm).toBe(false);
+    }
   });
 
   it('every generated default is a member of its allowed list', () => {
@@ -160,6 +178,27 @@ describe('buildApplyPatch', () => {
         expect(buildApplyPatch({ [snakeKey]: variant })).toEqual({ [generatedKey]: variant });
       }
     }
+  });
+
+  /**
+   * `film_look` (#2683) is the first free-form string field — no fixed
+   * variant list, so it is deliberately absent from `ENUM_FIELD_VALUES`.
+   * Before the `FREE_FORM_STRING_FIELDS` fallback, `buildApplyPatch` fell
+   * through to the enum branch for every non-numeric field, found no entry
+   * in `ENUM_FIELD_VALUES`, and silently dropped the value — this pins the
+   * fix, including the case that motivates "resolves to identity" instead
+   * of "must be a known variant": an id the current catalog doesn't
+   * recognise still applies (raw-core's XMP parser accepts it too).
+   */
+  it('applies free-form string fields without checking a fixed variant list', () => {
+    expect(buildApplyPatch({ film_look: 'color_negative_kodak_portra_400' })).toEqual({
+      filmLook: 'color_negative_kodak_portra_400',
+    });
+    expect(buildApplyPatch({ film_look: 'unreleased_future_catalog_id' })).toEqual({
+      filmLook: 'unreleased_future_catalog_id',
+    });
+    // Wrong-typed value still skipped, same as every other field kind.
+    expect(buildApplyPatch({ film_look: 42 })).toEqual({});
   });
 });
 

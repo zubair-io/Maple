@@ -1,7 +1,7 @@
 // White balance section — temperature, tint + WB preset pills.
 
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { ADJUSTMENT_RANGES } from '../../generated/adjustment-model.generated';
+import { ADJUSTMENT_RANGES } from '../../generated/adjustment-tables.generated';
 import { LibraryStateService } from '../../state/library-state.service';
 import { MapleCollapsibleComponent } from '../../collapsible/maple-collapsible.component';
 import { EditorSliderComponent } from './slider.component';
