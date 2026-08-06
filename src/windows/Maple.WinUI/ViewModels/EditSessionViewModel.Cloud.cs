@@ -175,6 +175,7 @@ namespace Maple.WinUI.ViewModels
 
             CurrentFolderPath = $"{_cloud.ServerUrl} · {folder.DisplayName}";
             ActiveSectionName = folder.DisplayName;
+            _libraryWatcher?.Stop();    // no local directory to watch
             AllPhotos.Clear();
 
             string? cursor = null;
