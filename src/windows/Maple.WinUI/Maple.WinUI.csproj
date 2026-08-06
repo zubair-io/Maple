@@ -17,7 +17,16 @@
     <!-- Custom Program.Main: single-instance redirect for the maple-app://
          sign-in callback (see Program.cs). -->
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <!-- Built from the canonical icon set (src/apple/.../AppIcon.appiconset)
+         — regenerate with a multi-size repack if the artwork changes. -->
+    <ApplicationIcon>Assets\maple.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\maple.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.241114003" />
