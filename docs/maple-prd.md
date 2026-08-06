@@ -318,7 +318,7 @@ When a feature request lands that fits one of these buckets, the answer is "note
 - `docs/architecture.md` — system design, scene-linear chain, parity gates.
 - `docs/caching.md` — five-cache design.
 - `docs/best-practices.md` — Angular and Swift coding standards.
-- `docs/sidecar-schema.md` — XMP schema versioning.
+- `docs/xmp-canonical-format.md` — XMP schema versioning.
 - `docs/spec/05-performance.md` — performance invariants.
 - `.archived-plans/plans/2026-04-24-post-phase1-roadmap.md` — current execution roadmap.
 - `docs/maple-paper.md` — color-science writeup in flight.
