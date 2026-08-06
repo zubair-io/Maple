@@ -4,7 +4,10 @@ import SwiftUI
 import MapleCore
 
 struct FileProviderSettingsViewIOS: View {
-    @State private var model = FileProviderSettingsModel()
+    // Shared singleton (see `FileProviderSettingsModel.shared`) so the
+    // MapleApp foreground-refresh hook's failures land somewhere this view
+    // observes, instead of on a throwaway instance nobody watches (#2539).
+    @State private var model = FileProviderSettingsModel.shared
     @State private var registry = CloudServerRegistry.shared
 
     var body: some View {

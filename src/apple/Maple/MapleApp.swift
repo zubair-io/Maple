@@ -184,10 +184,13 @@ struct MapleApp: App {
                     if newPhase == .active {
                         // Re-foreground: signal every active File Provider
                         // domain so the next Files-app refresh sees fresh
-                        // server state. Best-effort; failures surface only
-                        // in the in-app status banner. Model construction
-                        // is cheap — it just wraps a stateless controller.
-                        Task { await FileProviderSettingsModel().refreshAll() }
+                        // server state. Best-effort; failures surface in the
+                        // in-app status banner via the SHARED model instance
+                        // (`FileProviderSettingsModel.shared`) — a
+                        // throwaway `FileProviderSettingsModel()` here would
+                        // set `statusMessage` on an object nobody observes,
+                        // silently dropping the failure (#2539).
+                        Task { await FileProviderSettingsModel.shared.refreshAll() }
                     }
                     #endif
                 }
