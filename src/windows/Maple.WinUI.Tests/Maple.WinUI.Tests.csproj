@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Test project for the Windows shell's pure XMP sidecar logic (#2635).
+
+    Deliberately NOT `net8.0-windows10.0.19041.0` / UseWinUI like
+    Maple.WinUI.csproj: XmpParser, XmpWriter, XmpSidecarDocument and
+    SidecarStore touch nothing but System.Xml.Linq / System.IO, so this
+    project links their source files directly (below) instead of taking a
+    ProjectReference on Maple.WinUI.csproj. That keeps the pure logic
+    testable — and this project buildable/runnable with plain `dotnet test`
+    on any OS — without pulling in the WindowsAppSDK / WinUI restore graph,
+    which only resolves on Windows. CI still runs it on windows-latest
+    alongside the app build (.github/workflows/windows.yml).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Maple.WinUI.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector" Version="6.0.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!--
+    Linked (not copied) source files: the same files Maple.WinUI.csproj
+    compiles, compiled a second time into this assembly. Keeps a single
+    source of truth while avoiding the WinUI dependency — see the header
+    comment above. `SidecarStore.cs` is included too (real-file I/O, no
+    WinUI/WinRT dependency) so its atomic-write/read path gets real-file
+    coverage per CLAUDE.md's "no mocks for the sidecar layer" rule.
+  -->
+  <ItemGroup>
+    <Compile Include="..\Maple.WinUI\Services\Xmp\*.cs" LinkBase="Xmp" />
+    <Compile Include="..\Maple.WinUI\Models\AdjustmentState.cs" LinkBase="Models" />
+  </ItemGroup>
+</Project>
