@@ -345,12 +345,12 @@ namespace Maple.WinUI
 
         // --- Selection ---
         // PhotoGrid's own SelectionChanged (Extended mode, multi-select) is
-        // OnPhotoGridSelectionChanged in MainWindow.Selection.cs. This handler
-        // stays for the Filmstrip, which is single-select (one photo at a time
-        // while paging through Preview).
+        // OnPhotoGridSelectionChanged in MainWindow.Selection.cs.
 
         private void OnGridDoubleTapped(object sender, DoubleTappedRoutedEventArgs e) => EnterPreview();
 
+        // Stays for the Filmstrip, which is single-select (one photo at a
+        // time while paging through Preview).
         private void OnGridSelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (sender is ListViewBase list && list.SelectedItem is PhotoItem photo
