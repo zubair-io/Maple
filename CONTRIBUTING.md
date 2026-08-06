@@ -139,6 +139,7 @@ test-fixtures/         Gitignored RAWs + ACR references + per-case budgets
 - **Color correctness is not eyeballed.** `src/scripts/test_color_pipeline.sh` is the canonical perceptual gate (CIEDE2000 vs ACR). Per-case budgets in `test-fixtures/budgets.json` are a one-way ratchet — they only go down, in the same commit that delivers the improvement.
 - **16ms slider budget.** No feature ships that breaks the slider-tick budget on the reference scene set. If a feature adds allocation inside the render loop or a per-tick WASM round-trip, it does not ship.
 - **Apple visual harness** lives in `src/apple/MapleUITests/`; **slider matrix harness** is `SliderMatrixUITests` (see `CLAUDE.md` § "UITest visual harness").
+- **`bun run test` in `src/web` needs the WASM `pkg/` built first, in every fresh clone or worktree.** It's gitignored, and `test` has no `pretest` hook to rebuild it the way `start`/`build` do — see `src/web/README.md` § "Angular dev server" for the two-command build-then-sync fix and the exact failure signature (`Could not resolve "./pkg/raw_wasm"`).
 
 ## Storybook (web)
 
