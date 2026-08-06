@@ -107,7 +107,7 @@ final class RemoteCatalogTests: XCTestCase {
            "mtime":"2026-05-15T10:00:00.123Z","deleted_at":"2026-05-15T10:00:00.456Z"}
         ],"next_cursor":null}
         """.data(using: .utf8)!
-        let resp = try Self.fractionalISODecoder().decode(TrashListResponse.self, from: json)
+        let resp = try ISO8601FlexibleDateDecoding.decoder.decode(TrashListResponse.self, from: json)
         XCTAssertEqual(resp.items.count, 1)
         XCTAssertEqual(resp.items[0].assetID, "a1")
         XCTAssertEqual(resp.items[0].originalRelativePath, "2024/IMG_1.ARW")
@@ -119,7 +119,7 @@ final class RemoteCatalogTests: XCTestCase {
         {"asset_id":"a1","abs_path":"/library/2024/IMG_1.restored.ARW",
          "filename":"IMG_1.restored.ARW","size":40000000,"mtime":"2026-05-15T10:00:00.789Z"}
         """.data(using: .utf8)!
-        let resp = try Self.fractionalISODecoder().decode(RestoreResponse.self, from: json)
+        let resp = try ISO8601FlexibleDateDecoding.decoder.decode(RestoreResponse.self, from: json)
         XCTAssertEqual(resp.assetID, "a1")
         XCTAssertEqual(resp.absPath, "/library/2024/IMG_1.restored.ARW")
         XCTAssertEqual(resp.filename, "IMG_1.restored.ARW")
@@ -131,14 +131,14 @@ final class RemoteCatalogTests: XCTestCase {
         {"asset_id":"a1","abs_path":"/library/2024/IMG_2.ARW","size":12345,
          "mtime":"2026-05-15T10:00:00.000Z"}
         """.data(using: .utf8)!
-        let resp = try Self.fractionalISODecoder().decode(UploadResponse.self, from: json)
+        let resp = try ISO8601FlexibleDateDecoding.decoder.decode(UploadResponse.self, from: json)
         XCTAssertEqual(resp.assetID, "a1")
         XCTAssertEqual(resp.size, 12345)
     }
 
     func testDecodeMakeDirResponse() throws {
         let json = #"{"abs_path":"/library/2026/Adam/04-02"}"#.data(using: .utf8)!
-        let resp = try Self.fractionalISODecoder().decode(MakeDirResponse.self, from: json)
+        let resp = try ISO8601FlexibleDateDecoding.decoder.decode(MakeDirResponse.self, from: json)
         XCTAssertEqual(resp.absPath, "/library/2026/Adam/04-02")
     }
 
@@ -166,9 +166,11 @@ final class RemoteCatalogTests: XCTestCase {
 
     /// Regression: `JSONDecoder.DateDecodingStrategy.iso8601` does NOT
     /// parse fractional seconds. The server's `Date.toISOString()`
-    /// always emits them. RemoteCatalog uses a custom strategy that
-    /// accepts both fractional and plain ISO-8601 — this test exercises
-    /// the same logic against a UploadResponse that mixes both forms.
+    /// always emits them. `RemoteCatalog.decoder` is built on the shared
+    /// `ISO8601FlexibleDateDecoding` strategy, which accepts both
+    /// fractional and plain ISO-8601 — this test exercises that exact
+    /// decoder (not a hand-mirrored copy — see #2534) against an
+    /// `UploadResponse` that mixes both forms.
     func testDateDecoderAcceptsFractionalAndPlain() throws {
         let withFractional = """
         {"asset_id":"a","abs_path":"/x","size":1,"mtime":"2026-05-15T10:00:00.123Z"}
@@ -176,26 +178,8 @@ final class RemoteCatalogTests: XCTestCase {
         let withoutFractional = """
         {"asset_id":"a","abs_path":"/x","size":1,"mtime":"2026-05-15T10:00:00Z"}
         """.data(using: .utf8)!
-        let decoder = Self.fractionalISODecoder()
+        let decoder = ISO8601FlexibleDateDecoding.decoder
         XCTAssertNoThrow(try decoder.decode(UploadResponse.self, from: withFractional))
         XCTAssertNoThrow(try decoder.decode(UploadResponse.self, from: withoutFractional))
-    }
-
-    /// Mirrors `RemoteCatalog`'s actor-private decoder. Kept in lockstep
-    /// with that definition; if you change one, change both.
-    private static func fractionalISODecoder() -> JSONDecoder {
-        let d = JSONDecoder()
-        let withFractional = ISO8601DateFormatter()
-        withFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        d.dateDecodingStrategy = .custom { decoder in
-            let c = try decoder.singleValueContainer()
-            let raw = try c.decode(String.self)
-            if let dt = withFractional.date(from: raw) { return dt }
-            if let dt = plain.date(from: raw) { return dt }
-            throw DecodingError.dataCorruptedError(in: c, debugDescription: "Invalid ISO-8601: \(raw)")
-        }
-        return d
     }
 }
