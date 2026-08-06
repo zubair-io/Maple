@@ -145,8 +145,14 @@ namespace Maple.WinUI.Tests
 
             var resaved = XmpWriter.Serialize(doc!);
 
-            Assert.True(resaved.IndexOf("first", System.StringComparison.Ordinal) <
-                        resaved.IndexOf("second", System.StringComparison.Ordinal),
+            var firstAt = resaved.IndexOf("first", System.StringComparison.Ordinal);
+            var secondAt = resaved.IndexOf("second", System.StringComparison.Ordinal);
+            // Guard against the -1 sentinel: if either element were dropped on
+            // resave, its IndexOf would return -1, which is less than any real
+            // index and would make the order assertion below pass despite the
+            // content loss.
+            Assert.True(firstAt >= 0 && secondAt >= 0, "both unknown child elements must survive the resave");
+            Assert.True(firstAt < secondAt,
                 "unknown child elements must keep their own relative order across a resave");
         }
 
