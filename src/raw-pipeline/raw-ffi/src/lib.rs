@@ -30,6 +30,10 @@
 //!                            the streaming `MapleFallbackIdHasher` opaque
 //!                            handle (#1995: `_new`/`_update`/`_finalize`/
 //!                            `_free`) for chunked fallback-form hashing.
+//!   - `filename`           — `maple_render_filename_template` +
+//!                            `maple_validate_filename` (#2628): the
+//!                            batch-rename template engine, shared verbatim
+//!                            (same C ABI) by Apple and Windows P/Invoke.
 
 #![allow(clippy::missing_safety_doc)]
 
@@ -43,6 +47,9 @@ mod cancel;
 // sink gets a C callback registration here.
 mod deep_denoise_progress;
 mod error;
+// Batch-rename filename-template engine FFI (#2628). Pure marshalling over
+// `raw_core::filename` — no worker-thread dispatch, no GPU gate.
+mod filename;
 // Epic #925 / P1b (#988): GPU parity FFI (`maple_gpu_exposure_parity`). Gated
 // behind the `gpu` feature so wgpu is absent from the default xcframework.
 #[cfg(feature = "gpu")]
@@ -106,6 +113,9 @@ pub use cancel::MapleCancelFlag;
 // #1153: cbindgen needs visibility on the callback typedef; the
 // `#[no_mangle]` registration entry is exported regardless.
 pub use deep_denoise_progress::{maple_set_deep_denoise_progress, MapleDeepDenoiseProgressFn};
+// #2628: cbindgen needs visibility on the result struct; the `#[no_mangle]`
+// functions are exported regardless of `pub use`.
+pub use filename::MapleFilenameResult;
 pub use handle::MapleRawHandle;
 pub use id::MapleFallbackIdHasher;
 pub use scene_linear_chain::MapleAdjustmentParams;
@@ -144,6 +154,9 @@ pub use render_develop::maple_render_develop_jpeg_to_file;
 #[cfg(test)]
 #[path = "auto_tone_tests.rs"]
 mod auto_tone_tests;
+#[cfg(test)]
+#[path = "filename_tests.rs"]
+mod filename_tests;
 #[cfg(test)]
 #[path = "handle_tests.rs"]
 mod handle_tests;

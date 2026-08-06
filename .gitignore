@@ -19,6 +19,11 @@ test-fixtures/*
 # (the parity gate at src/scripts/test_face_clustering.sh needs them).
 # See test-fixtures/face-clustering/README.md for regenerator details.
 !test-fixtures/face-clustering/
+# Exception: the filename-template engine's golden fixture corpus (#2628)
+# IS committed — raw-core's own tests_fixtures.rs cross-checks it, and the
+# cross-surface outcome-parity harness (#2633) will replay it against the
+# Swift/TS/C# bindings. Tiny (a few KB of JSON), no RAWs involved.
+!test-fixtures/filename-templates/
 
 # Rust
 target/
