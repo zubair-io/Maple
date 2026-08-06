@@ -44,7 +44,11 @@ test('production Browse exposes only the app-provided capability surface', async
     return;
   }
 
-  await expect(viewMode).toBeVisible();
+  // The Folder/Timeline view-mode toggle group was removed platform-wide
+  // (self-hosted-browse-controls.component.html/.spec.ts — "does not render
+  // a Folder/Timeline view-mode toggle"); Timeline is reached via the
+  // sidebar's own Timeline button instead, asserted below.
+  await expect(viewMode).toHaveCount(0);
   const sidebar = page.getByTestId('source-sidebar');
   await expect(
     sidebar.locator('.section-bar').getByRole('button', { name: 'Add folder' }),
