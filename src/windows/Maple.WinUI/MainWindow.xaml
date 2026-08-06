@@ -458,20 +458,27 @@
                                       HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                                       DoubleTapped="OnViewerDoubleTapped">
                             <Grid x:Name="ZoomHost">
-                                <Image x:Name="ViewportImage" Stretch="Uniform"
-                                       AutomationProperties.Name="Rendered preview canvas" />
-                                <!-- DX12 present target (#2561): the wgpu live chain
-                                     draws straight into this panel's composition
-                                     swapchain; sized from code to the session dims. -->
-                                <SwapChainPanel x:Name="ViewportSwapChainPanel" Visibility="Collapsed"
-                                                HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                AutomationProperties.Name="GPU preview canvas" />
-                                <!-- Clipping overlay (#2574): transparent except
-                                     red (blown highlights) / blue (crushed shadows);
-                                     zooms and pans with the frame. -->
-                                <Image x:Name="ClipOverlayImage" Stretch="Uniform" Visibility="Collapsed"
-                                       IsHitTestVisible="False"
-                                       AutomationProperties.Name="Clipping overlay" />
+                                <!-- Crop display host (#2582): rotation applies here,
+                                     the clip + fit-scale transform applies via code
+                                     (rotate-then-crop, matching the renderer). -->
+                                <Grid x:Name="CropRotateHost" RenderTransformOrigin="0.5,0.5">
+                                    <Image x:Name="ViewportImage" Stretch="Uniform"
+                                           AutomationProperties.Name="Rendered preview canvas" />
+                                    <!-- DX12 present target (#2561): the wgpu live chain
+                                         draws straight into this panel's composition
+                                         swapchain; sized from code to the session dims. -->
+                                    <SwapChainPanel x:Name="ViewportSwapChainPanel" Visibility="Collapsed"
+                                                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                    AutomationProperties.Name="GPU preview canvas" />
+                                    <!-- Clipping overlay (#2574): transparent except
+                                         red (blown highlights) / blue (crushed shadows);
+                                         zooms and pans with the frame. -->
+                                    <Image x:Name="ClipOverlayImage" Stretch="Uniform" Visibility="Collapsed"
+                                           IsHitTestVisible="False"
+                                           AutomationProperties.Name="Clipping overlay" />
+                                </Grid>
+                                <controls:CropOverlayControl x:Name="CropOverlay" Visibility="Collapsed"
+                                                             AutomationProperties.Name="Crop overlay" />
                             </Grid>
                         </ScrollViewer>
 
@@ -720,6 +727,34 @@
                                             <ContentControl x:Name="GradeBalanceHost" Margin="0,8,0,0"
                                                             ContentTemplate="{StaticResource SliderRowTemplate}"
                                                             HorizontalContentAlignment="Stretch" />
+                                        </StackPanel>
+                                        <!-- Crop toolbar (#2582): aspect presets, straighten,
+                                             reset/done — the overlay lives on the canvas. -->
+                                        <StackPanel x:Name="PanelCropHost" Visibility="Collapsed" Spacing="10">
+                                            <ComboBox x:Name="CropAspectCombo" Header="Aspect"
+                                                      HorizontalAlignment="Stretch"
+                                                      SelectionChanged="OnCropAspectChanged" />
+                                            <StackPanel>
+                                                <Grid>
+                                                    <TextBlock Text="Straighten" Style="{StaticResource MapleRowLabel}" />
+                                                    <TextBlock x:Name="CropAngleText" Text="0.0°"
+                                                               Style="{StaticResource MapleValueChip}"
+                                                               HorizontalAlignment="Right" />
+                                                </Grid>
+                                                <Slider x:Name="CropAngleSlider" Minimum="-45" Maximum="45"
+                                                        StepFrequency="0.1" Value="0" Margin="0,-4,0,0"
+                                                        IsThumbToolTipEnabled="False"
+                                                        ValueChanged="OnCropAngleChanged"
+                                                        AutomationProperties.Name="Straighten angle" />
+                                            </StackPanel>
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <Button Style="{StaticResource PillButton}" FontSize="11"
+                                                        Click="OnCropReset"
+                                                        AutomationProperties.Name="Reset crop">Reset</Button>
+                                                <Button Style="{StaticResource PillButton}" FontSize="11"
+                                                        Click="OnCropDone"
+                                                        AutomationProperties.Name="Crop done">Done</Button>
+                                            </StackPanel>
                                         </StackPanel>
                                         <TextBlock x:Name="PanelFootnote" FontSize="10" TextWrapping="Wrap"
                                                    Foreground="{StaticResource MapleTextMuted}" Visibility="Collapsed" />

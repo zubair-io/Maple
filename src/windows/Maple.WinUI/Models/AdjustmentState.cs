@@ -12,6 +12,21 @@ namespace Maple.WinUI.Models
     /// <summary>One point of a tone curve; sidecar storage is linear (x, y) in [0, 255].</summary>
     public readonly record struct CurvePoint(double X, double Y);
 
+    /// <summary>Crop rect + straighten angle (#2582), mirroring raw-core's
+    /// Crop: edges normalized [0,1] against the display-oriented dimensions
+    /// (origin top-left), angle in degrees, positive = clockwise. The wire
+    /// form is crs:HasCrop / crs:Crop* — see docs/xmp-canonical-format.md.</summary>
+    public record struct CropState(double Top, double Left, double Bottom, double Right, double Angle)
+    {
+        public static readonly CropState Identity = new(0, 0, 1, 1, 0);
+
+        public readonly bool IsIdentity => this == Identity;
+        public readonly bool RectIsIdentity => Top == 0 && Left == 0 && Bottom == 1 && Right == 1;
+        public readonly bool RectIsValid =>
+            Right > Left && Bottom > Top
+            && Left >= 0 && Top >= 0 && Right <= 1 && Bottom <= 1;
+    }
+
     /// <summary>
     /// Canonical adjustment model, mirroring raw-core's ADJUSTMENT_SCHEMA
     /// (see adjustment-model.generated.ts / AdjustmentModel+Generated.swift).
@@ -109,6 +124,9 @@ namespace Maple.WinUI.Models
 
         // --- Lens corrections ---
         public ToggleMode LensProfileEnable = ToggleMode.On;
+
+        // --- Geometry (#2582) ---
+        public CropState Crop = CropState.Identity;
         public double LensCorrectionDistortion = 100.0;
         public double LensCorrectionCa = 100.0;
         public double LensCorrectionVignetting = 100.0;
