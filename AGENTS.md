@@ -125,10 +125,18 @@ If ΔE numbers don't move after a `raw-core` edit, the xcframework is stale. Reb
 cd src/web
 bun x ng serve maple          # http://localhost:4200
 
-# Rebuild WASM (after raw-core or raw-wasm changes)
+# Build/rebuild WASM — required once in every fresh clone or worktree before
+# `ng serve` / `ng build` / `ng test` will resolve `./pkg/raw_wasm`; the pkg/
+# is gitignored (src/web/README.md § "Angular dev server"). `start` and
+# `build` re-run this automatically via prestart/prebuild npm hooks, but
+# `test` has no pretest hook, so run it by hand first if you're only running
+# the suite. Bare `wasm-pack build --target web` is NOT equivalent — this
+# crate needs nightly + `-Z build-std` to link its atomics/bulk-memory target
+# features (raw-wasm/.cargo/config.toml), which the wrapper below supplies:
 cd src/raw-pipeline/raw-wasm
-wasm-pack build --target web
-# sync into maple-common (the consumer) — see src/web/scripts/sync-raw-wasm.sh
+bash build.sh          # --target web --release --features gpu,parallel -Z build-std
+cd ../../web
+bash scripts/sync-raw-wasm.sh   # copies pkg/ into maple-common
 
 # Format + test (there is no web lint step — Prettier is the only style gate)
 cd src/web
