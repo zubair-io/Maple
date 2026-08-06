@@ -29,9 +29,13 @@ namespace Maple.WinUI
         private void UpdateLibraryCountText()
         {
             var summary = ViewModel.SelectionSummary;
-            LibraryCountText.Text = summary.Length > 0
+            var text = summary.Length > 0
                 ? $"{ViewModel.Photos.Count} photos · {summary}"
                 : $"{ViewModel.Photos.Count} photos";
+            // Assign only on change: the TextBlock is a Polite live region,
+            // and re-assigning identical text re-announces it to Narrator.
+            if (LibraryCountText.Text != text)
+                LibraryCountText.Text = text;
         }
     }
 }
