@@ -4,7 +4,24 @@ import FileProvider
 import OSLog
 
 public actor FileProviderDomainController {
-    public enum EnableError: Error { case invalidServerURL }
+    public enum EnableError: Error, LocalizedError {
+        case invalidServerURL
+        /// No usable auth token exists for the server being enabled. Thrown
+        /// by `enable()` before any domain state is persisted — see #2540:
+        /// previously this only logged a warning and still reported
+        /// success, leaving the extension running unauthenticated with no
+        /// signal to the user.
+        case noAuthToken
+
+        public var errorDescription: String? {
+            switch self {
+            case .invalidServerURL:
+                return "That server URL isn't valid."
+            case .noAuthToken:
+                return "No signed-in account for this server. Sign in, then try enabling again."
+            }
+        }
+    }
 
     private let log = Logger(subsystem: "app.justmaple.aperture.fileprovider", category: "domain")
     private let config: FileProviderConfig
@@ -26,14 +43,22 @@ public actor FileProviderDomainController {
 
     public func enable(serverURL: URL, displayName: String) async throws -> NSFileProviderDomain {
         guard let idString = Self.domainIdentifier(for: serverURL) else { throw EnableError.invalidServerURL }
+        // Gate the whole enable on a usable token BEFORE persisting any
+        // config or registering the domain with the OS. Without this,
+        // enable() reported success (and the Settings UI showed
+        // "Enabled …") even when the extension had no way to authenticate,
+        // so it would run — and silently fail every sync — until the next
+        // sign-in (#2540).
+        guard let tokens = (try? TokenStore.load(server: serverURL)) ?? nil,
+              !tokens.access.isEmpty else {
+            log.error("no usable app-wide token for \(serverURL.absoluteString, privacy: .public) — refusing to enable an unauthenticated domain")
+            throw EnableError.noAuthToken
+        }
         let identifier = NSFileProviderDomainIdentifier(idString)
         let domain = NSFileProviderDomain(identifier: identifier, displayName: displayName)
         config.save(.init(domainIdentifier: identifier.rawValue,
                           displayName: displayName,
                           serverURL: serverURL))
-        if ((try? TokenStore.load(server: serverURL)) ?? nil) == nil {
-            log.warning("no app-wide tokens found for \(serverURL.absoluteString, privacy: .public) — extension will be unauthenticated until next sign-in")
-        }
         do {
             try await NSFileProviderManager.add(domain)
         } catch {
