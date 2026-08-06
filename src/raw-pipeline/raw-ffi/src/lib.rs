@@ -69,6 +69,9 @@ mod scene_linear_chain;
 // Swift-side CIImage wrap/readback. Split out of `scene_linear_chain`
 // (rather than added to it) per the 600-LOC file-size budget.
 mod scene_linear_chain_fused;
+// Curves-aware sibling of the fused entry (#2576): same chain + encode, plus
+// the user point tone curves the scalars-only params ABI cannot carry.
+mod scene_linear_chain_curves;
 mod scene_linear_f32;
 mod thumbnail;
 // The flat `wb_frame_*` FFI-tail ↔ `SliderFrameExport` bridge (#1781/#1967),
