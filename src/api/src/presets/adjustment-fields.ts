@@ -66,6 +66,9 @@ export const NUMERIC_FIELD_RANGES: Readonly<Record<string, readonly [number, num
   grain_amount: [0.0, 100.0],
   grain_size: [0.0, 100.0],
   grain_roughness: [0.0, 100.0],
+  // Film emulation blend strength (#2683) — the paired `film_look` catalog
+  // id is a string field and lives in STRING_FIELDS below.
+  film_strength: [0.0, 100.0],
   split_tone_shadow_hue: [0.0, 360.0],
   split_tone_shadow_saturation: [0.0, 100.0],
   split_tone_highlight_hue: [0.0, 360.0],
@@ -143,6 +146,14 @@ export const STRING_FIELDS: ReadonlySet<string> = new Set([
   // DNG lens-correction master switch (#376) — Off|On enum; the three
   // `lens_correction_*` strengths it gates are numeric fields above.
   'lens_profile_enable',
+  // Film emulation look id (#2683) — a free-form film-catalog id, NOT a
+  // closed enum like the other entries in this set (there is no fixed
+  // variant list; an id the catalog doesn't recognise resolves as identity
+  // at render time). Classified as string-valued here for the same
+  // non-empty-string validation every other STRING_FIELDS entry gets —
+  // variant-level checking doesn't apply since there are no variants to
+  // check against.
+  'film_look',
 ]);
 
 export function isKnownNumericField(name: string): boolean {

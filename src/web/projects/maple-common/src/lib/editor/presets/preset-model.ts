@@ -16,7 +16,6 @@
 // newer schema versions are PRESERVED on round-trip and SKIPPED on apply.
 
 import {
-  ADJUSTMENT_RANGES,
   defaultGeneratedAdjustmentModel,
   type AutoExposureMode,
   type BlackWhiteMode,
@@ -29,6 +28,9 @@ import {
   type ToneCurveMode,
   type WbMethod,
 } from '../../generated/adjustment-model.generated';
+// Ranges live in the sibling generated file (#2683 — split out to keep both
+// generated files well under the file-size budget as the schema grows).
+import { ADJUSTMENT_RANGES } from '../../generated/adjustment-tables.generated';
 import type { AdjustmentModel } from '../../models/adjustment-model';
 
 /** Preset document schema version this client writes. */
@@ -101,8 +103,9 @@ const allVariantsOf =
  * TYPES (erased at runtime), so the table is hand-mirrored here — pinned
  * against the generated unions at compile time by `allVariantsOf`, and
  * against the generated defaults at runtime by `preset-model.spec.ts`
- * (every string-valued generated field listed; every generated default a
- * member; every listed variant round-trips through `buildApplyPatch`).
+ * (every string-valued generated field EXCEPT those listed in
+ * `FREE_FORM_STRING_FIELDS` below; every generated default a member; every
+ * listed variant round-trips through `buildApplyPatch`).
  * Apply-time validation SKIPS values outside this table instead of
  * failing the whole preset — a newer client's new variant must not break
  * older clients.
@@ -127,6 +130,20 @@ export const ENUM_FIELD_VALUES: Readonly<Record<string, readonly string[]>> = {
   // DNG lens corrections master switch (#376) — decode-product enum field.
   lens_profile_enable: allVariantsOf<LensProfileEnable>()(['Off', 'On']),
 };
+
+/**
+ * String-valued schema fields (canonical snake_case names) that are NOT
+ * closed enums — free-form text with no fixed variant list, so they don't
+ * belong in `ENUM_FIELD_VALUES` above. `buildApplyPatch` accepts any string
+ * for these instead of checking membership.
+ *
+ * `film_look` (#2683) is the first: a film-catalog id. Unlike every enum
+ * field above, an id the current catalog doesn't recognise is not an
+ * error — raw-core's XMP parser (`xmp/fields.rs`) resolves an unknown id to
+ * identity at render time rather than rejecting it, and the client-side
+ * apply path follows the same rule.
+ */
+export const FREE_FORM_STRING_FIELDS: ReadonlySet<string> = new Set(['film_look']);
 
 // ── Capture (save-preset) ─────────────────────────────────────────────────
 
@@ -165,6 +182,8 @@ export function capturePresetFields(adj: AdjustmentModel): PresetFields {
  *   - numeric fields → must be finite numbers; clamped to the canonical
  *     generated range
  *   - enum fields → applied only when the value is a known variant
+ *   - free-form string fields (`FREE_FORM_STRING_FIELDS`, e.g. `film_look`)
+ *     → any string is applied — there is no fixed variant list to check
  *   - structured fields (the `toneCurve*` point curves) → never applied;
  *     they are not capturable either (see `capturePresetFields`)
  */
@@ -180,9 +199,17 @@ export function buildApplyPatch(fields: PresetFields): Partial<AdjustmentModel> 
       (patch as Record<string, number>)[key] = clamped;
       continue;
     }
+    if (typeof value !== 'string') continue;
+    if (FREE_FORM_STRING_FIELDS.has(snakeKey)) {
+      // No fixed variant list (e.g. `film_look`, a catalog id) — apply any
+      // string, including one the current catalog doesn't recognise (it
+      // resolves to identity at render time; see the field's doc comment).
+      (patch as Record<string, string>)[key] = value;
+      continue;
+    }
     // Enum-valued field: apply only known variants.
     const allowed = ENUM_FIELD_VALUES[snakeKey];
-    if (typeof value === 'string' && allowed?.includes(value)) {
+    if (allowed?.includes(value)) {
       (patch as Record<string, string>)[key] = value;
     }
   }
