@@ -4,8 +4,9 @@ import {
   type Page,
   type Worker as PlaywrightWorker,
 } from '@playwright/test';
-import { readFile, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { access, copyFile, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 
 import { test, expect } from '../support/production-test';
 import { readProductionFixtureManifest } from '../support/production-fixtures';
@@ -227,6 +228,161 @@ test('Hosted keeps Chromium CPU work serial and renders live WebGPU slider ticks
     ),
     contentType: 'application/json',
   });
+});
+
+/// A sensor over the wasm32 CPU develop budget (#2661): the 52.7 MP Canon 5DS R
+/// frame (8896×5920). Its full-native-res develop peaks at 4.31 GB (native
+/// probe, single-threaded) — over the 4 GiB wasm heap ceiling, the pre-fix OOM
+/// trap — while the memory-clamped develop (`min(sensor/2, 4096)` = 4096) peaks
+/// at 2.77 GB. The 100 MP reference fixture reproduces the same abort but its
+/// 129 MB payload crashes the renderer inside the folder-picker shim's base64
+/// CDP bridge, so the e2e uses the largest canonical fixture the bridge can
+/// carry. Not part of `REQUIRED_RAW_FIXTURES` — the test skip-passes without
+/// it, mirroring the fixture-gated Rust tests — and staged into its own temp
+/// folder so the shared writable folder's staged-hash contract stays untouched.
+const OVER_BUDGET_RAW = 'test_0003.CR2';
+
+/** Sized-develop measure caps recorded by the render worker (`maple:wasm-sized:<cap>`). */
+async function sizedDevelopCaps(worker: PlaywrightWorker): Promise<number[]> {
+  return worker.evaluate(() =>
+    performance
+      .getEntriesByType('measure')
+      .map((entry) => /^maple:wasm-sized:(\d+)$/.exec(entry.name)?.[1])
+      .filter((cap): cap is string => cap !== undefined)
+      .map(Number),
+  );
+}
+
+test('Hosted no-WebGPU fallback opens an over-budget RAW and refines at 1:1 without exhausting the wasm heap', async ({
+  page: _auditPage,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'chrome-hosted');
+  const source = resolve(__dirname, '../../../../test-fixtures/raws', OVER_BUDGET_RAW);
+  const largeFixturePresent = await access(source).then(
+    () => true,
+    () => false,
+  );
+  test.skip(!largeFixturePresent, `${OVER_BUDGET_RAW} not present (gitignored RAW fixture)`);
+  // Serial-WASM decodes of a 50 MP CR2 measured ~70 s end-to-end on a warm M4;
+  // leave generous headroom for loaded machines.
+  test.setTimeout(420_000);
+
+  // #2661 regression: the 1:1 refine below requests the native long edge
+  // (8688). Pre-fix that developed FULL sensor resolution on the WASM-CPU
+  // path — a 4.31 GB peak against the 4 GiB wasm32 heap (9.2 GB on the 100 MP
+  // reference) — and aborted the worker with an unrecoverable
+  // `RuntimeError: unreachable` OOM trap. The wasm entries now memory-clamp
+  // the develop, so the refine must complete and repaint instead.
+  const startedAt = Date.now();
+  const stagedFolder = await mkdtemp(join(tmpdir(), 'maple-over-budget-e2e-'));
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  await copyFile(source, join(stagedFolder, OVER_BUDGET_RAW));
+  const context = await browser.newContext({ baseURL: testInfo.project.use.baseURL as string });
+  const page = await context.newPage();
+  const errors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(`console: ${message.text()}`);
+  });
+  page.on('pageerror', (error) => errors.push(`page: ${error.message}`));
+  page.on('requestfailed', (request) =>
+    errors.push(`request: ${request.method()} ${request.url()} ${request.failure()?.errorText}`),
+  );
+  page.on('response', (response) => {
+    if (response.status() >= 400) {
+      errors.push(`${response.status()} ${response.request().method()} ${response.url()}`);
+    }
+  });
+  const observedWorkers: PlaywrightWorker[] = [];
+  page.on('worker', (worker) => observedWorkers.push(worker));
+  try {
+    await forceNoWebGpu(page);
+    await installProductionFolderPicker(page, stagedFolder);
+    await page.goto('/');
+    expect(
+      await page.evaluate(() => 'gpu' in navigator),
+      'the test must remove WebGPU support',
+    ).toBe(false);
+
+    const step = (name: string) =>
+      // eslint-disable-next-line no-console
+      console.info(`[over-budget-fallback] ${name} at t+${Date.now() - startedAt}ms`);
+    await openEditor(page, OVER_BUDGET_RAW);
+    step('editor open');
+    await expect(page.getByText('Decoding RAW...')).toHaveCount(0, { timeout: 120_000 });
+    step('decode settled');
+    const fallbackCanvas = page.locator('.canvas-wrap > canvas:not([data-gpu-live])');
+    await expect(fallbackCanvas).toBeVisible();
+    const coldPixels = await screenshotPixelEvidence(fallbackCanvas);
+    expect(coldPixels.range, 'the over-budget cold open must paint image detail').toBeGreaterThan(
+      20,
+    );
+    step('cold pixels verified');
+
+    // Find the render worker via its sized-develop perf measures (the cold
+    // open's viewport-sized fast phase records the first one — no GPU session
+    // measures exist on this path).
+    let worker: PlaywrightWorker | undefined;
+    await expect
+      .poll(
+        async () => {
+          const candidates = [...new Set([...observedWorkers, ...page.workers()])];
+          for (const candidate of candidates) {
+            const caps = await sizedDevelopCaps(candidate).catch(() => []);
+            if (caps.length > 0) {
+              worker = candidate;
+              return true;
+            }
+          }
+          return false;
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(true);
+
+    // 1:1 zoom (the `z` shortcut) raises the refine target to the native long
+    // edge — the request that OOM-aborted the pre-fix worker. The recorded
+    // measure completes only when the develop RETURNS, so its presence is the
+    // no-trap evidence; the request cap stays the caller's (the memory clamp
+    // is wasm-internal by design).
+    step('render worker found');
+    await page.keyboard.press('z');
+    await expect
+      .poll(async () => (await sizedDevelopCaps(worker!)).some((cap) => cap > 8000), {
+        timeout: 180_000,
+      })
+      .toBe(true);
+
+    step('native-target refine completed');
+    const refinedPixels = await screenshotPixelEvidence(fallbackCanvas);
+    expect(refinedPixels.range, 'the 1:1 refine must repaint image detail').toBeGreaterThan(20);
+    expect(refinedPixels.nonDarkFraction, 'the refined canvas must not be blank').toBeGreaterThan(
+      0.05,
+    );
+    expect(errors, 'the over-budget fallback session must not surface worker errors').toEqual([]);
+
+    await context.close();
+  } catch (failure) {
+    // The default `page` fixture (the audit page) owns this run's automatic
+    // screenshot/video, so a failure in THIS manually-launched context would
+    // otherwise leave blank artifacts — attach the real page's state instead.
+    // Every diagnostic is individually guarded so it can never mask `failure`.
+    await testInfo
+      .attach('over-budget-fallback-errors.json', {
+        body: Buffer.from(JSON.stringify({ errors }, null, 2)),
+        contentType: 'application/json',
+      })
+      .catch(() => undefined);
+    const screenshot = await page.screenshot({ type: 'png' }).catch(() => null);
+    if (screenshot) {
+      await testInfo
+        .attach('over-budget-fallback-page.png', { body: screenshot, contentType: 'image/png' })
+        .catch(() => undefined);
+    }
+    throw failure;
+  } finally {
+    await browser.close();
+    await rm(stagedFolder, { recursive: true, force: true });
+  }
 });
 
 test('Hosted visibly falls back without WebGPU and still renders, edits, and restores XMP', async ({

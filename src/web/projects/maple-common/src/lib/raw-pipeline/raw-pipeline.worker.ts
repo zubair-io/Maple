@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
 import {
+  default_target_long_edge,
   render_bytes,
   render_bytes_scene_linear,
   render_bytes_scene_linear_sized,
@@ -224,14 +225,23 @@ async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
         // `requestAdapter()` returned null, or device creation/render failed.
         // Without this retry the whole decode would error and the canvas would
         // stay blank on a machine whose GPU path is dead-on-arrival. Re-run the
-        // SAME develop on the WASM-CPU `render_bytes` so the image still
-        // renders (slower, but correct). The outer catch still handles a genuine
-        // CPU decode failure.
+        // SAME develop on the WASM-CPU sized entry at the identical default
+        // cap the GPU call self-caps to (#2661 — the pre-fix retry ran
+        // `render_bytes` at FULL sensor resolution, which both diverged from
+        // the failed GPU develop it claims to repeat and OOM-aborted the wasm
+        // instance outright on ≥~35 MP sensors). The outer catch still handles
+        // a genuine CPU decode failure.
         console.warn(
-          '[raw-pipeline.worker] GPU render failed; falling back to CPU render_bytes:',
+          '[raw-pipeline.worker] GPU render failed; falling back to CPU render_bytes_sized:',
           gpuErr,
         );
-        result = render_bytes(bytes, req.ext, req.xmp ?? null);
+        result = render_bytes_sized(
+          bytes,
+          req.ext,
+          req.xmp ?? null,
+          false,
+          default_target_long_edge(),
+        );
       }
     } else if (sized) {
       // Viewport-sized CPU render (#1101): post-demosaic stages run at the
@@ -244,7 +254,13 @@ async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
         req.maxLongEdge as number,
       );
     } else {
-      // Unchanged WASM-CPU path — byte-for-byte today's no-GPU behaviour.
+      // Unsized WASM-CPU path — full-res for sensors that fit the wasm heap.
+      // No production caller sends unsized requests today (the editor's 2D
+      // phases are always sized and the hosted-thumb fallback passes an
+      // explicit cap), and the wasm entry itself memory-clamps sensors whose
+      // full-res develop would exceed the 4 GiB wasm32 heap (#2661), so a
+      // future unsized caller degrades to a clamped render instead of an
+      // instance-poisoning OOM trap.
       result = render_bytes(bytes, req.ext, req.xmp ?? null);
     }
     markEnd(wasmStartMark, `maple:wasm:${req.id}:end`, markTag);

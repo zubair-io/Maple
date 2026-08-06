@@ -79,10 +79,12 @@ fn compute_profile_lut_accepts_n_bounds() {
 #[test]
 #[ignore = "requires test-fixtures/raws/* (gitignored); run with --ignored"]
 fn render_bytes_scene_linear_returns_fp16_rgba_with_alpha_one() {
-    // Path mirror of the helper test in raw-core; this test only runs
-    // when the engineer has the fixtures locally.
+    // Repo-root fixture path (raw-wasm sits two levels below src/); this
+    // test only runs when the engineer has the fixtures locally. (The
+    // original `../test-fixtures` spelling resolved inside `src/raw-pipeline`
+    // where no fixtures live, so the test always skipped — fixed with #2661.)
     let path = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap())
-        .join("../test-fixtures/raws/dji-mavic3pro-100mp.dng");
+        .join("../../../test-fixtures/raws/dji-mavic3pro-100mp.dng");
     if !path.exists() {
         eprintln!("fixture missing at {:?} — skipping", path);
         return;
@@ -117,6 +119,46 @@ fn render_bytes_scene_linear_returns_fp16_rgba_with_alpha_one() {
     assert!(
         any_nonzero_rgb,
         "all R/G/B lanes were zero — pipeline failure"
+    );
+}
+
+/// #2661: a sensor whose full-native-res CPU develop cannot fit the 4 GiB
+/// wasm32 heap (the 100 MP reference measured 9.2 GB) must memory-clamp:
+/// `render_bytes` develops through the sized chain at
+/// `min(sensor_long_edge / 2, SIZED_DEVELOP_MAX_LONG_EDGE)` and reports the
+/// native dims on `full_width`/`full_height` so caller zoom math is
+/// unaffected. Before the clamp this exact call aborted the WASM instance
+/// (`handle_alloc_error` → `unreachable`) from the no-WebGPU fallback.
+#[test]
+#[ignore = "requires test-fixtures/raws/* (gitignored, ~100 MP develop); run with --ignored"]
+fn render_bytes_memory_clamps_sensors_too_large_for_the_wasm_heap() {
+    let path = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap())
+        .join("../../../test-fixtures/raws/dji-mavic3pro-100mp.dng");
+    if !path.exists() {
+        eprintln!("fixture missing at {:?} — skipping", path);
+        return;
+    }
+    let bytes = std::fs::read(&path).expect("read fixture");
+    let result = render_bytes(&bytes, "dng", None).expect("render_bytes ok");
+
+    let raw_img = raw_core::decode::decode_bytes(&bytes, "dng").expect("decode");
+    let clamp = crate::cpu_budget::clamp_develop_long_edge(raw_img.width, raw_img.height, None)
+        .expect("the 100 MP reference must be over the full-develop budget");
+    assert_eq!(
+        result.width().max(result.height()),
+        clamp,
+        "render_bytes must develop at the memory clamp for oversized sensors"
+    );
+    let (nw, nh) = raw_core::pipeline::native_render_dims(&raw_img);
+    assert_eq!(
+        (result.full_width(), result.full_height()),
+        (nw, nh),
+        "full_* getters must carry the native oriented dims"
+    );
+    assert_eq!(
+        result.rgb().len(),
+        (result.width() as usize) * (result.height() as usize) * 3,
+        "packed RGB bytes at the clamped size"
     );
 }
 

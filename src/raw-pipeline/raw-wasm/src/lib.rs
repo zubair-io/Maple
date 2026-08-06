@@ -30,6 +30,9 @@ use wasm_bindgen::prelude::*;
 
 pub mod auto_adjustments;
 pub mod auto_tone;
+// wasm32 CPU develop memory budget (#2661) — the sensor-aware long-edge clamp
+// every CPU render entry applies so a develop can never exceed the 4 GiB heap.
+pub mod cpu_budget;
 /// Edited-image export — full-res render + in-wasm encode, drained in chunks
 /// so a 100 MP deliverable never lands on the JS heap in one piece (#943).
 pub mod export;
@@ -230,6 +233,14 @@ pub(crate) fn as_shot_wb(raw_img: &raw_core::image::RawImage) -> (f32, f32) {
 /// into the model, which would demote the exact sentinel into a
 /// float-rounded explicit target (#1892 — the pre-fix push used a crude
 /// log2(B/R) heuristic and shifted every fresh open).
+///
+/// Memory budget (#2661): a full-native-resolution CPU develop of a sensor
+/// over [`cpu_budget::FULL_DEVELOP_MAX_SENSOR_PX`] cannot fit the 4 GiB
+/// wasm32 heap (9.2 GB measured peak on the 100 MP reference — the alloc
+/// abort is an unrecoverable trap that poisons the instance). Such sensors
+/// develop through the sized chain at the clamp instead; the buffer's real
+/// dims ride `width`/`height` and the native dims `full_width`/`full_height`,
+/// exactly like [`render_bytes_sized`].
 #[wasm_bindgen]
 pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleRender, JsError> {
     let raw_img =
@@ -242,25 +253,44 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
         None => xmp_mod::AdjustmentModel::default(),
     };
 
-    let (w, h, bytes) = raw_core::pipeline::render_from_raw_with_quality_and_source(
-        &raw_img,
-        &model,
-        // Export/display path: AMaZE by default (#940) — cost-equivalent to
-        // bilinear since the tiled kernel (#1887) and matches the Apple
-        // refine/export selection.
-        raw_core::pipeline::RenderQuality::Amaze,
-        Some(raw_core::pipeline::RawInput::Bytes { bytes: raw, ext }),
-    )
-    .map_err(|e| JsError::new(&e.to_string()))?;
-    Ok(MapleRender {
-        width: w,
-        height: h,
-        full_width: w,
-        full_height: h,
-        rgb: bytes,
-        as_shot_temperature,
-        as_shot_tint,
-    })
+    // Export/display path: AMaZE by default (#940) — cost-equivalent to
+    // bilinear since the tiled kernel (#1887) and matches the Apple
+    // refine/export selection.
+    let quality = raw_core::pipeline::RenderQuality::Amaze;
+    let source = Some(raw_core::pipeline::RawInput::Bytes { bytes: raw, ext });
+    match cpu_budget::clamp_develop_long_edge(raw_img.width, raw_img.height, None) {
+        None => {
+            let (w, h, bytes) = raw_core::pipeline::render_from_raw_with_quality_and_source(
+                &raw_img, &model, quality, source,
+            )
+            .map_err(|e| JsError::new(&e.to_string()))?;
+            Ok(MapleRender {
+                width: w,
+                height: h,
+                full_width: w,
+                full_height: h,
+                rgb: bytes,
+                as_shot_temperature,
+                as_shot_tint,
+            })
+        }
+        Some(cap) => {
+            let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
+            let (w, h, bytes) = raw_core::pipeline::render_sized_from_raw_with_quality_and_source(
+                &raw_img, &model, quality, source, cap,
+            )
+            .map_err(|e| JsError::new(&e.to_string()))?;
+            Ok(MapleRender {
+                width: w,
+                height: h,
+                full_width,
+                full_height,
+                rgb: bytes,
+                as_shot_temperature,
+                as_shot_tint,
+            })
+        }
+    }
 }
 
 /// Sized variant of [`render_bytes`] — the display-encoded counterpart of the
@@ -312,13 +342,20 @@ pub fn render_bytes_sized(
         // Full-quality path: AMaZE by default (#940).
         raw_core::pipeline::RenderQuality::Amaze
     };
+    // #2661: clamp the request so the develop fits the 4 GiB wasm32 heap —
+    // a cap near the native long edge of a >32 MP sensor otherwise runs the
+    // full-res demosaic branch and aborts the instance (7.2 GB measured at
+    // cap 8192 on the 100 MP reference).
+    let effective_long_edge =
+        cpu_budget::clamp_develop_long_edge(raw_img.width, raw_img.height, Some(max_long_edge))
+            .unwrap_or(max_long_edge);
     let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
     let (w, h, bytes) = raw_core::pipeline::render_sized_from_raw_with_quality_and_source(
         &raw_img,
         &model,
         quality,
         Some(raw_core::pipeline::RawInput::Bytes { bytes: raw, ext }),
-        max_long_edge,
+        effective_long_edge,
     )
     .map_err(|e| JsError::new(&e.to_string()))?;
     Ok(MapleRender {
@@ -454,18 +491,43 @@ pub fn render_bytes_scene_linear(
         // slider-tick path.
         raw_core::pipeline::RenderQuality::Amaze
     };
-    let (w, h, fp16_rgba) =
-        raw_core::pipeline::render_scene_linear_from_raw_with_quality(&raw_img, &model, quality)
+    // #2661: sensors too large for a full-res develop inside the 4 GiB wasm32
+    // heap route through the sized chain at the clamp — same contract shift as
+    // `render_bytes`: sized dims in `width`/`height`, native dims in `full_*`.
+    match cpu_budget::clamp_develop_long_edge(raw_img.width, raw_img.height, None) {
+        None => {
+            let (w, h, fp16_rgba) = raw_core::pipeline::render_scene_linear_from_raw_with_quality(
+                &raw_img, &model, quality,
+            )
             .map_err(|e| JsError::new(&e.to_string()))?;
-    Ok(MapleSceneLinearRender {
-        width: w,
-        height: h,
-        full_width: w,
-        full_height: h,
-        fp16_rgba,
-        as_shot_temperature,
-        as_shot_tint,
-    })
+            Ok(MapleSceneLinearRender {
+                width: w,
+                height: h,
+                full_width: w,
+                full_height: h,
+                fp16_rgba,
+                as_shot_temperature,
+                as_shot_tint,
+            })
+        }
+        Some(cap) => {
+            let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
+            let (w, h, fp16_rgba) =
+                raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality(
+                    &raw_img, &model, quality, cap,
+                )
+                .map_err(|e| JsError::new(&e.to_string()))?;
+            Ok(MapleSceneLinearRender {
+                width: w,
+                height: h,
+                full_width,
+                full_height,
+                fp16_rgba,
+                as_shot_temperature,
+                as_shot_tint,
+            })
+        }
+    }
 }
 
 /// Sized variant of [`render_bytes_scene_linear`] — the WASM mirror of the
@@ -515,12 +577,17 @@ pub fn render_bytes_scene_linear_sized(
         // slider-tick path.
         raw_core::pipeline::RenderQuality::Amaze
     };
+    // #2661: clamp so the develop fits the 4 GiB wasm32 heap — see
+    // `render_bytes_sized`.
+    let effective_long_edge =
+        cpu_budget::clamp_develop_long_edge(raw_img.width, raw_img.height, Some(max_long_edge))
+            .unwrap_or(max_long_edge);
     let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
     let (w, h, fp16_rgba) = raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality(
         &raw_img,
         &model,
         quality,
-        max_long_edge,
+        effective_long_edge,
     )
     .map_err(|e| JsError::new(&e.to_string()))?;
     Ok(MapleSceneLinearRender {
