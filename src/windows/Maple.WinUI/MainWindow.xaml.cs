@@ -558,5 +558,56 @@ namespace Maple.WinUI
                 default: e.Handled = false; break;
             }
         }
+
+        // --- Menu (#2586) — thin shims over the same actions the shortcut
+        //     table drives; zoom items are inert in Browse like the keys. ---
+
+        private void OnMenuExit(object sender, RoutedEventArgs e) => Close();
+        private void OnMenuUndo(object sender, RoutedEventArgs e) => ViewModel.Undo();
+        private void OnMenuRedo(object sender, RoutedEventArgs e) => ViewModel.Redo();
+        private void OnMenuModeBrowse(object sender, RoutedEventArgs e) => SetMode(ShellMode.Browse);
+
+        private void OnMenuModePreview(object sender, RoutedEventArgs e)
+        {
+            if (ViewModel.SelectedPhoto != null)
+                SetMode(ShellMode.Preview);
+        }
+
+        private void OnMenuZoomFit(object sender, RoutedEventArgs e)
+        {
+            if (_mode != ShellMode.Browse)
+                ResetZoom();
+        }
+
+        private void OnMenuZoomOneToOne(object sender, RoutedEventArgs e)
+        {
+            if (_mode != ShellMode.Browse)
+                SetZoom(OneToOneZoomFactor());
+        }
+
+        private void OnMenuZoomIn(object sender, RoutedEventArgs e)
+        {
+            if (_mode != ShellMode.Browse)
+                SetZoom(ViewerScroll.ZoomFactor * 1.5f);
+        }
+
+        private void OnMenuZoomOut(object sender, RoutedEventArgs e)
+        {
+            if (_mode != ShellMode.Browse)
+                SetZoom(ViewerScroll.ZoomFactor / 1.5f);
+        }
+
+        private void OnMenuRating(object sender, RoutedEventArgs e)
+        {
+            if (sender is FrameworkElement { Tag: string tag } && int.TryParse(tag, out var stars))
+            {
+                ViewModel.SetRating(stars);
+                UpdateStarRow();
+            }
+        }
+
+        private void OnMenuFlagPick(object sender, RoutedEventArgs e) => ViewModel.SetFlag("pick");
+        private void OnMenuFlagReject(object sender, RoutedEventArgs e) => ViewModel.SetFlag("reject");
+        private void OnMenuFlagUnflag(object sender, RoutedEventArgs e) => ViewModel.SetFlag("none");
     }
 }
