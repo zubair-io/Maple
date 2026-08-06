@@ -35,6 +35,15 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
     /// directory the photo workflow produces.
     static let itemLookupMaxPages: Int = 100
 
+    /// Sentinel `ifMtimeMatches` value used by `createOnlyPrecondition` to
+    /// force a guaranteed mismatch. No real sidecar write will ever land
+    /// on the Unix epoch, so passing it makes the server's mtime-equality
+    /// check fail deterministically, routing the incoming bytes to a
+    /// conflict-copy file — the same fallback `modifyItem` uses on a
+    /// genuine precondition mismatch — instead of overwriting whatever is
+    /// already there. See #2532.
+    static let createGuardMtimeSentinel = Date(timeIntervalSince1970: 0)
+
     public required init(domain: NSFileProviderDomain) {
         self.domain = domain
         let config = FileProviderConfig()
@@ -894,10 +903,34 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                 code: NSFileProviderError.noSuchItem.rawValue))
                     return
                 }
+                // Create-only precondition (#2532). `createItem` fires when
+                // the OS's local FileProvider view doesn't know about this
+                // sidecar yet — that is NOT the same as it being new
+                // server-side. A freshly re-enabled domain or a cleared
+                // local cache both hit this path for a sidecar that already
+                // holds real edit history. `nil` used to be passed
+                // unconditionally here, which skips the server's precondition
+                // check entirely and silently overwrites whatever is
+                // already there. `createOnlyPrecondition` stats the target
+                // path directly (bypassing the OS's cache) so that can't
+                // happen: `nil` only when the path is confirmed absent.
+                guard case .folder(let folderID, let parentRelative) =
+                    try FileProviderIdentifier(rawValue: parentID.rawValue) else {
+                    completionHandler(nil, [], false,
+                        NSError(domain: NSFileProviderErrorDomain,
+                                code: NSFileProviderError.noSuchItem.rawValue))
+                    return
+                }
+                let targetRel = parentRelative.isEmpty ? filename : "\(parentRelative)/\(filename)"
+                let precondition = try await Self.createOnlyPrecondition(
+                    catalog: catalog,
+                    folderID: folderID,
+                    relativePath: targetRel
+                )
                 let result = try await catalog.putXMP(
                     assetID: assetID,
                     data: xmpBytes,
-                    ifMtimeMatches: nil,
+                    ifMtimeMatches: precondition,
                     deviceName: self.deviceName
                 )
                 switch result {
@@ -1350,6 +1383,20 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
     }
 
     // MARK: - Sidecar helpers
+
+    /// Create-only precondition for `createXMPItem` (#2532). Stats
+    /// `relativePath` under `folderID` directly via `statFile` — a real
+    /// filesystem check, not the OS's local FileProvider cache — and
+    /// returns `createGuardMtimeSentinel` (forces the server's
+    /// conflict-copy fallback) when something is already there, or `nil`
+    /// (unconditional create, today's behaviour for a genuinely new
+    /// sidecar) when the path is confirmed absent.
+    static func createOnlyPrecondition(catalog: RemoteCatalog,
+                                       folderID: String,
+                                       relativePath: String) async throws -> Date? {
+        let existing = try await catalog.statFile(folderID: folderID, relativePath: relativePath)
+        return existing != nil ? createGuardMtimeSentinel : nil
+    }
 
     /// Find the asset whose RAW filename (without extension) matches the
     /// sidecar's canonical base. Returns nil if no matching image is in
