@@ -3,6 +3,7 @@
 //! `AdjustmentModel` value.
 
 use crate::error::{Error, Result};
+use quick_xml::escape::escape;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::reader::Reader;
 
@@ -202,10 +203,11 @@ fn apply_attributes(
 /// XMP sidecar writing lives in the Swift and TypeScript layers per
 /// `docs/architecture.md`. Only the Maple-proprietary `papp:` keys with no
 /// `crs:` home are emitted here (`papp:Profile`, `papp:Brightness`,
-/// `papp:ChromaPrefilter`, `papp:HotPixelSuppression`, `papp:DeepDenoise`);
-/// the legacy `papp:Look` is deliberately NOT serialized — newly-written
-/// sidecars carry the new attribute name only, and old sidecars still
-/// round-trip via the `papp:Look` migration in [`set_field`].
+/// `papp:ChromaPrefilter`, `papp:HotPixelSuppression`, `papp:DeepDenoise`,
+/// `papp:FilmLook`, `papp:FilmStrength`); the legacy `papp:Look` is
+/// deliberately NOT serialized — newly-written sidecars carry the new
+/// attribute name only, and old sidecars still round-trip via the
+/// `papp:Look` migration in [`set_field`].
 pub fn serialize(model: &AdjustmentModel) -> String {
     let mut out = String::new();
     if model.profile != Profile::default() {
@@ -236,6 +238,27 @@ pub fn serialize(model: &AdjustmentModel) -> String {
     // BM3D deep denoise (#1105) — emitted only when non-default (0).
     if model.deep_denoise != 0.0 {
         out.push_str(&format!(r#" papp:DeepDenoise="{}""#, model.deep_denoise));
+    }
+    // Film emulation look (epic #2683, film design 2026-08-06) — emitted
+    // only when non-empty. Unlike every other field in this group, the
+    // value is free-form text (a catalog id), not a closed enum or a
+    // number, so it is XML-attribute-escaped before splicing into the
+    // fragment; an id the catalog doesn't recognise still round-trips
+    // (see `fields.rs::set_field` — it resolves as identity at render
+    // time rather than failing the parse).
+    if !model.film_look.is_empty() {
+        out.push_str(&format!(
+            r#" papp:FilmLook="{}""#,
+            escape(model.film_look.as_str())
+        ));
+    }
+    // Film look blend strength — emitted only when non-default (100),
+    // matching the omit-on-default convention above.
+    if model.film_strength != 100.0 {
+        out.push_str(&format!(
+            r#" papp:FilmStrength="{}""#,
+            model.film_strength
+        ));
     }
     // Parametric tone-curve region sliders (#365) — Lightroom-compatible
     // PV2012 `crs:` keys, emitted only when non-default (0) to mirror the
