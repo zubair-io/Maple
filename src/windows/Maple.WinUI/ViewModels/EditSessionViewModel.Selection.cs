@@ -34,10 +34,15 @@ namespace Maple.WinUI.ViewModels
         /// selection never tears down an in-progress edit session.</summary>
         public void SyncSelectedPhotos(IReadOnlyList<PhotoItem> selected)
         {
+            var summaryBefore = SelectionSummary;
             SelectedPhotos.Clear();
             foreach (var photo in selected)
                 SelectedPhotos.Add(photo);
-            OnPropertyChanged(nameof(SelectionSummary));
+            // Only notify when the summary text actually changed — 0<->1
+            // transitions both render as empty, and a redundant notification
+            // re-announces the (LiveSetting="Polite") count text to Narrator.
+            if (SelectionSummary != summaryBefore)
+                OnPropertyChanged(nameof(SelectionSummary));
             if (selected.Count == 1)
                 SelectedPhoto = selected[0];
         }
