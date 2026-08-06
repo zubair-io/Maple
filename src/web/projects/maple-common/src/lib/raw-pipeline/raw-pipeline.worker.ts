@@ -174,6 +174,15 @@ function postSessionError(id: number, message: string): void {
   (self as unknown as Worker).postMessage(response);
 }
 
+/** Shared catch tail for the session ops: log the full stack, post the error. */
+function reportSessionFailure(op: 'open-session' | 'render-session', id: number, e: unknown): void {
+  const err = e instanceof Error ? e : null;
+  if (err?.stack) {
+    console.error(`[raw-pipeline.worker] ${op} threw:`, err.message, err.stack);
+  }
+  postSessionError(id, err?.message ?? String(e));
+}
+
 async function handleOpenSession(req: OpenSessionRequest): Promise<void> {
   await enqueueSessionOp(async () => {
     try {
@@ -253,11 +262,7 @@ async function handleOpenSession(req: OpenSessionRequest): Promise<void> {
       // Transfer the snapshot buffer when present (small; avoids a main-thread copy).
       (self as unknown as Worker).postMessage(response, scope ? [scope.rgb] : []);
     } catch (e) {
-      const err = e instanceof Error ? e : null;
-      if (err?.stack) {
-        console.error('[raw-pipeline.worker] open-session threw:', err.message, err.stack);
-      }
-      postSessionError(req.id, err?.message ?? String(e));
+      reportSessionFailure('open-session', req.id, e);
     }
   });
 }
@@ -299,11 +304,7 @@ async function handleRenderSession(req: RenderSessionRequest): Promise<void> {
       };
       (self as unknown as Worker).postMessage(response, scope ? [scope.rgb] : []);
     } catch (e) {
-      const err = e instanceof Error ? e : null;
-      if (err?.stack) {
-        console.error('[raw-pipeline.worker] render-session threw:', err.message, err.stack);
-      }
-      postSessionError(req.id, err?.message ?? String(e));
+      reportSessionFailure('render-session', req.id, e);
     }
   });
 }
