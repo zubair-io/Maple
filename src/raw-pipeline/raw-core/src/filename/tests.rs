@@ -106,6 +106,65 @@ fn sequence_padding_never_truncates_wider_numbers() {
 }
 
 #[test]
+fn sequence_pad_width_at_the_maximum_succeeds() {
+    // MAX_SEQUENCE_PAD_WIDTH (32) itself is still accepted — the bound is
+    // "greater than the max is rejected", not "the max itself is rejected".
+    let seq = SequenceOptions {
+        start: 0,
+        pad_width: MAX_SEQUENCE_PAD_WIDTH,
+    };
+    let got = render_filename("{n}", &inputs("x", "dng", 0), &seq).unwrap();
+    assert_eq!(got.len(), MAX_SEQUENCE_PAD_WIDTH);
+    assert_eq!(got, "0".repeat(MAX_SEQUENCE_PAD_WIDTH));
+}
+
+#[test]
+fn sequence_pad_width_just_past_the_maximum_is_rejected() {
+    // One past the boundary — the memory-DoS guard (a caller-supplied
+    // pad_width feeds straight into format!'s allocation size, and this
+    // engine is reachable from FFI/WASM/the Self Hosted API).
+    let seq = SequenceOptions {
+        start: 0,
+        pad_width: MAX_SEQUENCE_PAD_WIDTH + 1,
+    };
+    let err = render_filename("{n}", &inputs("x", "dng", 0), &seq).unwrap_err();
+    assert_eq!(
+        err,
+        FilenameError::SequencePadWidthTooLarge {
+            pad_width: MAX_SEQUENCE_PAD_WIDTH + 1,
+            max: MAX_SEQUENCE_PAD_WIDTH,
+        }
+    );
+    assert_eq!(err.kind(), "sequence_pad_width_too_large");
+}
+
+#[test]
+fn sequence_pad_width_far_past_the_maximum_is_rejected_without_allocating() {
+    // A wildly oversized pad_width (the actual DoS shape) must be rejected
+    // just as cheaply as one past the boundary — the check happens before
+    // any `format!` call, not by attempting and recovering from a huge
+    // allocation.
+    let seq = SequenceOptions {
+        start: 0,
+        pad_width: 10_000_000,
+    };
+    let err = render_filename("{n}", &inputs("x", "dng", 0), &seq).unwrap_err();
+    assert_eq!(err.kind(), "sequence_pad_width_too_large");
+}
+
+#[test]
+fn sequence_pad_width_bound_is_checked_even_when_n_token_is_absent() {
+    // Validated eagerly regardless of whether {n} appears in the template —
+    // validity shouldn't depend on which tokens happen to be present.
+    let seq = SequenceOptions {
+        start: 0,
+        pad_width: MAX_SEQUENCE_PAD_WIDTH + 1,
+    };
+    let err = render_filename("{original}", &inputs("x", "dng", 0), &seq).unwrap_err();
+    assert_eq!(err.kind(), "sequence_pad_width_too_large");
+}
+
+#[test]
 fn repeated_sequence_token_renders_the_same_value_twice() {
     let seq = SequenceOptions {
         start: 5,

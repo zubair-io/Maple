@@ -8,21 +8,58 @@
 //! of `raw_core`'s `usize` for the pad width (wasm-bindgen doesn't support
 //! `usize` at the function-signature boundary — same reason every other
 //! sizing param in this crate crosses as `u32`, e.g. `compute_profile_lut`'s
-//! `n` in `lib.rs`), and `Result<_, JsError>` for engine rejections, matching
-//! this crate's one existing error-reporting convention (see `render_bytes`
-//! et al.) rather than inventing a second one for just this module.
+//! `n` in `lib.rs`).
+//!
+//! **Error shape is deliberately NOT this crate's usual `Result<_, JsError>`.**
+//! `raw_core::filename::FilenameError::kind()` exists precisely so callers
+//! can discriminate a rejection reason (`"reserved_name"`, `"empty"`, …)
+//! without parsing a human-readable message — the batch-rename preview UIs
+//! and the #2633 cross-surface parity harness both need that. `JsError` only
+//! carries a message string, with no slot for an extra property, so
+//! `render_filename_template`/`validate_filename` return `Result<_, JsValue>`
+//! and [`to_js_error`] builds a genuine `js_sys::Error` (so `instanceof
+//! Error`, `.message`, and stack traces all still work) with a `.kind`
+//! string property set to the stable tag:
+//!
+//! ```js
+//! try {
+//!   renderFilenameTemplate("CON", "x", "dng", null, 0n, 0n, 0);
+//! } catch (e) {
+//!   e.kind    // "reserved_name"
+//!   e.message // `filename "CON" is an OS-reserved device name`
+//! }
+//! ```
 //!
 //! No `wasm-bindgen-test` coverage here, matching `id.rs`'s precedent in
 //! this same crate: `raw-wasm` has no existing `wasm-bindgen-test`
 //! infrastructure, so the `#[cfg(test)] mod tests` below runs as a plain
-//! host-target `#[test]` over the success paths (the `JsError`-returning
-//! branches call into a wasm-bindgen-imported JS `Error` constructor that
-//! panics outside a real wasm/JS runtime — see `id.rs`'s test module doc
-//! for the fuller explanation of why that's not a gap specific to this
-//! binding).
+//! host-target `#[test]` over the success paths (`to_js_error` calls into
+//! wasm-bindgen-imported JS constructors that panic outside a real wasm/JS
+//! runtime — see `id.rs`'s test module doc for the fuller explanation of why
+//! that's not a gap specific to this binding).
 
 use raw_core::filename as core_filename;
 use wasm_bindgen::prelude::*;
+
+/// Build a JS `Error` carrying `e`'s human-readable message AND a `.kind`
+/// string property set to [`core_filename::FilenameError::kind`]'s stable
+/// snake_case tag — see the module doc for why this exists instead of the
+/// crate's usual `JsError::new(&e.to_string())`.
+fn to_js_error(e: &core_filename::FilenameError) -> JsValue {
+    let err = js_sys::Error::new(&e.to_string());
+    // `Reflect::set` only fails for a non-extensible/frozen target, which a
+    // freshly constructed `js_sys::Error` never is — the `Result` is
+    // deliberately dropped rather than unwrapped: if this somehow failed,
+    // the caller still gets a normal JS Error with a message, just without
+    // `.kind`, which is a strictly better failure mode than panicking the
+    // whole WASM module over an error-formatting helper.
+    let _ = js_sys::Reflect::set(
+        &err,
+        &JsValue::from_str("kind"),
+        &JsValue::from_str(e.kind()),
+    );
+    err.into()
+}
 
 /// Render one filename from a batch-rename template.
 ///
@@ -33,13 +70,16 @@ use wasm_bindgen::prelude::*;
 /// every `{date:FORMAT}` token as the documented fallback text instead of
 /// throwing. `sequence_start` and `sequence_index` combine to produce
 /// `{n}`'s value (`start + index`); `sequence_pad_width` is `{n}`'s minimum
-/// digit width (a floor, not a cap — wider numbers are never truncated).
+/// digit width (a floor, not a cap — wider numbers are never truncated) and
+/// must not exceed `raw_core::filename::MAX_SEQUENCE_PAD_WIDTH` (32).
 ///
-/// Throws a `JsError` (catchable as a normal JS exception) when the
-/// template fails to parse or the rendered name fails the shared
-/// cross-platform naming-rule validation (path separator, leading dot,
-/// trailing dot/space, OS-reserved device name, or empty output) — see
-/// `raw_core::filename::validate_filename` for the exact rule set.
+/// Throws a JS `Error` (see [`to_js_error`] — `instanceof Error` holds, and
+/// a `.kind` string property carries the stable rejection-reason tag) when
+/// the template fails to parse, `sequence_pad_width` is too large, or the
+/// rendered name fails the shared cross-platform naming-rule validation
+/// (path separator, leading dot, trailing dot/space, OS-reserved device
+/// name, or empty output) — see `raw_core::filename::validate_filename` for
+/// the exact rule set.
 #[wasm_bindgen]
 pub fn render_filename_template(
     template: &str,
@@ -49,7 +89,7 @@ pub fn render_filename_template(
     sequence_start: u64,
     sequence_index: u64,
     sequence_pad_width: u32,
-) -> Result<String, JsError> {
+) -> Result<String, JsValue> {
     let inputs = core_filename::RenderInputs {
         original_stem,
         ext,
@@ -60,19 +100,19 @@ pub fn render_filename_template(
         start: sequence_start,
         pad_width: sequence_pad_width as usize,
     };
-    core_filename::render_filename(template, &inputs, &sequence)
-        .map_err(|e| JsError::new(&e.to_string()))
+    core_filename::render_filename(template, &inputs, &sequence).map_err(|e| to_js_error(&e))
 }
 
 /// Validate a filename directly (no template) — the same rules
 /// [`render_filename_template`] enforces on its rendered output, so a
 /// manually-typed single-file rename gets identical rejection behaviour to
-/// a templated batch rename. Returns nothing on success; throws a
-/// `JsError` on the same rejection reasons as [`render_filename_template`]
-/// (minus the two template-parse-only reasons, which can't occur here).
+/// a templated batch rename. Returns nothing on success; throws the same
+/// `.kind`-carrying JS `Error` shape as [`render_filename_template`] (minus
+/// the template-parse-only and pad-width-only reasons, which can't occur
+/// here — there is no template and no sequence to validate).
 #[wasm_bindgen]
-pub fn validate_filename(name: &str) -> Result<(), JsError> {
-    core_filename::validate_filename(name).map_err(|e| JsError::new(&e.to_string()))
+pub fn validate_filename(name: &str) -> Result<(), JsValue> {
+    core_filename::validate_filename(name).map_err(|e| to_js_error(&e))
 }
 
 #[cfg(test)]
@@ -144,13 +184,24 @@ mod tests {
         assert!(validate_filename("IMG_0001.dng").is_ok());
     }
 
-    // The `JsError`-returning rejection paths of `render_filename_template` /
-    // `validate_filename` are NOT covered by a host-target `#[test]` here —
-    // `JsError::new` calls a wasm-bindgen-imported JS `Error` constructor
-    // that panics outside a real wasm/JS runtime (verified, same as every
-    // other `JsError`-returning branch in this crate — see `id.rs`'s test
-    // module doc for the fuller explanation). `raw-core`'s own
-    // `filename::tests_validation` and `filename::tests` modules exhaustively
-    // cover every rejection reason at the layer that actually produces it;
-    // this binding is a one-line `.map_err` over that already-tested Result.
+    #[test]
+    fn sequence_pad_width_at_the_maximum_succeeds() {
+        let max = core_filename::MAX_SEQUENCE_PAD_WIDTH as u32;
+        let got = render_filename_template("{n}", "x", "dng", None, 0, 0, max).unwrap();
+        assert_eq!(got.len(), max as usize);
+    }
+
+    // The `to_js_error`-returning rejection paths of `render_filename_template`
+    // / `validate_filename` are NOT covered by a host-target `#[test]` here —
+    // `js_sys::Error::new` and `js_sys::Reflect::set` call wasm-bindgen-
+    // imported JS constructors/functions that panic outside a real wasm/JS
+    // runtime (verified, same as every other JS-interop-returning branch in
+    // this crate — see `id.rs`'s test module doc for the fuller explanation).
+    // `raw-core`'s own `filename::tests_validation` and `filename::tests`
+    // modules exhaustively cover every rejection reason (including the
+    // `.kind()` tag each one maps to) at the layer that actually produces it;
+    // this binding is a thin `.map_err(to_js_error)` over that already-tested
+    // `Result`. True coverage of the thrown-value shape (the `.kind`
+    // property specifically) is deferred to whichever future task first
+    // exercises this from a real browser context.
 }

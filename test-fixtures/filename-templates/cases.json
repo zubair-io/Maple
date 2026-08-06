@@ -409,6 +409,30 @@
       "sequence_pad_width": 0,
       "captured_at": null,
       "expected": { "ok": "CONSOLE.jpg" }
+    },
+    {
+      "name": "sequence_pad_width_at_maximum",
+      "description": "sequence_pad_width at the engine's maximum (32) is still accepted — the bound rejects values GREATER than the max, not the max itself",
+      "template": "{n}",
+      "original_stem": "IMG_0001",
+      "ext": "dng",
+      "sequence_start": 0,
+      "sequence_index": 0,
+      "sequence_pad_width": 32,
+      "captured_at": null,
+      "expected": { "ok": "00000000000000000000000000000000" }
+    },
+    {
+      "name": "sequence_pad_width_just_past_maximum",
+      "description": "sequence_pad_width one past the engine's maximum (33) is rejected — the memory-DoS guard: pad_width feeds format!'s allocation size directly, and this engine is reachable from FFI/WASM/the Self Hosted API",
+      "template": "{n}",
+      "original_stem": "IMG_0001",
+      "ext": "dng",
+      "sequence_start": 0,
+      "sequence_index": 0,
+      "sequence_pad_width": 33,
+      "captured_at": null,
+      "expected": { "error": "sequence_pad_width_too_large" }
     }
   ]
 }

@@ -137,6 +137,20 @@ fn path_separator_maps_to_error_code_4() {
 }
 
 #[test]
+fn sequence_pad_width_at_the_maximum_succeeds() {
+    let max = raw_core::filename::MAX_SEQUENCE_PAD_WIDTH;
+    let got = unsafe { render("{n}", "x", "dng", None, 0, 0, max) }.unwrap();
+    assert_eq!(got.len(), max);
+}
+
+#[test]
+fn sequence_pad_width_just_past_the_maximum_maps_to_error_code_8() {
+    let max = raw_core::filename::MAX_SEQUENCE_PAD_WIDTH;
+    let err = unsafe { render("{n}", "x", "dng", None, 0, 0, max + 1) }.unwrap_err();
+    assert_eq!(err, 8);
+}
+
+#[test]
 fn null_required_pointer_maps_to_negative_one() {
     let ext_c = CString::new("dng").unwrap();
     let mut result = unsafe {
