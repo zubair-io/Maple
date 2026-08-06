@@ -53,6 +53,13 @@ pub enum MlutError {
     Truncated { expected: usize, actual: usize },
     #[error(".mlut: grid size {0} overflows the payload length calculation")]
     GridOverflow(usize),
+    /// `tetra_sample`'s `last = size - 1` cell derivation (and its
+    /// `min(_, last-1)` top-cell guard) needs at least a 2×2×2 lattice —
+    /// `size < 2` underflows `last` and/or reads a corner node past the
+    /// grid. Rejected at decode time so every `FilmLut` this codec hands
+    /// out is safe to sample.
+    #[error(".mlut: grid size {0} is degenerate (minimum is 2)")]
+    DegenerateGrid(usize),
 }
 
 /// Encode a `size³·3` f32 grid to the `.mlut` v1 byte layout. `data` is
@@ -70,7 +77,8 @@ pub fn encode_mlut(size: usize, data: &[f32]) -> Vec<u8> {
     out
 }
 
-/// Decode a `.mlut` v1 byte buffer, validating magic, version, and that the
+/// Decode a `.mlut` v1 byte buffer, validating magic, version, grid size
+/// (`>= 2`, the minimum [`tetra_sample`] can address), and that the
 /// declared grid size matches the payload length exactly.
 pub fn decode_mlut(bytes: &[u8]) -> Result<FilmLut, MlutError> {
     if bytes.len() < HEADER_LEN {
@@ -87,6 +95,9 @@ pub fn decode_mlut(bytes: &[u8]) -> Result<FilmLut, MlutError> {
         return Err(MlutError::UnsupportedVersion(version));
     }
     let grid = u16::from_le_bytes([bytes[6], bytes[7]]) as usize;
+    if grid < 2 {
+        return Err(MlutError::DegenerateGrid(grid));
+    }
     // Overflow-checked: `grid` comes straight off the wire (up to 65535),
     // and `usize` is 32-bit on the wasm32 target the same grid bytes ship
     // to — a naive `grid*grid*grid*3` can wrap there well before it would
@@ -217,6 +228,14 @@ mod tests {
         v[4] = 9; // bad version
         assert!(decode_mlut(&v).is_err());
         assert!(decode_mlut(&good[..good.len() - 2]).is_err()); // truncated payload
+    }
+
+    #[test]
+    fn mlut_rejects_degenerate_grid_sizes() {
+        // grid=0: an otherwise well-formed header + empty payload.
+        assert!(decode_mlut(&encode_mlut(0, &[])).is_err());
+        // grid=1: well-formed header + a single (degenerate) node's payload.
+        assert!(decode_mlut(&encode_mlut(1, &[0.0f32, 0.0, 0.0])).is_err());
     }
 
     #[test]
