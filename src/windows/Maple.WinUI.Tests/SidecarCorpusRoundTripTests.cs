@@ -27,7 +27,20 @@
 // preserves it) — the model-equality check catches a real Windows-caused
 // regression without also flagging Windows's known, not-yet-built field
 // coverage as if it were a bug.
+//
+// Passthrough content — masks, history, snapshots, metadata blocks, any
+// field Windows doesn't model — is exactly what this corpus exists to
+// protect (docs/spec/06-cross-platform.md § "Sidecar parity: the hard
+// test"), so it is asserted too, with two different equality rules per
+// docs/spec/01-data-model.md § "Passthrough buckets": attribute/namespace
+// passthrough is canonicalized (sorted) on write, so an input document's
+// arbitrary attribute order legitimately differs from Windows's own sorted
+// re-emit — compared order-insensitively. Node passthrough order is
+// load-bearing ("Passthrough nodes preserve order... mask groups, history
+// entries, and snapshots rely on element order") — compared as an exact
+// ordered sequence.
 
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Maple.WinUI.Services.Xmp;
@@ -78,6 +91,20 @@ namespace Maple.WinUI.Tests
                 Assert.True(firstParse.Flag == secondParse.Flag, $"{file}: papp:Flag changed on resave");
                 Assert.True(firstParse.ColorLabel == secondParse.ColorLabel,
                     $"{file}: papp:ColorLabel changed on resave");
+
+                AssertAttributesMatchIgnoringOrder(
+                    file, firstParse.PassthroughAttributes, secondParse.PassthroughAttributes);
+                AssertNamespacesMatchIgnoringOrder(
+                    file, firstParse.PassthroughNamespaces, secondParse.PassthroughNamespaces);
+                AssertNodesMatchInOrder(
+                    file, nameof(XmpSidecarDocument.PassthroughNodes),
+                    firstParse.PassthroughNodes, secondParse.PassthroughNodes);
+                AssertNodesMatchInOrder(
+                    file, nameof(XmpSidecarDocument.PassthroughRdfNodes),
+                    firstParse.PassthroughRdfNodes, secondParse.PassthroughRdfNodes);
+                AssertNodesMatchInOrder(
+                    file, nameof(XmpSidecarDocument.PassthroughXmpmetaNodes),
+                    firstParse.PassthroughXmpmetaNodes, secondParse.PassthroughXmpmetaNodes);
             }
         }
 
@@ -105,12 +132,60 @@ namespace Maple.WinUI.Tests
 
                 var firstResave = XmpWriter.Serialize(firstParse!);
                 var secondParse = XmpParser.Parse(firstResave);
+                Assert.True(secondParse is not null,
+                    $"{file}: re-parse of the first resave failed — a document Windows itself just " +
+                    "wrote is no longer parseable by its own parser");
+
                 var secondResave = XmpWriter.Serialize(secondParse!);
 
                 Assert.True(firstResave == secondResave,
                     $"{file}: a second parse → serialize produced different bytes than the first " +
                     "— write → parse → write is not a fixed point for this fixture");
             }
+        }
+
+        // ── Passthrough equality helpers ────────────────────────────────────
+
+        /// <summary>Order-insensitive: attribute passthrough is re-sorted
+        /// canonically on every write (docs/spec/01-data-model.md § "Passthrough
+        /// fields emit alphabetically by fully-qualified name"), so the source
+        /// document's arbitrary order is not itself meaningful.</summary>
+        private static void AssertAttributesMatchIgnoringOrder(
+            string file, IReadOnlyList<XmpAttribute> first, IReadOnlyList<XmpAttribute> second)
+        {
+            var a = first.OrderBy(x => x.Name, System.StringComparer.Ordinal)
+                .ThenBy(x => x.Value, System.StringComparer.Ordinal).ToList();
+            var b = second.OrderBy(x => x.Name, System.StringComparer.Ordinal)
+                .ThenBy(x => x.Value, System.StringComparer.Ordinal).ToList();
+            Assert.True(a.SequenceEqual(b),
+                $"{file}: passthrough attributes changed across a resave (compared order-insensitively)");
+        }
+
+        /// <summary>Order-insensitive for the same reason as attributes above —
+        /// this is the set of extra `xmlns:` declarations passthrough attributes
+        /// need, not itself ordered content.</summary>
+        private static void AssertNamespacesMatchIgnoringOrder(
+            string file, IReadOnlyList<XmpNamespaceDecl> first, IReadOnlyList<XmpNamespaceDecl> second)
+        {
+            var a = first.OrderBy(x => x.Prefix, System.StringComparer.Ordinal)
+                .ThenBy(x => x.Uri, System.StringComparer.Ordinal).ToList();
+            var b = second.OrderBy(x => x.Prefix, System.StringComparer.Ordinal)
+                .ThenBy(x => x.Uri, System.StringComparer.Ordinal).ToList();
+            Assert.True(a.SequenceEqual(b),
+                $"{file}: passthrough namespace declarations changed across a resave " +
+                "(compared order-insensitively)");
+        }
+
+        /// <summary>Exact, ordered: node passthrough order is load-bearing —
+        /// mask groups, history entries, and snapshots rely on it
+        /// (docs/xmp-canonical-format.md § "Passthrough"; docs/spec/01-data-model.md
+        /// § "Passthrough nodes preserve order").</summary>
+        private static void AssertNodesMatchInOrder(
+            string file, string bucketName, IReadOnlyList<string> first, IReadOnlyList<string> second)
+        {
+            Assert.True(first.SequenceEqual(second),
+                $"{file}: {bucketName} changed order or content across a resave — node order is " +
+                "load-bearing and must be preserved exactly");
         }
     }
 }
