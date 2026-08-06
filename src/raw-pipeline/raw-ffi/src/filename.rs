@@ -76,6 +76,7 @@ fn error_code(e: &FilenameError) -> i32 {
         FilenameError::LeadingDot(_) => 5,
         FilenameError::TrailingDotOrSpace(_) => 6,
         FilenameError::ReservedName(_) => 7,
+        FilenameError::SequencePadWidthTooLarge { .. } => 8,
     }
 }
 
@@ -120,6 +121,9 @@ unsafe fn cstr_to_str<'a>(ptr: *const c_char) -> Option<&'a str> {
 ///   6   rendered filename ends with a trailing dot or space
 ///   7   rendered filename is an OS-reserved device name (Windows rules,
 ///       enforced on every platform — see `raw_core::filename` module doc)
+///   8   `sequence_pad_width` exceeds `raw_core::filename::MAX_SEQUENCE_PAD_WIDTH`
+///       (32) — rejected outright rather than performing the allocation a
+///       caller-controlled width could otherwise force
 #[no_mangle]
 pub unsafe extern "C" fn maple_render_filename_template(
     template_ptr: *const c_char,
@@ -187,9 +191,10 @@ pub unsafe extern "C" fn maple_render_filename_template(
 ///
 /// Returns `0` when valid, `-1` for a null/non-UTF-8 `name_ptr`, or one of
 /// error codes 3–7 documented on [`maple_render_filename_template`] (codes 1
-/// and 2 are template-parse errors and cannot occur here — there is no
-/// template). [`crate::error::maple_last_error`] carries the human-readable
-/// reason on any non-zero return.
+/// and 2 are template-parse errors and code 8 is a `SequenceOptions` bound —
+/// none of the three can occur here, since there is no template and no
+/// sequence to validate). [`crate::error::maple_last_error`] carries the
+/// human-readable reason on any non-zero return.
 #[no_mangle]
 pub unsafe extern "C" fn maple_validate_filename(name_ptr: *const c_char) -> i32 {
     let Some(name) = cstr_to_str(name_ptr) else {

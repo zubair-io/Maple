@@ -94,5 +94,5 @@ pub use id::{blake3_hex, maple_id, FallbackIdHasher, IdKind, MapleId};
 pub mod filename;
 pub use filename::{
     render_filename, validate_filename, FilenameError, FilenameResult, RenderInputs,
-    SequenceOptions,
+    SequenceOptions, MAX_SEQUENCE_PAD_WIDTH,
 };

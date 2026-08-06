@@ -18,6 +18,18 @@ raw-core = { path = "../raw-core" }
 raw-gpu = { path = "../raw-gpu", optional = true }
 wasm-bindgen = "0.2"
 thiserror.workspace = true
+# `js_sys::Error` + `js_sys::Reflect` (#2628, `filename.rs`'s `to_js_error`):
+# thrown rejections carry a `.kind` string property alongside the usual
+# `.message`, which plain `wasm_bindgen::JsError` has no slot for. Originally
+# scoped to the wasm32-only target-dependencies below (its sole consumer was
+# the wasm32-gated `deep_denoise_progress.rs`, #1153) — promoted to
+# unconditional because `filename.rs` needs it reachable from HOST-target
+# builds too (its `#[cfg(test)] mod tests` runs as a plain native `#[test]`,
+# same pattern as every other module in this crate — see `id.rs`). Like
+# `wasm-bindgen` itself, the crate compiles fine on any target; only actually
+# *calling* its wasm-bindgen-imported constructors panics off wasm32 (see
+# `filename.rs`'s test module doc), so this adds no host-target risk.
+js-sys = "0.3"
 
 # uuid (pulled in transitively by rawler) needs the `js` feature on
 # wasm32-unknown-unknown to get randomness from WebCrypto.
@@ -32,11 +44,6 @@ thiserror.workspace = true
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 uuid = { version = "1", features = ["js"] }
 getrandom = { version = "0.4", features = ["wasm_js"] }
-# `js_sys::Function` for the BM3D deep-denoise progress callback (#1153):
-# raw-core pushes stage progress into JS, which the render worker
-# re-broadcasts to the editor. Already in the tree transitively via
-# wasm-bindgen-futures / web-sys; this makes it nameable.
-js-sys = "0.3"
 wasm-bindgen-rayon = { version = "1.3", optional = true }
 rayon = { version = "1.10", optional = true }
 # Unconditional: we always want panic messages forwarded to the JS console so
