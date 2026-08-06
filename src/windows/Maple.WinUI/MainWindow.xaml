@@ -366,14 +366,28 @@
                     </Grid.RowDefinitions>
 
                     <Grid Grid.Row="0" x:Name="CanvasHost" SizeChanged="OnCanvasHostSizeChanged">
-                        <Image x:Name="ViewportImage" Stretch="Uniform" Margin="24,72,24,24"
-                               AutomationProperties.Name="Rendered preview canvas" />
-                        <!-- DX12 present target (#2561): the wgpu live chain draws
-                             straight into this panel's composition swapchain; sized
-                             from code to the session's aspect fit. -->
-                        <SwapChainPanel x:Name="ViewportSwapChainPanel" Visibility="Collapsed"
-                                        HorizontalAlignment="Center" VerticalAlignment="Center"
-                                        AutomationProperties.Name="GPU preview canvas" />
+                        <!-- Zoom/pan viewer (#2572): ScrollViewer zoom over both
+                             display paths — fit at factor 1, Ctrl+wheel / pinch /
+                             double-click toggle / Ctrl+0/1/=/- ; drag pans when
+                             zoomed. Zoom resets on navigation per the spec. -->
+                        <ScrollViewer x:Name="ViewerScroll" Margin="16,64,16,16"
+                                      ZoomMode="Enabled" MinZoomFactor="0.4" MaxZoomFactor="8"
+                                      HorizontalScrollBarVisibility="Hidden"
+                                      VerticalScrollBarVisibility="Hidden"
+                                      HorizontalScrollMode="Enabled" VerticalScrollMode="Enabled"
+                                      HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                      DoubleTapped="OnViewerDoubleTapped">
+                            <Grid x:Name="ZoomHost">
+                                <Image x:Name="ViewportImage" Stretch="Uniform"
+                                       AutomationProperties.Name="Rendered preview canvas" />
+                                <!-- DX12 present target (#2561): the wgpu live chain
+                                     draws straight into this panel's composition
+                                     swapchain; sized from code to the session dims. -->
+                                <SwapChainPanel x:Name="ViewportSwapChainPanel" Visibility="Collapsed"
+                                                HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                AutomationProperties.Name="GPU preview canvas" />
+                            </Grid>
+                        </ScrollViewer>
 
                         <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center"
                                     VerticalAlignment="Center"
