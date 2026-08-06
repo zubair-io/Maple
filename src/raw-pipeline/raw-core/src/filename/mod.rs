@@ -26,7 +26,10 @@
 //! dot/space, and both path separators — even on macOS/Linux/Web, because a
 //! template is typically authored once and reused across a whole library
 //! that may later be opened on any OS. See [`validate_filename`] for the
-//! exact rule set.
+//! exact rule set. [`SequenceOptions::pad_width`] is bounded by
+//! [`MAX_SEQUENCE_PAD_WIDTH`] for the same reason a caller-controlled
+//! allocation size is always bounded on a surface reachable from FFI/WASM/
+//! the Self Hosted API — see that constant's doc.
 
 mod date;
 
@@ -69,9 +72,29 @@ pub struct SequenceOptions {
     /// truncated — `pad_width` is a floor, not a cap (matches every real
     /// batch-rename tool: padding exists so `9` sorts before `10`, not to
     /// silently lose digits once a sequence grows past the configured
-    /// width).
+    /// width). Must not exceed [`MAX_SEQUENCE_PAD_WIDTH`]; [`render_filename`]
+    /// rejects a larger value with
+    /// [`FilenameError::SequencePadWidthTooLarge`] rather than performing the
+    /// (potentially huge) allocation `format!("{:0width$}", ...)` would need.
     pub pad_width: usize,
 }
+
+/// Upper bound on [`SequenceOptions::pad_width`].
+///
+/// This engine is reachable from FFI, WASM, and (via the Self Hosted API)
+/// a remote HTTP caller — `pad_width` flows straight into
+/// `format!("{:0width$}", n, width = pad_width)`, so an unbounded caller-
+/// supplied width is a memory-exhaustion vector: a `pad_width` in the
+/// millions forces a multi-megabyte-or-larger allocation per rendered name,
+/// and a batch of such calls can OOM the process on a surface where that is
+/// remotely triggerable. No real filename ever needs more than a handful of
+/// zero-padding digits — a six-figure photo sequence is `999999`, six
+/// digits — so `32` is enormously generous headroom past any legitimate use
+/// while keeping the worst-case allocation trivially small. Rejected
+/// outright rather than silently clamped, matching this module's existing
+/// stance of never silently altering caller intent (see `pad_width`'s own
+/// doc: it never truncates a wider number either).
+pub const MAX_SEQUENCE_PAD_WIDTH: usize = 32;
 
 /// Everything that can go wrong rendering or validating a filename.
 ///
@@ -114,6 +137,12 @@ pub enum FilenameError {
     /// case-insensitively matches a Windows-reserved device name.
     #[error("filename {0:?} is an OS-reserved device name")]
     ReservedName(String),
+    /// [`SequenceOptions::pad_width`] exceeds [`MAX_SEQUENCE_PAD_WIDTH`] —
+    /// see that constant's doc for why this is rejected outright rather than
+    /// silently clamped (a memory-DoS vector on remotely-triggerable
+    /// surfaces).
+    #[error("sequence pad_width {pad_width} exceeds the maximum of {max}")]
+    SequencePadWidthTooLarge { pad_width: usize, max: usize },
 }
 
 impl FilenameError {
@@ -131,6 +160,7 @@ impl FilenameError {
             FilenameError::LeadingDot(_) => "leading_dot",
             FilenameError::TrailingDotOrSpace(_) => "trailing_dot_or_space",
             FilenameError::ReservedName(_) => "reserved_name",
+            FilenameError::SequencePadWidthTooLarge { .. } => "sequence_pad_width_too_large",
         }
     }
 }
@@ -219,6 +249,12 @@ pub fn render_filename(
     inputs: &RenderInputs<'_>,
     sequence: &SequenceOptions,
 ) -> FilenameResult<String> {
+    if sequence.pad_width > MAX_SEQUENCE_PAD_WIDTH {
+        return Err(FilenameError::SequencePadWidthTooLarge {
+            pad_width: sequence.pad_width,
+            max: MAX_SEQUENCE_PAD_WIDTH,
+        });
+    }
     let tokens = parse_template(template)?;
     let mut out = String::new();
     for token in &tokens {
