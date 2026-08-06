@@ -140,10 +140,93 @@ final class LocalFileOperationsRelocateTests: XCTestCase {
                        "the stale occupant's sidecar must be cleared too")
     }
 
-    func testRelocatingToItsOwnPathIsANoopAndNeverDeletesTheOnlyCopy() async throws {
+    /// Matches the TS twin's semantics (`src/api/src/fs/relocate.ts`'s
+    /// `isSameFile` guard, branch feat/api-relocate-primitive-2629): a
+    /// destination that resolves to the exact source path is refused, not
+    /// silently no-op'd — a literal "relocate to itself" request is one
+    /// instance of the same "destination IS the source" hazard as a
+    /// symlink alias (see the tests below), not a distinct case.
+    func testRelocatingToItsOwnExactPathThrowsSameFileAndNeverTouchesIt() async throws {
         let source = FileOperationsTestSupport.write("pixels", to: root.appendingPathComponent("IMG_1.dng"))
-        let outcome = try await LocalFileOperations.relocate(source, to: root, mode: .move)
-        XCTAssertEqual(outcome.primaryPath, source.path)
+        do {
+            _ = try await LocalFileOperations.relocate(source, to: root, mode: .move)
+            XCTFail("expected .sameFile")
+        } catch FileOperationError.sameFile {
+            // expected
+        }
+        XCTAssertTrue(FileOperationsTestSupport.exists(source))
+        XCTAssertEqual(FileOperationsTestSupport.contents(source), "pixels")
+    }
+
+    // MARK: - Same-file guard: symlink alias (confirmed data-loss bug, PR #2676 review)
+
+    /// A destination reached through a symlinked ancestor directory names
+    /// the SAME file as the source even though the paths are lexically
+    /// different. Without the parent-only-symlink-resolved guard,
+    /// `collision: .replace`'s pre-copy removal would delete the source
+    /// THROUGH the alias, and the copy that follows would then fail
+    /// because there's nothing left to read — the source destroyed with no
+    /// replacement ever created.
+    func testReplaceIntoASymlinkAliasOfTheSourceThrowsAndLeavesTheSourceIntact() async throws {
+        let real = root.appendingPathComponent("A")
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        let source = FileOperationsTestSupport.write("pixels", to: real.appendingPathComponent("IMG_1.dng"))
+        let alias = root.appendingPathComponent("Alias")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: real)
+
+        do {
+            _ = try await LocalFileOperations.relocate(source, to: alias, mode: .move, collision: .replace)
+            XCTFail("expected .sameFile")
+        } catch FileOperationError.sameFile {
+            // expected
+        }
+
+        XCTAssertTrue(FileOperationsTestSupport.exists(source), "the source must survive — this is the data-loss bug")
+        XCTAssertEqual(FileOperationsTestSupport.contents(source), "pixels")
+    }
+
+    // MARK: - Case-only rename on a case-insensitive-but-case-preserving filesystem (APFS)
+
+    /// `img.cr3` -> `IMG.CR3` in the same directory: `fileExists` reports
+    /// the target as already occupied (it's the SAME file), so naive
+    /// collision handling would either delete the source (`.replace`) or
+    /// suffix away from the intended name (`.autoSuffix`). The fix routes
+    /// this through a direct atomic `moveItem` instead, bypassing
+    /// collision handling entirely.
+    func testCaseOnlyRenameMoveSucceedsAndTheSidecarFollows() async throws {
+        let source = FileOperationsTestSupport.write("pixels", to: root.appendingPathComponent("img.cr3"))
+        FileOperationsTestSupport.write("<xmp/>", to: SidecarPath.sidecarURL(for: source))
+
+        let outcome = try await LocalFileOperations.relocate(
+            source, to: root, newBasename: "IMG.CR3", mode: .move)
+
+        XCTAssertEqual(URL(fileURLWithPath: outcome.primaryPath).lastPathComponent, "IMG.CR3")
+        XCTAssertEqual(FileOperationsTestSupport.contents(URL(fileURLWithPath: outcome.primaryPath)), "pixels",
+                       "content must survive the rename")
+        // Listable under the NEW casing specifically, not just "some file
+        // exists at a case-insensitive match" — `contentsOfDirectory`
+        // reports the filesystem's STORED casing.
+        let listing = try FileManager.default.contentsOfDirectory(atPath: root.path)
+        XCTAssertTrue(listing.contains("IMG.CR3"), "must be listed under the new casing: \(listing)")
+        XCTAssertFalse(listing.contains("img.cr3"))
+
+        XCTAssertTrue(outcome.sidecarFollowed)
+        let sidecarListing = listing.filter { $0.hasSuffix(".xmp") }
+        XCTAssertTrue(sidecarListing.contains("IMG.xmp"), "sidecar must follow under the new casing: \(sidecarListing)")
+    }
+
+    /// A "copy" to a case-only-different name is refused — the filesystem
+    /// can't represent the source and a same-named-but-differently-cased
+    /// duplicate as two distinct entries, so silently succeeding (or
+    /// silently doing nothing) would misrepresent what happened.
+    func testCaseOnlyRenameCopyIsRefused() async throws {
+        let source = FileOperationsTestSupport.write("pixels", to: root.appendingPathComponent("img.cr3"))
+        do {
+            _ = try await LocalFileOperations.relocate(source, to: root, newBasename: "IMG.CR3", mode: .copy)
+            XCTFail("expected .sameFile")
+        } catch FileOperationError.sameFile {
+            // expected
+        }
         XCTAssertTrue(FileOperationsTestSupport.exists(source))
     }
 
