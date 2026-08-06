@@ -18,8 +18,18 @@ use serde::Deserialize;
 
 const CASES_JSON: &str = include_str!("../../../../../test-fixtures/filename-templates/cases.json");
 
+/// The only `schema_version` this test suite (and, by extension, the #2633
+/// cross-surface harness) currently understands. `cases.json` is about to be
+/// a contract consumed independently by Swift, C#, and TypeScript runners —
+/// a field renamed or reshaped there with nothing asserting the version
+/// would silently desync all three at once instead of failing loudly here
+/// first. Bump this alongside a deliberate, documented schema change; do NOT
+/// bump it just to make a stale corpus compile again.
+const EXPECTED_SCHEMA_VERSION: u32 = 1;
+
 #[derive(Deserialize)]
 struct Corpus {
+    schema_version: u32,
     cases: Vec<Case>,
 }
 
@@ -43,9 +53,31 @@ struct Expected {
 }
 
 #[test]
+fn fixture_corpus_schema_version_matches_expected() {
+    // Deserialized and asserted explicitly (not just parsed and ignored) —
+    // see EXPECTED_SCHEMA_VERSION's doc for why an unnoticed drift here
+    // matters more than an ordinary field: this corpus is a cross-language
+    // contract, not just this crate's own test data.
+    let corpus: Corpus = serde_json::from_str(CASES_JSON).expect(
+        "test-fixtures/filename-templates/cases.json must be valid JSON matching the Case schema",
+    );
+    assert_eq!(
+        corpus.schema_version, EXPECTED_SCHEMA_VERSION,
+        "cases.json's schema_version has changed — update EXPECTED_SCHEMA_VERSION \
+         (and everything that consumes this corpus: raw-core's own deserializer above, \
+         and eventually the #2633 Swift/C#/TypeScript harness runners) as a deliberate, \
+         reviewed step, not by silently bumping this constant to unblock CI"
+    );
+}
+
+#[test]
 fn every_fixture_case_matches_the_reference_implementation() {
     let corpus: Corpus = serde_json::from_str(CASES_JSON).expect(
         "test-fixtures/filename-templates/cases.json must be valid JSON matching the Case schema",
+    );
+    assert_eq!(
+        corpus.schema_version, EXPECTED_SCHEMA_VERSION,
+        "schema_version mismatch — see fixture_corpus_schema_version_matches_expected"
     );
     assert!(!corpus.cases.is_empty(), "fixture corpus must not be empty");
 
