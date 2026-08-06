@@ -43,6 +43,16 @@ public actor PhotoKitSidecarStore: SidecarStoreProtocol {
     private var pendingModel: AdjustmentModel?
     private var pendingCulling: CullingState?
 
+    /// Fields the stored sidecar carried that Maple does not model (#2233).
+    /// Captured on load and held for the lifetime of the session, same
+    /// shape as `CloudSidecarStore.cachedPassthrough` — there is no disk to
+    /// re-read from at write time the way `XMPSidecarStore` does. Without
+    /// this, `writePending()` serialized with the two-argument
+    /// `XMPSerializer.serialize(model:culling:)` overload (implicit
+    /// `passthrough: .empty`), so any unknown/foreign XML content in a
+    /// PhotoKit-backed sidecar was silently dropped on the first edit.
+    private var cachedPassthrough: XMPPassthrough = .empty
+
     private var subscribers: [UInt64: AsyncStream<Error>.Continuation] = [:]
     private var nextSubscriberID: UInt64 = 0
 
@@ -83,6 +93,7 @@ public actor PhotoKitSidecarStore: SidecarStoreProtocol {
         }
         let result = try XMPParser.parse(data: data)
         cached = result
+        cachedPassthrough = XMPParser.parsePassthrough(data: data)
         return result
     }
 
@@ -135,7 +146,8 @@ public actor PhotoKitSidecarStore: SidecarStoreProtocol {
         pendingModel = nil
         pendingCulling = nil
         do {
-            let xml = XMPSerializer.serialize(model: model, culling: culling)
+            let xml = XMPSerializer.serialize(
+                model: model, culling: culling, passthrough: cachedPassthrough)
             try sidecars.write(phassetLocalId: phassetLocalId, xmp: xml)
         } catch {
             for subscriber in subscribers.values {
