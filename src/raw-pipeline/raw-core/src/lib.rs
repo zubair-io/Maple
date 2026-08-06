@@ -86,3 +86,13 @@ pub use api::{decode_raw, read_exif, Exif, ExifGps};
 
 pub mod id;
 pub use id::{blake3_hex, maple_id, FallbackIdHasher, IdKind, MapleId};
+
+/// Batch-rename filename-template engine (#2628, Milestone 23 · File
+/// Management). Pure string logic, no platform deps — shared by `raw-ffi`
+/// (Apple C-FFI + Windows P/Invoke) and `raw-wasm` (Web) so a template
+/// produces byte-identical filenames on every surface.
+pub mod filename;
+pub use filename::{
+    render_filename, validate_filename, FilenameError, FilenameResult, RenderInputs,
+    SequenceOptions,
+};
