@@ -93,6 +93,19 @@ namespace Maple.WinUI.Native
             uint maxPx, byte quality,
             [MarshalAs(UnmanagedType.LPUTF8Str)] string outPath);
 
+        // Multi-format developed export (#2584): raw_core::export behind the
+        // C ABI. format = "jpeg"|"tiff"|"png"; colorSpace = "srgb"|"display-p3";
+        // maxLongEdge 0 = native resolution; quality 0 = default 92 (JPEG only).
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int maple_export_developed_to_file(
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string rawPath,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string? xmpPath,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string format,
+            byte quality,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string colorSpace,
+            uint maxLongEdge,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string outPath);
+
         // --- Histogram: 768 caller-owned u32 bins, channel-major R/G/B ---
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
