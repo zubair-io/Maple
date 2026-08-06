@@ -13,6 +13,9 @@
 // are.
 
 import Foundation
+import OSLog
+
+private let fileOpsLog = Logger(subsystem: "app.justmaple.aperture", category: "LocalFileOperations")
 
 public enum LocalFileOperations {
 
@@ -42,7 +45,9 @@ public enum LocalFileOperations {
     /// Copy (never move) the primary file — and its `.xmp` sidecar, if one
     /// exists — into `destinationDir`, verifying each copy. Nothing is
     /// deleted and the source is untouched no matter how this call ends,
-    /// including when it throws.
+    /// including when it throws. The one exception is a case-only rename
+    /// (see `classifySameFile`), which is performed directly here as an
+    /// atomic move — there is no meaningful "staged copy" for it.
     ///
     /// `async` even though every step is a synchronous local `FileManager`
     /// call — matches `ImageSource`'s shape (`FilesystemSource.rawBytes` is
@@ -61,44 +66,36 @@ public enum LocalFileOperations {
         }
 
         let basename = newBasename ?? sourcePrimaryURL.lastPathComponent
-        var targetURL = destinationDir.appendingPathComponent(basename)
+        let targetURL = destinationDir.appendingPathComponent(basename)
 
-        // Already exactly where it belongs — a genuine no-op. Nothing to
-        // copy, and `finalize` must never delete the only copy of the file.
-        if targetURL.standardizedFileURL.path == sourcePrimaryURL.standardizedFileURL.path {
-            return RelocatePlan(mode: mode, sourcePrimaryPath: sourcePrimaryURL.path,
-                                 sourceSidecarPath: nil, finalPrimaryPath: sourcePrimaryURL.path,
-                                 finalSidecarPath: nil, renamedDueToCollision: false, createdPaths: [])
+        switch classifySameFile(source: sourcePrimaryURL, target: targetURL) {
+        case .identical:
+            throw FileOperationError.sameFile(
+                "destination resolves to the same file as the source: \(sourcePrimaryURL.path)")
+        case .caseOnlyRename:
+            guard mode == .move else {
+                throw FileOperationError.sameFile(
+                    "case-only rename target is the same file as the source on a case-insensitive "
+                    + "filesystem — copy is not meaningful: \(sourcePrimaryURL.path)")
+            }
+            return try performCaseOnlyRename(source: sourcePrimaryURL, target: targetURL)
+        case .different:
+            break
         }
 
         try fm.createDirectory(at: destinationDir, withIntermediateDirectories: true)
-
-        var renamed = false
-        if fm.fileExists(atPath: targetURL.path) {
-            switch collision {
-            case .fail:
-                throw FileOperationError.destinationExists(targetURL.path)
-            case .replace:
-                try removeAssetAndSidecar(at: targetURL)
-            case .autoSuffix:
-                let free = try await CollisionResolver.pickFreePath(targetURL.path) { candidate in
-                    fm.fileExists(atPath: candidate)
-                }
-                targetURL = URL(fileURLWithPath: free)
-                renamed = true
-            }
-        }
+        let (resolvedTargetURL, renamed) = try await resolveCollision(at: targetURL, collision: collision)
 
         var createdPaths: [String] = []
-        try copyVerified(from: sourcePrimaryURL, to: targetURL)
-        createdPaths.append(targetURL.path)
+        try copyVerified(from: sourcePrimaryURL, to: resolvedTargetURL)
+        createdPaths.append(resolvedTargetURL.path)
 
         let sourceSidecarURL = SidecarPath.sidecarURL(for: sourcePrimaryURL)
         var sourceSidecarPath: String?
         var finalSidecarPath: String?
         if fm.fileExists(atPath: sourceSidecarURL.path) {
             sourceSidecarPath = sourceSidecarURL.path
-            let sidecarTargetURL = SidecarPath.sidecarURL(for: targetURL)
+            let sidecarTargetURL = SidecarPath.sidecarURL(for: resolvedTargetURL)
             do {
                 // The primary's target basename was already proven free (or
                 // explicitly replaced) above; an orphan sidecar that
@@ -115,7 +112,7 @@ public enum LocalFileOperations {
                 // A plan either fully succeeds or leaves NO trace — roll
                 // back the primary copy so a caller that sees this throw
                 // never has to guess what's on disk.
-                try? fm.removeItem(at: targetURL)
+                try? fm.removeItem(at: resolvedTargetURL)
                 throw error
             }
             createdPaths.append(sidecarTargetURL.path)
@@ -124,7 +121,7 @@ public enum LocalFileOperations {
 
         return RelocatePlan(mode: mode, sourcePrimaryPath: sourcePrimaryURL.path,
                              sourceSidecarPath: sourceSidecarPath,
-                             finalPrimaryPath: targetURL.path, finalSidecarPath: finalSidecarPath,
+                             finalPrimaryPath: resolvedTargetURL.path, finalSidecarPath: finalSidecarPath,
                              renamedDueToCollision: renamed, createdPaths: createdPaths)
     }
 
@@ -132,8 +129,13 @@ public enum LocalFileOperations {
     /// thumb/preview caches at the OLD location, and best-effort refresh
     /// the `LibraryIndex` entries. Every step here is best-effort: per the
     /// design doc, "a copy-succeeded-but-delete-failed leaves a duplicate,
-    /// never data loss," so a failure here is logged, never thrown — the
-    /// plan already committed a verified, correct copy at the destination.
+    /// never data loss" — a failure is logged (`fileOpsLog`), never thrown,
+    /// since the plan already committed a verified, correct copy at the
+    /// destination. A no-op for a case-only rename (`isNoop`): that already
+    /// did everything inside `planRelocate`, and re-touching
+    /// `sourcePrimaryPath` here would delete the file that was just renamed
+    /// (on a case-insensitive filesystem the old-cased path still resolves
+    /// to it).
     @discardableResult
     public static func finalizeRelocate(_ plan: RelocatePlan) async -> RelocateOutcome {
         let outcome = RelocateOutcome(
@@ -141,27 +143,131 @@ public enum LocalFileOperations {
             renamedDueToCollision: plan.renamedDueToCollision,
             sidecarFollowed: plan.finalSidecarPath != nil
         )
-        guard !plan.isNoop else { return outcome }
+        guard !plan.isNoop, plan.mode == .move else { return outcome }
 
-        if plan.mode == .move {
-            let fm = FileManager.default
-            try? fm.removeItem(atPath: plan.sourcePrimaryPath)
-            if let sourceSidecarPath = plan.sourceSidecarPath {
-                try? fm.removeItem(atPath: sourceSidecarPath)
-            }
-            invalidateDerivedCaches(forOldPrimaryPath: plan.sourcePrimaryPath)
-            await refreshLibraryIndexAfterMove(plan)
+        let fm = FileManager.default
+        do {
+            try fm.removeItem(atPath: plan.sourcePrimaryPath)
+        } catch {
+            fileOpsLog.error(
+                "finalizeRelocate: source primary unlink failed after a verified copy — a duplicate is left on disk (\(plan.sourcePrimaryPath, privacy: .public)): \(error.localizedDescription, privacy: .public)")
         }
+        if let sourceSidecarPath = plan.sourceSidecarPath {
+            do {
+                try fm.removeItem(atPath: sourceSidecarPath)
+            } catch {
+                fileOpsLog.error(
+                    "finalizeRelocate: source sidecar unlink failed after a verified copy (\(sourceSidecarPath, privacy: .public)): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        invalidateDerivedCaches(forOldPrimaryPath: plan.sourcePrimaryPath)
+        await refreshLibraryIndexAfterMove(plan)
         return outcome
     }
 
     /// Undo a plan that will never be finalized — removes the staged
     /// copies, leaving the source (and everything else) exactly as it was
-    /// before `planRelocate` ran.
+    /// before `planRelocate` ran. Not applicable to a case-only rename
+    /// (`sourceAlreadyRelocated`) — that has no staged copies to revert;
+    /// undoing it would mean renaming back, which a caller that actually
+    /// needs that can do by calling `planRelocate` again in reverse.
     public static func revertPlan(_ plan: RelocatePlan) {
         for path in plan.createdPaths {
             try? FileManager.default.removeItem(atPath: path)
         }
+    }
+
+    // MARK: - Same-file / case-only-rename guard
+
+    /// Resolve `url`'s PARENT directory through any symlinks
+    /// (`resolvingSymlinksInPath()`), then rejoin `url`'s ORIGINAL
+    /// (unresolved) last path component literally. Deliberately does NOT
+    /// resolve the full path — see `classifySameFile`'s doc comment for
+    /// why resolving the basename too would break case-only-rename
+    /// detection.
+    static func canonicalParent(_ url: URL) -> URL {
+        url.deletingLastPathComponent().resolvingSymlinksInPath()
+    }
+
+    /// Classifies whether `source` and `target` name the same on-disk
+    /// location — directly, or through a symlinked ancestor directory —
+    /// versus merely differing in case (a legitimate rename on a
+    /// case-insensitive-but-case-preserving filesystem like APFS) versus
+    /// genuinely different locations.
+    ///
+    /// The load-bearing property this protects: a relocate must never
+    /// delete the only copy of a file. `collision: .replace`'s
+    /// `removeAssetAndSidecar` runs BEFORE the copy — if the destination
+    /// resolves to the source (directly, or via a symlink alias), that
+    /// remove deletes the source itself, and the copy that follows then
+    /// fails because there's nothing left to read.
+    ///
+    /// Resolving only the PARENT directory (never the basename) is
+    /// deliberate: `resolvingSymlinksInPath()` on a case-insensitive
+    /// filesystem resolves a query that differs only in case to the file's
+    /// STORED casing, so resolving the full path (basename included) would
+    /// make `IMG.CR3` and `img.cr3` compare equal whenever either already
+    /// exists — collapsing a legitimate case-only rename into "same file"
+    /// and wrongly refusing it. Resolving only the directory sidesteps
+    /// that: two paths differing solely in basename case still compare
+    /// literally unequal, while a symlinked PARENT is still caught (its
+    /// target is resolved before the basename is reattached).
+    static func classifySameFile(source: URL, target: URL) -> SameFileClassification {
+        let sourceParent = canonicalParent(source).standardizedFileURL.path
+        let targetParent = canonicalParent(target).standardizedFileURL.path
+        guard sourceParent == targetParent else { return .different }
+
+        let sourceBase = source.lastPathComponent
+        let targetBase = target.lastPathComponent
+        if sourceBase == targetBase { return .identical }
+        if sourceBase.caseInsensitiveCompare(targetBase) == .orderedSame { return .caseOnlyRename }
+        return .different
+    }
+
+    /// The ONE relocate shape that bypasses copy-verify-delete AND
+    /// collision handling entirely: on a case-insensitive-but-case-
+    /// preserving filesystem, a case-only rename's source and target are
+    /// the SAME underlying file. `FileManager.moveItem` (a single atomic
+    /// `rename(2)`) is what the OS itself uses to update just the stored
+    /// casing — a copy would copy the file onto itself, and
+    /// `fileExists`-keyed collision handling would treat the source as
+    /// "occupying" its own destination. Does its own cache/index cleanup
+    /// inline (there is no separate `finalize` step for an already-atomic
+    /// rename — see `RelocatePlan.sourceAlreadyRelocated`). Throws (leaving
+    /// the source untouched — `moveItem` either fully succeeds or doesn't
+    /// touch anything) if the rename itself fails, e.g. a permissions
+    /// error; a failed rename is a genuine failure the caller must see, not
+    /// a silent no-op.
+    private static func performCaseOnlyRename(source: URL, target: URL) throws -> RelocatePlan {
+        let fm = FileManager.default
+        let sourceSidecarURL = SidecarPath.sidecarURL(for: source)
+        let hadSidecar = fm.fileExists(atPath: sourceSidecarURL.path)
+
+        try fm.moveItem(at: source, to: target)
+
+        var finalSidecarPath: String?
+        var sourceSidecarPath: String?
+        if hadSidecar {
+            let targetSidecarURL = SidecarPath.sidecarURL(for: target)
+            sourceSidecarPath = sourceSidecarURL.path
+            // Best-effort, matching `moveSidecarsAlongside`'s "RAW moved,
+            // sidecar left in place" contract — the primary rename above is
+            // already complete and safe (an atomic rename has no partial
+            // state to revert), so a sidecar rename failure doesn't unwind
+            // it.
+            do {
+                try fm.moveItem(at: sourceSidecarURL, to: targetSidecarURL)
+            } catch {
+                fileOpsLog.error("performCaseOnlyRename: sidecar moveItem failed (\(sourceSidecarURL.path, privacy: .public)): \(error.localizedDescription, privacy: .public)")
+            }
+            finalSidecarPath = fm.fileExists(atPath: targetSidecarURL.path) ? targetSidecarURL.path : nil
+        }
+
+        let plan = RelocatePlan(mode: .move, sourcePrimaryPath: source.path, sourceSidecarPath: sourceSidecarPath,
+                                 finalPrimaryPath: target.path, finalSidecarPath: finalSidecarPath,
+                                 renamedDueToCollision: false, createdPaths: [], sourceAlreadyRelocated: true)
+        invalidateDerivedCaches(forOldPrimaryPath: source.path)
+        return plan
     }
 
     // MARK: - Copy + verify
@@ -219,6 +325,30 @@ public enum LocalFileOperations {
     }
 
     // MARK: - Collision helpers
+
+    /// Resolve a collision at `targetURL` per `collision`, returning the
+    /// (possibly suffixed) final URL and whether a suffix was applied. A
+    /// pure computation for `.fail`/`.autoSuffix`; `.replace` performs the
+    /// actual removal as a side effect (it has to happen here, before the
+    /// copy that follows, rather than being deferred to the caller).
+    private static func resolveCollision(
+        at targetURL: URL, collision: CollisionPolicy
+    ) async throws -> (url: URL, renamed: Bool) {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: targetURL.path) else { return (targetURL, false) }
+        switch collision {
+        case .fail:
+            throw FileOperationError.destinationExists(targetURL.path)
+        case .replace:
+            try removeAssetAndSidecar(at: targetURL)
+            return (targetURL, false)
+        case .autoSuffix:
+            let free = try await CollisionResolver.pickFreePath(targetURL.path) { candidate in
+                fm.fileExists(atPath: candidate)
+            }
+            return (URL(fileURLWithPath: free), true)
+        }
+    }
 
     /// Remove `url` and its sidecar (if any), best-effort on the sidecar
     /// (matching `moveSidecarsAlongside`'s "RAW move is authoritative, a
