@@ -9,6 +9,16 @@ import UIKit
 @MainActor
 @Observable
 final class FileProviderSettingsModel {
+    /// Singleton — shared by `FileProviderSettingsView` (macOS),
+    /// `FileProviderSettingsViewIOS`, and `MapleApp`'s foreground-refresh
+    /// hook, so a failure surfaced by one has somewhere to be observed.
+    /// A throwaway `FileProviderSettingsModel()` per call site meant the
+    /// foreground refresh set `statusMessage` on an instance nobody held a
+    /// reference to — the object was deallocated at the end of the `Task`
+    /// and the failure silently vanished, despite the (now-stale) claim
+    /// that it "surfaces in the in-app status banner" (#2539).
+    static let shared = FileProviderSettingsModel()
+
     /// Active File Provider domains.
     var domains: [NSFileProviderDomain] = []
     var statusMessage: String? = nil
@@ -110,7 +120,10 @@ final class FileProviderSettingsModel {
 
 #if os(macOS)
 struct FileProviderSettingsView: View {
-    @State private var model = FileProviderSettingsModel()
+    // Shared singleton (see `FileProviderSettingsModel.shared`) so the
+    // MapleApp foreground-refresh hook's failures land somewhere this view
+    // observes, instead of on a throwaway instance nobody watches (#2539).
+    @State private var model = FileProviderSettingsModel.shared
     @State private var registry = CloudServerRegistry.shared
 
     var body: some View {
