@@ -130,9 +130,17 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         // URL (correct immediately) and swaps to the LAN address, if any, once
         // resolution completes — every request issued before then simply
         // goes out over the identity URL, matching today's behavior.
-        Task { [catalog] in
+        //
+        // `changeFeed` gets the same swap (#2533) — its SSE connection was
+        // pinned to the identity URL forever, unlike every other request
+        // type, because nothing ever re-pointed it. The in-flight SSE
+        // socket (if any) isn't torn down; the new address takes effect on
+        // the client's next reconnect, same as `catalog`'s swap takes
+        // effect on its next request.
+        Task { [catalog, changeFeed = self.changeFeed] in
             let effective = await LocalNetworkResolving.resolveEffectiveURL(identity: cfg.serverURL)
             await catalog.updateServer(effective)
+            changeFeed?.updateServer(effective)
         }
         let hasTokens = (try? TokenStore.load(server: cfg.serverURL)) != nil
         log.notice("init domain=\(domain.identifier.rawValue, privacy: .public) serverURL=\(cfg.serverURL.absoluteString, privacy: .public) hasTokens=\(hasTokens, privacy: .public) device=\(resolvedDeviceName, privacy: .public)")
