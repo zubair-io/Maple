@@ -63,7 +63,11 @@ struct RamdiskFixture {
     process.arguments = arguments
     let pipe = Pipe()
     process.standardOutput = pipe
-    process.standardError = Pipe()
+    // Discard rather than pipe-and-never-read: an unread stderr `Pipe()`
+    // can deadlock if the child writes enough to fill the OS pipe buffer
+    // (it blocks on the write while this process blocks on
+    // `readDataToEndOfFile()` for stdout) — jules review.
+    process.standardError = FileHandle.nullDevice
     do {
       try process.run()
     } catch {
