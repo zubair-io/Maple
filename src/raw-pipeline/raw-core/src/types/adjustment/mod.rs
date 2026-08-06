@@ -249,6 +249,19 @@ pub struct AdjustmentModel {
     pub grain_size: f32,      // 0..100, default 25
     pub grain_roughness: f32, // 0..100, default 50
 
+    /// Film emulation look id from the film catalog (film design
+    /// 2026-08-06, epic #2683) — selects a baked `.mlut` grade
+    /// (`raw_core::film`) applied after grain. Empty (default) = none;
+    /// the stage is a no-op. An id the catalog doesn't recognise resolves
+    /// as identity at render time rather than erroring the parse, so a
+    /// sidecar authored against a newer catalog still opens. XMP key
+    /// `papp:FilmLook`.
+    pub film_look: String, // default "" (none)
+    /// Film look blend strength in percent; 100 (default) = full look,
+    /// lerped in display-linear against the pre-look value. Meaningless
+    /// while `film_look` is empty. XMP key `papp:FilmStrength`.
+    pub film_strength: f32, // 0..100, default 100
+
     // Colour grading (#275): display-linear Oklab three-zone tint,
     // `stages::color_grade`. Supersedes split toning (#1111) the way
     // Lightroom's Color Grading panel superseded the Split Toning panel —
