@@ -20,23 +20,26 @@
  *   DELETE /api/assets/:id/xmp                    — delete XMP sidecar
  *   DELETE /api/assets/:id                        — trash / purge
  *   POST   /api/assets/:id/restore                — restore from trash
+ *   POST   /api/assets/:id/relocate                — generic move/copy (#2629)
  *   PUT    /api/assets/:id/place                  — manual place override
  *   PUT    /api/assets/:id/description            — manual caption override
  *   POST   /api/assets/:id/enrichment/requeue     — per-stage requeue
  */
 
-import { Elysia } from 'elysia';
-import { metadataRoutes } from './metadata.ts';
-import { xmpRoutes } from './xmp.ts';
-import { trashRoutes } from './trash.ts';
-import { overrideRoutes } from './overrides.ts';
-import { enrichmentRoutes } from './enrichment.ts';
-import { histogramRoutes } from './histogram.ts';
+import { Elysia } from "elysia";
+import { metadataRoutes } from "./metadata.ts";
+import { xmpRoutes } from "./xmp.ts";
+import { trashRoutes } from "./trash.ts";
+import { relocateRoutes } from "./relocate.ts";
+import { overrideRoutes } from "./overrides.ts";
+import { enrichmentRoutes } from "./enrichment.ts";
+import { histogramRoutes } from "./histogram.ts";
 
-export const assetsRoutes = new Elysia({ prefix: '/api/assets' })
+export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
   .use(metadataRoutes)
   .use(histogramRoutes)
   .use(xmpRoutes)
   .use(trashRoutes)
+  .use(relocateRoutes)
   .use(overrideRoutes)
   .use(enrichmentRoutes);
