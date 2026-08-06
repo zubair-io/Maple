@@ -256,7 +256,9 @@ if let Some(lut) = film_lut {
 - [ ] **Step 4: Run** `cargo test -p raw-core --lib` → PASS. Then the no-op regression proof: `FILTER=baseline src/scripts/test_color_pipeline.sh` → identical numbers to a pre-change run (fixtures present locally; if absent, skip-pass is acceptable for the task but the phase-1 PR checklist requires a machine with fixtures).
 - [ ] **Step 5: Commit:** `git add src/raw-pipeline/raw-core/src/pipeline && git commit -m "feat(raw-core): film_look render stage between color_grade and grain (#<epic>)"`
 
----### Task 5: `maple-cli film-pack` ingest + committed `.mlut` pack + generated catalog
+---
+
+### Task 5: `maple-cli film-pack` ingest + committed `.mlut` pack + generated catalog
 
 **Files:**
 
