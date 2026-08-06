@@ -293,6 +293,11 @@ namespace Maple.WinUI.Services
             DecodedImage image, AdjustmentState state, IntPtr panel, ulong generation)
         {
             var p = MapleGpuLiveParams.From(state, image);
+            // Point tone curves (#2576): flat knot pairs, borrowed for the call.
+            var curveLuma = RenderEngine.FlattenCurve(state.ToneCurveLuma);
+            var curveRed = RenderEngine.FlattenCurve(state.ToneCurveRed);
+            var curveGreen = RenderEngine.FlattenCurve(state.ToneCurveGreen);
+            var curveBlue = RenderEngine.FlattenCurve(state.ToneCurveBlue);
             // The whole FFI call runs under the gate: SetImage (decode thread)
             // frees the session handle via maple_gpu_live_close, and a present
             // against a freed handle box is use-after-free. The native side's
@@ -305,8 +310,20 @@ namespace Maple.WinUI.Services
                 fixed (float* noisePtr = image.NoiseProfile)
                 fixed (float* curvePtr = image.ProfileCurve)
                 fixed (float* residualPtr = image.ResidualLut)
+                fixed (float* tcLuma = curveLuma)
+                fixed (float* tcRed = curveRed)
+                fixed (float* tcGreen = curveGreen)
+                fixed (float* tcBlue = curveBlue)
                 fixed (MapleGpuLiveSession* handle = &_gpuSession)
                 {
+                    p.tone_curve_luma_ptr = tcLuma;
+                    p.tone_curve_luma_len = (nuint)curveLuma.Length;
+                    p.tone_curve_red_ptr = tcRed;
+                    p.tone_curve_red_len = (nuint)curveRed.Length;
+                    p.tone_curve_green_ptr = tcGreen;
+                    p.tone_curve_green_len = (nuint)curveGreen.Length;
+                    p.tone_curve_blue_ptr = tcBlue;
+                    p.tone_curve_blue_len = (nuint)curveBlue.Length;
                     if (image.NoiseProfile.Length > 0)
                     {
                         p.noise_profile_ptr = noisePtr;
@@ -404,12 +421,19 @@ namespace Maple.WinUI.Services
 
         private static uint[] ComputeHistogram(byte[] bgra)
         {
-            var bins = new uint[768];
+            // [0..767] R/G/B (HistogramView), [768..1023] Rec.709 luma — the
+            // tone-curve plot's backdrop (#2576), truncated-int per pixel like
+            // the web's computeRgbHistograms.
+            var bins = new uint[1024];
             for (var i = 0; i < bgra.Length; i += 4)
             {
-                bins[bgra[i + 2]]++;          // R
-                bins[256 + bgra[i + 1]]++;    // G
-                bins[512 + bgra[i]]++;        // B
+                var r = bgra[i + 2];
+                var g = bgra[i + 1];
+                var b = bgra[i];
+                bins[r]++;
+                bins[256 + g]++;
+                bins[512 + b]++;
+                bins[768 + (int)(0.2126 * r + 0.7152 * g + 0.0722 * b)]++;
             }
             return bins;
         }

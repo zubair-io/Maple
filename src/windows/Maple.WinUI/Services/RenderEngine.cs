@@ -191,17 +191,40 @@ namespace Maple.WinUI.Services
                 model, image.DecodedTemperature, image.DecodedTint, image.Iso);
             ApplyWbFrame(ref p, image.WbFrame);
 
+            // Point tone curves (#2576) ride a sibling struct — the scalar
+            // params ABI can't carry variable-length knot lists.
+            var curveLuma = FlattenCurve(model.ToneCurveLuma);
+            var curveRed = FlattenCurve(model.ToneCurveRed);
+            var curveGreen = FlattenCurve(model.ToneCurveGreen);
+            var curveBlue = FlattenCurve(model.ToneCurveBlue);
+
             fixed (float* inPtr = image.Pixels)
             fixed (float* outPtr = chainScratch)
             fixed (float* noisePtr = image.NoiseProfile)
+            fixed (float* lumaPtr = curveLuma)
+            fixed (float* redPtr = curveRed)
+            fixed (float* greenPtr = curveGreen)
+            fixed (float* bluePtr = curveBlue)
             {
                 if (image.NoiseProfile.Length > 0)
                 {
                     p.noise_profile_ptr = noisePtr;
                     p.noise_profile_len = (uint)image.NoiseProfile.Length;
                 }
-                var rc = RawFfi.maple_apply_chain_and_encode_display_f32(
-                    inPtr, (uint)image.Width, (uint)image.Height, &p, outPtr);
+                var curves = new MapleToneCurves
+                {
+                    luma_ptr = lumaPtr,
+                    luma_len = (nuint)curveLuma.Length,
+                    red_ptr = redPtr,
+                    red_len = (nuint)curveRed.Length,
+                    green_ptr = greenPtr,
+                    green_len = (nuint)curveGreen.Length,
+                    blue_ptr = bluePtr,
+                    blue_len = (nuint)curveBlue.Length,
+                    mode = model.ToneCurveMode == ToneCurveMode.RatioPreserving ? 1u : 0u,
+                };
+                var rc = RawFfi.maple_apply_chain_and_encode_display_curves_f32(
+                    inPtr, (uint)image.Width, (uint)image.Height, &p, &curves, outPtr);
                 if (rc != 0)
                     throw new InvalidOperationException(
                         $"per-tick chain failed (rc={rc}): {RawFfi.LastError() ?? "unknown"}");
@@ -220,6 +243,22 @@ namespace Maple.WinUI.Services
                 bgraOut[o + 2] = ToByte(src[i]);
                 bgraOut[o + 3] = 255;
             }
+        }
+
+        /// <summary>Flatten a knot list to the FFI wire form: [x0,y0,x1,y1,...]
+        /// f32 pairs. Empty list (the identity) flattens to an empty array,
+        /// which both FFI surfaces read as "no curve".</summary>
+        public static float[] FlattenCurve(List<CurvePoint> points)
+        {
+            if (points.Count == 0)
+                return Array.Empty<float>();
+            var flat = new float[points.Count * 2];
+            for (var i = 0; i < points.Count; i++)
+            {
+                flat[i * 2] = (float)points[i].X;
+                flat[i * 2 + 1] = (float)points[i].Y;
+            }
+            return flat;
         }
 
         /// <summary>Fit the per-image Auto Profile tail (cached natively per

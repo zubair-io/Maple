@@ -51,6 +51,7 @@ namespace Maple.WinUI
                 {
                     _lastHistogramBins = bins;
                     HistogramView.Draw(HistogramCanvas, bins);
+                    UpdateCurveHistogram();
                 });
             ViewModel.Renderer.GpuUnavailable += reason =>
             {
@@ -102,6 +103,14 @@ namespace Maple.WinUI
             };
             BuildStarRow();
             BuildEditRail();
+            BuildGradePanel();
+            CurvePlot.PointsChanged += OnCurvePointsChanged;
+            ViewModel.ModelSynced += () =>
+            {
+                SyncGradeWheels();
+                if (_activeGroup == "Tone Curve")
+                    RefreshCurvePlot();
+            };
             HookViewerPan();
             // Wire the grouped grid source only after the chrome exists —
             // setting Source synchronously raises the grid's first selection.
@@ -320,6 +329,7 @@ namespace Maple.WinUI
                 ViewModel.LastRenderMillis = millis;
                 _lastHistogramBins = bins;
                 HistogramView.Draw(HistogramCanvas, bins);
+                UpdateCurveHistogram();
             });
         }
 
