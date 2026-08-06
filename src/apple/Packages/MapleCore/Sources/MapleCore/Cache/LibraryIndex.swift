@@ -46,10 +46,12 @@ public struct LibraryIndex: Codable, Sendable {
 
 /// Actor that manages reading/writing the folder-level LibraryIndex JSON.
 public actor LibraryIndexStore {
+    private let folderURL: URL
     private let indexURL: URL
     private var index: LibraryIndex?
 
     public init(folderURL: URL) {
+        self.folderURL = folderURL
         let mapleDir = folderURL.appendingPathComponent(".maple")
         self.indexURL = mapleDir.appendingPathComponent("index.json")
         try? FileManager.default.createDirectory(at: mapleDir, withIntermediateDirectories: true)
@@ -72,11 +74,30 @@ public actor LibraryIndexStore {
 
     public func updateEntry(name: String, culling: CullingState, mtime: Date? = nil) throws {
         if index == nil { _ = try? load() }
+        // A folder with no `index.json` yet (never browsed/culled before,
+        // or its whole entry set was just relocated away) has no index to
+        // load — without this, `index` stays nil and the write below
+        // silently no-ops (both `index?.entries[...] =` and `save()`'s
+        // `guard var idx = index else { return }` are no-ops on nil).
+        if index == nil { index = LibraryIndex(folderURL: folderURL) }
         var entry = index?.entries[name] ?? LibraryIndex.LibraryEntry(name: name)
         entry.stars = culling.stars
         entry.flag = culling.flag.rawValue
         if let mtime { entry.mtime = mtime }
         index?.entries[name] = entry
+        try save()
+    }
+
+    // MARK: - Remove entry
+
+    /// Drop `name`'s entry, if any (issue #2631: after a relocate moves a
+    /// file out of this folder, its old entry here is stale — filename keys
+    /// aren't repointed, only removed/re-added). A no-op when there's no
+    /// index on disk yet or the name was never present.
+    public func removeEntry(named name: String) throws {
+        if index == nil { _ = try? load() }
+        guard index != nil else { return }
+        index?.entries.removeValue(forKey: name)
         try save()
     }
 
