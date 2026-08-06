@@ -1,7 +1,7 @@
 // adjustment-groups.ts — copy / paste / sync group-patch builder (#944).
 //
 // `ADJUSTMENT_GROUPS` (generated from raw-core's single-source-of-truth
-// group→field table, `adjustment-model.generated.ts`) lists each group's
+// group→field table, `adjustment-tables.generated.ts`) lists each group's
 // canonical snake_case field names. `buildGroupPatch` turns a SOURCE
 // `AdjustmentModel` plus a set of selected group ids into the
 // `Partial<AdjustmentModel>` patch that copy / paste / sync writes onto a
@@ -36,20 +36,25 @@
 //     copied as a fresh object so the patch never aliases the source's
 //     live `Crop`.
 import {
-  ADJUSTMENT_GROUPS,
   defaultGeneratedAdjustmentModel,
-  type AdjustmentGroupId,
-  type AdjustmentGroupSpec,
   type GeneratedAdjustmentModel,
 } from '../../generated/adjustment-model.generated';
+// Copy/paste group tables live in the sibling generated file (#2683 — split
+// out to keep both generated files well under the file-size budget as the
+// schema grows).
+import {
+  ADJUSTMENT_GROUPS,
+  type AdjustmentGroupId,
+  type AdjustmentGroupSpec,
+} from '../../generated/adjustment-tables.generated';
 import type { AdjustmentModel } from '../../models/adjustment-model';
 import { buildApplyPatch, camelToSnakeField, type PresetFields } from '../presets/preset-model';
 
 export type {
   AdjustmentGroupId,
   AdjustmentGroupSpec,
-} from '../../generated/adjustment-model.generated';
-export { ADJUSTMENT_GROUPS } from '../../generated/adjustment-model.generated';
+} from '../../generated/adjustment-tables.generated';
+export { ADJUSTMENT_GROUPS } from '../../generated/adjustment-tables.generated';
 
 /** Every group id, in the order the selective-paste UI presents them. */
 export const ALL_ADJUSTMENT_GROUP_IDS: readonly AdjustmentGroupId[] = ADJUSTMENT_GROUPS.map(

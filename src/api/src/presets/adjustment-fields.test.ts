@@ -11,10 +11,11 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import {
-  ADJUSTMENT_RANGES,
-  defaultGeneratedAdjustmentModel,
-} from '../../../web/projects/maple-common/src/lib/generated/adjustment-model.generated.ts';
+import { defaultGeneratedAdjustmentModel } from '../../../web/projects/maple-common/src/lib/generated/adjustment-model.generated.ts';
+// Ranges live in the sibling generated file (#2683 — split out of
+// adjustment-model.generated.ts to keep both generated files well under
+// the file-size budget as the schema grows).
+import { ADJUSTMENT_RANGES } from '../../../web/projects/maple-common/src/lib/generated/adjustment-tables.generated.ts';
 import { NUMERIC_FIELD_RANGES, STRING_FIELDS } from './adjustment-fields.ts';
 
 /** camelCase → snake_case, the mechanical mapping between the generated
