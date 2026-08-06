@@ -28,9 +28,12 @@ const MEASURED_TICKS = 16;
 const SLIDER_MEAN_BUDGET_MS = 16;
 const SLIDER_P95_BUDGET_MS = 35;
 const SLIDER_HARD_BUDGET_MS = 50;
-// Temporary Chromium serial-mode ratchet for the real 22MP test_0006.DNG.
-// #2516 restores safe Rayon and must lower this ceiling with browser evidence.
-const SERIAL_SESSION_OPEN_HARD_BUDGET_MS = 30_000;
+// #2516: Chromium restored to threaded Rayon (8 workers). Historical
+// exact-main threaded 22MP session-open evidence (PR#2517, before #2515
+// forced Chromium serial): 5777.36 / 4856.75 / 4808.53 ms across 3 runs.
+// This hard budget carries margin above that baseline for CI variance —
+// ratchet down only with fresh browser evidence, same rule as before.
+const THREADED_SESSION_OPEN_HARD_BUDGET_MS = 10_000;
 const COLD_PREVIEW_P95_BUDGET_MS = 1_000;
 const WARM_PREVIEW_MEDIAN_BUDGET_MS = 35;
 
@@ -148,7 +151,7 @@ test('Hosted cold embedded preview and warm .maple preview meet the open budgets
   });
 });
 
-test('Hosted keeps Chromium CPU work serial and renders live WebGPU slider ticks inside hard budgets', async ({
+test('Hosted restores threaded Chromium CPU work and renders live WebGPU slider ticks inside hard budgets', async ({
   page,
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'chrome-hosted');
@@ -171,14 +174,17 @@ test('Hosted keeps Chromium CPU work serial and renders live WebGPU slider ticks
   await expect.poll(() => page.evaluate(() => crossOriginIsolated)).toBe(true);
   expect(await page.evaluate(() => navigator.userAgent)).toContain('Chrome/');
   const editorUiMs = Date.now() - decodeStartedAt;
-  await expect.poll(() => workerStatus(page)).toEqual({ threaded: false, threads: 1 });
+  // #2516: the #2515 growth race is closed by `prepare_threaded_heap`
+  // (raw-wasm-init.ts) reserving heap BEFORE any Rayon worker isolate
+  // exists, so Chromium threads again — same as every other safe runtime.
+  await expect.poll(() => workerStatus(page)).toEqual({ threaded: true, threads: 8 });
   const status = await workerStatus(page);
-  expect(rayonHelperRequests, 'Chromium must not initialize a Rayon helper').toEqual([]);
+  expect(rayonHelperRequests, 'Chromium must initialize the Rayon helper').not.toEqual([]);
   const worker = await rawWorker(page, observedWorkers);
   const fullDecodeMs = Date.now() - decodeStartedAt;
   const sessionOpenMs = await sessionOpenDuration(worker);
   expect(sessionOpenMs).toBeGreaterThan(0);
-  expect(sessionOpenMs).toBeLessThanOrEqual(SERIAL_SESSION_OPEN_HARD_BUDGET_MS);
+  expect(sessionOpenMs).toBeLessThanOrEqual(THREADED_SESSION_OPEN_HARD_BUDGET_MS);
 
   const canvas = page.locator('canvas[data-gpu-live]');
   await expect(canvas).toBeVisible({ timeout: 90_000 });
@@ -279,9 +285,12 @@ test('Hosted visibly falls back without WebGPU and still renders, edits, and res
     expect(await page.evaluate(() => navigator.userAgent)).toContain('Chrome/');
     await expect(page.getByText(/reduced-performance path/i)).toBeVisible({ timeout: 90_000 });
     await expect(page.getByRole('slider', { name: 'Exposure' })).toBeVisible({ timeout: 90_000 });
-    await expect.poll(() => workerStatus(page)).toEqual({ threaded: false, threads: 1 });
+    // #2516: the no-WebGPU CPU fallback is exactly the path most exposed to
+    // the #2515 growth race (it's the heaviest CPU user), so it's the most
+    // important one to prove threads safely now.
+    await expect.poll(() => workerStatus(page)).toEqual({ threaded: true, threads: 8 });
     const status = await workerStatus(page);
-    expect(rayonHelperRequests, 'Chromium must not initialize a Rayon helper').toEqual([]);
+    expect(rayonHelperRequests, 'Chromium must initialize the Rayon helper').not.toEqual([]);
 
     const fallbackCanvas = page.locator('.canvas-wrap > canvas:not([data-gpu-live])');
     await expect(fallbackCanvas).toBeVisible();
