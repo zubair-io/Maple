@@ -8,7 +8,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
-    Title="Maple — Professional RAW Photo Editor">
+    Title="Maple Aperture">
 
     <Grid Background="{StaticResource MapleBg}" KeyboardAcceleratorPlacementMode="Hidden">
 
