@@ -127,10 +127,13 @@ Folder switching uses a generation counter: every `await` boundary re-checks the
 
 All edits are non-destructive; the original file is never modified. The adjustment model serializes to an XMP sidecar using the `crs:` (Camera Raw Settings) namespace for Adobe-compatible fields, plus `papp:` for Maple-specific data (`papp:Profile`, `papp:Brightness`, `papp:AutoExposure`, ratings, flags, labels). The schema is versioned and passthrough XML preserves unknown fields byte-for-byte. The Swift and TypeScript writers are validated against the same schema.
 
-| Asset source            | Sidecar location                           |
-| ----------------------- | ------------------------------------------ |
-| Local filesystem        | Sibling `.xmp` file next to the original   |
-| SMB network share       | Sibling `.xmp` file on the share           |
-| Apple Photos (PhotoKit) | App Support directory, keyed by asset UUID |
+| Asset source              | Sidecar location                                                       |
+| ------------------------- | ---------------------------------------------------------------------- |
+| Local filesystem          | Sibling `.xmp` file next to the original                               |
+| SMB network share         | Sibling `.xmp` file on the share                                       |
+| Apple Photos (PhotoKit)   | App Support directory, keyed by asset UUID                             |
+| Cloud (Maple Self Hosted) | Server-side, via `GET`/`PUT /api/assets/:id/xmp` (`CloudSidecarStore`) |
+
+These four — `FilesystemSource`, `SMBSource`, `PhotoKitSource`, `CloudSource` (`Sources/ImageSource.swift`) — are the adapters declared for release; the cross-adapter transaction contract suite (#2431) drives the same versioned vector format through all four.
 
 The sidecar is the contract; the pixels are derived. See [`xmp-canonical-format.md`](./xmp-canonical-format.md).
