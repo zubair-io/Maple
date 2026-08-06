@@ -20,6 +20,11 @@
     <!-- Built from the canonical icon set (src/apple/.../AppIcon.appiconset)
          — regenerate with a multi-size repack if the artwork changes. -->
     <ApplicationIcon>Assets\maple.ico</ApplicationIcon>
+    <!-- Display name: FileDescription drives the taskbar / Explorer label
+         (the exe stays Maple.WinUI.exe). -->
+    <AssemblyTitle>Maple Aperture</AssemblyTitle>
+    <Product>Maple Aperture</Product>
+    <Company>Just Maple</Company>
   </PropertyGroup>
 
   <ItemGroup>
