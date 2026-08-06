@@ -51,6 +51,8 @@ extension AdjustmentModel {
         case grainAmount = "grain_amount"
         case grainSize = "grain_size"
         case grainRoughness = "grain_roughness"
+        case filmLook = "film_look"
+        case filmStrength = "film_strength"
         case splitToneShadowHue = "split_tone_shadow_hue"
         case splitToneShadowSaturation = "split_tone_shadow_saturation"
         case splitToneHighlightHue = "split_tone_highlight_hue"
@@ -181,6 +183,8 @@ extension AdjustmentModel {
     public static let grainSizeRange: ClosedRange<Double> = 0.0...100.0
     /// Grain roughness (#1110) — mixes a second noise octave at 2x frequency.
     public static let grainRoughnessRange: ClosedRange<Double> = 0.0...100.0
+    /// Film look blend strength in percent; 100 = full look, lerped in display-linear against the pre-look value. XMP: papp:FilmStrength.
+    public static let filmStrengthRange: ClosedRange<Double> = 0.0...100.0
     /// Split-tone shadow hue in degrees (#1111, tone/zoom design spec § 10.3) — display-linear Oklab tint.
     public static let splitToneShadowHueRange: ClosedRange<Double> = 0.0...360.0
     /// Split-tone shadow saturation (#1111); 0 disables the shadow tint.
@@ -438,6 +442,8 @@ extension AdjustmentGroup {
                 "grain_amount",
                 "grain_size",
                 "grain_roughness",
+                "film_look",
+                "film_strength",
             ]
         case .geometry:
             return [

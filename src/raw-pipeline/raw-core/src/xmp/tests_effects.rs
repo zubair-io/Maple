@@ -411,3 +411,67 @@ fn black_white_serialize_roundtrip_and_default_omission() {
     assert_eq!(back.gray_mixer_blue, 60.0);
     assert_eq!(back.gray_mixer_green, 0.0);
 }
+
+// ── Film emulation (epic #2683, film design 2026-08-06) ────────────────
+
+/// `film_look` / `film_strength` round-trip through raw-core's serializer:
+/// defaults stay silent (matching every other `papp:`-only field this seed
+/// serializer writes), non-default values reach the sidecar under their
+/// `papp:` keys, and both come back unchanged through `parse`.
+#[test]
+fn film_fields_round_trip_and_stay_silent_at_defaults() {
+    let mut m = AdjustmentModel::default();
+    assert_eq!(m.film_look, "");
+    assert_eq!(m.film_strength, 100.0);
+    let silent = serialize(&m);
+    assert!(
+        !silent.contains("FilmLook") && !silent.contains("FilmStrength"),
+        "default film fields must not be serialized, got: {silent}"
+    );
+
+    m.film_look = "color_negative_kodak_portra_400".into();
+    m.film_strength = 62.0;
+    let xml = serialize(&m);
+    assert!(
+        xml.contains(r#"papp:FilmLook="color_negative_kodak_portra_400""#),
+        "missing FilmLook in fragment: {xml}"
+    );
+    assert!(
+        xml.contains(r#"papp:FilmStrength="62""#),
+        "missing FilmStrength in fragment: {xml}"
+    );
+
+    let doc = format!(
+        r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"{xml}/></x>"#
+    );
+    let back = parse(&doc).expect("parse round-trip");
+    assert_eq!(back.film_look, m.film_look);
+    assert_eq!(back.film_strength, 62.0);
+}
+
+/// `film_look` is free-form text, not a closed enum — unlike every other
+/// `papp:` field this serializer writes, it must be XML-attribute-escaped
+/// so a catalog id containing quote/angle-bracket/ampersand characters
+/// doesn't corrupt the surrounding attribute or the document itself. A
+/// real catalog id is a plain snake_case token, but the serializer must not
+/// assume that.
+#[test]
+fn film_look_escapes_xml_special_characters_and_round_trips() {
+    let mut m = AdjustmentModel::default();
+    m.film_look = "weird\"look'<tag>&amp".to_string();
+    let frag = serialize(&m);
+    assert!(
+        !frag.contains("\"weird\"look"),
+        "an unescaped quote would terminate the attribute early: {frag}"
+    );
+    assert!(
+        frag.contains("&quot;") && frag.contains("&lt;") && frag.contains("&amp;"),
+        "special characters must be escaped, got: {frag}"
+    );
+
+    let doc = format!(
+        r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"{frag}/></x>"#
+    );
+    let back = parse(&doc).expect("parse round-trip");
+    assert_eq!(back.film_look, m.film_look);
+}

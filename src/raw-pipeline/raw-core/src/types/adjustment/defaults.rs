@@ -59,6 +59,10 @@ impl Default for AdjustmentModel {
             grain_amount: 0.0,
             grain_size: 25.0,
             grain_roughness: 50.0,
+            // Film emulation (epic #2683, film design 2026-08-06): no look
+            // selected, so the stage is a bit-identical skip.
+            film_look: String::new(),
+            film_strength: 100.0,
             split_tone_shadow_hue: 0.0,
             split_tone_shadow_saturation: 0.0,
             split_tone_highlight_hue: 0.0,

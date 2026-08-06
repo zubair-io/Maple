@@ -65,7 +65,7 @@ pub enum AdjustmentGroup {
     /// Sharpening, noise reduction, presence, dehaze, and the decode-product
     /// detail stages.
     Detail,
-    /// Vignette and grain.
+    /// Vignette, grain, and film emulation.
     Effects,
     /// Crop rect + straighten angle.
     Geometry,
@@ -257,13 +257,19 @@ const DETAIL_FIELDS: &[&str] = &[
     "lens_correction_vignetting",
 ];
 
-/// Vignette (#1109) and grain (#1110).
+/// Vignette (#1109), grain (#1110), and film emulation (#2683) — the
+/// catalog id travels with its blend strength for the same reason
+/// `black_white` travels with its mixer weights above: a paste that carried
+/// the strength but dropped the look (or vice versa) would land a state the
+/// user never saw.
 const EFFECTS_FIELDS: &[&str] = &[
     "vignette_amount",
     "vignette_feather",
     "grain_amount",
     "grain_size",
     "grain_roughness",
+    "film_look",
+    "film_strength",
 ];
 
 /// Crop rect + straighten angle. The rect is normalized to display-oriented

@@ -21,6 +21,18 @@ pub enum FieldKind {
     /// platform — `ToneCurve.swift` on Apple, `models/adjustment-model.ts`
     /// on Web — the same split the hand-written `Crop` type uses.
     ToneCurve,
+    /// Free-form UTF-8 string scalar — e.g. a catalog id (film emulation,
+    /// epic #2683). The `range` / `default_f32` / `enum_name` slots on
+    /// [`FieldSpec`] are unused: the canonical default is always the empty
+    /// string.
+    ///
+    /// Codegen emits the field references the same way it does for
+    /// [`FieldKind::ToneCurve`] (the Swift `FieldName` case, the TS
+    /// interface member, and the TS default-factory entry) — but unlike
+    /// `ToneCurve`, the value type needs no hand-written mirror per
+    /// platform: Swift's `String` and TypeScript's `string` are already
+    /// the native scalar on both sides.
+    String,
 }
 
 /// Codegen-facing description of a single `AdjustmentModel` field.
