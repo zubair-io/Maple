@@ -1,0 +1,86 @@
+// FileOperationError.swift — typed errors for the local file-operations
+// module (relocate / trash / folder CRUD), issue #2631.
+//
+// Every case is a distinct, UI-explainable failure — never a generic
+// "something went wrong." `.unsupportedSource` in particular is the surface
+// a caller uses to explain why file-management actions are unavailable for a
+// PhotoKit-backed asset (no user-writable path, see
+// docs/spec/01-data-model.md invariant #3) or a Cloud-backed one (routes
+// through the Self Hosted API instead of this on-device module — see the
+// design doc's "Platform routing" table). This module itself only implements
+// Filesystem and SMB; a caller that dispatches by source kind throws this
+// case directly rather than letting an unsupported source fall through to a
+// misleading filesystem error.
+
+import Foundation
+
+public enum FileOperationError: Error, LocalizedError, Equatable {
+    /// The source has no on-device, user-writable file path this module can
+    /// operate on (PhotoKit), or the operation is routed elsewhere entirely
+    /// (Cloud sources go through the Self Hosted API, not this module).
+    case unsupportedSource(String)
+
+    /// The primary file (or the folder) was gone by the time we tried to
+    /// read it — vanished between the caller's snapshot and this call.
+    case sourceMissing(String)
+
+    /// A copy completed but its destination didn't match the source
+    /// (size/mtime mismatch). The partial copy is removed before this
+    /// throws; the source is always left untouched.
+    case verificationFailed(String)
+
+    /// `CollisionPolicy.fail` was requested and the destination already
+    /// existed.
+    case destinationExists(String)
+
+    /// The destination is invalid for this operation — outside the
+    /// library root, or (for a folder move) inside the folder's own
+    /// subtree.
+    case invalidDestination(String)
+
+    /// A lower-level `FileManager`/SMB error, wrapped with context. Kept as
+    /// a `String` (not the original `Error`) so this type can stay
+    /// `Equatable` for tests.
+    case underlying(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .unsupportedSource(let s):
+            return "Not supported for this source: \(s)"
+        case .sourceMissing(let s):
+            return "File no longer exists: \(s)"
+        case .verificationFailed(let s):
+            return "Copy verification failed: \(s)"
+        case .destinationExists(let s):
+            return "Destination already exists: \(s)"
+        case .invalidDestination(let s):
+            return "Invalid destination: \(s)"
+        case .underlying(let s):
+            return s
+        }
+    }
+}
+
+extension FileOperationError {
+    /// PhotoKit assets have no user-writable path (`docs/spec/01-data-model.md`
+    /// invariant #3) — every file-management action is unavailable for them,
+    /// not just some. Callers building a source-aware dispatcher throw this
+    /// directly for a PhotoKit-backed asset instead of attempting (and
+    /// failing) a filesystem operation on a synthetic identifier.
+    public static func photoKitUnsupported(operation: String) -> FileOperationError {
+        .unsupportedSource(
+            "PhotoKit: \(operation) is not supported — PhotoKit assets have no user-writable file path"
+        )
+    }
+
+    /// Cloud (Self Hosted) sources route file operations through the API,
+    /// not this on-device module — see the design doc's "Platform routing"
+    /// table. A caller that reaches this module with a Cloud asset has
+    /// mis-routed; this makes that mistake loud rather than attempting a
+    /// meaningless local filesystem operation.
+    public static func cloudRoutesThroughAPI(operation: String) -> FileOperationError {
+        .unsupportedSource(
+            "Cloud: \(operation) must go through the Self Hosted API, not the local file-operations module"
+        )
+    }
+}
