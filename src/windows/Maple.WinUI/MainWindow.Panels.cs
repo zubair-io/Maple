@@ -40,7 +40,7 @@ namespace Maple.WinUI
             ("Effects", "tool-vignette", null),
             ("Detail", "tool-sharpen", null),
             ("Tone Curve", "tool-contrast", null),
-            ("Crop", "tool-crop", "Crop overlay ships with #2582"),
+            ("Crop", "tool-crop", null),
         };
 
         private void BuildEditRail()
@@ -82,6 +82,8 @@ namespace Maple.WinUI
                 CloseGroupPanel();
                 return;
             }
+            if (_activeGroup == "Crop" && group != "Crop")
+                ExitCropMode();
             _activeGroup = group;
             RefreshRailArming(group);
             EditPanel.Visibility = Visibility.Visible;
@@ -91,6 +93,7 @@ namespace Maple.WinUI
             PanelFootnote.Visibility = Visibility.Collapsed;
             PanelGradeHost.Visibility = Visibility.Collapsed;
             PanelCurveHost.Visibility = group == "Tone Curve" ? Visibility.Visible : Visibility.Collapsed;
+            PanelCropHost.Visibility = group == "Crop" ? Visibility.Visible : Visibility.Collapsed;
 
             if (group == "Color")
             {
@@ -100,6 +103,16 @@ namespace Maple.WinUI
             if (group == "Effects")
             {
                 ShowEffectsTab(_effectsTab);
+                return;
+            }
+            if (group == "Crop")
+            {
+                PanelBwHeader.Visibility = Visibility.Collapsed;
+                PanelHslBands.ItemsSource = null;
+                PanelHslBands.Visibility = Visibility.Collapsed;
+                PanelSliders.Visibility = Visibility.Collapsed;
+                PanelSliders.ItemsSource = null;
+                EnterCropMode();
                 return;
             }
 
@@ -172,6 +185,8 @@ namespace Maple.WinUI
 
         private void CloseGroupPanel()
         {
+            if (_activeGroup == "Crop")
+                ExitCropMode();
             _activeGroup = null;
             EditPanel.Visibility = Visibility.Collapsed;
             RefreshRailArming(null);
@@ -332,6 +347,11 @@ namespace Maple.WinUI
                     band.Sat.Reset();
                     band.Lum.Reset();
                 }
+                return;
+            }
+            if (_activeGroup == "Crop")
+            {
+                OnCropReset(sender, e);
                 return;
             }
             if (_activeGroup == "Effects" && _effectsTab == "Grade")
