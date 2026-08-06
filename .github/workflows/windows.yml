@@ -52,6 +52,10 @@ jobs:
         run: |
           dotnet build src/windows/Maple.WinUI/Maple.WinUI.csproj -c Release -r win-x64
 
+      - name: Run WinUI XMP Sidecar Tests
+        run: |
+          dotnet test src/windows/Maple.WinUI.Tests/Maple.WinUI.Tests.csproj -c Release
+
       - name: Verify Codegen Execution on Windows
         shell: bash
         run: |
