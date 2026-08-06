@@ -36,10 +36,12 @@ function findEntry(entries: readonly SidebarEntry[], id: string): SidebarEntry |
  * Also exits Timeline mode: the sidebar's dedicated TIMELINE row is the only
  * other place `viewMode` is set to `'timeline'`, so without resetting it here
  * a tree pick while in Timeline mode would leave the grid stuck showing the
- * timeline instead of the newly-selected folder/collection.
+ * timeline instead of the newly-selected folder/collection. Guarded on the
+ * current mode since this runs on every tree click and `setViewMode` writes
+ * to localStorage — most clicks happen while already in folder mode.
  */
 export function selectSidebarEntry(state: LibraryStateService, id: string): void {
-  state.setViewMode('folder');
+  if (state.viewMode() !== 'folder') state.setViewMode('folder');
   const absPath = findEntry(state.sidebarTree(), id)?.absPath;
   if (absPath || id.includes(':')) {
     // After M2, id is `slug:relPath`; derive relPath from it when there's no
