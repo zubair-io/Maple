@@ -134,19 +134,17 @@ namespace Maple.WinUI.ViewModels
                     Sl("Grain", 0, 100, 1, m => m.GrainAmount, (m, v) => m.GrainAmount = v),
                     Sl("Grain Size", 0, 100, 1, m => m.GrainSize, (m, v) => m.GrainSize = v),
                     Sl("Grain Roughness", 0, 100, 1, m => m.GrainRoughness, (m, v) => m.GrainRoughness = v),
-                    Sl("Shadow Hue", 0, 360, 1, m => m.SplitToneShadowHue, (m, v) => m.SplitToneShadowHue = v, deg),
-                    Sl("Shadow Sat", 0, 100, 1, m => m.SplitToneShadowSaturation, (m, v) => m.SplitToneShadowSaturation = v),
-                    Sl("Highlight Hue", 0, 360, 1, m => m.SplitToneHighlightHue, (m, v) => m.SplitToneHighlightHue = v, deg),
-                    Sl("Highlight Sat", 0, 100, 1, m => m.SplitToneHighlightSaturation, (m, v) => m.SplitToneHighlightSaturation = v),
+                }, expanded: false),
+
+                // Wheel-adjacent sliders for the Grade tab (#2578). Hue/sat per
+                // zone are written by the wheels, not sliders.
+                new("Grade", new[]
+                {
+                    Sl("Shadows Lum", -100, 100, 1, m => m.ColorGradeShadowLuminance, (m, v) => m.ColorGradeShadowLuminance = v, plain),
+                    Sl("Midtones Lum", -100, 100, 1, m => m.ColorGradeMidtoneLuminance, (m, v) => m.ColorGradeMidtoneLuminance = v, plain),
+                    Sl("Highlights Lum", -100, 100, 1, m => m.ColorGradeHighlightLuminance, (m, v) => m.ColorGradeHighlightLuminance = v, plain),
+                    Sl("Global Lum", -100, 100, 1, m => m.ColorGradeGlobalLuminance, (m, v) => m.ColorGradeGlobalLuminance = v, plain),
                     Sl("Balance", -100, 100, 1, m => m.SplitToneBalance, (m, v) => m.SplitToneBalance = v, plain),
-                    Sl("Grade Shadow Lum", -100, 100, 1, m => m.ColorGradeShadowLuminance, (m, v) => m.ColorGradeShadowLuminance = v, plain),
-                    Sl("Grade Midtone Hue", 0, 360, 1, m => m.ColorGradeMidtoneHue, (m, v) => m.ColorGradeMidtoneHue = v, deg),
-                    Sl("Grade Midtone Sat", 0, 100, 1, m => m.ColorGradeMidtoneSaturation, (m, v) => m.ColorGradeMidtoneSaturation = v),
-                    Sl("Grade Midtone Lum", -100, 100, 1, m => m.ColorGradeMidtoneLuminance, (m, v) => m.ColorGradeMidtoneLuminance = v, plain),
-                    Sl("Grade Highlight Lum", -100, 100, 1, m => m.ColorGradeHighlightLuminance, (m, v) => m.ColorGradeHighlightLuminance = v, plain),
-                    Sl("Grade Global Hue", 0, 360, 1, m => m.ColorGradeGlobalHue, (m, v) => m.ColorGradeGlobalHue = v, deg),
-                    Sl("Grade Global Sat", 0, 100, 1, m => m.ColorGradeGlobalSaturation, (m, v) => m.ColorGradeGlobalSaturation = v),
-                    Sl("Grade Global Lum", -100, 100, 1, m => m.ColorGradeGlobalLuminance, (m, v) => m.ColorGradeGlobalLuminance = v, plain),
                 }, expanded: false),
 
                 new("Detail", new[]
@@ -191,6 +189,24 @@ namespace Maple.WinUI.ViewModels
                     return section;
             throw new ArgumentException($"unknown section '{title}'");
         }
+
+        /// <summary>The 4 color-grading wheel zones (#2578). Shadow/highlight
+        /// hue+sat ride the SplitToning fields per the canonical schema.</summary>
+        public static List<GradeZoneViewModel> BuildGradeZones(EditSessionViewModel s) => new()
+        {
+            new(s, "Shadows",
+                m => m.SplitToneShadowHue, (m, v) => m.SplitToneShadowHue = v,
+                m => m.SplitToneShadowSaturation, (m, v) => m.SplitToneShadowSaturation = v),
+            new(s, "Midtones",
+                m => m.ColorGradeMidtoneHue, (m, v) => m.ColorGradeMidtoneHue = v,
+                m => m.ColorGradeMidtoneSaturation, (m, v) => m.ColorGradeMidtoneSaturation = v),
+            new(s, "Highlights",
+                m => m.SplitToneHighlightHue, (m, v) => m.SplitToneHighlightHue = v,
+                m => m.SplitToneHighlightSaturation, (m, v) => m.SplitToneHighlightSaturation = v),
+            new(s, "Global",
+                m => m.ColorGradeGlobalHue, (m, v) => m.ColorGradeGlobalHue = v,
+                m => m.ColorGradeGlobalSaturation, (m, v) => m.ColorGradeGlobalSaturation = v),
+        };
 
         /// <summary>The 8 HSL bands for the banded panel (hue/sat/lum per band).</summary>
         public static List<HslBandViewModel> BuildHslBands(EditSessionViewModel s) => new()

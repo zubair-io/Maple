@@ -61,6 +61,7 @@ namespace Maple.WinUI
         protected override void OnLaunched(LaunchActivatedEventArgs args)
         {
             RawFfi.VerifyAbi();
+            Controls.ToneCurveMath.VerifyParity();
             Maple.WinUI.Services.ProtocolRegistrar.EnsureRegistered();
             MainDispatcherQueue = DispatcherQueue.GetForCurrentThread();
             _window = new MainWindow();
