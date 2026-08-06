@@ -27,6 +27,12 @@ namespace Maple.WinUI.ViewModels
         public AdjustmentState Adjustments { get; private set; } = new();
         public List<AdjustmentSectionViewModel> Sections { get; }
         public List<HslBandViewModel> HslBands { get; }
+        public List<GradeZoneViewModel> GradeZones { get; }
+
+        /// <summary>Raised after the whole view layer resynced from the model
+        /// (photo open, undo/redo, sidecar reload) — code-built controls that
+        /// don't ride slider VMs (wheels, curve plot) refresh on this.</summary>
+        public event Action? ModelSynced;
         public RenderScheduler Renderer { get; } = new();
 
         private readonly SidecarWatcher _sidecarWatcher = new();
@@ -81,6 +87,7 @@ namespace Maple.WinUI.ViewModels
         {
             Sections = AdjustmentSections.Build(this);
             HslBands = AdjustmentSections.BuildHslBands(this);
+            GradeZones = AdjustmentSections.BuildGradeZones(this);
             _sidecarWatcher.SidecarChangedOnDisk += OnSidecarChangedOnDisk;
             InitializeLibrary();
 
@@ -370,7 +377,10 @@ namespace Maple.WinUI.ViewModels
                 band.Sat.SyncFromModel();
                 band.Lum.SyncFromModel();
             }
+            foreach (var zone in GradeZones)
+                zone.SyncFromModel();
             OnPropertyChanged(nameof(BlackWhiteOn));
+            ModelSynced?.Invoke();
         }
 
         // --- Sidecar persistence (debounced, non-destructive) ---
