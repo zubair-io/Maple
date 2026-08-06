@@ -19,14 +19,14 @@
  * `xmp.get.test.ts`.
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
-import * as os from "node:os";
-import { createHash } from "node:crypto";
-import { Elysia } from "elysia";
-import { xmpPathRoutes } from "./xmp.ts";
-import { setLibraryRootsForTests } from "../indexer/libraries.cache.ts";
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { createHash } from 'node:crypto';
+import { Elysia } from 'elysia';
+import { xmpPathRoutes } from './xmp.ts';
+import { setLibraryRootsForTests } from '../indexer/libraries.cache.ts';
 
 const app = new Elysia().use(xmpPathRoutes);
 
@@ -75,10 +75,8 @@ let tmpDir: string;
 const originalMapleRoots = process.env.MAPLE_ROOTS;
 
 beforeEach(async () => {
-  tmpDir = await fs.realpath(
-    await fs.mkdtemp(path.join(os.tmpdir(), "sidecar-contract-api-")),
-  );
-  setLibraryRootsForTests(new Map([["sidecar-contract-lib", tmpDir]]));
+  tmpDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'sidecar-contract-api-')));
+  setLibraryRootsForTests(new Map([['sidecar-contract-lib', tmpDir]]));
   process.env.MAPLE_ROOTS = tmpDir;
 });
 
@@ -90,43 +88,33 @@ afterEach(async () => {
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 
-const sha256 = (bytes: Buffer): string =>
-  createHash("sha256").update(bytes).digest("hex");
+const sha256 = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
 
 const get = (assetPath: string): Promise<Response> =>
-  app.handle(
-    new Request(
-      `http://localhost/api/xmp?path=${encodeURIComponent(assetPath)}`,
-    ),
-  );
+  app.handle(new Request(`http://localhost/api/xmp?path=${encodeURIComponent(assetPath)}`));
 
 const put = (assetPath: string, body: string): Promise<Response> =>
   app.handle(
-    new Request(
-      `http://localhost/api/xmp?path=${encodeURIComponent(assetPath)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/xml" },
-        body,
-      },
-    ),
+    new Request(`http://localhost/api/xmp?path=${encodeURIComponent(assetPath)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/xml' },
+      body,
+    }),
   );
 
-describe("API sidecar transaction contract (#2431)", () => {
+describe('API sidecar transaction contract (#2431)', () => {
   // Real RAW-standin bytes — deterministic, non-trivial, so a bit-level
   // mutation would actually move the digest.
-  const originalBytes = Buffer.from(
-    Array.from({ length: 4096 }, (_, i) => (i * 37) % 256),
-  );
+  const originalBytes = Buffer.from(Array.from({ length: 4096 }, (_, i) => (i * 37) % 256));
 
-  test("20-cycle transaction contract: model + passthrough preserved, original bytes untouched", async () => {
+  test('20-cycle transaction contract: model + passthrough preserved, original bytes untouched', async () => {
     // (20 rather than the Swift suite's 100 — this is a fast in-process
     // HTTP round trip with no debounce/actor overhead to stress, so 20
     // cycles already exercises the write/reopen/compare loop many times
     // over; the acceptance criterion's "100 cycles on the reference set" is
     // satisfied per-adapter across the whole PR, not duplicated at every
     // layer that touches the same adapter.)
-    const assetPath = path.join(tmpDir, "IMG_CONTRACT.dng");
+    const assetPath = path.join(tmpDir, 'IMG_CONTRACT.dng');
     await fs.writeFile(assetPath, originalBytes);
     const originalDigest = sha256(originalBytes);
 
@@ -144,8 +132,8 @@ describe("API sidecar transaction contract (#2431)", () => {
       // this route does not merge/parse — it stores exactly what it was
       // given (the "full XMP document, no merging" contract documented on
       // the route itself).
-      expect(reopened).toContain("<crs:ToneCurvePV2012>");
-      expect(reopened).toContain("<xmpMM:History>");
+      expect(reopened).toContain('<crs:ToneCurvePV2012>');
+      expect(reopened).toContain('<xmpMM:History>');
       expect(reopened).toContain('crs:Exposure2012="+0.35"');
 
       // Step 3 again: commit through the atomic write mechanism, re-PUTting
@@ -160,14 +148,10 @@ describe("API sidecar transaction contract (#2431)", () => {
     }
   });
 
-  test("golden migration fixture remains readable", async () => {
-    const assetPath = path.join(tmpDir, "legacy.dng");
+  test('golden migration fixture remains readable', async () => {
+    const assetPath = path.join(tmpDir, 'legacy.dng');
     await fs.writeFile(assetPath, originalBytes);
-    await fs.writeFile(
-      path.join(tmpDir, "legacy.xmp"),
-      PASSTHROUGH_LADEN_DOCUMENT,
-      "utf-8",
-    );
+    await fs.writeFile(path.join(tmpDir, 'legacy.xmp'), PASSTHROUGH_LADEN_DOCUMENT, 'utf-8');
 
     const res = await get(assetPath);
     expect(res.status).toBe(200);
@@ -176,8 +160,8 @@ describe("API sidecar transaction contract (#2431)", () => {
 
   // -- Fault states are deterministic and observable (acceptance criterion #4) --
 
-  test("permission-denied write is deterministic and observable, not silent", async () => {
-    const assetPath = path.join(tmpDir, "locked.dng");
+  test('permission-denied write is deterministic and observable, not silent', async () => {
+    const assetPath = path.join(tmpDir, 'locked.dng');
     await fs.writeFile(assetPath, originalBytes);
     await fs.chmod(tmpDir, 0o555);
 
@@ -188,9 +172,7 @@ describe("API sidecar transaction contract (#2431)", () => {
     expect(bodyJson.error.length).toBeGreaterThan(0);
 
     await fs.chmod(tmpDir, 0o755);
-    const leftoverTemp = (await fs.readdir(tmpDir)).filter((name) =>
-      name.includes(".tmp."),
-    );
+    const leftoverTemp = (await fs.readdir(tmpDir)).filter((name) => name.includes('.tmp.'));
     expect(leftoverTemp).toEqual([]);
   });
 });
