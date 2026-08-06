@@ -882,5 +882,5 @@ perf/tile-planner-cache
 - `architecture.md` — system design, pipeline stages, module boundaries
 - `caching.md` — cache layers, keys, invalidation rules
 - `testing.md` — parity gates, ACR reference harness, metrics
-- `sidecar-schema.md` — XMP format, namespaces, versioning
+- `xmp-canonical-format.md` — XMP format, namespaces, versioning
 - `ui-spec.md` — layout, interaction, motion contract
