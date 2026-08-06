@@ -135,6 +135,22 @@ pub fn srgb_gamma(x: f32) -> f32 {
     }
 }
 
+/// Piecewise sRGB gamma decode (inverse of [`srgb_gamma`]). Per IEC
+/// 61966-2-1. Factored out for the `film_look` stage (#2683), which
+/// round-trips a `.mlut` lattice sample (encoded sRGB) back to linear
+/// before the Rec.2020 gamut matrix — unlike [`srgb_gamma`], this does not
+/// clamp its input (the lattice sample it consumes is already in `[0, 1]`
+/// by construction). This is a fresh, public sibling of the private
+/// `srgb_to_linear_one` copies in `color/hsm.rs` and `color/dcp.rs`, which
+/// stay untouched — their call sites are unrelated to this stage.
+pub fn srgb_degamma(x: f32) -> f32 {
+    if x <= 0.04045 {
+        x / 12.92
+    } else {
+        ((x + 0.055) / 1.055).powf(2.4)
+    }
+}
+
 // Display-space Levels look-layer was previously applied here (black=66,
 // white=227, gamma=0.65) to compensate for Blender 4.x AgX's mid-gray lift
 // when measured against the reference renderer. Maple AgX (v6) is now
@@ -244,6 +260,18 @@ mod tests {
         let x = 0.001;
         let expected = x * 12.92;
         assert!((srgb_gamma(x) - expected).abs() < 1e-6);
+    }
+
+    #[test]
+    fn srgb_degamma_is_inverse_of_srgb_gamma() {
+        for &x in &[0.0f32, 0.001, 0.003_130_8, 0.05, 0.18, 0.5, 0.8, 1.0] {
+            let encoded = srgb_gamma(x);
+            let back = srgb_degamma(encoded);
+            assert!(
+                (back - x).abs() < 1e-5,
+                "round-trip {x} -> {encoded} -> {back}"
+            );
+        }
     }
 
     #[test]

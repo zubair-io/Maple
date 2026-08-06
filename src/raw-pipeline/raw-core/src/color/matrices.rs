@@ -80,6 +80,17 @@ pub const M_REC2020_TO_SRGB: Matrix3 = Matrix3([
     [-0.0182, -0.1006, 1.1187],
 ]);
 
+/// Linear sRGB → linear Rec.2020. The exact numeric inverse of
+/// [`M_REC2020_TO_SRGB`] (`M_REC2020_TO_SRGB.inverse()`, pre-folded to a
+/// constant for the `film_look` stage's per-pixel hot path, #2683): the
+/// stage round-trips display-linear Rec.2020 → linear sRGB → (LUT lattice
+/// domain) → linear sRGB → back to Rec.2020, and this is the second leg.
+pub const M_SRGB_TO_REC2020: Matrix3 = Matrix3([
+    [0.6274094, 0.3292603, 0.0432719],
+    [0.0691248, 0.9195486, 0.0113208],
+    [0.0164234, 0.0880478, 0.8956167],
+]);
+
 /// Linear Rec.2020 → linear Display P3 (SMPTE RP 431-2, D65 white point).
 ///
 /// Derived from first principles via XYZ D65:
@@ -213,6 +224,22 @@ mod tests {
                 xyz,
                 back
             );
+        }
+    }
+
+    #[test]
+    fn srgb_to_rec2020_is_exact_inverse_of_rec2020_to_srgb() {
+        let product = M_REC2020_TO_SRGB.mul_mat(&M_SRGB_TO_REC2020);
+        for i in 0..3 {
+            for j in 0..3 {
+                let expected = if i == j { 1.0 } else { 0.0 };
+                assert!(
+                    (product.0[i][j] - expected).abs() < 1e-6,
+                    "M_REC2020_TO_SRGB x M_SRGB_TO_REC2020 [{i}][{j}] = {}, expected {}",
+                    product.0[i][j],
+                    expected
+                );
+            }
         }
     }
 
