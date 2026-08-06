@@ -22,6 +22,8 @@ raw-gpu = { path = "../raw-gpu", optional = true }
 rayon = { workspace = true }
 blake3 = "1"
 sha1 = "0.10"
+# f16 storage for the `.mlut` film-LUT codec (#2683, `film.rs`).
+half = { workspace = true }
 # Used by `types::local_adjustment` for the Slice 1 XMP wire format (compact
 # JSON in a single `papp:LocalAdjustments` attribute). When that converts to
 # canonical `crs:GradientBasedCorrections` nested-RDF in a follow-up, this

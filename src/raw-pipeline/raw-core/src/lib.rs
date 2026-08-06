@@ -96,3 +96,6 @@ pub use filename::{
     render_filename, validate_filename, FilenameError, FilenameResult, RenderInputs,
     SequenceOptions, MAX_SEQUENCE_PAD_WIDTH,
 };
+
+/// `.mlut` film-look LUT codec + tetrahedral sampler (epic #2683).
+pub mod film;

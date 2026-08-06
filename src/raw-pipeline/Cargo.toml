@@ -21,6 +21,10 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 png = "0.17"
 quick-xml = "0.37"
 thiserror = "2"
+# IEEE 754 binary16 (f16) storage type. Already in the lockfile transitively
+# via `exr`/`tiff`; promoted to a direct workspace dep for raw-core's
+# `.mlut` film-LUT codec (#2683), which stores the grid payload as f16.
+half = "2"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

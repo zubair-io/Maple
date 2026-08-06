@@ -2096,6 +2096,7 @@ dependencies = [
  "bytemuck",
  "clap",
  "exr",
+ "half",
  "image",
  "miniz_oxide",
  "png 0.17.16",
