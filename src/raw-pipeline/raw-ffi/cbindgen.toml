@@ -25,3 +25,12 @@ language = "C"
 # On macOS builds the preprocessor constant is undefined, so the declaration
 # is excluded and no link error occurs.
 "target_os = ios" = "TARGET_OS_IOS"
+# Maps Rust `#[cfg(target_os = "windows")]` → `#if defined(_WIN32)` in the
+# generated header. Used by `maple_gpu_present_chain_winui`
+# (`gpu_live/present_winui.rs`, `mod present_winui;` in gpu_live.rs) so the
+# WinUI3 swapchain-present FFI entry is declared only under a Windows
+# toolchain. `_WIN32` is defined by MSVC/Windows Clang and is never defined by
+# Apple Clang, so every Apple slice's view of the header excludes the
+# declaration — this fixes #2678 (symbol guard failing because the header
+# declared the symbol unconditionally with no Apple-side definition).
+"target_os = windows" = "_WIN32"
