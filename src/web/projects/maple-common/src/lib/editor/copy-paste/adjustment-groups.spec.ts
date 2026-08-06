@@ -2,10 +2,8 @@
 
 import { describe, expect, it } from 'vitest';
 
-import {
-  ADJUSTMENT_NON_COPYABLE_FIELDS,
-  defaultGeneratedAdjustmentModel,
-} from '../../generated/adjustment-model.generated';
+import { defaultGeneratedAdjustmentModel } from '../../generated/adjustment-model.generated';
+import { ADJUSTMENT_NON_COPYABLE_FIELDS } from '../../generated/adjustment-tables.generated';
 import { defaultAdjustmentModel } from '../../models/adjustment-model';
 import { camelToSnakeField } from '../presets/preset-model';
 import { ADJUSTMENT_GROUPS, ALL_ADJUSTMENT_GROUP_IDS, buildGroupPatch } from './adjustment-groups';

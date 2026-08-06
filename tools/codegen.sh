@@ -5,7 +5,9 @@
 # (job `codegen-drift`).
 #
 # Schemas emitted:
-#   - adjustment (raw_core::types::ADJUSTMENT_SCHEMA) → Swift + TS
+#   - adjustment (raw_core::types::ADJUSTMENT_SCHEMA) → Swift + TS + TS tables
+#                                            (the ts-tables target is #2683 —
+#                                            see the Outputs list below)
 #   - ui-tokens  (raw_core::ui_tokens::{COLOR_TOKENS, MOTION_TOKENS})
 #                                            → Swift + TS + SCSS (ticket #606)
 #   - color-matrices (raw_core::color::{matrices,oklab}) → WGSL + TS
@@ -16,6 +18,11 @@
 # Outputs:
 #   - src/apple/Packages/MapleCore/Sources/MapleCore/Generated/AdjustmentModel+Generated.swift
 #   - src/web/projects/maple-common/src/lib/generated/adjustment-model.generated.ts
+#   - src/web/projects/maple-common/src/lib/generated/adjustment-tables.generated.ts
+#                                            (ADJUSTMENT_RANGES + copy/paste
+#                                            group tables, split out of the
+#                                            file above in #2683 to keep both
+#                                            well under the file-size budget)
 #   - src/apple/Packages/MapleCore/Sources/MapleCore/Generated/UITokens.swift
 #   - src/web/projects/maple-common/src/lib/generated/ui-tokens.ts
 #   - src/web/projects/maple-common/src/lib/generated/_ui-tokens.scss
@@ -43,9 +50,11 @@ fi
 
 SWIFT_OUT="src/apple/Packages/MapleCore/Sources/MapleCore/Generated/AdjustmentModel+Generated.swift"
 TS_OUT="src/web/projects/maple-common/src/lib/generated/adjustment-model.generated.ts"
+TS_TABLES_OUT="src/web/projects/maple-common/src/lib/generated/adjustment-tables.generated.ts"
 
-"$BIN" --schema adjustment --target swift --out "$SWIFT_OUT"
-"$BIN" --schema adjustment --target ts    --out "$TS_OUT"
+"$BIN" --schema adjustment --target swift     --out "$SWIFT_OUT"
+"$BIN" --schema adjustment --target ts        --out "$TS_OUT"
+"$BIN" --schema adjustment --target ts-tables --out "$TS_TABLES_OUT"
 
 # --- UI tokens (#606) -----------------------------------------------------
 
@@ -91,6 +100,7 @@ python3 src/scripts/derive_agx_lut.py --wgsl "$AGX_WGSL_OUT"
 echo "codegen.sh: outputs regenerated."
 echo "  - $SWIFT_OUT"
 echo "  - $TS_OUT"
+echo "  - $TS_TABLES_OUT"
 echo "  - $UI_SWIFT_OUT"
 echo "  - $UI_TS_OUT"
 echo "  - $UI_SCSS_OUT"

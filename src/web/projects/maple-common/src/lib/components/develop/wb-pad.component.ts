@@ -32,7 +32,7 @@ export { xToTemp, tempToX, yToTint, tintToY, rgbToWb } from './wb-pad-math';
 import { xToTemp, tempToX, yToTint, tintToY, rgbToWb } from './wb-pad-math';
 import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
 import type { AdjustmentModel } from '../../models/adjustment-model';
-import { ADJUSTMENT_RANGES } from '../../generated/adjustment-model.generated';
+import { ADJUSTMENT_RANGES } from '../../generated/adjustment-tables.generated';
 
 const [TEMP_MIN, TEMP_MAX] = ADJUSTMENT_RANGES.temperature;
 const [TINT_MIN, TINT_MAX] = ADJUSTMENT_RANGES.tint;
