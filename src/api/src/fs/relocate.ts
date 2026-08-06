@@ -5,7 +5,11 @@
  * folder move.
  *
  * Contract (see docs/superpowers/specs/2026-08-04-file-management-design.md
- * § "Core architecture" — the numbered list below matches that doc 1:1):
+ * § "Core architecture" — the numbered list below matches that doc, with
+ * one deliberate strengthening: the doc's step 3 permits a size+mtime
+ * verify for same-filesystem copies, while this implementation always does
+ * a full byte-for-byte compare via `filesIdentical` — stronger than the
+ * contract's minimum, never weaker):
  *
  *   1. Resolve the destination path; on collision either ask the caller
  *      (`'skip' | 'replace' | 'keep-both'`) for user-initiated ops, or
