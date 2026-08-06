@@ -233,8 +233,10 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
   await openHostedFolderEditor(page, 'test_0006.DNG');
   await expect.poll(() => page.evaluate(() => crossOriginIsolated)).toBe(true);
   expect(await page.evaluate(() => navigator.userAgent)).toContain('Chrome/');
-  await expect.poll(() => workerStatus(page)).toEqual({ threaded: false, threads: 1 });
-  expect(rayonHelperRequests, 'Chromium must not initialize a Rayon helper').toEqual([]);
+  // #2516: Chromium restored to threaded Rayon (8 workers) — see
+  // raw-performance.spec.ts for the same contract.
+  await expect.poll(() => workerStatus(page)).toEqual({ threaded: true, threads: 8 });
+  expect(rayonHelperRequests, 'Chromium must initialize the Rayon helper').not.toEqual([]);
   await expect(page.locator('editor-filmstrip')).toBeVisible();
   const descriptorPath = join(
     manifest.writableFolder,
@@ -518,6 +520,10 @@ test('Hosted opens one RAW directly and downloads its XMP without a filmstrip', 
   await expect(page.getByRole('status', { name: 'Single-file save' })).toContainText(
     'XMP downloaded',
   );
+  // Finish any in-flight local font request before the document replacement
+  // below, so Chrome does not report its intentional cancellation as a
+  // request failure (same race as the reload/re-open case above).
+  await page.evaluate(() => document.fonts.ready);
   await page.goto('/');
   const reimportXmp = join(manifest.freshFolder, download.suggestedFilename());
   await writeFile(reimportXmp, xml);
