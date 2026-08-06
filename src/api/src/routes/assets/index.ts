@@ -26,16 +26,16 @@
  *   POST   /api/assets/:id/enrichment/requeue     — per-stage requeue
  */
 
-import { Elysia } from "elysia";
-import { metadataRoutes } from "./metadata.ts";
-import { xmpRoutes } from "./xmp.ts";
-import { trashRoutes } from "./trash.ts";
-import { relocateRoutes } from "./relocate.ts";
-import { overrideRoutes } from "./overrides.ts";
-import { enrichmentRoutes } from "./enrichment.ts";
-import { histogramRoutes } from "./histogram.ts";
+import { Elysia } from 'elysia';
+import { metadataRoutes } from './metadata.ts';
+import { xmpRoutes } from './xmp.ts';
+import { trashRoutes } from './trash.ts';
+import { relocateRoutes } from './relocate.ts';
+import { overrideRoutes } from './overrides.ts';
+import { enrichmentRoutes } from './enrichment.ts';
+import { histogramRoutes } from './histogram.ts';
 
-export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
+export const assetsRoutes = new Elysia({ prefix: '/api/assets' })
   .use(metadataRoutes)
   .use(histogramRoutes)
   .use(xmpRoutes)
