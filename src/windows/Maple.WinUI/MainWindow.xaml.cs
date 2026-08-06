@@ -164,15 +164,8 @@ namespace Maple.WinUI
 
         private void OnViewerBack(object sender, RoutedEventArgs e) => SetMode(ShellMode.Browse);
 
-        private async void OnEnterEdit(object sender, RoutedEventArgs e)
+        private void OnEnterEdit(object sender, RoutedEventArgs e)
         {
-            if (ViewModel.SelectedPhoto is { IsCloud: true })
-            {
-                await ShowMessageAsync("Maple Cloud",
-                    "Cloud photos can be browsed and culled; editing needs the original "
-                    + "on this machine. Download-to-edit is tracked on #2588.");
-                return;
-            }
             SetMode(ShellMode.Edit);
             ViewModel.EnsureDecoded();
         }
@@ -531,8 +524,7 @@ namespace Maple.WinUI
                 case VirtualKey.Up when _mode != ShellMode.Browse: ViewModel.SelectNeighbor(-10); break;
                 case VirtualKey.Down when _mode != ShellMode.Browse: ViewModel.SelectNeighbor(10); break;
                 case VirtualKey.Enter when _mode == ShellMode.Browse: EnterPreview(); break;
-                case VirtualKey.E when !ctrl && _mode == ShellMode.Preview
-                        && ViewModel.SelectedPhoto is not { IsCloud: true }:
+                case VirtualKey.E when !ctrl && _mode == ShellMode.Preview:
                     SetMode(ShellMode.Edit);
                     ViewModel.EnsureDecoded();
                     break;

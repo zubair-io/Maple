@@ -30,6 +30,12 @@ namespace Maple.WinUI.ViewModels
         /// preview and cull; editing needs the original locally.</summary>
         public bool IsCloud { get; init; }
         public string? CloudAddress { get; init; }
+        /// <summary>Locally cached original for a cloud asset (download-to-edit).
+        /// Null until the first Edit entry downloads it.</summary>
+        public string? LocalCachePath { get; set; }
+        /// <summary>The path decode/develop/export should read: the local cache
+        /// for a downloaded cloud asset, the file itself otherwise.</summary>
+        public string EditPath => LocalCachePath ?? FilePath;
         [ObservableProperty] private int _rating;
         [ObservableProperty] private string _flagStatus = "none";   // pick | reject | none
         [ObservableProperty] private string? _colorLabel;
