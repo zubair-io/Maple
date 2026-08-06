@@ -58,6 +58,14 @@ namespace Maple.WinUI.Native
             float* inPtr, uint width, uint height,
             MapleAdjustmentParams* p, float* outPtr);
 
+        // Curves-aware sibling (#2576): the scalars-only params ABI cannot
+        // carry point tone curves, so they ride a second struct. Null curves
+        // pointer == the scalar entry.
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int maple_apply_chain_and_encode_display_curves_f32(
+            float* inPtr, uint width, uint height,
+            MapleAdjustmentParams* p, MapleToneCurves* curves, float* outPtr);
+
         // --- Cancellation ---
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]

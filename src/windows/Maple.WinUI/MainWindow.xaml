@@ -509,8 +509,44 @@
                                     <Button x:Name="ColorTabBw" Style="{StaticResource PillButton}" FontSize="11"
                                             Click="OnColorTab" AutomationProperties.Name="Color B&amp;W tab">B&amp;W</Button>
                                 </StackPanel>
+                                <StackPanel x:Name="EffectsTabRow" Grid.Row="1" Orientation="Horizontal" Spacing="4"
+                                            Margin="0,0,0,6" Visibility="Collapsed">
+                                    <Button x:Name="EffectsTabBasic" Style="{StaticResource PillButton}" FontSize="11"
+                                            Click="OnEffectsTab" AutomationProperties.Name="Effects basic tab">Basic</Button>
+                                    <Button x:Name="EffectsTabGrade" Style="{StaticResource PillButton}" FontSize="11"
+                                            Click="OnEffectsTab" AutomationProperties.Name="Effects grade tab">Grade</Button>
+                                </StackPanel>
                                 <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
                                     <StackPanel>
+                                        <!-- Point tone-curve plot (#2576): channel tabs, plot,
+                                             reset footer — above the parametric sliders. -->
+                                        <StackPanel x:Name="PanelCurveHost" Visibility="Collapsed" Spacing="6"
+                                                    Margin="0,0,0,8">
+                                            <StackPanel x:Name="CurveChannelRow" Orientation="Horizontal" Spacing="4">
+                                                <Button x:Name="CurveTabLuma" Style="{StaticResource PillButton}" FontSize="10"
+                                                        Click="OnCurveChannel" AutomationProperties.Name="Curve luma channel">Luma</Button>
+                                                <Button x:Name="CurveTabRed" Style="{StaticResource PillButton}" FontSize="10"
+                                                        Click="OnCurveChannel" AutomationProperties.Name="Curve red channel">R</Button>
+                                                <Button x:Name="CurveTabGreen" Style="{StaticResource PillButton}" FontSize="10"
+                                                        Click="OnCurveChannel" AutomationProperties.Name="Curve green channel">G</Button>
+                                                <Button x:Name="CurveTabBlue" Style="{StaticResource PillButton}" FontSize="10"
+                                                        Click="OnCurveChannel" AutomationProperties.Name="Curve blue channel">B</Button>
+                                            </StackPanel>
+                                            <controls:ToneCurvePlotControl x:Name="CurvePlot" Height="270"
+                                                                           AutomationProperties.Name="Tone curve plot" />
+                                            <Grid>
+                                                <TextBlock Text="Shadows" FontSize="9"
+                                                           Foreground="{StaticResource MapleTextMuted}"
+                                                           HorizontalAlignment="Left" VerticalAlignment="Center" />
+                                                <Button x:Name="CurveResetButton" Style="{StaticResource PillButton}"
+                                                        FontSize="9" Padding="6,2" HorizontalAlignment="Center"
+                                                        Click="OnCurveReset"
+                                                        AutomationProperties.Name="Reset curve">Reset curve</Button>
+                                                <TextBlock Text="Highlights" FontSize="9"
+                                                           Foreground="{StaticResource MapleTextMuted}"
+                                                           HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                            </Grid>
+                                        </StackPanel>
                                         <ItemsControl x:Name="PanelSliders"
                                                       ItemTemplate="{StaticResource SliderRowTemplate}" />
                                         <StackPanel x:Name="PanelBwHeader" Visibility="Collapsed" Margin="0,0,0,6">
@@ -537,6 +573,27 @@
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
+                                        <!-- Color grading wheels (#2578): 2x2 zone grid, lum slider
+                                             per cell, balance below — the web panel's layout. -->
+                                        <StackPanel x:Name="PanelGradeHost" Visibility="Collapsed">
+                                            <Grid ColumnSpacing="12" RowSpacing="10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
+                                                </Grid.RowDefinitions>
+                                                <StackPanel Grid.Row="0" Grid.Column="0" x:Name="GradeCellShadows" Spacing="3" />
+                                                <StackPanel Grid.Row="0" Grid.Column="1" x:Name="GradeCellMidtones" Spacing="3" />
+                                                <StackPanel Grid.Row="1" Grid.Column="0" x:Name="GradeCellHighlights" Spacing="3" />
+                                                <StackPanel Grid.Row="1" Grid.Column="1" x:Name="GradeCellGlobal" Spacing="3" />
+                                            </Grid>
+                                            <ContentControl x:Name="GradeBalanceHost" Margin="0,8,0,0"
+                                                            ContentTemplate="{StaticResource SliderRowTemplate}"
+                                                            HorizontalContentAlignment="Stretch" />
+                                        </StackPanel>
                                         <TextBlock x:Name="PanelFootnote" FontSize="10" TextWrapping="Wrap"
                                                    Foreground="{StaticResource MapleTextMuted}" Visibility="Collapsed" />
                                     </StackPanel>
