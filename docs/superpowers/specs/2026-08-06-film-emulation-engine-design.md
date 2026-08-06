@@ -73,7 +73,9 @@ Internal application, per pixel:
 1. Rec.2020 display-linear → linear sRGB (3×3 matrix).
 2. sRGB gamma encode (IEC 61966-2-1), clamp to `[0, 1]` — the lattice's
    authored domain.
-3. Tri-linear sample of the look's 33³ RGB lattice.
+3. Tetrahedral sample of the look's 33³ RGB lattice (repo convention for
+   3D LUTs — #1737 found WGSL trilinear diverges ~0.033 from the CPU
+   reference; `residual_lut` is the precedent on both sides).
 4. sRGB gamma decode → linear sRGB → Rec.2020 display-linear (inverse
    matrix).
 5. `out = mix(original, film_result, strength / 100)` — the lerp runs in
@@ -88,10 +90,13 @@ special casing: their lattices output R = G = B.
 
 ### GPU path
 
-`raw-gpu` gains `film_look.wgsl` plus one `texture_3d<f32>` (uploaded from
-the same f16 lattice bytes) and the matching sampler. The WGSL port is
+`raw-gpu` gains `film_lut.wgsl` plus a read-only storage-buffer lattice
+with manual tetrahedral interpolation — the `ResidualLutPass` pattern
+(raw-gpu has no `texture_3d`/sampler precedent; storage buffers keep the
+4-byte stride the existing LUT passes rely on). The WGSL port is
 parity-gated against the Rust reference exactly like `grain.wgsl`. The
-lattice is uploaded when the look changes, never per tick.
+lattice buffer is pooled/uploaded once per look (keyed into
+`chain_signature`), never per tick.
 
 ### Dropped from the drafted spec, and why
 
@@ -161,9 +166,11 @@ crossing.
 
 - **Apple:** `.mlut` pack ships in app resources; MapleCore loads the
   selected look and passes bytes over FFI.
-- **Web:** looks are fetched lazily per look over HTTP (API route in Self
-  Hosted, static assets in Hosted), cached in IndexedDB, and uploaded once
-  to the worker/GPU session on selection.
+- **Web:** looks are fetched lazily per look over HTTP as static assets in
+  both deployments (the Angular build copies `resources/film-luts/` into
+  dist — the `raw_wasm` asset-glob precedent — and the Self Hosted API's
+  existing static plugin serves the same dist; no new API route), cached in
+  IndexedDB, and uploaded once to the worker/GPU session on selection.
 - **API / maple-cli:** the dylib and CLI read `.mlut` files from the repo
   assets directory on disk, keeping the harness deterministic and headless.
 
