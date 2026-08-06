@@ -590,6 +590,19 @@ IOS_ONLY_SYMBOLS=(
     maple_pano_ort_selftest   # ORT static-link smoke test (M6 #1244, pano-ios only)
 )
 
+# EXCEPTION — Windows-only symbols (#2678): `maple_gpu_present_chain_winui` is
+# `#[cfg(target_os = "windows")]` in Rust (`gpu_live/present_winui.rs`, `mod
+# present_winui;` in gpu_live.rs) — it never compiles into any Apple slice.
+# cbindgen.toml now wraps its declaration in `#if defined(_WIN32)`, which is
+# never defined by Apple Clang, but the guard's grep below is NOT
+# preprocessor-aware (it only strips comment lines, not `#if` regions) and
+# still extracts the symbol name from inside the guarded block. So, unlike
+# IOS_ONLY_SYMBOLS (present on SOME Apple slices), a Windows-only symbol must
+# be ABSENT from EVERY Apple slice — macOS and iOS alike.
+WINDOWS_ONLY_SYMBOLS=(
+    maple_gpu_present_chain_winui   # WinUI3 swapchain present (#2678, Windows-only)
+)
+
 # (No `mapfile` — the Xcode/CLI shebang resolves to macOS's bash 3.2, which
 # lacks it. Read line-by-line into the array the portable way.)
 EXPECTED_SYMBOLS=()
@@ -608,7 +621,7 @@ if [[ "${#EXPECTED_SYMBOLS[@]}" -eq 0 ]]; then
     echo "       Refusing to bless a possibly-empty xcframework." >&2
     exit 1
 fi
-echo "    expecting ${#EXPECTED_SYMBOLS[@]} exported maple_* symbols (${#IOS_ONLY_SYMBOLS[@]} iOS-only)"
+echo "    expecting ${#EXPECTED_SYMBOLS[@]} exported maple_* symbols (${#IOS_ONLY_SYMBOLS[@]} iOS-only, ${#WINDOWS_ONLY_SYMBOLS[@]} windows-only)"
 
 # Helper: returns 0 (true) if $1 is in the IOS_ONLY_SYMBOLS list.
 is_ios_only_symbol() {
@@ -619,6 +632,33 @@ is_ios_only_symbol() {
     done
     return 1
 }
+
+# Helper: returns 0 (true) if $1 is in the WINDOWS_ONLY_SYMBOLS list.
+is_windows_only_symbol() {
+    local sym="$1"
+    local s
+    for s in "${WINDOWS_ONLY_SYMBOLS[@]}"; do
+        [[ "$s" == "$sym" ]] && return 0
+    done
+    return 1
+}
+
+# REGRESSION GUARD (#2678): any header symbol named `maple_*_winui` that is
+# NOT in WINDOWS_ONLY_SYMBOLS is almost certainly a new Windows-only FFI
+# entry someone forgot to register here — without this check it would
+# silently fall into the "expected on every Apple slice" branch below and
+# reintroduce the exact build break this ticket fixed. Fail loudly and name
+# the fix instead of letting the guard mis-classify it.
+for sym in "${EXPECTED_SYMBOLS[@]}"; do
+    if [[ "$sym" == *_winui ]] && ! is_windows_only_symbol "$sym"; then
+        echo "ERROR: header declares '$sym' (looks Windows-only by name) but it is" >&2
+        echo "       not listed in WINDOWS_ONLY_SYMBOLS in this script." >&2
+        echo "       Add it to WINDOWS_ONLY_SYMBOLS (see #2678) if it is genuinely" >&2
+        echo "       #[cfg(target_os = \"windows\")]-gated and absent from every Apple" >&2
+        echo "       slice — otherwise the symbol guard will fail below." >&2
+        exit 1
+    fi
+done
 
 guard_failed=0
 while IFS= read -r slice_lib; do
@@ -662,6 +702,16 @@ while IFS= read -r slice_lib; do
                     guard_failed=1
                 fi
             fi
+        elif is_windows_only_symbol "$sym"; then
+            # Windows-only symbols: never expected on ANY Apple slice (macOS
+            # or iOS) — the "must be present" check is skipped entirely, and
+            # we defensively flag it as an error if it somehow IS present,
+            # which would indicate a mis-build leaking Windows code into an
+            # Apple slice.
+            if grep -qxF "_$sym" <<<"$defined"; then
+                echo "ERROR: Apple slice $slice_dir: found windows-only symbol $sym (should be absent)" >&2
+                guard_failed=1
+            fi
         else
             # All-slice symbol: must be present in every slice.
             if ! grep -qxF "_$sym" <<<"$defined"; then
@@ -680,7 +730,7 @@ if [[ "$guard_failed" -ne 0 ]]; then
     echo "       rebuild every slice from the current sources." >&2
     exit 1
 fi
-echo "    OK — all ${#EXPECTED_SYMBOLS[@]} symbols verified across all slices (${#IOS_ONLY_SYMBOLS[@]} iOS-only)"
+echo "    OK — all ${#EXPECTED_SYMBOLS[@]} symbols verified across all slices (${#IOS_ONLY_SYMBOLS[@]} iOS-only, ${#WINDOWS_ONLY_SYMBOLS[@]} windows-only)"
 
 # Mark this build as up-to-date for the staleness fast-path. We store the
 # input content hash (NOT a bare touch) so the next run can compare content,
