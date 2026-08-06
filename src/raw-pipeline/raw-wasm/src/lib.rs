@@ -20,7 +20,11 @@
 //!       → string (#2628, `filename.rs`) — batch-rename template engine,
 //!         shared with Apple/Windows via `raw-ffi` over the same
 //!         `raw_core::filename` implementation. `validate_filename(name)`
-//!         checks a manually-typed name against the same rules.
+//!         checks a manually-typed name against the same rules. Rejections
+//!         throw a JS `Error` carrying a `.kind` string property (e.g.
+//!         `"reserved_name"`) alongside the usual `.message`, so callers can
+//!         switch on the reason without parsing prose — see `filename.rs`'s
+//!         module doc.
 //!
 //! `render_bytes`/`render_bytes_sized` (legacy 8-bit sRGB) live in
 //! `render.rs`; `render_bytes_scene_linear`/`render_bytes_scene_linear_sized`
