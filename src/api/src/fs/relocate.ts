@@ -40,16 +40,16 @@
  * never data loss.
  */
 
-import * as fs from "./mirrored.ts";
-import * as path from "node:path";
-import * as crypto from "node:crypto";
-import { listPairedSidecars } from "./xmp-conflict.ts";
-import { filesIdentical } from "../backup/fs-util.ts";
-import { child as childLogger } from "../log.ts";
+import * as fs from './mirrored.ts';
+import * as path from 'node:path';
+import * as crypto from 'node:crypto';
+import { listPairedSidecars } from './xmp-conflict.ts';
+import { filesIdentical } from '../backup/fs-util.ts';
+import { child as childLogger } from '../log.ts';
 
-const log = childLogger("fs/relocate");
+const log = childLogger('fs/relocate');
 
-export type RelocateMode = "move" | "copy";
+export type RelocateMode = 'move' | 'copy';
 
 /** How to resolve a destination that's already occupied.
  *  - `'auto-suffix'` / `'keep-both'` — pick the next free `.N` sibling
@@ -57,7 +57,7 @@ export type RelocateMode = "move" | "copy";
  *    explicitly chose "Keep Both" uses `'keep-both'` — same mechanics.
  *  - `'skip'` — do nothing, report `{ kind: 'skipped' }`.
  *  - `'replace'` — overwrite whatever is at the destination. */
-export type CollisionPolicy = "auto-suffix" | "skip" | "replace" | "keep-both";
+export type CollisionPolicy = 'auto-suffix' | 'skip' | 'replace' | 'keep-both';
 
 export interface RelocateVerifiedInfo {
   newAbsPath: string;
@@ -84,7 +84,7 @@ export interface RelocateRequest {
 
 export type RelocateOutcome =
   | {
-      kind: "relocated";
+      kind: 'relocated';
       newAbsPath: string;
       sidecarPaths: string[];
       /** True when the collision policy actually suffixed the destination
@@ -92,8 +92,8 @@ export type RelocateOutcome =
        * `'auto-suffix'` / `'keep-both'`. */
       renamedOnCollision: boolean;
     }
-  | { kind: "skipped"; reason: "collision" }
-  | { kind: "error"; error: string };
+  | { kind: 'skipped'; reason: 'collision' }
+  | { kind: 'error'; error: string };
 
 // ---------------------------------------------------------------------------
 // Collision resolution
@@ -116,10 +116,7 @@ export type RelocateOutcome =
  * would produce `.1` (a root-level dotfile), losing the basename entirely.
  * Guard the slice on a non-empty ext so an extensionless input simply gets
  * the suffix appended (`/x/foo` → `/x/foo.1`). */
-export async function pickFreePath(
-  basePath: string,
-  caller?: string,
-): Promise<string> {
+export async function pickFreePath(basePath: string, caller?: string): Promise<string> {
   try {
     await fs.stat(basePath);
   } catch {
@@ -133,15 +130,13 @@ export async function pickFreePath(
       await fs.stat(cand);
     } catch {
       log.warn(
-        { caller: caller ?? "unknown", collision: basePath, chosen: cand },
-        "pickFreePath: destination occupied — suffixed path chosen (this creates a .N. filename)",
+        { caller: caller ?? 'unknown', collision: basePath, chosen: cand },
+        'pickFreePath: destination occupied — suffixed path chosen (this creates a .N. filename)',
       );
       return cand;
     }
   }
-  throw new Error(
-    `pickFreePath: collision — exceeded 1000 candidate paths for ${basePath}`,
-  );
+  throw new Error(`pickFreePath: collision — exceeded 1000 candidate paths for ${basePath}`);
 }
 
 async function pathExists(p: string): Promise<boolean> {
@@ -185,24 +180,19 @@ export function sidecarRenameTarget(
  * replicating) the codebase's standard "write a temp, then rename into
  * place" atomic-publish idiom. */
 function tempPathFor(finalDst: string): string {
-  return `${finalDst}.tmp.${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
+  return `${finalDst}.tmp.${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
 }
 
 /** Copy `src` to a temp sibling of `finalDst`, verify it's byte-identical,
  * then atomically publish it via `rename` (overwrites `finalDst` if
  * present). On a verify failure the temp is removed and the error
  * propagates — `src` and any prior `finalDst` occupant are untouched. */
-async function copyVerifiedIntoPlace(
-  src: string,
-  finalDst: string,
-): Promise<void> {
+async function copyVerifiedIntoPlace(src: string, finalDst: string): Promise<void> {
   const tmp = tempPathFor(finalDst);
   await fs.copyFile(src, tmp);
   if (!(await filesIdentical(src, tmp))) {
     await fs.unlink(tmp).catch(() => {});
-    throw new Error(
-      `relocate: copy verification failed: ${src} -> ${finalDst}`,
-    );
+    throw new Error(`relocate: copy verification failed: ${src} -> ${finalDst}`);
   }
   await fs.rename(tmp, finalDst);
 }
@@ -214,95 +204,219 @@ async function revertCreated(createdPaths: string[]): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// The primitive
+// Same-file guard
 // ---------------------------------------------------------------------------
 
-export async function relocateFile(
-  req: RelocateRequest,
-): Promise<RelocateOutcome> {
-  const { sourceAbsPath, mode, collision, onVerified } = req;
-
-  // 1. Resolve the destination per the caller's collision policy.
-  let finalDest = req.destAbsPath;
-  if (collision === "auto-suffix" || collision === "keep-both") {
-    finalDest = await pickFreePath(
-      req.destAbsPath,
-      req.callerTag ?? "relocate",
-    );
-  } else if (collision === "skip") {
-    if (await pathExists(req.destAbsPath)) {
-      return { kind: "skipped", reason: "collision" };
-    }
+/** Resolve `p` to a canonical form for a same-file comparison: only the
+ * PARENT directory is symlink-resolved (via `realpath`) — the basename is
+ * always rejoined literally, never resolved as part of the full path.
+ *
+ * That split is deliberate, not incidental. `fs.realpath` on a
+ * case-insensitive-but-case-preserving filesystem (APFS default, NTFS)
+ * resolves a query that differs only in case to the file's STORED casing —
+ * so realpath-ing the FULL path (basename included) would silently fold
+ * `IMG.CR3` and `img.cr3` to the identical canonical string whenever one of
+ * them already exists, making a same-file check built on it reject a
+ * legitimate case-only rename. Realpath-ing only the directory sidesteps
+ * that: two paths differing solely in their basename's case always compare
+ * as different (case-sensitive string equality on the literal basename),
+ * while a symlinked PARENT directory is still caught (its target is
+ * resolved before the basename is reattached). Falls back to
+ * `path.resolve` when even the parent doesn't exist yet — which can only
+ * happen when the parent is freshly absent and therefore cannot be a
+ * pre-existing symlink aliasing the source. */
+async function canonicalizeForComparison(p: string): Promise<string> {
+  const dir = path.dirname(p);
+  try {
+    const realDir = await fs.realpath(dir);
+    return path.join(realDir, path.basename(p));
+  } catch {
+    return path.resolve(p);
   }
-  // 'replace': use req.destAbsPath as given — overwrite whatever is there.
+}
+
+/** True when `a` and `b` name the exact same on-disk location — including
+ * through a symlink indirection, but NOT merely because they differ only in
+ * case. Guards the load-bearing invariant that a relocate never deletes the
+ * only copy of a file: without this check, a destination that resolves to
+ * the source (most directly via `collision: 'replace'`) would copy the
+ * source onto itself and then, in `mode: 'move'`, unlink the only remaining
+ * copy. */
+async function isSameFile(a: string, b: string): Promise<boolean> {
+  const [canonicalA, canonicalB] = await Promise.all([
+    canonicalizeForComparison(a),
+    canonicalizeForComparison(b),
+  ]);
+  return canonicalA === canonicalB;
+}
+
+// ---------------------------------------------------------------------------
+// The primitive — decomposed along the 8-step contract's natural seams so
+// each phase (collision resolution, copy+verify, identity repoint, delete)
+// is independently readable and testable, and the crash-safety ordering
+// between them stays obvious at the `relocateFile` call-site below.
+// ---------------------------------------------------------------------------
+
+type DestinationResolution = { kind: 'proceed'; finalDest: string } | { kind: 'skip' };
+
+/** Step 1: resolve the destination per the caller's collision policy.
+ * `'auto-suffix'` / `'keep-both'` pick the next free `.N` sibling;
+ * `'skip'` declines outright when the destination is occupied; `'replace'`
+ * (and a `'skip'` that finds nothing occupying the destination) proceeds
+ * with `destAbsPath` exactly as given. */
+async function resolveDestination(req: RelocateRequest): Promise<DestinationResolution> {
+  if (req.collision === 'auto-suffix' || req.collision === 'keep-both') {
+    const finalDest = await pickFreePath(req.destAbsPath, req.callerTag ?? 'relocate');
+    return { kind: 'proceed', finalDest };
+  }
+  if (req.collision === 'skip' && (await pathExists(req.destAbsPath))) {
+    return { kind: 'skip' };
+  }
+  return { kind: 'proceed', finalDest: req.destAbsPath };
+}
+
+/** Best-effort copy of one sidecar — logs and reports failure rather than
+ * throwing, so one bad sidecar never blocks or reverts the primary relocate
+ * (matches `moveSidecarsAlongside`'s "RAW moved, sidecar left in place"
+ * contract). */
+async function tryCopySidecar(sidecar: string, dest: string): Promise<boolean> {
+  try {
+    await copyVerifiedIntoPlace(sidecar, dest);
+    return true;
+  } catch (err) {
+    log.warn(
+      { sidecar, dest, err: err instanceof Error ? err.message : err },
+      'relocate: sidecar copy failed — original left in place',
+    );
+    return false;
+  }
+}
+
+interface SidecarCopyResult {
+  copiedSidecars: string[];
+  movedSidecarSources: string[];
+}
+
+/** Steps 2-4: copy + verify + publish the primary, then best-effort carry
+ * every paired sidecar alongside. Pushes every path it creates onto the
+ * caller's `createdPaths` accumulator as it goes (not just on success) so a
+ * mid-loop throw still leaves the caller able to revert exactly what exists
+ * on disk. Throws only for a PRIMARY copy failure — sidecar failures are
+ * swallowed by `tryCopySidecar`. */
+async function copyPrimaryAndSidecars(
+  sourceAbsPath: string,
+  finalDest: string,
+  createdPaths: string[],
+): Promise<SidecarCopyResult> {
+  await copyVerifiedIntoPlace(sourceAbsPath, finalDest);
+  createdPaths.push(finalDest);
+
+  const copiedSidecars: string[] = [];
+  const movedSidecarSources: string[] = [];
+  const sourceSidecars = await listPairedSidecars(sourceAbsPath);
+  for (const sidecar of sourceSidecars) {
+    const dest = sidecarRenameTarget(sourceAbsPath, finalDest, sidecar);
+    if (!dest) continue; // defensive — mirrors moveSidecarsAlongside
+    if (!(await tryCopySidecar(sidecar, dest))) continue;
+    createdPaths.push(dest);
+    copiedSidecars.push(dest);
+    movedSidecarSources.push(sidecar);
+  }
+  return { copiedSidecars, movedSidecarSources };
+}
+
+/** Step 5: run the caller's identity-repoint hook (if any) between the
+ * verified copy and the delete. Returns an error message on failure (after
+ * reverting every copy made so far — the load-bearing failure-direction
+ * guarantee) or `null` on success/absence. */
+async function runIdentityRepoint(
+  onVerified: RelocateRequest['onVerified'],
+  info: RelocateVerifiedInfo,
+  createdPaths: string[],
+): Promise<string | null> {
+  if (!onVerified) return null;
+  try {
+    await onVerified(info);
+    return null;
+  } catch (err) {
+    await revertCreated(createdPaths);
+    return `identity repoint failed: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
+/** Step 6, move mode only: delete the original primary + every sidecar that
+ * was actually copied (one left in place on a copy failure keeps its
+ * original, per `tryCopySidecar`'s best-effort contract). Best-effort —
+ * a failure here leaves a harmless duplicate on disk, the accepted failure
+ * direction, never data loss, so it's logged rather than thrown. */
+async function deleteOriginals(
+  sourceAbsPath: string,
+  movedSidecarSources: string[],
+): Promise<void> {
+  await fs.unlink(sourceAbsPath).catch((err) => {
+    log.warn(
+      { sourceAbsPath, err: err instanceof Error ? err.message : err },
+      'relocate: source primary unlink failed after a verified copy — a duplicate is left on disk (acceptable failure direction, never data loss)',
+    );
+  });
+  for (const src of movedSidecarSources) {
+    await fs.unlink(src).catch((err) => {
+      log.warn(
+        { src, err: err instanceof Error ? err.message : err },
+        'relocate: source sidecar unlink failed after a verified copy',
+      );
+    });
+  }
+}
+
+export async function relocateFile(req: RelocateRequest): Promise<RelocateOutcome> {
+  // 1. Resolve the destination per the caller's collision policy.
+  const resolution = await resolveDestination(req);
+  if (resolution.kind === 'skip') {
+    return { kind: 'skipped', reason: 'collision' };
+  }
+  const { finalDest } = resolution;
+
+  // Refuse a destination that resolves to the source itself — see
+  // `isSameFile`'s docstring. This must run before ANY copy: the danger is
+  // copying the source onto itself and then, in move mode, deleting the
+  // only remaining copy.
+  if (await isSameFile(req.sourceAbsPath, finalDest)) {
+    return {
+      kind: 'error',
+      error:
+        'relocate: destination resolves to the same file as the source — refusing to avoid data loss',
+    };
+  }
 
   await fs.mkdir(path.dirname(finalDest), { recursive: true });
 
   const createdPaths: string[] = [];
   try {
-    // 2-3. Copy + verify + publish the primary.
-    await copyVerifiedIntoPlace(sourceAbsPath, finalDest);
-    createdPaths.push(finalDest);
+    // 2-4. Copy + verify the primary, then carry the sidecars alongside.
+    const { copiedSidecars, movedSidecarSources } = await copyPrimaryAndSidecars(
+      req.sourceAbsPath,
+      finalDest,
+      createdPaths,
+    );
 
-    // 4. Carry the paired sidecars alongside (best-effort).
-    const sourceSidecars = await listPairedSidecars(sourceAbsPath);
-    const copiedSidecars: string[] = [];
-    const movedSidecarSources: string[] = [];
-    for (const sidecar of sourceSidecars) {
-      const dest = sidecarRenameTarget(sourceAbsPath, finalDest, sidecar);
-      if (!dest) continue; // defensive — mirrors moveSidecarsAlongside
-      try {
-        await copyVerifiedIntoPlace(sidecar, dest);
-        createdPaths.push(dest);
-        copiedSidecars.push(dest);
-        movedSidecarSources.push(sidecar);
-      } catch (err) {
-        log.warn(
-          { sidecar, dest, err: err instanceof Error ? err.message : err },
-          "relocate: sidecar copy failed — original left in place",
-        );
-      }
+    // 5. Identity repoint, between verify and delete.
+    const repointError = await runIdentityRepoint(
+      req.onVerified,
+      { newAbsPath: finalDest, sidecarPaths: copiedSidecars },
+      createdPaths,
+    );
+    if (repointError) {
+      return { kind: 'error', error: repointError };
     }
 
-    // 5. Identity repoint, between verify and delete. A throw here reverts
-    //    every copy made so far and leaves the source untouched.
-    if (onVerified) {
-      try {
-        await onVerified({
-          newAbsPath: finalDest,
-          sidecarPaths: copiedSidecars,
-        });
-      } catch (err) {
-        await revertCreated(createdPaths);
-        return {
-          kind: "error",
-          error: `identity repoint failed: ${err instanceof Error ? err.message : String(err)}`,
-        };
-      }
-    }
-
-    // 6. Delete the originals — move mode only, and only the sidecars that
-    //    actually got copied (one left in place on a copy failure keeps its
-    //    original, per the best-effort contract above).
-    if (mode === "move") {
-      await fs.unlink(sourceAbsPath).catch((err) => {
-        log.warn(
-          { sourceAbsPath, err: err instanceof Error ? err.message : err },
-          "relocate: source primary unlink failed after a verified copy — a duplicate is left on disk (acceptable failure direction, never data loss)",
-        );
-      });
-      for (const src of movedSidecarSources) {
-        await fs.unlink(src).catch((err) => {
-          log.warn(
-            { src, err: err instanceof Error ? err.message : err },
-            "relocate: source sidecar unlink failed after a verified copy",
-          );
-        });
-      }
+    // 6. Delete the originals — move mode only.
+    if (req.mode === 'move') {
+      await deleteOriginals(req.sourceAbsPath, movedSidecarSources);
     }
 
     return {
-      kind: "relocated",
+      kind: 'relocated',
       newAbsPath: finalDest,
       sidecarPaths: copiedSidecars,
       renamedOnCollision: finalDest !== req.destAbsPath,
@@ -310,7 +424,7 @@ export async function relocateFile(
   } catch (err) {
     await revertCreated(createdPaths);
     return {
-      kind: "error",
+      kind: 'error',
       error: err instanceof Error ? err.message : String(err),
     };
   }
