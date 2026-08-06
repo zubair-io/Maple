@@ -36,6 +36,7 @@ namespace Maple.WinUI.Services.Xmp
             }
 
             AppendEnumFields(parts, doc.Adjustments);
+            AppendCropFields(parts, doc.Adjustments);
             AppendCullingFields(parts, doc);
 
             foreach (var attr in doc.PassthroughAttributes)
@@ -110,6 +111,30 @@ namespace Maple.WinUI.Services.Xmp
                 parts.Add("crs:ConvertToGrayscale=\"True\"");
             }
         }
+
+        /// <summary>Crop wire form (docs/xmp-canonical-format.md § Crop fields):
+        /// crs:HasCrop gates the six-decimal rect; the angle is emitted alone
+        /// for a pure straighten and parsed unconditionally on read.</summary>
+        private static void AppendCropFields(List<string> parts, AdjustmentState state)
+        {
+            var crop = state.Crop;
+            var emitRect = !crop.RectIsIdentity && crop.RectIsValid;
+            if (emitRect)
+            {
+                parts.Add("crs:HasCrop=\"True\"");
+                parts.Add($"crs:CropTop=\"{FmtCrop(crop.Top)}\"");
+                parts.Add($"crs:CropLeft=\"{FmtCrop(crop.Left)}\"");
+                parts.Add($"crs:CropBottom=\"{FmtCrop(crop.Bottom)}\"");
+                parts.Add($"crs:CropRight=\"{FmtCrop(crop.Right)}\"");
+                parts.Add("crs:CropConstrainToWarp=\"0\"");
+            }
+            if (crop.Angle != 0)
+            {
+                parts.Add($"crs:CropAngle=\"{FmtCrop(crop.Angle)}\"");
+            }
+        }
+
+        private static string FmtCrop(double v) => v.ToString("0.000000", CultureInfo.InvariantCulture);
 
         private static void AppendCullingFields(List<string> parts, XmpSidecarDocument doc)
         {

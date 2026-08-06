@@ -37,6 +37,8 @@ namespace Maple.WinUI.Services.Xmp
                 "papp:Look", "papp:Profile",
                 "papp:HotPixelSuppression", "crs:LensProfileEnable",
                 "papp:WbMethod", "papp:ToneCurveMode", "crs:ConvertToGrayscale",
+                "crs:HasCrop", "crs:CropTop", "crs:CropLeft", "crs:CropBottom",
+                "crs:CropRight", "crs:CropAngle", "crs:CropConstrainToWarp",
                 "xmp:Rating", "Rating",
                 "papp:Flag", "maple:Flag", "Flag",
                 "papp:ColorLabel", "maple:ColorLabel", "ColorLabel",
@@ -91,6 +93,8 @@ namespace Maple.WinUI.Services.Xmp
             var profileSeen = false;
             string? flagMaple = null, flagPapp = null, flagPlain = null;
             string? labelMaple = null, labelPapp = null, labelPlain = null, xmpLabel = null;
+            var hasCrop = false;
+            double cropTop = 0, cropLeft = 0, cropBottom = 1, cropRight = 1, cropAngle = 0;
 
             foreach (var attr in desc.Attributes())
             {
@@ -152,6 +156,29 @@ namespace Maple.WinUI.Services.Xmp
                     case "crs:ConvertToGrayscale":
                         Apply(ParseTrueFalse(attr.Value), m => state.BlackWhite = m);
                         break;
+                    // Crop (#2582): the rect is gated on crs:HasCrop (applied
+                    // after the walk — attribute order is not guaranteed);
+                    // the angle applies unconditionally (pure straighten).
+                    case "crs:HasCrop":
+                        hasCrop = attr.Value.Equals("True", StringComparison.OrdinalIgnoreCase);
+                        break;
+                    case "crs:CropTop":
+                        if (TryParseDouble(attr.Value, out var ct)) cropTop = ct;
+                        break;
+                    case "crs:CropLeft":
+                        if (TryParseDouble(attr.Value, out var cl)) cropLeft = cl;
+                        break;
+                    case "crs:CropBottom":
+                        if (TryParseDouble(attr.Value, out var cb)) cropBottom = cb;
+                        break;
+                    case "crs:CropRight":
+                        if (TryParseDouble(attr.Value, out var cr)) cropRight = cr;
+                        break;
+                    case "crs:CropAngle":
+                        if (TryParseDouble(attr.Value, out var ca)) cropAngle = ca;
+                        break;
+                    case "crs:CropConstrainToWarp":
+                        break;  // accepted, not stored (canonical format doc)
                     case "xmp:Rating":
                     case "Rating":
                         doc.Rating = ParseRating(attr.Value) ?? doc.Rating;
@@ -171,6 +198,15 @@ namespace Maple.WinUI.Services.Xmp
                         break;
                 }
             }
+
+            // Crop: rect only when crs:HasCrop said so and it is valid;
+            // an invalid rect degrades to identity (raw-core contract).
+            var crop = new CropState(
+                hasCrop ? cropTop : 0, hasCrop ? cropLeft : 0,
+                hasCrop ? cropBottom : 1, hasCrop ? cropRight : 1, cropAngle);
+            state.Crop = hasCrop && !crop.RectIsValid
+                ? CropState.Identity with { Angle = cropAngle }
+                : crop;
 
             // Legacy capture-sharpening alias: sigma always wins (#456/#464).
             if (legacySigma is not null && !applied.Contains("papp:CaptureSharpeningSigma") &&

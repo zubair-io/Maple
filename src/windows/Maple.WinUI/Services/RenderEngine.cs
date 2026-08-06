@@ -73,6 +73,7 @@ namespace Maple.WinUI.Services
             m.ParametricDarks = 0; m.ParametricShadows = 0;
             m.ToneCurveLuma.Clear(); m.ToneCurveRed.Clear();
             m.ToneCurveGreen.Clear(); m.ToneCurveBlue.Clear();
+            m.Crop = Models.CropState.Identity;   // display-side (#2582), never baked at decode
             m.Vibrance = 0; m.Saturation = 0; m.Clarity = 0; m.Texture = 0; m.Dehaze = 0;
             m.HueAdjustmentRed = 0; m.HueAdjustmentOrange = 0; m.HueAdjustmentYellow = 0;
             m.HueAdjustmentGreen = 0; m.HueAdjustmentAqua = 0; m.HueAdjustmentBlue = 0;

@@ -108,12 +108,14 @@ namespace Maple.WinUI
             BuildStarRow();
             BuildEditRail();
             BuildGradePanel();
+            BuildCropPanel();
             CurvePlot.PointsChanged += OnCurvePointsChanged;
             ViewModel.ModelSynced += () =>
             {
                 SyncGradeWheels();
                 if (_activeGroup == "Tone Curve")
                     RefreshCurvePlot();
+                SyncCropFromModel();
             };
             HookViewerPan();
             // Wire the grouped grid source only after the chrome exists —
@@ -208,12 +210,14 @@ namespace Maple.WinUI
             ViewportSwapChainPanel.Width = dims.Width;
             ViewportSwapChainPanel.Height = dims.Height;
             SizeZoomHost();
+            UpdateCropDisplay();
         }
 
         private void OnCanvasHostSizeChanged(object sender, SizeChangedEventArgs e)
         {
             UpdatePanelFit();
             SizeZoomHost();
+            UpdateCropDisplay();
         }
 
         // --- Zoom / pan (#2572): factor 1 = fit; drag pans when zoomed ---
