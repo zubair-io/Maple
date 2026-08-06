@@ -51,6 +51,13 @@ namespace Maple.WinUI.Services
         /// <summary>Histogram bins for the newest state (GPU path only — the
         /// CPU path carries bins on FrameReady).</summary>
         public event Action<uint[]>? HistogramReady;
+        /// <summary>Display-encoded frame for the clipping overlay (#2574),
+        /// raised on both paths while ClipOverlayEnabled — the GPU path's
+        /// pixels otherwise never leave the swapchain.</summary>
+        public event Action<byte[], int, int>? ClipSourceReady;
+        /// <summary>Set while a clipping overlay toggle is on; gates the extra
+        /// frame copy off the hot path when the feature is idle.</summary>
+        public volatile bool ClipOverlayEnabled;
         public event Action<string>? RenderFailed;
         /// <summary>Raised once if the GPU path fails and the session downgrades
         /// to the CPU fallback.</summary>
@@ -366,6 +373,7 @@ namespace Maple.WinUI.Services
                 if (emitFrame)
                     FrameReady?.Invoke(_bgra, image.Width, image.Height,
                         ComputeHistogram(_bgra), elapsed);
+                EmitClipSource(image.Width, image.Height);
                 DumpFrameIfRequested(_bgra, image.Width, image.Height);
                 return true;
             }
@@ -385,6 +393,7 @@ namespace Maple.WinUI.Services
                     _bgra = new byte[byteCount];
                 RenderEngine.RenderTick(image, state, ref _chainScratch, _bgra);
                 HistogramReady?.Invoke(ComputeHistogram(_bgra));
+                EmitClipSource(image.Width, image.Height);
             }
             catch (Exception ex)
             {
@@ -417,6 +426,15 @@ namespace Maple.WinUI.Services
             {
                 DiagLog.Write($"[dump] failed: {ex.Message}");
             }
+        }
+
+        private void EmitClipSource(int width, int height)
+        {
+            if (!ClipOverlayEnabled || _bgra == null || ClipSourceReady == null)
+                return;
+            var copy = new byte[_bgra.Length];
+            Buffer.BlockCopy(_bgra, 0, copy, 0, _bgra.Length);
+            ClipSourceReady.Invoke(copy, width, height);
         }
 
         private static uint[] ComputeHistogram(byte[] bgra)
