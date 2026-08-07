@@ -42,6 +42,8 @@ fn dehaze_only_case() -> Case {
         curve: nonidentity_curve(),
         lut: nonidentity_lut(9),
         wb_method: WbMethod::Cat16,
+        film_lut: None,
+        film_strength: 0.0,
     }
 }
 

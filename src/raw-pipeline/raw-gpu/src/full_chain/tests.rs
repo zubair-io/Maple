@@ -59,7 +59,8 @@ use crate::chain::ChainRunner;
 use crate::context::GpuContext;
 use crate::dehaze::compute_airlight;
 use crate::full_chain::oracle::{
-    cpu_oracle, max_abs_diff, moved, nonidentity_curve, nonidentity_lut, scene_linear_rgba, Case,
+    cpu_oracle, max_abs_diff, moved, nonidentity_curve, nonidentity_lut, random_film_lut,
+    scene_linear_rgba, Case,
 };
 use crate::image::GpuImage;
 use crate::PROFILE_CURVE_FLAT_LEN;
@@ -131,123 +132,12 @@ fn run_gpu_chain(input: &[f32], w: u32, h: u32, inputs: &FullChainInputs) -> Vec
 /// measured value is printed so any regression toward it is visible.
 const FULL_CHAIN_BUDGET: f32 = 1e-4;
 
-/// The mild case: every per-pixel stage engaged just PAST its raw-core no-op
-/// threshold, so the CPU `apply` fn does NOT short-circuit and computes the same
-/// function the always-running GPU Pass does. (A truly-neutral all-identity case
-/// would diverge by design: raw-core's `apply` fns return early at default
-/// values while the GPU Passes run their arithmetic unconditionally — their
-/// short-circuit is delegated to the *caller*, i.e. develop's `if` guards / the
-/// P4b live chain, NOT to this composition layer. The all-identity *plumbing* is
-/// covered by the structural prefix+suffix / pass-count tests below.)
-///
-/// `capture_sharpening` stays `None` here — that is the ONE legitimate builder
-/// gate (symmetric: the CPU oracle also `if let Some`), validated by the pass-
-/// count test. Mild magnitudes keep the per-image curve + LUT non-identity so the
-/// view-tail matrix/Oklab/trilinear paths also run for real on both sides.
-fn mild_case() -> Case {
-    let model = AdjustmentModel {
-        temperature: 6000.0, // past the (6500±0.5) WB short-circuit
-        tint: 3.0,
-        exposure: 0.1,
-        contrast: 8.0,
-        highlights: -5.0, // past the |h| < 1e-3 scene-tone short-circuit
-        shadows: 5.0,
-        whites: 4.0,
-        blacks: -4.0,
-        parametric_lights: 6.0, // engage tone_curves (past PARAMETRIC_EPSILON)
-        parametric_shadows: 5.0,
-        vibrance: 6.0,   // past the |vibrance| < 1e-3 Oklab short-circuit
-        saturation: 5.0, // past the |saturation| < 1e-3 short-circuit
-        clarity: 8.0,    // self-copy-through at 0, but engaged so it's tested
-        texture: 6.0,
-        dehaze: 10.0,           // non-zero so dehaze runs (airlight engaged)
-        vignette_amount: -10.0, // past the |amount| < 1e-3 short-circuit (#1109)
-        vignette_feather: 50.0,
-        grain_amount: 15.0, // engaged display-tail grain (#1110)
-        grain_size: 25.0,
-        grain_roughness: 50.0,
-        split_tone_shadow_hue: 30.0, // engaged display-tail tint (#1111)
-        split_tone_shadow_saturation: 20.0,
-        split_tone_highlight_hue: 210.0,
-        split_tone_highlight_saturation: 15.0,
-        split_tone_balance: 10.0,
-        sharpen_amount: 50.0,
-        sharpen_radius: 1.0,
-        sharpen_detail: 25.0,
-        sharpen_masking: 0.0,
-        nr_luminance: 10.0,
-        nr_color: 15.0,
-        // auto_exposure is not a GPU stage; pin Off so the model is unambiguous
-        // (the develop chain runs AE CPU-side — out of scope here).
-        auto_exposure: AutoExposureMode::Off,
-        ..AdjustmentModel::default()
-    };
-    Case {
-        model,
-        capture: None, // the one legitimate builder gate (pass-count test)
-        curve: nonidentity_curve(),
-        lut: nonidentity_lut(9),
-        wb_method: WbMethod::Cat16,
-    }
-}
-
-/// The aggressive case: every stage engaged so every kernel runs for real.
-fn aggressive_case() -> Case {
-    let model = AdjustmentModel {
-        temperature: 4800.0, // non-default WB (dodges the (6500,0) identity)
-        tint: 18.0,
-        exposure: 0.4,
-        contrast: 35.0,
-        highlights: -40.0,
-        shadows: 30.0,
-        whites: 20.0,
-        blacks: -15.0,
-        parametric_shadows: 20.0,
-        parametric_darks: -10.0,
-        parametric_lights: 15.0,
-        parametric_highlights: -20.0,
-        // A non-identity per-channel point curve (luma), exercising tone_curves'
-        // luma-coupled path. Knots in [0,1]^2.
-        tone_curve_luma: ToneCurve::new(vec![(0.0, 0.0), (0.25, 0.18), (0.75, 0.82), (1.0, 1.0)]),
-        tone_curve_mode: ToneCurveMode::RatioPreserving,
-        vibrance: 35.0,
-        saturation: 25.0,
-        clarity: 40.0,
-        texture: 30.0,
-        dehaze: 45.0, // non-zero so the dehaze path actually runs (airlight matters)
-        vignette_amount: -65.0, // engaged radial gain (#1109)
-        vignette_feather: 30.0,
-        grain_amount: 60.0, // engaged display-tail grain (#1110)
-        grain_size: 70.0,
-        grain_roughness: 80.0,
-        split_tone_shadow_hue: 30.0, // engaged display-tail tint (#1111)
-        split_tone_shadow_saturation: 70.0,
-        split_tone_highlight_hue: 250.0,
-        split_tone_highlight_saturation: 60.0,
-        split_tone_balance: -40.0,
-        sharpen_amount: 80.0,
-        sharpen_radius: 1.5,
-        sharpen_detail: 30.0,
-        sharpen_masking: 20.0,
-        nr_luminance: 30.0,
-        nr_color: 40.0,
-        auto_exposure: AutoExposureMode::Off,
-        ..AdjustmentModel::default()
-    };
-    Case {
-        model,
-        capture: Some(CaptureSharpeningParams {
-            sigma: 0.8,
-            iterations: 2,
-            highlight_threshold: 0.9,
-            strength: 1.0,
-            noise_floor: 3e-4,
-        }),
-        curve: nonidentity_curve(),
-        lut: nonidentity_lut(9),
-        wb_method: WbMethod::Cat16,
-    }
-}
+// `mild_case` / `aggressive_case` / `film_case` — the `Case` builders — live in
+// the sibling `tests_cases` module (600-LOC budget; the `film_case` addition
+// for epic #2683 Task 7's composed-chain coverage pushed this file over).
+#[path = "tests_cases.rs"]
+mod tests_cases;
+use tests_cases::{aggressive_case, film_case, mild_case};
 
 /// THE CAPSTONE GATE: the composed GPU chain matches the same stages composed on
 /// the CPU (real raw-core fns, same order) within [`FULL_CHAIN_BUDGET`], for both
@@ -279,6 +169,7 @@ fn cpu_oracle_limit(input: &[f32], w: u32, h: u32, case: &Case, limit: usize) ->
     }
 
     let has_capture = case.capture.is_some();
+    let has_film = case.film_lut.is_some();
     let mut stage_idx = 0;
 
     // Stage 0: capture sharpening
@@ -403,7 +294,22 @@ fn cpu_oracle_limit(input: &[f32], w: u32, h: u32, case: &Case, limit: usize) ->
     }
     stage_idx += 1;
 
-    // Stage 16: grain
+    // Stage 16 (conditional, only when a look is loaded): film look, between
+    // color_grade and grain — mirrors `build_split`'s `film_lut_size > 0`
+    // presence gate exactly, so this stage-index walk stays aligned with the
+    // real GPU pass count for every case (film-loaded or not).
+    if has_film {
+        if stage_idx <= limit {
+            raw_core::stages::film_look::apply(
+                &mut img,
+                case.film_lut.as_ref().unwrap(),
+                case.film_strength,
+            );
+        }
+        stage_idx += 1;
+    }
+
+    // Stage 16/17: grain
     if stage_idx <= limit {
         raw_core::stages::grain::apply(
             &mut img,
@@ -454,7 +360,11 @@ fn full_gpu_chain_matches_composed_cpu_oracle() {
     let (w, h) = (8usize, 8usize);
     let input = scene_linear_rgba(w, h);
 
-    for (name, case) in [("mild", mild_case()), ("aggressive", aggressive_case())] {
+    for (name, case) in [
+        ("mild", mild_case()),
+        ("aggressive", aggressive_case()),
+        ("film", film_case()),
+    ] {
         let inputs = case.gpu_inputs();
         let (prefix, suffix) = build_split(&inputs, [0.0; 3]);
         let num_passes = prefix.len() + suffix.len();
@@ -486,6 +396,7 @@ fn full_gpu_chain_matches_composed_cpu_oracle() {
         let gpu = run_gpu_chain(&input, w as u32, h as u32, &inputs);
         let cpu = cpu_oracle(&input, w as u32, h as u32, &case);
         let diff = max_abs_diff(&gpu, &cpu);
+        eprintln!("FINAL COMPOSED PARITY [{name}]: max abs diff = {diff:e}");
         assert!(
             diff < FULL_CHAIN_BUDGET,
             "[{name}] composed GPU vs CPU max abs diff {diff} exceeds {FULL_CHAIN_BUDGET}"

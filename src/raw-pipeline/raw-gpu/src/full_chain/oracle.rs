@@ -28,6 +28,7 @@ use crate::capture_sharpening::CaptureSharpeningParams;
 use crate::tone_curves::{CurveMode, ToneCurveInputs};
 use crate::FullChainInputs;
 
+use raw_core::film::FilmLut;
 use raw_core::image::{ColorSpace, Image};
 use raw_core::types::{BlackWhiteMode, ToneCurveMode, WbMethod};
 use raw_core::view::auto_profile::apply::apply_curve;
@@ -113,6 +114,16 @@ pub struct Case {
     pub lut: ColorLut,
     /// WB method (the model carries temp/tint; method is a separate enum field).
     pub wb_method: WbMethod,
+    /// A loaded film-look LUT (epic #2683, Task 7) — display-linear, runs
+    /// between `color_grade` and `grain`. `None` (the value every existing
+    /// case uses) means no look is loaded: [`Case::gpu_inputs`] emits
+    /// `film_lut_size: 0`, so [`build_split`]/`build_live_split` omit
+    /// `FilmLutPass` entirely and [`cpu_oracle`] skips the `film_look::apply`
+    /// call — both sides stay exactly as they were before this field existed.
+    pub film_lut: Option<FilmLut>,
+    /// Film-look blend strength, 0..100 nominal. Only meaningful when
+    /// `film_lut` is `Some`.
+    pub film_strength: f32,
 }
 
 impl Case {
@@ -235,14 +246,21 @@ impl Case {
             // composed chain.
             noise_profile: Vec::new(),
             iso: 0,
-            // No oracle case loads a film look yet (Task 7 lands the GPU
-            // pass; a future task threads `model.film_look`/`film_strength`
-            // through this harness). Off, matching every existing case's
-            // expected output exactly.
-            film_strength: 0.0,
-            film_lut_size: 0,
-            film_lut_key: 0,
-            film_lut_data: Vec::new(),
+            // Off by default (`film_lut: None`) — every case that doesn't set
+            // it explicitly gets `film_lut_size: 0`, so `build_split` /
+            // `build_live_split` omit `FilmLutPass` exactly as before this
+            // field existed. `film_lut_key` is a fixed non-zero constant
+            // whenever a look IS loaded — content-identity uniqueness across
+            // DIFFERENT loaded looks is exercised by `live_chain::tests_gating`,
+            // not by this composed-chain harness.
+            film_strength: self.film_strength,
+            film_lut_size: self.film_lut.as_ref().map_or(0, |l| l.size as u32),
+            film_lut_key: if self.film_lut.is_some() { 1 } else { 0 },
+            film_lut_data: self
+                .film_lut
+                .as_ref()
+                .map(|l| l.data.clone())
+                .unwrap_or_default(),
         }
     }
 }
@@ -315,6 +333,13 @@ pub fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
     //     transform to become a display image. ---
     raw_core::view::agx::apply(&mut img, case.model.contrast);
     raw_core::stages::color_grade::apply_model(&mut img, &case.model);
+    // Film look (epic #2683, Task 7) — display-linear, between color_grade
+    // and grain (raw-core's `render` position; see `stages::film_look`'s
+    // module docs). Skipped entirely when no look is loaded, mirroring
+    // `build_split`'s `film_lut_size > 0` presence gate exactly.
+    if let Some(lut) = &case.film_lut {
+        raw_core::stages::film_look::apply(&mut img, lut, case.film_strength);
+    }
     raw_core::stages::grain::apply(
         &mut img,
         case.model.grain_amount,
@@ -382,6 +407,24 @@ pub fn identity_curve() -> ProfileCurve {
 /// The identity residual LUT — the neutral-case sibling of [`identity_curve`].
 pub fn identity_lut(size: usize) -> ColorLut {
     ColorLut::identity(size)
+}
+
+/// A deterministic pseudo-random `size`³ film-look LUT (xorshift32, no `rand`
+/// dep) — a real `.mlut`-shaped, NON-identity grid so a composed-chain case
+/// that loads one exercises the tetrahedral interpolation off the identity
+/// diagonal, not a passthrough. Mirrors `film_lut/tests.rs`'s own
+/// `random_film_lut` helper (duplicated rather than shared across the two
+/// `#[cfg(test)]` module trees, which don't see each other's private items).
+pub fn random_film_lut(size: usize, seed: u32) -> FilmLut {
+    let mut state = seed | 1;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        (state as f32) * (1.0 / 4_294_967_295.0)
+    };
+    let data: Vec<f32> = (0..(size * size * size * 3)).map(|_| next()).collect();
+    FilmLut { size, data }
 }
 
 /// Max absolute per-element difference between two equal-length buffers.
