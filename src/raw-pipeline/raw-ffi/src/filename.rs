@@ -205,10 +205,11 @@ pub unsafe extern "C" fn maple_render_filename_template(
 ///
 /// Returns the same error codes as [`maple_render_filename_template`], plus:
 ///   9   rendered filename does not fit in `out_cap` bytes — `*out_len` is
-///       NOT written; the caller should retry with a larger buffer (a
-///       filename's rendered length is bounded only by its template's
-///       literal text plus a `{date:FORMAT}` string, so a generous fixed
-///       buffer such as 1024 bytes comfortably covers every real template).
+///       NOT written. Reachable: templates may repeat tokens without bound,
+///       so a degenerate template can render arbitrarily long output. Any
+///       such name would fail `validate_filename`'s length rule anyway, so
+///       callers should surface this as a rejection, not retry with a
+///       bigger buffer.
 #[no_mangle]
 pub unsafe extern "C" fn maple_render_filename_template_buf(
     template_ptr: *const c_char,
