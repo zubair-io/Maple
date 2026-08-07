@@ -58,6 +58,7 @@ use crate::capture_sharpening::CaptureSharpeningPass;
 use crate::clarity::ClarityPass;
 use crate::dehaze::{AirlightSource, DehazePass};
 use crate::display_encode::DisplayEncodePass;
+use crate::film_lut::FilmLutPass;
 use crate::full_chain::hsl_pass_for;
 use crate::full_chain::{BoxedPasses, FullChainInputs, InputShape};
 use crate::grain::GrainPass;
@@ -286,6 +287,19 @@ pub fn build_live_split(
     if !color_grade_is_identity(&grade) {
         suffix.push(Box::new(ColorGradePass { sliders: grade }));
     }
+    // Film look (epic #2683, Task 7) — display-linear, post-color_grade,
+    // pre-grain (matching raw-core's render tail position). GATED on a
+    // loaded, non-empty LUT AND an engaged strength — a look with strength 0
+    // is a bit-identical no-op (mirrors `film_look::apply`'s own
+    // `strength <= 0.0` short-circuit) and an unloaded LUT has no grid to
+    // bind.
+    if inputs.film_lut_size > 0 && inputs.film_strength > SLIDER_EPS {
+        suffix.push(Box::new(FilmLutPass {
+            size: inputs.film_lut_size,
+            strength: inputs.film_strength,
+            data: inputs.film_lut_data.clone(),
+        }));
+    }
     // Film grain (#1110) — display-linear, post-AgX; GATED unlike the rest
     // of the tail (grain at amount 0 is a true no-op, so the pass is
     // omitted exactly as raw-core's `apply` short-circuits). Size /
@@ -417,6 +431,11 @@ fn active_mask(inputs: &FullChainInputs) -> u32 {
     if !color_grade_is_identity(&crate::full_chain::color_grade_sliders(inputs)) {
         m |= 1 << 14;
     }
+    // Bit 17: film look (epic #2683, Task 7) — same predicate as the
+    // `build_live_split` gate (loaded LUT + engaged strength).
+    if inputs.film_lut_size > 0 && inputs.film_strength > SLIDER_EPS {
+        m |= 1 << 17;
+    }
     m
 }
 
@@ -490,6 +509,14 @@ pub fn chain_signature(inputs: &FullChainInputs, dims: (u32, u32), session_id: u
     // The residual-LUT edge drives the pooled grid buffer's byte length (#1079).
     // Hash as u64 so the signature is stable across usize widths.
     (inputs.residual_lut_size as u64).hash(&mut h);
+    // The film LUT's CONTENT identity (epic #2683, Task 7): `active_mask`
+    // only tells us a look is on/off, not WHICH look — switching to a
+    // different look at a constant mask/strength-band would otherwise reuse
+    // a cached bind group still pointing at the OLD grid buffer. `film_lut_size`
+    // additionally covers a different-sized grid replacing the pooled buffer
+    // (same shape as the `residual_lut_size` fold above).
+    (inputs.film_lut_key as u64).hash(&mut h);
+    (inputs.film_lut_size as u64).hash(&mut h);
     // The local-adjustment LAYER COUNT is the second pooled data buffer whose
     // byte length can vary at a constant active mask (#1698): adding a layer
     // mid-session would otherwise leave the cached bind group at this signature
