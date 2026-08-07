@@ -186,15 +186,33 @@ namespace Maple.WinUI
 
         // --- Rendering ---
 
-        private void OnGpuFrameReady(int width, int height, double millis)
+        private void OnGpuFrameReady(int width, int height, double millis, bool refined)
         {
             App.MainDispatcherQueue?.TryEnqueue(() =>
             {
-                _gpuFrameDims = (width, height);
-                UpdatePanelFit();
+                if (refined)
+                {
+                    _gpuFrameDims = (width, height);
+                    UpdatePanelFit();
+                    ViewportSwapChainPanel.RenderTransform = null;
+                }
+                else
+                {
+                    // Half-res fast pass (#2587): the swapchain composites
+                    // 1 buffer px = 1 DIP, so the element takes the half dims
+                    // and a centred 2× scale keeps the on-screen box identical
+                    // to the refined frame.
+                    ViewportSwapChainPanel.Width = width;
+                    ViewportSwapChainPanel.Height = height;
+                    ViewportSwapChainPanel.RenderTransformOrigin =
+                        new Windows.Foundation.Point(0.5, 0.5);
+                    ViewportSwapChainPanel.RenderTransform =
+                        new Microsoft.UI.Xaml.Media.ScaleTransform { ScaleX = 2, ScaleY = 2 };
+                }
                 ViewportSwapChainPanel.Visibility = Visibility.Visible;
                 ViewportImage.Visibility = Visibility.Collapsed;
-                RenderStatsText.Text = $"{width}×{height} · GPU {millis:0} ms";
+                RenderStatsText.Text =
+                    $"{width}×{height} · GPU {millis:0} ms{(refined ? string.Empty : " (fast)")}";
                 ViewModel.LastRenderMillis = millis;
             });
         }

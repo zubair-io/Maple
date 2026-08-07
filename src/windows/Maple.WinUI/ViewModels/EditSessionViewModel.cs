@@ -19,7 +19,16 @@ namespace Maple.WinUI.ViewModels
     /// </summary>
     public partial class EditSessionViewModel : ObservableObject, IDisposable
     {
-        public const int PreviewLongEdge = 1600;
+        public const int DefaultPreviewLongEdge = 1600;
+
+        /// <summary>Decode long edge for the Edit session. MAPLE_DECODE_LONG_EDGE
+        /// overrides for perf experiments (#2587) — e.g. the qualification
+        /// harness measuring how tick cost scales with session pixels.</summary>
+        public static readonly int PreviewLongEdge =
+            int.TryParse(Environment.GetEnvironmentVariable("MAPLE_DECODE_LONG_EDGE"), out var v)
+            && v is >= 256 and <= 8192
+                ? v
+                : DefaultPreviewLongEdge;
         private const int SidecarDebounceMs = 750;
         private const int UndoCommitQuietMs = 450;
         private const int UndoDepth = 50;
