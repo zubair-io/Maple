@@ -64,6 +64,10 @@ namespace Maple.WinUI.Services
         {
             _watcher?.Dispose();
             _watcher = null;
+            // Kill the debounce too — a timer surviving Stop() would fire
+            // Flush() for a folder the user already navigated away from.
+            _debounce?.Dispose();
+            _debounce = null;
             lock (_gate)
             {
                 _added.Clear();
@@ -126,7 +130,9 @@ namespace Maple.WinUI.Services
         {
             try
             {
-                using var _ = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                // FileShare.None: only stable once NO other handle is open — a
+                // writer that allows read-sharing must not count as finished.
+                using var _ = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.None);
                 return false;
             }
             catch (FileNotFoundException)
