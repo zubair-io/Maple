@@ -61,3 +61,59 @@
   color: var(--color-primary);
   font-weight: 500;
 }
+
+/* Focus ring for keyboard navigation — rows are `tabindex="0"` so the
+   folder-tree context menu (#2643) can open via ContextMenu/Shift+F10. */
+.tree-row:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+/* Inline rename input (#2643) — replaces the label span in place, same
+   line-height so the row doesn't reflow while editing. */
+.folder-rename-input {
+  height: 20px;
+  padding: 0 4px;
+  border: 1px solid var(--color-primary);
+  border-radius: 3px;
+  background: var(--color-input-bg);
+  color: var(--color-text-main);
+  font-size: 12px;
+  min-width: 0;
+
+  &:focus {
+    outline: none;
+  }
+}
+
+.rename-error {
+  margin: 2px 8px 4px;
+  font-size: 10px;
+  color: var(--color-error-text);
+}
+
+.trash-partial-warning {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 90vw;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--color-error-bg);
+  color: var(--color-error-text);
+  font-size: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+
+  button {
+    border: none;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 11px;
+  }
+}
