@@ -55,6 +55,11 @@ mod error;
 // Batch-rename filename-template engine FFI (#2628). Pure marshalling over
 // `raw_core::filename` — no worker-thread dispatch, no GPU gate.
 mod filename;
+// `.mlut` film-look LUT decode FFI (epic #2683, Task 8) — pure marshalling
+// over `raw_core::film::decode_mlut`. No worker-thread dispatch, no GPU gate
+// (the decode is a cheap byte-parse; only the GPU-gated per-tick params and
+// the render entries in `render_film` consume the decoded grid).
+mod film;
 // Epic #925 / P1b (#988): GPU parity FFI (`maple_gpu_exposure_parity`). Gated
 // behind the `gpu` feature so wgpu is absent from the default xcframework.
 #[cfg(feature = "gpu")]
@@ -74,6 +79,10 @@ mod id;
 mod model;
 mod render;
 mod render_develop;
+// Film-look sibling of `maple_render_file` (epic #2683, Task 8) — split out
+// of `render` per the 600-LOC file-size budget; `render::maple_render_file`
+// delegates its shared body here with `film_lut: None`.
+mod render_film;
 mod scene_linear;
 mod scene_linear_chain;
 // #2092 (follow-on to #1959 / PR #2083): the fused per-tick FFI entry —
@@ -166,11 +175,17 @@ mod auto_tone_tests;
 #[path = "filename_tests.rs"]
 mod filename_tests;
 #[cfg(test)]
+#[path = "film_tests.rs"]
+mod film_tests;
+#[cfg(test)]
 #[path = "handle_tests.rs"]
 mod handle_tests;
 #[cfg(test)]
 #[path = "id_tests.rs"]
 mod id_tests;
+#[cfg(test)]
+#[path = "render_film_tests.rs"]
+mod render_film_tests;
 #[cfg(test)]
 #[path = "render_tests.rs"]
 mod render_tests;
