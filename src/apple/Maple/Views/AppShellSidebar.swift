@@ -25,12 +25,19 @@ struct AppShellSidebar: View {
     let onPickFolder: (SavedFolder) -> Void
     let onRemoveFolder: (SavedFolder) -> Void
     let onPickAncestor: (URL, Data) -> Void
+    /// Source-tree context menu (#2645) — forwarded to `LibrarySidebar`;
+    /// see its declaration for the full contract.
+    let onCreateFolder: (URL, Data, String) -> Void
+    let onRenameFolder: (URL, Data, String) -> Void
+    let onTrashFolder: (URL, Data) -> Void
+    var folderRefreshGeneration: Int = 0
     let onPickPhotosFilter: (PhotoKitFilter) -> Void
     let onRequestPhotosAccess: () -> Void
     /// Forwarded to `LibrarySidebar` — see its declaration (#2454).
     var photosAuthGeneration: Int = 0
     let onAddSMB: () -> Void
     let onPickSMB: (SMBCredentialStore.SavedShare) -> Void
+    let onCreateSMBFolder: (SMBCredentialStore.SavedShare, String) -> Void
     let onAddCloudServer: () -> Void
     let onPickCloudLibrary: (URL, String, String) -> Void
     let onListCloudDir: (URL, String) async -> FsDirListing?
@@ -39,6 +46,8 @@ struct AppShellSidebar: View {
     let sessionFor: @MainActor (URL) -> AuthSession
     let onRemoveCloudServer: (URL) -> Void
     let onLoadCloudFolders: (URL) async -> [CloudFolder]
+    let onCreateCloudFolder: (URL, String, String, String, String) -> Void
+    let onRenameCloudFolder: (URL, String, String, String, String) -> Void
     let onSelectTimeline: () -> Void
 
     var body: some View {
@@ -48,11 +57,16 @@ struct AppShellSidebar: View {
             onPickFolder: onPickFolder,
             onRemoveFolder: onRemoveFolder,
             onPickAncestor: onPickAncestor,
+            onCreateFolder: onCreateFolder,
+            onRenameFolder: onRenameFolder,
+            onTrashFolder: onTrashFolder,
+            folderRefreshGeneration: folderRefreshGeneration,
             onPickPhotosFilter: onPickPhotosFilter,
             onRequestPhotosAccess: onRequestPhotosAccess,
             photosAuthGeneration: photosAuthGeneration,
             onAddSMB: onAddSMB,
             onPickSMB: onPickSMB,
+            onCreateSMBFolder: onCreateSMBFolder,
             onAddCloudServer: onAddCloudServer,
             onPickCloudLibrary: onPickCloudLibrary,
             onListCloudDir: onListCloudDir,
@@ -62,6 +76,8 @@ struct AppShellSidebar: View {
             sessionFor: sessionFor,
             onRemoveCloudServer: onRemoveCloudServer,
             onLoadCloudFolders: onLoadCloudFolders,
+            onCreateCloudFolder: onCreateCloudFolder,
+            onRenameCloudFolder: onRenameCloudFolder,
             onSelectTimeline: onSelectTimeline
         )
     }

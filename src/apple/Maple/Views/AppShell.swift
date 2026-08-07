@@ -317,6 +317,15 @@ struct AppShell: View {
     // next claim comes in or when `releaseScope()` is called on app exit.
     @State var activeScopeURL: URL?
 
+    /// Bumped by `AppShell+FolderContextMenu` after a New Folder / Rename /
+    /// Move to Trash action commits. `LibrarySidebar`'s tree rows watch this
+    /// (mirrors `photosAuthGeneration`, #2454) to re-enumerate their
+    /// children — the sidebar has no filesystem watcher of its own, so
+    /// without an explicit nudge a folder created or renamed from the
+    /// context menu wouldn't appear until the user manually collapsed and
+    /// re-expanded the row (#2645).
+    @State var folderRefreshGeneration: Int = 0
+
     private var selectedSession: EditSession? {
         browseVM.selectedID.flatMap { sessions[$0] }
     }
@@ -847,11 +856,24 @@ struct AppShell: View {
             onPickAncestor: { url, bookmark in
                 openSubFolder(url: url, rootBookmark: bookmark)
             },
+            onCreateFolder: { url, bookmark, name in
+                createLocalFolder(name: name, in: url, rootBookmark: bookmark)
+            },
+            onRenameFolder: { url, bookmark, newName in
+                renameLocalFolder(url, to: newName, rootBookmark: bookmark)
+            },
+            onTrashFolder: { url, bookmark in
+                trashLocalFolder(url, rootBookmark: bookmark)
+            },
+            folderRefreshGeneration: folderRefreshGeneration,
             onPickPhotosFilter: { filter in loadPhotos(filter: filter) },
             onRequestPhotosAccess: { requestPhotosAccess() },
             photosAuthGeneration: photosAuthGeneration,
             onAddSMB: { showSMBSheet = true },
             onPickSMB: { share in connectSavedSMB(share) },
+            onCreateSMBFolder: { share, name in
+                createSMBFolder(name: name, share: share)
+            },
             onAddCloudServer: { addCloudSheetTarget = .fresh },
             onPickCloudLibrary: { serverID, folderID, libraryPath in
                 loadCloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath)
@@ -902,6 +924,14 @@ struct AppShell: View {
             },
             onLoadCloudFolders: { url in
                 await loadCloudFoldersFor(url)
+            },
+            onCreateCloudFolder: { server, libraryFolderID, libraryRootPath, parentAbsPath, name in
+                createCloudFolder(server: server, libraryFolderID: libraryFolderID,
+                                  libraryRootPath: libraryRootPath, parentAbsPath: parentAbsPath, name: name)
+            },
+            onRenameCloudFolder: { server, libraryFolderID, libraryRootPath, absPath, newName in
+                renameCloudFolder(server: server, libraryFolderID: libraryFolderID,
+                                  libraryRootPath: libraryRootPath, absPath: absPath, newName: newName)
             },
             onSelectTimeline: { openAllSourcesTimeline() }
         )

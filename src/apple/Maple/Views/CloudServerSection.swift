@@ -48,6 +48,14 @@ struct CloudServerSection: View {
   let session: AuthSession
   /// Present sign-in for this server (prefilled re-auth).
   let onSignIn: () -> Void
+  /// Source-tree context menu (#2645) — bumped after New Folder / Rename
+  /// commits anywhere in this server's tree; re-fetches expanded rows'
+  /// listings (mirrors `FolderTreeRow`'s `refreshGeneration`).
+  var folderRefreshGeneration: Int = 0
+  /// (libraryFolderID, libraryRootPath, parentAbsPath, name).
+  var onCreateFolder: ((String, String, String, String) -> Void)? = nil
+  /// (libraryFolderID, libraryRootPath, absPath, newName).
+  var onRenameFolder: ((String, String, String, String) -> Void)? = nil
 
   /// Per-server tree state — kept here (not on individual rows) so the
   /// disclosure state and fetched listings survive sibling re-renders.
@@ -85,6 +93,7 @@ struct CloudServerSection: View {
           CloudFolderTreeRow(
             serverURL: serverURL,
             libraryFolderID: folder.id,
+            libraryRootPath: folder.path,
             absPath: folder.path,
             displayName: folder.displayName,
             depth: 0,
@@ -93,7 +102,10 @@ struct CloudServerSection: View {
             cloudCurrentPath: cloudCurrentPath,
             selection: $selection,
             listingCache: $listingCache,
-            expanded: $expanded
+            expanded: $expanded,
+            refreshGeneration: folderRefreshGeneration,
+            onCreateFolder: onCreateFolder,
+            onRenameFolder: onRenameFolder
           )
         }
       }
