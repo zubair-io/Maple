@@ -1,0 +1,74 @@
+@use '../../styles/dialog-chrome' as chrome;
+
+.frn-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.frn-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 360px;
+  border-radius: 8px;
+  background: var(--color-surface);
+  border: 0.5px solid var(--color-border);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.frn-header {
+  padding: 14px 16px;
+  border-bottom: 0.5px solid var(--color-border);
+}
+
+.frn-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-main);
+}
+
+.frn-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.frn-input {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 5px;
+  border: 0.5px solid var(--color-border);
+  background: var(--color-input-bg);
+  color: var(--color-text-main);
+  font-size: 13px;
+
+  &:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+}
+
+.frn-error {
+  margin: 0;
+  font-size: 11px;
+  color: var(--color-error-text);
+}
+
+.frn-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 0.5px solid var(--color-border);
+}
+
+.frn-btn {
+  @include chrome.dialog-button;
+}

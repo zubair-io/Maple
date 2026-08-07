@@ -19,6 +19,7 @@
         class="fnf-input"
         placeholder="Name"
         [value]="name()"
+        [attr.aria-label]="'Folder name'"
         (input)="onNameInput($any($event.target).value)"
         (keydown.enter)="onSubmit()"
         [attr.aria-invalid]="!isValid() && name().length > 0 ? 'true' : null"

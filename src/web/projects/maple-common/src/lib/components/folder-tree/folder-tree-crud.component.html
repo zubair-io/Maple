@@ -1,0 +1,41 @@
+@let node = request().node;
+
+@switch (activeDialog()) {
+  @case (null) {
+    <app-folder-context-menu
+      [x]="request().x"
+      [y]="request().y"
+      [items]="menuItems()"
+      [menuLabel]="node.label + ' actions'"
+      (action)="onMenuAction($event)"
+      (closeMenu)="onMenuClosed()"
+    />
+  }
+  @case ('new-folder') {
+    <app-folder-new-folder-dialog
+      [parentLabel]="node.label"
+      [busy]="busy()"
+      [serverError]="errorMessage()"
+      (create)="onNewFolderCreate($event)"
+      (dismiss)="onDialogDismiss()"
+    />
+  }
+  @case ('rename') {
+    <app-folder-rename-dialog
+      [currentName]="node.label"
+      [busy]="busy()"
+      [serverError]="errorMessage()"
+      (rename)="onRenameConfirm($event)"
+      (dismiss)="onDialogDismiss()"
+    />
+  }
+  @case ('trash') {
+    <app-folder-trash-confirm-dialog
+      [folderLabel]="node.label"
+      [busy]="busy()"
+      [serverError]="errorMessage()"
+      (confirmTrash)="onTrashConfirm()"
+      (dismiss)="onDialogDismiss()"
+    />
+  }
+}
