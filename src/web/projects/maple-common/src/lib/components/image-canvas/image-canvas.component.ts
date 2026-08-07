@@ -31,7 +31,6 @@ import {
   drawCanvas2d,
 } from './image-canvas.draw2d';
 import { TwoPhaseRenderScheduler, type RenderSizing } from './image-canvas.two-phase';
-import { CanvasZoomGestures } from './image-canvas.zoom-gestures';
 import { CropOverlayComponent } from '../crop-overlay/crop-overlay.component';
 import { CropSessionService } from '../crop-overlay/crop-session.service';
 import { type AdjustmentModel } from '../../models/adjustment-model';
@@ -44,6 +43,7 @@ import { EmbeddedPreviewService } from '../../raw-pipeline/embedded-preview.serv
 import { ImageCanvasRawOpen } from './image-canvas.raw-open';
 import { ImageCanvasFilmSync } from './image-canvas.film';
 import { FilmLutService } from '../../film/film-lut.service';
+import { ImageCanvasZoomHost } from './image-canvas.zoom-host';
 
 @Component({
   selector: 'editor-image-canvas',
@@ -85,8 +85,9 @@ export class ImageCanvasComponent
   private readonly filmSync = new ImageCanvasFilmSync(this, () => this.forceRerenderForFilm()); // #2683
 
   private ro?: ResizeObserver;
-  private wrapW = signal<number>(800);
-  private wrapH = signal<number>(600);
+  // Non-private: read by `ImageCanvasZoomHost` (`ZoomHostHost`).
+  wrapW = signal<number>(800);
+  wrapH = signal<number>(600);
   private detachGestures?: () => void;
   private cleanupDecodeEffect?: () => void;
   private cleanupRerenderEffect?: () => void;
@@ -146,43 +147,12 @@ export class ImageCanvasComponent
   // so the GPU cold-open shares the same dedup key as the 2D path.
   lastRenderedXmp: string | null = null;
 
-  // ── Continuous zoom (#1100, docs/zoom.md): pixelScale = REAL px per image
-  // px (0 = fit, 1 = 100%, cap 8); the geometry helpers work in CSS scale.
-  private readonly dpr = (): number =>
-    (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
-
-  /** CSS-scale view of the zoom for the draw/refine geometry ('fit' | cssScale). */
-  private cssZoom = computed<'fit' | number>(() => {
-    const ps = this.canvasSvc.pixelScale();
-    return ps === 0 ? 'fit' : ps / this.dpr();
-  });
-
-  // Pointer/wheel/keyboard gesture controller (#1100) — state machine, math,
-  // and DOM wiring live in `image-canvas.zoom-gestures.ts`; this host closure
-  // supplies geometry. Protected: the template binds the toolbar to it.
-  protected readonly gestures = new CanvasZoomGestures({
-    wrapSize: () => ({ w: this.wrapW(), h: this.wrapH() }),
-    wrapRect: () => this.wrapRef?.nativeElement?.getBoundingClientRect() ?? null,
-    nativeSize: () => {
-      const n = this.canvasSvc.nativeDimensions();
-      if (n) return { w: n.w, h: n.h };
-      const a = this.state.focusedAsset();
-      return a?.width && a?.height ? { w: a.width, h: a.height } : null;
-    },
-    devicePixelRatio: () => this.dpr(),
-    pixelScale: () => this.canvasSvc.pixelScale(),
-    pan: () => this.canvasSvc.pan(),
-    commitView: (pixelScale, pan) => this.commitView(pixelScale, pan),
-    moveDivider: (clientX) => {
-      const rect = this.wrapRef.nativeElement.getBoundingClientRect();
-      this.canvasSvc.setSplit((clientX - rect.left) / rect.width);
-    },
-  });
-
-  // Zoom badge (#1100): percent of the EFFECTIVE real scale, always visible.
-  // The controller reads the pixelScale/native/wrap signals inside this
-  // computed's call, so the dependency tracking is unchanged.
-  zoomLabel = computed(() => this.gestures.zoomPercent());
+  // Zoom + gesture wiring (#1100) — extracted to `image-canvas.zoom-host.ts`
+  // to keep this file under the file-size budget; `gestures`/`zoomLabel`
+  // delegate straight through so the template bindings are unchanged.
+  private readonly zoomHost = new ImageCanvasZoomHost(this);
+  protected readonly gestures = this.zoomHost.gestures;
+  readonly zoomLabel = this.zoomHost.zoomLabel;
 
   // Download progress view-model for the open-progress bar: non-null only
   // while a genuine network download is in flight for the FOCUSED asset
@@ -215,7 +185,7 @@ export class ImageCanvasComponent
   private effectivePx = computed(() => {
     const asset = this.state.focusedAsset();
     const { w, h } = displayDims(this.paintedAspect(), asset?.width, asset?.height);
-    return computeEffectivePx(this.cssZoom(), w, h, this.wrapW(), this.wrapH());
+    return computeEffectivePx(this.zoomHost.cssZoom(), w, h, this.wrapW(), this.wrapH());
   });
 
   // ── Crop tool (#638; helpers in image-canvas.crop.ts) ───────────────────────
@@ -238,19 +208,6 @@ export class ImageCanvasComponent
    *  `GpuPresentHost` so the GPU cold-open dedup matches the 2D path. */
   serializeForRender(model: AdjustmentModel): string {
     return this.xmpSerializer.serialize(renderModelForCrop(model, this.cropSession.active()));
-  }
-
-  /**
-   * Commit a view from the gesture controller (#1100): pixelScale (0 = fit)
-   * + pan. The controller already clamped the pan against the geometry.
-   */
-  private commitView(pixelScale: number, pan: { x: number; y: number }): void {
-    if (pixelScale === 0) {
-      this.canvasSvc.zoomToFit();
-      return;
-    }
-    this.canvasSvc.setPixelScale(pixelScale);
-    this.canvasSvc.pan.set(pan);
   }
 
   ngAfterViewInit(): void {
@@ -438,12 +395,12 @@ export class ImageCanvasComponent
     const native = this.canvasSvc.nativeDimensions();
     if (!native) return null;
     return computeRefineTargetLongEdge({
-      zoom: this.cssZoom(),
+      zoom: this.zoomHost.cssZoom(),
       nativeW: native.w,
       nativeH: native.h,
       wrapW: this.wrapW(),
       wrapH: this.wrapH(),
-      dpr: this.dpr(),
+      dpr: this.zoomHost.dpr(),
       fastTarget: this.fastTargetPx(),
       paintedLongEdge: this.paintedLongEdge,
     });
@@ -589,10 +546,10 @@ export class ImageCanvasComponent
   /** Cmd/Ctrl+0 → fit, Cmd/Ctrl+1 → 100% (bare 0/1 stay S5 tool/rating keys). */
   @HostListener('document:keydown', ['$event'])
   onKeydown(e: KeyboardEvent): void {
-    this.gestures.onKeydown(e, !!this.state.focusedAsset());
+    this.zoomHost.onKeydown(e);
   }
 
   onDividerDrag(e: PointerEvent): void {
-    this.gestures.onDividerDown(e, this.wrapRef.nativeElement);
+    this.zoomHost.onDividerDrag(e);
   }
 }
