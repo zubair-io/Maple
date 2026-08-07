@@ -41,7 +41,7 @@ mod finish;
 
 // Export render — the display chain at a caller-chosen depth / primaries (#943).
 mod export;
-pub use export::{render_export_from_raw, ExportDepth, ExportPixels};
+pub use export::{render_export_from_raw, render_export_from_raw_with_film, ExportDepth, ExportPixels};
 
 // Synthetic-input render entries — the view transform applied to an already
 // scene-linear buffer (#943 size-budget split); re-exported so `pipeline::{…}`

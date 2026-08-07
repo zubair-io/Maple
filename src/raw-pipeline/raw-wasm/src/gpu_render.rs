@@ -314,12 +314,20 @@ fn fit_profile_artifacts(
 /// Auto Profile fit. The view-tail-and-WB shape the live chain re-applies every
 /// render; cheap (no decode, no GPU compile), so the persistent session rebuilds
 /// it per tick from the latest model while reusing the uploaded prefix buffer.
+///
+/// `film_lut` / `film_lut_key` (epic #2683, Task 9) are the session-resident
+/// baked film-look grid + its content-identity key — see
+/// [`model::build_full_chain_inputs`]'s doc for why they ride alongside the
+/// model instead of inside it. One-shot callers with no loaded look pass
+/// `(None, 0)`.
 #[cfg(any(target_arch = "wasm32", test))]
 pub(crate) fn chain_inputs_for_model(
     raw_img: &raw_core::image::RawImage,
     raw: &[u8],
     ext: &str,
     model: &AdjustmentModel,
+    film_lut: Option<&raw_core::film::FilmLut>,
+    film_lut_key: u32,
 ) -> FullChainInputs {
     let (profile_curve_flat, residual_lut_size, residual_lut_data) =
         fit_profile_artifacts(raw_img, raw, ext, model);
@@ -335,6 +343,8 @@ pub(crate) fn chain_inputs_for_model(
             profile: raw_img.noise_profile.clone().unwrap_or_default(),
             iso: raw_img.iso,
         },
+        film_lut,
+        film_lut_key,
     )
 }
 
@@ -379,7 +389,11 @@ async fn render_gpu_core(
     let target = effective_target_long_edge(max_long_edge, &ctx);
 
     let (rgba, w, h, _prefix_model) = develop_prefix_rgba(raw_img, raw, ext, model, target)?;
-    let inputs = chain_inputs_for_model(raw_img, raw, ext, model);
+    // No film-look on the one-shot GPU path: this entry has no session to hold
+    // the uploaded `.mlut` bytes across calls (a per-call upload would defeat
+    // the "cache-served, cheap to rebuild" cost profile the tick loop needs).
+    // The persistent `WebLiveSession` carries the loaded look instead (Task 9).
+    let inputs = chain_inputs_for_model(raw_img, raw, ext, model, None, 0);
 
     // Upload ONCE, run the gated live chain + the WGSL terminal dither, read the
     // u8 RGB surface back. wasm has no blocking poll, so we await the async core.
@@ -497,3 +511,11 @@ mod tests_zero_alloc;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "gpu_render/tests_sizing.rs"]
 mod tests_sizing;
+// Film-look session plumbing gates (epic #2683, Task 9) — `WebLiveSession`
+// itself is wasm32-only (owns an `OffscreenCanvas` + drives WebGPU via
+// `wasm_bindgen_futures`), so these drive the SAME platform-neutral core it
+// calls (`chain_inputs_for_model` / `LiveSession`) on the host, mirroring how
+// `tests.rs` proves `render_gpu_core` without the wasm-only entry point.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "gpu_render/tests_film.rs"]
+mod tests_film;

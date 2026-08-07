@@ -112,6 +112,20 @@ pub struct WebLiveSession {
     /// like the one-shot `render_bytes` / `render_bytes_gpu` paths do.
     as_shot_temperature: f32,
     as_shot_tint: f32,
+    /// The session-resident baked film-look grid (epic #2683, Task 9), decoded
+    /// via [`raw_core::film::decode_mlut`] and folded into every tick's
+    /// [`raw_gpu::FullChainInputs`] by [`WebLiveSession::present_for_model`].
+    /// `None` (paired with `film_lut_key: 0`) is "no look loaded" — the
+    /// `FilmLutPass` composition skip gate. NOT part of `AdjustmentModel`/XMP:
+    /// the `.mlut` bytes are a runtime asset upload
+    /// ([`WebLiveSession::set_film_lut`]), not sidecar state — only
+    /// `film_strength` rides the model.
+    film_lut: Option<raw_core::film::FilmLut>,
+    /// Content-identity key for `film_lut` (e.g. a hash of the `.mlut` bytes /
+    /// catalog id), folded into the chain signature so switching looks within
+    /// a session lands in a fresh GPU pool bucket rather than reusing a bind
+    /// group still pointing at the old grid. `0` iff `film_lut` is `None`.
+    film_lut_key: u32,
 }
 
 /// Parse the XMP model with the SAME fresh-open contract as `render_bytes` /
@@ -214,6 +228,11 @@ impl WebLiveSession {
             full_height,
             as_shot_temperature,
             as_shot_tint,
+            // No look loaded on open — the editor uploads one on selection via
+            // `set_film_lut` (Task 9). Matches the render entries' `film_lut:
+            // None` no-op contract.
+            film_lut: None,
+            film_lut_key: 0,
         };
         handle
             .present_for_model(&model)
@@ -302,6 +321,44 @@ impl WebLiveSession {
             .map_err(|e| JsError::new(&e))
     }
 
+    /// Load (or replace) the session's film-look LUT (epic #2683, Task 9).
+    /// `bytes` is a `.mlut` v1 buffer ([`raw_core::film::decode_mlut`]); `look_key`
+    /// is a content-identity key for the loaded look (e.g. a hash of `bytes` or
+    /// the catalog id) — folded into the GPU chain signature so switching to a
+    /// DIFFERENT look lands in a fresh pool bucket instead of reusing a bind
+    /// group still pointing at the old grid.
+    ///
+    /// Does NOT re-render or re-present — the stored grid folds into the NEXT
+    /// [`WebLiveSession::render`] / [`WebLiveSession::render_with_params`] tick's
+    /// [`raw_gpu::FullChainInputs`] via [`WebLiveSession::present_for_model`].
+    /// The film-look stage is display-tail (post-`color_grade`, pre-`grain`)
+    /// like grain/split-tone, so loading a look never re-develops the prefix.
+    ///
+    /// Empty `bytes` clears the look (equivalent to [`WebLiveSession::clear_film_lut`])
+    /// — the editor's "None" selection uploads a zero-length buffer rather than
+    /// requiring a separate call.
+    #[wasm_bindgen]
+    pub fn set_film_lut(&mut self, bytes: &[u8], look_key: u32) -> Result<(), JsValue> {
+        if bytes.is_empty() {
+            self.clear_film_lut();
+            return Ok(());
+        }
+        let lut = raw_core::film::decode_mlut(bytes)
+            .map_err(|e| JsValue::from(JsError::new(&e.to_string())))?;
+        self.film_lut = Some(lut);
+        self.film_lut_key = look_key;
+        Ok(())
+    }
+
+    /// Drop the session's film-look LUT — the next tick renders with no look
+    /// applied, byte-identical to a session that never called
+    /// [`WebLiveSession::set_film_lut`].
+    #[wasm_bindgen]
+    pub fn clear_film_lut(&mut self) {
+        self.film_lut = None;
+        self.film_lut_key = 0;
+    }
+
     /// Camera "As Shot" CCT in Kelvin, in the WB slider frame
     /// (`dcp::estimate_as_shot_cct_tint`, #1892) — same value the one-shot
     /// paths return in [`MapleRender`]. Display-only slider seed.
@@ -359,7 +416,14 @@ impl WebLiveSession {
     /// buffer, and present to the held canvas surface. The shared tail of `open` +
     /// `render`. Returns the achieved colour-space tag (from the one-time retag).
     async fn present_for_model(&self, model: &AdjustmentModel) -> Result<String, String> {
-        let mut inputs = chain_inputs_for_model(&self.raw_img, &self.raw, &self.ext, model);
+        let mut inputs = chain_inputs_for_model(
+            &self.raw_img,
+            &self.raw,
+            &self.ext,
+            model,
+            self.film_lut.as_ref(),
+            self.film_lut_key,
+        );
         // #1913: the display-encode primaries MUST match the canvas colour-space
         // tag the present surface achieved. `chain_inputs_for_model` defaults to
         // sRGB (correct for the one-shot u8-readback path), but this live present

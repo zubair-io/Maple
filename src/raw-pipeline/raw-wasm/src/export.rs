@@ -20,7 +20,7 @@
 //! own (disk-spillable) storage rather than the JS heap. Peak JS-side
 //! occupancy is one chunk.
 
-use raw_core::export::{export_from_raw, ExportFormat, ExportOptions};
+use raw_core::export::{export_from_raw_with_film, ExportFormat, ExportOptions};
 use raw_core::pipeline::RawInput;
 use raw_core::view::encode::TargetPrimaries;
 use raw_core::xmp as xmp_mod;
@@ -111,9 +111,43 @@ pub fn export_bytes(
         .map_err(|e| JsError::new(&e))
 }
 
+/// Sibling of [`export_bytes`] that also threads a baked film-look LUT through
+/// to the export render (epic #2683, Task 9), so a deliverable file carries
+/// the SAME look the canvas showed — the export counterpart of
+/// `WebLiveSession::set_film_lut`'s live-preview upload.
+///
+/// `film_lut_bytes` is a `.mlut` v1 buffer; empty (the "no look selected" /
+/// "None" case) exports byte-identically to [`export_bytes`] regardless of
+/// `model.film_look` / `model.film_strength`, mirroring `set_film_lut`'s
+/// empty-bytes-clears contract.
+#[wasm_bindgen]
+pub fn export_bytes_with_film(
+    raw: &[u8],
+    ext: &str,
+    xmp: Option<String>,
+    format: &str,
+    quality: u8,
+    color_space: &str,
+    max_long_edge: u32,
+    film_lut_bytes: &[u8],
+) -> Result<MapleExport, JsError> {
+    export_core_with_film(
+        raw,
+        ext,
+        xmp,
+        format,
+        quality,
+        color_space,
+        max_long_edge,
+        film_lut_bytes,
+    )
+    .map_err(|e| JsError::new(&e))
+}
+
 /// The whole of [`export_bytes`] except the `JsError` conversion, factored out
 /// so it is reachable from native unit tests — `JsError` can only be
 /// constructed on a wasm target. Same split as `gpu_render::render_gpu_core`.
+/// Delegates to [`export_core_with_film`] with no LUT bytes.
 fn export_core(
     raw: &[u8],
     ext: &str,
@@ -122,6 +156,22 @@ fn export_core(
     quality: u8,
     color_space: &str,
     max_long_edge: u32,
+) -> Result<MapleExport, String> {
+    export_core_with_film(raw, ext, xmp, format, quality, color_space, max_long_edge, &[])
+}
+
+/// The whole of [`export_bytes_with_film`] except the `JsError` conversion —
+/// see [`export_core`]'s doc for why this split exists.
+#[allow(clippy::too_many_arguments)]
+fn export_core_with_film(
+    raw: &[u8],
+    ext: &str,
+    xmp: Option<String>,
+    format: &str,
+    quality: u8,
+    color_space: &str,
+    max_long_edge: u32,
+    film_lut_bytes: &[u8],
 ) -> Result<MapleExport, String> {
     let format = ExportFormat::from_str(format)
         .ok_or_else(|| format!("export_bytes: unsupported format '{format}'"))?;
@@ -141,11 +191,22 @@ fn export_core(
         max_long_edge: (max_long_edge > 0).then_some(max_long_edge),
     };
 
-    let exported = export_from_raw(
+    // Empty bytes ⇒ no look loaded — the same "None" contract
+    // `WebLiveSession::set_film_lut` uses, so a caller that always threads the
+    // currently-selected look's bytes (or an empty buffer when none is
+    // selected) doesn't need a separate branch.
+    let film_lut = if film_lut_bytes.is_empty() {
+        None
+    } else {
+        Some(raw_core::film::decode_mlut(film_lut_bytes).map_err(|e| e.to_string())?)
+    };
+
+    let exported = export_from_raw_with_film(
         &raw_img,
         &model,
         Some(RawInput::Bytes { bytes: raw, ext }),
         &options,
+        film_lut.as_ref(),
     )
     .map_err(|e| e.to_string())?;
 

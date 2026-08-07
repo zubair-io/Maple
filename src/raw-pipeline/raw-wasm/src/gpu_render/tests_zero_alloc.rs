@@ -104,6 +104,11 @@ fn render_chain_to_f32_second_render_is_zero_alloc() {
         // No DNG NoiseProfile in this fixture — the flat NLM filter (#1714).
         noise_profile: Vec::new(),
         iso: 0,
+        // No film look loaded — the FilmLutPass skip gate (epic #2683, Task 9).
+        film_strength: 0.0,
+        film_lut_size: 0,
+        film_lut_key: 0,
+        film_lut_data: Vec::new(),
     };
     let cancel = CancelToken::new();
 

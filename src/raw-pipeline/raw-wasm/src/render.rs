@@ -193,6 +193,61 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
     })
 }
 
+/// Sibling of [`render_bytes`] that also threads a baked film-look LUT through
+/// to the `film_look` stage (epic #2683, Task 9) — the WASM-CPU fallback's
+/// counterpart of `WebLiveSession::set_film_lut`'s live-preview upload, used
+/// on browsers without WebGPU (or as the GPU-adapter-failure fallback, see
+/// `raw-pipeline.worker.ts`'s `handleLegacyDecode`).
+///
+/// `film_lut_bytes` is a `.mlut` v1 buffer ([`raw_core::film::decode_mlut`]);
+/// empty renders byte-identically to [`render_bytes`] regardless of
+/// `model.film_look` / `model.film_strength`, mirroring `set_film_lut`'s
+/// empty-bytes-clears contract.
+#[wasm_bindgen]
+pub fn render_bytes_with_film(
+    raw: &[u8],
+    ext: &str,
+    xmp: Option<String>,
+    film_lut_bytes: &[u8],
+) -> Result<MapleRender, JsError> {
+    let raw_img =
+        raw_core::decode::decode_bytes(raw, ext).map_err(|e| JsError::new(&e.to_string()))?;
+
+    let (as_shot_temperature, as_shot_tint) = as_shot_wb(&raw_img);
+
+    let model = match xmp {
+        Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
+        None => xmp_mod::AdjustmentModel::default(),
+    };
+
+    let film_lut = if film_lut_bytes.is_empty() {
+        None
+    } else {
+        Some(
+            raw_core::film::decode_mlut(film_lut_bytes)
+                .map_err(|e| JsError::new(&e.to_string()))?,
+        )
+    };
+
+    let (w, h, bytes) = raw_core::pipeline::render_from_raw_with_quality_source_and_film(
+        &raw_img,
+        &model,
+        raw_core::pipeline::RenderQuality::Amaze,
+        Some(raw_core::pipeline::RawInput::Bytes { bytes: raw, ext }),
+        film_lut.as_ref(),
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
+    Ok(MapleRender {
+        width: w,
+        height: h,
+        full_width: w,
+        full_height: h,
+        rgb: bytes,
+        as_shot_temperature,
+        as_shot_tint,
+    })
+}
+
 /// Sized variant of [`render_bytes`] — the display-encoded counterpart of the
 /// Apple FFI's `maple_render_bytes_scene_linear_sized` sizing contract (#1101,
 /// spec §5.1): develops through raw-core's early-downsample chain so every

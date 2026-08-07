@@ -14,9 +14,12 @@
 
 use crate::{
     error::{Error, Result},
+    film,
     icc,
     image::RawImage,
-    pipeline::{render_export_from_raw, ExportDepth, ExportPixels, RawInput, RenderQuality},
+    pipeline::{
+        render_export_from_raw_with_film, ExportDepth, ExportPixels, RawInput, RenderQuality,
+    },
     view::encode::TargetPrimaries,
     xmp::AdjustmentModel,
 };
@@ -96,13 +99,33 @@ pub struct ExportedImage {
 /// `raw_source` is the undecoded RAW, needed by Auto Profile's embedded-JPEG
 /// fit — pass it, or `Profile::Auto` silently degrades to plain AgX and the
 /// export stops matching the canvas.
+///
+/// Delegates to [`export_from_raw_with_film`] with `film_lut: None` —
+/// byte-identical to the pre-#2683 behaviour regardless of `model.film_look` /
+/// `model.film_strength`.
 pub fn export_from_raw(
     raw: &RawImage,
     model: &AdjustmentModel,
     raw_source: Option<RawInput<'_>>,
     options: &ExportOptions,
 ) -> Result<ExportedImage> {
-    let (width, height, pixels) = render_export_from_raw(
+    export_from_raw_with_film(raw, model, raw_source, options, None)
+}
+
+/// Sibling of [`export_from_raw`] that also threads a baked film-look LUT
+/// (Task 1 [`film::FilmLut`]) through to the export render (epic #2683, Task
+/// 9) — so a deliverable file carries the SAME look the canvas showed rather
+/// than silently dropping it. `film_lut: None` renders byte-identical to
+/// [`export_from_raw`] regardless of `model.film_look` / `model.film_strength`
+/// — a host that can't resolve the `.mlut` asset passes `None` here.
+pub fn export_from_raw_with_film(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    raw_source: Option<RawInput<'_>>,
+    options: &ExportOptions,
+    film_lut: Option<&film::FilmLut>,
+) -> Result<ExportedImage> {
+    let (width, height, pixels) = render_export_from_raw_with_film(
         raw,
         model,
         // Export is always the best demosaic (#940) — nobody keeps a file
@@ -112,6 +135,7 @@ pub fn export_from_raw(
         options.max_long_edge,
         options.target,
         options.format.depth(),
+        film_lut,
     )?;
 
     let profile = icc::profile_for(options.target);

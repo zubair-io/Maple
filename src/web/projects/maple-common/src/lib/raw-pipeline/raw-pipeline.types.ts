@@ -36,6 +36,15 @@ export interface DecodeRequest {
    * refine phase). The unsized path stays Full-quality, as today.
    */
   qualityPreview?: boolean;
+  /**
+   * A baked film-look `.mlut` grid (epic #2683, Task 9) — transferable. The
+   * WASM-CPU fallback's counterpart of the GPU live session's
+   * `set-film-lut` upload, used when this request routes to `render_bytes` /
+   * `render_bytes_with_film` (no GPU, or a GPU-adapter-failure fallback; see
+   * `handleLegacyDecode`). Absent/empty renders with no look applied,
+   * regardless of the sidecar's `film_look`/`film_strength` fields.
+   */
+  filmLut?: ArrayBuffer;
 }
 
 export interface DecodeSuccess {
@@ -105,6 +114,33 @@ export interface RenderSessionRequest {
 export interface CloseSessionRequest {
   id: number;
   type: 'close-session';
+}
+
+/**
+ * Load (or clear) the open session's film-look LUT (epic #2683, Task 9).
+ * `bytes` is a `.mlut` v1 buffer, transferred like `OpenSessionRequest.bytes`.
+ * Empty `bytes` clears the look (equivalent to a session that never loaded
+ * one) — the editor's "None" selection posts a zero-length buffer rather than
+ * requiring a distinct clear message. `lookKey` is a content-identity key for
+ * the loaded look (e.g. a hash of `bytes` or the catalog id): folded into the
+ * GPU chain signature so switching to a DIFFERENT look lands in a fresh pool
+ * bucket instead of reusing a bind group still pointing at the old grid.
+ *
+ * Does NOT itself re-render — the stored grid folds into the NEXT
+ * `render-session` tick, same as any other session field.
+ */
+export interface SetFilmLutRequest {
+  id: number;
+  type: 'set-film-lut';
+  /** `.mlut` v1 bytes — transferable. Empty clears the loaded look. */
+  bytes: ArrayBuffer;
+  lookKey: number;
+}
+
+/** Reply to `set-film-lut`: the session's film-look LUT was loaded/cleared. */
+export interface SetFilmLutSuccess {
+  id: number;
+  type: 'set-film-lut-success';
 }
 
 /**
@@ -208,6 +244,7 @@ export type WorkerResponse =
   | OpenSessionSuccess
   | RenderSessionSuccess
   | SessionError
+  | SetFilmLutSuccess
   | WorkerStatus
   | WorkerLog
   | DeepDenoiseProgress
@@ -305,6 +342,17 @@ export interface ExportRequest {
   /** Sidecar XMP text, so the export reads the same edits the canvas showed. */
   xmp?: string;
   options: RawExportOptions;
+  /**
+   * A baked film-look `.mlut` grid (epic #2683, Task 9) — transferable. The
+   * export counterpart of the GPU live session's `set-film-lut` upload, so a
+   * deliverable file carries the SAME look the canvas showed. `filmStrength`
+   * itself is NOT a separate field — it round-trips through `xmp`
+   * (`AdjustmentModel.film_strength`) like every other slider; this is only
+   * the runtime `.mlut` asset, which is not sidecar state. Absent/empty
+   * exports with no look applied, regardless of the sidecar's
+   * `film_look`/`film_strength` fields.
+   */
+  filmLut?: ArrayBuffer;
 }
 
 /** Reply to `export`: the encoded file, as a Blob the caller can download. */
@@ -341,6 +389,7 @@ export type WorkerRequest =
   | OpenSessionRequest
   | RenderSessionRequest
   | CloseSessionRequest
+  | SetFilmLutRequest
   | AutoAdjustRequest
   | ExportRequest;
 
