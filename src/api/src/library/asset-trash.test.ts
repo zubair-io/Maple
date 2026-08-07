@@ -1,11 +1,29 @@
 /**
  * Integration tests for `trashAssetById` / `restoreAssetById` (#2630),
- * focused on the multi-location selector regression flagged in the #2695
- * review: the plain "first non-deleted" fileinfo pick is unsafe when an
- * earlier entry is missing-tagged but not deleted — it targets the
- * stale/offline copy instead of the live one. Mirrors
- * `relocate-asset.test.ts`'s "multi-location asset: relocate targets the
- * live entry, not a missing-tagged one" test, applied to trash + restore.
+ * covering two rounds of the #2695 review:
+ *
+ *   1. The plain "first non-deleted" fileinfo pick is unsafe when an
+ *      earlier entry is missing-tagged but not deleted — it targets the
+ *      stale/offline copy instead of the live one (same bug class fixed
+ *      for `relocateAsset` via `activeFileInfo`).
+ *   2. A follow-up round caught that the FIRST fix was incomplete: the
+ *      selector (`activeFileInfo`) picked the right entry, but the
+ *      no-`opts.entry` derivation of `libraryId`/`assetFolderId` still
+ *      came from the asset's globally-primary `info.folder_id` — a
+ *      SEPARATE computation (`resolvePrimary` in `assets.transform.ts`)
+ *      that can disagree with `activeFileInfo` when no fileinfo entry is
+ *      simultaneously live AND not-missing-tagged (both then fall back,
+ *      but to different elements — `resolvePrimary` falls back to the
+ *      literal `fileinfo[0]`, `activeFileInfo` falls back to the first
+ *      merely-live one). The fix (`resolveEntrySpec`) collapses both
+ *      functions onto ONE entry-resolution call so the library used for
+ *      the file move, DB repoint, and folder-root lookup can never
+ *      disagree with the entry actually acted on again.
+ *
+ * The tests below construct that exact divergence with TWO distinct
+ * libraries, and assert the file physically lands under the SECONDARY
+ * library's root — not merely that some downstream event references the
+ * right id, which wouldn't have caught the incompleteness (see #2695).
  *
  * Real temp directories + real files AND a real MongoDB, same
  * connect-or-skip-gracefully pattern as the sibling `library/*.test.ts`
@@ -119,7 +137,7 @@ async function fetchAssetRow(d: Db, id: ObjectId): Promise<AssetRow> {
 }
 
 describe('trashAssetById / restoreAssetById — multi-location selector', () => {
-  test('trash: targets the live entry, not a missing-tagged one', async () => {
+  test('trash: targets the live entry, not a missing-tagged one (same library)', async () => {
     if (!db) return;
     await write('live/IMG_9.dng', 'pixels');
     const id = new ObjectId();
@@ -160,7 +178,7 @@ describe('trashAssetById / restoreAssetById — multi-location selector', () => 
     expect(liveEntry?.path).toBe('.maple/trash/live');
   });
 
-  test('restore: targets the trashed (formerly-live) entry, not a missing-tagged one', async () => {
+  test('restore: targets the trashed (formerly-live) entry, not a missing-tagged one (same library)', async () => {
     if (!db) return;
     await write('live/IMG_9.dng', 'pixels');
     const id = new ObjectId();
@@ -198,5 +216,129 @@ describe('trashAssetById / restoreAssetById — multi-location selector', () => 
     const restoredEntry = row.fileinfo.find((f) => f.path === 'live');
     expect(staleEntry).toBeTruthy(); // still untouched
     expect(restoredEntry).toBeTruthy();
+  });
+});
+
+describe('trashAssetById / restoreAssetById — cross-library derivation (#2695 second review round)', () => {
+  // `resolvePrimary` (assets.transform.ts, backs `info.folder_id`) and
+  // `activeFileInfo` (this module's selector) can disagree specifically
+  // when NO fileinfo entry is simultaneously live-and-not-missing:
+  // `resolvePrimary` then falls back to the literal `fileinfo[0]`, while
+  // `activeFileInfo` falls back to the first merely-live entry. Putting
+  // the two entries in DIFFERENT libraries makes a wrong derivation
+  // observable as a hard failure (or worse, a write to the wrong
+  // library's root) rather than something that happens to still work by
+  // coincidence.
+  //
+  // `staleLibraryId` is deliberately NEVER registered in `folders` — the
+  // fixed code must never look it up at all. If a regression reintroduces
+  // `libraryId = info.folder_id`, this asserts against exactly what that
+  // would do: resolve to the unregistered library and fail outright,
+  // rather than silently writing there (there is nothing on disk under it
+  // to fail either way, but the assertions below on `root` pin down where
+  // the file actually must land).
+
+  test('trash: the file lands under the SECONDARY (active) library root, not the primary', async () => {
+    if (!db) return;
+    const staleLibraryId = new ObjectId(); // never registered
+    await write('sub/IMG.dng', 'pixels');
+    const id = new ObjectId();
+    await db.collection('assets').insertOne({
+      _id: id,
+      fileinfo: [
+        // fileinfo[0]: retired entry in a DIFFERENT, unregistered library.
+        // `resolvePrimary`'s naive fallback (`fileinfo[0]`) would pick
+        // this one if the fixed derivation regressed.
+        {
+          path: 'old',
+          filename: 'IMG.dng',
+          library_id: staleLibraryId,
+          deleted_at: '2020-01-01T00:00:00Z',
+        },
+        // fileinfo[1]: the ACTUAL active entry, live but missing-tagged —
+        // `activeFileInfo`'s fallback (first merely-live entry) correctly
+        // picks this one.
+        {
+          path: 'sub',
+          filename: 'IMG.dng',
+          library_id: folderId,
+          deleted_at: null,
+          missing_since: new Date(),
+        },
+      ],
+      size: 6,
+      mtime: 1_700_000_000_000,
+      deleted_at: null,
+    } as never);
+
+    const outcome = await trashAssetById(id);
+    expect(outcome.kind).toBe('ok');
+    if (outcome.kind === 'ok') {
+      expect(outcome.folderId.equals(folderId)).toBe(true);
+      expect(outcome.folderId.equals(staleLibraryId)).toBe(false);
+    }
+
+    // The file physically moved under `root` — folderId's (the secondary
+    // library's) root — not merely that some event/return value claims so.
+    expect(await exists('sub/IMG.dng')).toBe(false);
+    expect(await read('.maple/trash/sub/IMG.dng')).toBe('pixels');
+
+    const row = await fetchAssetRow(db, id);
+    const retiredEntry = row.fileinfo.find((f) => f.library_id.equals(staleLibraryId));
+    const trashedEntry = row.fileinfo.find((f) => f.library_id.equals(folderId));
+    expect(retiredEntry?.path).toBe('old'); // completely untouched
+    expect(trashedEntry?.path).toBe('.maple/trash/sub');
+  });
+
+  test('restore: the file lands back under the SECONDARY (active) library root, not the primary', async () => {
+    if (!db) return;
+    const staleLibraryId = new ObjectId(); // never registered
+    await write('.maple/trash/sub/IMG.dng', 'pixels');
+    const id = new ObjectId();
+    const originalAbsPath = path.join(root, 'sub', 'IMG.dng');
+    await db.collection('assets').insertOne({
+      _id: id,
+      fileinfo: [
+        {
+          path: 'old',
+          filename: 'IMG.dng',
+          library_id: staleLibraryId,
+          deleted_at: '2020-01-01T00:00:00Z',
+        },
+        // The already-trashed entry — seeded directly with a residual
+        // `missing_since` (plausible: a watcher `removed` event could
+        // have tagged it before it was trashed) so NEITHER entry is
+        // simultaneously live-and-not-missing, forcing both selectors
+        // into their fallback branches.
+        {
+          path: '.maple/trash/sub',
+          filename: 'IMG.dng',
+          library_id: folderId,
+          deleted_at: null,
+          missing_since: new Date(),
+        },
+      ],
+      size: 6,
+      mtime: 1_700_000_000_000,
+      deleted_at: '2026-01-01T00:00:00Z',
+      original_path: originalAbsPath,
+    } as never);
+
+    const outcome = await restoreAssetById(id);
+    expect(outcome.kind).toBe('ok');
+    if (outcome.kind === 'ok') {
+      expect(outcome.folderId.equals(folderId)).toBe(true);
+      expect(outcome.folderId.equals(staleLibraryId)).toBe(false);
+    }
+
+    // The file physically landed back under `root` (folderId's root).
+    expect(await exists('.maple/trash/sub/IMG.dng')).toBe(false);
+    expect(await read('sub/IMG.dng')).toBe('pixels');
+
+    const row = await fetchAssetRow(db, id);
+    const retiredEntry = row.fileinfo.find((f) => f.library_id.equals(staleLibraryId));
+    const restoredEntry = row.fileinfo.find((f) => f.library_id.equals(folderId));
+    expect(retiredEntry?.path).toBe('old'); // completely untouched
+    expect(restoredEntry?.path).toBe('sub');
   });
 });
