@@ -144,6 +144,28 @@ export class LibrarySelection {
     this.selectedAssetIds.set(new Set());
   }
 
+  /**
+   * Follow a rename (#2637): swap `oldId` for `newId` wherever the
+   * selection references it, so `focusedAsset` (which looks the id up in
+   * `LibraryStore.assets()` — already rekeyed by `LibraryStore.renameAssetId`
+   * by the time this runs) doesn't go stale and drop to `null` the instant
+   * the rename lands.
+   */
+  renameAssetId(oldId: AssetId, newId: AssetId): void {
+    if (oldId === newId) return;
+    if (this.selectedAssetIds().has(oldId)) {
+      this.selectedAssetIds.update((prev) => {
+        const next = new Set(prev);
+        next.delete(oldId);
+        next.add(newId);
+        return next;
+      });
+    }
+    if (this.focusedAssetId() === oldId) {
+      this.focusedAssetId.set(newId);
+    }
+  }
+
   // ── Navigation ─────────────────────────────────────────────────────────────
 
   focusNext(): void {

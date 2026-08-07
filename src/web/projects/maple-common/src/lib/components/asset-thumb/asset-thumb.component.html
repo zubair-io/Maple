@@ -128,3 +128,38 @@
     }
   }
 </button>
+
+@if (variant() === 'grid') {
+  <!-- Filename bar (#2637) — hover-reveal caption doubling as the
+       double-click-to-rename target. Outside the thumb <button> above
+       (nested interactive elements aren't valid HTML); positioned absolute
+       over the host, which the button already fills. Desktop-only
+       affordance: touch grids have no hover and F2/double-click are
+       desktop interactions anyway. -->
+  @if (isEditingFilename()) {
+    <div
+      class="filename-bar editing absolute left-[3px] right-[3px] bottom-[3px] z-10 rounded-[3px] bg-surface px-1 py-0.5"
+      (click)="$event.stopPropagation()"
+    >
+      <app-inline-rename-field
+        [filename]="a.filename"
+        [error]="renameSvc.error()"
+        [busy]="renameSvc.busy()"
+        [collision]="renameSvc.collision()?.assetId === a.id"
+        (committed)="onRenameCommit($event)"
+        (cancelled)="renameSvc.cancel()"
+        (collisionResolved)="onCollisionResolved($event)"
+      />
+    </div>
+  } @else {
+    <button
+      type="button"
+      class="filename-bar absolute left-0 right-0 bottom-0 z-10 block w-full truncate rounded-b-[2px] px-1.5 py-0.5 text-left text-[10px] text-white opacity-0"
+      [attr.aria-label]="'Rename ' + a.filename"
+      [attr.title]="renameDisabledReason()"
+      (dblclick)="onFilenameDblClick($event)"
+    >
+      {{ a.filename }}
+    </button>
+  }
+}
