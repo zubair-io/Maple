@@ -67,4 +67,55 @@ final class SMBFileOperationsFolderTests: XCTestCase {
         let oldGone = await !t.fileExists(at: "/2024/Paris/IMG_1.dng")
         XCTAssertTrue(oldGone)
     }
+
+    // MARK: - Name validation (#2645 review — same traversal guard as the
+    // local engine's `LocalFileOperationsFolderTests`, against the fake
+    // transport since there's no SMB server in this environment).
+
+    func testCreateFolderRefusesATraversalName() async throws {
+        let t = FakeSMBTransport()
+        do {
+            _ = try await SMBFileOperations.createFolder(named: "../x", in: "/", transport: t)
+            XCTFail("expected invalidName")
+        } catch FileOperationError.invalidName {
+            // expected
+        }
+        let escaped = await t.fileExists(at: "/../x")
+        XCTAssertFalse(escaped)
+    }
+
+    func testCreateFolderRefusesAnEmbeddedSeparator() async throws {
+        let t = FakeSMBTransport()
+        do {
+            _ = try await SMBFileOperations.createFolder(named: "a/b", in: "/", transport: t)
+            XCTFail("expected invalidName")
+        } catch FileOperationError.invalidName {
+            // expected
+        }
+    }
+
+    func testCreateFolderRefusesDotAndDotDot() async throws {
+        let t = FakeSMBTransport()
+        for name in [".", ".."] {
+            do {
+                _ = try await SMBFileOperations.createFolder(named: name, in: "/", transport: t)
+                XCTFail("expected invalidName for \(name)")
+            } catch FileOperationError.invalidName {
+                // expected
+            }
+        }
+    }
+
+    func testRenameFolderRefusesATraversalName() async throws {
+        let t = FakeSMBTransport()
+        await t.seed("pixels", at: "/Album/IMG_1.dng")
+        do {
+            _ = try await SMBFileOperations.renameFolder("/Album", to: "../escaped", transport: t)
+            XCTFail("expected invalidName")
+        } catch FileOperationError.invalidName {
+            // expected
+        }
+        let stillThere = await t.fileExists(at: "/Album/IMG_1.dng")
+        XCTAssertTrue(stillThere, "a rejected rename must not touch the folder")
+    }
 }

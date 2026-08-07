@@ -38,6 +38,14 @@ public enum FileOperationError: Error, LocalizedError, Equatable {
     /// subtree.
     case invalidDestination(String)
 
+    /// A single filename/foldername component failed
+    /// `FilenameValidation.isValidFolderName` — contains a path separator
+    /// (which would smuggle a `../` traversal past `appendingPathComponent`,
+    /// #2645 review), is empty, `.`/`..`, a trailing dot/space, or a
+    /// Windows-reserved device name (enforced on every platform — see
+    /// `raw_core::filename::validate_filename`'s doc comment for why).
+    case invalidName(String)
+
     /// The destination names the SAME on-disk file as the source — directly,
     /// or through a symlinked ancestor directory. Refused before any
     /// remove/copy runs: without this guard, `.replace`'s pre-copy removal
@@ -65,6 +73,8 @@ public enum FileOperationError: Error, LocalizedError, Equatable {
             return "Destination already exists: \(s)"
         case .invalidDestination(let s):
             return "Invalid destination: \(s)"
+        case .invalidName(let s):
+            return "Invalid name: \(s)"
         case .sameFile(let s):
             return "Source and destination are the same file: \(s)"
         case .underlying(let s):
