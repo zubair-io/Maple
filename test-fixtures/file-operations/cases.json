@@ -1,0 +1,669 @@
+{
+  "schema_version": 1,
+  "description": "Golden outcome-parity corpus for the file-management relocate primitive (#2633). Each case is `starting file tree -> operation -> expected resulting tree`, replayed independently against the TS relocate primitive (src/api/src/fs/relocate.ts), the Swift primitive (src/apple/Packages/MapleCore/Sources/MapleCore/FileOperations/LocalFileOperations.swift), and the C# primitive (src/windows/Maple.WinUI/Services/FileOperations/LocalFileOperations.cs) \u2014 proving identical OUTCOMES without shared code, the same philosophy as the XMP golden-file corpus. Every runner MUST assert `schema_version` equals the value below before running a single case; a mismatch is a hard failure, not a warning (unlike test-fixtures/filename-templates/cases.json's #2628 corpus, which shipped this field unasserted \u2014 flagged in #2633 review, not repeated here). A case whose `requires` capability the current platform/runtime doesn't have MUST be skipped with an explicit, printed message naming the case and the missing capability \u2014 a silently-omitted case is worse than no case at all.",
+  "kinds": {
+    "relocate": "Exercise the asset-level relocate primitive directly: copy source (+ its .xmp sidecar, if any) to destDir/destBasename under the given mode + collision policy, then assert the exact resulting file tree relative to a fresh temp root. `fault`, if present, perturbs the filesystem AFTER `setup` but BEFORE the operation runs (e.g. making a directory read-only), to deterministically reproduce a failure window without a literal process kill.",
+    "folder-rename": "Exercise the folder-level rename/move primitive (createFolder/renameFolder in Swift+C#, POST /:id/move in the API) on a folder (not a single asset), asserting the resulting tree including the folder's own new name/casing.",
+    "name-validation": "Exercise the platform's canonical single-component filename/foldername validator directly (TS: isSafeFilename in src/api/src/backup/path-formatter.ts; Swift: FilenameValidation.isValidFolderName; C#: LocalFileOperations.ValidateBareFileName) \u2014 no filesystem I/O, a pure accept/reject check on one candidate name.",
+    "selector": "Exercise the API-only multi-location/stale-entry selection logic (activeFileInfo in src/api/src/library/relocate-asset.ts) against a synthetic fileinfo array \u2014 no filesystem I/O. Apple/Windows have no equivalent (their local sources are single-location by construction), so every case of this kind is `requires: [\"multi-location-fileinfo\"]`, a capability only the API runner declares."
+  },
+  "notes": "A case with no `platforms` field is attempted by all three runners (api, apple, windows). A case WITH a `platforms` field restricts it to only the listed runners \u2014 used for a case that targets a primitive one surface genuinely doesn't have (e.g. `folder-rename`'s API exclusion below), never as a substitute for a `requires` capability skip. `requires` capabilities that a listed runner's platform/runtime doesn't have at run time (probed live, not assumed) must still produce a loud, per-case skip message \u2014 see `capabilities` below.",
+  "capabilities": {
+    "symlinks": "Runner can create a real symlink/junction pointing at a directory without elevated privileges. True for the API (Bun on macOS/Linux CI) and Apple (APFS). Windows local junctions need no elevation either, but the existing #2632 test suite doesn't exercise them yet \u2014 the Windows runner skips this capability until that lands, rather than adding untested junction-creation code as a one-off inside this harness.",
+    "case-insensitive-fs": "The runner's temp filesystem folds case for lookups but preserves the written casing (APFS default, NTFS). Probed live by each runner (write `a`, check whether `A` resolves to it) rather than assumed from the OS, since CI can mount a case-sensitive volume on any platform.",
+    "posix-permissions": "The runner can revoke write permission on a directory to block a subsequent unlink inside it, deterministically simulating 'copy succeeded, delete-of-original failed.' True for the API and Apple (POSIX chmod); Windows' ACL model doesn't map onto the same case-insensitive dir-write-blocks-unlink semantics, so the Windows runner skips this rather than emulating it dubiously.",
+    "multi-location-fileinfo": "The runner has a concept of one asset backed by multiple candidate file-system locations (the API's Mongo `fileinfo` array, for cloud + multi-root libraries). Apple and Windows local sources are single-location by construction and have no equivalent to select among."
+  },
+  "cases": [
+    {
+      "name": "replace_mode_destination_survives_a_failed_copy",
+      "kind": "relocate",
+      "description": "Replace-mode ordering (shipped as a delete-before-copy bug on all three platforms during review): the destination is occupied by a whole DIRECTORY (a folder can never be a valid 'replace' target \u2014 the copy that follows is guaranteed to fail). The pre-existing occupant, and everything under it, must survive byte-for-byte, and the relocate must report an error rather than a partial success. This is the load-bearing regression test for 'never delete the destination before the new copy is verified.'",
+      "requires": [],
+      "setup": {
+        "files": [
+          {
+            "path": "IMG_1.CR3",
+            "content": "new-bytes"
+          },
+          {
+            "path": "Album/IMG_1.CR3/nested.txt",
+            "content": "occupant-untouched"
+          }
+        ]
+      },
+      "operation": {
+        "source": "IMG_1.CR3",
+        "destDir": "Album",
+        "mode": "move",
+        "collision": "replace"
+      },
+      "expected": {
+        "outcome": "error",
+        "tree": [
+          {
+            "path": "IMG_1.CR3",
+            "content": "new-bytes"
+          },
+          {
+            "path": "Album/IMG_1.CR3/nested.txt",
+            "content": "occupant-untouched"
+          }
+        ]
+      }
+    },
+    {
+      "name": "same_file_refusal_exact_path",
+      "kind": "relocate",
+      "description": "A destination that resolves to the literal source path is refused outright, not silently no-op'd, and the source is never touched.",
+      "requires": [],
+      "setup": {
+        "files": [
+          {
+            "path": "IMG_1.CR3",
+            "content": "pixels"
+          }
+        ]
+      },
+      "operation": {
+        "source": "IMG_1.CR3",
+        "destDir": "",
+        "mode": "move",
+        "collision": "auto-suffix"
+      },
+      "expected": {
+        "outcome": "error",
+        "tree": [
+          {
+            "path": "IMG_1.CR3",
+            "content": "pixels"
+          }
+        ]
+      }
+    },
+    {
+      "name": "same_file_refusal_via_symlinked_parent",
+      "kind": "relocate",
+      "description": "A destination reached through a symlinked ancestor directory names the SAME on-disk file as the source even though the paths are lexically different \u2014 refused before any copy/remove runs. Without this guard a `.replace` collision's destination-clearing step would delete the source through the alias.",
+      "requires": [
+        "symlinks"
+      ],
+      "setup": {
+        "files": [
+          {
+            "path": "A/IMG_1.CR3",
+            "content": "pixels"
+          }
+        ],
+        "symlinks": [
+          {
+            "path": "Alias",
+            "target": "A"
+          }
+        ]
+      },
+      "operation": {
+        "source": "A/IMG_1.CR3",
+        "destDir": "Alias",
+        "mode": "move",
+        "collision": "replace"
+      },
+      "expected": {
+        "outcome": "error",
+        "tree": [
+          {
+            "path": "A/IMG_1.CR3",
+            "content": "pixels"
+          }
+        ]
+      }
+    },
+    {
+      "name": "case_only_rename_file_succeeds_with_sidecar",
+      "kind": "relocate",
+      "description": "img.cr3 -> IMG.CR3 in the SAME directory on a case-insensitive-but-case-preserving filesystem: a naive existence check reads the target as already occupied by the source itself. Must succeed as a direct atomic rename (not collision handling, not copy-verify-delete), list under the NEW casing, and carry the sidecar along under the same new casing.",
+      "requires": [
+        "case-insensitive-fs"
+      ],
+      "setup": {
+        "files": [
+          {
+            "path": "img.cr3",
+            "content": "pixels"
+          },
+          {
+            "path": "img.xmp",
+            "content": "<xmp/>"
+          }
+        ]
+      },
+      "operation": {
+        "source": "img.cr3",
+        "destDir": "",
+        "destBasename": "IMG.CR3",
+        "mode": "move",
+        "collision": "auto-suffix"
+      },
+      "expected": {
+        "outcome": "relocated",
+        "sidecarFollowed": true,
+        "renamedOnCollision": false,
+        "tree": [
+          {
+            "path": "IMG.CR3",
+            "content": "pixels"
+          },
+          {
+            "path": "IMG.xmp",
+            "content": "<xmp/>"
+          }
+        ]
+      }
+    },
+    {
+      "name": "case_only_rename_folder_succeeds_with_contents",
+      "kind": "folder-rename",
+      "description": "Folder variant of the case-only rename: Album -> ALBUM in place. Contents must survive and the folder must list under the new casing. API-excluded: the API's folder rename (POST /:id/move in routes/folders.ts) is a Mongo-backed library operation keyed on a DB folder id, not a pure filesystem primitive callable in isolation, so it is out of scope for this filesystem-only harness.",
+      "platforms": [
+        "apple",
+        "windows"
+      ],
+      "requires": [
+        "case-insensitive-fs"
+      ],
+      "setup": {
+        "files": [
+          {
+            "path": "Album/IMG_1.CR3",
+            "content": "pixels"
+          }
+        ]
+      },
+      "operation": {
+        "folderPath": "Album",
+        "newName": "ALBUM"
+      },
+      "expected": {
+        "outcome": "relocated",
+        "tree": [
+          {
+            "path": "ALBUM/IMG_1.CR3",
+            "content": "pixels"
+          }
+        ]
+      }
+    },
+    {
+      "name": "sidecar_follow_photo_stem_swap_on_rename",
+      "kind": "relocate",
+      "description": "Photo sidecar convention is stem-swap: IMG_1.CR3 + IMG_1.xmp, renamed to IMG_2.CR3, must produce IMG_2.xmp \u2014 not IMG_2.CR3.xmp.",
+      "requires": [],
+      "setup": {
+        "files": [
+          {
+            "path": "IMG_1.CR3",
+            "content": "pixels"
+          },
+          {
+            "path": "IMG_1.xmp",
+            "content": "<xmp/>"
+          }
+        ]
+      },
+      "operation": {
+        "source": "IMG_1.CR3",
+        "destDir": "",
+        "destBasename": "IMG_2.CR3",
+        "mode": "move",
+        "collision": "auto-suffix"
+      },
+      "expected": {
+        "outcome": "relocated",
+        "sidecarFollowed": true,
+        "renamedOnCollision": false,
+        "tree": [
+          {
+            "path": "IMG_2.CR3",
+            "content": "pixels"
+          },
+          {
+            "path": "IMG_2.xmp",
+            "content": "<xmp/>"
+          }
+        ]
+      }
+    },
+    {
+      "name": "sidecar_follow_video_full_name_on_rename",
+      "kind": "relocate",
+      "description": "Video sidecar convention is full-name (extension kept): clip.mov + clip.mov.xmp, renamed to clip2.mov, must produce clip2.mov.xmp \u2014 the stem-swap rule (photo) does not apply here.",
+      "requires": [],
+      "setup": {
+        "files": [
+          {
+            "path": "clip.mov",
+            "content": "frames"
+          },
+          {
+            "path": "clip.mov.xmp",
+            "content": "<xmp/>"
+          }
+        ]
+      },
+      "operation": {
+        "source": "clip.mov",
+        "destDir": "",
+        "destBasename": "clip2.mov",
+        "mode": "move",
+        "collision": "auto-suffix"
+      },
+      "expected": {
+        "outcome": "relocated",
+        "sidecarFollowed": true,
+        "renamedOnCollision": false,
+        "tree": [
+          {
+            "path": "clip2.mov",
+            "content": "frames"
+          },
+          {
+            "path": "clip2.mov.xmp",
+            "content": "<xmp/>"
+          }
+        ]
+      }
+    },
+    {
+      "name": "sidecar_photo_and_video_same_stem_do_not_cross_wires",
+      "kind": "relocate",
+      "description": "A Live-Photo-style pairing: IMG_1.CR3 (photo, sidecar IMG_1.xmp) and IMG_1.MOV (video, sidecar IMG_1.MOV.xmp) share a stem in the SAME directory. Relocating only the photo must carry ONLY IMG_1.xmp \u2014 the video and its own sidecar must be completely untouched, never misidentified as the photo's sidecar.",
+      "requires": [],
+      "setup": {
+        "files": [
+          {
+            "path": "IMG_1.CR3",
+            "content": "photo-pixels"
+          },
+          {
+            "path": "IMG_1.xmp",
+            "content": "<photo-xmp/>"
+          },
+          {
+            "path": "IMG_1.MOV",
+            "content": "video-frames"
+          },
+          {
+            "path": "IMG_1.MOV.xmp",
+            "content": "<video-xmp/>"
+          }
+        ]
+      },
+      "operation": {
+        "source": "IMG_1.CR3",
+        "destDir": "Album",
+        "mode": "move",
+        "collision": "auto-suffix"
+      },
+      "expected": {
+        "outcome": "relocated",
+        "sidecarFollowed": true,
+        "renamedOnCollision": false,
+        "tree": [
+          {
+            "path": "Album/IMG_1.CR3",
+            "content": "photo-pixels"
+          },
+          {
+            "path": "Album/IMG_1.xmp",
+            "content": "<photo-xmp/>"
+          },
+          {
+            "path": "IMG_1.MOV",
+            "content": "video-frames"
+          },
+          {
+            "path": "IMG_1.MOV.xmp",
+            "content": "<video-xmp/>"
+          }
+        ]
+      }
+    },
+    {
+      "name": "collision_auto_suffix_never_overwrites",
+      "kind": "relocate",
+      "description": "auto-suffix: destination occupied -> picks the next free .N sibling, the pre-existing occupant is never touched.",
+      "requires": [],
+      "setup": {
+        "files": [
+          {
+            "path": "Source/IMG_1.CR3",
+            "content": "new"
+          },
+          {
+            "path": "Album/IMG_1.CR3",
+            "content": "existing"
+          }
+        ]
+      },
+      "operation": {
+        "source": "Source/IMG_1.CR3",
+        "destDir": "Album",
+        "mode": "move",
+        "collision": "auto-suffix"
+      },
+      "expected": {
+        "outcome": "relocated",
+        "renamedOnCollision": true,
+        "sidecarFollowed": false,
+        "tree": [
+          {
+            "path": "Album/IMG_1.CR3",
+            "content": "existing"
+          },
+          {
+            "path": "Album/IMG_1.1.CR3",
+            "content": "new"
+          }
+        ]
+      }
+    },
+    {
+      "name": "collision_skip_declines_and_leaves_both_untouched",
+      "kind": "relocate",
+      "description": "skip: destination occupied -> the relocate does nothing at all, source untouched, nothing written at the destination. API-only: 'skip' (silently decline, no error) exists only in the TS CollisionPolicy union (auto-suffix|skip|replace|keep-both) \u2014 Swift and C# have no equivalent policy value (theirs is autoSuffix|fail|replace); see collision_fail_declines_and_leaves_both_untouched for their nearest equivalent (which errors rather than silently no-op'ing).",
+      "requires": [],
+      "setup": {
+        "files": [
+          {
+            "path": "Source/IMG_1.CR3",
+            "content": "new"
+          },
+          {
+            "path": "Album/IMG_1.CR3",
+            "content": "existing"
+          }
+        ]
+      },
+      "operation": {
+        "source": "Source/IMG_1.CR3",
+        "destDir": "Album",
+        "mode": "move",
+        "collision": "skip"
+      },
+      "expected": {
+        "outcome": "skipped",
+        "tree": [
+          {
+            "path": "Source/IMG_1.CR3",
+            "content": "new"
+          },
+          {
+            "path": "Album/IMG_1.CR3",
+            "content": "existing"
+          }
+        ]
+      },
+      "platforms": [
+        "api"
+      ]
+    },
+    {
+      "name": "collision_replace_overwrites_occupant_and_its_sidecar",
+      "kind": "relocate",
+      "description": "replace: destination occupied -> the occupant (and its stale sidecar, if the incoming asset has none of its own) is overwritten; source deleted on move.",
+      "requires": [],
+      "setup": {
+        "files": [
+          {
+            "path": "Source/IMG_1.CR3",
+            "content": "new"
+          },
+          {
+            "path": "Album/IMG_1.CR3",
+            "content": "stale"
+          },
+          {
+            "path": "Album/IMG_1.xmp",
+            "content": "<stale-xmp/>"
+          }
+        ]
+      },
+      "operation": {
+        "source": "Source/IMG_1.CR3",
+        "destDir": "Album",
+        "mode": "move",
+        "collision": "replace"
+      },
+      "expected": {
+        "outcome": "relocated",
+        "renamedOnCollision": false,
+        "sidecarFollowed": false,
+        "tree": [
+          {
+            "path": "Album/IMG_1.CR3",
+            "content": "new"
+          }
+        ]
+      }
+    },
+    {
+      "name": "collision_keep_both_matches_auto_suffix_mechanics",
+      "kind": "relocate",
+      "description": "keep-both: same suffixing mechanics as auto-suffix (the two differ only in caller intent/telemetry, not outcome) \u2014 destination occupant untouched, incoming asset lands at the next free .N sibling. API-only: 'keep-both' is a distinct CollisionPolicy value only in TS (same mechanics as auto-suffix, different caller-intent telemetry) \u2014 Swift and C# have no separate 'keep-both' policy; a UI-facing 'Keep Both' on those platforms would currently have to reuse autoSuffix directly, which is an open gap this harness surfaces rather than a case it can execute as a THIRD distinct policy.",
+      "requires": [],
+      "setup": {
+        "files": [
+          {
+            "path": "Source/IMG_1.CR3",
+            "content": "new"
+          },
+          {
+            "path": "Album/IMG_1.CR3",
+            "content": "existing"
+          }
+        ]
+      },
+      "operation": {
+        "source": "Source/IMG_1.CR3",
+        "destDir": "Album",
+        "mode": "copy",
+        "collision": "keep-both"
+      },
+      "expected": {
+        "outcome": "relocated",
+        "renamedOnCollision": true,
+        "sidecarFollowed": false,
+        "tree": [
+          {
+            "path": "Source/IMG_1.CR3",
+            "content": "new"
+          },
+          {
+            "path": "Album/IMG_1.CR3",
+            "content": "existing"
+          },
+          {
+            "path": "Album/IMG_1.1.CR3",
+            "content": "new"
+          }
+        ]
+      },
+      "platforms": [
+        "api"
+      ]
+    },
+    {
+      "name": "collision_fail_declines_and_leaves_both_untouched",
+      "kind": "relocate",
+      "description": "fail: destination occupied -> the relocate throws/errors rather than proceeding, source and occupant both untouched. This is Swift/C#'s nearest equivalent to the TS-only 'skip' policy (see collision_skip_declines_and_leaves_both_untouched) - the observable outcome (nothing changes, nothing written) is the same, but it is surfaced as an ERROR rather than a silent no-op, which is itself a real API-shape divergence this harness documents rather than hides.",
+      "platforms": [
+        "apple",
+        "windows"
+      ],
+      "requires": [],
+      "setup": {
+        "files": [
+          {
+            "path": "Source/IMG_1.CR3",
+            "content": "new"
+          },
+          {
+            "path": "Album/IMG_1.CR3",
+            "content": "existing"
+          }
+        ]
+      },
+      "operation": {
+        "source": "Source/IMG_1.CR3",
+        "destDir": "Album",
+        "mode": "move",
+        "collision": "fail"
+      },
+      "expected": {
+        "outcome": "error",
+        "tree": [
+          {
+            "path": "Source/IMG_1.CR3",
+            "content": "new"
+          },
+          {
+            "path": "Album/IMG_1.CR3",
+            "content": "existing"
+          }
+        ]
+      }
+    },
+    {
+      "name": "traversal_refusal_embedded_separator",
+      "kind": "name-validation",
+      "description": "A destination basename containing a path separator would smuggle the relocate outside its intended directory via naive path-joining \u2014 the canonical validator must reject it.",
+      "requires": [],
+      "operation": {
+        "name": "sub/escaped.dng"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "traversal_refusal_dotdot",
+      "kind": "name-validation",
+      "description": "A bare `..` component is exactly the traversal escape the validator exists to close off.",
+      "requires": [],
+      "operation": {
+        "name": "../escaped.dng"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_accepts_an_ordinary_name",
+      "kind": "name-validation",
+      "description": "Negative-control case: an ordinary single-component filename must NOT be rejected \u2014 proves the validator isn't just failing everything.",
+      "requires": [],
+      "operation": {
+        "name": "IMG_2.CR3"
+      },
+      "expected": {
+        "valid": true
+      }
+    },
+    {
+      "name": "crash_window_delete_of_original_fails_after_verified_copy",
+      "kind": "relocate",
+      "description": "The accepted failure direction: the copy is fully verified and published at the destination, but the delete-of-the-original then fails (simulated deterministically by revoking write permission on the source's parent directory, which blocks the subsequent unlink). The relocate must still report success (a failed best-effort delete is logged, never thrown) and BOTH the original and the new copy must exist afterward \u2014 a harmless duplicate, never data loss.",
+      "requires": [
+        "posix-permissions"
+      ],
+      "setup": {
+        "files": [
+          {
+            "path": "src/IMG_1.CR3",
+            "content": "pixels"
+          }
+        ]
+      },
+      "operation": {
+        "source": "src/IMG_1.CR3",
+        "destDir": "Album",
+        "mode": "move",
+        "collision": "auto-suffix",
+        "fault": {
+          "type": "readonly-source-dir"
+        }
+      },
+      "expected": {
+        "outcome": "relocated",
+        "renamedOnCollision": false,
+        "sidecarFollowed": false,
+        "tree": [
+          {
+            "path": "src/IMG_1.CR3",
+            "content": "pixels"
+          },
+          {
+            "path": "Album/IMG_1.CR3",
+            "content": "pixels"
+          }
+        ]
+      }
+    },
+    {
+      "name": "multi_location_selects_the_live_non_missing_entry",
+      "kind": "selector",
+      "description": "An asset with three fileinfo entries \u2014 one soft-deleted, one missing-tagged (last known location went offline), one live and clean \u2014 must select the live-clean entry as the relocate/rename target, never the deleted or stale-missing one. Regression for the multi-location selector bug identified in the refile-legacy-daydir review (a plain 'first non-deleted' selector picks the missing-tagged entry when it sorts first).",
+      "requires": [
+        "multi-location-fileinfo"
+      ],
+      "fileinfo": [
+        {
+          "path": "old",
+          "filename": "IMG_1.CR3",
+          "deleted_at": "2026-01-01T00:00:00Z",
+          "missing_since": null
+        },
+        {
+          "path": "backup",
+          "filename": "IMG_1.CR3",
+          "deleted_at": null,
+          "missing_since": "2026-02-01T00:00:00Z"
+        },
+        {
+          "path": "current",
+          "filename": "IMG_1.CR3",
+          "deleted_at": null,
+          "missing_since": null
+        }
+      ],
+      "expected": {
+        "selectedIndex": 2
+      }
+    },
+    {
+      "name": "multi_location_falls_back_to_missing_when_every_live_entry_is_missing_tagged",
+      "kind": "selector",
+      "description": "When every non-deleted entry is missing-tagged (no clean live entry exists at all), the selector must still return SOME live entry rather than null \u2014 the design doc's 'falling back to any non-deleted entry only when every live entry is missing-tagged.'",
+      "requires": [
+        "multi-location-fileinfo"
+      ],
+      "fileinfo": [
+        {
+          "path": "old",
+          "filename": "IMG_1.CR3",
+          "deleted_at": "2026-01-01T00:00:00Z",
+          "missing_since": null
+        },
+        {
+          "path": "backup",
+          "filename": "IMG_1.CR3",
+          "deleted_at": null,
+          "missing_since": "2026-02-01T00:00:00Z"
+        }
+      ],
+      "expected": {
+        "selectedIndex": 1
+      }
+    }
+  ]
+}
