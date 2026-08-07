@@ -168,5 +168,21 @@ namespace Maple.WinUI.Native
             [MarshalAs(UnmanagedType.LPUTF8Str)] string? xmpPath,
             int qualityPreview,
             out MapleAutoAdjustments outAuto);
+
+        // --- Filename-template engine (#2628): shared with Apple (C-FFI) and
+        //     the Self Hosted API (bun:ffi) via the same raw-ffi symbol.
+        //     Pure string logic, no filesystem access. Used directly (no
+        //     template) for single-asset inline rename (#2639) — see
+        //     Services/FilenameValidation.cs. ---
+
+        /// <summary>0 = valid single filesystem path component. Non-zero:
+        /// see raw-ffi/src/filename.rs's `maple_validate_filename` doc
+        /// comment for the exact code table (empty / path separator /
+        /// leading dot / trailing dot-or-space / reserved device name);
+        /// -1 = name was null or not valid UTF-8. maple_last_error() carries
+        /// the human-readable reason on any non-zero return.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int maple_validate_filename(
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
     }
 }

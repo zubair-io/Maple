@@ -12,73 +12,9 @@ using Maple.WinUI.Services.Xmp;
 
 namespace Maple.WinUI.ViewModels
 {
-    public partial class PhotoItem : ObservableObject
-    {
-        public string FilePath { get; init; } = string.Empty;
-        public string FileName { get; init; } = string.Empty;
-        public string Format { get; init; } = string.Empty;
-        public long FileSizeBytes { get; init; }
-        public DateTime FileModifiedUtc { get; init; }
-
-        [ObservableProperty] private string? _thumbnailPath;
-        /// <summary>Full-screen embedded-JPEG preview (extracted on demand when
-        /// the photo is opened in Preview mode).</summary>
-        [ObservableProperty] private string? _previewPath;
-
-        /// <summary>Cloud asset marker (#2588): the photo lives on a Maple
-        /// Self-Hosted server, addressed by slug:relPath. Cloud assets browse,
-        /// preview and cull; editing needs the original locally.</summary>
-        public bool IsCloud { get; init; }
-        public string? CloudAddress { get; init; }
-        /// <summary>Locally cached original for a cloud asset (download-to-edit).
-        /// Null until the first Edit entry downloads it.</summary>
-        public string? LocalCachePath { get; set; }
-        /// <summary>The path decode/develop/export should read: the local cache
-        /// for a downloaded cloud asset, the file itself otherwise.</summary>
-        public string EditPath => LocalCachePath ?? FilePath;
-        [ObservableProperty] private int _rating;
-        [ObservableProperty] private string _flagStatus = "none";   // pick | reject | none
-        [ObservableProperty] private string? _colorLabel;
-
-        // EXIF (populated asynchronously; empty until read)
-        [ObservableProperty] private string _cameraModel = "—";
-        [ObservableProperty] private string _lensInfo = "—";
-        [ObservableProperty] private string _isoDisplay = "—";
-        [ObservableProperty] private string _aperture = "—";
-        [ObservableProperty] private string _shutterSpeed = "—";
-        [ObservableProperty] private string _dateTaken = "—";
-        [ObservableProperty] private string _dimensions = "—";
-        public DateTime? CaptureDate { get; set; }
-
-        public string RatingStars =>
-            Rating <= 0 ? string.Empty : new string('★', Rating) + new string('☆', 5 - Rating);
-
-        partial void OnRatingChanged(int value) => OnPropertyChanged(nameof(RatingStars));
-    }
-
-    /// <summary>One capture-day section of the grouped browse grid (#2570).
-    /// Extends ObservableCollection so CollectionViewSource.IsSourceGrouped can
-    /// enumerate it directly; the header template binds Label/Count.</summary>
-    public sealed class PhotoDayGroup : ObservableCollection<PhotoItem>
-    {
-        public string Label { get; init; } = string.Empty;
-        public DateTime Day { get; init; }
-    }
-
-    /// <summary>One node of the sidebar folder tree: a library root or one of
-    /// its subfolders. Invoking a node loads that folder's own photos; children
-    /// materialize lazily on expand so a huge tree is never walked eagerly.</summary>
-    public sealed class FolderNode
-    {
-        public string Name { get; init; } = string.Empty;
-        public string Path { get; init; } = string.Empty;
-        public ObservableCollection<FolderNode> Children { get; } = new();
-        /// <summary>True once the real children replaced the expander stub.</summary>
-        public bool ChildrenLoaded { get; set; }
-        /// <summary>Marker child that makes the expander chevron show before
-        /// the real children have been enumerated.</summary>
-        public bool IsPlaceholder { get; init; }
-    }
+    // PhotoItem, PhotoDayGroup, and FolderNode live in PhotoItem.cs (#2639
+    // split, to stay under the file-size budget after adding inline-rename
+    // state to PhotoItem).
 
     public partial class EditSessionViewModel
     {
