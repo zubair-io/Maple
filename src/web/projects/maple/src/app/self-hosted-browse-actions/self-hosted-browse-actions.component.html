@@ -37,3 +37,23 @@
 >
   <span>Merge to panorama…{{ canMergePano() ? ' (' + state.selectedCount() + ')' : '' }}</span>
 </button>
+
+<button
+  type="button"
+  class="export-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] border-[0.5px]"
+  [class.has-selection]="canBatchRename()"
+  [class.no-selection]="!canBatchRename()"
+  [class.bg-primary-dim]="canBatchRename()"
+  [class.text-primary]="canBatchRename()"
+  [class.border-primary]="canBatchRename()"
+  [class.bg-input-bg]="!canBatchRename()"
+  [class.text-text-muted]="!canBatchRename()"
+  [class.border-border]="!canBatchRename()"
+  [class.opacity-50]="!canBatchRename()"
+  [disabled]="!canBatchRename()"
+  title="Rename selected photos with a template"
+  aria-label="Batch rename"
+  (click)="controller.openBatchRename()"
+>
+  <span>Batch Rename…{{ canBatchRename() ? ' (' + state.selectedCount() + ')' : '' }}</span>
+</button>
