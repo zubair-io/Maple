@@ -6,9 +6,50 @@
 //! (which `raw-core`'s own extensive `filename` test suite already covers).
 
 use crate::filename::{
-    maple_free_filename_result, maple_render_filename_template, maple_validate_filename,
+    maple_free_filename_result, maple_render_filename_template, maple_render_filename_template_buf,
+    maple_validate_filename,
 };
 use std::ffi::CString;
+
+unsafe fn render_buf(
+    template: &str,
+    original_stem: &str,
+    ext: &str,
+    captured_at: Option<&str>,
+    sequence_start: u64,
+    sequence_index: u64,
+    sequence_pad_width: usize,
+    cap: usize,
+) -> Result<String, i32> {
+    let template_c = CString::new(template).unwrap();
+    let stem_c = CString::new(original_stem).unwrap();
+    let ext_c = CString::new(ext).unwrap();
+    let captured_c = captured_at.map(|s| CString::new(s).unwrap());
+    let captured_ptr = captured_c
+        .as_ref()
+        .map(|c| c.as_ptr())
+        .unwrap_or(std::ptr::null());
+
+    let mut buf = vec![0u8; cap];
+    let mut out_len: usize = 0;
+    let rc = maple_render_filename_template_buf(
+        template_c.as_ptr(),
+        stem_c.as_ptr(),
+        ext_c.as_ptr(),
+        captured_ptr,
+        sequence_start,
+        sequence_index,
+        sequence_pad_width,
+        buf.as_mut_ptr(),
+        cap,
+        &mut out_len as *mut usize,
+    );
+    if rc == 0 {
+        Ok(std::str::from_utf8(&buf[..out_len]).unwrap().to_string())
+    } else {
+        Err(rc)
+    }
+}
 
 unsafe fn render(
     template: &str,
@@ -192,4 +233,24 @@ fn validate_filename_rejects_null_pointer() {
 #[test]
 fn free_filename_result_is_a_noop_on_null() {
     unsafe { maple_free_filename_result(std::ptr::null_mut()) };
+}
+
+#[test]
+fn buf_variant_matches_the_by_value_variant() {
+    let got = unsafe { render_buf("{original}_{n}.{ext}", "IMG_0001", "dng", None, 5, 2, 3, 64) }
+        .unwrap();
+    assert_eq!(got, "IMG_0001_007.dng");
+}
+
+#[test]
+fn buf_variant_reports_error_code_9_when_the_buffer_is_too_small() {
+    let err =
+        unsafe { render_buf("{original}.{ext}", "IMG_0001", "dng", None, 0, 0, 0, 4) }.unwrap_err();
+    assert_eq!(err, 9);
+}
+
+#[test]
+fn buf_variant_propagates_the_same_error_codes() {
+    let err = unsafe { render_buf("CON", "x", "dng", None, 0, 0, 0, 64) }.unwrap_err();
+    assert_eq!(err, 7);
 }

@@ -21,6 +21,9 @@
  *   DELETE /api/assets/:id                        — trash / purge
  *   POST   /api/assets/:id/restore                — restore from trash
  *   POST   /api/assets/:id/relocate                — generic move/copy (#2629)
+ *   POST   /api/assets/:id/rename                  — single-asset rename (#2636)
+ *   POST   /api/assets/batch-rename/preview        — batch-rename dry run (#2636)
+ *   POST   /api/assets/batch-rename                — batch-rename, applied sequentially (#2636)
  *   PUT    /api/assets/:id/place                  — manual place override
  *   PUT    /api/assets/:id/description            — manual caption override
  *   POST   /api/assets/:id/enrichment/requeue     — per-stage requeue
@@ -31,6 +34,8 @@ import { metadataRoutes } from './metadata.ts';
 import { xmpRoutes } from './xmp.ts';
 import { trashRoutes } from './trash.ts';
 import { relocateRoutes } from './relocate.ts';
+import { renameRoutes } from './rename.ts';
+import { batchRenameRoutes } from './batch-rename.ts';
 import { overrideRoutes } from './overrides.ts';
 import { enrichmentRoutes } from './enrichment.ts';
 import { histogramRoutes } from './histogram.ts';
@@ -41,5 +46,7 @@ export const assetsRoutes = new Elysia({ prefix: '/api/assets' })
   .use(xmpRoutes)
   .use(trashRoutes)
   .use(relocateRoutes)
+  .use(renameRoutes)
+  .use(batchRenameRoutes)
   .use(overrideRoutes)
   .use(enrichmentRoutes);
