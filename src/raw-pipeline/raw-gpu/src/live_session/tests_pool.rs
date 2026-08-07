@@ -111,6 +111,8 @@ fn same_signature_value_change_is_correct_and_zero_alloc() {
             curve: nonidentity_curve(),
             lut: nonidentity_lut(9),
             wb_method: WbMethod::Cat16,
+            film_lut: None,
+            film_strength: 0.0,
         }
     };
 

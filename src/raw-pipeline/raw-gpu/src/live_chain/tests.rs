@@ -111,6 +111,8 @@ pub(super) fn neutral_case() -> Case {
         curve: identity_curve(),
         lut: identity_lut(9),
         wb_method: WbMethod::Cat16,
+        film_lut: None,
+        film_strength: 0.0,
     }
 }
 
@@ -331,6 +333,8 @@ fn single_stage_case(s: &SingleStage) -> Case {
         curve: identity_curve(),
         lut: identity_lut(9),
         wb_method: WbMethod::Cat16,
+        film_lut: None,
+        film_strength: 0.0,
     }
 }
 
