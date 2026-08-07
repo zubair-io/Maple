@@ -103,9 +103,11 @@ namespace Maple.WinUI.Services.Pano
                 return new StitchResult(false,
                     $"maple-cli exited {process.ExitCode}:\n{tail}", outPath, displayPath);
             }
-            if (!File.Exists(displayPath))
+            if (!File.Exists(outPath) || !File.Exists(displayPath))
                 return new StitchResult(false,
-                    "stitch reported success but wrote no display output", outPath, displayPath);
+                    "stitch reported success but did not write both outputs "
+                    + $"(master: {File.Exists(outPath)}, display: {File.Exists(displayPath)})",
+                    outPath, displayPath);
             return new StitchResult(true, null, outPath, displayPath);
         }
     }
