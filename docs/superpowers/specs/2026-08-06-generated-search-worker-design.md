@@ -211,22 +211,75 @@ locking the defaults.**
   counts without persisting, so prompt changes can be evaluated against the real
   library.
 
+## Findings from the live library (2026-08-06)
+
+Measured against the deployed install, 333,860 assets. Three of these change the
+design.
+
+**Semantic search is NOT configured.** `meilisearch.semantic`, `embedderModel`
+and `semanticRatio` are all unset on the enrichment settings doc, so the default
+(off) applies. `placeQuery` is therefore doing lexical keyword matching against
+caption text, and the prompt must ask for literal caption nouns
+("birthday cake candles") rather than scene prose. 222,337 assets (67%) already
+carry a description and `bge-m3` is pulled locally, so enabling semantic is a
+config change plus a vector backfill — not new work. **Recommended as a
+prerequisite**: the feature is materially better with it on.
+
+**IPTC keywords are dead — dropped from scope.** 1,295 of 333,860 assets (0.4%)
+have `metadata_override.keywords`. Not worth a search param, a Meili attribute,
+and a backfill.
+
+**"On this day" is not expressible with the current search API.** `from`/`to`
+compile to a single continuous `$gte`/`$lte` range over the ISO string
+(`routes/search/query.ts:274`). There is no recurring month/day filter, so a
+model asking for "the first week of August across the years" writes
+`from: 2014-08-03, to: 2019-08-09` — which matches every photo in that five-year
+span (~110k assets), not one week per year. Since "on this day" is a founding
+example for this feature, it needs:
+
+- a `month` search param, backed by a new index on `exif.captured_month`.
+  That field is already populated on every doc, so this needs **no backfill** —
+  only `exif.captured_at` is indexed today (`db/client.ts:761`).
+- day-of-month precision deferred: it needs a new `captured_day` field plus a
+  333k-doc backfill. "August, Every Year" is a good collection; "August 3–9
+  across years" does not yet justify the migration.
+
+**The digest needs a credibility filter, not just an aggregation.** Raw
+per-year counts include 1,931 assets stamped **1899** (the OLE epoch sentinel
+leaking from bad EXIF) plus a junk tail (1971×1, 1988×1, 1992×2). 2016 also
+carries 9,221 assets within ±3 days of Aug 6 — 19% of that year in one week,
+and 30× the next-highest year — which is either a real event or a bulk import
+with a wrong date. The digest must drop sentinel and sub-threshold years before
+the model ever sees them.
+
+**Consequence for validation.** The result-count floor is a much weaker gate
+than the first draft assumed. It cannot catch any of:
+
+1. a title that misrepresents its own query (1,900+ results, still a lie)
+2. a sentinel-year collection (1,931 results, all garbage)
+3. a five-year continuous range masquerading as an anniversary (110k results)
+
+The floor stays as a cheap filter for genuinely empty queries, but the real
+gates are structural: title written from sampled captions (phase 3), `from`/`to`
+clamped to credible coverage, and recurring dates expressed through the `month`
+param rather than a range the model can misuse.
+
 ## Open questions
 
-1. **Is semantic search enabled on the deployed install?** If not, this ships
-   degraded until vectors are backfilled. Blocking for quality, not for build.
-2. **Does the library have real IPTC `keywords`?** They are user-authored and the
-   highest-signal theme vocabulary available, and are currently unreachable by any
-   search path (not in `search_blob`, not a Meili attribute, no query param).
-   Own ticket if the bags are populated; drop entirely if not.
-3. Collections per day, and whether the widget cycles within one collection or
+1. Collections per day, and whether the widget cycles within one collection or
    across all of them.
+2. Whether the 2016 August spike is a real event or a bad bulk import — affects
+   whether anniversary collections need per-year result caps.
+3. Whether any of the 13 named people are pets or otherwise unsuitable to build
+   collections around.
 
 ## Deferred
 
 - `vision.mood` / `vision.colors` into `search_blob`. Mood words already leak
   through caption prose; making them reliable is a nice-to-have, not a blocker.
-- IPTC keywords (see open question 2).
+- Day-of-month precision for anniversary collections (needs `captured_day` +
+  backfill; see findings above).
+- IPTC keywords — dropped, not deferred. 0.4% coverage.
 - Feeding the TV Light Table from generated collections instead of its three
   hardcoded queries — natural follow-on, out of scope here.
 - Verify a possible drift: `composeSearchBlob` folds in vision
