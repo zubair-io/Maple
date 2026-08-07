@@ -51,8 +51,14 @@ namespace Maple.WinUI.Services.FileOperations
             try
             {
                 File.Copy(source, tmp, overwrite: false);
-                try { File.SetLastWriteTimeUtc(tmp, sourceMtimeUtc); }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+                // Deliberately NOT swallowed: if this throws (e.g. an
+                // UnauthorizedAccessException on the freshly-written temp
+                // file), letting it propagate to the outer catch reports the
+                // REAL cause. Swallowing it here used to mean `VerifyCopy`
+                // failed two lines later on a stale-mtime mismatch instead,
+                // masking the actual error behind a misleading
+                // `VerificationFailed`.
+                File.SetLastWriteTimeUtc(tmp, sourceMtimeUtc);
 
                 VerifyCopy(sourceSize, sourceMtimeUtc, tmp);
 

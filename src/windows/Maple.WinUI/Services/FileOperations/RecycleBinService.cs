@@ -52,21 +52,28 @@ namespace Maple.WinUI.Services.FileOperations
         private static extern int SHFileOperationW(ref SHFILEOPSTRUCTW fileOp);
 
         /// <summary>
-        /// Send <paramref name="path"/> to the Recycle Bin. `pFrom` must be a
-        /// double-null-terminated list of paths per SHFILEOPSTRUCTW's
-        /// contract; a single entry plus the P/Invoke marshaler's own
-        /// terminator satisfies that, but an explicit trailing `'\0'` is
-        /// added here rather than relying on that implicit behavior.
+        /// Send every path in <paramref name="paths"/> to the Recycle Bin in
+        /// ONE `SHFileOperationW` call. `pFrom` accepts multiple entries in
+        /// a single buffer — each path separated by one `'\0'`, the whole
+        /// list terminated by a DOUBLE `'\0'` — which is what lets a
+        /// primary and its sidecar be handed to the shell together instead
+        /// of as two independent calls with a partial-failure window between
+        /// them. `string.Join("\0", paths)` produces the single-null
+        /// separators; the explicit trailing `"\0"` plus the P/Invoke
+        /// marshaler's own string terminator together produce the required
+        /// trailing double-null.
         /// </summary>
-        public bool TrySendToRecycleBin(string path)
+        public bool TrySendToRecycleBin(params string[] paths)
         {
+            if (paths.Length == 0) return true;
+
             try
             {
                 var op = new SHFILEOPSTRUCTW
                 {
                     hwnd = IntPtr.Zero,
                     wFunc = FoDelete,
-                    pFrom = path + "\0",
+                    pFrom = string.Join('\0', paths) + "\0",
                     pTo = null,
                     fFlags = (ushort)(FofAllowUndo | FofNoConfirmation | FofSilent | FofNoErrorUi | FofNoConfirmMkDir),
                 };

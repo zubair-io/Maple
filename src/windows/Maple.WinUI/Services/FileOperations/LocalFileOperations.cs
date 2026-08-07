@@ -67,6 +67,7 @@ namespace Maple.WinUI.Services.FileOperations
         {
             if (!File.Exists(sourcePrimaryPath))
                 throw new FileOperationException(FileOperationErrorKind.SourceMissing, sourcePrimaryPath);
+            if (newBasename != null) ValidateBareFileName(newBasename);
 
             var basename = newBasename ?? Path.GetFileName(sourcePrimaryPath);
             var targetPath = Path.Combine(destinationDir, basename);
@@ -100,14 +101,14 @@ namespace Maple.WinUI.Services.FileOperations
                 var sidecarTargetPath = SidecarStore.SidecarPathFor(resolvedTargetPath);
                 try
                 {
-                    // The primary's target basename was already proven free
-                    // (or explicitly replaced) above; an orphan sidecar that
-                    // happens to share the DERIVED sidecar name is abandoned
-                    // data, not a live asset's — this asset's sidecar
-                    // following it is what "the sidecar always follows the
-                    // primary" means, so it claims that name the same way
-                    // `.Replace` would.
-                    if (File.Exists(sidecarTargetPath)) File.Delete(sidecarTargetPath);
+                    // No pre-delete of any occupant at `sidecarTargetPath` —
+                    // same "delete-then-hope" hazard `ResolveCollisionAsync`
+                    // documents avoiding for the primary. `CopyVerified`
+                    // publishes via a verified temp-then-atomic-`File.Move`
+                    // (`overwrite: true`), which replaces whatever's there
+                    // (a stale orphan sidecar, or the destination's old
+                    // sidecar under `.Replace`) in one step, only after the
+                    // new sidecar is fully copied and verified.
                     CopyVerified(sourceSidecarPath, sidecarTargetPath);
                 }
                 catch
@@ -205,11 +206,11 @@ namespace Maple.WinUI.Services.FileOperations
         /// different locations.
         ///
         /// The load-bearing property this protects: a relocate must never
-        /// delete the only copy of a file. <see cref="CollisionPolicy.Replace"/>'s
-        /// pre-copy removal runs BEFORE the copy — if the destination
-        /// resolves to the source (directly, or via a symlinked/junction
-        /// alias), that removal deletes the source itself, and the copy that
-        /// follows then fails because there's nothing left to read.
+        /// destroy the only copy of a file. If the destination resolves to
+        /// the source (directly, or via a symlinked/junction alias), copying
+        /// the source onto itself and then, in move mode, deleting "the
+        /// source" would delete the only remaining copy — this guard refuses
+        /// that combination outright, before any copy or publish runs.
         ///
         /// Resolving only the PARENT directory (never the file name) is
         /// deliberate: resolving the FULL path (name included) would, on
@@ -235,6 +236,43 @@ namespace Maple.WinUI.Services.FileOperations
             if (string.Equals(sourceName, targetName, StringComparison.OrdinalIgnoreCase))
                 return SameFileClassification.CaseOnlyRename;
             return SameFileClassification.Different;
+        }
+
+        // MARK: - Bare file-name validation (destination basenames and
+        // folder names — anywhere a caller hands this module a name rather
+        // than a full path)
+
+        /// <summary>Reserved MS-DOS device names — invalid as a file OR
+        /// folder base name (extension-insensitive: `NUL.txt` is just as
+        /// reserved as `NUL`) anywhere on an NTFS/FAT volume, regardless of
+        /// directory.</summary>
+        private static readonly HashSet<string> ReservedDeviceNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "CON", "PRN", "AUX", "NUL",
+            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        };
+
+        /// <summary>
+        /// Validates that <paramref name="name"/> is a bare file/folder name
+        /// this module is safe to <see cref="Path.Combine(string, string)"/>
+        /// into a destination directory — never a relative or absolute path
+        /// of its own. Without this, a caller-supplied rename target like
+        /// `..\..\escaped.dng` combines with the destination directory and
+        /// relocates OUTSIDE it — a directory-traversal escape, not a
+        /// rename. Also rejects the reserved MS-DOS device names, which are
+        /// invalid file/folder names on Windows regardless of extension.
+        /// </summary>
+        internal static void ValidateBareFileName(string name)
+        {
+            if (string.IsNullOrEmpty(name) || Path.GetFileName(name) != name)
+                throw new FileOperationException(FileOperationErrorKind.InvalidDestination,
+                    $"not a valid bare file name: {name}");
+
+            var stem = Path.GetFileNameWithoutExtension(name);
+            if (ReservedDeviceNames.Contains(stem))
+                throw new FileOperationException(FileOperationErrorKind.InvalidDestination,
+                    $"'{stem}' is a reserved Windows device name: {name}");
         }
 
         // MARK: - Shared helpers
