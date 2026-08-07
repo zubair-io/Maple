@@ -251,7 +251,7 @@ pub struct AdjustmentModel {
 
     /// Film emulation look id from the film catalog (film design
     /// 2026-08-06, epic #2683) — selects a baked `.mlut` grade
-    /// (`raw_core::film`) applied after grain. Empty (default) = none;
+    /// (`raw_core::film`) applied between `color_grade` and `grain`. Empty (default) = none;
     /// the stage is a no-op. An id the catalog doesn't recognise resolves
     /// as identity at render time rather than erroring the parse, so a
     /// sidecar authored against a newer catalog still opens. XMP key
