@@ -25,6 +25,22 @@ fn identity_lattice(n: usize) -> Vec<f32> {
     data
 }
 
+/// Hand-craft a `.mlut` v1 byte buffer without going through
+/// [`encode_mlut`] — `encode_mlut` now asserts `size >= 2` (by design: a
+/// degenerate grid is a programmer error for the encoder), but this test
+/// exists to exercise the *decoder's* rejection of a degenerate grid
+/// arriving over the wire (untrusted bytes, not a programmer error). Layout
+/// matches `raw_core::film`'s module doc: magic(4) + version(2) +
+/// grid(2), little-endian, followed by `grid³·3` f16 payload values.
+fn hand_craft_mlut(version: u16, grid: u16, payload_f16_values: usize) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(8 + payload_f16_values * 2);
+    bytes.extend_from_slice(b"MLUT");
+    bytes.extend_from_slice(&version.to_le_bytes());
+    bytes.extend_from_slice(&grid.to_le_bytes());
+    bytes.extend(std::iter::repeat_n(0u8, payload_f16_values * 2));
+    bytes
+}
+
 fn last_error_message() -> String {
     let ptr = unsafe { maple_last_error() };
     assert!(!ptr.is_null(), "expected an error message to be set");
@@ -96,8 +112,9 @@ fn decode_rejects_malformed_bytes() {
     };
     assert_eq!(rc, -1, "truncated payload should return -1");
 
-    // Degenerate grid (size 1).
-    let degenerate = encode_mlut(1, &[0.0f32, 0.0, 0.0]);
+    // Degenerate grid (size 1) — hand-crafted since `encode_mlut` refuses
+    // to build one (see `hand_craft_mlut`'s doc comment).
+    let degenerate = hand_craft_mlut(1, 1, 3);
     let mut out1 = vec![0.0f32; 3];
     let rc = unsafe {
         maple_film_lut_decode(degenerate.as_ptr(), degenerate.len(), out1.as_mut_ptr(), 3)
