@@ -208,6 +208,7 @@ mod clarity;
 mod context;
 mod context_pipelines;
 mod context_pipelines_helpers;
+mod context_pipelines_spatial;
 mod dehaze;
 mod display_encode;
 mod dither;
