@@ -1,0 +1,65 @@
+@if (collision()) {
+  <div class="collision" role="alert">
+    <p class="collision-message">"{{ draft() }}" already exists in this folder.</p>
+    <div class="collision-actions">
+      <button type="button" class="btn" [disabled]="busy()" (click)="cancel()">Cancel</button>
+      <button type="button" class="btn" [disabled]="busy()" (click)="resolveKeepBoth()">
+        Keep Both
+      </button>
+      <button type="button" class="btn btn-primary" [disabled]="busy()" (click)="resolveReplace()">
+        Replace
+      </button>
+    </div>
+  </div>
+} @else {
+  <div class="field">
+    <label class="sr-only" [attr.for]="'rename-input'">Rename {{ filename() }}</label>
+    <input
+      #nameInput
+      id="rename-input"
+      type="text"
+      class="name-input"
+      [class.has-error]="!!error()"
+      [value]="draft()"
+      [disabled]="busy()"
+      [attr.aria-label]="'Rename ' + filename()"
+      [attr.aria-invalid]="!!error()"
+      [attr.aria-describedby]="
+        error() ? 'rename-error' : extensionChanged() ? 'rename-warning' : null
+      "
+      autocapitalize="off"
+      autocomplete="off"
+      spellcheck="false"
+      (input)="onInput($event)"
+      (keydown)="onKeydown($event)"
+      (blur)="onBlur()"
+    />
+    <button
+      type="button"
+      class="icon-btn confirm"
+      aria-label="Confirm rename"
+      [disabled]="busy()"
+      (mousedown)="$event.preventDefault()"
+      (click)="commit()"
+    >
+      ✓
+    </button>
+    <button
+      type="button"
+      class="icon-btn cancel"
+      aria-label="Cancel rename"
+      [disabled]="busy()"
+      (mousedown)="$event.preventDefault()"
+      (click)="cancel()"
+    >
+      ✕
+    </button>
+  </div>
+  @if (error()) {
+    <p class="hint hint-error" id="rename-error" role="alert">{{ error() }}</p>
+  } @else if (extensionChanged()) {
+    <p class="hint hint-warning" id="rename-warning">
+      Changing the extension does not convert the file — it may become unreadable.
+    </p>
+  }
+}

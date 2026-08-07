@@ -39,6 +39,7 @@ import {
   type AdjustmentGroupId,
 } from '../../editor/copy-paste/adjustment-groups';
 import { selectSidebarEntry } from './source-selection';
+import { AssetRenameService } from '../../rename/asset-rename.service';
 
 @Component({
   selector: 'browse-shell',
@@ -65,6 +66,7 @@ export class BrowseShellComponent {
   private route = inject(ActivatedRoute);
   private readonly clipboard = inject(AdjustmentClipboardService);
   private readonly layoutService = inject(LayoutService);
+  private readonly renameSvc = inject(AssetRenameService);
 
   /** Active breakpoint — drives the source sidebar (inline pane vs phone
    * overlay drawer) and the toolbar action collapse. See `LayoutService`. */
@@ -248,6 +250,15 @@ export class BrowseShellComponent {
     }
 
     const fid = this.state.focusedAssetId();
+
+    // F2: inline rename the focused asset (#2637) — same shared field the
+    // grid cell / info panel double-click opens.
+    if (e.key === 'F2' && fid) {
+      const asset = this.state.focusedAsset();
+      if (asset) this.renameSvc.startEditing(asset);
+      e.preventDefault();
+      return;
+    }
 
     // 1–5: star rating
     if (['1', '2', '3', '4', '5'].includes(e.key) && fid) {

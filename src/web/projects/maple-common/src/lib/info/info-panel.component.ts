@@ -32,12 +32,14 @@ import { RatingFlagsRowComponent } from './rating-flags-row.component';
 import { InfoHistogramComponent } from './histogram.component';
 import { CameraLocationGridComponent } from './camera-location-grid.component';
 import { KeywordChipsRowComponent } from './keyword-chips-row.component';
+import { InfoFilenameRowComponent } from './info-filename-row.component';
 import { INFO_PANEL_EXTENSION } from './info-panel-extension';
 
 @Component({
   selector: 'app-info-panel',
   standalone: true,
   imports: [
+    InfoFilenameRowComponent,
     RatingFlagsRowComponent,
     InfoHistogramComponent,
     CameraLocationGridComponent,

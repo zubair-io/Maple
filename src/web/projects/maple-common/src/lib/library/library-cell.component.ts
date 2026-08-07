@@ -26,11 +26,13 @@ import {
 import { Asset } from '../models/asset';
 import { LibraryStateService } from '../state/library-state.service';
 import { MapleIconComponent } from '../icons/maple-icon.component';
+import { AssetRenameService } from '../rename/asset-rename.service';
+import { InlineRenameFieldComponent } from '../components/inline-rename-field/inline-rename-field.component';
 
 @Component({
   selector: 'app-library-cell',
   standalone: true,
-  imports: [MapleIconComponent],
+  imports: [MapleIconComponent, InlineRenameFieldComponent],
   templateUrl: './library-cell.component.html',
   styleUrl: './library-cell.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -43,6 +45,29 @@ export class LibraryCellComponent {
   cellTap = output<Asset>();
 
   private state = inject(LibraryStateService);
+  protected readonly renameSvc = inject(AssetRenameService);
+
+  /** True while this cell's filename bar is showing the inline-rename
+   * field (#2637). Only one cell in the grid is ever editing at a time —
+   * `AssetRenameService.editingAssetId` is shared, not per-cell state. */
+  readonly isEditingFilename = computed(() => this.renameSvc.editingAssetId() === this.asset().id);
+
+  /** Why rename is unavailable for this asset, or '' when it's allowed —
+   * surfaced as the filename bar's `title` tooltip. */
+  readonly renameDisabledReason = computed(() => this.renameSvc.disabledReason(this.asset()) ?? '');
+
+  onFilenameDblClick(asset: Asset, event: MouseEvent): void {
+    event.stopPropagation();
+    this.renameSvc.startEditing(asset);
+  }
+
+  onRenameCommit(asset: Asset, newFilename: string): void {
+    this.renameSvc.commit(asset, newFilename);
+  }
+
+  onCollisionResolved(asset: Asset, policy: 'replace' | 'keep-both'): void {
+    this.renameSvc.resolveCollision(asset, policy);
+  }
 
   // Component-owned signal — created/destroyed with the cell, so its lifecycle
   // bounds the live count (no central signal map to leak; #1363/#1359).

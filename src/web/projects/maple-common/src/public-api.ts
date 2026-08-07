@@ -146,6 +146,7 @@ export * from './lib/shells/source-picker-drawer/source-picker-drawer.component'
 // slot; Hosted's dependency graph contains only the shared local sections.
 export * from './lib/info/info-panel.component';
 export * from './lib/info/info-panel-extension';
+export * from './lib/info/info-filename-row.component';
 export * from './lib/info/rating-flags-row.component';
 export * from './lib/info/histogram.component';
 export * from './lib/info/camera-location-grid.component';
@@ -192,6 +193,7 @@ export * from './lib/components/folder-tree/folder-trash-confirm-dialog.componen
 export * from './lib/components/folder-tree/folder-name-validation';
 export * from './lib/components/asset-grid/asset-grid.component';
 export * from './lib/components/asset-thumb/asset-thumb.component';
+export * from './lib/components/inline-rename-field/inline-rename-field.component';
 export * from './lib/components/drop-zone/drop-zone.component';
 export * from './lib/components/image-canvas/image-canvas.service';
 export * from './lib/components/image-canvas/image-canvas.component';
@@ -238,12 +240,16 @@ export * from './lib/search/search.component';
 export * from './lib/util/errors';
 export * from './lib/util/idb';
 export * from './lib/util/typed-storage';
+export * from './lib/util/filename-ext';
 
 // #1606 — Batch Metadata web UI (M2)
 export * from './lib/batch-metadata/batch-metadata.types';
 export * from './lib/batch-metadata/batch-metadata.service';
 export * from './lib/batch-metadata/batch-metadata-panel.component';
 export * from './lib/batch-metadata/batch-metadata-confirm-dialog.component';
+
+// #2637 — Inline single-asset rename (grid cell / info panel double-click, F2).
+export * from './lib/rename/asset-rename.service';
 
 // M2 — Unified library addressing (MapleAddress + LibrarySource strategy).
 export * from './lib/addressing/maple-address';
