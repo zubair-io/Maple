@@ -64,12 +64,12 @@ namespace Maple.WinUI.Services
         {
             _watcher?.Dispose();
             _watcher = null;
-            // Kill the debounce too — a timer surviving Stop() would fire
-            // Flush() for a folder the user already navigated away from.
-            _debounce?.Dispose();
-            _debounce = null;
             lock (_gate)
             {
+                // Kill the debounce too — a timer surviving Stop() would fire
+                // Flush() for a folder the user already navigated away from.
+                _debounce?.Dispose();
+                _debounce = null;
                 _added.Clear();
                 _removed.Clear();
             }
@@ -94,58 +94,90 @@ namespace Maple.WinUI.Services
                     _added.Remove(remove!);
                 }
             }
-            _debounce?.Dispose();
-            _debounce = new Timer(_ => Flush(), null, DebounceMs, Timeout.Infinite);
+            RearmDebounce();
+        }
+
+        /// <summary>One reusable timer, reset via Change — no allocation per
+        /// filesystem event. No-op once the watcher is stopped.</summary>
+        private void RearmDebounce()
+        {
+            lock (_gate)
+            {
+                if (_watcher == null)
+                    return;
+                if (_debounce == null)
+                    _debounce = new Timer(_ => Flush(), null, DebounceMs, Timeout.Infinite);
+                else
+                    _debounce.Change(DebounceMs, Timeout.Infinite);
+            }
         }
 
         private void Flush()
         {
-            List<string> added;
+            List<string> candidates;
             List<string> removed;
             lock (_gate)
             {
-                // A file still mid-copy stays pending: re-arm the debounce so
-                // the batch lands once the writer releases it.
-                var unstable = _added.Where(IsLockedOrMissing).ToList();
-                added = _added.Except(unstable, StringComparer.OrdinalIgnoreCase).ToList();
+                candidates = _added.ToList();
                 removed = _removed.ToList();
                 _added.Clear();
-                foreach (var path in unstable)
-                    _added.Add(path);
                 _removed.Clear();
             }
-            if (added.Count > 0 || removed.Count > 0)
-                ChangesReady?.Invoke(added, removed);
-            lock (_gate)
+
+            // File probes run OUTSIDE the gate — blocking I/O under the lock
+            // would stall the FileSystemWatcher threads calling Queue(). A file
+            // still mid-copy stays pending; a file that vanished is dropped so
+            // a create+delete flurry can never pin the debounce forever.
+            var added = new List<string>();
+            var unstable = new List<string>();
+            foreach (var path in candidates)
             {
-                if (_added.Count > 0)
+                switch (Probe(path))
                 {
-                    _debounce?.Dispose();
-                    _debounce = new Timer(_ => Flush(), null, DebounceMs, Timeout.Infinite);
+                    case FileProbe.Stable: added.Add(path); break;
+                    case FileProbe.Locked: unstable.Add(path); break;
+                    case FileProbe.Missing: break;
                 }
             }
+
+            if (added.Count > 0 || removed.Count > 0)
+                ChangesReady?.Invoke(added, removed);
+            if (unstable.Count == 0)
+                return;
+            lock (_gate)
+            {
+                foreach (var path in unstable)
+                    _added.Add(path);
+            }
+            RearmDebounce();
         }
 
-        private static bool IsLockedOrMissing(string path)
+        private enum FileProbe { Stable, Locked, Missing }
+
+        private static FileProbe Probe(string path)
         {
             try
             {
                 // FileShare.None: only stable once NO other handle is open — a
                 // writer that allows read-sharing must not count as finished.
                 using var _ = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.None);
-                return false;
+                return FileProbe.Stable;
             }
             catch (FileNotFoundException)
             {
-                return true;
+                return FileProbe.Missing;
+            }
+            catch (DirectoryNotFoundException)
+            {
+                return FileProbe.Missing;
             }
             catch (IOException)
             {
-                return true;    // writer still holds it
+                return FileProbe.Locked;    // writer still holds it
             }
             catch (UnauthorizedAccessException)
             {
-                return true;
+                return FileProbe.Locked;
             }
         }
 
