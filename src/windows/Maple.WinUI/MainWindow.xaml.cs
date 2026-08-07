@@ -109,6 +109,7 @@ namespace Maple.WinUI
             BuildEditRail();
             BuildGradePanel();
             BuildCropPanel();
+            MaybeStartQualifyRun();
             CurvePlot.PointsChanged += OnCurvePointsChanged;
             ViewModel.ModelSynced += () =>
             {
