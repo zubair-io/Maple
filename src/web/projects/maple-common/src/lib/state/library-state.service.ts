@@ -196,6 +196,22 @@ export class LibraryStateService {
     return this.store.apiIdFor(assetId);
   }
 
+  /**
+   * Repoint asset `oldId` to `newId` + `newFilename` after a successful
+   * rename (#2637) — updates the asset row, every id-keyed store map, and
+   * the selection so the grid, focused asset, and any open editor/preview
+   * follow the new address instead of holding a stale one. Does NOT touch
+   * the router — callers that opened the renamed asset via an address-
+   * bearing route (`/edit/:slug/**`, `/view/:slug/**`) navigate separately
+   * once this returns.
+   */
+  renameAsset(oldId: AssetId, newId: AssetId, newFilename: string): void {
+    this.store.renameAssetId(oldId, newId, newFilename);
+    this.selection.renameAssetId(oldId, newId);
+    const url = this.cache_.thumbnailUrlFor(oldId);
+    if (url) this.cache_.cacheThumbnailUrl(newId, url);
+  }
+
   // ── addImportedAsset (legacy path) ─────────────────────────────────────────
   addImportedAsset(bytes: Uint8Array, filename: string, explicitId?: AssetId): AssetId {
     return this.fetch_.addImportedAsset(bytes, filename, explicitId);
