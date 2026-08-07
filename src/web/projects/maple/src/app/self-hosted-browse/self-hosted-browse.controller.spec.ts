@@ -102,4 +102,43 @@ describe('SelfHostedBrowseController', () => {
       },
     ]);
   });
+
+  it('openBatchRename builds the selection list from the selected assets and opens the dialog', () => {
+    const a = { id: 'lib1:2026/a.dng', filename: 'a.dng' } as Asset;
+    const b = { id: 'lib1:2026/b.dng', filename: 'b.dng' } as Asset;
+    Object.defineProperty(state, 'selectedAssetIds', {
+      value: signal(new Set([a.id, b.id])),
+      configurable: true,
+    });
+    Object.defineProperty(state, 'assetsInSelectedFolder', {
+      value: signal([a, b]),
+      configurable: true,
+    });
+
+    controller.openBatchRename();
+
+    expect(controller.batchRenameVisible()).toBe(true);
+    expect(controller.batchRenameSelections()).toEqual([
+      { address: a.id, filename: a.filename },
+      { address: b.id, filename: b.filename },
+    ]);
+
+    controller.dismissBatchRename();
+    expect(controller.batchRenameVisible()).toBe(false);
+    expect(controller.batchRenameSelections()).toEqual([]);
+  });
+
+  it('openBatchRename is a no-op with nothing selected', () => {
+    Object.defineProperty(state, 'selectedAssetIds', {
+      value: signal(new Set<string>()),
+      configurable: true,
+    });
+    Object.defineProperty(state, 'assetsInSelectedFolder', {
+      value: signal([]),
+      configurable: true,
+    });
+
+    controller.openBatchRename();
+    expect(controller.batchRenameVisible()).toBe(false);
+  });
 });

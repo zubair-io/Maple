@@ -252,6 +252,29 @@ export * from './lib/batch-metadata/batch-metadata-confirm-dialog.component';
 export * from './lib/rename/asset-rename-capability';
 export * from './lib/rename/asset-rename.service';
 
+// #2640 — Batch rename dialog (multi-select → template-token rename).
+// Mounted directly (no `@defer`) by Self Hosted's `SelfHostedBrowseContent
+// Component`, the same way `BatchMetadataPanelComponent` (#1606) is —
+// that file lives entirely under `projects/maple`, never reachable from
+// Hosted's own build graph, so plain tree-shaking already keeps this out
+// of Hosted's shipped bundle (verified: `app-batch-rename-dialog` and
+// `/assets/by-address` are absent from every `dist/maple-syrup` chunk,
+// same as `app-batch-metadata-panel`). `@defer`-wrapping this instead
+// (mirroring #2643's `FolderTreeCrudComponent`) was tried and reverted:
+// Angular's application builder emits a SEPARATE chunk for every `@defer`
+// block discovered anywhere in `maple-common`'s compiled program —
+// including ones with zero real referrers in Hosted's own build — so the
+// deferred chunk still shipped as an unreferenced file in Hosted's dist,
+// which is exactly what the boundary check (rightly) rejects. `@defer`
+// only pays for itself when the trigger site is a component BOTH apps
+// load eagerly (folder tree, asset grid); here the trigger is
+// Self-Hosted-app-only, so plain non-deferred usage — like batch metadata
+// — is the correct, verified-safe shape.
+export * from './lib/batch-rename/batch-rename-capability';
+export * from './lib/batch-rename/batch-rename.types';
+export * from './lib/batch-rename/batch-rename.service';
+export * from './lib/batch-rename/batch-rename-dialog.component';
+
 // M2 — Unified library addressing (MapleAddress + LibrarySource strategy).
 export * from './lib/addressing/maple-address';
 export * from './lib/addressing/library-source';
