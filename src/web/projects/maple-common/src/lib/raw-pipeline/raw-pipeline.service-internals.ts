@@ -73,6 +73,11 @@ export type PendingHandler =
       reject: (err: Error) => void;
     }
   | {
+      kind: 'set-film-lut';
+      resolve: () => void;
+      reject: (err: Error) => void;
+    }
+  | {
       kind: 'auto-adjust';
       resolve: (patch: AutoAdjustPatch) => void;
       reject: (err: Error) => void;

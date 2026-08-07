@@ -1,0 +1,49 @@
+<!-- FilmPanelComponent — catalog picker + strength slider (#2683) -->
+<div class="film-panel" data-testid="film-panel">
+  <div class="film-look-list" role="listbox" aria-label="Film looks">
+    <button
+      type="button"
+      class="film-look-row film-look-row--none"
+      role="option"
+      [class.film-look-row--active]="!hasActiveLook()"
+      [attr.aria-selected]="!hasActiveLook()"
+      (click)="selectNone()"
+    >
+      None
+    </button>
+
+    @for (group of groups; track group.category) {
+      <div class="film-category">
+        <div class="film-category-label">{{ group.label }}</div>
+        @for (look of group.looks; track look.id) {
+          <button
+            type="button"
+            class="film-look-row"
+            role="option"
+            [class.film-look-row--active]="isActive(look.id)"
+            [attr.aria-selected]="isActive(look.id)"
+            (click)="selectLook(look.id)"
+          >
+            {{ look.name }}
+          </button>
+        }
+      </div>
+    }
+  </div>
+
+  @if (hasActiveLook()) {
+    <div class="film-strength-row" data-testid="film-strength-row">
+      <pro-living-slider
+        aria-label="Film strength"
+        label="Strength"
+        [value]="strength()"
+        [min]="strengthMin"
+        [max]="strengthMax"
+        [defaultValue]="strengthMax"
+        gradient="linear-gradient(90deg, #4a443b 0%, #a8a097 100%)"
+        (valueChange)="onStrengthChange($event)"
+        (resetRequest)="onStrengthReset()"
+      />
+    </div>
+  }
+</div>

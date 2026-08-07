@@ -96,6 +96,15 @@ export class XmpSerializerService {
       parts.push(`papp:Profile="${this._escapeAttr(model.profile)}"`);
     }
 
+    // Film emulation (epic #2683) — `filmLook` is a free-form catalog id
+    // string (not a fixed enum), default ''. Emit only when a look is
+    // selected, mirroring every other string/enum field's omit-on-default
+    // rule; `filmStrength` rides the numeric-field table above (default
+    // 100, omitted when untouched).
+    if (model.filmLook) {
+      parts.push(`papp:FilmLook="${this._escapeAttr(model.filmLook)}"`);
+    }
+
     // Hot/dead-pixel suppression (#1106) — decode-product enum field,
     // default 'Off'. Emit only when non-default, mirroring the Rust and
     // Swift writers, so pre-#1106 sidecars stay byte-identical.

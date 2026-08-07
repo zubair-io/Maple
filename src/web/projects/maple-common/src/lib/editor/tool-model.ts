@@ -58,6 +58,7 @@ export type ToolId =
   | 'vignette'
   | 'grain'
   | 'colorGrade'
+  | 'filmLook'
   // Detail
   | 'sharpen'
   | 'noise'
@@ -92,6 +93,7 @@ export const TOOL_DISPLAY: Record<ToolId, string> = {
   vignette: 'Vignette',
   grain: 'Grain',
   colorGrade: 'Color Grading',
+  filmLook: 'Film',
   sharpen: 'Sharpen',
   noise: 'Noise',
   colorNR: 'Color NR',
@@ -108,7 +110,7 @@ export const TOOLS_IN_GROUP: Record<ToolGroup, readonly ToolId[]> = {
   // 8-hue-band Oklab stage, exclusively — HSL edits per-hue color, bwMix
   // (Black & White) collapses it to monochrome via 8 gray-mixer weights.
   color: ['temp', 'tint', 'vibrance', 'saturation', 'hsl', 'bwMix'],
-  effects: ['clarity', 'texture', 'dehaze', 'vignette', 'grain', 'colorGrade'],
+  effects: ['clarity', 'texture', 'dehaze', 'vignette', 'grain', 'colorGrade', 'filmLook'],
   detail: ['sharpen', 'noise', 'colorNR', 'crop', 'presets'],
 };
 

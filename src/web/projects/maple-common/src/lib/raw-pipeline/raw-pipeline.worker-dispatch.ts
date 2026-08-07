@@ -121,6 +121,18 @@ const settleRenderSession: Settler<'render-session'> = (msg, handler) => {
   return false;
 };
 
+const settleSetFilmLut: Settler<'set-film-lut'> = (msg, handler) => {
+  if (msg.type === 'set-film-lut-success') {
+    handler.resolve();
+    return true;
+  }
+  if (msg.type === 'session-error') {
+    handler.reject(new Error(msg.message));
+    return true;
+  }
+  return false;
+};
+
 const settleAutoAdjust: Settler<'auto-adjust'> = (msg, handler) => {
   if (msg.type === 'auto-adjust-success') {
     handler.resolve(msg.patch);
@@ -161,6 +173,8 @@ function settleByKind(msg: WorkerResponse, handler: PendingHandler): boolean {
       return settleOpenSession(msg, handler);
     case 'render-session':
       return settleRenderSession(msg, handler);
+    case 'set-film-lut':
+      return settleSetFilmLut(msg, handler);
     case 'auto-adjust':
       return settleAutoAdjust(msg, handler);
     case 'export':
