@@ -32,7 +32,12 @@ namespace Maple.WinUI.Services.FileOperations
                 throw new FileOperationException(FileOperationErrorKind.InvalidDestination,
                     $"{itemPath} is not under library root {libraryRoot}");
 
-            var trashRoot = Path.Combine(libraryRoot, ".maple", "trash");
+            // Built from `rootFull` (the normalized full path), not the raw
+            // `libraryRoot` parameter — a caller-supplied relative path, a
+            // trailing-slash-inconsistent path, or a differently-cased drive
+            // letter must still land under the SAME trash root every other
+            // comparison in this method already normalizes against.
+            var trashRoot = Path.Combine(rootFull, ".maple", "trash");
             if (isRoot) return trashRoot;
 
             var relSuffix = parentFull[(rootFull.Length + 1)..];

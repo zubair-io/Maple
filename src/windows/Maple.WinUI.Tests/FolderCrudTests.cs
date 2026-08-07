@@ -4,6 +4,7 @@
 
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Maple.WinUI.Services.FileOperations;
 using Maple.WinUI.Tests.Support;
@@ -114,6 +115,68 @@ namespace Maple.WinUI.Tests
                 () => LocalFileOperations.MoveFolder(folder, newParent));
 
             Assert.Equal(FileOperationErrorKind.DestinationExists, ex.Kind);
+        }
+
+        [Fact]
+        public void RenameFolder_CaseOnlyRename_PerformsAtomicRenameWithNewCasing()
+        {
+            // NTFS is case-insensitive-but-case-preserving: renaming
+            // "Photos" -> "photos" is a real, meaningful rename (updating
+            // the STORED casing), not a same-path no-op and not a
+            // "destination occupied" collision against itself.
+            var folder = Path.Combine(_dir, "Photos");
+            Directory.CreateDirectory(folder);
+            File.WriteAllText(Path.Combine(folder, "img.dng"), "bytes");
+
+            var renamed = LocalFileOperations.RenameFolder(folder, "photos");
+
+            Assert.Equal(Path.Combine(_dir, "photos"), renamed);
+            Assert.True(File.Exists(Path.Combine(renamed, "img.dng")));
+            // The directory listing itself must reflect the NEW casing —
+            // proof this went through Directory.Move, not a silent no-op.
+            var entry = Directory.GetDirectories(_dir).Single();
+            Assert.Equal("photos", Path.GetFileName(entry));
+        }
+
+        [Fact]
+        public void MoveFolder_IntoOwnSubtreeCaseVariant_StillRefused()
+        {
+            // The case-insensitive complement of the subtree guard: NTFS
+            // resolves `C:\Parent\Child` and `c:\parent\child` to the same
+            // location, so a case-sensitive guard alone would let this
+            // through.
+            var folder = Path.Combine(_dir, "Parent");
+            var childLower = Path.Combine(_dir.ToLowerInvariant(), "parent", "child");
+            Directory.CreateDirectory(Path.Combine(folder, "Child"));
+
+            var ex = Assert.Throws<FileOperationException>(
+                () => LocalFileOperations.MoveFolder(folder, childLower));
+
+            Assert.Equal(FileOperationErrorKind.InvalidDestination, ex.Kind);
+            Assert.True(Directory.Exists(folder));
+        }
+
+        [Fact]
+        public void CreateFolder_ReservedDeviceName_ThrowsInvalidDestination()
+        {
+            var ex = Assert.Throws<FileOperationException>(
+                () => LocalFileOperations.CreateFolder("NUL", _dir));
+
+            Assert.Equal(FileOperationErrorKind.InvalidDestination, ex.Kind);
+            Assert.False(Directory.Exists(Path.Combine(_dir, "NUL")));
+        }
+
+        [Fact]
+        public void MoveFolder_NewNameIsReservedDeviceName_ThrowsInvalidDestinationAndLeavesSourceInPlace()
+        {
+            var folder = Path.Combine(_dir, "Source");
+            Directory.CreateDirectory(folder);
+
+            var ex = Assert.Throws<FileOperationException>(
+                () => LocalFileOperations.MoveFolder(folder, _dir, "COM1"));
+
+            Assert.Equal(FileOperationErrorKind.InvalidDestination, ex.Kind);
+            Assert.True(Directory.Exists(folder));
         }
 
         [Fact]
