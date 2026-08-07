@@ -101,8 +101,12 @@ async function withUploadLock<T>(key: string, fn: () => Promise<T>): Promise<T> 
  *   - no empty paths after splitting on `/`
  *   - no `..` or `.` components
  *   - no leading-dot components (blocks writes into `.maple/`)
+ *
+ * Exported so `routes/folders-trash.ts` (#2630) can validate its own
+ * `X-Maple-Target-Path` header with the exact same rules `/mkdir` and
+ * `/move` use, instead of hand-rolling a second copy.
  */
-function validateRelPathHeader(
+export function validateRelPathHeader(
   raw: string | undefined,
   label: string,
 ): { ok: true; target: string; parts: string[] } | { ok: false; status: number; error: string } {
