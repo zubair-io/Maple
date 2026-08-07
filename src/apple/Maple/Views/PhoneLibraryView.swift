@@ -74,6 +74,8 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
     var onMergePanorama: (() -> Void)? = nil
     /// M4: opens the batch metadata editor when the user taps "Edit Metadata…".
     var onEditMetadata: (() -> Void)? = nil
+    /// #2641: opens the batch rename sheet when the user taps "Batch Rename…".
+    var onBatchRename: (() -> Void)? = nil
     /// #944: app-level copy/paste/sync-adjustments clipboard, forwarded
     /// through to BrowseGrid via AppShellIPhoneShell.
     var clipboard: AdjustmentClipboard? = nil
@@ -108,6 +110,7 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
             onFullImageFallback: onFullImageFallback,
             onMergePanorama: onMergePanorama,
             onEditMetadata: onEditMetadata,
+            onBatchRename: onBatchRename,
             clipboard: clipboard
         )
         // Tab-bar hide-on-push contract for the phone shell (#625/#791).

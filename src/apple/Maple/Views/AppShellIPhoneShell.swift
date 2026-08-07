@@ -84,6 +84,8 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
     var onMergePanorama: (() -> Void)? = nil
     /// M4: called when the user taps "Edit Metadata…" from PanoSelectionBar.
     var onEditMetadata: (() -> Void)? = nil
+    /// #2641: called when the user taps "Batch Rename…" from PanoSelectionBar.
+    var onBatchRename: (() -> Void)? = nil
     /// #944: app-level copy/paste/sync-adjustments clipboard, forwarded
     /// through to BrowseGrid via AppShellCenterColumn.
     var clipboard: AdjustmentClipboard? = nil
@@ -129,6 +131,7 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
             onFullImageFallback: onFullImageFallback,
             onMergePanorama: onMergePanorama,
             onEditMetadata: onEditMetadata,
+            onBatchRename: onBatchRename,
             clipboard: clipboard
         )
         .navigationTitle(libraryTitle)

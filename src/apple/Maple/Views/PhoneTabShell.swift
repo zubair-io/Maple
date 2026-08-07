@@ -113,6 +113,8 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     var onMergePanorama: (() -> Void)? = nil
     /// M4: triggers batch metadata editor when the user taps "Edit Metadata…".
     var onEditMetadata: (() -> Void)? = nil
+    /// #2641: triggers the batch rename sheet when the user taps "Batch Rename…".
+    var onBatchRename: (() -> Void)? = nil
     /// #944: app-level copy/paste/sync-adjustments clipboard, forwarded
     /// through to BrowseGrid via PhoneLibraryView / AppShellIPhoneShell.
     var clipboard: AdjustmentClipboard? = nil
@@ -202,6 +204,7 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     timelinePreviewSiblingAssets: timelinePreviewSiblingAssets,
                     onMergePanorama: onMergePanorama,
                     onEditMetadata: onEditMetadata,
+                    onBatchRename: onBatchRename,
                     clipboard: clipboard
                 )
               }
