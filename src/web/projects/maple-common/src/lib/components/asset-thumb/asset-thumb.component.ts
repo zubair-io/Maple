@@ -26,13 +26,15 @@ import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { Asset } from '../../models/asset';
 import { LibraryStateService } from '../../state/library-state.service';
 import { noPreviewBadgeLabel as computeNoPreviewBadgeLabel } from '../../state/no-preview-extensions';
+import { AssetRenameService } from '../../rename/asset-rename.service';
+import { InlineRenameFieldComponent } from '../inline-rename-field/inline-rename-field.component';
 
 export type AssetThumbVariant = 'grid' | 'filmstrip';
 
 @Component({
   selector: 'maple-asset-thumb',
   standalone: true,
-  imports: [MapleIconComponent],
+  imports: [MapleIconComponent, InlineRenameFieldComponent],
   templateUrl: './asset-thumb.component.html',
   styleUrl: './asset-thumb.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -58,6 +60,29 @@ export class AssetThumbComponent {
   readonly STAR_INDICES = [1, 2, 3, 4, 5];
 
   private state = inject(LibraryStateService);
+  protected readonly renameSvc = inject(AssetRenameService);
+
+  /** True while this tile's filename bar is showing the inline-rename
+   * field (#2637). Only meaningful for `variant() === 'grid'` — the
+   * filmstrip tile never renders the filename bar at all. */
+  readonly isEditingFilename = computed(() => this.renameSvc.editingAssetId() === this.asset().id);
+
+  /** Why rename is unavailable for this asset, or '' when it's allowed —
+   * surfaced as the filename bar's `title` tooltip. */
+  readonly renameDisabledReason = computed(() => this.renameSvc.disabledReason(this.asset()) ?? '');
+
+  onFilenameDblClick(event: MouseEvent): void {
+    event.stopPropagation();
+    this.renameSvc.startEditing(this.asset());
+  }
+
+  onRenameCommit(newFilename: string): void {
+    this.renameSvc.commit(this.asset(), newFilename);
+  }
+
+  onCollisionResolved(policy: 'replace' | 'keep-both'): void {
+    this.renameSvc.resolveCollision(this.asset(), policy);
+  }
 
   /** Select mode (#2404) — session-scoped signal on LibraryStateService.
    * Drives the checkbox affordance in the top-right corner, next to the

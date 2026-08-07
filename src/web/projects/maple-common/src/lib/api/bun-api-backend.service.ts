@@ -363,6 +363,51 @@ export interface ApiDirEntry {
   hasChildren: boolean;
 }
 
+// ── Single-asset rename (#2637) ─────────────────────────────────────────────
+// Wire shapes mirror `POST /api/assets/:id/rename` (`src/api/src/routes/
+// assets/rename.ts`, #2636), itself a thin wrapper over the generic
+// `relocateAsset` primitive.
+
+export type ApiCollisionPolicy = 'auto-suffix' | 'skip' | 'replace' | 'keep-both';
+
+/** The rename landed — the asset now lives at `newPath`/`newFilename`. */
+export interface ApiRenamedResult {
+  kind: 'renamed';
+  newAbsPath: string;
+  /** POSIX relative dir under the library root ('' = root). Unchanged from
+   * the asset's current folder — a rename never moves the file. */
+  newPath: string;
+  newFilename: string;
+  /** True if the server had to auto-suffix the requested name (only
+   * possible with `collision: 'auto-suffix'`). */
+  renamedOnCollision: boolean;
+  /** True when the new extension differs from the old one — the caller's
+   * UI warns on this (design doc: retyping the extension "doesn't
+   * transcode anything"). */
+  extensionChanged: boolean;
+}
+
+/** The server declined to write anything. `reason: 'collision'` means the
+ * destination filename already exists (only returned when the request used
+ * `collision: 'skip'`) — the caller offers Replace / Keep Both inline.
+ * `reason: 'already at destination'` is a same-name no-op. */
+export interface ApiRenameSkippedResult {
+  kind: 'skipped';
+  reason: string;
+}
+
+export type ApiRenameOutcome = ApiRenamedResult | ApiRenameSkippedResult;
+
+interface ApiRenameResponseRaw {
+  new_abs_path?: string;
+  new_path?: string;
+  new_filename?: string;
+  renamed_on_collision?: boolean;
+  extension_changed?: boolean;
+  skipped?: true;
+  reason?: string;
+}
+
 export interface ApiDirListing {
   path: string;
   parent: string | null;
@@ -646,6 +691,51 @@ export class BunApiBackendService {
     return assetId.includes(':')
       ? this.getAssetDetailsByAddress(assetId).pipe(switchMap(({ id }) => request(id)))
       : request(assetId);
+  }
+
+  /**
+   * Rename a single asset (POST /api/assets/:id/rename, #2636/#2637).
+   *
+   * `assetIdOrAddress` accepts either form, mirroring `getHistogram`: a
+   * Mongo id is used directly, a `slug:relPath` address is resolved to its
+   * Mongo id first via `getAssetDetailsByAddress` (the browse grid's assets
+   * only carry an address — see that method's doc). `collision` defaults
+   * to `'skip'` so a same-name conflict comes back as a `'skipped'` outcome
+   * with `reason: 'collision'` instead of silently overwriting.
+   *
+   * Non-2xx responses (400 invalid name, 404 not found, 500/503 server-side
+   * failure) throw `HttpErrorResponse` as usual — the caller reads
+   * `err.error?.error` for the server's message.
+   */
+  renameAsset(
+    assetIdOrAddress: string,
+    newFilename: string,
+    collision: ApiCollisionPolicy = 'skip',
+  ): Observable<ApiRenameOutcome> {
+    const request = (mongoId: string): Observable<ApiRenameOutcome> =>
+      this.http
+        .post<ApiRenameResponseRaw>(`${this.base}/assets/${encodeURIComponent(mongoId)}/rename`, {
+          new_filename: newFilename,
+          collision,
+        })
+        .pipe(
+          map(
+            (r): ApiRenameOutcome =>
+              r.skipped
+                ? { kind: 'skipped', reason: r.reason ?? 'skipped' }
+                : {
+                    kind: 'renamed',
+                    newAbsPath: r.new_abs_path ?? '',
+                    newPath: r.new_path ?? '',
+                    newFilename: r.new_filename ?? newFilename,
+                    renamedOnCollision: r.renamed_on_collision ?? false,
+                    extensionChanged: r.extension_changed ?? false,
+                  },
+          ),
+        );
+    return assetIdOrAddress.includes(':')
+      ? this.getAssetDetailsByAddress(assetIdOrAddress).pipe(switchMap(({ id }) => request(id)))
+      : request(assetIdOrAddress);
   }
 
   /**

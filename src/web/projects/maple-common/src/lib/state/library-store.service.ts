@@ -204,6 +204,46 @@ export class LibraryStore {
   }
 
   /**
+   * Repoint an asset from `oldId` to `newId` after a successful rename
+   * (#2637). `Asset.id` IS the `slug:relPath` address (see maple-address.ts),
+   * so a rename — which changes `relPath` — mints a new id; every id-keyed
+   * map here has to follow rather than orphan its entry under the stale key.
+   * `newFilename` is written onto the asset row itself in the same pass.
+   *
+   * Selection (`LibrarySelection.selectedAssetIds`/`focusedAssetId`) is a
+   * separate store and rekeys itself — see `LibrarySelection.renameAssetId`.
+   */
+  renameAssetId(oldId: AssetId, newId: AssetId, newFilename: string): void {
+    if (oldId === newId) return;
+    this.assets.update((list) =>
+      list.map((a) => (a.id === oldId ? { ...a, id: newId, filename: newFilename } : a)),
+    );
+    const rekey = <V>(map: Map<AssetId, V>): void => {
+      if (!map.has(oldId)) return;
+      const value = map.get(oldId) as V;
+      map.delete(oldId);
+      map.set(newId, value);
+    };
+    this.adjustmentModels.update((map) => {
+      const next = new Map(map);
+      rekey(next);
+      return next;
+    });
+    rekey(this.apiAssetIds);
+    rekey(this.assetAbsPaths);
+    rekey(this.asShotWb);
+    if (this._sessionEdited.has(oldId)) {
+      this._sessionEdited.delete(oldId);
+      this._sessionEdited.add(newId);
+    }
+    if (this._sessionCullingPatches.has(oldId)) {
+      const patch = this._sessionCullingPatches.get(oldId) as Partial<XmpCulling>;
+      this._sessionCullingPatches.delete(oldId);
+      this._sessionCullingPatches.set(newId, patch);
+    }
+  }
+
+  /**
    * Seed Temperature + Tint from the RAW's AsShot metadata so the editor's
    * WB sliders reflect the camera's own white-balance reading on first open.
    * No-op if the user has already edited those fields.
