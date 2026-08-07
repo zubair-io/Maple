@@ -99,3 +99,7 @@ pub use filename::{
 
 /// `.mlut` film-look LUT codec + tetrahedral sampler (epic #2683).
 pub mod film;
+
+/// Generated film-look catalog — see `commands::film_pack` in `maple-cli`
+/// for the ingest that produces it (epic #2683, Task 5a).
+pub mod film_catalog;
