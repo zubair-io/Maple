@@ -1,7 +1,13 @@
 {
   "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
   "entry": ["scripts/serve-production-e2e.ts"],
-  "ignorePatterns": ["_design-reference/**"],
+  // Generated mirrors (tools/codegen.sh, #2683) are drift-gated against
+  // their Rust source by the codegen-drift CI job, not usage-gated — a
+  // generated file with no web consumer yet (e.g. a catalog whose picker
+  // UI lands in a later stacked PR) is not dead code, it's staged output.
+  // Auditing them for unused-file/unused-export dead code is a category
+  // error, so they're excluded here the same way _design-reference/** is.
+  "ignorePatterns": ["_design-reference/**", "projects/**/*.generated.ts"],
   "ignoreDependencies": ["@socketsecurity/bun-security-scanner", "fallow"],
   "ignoreUnresolvedImports": ["**/pkg/raw_wasm"]
 }
