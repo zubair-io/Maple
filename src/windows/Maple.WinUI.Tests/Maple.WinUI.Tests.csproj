@@ -67,7 +67,5 @@
     <Compile Include="..\Maple.WinUI\ViewModels\SelectionLogic.cs" LinkBase="ViewModels" />
     <Compile Include="..\Maple.WinUI\Services\FileOperations\*.cs" LinkBase="FileOperations" />
     <Compile Include="..\Maple.WinUI\Services\DiagLog.cs" LinkBase="Services" />
-    <Compile Include="..\Maple.WinUI\Services\ThumbnailService.cs" LinkBase="Services" />
-    <Compile Include="..\Maple.WinUI\Native\*.cs" LinkBase="Native" />
   </ItemGroup>
 </Project>
