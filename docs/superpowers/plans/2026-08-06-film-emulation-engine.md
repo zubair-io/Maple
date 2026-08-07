@@ -1,6 +1,6 @@
 # Film Emulation Engine Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+This plan is written for task-by-task execution with the superpowers subagent-driven-development or executing-plans workflow; steps use checkbox (`- [ ]`) syntax for progress tracking.
 
 **Goal:** Ship a 100-look film emulation catalog as a non-destructive Maple adjustment (look picker + strength slider) on Apple, Web, and CLI/API, applied as a display-referred 33³ LUT stage between `color_grade` and `grain`.
 
