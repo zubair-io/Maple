@@ -237,6 +237,16 @@ extension EditSession {
                 // GPU present declined the frame — fetch (and cache) the CPU-path
                 // Auto Profile LUT now, immediately before the fallback filter
                 // chain that actually uses it.
+                //
+                // KNOWN GAP (#2713, epic #2683): this CPU fallback chain
+                // (`processSceneLinear`/`processSceneLinearNonRaw`, via
+                // `maple_apply_scene_linear_chain_f32`) does NOT apply
+                // `model.filmLook` — that FFI struct has no film field yet.
+                // This is production-reachable whenever GPU-live is on but a
+                // present fails (`gpuPresentFailed`), not just when
+                // `MAPLE_GPU_LIVE=0`. Tracked as a staged follow-up, not a
+                // silent hole — see #2713 for the raw-ffi work needed to
+                // close it.
                 let profileLUT = await autoProfileLUTForCPURender(asset: asset, model: m)
                 MemoryProbe.sample("after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
                 // The fit is a multi-second suspension on a cold image, and the
@@ -342,6 +352,16 @@ extension EditSession {
                 // GPU present declined the frame — fetch (and cache) the CPU-path
                 // Auto Profile LUT now, immediately before the fallback filter
                 // chain that actually uses it.
+                //
+                // KNOWN GAP (#2713, epic #2683): this CPU fallback chain
+                // (`processSceneLinear`/`processSceneLinearNonRaw`, via
+                // `maple_apply_scene_linear_chain_f32`) does NOT apply
+                // `model.filmLook` — that FFI struct has no film field yet.
+                // This is production-reachable whenever GPU-live is on but a
+                // present fails (`gpuPresentFailed`), not just when
+                // `MAPLE_GPU_LIVE=0`. Tracked as a staged follow-up, not a
+                // silent hole — see #2713 for the raw-ffi work needed to
+                // close it.
                 let profileLUT = await autoProfileLUTForCPURender(asset: asset, model: m)
                 MemoryProbe.sample("after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
                 // Same bail as the cached branch: the fit suspension may have
