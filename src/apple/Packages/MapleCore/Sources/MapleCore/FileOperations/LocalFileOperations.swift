@@ -64,6 +64,17 @@ public enum LocalFileOperations {
         guard fm.fileExists(atPath: sourcePrimaryURL.path) else {
             throw FileOperationError.sourceMissing(sourcePrimaryURL.path)
         }
+        // A caller-supplied basename is exactly the "manually-typed name"
+        // hazard `FilenameValidation` exists to guard: `appendingPathComponent`
+        // below SPLITS on an embedded `/`, so an unvalidated `newBasename`
+        // like `../../Desktop/oops` (or a bare `..`) escapes `destinationDir`
+        // entirely — the same traversal `LocalFileOperations+Folders.swift`'s
+        // New Folder/Rename already guards (#2645 review). This call site was
+        // missing the same guard (found by the #2633 cross-platform parity
+        // harness — the C# port added it, this one hadn't).
+        if let newBasename, !FilenameValidation.isValidFolderName(newBasename) {
+            throw FileOperationError.invalidName(newBasename)
+        }
 
         let basename = newBasename ?? sourcePrimaryURL.lastPathComponent
         let targetURL = destinationDir.appendingPathComponent(basename)
@@ -98,15 +109,16 @@ public enum LocalFileOperations {
             let sidecarTargetURL = SidecarPath.sidecarURL(for: resolvedTargetURL)
             do {
                 // The primary's target basename was already proven free (or
-                // explicitly replaced) above; an orphan sidecar that
-                // happens to share the DERIVED sidecar name is abandoned
-                // data, not a live asset's — this asset's sidecar following
-                // it is what "the sidecar always follows the primary"
-                // means, so it claims that name the same way `.replace`
-                // would.
-                if fm.fileExists(atPath: sidecarTargetURL.path) {
-                    try fm.removeItem(at: sidecarTargetURL)
-                }
+                // explicitly replaced) above; an orphan sidecar that happens
+                // to share the DERIVED sidecar name is abandoned data, not a
+                // live asset's — this asset's sidecar following it is what
+                // "the sidecar always follows the primary" means, so it
+                // claims that name the same way `.replace` would.
+                // `copyVerified` itself now publishes atomically (temp copy,
+                // verify, THEN swap into place via `replaceItemAt`/`moveItem`
+                // — see its doc comment) — no separate pre-delete needed, and
+                // one fewer window where a bad copy leaves NEITHER the old
+                // nor the new sidecar on disk.
                 try copyVerified(from: sourceSidecarURL, to: sidecarTargetURL)
             } catch {
                 // A plan either fully succeeds or leaves NO trace — roll
@@ -117,6 +129,19 @@ public enum LocalFileOperations {
             }
             createdPaths.append(sidecarTargetURL.path)
             finalSidecarPath = sidecarTargetURL.path
+        } else if collision == .replace {
+            // The incoming asset has no sidecar of its own, but `.replace`
+            // means "the destination now reflects EXACTLY the incoming
+            // asset" — a stale sidecar left over from the PREVIOUS occupant
+            // must not silently survive and get misattributed to this one.
+            // Safe to remove here (unlike the old pre-delete): this line
+            // only runs after `copyVerified` above has already published the
+            // new primary successfully, so a copy failure can never reach
+            // this point and the occupant's sidecar is removed strictly
+            // AFTER its primary has been safely replaced, not before.
+            // Best-effort, matching every other sidecar-cleanup path in this
+            // module.
+            try? fm.removeItem(at: SidecarPath.sidecarURL(for: resolvedTargetURL))
         }
 
         return RelocatePlan(mode: mode, sourcePrimaryPath: sourcePrimaryURL.path,
@@ -196,11 +221,12 @@ public enum LocalFileOperations {
     /// genuinely different locations.
     ///
     /// The load-bearing property this protects: a relocate must never
-    /// delete the only copy of a file. `collision: .replace`'s
-    /// `removeAssetAndSidecar` runs BEFORE the copy — if the destination
-    /// resolves to the source (directly, or via a symlink alias), that
-    /// remove deletes the source itself, and the copy that follows then
-    /// fails because there's nothing left to read.
+    /// delete the only copy of a file. If the destination resolves to the
+    /// source (directly, or via a symlink alias), `copyVerified`'s publish
+    /// step would replace the source with a copy OF ITSELF and then, in
+    /// move mode, delete "the source" — the only remaining copy — so this
+    /// guard refuses that combination outright, before any copy runs at
+    /// all.
     ///
     /// Resolving only the PARENT directory (never the basename) is
     /// deliberate: `resolvingSymlinksInPath()` on a case-insensitive
@@ -272,11 +298,54 @@ public enum LocalFileOperations {
 
     // MARK: - Copy + verify
 
-    /// Copy `source` to `destination`, explicitly preserving `source`'s
-    /// modification date (a pure rename/move must not invalidate the
-    /// mtime-keyed rendered-preview cache — docs/caching.md § 3), then
-    /// verify the copy. On any failure the partial copy is removed and the
-    /// error propagates; `source` itself is never touched here.
+    /// `.tmp.` must appear in the basename — matches `fs/relocate.ts`'s
+    /// `tempPathFor` convention (any future replication watcher can
+    /// recognise, and skip mirroring, this temp-then-publish idiom).
+    private static func tempURL(for destination: URL) -> URL {
+        URL(fileURLWithPath: destination.path
+            + ".tmp.\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString.prefix(8))")
+    }
+
+    /// Publish a verified temp copy to its final destination. When nothing
+    /// occupies `destination` this is a plain atomic `moveItem`. When
+    /// something DOES occupy it (a `.replace` collision, or a stray sidecar
+    /// sharing the derived name), `FileManager.replaceItemAt` is used
+    /// instead — Foundation's purpose-built atomic swap, which backs up the
+    /// existing item and restores it if the swap itself fails, rather than
+    /// this module removing the occupant by hand before the copy is even
+    /// known to succeed.
+    private static func publish(_ tmp: URL, to destination: URL) throws {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: destination.path) {
+            _ = try fm.replaceItemAt(destination, withItemAt: tmp)
+        } else {
+            try fm.moveItem(at: tmp, to: destination)
+        }
+    }
+
+    /// Copy `source` to `destination` via a verified temp-then-publish
+    /// sequence: copy to a temp sibling of `destination`, preserve
+    /// `source`'s modification date (a pure rename/move must not invalidate
+    /// the mtime-keyed rendered-preview cache — docs/caching.md § 3),
+    /// verify, then atomically publish (see `publish` above).
+    ///
+    /// This is the crash-safety correction the TS (`fs/relocate.ts`
+    /// `copyVerifiedIntoPlace`) and Windows (`LocalFileOperations.
+    /// CopyVerify.cs`) twins already made: copying straight to `destination`
+    /// — this module's prior shape — meant a hard failure mid-copy could
+    /// leave a truncated file sitting at the real destination name, and
+    /// (worse, for `.replace`) `resolveCollision` used to delete the
+    /// existing occupant BEFORE this ran at all, so a subsequent copy
+    /// failure left NEITHER the old file nor a new one on disk — exactly
+    /// the "replace-mode ordering" bug class the #2633 cross-platform
+    /// parity harness's corpus targets. Publishing via a verified temp file
+    /// means `destination` either keeps its prior occupant untouched, or
+    /// ends up with the fully-verified new file — never a partial write,
+    /// and never a deleted-then-never-replaced gap.
+    ///
+    /// On any failure the temp file is removed and the error propagates;
+    /// neither `source` nor any prior occupant of `destination` is ever
+    /// touched.
     static func copyVerified(from source: URL, to destination: URL) throws {
         let fm = FileManager.default
         let sourceAttrs = try fm.attributesOfItem(atPath: source.path)
@@ -284,15 +353,17 @@ public enum LocalFileOperations {
             throw FileOperationError.underlying("could not read size of \(source.path)")
         }
         let sourceMtime = sourceAttrs[.modificationDate] as? Date
+        let tmp = tempURL(for: destination)
 
         do {
-            try fm.copyItem(at: source, to: destination)
+            try fm.copyItem(at: source, to: tmp)
             if let sourceMtime {
-                try? fm.setAttributes([.modificationDate: sourceMtime], ofItemAtPath: destination.path)
+                try? fm.setAttributes([.modificationDate: sourceMtime], ofItemAtPath: tmp.path)
             }
-            try verifyCopy(sourceSize: sourceSize, sourceMtime: sourceMtime, destinationURL: destination)
+            try verifyCopy(sourceSize: sourceSize, sourceMtime: sourceMtime, destinationURL: tmp)
+            try publish(tmp, to: destination)
         } catch {
-            try? fm.removeItem(at: destination)
+            try? fm.removeItem(at: tmp)
             throw (error as? FileOperationError) ?? .underlying(
                 "copy \(source.path) -> \(destination.path) failed: \(error.localizedDescription)")
         }
@@ -328,9 +399,26 @@ public enum LocalFileOperations {
 
     /// Resolve a collision at `targetURL` per `collision`, returning the
     /// (possibly suffixed) final URL and whether a suffix was applied. A
-    /// pure computation for `.fail`/`.autoSuffix`; `.replace` performs the
-    /// actual removal as a side effect (it has to happen here, before the
-    /// copy that follows, rather than being deferred to the caller).
+    /// pure computation for every policy, including `.replace`: this
+    /// deliberately does NOT pre-delete the occupant. An earlier version
+    /// removed the occupant here, before the copy that followed — the
+    /// "delete-then-hope" shape that, if the copy then failed (disk full, a
+    /// transient IO error, a locked file), left NEITHER the old nor the new
+    /// file on disk, violating this module's own "a duplicate is left on
+    /// disk, never data loss" contract (found by the #2633 cross-platform
+    /// parity harness — the TS and Windows twins already avoided this).
+    /// `copyVerified` now publishes via a verified temp file, replacing an
+    /// existing occupant ATOMICALLY at the very end — so `.replace` needs no
+    /// removal step of its own; it only needs to resolve to the occupied
+    /// path unchanged and let the verified publish do the replacing.
+    ///
+    /// A DIRECTORY sitting at the target is never a valid occupant for
+    /// `.replace` — swapping a whole folder (and everything under it) for a
+    /// single file is not what "replace this file" means, and the old
+    /// pre-delete shape would have silently done exactly that via a
+    /// recursive `removeItem`. `.fail` and `.autoSuffix` both already treat
+    /// a directory as "occupied" via plain `fileExists`, so only `.replace`
+    /// needs an explicit guard.
     private static func resolveCollision(
         at targetURL: URL, collision: CollisionPolicy
     ) async throws -> (url: URL, renamed: Bool) {
@@ -340,7 +428,12 @@ public enum LocalFileOperations {
         case .fail:
             throw FileOperationError.destinationExists(targetURL.path)
         case .replace:
-            try removeAssetAndSidecar(at: targetURL)
+            var isDirectory: ObjCBool = false
+            fm.fileExists(atPath: targetURL.path, isDirectory: &isDirectory)
+            guard !isDirectory.boolValue else {
+                throw FileOperationError.invalidDestination(
+                    "cannot replace a folder with a file: \(targetURL.path)")
+            }
             return (targetURL, false)
         case .autoSuffix:
             let free = try await CollisionResolver.pickFreePath(targetURL.path) { candidate in
@@ -348,17 +441,5 @@ public enum LocalFileOperations {
             }
             return (URL(fileURLWithPath: free), true)
         }
-    }
-
-    /// Remove `url` and its sidecar (if any), best-effort on the sidecar
-    /// (matching `moveSidecarsAlongside`'s "RAW move is authoritative, a
-    /// lost sidecar copy is recoverable" precedent) but NOT on the primary —
-    /// a `.replace` collision must genuinely clear the primary before the
-    /// copy that follows, so a real removal failure there propagates.
-    static func removeAssetAndSidecar(at url: URL) throws {
-        let fm = FileManager.default
-        try fm.removeItem(at: url)
-        let sidecarURL = SidecarPath.sidecarURL(for: url)
-        try? fm.removeItem(at: sidecarURL)
     }
 }
