@@ -44,7 +44,9 @@ namespace Maple.WinUI
                 var path = "gpu";
                 var tickWaiter = new TaskCompletionSource<double>(
                     TaskCreationOptions.RunContinuationsAsynchronously);
-                ViewModel.Renderer.GpuFrameReady += (_, _, ms) =>
+                // Interactive metric = the fast pass; refine presents land
+                // after the wiggle loop's debounce window anyway.
+                ViewModel.Renderer.GpuFrameReady += (_, _, ms, _) =>
                     tickWaiter.TrySetResult(ms);
                 ViewModel.Renderer.FrameReady += (_, _, _, _, ms) =>
                 {
