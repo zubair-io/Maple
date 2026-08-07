@@ -44,10 +44,19 @@
     static class with zero WinUI dependency — unlike PhotoItem, which lives
     in a file (EditSessionViewModel.Library.cs) that also carries the
     WinUI-dependent bulk of EditSessionViewModel, so it isn't linkable here.
+
+    `Services\FileOperations\*.cs` (#2632, the relocate/trash/folder-CRUD
+    service) is WinUI-free by construction — plain System.IO plus one
+    shell32 P/Invoke (RecycleBinService.cs) that compiles on any TFM
+    regardless of OS, so it links the same way. `DiagLog.cs` is pulled in
+    too since LocalFileOperations' best-effort delete paths log through it
+    and it has no WinUI dependency of its own.
   -->
   <ItemGroup>
     <Compile Include="..\Maple.WinUI\Services\Xmp\*.cs" LinkBase="Xmp" />
     <Compile Include="..\Maple.WinUI\Models\AdjustmentState.cs" LinkBase="Models" />
     <Compile Include="..\Maple.WinUI\ViewModels\SelectionLogic.cs" LinkBase="ViewModels" />
+    <Compile Include="..\Maple.WinUI\Services\FileOperations\*.cs" LinkBase="FileOperations" />
+    <Compile Include="..\Maple.WinUI\Services\DiagLog.cs" LinkBase="Services" />
   </ItemGroup>
 </Project>

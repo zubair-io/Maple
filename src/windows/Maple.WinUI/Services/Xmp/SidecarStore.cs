@@ -6,6 +6,7 @@
 // a crash mid-save can never leave a truncated sidecar behind.
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 
@@ -16,11 +17,44 @@ namespace Maple.WinUI.Services.Xmp
         /// <summary>UTF-8 without BOM — the xpacket header carries its own U+FEFF marker.</summary>
         private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
-        /// <summary>Same-stem `.xmp` path next to the RAW (`photo.dng` → `photo.xmp`).</summary>
+        /// <summary>
+        /// Video container extensions (lowercase, no dot). Mirrors the API's
+        /// `VIDEO_EXTS` (`src/api/src/indexer/media-types.ts`) and Apple's
+        /// `SidecarPath.videoExtensions`
+        /// (`src/apple/.../MapleCore/SidecarPath.swift`) — kept as a literal
+        /// list here rather than codegen'd, same rationale as the Swift
+        /// mirror: small, rarely changes, not part of the color/schema
+        /// single-sourcing.
+        /// </summary>
+        private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "mov", "mp4", "m4v", "avi", "mkv", "webm", "mts", "m2ts", "3gp",
+            "mxf", "3g2", "flv", "vob", "mpg", "wmv", "f4v",
+        };
+
+        /// <summary>True when <paramref name="path"/>'s extension names a recognised
+        /// video container (case-insensitive).</summary>
+        public static bool IsVideoFilename(string path) =>
+            VideoExtensions.Contains(Path.GetExtension(path).TrimStart('.'));
+
+        /// <summary>
+        /// Resolve the sidecar path for a RAW/image/video file.
+        ///
+        /// Images use the classic same-stem convention (`photo.dng` → `photo.xmp`).
+        /// Videos KEEP their extension and append `.xmp` (`clip.mov` →
+        /// `clip.mov.xmp`) — the industry-standard full-name convention. This
+        /// split is load-bearing for Live Photos, which store the still and
+        /// the motion clip as two independent same-stem files
+        /// (`IMG_1234.HEIC` + `IMG_1234.MOV`): under same-stem both would
+        /// resolve to `IMG_1234.xmp` and clobber each other. Mirrors the
+        /// API's `xmpSidecarPath()` (`src/api/src/fs/xmp.ts`) and Apple's
+        /// `SidecarPath.sidecarURL(for:)` so the same clip edited on any
+        /// surface targets the same `.xmp` file.
+        /// </summary>
         public static string SidecarPathFor(string rawPath)
         {
             if (string.IsNullOrEmpty(rawPath)) throw new ArgumentException("rawPath is empty", nameof(rawPath));
-            return Path.ChangeExtension(rawPath, ".xmp");
+            return IsVideoFilename(rawPath) ? rawPath + ".xmp" : Path.ChangeExtension(rawPath, ".xmp");
         }
 
         /// <summary>
