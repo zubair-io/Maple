@@ -81,11 +81,16 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
-        public void BuildPreview_SelfCollidingTemplate_FlagsSecondOccurrenceAsDuplicate()
+        public void BuildPreview_SelfCollidingTemplate_FlagsSecondOccurrenceAsDuplicateWarningNotError()
         {
             // A template with no distinguishing token (design doc's exact
             // "shared-destination template can collide with itself"
-            // scenario) renders the same name for every file.
+            // scenario) renders the same name for every file. A duplicate
+            // is a WARNING, not an Error: ApplySequentialAsync still
+            // attempts it and resolves it via the chosen CollisionPolicy
+            // against the previous item's real on-disk result — setting
+            // Error here would make WouldApply false and disable apply for
+            // exactly the case this ticket exists to handle.
             var items = new[]
             {
                 Item("a", @"C:\lib", "img_1.cr3"),
@@ -96,8 +101,11 @@ namespace Maple.WinUI.Tests
 
             Assert.False(rows[0].IsDuplicateWithinBatch);
             Assert.Null(rows[0].Error);
+            Assert.True(rows[0].WouldApply);
             Assert.True(rows[1].IsDuplicateWithinBatch);
-            Assert.NotNull(rows[1].Error);
+            Assert.Null(rows[1].Error);
+            Assert.Equal("vacation.cr3", rows[1].NewFileName);
+            Assert.True(rows[1].WouldApply);
         }
 
         [Fact]

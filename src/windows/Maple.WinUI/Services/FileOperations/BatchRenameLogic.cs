@@ -79,13 +79,19 @@ namespace Maple.WinUI.Services.FileOperations
                 return new BatchRenamePreviewRow(
                     item.Key, item.CurrentFileName, newName, pathLengthError, false, extensionChanged);
 
+            // A duplicate within the batch is a WARNING, not an Error: it's
+            // exactly the design doc's "a shared-destination template can
+            // collide with itself mid-batch" case, and ApplySequentialAsync
+            // resolves it against the chosen CollisionPolicy the same way it
+            // resolves a collision with a pre-existing file — sequentially,
+            // one item's real on-disk result at a time. Setting Error here
+            // would make WouldApply false and disable apply for exactly the
+            // rows this ticket exists to handle; Error stays reserved for
+            // rows that can't be attempted at all (a template that failed to
+            // render, or a MAX_PATH violation).
             var duplicate = !seenInBatch.Add(DuplicateKey(item.Directory, newName));
             return new BatchRenamePreviewRow(
-                item.Key, item.CurrentFileName, newName,
-                duplicate
-                    ? "Same result as another file in this batch — add a distinguishing token (e.g. {n})."
-                    : null,
-                duplicate, extensionChanged);
+                item.Key, item.CurrentFileName, newName, null, duplicate, extensionChanged);
         }
 
         /// <summary>Render + relocate every item, sequentially, awaiting
