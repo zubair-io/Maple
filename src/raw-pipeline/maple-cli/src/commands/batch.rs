@@ -39,6 +39,7 @@ pub fn run(
     filter: Option<&str>,
     profile: ProfileChoice,
     demosaic: DemosaicChoice,
+    film_lut_dir: Option<&Path>,
 ) -> Result<i32, Box<dyn std::error::Error>> {
     let manifest: Manifest = serde_json::from_str(&std::fs::read_to_string(manifest_path)?)?;
     std::fs::create_dir_all(out_dir)?;
@@ -60,6 +61,7 @@ pub fn run(
             92,
             demosaic,
             profile,
+            film_lut_dir,
         ) {
             Ok(_) => {
                 eprintln!("ok  {}", case.name);
