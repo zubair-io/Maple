@@ -196,18 +196,23 @@ async function requiresSkipReason(c: CorpusCase): Promise<string | null> {
 // Per-kind execution
 // ---------------------------------------------------------------------------
 
+/** Materialise a case's `setup` (files, then symlinks) under `root`. */
+async function materialiseSetup(root: string, setup: CorpusCase['setup']): Promise<void> {
+  for (const f of setup?.files ?? []) {
+    await writeCase(root, f.path, f.content);
+  }
+  for (const link of setup?.symlinks ?? []) {
+    const linkAbs = path.join(root, ...link.path.split('/'));
+    const targetAbs = path.join(root, ...link.target.split('/'));
+    await fs.symlink(targetAbs, linkAbs);
+  }
+}
+
 async function runRelocateCase(c: CorpusCase): Promise<void> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-parity-'));
   const chmodBack: string[] = [];
   try {
-    for (const f of c.setup?.files ?? []) {
-      await writeCase(root, f.path, f.content);
-    }
-    for (const link of c.setup?.symlinks ?? []) {
-      const linkAbs = path.join(root, ...link.path.split('/'));
-      const targetAbs = path.join(root, ...link.target.split('/'));
-      await fs.symlink(targetAbs, linkAbs);
-    }
+    await materialiseSetup(root, c.setup);
 
     const op = c.operation!;
     const sourceAbs = path.join(root, ...op.source!.split('/'));
@@ -282,13 +287,22 @@ function runSelectorCase(c: CorpusCase): void {
     deleted_at: f.deleted_at,
     missing_since: f.missing_since,
   }));
-  const selected = activeFileInfo({ fileinfo });
   const expectedEntry =
     c.expected.selectedIndex === undefined ? null : c.fileinfo![c.expected.selectedIndex];
-  expect(selected?.path ?? null, `${c.name}: activeFileInfo`).toBe(expectedEntry?.path ?? null);
-  expect(selected?.filename ?? null, `${c.name}: activeFileInfo`).toBe(
-    expectedEntry?.filename ?? null,
+  // Compared as one value rather than field-by-field: a single `toEqual`
+  // reports "wrong entry selected" directly, and keeps the optional-chaining
+  // in one helper instead of spread across four assertions.
+  expect(entryIdentity(activeFileInfo({ fileinfo })), `${c.name}: activeFileInfo`).toEqual(
+    entryIdentity(expectedEntry),
   );
+}
+
+/** An entry's `(path, filename)`, or nulls when no entry was selected. */
+function entryIdentity(e: { path: string; filename: string } | null | undefined): {
+  path: string | null;
+  filename: string | null;
+} {
+  return e ? { path: e.path, filename: e.filename } : { path: null, filename: null };
 }
 
 // ---------------------------------------------------------------------------
