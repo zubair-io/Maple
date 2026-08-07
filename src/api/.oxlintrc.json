@@ -123,6 +123,7 @@
         "src/library/address.test.ts",
         "src/library/address.ts",
         "src/library/asset-trash.test.ts",
+        "src/library/cache-invalidation-on-move.test.ts",
         "src/library/folder-trash.test.ts",
         "src/library/relocate-asset.test.ts",
         "src/library/batch-rename.test.ts",
