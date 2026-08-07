@@ -39,6 +39,8 @@ struct EditorDestination: View {
     // the reveal + search actions re-injected across the sheet.
     @Environment(\.revealFolderAction) private var revealFolder
     @Environment(\.searchForText) private var searchForText
+    // #2638 — the Info sheet's filename row needs the same re-injection.
+    @Environment(\.assetRename) private var assetRename
 
     var body: some View {
         Group {
@@ -64,6 +66,7 @@ struct EditorDestination: View {
                     .environment(\.cloudHistogramClient, histogramClient)
                     .environment(\.revealFolderAction, revealFolder)
                     .environment(\.searchForText, searchForText)
+                    .environment(\.assetRename, assetRename)
                     .presentationDetents([.medium, .large])
                 }
             } else {
