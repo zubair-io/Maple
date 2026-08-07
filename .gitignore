@@ -24,6 +24,11 @@ test-fixtures/*
 # cross-surface outcome-parity harness (#2633) will replay it against the
 # Swift/TS/C# bindings. Tiny (a few KB of JSON), no RAWs involved.
 !test-fixtures/filename-templates/
+# Exception: the cross-surface file-operation outcome-parity corpus (#2633)
+# IS committed — declarative JSON only (no RAWs), replayed independently by
+# the Bun test suite, Swift XCTest, and the Windows test project against
+# their own relocate/rename primitives.
+!test-fixtures/file-operations/
 
 # Rust
 target/
