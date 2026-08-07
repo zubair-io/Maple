@@ -52,6 +52,12 @@ namespace Maple.WinUI.Tests
             Assert.Contains(raw, fake.Attempts);
             Assert.Contains(sidecar, fake.Attempts);
             Assert.True(outcome.SidecarFollowed);
+            // The primary and its sidecar must go to the shell as ONE call
+            // (see LocalFileOperations.Trash.cs / RecycleBinService) — two
+            // independent calls would reopen the partial-failure window
+            // where one lands in the Recycle Bin and the other doesn't.
+            var call = Assert.Single(fake.Calls);
+            Assert.Equal(new[] { raw, sidecar }, call);
         }
 
         [Fact]
