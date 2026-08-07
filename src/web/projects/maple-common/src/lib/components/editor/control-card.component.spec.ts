@@ -216,7 +216,7 @@ describe('sub-tool row', () => {
     const effectsChips = Array.from(
       (effects.nativeElement as HTMLElement).querySelectorAll('.subtool-chip'),
     ).map((n) => n.textContent!.trim());
-    expect(effectsChips).toEqual(['Basic', 'Grade']);
+    expect(effectsChips).toEqual(['Basic', 'Grade', 'Film']);
 
     const light = render({ activeGroup: 'light' });
     expect((light.nativeElement as HTMLElement).querySelector('.subtool-row')).toBeNull();
@@ -250,7 +250,7 @@ describe('sub-tool row', () => {
     const effectsChips = Array.from(
       (effects.nativeElement as HTMLElement).querySelectorAll('.subtool-chip'),
     ).map((n) => n.textContent!.trim());
-    expect(effectsChips).toEqual(['Basic', 'Grade']);
+    expect(effectsChips).toEqual(['Basic', 'Grade', 'Film']);
   });
 
   it('emits the same tool a dock button used to arm, in each group', () => {
@@ -378,5 +378,24 @@ describe('sub-tool row', () => {
     expect(byLabel('HSL').getAttribute('aria-pressed')).toBe('true');
     expect(byLabel('Basic').getAttribute('aria-pressed')).toBe('false');
     expect(byLabel('B&W').getAttribute('aria-pressed')).toBe('false');
+  });
+
+  // Film (#2683): the Effects row's third chip, same "field-less tool
+  // suppresses the plain slider grid" shape as Grade/HSL/B&W above.
+  it('marks the Film chip active and suppresses the slider grid while filmLook is armed', () => {
+    const { fixture } = render({ activeGroup: 'effects', activeTool: 'filmLook' });
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('.slider-grid')).toBeFalsy();
+    const active = el.querySelector('.subtool-chip--active');
+    expect(active?.textContent?.trim()).toBe('Film');
+  });
+
+  it('emits filmLook when the Film chip is clicked', () => {
+    const effects = render({ activeGroup: 'effects' });
+    const emitted: string[] = [];
+    effects.componentInstance.toolChange.subscribe((t: string) => emitted.push(t));
+    const chips = (effects.nativeElement as HTMLElement).querySelectorAll('.subtool-chip');
+    (chips[2] as HTMLButtonElement).click(); // Film
+    expect(emitted).toEqual(['filmLook']);
   });
 });

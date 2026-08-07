@@ -42,6 +42,8 @@ import { fetchAndLoadBytes, type ByteLoadError, type ByteLoadHost } from './imag
 import { GpuFallbackNoticeService } from '../gpu-fallback-notice/gpu-fallback-notice.service';
 import { EmbeddedPreviewService } from '../../raw-pipeline/embedded-preview.service';
 import { ImageCanvasRawOpen } from './image-canvas.raw-open';
+import { ImageCanvasFilmSync } from './image-canvas.film';
+import { FilmLutService } from '../../film/film-lut.service';
 
 @Component({
   selector: 'editor-image-canvas',
@@ -71,17 +73,16 @@ export class ImageCanvasComponent
   private readonly embeddedPreview = inject(EmbeddedPreviewService);
   private readonly injector = inject(Injector);
   private readonly cropSession = inject(CropSessionService);
+  readonly filmLut = inject(FilmLutService); // #2683, read by ImageCanvasFilmSync
 
   readonly loading = signal(false);
   readonly imageBitmap = signal<ImageBitmap | null>(null);
   readonly byteLoadError = signal<ByteLoadError | null>(null);
 
-  // GPU live-render path (epic #925, P4b-web / #1038). The GPU canvas lifecycle +
-  // worker session wiring lives in `ImageCanvasGpuPresent` (see that file for the
-  // full scope/invariant notes); this component owns the shared cold-open
-  // bookkeeping via the `GpuPresentHost` interface so the 2D and GPU paths stay in
-  // sync. Flag OFF keeps the 2D path below as the only render route.
+  // GPU live-render path (epic #925, P4b-web / #1038) — full scope/invariant
+  // notes in `ImageCanvasGpuPresent`. Flag OFF keeps the 2D path the only route.
   private readonly gpuPresent = new ImageCanvasGpuPresent(this);
+  private readonly filmSync = new ImageCanvasFilmSync(this, () => this.forceRerenderForFilm()); // #2683
 
   private ro?: ResizeObserver;
   private wrapW = signal<number>(800);
@@ -286,6 +287,7 @@ export class ImageCanvasComponent
         // Tear down any GPU live session from the previous asset (its surface is
         // bound to that image's dims; a new asset opens a fresh session + canvas).
         this.gpuPresent.teardown();
+        this.filmSync.reset();
         this.currentBytes = null;
         this.currentExt = '';
         this.rawOpen.reset();
@@ -344,6 +346,7 @@ export class ImageCanvasComponent
         // `coldOpenDone` so the pre-seed initial run and the As-Shot WB seed's
         // re-fire don't schedule a spurious 6500K-default decode.
         if (!this.currentBytes || a.id !== this.currentAssetId || !this.coldOpenDone) return;
+        this.filmSync.syncIfNeeded(a.id, model.filmLook, this.gpuPresent.active()); // #2683
         // Dedup: cold open + As-Shot WB seed both land on the same XMP the
         // canvas already shows, so skip the redundant decode. A genuine edit
         // produces a different XMP and renders. Reading `cropSession.active()`
@@ -517,6 +520,13 @@ export class ImageCanvasComponent
 
   private clearRerenderTimers(): void {
     this.twoPhase.clear();
+  }
+
+  private forceRerenderForFilm(): void {
+    const a = this.state.focusedAsset();
+    if (!a || a.id !== this.currentAssetId) return;
+    this.lastRenderedXmp = null;
+    this.scheduleRerender(this.serializeForRender(this.state.adjustmentFor(a.id)()));
   }
 
   /**

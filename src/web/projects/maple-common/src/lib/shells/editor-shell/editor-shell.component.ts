@@ -84,6 +84,7 @@ import { ValueHudComponent } from '../../components/editor/value-hud.component';
 import { ToneCurveComponent } from '../../components/develop/tone-curve.component';
 import { WbPadComponent } from '../../components/develop/wb-pad.component';
 import { ColorGradingPanelComponent } from '../../components/develop/color-grading-panel.component';
+import { FilmPanelComponent } from '../../components/editor/film-panel.component';
 import { CropToolbarComponent } from '../../editor/crop-toolbar.component';
 import { PresetsPanelComponent } from '../../editor/presets/presets-panel.component';
 import { SubParamRowComponent } from '../../editor/sub-param-row.component';
@@ -139,6 +140,7 @@ type ChromeState = 'full' | 'receded' | 'scrubbing';
     ToneCurveComponent,
     WbPadComponent,
     ColorGradingPanelComponent,
+    FilmPanelComponent,
     CropToolbarComponent,
     PresetsPanelComponent,
     SubParamRowComponent,
@@ -389,7 +391,13 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
    *  again immediately, rather than leaving the user to close Curve/Presets
    *  by hand first. */
   onToolChange(tool: ToolId): void {
-    if (tool === 'crop' || tool === 'hsl' || tool === 'bwMix' || tool === 'colorGrade') {
+    if (
+      tool === 'crop' ||
+      tool === 'hsl' ||
+      tool === 'bwMix' ||
+      tool === 'colorGrade' ||
+      tool === 'filmLook'
+    ) {
       this.curveOpen.set(false);
       this.presetsOpen.set(false);
     }

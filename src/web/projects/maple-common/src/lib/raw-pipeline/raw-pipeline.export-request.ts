@@ -28,12 +28,14 @@ export function dispatchExport(
   ext: string,
   options: RawExportOptions,
   xmp: string | undefined,
+  filmLut?: ArrayBuffer,
 ): Promise<ExportedFile> {
   const buffer = bytes.buffer.slice(
     bytes.byteOffset,
     bytes.byteOffset + bytes.byteLength,
   ) as ArrayBuffer;
-  const request: ExportRequest = { id, type: 'export', bytes: buffer, ext, xmp, options };
+  const request: ExportRequest = { id, type: 'export', bytes: buffer, ext, xmp, options, filmLut };
+  const transfer = filmLut ? [buffer, filmLut] : [buffer];
   const startMark = `maple:export:${id}:start`;
   const endMark = `maple:export:${id}:end`;
   markStart(startMark);
@@ -43,7 +45,7 @@ export function dispatchExport(
     // throw (terminated worker / untransferable payload) would otherwise
     // strand a pending-map entry and an unmatched `markStart`.
     try {
-      worker.postMessage(request, [buffer]);
+      worker.postMessage(request, transfer);
     } catch (err) {
       markEnd(startMark, endMark, 'maple:export');
       reject(err instanceof Error ? err : new Error(String(err)));
