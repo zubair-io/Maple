@@ -20,6 +20,7 @@ import {
   RenderConfigService,
   authInterceptor,
   provideAuthBootstrap,
+  provideFolderTreeCrud,
   provideFolderTreeExtensions,
   provideInfoPanelExtension,
   provideSelfHostedWorkspace,
@@ -49,6 +50,11 @@ export const appConfig: ApplicationConfig = {
       header: SelfHostedSidebarHeaderComponent,
       body: SelfHostedSidebarBodyComponent,
     }),
+    // Folder CRUD (New Folder / Rename / Move to Trash) targets registered
+    // filesystem libraries — a Self-Hosted-only concept. Hosted's app.config
+    // never calls this, so `FOLDER_TREE_CRUD_ENABLED` stays `false` there
+    // and the folder-tree context menu never opens (#2643 / #2705 review).
+    provideFolderTreeCrud(),
     {
       provide: PREVIEW_VIDEO_ACCESS,
       useFactory: () => {

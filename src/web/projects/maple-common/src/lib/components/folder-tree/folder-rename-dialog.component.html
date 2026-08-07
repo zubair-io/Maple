@@ -1,0 +1,48 @@
+<div
+  class="frn-backdrop"
+  role="dialog"
+  aria-modal="true"
+  [attr.aria-label]="'Rename ' + currentName()"
+  (click)="onBackdropClick()"
+  (keydown.escape)="onCancel()"
+>
+  <div class="frn-card" (click)="$event.stopPropagation()">
+    <div class="frn-header">
+      <span class="frn-title">Rename Folder</span>
+    </div>
+
+    <div class="frn-body">
+      <input
+        #nameInput
+        type="text"
+        class="frn-input"
+        placeholder="Name"
+        [value]="name()"
+        [attr.aria-label]="'Folder name'"
+        (input)="onNameInput($any($event.target).value)"
+        (keydown.enter)="onSubmit()"
+        [attr.aria-invalid]="!isValid() ? 'true' : null"
+      />
+      @if (validationMessage(); as msg) {
+        <p class="frn-error">{{ msg }}</p>
+      }
+      @if (serverError(); as err) {
+        <p class="frn-error">{{ err }}</p>
+      }
+    </div>
+
+    <div class="frn-footer">
+      <button type="button" class="frn-btn frn-btn-ghost" [disabled]="busy()" (click)="onCancel()">
+        Cancel
+      </button>
+      <button
+        type="button"
+        class="frn-btn frn-btn-primary"
+        [disabled]="!isValid() || busy()"
+        (click)="onSubmit()"
+      >
+        {{ busy() ? 'Renaming…' : 'Rename' }}
+      </button>
+    </div>
+  </div>
+</div>

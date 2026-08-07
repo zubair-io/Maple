@@ -69,29 +69,10 @@
   outline-offset: -2px;
 }
 
-/* Inline rename input (#2643) — replaces the label span in place, same
-   line-height so the row doesn't reflow while editing. */
-.folder-rename-input {
-  height: 20px;
-  padding: 0 4px;
-  border: 1px solid var(--color-primary);
-  border-radius: 3px;
-  background: var(--color-input-bg);
-  color: var(--color-text-main);
-  font-size: 12px;
-  min-width: 0;
-
-  &:focus {
-    outline: none;
-  }
-}
-
-.rename-error {
-  margin: 2px 8px 4px;
-  font-size: 10px;
-  color: var(--color-error-text);
-}
-
+/* Trash partial-failure toast (#2643) — lives here (not in the deferred
+   `FolderTreeCrudComponent`) because it must outlive the crud dialog that
+   reported it: the dialog closes as soon as the trash call resolves, but the
+   toast should stay up until the user dismisses it. */
 .trash-partial-warning {
   position: fixed;
   left: 50%;
