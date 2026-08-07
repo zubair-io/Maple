@@ -1,0 +1,26 @@
+<div
+  #menuRoot
+  class="folder-ctx-menu"
+  role="menu"
+  [attr.aria-label]="menuLabel()"
+  tabindex="-1"
+  [style.left.px]="x()"
+  [style.top.px]="y()"
+  (keydown)="onKeydown($event)"
+>
+  @for (item of items(); track item.id) {
+    <button
+      type="button"
+      role="menuitem"
+      class="folder-ctx-menu-item"
+      [class.destructive]="item.destructive"
+      [disabled]="item.disabled || null"
+      [attr.aria-disabled]="item.disabled ? 'true' : null"
+      [title]="item.disabled ? (item.disabledReason ?? null) : null"
+      (click)="onItemClick(item)"
+    >
+      <maple-icon [name]="item.icon" [size]="13" color="currentColor" />
+      <span>{{ item.label }}</span>
+    </button>
+  }
+</div>

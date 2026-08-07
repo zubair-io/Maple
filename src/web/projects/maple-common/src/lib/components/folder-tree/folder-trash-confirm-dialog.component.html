@@ -1,0 +1,41 @@
+<div
+  class="ftc-backdrop"
+  role="alertdialog"
+  aria-modal="true"
+  [attr.aria-label]="'Move ' + folderLabel() + ' to Trash'"
+  (click)="onBackdropClick()"
+  (keydown.escape)="onCancel()"
+>
+  <div class="ftc-card" (click)="$event.stopPropagation()">
+    <div class="ftc-header">
+      <span class="ftc-title">Move to Trash</span>
+    </div>
+
+    <div class="ftc-body">
+      <p class="ftc-message">This moves "{{ folderLabel() }}" and everything inside it to Trash.</p>
+      @if (serverError(); as err) {
+        <p class="ftc-error">{{ err }}</p>
+      }
+    </div>
+
+    <div class="ftc-footer">
+      <button
+        #cancelButton
+        type="button"
+        class="ftc-btn ftc-btn-ghost"
+        [disabled]="busy()"
+        (click)="onCancel()"
+      >
+        Cancel
+      </button>
+      <button
+        type="button"
+        class="ftc-btn ftc-btn-destructive"
+        [disabled]="busy()"
+        (click)="onConfirm()"
+      >
+        {{ busy() ? 'Moving…' : 'Move to Trash' }}
+      </button>
+    </div>
+  </div>
+</div>
