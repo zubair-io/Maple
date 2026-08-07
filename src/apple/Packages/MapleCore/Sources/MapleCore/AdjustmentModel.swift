@@ -298,6 +298,19 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     /// `GainMap` gain opcodes. XMP `crs:LensProfileVignettingScale`.
     public var lensCorrectionVignetting: Double  // 0..100, default 100
 
+    /// Film-look emulation id (epic #2683) — the `.mlut` catalog id (also its
+    /// filename stem), or `""` for "no look" (the default). Resolved to a
+    /// decoded lattice via `FilmLutStore`; an id with no matching asset
+    /// resolves to `nil` and the render falls back to identity (log + no
+    /// error — see `FilmLutStore`). XMP key `papp:FilmLook`; empty (default)
+    /// omits the attribute on write.
+    public var filmLook: String  // default ""
+    /// Film-look blend strength, 0..100 — lerped against the pre-look value
+    /// in display-linear space (mirrors every other blend-strength field in
+    /// `MapleGpuLiveParams`). XMP key `papp:FilmStrength`; 100 (default,
+    /// full look) omits the attribute on write.
+    public var filmStrength: Double  // 0..100, default 100
+
     public init(
         temperature: Double = 6500,
         tint: Double = 0,
@@ -392,7 +405,9 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         lensProfileEnable: LensProfileEnable = .on,
         lensCorrectionDistortion: Double = 100,
         lensCorrectionCa: Double = 100,
-        lensCorrectionVignetting: Double = 100
+        lensCorrectionVignetting: Double = 100,
+        filmLook: String = "",
+        filmStrength: Double = 100
     ) {
         self.temperature = temperature
         self.tint = tint
@@ -488,6 +503,8 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         self.lensCorrectionDistortion = lensCorrectionDistortion
         self.lensCorrectionCa = lensCorrectionCa
         self.lensCorrectionVignetting = lensCorrectionVignetting
+        self.filmLook = filmLook
+        self.filmStrength = filmStrength
     }
 
     public static let `default` = AdjustmentModel()

@@ -264,6 +264,19 @@ extension PipelineRenderer {
         p.residual_lut_size = 0
         p.residual_lut_ptr = nil
         p.residual_lut_len = 0
+        p.film_lut_size = 0
+        p.film_lut_key = 0
+        p.film_lut_ptr = nil
+        p.film_lut_len = 0
+
+        // Film look (epic #2683, Task 10) — `film_strength` is the only
+        // SCALAR field of the tail; the grid itself (`film_lut_*`, above) is
+        // variable-length and bound per-tick by
+        // `GpuLiveSession.withGpuLiveParams` from the session's cached
+        // lattice (`setFilmLut`/`clearFilmLut`), for the same
+        // pointer-lifetime reason the Auto Profile arrays and point tone
+        // curves are bound there rather than here.
+        p.film_strength = Float(model.filmStrength)
 
         // Target display primaries (#1337): 0 = sRGB (legacy-compatible default).
         // Phase 2 (#1338) will set this from the user-facing settings toggle;
