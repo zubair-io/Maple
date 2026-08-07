@@ -55,6 +55,10 @@ namespace Maple.WinUI.Services.Pano
             psi.ArgumentList.Add(strategy);
             psi.ArgumentList.Add("--models-dir");
             psi.ArgumentList.Add(provisioner.ModelsDir);
+            // POSIX terminator before the positional paths (the API handler
+            // does the same): a file literally named "--strategy" must never
+            // parse as a flag.
+            psi.ArgumentList.Add("--");
             foreach (var input in inputs)
                 psi.ArgumentList.Add(input);
             psi.Environment["MAPLE_PANO_MODELS"] = provisioner.ModelsDir;
@@ -86,6 +90,10 @@ namespace Maple.WinUI.Services.Pano
                 process.BeginErrorReadLine();
                 process.BeginOutputReadLine();
                 await process.WaitForExitAsync(ct);
+                // WaitForExitAsync does not drain the async stream readers —
+                // the parameterless synchronous wait does, so the stderr tail
+                // is complete before we read it.
+                process.WaitForExit();
             }
             catch (OperationCanceledException)
             {
