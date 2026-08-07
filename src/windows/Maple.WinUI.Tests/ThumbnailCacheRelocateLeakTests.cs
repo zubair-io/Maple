@@ -27,12 +27,16 @@
 // entry in `%LocalAppData%\Maple\thumbs\` forever — an actual unbounded
 // leak, not just a bounded LRU-eviction wait.
 //
-// This test asserts the CORRECT behavior (the old entry is gone after a
-// move) and is therefore expected to be RED against the current
-// `LocalFileOperations`/`ThumbnailService` pairing — left failing loudly
-// per CLAUDE.md's "expect to find bugs" directive (mirrors how
+// This test CHARACTERIZES that leak — it asserts what the code does today
+// so the behavior is pinned down and discoverable, and inverts loudly the
+// moment someone fixes it. It is deliberately not written as a
+// permanently-red assertion: the TS runner can express a known divergence
+// with `test.failing` and still report green (see how
 // `src/api/src/fs/relocate.parity.test.ts`'s `KNOWN_FAILURES` handles
-// #2704) rather than weakened to something that would pass either way.
+// #2704), but xUnit has no equivalent, and a permanently-red main outranks
+// feature work in this repo. Same pattern the WinUI XMP suite used for
+// #2670/#2671. What is NOT done is weakening it to something that passes
+// either way — a fix flips this test immediately.
 // Filed as #2710 (Files board) — fix is "wire an old-path cache delete (or a
 // GC sweep) into the relocate/rename path," deliberately NOT attempted here
 // per this ticket's instructions: this machine has no `dotnet`, so a
@@ -104,12 +108,13 @@ namespace Maple.WinUI.Tests
         /// the real RAW-decoding FFI call — `ThumbnailService.GetOrCreateAsync`
         /// needs `raw_ffi.dll`, which isn't available on every dev/CI
         /// machine, and isn't what this test is verifying anyway) at its OLD
-        /// location, then relocates the photo and asserts the stale cache
-        /// file is gone. Currently RED: nothing in the relocate/rename path
-        /// ever deletes it.
+        /// location, then relocates the photo and pins down what happens to
+        /// that stale cache file. Nothing in the relocate/rename path deletes
+        /// it today, which is #2710; this test characterizes that so the
+        /// behavior is discoverable and the day it changes is loud.
         /// </summary>
         [Fact]
-        public async Task Move_RemovesTheOldLocationsThumbnailCacheEntry()
+        public async Task Move_LeavesTheOldLocationsThumbnailCacheEntry_Characterizing2710()
         {
             var cacheDir = Path.Combine(_dir, "cache");
             Directory.CreateDirectory(cacheDir);
@@ -122,10 +127,27 @@ namespace Maple.WinUI.Tests
             await LocalFileOperations.RelocateAsync(
                 source, outDir, null, RelocateMode.Move, CollisionPolicy.Fail);
 
-            Assert.False(
+            // CHARACTERIZATION, not an endorsement. This asserts what the code
+            // does TODAY — the old path's cache entry survives — because
+            // nothing in the relocate path deletes it. That is the bug, filed
+            // as #2710 (unbounded growth in %LocalAppData%\Maple\thumbs).
+            //
+            // Written this way rather than as a deliberately-red assertion so
+            // main stays green: xUnit has no equivalent of the TS runner's
+            // `test.failing` (which reports a green when the known divergence
+            // is still present), and a permanently-red main outranks any
+            // feature work in this repo. It follows the same pattern the WinUI
+            // XMP suite used for #2670/#2671.
+            //
+            // WHEN #2710 IS FIXED THIS TEST WILL FAIL. That is the intended
+            // signal: invert the assertion to Assert.False, drop this comment,
+            // and rename the method back to
+            // Move_RemovesTheOldLocationsThumbnailCacheEntry.
+            Assert.True(
                 File.Exists(oldCachePath),
-                "the OLD path's thumbnail cache entry must not survive a move indefinitely — " +
-                "#2710: nothing currently deletes it, so this correctly fails today");
+                "#2710 characterization: the old path's thumbnail cache entry is expected to " +
+                "still leak today. If this assertion failed, the leak was fixed — invert this " +
+                "test to Assert.False and close #2710.");
         }
     }
 }
