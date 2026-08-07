@@ -22,6 +22,10 @@ struct CloudFolderTreeRow: View {
   /// down the tree so subfolder rows still know which library row they
   /// belong to (for sidebar selection and breadcrumb).
   let libraryFolderID: String
+  /// Server-absolute path of the LIBRARY root (`CloudFolder.path`).
+  /// Inherited down the tree unchanged — needed to derive the relative
+  /// path `RemoteCatalog.makeDir`/`moveFolder` expect (#2645).
+  let libraryRootPath: String
   /// Absolute path on the server. The library root passes the registered
   /// folder's path; subfolder rows pass their own.
   let absPath: String
@@ -50,12 +54,27 @@ struct CloudFolderTreeRow: View {
   /// state survives sidebar re-renders. Lives on the LibrarySidebar.
   @Binding var expanded: Set<String>
 
+  /// Source-tree context menu (#2645). Bumped after New Folder / Rename
+  /// commits anywhere in this server's tree — re-fetches this row's
+  /// listing if expanded.
+  var refreshGeneration: Int = 0
+  /// (libraryFolderID, libraryRootPath, parentAbsPath, name). `nil`
+  /// suppresses the "New Folder" menu item (kept optional so the preview
+  /// wrapper doesn't need every call site updated).
+  var onCreateFolder: ((String, String, String, String) -> Void)? = nil
+  /// (libraryFolderID, libraryRootPath, absPath, newName).
+  var onRenameFolder: ((String, String, String, String) -> Void)? = nil
+
   @State private var isLoading: Bool = false
   @State private var loadFailed: Bool = false
   /// Set on the first appear after we've auto-expanded for the current
   /// `cloudCurrentPath`. Without this, manual collapse → re-render
   /// would trigger unwanted re-expansion.
   @State private var didAutoExpand: Bool = false
+  @State private var showNewFolderAlert = false
+  @State private var newFolderDraft = ""
+  @State private var showRenameAlert = false
+  @State private var renameDraft = ""
 
   private var isExpanded: Bool { expanded.contains(absPath) }
 
@@ -134,11 +153,61 @@ struct CloudFolderTreeRow: View {
       .padding(.vertical, MapleTokens.Spacing.rowVertical)
       .background(isSelected ? MapleTokens.bgActive : Color.clear)
       .contextMenu {
+        if onCreateFolder != nil {
+          Button {
+            newFolderDraft = ""
+            showNewFolderAlert = true
+          } label: {
+            Label("New Folder", systemImage: "folder.badge.plus")
+          }
+          .accessibilityIdentifier("cloudFolderTree.newFolder.\(absPath)")
+        }
+        if onRenameFolder != nil {
+          Button {
+            renameDraft = displayName
+            showRenameAlert = true
+          } label: {
+            Label("Rename…", systemImage: "pencil")
+          }
+          .accessibilityIdentifier("cloudFolderTree.rename.\(absPath)")
+        }
+        // Move to Trash is intentionally absent-but-explained rather than
+        // silently omitted: the API has no folder-level trash route yet
+        // (only per-asset DELETE), so there is nothing this button could
+        // call. Disabled + a reason keeps the gap visible to the user
+        // instead of looking like an accidental oversight.
+        Button {
+        } label: {
+          Label("Move to Trash (not available for Cloud folders yet)", systemImage: "trash")
+        }
+        .disabled(true)
+        .accessibilityIdentifier("cloudFolderTree.trashUnavailable.\(absPath)")
+        Divider()
         Button {
           refresh()
         } label: {
           Label("Refresh", systemImage: "arrow.clockwise")
         }
+      }
+      .alert("New Folder", isPresented: $showNewFolderAlert) {
+        TextField("Name", text: $newFolderDraft)
+        Button("Create") {
+          let name = newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+          guard !name.isEmpty else { return }
+          onCreateFolder?(libraryFolderID, libraryRootPath, absPath, name)
+        }
+        Button("Cancel", role: .cancel) {}
+      } message: {
+        Text("Creates a new folder inside \(displayName).")
+      }
+      .alert("Rename Folder", isPresented: $showRenameAlert) {
+        TextField("Name", text: $renameDraft)
+        Button("Rename") {
+          let name = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+          guard !name.isEmpty, name != displayName else { return }
+          onRenameFolder?(libraryFolderID, libraryRootPath, absPath, name)
+        }
+        Button("Cancel", role: .cancel) {}
       }
       .onAppear { autoExpandIfOnChain() }
       .onChange(of: cloudCurrentPath) { _, _ in
@@ -147,6 +216,9 @@ struct CloudFolderTreeRow: View {
         // new chain on the next render.
         didAutoExpand = false
         autoExpandIfOnChain()
+      }
+      .onChange(of: refreshGeneration) { _, _ in
+        if isExpanded { refresh() }
       }
 
       // Children — same depth-recursive pattern as the local tree.
@@ -172,6 +244,7 @@ struct CloudFolderTreeRow: View {
             CloudFolderTreeRow(
               serverURL: serverURL,
               libraryFolderID: libraryFolderID,
+              libraryRootPath: libraryRootPath,
               absPath: dir.path,
               displayName: dir.name,
               depth: depth + 1,
@@ -180,7 +253,10 @@ struct CloudFolderTreeRow: View {
               cloudCurrentPath: cloudCurrentPath,
               selection: $selection,
               listingCache: $listingCache,
-              expanded: $expanded
+              expanded: $expanded,
+              refreshGeneration: refreshGeneration,
+              onCreateFolder: onCreateFolder,
+              onRenameFolder: onRenameFolder
             )
           }
         }
@@ -263,6 +339,7 @@ private struct _CloudFolderTreeRowPreviewWrapper: View {
     CloudFolderTreeRow(
       serverURL: URL(string: "https://preview.maple.invalid")!,
       libraryFolderID: "lib-1",
+      libraryRootPath: "/photos",
       absPath: "/photos/2024",
       displayName: "2024",
       depth: depth,

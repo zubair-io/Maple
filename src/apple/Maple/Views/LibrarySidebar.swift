@@ -38,6 +38,17 @@ struct LibrarySidebar: View {
     /// folder. The shell resolves the passed bookmark for security scope
     /// and loads that URL's immediate contents into the grid.
     let onPickAncestor: (URL, Data) -> Void
+    /// Source-tree context menu (#2645) — New Folder inside `url`, Rename
+    /// `url` in place, Move to Trash `url` (recursive). `rootBookmark` is
+    /// the nearest saved ancestor's security-scope bookmark, threaded down
+    /// `FolderTreeRow` at every depth already.
+    let onCreateFolder: (URL, Data, String) -> Void
+    let onRenameFolder: (URL, Data, String) -> Void
+    let onTrashFolder: (URL, Data) -> Void
+    /// Bumped after any of the three actions above commits — re-triggers
+    /// child enumeration on expanded rows (#2454-style generation counter;
+    /// see `AppShell.folderRefreshGeneration`'s doc comment).
+    var folderRefreshGeneration: Int = 0
     let onPickPhotosFilter: (PhotoKitFilter) -> Void
     let onRequestPhotosAccess: () -> Void
     /// Bumped by `AppShell` after the user grants PhotoKit access from the
@@ -48,6 +59,11 @@ struct LibrarySidebar: View {
     var photosAuthGeneration: Int = 0
     let onAddSMB: () -> Void
     let onPickSMB: (SMBCredentialStore.SavedShare) -> Void
+    /// Source-tree context menu (#2645) — New Folder at the connected
+    /// share's root. SMB has no subfolder tree in the sidebar (see
+    /// `AppShell+FolderContextMenu`'s file header), so this is the only
+    /// SMB folder action with a target today.
+    let onCreateSMBFolder: (SMBCredentialStore.SavedShare, String) -> Void
     /// Open the AddMapleCloudSheet (no prefilled domain).
     let onAddCloudServer: () -> Void
     /// User clicked a library row inside a cloud server section.
@@ -73,6 +89,16 @@ struct LibrarySidebar: View {
     /// Lazily load the folders for a server (called from CloudServerSection's
     /// .task on first appearance).
     let onLoadCloudFolders: (URL) async -> [CloudFolder]
+    /// Source-tree context menu (#2645) — New Folder / Rename for a Cloud
+    /// library or subfolder. `libraryRootPath` is the owning library's
+    /// server-absolute path (`CloudFolder.path`), needed to derive the
+    /// relative path `RemoteCatalog.makeDir`/`moveFolder` expect. Move to
+    /// Trash is NOT wired for Cloud folders — the API has no folder-level
+    /// trash route yet (see the design doc's "Delete → Trash → Restore"
+    /// section); `CloudFolderTreeRow` surfaces this as a disabled item
+    /// with an explanation rather than a silent omission.
+    let onCreateCloudFolder: (URL, String, String, String, String) -> Void
+    let onRenameCloudFolder: (URL, String, String, String, String) -> Void
     /// TIMELINE row tap (#2271/#2273) — opens the unified cross-source
     /// Timeline (every library on every connected server, unioned with
     /// PhotoKit). A navigating row, not a disclosure: it has no children of
@@ -168,6 +194,7 @@ struct LibrarySidebar: View {
                             rootBookmark: folder.bookmark,
                             depth: 0,
                             selectedPath: selectedPathBinding,
+                            refreshGeneration: folderRefreshGeneration,
                             onPick: { url in
                                 if url.path == folder.path {
                                     selection = .folder(path: folder.path)
@@ -180,7 +207,10 @@ struct LibrarySidebar: View {
                             onRemove: {
                                 onRemoveFolder(folder)
                                 refreshFolders()
-                            }
+                            },
+                            onCreateFolder: onCreateFolder,
+                            onRenameFolder: onRenameFolder,
+                            onTrashFolder: onTrashFolder
                         )
                     }
                 }
@@ -291,15 +321,15 @@ struct LibrarySidebar: View {
                     onAdd: onAddSMB
                 ) {
                     ForEach(savedShares, id: \.self) { share in
-                        NavItem(
-                            icon: "externaldrive.connected.to.line.below",
-                            label: "\(share.host) / \(share.share)",
+                        SMBShareRow(
+                            share: share,
                             isSelected: selection == .smbShare(share),
-                            indent: 32
-                        ) {
-                            selection = .smbShare(share)
-                            onPickSMB(share)
-                        }
+                            onPick: {
+                                selection = .smbShare(share)
+                                onPickSMB(share)
+                            },
+                            onCreateFolder: { name in onCreateSMBFolder(share, name) }
+                        )
                     }
                 }
             }
@@ -373,7 +403,14 @@ struct LibrarySidebar: View {
                         registry.setDisplayName(newName, for: url)
                     },
                     session: session,
-                    onSignIn: { onSignInCloudServer(url) }
+                    onSignIn: { onSignInCloudServer(url) },
+                    folderRefreshGeneration: folderRefreshGeneration,
+                    onCreateFolder: { libraryFolderID, libraryRootPath, parentAbsPath, name in
+                        onCreateCloudFolder(url, libraryFolderID, libraryRootPath, parentAbsPath, name)
+                    },
+                    onRenameFolder: { libraryFolderID, libraryRootPath, absPath, newName in
+                        onRenameCloudFolder(url, libraryFolderID, libraryRootPath, absPath, newName)
+                    }
                 )
                 // Keyed on the server's signed-in state so the load RE-RUNS when
                 // auth flips — most importantly false→true after the user signs
@@ -574,6 +611,52 @@ private struct NavItem: View {
     }
 }
 
+// MARK: - SMBShareRow
+
+/// A saved SMB share row (source-tree context menu, #2645). SMB has no
+/// subfolder tree in the sidebar (see `AppShell+FolderContextMenu`'s file
+/// header for why), so "New Folder" — targeting the share root — is the
+/// only file-op the connections list offers.
+private struct SMBShareRow: View {
+    let share: SMBCredentialStore.SavedShare
+    let isSelected: Bool
+    let onPick: () -> Void
+    let onCreateFolder: (String) -> Void
+
+    @State private var showNewFolderAlert = false
+    @State private var newFolderDraft = ""
+
+    var body: some View {
+        NavItem(
+            icon: "externaldrive.connected.to.line.below",
+            label: "\(share.host) / \(share.share)",
+            isSelected: isSelected,
+            indent: 32,
+            action: onPick
+        )
+        .contextMenu {
+            Button {
+                newFolderDraft = ""
+                showNewFolderAlert = true
+            } label: {
+                Label("New Folder", systemImage: "folder.badge.plus")
+            }
+            .accessibilityIdentifier("smbShare.newFolder.\(share.host).\(share.share)")
+        }
+        .alert("New Folder", isPresented: $showNewFolderAlert) {
+            TextField("Name", text: $newFolderDraft)
+            Button("Create") {
+                let name = newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty else { return }
+                onCreateFolder(name)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Creates a new folder at the root of \(share.host) / \(share.share).")
+        }
+    }
+}
+
 // MARK: - FolderTreeRow (expandable, Finder-style)
 //
 // Recursive tree view of saved folders and their descendants. Sub-folder
@@ -598,15 +681,31 @@ private struct FolderTreeRow: View {
     /// Currently-selected folder's absolute path. A row that is an ancestor
     /// of this path will auto-expand on appear.
     let selectedPath: String?
+    /// Bumped after a New Folder / Rename / Trash action commits anywhere
+    /// in the tree — re-enumerates this row's children if expanded, so a
+    /// change made via the context menu shows up without a manual
+    /// collapse/re-expand.
+    var refreshGeneration: Int = 0
     /// Click handler — any depth. Caller decides whether the URL is the
     /// saved root or a descendant.
     let onPick: (URL) -> Void
     /// Only fires for depth == 0.
     let onRemove: (() -> Void)?
+    /// Source-tree context menu (#2645). `onCreateFolder`/`onTrashFolder`
+    /// take (url, rootBookmark); `onRenameFolder` additionally takes the
+    /// new name.
+    var onCreateFolder: ((URL, Data, String) -> Void)? = nil
+    var onRenameFolder: ((URL, Data, String) -> Void)? = nil
+    var onTrashFolder: ((URL, Data) -> Void)? = nil
 
     @State private var expanded = false
     @State private var children: [URL] = []
     @State private var didEnumerate = false
+    @State private var showNewFolderAlert = false
+    @State private var newFolderDraft = ""
+    @State private var showRenameAlert = false
+    @State private var renameDraft = ""
+    @State private var showTrashConfirm = false
 
     private var isSelected: Bool { selectedPath == url.path }
     private var isAncestorOfSelection: Bool {
@@ -661,9 +760,66 @@ private struct FolderTreeRow: View {
             .padding(.vertical, MapleTokens.Spacing.rowVertical)
             .background(isSelected ? MapleTokens.bgActive : Color.clear)
             .contextMenu {
+                if onCreateFolder != nil {
+                    Button {
+                        newFolderDraft = ""
+                        showNewFolderAlert = true
+                    } label: {
+                        Label("New Folder", systemImage: "folder.badge.plus")
+                    }
+                    .accessibilityIdentifier("folderTree.newFolder.\(url.path)")
+                }
+                if onRenameFolder != nil {
+                    Button {
+                        renameDraft = displayName
+                        showRenameAlert = true
+                    } label: {
+                        Label("Rename…", systemImage: "pencil")
+                    }
+                    .accessibilityIdentifier("folderTree.rename.\(url.path)")
+                }
+                if onTrashFolder != nil {
+                    Button(role: .destructive) {
+                        showTrashConfirm = true
+                    } label: {
+                        Label(Self.trashMenuTitle, systemImage: "trash")
+                    }
+                    .accessibilityIdentifier("folderTree.trash.\(url.path)")
+                }
+                if onRemove != nil, onCreateFolder != nil || onRenameFolder != nil || onTrashFolder != nil {
+                    Divider()
+                }
                 if let onRemove {
                     Button("Remove from list", role: .destructive, action: onRemove)
                 }
+            }
+            .alert("New Folder", isPresented: $showNewFolderAlert) {
+                TextField("Name", text: $newFolderDraft)
+                Button("Create") {
+                    let name = newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !name.isEmpty else { return }
+                    onCreateFolder?(url, rootBookmark, name)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Creates a new folder inside \(displayName).")
+            }
+            .alert("Rename Folder", isPresented: $showRenameAlert) {
+                TextField("Name", text: $renameDraft)
+                Button("Rename") {
+                    let name = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !name.isEmpty, name != displayName else { return }
+                    onRenameFolder?(url, rootBookmark, name)
+                }
+                Button("Cancel", role: .cancel) {}
+            }
+            .confirmationDialog(Self.trashMenuTitle, isPresented: $showTrashConfirm, titleVisibility: .visible) {
+                Button(Self.trashMenuTitle, role: .destructive) {
+                    onTrashFolder?(url, rootBookmark)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(Self.trashConfirmMessage(displayName))
             }
 
             if expanded {
@@ -674,13 +830,20 @@ private struct FolderTreeRow: View {
                         rootBookmark: rootBookmark,
                         depth: depth + 1,
                         selectedPath: selectedPath,
+                        refreshGeneration: refreshGeneration,
                         onPick: onPick,
-                        onRemove: nil
+                        onRemove: nil,
+                        onCreateFolder: onCreateFolder,
+                        onRenameFolder: onRenameFolder,
+                        onTrashFolder: onTrashFolder
                     )
                 }
             }
         }
         .accessibilityLabel(displayName)
+        .onChange(of: refreshGeneration) { _, _ in
+            if expanded { enumerateChildren() }
+        }
         .task {
             // Auto-expand if this row is on the ancestor path of the
             // currently-selected folder — keeps the tree in sync with the
@@ -740,6 +903,28 @@ private struct FolderTreeRow: View {
         return .withSecurityScope
         #else
         return []
+        #endif
+    }
+
+    /// macOS routes a Filesystem-source delete through the real OS Trash
+    /// (`FileManager.trashItem`); iOS/iPadOS has no OS trash for a
+    /// security-scoped folder and falls back to `.maple/trash` under the
+    /// library root. The design doc calls this asymmetry deliberate but
+    /// requires it stay visible rather than silently different — the menu
+    /// label and confirmation both name the actual destination.
+    private static var trashMenuTitle: String {
+        #if os(macOS)
+        "Move to Trash"
+        #else
+        "Move to Maple's Trash"
+        #endif
+    }
+
+    private static func trashConfirmMessage(_ name: String) -> String {
+        #if os(macOS)
+        "\"\(name)\" and everything inside it will move to the Trash. Recursive — every asset and sidecar underneath goes too."
+        #else
+        "\"\(name)\" and everything inside it will move to Maple's in-app Trash (.maple/trash). Recursive — every asset and sidecar underneath goes too. Auto-purges after 30 days."
         #endif
     }
 }
@@ -913,10 +1098,14 @@ private struct _LibrarySidebarPreviewWrapper: View {
       onPickFolder: { _ in },
       onRemoveFolder: { _ in },
       onPickAncestor: { _, _ in },
+      onCreateFolder: { _, _, _ in },
+      onRenameFolder: { _, _, _ in },
+      onTrashFolder: { _, _ in },
       onPickPhotosFilter: { _ in },
       onRequestPhotosAccess: {},
       onAddSMB: {},
       onPickSMB: { _ in },
+      onCreateSMBFolder: { _, _ in },
       onAddCloudServer: {},
       onPickCloudLibrary: { _, _, _ in },
       onListCloudDir: { _, _ in nil },
@@ -926,6 +1115,8 @@ private struct _LibrarySidebarPreviewWrapper: View {
       sessionFor: { AuthSession.preview(server: $0) },
       onRemoveCloudServer: { _ in },
       onLoadCloudFolders: { _ in [] },
+      onCreateCloudFolder: { _, _, _, _, _ in },
+      onRenameCloudFolder: { _, _, _, _, _ in },
       onSelectTimeline: {}
     )
     .frame(width: 280, height: 700)
