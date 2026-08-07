@@ -26,7 +26,7 @@ import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { Asset } from '../../models/asset';
 import { LibraryStateService } from '../../state/library-state.service';
 import { noPreviewBadgeLabel as computeNoPreviewBadgeLabel } from '../../state/no-preview-extensions';
-import { AssetRenameService } from '../../rename/asset-rename.service';
+import { ASSET_RENAME_CAPABILITY } from '../../rename/asset-rename-capability';
 import { InlineRenameFieldComponent } from '../inline-rename-field/inline-rename-field.component';
 
 export type AssetThumbVariant = 'grid' | 'filmstrip';
@@ -60,7 +60,10 @@ export class AssetThumbComponent {
   readonly STAR_INDICES = [1, 2, 3, 4, 5];
 
   private state = inject(LibraryStateService);
-  protected readonly renameSvc = inject(AssetRenameService);
+  /** Interface, not the concrete `AssetRenameService` — see
+   * `asset-rename-capability.ts`'s module doc for why this indirection
+   * exists (keeping Self-Hosted-only code out of Hosted's bundle). */
+  protected readonly renameSvc = inject(ASSET_RENAME_CAPABILITY);
 
   /** True while this tile's filename bar is showing the inline-rename
    * field (#2637). Only meaningful for `variant() === 'grid'` — the

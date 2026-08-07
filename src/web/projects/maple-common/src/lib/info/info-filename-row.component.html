@@ -1,27 +1,34 @@
 @let a = asset();
 @if (a) {
-  @if (isEditing()) {
-    <div class="filename-row editing">
-      <app-inline-rename-field
-        [filename]="a.filename"
-        [error]="renameSvc.error()"
-        [busy]="renameSvc.busy()"
-        [collision]="isCollision()"
-        (committed)="onCommit($event)"
-        (cancelled)="renameSvc.cancel()"
-        (collisionResolved)="onCollisionResolved($event)"
-      />
-    </div>
-  } @else {
-    <button
-      type="button"
-      class="filename-row"
-      [class.disabled]="!!disabledReason()"
-      [attr.aria-label]="'Rename ' + a.filename"
-      [attr.title]="disabledReason()"
-      (dblclick)="onDblClick()"
-    >
-      <span class="filename-text">{{ a.filename }}</span>
-    </button>
+  <!-- Trigger button lives outside the @defer block so it's always visible
+       — only <app-inline-rename-field> code-splits into a lazy chunk on
+       first interaction (#2706 web-build bundle-size fix; see
+       asset-thumb.component.html's matching comment for the full "why"). -->
+  <button
+    #renameTrigger
+    type="button"
+    class="mb-1 block w-full rounded-sm border-0 bg-transparent py-1 text-left"
+    [class]="disabledReason() ? 'cursor-default opacity-70' : 'cursor-text hover:bg-bg-hover'"
+    [class.hidden]="isEditing()"
+    [attr.aria-label]="'Rename ' + a.filename"
+    [attr.title]="disabledReason()"
+    (dblclick)="onDblClick()"
+  >
+    <span class="block truncate text-[13px] font-medium text-text-main">{{ a.filename }}</span>
+  </button>
+  @defer (on interaction(renameTrigger)) {
+    @if (isEditing()) {
+      <div class="mb-1 py-0.5">
+        <app-inline-rename-field
+          [filename]="a.filename"
+          [error]="renameSvc.error()"
+          [busy]="renameSvc.busy()"
+          [collision]="isCollision()"
+          (committed)="onCommit($event)"
+          (cancelled)="renameSvc.cancel()"
+          (collisionResolved)="onCollisionResolved($event)"
+        />
+      </div>
+    }
   }
 }
