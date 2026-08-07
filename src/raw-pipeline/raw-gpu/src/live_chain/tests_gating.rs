@@ -173,3 +173,70 @@ fn vignette_feather_alone_does_not_engage_the_pass() {
         "feather without amount must not add a vignette pass"
     );
 }
+
+/// Film-look gating (epic #2683, Task 7): a neutral case's default
+/// `FullChainInputs` carries NO film LUT (`film_lut_size == 0`,
+/// `film_strength == 0.0`) — the pass-count floor must stay unchanged from
+/// every other neutral-case gate. Loading a LUT AND engaging strength adds
+/// EXACTLY one pass; the active-mask bit (17) flips with it, so a strength
+/// crossing the gate threshold lands in a fresh pool bucket.
+#[test]
+fn film_look_default_off_loaded_and_engaged_adds_one_pass() {
+    let case = neutral_case();
+
+    // Default inputs: no LUT loaded, strength 0 — pass count must be the
+    // bare neutral view tail, same as every other still-off gate in this
+    // file.
+    let default_inputs = case.gpu_inputs();
+    assert_eq!(default_inputs.film_lut_size, 0);
+    assert_eq!(default_inputs.film_strength, 0.0);
+    let default_passes = build_live_chain(&default_inputs, AirlightSource::Cpu([0.0; 3]));
+    assert_eq!(
+        default_passes.len(),
+        VIEW_TAIL_PASS_COUNT,
+        "default (unloaded) film LUT must not add a pass"
+    );
+
+    // A loaded LUT (size > 0) but strength 0 must STILL be omitted — the
+    // strength gate, not just the presence gate, decides inclusion.
+    let mut loaded_but_zero = case.gpu_inputs();
+    loaded_but_zero.film_lut_size = 5;
+    loaded_but_zero.film_lut_data = vec![0.0f32; 5 * 5 * 5 * 3];
+    let passes_zero = build_live_chain(&loaded_but_zero, AirlightSource::Cpu([0.0; 3]));
+    assert_eq!(
+        passes_zero.len(),
+        VIEW_TAIL_PASS_COUNT,
+        "a loaded LUT at strength 0 must not add a pass"
+    );
+
+    // Loaded AND engaged: exactly one pass added.
+    let mut engaged = case.gpu_inputs();
+    engaged.film_lut_size = 5;
+    engaged.film_lut_key = 42;
+    engaged.film_lut_data = vec![0.0f32; 5 * 5 * 5 * 3];
+    engaged.film_strength = 65.0;
+    let passes_on = build_live_chain(&engaged, AirlightSource::Cpu([0.0; 3]));
+    assert_eq!(
+        passes_on.len(),
+        VIEW_TAIL_PASS_COUNT + 1,
+        "a loaded + engaged film LUT must add exactly one pass"
+    );
+
+    // active_mask / chain_signature: engaging film look must change the
+    // signature vs the default (bit 17 flips), and a DIFFERENT film_lut_key
+    // at the same strength/size must ALSO change it (content-identity fold).
+    let sig_default = chain_signature(&default_inputs, (8, 8), TEST_SESSION_ID);
+    let sig_engaged = chain_signature(&engaged, (8, 8), TEST_SESSION_ID);
+    assert_ne!(
+        sig_default, sig_engaged,
+        "signature must differ once film look crosses the gate threshold"
+    );
+
+    let mut engaged_other_look = engaged;
+    engaged_other_look.film_lut_key = 7;
+    let sig_other_look = chain_signature(&engaged_other_look, (8, 8), TEST_SESSION_ID);
+    assert_ne!(
+        sig_engaged, sig_other_look,
+        "a different film_lut_key at the same mask/size must land in a fresh bucket"
+    );
+}

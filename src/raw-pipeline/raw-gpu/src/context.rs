@@ -129,6 +129,16 @@ pub struct GpuContext {
     /// per-image grid storage buffer). Built on first use via
     /// [`GpuContext::residual_lut_pipeline`].
     pub(crate) residual_lut_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled film-look compute pipeline (`film_lut.wgsl`, epic
+    /// #2683 Task 7). A display-linear view-tail stage: a baked `.mlut`
+    /// film-print grid sampled by tetrahedral interpolation in encoded-sRGB
+    /// space, blended back by `strength`. Needs the generated color-matrix
+    /// module (`mul_rec2020_to_srgb` / `mul_srgb_to_rec2020`), so — like
+    /// vibrance / display_encode — it compiles via `compile_with_matrices`.
+    /// 4-binding layout (params uniform + src/dst storage + the per-look
+    /// grid storage buffer). Built on first use via
+    /// [`GpuContext::film_lut_pipeline`].
+    pub(crate) film_lut_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled tone-curves compute pipeline (`tone_curves.wgsl`). A P2
     /// scene-linear stage (#990): the parametric region sliders + per-channel
     /// point curves, evaluated from CPU-prepared Fritsch-Carlson curves uploaded
@@ -373,6 +383,7 @@ impl GpuContext {
             auto_profile_curve_pipeline: OnceCell::new(),
             agx_pipeline: OnceCell::new(),
             residual_lut_pipeline: OnceCell::new(),
+            film_lut_pipeline: OnceCell::new(),
             tone_curves_pipeline: OnceCell::new(),
             box_blur_pipeline: OnceCell::new(),
             guided_luma_pipeline: OnceCell::new(),

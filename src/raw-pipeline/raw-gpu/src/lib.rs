@@ -212,6 +212,7 @@ mod dehaze;
 mod display_encode;
 mod dither;
 mod exposure;
+mod film_lut;
 mod frame_pool;
 mod full_chain;
 mod image;
@@ -286,6 +287,7 @@ pub use dehaze::{apply_dehaze, compute_airlight, AirlightSource, DehazePass};
 pub use display_encode::{apply_display_encode, DisplayEncodePass};
 pub use dither::{alloc_packed_rgb, dither_and_quantize, encode_dither, unpack_rgb_u8};
 pub use exposure::{apply_exposure_gain, run_exposure_gpu_async, ExposurePass};
+pub use film_lut::{apply_film_lut, film_lut_flat_len, FilmLutPass};
 pub use full_chain::{
     build_full_chain_passes, build_split, BoxedPasses, FullChainInputs, InputShape,
 };

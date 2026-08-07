@@ -254,6 +254,22 @@ impl GpuContext {
         })
     }
 
+    /// The cached film-look compute pipeline (epic #2683, Task 7).
+    ///
+    /// The kernel round-trips display-linear Rec.2020 through linear sRGB
+    /// (rec2020→srgb, srgb→rec2020) to sample a baked `.mlut` grid in encoded
+    /// sRGB space, so it needs the generated color-matrix helpers — same
+    /// concat-at-compile pattern as `vibrance_pipeline` / `display_encode_pipeline`:
+    /// the generated `color_matrices.wgsl` is prepended to `film_lut.wgsl`
+    /// (WGSL has no `#include`). 4-binding layout (params uniform + src/dst
+    /// storage + the per-look grid storage buffer); `layout: None` derives it
+    /// from the WGSL bindings.
+    pub fn film_lut_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.film_lut_pipeline.get_or_init(|| {
+            compile_with_matrices(&self.device, "film-lut", include_str!("film_lut.wgsl"))
+        })
+    }
+
     /// The cached tone-curves compute pipeline (epic #925 P2 / #990).
     ///
     /// Luma coupling uses the inlined Rec.2020 weights (not the codegen

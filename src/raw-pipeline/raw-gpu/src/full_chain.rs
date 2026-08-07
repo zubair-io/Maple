@@ -18,12 +18,15 @@
 //!   **clarity** · **texture** · **dehaze** · **local_adjustments** · **vignette** ·
 //!   **sharpen** · **nr_luminance** · **nr_color**
 //! then `render` appends the view tail:
-//!   **agx** · **split_tone** (#1111) · **grain** (#1110, both display-linear) ·
+//!   **agx** · **split_tone** (#1111) · **film_look** (epic #2683 Task 7,
+//!   gated on a loaded LUT) · **grain** (#1110) — split_tone, film_look, and
+//!   grain are all display-linear, film_look sitting between split_tone
+//!   (color_grade) and grain —
 //!   **rec2020_to_srgb** (= [`DisplayEncodePass`]) ·
 //!   **srgb_gamma_encode** (= [`SrgbGammaPass`]) · auto_profile-curve ·
 //!   auto_profile-residual-LUT · look · dither/quantize.
 //!
-//! The **bold** stages are the 20 GPU-ported [`Pass`]es this module composes (in
+//! The **bold** stages are the 21 GPU-ported [`Pass`]es this module composes (in
 //! exactly that order). The rest are gaps:
 //!
 //! - **Upstream / out of scope** (run before the post-DCP scene-linear buffer this
@@ -70,6 +73,7 @@ use crate::chain::Pass;
 use crate::clarity::ClarityPass;
 use crate::dehaze::{AirlightSource, DehazePass};
 use crate::display_encode::DisplayEncodePass;
+use crate::film_lut::FilmLutPass;
 use crate::grain::GrainPass;
 use crate::hsl::HslPass;
 use crate::local_adjustments::{local_adjustments_are_active, LocalAdjustmentsPass};
@@ -235,6 +239,24 @@ pub struct FullChainInputs {
     /// `RawImage::iso`, paired with `noise_profile` (raw-core treats 0 as
     /// "unknown" and zeroes the profile coefficients).
     pub iso: u32,
+    /// Film-look blend strength, 0..100 nominal (epic #2683, Task 7).
+    /// Display-linear — runs between `color_grade` and `grain` in the view
+    /// tail. Appended at the struct tail per the append-only convention.
+    pub film_strength: f32,
+    /// Film-look LUT node count per axis. `0` (paired with an empty
+    /// `film_lut_data`) means "no look loaded" — the composition builder
+    /// ([`build_split`]) omits [`FilmLutPass`] entirely rather than binding
+    /// an empty grid, mirroring `local_adjustments`'s data-presence gate.
+    pub film_lut_size: u32,
+    /// A content-identity key for the loaded film LUT (e.g. a hash of the
+    /// `.mlut` bytes / catalog id) — NOT the grid data itself. Folded into
+    /// [`crate::chain_signature`] (via the live chain) so switching to a
+    /// DIFFERENT look within a session lands in a fresh pool bucket instead
+    /// of reusing a cached bind group still pointing at the old grid.
+    pub film_lut_key: u32,
+    /// Flat film-look grid (`film_lut_size`³ × 3 floats, layout
+    /// `((b*N+g)*N+r)*3+c`). Empty = off (paired with `film_lut_size == 0`).
+    pub film_lut_data: Vec<f32>,
 }
 
 /// How the GPU-resident image was produced. Drives which leading stages the live
@@ -410,6 +432,19 @@ pub fn build_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses
     suffix.push(Box::new(ColorGradePass {
         sliders: color_grade_sliders(inputs),
     }));
+    // Film look (epic #2683, Task 7) — display-linear, post-color_grade,
+    // pre-grain (raw-core's `render` runs it between the two — module docs
+    // there). Gated on the grid being PRESENT (`film_lut_size > 0`): unlike
+    // the always-present residual-LUT grid, an empty film LUT has no data to
+    // bind, so this composer omits the pass rather than binding an empty
+    // buffer — the same data-presence gate `local_adjustments` uses above.
+    if inputs.film_lut_size > 0 {
+        suffix.push(Box::new(FilmLutPass {
+            size: inputs.film_lut_size,
+            strength: inputs.film_strength,
+            data: inputs.film_lut_data.clone(),
+        }));
+    }
     // Film grain (#1110) — display-linear, post-AgX, before the target
     // gamut (the render tail's 16b position).
     suffix.push(Box::new(GrainPass {

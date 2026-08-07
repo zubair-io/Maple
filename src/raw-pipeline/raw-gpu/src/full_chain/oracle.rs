@@ -235,6 +235,14 @@ impl Case {
             // composed chain.
             noise_profile: Vec::new(),
             iso: 0,
+            // No oracle case loads a film look yet (Task 7 lands the GPU
+            // pass; a future task threads `model.film_look`/`film_strength`
+            // through this harness). Off, matching every existing case's
+            // expected output exactly.
+            film_strength: 0.0,
+            film_lut_size: 0,
+            film_lut_key: 0,
+            film_lut_data: Vec::new(),
         }
     }
 }
