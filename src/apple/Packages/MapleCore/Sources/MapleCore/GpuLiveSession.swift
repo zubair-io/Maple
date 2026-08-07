@@ -72,6 +72,31 @@ public actor GpuLiveSession {
     /// until fit, or when the image has no Auto tail (plain AgX / Neutral).
     private var autoProfile: AutoProfileArtifacts?
 
+    /// The currently-loaded film-look lattice (epic #2683, Task 10) — set by
+    /// `EditSession` via `setFilmLut`/`clearFilmLut` whenever
+    /// `model.filmLook` resolves (or fails to resolve) through
+    /// `FilmLutStore`. `nil` means "no look" — every `present`/
+    /// `renderToBuffer` tick binds NULL/zero `film_lut_*` fields, matching
+    /// pre-#2683 output bit-for-bit. Unlike `autoProfile` this is NOT fit
+    /// per-image: `FilmLutStore` caches the decoded bytes itself, so this is
+    /// just a cheap array-copy cache the session holds so every tick doesn't
+    /// have to thread the lattice through the caller's `present` signature.
+    private var filmLut: (data: [Float], size: Int, key: UInt32)?
+
+    /// Cache (or clear, via `data: nil`) the film-look lattice this session
+    /// binds on every subsequent `present`/`renderToBuffer` tick. Cheap — an
+    /// array reference copy, no FFI call — so it's safe to call on every
+    /// `model.filmLook`/session-open transition, not just once per image.
+    public func setFilmLut(data: [Float], size: Int, key: UInt32) {
+        filmLut = (data, size, key)
+    }
+
+    /// Clear the film-look lattice — the next tick binds NULL/zero
+    /// `film_lut_*` (identity, matching pre-#2683 output).
+    public func clearFilmLut() {
+        filmLut = nil
+    }
+
     /// Open a session over `pixels` (interleaved RGBA f32, `width·height·4` lanes —
     /// the decoded scene-linear Rec.2020 buffer). Uploads the image ONCE. Throws on
     /// a bad size or an FFI open failure.
@@ -329,7 +354,7 @@ public actor GpuLiveSession {
                         Self.bind(r, to: &p.tone_curve_red_ptr, len: &p.tone_curve_red_len)
                         Self.bind(g, to: &p.tone_curve_green_ptr, len: &p.tone_curve_green_len)
                         Self.bind(b, to: &p.tone_curve_blue_ptr, len: &p.tone_curve_blue_len)
-                        return withAutoProfileBound(p, body)
+                        return withFilmLutBound(p) { pp in withAutoProfileBound(pp, body) }
                     }
                 }
             }
@@ -373,6 +398,28 @@ public actor GpuLiveSession {
         guard !buffer.isEmpty, let base = buffer.baseAddress else { return }
         ptr = base
         len = UInt(buffer.count)
+    }
+
+    /// Bind the session's cached film-look lattice (if any, epic #2683,
+    /// Task 10) into a copy of `params` and yield the VALUE (not a pointer —
+    /// `withAutoProfileBound` is the one that takes the address, once every
+    /// tail array across both stages is wired) for the duration of the
+    /// lattice buffer's lifetime. `nil` `filmLut` leaves `film_lut_*`
+    /// NULL/zero (identity — no look), matching `makeGpuLiveParams`'s
+    /// default.
+    private func withFilmLutBound<R>(
+        _ params: MapleGpuLiveParams,
+        _ body: (MapleGpuLiveParams) -> R
+    ) -> R {
+        var p = params
+        guard let film = filmLut else { return body(p) }
+        return film.data.withUnsafeBufferPointer { fbuf in
+            p.film_lut_size = UInt32(film.size)
+            p.film_lut_key = film.key
+            p.film_lut_ptr = fbuf.baseAddress
+            p.film_lut_len = UInt(fbuf.count)
+            return body(p)
+        }
     }
 
     /// Bind the fitted Auto Profile curve + residual LUT (if any) and yield the

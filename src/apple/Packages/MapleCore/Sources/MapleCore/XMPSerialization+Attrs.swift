@@ -249,6 +249,20 @@ extension XMPSerializer {
         if model.profile != .auto {
             attrs.append(("papp:Profile", model.profile.rawValue))
         }
+        // Film-look emulation (epic #2683) — the `.mlut` catalog id, emitted
+        // only when non-empty (the default "no look" state), same
+        // omit-on-default convention as every other papp: field. XML-escaped
+        // since it's a free-form string, not a closed rawValue enum.
+        if !model.filmLook.isEmpty {
+            attrs.append(("papp:FilmLook", escapeXMLAttr(model.filmLook)))
+        }
+        // Film-look blend strength — emit only when off full strength (100),
+        // and only alongside a look (an id-less strength is meaningless, but
+        // mirrors every other blend-strength field's omit-on-default rule
+        // rather than special-casing on `filmLook`).
+        if model.filmStrength != 100 {
+            attrs.append(("papp:FilmStrength", fmtNum(model.filmStrength)))
+        }
         // Decode-time chroma pre-filter (#1104) — emit only when
         // non-default (0) so sidecars produced before the field existed
         // remain byte-identical for users who never touch it.

@@ -124,6 +124,9 @@ extension AdjustmentModel.FieldName {
         case .lensCorrectionDistortion:     return \.lensCorrectionDistortion
         case .lensCorrectionCa:             return \.lensCorrectionCa
         case .lensCorrectionVignetting:     return \.lensCorrectionVignetting
+        // Film-look blend strength (epic #2683) — numeric, like every other
+        // blend-strength field.
+        case .filmStrength:                 return \.filmStrength
         // Deprecated alias — no Swift property (see AdjustmentModel docs).
         case .captureSharpeningRadius:      return nil
         // Enum-valued / not in the Swift model. `.autoExposure` (#1387) /
@@ -133,13 +136,15 @@ extension AdjustmentModel.FieldName {
         case .wbMethod, .highlightRecovery, .autoExposure, .look, .profile,
              .toneCurveMode, .hotPixelSuppression, .blackWhite, .lensProfileEnable:
             return nil
-        // Film emulation — the generated schema carries `film_look` (a look
-        // name) and `film_strength`, but the Swift `AdjustmentModel` has no
-        // properties for either yet, so both take the passthrough route
-        // described in this file's header: never captured, skipped on apply,
-        // preserved in storage.
-        case .filmLook, .filmStrength:
-            return nil
+        // Film-look id (epic #2683) — a free-form string, not a numeric
+        // slider or a closed rawValue enum, so it has no key path here (like
+        // the point tone curves below). Preset capture/apply for film looks
+        // is not part of Task 10's scope; a look-carrying preset falls
+        // through `default: break`/`default: continue` in
+        // `PresetAdjustments` below, same as every other field this switch
+        // maps to `nil`. (`film_strength` DOES have a key path above — it is
+        // an ordinary numeric field once the Swift model carries it.)
+        case .filmLook:                     return nil
         // Point curves (#366) — structured `ToneCurve` values, not scalars.
         // A preset `fields` map is flat (number | string | bool) on every
         // client, so curves are neither captured nor applied here; the web
@@ -241,6 +246,7 @@ extension AdjustmentModel.FieldName {
         case .lensCorrectionDistortion:     return AdjustmentModel.lensCorrectionDistortionRange
         case .lensCorrectionCa:             return AdjustmentModel.lensCorrectionCaRange
         case .lensCorrectionVignetting:     return AdjustmentModel.lensCorrectionVignettingRange
+        case .filmStrength:                 return AdjustmentModel.filmStrengthRange
         default:                            return nil
         }
     }

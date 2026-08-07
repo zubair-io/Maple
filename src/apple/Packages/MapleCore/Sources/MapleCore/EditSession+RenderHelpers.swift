@@ -73,6 +73,14 @@ extension EditSession {
 
     /// Bake the current model against a fresh full-quality decode for export.
     public func renderForExport() async throws -> CIImage {
+        // Film look (epic #2683, Task 10): a RAW asset with a resolved look
+        // routes through `maple_render_file_with_film` instead of the plain
+        // CIImage graph below — see `EditSession+FilmExport.swift` for why.
+        // Returns `nil` (falls through) for every other case: no look,
+        // non-RAW, sourceless, or an FFI render failure.
+        if let filmExport = try await renderExportWithFilmLook() {
+            return filmExport
+        }
         // #1781: decode-bake anchor with a present frame; the export
         // decode's own frame export rides processSceneLinear(wbFrame:).
         return try await renderActor.renderForExport(

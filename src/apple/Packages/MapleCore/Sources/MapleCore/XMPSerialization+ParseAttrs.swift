@@ -177,6 +177,16 @@ extension _XMPParserDelegate {
             case "acrmatch": model.profile = .auto
             default:         break
             }
+        // Film-look emulation (epic #2683). The raw id string round-trips
+        // verbatim — no validation against `FilmCatalog` here. An id with
+        // no matching `.mlut` (a look retired from the catalog, or a
+        // hand-edited sidecar) still parses to the model unchanged;
+        // `FilmLutStore` resolves it to `nil` at render time and the
+        // pipeline falls back to identity (log + no error), so an unknown
+        // id round-trips through the sidecar rather than being silently
+        // dropped.
+        case "papp:FilmLook":     model.filmLook = value
+        case "papp:FilmStrength": model.filmStrength = d(value) ?? model.filmStrength
         // Crop / straighten (#277, spec § 3.12). Rect fields gated by
         // `hasCrop` (above). `crs:CropAngle` is always parsed — it can
         // appear without a rect for a pure straighten.

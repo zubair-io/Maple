@@ -18,6 +18,7 @@
 		A11A00010000000000000905 /* Maple/Backup/PhotoKitAssetReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11A00020000000000000905 /* Maple/Backup/PhotoKitAssetReader.swift */; };
 		A1F0000100000000000000A1 /* MapleCore in Frameworks */ = {isa = PBXBuildFile; productRef = A1F0000200000000000000A1 /* MapleCore */; };
 		A1F0000300000000000000A1 /* RawPipeline.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1F0000400000000000000A1 /* RawPipeline.xcframework */; };
+		A1F0002400000000000000A1 /* film-luts in Resources */ = {isa = PBXBuildFile; fileRef = A1F0002300000000000000A1 /* film-luts */; };
 		B8FE7E2DDA6B10D25A18085C /* RawPipeline.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1F0000400000000000000A1 /* RawPipeline.xcframework */; };
 		BF306371601D933BE6ECCBEF /* FileProvider.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E471E86FF6276852A3960D14 /* FileProvider.framework */; };
 		C0D28215847FC19B22E663BC /* MapleFileProvider.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = EC6472D425AC44A1388478EF /* MapleFileProvider.appex */; platformFilters = (macos, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -106,6 +107,7 @@
 		9CA678A9D2E0D47F2A861CC6 /* FileProviderExtension.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileProviderExtension.swift; sourceTree = "<group>"; };
 		A11A00020000000000000905 /* Maple/Backup/PhotoKitAssetReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Maple/Backup/PhotoKitAssetReader.swift; sourceTree = SOURCE_ROOT; };
 		A1F0000400000000000000A1 /* RawPipeline.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = RawPipeline.xcframework; path = Frameworks/RawPipeline.xcframework; sourceTree = "<group>"; };
+		A1F0002300000000000000A1 /* film-luts */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "film-luts"; path = "../../resources/film-luts"; sourceTree = "<group>"; };
 		A1F0000700000000000000A1 /* Maple Exposure.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Maple Exposure.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1F0000800000000000000A1 /* MapleTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MapleTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1F0006000000000000000A1 /* MapleUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MapleUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -272,6 +274,7 @@
 				698028BF3FB094189B51F71F /* MapleQuickLook */,
 				1FA097CDA4E5254F25DD49BA /* MapleFileProviderIOS */,
 				E3DD94D02FB50E55009392B4 /* LaunchScreen.storyboard */,
+				A1F0002300000000000000A1 /* film-luts */,
 			);
 			sourceTree = "<group>";
 		};
@@ -591,6 +594,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E3DD94D12FB50E55009392B4 /* LaunchScreen.storyboard in Resources */,
+				A1F0002400000000000000A1 /* film-luts in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

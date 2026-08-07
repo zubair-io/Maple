@@ -86,6 +86,8 @@ public final class EditSession {
             // (mirrors the web overlay). The sidecar write below still runs
             // so the rect persists. Leaving crop (cropEditingActive → false)
             // re-renders via its own `didSet`.
+            // Film look (epic #2683) — see `EditSession+FilmLook.swift`.
+            if model.filmLook != oldValue.filmLook { updateFilmLutIfNeeded() }
             let onlyCropChanged = onlyCropFieldChanged(from: oldValue, to: model)
             if !(cropEditingActive && onlyCropChanged) {
                 _scheduleRender(phase: .fast)
@@ -355,6 +357,8 @@ public final class EditSession {
 
     // MARK: Internals (shared across EditSession+* extensions)
 
+    /// Film-look asset resolver (epic #2683, Task 10) — see `FilmLutStore`.
+    @ObservationIgnored let filmLutStore = FilmLutStore()
     @ObservationIgnored let pipeline: ImageEditPipeline
     @ObservationIgnored let nativeDetailRenderer: NativeDetailRenderer
     /// Independent freshness token for native-detail work. Refine scheduling
