@@ -63,6 +63,8 @@ fn neutral_case() -> Case {
         curve: nonidentity_curve(),
         lut: nonidentity_lut(9),
         wb_method: WbMethod::Cat16,
+        film_lut: None,
+        film_strength: 0.0,
     }
 }
 
@@ -91,6 +93,8 @@ fn mild_case() -> Case {
         curve: nonidentity_curve(),
         lut: nonidentity_lut(9),
         wb_method: WbMethod::Cat16,
+        film_lut: None,
+        film_strength: 0.0,
     }
 }
 
@@ -130,6 +134,8 @@ fn aggressive_case() -> Case {
         curve: nonidentity_curve(),
         lut: nonidentity_lut(9),
         wb_method: WbMethod::Cat16,
+        film_lut: None,
+        film_strength: 0.0,
     }
 }
 
