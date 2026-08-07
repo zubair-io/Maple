@@ -11,13 +11,18 @@ namespace Maple.WinUI.Services.FileOperations
     public interface IRecycleBinService
     {
         /// <summary>
-        /// Attempt to move <paramref name="path"/> (a file or a directory)
-        /// to the Windows Recycle Bin. Returns false — never throws — on any
-        /// failure, including when the Recycle Bin genuinely isn't available
-        /// for that path (e.g. a network share); the caller falls back to
-        /// `.maple/trash/&lt;rel&gt;` via the same relocate primitive every
-        /// other move here uses.
+        /// Attempt to move every path in <paramref name="paths"/> (files or
+        /// directories) to the Windows Recycle Bin as ONE shell call, not
+        /// one call per path — an asset's primary and its sidecar are passed
+        /// together so they succeed or fail as a unit rather than risking a
+        /// window where the primary lands in the Recycle Bin and the
+        /// sidecar doesn't (or vice versa). A single path is just a
+        /// one-element batch. Returns false — never throws — on any
+        /// failure, including when the Recycle Bin genuinely isn't
+        /// available for that path (e.g. a network share); the caller falls
+        /// back to `.maple/trash/&lt;rel&gt;` via the same relocate
+        /// primitive every other move here uses.
         /// </summary>
-        bool TrySendToRecycleBin(string path);
+        bool TrySendToRecycleBin(params string[] paths);
     }
 }

@@ -5,6 +5,16 @@
 // `POST /:id/mkdir` / `POST /:id/move` (`src/api/src/routes/folders.ts`) and
 // Apple's `LocalFileOperations+Folders.swift`: rename/move only, self-
 // subtree guard, no silent overwrite.
+//
+// NTFS is case-insensitive-but-case-preserving, exactly like APFS, and that
+// property governs every path comparison below: containment/collision
+// checks compare case-INSENSITIVELY (so `C:\Folder` moved into
+// `c:\folder\sub` is still caught as moving it into its own subtree), while
+// telling "the same folder, different casing" apart from "genuinely the
+// same path" reuses the file side's three-way `ClassifySameFile` — a
+// case-only folder rename is a real, meaningful operation (performed as a
+// direct atomic `Directory.Move`, matching how NTFS itself updates stored
+// casing), not a same-path no-op and not a destination collision.
 
 using System;
 using System.IO;
@@ -21,6 +31,7 @@ namespace Maple.WinUI.Services.FileOperations
         /// for.</summary>
         public static string CreateFolder(string name, string parentDir)
         {
+            ValidateBareFileName(name);
             var target = Path.Combine(parentDir, name);
             if (Directory.Exists(target) || File.Exists(target))
                 throw new FileOperationException(FileOperationErrorKind.DestinationExists, target);
@@ -29,23 +40,37 @@ namespace Maple.WinUI.Services.FileOperations
         }
 
         /// <summary>Rename <paramref name="folderPath"/> in place.</summary>
-        public static string RenameFolder(string folderPath, string newName) =>
-            MoveFolder(folderPath, Path.GetDirectoryName(Path.GetFullPath(folderPath))!, newName);
+        public static string RenameFolder(string folderPath, string newName)
+        {
+            var parent = Path.GetDirectoryName(Path.GetFullPath(folderPath));
+            if (parent is null)
+                throw new FileOperationException(FileOperationErrorKind.InvalidDestination,
+                    $"cannot rename a root directory: {folderPath}");
+            return MoveFolder(folderPath, parent, newName);
+        }
 
         /// <summary>
         /// Move <paramref name="folderPath"/> (optionally renaming it) into
         /// <paramref name="newParentDir"/>. Refuses to move a folder into
         /// its own subtree and refuses to silently overwrite an existing
-        /// item at the destination.
+        /// item at the destination — except when the destination names the
+        /// SAME folder under different casing, which is a legitimate
+        /// case-only rename (see <see cref="ClassifySameFile"/>).
         /// </summary>
         public static string MoveFolder(string folderPath, string newParentDir, string? newName = null)
         {
+            if (newName != null) ValidateBareFileName(newName);
+
             var sourceFull = TrashPaths.NormalizeDir(Path.GetFullPath(folderPath));
             var name = newName ?? Path.GetFileName(sourceFull);
             var targetParentFull = TrashPaths.NormalizeDir(Path.GetFullPath(newParentDir));
 
-            if (targetParentFull == sourceFull || targetParentFull.StartsWith(
-                    sourceFull + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            // Case-INSENSITIVE containment check: NTFS resolves
+            // `c:\folder\sub` and `C:\Folder\sub` to the same location, so a
+            // case-sensitive comparison here would let a folder be moved
+            // into its own subtree just by varying the case of the path.
+            if (string.Equals(targetParentFull, sourceFull, StringComparison.OrdinalIgnoreCase) ||
+                targetParentFull.StartsWith(sourceFull + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             {
                 throw new FileOperationException(FileOperationErrorKind.InvalidDestination,
                     $"cannot move {folderPath} into its own subtree {newParentDir}");
@@ -53,8 +78,21 @@ namespace Maple.WinUI.Services.FileOperations
 
             var target = Path.Combine(newParentDir, name);
             var targetFull = TrashPaths.NormalizeDir(Path.GetFullPath(target));
-            if (targetFull == sourceFull)
-                return folderPath; // already there — a no-op rename-to-itself
+
+            switch (ClassifySameFile(sourceFull, targetFull))
+            {
+                case SameFileClassification.Identical:
+                    return folderPath; // already there — a genuine no-op
+                case SameFileClassification.CaseOnlyRename:
+                    // The "destination occupied" check below would see this
+                    // folder occupying its own new name and wrongly refuse
+                    // it — a case-only rename needs the same direct-move
+                    // bypass the file side gives `PerformCaseOnlyRename`.
+                    Directory.Move(folderPath, target);
+                    return target;
+                case SameFileClassification.Different:
+                    break;
+            }
 
             if (Directory.Exists(target) || File.Exists(target))
                 throw new FileOperationException(FileOperationErrorKind.DestinationExists, target);
@@ -93,11 +131,17 @@ namespace Maple.WinUI.Services.FileOperations
             // collision handling is inlined rather than routed through
             // `CollisionResolver`/`RelocateAsync`, which are sized for the
             // copy-verify-delete file contract this operation doesn't need.
+            // Bounded the same way `CollisionResolver.MaxAttempts` bounds
+            // the file side, rather than looping unbounded against a
+            // directory that already has 1000 numbered siblings.
             var folderName = Path.GetFileName(TrashPaths.NormalizeDir(Path.GetFullPath(folderPath)));
             var target = Path.Combine(trashParent, folderName);
             var suffix = 1;
             while (Directory.Exists(target) || File.Exists(target))
             {
+                if (suffix > CollisionResolver.MaxAttempts)
+                    throw new FileOperationException(FileOperationErrorKind.Underlying,
+                        $"trashFolderToMapleFolder: exceeded {CollisionResolver.MaxAttempts} candidate paths for {folderPath}");
                 target = Path.Combine(trashParent, $"{folderName}.{suffix}");
                 suffix++;
             }

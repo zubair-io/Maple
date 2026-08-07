@@ -14,7 +14,17 @@ namespace Maple.WinUI.Tests.Support
 {
     internal sealed class FakeRecycleBinService : IRecycleBinService
     {
+        /// <summary>Every path passed to any single call, flattened in call
+        /// order — a batched call (e.g. primary + sidecar together) records
+        /// each path individually, so `Assert.Contains` against a specific
+        /// path still works regardless of batching.</summary>
         public List<string> Attempts { get; } = new();
+
+        /// <summary>Each element is the exact set of paths one call was
+        /// made with, in order — lets a test assert that the primary and
+        /// its sidecar were sent together as a single batched call rather
+        /// than as two independent ones.</summary>
+        public List<string[]> Calls { get; } = new();
 
         /// <summary>When true (the default), every call succeeds and is
         /// recorded. When false, every call fails (returns false) without
@@ -23,10 +33,11 @@ namespace Maple.WinUI.Tests.Support
         /// the `.maple/trash/&lt;rel&gt;` fallback engages.</summary>
         public bool Succeeds { get; set; } = true;
 
-        public bool TrySendToRecycleBin(string path)
+        public bool TrySendToRecycleBin(params string[] paths)
         {
             if (!Succeeds) return false;
-            Attempts.Add(path);
+            Calls.Add(paths);
+            Attempts.AddRange(paths);
             return true;
         }
     }

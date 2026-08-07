@@ -28,19 +28,36 @@ namespace Maple.WinUI.Services.FileOperations
             string primaryPath, string libraryRoot, IRecycleBinService? recycleBin = null)
         {
             recycleBin ??= RecycleBinService.Instance;
+            var sidecarPath = SidecarStore.SidecarPathFor(primaryPath);
+            var hasSidecar = File.Exists(sidecarPath);
 
-            if (IsOnLocalFixedDrive(primaryPath) && recycleBin.TrySendToRecycleBin(primaryPath))
+            if (IsOnLocalFixedDrive(primaryPath))
             {
-                var sidecarPath = SidecarStore.SidecarPathFor(primaryPath);
-                var sidecarTrashed = File.Exists(sidecarPath) && recycleBin.TrySendToRecycleBin(sidecarPath);
-                // The Recycle Bin has no simple "where did it land" handle
-                // the way `FileManager.trashItem`'s `resultingItemURL` does
-                // — entries live under a GUID-keyed `$Recycle.Bin` folder
-                // resolvable only through further shell enumeration.
-                // `PrimaryPath` here means "the original path, now
-                // recoverable via the OS Recycle Bin," not a literal current
-                // location.
-                return new RelocateOutcome(primaryPath, sidecarTrashed ? sidecarPath : null, false, sidecarTrashed);
+                // Primary and sidecar go to the shell as ONE
+                // `SHFileOperationW` call (see `RecycleBinService`) rather
+                // than two independent ones — that closes the
+                // partial-failure window where the primary lands in the
+                // Recycle Bin and the sidecar doesn't (or vice versa). The
+                // call is still not a true database transaction — the shell
+                // could in principle process one item and fault on the
+                // next — but a single call reporting a single result is as
+                // close to "succeed or fail together" as this API surface
+                // offers without moving to full `IFileOperation` COM
+                // interop.
+                var sent = hasSidecar
+                    ? recycleBin.TrySendToRecycleBin(primaryPath, sidecarPath)
+                    : recycleBin.TrySendToRecycleBin(primaryPath);
+                if (sent)
+                {
+                    // The Recycle Bin has no simple "where did it land"
+                    // handle the way `FileManager.trashItem`'s
+                    // `resultingItemURL` does — entries live under a
+                    // GUID-keyed `$Recycle.Bin` folder resolvable only
+                    // through further shell enumeration. `PrimaryPath` here
+                    // means "the original path, now recoverable via the OS
+                    // Recycle Bin," not a literal current location.
+                    return new RelocateOutcome(primaryPath, hasSidecar ? sidecarPath : null, false, hasSidecar);
+                }
             }
 
             return await TrashToMapleFolderAsync(primaryPath, libraryRoot).ConfigureAwait(false);
