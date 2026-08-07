@@ -49,8 +49,8 @@ pub enum MlutError {
     BadMagic,
     #[error(".mlut: unsupported version {0} (only version 1 is supported)")]
     UnsupportedVersion(u16),
-    #[error(".mlut: truncated ({actual} bytes, expected {expected})")]
-    Truncated { expected: usize, actual: usize },
+    #[error(".mlut: payload length {actual} != expected {expected}")]
+    LengthMismatch { expected: usize, actual: usize },
     #[error(".mlut: grid size {0} overflows the payload length calculation")]
     GridOverflow(usize),
     /// `tetra_sample`'s `last = size - 1` cell derivation (and its
@@ -66,7 +66,23 @@ pub enum MlutError {
 /// written verbatim in the caller's order (`size` only feeds the header);
 /// callers are expected to hand in a grid already shaped `size³·3` per
 /// [`FilmLut`]'s layout contract.
+///
+/// Encoder misuse (a bad `size`/`data` pairing) is a programmer error, not
+/// a runtime data problem — unlike [`decode_mlut`], which validates
+/// untrusted bytes and returns a `Result`, this asserts fail-fast rather
+/// than silently emitting a malformed `.mlut` payload.
 pub fn encode_mlut(size: usize, data: &[f32]) -> Vec<u8> {
+    assert!(size >= 2, "encode_mlut: size {size} is degenerate (minimum is 2)");
+    assert!(
+        size <= u16::MAX as usize,
+        "encode_mlut: size {size} overflows the u16 grid-size header field"
+    );
+    assert!(
+        data.len() == size * size * size * 3,
+        "encode_mlut: data.len() {} != size*size*size*3 ({})",
+        data.len(),
+        size * size * size * 3
+    );
     let mut out = Vec::with_capacity(HEADER_LEN + data.len() * 2);
     out.extend_from_slice(MAGIC);
     out.extend_from_slice(&VERSION.to_le_bytes());
@@ -82,7 +98,7 @@ pub fn encode_mlut(size: usize, data: &[f32]) -> Vec<u8> {
 /// declared grid size matches the payload length exactly.
 pub fn decode_mlut(bytes: &[u8]) -> Result<FilmLut, MlutError> {
     if bytes.len() < HEADER_LEN {
-        return Err(MlutError::Truncated {
+        return Err(MlutError::LengthMismatch {
             expected: HEADER_LEN,
             actual: bytes.len(),
         });
@@ -112,7 +128,7 @@ pub fn decode_mlut(bytes: &[u8]) -> Result<FilmLut, MlutError> {
         .ok_or(MlutError::GridOverflow(grid))?;
     let expected = HEADER_LEN + payload_len;
     if bytes.len() != expected {
-        return Err(MlutError::Truncated {
+        return Err(MlutError::LengthMismatch {
             expected,
             actual: bytes.len(),
         });
@@ -211,6 +227,13 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "data.len()")]
+    fn encode_mlut_panics_on_data_length_mismatch() {
+        // size=2 wants 2*2*2*3 = 24 values; hand it one fewer.
+        let _ = encode_mlut(2, &vec![0.0f32; 23]);
+    }
+
+    #[test]
     fn mlut_round_trip_preserves_f16_exact_values() {
         // k/32 grid values are exact in f16, so identity survives round-trip bitwise.
         let n = 3usize;
@@ -221,21 +244,50 @@ mod tests {
     }
 
     #[test]
-    fn mlut_rejects_bad_magic_version_and_truncation() {
+    fn mlut_rejects_bad_magic_version_and_length_mismatch() {
         let good = encode_mlut(2, &vec![0.5f32; 2 * 2 * 2 * 3]);
         assert!(decode_mlut(&good[1..]).is_err()); // bad magic
         let mut v = good.clone();
         v[4] = 9; // bad version
         assert!(decode_mlut(&v).is_err());
-        assert!(decode_mlut(&good[..good.len() - 2]).is_err()); // truncated payload
+        // Shorter than the declared grid's payload.
+        assert!(matches!(
+            decode_mlut(&good[..good.len() - 2]),
+            Err(MlutError::LengthMismatch { .. })
+        ));
+        // Longer than the declared grid's payload — LengthMismatch fires
+        // both ways, not just on truncation (the old "Truncated" name and
+        // wording implied short-only).
+        let mut longer = good.clone();
+        longer.extend_from_slice(&[0, 0]);
+        assert!(matches!(
+            decode_mlut(&longer),
+            Err(MlutError::LengthMismatch { .. })
+        ));
+    }
+
+    /// Hand-builds raw `.mlut` bytes (magic + version + grid header +
+    /// payload), bypassing `encode_mlut`'s own `size >= 2` assert — these
+    /// cases exercise `decode_mlut`'s defenses against untrusted/hand-edited
+    /// wire bytes, which `encode_mlut` (a programmer-misuse-only encoder)
+    /// is not in the loop for.
+    fn raw_mlut_bytes(grid: u16, payload: &[f32]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(HEADER_LEN + payload.len() * 2);
+        out.extend_from_slice(MAGIC);
+        out.extend_from_slice(&VERSION.to_le_bytes());
+        out.extend_from_slice(&grid.to_le_bytes());
+        for &v in payload {
+            out.extend_from_slice(&f16::from_f32(v).to_bits().to_le_bytes());
+        }
+        out
     }
 
     #[test]
     fn mlut_rejects_degenerate_grid_sizes() {
         // grid=0: an otherwise well-formed header + empty payload.
-        assert!(decode_mlut(&encode_mlut(0, &[])).is_err());
+        assert!(decode_mlut(&raw_mlut_bytes(0, &[])).is_err());
         // grid=1: well-formed header + a single (degenerate) node's payload.
-        assert!(decode_mlut(&encode_mlut(1, &[0.0f32, 0.0, 0.0])).is_err());
+        assert!(decode_mlut(&raw_mlut_bytes(1, &[0.0f32, 0.0, 0.0])).is_err());
     }
 
     #[test]
