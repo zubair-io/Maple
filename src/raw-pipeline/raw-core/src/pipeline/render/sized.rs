@@ -29,7 +29,7 @@ pub fn render_sized_from_raw_with_quality_and_source(
     raw_source: Option<RawInput<'_>>,
     max_long_edge: u32,
 ) -> Result<(u32, u32, Vec<u8>)> {
-    render_display_from_raw(raw, model, quality, raw_source, Some(max_long_edge))
+    render_display_from_raw(raw, model, quality, raw_source, Some(max_long_edge), None)
 }
 
 /// The oriented output dimensions a `RenderQuality::Full` render of `raw`
