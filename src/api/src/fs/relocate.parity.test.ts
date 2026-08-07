@@ -57,7 +57,12 @@ interface CorpusCase {
     newName?: string;
     name?: string;
   };
-  fileinfo?: { path: string; filename: string; deleted_at: string | null; missing_since: string | null }[];
+  fileinfo?: {
+    path: string;
+    filename: string;
+    deleted_at: string | null;
+    missing_since: string | null;
+  }[];
   expected: {
     outcome?: 'relocated' | 'skipped' | 'error';
     renamedOnCollision?: boolean;
@@ -174,7 +179,8 @@ async function requiresSkipReason(c: CorpusCase): Promise<string | null> {
       case 'multi-location-fileinfo':
         continue; // always available to the Bun/API runner on macOS+Linux
       case 'case-insensitive-fs':
-        if (!(await probeCaseInsensitiveFs())) return 'case-insensitive-fs: temp volume is case-sensitive';
+        if (!(await probeCaseInsensitiveFs()))
+          return 'case-insensitive-fs: temp volume is case-sensitive';
         continue;
       default:
         return `unknown capability "${cap}"`;
@@ -224,14 +230,19 @@ async function runRelocateCase(c: CorpusCase): Promise<void> {
       collision: op.collision as CollisionPolicy,
     });
 
-    const actualOutcome = outcome.kind === 'relocated' ? 'relocated' : outcome.kind === 'skipped' ? 'skipped' : 'error';
+    const actualOutcome =
+      outcome.kind === 'relocated' ? 'relocated' : outcome.kind === 'skipped' ? 'skipped' : 'error';
     expect(actualOutcome, `${c.name}: outcome`).toBe(c.expected.outcome!);
     if (outcome.kind === 'relocated') {
       if (c.expected.renamedOnCollision !== undefined) {
-        expect(outcome.renamedOnCollision, `${c.name}: renamedOnCollision`).toBe(c.expected.renamedOnCollision);
+        expect(outcome.renamedOnCollision, `${c.name}: renamedOnCollision`).toBe(
+          c.expected.renamedOnCollision,
+        );
       }
       if (c.expected.sidecarFollowed !== undefined) {
-        expect(outcome.sidecarPaths.length > 0, `${c.name}: sidecarFollowed`).toBe(c.expected.sidecarFollowed);
+        expect(outcome.sidecarPaths.length > 0, `${c.name}: sidecarFollowed`).toBe(
+          c.expected.sidecarFollowed,
+        );
       }
     }
 
@@ -261,7 +272,9 @@ function runSelectorCase(c: CorpusCase): void {
   const expectedEntry =
     c.expected.selectedIndex === undefined ? null : c.fileinfo![c.expected.selectedIndex];
   expect(selected?.path ?? null, `${c.name}: activeFileInfo`).toBe(expectedEntry?.path ?? null);
-  expect(selected?.filename ?? null, `${c.name}: activeFileInfo`).toBe(expectedEntry?.filename ?? null);
+  expect(selected?.filename ?? null, `${c.name}: activeFileInfo`).toBe(
+    expectedEntry?.filename ?? null,
+  );
 }
 
 // ---------------------------------------------------------------------------
