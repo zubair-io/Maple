@@ -70,7 +70,7 @@ describe('InlineRenameFieldComponent', () => {
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
 
-    const warning = fixture.nativeElement.querySelector('.hint-warning');
+    const warning = fixture.nativeElement.querySelector('[id$="-warning"]');
     expect(warning?.textContent).toMatch(/does not convert/i);
     expect(fixture.componentInstance.extensionChanged()).toBe(true);
   });
@@ -82,13 +82,13 @@ describe('InlineRenameFieldComponent', () => {
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.querySelector('.hint-warning')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[id$="-warning"]')).toBeNull();
     expect(fixture.componentInstance.extensionChanged()).toBe(false);
   });
 
   it('renders the server error inline next to the field', () => {
     const { fixture } = setup({ filename: 'IMG_0001.CR3', error: 'CON is a reserved name' });
-    const error = fixture.nativeElement.querySelector('.hint-error');
+    const error = fixture.nativeElement.querySelector('[id$="-error"]');
     expect(error?.textContent).toContain('CON is a reserved name');
   });
 
@@ -99,6 +99,24 @@ describe('InlineRenameFieldComponent', () => {
       (b as HTMLElement).textContent?.trim(),
     );
     expect(buttons).toEqual(expect.arrayContaining(['Cancel', 'Keep Both', 'Replace']));
+  });
+
+  it('keeps the attempted name (not the original filename) when a collision arrives (#2706 review)', () => {
+    const { fixture } = setup({ filename: 'IMG_0001.CR3' });
+    const input = fixture.nativeElement.querySelector('input') as HTMLInputElement;
+    input.value = 'IMG_0002.CR3';
+    input.dispatchEvent(new Event('input'));
+    expect(fixture.componentInstance.draft()).toBe('IMG_0002.CR3');
+
+    // The server came back with a collision for the attempted name — the
+    // draft must keep showing "IMG_0002.CR3" (the collision message reads
+    // it), NOT reset to the original "IMG_0001.CR3".
+    fixture.componentRef.setInput('collision', true);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.draft()).toBe('IMG_0002.CR3');
+    const message = fixture.nativeElement.textContent as string;
+    expect(message).toContain('IMG_0002.CR3');
   });
 
   it('emits collisionResolved("replace") from the Replace button', () => {

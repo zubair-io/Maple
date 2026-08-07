@@ -50,6 +50,7 @@ import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import { ApiFolder } from '../api/bun-api-backend.service';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { MapleIndex } from '../maple-cache/maple-cache.types';
+import { rekeyAssetId } from './library-store-rename';
 import { parseAddress } from '../addressing/maple-address';
 import type { XmpCulling } from '../xmp/xmp.types';
 
@@ -203,44 +204,26 @@ export class LibraryStore {
     );
   }
 
-  /**
-   * Repoint an asset from `oldId` to `newId` after a successful rename
-   * (#2637). `Asset.id` IS the `slug:relPath` address (see maple-address.ts),
-   * so a rename — which changes `relPath` — mints a new id; every id-keyed
-   * map here has to follow rather than orphan its entry under the stale key.
-   * `newFilename` is written onto the asset row itself in the same pass.
-   *
-   * Selection (`LibrarySelection.selectedAssetIds`/`focusedAssetId`) is a
-   * separate store and rekeys itself — see `LibrarySelection.renameAssetId`.
-   */
+  /** Repoint an asset from `oldId` to `newId` after a successful rename
+   * (#2637) — see `library-store-rename.ts`'s `rekeyAssetId` doc for the
+   * "why" (Asset.id IS the slug:relPath address) and the full list of
+   * id-keyed state this touches. Extracted to a free function to keep this
+   * file under the budget-headroom ceiling (#2311). */
   renameAssetId(oldId: AssetId, newId: AssetId, newFilename: string): void {
-    if (oldId === newId) return;
-    this.assets.update((list) =>
-      list.map((a) => (a.id === oldId ? { ...a, id: newId, filename: newFilename } : a)),
+    rekeyAssetId(
+      {
+        assets: this.assets,
+        adjustmentModels: this.adjustmentModels,
+        apiAssetIds: this.apiAssetIds,
+        assetAbsPaths: this.assetAbsPaths,
+        asShotWb: this.asShotWb,
+        sessionEdited: this._sessionEdited,
+        sessionCullingPatches: this._sessionCullingPatches,
+      },
+      oldId,
+      newId,
+      newFilename,
     );
-    const rekey = <V>(map: Map<AssetId, V>): void => {
-      if (!map.has(oldId)) return;
-      const value = map.get(oldId) as V;
-      map.delete(oldId);
-      map.set(newId, value);
-    };
-    this.adjustmentModels.update((map) => {
-      const next = new Map(map);
-      rekey(next);
-      return next;
-    });
-    rekey(this.apiAssetIds);
-    rekey(this.assetAbsPaths);
-    rekey(this.asShotWb);
-    if (this._sessionEdited.has(oldId)) {
-      this._sessionEdited.delete(oldId);
-      this._sessionEdited.add(newId);
-    }
-    if (this._sessionCullingPatches.has(oldId)) {
-      const patch = this._sessionCullingPatches.get(oldId) as Partial<XmpCulling>;
-      this._sessionCullingPatches.delete(oldId);
-      this._sessionCullingPatches.set(newId, patch);
-    }
   }
 
   /**
