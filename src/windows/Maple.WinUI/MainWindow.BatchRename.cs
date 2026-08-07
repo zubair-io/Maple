@@ -174,12 +174,42 @@ namespace Maple.WinUI
             };
             var progressShown = progressDialog.ShowAsync();
 
-            var outcomes = await ViewModel.ApplyBatchRenameAsync(
-                eligible, sources, template, sequenceStart, sequencePadWidth, collision,
-                (done, total) => OnUiThread(() => statusText.Text = $"Renaming {done} of {total}…"));
+            // The dialog has no Cancel affordance, so if ApplyBatchRenameAsync
+            // throws something BatchRenameLogic itself didn't already turn
+            // into a per-item Error outcome (FileOperationException/IOException/
+            // UnauthorizedAccessException are all caught there), the modal
+            // must still come down — otherwise it covers the app forever and
+            // the only way out is killing the process. Teardown lives in
+            // `finally`; the catch re-surfaces the failure instead of letting
+            // `finally` silently swallow it.
+            System.Collections.Generic.IReadOnlyList<BatchRenameItemOutcome> outcomes =
+                System.Array.Empty<BatchRenameItemOutcome>();
+            Exception? unexpected = null;
+            try
+            {
+                outcomes = await ViewModel.ApplyBatchRenameAsync(
+                    eligible, sources, template, sequenceStart, sequencePadWidth, collision,
+                    (done, total) => OnUiThread(() => statusText.Text = $"Renaming {done} of {total}…"));
+            }
+            catch (Exception ex)
+            {
+                unexpected = ex;
+            }
+            finally
+            {
+                progressDialog.Hide();
+                await progressShown;
+            }
 
-            progressDialog.Hide();
-            await progressShown;
+            if (unexpected != null)
+            {
+                AnnounceRename("Batch rename failed.");
+                await ShowMessageAsync("Batch Rename failed",
+                    $"An unexpected error stopped the batch partway through: {unexpected.Message}\n\n"
+                    + "Photos already renamed before the error stay renamed; check the grid for what "
+                    + "went through.");
+                return;
+            }
 
             var relocated = outcomes.Count(o => o.Kind == BatchRenameOutcomeKind.Relocated);
             var failed = outcomes.Count - relocated;
@@ -273,11 +303,18 @@ namespace Maple.WinUI
             return grid;
         }
 
+        /// <summary>Inserts <paramref name="token"/> at the caret, REPLACING
+        /// any current selection rather than leaving it in place next to the
+        /// inserted token — a user who highlights part of the template
+        /// (e.g. to swap `{n}` for `{date:%Y-%m-%d}`) expects the token
+        /// button to behave like typing over the selection.</summary>
         private static void InsertToken(TextBox box, string token)
         {
             var text = box.Text ?? string.Empty;
             var caret = Math.Clamp(box.SelectionStart, 0, text.Length);
-            box.Text = text.Insert(caret, token);
+            var selectionLength = Math.Clamp(box.SelectionLength, 0, text.Length - caret);
+            var withoutSelection = text.Remove(caret, selectionLength);
+            box.Text = withoutSelection.Insert(caret, token);
             box.Select(caret + token.Length, 0);
         }
 
