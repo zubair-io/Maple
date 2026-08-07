@@ -6,7 +6,7 @@ import { provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LayoutService, type MapleLayout } from '../../layout-service';
 import { LibraryStateService } from '../../state/library-state.service';
-import { AssetRenameService } from '../../rename/asset-rename.service';
+import { ASSET_RENAME_CAPABILITY } from '../../rename/asset-rename-capability';
 import { STORAGE_KEYS } from '../../util/typed-storage';
 import { provideHostedWorkspace } from '../../workspace/hosted-workspace.providers';
 import { BrowseShellComponent } from './browse-shell.component';
@@ -141,6 +141,40 @@ describe('BrowseShellComponent capability boundary', () => {
   });
 
   it('F2 opens the inline-rename field for the focused asset (#2637)', () => {
+    // Provides a local fake for ASSET_RENAME_CAPABILITY rather than spying
+    // on the shared NOOP_CAPABILITY singleton the token's default factory
+    // returns — spying on that module-level object would leak a mock into
+    // every other spec that resolves the same default. Re-runs the module
+    // setup from `beforeEach` (`TestBed.inject` there already instantiated
+    // the module, and `overrideProvider` cannot run post-instantiation) with
+    // this one extra provider added.
+    clearPreferences();
+    const startEditing = vi.fn();
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideHostedWorkspace(),
+        { provide: LayoutService, useValue: { layout } },
+        {
+          provide: ASSET_RENAME_CAPABILITY,
+          useValue: {
+            editingAssetId: signal(null),
+            error: signal(null),
+            busy: signal(false),
+            collision: signal(null),
+            disabledReason: () => null,
+            startEditing,
+            cancel: vi.fn(),
+            commit: vi.fn(),
+            resolveCollision: vi.fn(),
+          },
+        },
+      ],
+    });
+    http = TestBed.inject(HttpTestingController);
     const fixture = TestBed.createComponent(BrowseShellComponent);
     fixture.detectChanges();
     const state = fixture.componentInstance.state;
@@ -156,8 +190,6 @@ describe('BrowseShellComponent capability boundary', () => {
     };
     vi.spyOn(state, 'focusedAssetId').mockReturnValue(asset.id as never);
     vi.spyOn(state, 'focusedAsset').mockReturnValue(asset);
-    const renameSvc = TestBed.inject(AssetRenameService);
-    const startEditing = vi.spyOn(renameSvc, 'startEditing');
 
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2', bubbles: true }));
     fixture.detectChanges();

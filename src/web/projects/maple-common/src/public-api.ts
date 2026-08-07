@@ -249,6 +249,7 @@ export * from './lib/batch-metadata/batch-metadata-panel.component';
 export * from './lib/batch-metadata/batch-metadata-confirm-dialog.component';
 
 // #2637 — Inline single-asset rename (grid cell / info panel double-click, F2).
+export * from './lib/rename/asset-rename-capability';
 export * from './lib/rename/asset-rename.service';
 
 // M2 — Unified library addressing (MapleAddress + LibrarySource strategy).

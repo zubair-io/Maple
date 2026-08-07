@@ -39,7 +39,10 @@ import {
   type AdjustmentGroupId,
 } from '../../editor/copy-paste/adjustment-groups';
 import { selectSidebarEntry } from './source-selection';
-import { AssetRenameService } from '../../rename/asset-rename.service';
+// Interface, not the concrete AssetRenameService — see
+// asset-rename-capability.ts's module doc (keeps BunApiBackendService out
+// of Hosted's static bundle; BrowseShellComponent is shared by both apps).
+import { ASSET_RENAME_CAPABILITY } from '../../rename/asset-rename-capability';
 
 @Component({
   selector: 'browse-shell',
@@ -66,7 +69,7 @@ export class BrowseShellComponent {
   private route = inject(ActivatedRoute);
   private readonly clipboard = inject(AdjustmentClipboardService);
   private readonly layoutService = inject(LayoutService);
-  private readonly renameSvc = inject(AssetRenameService);
+  private readonly renameSvc = inject(ASSET_RENAME_CAPABILITY);
 
   /** Active breakpoint — drives the source sidebar (inline pane vs phone
    * overlay drawer) and the toolbar action collapse. See `LayoutService`. */
