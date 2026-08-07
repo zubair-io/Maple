@@ -11,7 +11,10 @@
  *   - KNOWN numeric fields must be finite numbers within the canonical
  *     range; KNOWN string fields must be non-empty strings (variant-level
  *     enum checks stay client-side so a downlevel server never rejects an
- *     uplevel client's preset).
+ *     uplevel client's preset) — EXCEPT the free-form fields in
+ *     `FREE_FORM_STRING_FIELDS` (currently just `film_look`), whose empty
+ *     string is itself a valid, meaningful value (explicit "clear the
+ *     look") rather than a missing one.
  *   - UNKNOWN fields (newer schema versions) are accepted and preserved
  *     verbatim — but must still be JSON scalars within size caps, so the
  *     collection can't be used as a blob store.
@@ -24,6 +27,7 @@
 
 import {
   NUMERIC_FIELD_RANGES,
+  allowsEmptyString,
   isKnownNumericField,
   isKnownStringField,
 } from './adjustment-fields.ts';
@@ -112,7 +116,10 @@ export function validatePresetFields(raw: unknown): { fields: PresetFields } | {
       continue;
     }
     if (isKnownStringField(key)) {
-      if (typeof value !== 'string' || value.length === 0) {
+      if (typeof value !== 'string') {
+        return { error: `field "${key}" must be a string` };
+      }
+      if (value.length === 0 && !allowsEmptyString(key)) {
         return { error: `field "${key}" must be a non-empty string` };
       }
       if (value.length > PRESET_STRING_VALUE_MAX) {

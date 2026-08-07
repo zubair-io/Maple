@@ -69,6 +69,22 @@ describe('validatePresetFields', () => {
     expect(validatePresetFields({ profile: '' })).toHaveProperty('error');
   });
 
+  it('accepts an empty string for film_look — its canonical "clear the look" value', () => {
+    expect(validatePresetFields({ film_look: '' })).toEqual({
+      fields: { film_look: '' },
+    });
+  });
+
+  it('still rejects an empty string for other (closed-enum) string fields', () => {
+    expect(validatePresetFields({ wb_method: '' })).toHaveProperty('error');
+    expect(validatePresetFields({ look: '' })).toHaveProperty('error');
+    expect(validatePresetFields({ black_white: '' })).toHaveProperty('error');
+  });
+
+  it('rejects non-string values for film_look same as any other string field', () => {
+    expect(validatePresetFields({ film_look: 1 })).toHaveProperty('error');
+  });
+
   it('preserves unknown scalar fields (passthrough rule)', () => {
     expect(
       validatePresetFields({ future_curve_strength: 0.5, future_mode: 'Soft', future_flag: true }),
