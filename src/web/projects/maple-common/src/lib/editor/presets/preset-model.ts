@@ -174,6 +174,43 @@ export function capturePresetFields(adj: AdjustmentModel): PresetFields {
 // ── Apply (sparse merge patch) ────────────────────────────────────────────
 
 /**
+ * Coerce a raw preset value for a known NUMERIC generated field: must be a
+ * finite number, clamped to the field's canonical generated range.
+ * Returns `undefined` when the value doesn't qualify (skip on apply).
+ */
+function coerceNumericField(
+  key: keyof GeneratedAdjustmentModel,
+  value: PresetFields[string],
+): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  const range = ADJUSTMENT_RANGES[key as keyof typeof ADJUSTMENT_RANGES];
+  return range ? Math.min(range[1], Math.max(range[0], value)) : value;
+}
+
+/**
+ * Coerce a raw preset value for a known enum-valued field: applied only
+ * when it's a member of that field's `ENUM_FIELD_VALUES` variant list.
+ * Returns `undefined` for an unknown variant (e.g. a retired one like the
+ * `profile` field's old `AcrMatch`) — skip on apply.
+ */
+function coerceEnumField(snakeKey: string, value: string): string | undefined {
+  const allowed = ENUM_FIELD_VALUES[snakeKey];
+  return allowed?.includes(value) ? value : undefined;
+}
+
+/**
+ * Coerce a raw preset value for a known STRING generated field (must
+ * already be typed as `string`): free-form fields (`FREE_FORM_STRING_FIELDS`,
+ * e.g. `film_look`) apply any string verbatim — including the empty
+ * string, which is `film_look`'s canonical "no look" / explicit-clear
+ * value — since there is no fixed variant list to check against. Every
+ * other string field is a closed enum, delegated to `coerceEnumField`.
+ */
+function coerceStringField(snakeKey: string, value: string): string | undefined {
+  return FREE_FORM_STRING_FIELDS.has(snakeKey) ? value : coerceEnumField(snakeKey, value);
+}
+
+/**
  * Build the `Partial<AdjustmentModel>` patch a preset applies. Defensive
  * by design — storage is validated at create time, but presets written by
  * NEWER schema versions flow through here too:
@@ -192,25 +229,14 @@ export function buildApplyPatch(fields: PresetFields): Partial<AdjustmentModel> 
   for (const [snakeKey, value] of Object.entries(fields)) {
     const key = SNAKE_TO_GENERATED_KEY.get(snakeKey);
     if (!key) continue; // Unknown field (newer schema) — skip on apply.
-    if (typeof GENERATED_DEFAULTS[key] === 'number') {
-      if (typeof value !== 'number' || !Number.isFinite(value)) continue;
-      const range = ADJUSTMENT_RANGES[key as keyof typeof ADJUSTMENT_RANGES];
-      const clamped = range ? Math.min(range[1], Math.max(range[0], value)) : value;
-      (patch as Record<string, number>)[key] = clamped;
-      continue;
-    }
-    if (typeof value !== 'string') continue;
-    if (FREE_FORM_STRING_FIELDS.has(snakeKey)) {
-      // No fixed variant list (e.g. `film_look`, a catalog id) — apply any
-      // string, including one the current catalog doesn't recognise (it
-      // resolves to identity at render time; see the field's doc comment).
-      (patch as Record<string, string>)[key] = value;
-      continue;
-    }
-    // Enum-valued field: apply only known variants.
-    const allowed = ENUM_FIELD_VALUES[snakeKey];
-    if (allowed?.includes(value)) {
-      (patch as Record<string, string>)[key] = value;
+    const resolved =
+      typeof GENERATED_DEFAULTS[key] === 'number'
+        ? coerceNumericField(key, value)
+        : typeof value === 'string'
+          ? coerceStringField(snakeKey, value)
+          : undefined;
+    if (resolved !== undefined) {
+      (patch as Record<string, number | string>)[key] = resolved;
     }
   }
   return patch;
