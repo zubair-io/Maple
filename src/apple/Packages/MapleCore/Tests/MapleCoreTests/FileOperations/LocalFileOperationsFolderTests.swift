@@ -103,4 +103,63 @@ final class LocalFileOperationsFolderTests: XCTestCase {
 
         XCTAssertEqual(trashed.lastPathComponent, "Album.1")
     }
+
+    // MARK: - Name validation (#2645 review — traversal via an unvalidated
+    // New Folder / Rename name). `appendingPathComponent` splits on an
+    // embedded `/`, so an unvalidated name could create a directory outside
+    // the intended parent, bounded only by the OS-level reach of whatever
+    // security-scoped bookmark was in effect. These use real temp
+    // directories (not mocks — CLAUDE.md's "no mocks" note is specifically
+    // about the sidecar layer, but a real filesystem is the honest way to
+    // prove nothing escaped `root` regardless).
+
+    func testCreateFolderRefusesATraversalName() throws {
+        XCTAssertThrowsError(try LocalFileOperations.createFolder(named: "../x", in: root)) { error in
+            guard case FileOperationError.invalidName = error else {
+                return XCTFail("expected .invalidName, got \(error)")
+            }
+        }
+        XCTAssertFalse(FileOperationsTestSupport.exists(root.deletingLastPathComponent().appendingPathComponent("x")),
+                       "must not have created anything outside root")
+    }
+
+    func testCreateFolderRefusesAnEmbeddedSeparator() throws {
+        XCTAssertThrowsError(try LocalFileOperations.createFolder(named: "a/b", in: root)) { error in
+            guard case FileOperationError.invalidName = error else {
+                return XCTFail("expected .invalidName, got \(error)")
+            }
+        }
+        XCTAssertFalse(FileOperationsTestSupport.exists(root.appendingPathComponent("a")))
+    }
+
+    func testCreateFolderRefusesDotAndDotDot() throws {
+        for name in [".", ".."] {
+            XCTAssertThrowsError(try LocalFileOperations.createFolder(named: name, in: root)) { error in
+                guard case FileOperationError.invalidName = error else {
+                    return XCTFail("expected .invalidName for \(name), got \(error)")
+                }
+            }
+        }
+    }
+
+    func testRenameFolderRefusesATraversalName() throws {
+        let folder = try LocalFileOperations.createFolder(named: "Album", in: root)
+        XCTAssertThrowsError(try LocalFileOperations.renameFolder(folder, to: "../escaped")) { error in
+            guard case FileOperationError.invalidName = error else {
+                return XCTFail("expected .invalidName, got \(error)")
+            }
+        }
+        XCTAssertTrue(FileOperationsTestSupport.exists(folder), "a rejected rename must not touch the folder")
+        XCTAssertFalse(FileOperationsTestSupport.exists(root.deletingLastPathComponent().appendingPathComponent("escaped")))
+    }
+
+    func testMoveFolderRefusesAnEmbeddedSeparatorInNewName() throws {
+        let folder = try LocalFileOperations.createFolder(named: "Album", in: root)
+        let newParent = try LocalFileOperations.createFolder(named: "Archive", in: root)
+        XCTAssertThrowsError(try LocalFileOperations.moveFolder(folder, into: newParent, newName: "a/b")) { error in
+            guard case FileOperationError.invalidName = error else {
+                return XCTFail("expected .invalidName, got \(error)")
+            }
+        }
+    }
 }
