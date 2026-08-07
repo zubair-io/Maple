@@ -364,6 +364,10 @@
                                 <TextBlock x:Name="LibraryCountText" VerticalAlignment="Center" FontSize="12"
                                            Foreground="{StaticResource MapleTextMuted}" Margin="8,0,0,0"
                                            AutomationProperties.LiveSetting="Polite" />
+                                <!-- Narrator-only: announces inline-rename commit/cancel outcomes
+                                     (#2639). Zero visual footprint — content, not chrome. -->
+                                <TextBlock x:Name="RenameStatusText" Width="0" Height="0" Opacity="0"
+                                           AutomationProperties.LiveSetting="Polite" />
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right"
                                         VerticalAlignment="Center">
@@ -421,12 +425,25 @@
                                              Visibility="{Binding FlagStatus, Converter={StaticResource PickVisible}}" />
                                     <Border VerticalAlignment="Bottom" Background="#B3141210" Padding="6,3">
                                         <Grid>
+                                            <!-- Inline rename (#2639): F2 or double-click swaps this
+                                                 TextBlock for the TextBox below. Same PhotoItem, so both
+                                                 surfaces stay in sync via IsRenaming/RenameText. -->
                                             <TextBlock Text="{Binding FileName}" FontSize="10"
                                                        Foreground="{StaticResource MapleTextMain}"
-                                                       TextTrimming="CharacterEllipsis" Margin="0,0,48,0" />
+                                                       TextTrimming="CharacterEllipsis" Margin="0,0,48,0"
+                                                       Visibility="{Binding IsRenaming, Converter={StaticResource InverseBoolVisible}}"
+                                                       DoubleTapped="OnFileNameDoubleTapped" />
+                                            <TextBox Text="{Binding RenameText, Mode=TwoWay}" FontSize="10"
+                                                      Padding="2,0" Margin="0,0,48,0"
+                                                      Visibility="{Binding IsRenaming, Converter={StaticResource BoolVisible}}"
+                                                      AutomationProperties.Name="Rename file"
+                                                      KeyDown="OnRenameTextBoxKeyDown"
+                                                      LostFocus="OnRenameTextBoxLostFocus"
+                                                      DoubleTapped="OnRenameTextBoxDoubleTapped" />
                                             <TextBlock Text="{Binding RatingStars}" FontSize="9"
                                                        Foreground="{StaticResource MapleStar}"
-                                                       HorizontalAlignment="Right" />
+                                                       HorizontalAlignment="Right"
+                                                       Visibility="{Binding IsRenaming, Converter={StaticResource InverseBoolVisible}}" />
                                         </Grid>
                                     </Border>
                                 </Grid>

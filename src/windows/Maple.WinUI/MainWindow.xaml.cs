@@ -99,7 +99,16 @@ namespace Maple.WinUI
             SidebarColDef.Width = new GridLength(_settings.LeftPanelHidden ? 0 : _settings.LeftPanelWidth);
             PhotoGrid.PreviewKeyDown += (_, e) =>
             {
-                if (e.Key == VirtualKey.Enter)
+                // Tunnels from the grid down to whatever's focused —
+                // including a cell's inline-rename TextBox (#2639). Without
+                // this guard, pressing Enter to commit a rename would be
+                // intercepted here first and open Preview instead; the
+                // TextBox's own KeyDown handler (OnRenameTextBoxKeyDown)
+                // never gets Enter once Handled is set during the tunnel
+                // pass. Same guard OnRootKeyDown already uses for the same
+                // reason.
+                if (e.Key == VirtualKey.Enter
+                    && FocusManager.GetFocusedElement(this.Content.XamlRoot) is not TextBox)
                 {
                     EnterPreview();
                     e.Handled = true;
@@ -542,6 +551,13 @@ namespace Maple.WinUI
                 // ListViewBase.SelectAll — valid because PhotoGrid is
                 // SelectionMode="Extended" (it throws only in Single/None).
                 case VirtualKey.A when ctrl && _mode == ShellMode.Browse: PhotoGrid.SelectAll(); break;
+                // Inline rename (#2639): same "sole selection, else resolved
+                // primary target" rule Enter uses to open a photo — see
+                // ResolveRenameTarget's doc comment.
+                case VirtualKey.F2 when _mode == ShellMode.Browse:
+                    if (ViewModel.ResolveRenameTarget() is { } renameTarget)
+                        StartRename(renameTarget);
+                    break;
                 case VirtualKey.E when !ctrl && _mode == ShellMode.Preview:
                     SetMode(ShellMode.Edit);
                     ViewModel.EnsureDecoded();
