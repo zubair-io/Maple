@@ -20,6 +20,7 @@ import {
   RenderConfigService,
   authInterceptor,
   provideAuthBootstrap,
+  provideBatchRename,
   provideFolderTreeCrud,
   provideFolderTreeExtensions,
   provideInfoPanelExtension,
@@ -55,6 +56,11 @@ export const appConfig: ApplicationConfig = {
     // never calls this, so `FOLDER_TREE_CRUD_ENABLED` stays `false` there
     // and the folder-tree context menu never opens (#2643 / #2705 review).
     provideFolderTreeCrud(),
+    // Batch Rename (#2640) targets the same `POST /api/assets/batch-rename`
+    // Self-Hosted-only surface as single-asset rename (#2637). Hosted's
+    // app.config never calls this, so `BATCH_RENAME_ENABLED` stays `false`
+    // there and the toolbar action stays disabled/no-op.
+    provideBatchRename(),
     {
       provide: PREVIEW_VIDEO_ACCESS,
       useFactory: () => {

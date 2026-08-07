@@ -24,3 +24,16 @@
   [assetSnapshots]="controller.metadataSnapshots()"
   (dismiss)="controller.dismissMetadata()"
 />
+
+<!-- Batch Rename dialog (#2640) — mounted fresh per open, same "mount
+     fresh" convention as `FolderTreeCrudComponent` (#2643): the `@if`
+     tears the component down as soon as `dismiss` nulls the gating state,
+     so the next open gets a clean instance. See `public-api.ts`'s #2640
+     note for why this is a plain `@if`, not `@defer`. -->
+@if (controller.batchRenameVisible()) {
+  <app-batch-rename-dialog
+    [selections]="controller.batchRenameSelections()"
+    (dismiss)="controller.dismissBatchRename()"
+    (applied)="controller.onBatchRenameApplied()"
+  />
+}
