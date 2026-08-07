@@ -50,6 +50,10 @@ const TOOL_GRADIENTS: Record<ToolId, GradientValue> = {
   vignette: 'linear-gradient(90deg, #08070a 0%, #6e675e 50%, #08070a 100%)',
   grain: 'linear-gradient(90deg, #1d1b17 0%, #a8a097 100%)',
   colorGrade: 'linear-gradient(90deg, #3b6fb0 0%, #a8a097 50%, #c4493a 100%)',
+  // Film emulation (#2683) — field-less tool (catalog picker, not a single
+  // drag-bar field), same shape as colorGrade/hsl/bwMix; neutral safety
+  // fallback like the non-slider tools below.
+  filmLook: 'linear-gradient(90deg, #4a443b 0%, #a8a097 100%)',
 
   // Detail group
   sharpen: 'linear-gradient(90deg, #4a443b 0%, #f2efe9 100%)',

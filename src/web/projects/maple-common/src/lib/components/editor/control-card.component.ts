@@ -83,6 +83,7 @@ const SUBTOOLS: Partial<Record<ToolGroup, readonly Subtool[]>> = {
   effects: [
     { id: null, label: 'Basic' },
     { id: 'colorGrade', label: 'Grade' },
+    { id: 'filmLook', label: 'Film' },
   ],
 };
 

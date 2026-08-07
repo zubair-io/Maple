@@ -50,6 +50,10 @@
   <pro-color-grading-panel />
 </ng-template>
 
+<ng-template #cardBodyFilmTpl>
+  <film-panel />
+</ng-template>
+
 <div class="shell" [class.shell--desktop]="isDesktop()">
   <!-- ── Full-bleed canvas (back layer) ──────────────────────────────── -->
   <div #canvasWrap class="canvas-layer" (pointerdown)="onCanvasPointerDown($event)">
@@ -302,6 +306,14 @@
             <div cardBodyGrade>
               <ng-container *ngTemplateOutlet="cardBodyGradeTpl" />
             </div>
+
+            <!-- Film body (#2683) — category-grouped catalog picker + strength
+                 slider. Projected into the control card's `cardBodyFilm` slot,
+                 shown whenever `activeTool()` is 'filmLook'. Body authored once
+                 in `cardBodyFilmTpl` above (shared with the phone card). -->
+            <div cardBodyFilm>
+              <ng-container *ngTemplateOutlet="cardBodyFilmTpl" />
+            </div>
           </pro-control-card>
         </div>
       }
@@ -346,6 +358,13 @@
                  above. -->
             <div cardBodyGrade>
               <ng-container *ngTemplateOutlet="cardBodyGradeTpl" />
+            </div>
+
+            <!-- Film body (#2683) — same content as tablet/desktop's
+                 `cardBodyFilm` slot, authored once in `cardBodyFilmTpl`
+                 above. -->
+            <div cardBodyFilm>
+              <ng-container *ngTemplateOutlet="cardBodyFilmTpl" />
             </div>
           </pro-control-card>
         </div>
