@@ -62,8 +62,20 @@ extension LocalFileOperations {
         guard target.standardizedFileURL.path != sourcePath else {
             return folderURL  // already there — a no-op rename-to-itself
         }
-        guard !FileManager.default.fileExists(atPath: target.path) else {
-            throw FileOperationError.destinationExists(target.path)
+        // A case-only rename (`Album` -> `ALBUM` in the SAME parent, on a
+        // case-insensitive-but-case-preserving filesystem — APFS default)
+        // is the SAME on-disk directory as the source: `fileExists` below
+        // would see the target as already occupied by itself and refuse a
+        // legitimate rename (found by the #2633 cross-platform parity
+        // harness — mirrors the asset-relocate fix in
+        // `LocalFileOperations.classifySameFile`/`performCaseOnlyRename`).
+        // Skip the occupancy check for this one case and let the atomic
+        // `moveItem` below perform the casing-only rename directly.
+        let isCaseOnlyRename = target.standardizedFileURL.path.caseInsensitiveCompare(sourcePath) == .orderedSame
+        if !isCaseOnlyRename {
+            guard !FileManager.default.fileExists(atPath: target.path) else {
+                throw FileOperationError.destinationExists(target.path)
+            }
         }
         try FileManager.default.createDirectory(at: newParentDir, withIntermediateDirectories: true)
         try FileManager.default.moveItem(at: folderURL, to: target)
