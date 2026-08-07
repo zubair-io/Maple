@@ -39,10 +39,20 @@ export interface DecodeRequest {
   /**
    * A baked film-look `.mlut` grid (epic #2683, Task 9) — transferable. The
    * WASM-CPU fallback's counterpart of the GPU live session's
-   * `set-film-lut` upload, used when this request routes to `render_bytes` /
-   * `render_bytes_with_film` (no GPU, or a GPU-adapter-failure fallback; see
-   * `handleLegacyDecode`). Absent/empty renders with no look applied,
+   * `set-film-lut` upload. Absent/empty renders with no look applied,
    * regardless of the sidecar's `film_look`/`film_strength` fields.
+   *
+   * ROUTING GUARANTEE: `handleLegacyDecode` routes ANY unsized request that
+   * carries a non-empty `filmLut` to `render_bytes_with_film` UNCONDITIONALLY
+   * — even on a WebGPU-capable browser with `gpu: true` set, and even on a
+   * GPU-adapter-failure fallback. `render_bytes_gpu` (the one-shot GPU path)
+   * has no film-aware sibling — only the persistent `WebLiveSession` carries
+   * a loaded look — so a filmLut-bearing decode never reaches it; correctness
+   * wins over the GPU path's speed here. A SIZED request (`maxLongEdge` set)
+   * with a `filmLut` is the one gap: it still routes through the no-look
+   * sized entry (no `render_bytes_sized_with_film` sibling exists yet) — the
+   * editor's fast/refine phases target the GPU live session for a loaded
+   * look, so this combination is not expected to be reachable from the UI.
    */
   filmLut?: ArrayBuffer;
 }

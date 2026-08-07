@@ -22,6 +22,7 @@ import type {
   WorkerRequest,
 } from './raw-pipeline.types';
 import { ensureReady } from './raw-pipeline.worker-handlers';
+import { selectLegacyDecodeRoute } from './raw-pipeline.decode-route';
 import { markStart, markEnd } from './raw-pipeline.perf';
 import { handleExport } from './raw-pipeline.export-handler';
 import {
@@ -137,20 +138,26 @@ async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
     // instead; the one-shot `render_bytes_gpu` stays the W1 parity gate /
     // session fallback for UNSIZED requests, where it self-caps its develop at
     // the WASM-side 2048 default (#1080) — no route develops full sensor res.
-    const sized = req.maxLongEdge !== undefined && req.maxLongEdge > 0;
-    // Route through the GPU live chain (#1029) only when ALL hold:
-    //   1. the request opts in (`req.gpu`, set from `GPU_LIVE_RENDER_ENABLED` —
-    //      the operator on/off switch);
-    //   2. the runtime advertises WebGPU (`'gpu' in navigator`). The shipped
-    //      bundle now co-builds the `gpu` feature (#1059), so `gpuEntry()` is
-    //      non-null on EVERY browser — without this check we'd call
-    //      `render_bytes_gpu` on a no-WebGPU browser and its `requestAdapter()`
-    //      would fail. Gating here keeps the no-WebGPU path byte-for-byte the
-    //      WASM-CPU `render_bytes` path;
-    //   3. the loaded bundle actually exports `render_bytes_gpu` (the `gpu`
-    //      feature). Belt-and-braces — false against a hypothetical gpu-off
-    //      bundle, true here.
-    const gpuFn = !sized && req.gpu && 'gpu' in navigator ? gpuEntry() : null;
+    //
+    // `selectLegacyDecodeRoute` is the single source of truth for the
+    // gpu-vs-sized-vs-film-vs-cpu precedence (epic #2683, Task 9 fix round 1:
+    // a filmLut-bearing unsized request MUST route to the CPU film-aware
+    // sibling even on a WebGPU-capable browser — `render_bytes_gpu` has no
+    // film-aware sibling — see that function's doc). Kept in a wasm-free,
+    // worker-global-free module so it has direct unit coverage
+    // (raw-pipeline.decode-route.spec.ts) despite `handleLegacyDecode` itself
+    // being untestable in this harness (it imports the generated wasm glue).
+    const route = selectLegacyDecodeRoute(req, 'gpu' in navigator);
+    const sized = route === 'sized';
+    // Materialized once (rather than re-checking `req.filmLut` per branch) so
+    // every branch below narrows on the SAME non-null `Uint8Array`.
+    const filmLutBytes =
+      req.filmLut && req.filmLut.byteLength > 0 ? new Uint8Array(req.filmLut) : null;
+    // `gpuEntry()` is the belt-and-braces bundle check (the loaded WASM bundle
+    // actually exports `render_bytes_gpu` — false against a hypothetical
+    // gpu-off bundle) that `selectLegacyDecodeRoute` can't see (it has no wasm
+    // import); only consulted when the route decision already says `gpu`.
+    const gpuFn = route === 'gpu' ? gpuEntry() : null;
     // Worker-local mark so DevTools' Performance panel shows the WASM render
     // call as a distinct entry independent of the main-thread round-trip the
     // service brackets. The mark name distinguishes the GPU/sized paths for
@@ -179,14 +186,21 @@ async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
         // `requestAdapter()` returned null, or device creation/render failed.
         // Without this retry the whole decode would error and the canvas would
         // stay blank on a machine whose GPU path is dead-on-arrival. Re-run the
-        // SAME develop on the WASM-CPU `render_bytes` so the image still
-        // renders (slower, but correct). The outer catch still handles a genuine
-        // CPU decode failure.
+        // SAME develop on the WASM-CPU side so the image still renders (slower,
+        // but correct) — via the film-aware sibling when a look is loaded
+        // (epic #2683, Task 9 fix round 1: `gpuFn` is only non-null when
+        // `route === 'gpu'`, which `selectLegacyDecodeRoute` never returns
+        // alongside a film LUT, so this branch is unreachable with one today —
+        // but the fallback stays defensive rather than silently dropping the
+        // look if that gate is ever relaxed). The outer catch still handles a
+        // genuine CPU decode failure.
         console.warn(
           '[raw-pipeline.worker] GPU render failed; falling back to CPU render_bytes:',
           gpuErr,
         );
-        result = render_bytes(bytes, req.ext, req.xmp ?? null);
+        result = filmLutBytes
+          ? render_bytes_with_film(bytes, req.ext, req.xmp ?? null, filmLutBytes)
+          : render_bytes(bytes, req.ext, req.xmp ?? null);
       }
     } else if (sized) {
       // Viewport-sized CPU render (#1101): post-demosaic stages run at the
@@ -198,14 +212,16 @@ async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
         req.qualityPreview ?? false,
         req.maxLongEdge as number,
       );
-    } else if (req.filmLut && req.filmLut.byteLength > 0) {
+    } else if (filmLutBytes) {
       // WASM-CPU path with a film-look loaded (epic #2683, Task 9) — the
-      // no-WebGPU-browser / GPU-fallback counterpart of the live session's
-      // `set-film-lut` upload. Only the unsized entry has a film-aware
-      // sibling today; a sized+film request still routes through the
-      // no-look sized path above (a rarer combination — the editor's
-      // fast/refine phases target the GPU live session for a loaded look).
-      result = render_bytes_with_film(bytes, req.ext, req.xmp ?? null, new Uint8Array(req.filmLut));
+      // no-WebGPU-browser counterpart of the live session's `set-film-lut`
+      // upload, and (per `selectLegacyDecodeRoute`'s precedence) the
+      // UNCONDITIONAL route for every unsized filmLut-bearing request,
+      // GPU-capable browser or not. Only the unsized entry has a film-aware
+      // sibling today; a sized+film request still routes through the no-look
+      // sized path above (a rarer combination — the editor's fast/refine
+      // phases target the GPU live session for a loaded look).
+      result = render_bytes_with_film(bytes, req.ext, req.xmp ?? null, filmLutBytes);
     } else {
       // Unchanged WASM-CPU path — byte-for-byte today's no-GPU behaviour.
       result = render_bytes(bytes, req.ext, req.xmp ?? null);
