@@ -165,15 +165,27 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
-        public async Task Replace_SourceHasNoSidecar_LeavesDestinationsExistingSidecarUntouched()
+        public async Task Replace_SourceHasNoSidecar_ClearsDestinationsStaleSidecarAfterPublish()
         {
-            // The exact shape of the fixed bug: the old code unconditionally
-            // deleted the destination's sidecar (and primary) as soon as a
-            // `.Replace` collision was detected — BEFORE any copy of the
-            // new file was even attempted. With the fix, nothing is removed
-            // until a verified replacement publishes atomically over it; and
-            // since this source has no sidecar of its own, the destination's
-            // old sidecar is never touched at all.
+            // Two separate concerns live here, and an earlier version of this
+            // test conflated them into "the old sidecar is never touched at
+            // all":
+            //
+            //   1. CRASH SAFETY — nothing may be removed BEFORE a verified
+            //      replacement has published. The old code deleted the
+            //      destination's primary and sidecar the moment a `.Replace`
+            //      collision was detected, so a failed copy left neither file.
+            //      `CopyVerified_SourceMissing_LeavesExistingDestinationCompletelyIntact`
+            //      above covers that half.
+            //   2. DATA CORRECTNESS — once the new primary HAS published, the
+            //      previous occupant's sidecar must not survive. `.Replace`
+            //      means the destination reflects exactly the incoming asset;
+            //      a surviving `.xmp` silently reassigns the old photo's edits
+            //      to the new one.
+            //
+            // The #2633 parity corpus specifies (2), and the TS and Swift
+            // engines both implement it. Windows did not, which the harness
+            // caught on its first Windows run.
             var src = WriteFile("in\\photo.dng", "new primary bytes"); // no sidecar
             var outDir = Path.Combine(_dir, "out");
             WriteFile("out\\photo.dng", "old occupant");
@@ -182,8 +194,8 @@ namespace Maple.WinUI.Tests
             await LocalFileOperations.RelocateAsync(
                 src, outDir, "photo.dng", RelocateMode.Move, CollisionPolicy.Replace);
 
-            Assert.True(File.Exists(oldSidecar));
-            Assert.Equal("<xmp/>old-edits", File.ReadAllText(oldSidecar));
+            Assert.False(File.Exists(oldSidecar));
+            Assert.Equal("new primary bytes", File.ReadAllText(Path.Combine(outDir, "photo.dng")));
         }
     }
 }
