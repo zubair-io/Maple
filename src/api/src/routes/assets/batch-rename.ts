@@ -20,7 +20,7 @@ import { batchRenameAssets, previewBatchRename } from '../../library/batch-renam
 
 const TemplateFieldsSchema = {
   ids: t.Array(t.String(), { minItems: 1 }),
-  template: t.String({ minLength: 1 }),
+  template: t.String({ minLength: 1, maxLength: 512 }),
   sequence_start: t.Optional(t.Number({ minimum: 0 })),
   sequence_pad_width: t.Optional(t.Number({ minimum: 0 })),
 };

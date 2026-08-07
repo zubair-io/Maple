@@ -44,19 +44,22 @@ export function histogramBinsFromBuffer(buf: Buffer): HistogramBins {
 
 /** Batch-rename filename-template render result, mirroring
  * `raw_core::filename::render_filename`'s error taxonomy (#2628). One-to-one
- * with `MapleFilenameResult`'s `error_code` values, except `-1` (bad
- * pointer/UTF-8) and `9` (buffer-too-small) never surface here — both are
- * TS-side invariants this wrapper prevents (`Buffer.from`/`+ '\0'` always
- * produces valid UTF-8 C strings, and `RENDER_OUT_CAP` is sized generously
- * past any real template). */
+ * with `MapleFilenameResult`'s `error_code` values. `-1` (bad pointer/UTF-8)
+ * never surfaces here (`Buffer.from`/`+ '\0'` always produces valid UTF-8 C
+ * strings). `9` (buffer-too-small) IS reachable — templates may repeat tokens
+ * without bound, so a degenerate template can render past `RENDER_OUT_CAP` —
+ * and maps to the same clean `{ ok: false }` shape as any other engine
+ * rejection; any name that long would fail `validate_filename`'s length rule
+ * regardless. The HTTP schema additionally caps `template` at 512 chars. */
 export type FilenameTemplateResult =
   | { ok: true; name: string }
   | { ok: false; code: number; error: string };
 
 /** Caller-owned output buffer size for `maple_render_filename_template_buf`.
- * A rendered filename is bounded by its template's literal text plus one
- * `{date:FORMAT}` expansion — 1 KiB is enormously generous headroom past any
- * real template while keeping the per-call allocation trivial. */
+ * 1 KiB comfortably covers any output that could ever pass filename
+ * validation (every target filesystem caps names near 255 bytes); a
+ * degenerate token-repeating template that overflows it gets a clean
+ * buffer-too-small error (code 9), not a truncated name. */
 const RENDER_OUT_CAP = 1024;
 
 interface RawFfi {
