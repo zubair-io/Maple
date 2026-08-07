@@ -34,6 +34,11 @@
 //!                            `maple_validate_filename` (#2628): the
 //!                            batch-rename template engine, shared verbatim
 //!                            (same C ABI) by Apple and Windows P/Invoke.
+//!                            `maple_render_filename_template_buf` (#2636) is
+//!                            an additive, caller-owned-buffer counterpart
+//!                            for `bun:ffi`, which cannot marshal the
+//!                            by-value struct the other two platforms
+//!                            consume natively.
 
 #![allow(clippy::missing_safety_doc)]
 
