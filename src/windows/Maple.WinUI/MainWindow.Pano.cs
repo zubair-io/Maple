@@ -231,7 +231,7 @@ namespace Maple.WinUI
             using var output = File.Create(jpegPath);
             var propertySet = new BitmapPropertySet
             {
-                ["ImageQuality"] = new BitmapTypedValue(0.95, Windows.Foundation.PropertyType.Single),
+                ["ImageQuality"] = new BitmapTypedValue(0.95f, Windows.Foundation.PropertyType.Single),
             };
             var encoder = await BitmapEncoder.CreateAsync(
                 BitmapEncoder.JpegEncoderId, output.AsRandomAccessStream(), propertySet);

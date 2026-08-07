@@ -46,6 +46,10 @@ function Invoke-QualifyRun([hashtable]$extraEnv, [string]$outDir) {
     $proc = [System.Diagnostics.Process]::Start($psi)
     if (-not $proc.WaitForExit(300000)) { $proc.Kill(); throw "qualify run timed out" }
     $report = Join-Path $outDir "report.json"
+    if ($proc.ExitCode -ne 0) {
+        $detail = if (Test-Path $report) { Get-Content $report -Raw } else { "(no report)" }
+        throw "qualify run failed (exit $($proc.ExitCode)): $detail"
+    }
     if (-not (Test-Path $report)) { throw "qualify run wrote no report.json" }
     Get-Content $report -Raw | ConvertFrom-Json
 }
