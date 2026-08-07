@@ -32,6 +32,11 @@ export interface SearchQuery {
   focalMax?: string;
   from?: string;
   to?: string;
+  /** Recurring month-of-year, `"1"`–`"12"`. Filters the pre-extracted
+   * `exif.captured_month`, so "every August" is expressible — `from`/`to`
+   * are a single continuous range and cannot say that. Composes with
+   * `from`/`to` rather than replacing them. Out-of-range values are ignored. */
+  month?: string;
   rating?: string;
   flag?: string;
   color?: string;
@@ -107,6 +112,7 @@ export const SearchQueryT = t.Object({
   focalMax: t.Optional(t.String()),
   from: t.Optional(t.String()),
   to: t.Optional(t.String()),
+  month: t.Optional(t.String()),
   rating: t.Optional(t.String()),
   flag: t.Optional(t.String()),
   color: t.Optional(t.String()),

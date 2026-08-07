@@ -69,6 +69,7 @@ const BUCKETS_CACHE_KEY_FIELDS = [
   'focalMax',
   'from',
   'to',
+  'month',
   'rating',
   'flag',
   'color',
