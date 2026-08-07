@@ -92,6 +92,8 @@ pub fn parse_cube(text: &str, path_display: &str) -> Result<CubeLut, String> {
     let mut size: Option<usize> = None;
     let mut domain_min = [0.0f32; 3];
     let mut domain_max = [1.0f32; 3];
+    let mut domain_min_line: Option<usize> = None;
+    let mut domain_max_line: Option<usize> = None;
     let mut data: Vec<f32> = Vec::new();
 
     for (i, raw_line) in text.lines().enumerate() {
@@ -100,23 +102,25 @@ pub fn parse_cube(text: &str, path_display: &str) -> Result<CubeLut, String> {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        if let Some(rest) = line.strip_prefix("TITLE") {
+        if let Some(rest) = strip_keyword(line, "TITLE") {
             let _ = rest; // Ignored: the display name is derived from the file stem, not TITLE.
             continue;
         }
-        if let Some(rest) = line.strip_prefix("LUT_3D_SIZE") {
+        if let Some(rest) = strip_keyword(line, "LUT_3D_SIZE") {
             let n: usize = rest.trim().parse().map_err(|_| {
                 format!("{path_display}:{line_no}: invalid LUT_3D_SIZE {rest:?}")
             })?;
             size = Some(n);
             continue;
         }
-        if let Some(rest) = line.strip_prefix("DOMAIN_MIN") {
+        if let Some(rest) = strip_keyword(line, "DOMAIN_MIN") {
             domain_min = parse_triple(rest, path_display, line_no)?;
+            domain_min_line = Some(line_no);
             continue;
         }
-        if let Some(rest) = line.strip_prefix("DOMAIN_MAX") {
+        if let Some(rest) = strip_keyword(line, "DOMAIN_MAX") {
             domain_max = parse_triple(rest, path_display, line_no)?;
+            domain_max_line = Some(line_no);
             continue;
         }
         let triple = parse_triple(line, path_display, line_no)?;
@@ -125,8 +129,20 @@ pub fn parse_cube(text: &str, path_display: &str) -> Result<CubeLut, String> {
 
     let size = size.ok_or_else(|| format!("{path_display}: missing LUT_3D_SIZE"))?;
     if domain_min != [0.0, 0.0, 0.0] || domain_max != [1.0, 1.0, 1.0] {
+        // Attribute the error to whichever DOMAIN directive is actually out
+        // of range (MIN takes priority when both are), so the message
+        // points at the offending line like every other per-line rejection
+        // in this parser, not just the file.
+        let offending_line = if domain_min != [0.0, 0.0, 0.0] {
+            domain_min_line
+        } else {
+            domain_max_line
+        };
+        let where_ = offending_line
+            .map(|l| format!(":{l}"))
+            .unwrap_or_default();
         return Err(format!(
-            "{path_display}: unsupported domain {domain_min:?}..{domain_max:?} \
+            "{path_display}{where_}: unsupported domain {domain_min:?}..{domain_max:?} \
              (only 0 0 0 .. 1 1 1 is supported)"
         ));
     }
@@ -140,6 +156,18 @@ pub fn parse_cube(text: &str, path_display: &str) -> Result<CubeLut, String> {
     }
 
     Ok(CubeLut { size, data })
+}
+
+/// Strip `keyword` off the front of `line`, requiring the match be
+/// followed by whitespace (or end-of-line) so a look-alike directive name
+/// (e.g. `TITLED foo`) isn't misrouted into the keyword's parse branch.
+fn strip_keyword<'a>(line: &'a str, keyword: &str) -> Option<&'a str> {
+    let rest = line.strip_prefix(keyword)?;
+    if rest.is_empty() || rest.starts_with(char::is_whitespace) {
+        Some(rest)
+    } else {
+        None
+    }
 }
 
 /// Parse a whitespace-separated `r g b` triple, rejecting non-finite
@@ -187,7 +215,36 @@ const OVERRIDES: &[(&str, &str)] = &[
     ("t", "T"),
     ("d", "D"),
     ("e", "E"),
+    ("bw", "BW"),
+    ("cn", "CN"),
+    ("xp", "XP"),
+    ("px", "PX"),
+    ("uv", "UV"),
+    ("hie", "HIE"),
+    ("hs", "HS"),
+    ("hps", "HPS"),
 ];
+
+/// A token of digits followed by 1-2 trailing ASCII letters (`100f`,
+/// `800z`, `160c`, `400x`) uppercases just the trailing letters and
+/// leaves the digits untouched. Purely numeric tokens (no trailing
+/// letters) are unaffected — handled separately, verbatim.
+fn digits_then_short_letter_suffix(token: &str) -> Option<String> {
+    let letter_count = token
+        .chars()
+        .rev()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .count();
+    if letter_count == 0 || letter_count > 2 {
+        return None;
+    }
+    let split = token.len() - letter_count;
+    let (digits, letters) = token.split_at(split);
+    if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    Some(format!("{digits}{}", letters.to_uppercase()))
+}
 
 fn title_case_token(token: &str) -> String {
     if let Some((_, over)) = OVERRIDES.iter().find(|(k, _)| *k == token) {
@@ -195,6 +252,9 @@ fn title_case_token(token: &str) -> String {
     }
     if token.chars().all(|c| c.is_ascii_digit()) {
         return token.to_string();
+    }
+    if let Some(suffixed) = digits_then_short_letter_suffix(token) {
+        return suffixed;
     }
     let mut chars = token.chars();
     match chars.next() {

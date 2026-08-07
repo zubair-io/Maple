@@ -123,6 +123,44 @@ DOMAIN_MAX 2.0 1.0 1.0
 ";
     let err = parse_cube(bad, "bad.cube").expect_err("should reject a non 0..1 domain");
     assert!(err.contains("domain"), "error should name the domain problem: {err}");
+    // Line context: DOMAIN_MAX (the offending directive) is on line 3.
+    assert!(
+        err.contains("bad.cube:3"),
+        "error should carry the offending DOMAIN directive's line: {err}"
+    );
+}
+
+#[test]
+fn parse_cube_domain_error_points_at_domain_min_when_min_is_the_offender() {
+    let bad = "\
+LUT_3D_SIZE 2
+DOMAIN_MIN -1.0 0.0 0.0
+DOMAIN_MAX 1.0 1.0 1.0
+0.0 0.0 0.0
+1.0 0.0 0.0
+0.0 1.0 0.0
+1.0 1.0 0.0
+0.0 0.0 1.0
+1.0 0.0 1.0
+0.0 1.0 1.0
+1.0 1.0 1.0
+";
+    let err = parse_cube(bad, "bad.cube").expect_err("should reject a non 0..1 domain");
+    assert!(
+        err.contains("bad.cube:2"),
+        "error should carry DOMAIN_MIN's line when MIN is out of range: {err}"
+    );
+}
+
+#[test]
+fn strip_keyword_requires_trailing_whitespace_not_a_prefix_match() {
+    // A look-alike directive name must not be misrouted into TITLE's
+    // parse branch (or LUT_3D_SIZE's) just because it starts with the
+    // same characters.
+    assert!(strip_keyword("TITLED foo", "TITLE").is_none());
+    assert!(strip_keyword("TITLE \"x\"", "TITLE").is_some());
+    assert!(strip_keyword("LUT_3D_SIZEX 2", "LUT_3D_SIZE").is_none());
+    assert!(strip_keyword("LUT_3D_SIZE 2", "LUT_3D_SIZE").is_some());
 }
 
 // ---- round-trip through raw_core::film::encode_mlut/decode_mlut ----------
@@ -164,6 +202,31 @@ fn derive_name_multiple_overrides() {
     assert_eq!(derive_name("kodak_t_max_100"), "Kodak T Max 100");
     assert_eq!(derive_name("kodak_portra_160_nc"), "Kodak Portra 160 NC");
     assert_eq!(derive_name("kodak_elite_100_xpro"), "Kodak Elite 100 XPro");
+}
+
+#[test]
+fn derive_name_bw_cn_overrides() {
+    assert_eq!(derive_name("kodak_bw_400_cn"), "Kodak BW 400 CN");
+}
+
+#[test]
+fn derive_name_px_override() {
+    assert_eq!(derive_name("polaroid_px_680"), "Polaroid PX 680");
+}
+
+#[test]
+fn derive_name_digit_then_trailing_letter_suffix_uppercases_letter_only() {
+    assert_eq!(derive_name("fuji_astia_100f"), "Fuji Astia 100F");
+    assert_eq!(derive_name("fuji_800z"), "Fuji 800Z");
+    assert_eq!(derive_name("kodak_portra_160_vc"), "Kodak Portra 160 VC");
+    assert_eq!(derive_name("fuji_provia_400x"), "Fuji Provia 400X");
+    assert_eq!(derive_name("polaroid_px_100uv_cold"), "Polaroid PX 100UV Cold");
+}
+
+#[test]
+fn derive_name_pure_digit_token_stays_verbatim() {
+    assert_eq!(derive_name("agfa_precisa_100"), "Agfa Precisa 100");
+    assert_eq!(derive_name("kodak_kodachrome_25"), "Kodak Kodachrome 25");
 }
 
 #[test]
