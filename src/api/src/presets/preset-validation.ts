@@ -32,14 +32,11 @@ import {
   isKnownStringField,
 } from './adjustment-fields.ts';
 
-/** Current preset document schema version this server writes/understands. */
-export const PRESET_SCHEMA_VERSION = 1;
-
 export const PRESET_NAME_MAX = 120;
 /** Generous headroom over the 42 schema fields for future versions. */
 export const PRESET_FIELDS_MAX = 128;
-export const PRESET_FIELD_KEY_MAX = 64;
-export const PRESET_STRING_VALUE_MAX = 200;
+const PRESET_FIELD_KEY_MAX = 64;
+const PRESET_STRING_VALUE_MAX = 200;
 
 export type PresetFields = Record<string, number | string | boolean>;
 
@@ -149,9 +146,9 @@ export function validatePresetFields(raw: unknown): { fields: PresetFields } | {
 
 /**
  * Validate a full create-preset payload `{ schemaVersion, name, fields }`.
- * Versions NEWER than `PRESET_SCHEMA_VERSION` are accepted (their unknown
- * fields ride the passthrough rule); non-positive or non-integer versions
- * are rejected.
+ * Versions newer than the current server version are accepted (their
+ * unknown fields ride the passthrough rule); non-positive or non-integer
+ * versions are rejected.
  */
 export function validatePresetDocument(body: {
   schemaVersion?: unknown;
