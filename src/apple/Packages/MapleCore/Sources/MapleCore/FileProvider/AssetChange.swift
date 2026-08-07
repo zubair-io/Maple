@@ -134,8 +134,10 @@ public struct AssetChange: Codable, Sendable, Equatable {
     /// 6 item 2). `nil` when the row pre-dates the change OR when the
     /// server couldn't reconcile the absPath against the named folder
     /// root (defensive — server logs a warn and stores null rather
-    /// than emit a wrong path). Consumers MUST tolerate `nil` and fall
-    /// back to the prior `.workingSet` routing in that case.
+    /// than emit a wrong path). Consumers MUST tolerate `nil`; since
+    /// #2537, `WorkingSetEnumerator.enumerateChanges` resolves the real
+    /// parent from a per-asset metadata GET instead of relying on this
+    /// field, so a `nil` here no longer forces a `.workingSet` fallback.
     public let relativePath: String?
     public let at: Date
 

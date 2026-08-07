@@ -108,27 +108,52 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                     if ch.kind == .delete {
                         deletes.append(ident)
                         workingSet.remove(identifier: ident.rawValue)
-                    } else {
-                        // Hand back a stub whose itemVersion derives
-                        // from the cursor so the OS asks `item(for:)`
-                        // for full metadata. When the change event
-                        // carries `folderID + relativePath` (Phase 6
-                        // item 2) the stub gets its real folder parent
-                        // so the OS routes invalidation to the exact
-                        // directory; older payloads without those
-                        // fields fall back to `.workingSet`.
+                        continue
+                    }
+                    // Resolve the asset's real metadata inline — the
+                    // per-asset GET `MapleItem`'s doc comment used to
+                    // defer to a "follow-up phase" (#2537). A stub
+                    // handed to `didUpdate` can read as authoritative
+                    // display metadata to the OS without a prompt
+                    // re-invocation of `item(for:)`, so a legacy/
+                    // degraded change row could paint "(stub)" in
+                    // Finder indefinitely. Doing the GET here means the
+                    // OS gets the real filename on the very first call.
+                    do {
+                        guard let meta = try await catalog.getAsset(assetID: assetID) else {
+                            // Genuine 404: the change-feed row raced a
+                            // server-side delete. Report it as a delete
+                            // rather than handing the OS an item whose
+                            // content will 404 forever.
+                            deletes.append(ident)
+                            workingSet.remove(identifier: ident.rawValue)
+                            continue
+                        }
+                        let parent = await FileProviderExtensionCore.resolveAssetParent(
+                            meta: meta, rootCache: rootCache
+                        )
+                        updates.append(MapleItem(assetMetadata: meta, parent: parent))
+                    } catch {
+                        // Transient failure (network/5xx) resolving the
+                        // real metadata. Fall back to the placeholder so
+                        // the itemVersion still bumps and the OS re-asks
+                        // via `item(for:)`; its parent is never
+                        // `.workingSet` (see `MapleItem`'s stub
+                        // initializer — that identifier is permanently
+                        // `noSuchItem`).
+                        log.notice("getAsset failed for \(assetID, privacy: .public) during enumerateChanges, falling back to stub: \(error.localizedDescription, privacy: .public)")
                         let stub = MapleItem(stubAssetID: assetID,
                                              cursor: ch.cursor,
                                              folderID: ch.folderID,
                                              relativePath: ch.relativePath)
                         updates.append(stub)
-                        // Touch the working set so eviction reflects activity.
-                        workingSet.upsert(
-                            identifier: ident.rawValue,
-                            kind: .recent,
-                            lastTouched: ch.at
-                        )
                     }
+                    // Touch the working set so eviction reflects activity.
+                    workingSet.upsert(
+                        identifier: ident.rawValue,
+                        kind: .recent,
+                        lastTouched: ch.at
+                    )
                 }
                 observer.didUpdate(updates)
                 observer.didDeleteItems(withIdentifiers: deletes)

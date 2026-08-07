@@ -230,20 +230,28 @@ public final class MapleItem: NSObject, NSFileProviderItem {
         self.filename = m.filename
     }
 
-    /// Minimal item returned by enumerateChanges for non-delete events
-    /// when we only have a cursor + assetID. The OS will call
-    /// `item(for:)` to pick up real metadata; this stub exists so the
-    /// itemVersion bumps and tells the OS to re-read.
+    /// Last-resort placeholder for `WorkingSetEnumerator.enumerateChanges`.
+    /// The enumerator's primary path now does the per-asset metadata GET
+    /// itself and hands back a real `MapleItem(assetMetadata:)` — see
+    /// `WorkingSetEnumerator.enumerateChanges` — so this initializer is
+    /// only reached when that GET throws (network/5xx). It exists purely
+    /// so the itemVersion still bumps (via the cursor) and tells the OS
+    /// to re-read; it must never be the routine path, and its filename
+    /// must never be shown to a user for longer than one failed sync
+    /// round-trip (#2537).
     ///
     /// `parentItemIdentifier` is derived from `folderID + relativePath`
     /// when both are present (Phase 6 item 2): the change-feed payload
     /// now carries the asset's path relative to its folder root, so we
-    /// can attach the stub under `folder(folderID, dirname(relPath))`
-    /// instead of `.workingSet`. Falls back to `.workingSet` when
-    /// either is nil — legacy server payloads, or rows where the
-    /// server couldn't reconcile absPath against folder.path. The
-    /// `.workingSet` parent is always-valid; the OS reattaches under
-    /// the real folder on the next folder enumeration regardless.
+    /// can attach the stub under `folder(folderID, dirname(relPath))`.
+    /// Falls back to `.rootContainer` when either is nil — legacy
+    /// server payloads, or rows where the server couldn't reconcile
+    /// absPath against folder.path. `.rootContainer` is always-valid
+    /// (unlike `.workingSet`, which `item(for:)` now unconditionally
+    /// rejects with `noSuchItem` — see `FileProviderExtensionCore
+    /// .resolveAssetParent`'s "NEVER .workingSet" clause); the OS
+    /// reattaches under the real folder on the next folder enumeration
+    /// regardless.
     ///
     /// `filename` falls back to `lastPathComponent(relativePath)` when
     /// available — saves Finder from briefly painting "(stub)" before
@@ -284,7 +292,7 @@ public final class MapleItem: NSObject, NSFileProviderItem {
                                                        relativePath: parentRel)
             self.parentItemIdentifier = NSFileProviderItemIdentifier(parent.rawValue)
         } else {
-            self.parentItemIdentifier = .workingSet
+            self.parentItemIdentifier = .rootContainer
         }
         self.filename = resolvedFilename
     }
