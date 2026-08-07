@@ -83,7 +83,14 @@ namespace Maple.WinUI.ViewModels
             CollisionPolicy collision,
             Action<int, int>? onItemDone = null)
         {
-            var byKey = photos.ToDictionary(p => p.FilePath, p => p, StringComparer.OrdinalIgnoreCase);
+            // GroupBy + first-wins rather than ToDictionary: a plain
+            // ToDictionary throws ArgumentException on a duplicate key, and
+            // while the grid's selection shouldn't ever carry two PhotoItems
+            // for the same FilePath, this mapping has no reason to crash the
+            // whole apply if that assumption is ever wrong somewhere else.
+            var byKey = photos
+                .GroupBy(p => p.FilePath, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
             var outcomes = await BatchRenameLogic.ApplySequentialAsync(
                 sources, template, sequenceStart, sequencePadWidth, collision,
                 FilenameTemplateEngine.Render, onItemDone)
