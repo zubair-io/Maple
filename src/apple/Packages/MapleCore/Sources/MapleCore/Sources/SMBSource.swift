@@ -128,6 +128,48 @@ public actor SMBSource {
         pathByMapleId = [:]
     }
 
+    /// Create `name` inside the currently-connected share, at `parentPath`
+    /// (share-relative, defaults to the share root). Used by the sidebar's
+    /// "New Folder" context-menu action on an already-open SMB share (#2645)
+    /// — routes through `SMBFileOperations.createFolder`, the same
+    /// collision/error contract as the local Filesystem source.
+    public func createFolder(named name: String, in parentPath: String = "/") async throws -> String {
+        guard let client else { throw SMBError.notConnected }
+        return try await SMBFileOperations.createFolder(named: name, in: parentPath, transport: client)
+    }
+
+    /// One-shot "New Folder" for an SMB share the app does NOT currently
+    /// have open (the sidebar lists every saved share, not just the active
+    /// one). Opens a throwaway connection scoped to this single mkdir — no
+    /// recursive asset listing, unlike `connect(credentials:remotePath:)` —
+    /// and tears it down again immediately after. #2645: the sidebar's SMB
+    /// row context menu offers only New Folder (at the share root); SMB has
+    /// no subfolder tree in the sidebar today (`images()` walks the whole
+    /// share recursively rather than exposing per-directory browsing), so
+    /// Rename/Trash have no folder target to act on yet.
+    public static func createFolderAtShareRoot(name: String, credentials: Credentials) async throws -> String {
+        guard let serverURL = URL(string: "smb://\(credentials.host)") else {
+            throw SMBError.invalidServerURL(credentials.host)
+        }
+        let cred = URLCredential(
+            user: credentials.username,
+            password: credentials.password,
+            persistence: .forSession
+        )
+        guard let mgr = SMB2Manager(url: serverURL, credential: cred) else {
+            throw SMBError.invalidServerURL(credentials.host)
+        }
+        try await mgr.connectShare(name: credentials.share)
+        do {
+            let result = try await SMBFileOperations.createFolder(named: name, in: "/", transport: mgr)
+            try? await mgr.disconnectShare(gracefully: false)
+            return result
+        } catch {
+            try? await mgr.disconnectShare(gracefully: false)
+            throw error
+        }
+    }
+
     /// Read raw bytes of an asset over SMB.
     public func rawData(for asset: SMBAsset) async throws -> Data {
         guard let client else { throw SMBError.notConnected }
