@@ -1,31 +1,50 @@
 @if (collision()) {
-  <div class="collision" role="alert">
-    <p class="collision-message">"{{ draft() }}" already exists in this folder.</p>
-    <div class="collision-actions">
-      <button type="button" class="btn" [disabled]="busy()" (click)="cancel()">Cancel</button>
-      <button type="button" class="btn" [disabled]="busy()" (click)="resolveKeepBoth()">
+  <div class="flex flex-col gap-1.5" role="alert">
+    <p class="m-0 break-words text-[11px] text-text-main">
+      "{{ draft() }}" already exists in this folder.
+    </p>
+    <div class="flex flex-wrap gap-1">
+      <button
+        type="button"
+        class="rounded-sm border-[0.5px] border-border bg-surface-alt px-2 py-0.5 text-[11px] text-text-main hover:bg-surface-hover disabled:opacity-60"
+        [disabled]="busy()"
+        (click)="cancel()"
+      >
+        Cancel
+      </button>
+      <button
+        type="button"
+        class="rounded-sm border-[0.5px] border-border bg-surface-alt px-2 py-0.5 text-[11px] text-text-main hover:bg-surface-hover disabled:opacity-60"
+        [disabled]="busy()"
+        (click)="resolveKeepBoth()"
+      >
         Keep Both
       </button>
-      <button type="button" class="btn btn-primary" [disabled]="busy()" (click)="resolveReplace()">
+      <button
+        type="button"
+        class="rounded-sm border-[0.5px] border-primary bg-primary px-2 py-0.5 text-[11px] text-text-main hover:opacity-90 disabled:opacity-60"
+        [disabled]="busy()"
+        (click)="resolveReplace()"
+      >
         Replace
       </button>
     </div>
   </div>
 } @else {
-  <div class="field">
-    <label class="sr-only" [attr.for]="'rename-input'">Rename {{ filename() }}</label>
+  <div class="flex w-full items-center gap-1">
+    <label class="sr-only" [attr.for]="fieldId">Rename {{ filename() }}</label>
     <input
       #nameInput
-      id="rename-input"
+      [id]="fieldId"
       type="text"
-      class="name-input"
-      [class.has-error]="!!error()"
+      class="min-w-0 flex-1 rounded-sm border px-1.5 py-0.5 text-[12px] text-text-main outline-none disabled:opacity-60"
+      [class]="error() ? 'border-error-text bg-input-bg' : 'border-primary bg-input-bg'"
       [value]="draft()"
       [disabled]="busy()"
       [attr.aria-label]="'Rename ' + filename()"
       [attr.aria-invalid]="!!error()"
       [attr.aria-describedby]="
-        error() ? 'rename-error' : extensionChanged() ? 'rename-warning' : null
+        error() ? fieldId + '-error' : extensionChanged() ? fieldId + '-warning' : null
       "
       autocapitalize="off"
       autocomplete="off"
@@ -36,7 +55,7 @@
     />
     <button
       type="button"
-      class="icon-btn confirm"
+      class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-sm border-0 bg-transparent text-[11px] text-text-muted hover:bg-bg-hover hover:text-success-text disabled:opacity-50"
       aria-label="Confirm rename"
       [disabled]="busy()"
       (mousedown)="$event.preventDefault()"
@@ -46,7 +65,7 @@
     </button>
     <button
       type="button"
-      class="icon-btn cancel"
+      class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-sm border-0 bg-transparent text-[11px] text-text-muted hover:bg-bg-hover hover:text-error-text disabled:opacity-50"
       aria-label="Cancel rename"
       [disabled]="busy()"
       (mousedown)="$event.preventDefault()"
@@ -56,9 +75,15 @@
     </button>
   </div>
   @if (error()) {
-    <p class="hint hint-error" id="rename-error" role="alert">{{ error() }}</p>
+    <p
+      class="m-0 mt-0.5 text-[11px] leading-tight text-error-text"
+      [id]="fieldId + '-error'"
+      role="alert"
+    >
+      {{ error() }}
+    </p>
   } @else if (extensionChanged()) {
-    <p class="hint hint-warning" id="rename-warning">
+    <p class="m-0 mt-0.5 text-[11px] leading-tight text-warn" [id]="fieldId + '-warning'">
       Changing the extension does not convert the file — it may become unreadable.
     </p>
   }

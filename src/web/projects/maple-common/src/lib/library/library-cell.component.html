@@ -1,51 +1,25 @@
 @let a = asset();
 @let url = thumbUrl();
-<div class="cell-wrap">
-  <button
-    type="button"
-    class="library-cell"
-    [attr.aria-label]="'Open ' + a.filename"
-    [style.background-image]="url ? '' : 'url(' + a.thumbnailGradient + ')'"
-    (click)="onClick()"
-  >
-    @if (url) {
-      <img class="thumb" [src]="url" [alt]="a.filename" loading="lazy" decoding="async" />
-    }
-
-    @if (isPick()) {
-      <span class="pick-dot" aria-hidden="true"></span>
-    }
-
-    @if (showStars()) {
-      <span class="stars" aria-hidden="true">
-        @for (i of starIndices(); track i) {
-          <maple-icon name="star-filled" [size]="6" color="var(--color-star)" />
-        }
-      </span>
-    }
-  </button>
-
-  @if (isEditingFilename()) {
-    <div class="filename-bar editing" (click)="$event.stopPropagation()">
-      <app-inline-rename-field
-        [filename]="a.filename"
-        [error]="renameSvc.error()"
-        [busy]="renameSvc.busy()"
-        [collision]="renameSvc.collision()?.assetId === a.id"
-        (committed)="onRenameCommit(a, $event)"
-        (cancelled)="renameSvc.cancel()"
-        (collisionResolved)="onCollisionResolved(a, $event)"
-      />
-    </div>
-  } @else {
-    <button
-      type="button"
-      class="filename-bar"
-      [attr.aria-label]="'Rename ' + a.filename"
-      [attr.title]="renameDisabledReason()"
-      (dblclick)="onFilenameDblClick(a, $event)"
-    >
-      <span class="filename-text">{{ a.filename }}</span>
-    </button>
+<button
+  type="button"
+  class="library-cell"
+  [attr.aria-label]="'Open ' + a.filename"
+  [style.background-image]="url ? '' : 'url(' + a.thumbnailGradient + ')'"
+  (click)="onClick()"
+>
+  @if (url) {
+    <img class="thumb" [src]="url" [alt]="a.filename" loading="lazy" decoding="async" />
   }
-</div>
+
+  @if (isPick()) {
+    <span class="pick-dot" aria-hidden="true"></span>
+  }
+
+  @if (showStars()) {
+    <span class="stars" aria-hidden="true">
+      @for (i of starIndices(); track i) {
+        <maple-icon name="star-filled" [size]="6" color="var(--color-star)" />
+      }
+    </span>
+  }
+</button>

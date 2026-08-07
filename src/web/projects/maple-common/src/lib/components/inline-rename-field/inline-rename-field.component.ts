@@ -31,7 +31,10 @@ import { splitFilenameExt } from '../../util/filename-ext';
   selector: 'app-inline-rename-field',
   standalone: true,
   templateUrl: './inline-rename-field.component.html',
-  styleUrl: './inline-rename-field.component.scss',
+  // Tailwind utility classes in the template, no dedicated stylesheet
+  // (#2706 web-build bundle-size fix — matches this app's prevailing
+  // convention, e.g. `asset-thumb.component.html`, and keeps this
+  // shared-in-both-apps component's Hosted-bundle footprint minimal).
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     class: 'block',
@@ -39,6 +42,13 @@ import { splitFilenameExt } from '../../util/filename-ext';
   },
 })
 export class InlineRenameFieldComponent {
+  /** Per-instance DOM id prefix (#2706 review) — the grid tile and the Info
+   * panel can both host a live field for the same focused asset at once, so
+   * a hard-coded `rename-input` id would collide and break the label /
+   * aria-describedby wiring for whichever instance rendered second. */
+  private static _nextUid = 0;
+  protected readonly fieldId = `inline-rename-field-${InlineRenameFieldComponent._nextUid++}`;
+
   /** Filename being renamed (with extension), before any edits. */
   readonly filename = input.required<string>();
 
@@ -71,16 +81,48 @@ export class InlineRenameFieldComponent {
     return current !== original;
   });
 
+  /** Filename this field was last (re)seeded for — the dedup guard the
+   * constructor effect uses to tell "a genuinely new edit session started"
+   * apart from "the `<input>` element merely got destroyed/recreated by an
+   * unrelated `@if` toggle" (#2706 review, see below). */
+  private _lastSeededFor: string | null = null;
+
   constructor() {
     // Seed the draft from the incoming filename and, once the field has
     // mounted, select just the stem so the user's first keystroke replaces
     // the name without touching the extension.
+    //
+    // Gated on `_lastSeededFor !== name`, NOT just "the input exists"
+    // (#2706 review): the template's `@if (collision()) {…} @else { <input
+    // #nameInput> }` destroys and recreates the `<input>` on every
+    // collision-state flip, which flips `inputRef()` too — and this effect
+    // reads `inputRef()`, so it re-runs on that flip regardless of whether
+    // `filename()` changed. An earlier version reset `draft` unconditionally
+    // on every run, which wiped the user's attempted name back to the
+    // ORIGINAL filename the instant a collision response arrived — right
+    // when the collision message (which reads `draft()`) needs to keep
+    // showing it. The dedup guard makes a collision round-trip (input
+    // destroyed → collision UI shown → input recreated on retry) a no-op
+    // for `draft`, while a genuinely new filename (a fresh field instance,
+    // since each edit session mounts a new component) still seeds once.
     effect(() => {
       const name = this.filename();
-      const isCollision = this.collision();
-      this.draft.set(name);
+      // Seed BEFORE checking for the element (deliberately unconditional on
+      // `el`, gated only on the dedup check): the `<input>` doesn't exist
+      // yet on this effect's first run, and if `draft` weren't already
+      // correct by the time Angular creates it, the element would mount
+      // with an empty value, then have `.value` overwritten while focused
+      // on a later run — which collapses the just-applied selection to the
+      // end (a real browser behavior, not a framework bug). Seeding early
+      // means the `<input>` is born with the right value, so the
+      // focus+select run below never has to fight a value-while-focused
+      // reset.
+      if (this._lastSeededFor !== name) {
+        this._lastSeededFor = name;
+        this.draft.set(name);
+      }
       const el = this.inputRef()?.nativeElement;
-      if (el && !isCollision) {
+      if (el) {
         el.focus();
         el.setSelectionRange(0, this.originalStemLen());
       }
