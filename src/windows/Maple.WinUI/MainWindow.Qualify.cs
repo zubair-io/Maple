@@ -36,6 +36,7 @@ namespace Maple.WinUI
 
         private async Task RunQualifyAsync(string rawPath, string outDir)
         {
+            var exitCode = 0;
             try
             {
                 Directory.CreateDirectory(outDir);
@@ -97,6 +98,7 @@ namespace Maple.WinUI
             }
             catch (Exception ex)
             {
+                exitCode = 1;   // the harness must see failure as failure
                 Services.DiagLog.Write($"[qualify] failed: {ex.Message}");
                 try
                 {
@@ -111,7 +113,7 @@ namespace Maple.WinUI
                 // Hard exit: Application.Exit() trips over XAML teardown in
                 // WinUI 3 desktop apps and can leave the process alive; the
                 // report is already flushed and nothing here needs disposal.
-                Environment.Exit(0);
+                Environment.Exit(exitCode);
             }
         }
     }
