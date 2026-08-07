@@ -208,6 +208,14 @@ export const ADJUSTMENT_FIELDS: XmpFieldMapping<NumericAdjustmentKey>[] = [
   numericField('crs:LensProfileDistortionScale', 'lensCorrectionDistortion'),
   numericField('crs:LensProfileChromaticAberrationScale', 'lensCorrectionCa'),
   numericField('crs:LensProfileVignettingScale', 'lensCorrectionVignetting'),
+  // ---- Film emulation (epic #2683) ----
+  // Strength is a plain 0..100 numeric field, default 100 (full strength),
+  // so it rides the shared numeric-field table like any other slider — omit-
+  // on-default suppresses `papp:FilmStrength` for the common "just picked a
+  // look, never touched the mix slider" case. `filmLook` (the catalog id
+  // string) is NOT a numeric field — it's serialized/parsed alongside
+  // `papp:Profile` in `XmpSerializerService`/`XmpParserService` instead.
+  numericField('papp:FilmStrength', 'filmStrength'),
 ];
 
 /** WhiteBalance preset — serialized as a string attribute, not a number. */

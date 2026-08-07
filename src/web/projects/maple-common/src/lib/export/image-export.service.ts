@@ -22,6 +22,7 @@ import { XmpStoreService } from '../xmp/xmp-store.service';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import type { ExportedFile, RawExportOptions } from '../raw-pipeline/raw-pipeline.types';
+import { FilmLutService } from '../film/film-lut.service';
 import { downloadBlob } from './download-blob';
 import { exportFilename, lastSegment } from './export-dialog.vm';
 
@@ -44,6 +45,7 @@ export class ImageExportService {
   private readonly xmpStore = inject(XmpStoreService);
   private readonly serializer = inject(XmpSerializerService);
   private readonly pipeline = inject(RawPipelineService);
+  private readonly filmLut = inject(FilmLutService);
 
   /**
    * Render `asset` under its current adjustments and download the result.
@@ -57,7 +59,22 @@ export class ImageExportService {
   async exportAsset(asset: Asset, options: RawExportOptions): Promise<ExportOutcome> {
     const xmp = this.sidecarXml(asset);
     const bytes = await this.library.bytesForAsset(asset.id);
-    const file = await this.pipeline.exportImage(bytes, extensionOf(asset.filename), options, xmp);
+    // Film emulation (epic #2683): when a look is active, the deliverable
+    // must carry the SAME grid the canvas showed — `filmStrength` itself
+    // round-trips through `xmp` like any other slider, but the `.mlut`
+    // asset is not sidecar state, so it's fetched here exactly like the
+    // canvas/session glue does (`FilmLutService.getLattice`). A cache/
+    // network miss degrades to "no look applied" (`null`) rather than
+    // failing the export — same contract as the live canvas.
+    const model = this.library.adjustmentFor(asset.id)();
+    const filmLut = model.filmLook ? await this.filmLut.getLattice(model.filmLook) : null;
+    const file = await this.pipeline.exportImage(
+      bytes,
+      extensionOf(asset.filename),
+      options,
+      xmp,
+      filmLut ?? undefined,
+    );
     await this.persistSidecar(asset.id);
     return this.deliver(asset, file);
   }

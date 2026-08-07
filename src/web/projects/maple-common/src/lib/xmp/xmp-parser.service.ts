@@ -277,6 +277,18 @@ export class XmpParserService {
         continue;
       }
 
+      // Film emulation (epic #2683). `filmLook` is a free-form film-catalog
+      // id, not a fixed enum — parsed VERBATIM (no case-folding, no
+      // known-variant allowlist) so a sidecar referencing a look from a
+      // newer catalog build still round-trips instead of being dropped to
+      // the '' default. An empty attribute is treated the same as absent.
+      if (name === 'papp:FilmLook') {
+        if (attr.value.length > 0) {
+          model.filmLook = attr.value;
+        }
+        continue;
+      }
+
       // Hot/dead-pixel suppression (#1106). Case-insensitive parse,
       // mirroring the Rust (`xmp/mod.rs`) and Swift parsers; unknown
       // values are dropped so the field takes its default ('Off').

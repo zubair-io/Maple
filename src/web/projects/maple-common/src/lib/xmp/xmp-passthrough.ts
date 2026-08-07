@@ -23,6 +23,7 @@ const KNOWN_ATTRIBUTES = new Set<string>([
   'ColorLabel',
   'papp:Look',
   'papp:Profile',
+  'papp:FilmLook',
   'papp:HotPixelSuppression',
   'crs:LensProfileEnable',
   'papp:HighlightRecoveryMode',

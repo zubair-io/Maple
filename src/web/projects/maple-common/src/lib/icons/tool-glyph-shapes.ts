@@ -42,6 +42,7 @@ export type ToolIconName =
   | 'tool-vignette'
   | 'tool-grain'
   | 'tool-color-grade'
+  | 'tool-film'
   | 'tool-sharpen'
   | 'tool-noise'
   | 'tool-color-nr'
@@ -185,6 +186,20 @@ export const TOOL_ICON_SHAPES: Record<ToolIconName, readonly IconShape[]> = {
   // round-cap dot as Grain's speckle, so the mark stays inside the family
   // while reading unmistakably as a wheel rather than a tonal band.
   'tool-color-grade': [c(8, 8, 4.8), dot(8, 5.4), dot(5.8, 9.2), dot(10.2, 9.2)],
+  // Frame with a row of sprocket-hole dots along the top and bottom edges —
+  // a film strip (epic #2683). Reuses the Effects family's shared FRAME and
+  // Grain's round-cap dot so it reads as one of this glyph family, not a
+  // borrowed asset. Not yet mirrored to Apple's `ToolGlyphShapes.swift` —
+  // `filmLook` is a web-only `ToolId` for now (epic #2683 Task 12).
+  'tool-film': [
+    FRAME,
+    dot(4.6, 3.4),
+    dot(8, 3.4),
+    dot(11.4, 3.4),
+    dot(4.6, 12.6),
+    dot(8, 12.6),
+    dot(11.4, 12.6),
+  ],
 
   // ── Detail ──────────────────────────────────────────────────────────────
   // A single sharp peak rising off a flat baseline — edge acutance.

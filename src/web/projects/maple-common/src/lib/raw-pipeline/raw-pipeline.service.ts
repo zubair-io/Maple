@@ -18,6 +18,7 @@ import type {
   OpenSessionRequest,
   RenderSessionRequest,
   CloseSessionRequest,
+  SetFilmLutRequest,
   ExportedFile,
   RawExportOptions,
   WorkerResponse,
@@ -426,6 +427,30 @@ export class RawPipelineService implements OnDestroy {
     this.worker.postMessage(request);
   }
 
+  /**
+   * Load (or clear) the open live session's film-look LUT (epic #2683, Task
+   * 12 — client half of Task 9's `set-film-lut` worker protocol). `bytes` is
+   * a `.mlut` v1 buffer, transferred like `openLiveSession`'s bytes; an
+   * empty buffer clears the loaded look (the Film panel's "None" row).
+   * `lookKey` is the `FilmLutService.filmLutKey`-derived content-identity
+   * key for the loaded look. Does NOT itself trigger a re-render — the
+   * caller's next `renderLiveSession` call picks up the new grid.
+   */
+  setFilmLut(bytes: ArrayBuffer, lookKey: number): Promise<void> {
+    let worker: Worker;
+    try {
+      worker = this.ensureWorker();
+    } catch {
+      return Promise.reject(new Error('RawPipelineService: worker unavailable'));
+    }
+    const id = this.nextId++;
+    const request: SetFilmLutRequest = { id, type: 'set-film-lut', bytes, lookKey };
+    return new Promise<void>((resolve, reject) => {
+      this.pending.set(id, { kind: 'set-film-lut', resolve, reject });
+      worker.postMessage(request, [bytes]);
+    });
+  }
+
   // ── Auto-adjust (#1379) ─────────────────────────────────────────────────────
   // One-shot: decode the RAW via the WASM standalone entry and return the 8-field
   // recommendation. Independent of any GPU session — runs on every browser.
@@ -488,8 +513,9 @@ export class RawPipelineService implements OnDestroy {
     ext: string,
     options: RawExportOptions,
     xmp?: string,
+    filmLut?: ArrayBuffer,
   ): Promise<ExportedFile> {
-    const run = () => this.exportOnce(bytes, ext, options, xmp);
+    const run = () => this.exportOnce(bytes, ext, options, xmp, filmLut);
     const next = this.decodeChain.then(run, run);
     this.decodeChain = next.catch(() => undefined);
     return next;
@@ -500,6 +526,7 @@ export class RawPipelineService implements OnDestroy {
     ext: string,
     options: RawExportOptions,
     xmp: string | undefined,
+    filmLut: ArrayBuffer | undefined,
   ): Promise<ExportedFile> {
     let worker: Worker;
     try {
@@ -508,7 +535,7 @@ export class RawPipelineService implements OnDestroy {
       return Promise.reject(new Error('RawPipelineService: worker unavailable'));
     }
     const register = (id: number, handler: PendingHandler) => this.pending.set(id, handler);
-    return dispatchExport(worker, this.nextId++, register, bytes, ext, options, xmp);
+    return dispatchExport(worker, this.nextId++, register, bytes, ext, options, xmp, filmLut);
   }
 
   ngOnDestroy(): void {
