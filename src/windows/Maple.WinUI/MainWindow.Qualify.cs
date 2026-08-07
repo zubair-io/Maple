@@ -44,8 +44,9 @@ namespace Maple.WinUI
                 var path = "gpu";
                 var tickWaiter = new TaskCompletionSource<double>(
                     TaskCreationOptions.RunContinuationsAsynchronously);
-                // Interactive metric = the fast pass; refine presents land
-                // after the wiggle loop's debounce window anyway.
+                // The 4th arg is fullRes-vs-half (see GpuFrameReady docs); the
+                // wiggle loop measures whatever the interactive tick presents,
+                // which is the half session when available.
                 ViewModel.Renderer.GpuFrameReady += (_, _, ms, _) =>
                     tickWaiter.TrySetResult(ms);
                 ViewModel.Renderer.FrameReady += (_, _, _, _, ms) =>

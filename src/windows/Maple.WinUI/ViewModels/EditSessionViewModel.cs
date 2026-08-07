@@ -24,11 +24,21 @@ namespace Maple.WinUI.ViewModels
         /// <summary>Decode long edge for the Edit session. MAPLE_DECODE_LONG_EDGE
         /// overrides for perf experiments (#2587) — e.g. the qualification
         /// harness measuring how tick cost scales with session pixels.</summary>
-        public static readonly int PreviewLongEdge =
-            int.TryParse(Environment.GetEnvironmentVariable("MAPLE_DECODE_LONG_EDGE"), out var v)
-            && v is >= 256 and <= 8192
-                ? v
-                : DefaultPreviewLongEdge;
+        public static readonly int PreviewLongEdge = ResolvePreviewLongEdge();
+
+        private static int ResolvePreviewLongEdge()
+        {
+            var raw = Environment.GetEnvironmentVariable("MAPLE_DECODE_LONG_EDGE");
+            if (string.IsNullOrEmpty(raw))
+                return DefaultPreviewLongEdge;
+            if (int.TryParse(raw, out var v) && v is >= 256 and <= 8192)
+            {
+                DiagLog.Write($"[decode] MAPLE_DECODE_LONG_EDGE override active: {v}");
+                return v;
+            }
+            DiagLog.Write($"[decode] MAPLE_DECODE_LONG_EDGE ignored (invalid: '{raw}')");
+            return DefaultPreviewLongEdge;
+        }
         private const int SidecarDebounceMs = 750;
         private const int UndoCommitQuietMs = 450;
         private const int UndoDepth = 50;
