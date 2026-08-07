@@ -1,9 +1,68 @@
 // raw-pipeline.worker-handlers.ts
 // Extracted from raw-pipeline.worker.ts (pure code move — no behaviour change).
-// Contains: WebLiveSession interface declarations, scope-readback module state and
-// the `readbackScopeSnapshot()` helper function.
+// Contains: WebLiveSession interface declarations, scope-readback module state,
+// the `readbackScopeSnapshot()` helper function, and the shared WASM-init
+// gate (`ensureReady`) — hoisted here (rather than staying in
+// raw-pipeline.worker.ts) so raw-pipeline.session-handler.ts can depend on it
+// without an import cycle back through the main worker entry (#2683 split,
+// file-size budget).
 
-import type { ScopeSnapshot } from './raw-pipeline.types';
+import * as wasm from './pkg/raw_wasm';
+import { initRawWasm, type RawWasmInitResult } from './raw-wasm-init';
+import type { DeepDenoiseProgress, ScopeSnapshot, WorkerResponse } from './raw-pipeline.types';
+
+/**
+ * #1153: hand raw-core's BM3D stage progress to the main thread.
+ *
+ * `setDeepDenoiseProgress` is a plain (non-gpu-gated) export of the WASM
+ * bundle, but read dynamically for the same reason `render_bytes_gpu` is:
+ * a bundle built before #1153 simply omits it, and a missing determinate
+ * bar must not break decoding. Ticks only fire while `deepDenoise > 0`
+ * engages the stage, so a session that never touches Deep pays nothing.
+ *
+ * The develop runs SYNCHRONOUSLY here, so the worker cannot answer a poll
+ * while it is in flight — but this outgoing `postMessage` still lands on
+ * the main thread's (unblocked) event loop, which is why the direction is
+ * push, not pull.
+ */
+function installDeepDenoiseProgress(): void {
+  const register = Reflect.get(wasm as object, 'setDeepDenoiseProgress');
+  if (typeof register !== 'function') return;
+  (register as (cb: (pass: string, fraction: number) => void) => void)((pass, fraction) => {
+    const msg: DeepDenoiseProgress = {
+      id: 0,
+      type: 'deep-denoise-progress',
+      pass: pass === 'pass 2/2' ? 2 : 1,
+      fraction,
+    };
+    (self as unknown as Worker).postMessage(msg);
+  });
+}
+
+let readyPromise: Promise<RawWasmInitResult> | null = null;
+
+/** Ensure the WASM module is initialised, broadcasting the thread-pool status
+ *  once. Shared by every handler (legacy decode, scene-linear decode,
+ *  session, auto-adjust) so init is kicked off eagerly and awaited lazily —
+ *  no handler waits for a decode request before starting init. */
+export function ensureReady(): Promise<RawWasmInitResult> {
+  if (!readyPromise) {
+    readyPromise = initRawWasm().then((result) => {
+      installDeepDenoiseProgress();
+      // Report the runtime policy result so the UI can surface serial mode on
+      // non-isolated hosts and on Chromium while #2515 is mitigated.
+      const statusMsg: WorkerResponse = {
+        id: 0,
+        type: 'status',
+        threaded: result.threaded,
+        threads: result.threads,
+      };
+      (self as unknown as Worker).postMessage(statusMsg);
+      return result;
+    });
+  }
+  return readyPromise;
+}
 
 /**
  * The `WebLiveSession` class from the `gpu`-feature WASM build (#1038). Typed
@@ -13,6 +72,18 @@ import type { ScopeSnapshot } from './raw-pipeline.types';
  */
 export interface WebLiveSessionInstance {
   render(xmp: string | null): Promise<string>;
+  /** Flat-params hot path (avoids XML parsing per tick); see `render`. */
+  render_with_params(params: Float32Array): Promise<string>;
+  /**
+   * Load (or replace) the session's film-look LUT (epic #2683, Task 9).
+   * `bytes` is a `.mlut` v1 buffer; `lookKey` is the content-identity key
+   * folded into the GPU chain signature. Empty `bytes` clears the look.
+   * Does not itself re-render — takes effect on the next `render` /
+   * `render_with_params` tick.
+   */
+  set_film_lut(bytes: Uint8Array, lookKey: number): void;
+  /** Drop the session's film-look LUT — the next tick renders with none. */
+  clear_film_lut(): void;
   /** Developed (viewport-sized per #1080) dims == the canvas dims. */
   readonly width: number;
   readonly height: number;
