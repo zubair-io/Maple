@@ -40,9 +40,14 @@
     comment above. `SidecarStore.cs` is included too (real-file I/O, no
     WinUI/WinRT dependency) so its atomic-write/read path gets real-file
     coverage per CLAUDE.md's "no mocks for the sidecar layer" rule.
+    `SelectionLogic.cs` (#2634) is a standalone, generic-over-item-type
+    static class with zero WinUI dependency — unlike PhotoItem, which lives
+    in a file (EditSessionViewModel.Library.cs) that also carries the
+    WinUI-dependent bulk of EditSessionViewModel, so it isn't linkable here.
   -->
   <ItemGroup>
     <Compile Include="..\Maple.WinUI\Services\Xmp\*.cs" LinkBase="Xmp" />
     <Compile Include="..\Maple.WinUI\Models\AdjustmentState.cs" LinkBase="Models" />
+    <Compile Include="..\Maple.WinUI\ViewModels\SelectionLogic.cs" LinkBase="ViewModels" />
   </ItemGroup>
 </Project>
