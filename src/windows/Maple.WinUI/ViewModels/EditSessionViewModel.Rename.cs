@@ -116,7 +116,7 @@ namespace Maple.WinUI.ViewModels
                 return false;
             }
 
-            ApplyRenameOutcome(photo, outcome);
+            ApplyRenameOutcome(photo, outcome.PrimaryPath);
             photo.IsRenaming = false;
             photo.RenameError = null;
             return true;
@@ -131,11 +131,14 @@ namespace Maple.WinUI.ViewModels
         /// pointing at a cache entry keyed to a path that no longer names
         /// this file. The decoded scene-linear buffer (if this photo is
         /// open in Edit) does NOT need to change: the rename didn't touch
-        /// the pixels, only the name.</summary>
-        private void ApplyRenameOutcome(PhotoItem photo, RelocateOutcome outcome)
+        /// the pixels, only the name. Takes the bare new path (not a
+        /// RelocateOutcome) so the batch-rename apply path
+        /// (EditSessionViewModel.BatchRename.cs, #2642) can reuse this same
+        /// cache-invalidation logic for every item it relocates.</summary>
+        private void ApplyRenameOutcome(PhotoItem photo, string newPrimaryPath)
         {
-            photo.FilePath = outcome.PrimaryPath;
-            photo.FileName = Path.GetFileName(outcome.PrimaryPath);
+            photo.FilePath = newPrimaryPath;
+            photo.FileName = Path.GetFileName(newPrimaryPath);
             photo.ThumbnailPath = null;
             photo.PreviewPath = null;
             _ = RefreshRenamedThumbnailAsync(photo);

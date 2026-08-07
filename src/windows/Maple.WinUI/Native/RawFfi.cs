@@ -184,5 +184,44 @@ namespace Maple.WinUI.Native
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern int maple_validate_filename(
             [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
+
+        // --- Filename-template rendering (#2642, batch rename): the
+        //     `_buf` counterpart to maple_render_filename_template — a
+        //     caller-owned output buffer instead of a heap-allocated
+        //     MapleFilenameResult, so there is nothing to free on this side
+        //     (mirrors the Self Hosted API's bun:ffi shim, which uses this
+        //     same `_buf` entry for the identical reason — see
+        //     raw-ffi/src/filename.rs's doc comment on why
+        //     maple_render_filename_template_buf exists as a sibling of the
+        //     by-value-struct maple_render_filename_template). No pointer
+        //     types in this signature (IntPtr for the output buffer, `out
+        //     nuint` for its written length) so calling it needs no
+        //     `unsafe` context, same as maple_validate_filename above. ---
+
+        /// <summary>Render one filename from a batch-rename template
+        /// (shared with Apple/Web/the Self Hosted API via the same
+        /// raw-core engine). 0 = success, with the rendered UTF-8 bytes (NOT
+        /// null-terminated) written to <paramref name="outBuf"/> and their
+        /// length to <paramref name="outLen"/>. Non-zero: see
+        /// raw-ffi/src/filename.rs's `maple_render_filename_template` doc
+        /// comment for the exact code table (1-8), plus 9 = rendered name
+        /// exceeds <paramref name="outCap"/>; -1 = a required pointer was
+        /// null or not valid UTF-8. `maple_last_error()` carries the
+        /// human-readable reason on any non-zero return. <paramref
+        /// name="capturedAt"/> may be null — every `{date:FORMAT}` token
+        /// then renders its documented fallback text instead of failing the
+        /// call.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int maple_render_filename_template_buf(
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string template,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string originalStem,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string ext,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string? capturedAt,
+            ulong sequenceStart,
+            ulong sequenceIndex,
+            nuint sequencePadWidth,
+            IntPtr outBuf,
+            nuint outCap,
+            out nuint outLen);
     }
 }

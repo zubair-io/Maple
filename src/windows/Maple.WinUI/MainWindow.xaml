@@ -146,6 +146,7 @@
                         <MenuFlyoutItem Text="Unflag" Click="OnMenuFlagUnflag"
                                         KeyboardAcceleratorTextOverride="U" />
                         <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="Batch Rename…" Click="OnBatchRename" />
                         <MenuFlyoutItem Text="Stitch Panorama…" Click="OnStitchPano" />
                     </MenuFlyout>
                 </Button.Flyout>
@@ -365,7 +366,8 @@
                                            Foreground="{StaticResource MapleTextMuted}" Margin="8,0,0,0"
                                            AutomationProperties.LiveSetting="Polite" />
                                 <!-- Narrator-only: announces inline-rename commit/cancel outcomes
-                                     (#2639). Zero visual footprint — content, not chrome. -->
+                                     (#2639) and batch-rename apply outcomes (#2642, via the same
+                                     AnnounceRename helper). Zero visual footprint — content, not chrome. -->
                                 <TextBlock x:Name="RenameStatusText" Width="0" Height="0" Opacity="0"
                                            AutomationProperties.LiveSetting="Polite" />
                             </StackPanel>
