@@ -37,6 +37,20 @@ namespace Maple.WinUI.Services
         /// name.</summary>
         private const int RenderOutCap = 1024;
 
+        /// <summary>A single process-lifetime unmanaged buffer, reused
+        /// across every call rather than AllocHGlobal/FreeHGlobal per
+        /// render. The live preview calls Render once per selected item on
+        /// EVERY keystroke, so a per-call alloc/free pair is avoidable
+        /// churn on a path that already runs many times a second for a
+        /// large selection. Guarded by <see cref="_bufferLock"/> since
+        /// ApplySequentialAsync's collision-resolution awaits can resume
+        /// this call off the UI thread (ConfigureAwait(false)) — in
+        /// practice preview and apply never run concurrently (the dialog is
+        /// modal during apply), but the lock makes that a guarantee, not an
+        /// assumption.</summary>
+        private static readonly IntPtr _buffer = Marshal.AllocHGlobal(RenderOutCap);
+        private static readonly object _bufferLock = new();
+
         /// <summary>Render one filename from a batch-rename template via the
         /// shared raw-core engine. <paramref name="capturedAtWire"/> is EXIF
         /// `DateTimeOriginal`'s `"YYYY:MM:DD HH:MM:SS"` wire format, or
@@ -53,24 +67,19 @@ namespace Maple.WinUI.Services
             int sequencePadWidth)
         {
             var padWidth = sequencePadWidth < 0 ? (nuint)0 : (nuint)sequencePadWidth;
-            var buffer = Marshal.AllocHGlobal(RenderOutCap);
-            try
+            lock (_bufferLock)
             {
                 var rc = RawFfi.maple_render_filename_template_buf(
                     template, originalStem, ext, capturedAtWire,
                     sequenceStart, sequenceIndex, padWidth,
-                    buffer, (nuint)RenderOutCap, out var outLen);
+                    _buffer, (nuint)RenderOutCap, out var outLen);
                 if (rc == 0)
                 {
                     var bytes = new byte[(int)outLen];
-                    Marshal.Copy(buffer, bytes, 0, (int)outLen);
+                    Marshal.Copy(_buffer, bytes, 0, (int)outLen);
                     return FilenameRenderOutcome.Success(Encoding.UTF8.GetString(bytes));
                 }
                 return FilenameRenderOutcome.Failure(rc, RawFfi.LastError() ?? "Template rendering failed.");
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(buffer);
             }
         }
     }
