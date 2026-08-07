@@ -51,7 +51,7 @@ export function histogramBinsFromBuffer(buf: Buffer): HistogramBins {
  * and maps to the same clean `{ ok: false }` shape as any other engine
  * rejection; any name that long would fail `validate_filename`'s length rule
  * regardless. The HTTP schema additionally caps `template` at 512 chars. */
-export type FilenameTemplateResult =
+type FilenameTemplateResult =
   | { ok: true; name: string }
   | { ok: false; code: number; error: string };
 
@@ -137,12 +137,26 @@ interface RawFfi {
 }
 
 let _ffi: RawFfi | null | undefined = undefined; // undefined = not yet attempted
+let _ffiOverride: RawFfi | null | undefined = undefined; // undefined = no override active
 
 /** Returns the FFI wrapper, or null if the native library is unavailable. */
 export function tryGetRawFfi(): RawFfi | null {
+  if (_ffiOverride !== undefined) return _ffiOverride;
   if (_ffi !== undefined) return _ffi;
   _ffi = loadFfi();
   return _ffi;
+}
+
+/**
+ * Test-only: force `tryGetRawFfi()`'s return value, so a suite can exercise
+ * the "engine unavailable" fail-closed path (e.g.
+ * `routes/assets/rename.test.ts`) without deleting the dylib out from under
+ * every other test in the same process. Pass `undefined` to clear the
+ * override and fall back to the real load/cache behaviour. Same pattern as
+ * `setLibraryRootsForTests` (`indexer/libraries.cache.ts`).
+ */
+export function setRawFfiForTests(ffi: RawFfi | null | undefined): void {
+  _ffiOverride = ffi;
 }
 
 /**
