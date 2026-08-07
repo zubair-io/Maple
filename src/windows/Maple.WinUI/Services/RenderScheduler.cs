@@ -41,13 +41,18 @@ namespace Maple.WinUI.Services
         private bool _gpuSessionOpen;
         private bool _gpuDisabled;
         private DecodedImage? _gpuImage;
+        private MapleGpuLiveSession _gpuSessionHalf;
+        private bool _gpuSessionHalfOpen;
+        private DecodedImage? _gpuHalfImage;
 
         /// <summary>CPU-path frame: (bgra, width, height, histogram bins,
         /// renderMillis). Raised on the render thread.</summary>
         public event Action<byte[], int, int, uint[], double>? FrameReady;
-        /// <summary>GPU-path present completed: (width, height, presentMillis).
-        /// The pixels are already on screen in the SwapChainPanel.</summary>
-        public event Action<int, int, double>? GpuFrameReady;
+        /// <summary>GPU-path present completed: (width, height, presentMillis,
+        /// refined). refined=false is the half-res fast pass (scale the panel
+        /// 2×); refined=true is the full-res quiet refine. The pixels are
+        /// already on screen in the SwapChainPanel.</summary>
+        public event Action<int, int, double, bool>? GpuFrameReady;
         /// <summary>Histogram bins for the newest state (GPU path only — the
         /// CPU path carries bins on FrameReady).</summary>
         public event Action<uint[]>? HistogramReady;
@@ -113,7 +118,15 @@ namespace Maple.WinUI.Services
                 if (image != null)
                     DiagLog.Write($"[gpu] SetImage: panel={_panelNative != IntPtr.Zero} disabled={_gpuDisabled}");
                 if (image != null && _panelNative != IntPtr.Zero && !_gpuDisabled)
+                {
                     OpenGpuSessionLocked(image);
+                    // Two-phase GPU render (#2587): interactive ticks present a
+                    // half-res session (~4× fewer pixels), the quiet refine
+                    // presents the full session — the spec's fast/refine
+                    // contract, previously CPU-path-only.
+                    if (half != null)
+                        OpenGpuHalfSessionLocked(half);
+                }
             }
         }
 
@@ -144,8 +157,38 @@ namespace Maple.WinUI.Services
             DiagLog.Write($"[gpu] live session open {image.Width}x{image.Height}");
         }
 
+        private unsafe void OpenGpuHalfSessionLocked(DecodedImage half)
+        {
+            fixed (float* px = half.Pixels)
+            fixed (MapleGpuLiveSession* handle = &_gpuSessionHalf)
+            {
+                var rc = RawFfi.maple_gpu_live_open(
+                    px, (uint)half.Width, (uint)half.Height, handle);
+                if (rc != 0)
+                {
+                    // Full-session presents still work — fast ticks just stay
+                    // at full res. Not a GPU-path disable.
+                    DiagLog.Write($"[gpu] half session open failed rc={rc}: {RawFfi.LastError()}");
+                    return;
+                }
+            }
+            _gpuSessionHalfOpen = true;
+            _gpuHalfImage = half;
+            DiagLog.Write($"[gpu] half session open {half.Width}x{half.Height}");
+        }
+
         private unsafe void CloseGpuSessionLocked()
         {
+            if (_gpuSessionHalfOpen)
+            {
+                fixed (MapleGpuLiveSession* handle = &_gpuSessionHalf)
+                {
+                    RawFfi.maple_gpu_live_close(handle);
+                }
+                _gpuSessionHalf.inner = IntPtr.Zero;
+                _gpuSessionHalfOpen = false;
+                _gpuHalfImage = null;
+            }
             if (!_gpuSessionOpen)
                 return;
             fixed (MapleGpuLiveSession* handle = &_gpuSession)
@@ -235,7 +278,22 @@ namespace Maple.WinUI.Services
             if (gpuActive)
             {
                 if (fastPass)
-                    return GpuPresent(image, state, panel, generation);
+                {
+                    // Interactive tick: half-res session when available (the
+                    // two-phase fast pass), full session otherwise.
+                    bool halfActive;
+                    lock (_gate)
+                    {
+                        halfActive = _gpuSessionHalfOpen
+                            && halfImage != null
+                            && ReferenceEquals(_gpuHalfImage, halfImage);
+                    }
+                    return halfActive
+                        ? GpuPresent(halfImage!, state, panel, generation, useHalf: true)
+                        : GpuPresent(image, state, panel, generation, useHalf: false);
+                }
+                // Quiet refine: full-res present, then the histogram tick.
+                GpuPresent(image, state, panel, generation, useHalf: false);
                 EmitHistogram(halfImage ?? image, state);
                 return true;
             }
@@ -245,7 +303,8 @@ namespace Maple.WinUI.Services
         }
 
         private bool GpuPresent(
-            DecodedImage image, AdjustmentState state, IntPtr panel, ulong generation)
+            DecodedImage image, AdjustmentState state, IntPtr panel, ulong generation,
+            bool useHalf)
         {
             // The present must run on the UI thread: the first configure calls
             // ISwapChainPanelNative::SetSwapChain, which rejects background
@@ -266,7 +325,7 @@ namespace Maple.WinUI.Services
             var completion = new TaskCompletionSource<int>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
             if (!queue.TryEnqueue(() => completion.TrySetResult(
-                    GpuPresentOnUiThread(image, state, panel, generation))))
+                    GpuPresentOnUiThread(image, state, panel, generation, useHalf))))
             {
                 lock (_gate)
                 {
@@ -279,8 +338,9 @@ namespace Maple.WinUI.Services
                 return true;  // superseded by a newer SetImage — dropped
             if (rc == 0)
             {
-                GpuFrameReady?.Invoke(
-                    image.Width, image.Height, Environment.TickCount64 - started);
+                var total = Environment.TickCount64 - started;
+                DiagLog.Write($"[tick] {(useHalf ? "half" : "full")} total={total}ms ffi={_lastFfiMillis}ms");
+                GpuFrameReady?.Invoke(image.Width, image.Height, total, !useHalf);
                 return true;
             }
 
@@ -300,7 +360,8 @@ namespace Maple.WinUI.Services
         /// <summary>Runs on the UI thread. Returns the FFI rc, or int.MinValue
         /// when the session was superseded before the call.</summary>
         private unsafe int GpuPresentOnUiThread(
-            DecodedImage image, AdjustmentState state, IntPtr panel, ulong generation)
+            DecodedImage image, AdjustmentState state, IntPtr panel, ulong generation,
+            bool useHalf)
         {
             var p = MapleGpuLiveParams.From(state, image);
             // Point tone curves (#2576): flat knot pairs, borrowed for the call.
@@ -314,7 +375,10 @@ namespace Maple.WinUI.Services
             // own GPU_SHARED mutex serializes GPU work, not handle lifetime.
             lock (_gate)
             {
-                if (!_gpuSessionOpen || !ReferenceEquals(_gpuImage, image))
+                var sessionValid = useHalf
+                    ? _gpuSessionHalfOpen && ReferenceEquals(_gpuHalfImage, image)
+                    : _gpuSessionOpen && ReferenceEquals(_gpuImage, image);
+                if (!sessionValid)
                     return int.MinValue;
                 int rc;
                 fixed (float* noisePtr = image.NoiseProfile)
@@ -324,8 +388,10 @@ namespace Maple.WinUI.Services
                 fixed (float* tcRed = curveRed)
                 fixed (float* tcGreen = curveGreen)
                 fixed (float* tcBlue = curveBlue)
-                fixed (MapleGpuLiveSession* handle = &_gpuSession)
+                fixed (MapleGpuLiveSession* fullHandle = &_gpuSession)
+                fixed (MapleGpuLiveSession* halfHandle = &_gpuSessionHalf)
                 {
+                    var handle = useHalf ? halfHandle : fullHandle;
                     p.tone_curve_luma_ptr = tcLuma;
                     p.tone_curve_luma_len = (nuint)curveLuma.Length;
                     p.tone_curve_red_ptr = tcRed;
@@ -353,13 +419,20 @@ namespace Maple.WinUI.Services
                         p.residual_lut_len = (nuint)image.ResidualLut.Length;
                         p.residual_lut_size = image.ResidualLutSize;
                     }
+                    var ffiStarted = Environment.TickCount64;
                     rc = RawFfi.maple_gpu_present_chain_winui(
                         handle, &p, panel, IntPtr.Zero, generation);
+                    _lastFfiMillis = Environment.TickCount64 - ffiStarted;
                 }
                 _lastGpuError = rc == 0 ? null : RawFfi.LastError();
                 return rc;
             }
         }
+
+        /// <summary>FFI duration of the newest present (excludes UI-dispatch
+        /// queue wait) — the #2587 tick-budget breakdown.</summary>
+        public long LastFfiMillis => _lastFfiMillis;
+        private long _lastFfiMillis;
 
         private bool CpuRender(DecodedImage image, AdjustmentState state, bool emitFrame)
         {
