@@ -310,6 +310,7 @@ interface SidecarCopyResult {
 async function copyPrimaryAndSidecars(
   sourceAbsPath: string,
   finalDest: string,
+  collision: CollisionPolicy,
   createdPaths: string[],
 ): Promise<SidecarCopyResult> {
   await copyVerifiedIntoPlace(sourceAbsPath, finalDest);
@@ -326,6 +327,24 @@ async function copyPrimaryAndSidecars(
     copiedSidecars.push(dest);
     movedSidecarSources.push(sidecar);
   }
+
+  if (sourceSidecars.length === 0 && collision === 'replace') {
+    // The incoming asset has no sidecar of its own, but `'replace'` means
+    // "the destination now reflects EXACTLY the incoming asset" — a stale
+    // sidecar left over from the PREVIOUS occupant must not silently
+    // survive and get misattributed to this one (found by the #2633
+    // cross-platform parity harness — the Swift twin already avoids this,
+    // see `LocalFileOperations.swift`'s matching comment in `planRelocate`).
+    // Safe here, unlike a pre-copy delete would be: this only runs AFTER
+    // `copyVerifiedIntoPlace` above has already published the new primary
+    // successfully, so a copy failure can never reach this point.
+    // Best-effort, matching every other sidecar-cleanup path in this file.
+    const staleDests = await listPairedSidecars(finalDest);
+    for (const stale of staleDests) {
+      await fs.unlink(stale).catch(() => {});
+    }
+  }
+
   return { copiedSidecars, movedSidecarSources };
 }
 
@@ -374,24 +393,32 @@ async function deleteOriginals(
 }
 
 export async function relocateFile(req: RelocateRequest): Promise<RelocateOutcome> {
-  // 1. Resolve the destination per the caller's collision policy.
-  const resolution = await resolveDestination(req);
-  if (resolution.kind === 'skip') {
-    return { kind: 'skipped', reason: 'collision' };
-  }
-  const { finalDest } = resolution;
-
   // Refuse a destination that resolves to the source itself — see
-  // `isSameFile`'s docstring. This must run before ANY copy: the danger is
-  // copying the source onto itself and then, in move mode, deleting the
-  // only remaining copy.
-  if (await isSameFile(req.sourceAbsPath, finalDest)) {
+  // `isSameFile`'s docstring. Checked against the CALLER'S REQUESTED
+  // `destAbsPath`, before any collision resolution runs (found by the
+  // #2633 cross-platform parity harness — the Swift and Windows twins
+  // already check this first; this used to run AFTER `resolveDestination`,
+  // so an `'auto-suffix'`/`'keep-both'` request that named the source as
+  // its own destination silently suffixed past the self-collision instead
+  // of refusing, and a `'skip'` request returned `{kind:'skipped'}` instead
+  // of the same explicit `sameFile` error every other collision policy
+  // gives — both diverging from the other two platforms for the exact same
+  // call). This must run before ANY copy: the danger is copying the source
+  // onto itself and then, in move mode, deleting the only remaining copy.
+  if (await isSameFile(req.sourceAbsPath, req.destAbsPath)) {
     return {
       kind: 'error',
       error:
         'relocate: destination resolves to the same file as the source — refusing to avoid data loss',
     };
   }
+
+  // 1. Resolve the destination per the caller's collision policy.
+  const resolution = await resolveDestination(req);
+  if (resolution.kind === 'skip') {
+    return { kind: 'skipped', reason: 'collision' };
+  }
+  const { finalDest } = resolution;
 
   await fs.mkdir(path.dirname(finalDest), { recursive: true });
 
@@ -401,6 +428,7 @@ export async function relocateFile(req: RelocateRequest): Promise<RelocateOutcom
     const { copiedSidecars, movedSidecarSources } = await copyPrimaryAndSidecars(
       req.sourceAbsPath,
       finalDest,
+      req.collision,
       createdPaths,
     );
 
