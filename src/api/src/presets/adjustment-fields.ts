@@ -149,12 +149,23 @@ export const STRING_FIELDS: ReadonlySet<string> = new Set([
   // Film emulation look id (#2683) — a free-form film-catalog id, NOT a
   // closed enum like the other entries in this set (there is no fixed
   // variant list; an id the catalog doesn't recognise resolves as identity
-  // at render time). Classified as string-valued here for the same
-  // non-empty-string validation every other STRING_FIELDS entry gets —
-  // variant-level checking doesn't apply since there are no variants to
-  // check against.
+  // at render time). Classified as string-valued here so it gets the
+  // scalar/length checks every STRING_FIELDS entry gets, but it is ALSO
+  // listed in FREE_FORM_STRING_FIELDS below because — unlike the closed
+  // enums in this set — the empty string is its own canonical "no look"
+  // value, not an invalid one: a preset must be able to explicitly clear a
+  // film look by writing `film_look: ""`.
   'film_look',
 ]);
+
+/**
+ * The subset of STRING_FIELDS whose empty string is a meaningful, valid
+ * value rather than "missing" — currently just `film_look`, whose empty
+ * string is the canonical "no look selected" state. Every other
+ * STRING_FIELDS entry is a closed enum where an empty string can never be
+ * a real variant, so it stays rejected.
+ */
+export const FREE_FORM_STRING_FIELDS: ReadonlySet<string> = new Set(['film_look']);
 
 export function isKnownNumericField(name: string): boolean {
   return Object.prototype.hasOwnProperty.call(NUMERIC_FIELD_RANGES, name);
@@ -162,4 +173,9 @@ export function isKnownNumericField(name: string): boolean {
 
 export function isKnownStringField(name: string): boolean {
   return STRING_FIELDS.has(name);
+}
+
+/** Whether `name` is a known string field that allows an empty-string value. */
+export function allowsEmptyString(name: string): boolean {
+  return FREE_FORM_STRING_FIELDS.has(name);
 }
