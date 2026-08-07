@@ -4,6 +4,7 @@ import {
   LibraryStateService,
   parseAddress,
   type AssetMetadataSnapshot,
+  type BatchRenameSelection,
 } from '@maple-common';
 import { Subscription } from 'rxjs';
 
@@ -17,6 +18,8 @@ export class SelfHostedBrowseController {
   readonly panoAssetIds = signal<string[]>([]);
   readonly metadataVisible = signal(false);
   readonly metadataSnapshots = signal<AssetMetadataSnapshot[]>([]);
+  readonly batchRenameVisible = signal(false);
+  readonly batchRenameSelections = signal<BatchRenameSelection[]>([]);
 
   constructor() {
     inject(DestroyRef).onDestroy(() => this.snapshotsSubscription?.unsubscribe());
@@ -71,6 +74,38 @@ export class SelfHostedBrowseController {
     this.metadataSnapshots.set([]);
     this.state.loadFolderTree();
 
+    const currentId = this.state.selectedSourceId();
+    if (!currentId?.includes(':')) return;
+    try {
+      const address = parseAddress(currentId);
+      this.state.openSelfHostedSubfolder(address.relPath, currentId);
+    } catch {
+      // A legacy source id has no subfolder route to refresh.
+    }
+  }
+
+  // ── Batch Rename (#2640) ──────────────────────────────────────────────
+
+  openBatchRename(): void {
+    const selected = this.state.selectedAssetIds();
+    const assets = this.state.assetsInSelectedFolder().filter((asset) => selected.has(asset.id));
+    if (assets.length === 0) return;
+    this.batchRenameSelections.set(
+      assets.map((asset) => ({ address: asset.id, filename: asset.filename })),
+    );
+    this.batchRenameVisible.set(true);
+  }
+
+  dismissBatchRename(): void {
+    this.batchRenameVisible.set(false);
+    this.batchRenameSelections.set([]);
+  }
+
+  /** Renamed files change filenames/addresses under the current folder —
+   * refresh the same way `dismissMetadata` does so the grid reflects the
+   * new names without a full page reload. */
+  onBatchRenameApplied(): void {
+    this.state.loadFolderTree();
     const currentId = this.state.selectedSourceId();
     if (!currentId?.includes(':')) return;
     try {

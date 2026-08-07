@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, OnInit, inject } from '@angular/cor
 import {
   AssetGridComponent,
   BatchMetadataPanelComponent,
+  BatchRenameDialogComponent,
   ErrorBannerComponent,
   LibraryPickerComponent,
   LibraryStateService,
@@ -17,6 +18,12 @@ import { SelfHostedBrowseController } from '../self-hosted-browse/self-hosted-br
   imports: [
     AssetGridComponent,
     BatchMetadataPanelComponent,
+    // Mounted directly, same shape as `BatchMetadataPanelComponent` right
+    // above — see `public-api.ts`'s #2640 note for why this stays
+    // non-`@defer`red: this file lives only under `projects/maple`, so
+    // plain tree-shaking already keeps it (and `BatchRenameService`'s
+    // `/assets/by-address` call) out of Hosted's build entirely.
+    BatchRenameDialogComponent,
     ErrorBannerComponent,
     LibraryPickerComponent,
     LoadingBannerComponent,
