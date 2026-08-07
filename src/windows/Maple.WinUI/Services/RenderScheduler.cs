@@ -52,8 +52,11 @@ namespace Maple.WinUI.Services
         /// CPU path carries bins on FrameReady).</summary>
         public event Action<uint[]>? HistogramReady;
         /// <summary>Display-encoded frame for the clipping overlay (#2574),
-        /// raised on both paths while ClipOverlayEnabled — the GPU path's
-        /// pixels otherwise never leave the swapchain.</summary>
+        /// raised while ClipOverlayEnabled: per tick on the CPU path, and on
+        /// the debounced histogram quiet-tick on the GPU path (whose presented
+        /// pixels never leave the swapchain — a per-present CPU re-render of
+        /// the full frame would blow the tick budget, so the overlay refreshes
+        /// at the same cadence as the histogram there).</summary>
         public event Action<byte[], int, int>? ClipSourceReady;
         /// <summary>Set while a clipping overlay toggle is on; gates the extra
         /// frame copy off the hot path when the feature is idle.</summary>
