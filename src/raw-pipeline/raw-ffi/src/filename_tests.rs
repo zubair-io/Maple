@@ -254,3 +254,49 @@ fn buf_variant_propagates_the_same_error_codes() {
     let err = unsafe { render_buf("CON", "x", "dng", None, 0, 0, 0, 64) }.unwrap_err();
     assert_eq!(err, 7);
 }
+
+#[test]
+fn buf_variant_rejects_a_null_out_buf() {
+    let template_c = CString::new("{original}.{ext}").unwrap();
+    let stem_c = CString::new("x").unwrap();
+    let ext_c = CString::new("dng").unwrap();
+    let mut out_len: usize = 0;
+    let rc = unsafe {
+        maple_render_filename_template_buf(
+            template_c.as_ptr(),
+            stem_c.as_ptr(),
+            ext_c.as_ptr(),
+            std::ptr::null(),
+            0,
+            0,
+            0,
+            std::ptr::null_mut(),
+            64,
+            &mut out_len as *mut usize,
+        )
+    };
+    assert_eq!(rc, -1);
+}
+
+#[test]
+fn buf_variant_rejects_a_null_out_len() {
+    let template_c = CString::new("{original}.{ext}").unwrap();
+    let stem_c = CString::new("x").unwrap();
+    let ext_c = CString::new("dng").unwrap();
+    let mut buf = vec![0u8; 64];
+    let rc = unsafe {
+        maple_render_filename_template_buf(
+            template_c.as_ptr(),
+            stem_c.as_ptr(),
+            ext_c.as_ptr(),
+            std::ptr::null(),
+            0,
+            0,
+            0,
+            buf.as_mut_ptr(),
+            64,
+            std::ptr::null_mut(),
+        )
+    };
+    assert_eq!(rc, -1);
+}

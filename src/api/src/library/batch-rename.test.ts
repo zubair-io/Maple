@@ -6,6 +6,18 @@
  * template token, sequential self-collision mid-batch (the design doc's
  * explicit acceptance criterion), partial-failure reporting, and the
  * preview/dry-run mode.
+ *
+ * Tests that need an actual RENDERED name (not just the fail-closed
+ * per-item error) require the native `raw-core` engine — `tryGetRawFfi()`
+ * returns `null` in this repo's CI (`.github/workflows/api.yml` runs `bun
+ * test` without ever building `libraw_ffi`; only the local dev workflow
+ * runs `build-raw-ffi.sh`). `maybeTest` skip-gates exactly those tests, the
+ * same "skip when the native dependency isn't present, don't fail
+ * spuriously" convention `test_color_pipeline.sh` and the XCUITest visual
+ * harness already use for their own native/fixture dependencies. The
+ * fail-closed tests at the bottom of this file are NOT gated — they force
+ * `tryGetRawFfi()` to `null` themselves via `setRawFfiForTests`, so they're
+ * deterministic in every environment, dylib or not.
  */
 
 import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test';
@@ -15,7 +27,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { closeDb } from '../db/client.ts';
 import { setLibraryRootsForTests } from '../indexer/libraries.cache.ts';
+import { setRawFfiForTests, tryGetRawFfi } from '../ffi/raw_ffi.ts';
 import { batchRenameAssets, previewBatchRename } from './batch-rename.ts';
+
+const ffiAvailable = tryGetRawFfi() !== null;
+const maybeTest = ffiAvailable ? test : test.skip;
 
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 const TEST_DB = `maple_batch_rename_test_${process.pid}`;
@@ -104,7 +120,7 @@ async function seedAssets(
 }
 
 describe('batchRenameAssets — tokens', () => {
-  test('{original}, {n}, {ext}, and {date:FORMAT} all render', async () => {
+  maybeTest('{original}, {n}, {ext}, and {date:FORMAT} all render', async () => {
     if (!db) return;
     const ids = await seedAssets(
       db,
@@ -132,97 +148,112 @@ describe('batchRenameAssets — tokens', () => {
     );
   });
 
-  test('a missing captured_at falls back to the engine placeholder, not a failure', async () => {
-    if (!db) return;
-    const ids = await seedAssets(db, ['IMG_1.dng']);
+  maybeTest(
+    'a missing captured_at falls back to the engine placeholder, not a failure',
+    async () => {
+      if (!db) return;
+      const ids = await seedAssets(db, ['IMG_1.dng']);
 
-    const results = await batchRenameAssets({
-      ids,
-      template: '{date:%Y}_{original}.{ext}',
-      sequenceStart: 0,
-      sequencePadWidth: 0,
-      collision: 'auto-suffix',
-    });
+      const results = await batchRenameAssets({
+        ids,
+        template: '{date:%Y}_{original}.{ext}',
+        sequenceStart: 0,
+        sequencePadWidth: 0,
+        collision: 'auto-suffix',
+      });
 
-    expect(results[0]).toMatchObject({ kind: 'relocated', newFilename: 'unknown-date_IMG_1.dng' });
-  });
+      expect(results[0]).toMatchObject({
+        kind: 'relocated',
+        newFilename: 'unknown-date_IMG_1.dng',
+      });
+    },
+  );
 });
 
 describe('batchRenameAssets — sequential self-collision mid-batch', () => {
-  test('a template that collides with itself is resolved by the collision policy per step', async () => {
-    if (!db) return;
-    // Every file renders to the SAME literal name — a template with no
-    // distinguishing token, e.g. a user typo. Sequential application must
-    // see each PRIOR step's result and auto-suffix against it, not just
-    // against pre-existing files.
-    const ids = await seedAssets(db, ['a.dng', 'b.dng', 'c.dng']);
+  maybeTest(
+    'a template that collides with itself is resolved by the collision policy per step',
+    async () => {
+      if (!db) return;
+      // Every file renders to the SAME literal name — a template with no
+      // distinguishing token, e.g. a user typo. Sequential application must
+      // see each PRIOR step's result and auto-suffix against it, not just
+      // against pre-existing files.
+      const ids = await seedAssets(db, ['a.dng', 'b.dng', 'c.dng']);
 
-    const results = await batchRenameAssets({
-      ids,
-      template: 'shared.dng',
-      sequenceStart: 0,
-      sequencePadWidth: 0,
-      collision: 'auto-suffix',
-    });
+      const results = await batchRenameAssets({
+        ids,
+        template: 'shared.dng',
+        sequenceStart: 0,
+        sequencePadWidth: 0,
+        collision: 'auto-suffix',
+      });
 
-    expect(results).toHaveLength(3);
-    const newNames = results.map((r) => (r.kind === 'relocated' ? r.newFilename : null));
-    // All three destinations must be distinct — proves each step saw the
-    // previous step's write, not a stale/pre-batch directory listing.
-    expect(new Set(newNames).size).toBe(3);
-    expect(newNames[0]).toBe('shared.dng');
-    expect(newNames[1]).not.toBe('shared.dng');
-    expect(newNames[2]).not.toBe('shared.dng');
-    expect(newNames[2]).not.toBe(newNames[1]);
+      expect(results).toHaveLength(3);
+      const newNames = results.map((r) => (r.kind === 'relocated' ? r.newFilename : null));
+      // All three destinations must be distinct — proves each step saw the
+      // previous step's write, not a stale/pre-batch directory listing.
+      expect(new Set(newNames).size).toBe(3);
+      expect(newNames[0]).toBe('shared.dng');
+      expect(newNames[1]).not.toBe('shared.dng');
+      expect(newNames[2]).not.toBe('shared.dng');
+      expect(newNames[2]).not.toBe(newNames[1]);
 
-    // The files really exist on disk at their distinct destinations, and
-    // the ORIGINAL content stayed attached to the right asset (no
-    // cross-file data mixing from the collision).
-    for (const [i, name] of newNames.entries()) {
-      expect(await fs.readFile(path.join(root, 'a', name as string), 'utf8')).toBe(`pixels-${i}`);
-    }
-  });
+      // The files really exist on disk at their distinct destinations, and
+      // the ORIGINAL content stayed attached to the right asset (no
+      // cross-file data mixing from the collision).
+      for (const [i, name] of newNames.entries()) {
+        expect(await fs.readFile(path.join(root, 'a', name as string), 'utf8')).toBe(`pixels-${i}`);
+      }
+    },
+  );
 
-  test('collision: "skip" leaves later self-collisions untouched, reported per item', async () => {
-    if (!db) return;
-    const ids = await seedAssets(db, ['a.dng', 'b.dng']);
+  maybeTest(
+    'collision: "skip" leaves later self-collisions untouched, reported per item',
+    async () => {
+      if (!db) return;
+      const ids = await seedAssets(db, ['a.dng', 'b.dng']);
 
-    const results = await batchRenameAssets({
-      ids,
-      template: 'shared.dng',
-      sequenceStart: 0,
-      sequencePadWidth: 0,
-      collision: 'skip',
-    });
+      const results = await batchRenameAssets({
+        ids,
+        template: 'shared.dng',
+        sequenceStart: 0,
+        sequencePadWidth: 0,
+        collision: 'skip',
+      });
 
-    expect(results[0]).toMatchObject({ kind: 'relocated', newFilename: 'shared.dng' });
-    expect(results[1]).toMatchObject({ kind: 'skipped' });
-    // The second file was never moved — it's still at its original name.
-    expect(await fs.readFile(path.join(root, 'a', 'b.dng'), 'utf8')).toBe('pixels-1');
-  });
+      expect(results[0]).toMatchObject({ kind: 'relocated', newFilename: 'shared.dng' });
+      expect(results[1]).toMatchObject({ kind: 'skipped' });
+      // The second file was never moved — it's still at its original name.
+      expect(await fs.readFile(path.join(root, 'a', 'b.dng'), 'utf8')).toBe('pixels-1');
+    },
+  );
 });
 
 describe('batchRenameAssets — partial failure', () => {
-  test('an unknown id in the middle of the batch is reported, not thrown, and the rest still apply', async () => {
-    if (!db) return;
-    // One `seedAssets` call — it re-wires the in-memory library-roots cache
-    // to a single map, so a second call would stomp the first's mapping.
-    const [first, , third] = await seedAssets(db, ['a.dng', 'ignore-me.dng', 'c.dng']);
-    const missing = new ObjectId();
+  maybeTest(
+    'an unknown id in the middle of the batch is reported, not thrown, and the rest still apply',
+    async () => {
+      if (!db) return;
+      // One `seedAssets` call — it re-wires the in-memory library-roots cache
+      // to a single map, so a second call would stomp the first's mapping.
+      const [first, , third] = await seedAssets(db, ['a.dng', 'ignore-me.dng', 'c.dng']);
+      const missing = new ObjectId();
 
-    const results = await batchRenameAssets({
-      ids: [first!, missing, third!],
-      template: 'renamed_{n}.{ext}',
-      sequenceStart: 0,
-      sequencePadWidth: 0,
-      collision: 'auto-suffix',
-    });
+      const results = await batchRenameAssets({
+        ids: [first!, missing, third!],
+        template: 'renamed_{n}.{ext}',
+        sequenceStart: 0,
+        sequencePadWidth: 0,
+        collision: 'auto-suffix',
+      });
 
-    expect(results).toHaveLength(3);
-    expect(results[0]).toMatchObject({ kind: 'relocated', newFilename: 'renamed_0.dng' });
-    expect(results[1]).toMatchObject({ kind: 'not-found' });
-    expect(results[2]).toMatchObject({ kind: 'relocated', newFilename: 'renamed_2.dng' });
-  });
+      expect(results).toHaveLength(3);
+      expect(results[0]).toMatchObject({ kind: 'relocated', newFilename: 'renamed_0.dng' });
+      expect(results[1]).toMatchObject({ kind: 'not-found' });
+      expect(results[2]).toMatchObject({ kind: 'relocated', newFilename: 'renamed_2.dng' });
+    },
+  );
 
   test('an unrenderable template (unknown token) is reported per-item as invalid', async () => {
     if (!db) return;
@@ -241,7 +272,7 @@ describe('batchRenameAssets — partial failure', () => {
 });
 
 describe('previewBatchRename — dry run', () => {
-  test('renders names without touching the filesystem or the DB', async () => {
+  maybeTest('renders names without touching the filesystem or the DB', async () => {
     if (!db) return;
     const ids = await seedAssets(db, ['IMG_1.dng', 'IMG_2.dng']);
 
@@ -274,7 +305,7 @@ describe('previewBatchRename — dry run', () => {
     expect(await fs.readFile(path.join(root, 'a', 'IMG_2.dng'), 'utf8')).toBe('pixels-1');
   });
 
-  test('flags a self-colliding template as duplicate, without applying anything', async () => {
+  maybeTest('flags a self-colliding template as duplicate, without applying anything', async () => {
     if (!db) return;
     const ids = await seedAssets(db, ['a.dng', 'b.dng']);
 
@@ -290,5 +321,51 @@ describe('previewBatchRename — dry run', () => {
     // Still unmoved — preview never writes.
     expect(await fs.readFile(path.join(root, 'a', 'a.dng'), 'utf8')).toBe('pixels-0');
     expect(await fs.readFile(path.join(root, 'a', 'b.dng'), 'utf8')).toBe('pixels-1');
+  });
+});
+
+describe('batch-rename — fails closed when the engine is unavailable', () => {
+  afterEach(() => {
+    setRawFfiForTests(undefined); // restore real load/cache behaviour
+  });
+
+  test('batchRenameAssets reports every item as invalid, applies nothing', async () => {
+    if (!db) return;
+    const ids = await seedAssets(db, ['IMG_1.dng', 'IMG_2.dng']);
+    setRawFfiForTests(null);
+
+    const results = await batchRenameAssets({
+      ids,
+      template: '{original}_renamed.{ext}',
+      sequenceStart: 0,
+      sequencePadWidth: 0,
+      collision: 'auto-suffix',
+    });
+
+    expect(results).toHaveLength(2);
+    for (const r of results) {
+      expect(r.kind).toBe('invalid');
+      expect(r.kind === 'invalid' && r.error).toMatch(/engine unavailable/i);
+    }
+    // Nothing moved — the render step itself never produces a name without
+    // the engine, so relocateAsset is never reached.
+    expect(await fs.readFile(path.join(root, 'a', 'IMG_1.dng'), 'utf8')).toBe('pixels-0');
+    expect(await fs.readFile(path.join(root, 'a', 'IMG_2.dng'), 'utf8')).toBe('pixels-1');
+  });
+
+  test('previewBatchRename surfaces the same per-item error, not a fabricated name', async () => {
+    if (!db) return;
+    const ids = await seedAssets(db, ['IMG_1.dng']);
+    setRawFfiForTests(null);
+
+    const preview = await previewBatchRename({
+      ids,
+      template: '{original}_renamed.{ext}',
+      sequenceStart: 0,
+      sequencePadWidth: 0,
+    });
+
+    expect(preview[0]!.newFilename).toBeNull();
+    expect(preview[0]!.error).toMatch(/engine unavailable/i);
   });
 });

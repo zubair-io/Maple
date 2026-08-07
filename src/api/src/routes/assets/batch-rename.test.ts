@@ -17,6 +17,15 @@ import * as path from 'node:path';
 import { batchRenameRoutes } from './batch-rename.ts';
 import { closeDb } from '../../db/client.ts';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
+import { tryGetRawFfi } from '../../ffi/raw_ffi.ts';
+
+// The two "end to end" tests below need a real rendered filename, which
+// requires the native `raw-core` engine — unavailable in this repo's CI
+// (`.github/workflows/api.yml` never builds `libraw_ffi`). Skip-gated the
+// same way `library/batch-rename.test.ts` gates its render-dependent
+// suites; see that file's module doc for the full rationale.
+const ffiAvailable = tryGetRawFfi() !== null;
+const maybeTest = ffiAvailable ? test : test.skip;
 
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 const TEST_DB = `maple_batch_rename_route_test_${process.pid}`;
@@ -172,7 +181,7 @@ async function seedAssets(d: Db, names: string[]): Promise<ObjectId[]> {
 }
 
 describe('POST /api/assets/batch-rename — end to end', () => {
-  test('applies the template sequentially and returns a summary', async () => {
+  maybeTest('applies the template sequentially and returns a summary', async () => {
     if (!db) return;
     const ids = await seedAssets(db, ['IMG_1.dng', 'IMG_2.dng']);
 
@@ -194,7 +203,7 @@ describe('POST /api/assets/batch-rename — end to end', () => {
 });
 
 describe('POST /api/assets/batch-rename/preview — end to end', () => {
-  test('renders names without applying anything', async () => {
+  maybeTest('renders names without applying anything', async () => {
     if (!db) return;
     const ids = await seedAssets(db, ['IMG_1.dng']);
 

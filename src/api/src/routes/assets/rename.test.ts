@@ -15,6 +15,18 @@ import * as path from 'node:path';
 import { renameRoutes } from './rename.ts';
 import { closeDb } from '../../db/client.ts';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
+import { setRawFfiForTests, tryGetRawFfi } from '../../ffi/raw_ffi.ts';
+
+// Any test whose expected outcome depends on `validateNewFilename` actually
+// consulting the native engine (a real accept/reject, or reaching
+// `relocateAsset` at all) needs `tryGetRawFfi()` to be non-null — absent in
+// this repo's CI (`.github/workflows/api.yml` never builds `libraw_ffi`;
+// see `library/batch-rename.test.ts`'s module doc for the full rationale).
+// The "fails closed" describe block below is exempt: it forces the engine
+// to `null` itself via `setRawFfiForTests`, so it's deterministic either
+// way and stays on plain `test`.
+const ffiAvailable = tryGetRawFfi() !== null;
+const maybeTest = ffiAvailable ? test : test.skip;
 
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 const TEST_DB = `maple_rename_route_test_${process.pid}`;
@@ -63,7 +75,7 @@ describe('POST /api/assets/:id/rename — wiring', () => {
     expect(res.status).toBe(400);
   });
 
-  test('rejects a Windows-reserved-device-name new_filename', async () => {
+  maybeTest('rejects a Windows-reserved-device-name new_filename', async () => {
     const res = await postRename(new ObjectId().toHexString(), {
       new_filename: 'CON.dng',
       collision: 'auto-suffix',
@@ -71,9 +83,43 @@ describe('POST /api/assets/:id/rename — wiring', () => {
     expect(res.status).toBe(400);
   });
 
-  test('rejects a new_filename with a trailing dot', async () => {
+  maybeTest('rejects a new_filename with a trailing dot', async () => {
     const res = await postRename(new ObjectId().toHexString(), {
       new_filename: 'IMG_0002.',
+      collision: 'auto-suffix',
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fail-closed when the native validation engine is unavailable — no Mongo
+// required, since it must reject before ever reaching the DB/filesystem.
+// ---------------------------------------------------------------------------
+
+describe('POST /api/assets/:id/rename — fails closed when the engine is unavailable', () => {
+  afterEach(() => {
+    setRawFfiForTests(undefined); // restore real load/cache behaviour
+  });
+
+  test('returns 503, not a silently-passed rename, when tryGetRawFfi() is null', async () => {
+    setRawFfiForTests(null);
+    const res = await postRename(new ObjectId().toHexString(), {
+      // Would PASS isSafeFilename (single segment, no leading dot) — proves
+      // this is rejected by the fail-closed engine-unavailable branch, not
+      // by the fast isSafeFilename check that runs regardless.
+      new_filename: 'CON.dng',
+      collision: 'auto-suffix',
+    });
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.error).toMatch(/engine unavailable/i);
+  });
+
+  test('an isSafeFilename violation still 400s even with the engine unavailable', async () => {
+    setRawFfiForTests(null);
+    const res = await postRename(new ObjectId().toHexString(), {
+      new_filename: 'sub/IMG_0002.dng',
       collision: 'auto-suffix',
     });
     expect(res.status).toBe(400);
@@ -155,7 +201,7 @@ async function seedAssetOnDisk(d: Db, filename = 'IMG_1.dng'): Promise<ObjectId>
 }
 
 describe('POST /api/assets/:id/rename — end to end', () => {
-  test('renames the asset in place (same folder), returns the new address', async () => {
+  maybeTest('renames the asset in place (same folder), returns the new address', async () => {
     if (!db) return;
     const id = await seedAssetOnDisk(db);
 
@@ -179,7 +225,7 @@ describe('POST /api/assets/:id/rename — end to end', () => {
     expect(await fs.readFile(path.join(root, 'a', 'IMG_renamed.dng'), 'utf8')).toBe('pixels');
   });
 
-  test('flags an extension change in the response, but still allows it', async () => {
+  maybeTest('flags an extension change in the response, but still allows it', async () => {
     if (!db) return;
     const id = await seedAssetOnDisk(db);
 
@@ -193,7 +239,7 @@ describe('POST /api/assets/:id/rename — end to end', () => {
     expect(body.extension_changed).toBe(true);
   });
 
-  test('a collision with an existing file at the destination auto-suffixes', async () => {
+  maybeTest('a collision with an existing file at the destination auto-suffixes', async () => {
     if (!db) return;
     const id = await seedAssetOnDisk(db);
     await fs.writeFile(path.join(root, 'a', 'existing.dng'), 'other pixels');
@@ -208,7 +254,7 @@ describe('POST /api/assets/:id/rename — end to end', () => {
     expect(body.new_filename).not.toBe('existing.dng');
   });
 
-  test('returns 404 for an unknown asset id', async () => {
+  maybeTest('returns 404 for an unknown asset id', async () => {
     if (!db) return;
     const res = await postRename(new ObjectId().toHexString(), {
       new_filename: 'IMG_renamed.dng',
