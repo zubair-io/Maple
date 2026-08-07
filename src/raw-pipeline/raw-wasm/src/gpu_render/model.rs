@@ -137,6 +137,15 @@ pub(super) struct NoiseProfileInputs {
 /// / the FFI `inputs_from_params` exactly: the WB matrix is derived from the
 /// model's temp/tint via the SAME `wb_cat16_matrix` / `wb_gains` the CPU stage
 /// uses, and `capture_sharpening` is `None` (baked in the develop prefix).
+///
+/// `film_lut` is the session-resident baked film-look grid (epic #2683, Task
+/// 9) — NOT part of `AdjustmentModel`/XMP, since the `.mlut` bytes are a
+/// runtime asset upload rather than sidecar state. `None` (paired with
+/// `film_lut_key: 0`) folds to `film_lut_size: 0` / empty data, the
+/// `FilmLutPass` "no look loaded" skip gate (`raw-gpu/src/full_chain.rs`).
+/// `film_strength` DOES ride the model (`AdjustmentModel::film_strength`,
+/// XMP `papp:FilmStrength`) since it round-trips through the sidecar like
+/// every other slider.
 #[cfg(any(target_arch = "wasm32", test))]
 pub(super) fn build_full_chain_inputs(
     model: &AdjustmentModel,
@@ -144,6 +153,8 @@ pub(super) fn build_full_chain_inputs(
     residual_lut_size: usize,
     residual_lut_data: Vec<f32>,
     noise: NoiseProfileInputs,
+    film_lut: Option<&raw_core::film::FilmLut>,
+    film_lut_key: u32,
 ) -> FullChainInputs {
     use raw_core::types::WbMethod;
 
@@ -280,5 +291,13 @@ pub(super) fn build_full_chain_inputs(
         // modulation matches the developed/exported frame.
         noise_profile: noise.profile,
         iso: noise.iso,
+        // Film emulation (epic #2683, Task 9) — see this fn's doc for the
+        // model-vs-session-state split. `film_lut_size == 0` (the `None` /
+        // empty-grid case) is the composition builder's skip gate; the key is
+        // 0 alongside it so a no-look chain never carries a stale identity.
+        film_strength: model.film_strength,
+        film_lut_size: film_lut.map(|l| l.size as u32).unwrap_or(0),
+        film_lut_key: if film_lut.is_some() { film_lut_key } else { 0 },
+        film_lut_data: film_lut.map(|l| l.data.clone()).unwrap_or_default(),
     }
 }

@@ -4,7 +4,7 @@
 // Lives in its own file rather than in `raw-pipeline.worker.ts` to keep that
 // file inside the size budget.
 
-import { export_bytes } from './pkg/raw_wasm';
+import { export_bytes, export_bytes_with_film } from './pkg/raw_wasm';
 import type { ExportError, ExportRequest, ExportSuccess } from './raw-pipeline.types';
 
 /**
@@ -33,15 +33,31 @@ function longEdgeCap(maxSidePixels: number | undefined): number {
 export async function handleExport(req: ExportRequest): Promise<void> {
   const { options } = req;
   try {
-    const handle = export_bytes(
-      new Uint8Array(req.bytes),
-      req.ext,
-      req.xmp,
-      options.format,
-      options.quality,
-      options.colorSpace,
-      longEdgeCap(options.maxSidePixels),
-    );
+    // Film-look-aware export (epic #2683, Task 9): a loaded look's `.mlut`
+    // bytes ride `req.filmLut`, so the deliverable file carries the SAME
+    // look the canvas showed. Absent/empty routes through the plain
+    // `export_bytes` entry, byte-identical to pre-#2683 exports.
+    const handle =
+      req.filmLut && req.filmLut.byteLength > 0
+        ? export_bytes_with_film(
+            new Uint8Array(req.bytes),
+            req.ext,
+            req.xmp,
+            options.format,
+            options.quality,
+            options.colorSpace,
+            longEdgeCap(options.maxSidePixels),
+            new Uint8Array(req.filmLut),
+          )
+        : export_bytes(
+            new Uint8Array(req.bytes),
+            req.ext,
+            req.xmp,
+            options.format,
+            options.quality,
+            options.colorSpace,
+            longEdgeCap(options.maxSidePixels),
+          );
 
     try {
       const total = handle.byteLength;

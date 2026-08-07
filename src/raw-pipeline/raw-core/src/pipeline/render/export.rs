@@ -13,6 +13,7 @@
 use super::{finish, render_display_scene, stage, RawInput};
 use crate::{
     error::Result,
+    film,
     image::{ExifOrientation, Image, RawImage},
     pipeline::RenderQuality,
     types::Crop,
@@ -46,6 +47,10 @@ pub enum ExportPixels {
 /// `quality` should be [`RenderQuality::Amaze`] for anything a user keeps —
 /// see #940. It is a parameter rather than a constant only so the tests can
 /// run the cheap demosaic.
+///
+/// Delegates to [`render_export_from_raw_with_film`] with `film_lut: None` —
+/// byte-identical to the pre-#2683 behaviour regardless of `model.film_look` /
+/// `model.film_strength`.
 pub fn render_export_from_raw(
     raw: &RawImage,
     model: &AdjustmentModel,
@@ -55,8 +60,43 @@ pub fn render_export_from_raw(
     target: TargetPrimaries,
     depth: ExportDepth,
 ) -> Result<(u32, u32, ExportPixels)> {
-    let mut scene =
-        render_display_scene(raw, model, quality, raw_source, max_long_edge, target, None)?;
+    render_export_from_raw_with_film(
+        raw,
+        model,
+        quality,
+        raw_source,
+        max_long_edge,
+        target,
+        depth,
+        None,
+    )
+}
+
+/// Sibling of [`render_export_from_raw`] that also threads a baked film-look
+/// LUT through to the `film_look` stage (epic #2683, Task 9) — the export
+/// counterpart of [`super::render_from_raw_with_quality_source_and_film`], so
+/// a deliverable file carries the SAME look the canvas showed. `film_lut:
+/// None` is a hard skip (see that sibling's doc for the rationale) — a host
+/// that can't resolve the `.mlut` asset gets the exact no-look render.
+pub fn render_export_from_raw_with_film(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    raw_source: Option<RawInput<'_>>,
+    max_long_edge: Option<u32>,
+    target: TargetPrimaries,
+    depth: ExportDepth,
+    film_lut: Option<&film::FilmLut>,
+) -> Result<(u32, u32, ExportPixels)> {
+    let mut scene = render_display_scene(
+        raw,
+        model,
+        quality,
+        raw_source,
+        max_long_edge,
+        target,
+        film_lut,
+    )?;
     let (w, h, pixels) = match depth {
         ExportDepth::Eight => finish_eight(&mut scene, raw.orientation, &model.crop),
         ExportDepth::Sixteen => finish_sixteen(&mut scene, raw.orientation, &model.crop),
