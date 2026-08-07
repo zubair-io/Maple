@@ -14,7 +14,16 @@ extension LocalFileOperations {
     /// Create `name` inside `parentDir`. Fails on collision rather than
     /// auto-suffixing — matches the API's `mkdir`, which 409s rather than
     /// silently picking a sibling name the user didn't ask for.
+    ///
+    /// `name` is validated FIRST (#2645 review): `appendingPathComponent`
+    /// splits on an embedded `/`, so an unvalidated `name` like
+    /// `../../Desktop/oops` would create a directory outside `parentDir`
+    /// — bounded only by the caller's security-scoped bookmark reach, not
+    /// by anything this function checks.
     public static func createFolder(named name: String, in parentDir: URL) throws -> URL {
+        guard FilenameValidation.isValidFolderName(name) else {
+            throw FileOperationError.invalidName(name)
+        }
         let target = parentDir.appendingPathComponent(name)
         guard !FileManager.default.fileExists(atPath: target.path) else {
             throw FileOperationError.destinationExists(target.path)
@@ -34,6 +43,14 @@ extension LocalFileOperations {
     /// item at the destination.
     public static func moveFolder(_ folderURL: URL, into newParentDir: URL,
                                    newName: String? = nil) throws -> URL {
+        // Only a caller-supplied `newName` needs validating — a plain move
+        // (newName == nil) reuses `folderURL.lastPathComponent`, which is
+        // already a real, on-disk component. But an explicit rename/move
+        // target goes through `appendingPathComponent` below, same
+        // traversal risk `createFolder` guards against (#2645 review).
+        if let newName, !FilenameValidation.isValidFolderName(newName) {
+            throw FileOperationError.invalidName(newName)
+        }
         let name = newName ?? folderURL.lastPathComponent
         let sourcePath = folderURL.standardizedFileURL.path
         let targetParentPath = newParentDir.standardizedFileURL.path

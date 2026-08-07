@@ -146,7 +146,8 @@ public actor SMBSource {
     /// row context menu offers only New Folder (at the share root); SMB has
     /// no subfolder tree in the sidebar today (`images()` walks the whole
     /// share recursively rather than exposing per-directory browsing), so
-    /// Rename/Trash have no folder target to act on yet.
+    /// Rename/Trash have no folder target to act on yet — #2697 tracks
+    /// adding that per-directory tree.
     public static func createFolderAtShareRoot(name: String, credentials: Credentials) async throws -> String {
         guard let serverURL = URL(string: "smb://\(credentials.host)") else {
             throw SMBError.invalidServerURL(credentials.host)

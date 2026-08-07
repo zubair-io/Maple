@@ -15,14 +15,16 @@
 // trash for Web/API is called out there as still-needed work, not
 // something this Apple ticket can route to). The sidebar surfaces this as
 // a disabled context-menu item with an explanation rather than a silent
-// omission — see `CloudFolderTreeRow`'s "Move to Trash" button.
+// omission — see `CloudFolderTreeRow`'s "Move to Trash" button. #2696
+// tracks wiring it once #2630/PR #2695's `POST /api/folders/:id/trash-folder`
+// merges.
 //
 // SMB folder Rename/Trash are also not wired: `SMBSource` enumerates the
 // whole share recursively (`images()`) rather than exposing a per-directory
 // listing, so the sidebar has no SMB subfolder tree to attach a row-level
 // Rename/Trash action to — only the share-root "New Folder" action has a
-// target. Building that subfolder tree is its own ticket (SMB directory
-// browsing), not a context-menu wiring change.
+// target. #2697 tracks building that subfolder tree (SMB directory
+// browsing), which is its own ticket, not a context-menu wiring change.
 
 import SwiftUI
 import MapleCore
@@ -53,6 +55,14 @@ extension AppShell {
             if librarySelection == .folder(path: folderURL.path) {
                 librarySelection = .folder(path: renamed.path)
                 libraryTitle = renamed.lastPathComponent
+            } else if let descendantSuffix = selectionPath(under: folderURL) {
+                // The grid was showing a DESCENDANT of the renamed folder
+                // (review finding, jules) — an exact-path check alone misses
+                // this, leaving `librarySelection` pointing at a path that
+                // no longer exists once the ancestor moved. Rewrite it onto
+                // the same relative descendant under the new location.
+                let newDescendant = renamed.appendingPathComponent(descendantSuffix)
+                librarySelection = .folder(path: newDescendant.path)
             }
         }
     }
@@ -66,10 +76,28 @@ extension AppShell {
             if SavedFolderStore.load().contains(where: { $0.path == folderURL.path }) {
                 SavedFolderStore.remove(path: folderURL.path)
             }
-            if librarySelection == .folder(path: folderURL.path) {
+            // Trashing the exact selected folder, OR any of its ancestors
+            // (review finding, jules — the exact-path check alone left a
+            // descendant selection dangling on a now-deleted path), leaves
+            // nothing left to show. Fall back to the same cold-start pick
+            // the app uses when a saved selection turns out to be gone.
+            if librarySelection == .folder(path: folderURL.path) || selectionPath(under: folderURL) != nil {
                 Task { @MainActor in await autoPickInitialSource() }
             }
         }
+    }
+
+    /// If `librarySelection` is a folder strictly inside `ancestorURL`,
+    /// returns its path relative to `ancestorURL` (e.g. selection
+    /// `/A/B/C`, `ancestorURL` `/A` → `"B/C"`). `nil` when the selection
+    /// isn't a folder, or isn't under `ancestorURL` at all.
+    private func selectionPath(under ancestorURL: URL) -> String? {
+        guard case .folder(let selectedPath) = librarySelection, selectedPath != ancestorURL.path else {
+            return nil
+        }
+        let prefix = ancestorURL.path.hasSuffix("/") ? ancestorURL.path : ancestorURL.path + "/"
+        guard selectedPath.hasPrefix(prefix) else { return nil }
+        return String(selectedPath.dropFirst(prefix.count))
     }
 
     /// Resolves `rootBookmark`, claims security scope for the duration of
@@ -106,14 +134,18 @@ extension AppShell {
     /// `SavedFolderStore`.
     private func reconcileSavedFolder(oldPath: String, newURL: URL, root: URL) {
         guard let existing = SavedFolderStore.load().first(where: { $0.path == oldPath }) else { return }
-        SavedFolderStore.remove(path: oldPath)
         #if os(macOS)
         let bookmark = try? newURL.bookmarkData(options: .withSecurityScope,
                                                 includingResourceValuesForKeys: nil, relativeTo: nil)
         #else
         let bookmark = try? newURL.bookmarkData(includingResourceValuesForKeys: nil, relativeTo: nil)
         #endif
+        // Bail BEFORE removing the old entry (review finding, jules): if
+        // minting a bookmark for the renamed URL fails, the old entry must
+        // stay in place rather than the folder silently vanishing from the
+        // sidebar. Better a stale path than a dropped folder.
         guard let bookmark else { return }
+        SavedFolderStore.remove(path: oldPath)
         SavedFolderStore.upsert(SavedFolder(
             path: newURL.path,
             displayName: newURL.lastPathComponent,
@@ -156,6 +188,15 @@ extension AppShell {
     /// expects is derived by stripping the library root prefix.
     func createCloudFolder(server: URL, libraryFolderID: String, libraryRootPath: String,
                            parentAbsPath: String, name: String) {
+        // The UI already disables Create for an invalid name; re-checked
+        // here (#2645 review) as defense in depth — `RemoteCatalog.makeDir`
+        // is shared with the FileProvider extension, which sources its
+        // names from the OS (already validated), so it doesn't itself
+        // enforce `FilenameValidation`'s rules.
+        guard FilenameValidation.isValidFolderName(name) else {
+            browseVM.loadError = FileOperationError.invalidName(name)
+            return
+        }
         let targetAbsPath = (parentAbsPath as NSString).appendingPathComponent(name)
         guard let relative = cloudRelativePath(targetAbsPath, under: libraryRootPath) else {
             browseVM.loadError = FileOperationError.invalidDestination(
@@ -177,7 +218,15 @@ extension AppShell {
     /// both computed relative to `libraryRootPath`.
     func renameCloudFolder(server: URL, libraryFolderID: String, libraryRootPath: String,
                            absPath: String, newName: String) {
-        let targetAbsPath = (absPath as NSString).deletingLastPathComponent.appending("/\(newName)")
+        guard FilenameValidation.isValidFolderName(newName) else {
+            browseVM.loadError = FileOperationError.invalidName(newName)
+            return
+        }
+        // Component join, not string-appending (#2645 review): the prior
+        // `.deletingLastPathComponent.appending("/\(newName)")` could form a
+        // double slash if the parent path already ended in one.
+        let parentAbsPath = (absPath as NSString).deletingLastPathComponent
+        let targetAbsPath = (parentAbsPath as NSString).appendingPathComponent(newName)
         guard let sourceRel = cloudRelativePath(absPath, under: libraryRootPath),
               let targetRel = cloudRelativePath(targetAbsPath, under: libraryRootPath) else {
             browseVM.loadError = FileOperationError.invalidDestination(

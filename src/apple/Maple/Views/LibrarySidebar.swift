@@ -62,7 +62,8 @@ struct LibrarySidebar: View {
     /// Source-tree context menu (#2645) — New Folder at the connected
     /// share's root. SMB has no subfolder tree in the sidebar (see
     /// `AppShell+FolderContextMenu`'s file header), so this is the only
-    /// SMB folder action with a target today.
+    /// SMB folder action with a target today — #2697 tracks building that
+    /// tree, which unlocks Rename/Trash for SMB subfolder rows.
     let onCreateSMBFolder: (SMBCredentialStore.SavedShare, String) -> Void
     /// Open the AddMapleCloudSheet (no prefilled domain).
     let onAddCloudServer: () -> Void
@@ -626,6 +627,10 @@ private struct SMBShareRow: View {
     @State private var showNewFolderAlert = false
     @State private var newFolderDraft = ""
 
+    private var newFolderDraftIsValid: Bool {
+        FilenameValidation.isValidFolderName(newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
     var body: some View {
         NavItem(
             icon: "externaldrive.connected.to.line.below",
@@ -647,12 +652,15 @@ private struct SMBShareRow: View {
             TextField("Name", text: $newFolderDraft)
             Button("Create") {
                 let name = newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !name.isEmpty else { return }
+                guard FilenameValidation.isValidFolderName(name) else { return }
                 onCreateFolder(name)
             }
+            .disabled(!newFolderDraftIsValid)
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Creates a new folder at the root of \(share.host) / \(share.share).")
+            Text(newFolderDraftIsValid
+                ? "Creates a new folder at the root of \(share.host) / \(share.share)."
+                : FilenameValidation.invalidNameMessage)
         }
     }
 }
@@ -717,6 +725,12 @@ private struct FolderTreeRow: View {
     }
     private var indent: CGFloat {
         MapleTokens.Spacing.rowHorizontal + CGFloat(depth) * MapleTokens.Spacing.treeIndent
+    }
+    private var newFolderDraftIsValid: Bool {
+        FilenameValidation.isValidFolderName(newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+    private var renameDraftIsValid: Bool {
+        FilenameValidation.isValidFolderName(renameDraft.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     var body: some View {
@@ -797,21 +811,27 @@ private struct FolderTreeRow: View {
                 TextField("Name", text: $newFolderDraft)
                 Button("Create") {
                     let name = newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !name.isEmpty else { return }
+                    guard FilenameValidation.isValidFolderName(name) else { return }
                     onCreateFolder?(url, rootBookmark, name)
                 }
+                .disabled(!newFolderDraftIsValid)
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Creates a new folder inside \(displayName).")
+                Text(newFolderDraftIsValid
+                    ? "Creates a new folder inside \(displayName)."
+                    : FilenameValidation.invalidNameMessage)
             }
             .alert("Rename Folder", isPresented: $showRenameAlert) {
                 TextField("Name", text: $renameDraft)
                 Button("Rename") {
                     let name = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !name.isEmpty, name != displayName else { return }
+                    guard FilenameValidation.isValidFolderName(name), name != displayName else { return }
                     onRenameFolder?(url, rootBookmark, name)
                 }
+                .disabled(!renameDraftIsValid)
                 Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(renameDraftIsValid ? " " : FilenameValidation.invalidNameMessage)
             }
             .confirmationDialog(Self.trashMenuTitle, isPresented: $showTrashConfirm, titleVisibility: .visible) {
                 Button(Self.trashMenuTitle, role: .destructive) {
@@ -924,7 +944,9 @@ private struct FolderTreeRow: View {
         #if os(macOS)
         "\"\(name)\" and everything inside it will move to the Trash. Recursive — every asset and sidecar underneath goes too."
         #else
-        "\"\(name)\" and everything inside it will move to Maple's in-app Trash (.maple/trash). Recursive — every asset and sidecar underneath goes too. Auto-purges after 30 days."
+        // No auto-purge claim: the 30-day sweep is #2653's mechanism and does
+        // not exist on Apple yet — the dialog must not promise it before then.
+        "\"\(name)\" and everything inside it will move to Maple's in-app Trash (.maple/trash). Recursive — every asset and sidecar underneath goes too."
         #endif
     }
 }

@@ -103,6 +103,13 @@ struct CloudFolderTreeRow: View {
     return true
   }
 
+  private var newFolderDraftIsValid: Bool {
+    FilenameValidation.isValidFolderName(newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+  }
+  private var renameDraftIsValid: Bool {
+    FilenameValidation.isValidFolderName(renameDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+  }
+
   private var indent: CGFloat {
     MapleTokens.Spacing.rowHorizontal + CGFloat(depth) * MapleTokens.Spacing.treeIndent
   }
@@ -162,7 +169,15 @@ struct CloudFolderTreeRow: View {
           }
           .accessibilityIdentifier("cloudFolderTree.newFolder.\(absPath)")
         }
-        if onRenameFolder != nil {
+        // Rename is offered on a SUBFOLDER row only (depth > 0), never on
+        // the library-root row (depth 0, #2645 review): `RemoteCatalog
+        // .moveFolder` requires a non-empty relative path, and the root's
+        // relative path IS empty by definition — offering Rename there is
+        // a guaranteed server 400 ("Empty path" from `validateRelPathHeader`
+        // on an empty `X-Maple-Source-Path`). Renaming the library itself
+        // is a distinct operation (re-pointing the registered folder), not
+        // a subtree move, and isn't in scope here.
+        if onRenameFolder != nil, depth > 0 {
           Button {
             renameDraft = displayName
             showRenameAlert = true
@@ -173,9 +188,11 @@ struct CloudFolderTreeRow: View {
         }
         // Move to Trash is intentionally absent-but-explained rather than
         // silently omitted: the API has no folder-level trash route yet
-        // (only per-asset DELETE), so there is nothing this button could
-        // call. Disabled + a reason keeps the gap visible to the user
-        // instead of looking like an accidental oversight.
+        // (only per-asset DELETE). #2630/PR #2695 adds
+        // `POST /api/folders/:id/trash-folder`; #2696 tracks wiring this
+        // button to it once that server route merges. Disabled + a reason
+        // keeps the gap visible to the user instead of looking like an
+        // accidental oversight.
         Button {
         } label: {
           Label("Move to Trash (not available for Cloud folders yet)", systemImage: "trash")
@@ -193,21 +210,27 @@ struct CloudFolderTreeRow: View {
         TextField("Name", text: $newFolderDraft)
         Button("Create") {
           let name = newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-          guard !name.isEmpty else { return }
+          guard FilenameValidation.isValidFolderName(name) else { return }
           onCreateFolder?(libraryFolderID, libraryRootPath, absPath, name)
         }
+        .disabled(!newFolderDraftIsValid)
         Button("Cancel", role: .cancel) {}
       } message: {
-        Text("Creates a new folder inside \(displayName).")
+        Text(newFolderDraftIsValid
+          ? "Creates a new folder inside \(displayName)."
+          : FilenameValidation.invalidNameMessage)
       }
       .alert("Rename Folder", isPresented: $showRenameAlert) {
         TextField("Name", text: $renameDraft)
         Button("Rename") {
           let name = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-          guard !name.isEmpty, name != displayName else { return }
+          guard FilenameValidation.isValidFolderName(name), name != displayName else { return }
           onRenameFolder?(libraryFolderID, libraryRootPath, absPath, name)
         }
+        .disabled(!renameDraftIsValid)
         Button("Cancel", role: .cancel) {}
+      } message: {
+        Text(renameDraftIsValid ? " " : FilenameValidation.invalidNameMessage)
       }
       .onAppear { autoExpandIfOnChain() }
       .onChange(of: cloudCurrentPath) { _, _ in
