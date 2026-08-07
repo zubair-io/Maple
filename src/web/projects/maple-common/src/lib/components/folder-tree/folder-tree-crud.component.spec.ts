@@ -6,7 +6,11 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { LibraryStateService } from '../../state/library-state.service';
 import { FolderCrudService } from '../../api/folder-crud.service';
 import { ApiFolder } from '../../workspace/server-library-io';
-import { FolderTreeCrudComponent, FolderCrudMutation, FolderCrudRequest } from './folder-tree-crud.component';
+import {
+  FolderTreeCrudComponent,
+  FolderCrudMutation,
+  FolderCrudRequest,
+} from './folder-tree-crud.component';
 
 const LIBRARY: ApiFolder = {
   id: '64f0000000000000000000ab',
@@ -151,7 +155,9 @@ describe('FolderTreeCrudComponent (#2643 / #2705 review)', () => {
     const { fixture } = setup({
       mkdir: vi.fn(() =>
         shouldFail
-          ? throwError(() => new HttpErrorResponse({ status: 400, error: { error: 'Reserved name' } }))
+          ? throwError(
+              () => new HttpErrorResponse({ status: 400, error: { error: 'Reserved name' } }),
+            )
           : of({ abs_path: '/x' }),
       ),
     });
@@ -162,7 +168,9 @@ describe('FolderTreeCrudComponent (#2643 / #2705 review)', () => {
     fixture.detectChanges();
     (fixture.nativeElement.querySelector('.fnf-btn-primary') as HTMLButtonElement).click();
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('.fnf-error')?.textContent).toContain('Reserved name');
+    expect(fixture.nativeElement.querySelector('.fnf-error')?.textContent).toContain(
+      'Reserved name',
+    );
 
     // Retry with a different name, this time the call succeeds — the stale
     // error must not still be visible once the dialog re-renders busy/idle.
@@ -191,7 +199,9 @@ describe('FolderTreeCrudComponent (#2643 / #2705 review)', () => {
     fixture.detectChanges();
 
     expect(crud.move).toHaveBeenCalledWith(LIBRARY.id, '2026', '2027');
-    expect(host.mutations).toEqual([{ kind: 'renamed', oldId: 'lib1:2026', newId: 'lib1:2027', parentId: 'lib1:' }]);
+    expect(host.mutations).toEqual([
+      { kind: 'renamed', oldId: 'lib1:2026', newId: 'lib1:2027', parentId: 'lib1:' },
+    ]);
   });
 
   it('Rename: submitting the unchanged name dismisses without calling the API', () => {

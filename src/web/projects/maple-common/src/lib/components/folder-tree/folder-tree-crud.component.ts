@@ -22,7 +22,15 @@
 // visibility-toggle plumbing, matching the individual dialogs' own
 // "mount fresh" convention.
 
-import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  input,
+  output,
+  signal,
+} from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { LibraryStateService } from '../../state/library-state.service';
 import { SidebarEntry } from '../../models/folder';
