@@ -95,6 +95,12 @@ fn bench_inputs(layers_flat: Vec<f32>) -> FullChainInputs {
         // adjustments stage, not noise reduction.
         noise_profile: Vec::new(),
         iso: 0,
+        // No film look for this bench — it measures local_adjustments, not
+        // the film-look stage.
+        film_strength: 0.0,
+        film_lut_size: 0,
+        film_lut_key: 0,
+        film_lut_data: Vec::new(),
     }
 }
 
