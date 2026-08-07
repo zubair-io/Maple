@@ -16,8 +16,9 @@ use super::{
 };
 use crate::{
     error::Result,
+    film,
     image::{Image, RawImage},
-    stages::{color_grade, grain},
+    stages::{color_grade, film_look, grain},
     types::adjustment::{AutoExposureMode, Profile},
     view::{agx, auto_profile, encode},
     xmp::AdjustmentModel,
@@ -123,7 +124,29 @@ pub fn render_from_raw_with_quality_and_source(
     quality: RenderQuality,
     raw_source: Option<RawInput<'_>>,
 ) -> Result<(u32, u32, Vec<u8>)> {
-    render_display_from_raw(raw, model, quality, raw_source, None)
+    render_display_from_raw(raw, model, quality, raw_source, None, None)
+}
+
+/// Sibling of [`render_from_raw_with_quality_and_source`] that also threads
+/// a baked film-look LUT (Task 1 [`film::FilmLut`]) through to the
+/// `film_look` stage (Task 3) between `color_grade` and `grain`. This is
+/// the single entry every host (CLI, Apple FFI, WASM) calls when a look is
+/// active (epic #2683).
+///
+/// `film_lut: None` renders byte-identical to
+/// [`render_from_raw_with_quality_and_source`] regardless of
+/// `model.film_look` / `model.film_strength` — a host that can't resolve
+/// the `.mlut` asset (missing file, disabled catalog) passes `None` and
+/// gets the exact no-look render rather than a render with dangling
+/// look-selection state.
+pub fn render_from_raw_with_quality_source_and_film(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    raw_source: Option<RawInput<'_>>,
+    film_lut: Option<&film::FilmLut>,
+) -> Result<(u32, u32, Vec<u8>)> {
+    render_display_from_raw(raw, model, quality, raw_source, None, film_lut)
 }
 
 /// Display-encoded entry: [`render_display_scene`] into sRGB primaries, then
@@ -136,6 +159,7 @@ fn render_display_from_raw(
     quality: RenderQuality,
     raw_source: Option<RawInput<'_>>,
     max_long_edge: Option<u32>,
+    film_lut: Option<&film::FilmLut>,
 ) -> Result<(u32, u32, Vec<u8>)> {
     let mut scene = render_display_scene(
         raw,
@@ -144,6 +168,7 @@ fn render_display_from_raw(
         raw_source,
         max_long_edge,
         encode::TargetPrimaries::Srgb,
+        film_lut,
     )?;
     let (w, h) = (scene.width, scene.height);
     let bytes = stage("dither_and_quantize", || {
@@ -177,6 +202,7 @@ fn render_display_scene(
     raw_source: Option<RawInput<'_>>,
     max_long_edge: Option<u32>,
     target: encode::TargetPrimaries,
+    film_lut: Option<&film::FilmLut>,
 ) -> Result<Image> {
     // Section 0 (Auto Profile root-cause fix): when Profile=Auto and we
     // will actually fit a curve, force AutoExposureMode::Off so the fitted
@@ -286,6 +312,20 @@ fn render_display_scene(
         color_grade::apply_model(&mut scene, model)
     });
     dump_after("16a_color_grade", &scene);
+    // Film emulation (epic #2683) — display-linear Rec.2020, same stage
+    // position as `grain` (post-color-grade, pre-grain, so grain's noise
+    // lands on the graded film result rather than being reprocessed by the
+    // film print LUT). `film_lut: None` is a hard skip — no stage call, no
+    // dump — so the no-look baseline stays bit-identical regardless of
+    // `model.film_look` / `model.film_strength`: a host that couldn't
+    // resolve the `.mlut` asset passes `None` here (see
+    // `render_from_raw_with_quality_source_and_film`).
+    if let Some(lut) = film_lut {
+        stage("film_look", || {
+            film_look::apply(&mut scene, lut, model.film_strength)
+        });
+        dump_after("16a2_film_look", &scene);
+    }
     // Film grain (#1110, tone/zoom design § 10.2) — display-linear
     // (post-AgX, before the target gamut): grain is a display-domain
     // aesthetic; injected scene-linear its amplitude would swing with
@@ -391,3 +431,8 @@ mod crop_tests;
 // own sibling file per the same size-budget convention.
 #[cfg(test)]
 mod dither_terminal_tests;
+
+// Film-look render-path insertion tests (#2683 Task 4) — own sibling file
+// per the same size-budget convention.
+#[cfg(test)]
+mod film_look_tests;

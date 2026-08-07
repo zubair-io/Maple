@@ -55,7 +55,8 @@ pub fn render_export_from_raw(
     target: TargetPrimaries,
     depth: ExportDepth,
 ) -> Result<(u32, u32, ExportPixels)> {
-    let mut scene = render_display_scene(raw, model, quality, raw_source, max_long_edge, target)?;
+    let mut scene =
+        render_display_scene(raw, model, quality, raw_source, max_long_edge, target, None)?;
     let (w, h, pixels) = match depth {
         ExportDepth::Eight => finish_eight(&mut scene, raw.orientation, &model.crop),
         ExportDepth::Sixteen => finish_sixteen(&mut scene, raw.orientation, &model.crop),
