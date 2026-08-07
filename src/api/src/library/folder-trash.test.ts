@@ -259,6 +259,57 @@ describe('trashFolderRecursive — partial-failure semantics', () => {
   });
 });
 
+describe('trashFolderRecursive — multi-location change-feed correctness (#2695 review)', () => {
+  test('folder-trashing a secondary location emits a change event for THAT location, not the primary', async () => {
+    if (!db) return;
+    // A different, un-registered library — stands in for the asset's
+    // globally-primary location, which this operation must NOT touch or
+    // reference. It's deliberately never written to disk and never
+    // registered in `folders`: if the fix regresses and the change event
+    // (or the folder lookup for it) ever falls back to this library, the
+    // asset_changes row will show a stale/null relative_path instead of
+    // the correct one under `root`.
+    const primaryLibraryId = new ObjectId();
+    await write('sub/IMG.dng', 'pixels');
+    const id = new ObjectId();
+    await db.collection('assets').insertOne({
+      _id: id,
+      fileinfo: [
+        { path: '', filename: 'IMG.dng', library_id: primaryLibraryId, deleted_at: null },
+        { path: 'sub', filename: 'IMG.dng', library_id: folderId, deleted_at: null },
+      ],
+      size: 6,
+      mtime: 1_700_000_000_000,
+      deleted_at: null,
+    } as never);
+
+    const summary = await trashFolderRecursive(folderId, root, 'sub');
+    expect(summary.succeeded).toBe(1);
+
+    const change = await db
+      .collection('asset_changes')
+      .findOne({ asset_id: id, kind: 'delete' }, { sort: { cursor: -1 } });
+    expect(change).toBeTruthy();
+    const folderIdOnChange = (change as unknown as { folder_id: ObjectId }).folder_id;
+    expect(folderIdOnChange.equals(folderId)).toBe(true);
+    expect(folderIdOnChange.equals(primaryLibraryId)).toBe(false);
+    // Resolved against `folderId`'s (our test folder's) root — proves the
+    // relative_path lookup used the SECONDARY location's library, not the
+    // primary one (which isn't even a registered folder, so a wrong
+    // lookup would have produced null here).
+    expect((change as unknown as { relative_path: string | null }).relative_path).toBe(
+      'sub/IMG.dng',
+    );
+
+    // The primary entry is completely untouched — only the secondary
+    // (folderId) location was ever a candidate for this folder-trash.
+    const row = await fetchAssetRow(db, id);
+    const primaryEntry = row.fileinfo.find((f) => f.library_id.equals(primaryLibraryId));
+    expect(primaryEntry?.path).toBe('');
+    expect(primaryEntry?.filename).toBe('IMG.dng');
+  });
+});
+
 describe('folder-trashed assets are covered by the existing trash-gc sweep', () => {
   test('runTrashGcOnce purges a folder-trashed asset once past the retention window — no folder-specific GC needed', async () => {
     if (!db) return;
