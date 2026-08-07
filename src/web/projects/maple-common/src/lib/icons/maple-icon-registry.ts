@@ -66,6 +66,9 @@ export type MapleIconName =
   | 'keyword-hash'
   | 'person-circle'
   | 'gear'
+  // --- Folder-tree context menu (#2643): New Folder / Move to Trash. ---
+  | 'folder-plus'
+  | 'trash'
   // --- Tool glyphs (S5 Editor). Final artwork in `tool-glyph-shapes.ts`. ---
   | ToolIconName;
 
@@ -212,6 +215,19 @@ export const ICON_SHAPES: Record<MapleIconName, readonly IconShape[]> = {
   gear: [
     circle(8, 8, 2.2),
     path('M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6L13 13M3 13l1.4-1.4M11.6 4.4L13 3'),
+  ],
+
+  // Folder outline (reuses the `folder` glyph's path) plus a small "+"
+  // badge — New Folder menu item / row action (#2643).
+  'folder-plus': [
+    path('M2 5a1 1 0 011-1h3l1.5 1.5H13a1 1 0 011 1V12a1 1 0 01-1 1H3a1 1 0 01-1-1V5z'),
+    path('M8 7v4M6 9h4'),
+  ],
+  // Trash can — lid + body + two tines. Move to Trash menu item (#2643).
+  trash: [
+    path('M3 5h10M6 5V3.5a1 1 0 011-1h2a1 1 0 011 1V5'),
+    path('M4.5 5l.6 8a1 1 0 001 .9h3.8a1 1 0 001-.9l.6-8'),
+    path('M6.5 7.5v4M9.5 7.5v4'),
   ],
 
   // ── S5 Editor tool glyphs (#640) ─────────────────────────────────────────

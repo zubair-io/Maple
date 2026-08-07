@@ -1,0 +1,48 @@
+<div
+  class="fnf-backdrop"
+  role="dialog"
+  aria-modal="true"
+  [attr.aria-label]="'New Folder in ' + parentLabel()"
+  (click)="onBackdropClick()"
+  (keydown.escape)="onCancel()"
+>
+  <div class="fnf-card" (click)="$event.stopPropagation()">
+    <div class="fnf-header">
+      <span class="fnf-title">New Folder</span>
+    </div>
+
+    <div class="fnf-body">
+      <p class="fnf-hint">Creates a new folder inside "{{ parentLabel() }}".</p>
+      <input
+        #nameInput
+        type="text"
+        class="fnf-input"
+        placeholder="Name"
+        [value]="name()"
+        (input)="onNameInput($any($event.target).value)"
+        (keydown.enter)="onSubmit()"
+        [attr.aria-invalid]="!isValid() && name().length > 0 ? 'true' : null"
+      />
+      @if (name().length > 0 && validationMessage(); as msg) {
+        <p class="fnf-error">{{ msg }}</p>
+      }
+      @if (serverError(); as err) {
+        <p class="fnf-error">{{ err }}</p>
+      }
+    </div>
+
+    <div class="fnf-footer">
+      <button type="button" class="fnf-btn fnf-btn-ghost" [disabled]="busy()" (click)="onCancel()">
+        Cancel
+      </button>
+      <button
+        type="button"
+        class="fnf-btn fnf-btn-primary"
+        [disabled]="!isValid() || busy()"
+        (click)="onSubmit()"
+      >
+        {{ busy() ? 'Creating…' : 'Create' }}
+      </button>
+    </div>
+  </div>
+</div>
