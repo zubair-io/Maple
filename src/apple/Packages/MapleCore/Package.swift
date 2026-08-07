@@ -94,6 +94,11 @@ let package = Package(
             resources: [
                 .copy("Fixtures/auth-contract.json"),
                 .copy("Fixtures/preview-path-contract.json"),
+                // Tiny 2³ `.mlut` fixture for `FilmLutStoreTests` (#2683,
+                // Task 10) — a whole-directory `.copy` lands at the bundle
+                // root as `film-luts/`, matching `FilmLutStore`'s
+                // `subdirectory: "film-luts"` lookup.
+                .copy("Fixtures/film-luts"),
             ]
         ),
     ],
