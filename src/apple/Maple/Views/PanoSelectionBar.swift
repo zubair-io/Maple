@@ -16,6 +16,8 @@ struct PanoSelectionBar: View {
     let onMerge: () -> Void
     /// Fired when the user taps "Edit Metadata…". nil hides the button.
     let onEditMetadata: (() -> Void)?
+    /// Fired when the user taps "Batch Rename…" (#2641). nil hides the button.
+    var onBatchRename: (() -> Void)? = nil
     /// #944: pastes every adjustment group from the clipboard onto the
     /// checked selection. nil hides the button (clipboard not wired).
     var onPasteAdjustments: (() -> Void)? = nil
@@ -78,6 +80,21 @@ struct PanoSelectionBar: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .accessibilityLabel("Edit metadata for \(vm.selectedIDs.count) selected images")
+                }
+
+                // Right: Batch Rename CTA (#2641, optional — nil suppresses the button)
+                if let onBatchRename {
+                    Button {
+                        onBatchRename()
+                    } label: {
+                        Label("Batch Rename\u{2026}", systemImage: "textformat")
+                            .font(.subheadline.weight(.medium))
+                    }
+                    .disabled(vm.selectedIDs.isEmpty)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityIdentifier("pano-selection-bar-batch-rename")
+                    .accessibilityLabel("Batch rename \(vm.selectedIDs.count) selected images")
                 }
 
                 // Right: sync settings CTA (#944) — applies the focused image's

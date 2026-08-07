@@ -44,6 +44,9 @@ struct BrowseGrid: View {
     /// Fired when the user taps "Edit Metadata…" from the selection bar.
     /// `nil` hides the button; the bar itself is still shown when `onMergePanorama` is set.
     var onEditMetadata: (() -> Void)? = nil
+    /// Fired when the user taps "Batch Rename…" from the selection bar
+    /// (#2641). `nil` hides the button.
+    var onBatchRename: (() -> Void)? = nil
     /// App-level copy/paste/sync-adjustments clipboard (#944). `nil` hides
     /// the selection bar's paste/sync buttons and disables the ⌘C/⌘V
     /// keyboard shortcuts (e.g. previews, where nothing is wired to write
@@ -153,6 +156,7 @@ struct BrowseGrid: View {
                     vm: vm,
                     onMerge: onMergePanorama,
                     onEditMetadata: onEditMetadata,
+                    onBatchRename: onBatchRename,
                     onPasteAdjustments: clipboard != nil ? { pasteAdjustments(groups: Set(AdjustmentGroup.allCases)) } : nil,
                     onPasteSelectedGroups: clipboard != nil ? { showAdjustmentGroupPicker = true } : nil,
                     onSyncSettings: clipboard != nil ? { syncSettings() } : nil,

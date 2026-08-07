@@ -178,12 +178,16 @@ public actor SMBSource {
     }
 
     /// Rename `ref`'s file in place (same directory, new filename) — routes
-    /// through the merged `SMBFileOperations.relocate` engine (#2638), which
-    /// already handles the same-file guard, the case-only-rename fast path,
-    /// and following the `.xmp` sidecar. `.fail` collision: this is a
+    /// through the merged `SMBFileOperations.relocate` engine (#2631/#2638),
+    /// which already handles the same-file guard, the case-only-rename fast
+    /// path, and following the `.xmp` sidecar. `collision` defaults to
+    /// `.fail`: the single-asset inline-rename entry point is a
     /// user-initiated action from an inline text field, not an unattended
     /// background move, so a name collision surfaces as an error the caller
-    /// shows inline rather than silently auto-suffixing.
+    /// shows inline rather than silently auto-suffixing. The batch rename
+    /// flow (#2641) passes the user's chosen collision policy explicitly
+    /// instead — `collision` is caller-supplied so this one method serves
+    /// both callers rather than each hard-coding its own policy.
     ///
     /// Updates `pathByMapleId` and the matching `_assets` entry so the
     /// asset's ALREADY-CAPTURED `bytesProvider` closure (built once in
@@ -192,13 +196,15 @@ public actor SMBSource {
     /// `path(for:)` → `pathByMapleId[ref.id]` at read time, not at capture
     /// time — and so the next `images()` call reflects the new name without
     /// a full reconnect/re-list.
-    public func renameAsset(_ ref: ImageRef, to newFilename: String) async throws -> String {
+    public func renameAsset(
+        _ ref: ImageRef, to newFilename: String, collision: CollisionPolicy = .fail
+    ) async throws -> String {
         guard let client else { throw SMBError.notConnected }
         let sourcePath = path(for: ref)
         let destinationDir = (sourcePath as NSString).deletingLastPathComponent
         let outcome = try await SMBFileOperations.relocate(
             sourcePath, to: destinationDir, newBasename: newFilename,
-            mode: .move, collision: .fail, transport: client)
+            mode: .move, collision: collision, transport: client)
         pathByMapleId[ref.id] = outcome.primaryPath
         if let idx = _assets.firstIndex(where: { $0.path == sourcePath }) {
             let old = _assets[idx]

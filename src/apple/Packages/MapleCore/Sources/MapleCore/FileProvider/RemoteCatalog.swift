@@ -295,6 +295,63 @@ private struct RenameErrorBody: Decodable {
     let error: String
 }
 
+/// One item of `POST /api/assets/batch-rename/preview`'s response
+/// (#2636/#2641) — a dry-run render of the template over one asset, with no
+/// filesystem or Mongo write. `duplicate` is `true` when a PRIOR item in the
+/// SAME preview call rendered the identical name, so a batch-rename sheet
+/// can warn about a self-colliding template before the user ever applies
+/// it — see `src/api/src/library/batch-rename.ts`'s doc comment. Both
+/// `oldFilename`/`newFilename` are `nil` when `error` is set (asset not
+/// found, or its rendered name failed validation).
+public struct CloudBatchRenamePreviewItem: Decodable, Equatable, Sendable {
+    public let id: String
+    public let oldFilename: String?
+    public let newFilename: String?
+    public let error: String?
+    public let duplicate: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case oldFilename = "old_filename"
+        case newFilename = "new_filename"
+        case error, duplicate
+    }
+}
+
+private struct CloudBatchRenamePreviewResponse: Decodable {
+    let items: [CloudBatchRenamePreviewItem]
+}
+
+/// One item of `POST /api/assets/batch-rename`'s response — `kind`
+/// discriminates the shape the other fields carry (mirrors
+/// `BatchRenameItemResult` in `batch-rename.ts`): `"relocated"` carries
+/// `newFilename`; `"skipped"` carries `reason`; `"invalid"`/`"error"` carry
+/// `error`; `"not-found"` carries neither.
+public struct CloudBatchRenameResultItem: Decodable, Equatable, Sendable {
+    public let id: String
+    public let kind: String
+    public let newFilename: String?
+    public let reason: String?
+    public let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, kind, reason, error
+        case newFilename = "new_filename"
+    }
+}
+
+public struct CloudBatchRenameSummary: Decodable, Equatable, Sendable {
+    public let total: Int
+    public let relocated: Int
+    public let skipped: Int
+    public let failed: Int
+}
+
+public struct CloudBatchRenameResponse: Decodable, Equatable, Sendable {
+    public let summary: CloudBatchRenameSummary
+    public let results: [CloudBatchRenameResultItem]
+}
+
 public enum XMPWriteResult: Equatable, Sendable {
     /// Write succeeded; the response's Last-Modified header is parsed
     /// into this Date and reflects the new on-disk mtime.
@@ -963,6 +1020,53 @@ public actor RemoteCatalog {
         let (data, resp) = try await http.data(for: req)
         try Self.check2xx(resp)
         return try decoder.decode(RestoreResponse.self, from: data)
+    }
+
+    /// POST /api/assets/batch-rename/preview — dry-run template render over
+    /// an ordered asset list, no writes (#2636, consumed by the Apple
+    /// batch-rename sheet, #2641). `ids` order matters: it's also the `{n}`
+    /// sequence order, and it's what makes `duplicate` in the response mean
+    /// "collides with an earlier item in THIS batch."
+    public func previewBatchRename(
+        ids: [String], template: String, sequenceStart: Int, sequencePadWidth: Int
+    ) async throws -> [CloudBatchRenamePreviewItem] {
+        var req = URLRequest(url: server.appending(path: "/api/assets/batch-rename/preview"))
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: [
+            "ids": ids,
+            "template": template,
+            "sequence_start": sequenceStart,
+            "sequence_pad_width": sequencePadWidth,
+        ])
+        let (data, resp) = try await http.data(for: req)
+        try Self.check2xx(resp)
+        return try decoder.decode(CloudBatchRenamePreviewResponse.self, from: data).items
+    }
+
+    /// POST /api/assets/batch-rename — apply, sequentially, per
+    /// `batch-rename.ts`'s doc comment (a shared-destination template can
+    /// collide with itself mid-batch, not only with a pre-existing file;
+    /// the server resolves each item's collision against the PREVIOUS
+    /// item's already-applied result before starting the next). Partial
+    /// failure is normal here — the summary/per-item `results` carry it,
+    /// this call only throws on a transport-level failure (non-2xx).
+    public func batchRename(
+        ids: [String], template: String, sequenceStart: Int, sequencePadWidth: Int, collision: String
+    ) async throws -> CloudBatchRenameResponse {
+        var req = URLRequest(url: server.appending(path: "/api/assets/batch-rename"))
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: [
+            "ids": ids,
+            "template": template,
+            "sequence_start": sequenceStart,
+            "sequence_pad_width": sequencePadWidth,
+            "collision": collision,
+        ])
+        let (data, resp) = try await http.data(for: req)
+        try Self.check2xx(resp)
+        return try decoder.decode(CloudBatchRenameResponse.self, from: data)
     }
 
     /// GET /api/folders/<id>/trash. `cursor` and `limit` are optional.

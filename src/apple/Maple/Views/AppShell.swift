@@ -81,6 +81,9 @@ struct AppShell: View {
     // re-render of AppShell while the sheet is open cannot rebuild the view model
     // and discard the user's in-progress edits. nil = sheet closed.
     @State private var batchMetadataVM: BatchMetadataViewModel?
+    /// Batch rename sheet (#2641). Same "held in @State, not built inside
+    /// the sheet closure" reasoning as `batchMetadataVM` above.
+    @State private var batchRenameVM: BatchRenameViewModel?
     /// App-level copy/paste/sync-adjustments clipboard (#944). Held here
     /// (not created per-BrowseGrid-render) so it survives navigating in and
     /// out of Browse / the editor for the lifetime of the app session —
@@ -714,6 +717,8 @@ struct AppShell: View {
             onMergePanorama: { openPanoramaMerge() },
             // M4 batch metadata editor (#1629).
             onEditMetadata: { openBatchMetadata() },
+            // #2641 batch rename.
+            onBatchRename: { openBatchRename() },
             // #944 copy/paste/sync adjustments.
             clipboard: adjustmentClipboard
         )
@@ -723,6 +728,12 @@ struct AppShell: View {
         }
         .sheet(item: $batchMetadataVM) { vm in
             BatchMetadataSheet(vm: vm, onDismiss: { batchMetadataVM = nil })
+        }
+        .sheet(item: $batchRenameVM) { vm in
+            BatchRenameSheet(vm: vm, onDismiss: { batchRenameVM = nil })
+                #if os(macOS)
+                .frame(minWidth: 560, minHeight: 480)
+                #endif
         }
         // M2: panorama merge view — presented as a sheet on Mac/iPad.
         // Covers the full content area; Cancel dismisses back to Browse
@@ -1028,6 +1039,7 @@ struct AppShell: View {
             timelinePreviewSiblingAssets: { ref in timelinePreviewSiblingAssets(for: ref) },
             onMergePanorama: { openPanoramaMerge() },
             onEditMetadata: { openBatchMetadata() },
+            onBatchRename: { openBatchRename() },
             clipboard: adjustmentClipboard
         )
         // M2: panorama merge sheet for iPhone — same sheet as Mac/iPad,
@@ -1055,6 +1067,11 @@ struct AppShell: View {
         // but presented over the tab shell instead of the pane shell.
         .sheet(item: $batchMetadataVM) { vm in
             BatchMetadataSheet(vm: vm, onDismiss: { batchMetadataVM = nil })
+        }
+        // #2641: batch rename sheet for iPhone — same sheet as Mac/iPad,
+        // presented over the tab shell instead of the pane shell.
+        .sheet(item: $batchRenameVM) { vm in
+            BatchRenameSheet(vm: vm, onDismiss: { batchRenameVM = nil })
         }
     }
     #endif
@@ -1136,6 +1153,69 @@ struct AppShell: View {
             assets: browseVM.selectedAssets,
             sessions: sessions
         )
+    }
+
+    // MARK: - Batch rename actions (#2641)
+
+    /// Open the batch rename sheet with the currently-selected assets.
+    /// Snapshots the selection once, at open time — same reasoning as
+    /// `openBatchMetadata`. Routing (Filesystem/SMB/Cloud/unsupported) is
+    /// decided once for the whole selection here, then baked into the
+    /// `BatchRenameViewModel` the sheet is handed.
+    private func openBatchRename() {
+        guard !browseVM.selectedIDs.isEmpty else { return }
+        let assets = browseVM.selectedAssets
+        switch batchRenameRouting(for: assets) {
+        case .unsupported(let reason):
+            batchRenameVM = BatchRenameViewModel(assets: assets, routing: .unsupported(reason))
+        case .filesystem:
+            batchRenameVM = BatchRenameViewModel(assets: assets, routing: .filesystem)
+        case .smb:
+            guard let source = browseVM.currentSource as? SMBSource else {
+                batchRenameVM = BatchRenameViewModel(
+                    assets: assets, routing: .unsupported("SMB share is not connected."))
+                return
+            }
+            batchRenameVM = BatchRenameViewModel(assets: assets, routing: .smb, smbSource: source)
+        case .cloud:
+            guard let catalog = assets.first(where: { $0.catalog != nil })?.catalog else {
+                batchRenameVM = BatchRenameViewModel(
+                    assets: assets, routing: .unsupported("Not connected to the server."))
+                return
+            }
+            let httpClient = makeAuthenticatedHTTPClient(server: catalog.serverID)
+            let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: catalog.serverID)
+            let remote = RemoteCatalog(http: httpClient, server: effectiveServer)
+            batchRenameVM = BatchRenameViewModel(assets: assets, routing: .cloud, cloudCatalog: remote)
+        }
+    }
+
+    /// Decide the ONE routing this whole selection will use. A Browse
+    /// multi-select is always drawn from a single `browseVM.currentSource`,
+    /// so in every real call site the selection is homogeneous — the
+    /// `allSatisfy` checks below are the (defensive, not load-bearing)
+    /// guard against that assumption ever being violated, in which case the
+    /// batch is reported unsupported rather than silently mis-routing a
+    /// subset of it. Mirrors the single-asset rename ticket's
+    /// `renameUnsupportedReason` per-asset checks (#2638).
+    private func batchRenameRouting(for assets: [AssetRef]) -> BatchRenameRouting {
+        guard !assets.isEmpty else { return .unsupported("No photos selected.") }
+        if browseVM.currentSource is PhotoKitSource
+            || assets.contains(where: { $0.thumbnailProvenance == .photoKit }) {
+            return .unsupported(
+                "PhotoKit photos have no file on disk Maple can rename — rename from the Photos app instead.")
+        }
+        if assets.allSatisfy({ $0.catalog != nil }) {
+            return .cloud
+        }
+        if assets.allSatisfy({ $0.primaryURL != nil }) {
+            return .filesystem
+        }
+        if browseVM.currentSource is SMBSource,
+           assets.allSatisfy({ $0.primaryURL == nil && $0.catalog == nil }) {
+            return .smb
+        }
+        return .unsupported("Batch rename isn't available for this selection.")
     }
 
     // MARK: - Panorama merge actions (M2, #1236)
