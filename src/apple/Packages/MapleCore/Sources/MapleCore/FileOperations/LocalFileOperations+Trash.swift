@@ -15,7 +15,7 @@ extension LocalFileOperations {
     /// Trash a single asset (primary + sidecar).
     public static func trash(_ primaryURL: URL, libraryRoot: URL) async throws -> RelocateOutcome {
         #if os(macOS)
-        return try trashToOSTrash(primaryURL)
+        return try await trashToOSTrash(primaryURL)
         #else
         return try await trashToMapleFolder(primaryURL, libraryRoot: libraryRoot)
         #endif
@@ -25,7 +25,7 @@ extension LocalFileOperations {
     /// The real OS Trash. No `#if`-independent counterpart to test against —
     /// `FileManager.trashItem` is Apple's own contract to keep, not logic
     /// this module owns.
-    static func trashToOSTrash(_ primaryURL: URL) throws -> RelocateOutcome {
+    static func trashToOSTrash(_ primaryURL: URL) async throws -> RelocateOutcome {
         let fm = FileManager.default
         var trashedPrimary: NSURL?
         try fm.trashItem(at: primaryURL, resultingItemURL: &trashedPrimary)
@@ -37,7 +37,7 @@ extension LocalFileOperations {
             try? fm.trashItem(at: sidecarURL, resultingItemURL: &resultingURL)
             trashedSidecarURL = resultingURL as URL?
         }
-        invalidateDerivedCaches(forOldPrimaryPath: primaryURL.path)
+        await invalidateDerivedCaches(forOldPrimaryPath: primaryURL.path)
         return RelocateOutcome(
             primaryPath: (trashedPrimary as URL?)?.path ?? primaryURL.path,
             sidecarPath: trashedSidecarURL?.path,

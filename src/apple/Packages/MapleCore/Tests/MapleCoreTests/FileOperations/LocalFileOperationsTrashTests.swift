@@ -62,12 +62,12 @@ final class LocalFileOperationsTrashTests: XCTestCase {
     /// artifact (a throwaway temp-dir fixture) is permanently deleted again
     /// immediately after the assertions so the test doesn't leave residue
     /// in the user's actual Trash.
-    func testTrashToOSTrashMovesTheFileAndItsSidecarToTheRealTrash() throws {
+    func testTrashToOSTrashMovesTheFileAndItsSidecarToTheRealTrash() async throws {
         let source = FileOperationsTestSupport.write("pixels", to: root.appendingPathComponent("IMG_1.dng"))
         let sidecarURL = SidecarPath.sidecarURL(for: source)
         FileOperationsTestSupport.write("<xmp/>", to: sidecarURL)
 
-        let outcome = try LocalFileOperations.trashToOSTrash(source)
+        let outcome = try await LocalFileOperations.trashToOSTrash(source)
         defer {
             try? FileManager.default.removeItem(atPath: outcome.primaryPath)
             if let sidecarPath = outcome.sidecarPath {
