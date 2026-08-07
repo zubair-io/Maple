@@ -223,6 +223,18 @@ pub unsafe extern "C" fn maple_render_filename_template_buf(
     out_cap: usize,
     out_len: *mut usize,
 ) -> i32 {
+    // `out_buf`/`out_len` are the two pointers this function itself
+    // dereferences to write output (`copy_nonoverlapping`, `*out_len = ...`)
+    // — reject a null one up front, matching every other FFI entry point in
+    // this crate that writes through a caller-owned pointer (e.g.
+    // `maple_histogram_file`'s `out_bins.is_null()` guard in `render.rs`).
+    // `-1` is this module's established bad-pointer code, same as every
+    // required-pointer check above.
+    if out_buf.is_null() || out_len.is_null() {
+        set_last_error("maple_render_filename_template_buf: out_buf or out_len is null".into());
+        return -1;
+    }
+
     let Some(template) = cstr_to_str(template_ptr) else {
         set_last_error(
             "maple_render_filename_template_buf: template is null or not valid UTF-8".into(),

@@ -16,10 +16,10 @@
  */
 
 import { Elysia, t } from 'elysia';
-import { parseAssetId } from '../../db/assets.repo.ts';
 import { relocateAsset } from '../../library/relocate-asset.ts';
 import { validateRelPathShape } from '../../library/address.ts';
 import { isSafeFilename } from '../../backup/path-formatter.ts';
+import { parseAssetIdOr400, relocateResultResponse } from './_shared.ts';
 
 const RelocateBodySchema = t.Object({
   mode: t.Union([t.Literal('move'), t.Literal('copy')]),
@@ -56,10 +56,10 @@ function validateDestinationShape(body: {
 export const relocateRoutes = new Elysia().post(
   '/:id/relocate',
   async ({ params, body, set }) => {
-    const id = parseAssetId(params.id);
-    if (!id) {
-      set.status = 400;
-      return { error: 'Invalid asset id' };
+    const idResult = parseAssetIdOr400(params.id);
+    if (!idResult.ok) {
+      set.status = idResult.status;
+      return idResult.body;
     }
 
     const shapeError = validateDestinationShape(body);
@@ -69,35 +69,16 @@ export const relocateRoutes = new Elysia().post(
     }
 
     const result = await relocateAsset({
-      id,
+      id: idResult.id,
       mode: body.mode,
       collision: body.collision,
       destinationPath: body.destination_path,
       destinationFilename: body.destination_filename,
     });
 
-    switch (result.kind) {
-      case 'relocated':
-        set.status = 200;
-        return {
-          new_abs_path: result.newAbsPath,
-          new_path: result.newPath,
-          new_filename: result.newFilename,
-          renamed_on_collision: result.renamedOnCollision,
-        };
-      case 'skipped':
-        set.status = 200;
-        return { skipped: true, reason: result.reason };
-      case 'not-found':
-        set.status = 404;
-        return { error: 'Asset not found' };
-      case 'invalid':
-        set.status = 400;
-        return { error: result.error };
-      case 'error':
-        set.status = 500;
-        return { error: result.error };
-    }
+    const { status, body: responseBody } = relocateResultResponse(result);
+    set.status = status;
+    return responseBody;
   },
   {
     body: RelocateBodySchema,

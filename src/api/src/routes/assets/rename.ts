@@ -18,6 +18,13 @@
  * guards against; the engine check is defense in depth beyond it, not a
  * replacement (e.g. it also catches `CON.dng`, `trailing. `, leading `.`).
  *
+ * FAILS CLOSED when the native engine isn't loaded (`tryGetRawFfi() ===
+ * null`): the dylib is a hard runtime dependency of this API already
+ * (thumbnails/rendering require it too), so this is near-unreachable in a
+ * working deploy — which is exactly why it's safe, and correct, to reject
+ * the rename with a 503 rather than silently fall back to `isSafeFilename`
+ * alone and risk shipping a name that only breaks later on Windows.
+ *
  * Extension changes are ALLOWED (the design doc: "retyping it is allowed
  * but warns, since it doesn't transcode anything") — the response flags
  * `extension_changed` rather than rejecting, so the caller's UI can warn
@@ -29,11 +36,11 @@
  */
 
 import { Elysia, t } from 'elysia';
-import { parseAssetId } from '../../db/assets.repo.ts';
 import { relocateAsset } from '../../library/relocate-asset.ts';
 import { isSafeFilename } from '../../backup/path-formatter.ts';
 import { tryGetRawFfi } from '../../ffi/raw_ffi.ts';
 import { extensionChanged } from '../../library/filename-template.ts';
+import { parseAssetIdOr400, relocateResultResponse } from './_shared.ts';
 
 const RenameBodySchema = t.Object({
   new_filename: t.String(),
@@ -46,62 +53,51 @@ const RenameBodySchema = t.Object({
 });
 
 /** Validate `new_filename` before touching Mongo or the filesystem. Returns
- * an error message, or `null` when valid (or when the native engine isn't
- * loaded — see `tryGetRawFfi`'s doc; `isSafeFilename` still applies in that
- * case, so validation degrades rather than disappears). */
-function validateNewFilename(name: string): string | null {
-  if (!isSafeFilename(name)) return 'new_filename is not a valid single-segment filename';
+ * `null` when valid, or a `{ status, error }` pair to short-circuit the
+ * route with otherwise. FAILS CLOSED: an unavailable engine is a 503, not a
+ * silently-passed validation — see this file's module doc. */
+function validateNewFilename(name: string): { status: number; error: string } | null {
+  if (!isSafeFilename(name)) {
+    return { status: 400, error: 'new_filename is not a valid single-segment filename' };
+  }
   const ffi = tryGetRawFfi();
-  if (!ffi) return null;
+  if (!ffi) {
+    return {
+      status: 503,
+      error: 'filename validation engine unavailable — native library not loaded',
+    };
+  }
   const result = ffi.validateFilename(name);
-  return result.ok ? null : result.error;
+  return result.ok ? null : { status: 400, error: result.error };
 }
 
 export const renameRoutes = new Elysia().post(
   '/:id/rename',
   async ({ params, body, set }) => {
-    const id = parseAssetId(params.id);
-    if (!id) {
-      set.status = 400;
-      return { error: 'Invalid asset id' };
+    const idResult = parseAssetIdOr400(params.id);
+    if (!idResult.ok) {
+      set.status = idResult.status;
+      return idResult.body;
     }
 
-    const shapeError = validateNewFilename(body.new_filename);
-    if (shapeError) {
-      set.status = 400;
-      return { error: shapeError };
+    const validation = validateNewFilename(body.new_filename);
+    if (validation) {
+      set.status = validation.status;
+      return { error: validation.error };
     }
 
     const result = await relocateAsset({
-      id,
+      id: idResult.id,
       mode: 'move',
       collision: body.collision,
       destinationFilename: body.new_filename,
     });
 
-    switch (result.kind) {
-      case 'relocated':
-        set.status = 200;
-        return {
-          new_abs_path: result.newAbsPath,
-          new_path: result.newPath,
-          new_filename: result.newFilename,
-          renamed_on_collision: result.renamedOnCollision,
-          extension_changed: extensionChanged(result.oldFilename, result.newFilename),
-        };
-      case 'skipped':
-        set.status = 200;
-        return { skipped: true, reason: result.reason };
-      case 'not-found':
-        set.status = 404;
-        return { error: 'Asset not found' };
-      case 'invalid':
-        set.status = 400;
-        return { error: result.error };
-      case 'error':
-        set.status = 500;
-        return { error: result.error };
-    }
+    const { status, body: responseBody } = relocateResultResponse(result, (r) => ({
+      extension_changed: extensionChanged(r.oldFilename, r.newFilename),
+    }));
+    set.status = status;
+    return responseBody;
   },
   {
     body: RenameBodySchema,
