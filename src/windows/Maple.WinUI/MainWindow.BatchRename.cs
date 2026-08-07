@@ -114,7 +114,8 @@ namespace Maple.WinUI
                     previewPanel.Children.Add(BuildPreviewRow(row));
 
                 var ready = rows.Count(r => r.WouldApply);
-                summaryText.Text = BuildPreviewSummary(ready, rows.Count, skippedCloud);
+                var duplicates = rows.Count(r => r.IsDuplicateWithinBatch);
+                summaryText.Text = BuildPreviewSummary(ready, rows.Count, duplicates, skippedCloud);
                 dialog.IsPrimaryButtonEnabled = ready > 0;
             }
 
@@ -244,22 +245,33 @@ namespace Maple.WinUI
             await reportDialog.ShowAsync();
         }
 
-        private static string BuildPreviewSummary(int ready, int total, int skippedCloud)
+        private static string BuildPreviewSummary(int ready, int total, int duplicates, int skippedCloud)
         {
             var cloudNote = skippedCloud > 0
                 ? $" {skippedCloud} Cloud photo{(skippedCloud == 1 ? "" : "s")} skipped (can't rename here yet)."
                 : string.Empty;
+            // Duplicates ARE ready (WouldApply) — they're resolved by the
+            // chosen conflict policy at apply time, same as a collision with
+            // a pre-existing file — so they're called out as a heads-up, not
+            // subtracted from `ready`.
+            var duplicateNote = duplicates > 0
+                ? $" {duplicates} share{(duplicates == 1 ? "s" : "")} a name with another row in this batch "
+                  + "— the conflict policy below resolves it."
+                : string.Empty;
             return ready == total
-                ? $"{total} photo{(total == 1 ? "" : "s")} ready to rename.{cloudNote}"
-                : $"{ready} of {total} ready — rows with an error are skipped at apply time.{cloudNote}";
+                ? $"{total} photo{(total == 1 ? "" : "s")} ready to rename.{duplicateNote}{cloudNote}"
+                : $"{ready} of {total} ready — rows with an error are skipped at apply time."
+                  + $"{duplicateNote}{cloudNote}";
         }
 
         private static FrameworkElement BuildPreviewRow(BatchRenamePreviewRow row)
         {
-            var grid = new Grid { ColumnSpacing = 8 };
+            var grid = new Grid { ColumnSpacing = 8, RowSpacing = 2 };
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
             var oldText = new TextBlock
             {
@@ -269,6 +281,7 @@ namespace Maple.WinUI
                 Foreground = (SolidColorBrush)Application.Current.Resources["MapleTextMuted"],
             };
             Grid.SetColumn(oldText, 0);
+            Grid.SetRow(oldText, 0);
 
             var arrow = new TextBlock
             {
@@ -278,7 +291,17 @@ namespace Maple.WinUI
                 HorizontalAlignment = HorizontalAlignment.Center,
             };
             Grid.SetColumn(arrow, 1);
+            Grid.SetRow(arrow, 0);
 
+            // Error (row.Error != null) is a HARD stop: the row was never
+            // rendered, or violates MAX_PATH, and apply skips it entirely.
+            // Duplicate (row.IsDuplicateWithinBatch) is a WARNING: it still
+            // has a real NewFileName and IS attempted at apply time — the
+            // chosen conflict policy resolves it against whatever the
+            // PREVIOUS item in the batch already did, per the design doc.
+            // The two must render differently: an error replaces the name
+            // with the reason it can't be attempted; a duplicate keeps
+            // showing the name plus a second, non-blocking warning line.
             var isError = row.Error != null;
             var newText = new TextBlock
             {
@@ -291,14 +314,32 @@ namespace Maple.WinUI
                     : (SolidColorBrush)Application.Current.Resources["MapleTextMain"],
             };
             Grid.SetColumn(newText, 2);
+            Grid.SetRow(newText, 0);
 
             grid.Children.Add(oldText);
             grid.Children.Add(arrow);
             grid.Children.Add(newText);
 
+            if (!isError && row.IsDuplicateWithinBatch)
+            {
+                var warning = new TextBlock
+                {
+                    Text = "Same name as another row — resolved by the conflict policy at apply time.",
+                    FontSize = 10,
+                    TextWrapping = TextWrapping.Wrap,
+                    Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0xC9, 0x9A, 0x3A)),
+                };
+                Grid.SetColumn(warning, 2);
+                Grid.SetRow(warning, 1);
+                grid.Children.Add(warning);
+            }
+
             var accessibleName = isError
                 ? $"{row.OldFileName}: {row.Error}"
-                : $"{row.OldFileName} renames to {row.NewFileName}";
+                : row.IsDuplicateWithinBatch
+                    ? $"{row.OldFileName} renames to {row.NewFileName}, warning: same name as another row in "
+                      + "this batch, resolved by the conflict policy"
+                    : $"{row.OldFileName} renames to {row.NewFileName}";
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(grid, accessibleName);
             return grid;
         }
