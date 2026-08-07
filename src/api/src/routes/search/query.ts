@@ -330,6 +330,18 @@ export function buildFilter(
     (filter as Record<string, unknown>)['exif.captured_at'] = capturedAtPredicate;
   }
 
+  // Recurring month-of-year. `from`/`to` above are ONE continuous range over
+  // the ISO string, so they cannot express "every August" — this filters the
+  // month number the exif stage pre-extracts alongside `captured_year`, and
+  // composes with the range rather than replacing it ("Augusts since 2015").
+  // Out-of-range or non-integer input is dropped rather than passed through:
+  // a filter matching nothing is worse than no filter, because the
+  // generated-search worker reads the result count as a quality signal.
+  const month = asNumber(q.month);
+  if (month !== undefined && Number.isInteger(month) && month >= 1 && month <= 12) {
+    (filter as Record<string, unknown>)['exif.captured_month'] = month;
+  }
+
   // Rating threshold (>= n).
   const rating = asNumber(q.rating);
   if (rating !== undefined) {
