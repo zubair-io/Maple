@@ -1,5 +1,6 @@
+using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Maple.WinUI.ViewModels
 {
@@ -9,23 +10,27 @@ namespace Maple.WinUI.ViewModels
     /// well-defined edit/preview target — the only thing OpenForEditing,
     /// decode, and the sidecar-write path ever look at. SelectedPhotos below
     /// is the grid's full multi-selection; it never drives those per-photo
-    /// session operations on its own. Kept in its own partial so it can move
-    /// into Maple.WinUI.Tests once that project lands on main (#2672).
+    /// session operations on its own. This is a thin PhotoItem-typed wrapper
+    /// over the WinUI-free SelectionLogic (SelectionLogic.cs), which carries
+    /// the actual resolution rules and is what's unit-tested in
+    /// Maple.WinUI.Tests (#2672).
     /// </summary>
     public partial class EditSessionViewModel
     {
         /// <summary>The grid's current multi-selection, in GridView.SelectedItems
-        /// order. Replaced wholesale on every SelectionChanged via
-        /// SyncSelectedPhotos — selections are small relative to a library, so
-        /// clear-and-refill is cheap and avoids hand-rolled diffing.</summary>
-        public ObservableCollection<PhotoItem> SelectedPhotos { get; } = new();
+        /// order. Reassigned wholesale on every SelectionChanged via
+        /// SyncSelectedPhotos — a single list swap raises one PropertyChanged
+        /// regardless of selection size, unlike clearing and re-adding into
+        /// an ObservableCollection, which would fire one CollectionChanged
+        /// per item (thousands of them on a Ctrl+A over a large library).</summary>
+        [ObservableProperty]
+        private IReadOnlyList<PhotoItem> _selectedPhotos = Array.Empty<PhotoItem>();
 
         /// <summary>Narrator-facing summary shown next to the library count.
         /// Empty for 0 or 1 selected: GridView's own SelectionItem automation
         /// peer already announces a single selection change per item, so this
         /// only speaks up for the multi-select case this ticket adds.</summary>
-        public string SelectionSummary =>
-            SelectedPhotos.Count > 1 ? $"{SelectedPhotos.Count} selected" : string.Empty;
+        public string SelectionSummary => SelectionLogic.SelectionSummary(SelectedPhotos.Count);
 
         /// <summary>Called by the grid's SelectionChanged handler. Replaces the
         /// tracked multi-selection and resolves SelectedPhoto: a single
@@ -35,28 +40,23 @@ namespace Maple.WinUI.ViewModels
         public void SyncSelectedPhotos(IReadOnlyList<PhotoItem> selected)
         {
             var summaryBefore = SelectionSummary;
-            SelectedPhotos.Clear();
-            foreach (var photo in selected)
-                SelectedPhotos.Add(photo);
+            SelectedPhotos = selected;
             // Only notify when the summary text actually changed — 0<->1
             // transitions both render as empty, and a redundant notification
             // re-announces the (LiveSetting="Polite") count text to Narrator.
             if (SelectionSummary != summaryBefore)
                 OnPropertyChanged(nameof(SelectionSummary));
-            if (selected.Count == 1)
+            if (SelectionLogic.ShouldBecomeSingleTarget(selected.Count))
                 SelectedPhoto = selected[0];
         }
 
-        /// <summary>The photo Enter/double-tap should open: the sole
-        /// selection, else the first item of a larger selection (grid order),
-        /// else the last well-defined single target (the grid was fully
-        /// deselected but a photo was open before that), else the first photo
-        /// in the current view. Pure and static so it is unit-testable
-        /// without a live GridView.</summary>
+        /// <summary>The photo Enter/double-tap should open. See
+        /// SelectionLogic.ResolvePrimaryTarget for the fallback order; pure
+        /// and static so it (via SelectionLogic) is unit-testable without a
+        /// live GridView.</summary>
         public static PhotoItem? ResolvePrimaryTarget(
             IReadOnlyList<PhotoItem> selectedPhotos, PhotoItem? lastSelectedPhoto,
             IReadOnlyList<PhotoItem> allPhotos) =>
-            selectedPhotos.Count > 0 ? selectedPhotos[0]
-                : lastSelectedPhoto ?? (allPhotos.Count > 0 ? allPhotos[0] : null);
+            SelectionLogic.ResolvePrimaryTarget(selectedPhotos, lastSelectedPhoto, allPhotos);
     }
 }
