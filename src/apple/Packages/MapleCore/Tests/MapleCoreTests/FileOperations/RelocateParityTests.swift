@@ -164,17 +164,43 @@ final class RelocateParityTests: XCTestCase {
     }
 
     /// Every regular file under `root`, as POSIX-relative paths with
-    /// content — exhaustive, matching the Bun runner's `readTree`.
+    /// content — exhaustive, matching the Bun runner's `readTree`, with two
+    /// exclusions: a leaked `.tmp.` publish artifact (its own distinct bug,
+    /// not what this harness targets), and anything under `.maple/` — the
+    /// on-disk LibraryIndex cache `LocalFileOperations` writes as a
+    /// same-process side effect of a relocate (`LocalFileOperations+
+    /// CacheAndIndex.swift`). That index is Apple-only (TS/C# have no
+    /// on-disk mirror of it) and explicitly NOT part of the relocate
+    /// CONTRACT this corpus proves — docs/caching.md is clear the cache is
+    /// derived and disposable, so it must not make an otherwise-identical
+    /// outcome look like a cross-platform divergence.
     private func readTree(_ root: URL) throws -> [CorpusFile] {
         var out: [CorpusFile] = []
         let fm = FileManager.default
-        guard let enumerator = fm.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey]) else {
+        // `temporaryDirectory` is reachable through a `/private` symlink on
+        // macOS (`/var` -> `/private/var`), and `FileManager.enumerator`
+        // does not consistently resolve that the same way `root` itself
+        // does — a plain string-prefix strip is fragile here. Comparing
+        // STANDARDIZED PATH COMPONENTS instead sidesteps the symlink
+        // question entirely: whatever form each side resolves to, the
+        // relative tail is just "however many components longer than
+        // root's own component count."
+        let resolvedRoot = root.resolvingSymlinksInPath().standardizedFileURL
+        let rootComponents = resolvedRoot.pathComponents
+        guard let enumerator = fm.enumerator(at: resolvedRoot, includingPropertiesForKeys: [.isRegularFileKey]) else {
             return []
         }
         for case let url as URL in enumerator {
             let values = try url.resourceValues(forKeys: [.isRegularFileKey])
             guard values.isRegularFile == true, !url.lastPathComponent.contains(".tmp.") else { continue }
-            let rel = url.path.replacingOccurrences(of: root.path + "/", with: "")
+            let standardized = url.resolvingSymlinksInPath().standardizedFileURL
+            let relComponents = Array(standardized.pathComponents.dropFirst(rootComponents.count))
+            // `.maple/` can appear at ANY depth — the crash-window case's
+            // fault directory is "src/IMG_1.CR3" while the destination
+            // "Album/.maple/index.json" is nested one level in, so this
+            // must check the whole path, not just its first component.
+            guard !relComponents.contains(".maple") else { continue }
+            let rel = relComponents.joined(separator: "/")
             let content = (try? String(contentsOf: url, encoding: .utf8)) ?? "<binary>"
             out.append(CorpusFile(path: rel, content: content))
         }
