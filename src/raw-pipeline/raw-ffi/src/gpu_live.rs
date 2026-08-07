@@ -341,6 +341,29 @@ pub struct MapleGpuLiveParams {
     pub noise_profile_len: u32,
     /// `RawImage::iso`. Zero is raw-core's "unknown ISO" sentinel.
     pub iso: u32,
+    // --- film look (epic #2683, Task 8) — display-linear, runs between
+    //     color_grade and grain in the view tail (`raw_gpu::full_chain`'s
+    //     module docs; `raw_core::stages::film_look::apply` is the CPU twin).
+    //     Appended at the struct tail per the offset-stable ABI convention: a
+    //     stale host leaves `film_lut_size` 0 and `film_lut_ptr` null, so the
+    //     composition builder omits the pass entirely — bit-identical to
+    //     pre-#2683 output. ---
+    /// Blend strength, 0..100 nominal. `<= 0.0` is itself a no-op even with a
+    /// grid loaded, mirroring every other blend-strength field in this struct.
+    pub film_strength: f32,
+    /// Film-look LUT node count per axis. `0` (paired with a null/empty
+    /// `film_lut_ptr`) means "no look loaded".
+    pub film_lut_size: u32,
+    /// A content-identity key for the loaded film LUT (any host-stable u32 —
+    /// Task 10 uses the FNV-1a hash of the look's catalog id string), NOT the
+    /// grid data itself. `0` is reserved for "none"; this FFI layer does not
+    /// interpret the value beyond folding it into the GPU chain signature.
+    pub film_lut_key: u32,
+    /// Flat film-look grid (`film_lut_size`³ × 3 floats, layout
+    /// `((b*N+g)*N+r)*3+c` — the same layout [`crate::film::maple_film_lut_decode`]
+    /// writes). Null / zero len = off (paired with `film_lut_size == 0`).
+    pub film_lut_ptr: *const f32,
+    pub film_lut_len: usize,
 }
 
 /// Internal handle state: the per-open session. Behind the opaque pointer.
@@ -522,3 +545,9 @@ mod gpu_live_chain_parity_tests;
 #[cfg(test)]
 #[path = "gpu_live_wb_seam_tests.rs"]
 mod gpu_live_wb_seam_tests;
+// Film-look tail host parity (epic #2683, Task 8) — split out per the
+// 600-LOC budget; reuses `gpu_live_tests`' + `gpu_live_wb_frame_tests`'
+// `pub(super)` helpers the same way the other siblings above do.
+#[cfg(test)]
+#[path = "gpu_live_film_tests.rs"]
+mod gpu_live_film_tests;

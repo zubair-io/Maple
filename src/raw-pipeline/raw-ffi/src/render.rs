@@ -69,67 +69,22 @@ pub unsafe extern "C" fn maple_render_file(
         }
     };
     let out_ptr = out as usize; // Send across the thread as a usize, cast back inside.
+                                // Pass the RAW path through so `Profile::Auto` (#537) can read the
+                                // embedded JPEG. `maple_render_file` is the file-backed entry — the path
+                                // is guaranteed to be valid; `maple_render_bytes` below is bytes-only and
+                                // runs AgX unconditionally. `film_lut: None` keeps this entry's output
+                                // byte-identical to pre-#2683 — the film-look sibling that threads a
+                                // decoded LUT through the same body lives in `render_film.rs`
+                                // (`maple_render_file_with_film`, 600-LOC budget split).
     with_large_stack(move || {
         let raw_path = std::path::Path::new(&raw_path_str);
-        let model = match load_xmp_model_owned(xmp_path_str.as_deref()) {
-            LoadModel::Ok(m) => m,
-            LoadModel::Err(rc) => return rc,
-        };
-        let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path))
-        {
-            Ok(b) => b,
-            Err(e) => {
-                set_last_error(format!("raw read: {}", e));
-                return 6;
-            }
-        };
-        let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || {
-            decode_bytes(&raw_bytes, ext)
-        }) {
-            Ok(r) => r,
-            Err(e) => {
-                set_last_error(format!("decode: {}", e));
-                return 7;
-            }
-        };
-        let quality = match quality_preview {
-            1 => RenderQuality::Preview,
-            2 => RenderQuality::Amaze,
-            _ => RenderQuality::Full,
-        };
-        // Pass the RAW path through so `Profile::Auto` (#537) can read the
-        // embedded JPEG. `maple_render_file` is the file-backed entry —
-        // the path is guaranteed to be valid; `maple_render_bytes` below
-        // is bytes-only and runs AgX unconditionally.
-        let (w, h, bytes) = match render_from_raw_with_quality_and_source(
-            &raw_img,
-            &model,
-            quality,
-            Some(raw_core::pipeline::RawInput::Path(raw_path)),
-        ) {
-            Ok(t) => t,
-            Err(e) => {
-                set_last_error(format!("render: {}", e));
-                return 8;
-            }
-        };
-        let (rgb, len) = raw_core::pipeline::stage("ffi_pack", || {
-            let mut boxed = bytes.into_boxed_slice();
-            let p = boxed.as_mut_ptr();
-            let n = boxed.len();
-            std::mem::forget(boxed);
-            (p, n)
-        });
-        unsafe {
-            *(out_ptr as *mut MapleImageBuffer) = MapleImageBuffer {
-                rgb,
-                len,
-                width: w,
-                height: h,
-            };
-        }
-        0
+        crate::render_film::render_file_body(
+            raw_path,
+            xmp_path_str.as_deref(),
+            quality_preview,
+            None,
+            out_ptr,
+        )
     })
 }
 

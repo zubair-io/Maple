@@ -181,6 +181,11 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
         None
     };
 
+    // Film look (epic #2683, Task 8) — computed once, ahead of the struct
+    // literal, so a mismatched host buffer is validated/logged exactly once.
+    let (film_lut_size, film_lut_data) =
+        film_lut_or_off(p.film_lut_size, p.film_lut_ptr, p.film_lut_len);
+
     FullChainInputs {
         wb_matrix,
         wb_temperature: gate_temperature,
@@ -322,7 +327,51 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
         // `noise_profile: None`.
         noise_profile: read_floats(p.noise_profile_ptr, p.noise_profile_len as usize),
         iso: p.iso,
+        // Film look (epic #2683, Task 8). `film_lut_or_off` is the single
+        // gate: a null pointer, a zero size, OR a `len` that doesn't match
+        // `size³·3` all collapse to "off" (empty data, size 0) rather than
+        // risking a read past a mismatched host buffer — `build_split`'s
+        // `film_lut_size > 0` presence check then omits `FilmLutPass` entirely.
+        film_strength: p.film_strength,
+        film_lut_size,
+        film_lut_key: p.film_lut_key,
+        film_lut_data,
     }
+}
+
+/// The host-declared film LUT edge + grid, or `(0, empty)` ("off") when the
+/// pointer is null, `size < 2` (mirrors `MlutError::DegenerateGrid` — no
+/// tetrahedral sample is possible below a 2×2×2 lattice), or `len` doesn't
+/// match `size³·3` exactly. Unlike the always-present residual LUT (which
+/// falls back to an identity lattice), film has a real "absent" state, so a
+/// mismatch is logged and gated off rather than substituted — never a read
+/// past the caller's slice.
+///
+/// # Safety
+/// `ptr` valid for `len` f32 reads, or null.
+unsafe fn film_lut_or_off(size: u32, ptr: *const f32, len: usize) -> (u32, Vec<f32>) {
+    if ptr.is_null() || size == 0 {
+        return (0, Vec::new());
+    }
+    if size < 2 {
+        #[cfg(debug_assertions)]
+        eprintln!("film_lut_or_off: grid size {size} < 2 (degenerate) — treating as off");
+        return (0, Vec::new());
+    }
+    let s = size as usize;
+    let expected = s
+        .checked_mul(s)
+        .and_then(|s2| s2.checked_mul(s))
+        .and_then(|s3| s3.checked_mul(3));
+    if expected != Some(len) {
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "film_lut_or_off: len {len} != size³·3 for size {size} (expected {expected:?}) \
+             — treating as off"
+        );
+        return (0, Vec::new());
+    }
+    (size, read_floats(ptr, len))
 }
 
 /// The host-supplied flat Auto Profile curve, or the IDENTITY curve's flat
