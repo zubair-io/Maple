@@ -104,5 +104,77 @@ namespace Maple.WinUI.Tests
             Assert.Equal("A", File.ReadAllText(first.PrimaryPath));
             Assert.Equal("B", File.ReadAllText(second.PrimaryPath));
         }
+
+        [Fact]
+        public async Task Fail_DestinationIsADirectory_ThrowsDestinationExists()
+        {
+            // `File.Exists` alone is blind to a directory sitting at the
+            // target — a bare existence check that only looks at files
+            // would read a directory-occupied destination as free.
+            var src = WriteFile("in\\photo.dng", "bytes");
+            var outDir = Path.Combine(_dir, "out");
+            Directory.CreateDirectory(Path.Combine(outDir, "photo.dng")); // a DIRECTORY, not a file
+
+            var ex = await Assert.ThrowsAsync<FileOperationException>(() =>
+                LocalFileOperations.RelocateAsync(src, outDir, null, RelocateMode.Move, CollisionPolicy.Fail));
+
+            Assert.Equal(FileOperationErrorKind.DestinationExists, ex.Kind);
+        }
+
+        [Fact]
+        public async Task AutoSuffix_DestinationIsADirectory_SuffixesPastIt()
+        {
+            var src = WriteFile("in\\photo.dng", "bytes");
+            var outDir = Path.Combine(_dir, "out");
+            Directory.CreateDirectory(Path.Combine(outDir, "photo.dng"));
+
+            var outcome = await LocalFileOperations.RelocateAsync(
+                src, outDir, null, RelocateMode.Copy, CollisionPolicy.AutoSuffix);
+
+            Assert.Equal(Path.Combine(outDir, "photo.1.dng"), outcome.PrimaryPath);
+        }
+
+        [Fact]
+        public async Task Replace_DestinationIsADirectory_ThrowsInvalidDestination()
+        {
+            var src = WriteFile("in\\photo.dng", "bytes");
+            var outDir = Path.Combine(_dir, "out");
+            Directory.CreateDirectory(Path.Combine(outDir, "photo.dng"));
+
+            var ex = await Assert.ThrowsAsync<FileOperationException>(() =>
+                LocalFileOperations.RelocateAsync(src, outDir, null, RelocateMode.Move, CollisionPolicy.Replace));
+
+            Assert.Equal(FileOperationErrorKind.InvalidDestination, ex.Kind);
+        }
+
+        [Fact]
+        public async Task NewBasename_ContainsDirectoryTraversal_ThrowsInvalidDestinationBeforeAnyCopy()
+        {
+            var src = WriteFile("in\\photo.dng", "bytes");
+            var outDir = Path.Combine(_dir, "out");
+            Directory.CreateDirectory(outDir);
+
+            var ex = await Assert.ThrowsAsync<FileOperationException>(() =>
+                LocalFileOperations.RelocateAsync(
+                    src, outDir, "..\\..\\escaped.dng", RelocateMode.Copy, CollisionPolicy.AutoSuffix));
+
+            Assert.Equal(FileOperationErrorKind.InvalidDestination, ex.Kind);
+            // Nothing escaped the destination directory.
+            Assert.False(File.Exists(Path.Combine(_dir, "escaped.dng")));
+            Assert.Empty(Directory.GetFiles(outDir));
+        }
+
+        [Fact]
+        public async Task NewBasename_IsReservedDeviceName_ThrowsInvalidDestination()
+        {
+            var src = WriteFile("in\\photo.dng", "bytes");
+            var outDir = Path.Combine(_dir, "out");
+
+            var ex = await Assert.ThrowsAsync<FileOperationException>(() =>
+                LocalFileOperations.RelocateAsync(src, outDir, "NUL.dng", RelocateMode.Copy, CollisionPolicy.AutoSuffix));
+
+            Assert.Equal(FileOperationErrorKind.InvalidDestination, ex.Kind);
+            Assert.True(File.Exists(src)); // untouched
+        }
     }
 }

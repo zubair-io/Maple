@@ -138,5 +138,52 @@ namespace Maple.WinUI.Tests
             Assert.Equal(FileOperationErrorKind.SourceMissing, ex.Kind);
             Assert.False(Directory.Exists(Path.Combine(_dir, "out")));
         }
+
+        // -- Regression coverage: `.Replace` must never delete an occupant
+        // before a verified replacement is ready (the "delete-then-hope"
+        // bug — third recurrence of the case-insensitivity/data-loss bug
+        // family in this epic, caught before merge). --
+
+        [Fact]
+        public void CopyVerified_SourceMissing_LeavesExistingDestinationCompletelyIntact()
+        {
+            // The earliest possible failure point in the copy phase — proves
+            // CopyVerified never proactively clears whatever already sits at
+            // `destination` before its own verified temp file is ready to
+            // publish. Combined with `Replace_SourceHasNoSidecar_...` below,
+            // this demonstrates there is no code path left that deletes an
+            // occupant before its replacement is verified.
+            var destination = Path.Combine(_dir, "photo.dng");
+            File.WriteAllText(destination, "occupant bytes");
+            var missingSource = Path.Combine(_dir, "gone.dng");
+
+            Assert.Throws<FileOperationException>(
+                () => LocalFileOperations.CopyVerified(missingSource, destination));
+
+            Assert.True(File.Exists(destination));
+            Assert.Equal("occupant bytes", File.ReadAllText(destination));
+        }
+
+        [Fact]
+        public async Task Replace_SourceHasNoSidecar_LeavesDestinationsExistingSidecarUntouched()
+        {
+            // The exact shape of the fixed bug: the old code unconditionally
+            // deleted the destination's sidecar (and primary) as soon as a
+            // `.Replace` collision was detected — BEFORE any copy of the
+            // new file was even attempted. With the fix, nothing is removed
+            // until a verified replacement publishes atomically over it; and
+            // since this source has no sidecar of its own, the destination's
+            // old sidecar is never touched at all.
+            var src = WriteFile("in\\photo.dng", "new primary bytes"); // no sidecar
+            var outDir = Path.Combine(_dir, "out");
+            WriteFile("out\\photo.dng", "old occupant");
+            var oldSidecar = WriteFile("out\\photo.xmp", "<xmp/>old-edits");
+
+            await LocalFileOperations.RelocateAsync(
+                src, outDir, "photo.dng", RelocateMode.Move, CollisionPolicy.Replace);
+
+            Assert.True(File.Exists(oldSidecar));
+            Assert.Equal("<xmp/>old-edits", File.ReadAllText(oldSidecar));
+        }
     }
 }
