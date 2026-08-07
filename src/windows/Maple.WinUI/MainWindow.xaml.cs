@@ -573,6 +573,7 @@ namespace Maple.WinUI
         private bool _clipShadowOn;
         private bool _clipHighlightOn;
         private WriteableBitmap? _clipOverlayBitmap;
+        private byte[]? _clipOverlayScratch;   // reused per frame — no per-tick allocation
 
         private void OnToggleShadowClip(object sender, RoutedEventArgs e)
         {
@@ -657,7 +658,10 @@ namespace Maple.WinUI
                     _clipOverlayBitmap = new WriteableBitmap(width, height);
                     ClipOverlayImage.Source = _clipOverlayBitmap;
                 }
-                var overlay = new byte[bgra.Length];
+                if (_clipOverlayScratch == null || _clipOverlayScratch.Length != bgra.Length)
+                    _clipOverlayScratch = new byte[bgra.Length];
+                var overlay = _clipOverlayScratch;
+                Array.Clear(overlay);
                 for (var i = 0; i < bgra.Length; i += 4)
                 {
                     var b = bgra[i];
