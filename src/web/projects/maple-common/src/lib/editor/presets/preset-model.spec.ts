@@ -200,6 +200,22 @@ describe('buildApplyPatch', () => {
     // Wrong-typed value still skipped, same as every other field kind.
     expect(buildApplyPatch({ film_look: 42 })).toEqual({});
   });
+
+  /**
+   * The empty string is `film_look`'s own canonical "no look" value (the
+   * `AdjustmentModel` default), so a preset that sets `film_look: ''`
+   * explicitly clears a previously-applied look rather than being treated
+   * as an invalid/missing value — mirrors the API's
+   * `FREE_FORM_STRING_FIELDS` / `allowsEmptyString` acceptance in
+   * `src/api/src/presets/adjustment-fields.ts`.
+   */
+  it('applies an empty string for film_look as an explicit clear', () => {
+    expect(buildApplyPatch({ film_look: '' })).toEqual({ filmLook: '' });
+  });
+
+  it('still skips an empty string for closed-enum string fields', () => {
+    expect(buildApplyPatch({ profile: '' })).toEqual({});
+  });
 });
 
 describe('normalizePresetName', () => {
