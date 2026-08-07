@@ -122,6 +122,22 @@ namespace Maple.WinUI.Services.FileOperations
                 createdPaths.Add(sidecarTargetPath);
                 finalSidecarPath = sidecarTargetPath;
             }
+            else if (collision == CollisionPolicy.Replace)
+            {
+                // The incoming asset has no sidecar of its own, but `.Replace`
+                // means "the destination now reflects EXACTLY the incoming
+                // asset" — the PREVIOUS occupant's sidecar must not survive and
+                // get misattributed to this one, silently handing the new photo
+                // the old photo's edits. Found by the #2633 parity harness on
+                // its first Windows run; the TS and Swift twins already do this
+                // (see `relocate.ts`'s matching comment).
+                //
+                // Safe here, unlike a pre-copy delete: this only runs AFTER the
+                // primary above was verified and published, so a copy failure
+                // can never reach this point. Best-effort, like every other
+                // sidecar cleanup path.
+                TryDelete(SidecarStore.SidecarPathFor(resolvedTargetPath));
+            }
 
             return new RelocatePlan(
                 mode, sourcePrimaryPath, usedSourceSidecarPath,
