@@ -21,62 +21,82 @@
  */
 
 import { Elysia } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId, type WithId } from 'mongodb';
 import { foldersCollection } from '../db/client.ts';
+import type { FolderDoc } from '../db/schema.ts';
 import { validateRelPathHeader } from './folders.ts';
 import { trashFolderRecursive, restoreFolderRecursive } from '../library/folder-trash.ts';
 
+type ResolvedTarget = { folderId: ObjectId; folder: WithId<FolderDoc>; relPath: string };
+type ResolveError = { status: number; error: string };
+
+/**
+ * Shared `:id` + `X-Maple-Target-Path` resolution for both routes below —
+ * parse the folder id, look up the folder doc, and validate the header
+ * with the exact same rules `/mkdir` and `/move` use. Both handlers were
+ * previously duplicating this ~20-line block; factored out per the #2695
+ * review (fallow-audit clone-group finding) so the two routes can't drift.
+ */
+async function resolveFolderAndTarget(
+  paramsId: string,
+  headers: Record<string, string | undefined>,
+): Promise<ResolvedTarget | ResolveError> {
+  let folderId: ObjectId;
+  try {
+    folderId = new ObjectId(paramsId);
+  } catch {
+    return { status: 400, error: 'Invalid folder id' };
+  }
+
+  const folders = await foldersCollection();
+  const folder = await folders.findOne({ _id: folderId });
+  if (!folder) {
+    return { status: 404, error: 'Folder not found' };
+  }
+
+  const validated = validateRelPathHeader(headers['x-maple-target-path'], 'X-Maple-Target-Path');
+  if (!validated.ok) {
+    return { status: validated.status, error: validated.error };
+  }
+
+  return { folderId, folder, relPath: validated.target };
+}
+
+function isResolveError(r: ResolvedTarget | ResolveError): r is ResolveError {
+  return 'status' in r;
+}
+
+/**
+ * Shared handler body for both routes below — resolve `:id` + the target
+ * header (`resolveFolderAndTarget`), then hand the result to whichever
+ * batch op (`trashFolderRecursive` / `restoreFolderRecursive`) the caller
+ * wants run. The two routes are otherwise identical (same params, same
+ * success/error shaping), so this is the one place that shape lives. Takes
+ * `set` by reference (Elysia's own mutable context field) rather than
+ * returning a status — kept as a plain async function (not an Elysia
+ * handler itself) so each `.post()` call site still gets Elysia's own
+ * inferred context typing.
+ */
+async function runFolderBatch(
+  paramsId: string,
+  headers: Record<string, string | undefined>,
+  set: { status?: number | string },
+  runOp: (folderId: ObjectId, folderRoot: string, relPath: string) => Promise<unknown>,
+) {
+  const resolved = await resolveFolderAndTarget(paramsId, headers);
+  if (isResolveError(resolved)) {
+    set.status = resolved.status;
+    return { error: resolved.error };
+  }
+  const summary = await runOp(resolved.folderId, resolved.folder.path, resolved.relPath);
+  set.status = 200;
+  return summary;
+}
+
 export const foldersTrashRoutes = new Elysia({ prefix: '/api/folders' })
-  .post('/:id/trash-folder', async ({ params, headers, set }) => {
-    let folderId: ObjectId;
-    try {
-      folderId = new ObjectId(params.id);
-    } catch {
-      set.status = 400;
-      return { error: 'Invalid folder id' };
-    }
-
-    const folders = await foldersCollection();
-    const folder = await folders.findOne({ _id: folderId });
-    if (!folder) {
-      set.status = 404;
-      return { error: 'Folder not found' };
-    }
-
-    const validated = validateRelPathHeader(headers['x-maple-target-path'], 'X-Maple-Target-Path');
-    if (!validated.ok) {
-      set.status = validated.status;
-      return { error: validated.error };
-    }
-
-    const summary = await trashFolderRecursive(folderId, folder.path, validated.target);
-    set.status = 200;
-    return summary;
-  })
-
-  .post('/:id/restore-folder', async ({ params, headers, set }) => {
-    let folderId: ObjectId;
-    try {
-      folderId = new ObjectId(params.id);
-    } catch {
-      set.status = 400;
-      return { error: 'Invalid folder id' };
-    }
-
-    const folders = await foldersCollection();
-    const folder = await folders.findOne({ _id: folderId });
-    if (!folder) {
-      set.status = 404;
-      return { error: 'Folder not found' };
-    }
-
-    const validated = validateRelPathHeader(headers['x-maple-target-path'], 'X-Maple-Target-Path');
-    if (!validated.ok) {
-      set.status = validated.status;
-      return { error: validated.error };
-    }
-
-    const summary = await restoreFolderRecursive(folderId, folder.path, validated.target);
-    set.status = 200;
-    return summary;
-  });
+  .post('/:id/trash-folder', ({ params, headers, set }) =>
+    runFolderBatch(params.id, headers, set, trashFolderRecursive),
+  )
+  .post('/:id/restore-folder', ({ params, headers, set }) =>
+    runFolderBatch(params.id, headers, set, restoreFolderRecursive),
+  );
