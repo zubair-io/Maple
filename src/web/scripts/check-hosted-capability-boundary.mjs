@@ -40,11 +40,31 @@ const SOURCE_BOUNDARIES = [
     forbidden: ['Add folder', 'Timeline'],
   },
   {
+    // Folder CRUD (#2643 / #2705 review): the eager tree component may only
+    // reference `FolderTreeCrudComponent` (and only inside an `@defer`
+    // block, in the .html above) — never the HTTP service or the
+    // menu/dialog components directly. Those live exclusively behind that
+    // `@defer` boundary so they code-split into their own chunk.
+    path: new URL(
+      '../projects/maple-common/src/lib/components/folder-tree/folder-tree.component.ts',
+      import.meta.url,
+    ),
+    forbidden: [
+      'FolderCrudService',
+      'FolderContextMenuComponent',
+      'FolderNewFolderDialogComponent',
+      'FolderRenameDialogComponent',
+      'FolderTrashConfirmDialogComponent',
+    ],
+  },
+  {
     path: new URL('../projects/maple-syrup/src/app/app.config.ts', import.meta.url),
     forbidden: [
       'InfoEnrichmentComponent',
       'SelfHostedSidebarHeaderComponent',
       'SelfHostedSidebarBodyComponent',
+      'FolderTreeCrudComponent',
+      'provideFolderTreeCrud',
     ],
   },
 ];
@@ -56,6 +76,7 @@ const SELF_HOSTED_COMPOSITION = {
     'provideFolderTreeExtensions({',
     'header: SelfHostedSidebarHeaderComponent',
     'body: SelfHostedSidebarBodyComponent',
+    'provideFolderTreeCrud()',
   ],
 };
 

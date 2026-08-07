@@ -1,13 +1,12 @@
 import { Component, signal } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { ComponentFixture, DeferBlockState, TestBed } from '@angular/core/testing';
+import { of } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
-import { of, throwError } from 'rxjs';
-import { HttpErrorResponse } from '@angular/common/http';
 import { LibraryStateService } from '../../state/library-state.service';
 import { FolderCrudService } from '../../api/folder-crud.service';
 import { SidebarEntry } from '../../models/folder';
-import { ApiFolder } from '../../workspace/server-library-io';
 import { provideFolderTreeExtensions } from './folder-tree-extension';
+import { FOLDER_TREE_CRUD_ENABLED, provideFolderTreeCrud } from './folder-tree-crud-capability';
 import { FolderTreeComponent } from './folder-tree.component';
 import { validateFolderNameDraft } from './folder-name-validation';
 
@@ -18,7 +17,7 @@ class TestHeaderComponent {}
 class TestBodyComponent {}
 
 describe('FolderTreeComponent extensions', () => {
-  it('renders app-provided header and body controls in normal-flow slots', () => {
+  it('renders app-provided header and body controls in normal-flow slots', async () => {
     TestBed.configureTestingModule({
       imports: [FolderTreeComponent],
       providers: [
@@ -32,6 +31,11 @@ describe('FolderTreeComponent extensions', () => {
         }),
       ],
     });
+    // `FolderTreeComponent`'s template has a deferrable (`@defer`) block —
+    // Angular's test compiler needs an explicit async compile step to
+    // resolve deferred-block metadata before `createComponent` (#2643 /
+    // #2705 review's bundle-split restructure introduced the `@defer`).
+    await TestBed.compileComponents();
 
     const fixture = TestBed.createComponent(FolderTreeComponent);
     fixture.detectChanges();
@@ -63,18 +67,6 @@ describe('validateFolderNameDraft (#2643 light client-side pre-check)', () => {
   });
 });
 
-/** Registered library the fixture tree's root node resolves to via its
- * `slug:relPath` id (see `FolderTreeComponent.resolveLibraryId`). */
-const LIBRARY: ApiFolder = {
-  id: '64f0000000000000000000ab',
-  path: '/Users/x/Photos',
-  slug: 'lib1',
-  label: 'My Library',
-  last_scan: null,
-  file_count: 10,
-  created_at: '2026-01-01T00:00:00Z',
-};
-
 function makeTree(): SidebarEntry[] {
   return [
     {
@@ -100,7 +92,7 @@ function makeStateStub(tree: SidebarEntry[]) {
     sidebarTree: signal(tree),
     folderOpen: signal<Record<string, boolean>>({}),
     selectedSourceId: signal('lib1:2026'),
-    registeredFolders: signal<ApiFolder[]>([LIBRARY]),
+    registeredFolders: signal([]),
     viewMode: signal('folder'),
     setViewMode: vi.fn(),
     setFolderOpen: vi.fn(),
@@ -111,35 +103,40 @@ function makeStateStub(tree: SidebarEntry[]) {
   };
 }
 
-interface CrudStubOverrides {
-  mkdir?: FolderCrudService['mkdir'];
-  move?: FolderCrudService['move'];
-  trashFolder?: FolderCrudService['trashFolder'];
-}
+type StateStub = ReturnType<typeof makeStateStub>;
 
-function setup(crudOverrides: CrudStubOverrides = {}) {
+async function setup(crudEnabled: boolean) {
   const state = makeStateStub(makeTree());
-  const crud = {
-    mkdir: vi.fn(() => of({ abs_path: '/Users/x/Photos/2026/New Folder' })),
-    move: vi.fn(() => of({ abs_path: '/Users/x/Photos/2027' })),
-    trashFolder: vi.fn(() => of({ total: 1, succeeded: 1, failed: 0, items: [] })),
-    ...crudOverrides,
-  };
-
   TestBed.configureTestingModule({
     imports: [FolderTreeComponent],
     providers: [
       { provide: LibraryStateService, useValue: state },
-      { provide: FolderCrudService, useValue: crud },
+      // Stubbed rather than omitted: if the deferred `FolderTreeCrudComponent`
+      // actually instantiates during a test (its `@defer` trigger fires),
+      // its constructor injects `FolderCrudService` unconditionally — the
+      // real `providedIn: 'root'` service would otherwise try to resolve a
+      // real `HttpClient` this TestBed never configured.
+      {
+        provide: FolderCrudService,
+        useValue: {
+          mkdir: vi.fn(() => of({ abs_path: '/x' })),
+          move: vi.fn(() => of({ abs_path: '/x' })),
+          trashFolder: vi.fn(() => of({ total: 0, succeeded: 0, failed: 0, items: [] })),
+        },
+      },
+      ...(crudEnabled ? [provideFolderTreeCrud()] : []),
     ],
   });
+  // See the "extensions" describe block above for why this is needed —
+  // `FolderTreeComponent`'s template has a deferrable block.
+  await TestBed.compileComponents();
 
   const fixture = TestBed.createComponent(FolderTreeComponent);
   fixture.detectChanges();
-  return { fixture, state, crud };
+  return { fixture, state };
 }
 
-function rowFor(fixture: ReturnType<typeof setup>['fixture'], label: string): HTMLElement {
+function rowFor(fixture: ComponentFixture<FolderTreeComponent>, label: string): HTMLElement {
   const rows = Array.from(fixture.nativeElement.querySelectorAll('.tree-row')) as HTMLElement[];
   const row = rows.find((r) => r.textContent?.includes(label));
   if (!row) throw new Error(`no tree row found for "${label}"`);
@@ -147,191 +144,124 @@ function rowFor(fixture: ReturnType<typeof setup>['fixture'], label: string): HT
 }
 
 function fireContextMenu(el: HTMLElement): void {
-  const event = new MouseEvent('contextmenu', {
-    bubbles: true,
-    cancelable: true,
-    clientX: 40,
-    clientY: 80,
-  });
-  el.dispatchEvent(event);
+  el.dispatchEvent(
+    new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 80 }),
+  );
 }
 
-describe('FolderTreeComponent folder-tree context menu (#2643)', () => {
-  it('opens on right-click with New Folder enabled and Rename/Trash disabled+explained on the library root', () => {
-    const { fixture } = setup();
-    fireContextMenu(rowFor(fixture, 'My Library'));
+describe('FolderTreeComponent — folder-tree CRUD capability gate (#2705 review)', () => {
+  it('defaults to disabled: FOLDER_TREE_CRUD_ENABLED is false, so a right-click never opens the menu', async () => {
+    const { fixture } = await setup(false);
+    fireContextMenu(rowFor(fixture, '2026'));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.crudRequest()).toBeNull();
+  });
+
+  it('provideFolderTreeCrud() turns the token on and a right-click sets crudRequest', async () => {
+    const { fixture } = await setup(true);
+    fireContextMenu(rowFor(fixture, '2026'));
+    fixture.detectChanges();
+    const request = fixture.componentInstance.crudRequest();
+    expect(request?.node.id).toBe('lib1:2026');
+  });
+
+  it('injects FOLDER_TREE_CRUD_ENABLED=false at the root (@Injectable providedIn:root default)', () => {
+    const enabled = TestBed.inject(FOLDER_TREE_CRUD_ENABLED);
+    expect(enabled).toBe(false);
+  });
+});
+
+describe('FolderTreeComponent — @defer wiring actually loads FolderTreeCrudComponent (#2705 review)', () => {
+  it('renders the menu once the deferred block resolves', async () => {
+    const { fixture } = await setup(true);
+    fireContextMenu(rowFor(fixture, '2026'));
+    fixture.detectChanges();
+
+    const deferBlocks = await fixture.getDeferBlocks();
+    expect(deferBlocks.length).toBe(1);
+    await deferBlocks[0].render(DeferBlockState.Complete);
     fixture.detectChanges();
 
     const items = fixture.nativeElement.querySelectorAll('button[role="menuitem"]');
     expect(items.length).toBe(3);
-    const rename = Array.from(items).find((b) =>
-      (b as HTMLElement).textContent?.includes('Rename'),
-    ) as HTMLButtonElement;
-    const trash = Array.from(items).find((b) =>
-      (b as HTMLElement).textContent?.includes('Move to Trash'),
-    ) as HTMLButtonElement;
-    expect(rename.disabled).toBe(true);
-    expect(trash.disabled).toBe(true);
-    expect(rename.title).toContain("can't be renamed");
   });
+});
 
-  it('enables Rename/Trash on a real subfolder', () => {
-    const { fixture } = setup();
-    fireContextMenu(rowFor(fixture, '2026'));
-    fixture.detectChanges();
+describe('FolderTreeComponent — crud outcome handling (#2705 review)', () => {
+  function selectedSourceId(state: StateStub): string {
+    return state.selectedSourceId();
+  }
 
-    const items = fixture.nativeElement.querySelectorAll('button[role="menuitem"]');
-    const rename = Array.from(items).find((b) =>
-      (b as HTMLElement).textContent?.includes('Rename'),
-    ) as HTMLButtonElement;
-    const trash = Array.from(items).find((b) =>
-      (b as HTMLElement).textContent?.includes('Move to Trash'),
-    ) as HTMLButtonElement;
-    expect(rename.disabled).toBe(false);
-    expect(trash.disabled).toBe(false);
-  });
-
-  it('Escape closes the menu', () => {
-    const { fixture } = setup();
-    fireContextMenu(rowFor(fixture, '2026'));
-    fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('[role="menu"]')).not.toBeNull();
-
-    const menu = fixture.nativeElement.querySelector('[role="menu"]') as HTMLElement;
-    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    fixture.detectChanges();
-
-    expect(fixture.nativeElement.querySelector('[role="menu"]')).toBeNull();
-  });
-
-  it('New Folder: submits mkdir with the target relPath inside the right-clicked node and refreshes on success', () => {
-    const { fixture, state, crud } = setup();
-    fireContextMenu(rowFor(fixture, '2026'));
-    fixture.detectChanges();
-
-    const newFolderBtn = Array.from(
-      fixture.nativeElement.querySelectorAll('button[role="menuitem"]'),
-    ).find((b) => (b as HTMLElement).textContent?.includes('New Folder')) as HTMLButtonElement;
-    newFolderBtn.click();
-    fixture.detectChanges();
-
-    const input = fixture.nativeElement.querySelector('.fnf-input') as HTMLInputElement;
-    expect(input).not.toBeNull();
-    const createBtn = fixture.nativeElement.querySelector('.fnf-btn-primary') as HTMLButtonElement;
-    expect(createBtn.disabled).toBe(true); // empty name
-
-    input.value = 'March';
-    input.dispatchEvent(new Event('input'));
-    fixture.detectChanges();
-    expect(createBtn.disabled).toBe(false);
-
-    createBtn.click();
-    fixture.detectChanges();
-
-    expect(crud.mkdir).toHaveBeenCalledWith(LIBRARY.id, '2026/March');
+  it('a "created" mutation refreshes and opens the parent', async () => {
+    const { fixture, state } = await setup(true);
+    fixture.componentInstance.onCrudMutated({ kind: 'created', parentId: 'lib1:2026' });
     expect(state.expandFsFolder).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'lib1:2026', childrenStatus: undefined }),
     );
-    expect(fixture.nativeElement.querySelector('.fnf-card')).toBeNull();
+    expect(state.setFolderOpen).toHaveBeenCalledWith('lib1:2026', true);
   });
 
-  it('New Folder: surfaces a server rejection inline instead of silently failing', () => {
-    const { fixture } = setup({
-      mkdir: vi.fn(() =>
-        throwError(() => new HttpErrorResponse({ status: 400, error: { error: 'Reserved name' } })),
-      ),
+  it('a "renamed" mutation reconciles the exact selection onto the new address', async () => {
+    const { fixture, state } = await setup(true);
+    state.selectedSourceId.set('lib1:2026');
+    fixture.componentInstance.onCrudMutated({
+      kind: 'renamed',
+      oldId: 'lib1:2026',
+      newId: 'lib1:2027',
+      parentId: 'lib1:',
     });
-    fireContextMenu(rowFor(fixture, '2026'));
-    fixture.detectChanges();
-    (
-      Array.from(fixture.nativeElement.querySelectorAll('button[role="menuitem"]')).find((b) =>
-        (b as HTMLElement).textContent?.includes('New Folder'),
-      ) as HTMLButtonElement
-    ).click();
-    fixture.detectChanges();
+    // selectSidebarEntry falls to openSelfHostedSubfolder for an
+    // M2-addressed id (contains ':').
+    expect(state.openSelfHostedSubfolder).toHaveBeenCalledWith('2027', 'lib1:2027');
+  });
 
-    const input = fixture.nativeElement.querySelector('.fnf-input') as HTMLInputElement;
-    input.value = 'CON';
-    input.dispatchEvent(new Event('input'));
-    fixture.detectChanges();
-    (fixture.nativeElement.querySelector('.fnf-btn-primary') as HTMLButtonElement).click();
-    fixture.detectChanges();
+  it('a "renamed" mutation reconciles a DESCENDANT selection by rewriting its prefix (Jules #2705 WARN)', async () => {
+    const { fixture, state } = await setup(true);
+    state.selectedSourceId.set('lib1:2026/March');
+    fixture.componentInstance.onCrudMutated({
+      kind: 'renamed',
+      oldId: 'lib1:2026',
+      newId: 'lib1:2027',
+      parentId: 'lib1:',
+    });
+    expect(state.openSelfHostedSubfolder).toHaveBeenCalledWith('2027/March', 'lib1:2027/March');
+  });
 
-    expect(fixture.nativeElement.querySelector('.fnf-error')?.textContent).toContain(
-      'Reserved name',
+  it('a "trashed" mutation falls a descendant selection back to the parent', async () => {
+    const { fixture, state } = await setup(true);
+    state.selectedSourceId.set('lib1:2026/March');
+    fixture.componentInstance.onCrudMutated({
+      kind: 'trashed',
+      trashedId: 'lib1:2026',
+      parentId: 'lib1:',
+      partialFailureMessage: null,
+    });
+    expect(state.openSelfHostedSubfolder).toHaveBeenCalledWith('', 'lib1:');
+  });
+
+  it('a "trashed" mutation with a partial-failure message surfaces it as a warning', async () => {
+    const { fixture } = await setup(true);
+    fixture.componentInstance.onCrudMutated({
+      kind: 'trashed',
+      trashedId: 'lib1:2026',
+      parentId: 'lib1:',
+      partialFailureMessage: '1 of 2 item(s) could not be moved to Trash.',
+    });
+    expect(fixture.componentInstance.trashPartialWarning()).toBe(
+      '1 of 2 item(s) could not be moved to Trash.',
     );
   });
 
-  it('Rename: goes inline and calls move with source/target relPaths on Enter', () => {
-    const { fixture, crud } = setup();
-    fireContextMenu(rowFor(fixture, '2026'));
-    fixture.detectChanges();
-    (
-      Array.from(fixture.nativeElement.querySelectorAll('button[role="menuitem"]')).find((b) =>
-        (b as HTMLElement).textContent?.includes('Rename'),
-      ) as HTMLButtonElement
-    ).click();
-    fixture.detectChanges();
-
-    const input = fixture.nativeElement.querySelector('.folder-rename-input') as HTMLInputElement;
-    expect(input).not.toBeNull();
-    expect(input.value).toBe('2026');
-
-    input.value = '2027';
-    input.dispatchEvent(new Event('input'));
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    fixture.detectChanges();
-
-    expect(crud.move).toHaveBeenCalledWith(LIBRARY.id, '2026', '2027');
-  });
-
-  it('Move to Trash: confirmation names the actual folder and calls trashFolder on confirm', () => {
-    const { fixture, crud } = setup();
-    fireContextMenu(rowFor(fixture, '2026'));
-    fixture.detectChanges();
-    (
-      Array.from(fixture.nativeElement.querySelectorAll('button[role="menuitem"]')).find((b) =>
-        (b as HTMLElement).textContent?.includes('Move to Trash'),
-      ) as HTMLButtonElement
-    ).click();
-    fixture.detectChanges();
-
-    const dialog = fixture.nativeElement.querySelector('[role="alertdialog"]');
-    expect(dialog?.textContent).toContain('"2026"');
-
-    const confirmBtn = fixture.nativeElement.querySelector(
-      '.ftc-btn-destructive',
-    ) as HTMLButtonElement;
-    confirmBtn.click();
-    fixture.detectChanges();
-
-    expect(crud.trashFolder).toHaveBeenCalledWith(LIBRARY.id, '2026');
-  });
-
-  it('Move to Trash: a partial-failure summary surfaces a warning instead of a silent success', () => {
-    const { fixture } = setup({
-      trashFolder: vi.fn(() =>
-        of({
-          total: 2,
-          succeeded: 1,
-          failed: 1,
-          items: [{ assetId: 'a1', filename: 'x.dng', ok: false, error: 'locked' }],
-        }),
-      ),
+  it('a mutation for an unrelated selection leaves selectedSourceId untouched', async () => {
+    const { fixture, state } = await setup(true);
+    state.selectedSourceId.set('lib1:other-folder');
+    fixture.componentInstance.onCrudMutated({
+      kind: 'renamed',
+      oldId: 'lib1:2026',
+      newId: 'lib1:2027',
+      parentId: 'lib1:',
     });
-    fireContextMenu(rowFor(fixture, '2026'));
-    fixture.detectChanges();
-    (
-      Array.from(fixture.nativeElement.querySelectorAll('button[role="menuitem"]')).find((b) =>
-        (b as HTMLElement).textContent?.includes('Move to Trash'),
-      ) as HTMLButtonElement
-    ).click();
-    fixture.detectChanges();
-    (fixture.nativeElement.querySelector('.ftc-btn-destructive') as HTMLButtonElement).click();
-    fixture.detectChanges();
-
-    expect(fixture.nativeElement.querySelector('.trash-partial-warning')?.textContent).toContain(
-      '1 of 2',
-    );
+    expect(state.openSelfHostedSubfolder).not.toHaveBeenCalled();
+    expect(selectedSourceId(state)).toBe('lib1:other-folder');
   });
 });
