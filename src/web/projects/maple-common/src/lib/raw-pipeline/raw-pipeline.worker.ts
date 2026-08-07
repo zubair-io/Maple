@@ -126,148 +126,158 @@ function gpuEntry(): RenderBytesGpuFn | null {
   return typeof fn === 'function' ? (fn as RenderBytesGpuFn) : null;
 }
 
+type LegacyDecodeResult = ReturnType<typeof render_bytes>; // shared by every legacy-decode entry
+
+/**
+ * `gpu` route (#1029, #1080): one-shot GPU develop, viewport-sized via `req.maxLongEdge` (undefined
+ * => WASM-side 2048 cap). Falls back to WASM-CPU — via the film-aware sibling when a look is loaded
+ * — on a runtime-adapter failure (#1059). `filmLutBytes` is unreachable here today
+ * (`selectLegacyDecodeRoute` never returns `'gpu'` alongside a film LUT, #2683 Task 9 round 1).
+ */
+async function decodeViaGpuRoute(
+  gpuFn: RenderBytesGpuFn,
+  bytes: Uint8Array,
+  req: DecodeRequest,
+  filmLutBytes: Uint8Array | null,
+): Promise<LegacyDecodeResult> {
+  try {
+    return await gpuFn(bytes, req.ext, req.xmp ?? null, req.maxLongEdge);
+  } catch (gpuErr) {
+    console.warn(
+      '[raw-pipeline.worker] GPU render failed; falling back to CPU render_bytes:',
+      gpuErr,
+    );
+    return filmLutBytes
+      ? render_bytes_with_film(bytes, req.ext, req.xmp ?? null, filmLutBytes)
+      : render_bytes(bytes, req.ext, req.xmp ?? null);
+  }
+}
+
+/**
+ * `sized` route (#1101, spec §5.1): viewport-sized CPU render for the editor's 2D fast/refine
+ * phases — the one-shot GPU entry can't honour `qualityPreview`'s demosaic profile/per-tick cost.
+ */
+function decodeViaSizedRoute(bytes: Uint8Array, req: DecodeRequest): LegacyDecodeResult {
+  return render_bytes_sized(
+    bytes,
+    req.ext,
+    req.xmp ?? null,
+    req.qualityPreview ?? false,
+    req.maxLongEdge as number,
+  );
+}
+
+/**
+ * `film` route (epic #2683, Task 9): WASM-CPU render with a film-look loaded — the no-WebGPU
+ * counterpart of the live session's `set-film-lut` upload, and the UNCONDITIONAL route for every
+ * unsized filmLut-bearing request regardless of GPU capability.
+ */
+function decodeViaFilmRoute(
+  bytes: Uint8Array,
+  req: DecodeRequest,
+  filmLutBytes: Uint8Array,
+): LegacyDecodeResult {
+  return render_bytes_with_film(bytes, req.ext, req.xmp ?? null, filmLutBytes);
+}
+
+/** `cpu` route: byte-for-byte today's no-GPU, no-look behaviour. */
+function decodeViaCpuRoute(bytes: Uint8Array, req: DecodeRequest): LegacyDecodeResult {
+  return render_bytes(bytes, req.ext, req.xmp ?? null);
+}
+
+// Reads scalars before taking the buffer via `take_rgb()` (#1080: MOVES the bytes out instead of
+// the `rgb` getter's clone-and-leave-alive-until-GC), then `free()`s the wasm-side struct.
+function postLegacyDecodeSuccess(req: DecodeRequest, result: LegacyDecodeResult): void {
+  const width = result.width;
+  const height = result.height;
+  const nativeWidth = result.full_width;
+  const nativeHeight = result.full_height;
+  const asShotTemperature = result.as_shot_temperature;
+  const asShotTint = result.as_shot_tint;
+  const rgb = result.take_rgb();
+  result.free();
+  const buffer = rgb.buffer.slice(rgb.byteOffset, rgb.byteOffset + rgb.byteLength);
+  const response: WorkerResponse = {
+    id: req.id,
+    type: 'decode-success',
+    width,
+    height,
+    nativeWidth,
+    nativeHeight,
+    rgb: buffer,
+    asShotTemperature,
+    asShotTint,
+  };
+  (self as unknown as Worker).postMessage(response, [buffer]);
+}
+
+// Surfaces the full stack (useful for a panic-hook trap) — `worker-log` forwarding carries it on.
+function postLegacyDecodeError(req: DecodeRequest, e: unknown): void {
+  const err = e instanceof Error ? e : null;
+  if (err?.stack) {
+    console.error('[raw-pipeline.worker] decode threw:', err.message, err.stack);
+  }
+  const response: WorkerResponse = {
+    id: req.id,
+    type: 'decode-error',
+    message: err?.message ?? String(e),
+  };
+  (self as unknown as Worker).postMessage(response);
+}
+
+/** What `handleLegacyDecode` needs to run one request: the chosen route's inputs + perf tag. */
+interface LegacyDecodePlan {
+  route: ReturnType<typeof selectLegacyDecodeRoute>;
+  filmLutBytes: Uint8Array | null;
+  gpuFn: RenderBytesGpuFn | null;
+  markTag: string;
+}
+
+/**
+ * `selectLegacyDecodeRoute` (wasm-free, unit-tested in raw-pipeline.decode-route.spec.ts) is the
+ * single source of truth for gpu-vs-sized-vs-film-vs-cpu precedence; this layers the worker-local
+ * pieces it can't see on top: `filmLut` bytes materialized once, the belt-and-braces
+ * `render_bytes_gpu` bundle check, and the DevTools perf-mark tag.
+ */
+function planLegacyDecode(req: DecodeRequest): LegacyDecodePlan {
+  const route = selectLegacyDecodeRoute(req, 'gpu' in navigator);
+  const filmLutBytes =
+    req.filmLut && req.filmLut.byteLength > 0 ? new Uint8Array(req.filmLut) : null;
+  const gpuFn = route === 'gpu' ? gpuEntry() : null;
+  const markTag = gpuFn
+    ? 'maple:wasm-gpu'
+    : route === 'sized'
+      ? `maple:wasm-sized:${req.maxLongEdge}`
+      : 'maple:wasm';
+  return { route, filmLutBytes, gpuFn, markTag };
+}
+
+/** Dispatches to the route's decode function per `plan` (see `planLegacyDecode`). */
+async function decodeViaPlan(
+  plan: LegacyDecodePlan,
+  bytes: Uint8Array,
+  req: DecodeRequest,
+): Promise<LegacyDecodeResult> {
+  if (plan.gpuFn) return decodeViaGpuRoute(plan.gpuFn, bytes, req, plan.filmLutBytes);
+  if (plan.route === 'sized') return decodeViaSizedRoute(bytes, req);
+  if (plan.filmLutBytes) return decodeViaFilmRoute(bytes, req, plan.filmLutBytes);
+  return decodeViaCpuRoute(bytes, req);
+}
+
 async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
   try {
     await ensureReady();
     const bytes = new Uint8Array(req.bytes);
-    // Sized decode (#1101, spec §5.1): a `maxLongEdge` request routes to the
-    // WASM-CPU sized entry — the editor's 2D fast/refine phases, whose
-    // `qualityPreview` demosaic profile and per-tick cost the one-shot GPU
-    // entry can't honour (it rebuilds the whole GPU context per call). The GPU
-    // live path renders through the persistent session (`WebLiveSession`)
-    // instead; the one-shot `render_bytes_gpu` stays the W1 parity gate /
-    // session fallback for UNSIZED requests, where it self-caps its develop at
-    // the WASM-side 2048 default (#1080) — no route develops full sensor res.
-    //
-    // `selectLegacyDecodeRoute` is the single source of truth for the
-    // gpu-vs-sized-vs-film-vs-cpu precedence (epic #2683, Task 9 fix round 1:
-    // a filmLut-bearing unsized request MUST route to the CPU film-aware
-    // sibling even on a WebGPU-capable browser — `render_bytes_gpu` has no
-    // film-aware sibling — see that function's doc). Kept in a wasm-free,
-    // worker-global-free module so it has direct unit coverage
-    // (raw-pipeline.decode-route.spec.ts) despite `handleLegacyDecode` itself
-    // being untestable in this harness (it imports the generated wasm glue).
-    const route = selectLegacyDecodeRoute(req, 'gpu' in navigator);
-    const sized = route === 'sized';
-    // Materialized once (rather than re-checking `req.filmLut` per branch) so
-    // every branch below narrows on the SAME non-null `Uint8Array`.
-    const filmLutBytes =
-      req.filmLut && req.filmLut.byteLength > 0 ? new Uint8Array(req.filmLut) : null;
-    // `gpuEntry()` is the belt-and-braces bundle check (the loaded WASM bundle
-    // actually exports `render_bytes_gpu` — false against a hypothetical
-    // gpu-off bundle) that `selectLegacyDecodeRoute` can't see (it has no wasm
-    // import); only consulted when the route decision already says `gpu`.
-    const gpuFn = route === 'gpu' ? gpuEntry() : null;
-    // Worker-local mark so DevTools' Performance panel shows the WASM render
-    // call as a distinct entry independent of the main-thread round-trip the
-    // service brackets. The mark name distinguishes the GPU/sized paths for
-    // profiling (the sized tag carries the cap so a viewport-sized fast phase
-    // is visible as evidence in the timeline).
-    const markTag = gpuFn
-      ? 'maple:wasm-gpu'
-      : sized
-        ? `maple:wasm-sized:${req.maxLongEdge}`
-        : 'maple:wasm';
-    // #1123: markStart/markEnd — a Performance Timeline throw here (e.g. a cleared
-    // mark) must never fall through to the outer `catch` and mislabel a successful
-    // decode as a `decode-error`.
+    const plan = planLegacyDecode(req);
+    // #1123: markStart/markEnd — a throw here must never fall through to the
+    // outer `catch` and mislabel a successful decode as a `decode-error`.
     const wasmStartMark = `maple:wasm:${req.id}:start`;
     markStart(wasmStartMark);
-    let result;
-    if (gpuFn) {
-      try {
-        // Pass the caller's viewport target (#1080) so the GPU develop is
-        // viewport-sized, not full sensor res. Unsized requests (the only ones
-        // routed here today) carry undefined => WASM's 2048 default cap.
-        result = await gpuFn(bytes, req.ext, req.xmp ?? null, req.maxLongEdge);
-      } catch (gpuErr) {
-        // Runtime-adapter-failure fallback (#1059): WebGPU was advertised
-        // (`'gpu' in navigator`) but the adapter is broken/unavailable —
-        // `requestAdapter()` returned null, or device creation/render failed.
-        // Without this retry the whole decode would error and the canvas would
-        // stay blank on a machine whose GPU path is dead-on-arrival. Re-run the
-        // SAME develop on the WASM-CPU side so the image still renders (slower,
-        // but correct) — via the film-aware sibling when a look is loaded
-        // (epic #2683, Task 9 fix round 1: `gpuFn` is only non-null when
-        // `route === 'gpu'`, which `selectLegacyDecodeRoute` never returns
-        // alongside a film LUT, so this branch is unreachable with one today —
-        // but the fallback stays defensive rather than silently dropping the
-        // look if that gate is ever relaxed). The outer catch still handles a
-        // genuine CPU decode failure.
-        console.warn(
-          '[raw-pipeline.worker] GPU render failed; falling back to CPU render_bytes:',
-          gpuErr,
-        );
-        result = filmLutBytes
-          ? render_bytes_with_film(bytes, req.ext, req.xmp ?? null, filmLutBytes)
-          : render_bytes(bytes, req.ext, req.xmp ?? null);
-      }
-    } else if (sized) {
-      // Viewport-sized CPU render (#1101): post-demosaic stages run at the
-      // capped size; `full_width`/`full_height` carry the native dims.
-      result = render_bytes_sized(
-        bytes,
-        req.ext,
-        req.xmp ?? null,
-        req.qualityPreview ?? false,
-        req.maxLongEdge as number,
-      );
-    } else if (filmLutBytes) {
-      // WASM-CPU path with a film-look loaded (epic #2683, Task 9) — the
-      // no-WebGPU-browser counterpart of the live session's `set-film-lut`
-      // upload, and (per `selectLegacyDecodeRoute`'s precedence) the
-      // UNCONDITIONAL route for every unsized filmLut-bearing request,
-      // GPU-capable browser or not. Only the unsized entry has a film-aware
-      // sibling today; a sized+film request still routes through the no-look
-      // sized path above (a rarer combination — the editor's fast/refine
-      // phases target the GPU live session for a loaded look).
-      result = render_bytes_with_film(bytes, req.ext, req.xmp ?? null, filmLutBytes);
-    } else {
-      // Unchanged WASM-CPU path — byte-for-byte today's no-GPU behaviour.
-      result = render_bytes(bytes, req.ext, req.xmp ?? null);
-    }
-    markEnd(wasmStartMark, `maple:wasm:${req.id}:end`, markTag);
-    // Read the scalars BEFORE taking the buffer, then consume the RGB via
-    // `take_rgb()` (#1080): unlike the `rgb` getter (which CLONES the full frame
-    // and leaves the wasm copy alive until free/GC), the take MOVES the bytes
-    // out, so peak memory is one frame, not two. The explicit `free()` releases
-    // the wasm-side struct immediately instead of waiting on GC finalization.
-    const width = result.width;
-    const height = result.height;
-    const nativeWidth = result.full_width;
-    const nativeHeight = result.full_height;
-    const asShotTemperature = result.as_shot_temperature;
-    const asShotTint = result.as_shot_tint;
-    const rgb = result.take_rgb();
-    result.free();
-    const buffer = rgb.buffer.slice(rgb.byteOffset, rgb.byteOffset + rgb.byteLength);
-    const response: WorkerResponse = {
-      id: req.id,
-      type: 'decode-success',
-      width,
-      height,
-      nativeWidth,
-      nativeHeight,
-      rgb: buffer,
-      asShotTemperature,
-      asShotTint,
-    };
-    (self as unknown as Worker).postMessage(response, [buffer]);
+    const result = await decodeViaPlan(plan, bytes, req);
+    markEnd(wasmStartMark, `maple:wasm:${req.id}:end`, plan.markTag);
+    postLegacyDecodeSuccess(req, result);
   } catch (e) {
-    const err = e instanceof Error ? e : null;
-    // Surface the full stack so main-thread logs show WASM function indices
-    // (useful when a trap hits the panic hook and we need more than the
-    // message to find the culprit). `worker-log` forwarding carries this to
-    // the page console.
-    if (err?.stack) {
-      console.error('[raw-pipeline.worker] decode threw:', err.message, err.stack);
-    }
-    const response: WorkerResponse = {
-      id: req.id,
-      type: 'decode-error',
-      message: err?.message ?? String(e),
-    };
-    (self as unknown as Worker).postMessage(response);
+    postLegacyDecodeError(req, e);
   }
 }
 
