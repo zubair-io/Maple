@@ -80,12 +80,27 @@ namespace Maple.WinUI.Services.Pano
 
         public bool CliPresent => CliPath != null;
 
+        /// <summary>One provisioning check = ~180 MB of hashing, so it runs
+        /// once per dialog on the thread pool and the result is reused.</summary>
+        public sealed record ProvisionState(bool Cli, bool Models, bool Ort)
+        {
+            public bool IsProvisioned => Cli && Models && Ort;
+            public string Summary =>
+                $"maple-cli: {(Cli ? "ready" : "missing")} · " +
+                $"models: {(Models ? "ready" : "missing")} · " +
+                $"ONNX Runtime: {(Ort ? "ready" : "missing")}";
+        }
+
+        public Task<ProvisionState> CheckAsync() => Task.Run(
+            () => new ProvisionState(CliPresent, ModelsVerified(), OrtVerified()));
+
         /// <summary>Present AND hash-verified — a same-size corrupted install
-        /// must re-provision rather than fail later inside the stitch.</summary>
-        public bool OrtPresent =>
+        /// must re-provision rather than fail later inside the stitch.
+        /// Blocking I/O: call off the UI thread (CheckAsync).</summary>
+        private bool OrtVerified() =>
             File.Exists(OrtDylibPath) && FileSha256(OrtDylibPath) == OrtDllSha256;
 
-        public bool ModelsPresent => Models.All(m =>
+        private bool ModelsVerified() => Models.All(m =>
         {
             var path = Path.Combine(ModelsDir, m.FileName);
             return File.Exists(path)
@@ -93,33 +108,28 @@ namespace Maple.WinUI.Services.Pano
                 && FileSha256(path) == m.Sha256;
         });
 
-        public bool IsProvisioned => CliPresent && OrtPresent && ModelsPresent;
-
         private static string FileSha256(string path)
         {
             using var stream = File.OpenRead(path);
             return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
         }
 
-        public string StatusSummary =>
-            $"maple-cli: {(CliPresent ? "ready" : "missing")} · " +
-            $"models: {(ModelsPresent ? "ready" : "missing")} · " +
-            $"ONNX Runtime: {(OrtPresent ? "ready" : "missing")}";
-
         /// <summary>Download whatever is missing (models SHA-256-verified
         /// against the repo pins; the ORT dll extracted from the official
-        /// 1.23.2 release zip). ~180 MB total on a cold machine.</summary>
+        /// 1.23.2 release zip and pin-verified). ~180 MB on a cold machine.
+        /// Blocking I/O + hashing: run on the thread pool.</summary>
         public async Task ProvisionAsync(Action<string> progress, CancellationToken ct)
         {
             using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
 
-            if (!ModelsPresent)
+            if (!ModelsVerified())
             {
                 Directory.CreateDirectory(ModelsDir);
                 foreach (var model in Models)
                 {
                     var path = Path.Combine(ModelsDir, model.FileName);
-                    if (File.Exists(path) && new FileInfo(path).Length == model.Size)
+                    if (File.Exists(path) && new FileInfo(path).Length == model.Size
+                        && FileSha256(path) == model.Sha256)
                         continue;
                     progress($"Downloading {model.FileName} ({model.Size / (1024 * 1024)} MB)…");
                     var bytes = await http.GetByteArrayAsync(model.Url, ct);
@@ -131,18 +141,20 @@ namespace Maple.WinUI.Services.Pano
                 }
             }
 
-            if (!OrtPresent)
+            if (!OrtVerified())
             {
                 progress("Downloading ONNX Runtime 1.23.2 (win-x64)…");
                 Directory.CreateDirectory(Path.GetDirectoryName(OrtDylibPath)!);
                 var zipPath = OrtDylibPath + ".zip.tmp";
-                await using (var body = await http.GetStreamAsync(OrtZipUrl, ct))
-                await using (var file = File.Create(zipPath))
-                {
-                    await body.CopyToAsync(file, ct);
-                }
                 try
                 {
+                    // Download INSIDE the cleanup scope: a cancelled or failed
+                    // transfer must not strand a 120 MB .zip.tmp on disk.
+                    await using (var body = await http.GetStreamAsync(OrtZipUrl, ct))
+                    await using (var file = File.Create(zipPath))
+                    {
+                        await body.CopyToAsync(file, ct);
+                    }
                     progress("Extracting onnxruntime.dll…");
                     using var zip = ZipFile.OpenRead(zipPath);
                     var entry = zip.GetEntry(OrtZipDllEntry)

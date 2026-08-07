@@ -40,6 +40,8 @@ namespace Maple.WinUI
             }
 
             var provisioner = new PanoProvisioner(AppSettings.Load());
+            // ~180 MB of hash verification — never on the UI thread.
+            var state = await provisioner.CheckAsync();
             var panel = new StackPanel { Spacing = 10, Width = 380 };
             panel.Children.Add(new TextBlock
             {
@@ -77,13 +79,13 @@ namespace Maple.WinUI
             panel.Children.Add(strategyCombo);
             var provisionText = new TextBlock
             {
-                Text = provisioner.StatusSummary,
+                Text = state.Summary,
                 FontSize = 11,
                 TextWrapping = TextWrapping.Wrap,
                 Opacity = 0.6,
             };
             panel.Children.Add(provisionText);
-            if (!provisioner.IsProvisioned)
+            if (!state.IsProvisioned)
             {
                 panel.Children.Add(new TextBlock
                 {
@@ -101,7 +103,7 @@ namespace Maple.WinUI
             {
                 Title = "Stitch Panorama",
                 Content = panel,
-                PrimaryButtonText = provisioner.IsProvisioned ? "Stitch" : "Download & Stitch",
+                PrimaryButtonText = state.IsProvisioned ? "Stitch" : "Download & Stitch",
                 CloseButtonText = "Cancel",
                 DefaultButton = ContentDialogButton.Primary,
                 XamlRoot = (this.Content as FrameworkElement)?.XamlRoot,
@@ -117,11 +119,12 @@ namespace Maple.WinUI
                 2 => "tile",
                 _ => "auto",
             };
-            await RunPanoAsync(provisioner, frames, retention, localAlign, strategy);
+            await RunPanoAsync(provisioner, state.IsProvisioned, frames, retention, localAlign, strategy);
         }
 
         private async Task RunPanoAsync(
-            PanoProvisioner provisioner, System.Collections.Generic.List<string> frames,
+            PanoProvisioner provisioner, bool provisioned,
+            System.Collections.Generic.List<string> frames,
             string retention, string localAlign, string strategy)
         {
             var folder = Path.GetDirectoryName(frames[0])!;
@@ -156,7 +159,7 @@ namespace Maple.WinUI
 
             try
             {
-                if (!provisioner.IsProvisioned)
+                if (!provisioned)
                     await Task.Run(() => provisioner.ProvisionAsync(Status, cts.Token), cts.Token);
 
                 Status($"Stitching {frames.Count} frames…");
