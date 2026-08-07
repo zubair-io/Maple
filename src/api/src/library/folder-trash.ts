@@ -27,9 +27,12 @@
  */
 
 import * as path from 'node:path';
-import { readdir } from 'node:fs/promises';
 import type { ObjectId } from 'mongodb';
-import { rmdir } from '../fs/mirrored.ts';
+// `readdir` is read-only, `rmdir` is the mirror-aware write — both routed
+// through `fs/mirrored.ts` (which re-exports the full `node:fs/promises`
+// surface) rather than a direct `node:fs/promises` import, per the oxlint
+// fs-import guardrail.
+import { readdir, rmdir } from '../fs/mirrored.ts';
 import { assetsCollection } from '../db/client.ts';
 import type { AssetWithId, FileInfo } from '../db/schema.ts';
 import { trashAssetById, restoreAssetById } from './asset-trash.ts';
@@ -169,6 +172,89 @@ async function removeEmptyDirsBottomUp(dirAbs: string, stopAt: string): Promise<
   }
 }
 
+/** Shape common to both `TrashAssetOutcome` and `RestoreAssetOutcome` —
+ * enough for `recordOutcome` to build one `FolderBatchItemResult` from
+ * either without knowing which one it's looking at. */
+interface AssetOpOutcome {
+  kind: string;
+  error?: string;
+  filename?: string;
+}
+
+/**
+ * Append one asset's per-op outcome to `items` as a `FolderBatchItemResult`
+ * — the single push/log call both `trashFolderRecursive` and
+ * `restoreFolderRecursive` funnel through, so their per-asset bookkeeping
+ * (and the partial-failure log line) can't drift apart. `okKinds` lists
+ * which `outcome.kind` values count as success for THIS op (trash also
+ * treats `'already-trashed'` as success — a race with a concurrent trash of
+ * the same asset — restore does not have an equivalent).
+ */
+function recordOutcome(
+  items: FolderBatchItemResult[],
+  assetId: ObjectId,
+  fallbackFilename: string,
+  outcome: AssetOpOutcome,
+  okKinds: readonly string[],
+  ctx: { folderId: ObjectId; relPath: string; verb: string },
+): void {
+  const assetIdHex = assetId.toHexString();
+  if (okKinds.includes(outcome.kind)) {
+    items.push({ assetId: assetIdHex, filename: outcome.filename ?? fallbackFilename, ok: true });
+    return;
+  }
+  const error = outcome.error ?? outcome.kind;
+  items.push({ assetId: assetIdHex, filename: fallbackFilename, ok: false, error });
+  log.warn(
+    { assetId: assetIdHex, folderId: ctx.folderId.toHexString(), relPath: ctx.relPath, error },
+    `${ctx.verb}: one asset failed — continuing with the rest (no rollback)`,
+  );
+}
+
+function summarize(items: FolderBatchItemResult[]): FolderBatchSummary {
+  const succeeded = items.filter((i) => i.ok).length;
+  return { total: items.length, succeeded, failed: items.length - succeeded, items };
+}
+
+/**
+ * Drive one asset-op (`trashAssetById` / `restoreAssetById`) over every doc
+ * in `docs`, recording each outcome via `recordOutcome`. The single loop
+ * `trashFolderRecursive` and `restoreFolderRecursive` both funnel through
+ * — they differ only in how they find the doc's relevant fileinfo entry
+ * (`findEntry`) and which op + success kinds they run (`runOp`/`okKinds`),
+ * which is exactly what's parameterised here.
+ */
+async function processFolderBatchDocs(
+  docs: AssetWithId[],
+  findEntry: (doc: AssetWithId) => FileInfo | null,
+  runOp: (assetId: ObjectId, entry: FileInfo) => Promise<AssetOpOutcome>,
+  okKinds: readonly string[],
+  ctx: { folderId: ObjectId; relPath: string; verb: string },
+): Promise<FolderBatchItemResult[]> {
+  const items: FolderBatchItemResult[] = [];
+  for (const doc of docs) {
+    const entry = findEntry(doc);
+    const filename = entry?.filename ?? doc.fileinfo?.[0]?.filename ?? '';
+    if (!entry) {
+      // Matched the query but the in-memory re-derivation found nothing —
+      // shouldn't happen (same predicate), but fail this one asset rather
+      // than throw the whole batch.
+      recordOutcome(
+        items,
+        doc._id,
+        filename,
+        { kind: 'no-entry', error: 'no matching fileinfo entry' },
+        [],
+        ctx,
+      );
+      continue;
+    }
+    const outcome = await runOp(doc._id, entry);
+    recordOutcome(items, doc._id, filename, outcome, okKinds, ctx);
+  }
+  return items;
+}
+
 /**
  * Recursively trash every live asset under `(folderId, relPath)`. Each
  * asset is moved via `trashAssetById` with an explicit `entry` — the
@@ -187,42 +273,21 @@ export async function trashFolderRecursive(
   relPath: string,
 ): Promise<FolderBatchSummary> {
   const docs = await findLiveAssetsUnderFolder(folderId, relPath);
-  const items: FolderBatchItemResult[] = [];
-  for (const doc of docs) {
-    const entry = pickFolderEntry(doc, folderId, relPath);
-    const filename = entry?.filename ?? doc.fileinfo?.[0]?.filename ?? '';
-    if (!entry) {
-      // Matched the query but the in-memory re-derivation found nothing —
-      // shouldn't happen (same predicate), but fail this one asset rather
-      // than throw the whole batch.
-      items.push({
-        assetId: doc._id.toHexString(),
-        filename,
-        ok: false,
-        error: 'no matching fileinfo entry',
-      });
-      continue;
-    }
-    const outcome = await trashAssetById(doc._id, {
-      entry: { libraryId: folderId, path: entry.path, filename: entry.filename },
-    });
-    if (outcome.kind === 'ok' || outcome.kind === 'already-trashed') {
-      items.push({ assetId: doc._id.toHexString(), filename, ok: true });
-    } else {
-      const error = outcome.kind === 'error' ? outcome.error : outcome.kind;
-      items.push({ assetId: doc._id.toHexString(), filename, ok: false, error });
-      log.warn(
-        { assetId: doc._id.toHexString(), folderId: folderId.toHexString(), relPath, error },
-        'folder-trash: one asset failed — continuing with the rest (no rollback)',
-      );
-    }
-  }
+  const items = await processFolderBatchDocs(
+    docs,
+    (doc) => pickFolderEntry(doc, folderId, relPath),
+    (assetId, entry) =>
+      trashAssetById(assetId, {
+        entry: { libraryId: folderId, path: entry.path, filename: entry.filename },
+      }),
+    ['ok', 'already-trashed'],
+    { folderId, relPath, verb: 'folder-trash' },
+  );
 
   // Cosmetic best-effort cleanup — never blocks or fails the operation.
   await removeEmptyDirsBottomUp(path.join(folderRoot, relPath), folderRoot).catch(() => {});
 
-  const succeeded = items.filter((i) => i.ok).length;
-  return { total: items.length, succeeded, failed: items.length - succeeded, items };
+  return summarize(items);
 }
 
 /**
@@ -240,35 +305,16 @@ export async function restoreFolderRecursive(
   relPath: string,
 ): Promise<FolderBatchSummary> {
   const docs = await findTrashedAssetsUnderFolder(folderId, folderRoot, relPath);
-  const items: FolderBatchItemResult[] = [];
-  for (const doc of docs) {
-    const entry = (doc.fileinfo ?? []).find((e) => e.library_id.equals(folderId)) ?? null;
-    const filename = entry?.filename ?? doc.fileinfo?.[0]?.filename ?? '';
-    if (!entry) {
-      items.push({
-        assetId: doc._id.toHexString(),
-        filename,
-        ok: false,
-        error: 'no matching fileinfo entry',
-      });
-      continue;
-    }
-    const outcome = await restoreAssetById(doc._id, {
-      entry: { libraryId: folderId, path: entry.path, filename: entry.filename },
-    });
-    if (outcome.kind === 'ok') {
-      items.push({ assetId: doc._id.toHexString(), filename: outcome.filename, ok: true });
-    } else {
-      const error =
-        outcome.kind === 'error' || outcome.kind === 'invalid' ? outcome.error : outcome.kind;
-      items.push({ assetId: doc._id.toHexString(), filename, ok: false, error });
-      log.warn(
-        { assetId: doc._id.toHexString(), folderId: folderId.toHexString(), relPath, error },
-        'folder-restore: one asset failed — continuing with the rest (no rollback)',
-      );
-    }
-  }
+  const items = await processFolderBatchDocs(
+    docs,
+    (doc) => (doc.fileinfo ?? []).find((e) => e.library_id.equals(folderId)) ?? null,
+    (assetId, entry) =>
+      restoreAssetById(assetId, {
+        entry: { libraryId: folderId, path: entry.path, filename: entry.filename },
+      }),
+    ['ok'],
+    { folderId, relPath, verb: 'folder-restore' },
+  );
 
-  const succeeded = items.filter((i) => i.ok).length;
-  return { total: items.length, succeeded, failed: items.length - succeeded, items };
+  return summarize(items);
 }
