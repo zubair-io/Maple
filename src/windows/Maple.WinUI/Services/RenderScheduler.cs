@@ -49,9 +49,10 @@ namespace Maple.WinUI.Services
         /// renderMillis). Raised on the render thread.</summary>
         public event Action<byte[], int, int, uint[], double>? FrameReady;
         /// <summary>GPU-path present completed: (width, height, presentMillis,
-        /// refined). refined=false is the half-res fast pass (scale the panel
-        /// 2×); refined=true is the full-res quiet refine. The pixels are
-        /// already on screen in the SwapChainPanel.</summary>
+        /// fullRes). fullRes=false means the HALF-RES session presented (the
+        /// panel needs the 2× scale); fullRes=true means the full session did
+        /// — normally the quiet refine, but also any fast tick where the half
+        /// session is unavailable. The pixels are already on screen.</summary>
         public event Action<int, int, double, bool>? GpuFrameReady;
         /// <summary>Histogram bins for the newest state (GPU path only — the
         /// CPU path carries bins on FrameReady).</summary>

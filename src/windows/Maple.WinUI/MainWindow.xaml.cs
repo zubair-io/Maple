@@ -186,11 +186,11 @@ namespace Maple.WinUI
 
         // --- Rendering ---
 
-        private void OnGpuFrameReady(int width, int height, double millis, bool refined)
+        private void OnGpuFrameReady(int width, int height, double millis, bool fullRes)
         {
             App.MainDispatcherQueue?.TryEnqueue(() =>
             {
-                if (refined)
+                if (fullRes)
                 {
                     _gpuFrameDims = (width, height);
                     UpdatePanelFit();
@@ -212,7 +212,7 @@ namespace Maple.WinUI
                 ViewportSwapChainPanel.Visibility = Visibility.Visible;
                 ViewportImage.Visibility = Visibility.Collapsed;
                 RenderStatsText.Text =
-                    $"{width}×{height} · GPU {millis:0} ms{(refined ? string.Empty : " (fast)")}";
+                    $"{width}×{height} · GPU {millis:0} ms{(fullRes ? string.Empty : " (fast)")}";
                 ViewModel.LastRenderMillis = millis;
             });
         }
