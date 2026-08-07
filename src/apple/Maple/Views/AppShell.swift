@@ -326,6 +326,14 @@ struct AppShell: View {
     /// re-expanded the row (#2645).
     @State var folderRefreshGeneration: Int = 0
 
+    /// Inline single-asset rename (#2638). The asset id currently showing an
+    /// editable filename field (Info panel / Enter-key entry point) — `nil`
+    /// means no rename is in progress. See `AppShell+AssetRename.swift`.
+    @State var renamingAssetID: AssetRef.ID?
+    /// Set when the last rename commit failed; surfaced inline next to the
+    /// field, never as a generic alert. Cleared on the next `begin`/`commit`.
+    @State var renameError: String?
+
     private var selectedSession: EditSession? {
         browseVM.selectedID.flatMap { sessions[$0] }
     }
@@ -463,6 +471,17 @@ struct AppShell: View {
         .environment(\.searchForText, SearchTextAction { query in
           activateSearch(query: query)
         })
+        // Inline single-asset rename (#2638). Re-injected across the iPhone
+        // info sheet + PreviewView's inspector/sheet/popover (see
+        // AssetRenameAction.swift's doc comment for why).
+        .environment(\.assetRename, AssetRenameContext(
+          renamingAssetID: renamingAssetID,
+          errorText: renameError,
+          unsupportedReason: { asset in renameUnsupportedReason(for: asset) },
+          begin: { asset in beginRename(for: asset) },
+          cancel: { cancelRename() },
+          commit: { asset, newFilename in commitRename(asset: asset, to: newFilename) }
+        ))
         .preferredColorScheme(.dark)
         .fileImporter(isPresented: $showFilePicker,
                       allowedContentTypes: [.folder]) { result in
@@ -762,6 +781,14 @@ struct AppShell: View {
         // free before the new one renders.
         .onChange(of: browseVM.selectedID) { _, _ in
             pruneInactiveSessions()
+            // #2638 — selection moved on (grid tap, arrow nav, filmstrip
+            // sibling switch): a stale rename error or an armed-but-abandoned
+            // edit field must not bleed onto the newly-focused asset's
+            // filename row. `applyRenamed` already moves `selectedID` itself
+            // to the new asset on a successful commit, so this is a no-op
+            // for that path — it only fires for an unrelated selection
+            // change while renaming/erroring.
+            cancelRename()
         }
         // Foreground re-present (#1769, iOS): see the `scenePhase` property doc.
         // macOS windows aren't backgrounded the same way (presents aren't

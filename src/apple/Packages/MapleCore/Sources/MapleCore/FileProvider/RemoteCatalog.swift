@@ -246,6 +246,55 @@ public enum MoveFolderResult: Equatable, Sendable {
     case conflict
 }
 
+/// `POST /api/assets/:id/rename` success body (#2638's server counterpart,
+/// #2636). Mirrors `routes/assets/rename.ts`'s response shape exactly.
+public struct RenameAssetResponse: Decodable, Equatable, Sendable {
+    public let newAbsPath: String
+    public let newPath: String
+    public let newFilename: String
+    public let renamedOnCollision: Bool
+    /// True when the submitted filename's extension differs from the
+    /// original — the server allows this (it doesn't transcode anything)
+    /// but flags it so the caller can have warned the user before this
+    /// response even lands, per the design doc's "Rename" section.
+    public let extensionChanged: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case newAbsPath = "new_abs_path"
+        case newPath = "new_path"
+        case newFilename = "new_filename"
+        case renamedOnCollision = "renamed_on_collision"
+        case extensionChanged = "extension_changed"
+    }
+}
+
+/// Outcome of `RemoteCatalog.renameAsset`. Domain-neutral (no HTTP status
+/// codes leak out) so callers can switch on it directly, matching
+/// `MoveFolderResult`'s shape.
+public enum RenameAssetResult: Equatable, Sendable {
+    case ok(RenameAssetResponse)
+    /// 200 with `skipped: true` — the server's `collision: 'skip'` policy
+    /// found an existing file at the target and left both untouched.
+    /// `reason` is the server's skip reason string (e.g. `"collision"`).
+    case skipped(reason: String)
+    /// 400 — `new_filename` failed the shared `raw-core` filename engine.
+    case invalid(String)
+    /// 404 — the asset id doesn't exist (deleted, or never indexed).
+    case notFound
+}
+
+/// Decode helpers for `RemoteCatalog.renameAsset`'s two 200-status shapes
+/// (relocated vs. skipped) and its 400 error body. File-private — nothing
+/// outside this rename call needs them.
+private struct RenameSkippedBody: Decodable {
+    let skipped: Bool
+    let reason: String
+}
+
+private struct RenameErrorBody: Decodable {
+    let error: String
+}
+
 public enum XMPWriteResult: Equatable, Sendable {
     /// Write succeeded; the response's Last-Modified header is parsed
     /// into this Date and reflects the new on-disk mtime.
@@ -858,6 +907,39 @@ public actor RemoteCatalog {
         req.httpMethod = "DELETE"
         let (_, resp) = try await http.data(for: req)
         try Self.check2xx(resp)
+    }
+
+    /// POST /api/assets/<id>/rename — same-folder single-asset rename
+    /// (#2638, server side #2636). `collision: "skip"` is deliberate: the
+    /// caller is an inline text-field commit from a live user, and a name
+    /// collision should surface as an inline error next to the field
+    /// (`.skipped`) rather than the server silently auto-suffixing a name
+    /// the user didn't type.
+    public func renameAsset(assetID: String, newFilename: String) async throws -> RenameAssetResult {
+        try Self.validateAssetID(assetID)
+        var req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/rename"))
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: [
+            "new_filename": newFilename,
+            "collision": "skip",
+        ])
+        let (data, resp) = try await http.data(for: req)
+        let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
+        switch status {
+        case 200:
+            if let skipped = try? decoder.decode(RenameSkippedBody.self, from: data), skipped.skipped {
+                return .skipped(reason: skipped.reason)
+            }
+            return .ok(try decoder.decode(RenameAssetResponse.self, from: data))
+        case 400:
+            let message = (try? decoder.decode(RenameErrorBody.self, from: data))?.error ?? "Invalid filename"
+            return .invalid(message)
+        case 404:
+            return .notFound
+        default:
+            throw URLError(.badServerResponse)
+        }
     }
 
     /// POST /api/assets/<id>/restore. `targetRelativePath` is sent in the

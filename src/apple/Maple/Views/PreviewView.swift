@@ -487,6 +487,9 @@ private struct InfoPresentation: ViewModifier {
     // the info pane invokes; re-inject both.
     @Environment(\.revealFolderAction) private var revealFolder
     @Environment(\.searchForText) private var searchForText
+    // #2638 — the filename row's rename affordance needs the same
+    // re-injection across this inspector/sheet/popover boundary.
+    @Environment(\.assetRename) private var assetRename
 
     func body(content: Content) -> some View {
         if isRegular {
@@ -501,6 +504,7 @@ private struct InfoPresentation: ViewModifier {
                     .environment(\.cloudHistogramClient, histogramClient)
                     .environment(\.revealFolderAction, revealFolder)
                     .environment(\.searchForText, searchForText)
+                    .environment(\.assetRename, assetRename)
                     // Same clamps `AppShellMacLayout` applies to the
                     // editor's `DetailPanel` inspector.
                     .inspectorColumnWidth(min: 240, ideal: 280, max: 360)
@@ -517,6 +521,7 @@ private struct InfoPresentation: ViewModifier {
                 .environment(\.cloudHistogramClient, histogramClient)
                 .environment(\.revealFolderAction, revealFolder)
                     .environment(\.searchForText, searchForText)
+                    .environment(\.assetRename, assetRename)
                 .presentationDetents([.medium, .large])
             }
             #else
@@ -527,6 +532,7 @@ private struct InfoPresentation: ViewModifier {
                     .environment(\.cloudHistogramClient, histogramClient)
                     .environment(\.revealFolderAction, revealFolder)
                     .environment(\.searchForText, searchForText)
+                    .environment(\.assetRename, assetRename)
             }
             #endif
         }

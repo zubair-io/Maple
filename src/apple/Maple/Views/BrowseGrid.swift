@@ -596,11 +596,27 @@ private struct BrowseKeyboardShortcuts: ViewModifier {
     var onCopyAdjustments: (() -> Void)? = nil
     var onPasteAdjustments: (() -> Void)? = nil
 
+    /// #2638 — Enter on a selected (non-editing, non-multi-select) asset
+    /// begins inline rename. Reads the environment action directly rather
+    /// than threading a callback param through `BrowseGrid`'s init — the
+    /// grid has no other reason to know about rename.
+    @Environment(\.assetRename) private var assetRename
+
     func body(content: Content) -> some View {
         content
             // Arrow navigation
             .onKeyPress(.rightArrow) { vm.selectNext(); return .handled }
             .onKeyPress(.leftArrow)  { vm.selectPrev(); return .handled }
+            // #2638: inline rename entry point. Single-select only — Enter
+            // during multi-select has no one obvious target and multi-asset
+            // rename isn't this ticket's scope (batch rename is #2639).
+            // `.ignored` when there's nothing to act on so this doesn't
+            // swallow Enter for some other in-focus control.
+            .onKeyPress(.return) {
+                guard !vm.isSelecting, let asset = vm.selectedAsset, let assetRename else { return .ignored }
+                assetRename.begin(asset)
+                return .handled
+            }
             // Star ratings 1-5
             .onKeyPress("1") { setStars(1); return .handled }
             .onKeyPress("2") { setStars(2); return .handled }

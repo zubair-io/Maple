@@ -177,6 +177,36 @@ public actor SMBSource {
         return try await client.contents(atPath: asset.path, range: Range<UInt64>?.none)
     }
 
+    /// Rename `ref`'s file in place (same directory, new filename) — routes
+    /// through the merged `SMBFileOperations.relocate` engine (#2638), which
+    /// already handles the same-file guard, the case-only-rename fast path,
+    /// and following the `.xmp` sidecar. `.fail` collision: this is a
+    /// user-initiated action from an inline text field, not an unattended
+    /// background move, so a name collision surfaces as an error the caller
+    /// shows inline rather than silently auto-suffixing.
+    ///
+    /// Updates `pathByMapleId` and the matching `_assets` entry so the
+    /// asset's ALREADY-CAPTURED `bytesProvider` closure (built once in
+    /// `BrowseViewModel.loadSource` and never rebuilt by the rename caller)
+    /// keeps resolving to the right file — it calls `rawBytes(for:)` →
+    /// `path(for:)` → `pathByMapleId[ref.id]` at read time, not at capture
+    /// time — and so the next `images()` call reflects the new name without
+    /// a full reconnect/re-list.
+    public func renameAsset(_ ref: ImageRef, to newFilename: String) async throws -> String {
+        guard let client else { throw SMBError.notConnected }
+        let sourcePath = path(for: ref)
+        let destinationDir = (sourcePath as NSString).deletingLastPathComponent
+        let outcome = try await SMBFileOperations.relocate(
+            sourcePath, to: destinationDir, newBasename: newFilename,
+            mode: .move, collision: .fail, transport: client)
+        pathByMapleId[ref.id] = outcome.primaryPath
+        if let idx = _assets.firstIndex(where: { $0.path == sourcePath }) {
+            let old = _assets[idx]
+            _assets[idx] = SMBAsset(path: outcome.primaryPath, size: old.size, mtime: old.mtime)
+        }
+        return outcome.primaryPath
+    }
+
     /// Write XMP sidecar bytes over SMB with retry (3 attempts, exponential back-off).
     public func writeSidecar(_ data: Data, for asset: SMBAsset) async throws {
         guard let client else { throw SMBError.notConnected }

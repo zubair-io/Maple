@@ -96,6 +96,7 @@ struct InfoPanelView: View {
         if isInsideSheet {
           InfoSheetHeader(onClose: onClose)
         }
+        AssetFilenameRow(session: session)
         if showsCullingAndHistogram {
           RatingFlagsRow(session: session)
           HistogramBlock(session: session)
