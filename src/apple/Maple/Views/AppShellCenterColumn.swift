@@ -99,6 +99,9 @@ struct AppShellCenterColumn: View {
     /// Called when the user taps "Edit Metadata…" from the BrowseGrid
     /// multi-select action bar (M4, #1629). nil hides the button.
     var onEditMetadata: (() -> Void)? = nil
+    /// Called when the user taps "Batch Rename…" from the BrowseGrid
+    /// multi-select action bar (#2641). nil hides the button.
+    var onBatchRename: (() -> Void)? = nil
     /// App-level copy/paste/sync-adjustments clipboard (#944). nil hides the
     /// selection bar's paste/sync buttons and disables the ⌘C/⌘V shortcuts
     /// (e.g. previews).
@@ -215,6 +218,7 @@ struct AppShellCenterColumn: View {
                         onPrimeSession: onPrimeSession,
                         onMergePanorama: onMergePanorama,
                         onEditMetadata: onEditMetadata,
+                        onBatchRename: onBatchRename,
                         clipboard: clipboard
                     )
                 }
@@ -229,6 +233,7 @@ struct AppShellCenterColumn: View {
                     onPrimeSession: onPrimeSession,
                     onMergePanorama: onMergePanorama,
                     onEditMetadata: onEditMetadata,
+                    onBatchRename: onBatchRename,
                     clipboard: clipboard
                 )
                 #endif
