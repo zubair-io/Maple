@@ -33,9 +33,33 @@ import { meilisearchClient } from '../enrichment/meilisearch-client.ts';
 import { findCoreInfoById, markSoftDeleted, restoreFromTrash } from '../db/assets.repo.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import type { FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('library/asset-trash');
+
+/**
+ * Prefer a live entry (`!deleted_at`) that is NOT `missing_since`-tagged,
+ * falling back to any live entry only when every live entry is
+ * missing-tagged. The plain "first non-deleted" pick — `list.find((e) =>
+ * !e.deleted_at) ?? list[0]` — is unsafe for multi-location assets: an
+ * earlier entry that's missing-tagged but not deleted targets the
+ * stale/offline copy instead of the live one. That bug class was fixed for
+ * `relocateAsset` by `activeFileInfo` in `library/relocate-asset.ts` after
+ * the refile-legacy-daydir review (7173f5e6f), and this trash/restore path
+ * had the exact same bug (#2695 review).
+ *
+ * Replicated here rather than imported: `relocate-asset.ts` doesn't export
+ * `activeFileInfo` yet, and the PR that adds the export (#2692) is still
+ * in flight — importing from an unmerged branch isn't possible, and
+ * editing `relocate-asset.ts` here would conflict with that PR's own
+ * changes. TODO: once #2692 lands, replace this with an import from
+ * whatever shared module it settles on and delete this copy.
+ */
+function activeFileInfo(fileinfo: FileInfo[] | undefined): FileInfo | null {
+  const live = (fileinfo ?? []).filter((entry) => !entry.deleted_at);
+  return live.find((entry) => !entry.missing_since) ?? live[0] ?? null;
+}
 
 export type TrashAssetOutcome =
   | {
@@ -101,10 +125,11 @@ export async function trashAssetById(
     const resolved = assetAbsPath(info, libs);
     if (!resolved) return { kind: 'no-location' };
     if (!info.folder_id) return { kind: 'no-folder' };
-    // Identify the fileinfo entry that backs `resolved`. Mirrors
-    // `resolvePrimary` in assets.transform.ts — first live entry, else the
-    // first entry on the array.
-    const primary = (info.fileinfo ?? []).find((e) => !e.deleted_at) ?? info.fileinfo?.[0];
+    // Identify the fileinfo entry that backs `resolved` — the SAME
+    // live/not-missing-tagged selection `activeFileInfo` uses, so this
+    // agrees with `assetAbsPath`'s own resolution instead of risking a
+    // stale/missing-tagged entry being targeted.
+    const primary = activeFileInfo(info.fileinfo);
     if (!primary) return { kind: 'no-location' };
     libraryId = info.folder_id;
     entryPath = primary.path;
@@ -157,10 +182,17 @@ export async function trashAssetById(
 
   // Emit a delete change keyed on the path the OS / File Provider knows
   // about (the pre-trash location). The asset row stays for restore.
+  // `folder_id` MUST be the library the trashed ENTRY belongs to
+  // (`libraryId`, resolved above from `opts.entry` or the active entry) —
+  // not `info.folder_id` (the asset's globally-primary library), which
+  // disagrees for a multi-location asset whenever the entry actually
+  // trashed isn't the primary one. Using the wrong folder here computes a
+  // wrong/null `relative_path` downstream and misroutes File Provider
+  // invalidations to the wrong client (#2695 review).
   await recordAndPublishAssetChange({
     kind: 'delete',
     asset_id: id,
-    folder_id: info.folder_id,
+    folder_id: libraryId,
     abs_path: originalAbsPath,
   }).catch(() => {});
 
@@ -308,11 +340,15 @@ export async function restoreAssetById(
   }
 
   // Identify the trashed fileinfo entry — `opts.entry` when the caller
-  // already knows it (folder restore); otherwise the asset is in trash so
-  // its primary entry is the one we just moved.
+  // already knows it (folder restore); otherwise the SAME live/
+  // not-missing-tagged selection `activeFileInfo` uses (matches the
+  // `trashedAbsPath` resolution above, which also goes through
+  // `assetAbsPath`'s equivalent logic) — not the naive "first
+  // non-deleted" pick, which can target a stale/missing-tagged entry.
+  const activePrimary = activeFileInfo(info.fileinfo);
   const restoreSource = opts.entry
     ? { library_id: opts.entry.libraryId, path: opts.entry.path, filename: opts.entry.filename }
-    : ((info.fileinfo ?? []).find((e) => !e.deleted_at) ?? info.fileinfo?.[0]);
+    : activePrimary;
   await restoreFromTrash({
     id,
     libraryRoot: folder.path,
@@ -369,10 +405,15 @@ export async function restoreAssetById(
     }
   }
 
+  // `folder_id` MUST be the library the restored entry belongs to
+  // (`assetFolderId`, resolved above from `opts.entry` or the asset's
+  // folder) — not `info.folder_id` (the asset's globally-primary
+  // library), for the same reason the trash-side change event uses
+  // `libraryId` instead (#2695 review).
   await recordAndPublishAssetChange({
     kind: 'restore',
     asset_id: id,
-    folder_id: info.folder_id,
+    folder_id: assetFolderId,
     abs_path: result.newAbsPath,
   }).catch(() => {});
 
