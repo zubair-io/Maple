@@ -266,6 +266,26 @@ enum Cmd {
         #[arg(long, default_value_t = 8)]
         height: u32,
     },
+    /// Ingest an external `.cube` film-look pack (six category
+    /// subdirectories of Resolve-style 33³ LUTs) into the committed
+    /// `.mlut` binary pack + a generated `film_catalog.rs` (epic #2683,
+    /// Task 5a). Operator-run, not part of any CI gate — the source pack
+    /// lives outside this repo.
+    FilmPack {
+        /// Root of the source cube pack (contains `black_white/`,
+        /// `cinema_print/`, `color_negative/`, `consumer_vintage/`,
+        /// `instant/`, `slide/`).
+        #[arg(long = "cube-dir")]
+        cube_dir: PathBuf,
+        /// Output directory for the generated `.mlut` files (typically
+        /// `resources/film-luts`).
+        #[arg(long = "out-dir")]
+        out_dir: PathBuf,
+        /// Output path for the generated catalog (typically
+        /// `src/raw-pipeline/raw-core/src/film_catalog.rs`).
+        #[arg(long = "catalog-out")]
+        catalog_out: PathBuf,
+    },
     /// Repack a v1 (inline) DCP `profiles.bin` into the v3 split layout
     /// (dedup HSM pool + per-entry zlib + offset directory; #829 / PR #831).
     /// Prints dedup stats + the pool byte size.
@@ -410,6 +430,11 @@ fn main() -> ExitCode {
             width,
             height,
         } => run_or_exit(commands::auto_tail_ramp::run(&raw, &out_dir, width, height)),
+        Cmd::FilmPack {
+            cube_dir,
+            out_dir,
+            catalog_out,
+        } => run_or_exit(commands::film_pack::run(&cube_dir, &out_dir, &catalog_out)),
         Cmd::TranscodeDcp { src, out, out_pool } => run_or_exit(commands::transcode_dcp::run(
             &src,
             &out,
