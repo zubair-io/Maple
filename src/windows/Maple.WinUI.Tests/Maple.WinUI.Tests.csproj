@@ -51,6 +51,15 @@
     regardless of OS, so it links the same way. `DiagLog.cs` is pulled in
     too since LocalFileOperations' best-effort delete paths log through it
     and it has no WinUI dependency of its own.
+
+    NOT linked: `Services\ThumbnailService.cs` (#2659's
+    `ThumbnailCacheRelocateLeakTests` needs its cache-path scheme, but the
+    file itself is fine — the class it references transitively,
+    `Native\MapleGpuLiveParams.cs` -> `Maple.WinUI.Services.DecodedImage`,
+    is NOT WinUI-free like `RecycleBinService`'s shell32 call, and pulling
+    that whole graph in just for one hash helper isn't worth it). That test
+    reimplements `ThumbnailService.CachePathFor`'s hash formula inline
+    instead, with a comment pointing at the source of truth to catch drift.
   -->
   <ItemGroup>
     <Compile Include="..\Maple.WinUI\Services\Xmp\*.cs" LinkBase="Xmp" />
@@ -58,5 +67,7 @@
     <Compile Include="..\Maple.WinUI\ViewModels\SelectionLogic.cs" LinkBase="ViewModels" />
     <Compile Include="..\Maple.WinUI\Services\FileOperations\*.cs" LinkBase="FileOperations" />
     <Compile Include="..\Maple.WinUI\Services\DiagLog.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\ThumbnailService.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Native\*.cs" LinkBase="Native" />
   </ItemGroup>
 </Project>

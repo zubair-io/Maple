@@ -89,7 +89,7 @@ public enum LocalFileOperations {
                     "case-only rename target is the same file as the source on a case-insensitive "
                     + "filesystem — copy is not meaningful: \(sourcePrimaryURL.path)")
             }
-            return try performCaseOnlyRename(source: sourcePrimaryURL, target: targetURL)
+            return try await performCaseOnlyRename(source: sourcePrimaryURL, target: targetURL)
         case .different:
             break
         }
@@ -185,7 +185,7 @@ public enum LocalFileOperations {
                     "finalizeRelocate: source sidecar unlink failed after a verified copy (\(sourceSidecarPath, privacy: .public)): \(error.localizedDescription, privacy: .public)")
             }
         }
-        invalidateDerivedCaches(forOldPrimaryPath: plan.sourcePrimaryPath)
+        await invalidateDerivedCaches(forOldPrimaryPath: plan.sourcePrimaryPath)
         await refreshLibraryIndexAfterMove(plan)
         return outcome
     }
@@ -264,7 +264,7 @@ public enum LocalFileOperations {
     /// touch anything) if the rename itself fails, e.g. a permissions
     /// error; a failed rename is a genuine failure the caller must see, not
     /// a silent no-op.
-    private static func performCaseOnlyRename(source: URL, target: URL) throws -> RelocatePlan {
+    private static func performCaseOnlyRename(source: URL, target: URL) async throws -> RelocatePlan {
         let fm = FileManager.default
         let sourceSidecarURL = SidecarPath.sidecarURL(for: source)
         let hadSidecar = fm.fileExists(atPath: sourceSidecarURL.path)
@@ -292,7 +292,7 @@ public enum LocalFileOperations {
         let plan = RelocatePlan(mode: .move, sourcePrimaryPath: source.path, sourceSidecarPath: sourceSidecarPath,
                                  finalPrimaryPath: target.path, finalSidecarPath: finalSidecarPath,
                                  renamedDueToCollision: false, createdPaths: [], sourceAlreadyRelocated: true)
-        invalidateDerivedCaches(forOldPrimaryPath: source.path)
+        await invalidateDerivedCaches(forOldPrimaryPath: source.path)
         return plan
     }
 

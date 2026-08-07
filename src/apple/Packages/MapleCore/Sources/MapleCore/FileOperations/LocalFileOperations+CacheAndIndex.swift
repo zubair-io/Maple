@@ -18,11 +18,29 @@ extension LocalFileOperations {
     /// leaving it for LRU eviction, mirroring the API's `dropOldCache`
     /// (`src/api/src/workers/migration/restructure-fs.ts`) — the closest
     /// local equivalent of "bump the stage version."
-    static func invalidateDerivedCaches(forOldPrimaryPath oldPrimaryPath: String) {
+    ///
+    /// `async` since #2659: the two `removeItem`s above only clear the
+    /// on-disk `.maple/{thumbs,previews}/` files at the CROSS-PLATFORM
+    /// path-keyed names (`MapleSidecarPaths`). `RenderedPreviewCache`
+    /// (docs/caching.md § 3) is a SEPARATE, Apple-local cold-open cache —
+    /// its own `{urlHash}_{variantHash}.jpg` naming under the same
+    /// `.maple/previews/` folder, plus a 20-entry in-memory front — that a
+    /// bare `removeItem` never touches. Without this call the #2659
+    /// verification pass found the OLD entry (memory AND disk) survives a
+    /// move indefinitely: an actual unbounded leak, not just a bounded
+    /// LRU-eviction wait, since nothing ever re-visits an asset's OLD URL to
+    /// evict it. `invalidate(assetURL:)` already exists and clears both
+    /// tiers by prefix match — this just wires it in. Awaited (not
+    /// fire-and-forget) so every caller's completion genuinely means "the
+    /// old identity's caches are gone," matching this function's own
+    /// best-effort framing: a failure inside `invalidate` is silently
+    /// swallowed the same way the two `removeItem`s already are.
+    static func invalidateDerivedCaches(forOldPrimaryPath oldPrimaryPath: String) async {
         let oldURL = URL(fileURLWithPath: oldPrimaryPath)
         let fm = FileManager.default
         try? fm.removeItem(at: MapleSidecarPaths.thumbURL(for: oldURL))
         try? fm.removeItem(at: MapleSidecarPaths.previewURL(for: oldURL))
+        await RenderedPreviewCache.shared.invalidate(assetURL: oldURL)
     }
 
     // MARK: - LibraryIndex best-effort refresh (step 5)
