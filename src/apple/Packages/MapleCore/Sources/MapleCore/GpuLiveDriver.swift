@@ -111,6 +111,30 @@ public final class GpuLiveDriver {
     /// The RAW path + decode quality for the Auto Profile fit (set on open).
     private var autoProfileFitDone = false
 
+    /// The current film-look lattice (epic #2683, Task 10), if any — pushed by
+    /// `EditSession` via `setFilmLut`/`clearFilmLut` whenever
+    /// `model.filmLook` resolves through `FilmLutStore`. Remembered here
+    /// (not just forwarded to the current `GpuLiveSession`) because `open`
+    /// REPLACES the session on every dims change (viewport ⇄ full-res, a
+    /// crop edit, a baked-field re-decode) — unlike `autoProfileFitDone`,
+    /// which re-fits per open, the film lattice doesn't need re-decoding,
+    /// just re-applying to the fresh session so a look survives a resize.
+    private var filmLut: (data: [Float], size: Int, key: UInt32)?
+
+    /// Cache the film-look lattice and push it to the currently-open session
+    /// (if any) — future `open` calls also re-apply it (see `filmLut`).
+    public func setFilmLut(data: [Float], size: Int, key: UInt32) async {
+        filmLut = (data, size, key)
+        await session?.setFilmLut(data: data, size: size, key: key)
+    }
+
+    /// Clear the film-look lattice — the current session (if any) and every
+    /// future `open` go back to identity (no look).
+    public func clearFilmLut() async {
+        filmLut = nil
+        await session?.clearFilmLut()
+    }
+
     /// The input-shape tag for the open session (#1331): 0 = PostDcpRec2020Fp16
     /// (RAW, all stages), 1 = LinearRec2020Fp16 (pano PNG, skip WB+CS). Stored at
     /// `open` time and forwarded to every `present` so the chain knows which leading
@@ -196,6 +220,12 @@ public final class GpuLiveDriver {
         self.uploadedIdentity = identity
         self.autoProfileFitDone = false
         self.inputShape = inputShape
+        // Re-apply the remembered film look (if any) to the fresh session —
+        // `open` just replaced the old one, and the lattice itself doesn't
+        // need re-decoding on a dims change (#2683, Task 10).
+        if let filmLut {
+            await s.setFilmLut(data: filmLut.data, size: filmLut.size, key: filmLut.key)
+        }
         gpuDriverLog.debug("opened GPU live session \(width)x\(height) inputShape=\(inputShape)")
     }
 

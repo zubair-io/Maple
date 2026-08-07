@@ -185,6 +185,36 @@ public struct PipelineRenderer: Sendable {
         }
     }
 
+    /// Render a RAW+XMP to an sRGB 8-bit RGB buffer, blending a film-look
+    /// lattice into the render (epic #2683, Task 10) — the `maple_render_file`
+    /// sibling `maple_render_file_with_film` wraps. `filmLut` is the flat
+    /// `size³·3` grid `FilmLutStore.lattice(for:)` decodes (layout
+    /// `((b*N+g)*N+r)*3+c`, matching `maple_film_lut_decode`'s output); `nil`
+    /// renders WITHOUT a look, byte-identical to `render(rawPath:xmpPath:quality:)`.
+    ///
+    /// `xmpPath` MUST reflect the caller's live adjustments — this entry
+    /// reads the sidecar off DISK (unlike the CPU per-tick chain, which
+    /// takes the in-memory `AdjustmentModel` directly), so a caller with a
+    /// debounced pending sidecar write must flush it first
+    /// (`EditSession.flushPendingSidecarWrite()`) or the render reflects a
+    /// stale model.
+    public static func render(
+        rawPath: URL,
+        xmpPath: URL? = nil,
+        quality: Quality = .full,
+        filmLut: (data: [Float], size: Int, key: UInt32)?
+    ) throws -> MapleImageData {
+        try rawPath.withPathCString { rawCStr in
+            if let xmpPath {
+                return try xmpPath.withPathCString { xmpCStr in
+                    try _renderWithFilm(rawCStr: rawCStr, xmpCStr: xmpCStr, quality: quality, filmLut: filmLut)
+                }
+            } else {
+                return try _renderWithFilm(rawCStr: rawCStr, xmpCStr: nil, quality: quality, filmLut: filmLut)
+            }
+        }
+    }
+
     /// Render a RAW from an in-memory byte buffer. Required for sources that
     /// don't expose a filesystem URL (PhotoKit, self-hosted API).
     ///
@@ -461,6 +491,38 @@ public struct PipelineRenderer: Sendable {
 
         let byteCount = Int(buf.len)
         let data = mapleStage("decode result copy") {
+            Data(bytes: buf.rgb!, count: byteCount)
+        }
+        return MapleImageData(
+            width: Int(buf.width),
+            height: Int(buf.height),
+            pixels: data
+        )
+    }
+
+    private static func _renderWithFilm(
+        rawCStr: UnsafePointer<CChar>,
+        xmpCStr: UnsafePointer<CChar>?,
+        quality: Quality,
+        filmLut: (data: [Float], size: Int, key: UInt32)?
+    ) throws -> MapleImageData {
+        var buf = MapleImageBuffer(rgb: nil, len: 0, width: 0, height: 0)
+        let lut = filmLut?.data ?? []
+        let rc: Int32 = lut.withUnsafeBufferPointer { lbuf in
+            maple_render_file_with_film(
+                rawCStr, xmpCStr, quality.rawValue,
+                lbuf.baseAddress, UInt(lbuf.count), UInt32(filmLut?.size ?? 0),
+                &buf
+            )
+        }
+        guard rc == 0 else {
+            let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
+            throw PipelineError.renderFailed(code: Int(rc), message: msg)
+        }
+        defer { maple_free_buffer(&buf) }
+
+        let byteCount = Int(buf.len)
+        let data = mapleStage("film render result copy") {
             Data(bytes: buf.rgb!, count: byteCount)
         }
         return MapleImageData(
