@@ -41,6 +41,12 @@ namespace Maple.WinUI.Services.Pano
         private const string OrtZipUrl =
             "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-win-x64-1.23.2.zip";
         private const string OrtZipDllEntry = "onnxruntime-win-x64-1.23.2/lib/onnxruntime.dll";
+        /// <summary>SHA-256 of the extracted 1.23.2 win-x64 onnxruntime.dll —
+        /// the installed-artifact pin, mirroring Apple's installedSha256.
+        /// Supply-chain guard for the user-writable install location; the CLI
+        /// preflight additionally enforces the ORT API version at load.</summary>
+        private const string OrtDllSha256 =
+            "dec964ab1ee36cc9b0ae247d13b376627992fc57dec0454354017ab8fd84f1ea";
 
         private static string MapleAppData => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Maple");
@@ -73,13 +79,27 @@ namespace Maple.WinUI.Services.Pano
         }
 
         public bool CliPresent => CliPath != null;
-        public bool OrtPresent => File.Exists(OrtDylibPath);
+
+        /// <summary>Present AND hash-verified — a same-size corrupted install
+        /// must re-provision rather than fail later inside the stitch.</summary>
+        public bool OrtPresent =>
+            File.Exists(OrtDylibPath) && FileSha256(OrtDylibPath) == OrtDllSha256;
+
         public bool ModelsPresent => Models.All(m =>
         {
             var path = Path.Combine(ModelsDir, m.FileName);
-            return File.Exists(path) && new FileInfo(path).Length == m.Size;
+            return File.Exists(path)
+                && new FileInfo(path).Length == m.Size
+                && FileSha256(path) == m.Sha256;
         });
+
         public bool IsProvisioned => CliPresent && OrtPresent && ModelsPresent;
+
+        private static string FileSha256(string path)
+        {
+            using var stream = File.OpenRead(path);
+            return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+        }
 
         public string StatusSummary =>
             $"maple-cli: {(CliPresent ? "ready" : "missing")} · " +
@@ -129,6 +149,13 @@ namespace Maple.WinUI.Services.Pano
                         ?? throw new InvalidOperationException(
                             $"ORT zip is missing {OrtZipDllEntry}.");
                     entry.ExtractToFile(OrtDylibPath, overwrite: true);
+                    var sha = FileSha256(OrtDylibPath);
+                    if (sha != OrtDllSha256)
+                    {
+                        File.Delete(OrtDylibPath);
+                        throw new InvalidOperationException(
+                            $"onnxruntime.dll SHA-256 mismatch (got {sha}) — refusing to install.");
+                    }
                 }
                 finally
                 {
