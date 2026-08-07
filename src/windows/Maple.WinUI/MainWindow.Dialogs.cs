@@ -69,25 +69,27 @@ namespace Maple.WinUI
             formatRadios.SelectedIndex = 0;
             panel.Children.Add(formatRadios);
 
+            // SelectedIndex only after the Items exist — WinUI 3 rejects an
+            // index into an empty ComboBox.
             var colorCombo = new ComboBox
             {
                 HorizontalAlignment = HorizontalAlignment.Stretch,
-                SelectedIndex = 0,
                 Header = "Color space",
             };
             colorCombo.Items.Add("sRGB — safest everywhere");
             colorCombo.Items.Add("Display P3 — wider gamut");
+            colorCombo.SelectedIndex = 0;
             panel.Children.Add(colorCombo);
 
             var sizeCombo = new ComboBox
             {
                 HorizontalAlignment = HorizontalAlignment.Stretch,
-                SelectedIndex = 0,
                 Header = "Long edge",
             };
             sizeCombo.Items.Add("Full resolution");
             foreach (var preset in new[] { 4096, 2560, 2048, 1024 })
                 sizeCombo.Items.Add($"{preset} px");
+            sizeCombo.SelectedIndex = 0;
             panel.Children.Add(sizeCombo);
 
             var qualitySlider = new Slider

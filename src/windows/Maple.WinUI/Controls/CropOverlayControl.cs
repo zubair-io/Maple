@@ -149,13 +149,9 @@ namespace Maple.WinUI.Controls
         {
             double top = start.Top, left = start.Left, bottom = start.Bottom, right = start.Right;
             if (handle.Contains('l')) left = Math.Clamp(left + dxN, 0, right - MinCropFraction);
-            if (handle.Contains('r') && handle != "tr" && handle != "br")
-                right = Math.Clamp(right + dxN, left + MinCropFraction, 1);
-            if (handle is "tr" or "br") right = Math.Clamp(right + dxN, left + MinCropFraction, 1);
+            if (handle.Contains('r')) right = Math.Clamp(right + dxN, left + MinCropFraction, 1);
             if (handle.Contains('t')) top = Math.Clamp(top + dyN, 0, bottom - MinCropFraction);
-            if (handle.Contains('b') && handle != "bl" && handle != "br")
-                bottom = Math.Clamp(bottom + dyN, top + MinCropFraction, 1);
-            if (handle is "bl" or "br") bottom = Math.Clamp(bottom + dyN, top + MinCropFraction, 1);
+            if (handle.Contains('b')) bottom = Math.Clamp(bottom + dyN, top + MinCropFraction, 1);
 
             var next = start with { Top = top, Left = left, Bottom = bottom, Right = right };
             return _aspect is { } aspect ? ConstrainAspect(next, handle, aspect) : next;
