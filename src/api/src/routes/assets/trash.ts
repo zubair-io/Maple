@@ -33,9 +33,58 @@ import { unlink } from 'node:fs/promises';
 import { listPairedSidecars } from '../../fs/xmp-conflict.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { trashAssetById, restoreAssetById } from '../../library/asset-trash.ts';
+import type { RestoreAssetOutcome } from '../../library/asset-trash.ts';
 import { findCoreInfoById, hardDelete, parseAssetId } from '../../db/assets.repo.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+
+/** Map a `restoreAssetById` outcome to its HTTP status + body. Split out of
+ * the route handler below purely to keep that handler's own cyclomatic
+ * complexity down — this is a pure, synchronous mapping with no I/O. */
+function restoreOutcomeResponse(
+  outcome: RestoreAssetOutcome,
+  targetFolderId: string | undefined,
+): { status: number; body: unknown } {
+  switch (outcome.kind) {
+    case 'ok':
+      // Wire contract: `mtime` is serialised as an ISO-8601 string with
+      // fractional seconds so the Swift `RestoreResponse.mtime: Date`
+      // decoder (see RemoteCatalog.swift) accepts it. The DB column
+      // remains epoch-ms (number) per AssetDoc.mtime — this is purely a
+      // response-time transform.
+      return {
+        status: 200,
+        body: {
+          asset_id: outcome.assetId.toHexString(),
+          abs_path: outcome.absPath,
+          filename: outcome.filename,
+          size: outcome.size,
+          mtime: new Date(outcome.mtimeMs).toISOString(),
+        },
+      };
+    case 'not-found':
+      return { status: 404, body: { error: 'Asset not found' } };
+    case 'not-trashed':
+      return { status: 409, body: { error: 'Asset is not trashed' } };
+    case 'no-location':
+      return { status: 404, body: { error: 'Asset has no resolvable location' } };
+    case 'no-folder':
+      return { status: 500, body: { error: "Asset's folder is missing" } };
+    case 'cross-library':
+      return {
+        status: 400,
+        body: {
+          error: 'Cross-library restore is not supported',
+          asset_folder_id: outcome.assetFolderId,
+          target_folder_id: targetFolderId,
+        },
+      };
+    case 'invalid':
+      return { status: 400, body: { error: outcome.error } };
+    case 'error':
+      return { status: 500, body: { error: outcome.error } };
+  }
+}
 
 export const trashRoutes = new Elysia()
   .delete('/:id', async ({ params, set }) => {
@@ -138,47 +187,9 @@ export const trashRoutes = new Elysia()
         ?.target_relative_path;
 
       const outcome = await restoreAssetById(id, { targetFolderId, targetRelativePath });
-      switch (outcome.kind) {
-        case 'ok':
-          set.status = 200;
-          // Wire contract: `mtime` is serialised as an ISO-8601 string with
-          // fractional seconds so the Swift `RestoreResponse.mtime: Date`
-          // decoder (see RemoteCatalog.swift) accepts it. The DB column
-          // remains epoch-ms (number) per AssetDoc.mtime — this is purely
-          // a response-time transform.
-          return {
-            asset_id: outcome.assetId.toHexString(),
-            abs_path: outcome.absPath,
-            filename: outcome.filename,
-            size: outcome.size,
-            mtime: new Date(outcome.mtimeMs).toISOString(),
-          };
-        case 'not-found':
-          set.status = 404;
-          return { error: 'Asset not found' };
-        case 'not-trashed':
-          set.status = 409;
-          return { error: 'Asset is not trashed' };
-        case 'no-location':
-          set.status = 404;
-          return { error: 'Asset has no resolvable location' };
-        case 'no-folder':
-          set.status = 500;
-          return { error: "Asset's folder is missing" };
-        case 'cross-library':
-          set.status = 400;
-          return {
-            error: 'Cross-library restore is not supported',
-            asset_folder_id: outcome.assetFolderId,
-            target_folder_id: targetFolderId,
-          };
-        case 'invalid':
-          set.status = 400;
-          return { error: outcome.error };
-        case 'error':
-          set.status = 500;
-          return { error: outcome.error };
-      }
+      const response = restoreOutcomeResponse(outcome, targetFolderId);
+      set.status = response.status;
+      return response.body;
     },
     {
       body: t.Object({
