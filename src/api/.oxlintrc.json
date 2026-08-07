@@ -95,6 +95,7 @@
         "src/fs/browse.video.test.ts",
         "src/fs/duplicates.test.ts",
         "src/fs/relocate.test.ts",
+        "src/fs/relocate.parity.test.ts",
         "src/fs/mirror-config.test.ts",
         "src/fs/mirrored.test.ts",
         "src/imports/copy.test.ts",
