@@ -16,8 +16,12 @@ namespace Maple.WinUI
     {
         private void OnPhotoGridSelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            // OfType, not Cast: SelectedItems is grid-wide, and a stray
+            // non-PhotoItem entry (a group header, a virtualization
+            // placeholder mid-interaction) should be dropped, not crash the
+            // shell with an InvalidCastException.
             if (sender is GridView grid)
-                ViewModel.SyncSelectedPhotos(grid.SelectedItems.Cast<PhotoItem>().ToList());
+                ViewModel.SyncSelectedPhotos(grid.SelectedItems.OfType<PhotoItem>().ToList());
         }
 
         /// <summary>"128 photos" normally; "128 photos · 3 selected" once a
