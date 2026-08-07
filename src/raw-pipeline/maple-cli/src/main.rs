@@ -56,6 +56,13 @@ enum Cmd {
         /// keeps measuring Maple-vs-ACR fidelity, not Maple-vs-embedded-JPEG.
         #[arg(long, value_enum, default_value_t = ProfileChoice::Xmp)]
         profile: ProfileChoice,
+        /// Directory of `.mlut` film-look LUTs, keyed `<papp:FilmLook
+        /// id>.mlut` (epic #2683). Defaults to the committed
+        /// `resources/film-luts` pack at the repo root. A look id with no
+        /// matching file under this directory warns to stderr and renders
+        /// without it rather than erroring.
+        #[arg(long = "film-lut-dir")]
+        film_lut_dir: Option<PathBuf>,
     },
     /// Panorama stitching (requires the `pano` build feature).
     #[cfg(feature = "pano")]
@@ -80,6 +87,9 @@ enum Cmd {
         /// Demosaic algorithm for every case (same choices as `render`).
         #[arg(long, value_enum, default_value_t = DemosaicChoice::Amaze)]
         demosaic: DemosaicChoice,
+        /// Directory of `.mlut` film-look LUTs. See `Render`'s doc-comment.
+        #[arg(long = "film-lut-dir")]
+        film_lut_dir: Option<PathBuf>,
     },
     /// Compare two PNGs via compare_images.py; print JSON; exit non-zero if
     /// --budget is set and mean ΔE exceeds it.
@@ -314,6 +324,7 @@ fn main() -> ExitCode {
             quality,
             demosaic,
             profile,
+            film_lut_dir,
         } => run_or_exit(commands::render::run(
             &raw,
             params.as_deref(),
@@ -322,6 +333,7 @@ fn main() -> ExitCode {
             quality,
             demosaic,
             profile,
+            film_lut_dir.as_deref(),
         )),
         Cmd::Batch {
             manifest,
@@ -329,12 +341,14 @@ fn main() -> ExitCode {
             cases_filter,
             profile,
             demosaic,
+            film_lut_dir,
         } => run_or_exit(commands::batch::run(
             &manifest,
             &out_dir,
             cases_filter.as_deref(),
             profile,
             demosaic,
+            film_lut_dir.as_deref(),
         )),
         Cmd::Diff {
             candidate,
