@@ -44,15 +44,15 @@ namespace Maple.WinUI.Tests
 {
     // MARK: - Corpus schema
 
-    internal sealed record CorpusFile(string Path, string Content);
+    public sealed record CorpusFile(string Path, string Content);
 
-    internal sealed record CorpusSymlink(string Path, string Target);
+    public sealed record CorpusSymlink(string Path, string Target);
 
-    internal sealed record CorpusSetup(List<CorpusFile>? Files, List<CorpusSymlink>? Symlinks);
+    public sealed record CorpusSetup(List<CorpusFile>? Files, List<CorpusSymlink>? Symlinks);
 
-    internal sealed record CorpusFault([property: JsonPropertyName("type")] string Type);
+    public sealed record CorpusFault([property: JsonPropertyName("type")] string Type);
 
-    internal sealed record CorpusOperation(
+    public sealed record CorpusOperation(
         string? Source,
         string? DestDir,
         string? DestBasename,
@@ -63,7 +63,7 @@ namespace Maple.WinUI.Tests
         string? NewName,
         string? Name);
 
-    internal sealed record CorpusExpected(
+    public sealed record CorpusExpected(
         string? Outcome,
         bool? RenamedOnCollision,
         bool? SidecarFollowed,
@@ -71,7 +71,7 @@ namespace Maple.WinUI.Tests
         bool? Valid,
         int? SelectedIndex);
 
-    internal sealed record CorpusCase(
+    public sealed record CorpusCase(
         string Name,
         string Kind,
         string Description,
@@ -81,7 +81,7 @@ namespace Maple.WinUI.Tests
         CorpusOperation? Operation,
         CorpusExpected Expected);
 
-    internal sealed record Corpus(
+    public sealed record Corpus(
         [property: JsonPropertyName("schema_version")] int SchemaVersion,
         List<CorpusCase> Cases);
 
