@@ -184,6 +184,107 @@ pub unsafe extern "C" fn maple_render_filename_template(
     }
 }
 
+/// `bun:ffi`-friendly counterpart to [`maple_render_filename_template`].
+///
+/// `bun:ffi` (the Self Hosted API's FFI consumer, `src/api/src/ffi/raw_ffi.ts`)
+/// cannot marshal an arbitrary `#[repr(C)]` struct returned by value — it
+/// only auto-converts scalar and `cstring`/`ptr` returns. Rather than change
+/// [`maple_render_filename_template`]'s ABI (Apple's Swift binding and
+/// Windows' P/Invoke shim both consume the by-value struct natively and have
+/// no such limitation), this is an additive, purely mechanical
+/// re-marshalling of the identical `raw_core::filename::render_filename`
+/// call into the caller-owned-output-buffer shape this crate already uses
+/// for `maple_histogram_file` (`render.rs`) — no allocation crosses the FFI
+/// boundary, so there is nothing for the caller to free.
+///
+/// Same required/optional pointer contract as
+/// [`maple_render_filename_template`]. `out_buf`/`out_cap` is a caller-owned
+/// buffer; on success the rendered UTF-8 bytes (NOT null-terminated) are
+/// written to `out_buf` and their length to `*out_len`. On any failure
+/// `*out_len` is left untouched.
+///
+/// Returns the same error codes as [`maple_render_filename_template`], plus:
+///   9   rendered filename does not fit in `out_cap` bytes — `*out_len` is
+///       NOT written; the caller should retry with a larger buffer (a
+///       filename's rendered length is bounded only by its template's
+///       literal text plus a `{date:FORMAT}` string, so a generous fixed
+///       buffer such as 1024 bytes comfortably covers every real template).
+#[no_mangle]
+pub unsafe extern "C" fn maple_render_filename_template_buf(
+    template_ptr: *const c_char,
+    original_stem_ptr: *const c_char,
+    ext_ptr: *const c_char,
+    captured_at_ptr: *const c_char,
+    sequence_start: u64,
+    sequence_index: u64,
+    sequence_pad_width: usize,
+    out_buf: *mut u8,
+    out_cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    let Some(template) = cstr_to_str(template_ptr) else {
+        set_last_error(
+            "maple_render_filename_template_buf: template is null or not valid UTF-8".into(),
+        );
+        return -1;
+    };
+    let Some(original_stem) = cstr_to_str(original_stem_ptr) else {
+        set_last_error(
+            "maple_render_filename_template_buf: original_stem is null or not valid UTF-8".into(),
+        );
+        return -1;
+    };
+    let Some(ext) = cstr_to_str(ext_ptr) else {
+        set_last_error("maple_render_filename_template_buf: ext is null or not valid UTF-8".into());
+        return -1;
+    };
+    let captured_at = if captured_at_ptr.is_null() {
+        None
+    } else {
+        match cstr_to_str(captured_at_ptr) {
+            Some(s) => Some(s),
+            None => {
+                set_last_error(
+                    "maple_render_filename_template_buf: captured_at is not valid UTF-8".into(),
+                );
+                return -1;
+            }
+        }
+    };
+
+    let inputs = RenderInputs {
+        original_stem,
+        ext,
+        index: sequence_index,
+        captured_at,
+    };
+    let sequence = SequenceOptions {
+        start: sequence_start,
+        pad_width: sequence_pad_width,
+    };
+
+    match filename::render_filename(template, &inputs, &sequence) {
+        Ok(name) => {
+            let bytes = name.as_bytes();
+            if bytes.len() > out_cap {
+                set_last_error(format!(
+                    "maple_render_filename_template_buf: rendered name ({} bytes) exceeds out_cap ({} bytes)",
+                    bytes.len(),
+                    out_cap
+                ));
+                return 9;
+            }
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_buf, bytes.len());
+            *out_len = bytes.len();
+            0
+        }
+        Err(e) => {
+            set_last_error(format!("maple_render_filename_template_buf: {}", e));
+            error_code(&e)
+        }
+    }
+}
+
 /// Validate a filename directly — the same rules
 /// [`maple_render_filename_template`] enforces on its rendered output, so a
 /// manually-typed single-file rename (no template involved) gets identical

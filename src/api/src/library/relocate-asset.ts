@@ -54,8 +54,11 @@ export interface RelocateAssetInput {
   mode: RelocateMode;
   collision: CollisionPolicy;
   /** POSIX relative dir under the asset's library root the destination
-   * lives in. `''` = library root. */
-  destinationPath: string;
+   * lives in. `''` = library root. Defaults to the asset's CURRENT relPath
+   * — i.e. omitting it makes this call a same-folder rename, per the
+   * design doc's "rename IS relocate(sameFolder, newName, move)" framing
+   * (`routes/assets/rename.ts`, #2636). */
+  destinationPath?: string;
   /** Defaults to the asset's current filename. */
   destinationFilename?: string;
 }
@@ -67,6 +70,10 @@ export type RelocateAssetResult =
       newPath: string;
       newFilename: string;
       renamedOnCollision: boolean;
+      /** The filename the asset had immediately before this relocate — lets
+       * a caller (e.g. `routes/assets/rename.ts`) detect an extension
+       * change without a separate lookup. */
+      oldFilename: string;
     }
   | { kind: 'skipped'; reason: string }
   | { kind: 'not-found' }
@@ -86,7 +93,7 @@ export type RelocateAssetResult =
  * refile-legacy-daydir review (7173f5e6f): when an earlier entry is
  * missing-tagged but not deleted, it targets the stale/offline copy instead
  * of the live one. */
-function activeFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): FileInfo | null {
+export function activeFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): FileInfo | null {
   const list = asset.fileinfo ?? [];
   const live = list.filter((entry) => !entry.deleted_at);
   return live.find((entry) => !entry.missing_since) ?? live[0] ?? null;
@@ -121,9 +128,10 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
   // segment, so it gets the stricter no-separators `isSafeFilename` check
   // instead (a relPath jail would happily accept `sub/dir.dng` as a
   // "filename", which is exactly the traversal this guards against).
+  const destinationPath = input.destinationPath ?? primary.path;
   let destDir: string;
   try {
-    destDir = await resolveRelPathUnderRoot(libRoot, input.destinationPath);
+    destDir = await resolveRelPathUnderRoot(libRoot, destinationPath);
   } catch (err) {
     return { kind: 'invalid', error: err instanceof Error ? err.message : String(err) };
   }
@@ -205,6 +213,7 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
         newPath: split.relPath,
         newFilename: split.filename,
         renamedOnCollision: outcome.renamedOnCollision,
+        oldFilename: primary.filename,
       };
     }
     case 'skipped':

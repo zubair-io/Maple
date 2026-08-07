@@ -42,6 +42,23 @@ export function histogramBinsFromBuffer(buf: Buffer): HistogramBins {
   return { r, g, b };
 }
 
+/** Batch-rename filename-template render result, mirroring
+ * `raw_core::filename::render_filename`'s error taxonomy (#2628). One-to-one
+ * with `MapleFilenameResult`'s `error_code` values, except `-1` (bad
+ * pointer/UTF-8) and `9` (buffer-too-small) never surface here — both are
+ * TS-side invariants this wrapper prevents (`Buffer.from`/`+ '\0'` always
+ * produces valid UTF-8 C strings, and `RENDER_OUT_CAP` is sized generously
+ * past any real template). */
+export type FilenameTemplateResult =
+  | { ok: true; name: string }
+  | { ok: false; code: number; error: string };
+
+/** Caller-owned output buffer size for `maple_render_filename_template_buf`.
+ * A rendered filename is bounded by its template's literal text plus one
+ * `{date:FORMAT}` expansion — 1 KiB is enormously generous headroom past any
+ * real template while keeping the per-call allocation trivial. */
+const RENDER_OUT_CAP = 1024;
+
 interface RawFfi {
   /**
    * Render a RAW+XMP and return a 3×256 RGB histogram (R/G/B channel counts),
@@ -91,6 +108,29 @@ interface RawFfi {
     maxPx: number,
     quality?: number,
   ): boolean;
+  /** Render one filename from a batch-rename template (#2628/#2636) — the
+   * shared `raw-core` engine, so a server-rendered name is byte-identical to
+   * what the Apple/Windows/Web clients would render from the same template
+   * (the FFI/WASM shims over `raw_core::filename::render_filename`).
+   * `capturedAt` is EXIF `DateTimeOriginal`'s wire format
+   * (`"YYYY:MM:DD HH:MM:SS"`) — convert from the API's stored ISO 8601
+   * before calling; null/unparseable renders `{date:FORMAT}` as the
+   * documented fallback text rather than failing. */
+  renderFilenameTemplate(args: {
+    template: string;
+    originalStem: string;
+    ext: string;
+    capturedAt: string | null;
+    sequenceStart: number;
+    sequenceIndex: number;
+    sequencePadWidth: number;
+  }): FilenameTemplateResult;
+  /** Validate a filename against the same rules `renderFilenameTemplate`
+   * enforces on its output — used for a manually-typed single-file rename
+   * (no template), so it gets byte-identical rejection behaviour
+   * (Windows-reserved names, trailing dot/space, path separators) on every
+   * platform. */
+  validateFilename(name: string): { ok: true } | { ok: false; code: number; error: string };
 }
 
 let _ffi: RawFfi | null | undefined = undefined; // undefined = not yet attempted
@@ -179,6 +219,25 @@ function loadFfi(): RawFfi | null {
       maple_last_error: {
         args: [],
         returns: FFIType.cstring,
+      },
+      maple_render_filename_template_buf: {
+        args: [
+          FFIType.cstring, // template
+          FFIType.cstring, // original_stem
+          FFIType.cstring, // ext
+          FFIType.cstring, // captured_at (nullable)
+          FFIType.u64, // sequence_start
+          FFIType.u64, // sequence_index
+          FFIType.u64, // sequence_pad_width (usize)
+          FFIType.ptr, // out_buf: caller-owned [u8; RENDER_OUT_CAP]
+          FFIType.u64, // out_cap (usize)
+          FFIType.ptr, // out_len: *mut usize
+        ],
+        returns: FFIType.i32,
+      },
+      maple_validate_filename: {
+        args: [FFIType.cstring],
+        returns: FFIType.i32,
       },
     });
 
@@ -300,6 +359,45 @@ function loadFfi(): RawFfi | null {
           return false;
         }
         return true;
+      },
+
+      renderFilenameTemplate(args): FilenameTemplateResult {
+        const templateBuf = Buffer.from(args.template + '\0', 'utf-8');
+        const stemBuf = Buffer.from(args.originalStem + '\0', 'utf-8');
+        const extBuf = Buffer.from(args.ext + '\0', 'utf-8');
+        const capturedBuf = args.capturedAt ? Buffer.from(args.capturedAt + '\0', 'utf-8') : null;
+        const outBuf = Buffer.alloc(RENDER_OUT_CAP, 0);
+        const outLenBuf = Buffer.alloc(8, 0); // *mut usize (64-bit)
+
+        const rc = lib.symbols.maple_render_filename_template_buf(
+          ptr(templateBuf),
+          ptr(stemBuf),
+          ptr(extBuf),
+          capturedBuf ? ptr(capturedBuf) : null,
+          BigInt(args.sequenceStart),
+          BigInt(args.sequenceIndex),
+          BigInt(args.sequencePadWidth),
+          ptr(outBuf),
+          BigInt(RENDER_OUT_CAP),
+          ptr(outLenBuf),
+        ) as number;
+
+        if (rc !== 0) {
+          const errStr = lib.symbols.maple_last_error() as unknown as string | null;
+          return { ok: false, code: rc, error: errStr ?? `render failed with code ${rc}` };
+        }
+        const outLen = Number(outLenBuf.readBigUInt64LE(0));
+        return { ok: true, name: outBuf.subarray(0, outLen).toString('utf-8') };
+      },
+
+      validateFilename(name: string) {
+        const nameBuf = Buffer.from(name + '\0', 'utf-8');
+        const rc = lib.symbols.maple_validate_filename(ptr(nameBuf)) as number;
+        if (rc !== 0) {
+          const errStr = lib.symbols.maple_last_error() as unknown as string | null;
+          return { ok: false as const, code: rc, error: errStr ?? `invalid filename (code ${rc})` };
+        }
+        return { ok: true as const };
       },
     };
   } catch (err) {
