@@ -43,6 +43,13 @@ namespace Maple.WinUI.Services
                 return null;
             }
         }
+        // Pano provisioning overrides (#2583) — null = the PanoProvisioner
+        // defaults under %LOCALAPPDATA%\Maple (pano-models\, ort\, and the
+        // maple-cli.exe shipped beside the app).
+        public string? PanoCliPath { get; set; }
+        public string? PanoModelsDir { get; set; }
+        public string? PanoOrtDylibPath { get; set; }
+
         public bool LeftPanelHidden { get; set; }
         public bool DetailPanelHidden { get; set; }
         public double LeftPanelWidth { get; set; } = 260;
