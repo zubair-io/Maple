@@ -115,18 +115,21 @@ public enum SMBFileOperations {
                              renamedDueToCollision: renamed, createdPaths: createdPaths)
     }
 
-    /// Delete the sources (`mode == .move` only). Best-effort, matching the
+    /// Delete the sources (`mode == .move` only) and clear the OLD
+    /// location's on-share derived thumb/preview entries
+    /// (`invalidateDerivedCaches`). Best-effort throughout, matching the
     /// local engine — a copy-succeeded-but-delete-failed leaves a
     /// duplicate, never data loss; a failure is logged (`fileOpsLog`), not
-    /// thrown. Unlike the local engine, this does NOT invalidate a derived
-    /// cache or refresh a `LibraryIndex`: SMB has neither. Per
-    /// docs/caching.md, `.maple/thumbs`/`.maple/previews` are Filesystem-
-    /// source-only on the Apple side — SMB thumbnails are generated on
-    /// demand and never disk-cached locally — and the per-folder cold-open
-    /// `LibraryIndex` is a Filesystem-source concept too. If SMB ever
-    /// grows its own on-share derived cache (writable via `transport`,
-    /// unlike a local macOS disk cache), invalidating it here would be the
-    /// place — that's follow-up scope, not a gap in this method today.
+    /// thrown.
+    ///
+    /// The one step the local engine has that this deliberately does NOT
+    /// mirror is the `LibraryIndex` refresh: the AMSMB2 browse path never
+    /// reads a per-folder index (that's a `FilesystemSource` cold-open
+    /// cache), the index is non-authoritative (culling truth lives in the
+    /// `.xmp`, which relocates with the asset), and rewriting on-share
+    /// JSON over the transport would cost read-modify-write round-trips
+    /// for a cache whose stale entry is just an orphan the next
+    /// mounted-folder rebuild reconciles.
     @discardableResult
     public static func finalizeRelocate(_ plan: RelocatePlan, transport: SMBFileTransport) async -> RelocateOutcome {
         let outcome = RelocateOutcome(
@@ -150,7 +153,37 @@ public enum SMBFileOperations {
                     "finalizeRelocate: source sidecar remove failed after a verified copy (\(sourceSidecarPath, privacy: .public)): \(error.localizedDescription, privacy: .public)")
             }
         }
+        await invalidateDerivedCaches(forOldPrimaryPath: plan.sourcePrimaryPath, transport: transport)
         return outcome
+    }
+
+    // MARK: - Derived-cache invalidation
+
+    /// Delete the OLD location's on-share derived thumb + preview entries
+    /// (`.maple/thumbs/<sha256Prefix16(basename)>.avif` and
+    /// `.maple/previews/<basename>.avif`, via `MapleSidecarPaths`). These
+    /// are NOT an Apple-local cache this client would have written: they're
+    /// the cross-layer, path-keyed, travels-with-the-photos derivative
+    /// contract (`MapleSidecarPaths` = the API's `resolveThumbPath` /
+    /// `resolveCachePath` = the web maple-cache), and a share reached over
+    /// AMSMB2 can already carry entries written by the Self Hosted
+    /// indexer, Web Hosted, or a Mac browsing the same share through a
+    /// Finder mount. The Apple and Web read paths resolve them by basename
+    /// with no freshness check, so a stale entry left at the old location
+    /// would serve the WRONG pixels for any different file that later
+    /// lands there under the same name — the same reasoning as
+    /// `LocalFileOperations.invalidateDerivedCaches`, whose two call sites
+    /// (`finalizeRelocate`, `performCaseOnlyRename`) this engine mirrors.
+    /// Best-effort: on most shares neither entry exists and the removes
+    /// just fail, swallowed.
+    static func invalidateDerivedCaches(
+        forOldPrimaryPath oldPrimaryPath: String, transport: SMBFileTransport
+    ) async {
+        // Same pure-lexical URL wrapping as `sidecarPath(for:)` below —
+        // no filesystem access, just shared path math.
+        let oldURL = URL(fileURLWithPath: oldPrimaryPath)
+        try? await transport.removeItem(atPath: MapleSidecarPaths.thumbURL(for: oldURL).path)
+        try? await transport.removeItem(atPath: MapleSidecarPaths.previewURL(for: oldURL).path)
     }
 
     /// Undo a plan that will never be finalized — removes the staged
@@ -210,6 +243,11 @@ public enum SMBFileOperations {
             finalSidecarPath = await exists(targetSidecarPath, transport: transport) ? targetSidecarPath : nil
         }
 
+        // Inline cache cleanup, matching `LocalFileOperations`' identical
+        // choice: `finalize` is a no-op for this plan (`isNoop`), and the
+        // old-cased basename is a different hash input / preview filename,
+        // so its entries are exactly as stale as after a real move.
+        await invalidateDerivedCaches(forOldPrimaryPath: source, transport: transport)
         return RelocatePlan(mode: .move, sourcePrimaryPath: source, sourceSidecarPath: resolvedSourceSidecarPath,
                              finalPrimaryPath: target, finalSidecarPath: finalSidecarPath,
                              renamedDueToCollision: false, createdPaths: [], sourceAlreadyRelocated: true)
