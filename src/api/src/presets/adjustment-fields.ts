@@ -165,7 +165,7 @@ export const STRING_FIELDS: ReadonlySet<string> = new Set([
  * STRING_FIELDS entry is a closed enum where an empty string can never be
  * a real variant, so it stays rejected.
  */
-export const FREE_FORM_STRING_FIELDS: ReadonlySet<string> = new Set(['film_look']);
+const FREE_FORM_STRING_FIELDS: ReadonlySet<string> = new Set(['film_look']);
 
 export function isKnownNumericField(name: string): boolean {
   return Object.prototype.hasOwnProperty.call(NUMERIC_FIELD_RANGES, name);
