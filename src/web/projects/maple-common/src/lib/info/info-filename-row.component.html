@@ -1,0 +1,27 @@
+@let a = asset();
+@if (a) {
+  @if (isEditing()) {
+    <div class="filename-row editing">
+      <app-inline-rename-field
+        [filename]="a.filename"
+        [error]="renameSvc.error()"
+        [busy]="renameSvc.busy()"
+        [collision]="isCollision()"
+        (committed)="onCommit($event)"
+        (cancelled)="renameSvc.cancel()"
+        (collisionResolved)="onCollisionResolved($event)"
+      />
+    </div>
+  } @else {
+    <button
+      type="button"
+      class="filename-row"
+      [class.disabled]="!!disabledReason()"
+      [attr.aria-label]="'Rename ' + a.filename"
+      [attr.title]="disabledReason()"
+      (dblclick)="onDblClick()"
+    >
+      <span class="filename-text">{{ a.filename }}</span>
+    </button>
+  }
+}
