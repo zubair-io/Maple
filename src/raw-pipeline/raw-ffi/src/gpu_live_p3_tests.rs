@@ -187,6 +187,11 @@ fn gpu_live_render_p3_primaries_marshals_correctly() {
             // No DNG NoiseProfile in this fixture — the flat NLM filter (#1714).
             noise_profile: Vec::new(),
             iso: 0,
+            // No film look in this fixture (epic #2683 default: off).
+            film_strength: 0.0,
+            film_lut_size: 0,
+            film_lut_key: 0,
+            film_lut_data: Vec::new(),
         };
         let ctx = GpuContext::new_blocking().expect("gpu context");
         let session = LiveSession::new(&ctx, &input, w, h).expect("session");

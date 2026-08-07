@@ -252,5 +252,13 @@ pub(super) fn make_params(
         bw_mix_blue: model.gray_mixer_blue,
         bw_mix_purple: model.gray_mixer_purple,
         bw_mix_magenta: model.gray_mixer_magenta,
+        // Film look (epic #2683, Task 8) — off by default; the film-specific
+        // gate in `gpu_live_film_tests.rs` overrides these on the returned
+        // struct rather than threading a param through every call site here.
+        film_strength: 0.0,
+        film_lut_size: 0,
+        film_lut_key: 0,
+        film_lut_ptr: std::ptr::null(),
+        film_lut_len: 0,
     }
 }
