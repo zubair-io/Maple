@@ -48,6 +48,7 @@ import { requestContext } from './middleware/request-context.ts';
 import { healthRoutes } from './routes/health.ts';
 import { networkPublicRoutes, networkSettingsRoutes } from './routes/network.ts';
 import { foldersRoutes } from './routes/folders.ts';
+import { foldersTrashRoutes } from './routes/folders-trash.ts';
 import { assetsRoutes } from './routes/assets.ts';
 import { xmpPathRoutes } from './routes/xmp.ts';
 import { previewPathRoutes } from './routes/preview.ts';
@@ -198,6 +199,10 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
         .use(backupRenderedRoutes)
         .use(backupNotifyDeletedRoutes)
         .use(foldersRoutes)
+        // Recursive folder trash/restore (#2630) — separate module, same
+        // `/api/folders` prefix, kept out of folders.ts to stay under the
+        // file-size budget.
+        .use(foldersTrashRoutes)
         // M1 unified library addressing routes (slug:relPath).
         // Mounted before assetsRoutes so /api/folder|image|thumb|preview
         // are not shadowed by other prefixes.
