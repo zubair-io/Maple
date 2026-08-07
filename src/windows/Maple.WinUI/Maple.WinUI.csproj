@@ -50,4 +50,13 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+
+  <!-- Pano stitcher (#2583): `cargo build - -release -p maple-cli - -features pano`.
+       Ships beside the app; PanoProvisioner also falls back to the repo
+       target dir for development. -->
+  <ItemGroup Condition="Exists('..\..\raw-pipeline\target\release\maple-cli.exe')">
+    <None Include="..\..\raw-pipeline\target\release\maple-cli.exe" Link="maple-cli.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
 </Project>

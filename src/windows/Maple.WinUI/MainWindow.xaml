@@ -145,6 +145,8 @@
                                         KeyboardAcceleratorTextOverride="X" />
                         <MenuFlyoutItem Text="Unflag" Click="OnMenuFlagUnflag"
                                         KeyboardAcceleratorTextOverride="U" />
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="Stitch Panorama…" Click="OnStitchPano" />
                     </MenuFlyout>
                 </Button.Flyout>
             </Button>
