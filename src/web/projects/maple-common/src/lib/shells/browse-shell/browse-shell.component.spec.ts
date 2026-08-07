@@ -6,9 +6,11 @@ import { provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LayoutService, type MapleLayout } from '../../layout-service';
 import { LibraryStateService } from '../../state/library-state.service';
+import { AssetRenameService } from '../../rename/asset-rename.service';
 import { STORAGE_KEYS } from '../../util/typed-storage';
 import { provideHostedWorkspace } from '../../workspace/hosted-workspace.providers';
 import { BrowseShellComponent } from './browse-shell.component';
+import type { Asset } from '../../models/asset';
 
 function clearPreferences(): void {
   for (const key of Object.values(STORAGE_KEYS)) localStorage.removeItem(key);
@@ -136,5 +138,30 @@ describe('BrowseShellComponent capability boundary', () => {
 
     expect(state.isSelecting()).toBe(false);
     expect(state.selectedAssetIds().has('asset-1' as never)).toBe(true);
+  });
+
+  it('F2 opens the inline-rename field for the focused asset (#2637)', () => {
+    const fixture = TestBed.createComponent(BrowseShellComponent);
+    fixture.detectChanges();
+    const state = fixture.componentInstance.state;
+    const asset: Asset = {
+      id: 'library:2026/IMG_0001.CR3',
+      filename: 'IMG_0001.CR3',
+      folderId: 'library:2026',
+      rating: 0,
+      flag: 'unflagged',
+      colorLabel: null,
+      thumbnailGradient: '',
+      aspectRatio: 1.5,
+    };
+    vi.spyOn(state, 'focusedAssetId').mockReturnValue(asset.id as never);
+    vi.spyOn(state, 'focusedAsset').mockReturnValue(asset);
+    const renameSvc = TestBed.inject(AssetRenameService);
+    const startEditing = vi.spyOn(renameSvc, 'startEditing');
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2', bubbles: true }));
+    fixture.detectChanges();
+
+    expect(startEditing).toHaveBeenCalledWith(asset);
   });
 });
