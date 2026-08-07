@@ -20,6 +20,7 @@
 
 import { describe, test, expect, beforeAll } from 'bun:test';
 import * as fs from 'node:fs/promises';
+import * as fsSync from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { ObjectId } from 'mongodb';
@@ -141,23 +142,26 @@ function assertTree(actual: CorpusFile[], expected: CorpusFile[] | undefined, la
   expect(actual, `${label}: resulting file tree`).toEqual(sortedExpected);
 }
 
-let caseInsensitiveFsCache: boolean | undefined;
 /** Probed live (write `a`, stat `A`) rather than assumed from `process.platform`
  * — CI can mount a case-sensitive volume on any OS, and this harness must
- * never guess. */
-async function probeCaseInsensitiveFs(): Promise<boolean> {
-  if (caseInsensitiveFsCache !== undefined) return caseInsensitiveFsCache;
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-parity-probe-'));
+ * never guess.
+ *
+ * Synchronous, and evaluated once at module load, because the result is needed
+ * at test-COLLECTION time (see `KNOWN_FAILURES`), not just inside a test body.
+ * A `test.failing` marking has to be decided before the test runs, and an async
+ * probe cannot inform that choice. */
+const CASE_INSENSITIVE_FS: boolean = (() => {
+  const dir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'relocate-parity-probe-'));
   try {
-    await fs.writeFile(path.join(dir, 'a'), 'x');
-    caseInsensitiveFsCache = await fs
-      .stat(path.join(dir, 'A'))
-      .then(() => true)
-      .catch(() => false);
+    fsSync.writeFileSync(path.join(dir, 'a'), 'x');
+    return fsSync.existsSync(path.join(dir, 'A'));
   } finally {
-    await fs.rm(dir, { recursive: true, force: true });
+    fsSync.rmSync(dir, { recursive: true, force: true });
   }
-  return caseInsensitiveFsCache;
+})();
+
+function probeCaseInsensitiveFs(): boolean {
+  return CASE_INSENSITIVE_FS;
 }
 
 /** Whether this case runs at all: `platforms` (if present) must include
@@ -179,8 +183,7 @@ async function requiresSkipReason(c: CorpusCase): Promise<string | null> {
       case 'multi-location-fileinfo':
         continue; // always available to the Bun/API runner on macOS+Linux
       case 'case-insensitive-fs':
-        if (!(await probeCaseInsensitiveFs()))
-          return 'case-insensitive-fs: temp volume is case-sensitive';
+        if (!probeCaseInsensitiveFs()) return 'case-insensitive-fs: temp volume is case-sensitive';
         continue;
       default:
         return `unknown capability "${cap}"`;
@@ -230,27 +233,38 @@ async function runRelocateCase(c: CorpusCase): Promise<void> {
       collision: op.collision as CollisionPolicy,
     });
 
-    const actualOutcome =
-      outcome.kind === 'relocated' ? 'relocated' : outcome.kind === 'skipped' ? 'skipped' : 'error';
-    expect(actualOutcome, `${c.name}: outcome`).toBe(c.expected.outcome!);
-    if (outcome.kind === 'relocated') {
-      if (c.expected.renamedOnCollision !== undefined) {
-        expect(outcome.renamedOnCollision, `${c.name}: renamedOnCollision`).toBe(
-          c.expected.renamedOnCollision,
-        );
-      }
-      if (c.expected.sidecarFollowed !== undefined) {
-        expect(outcome.sidecarPaths.length > 0, `${c.name}: sidecarFollowed`).toBe(
-          c.expected.sidecarFollowed,
-        );
-      }
-    }
+    assertRelocateOutcome(c, outcome);
 
     const tree = await readTree(root);
     assertTree(tree, c.expected.tree, c.name);
   } finally {
     for (const dir of chmodBack) await fs.chmod(dir, 0o755).catch(() => {});
     await fs.rm(root, { recursive: true, force: true });
+  }
+}
+
+/** The corpus's `expected.outcome` / `renamedOnCollision` / `sidecarFollowed`
+ * assertions. Split out of `runRelocateCase` so that function stays within the
+ * repo's complexity budget — the resulting-tree comparison is the primary
+ * assertion, these are the metadata ones. */
+function assertRelocateOutcome(
+  c: CorpusCase,
+  outcome: Awaited<ReturnType<typeof relocateFile>>,
+): void {
+  const actualOutcome =
+    outcome.kind === 'relocated' ? 'relocated' : outcome.kind === 'skipped' ? 'skipped' : 'error';
+  expect(actualOutcome, `${c.name}: outcome`).toBe(c.expected.outcome!);
+  if (outcome.kind !== 'relocated') return;
+
+  if (c.expected.renamedOnCollision !== undefined) {
+    expect(outcome.renamedOnCollision, `${c.name}: renamedOnCollision`).toBe(
+      c.expected.renamedOnCollision,
+    );
+  }
+  if (c.expected.sidecarFollowed !== undefined) {
+    expect(outcome.sidecarPaths.length > 0, `${c.name}: sidecarFollowed`).toBe(
+      c.expected.sidecarFollowed,
+    );
   }
 }
 
@@ -285,9 +299,25 @@ function runSelectorCase(c: CorpusCase): void {
 // green or silently skipped.
 // ---------------------------------------------------------------------------
 
-const KNOWN_FAILURES: Record<string, string> = {
-  case_only_rename_file_succeeds_with_sidecar:
-    '#2704 — relocateFile has no case-only-rename special case; auto-suffixes to IMG.1.CR3 instead of renaming in place on a case-insensitive filesystem',
+interface KnownFailure {
+  reason: string;
+  /** Whether the divergence can actually manifest in THIS environment. A
+   * `test.failing` case that is skipped (or that legitimately passes) counts
+   * as an unexpected pass and fails the run — so a divergence that only
+   * exists on some filesystems must only be marked on those filesystems.
+   * #2704 is exactly that: on a case-SENSITIVE volume `img.cr3` → `IMG.CR3`
+   * is an ordinary rename to a different name and works fine, so the case is
+   * skipped by its `case-insensitive-fs` requirement and must NOT be marked
+   * as expected-to-fail. */
+  appliesHere: () => boolean;
+}
+
+const KNOWN_FAILURES: Record<string, KnownFailure> = {
+  case_only_rename_file_succeeds_with_sidecar: {
+    reason:
+      '#2704 — relocateFile has no case-only-rename special case; auto-suffixes to IMG.1.CR3 instead of renaming in place on a case-insensitive filesystem',
+    appliesHere: probeCaseInsensitiveFs,
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -301,8 +331,9 @@ describe('cross-surface file-operation outcome parity (#2633)', () => {
 
   for (const c of corpus.cases) {
     const known = KNOWN_FAILURES[c.name];
-    const t = known ? test.failing : test;
-    if (known) console.warn(`KNOWN FAILURE ${c.name}: ${known}`);
+    const knownApplies = known !== undefined && known.appliesHere();
+    const t = knownApplies ? test.failing : test;
+    if (knownApplies) console.warn(`KNOWN FAILURE ${c.name}: ${known!.reason}`);
     t(c.name, async () => {
       const pReason = platformSkipReason(c);
       if (pReason) {
