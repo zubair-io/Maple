@@ -87,6 +87,9 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
     /// M4: called when the user taps "Edit Metadata…" from BrowseGrid
     /// (forwarded from AppShellCenterColumn → BrowseGrid → PanoSelectionBar).
     var onEditMetadata: (() -> Void)? = nil
+    /// #2641: called when the user taps "Batch Rename…" from BrowseGrid
+    /// (forwarded from AppShellCenterColumn → BrowseGrid → PanoSelectionBar).
+    var onBatchRename: (() -> Void)? = nil
     /// #944: app-level copy/paste/sync-adjustments clipboard, forwarded
     /// through to BrowseGrid.
     var clipboard: AdjustmentClipboard? = nil
@@ -206,6 +209,7 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
             onPreviewDismiss: onPreviewDismiss,
             onMergePanorama: onMergePanorama,
             onEditMetadata: onEditMetadata,
+            onBatchRename: onBatchRename,
             clipboard: clipboard
         )
     }
