@@ -70,6 +70,11 @@
                 "glob": "raw_wasm.js",
                 "input": "projects/maple-common/src/lib/raw-pipeline/pkg",
                 "output": "/pkg"
+              },
+              {
+                "glob": "*.mlut",
+                "input": "../../resources/film-luts",
+                "output": "/film-luts"
               }
             ],
             "styles": ["projects/maple-syrup/src/styles.scss"],
@@ -194,6 +199,11 @@
                 "glob": "raw_wasm.js",
                 "input": "projects/maple-common/src/lib/raw-pipeline/pkg",
                 "output": "/pkg"
+              },
+              {
+                "glob": "*.mlut",
+                "input": "../../resources/film-luts",
+                "output": "/film-luts"
               }
             ],
             "styles": ["projects/maple/src/styles.scss"],
