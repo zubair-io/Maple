@@ -189,6 +189,13 @@ extension EditSession {
                 rawPath: url.path, model: m, quality: .preview)
         }
 
+        // Film look (epic #2683, Task 10): resolve + push BEFORE this present,
+        // mirroring the Auto Profile fit above rather than pushing from
+        // `model`'s `didSet` (a property observer can't `await`, so a
+        // didSet-time push always raced the render it was supposed to
+        // precede — see `syncFilmLutForPresent`'s doc for the history).
+        await syncFilmLutForPresent(driver: driver)
+
         // Generation gate: drop a superseded present before issuing it (the CPU
         // path drops at `renderedPreview =`; the GPU present has no post-hoc
         // gate, so we check here AND let the driver supersede the queued one).

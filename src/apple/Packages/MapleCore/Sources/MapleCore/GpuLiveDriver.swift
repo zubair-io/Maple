@@ -135,6 +135,13 @@ public final class GpuLiveDriver {
         await session?.clearFilmLut()
     }
 
+    /// The content-identity key of the currently-loaded film-look lattice,
+    /// `nil` for "no look". A synchronous MainActor read (no actor hop) —
+    /// `EditSession.syncFilmLutForPresent` compares this against a freshly
+    /// resolved key to skip the `await` push entirely on the common
+    /// steady-state present where the look hasn't changed.
+    public var currentFilmLutKey: UInt32? { filmLut?.key }
+
     /// The input-shape tag for the open session (#1331): 0 = PostDcpRec2020Fp16
     /// (RAW, all stages), 1 = LinearRec2020Fp16 (pano PNG, skip WB+CS). Stored at
     /// `open` time and forwarded to every `present` so the chain knows which leading
