@@ -14,6 +14,8 @@
 #                                            (epic #925 P2 / #990; TS #1944)
 #   - agx-coeffs     (src/scripts/derive_agx_lut.py) → WGSL
 #                                            (epic #925 P2 / #990)
+#   - film-catalog   (raw_core::film_catalog::FILM_CATALOG) → Swift + TS
+#                                            (epic #2683, Task 6)
 #
 # Outputs:
 #   - src/apple/Packages/MapleCore/Sources/MapleCore/Generated/AdjustmentModel+Generated.swift
@@ -29,6 +31,8 @@
 #   - src/raw-pipeline/raw-gpu/src/generated/color_matrices.wgsl
 #   - src/web/projects/maple-common/src/lib/generated/color-matrices.generated.ts
 #   - src/raw-pipeline/raw-gpu/src/generated/agx_coeffs.wgsl
+#   - src/apple/Packages/MapleCore/Sources/MapleCore/Generated/FilmCatalog+Generated.swift
+#   - src/web/projects/maple-common/src/lib/generated/film-catalog.generated.ts
 #
 # The cbindgen step for the FFI header is handled by
 # `src/apple/scripts/build-xcframework.sh` as part of the xcframework build —
@@ -97,6 +101,18 @@ AGX_WGSL_OUT="src/raw-pipeline/raw-gpu/src/generated/agx_coeffs.wgsl"
 
 python3 src/scripts/derive_agx_lut.py --wgsl "$AGX_WGSL_OUT"
 
+# --- Film catalog (epic #2683, Task 6) -------------------------------------
+# `raw_core::film_catalog::FILM_CATALOG` — the FilmCategory enum/union, the
+# FilmLookEntry shape, and the full 100-entry catalog — single-sourced to
+# both Swift and TS so neither platform hand-maintains the id/name/category
+# list independently of the ingested cube pack.
+
+FILM_SWIFT_OUT="src/apple/Packages/MapleCore/Sources/MapleCore/Generated/FilmCatalog+Generated.swift"
+FILM_TS_OUT="src/web/projects/maple-common/src/lib/generated/film-catalog.generated.ts"
+
+"$BIN" --schema film-catalog --target swift --out "$FILM_SWIFT_OUT"
+"$BIN" --schema film-catalog --target ts    --out "$FILM_TS_OUT"
+
 echo "codegen.sh: outputs regenerated."
 echo "  - $SWIFT_OUT"
 echo "  - $TS_OUT"
@@ -107,3 +123,5 @@ echo "  - $UI_SCSS_OUT"
 echo "  - $GPU_WGSL_OUT"
 echo "  - $COLOR_MATRICES_TS_OUT"
 echo "  - $AGX_WGSL_OUT"
+echo "  - $FILM_SWIFT_OUT"
+echo "  - $FILM_TS_OUT"

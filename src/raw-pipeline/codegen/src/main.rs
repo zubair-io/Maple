@@ -11,6 +11,10 @@
 //! - `ui-tokens` (`raw_core::ui_tokens::{COLOR_TOKENS, MOTION_TOKENS}`,
 //!   ticket #606) — design-system colors + motion specs. Emitter lives in
 //!   `ui_tokens.rs` next to this file.
+//! - `film-catalog` (`raw_core::film_catalog::FILM_CATALOG`, epic #2683
+//!   Task 6) — the FilmCategory enum/union, the FilmLookEntry shape, and
+//!   the full catalog. Emitter lives in `film_catalog.rs` next to this
+//!   file.
 //!
 //! Driven from `tools/codegen.sh`. The codegen-drift CI gate
 //! (`.github/workflows/cross.yml`) runs the script then `git diff
@@ -20,12 +24,14 @@ mod adjustment;
 mod adjustment_groups;
 mod adjustment_tables;
 mod color_matrices;
+mod film_catalog;
 mod ui_tokens;
 
 use std::fs;
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
+use raw_core::film_catalog::FILM_CATALOG;
 use raw_core::types::ADJUSTMENT_SCHEMA;
 use raw_core::ui_tokens::{COLOR_TOKENS, MOTION_TOKENS};
 
@@ -63,6 +69,10 @@ enum Schema {
     /// #925 P2 / #990). TS target: `M_SRGB_TO_REC2020` only — the one matrix
     /// `image-utils.ts`'s non-RAW ingestion path consumes (#1944).
     ColorMatrices,
+    /// `raw_core::film_catalog::FILM_CATALOG` — the FilmCategory enum/union,
+    /// the FilmLookEntry shape, and the full 100-entry catalog (epic #2683,
+    /// Task 6).
+    FilmCatalog,
 }
 
 #[derive(Parser, Debug)]
@@ -103,6 +113,12 @@ fn main() {
         (Schema::ColorMatrices, Target::Ts) => color_matrices::emit_ts(),
         (Schema::ColorMatrices, Target::Swift | Target::Scss | Target::TsTables) => {
             eprintln!("codegen: --schema color-matrices supports only the wgsl / ts targets");
+            std::process::exit(2);
+        }
+        (Schema::FilmCatalog, Target::Swift) => film_catalog::emit_swift(FILM_CATALOG),
+        (Schema::FilmCatalog, Target::Ts) => film_catalog::emit_ts(FILM_CATALOG),
+        (Schema::FilmCatalog, Target::TsTables | Target::Scss | Target::Wgsl) => {
+            eprintln!("codegen: --schema film-catalog supports only the swift / ts targets");
             std::process::exit(2);
         }
     };
