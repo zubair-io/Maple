@@ -99,6 +99,33 @@ struct FilenameTemplateEngineTests {
         }
     }
 
+    // MARK: - Regression: negative input must clamp, never trap (jules review, PR #2716)
+
+    /// `sequenceStart` is UI-typed (a `TextField(value:)` can hand back a
+    /// negative number) and feeds a `UInt64` at the FFI boundary —
+    /// `UInt64(negative)` traps unconditionally in Swift. `render` must
+    /// clamp to `0` rather than propagate the negative value into that
+    /// conversion.
+    @Test("negative sequence start clamps to 0 instead of trapping")
+    func negativeSequenceStartClamps() throws {
+        let name = try FilenameTemplateEngine.render(
+            template: "{n}_{original}.{ext}", originalStem: "IMG_0001", ext: "dng",
+            capturedAtExifString: nil, sequenceStart: -5, sequenceIndex: 0, sequencePadWidth: 0)
+        #expect(name == "0_IMG_0001.dng")
+    }
+
+    /// Same trap risk, same fix, for `sequencePadWidth`'s `UInt(...)`
+    /// conversion. Only the negative side is clamped — an over-large
+    /// positive value must still reach the engine's own bound check
+    /// (`padWidthTooLarge` above), not be silently capped here.
+    @Test("negative sequence pad width clamps to 0 instead of trapping")
+    func negativeSequencePadWidthClamps() throws {
+        let name = try FilenameTemplateEngine.render(
+            template: "{n}_{original}.{ext}", originalStem: "IMG_0001", ext: "dng",
+            capturedAtExifString: nil, sequenceStart: 0, sequenceIndex: 3, sequencePadWidth: -3)
+        #expect(name == "3_IMG_0001.dng")
+    }
+
     // MARK: - Golden fixture corpus (#2633 parity)
 
     private struct FixtureCase: Decodable {
@@ -106,7 +133,7 @@ struct FilenameTemplateEngineTests {
         let template: String
         let originalStem: String
         let ext: String
-        let sequenceStart: UInt64
+        let sequenceStart: Int
         let sequenceIndex: UInt64
         let sequencePadWidth: Int
         let capturedAt: String?

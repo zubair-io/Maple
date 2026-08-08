@@ -162,4 +162,95 @@ final class BatchRenameViewModelTests: XCTestCase {
         let vm = BatchRenameViewModel(assets: assets, routing: .unsupported("no"))
         XCTAssertFalse(vm.canApply)
     }
+
+    // MARK: - Regression: concurrent apply() (jules review, PR #2716)
+
+    /// Without the fix, `apply()` set `isApplying` only AFTER awaiting
+    /// `refreshPreview()`, leaving a window where the sheet's Apply button
+    /// stayed enabled and a second tap could start a second sequential
+    /// rename pass over the SAME files while the first was still running —
+    /// two interleaved relocate passes on one file set, a genuine data
+    /// hazard. `isApplying` must now flip to `true` synchronously, before
+    /// any `await`, so a concurrent call sees the guard and is refused.
+    func testConcurrentApplyIsRefused() async throws {
+        let assets = (0..<5).map { makeAsset("img_\($0).dng") }
+        let vm = BatchRenameViewModel(assets: assets, routing: .filesystem)
+        vm.template = "{original}_renamed.{ext}"
+
+        let firstTask = Task { @MainActor in await vm.apply() }
+        // Let the first call run past its synchronous `isApplying = true`
+        // and into its real suspension point (`await LocalFileOperations
+        // .relocate` inside `applyFilesystem`'s per-asset loop).
+        await Task.yield()
+        await Task.yield()
+        XCTAssertTrue(vm.isApplying, "expected the first apply() call to still be in flight")
+
+        // A second apply() while the first is in flight must be refused
+        // (return immediately, touching nothing) rather than starting a
+        // second sequential pass that races the first over the same files.
+        await vm.apply()
+
+        await firstTask.value
+
+        let results = try XCTUnwrap(vm.applyResults)
+        XCTAssertEqual(results.count, assets.count)
+        for result in results {
+            guard case .renamed = result.outcome else {
+                return XCTFail(
+                    "expected every asset renamed cleanly with no cross-call race, got \(result.outcome)")
+            }
+        }
+        // Every original name is gone exactly once — proof the refused
+        // second call never touched the filesystem itself.
+        for (index, _) in assets.enumerated() {
+            XCTAssertFalse(
+                FileOperationsTestSupport.exists(root.appendingPathComponent("img_\(index).dng")))
+        }
+    }
+
+    // MARK: - Regression: duplicate ids in a server response (jules review)
+
+    /// `Dictionary(uniqueKeysWithValues:)` traps on a duplicate key —
+    /// reachable from a duplicated selection or a malformed API response.
+    /// `indexByIDTolerantOfDuplicates` must index the SAME shape without
+    /// crashing, keeping the first entry for a repeated id.
+    func testIndexByIDTolerantOfDuplicatesKeepsFirstEntryAndDoesNotCrash() {
+        struct Item { let id: String; let value: Int }
+        let items = [
+            Item(id: "a", value: 1),
+            Item(id: "a", value: 2),
+            Item(id: "b", value: 3),
+        ]
+        let byID = indexByIDTolerantOfDuplicates(items, id: \.id)
+        XCTAssertEqual(byID.count, 2)
+        XCTAssertEqual(byID["a"]?.value, 1)
+        XCTAssertEqual(byID["b"]?.value, 3)
+    }
+
+    func testIndexByIDTolerantOfDuplicatesOnEmptyInput() {
+        struct Item { let id: String }
+        let byID = indexByIDTolerantOfDuplicates([Item](), id: \.id)
+        XCTAssertTrue(byID.isEmpty)
+    }
+
+    // MARK: - Regression: negative sequence values (jules review)
+
+    /// A negative `sequenceStart`/`sequencePadWidth` reaching
+    /// `FilenameTemplateEngine.render`'s `UInt64`/`UInt` conversion used to
+    /// trap unconditionally. The view model must never crash when these
+    /// values go negative, whatever the source (the sheet's own fields now
+    /// clamp at entry, but this proves the view model itself is safe
+    /// independent of that UI-layer guard).
+    func testNegativeSequenceValuesDoNotTrapDuringPreview() async throws {
+        let assets = [makeAsset("a.dng")]
+        let vm = BatchRenameViewModel(assets: assets, routing: .filesystem)
+        vm.template = "{n}_{original}.{ext}"
+        vm.sequenceStart = -5
+        vm.sequencePadWidth = -3
+
+        await vm.refreshPreview()
+
+        XCTAssertEqual(vm.preview.first?.newFilename, "0_a.dng")
+        XCTAssertNil(vm.preview.first?.error)
+    }
 }
