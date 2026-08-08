@@ -41,9 +41,28 @@ namespace Maple.WinUI
         /// PhotoItem identities travel via this field instead — the
         /// DataPackage still carries a plain-text summary (SetText below) so
         /// the drag has real payload and a sensible drag-visual caption.
-        /// Cleared once the drop (or a drop that never lands) is done so a
-        /// stale payload can never be replayed.</summary>
+        /// Cleared in OnPhotoGridDragItemsCompleted, which WinUI guarantees
+        /// fires however the drag ends — a successful drop, a drop rejected
+        /// by every target, or an outright cancel (Esc) — unlike relying on
+        /// OnFolderDrop alone, which only runs on an actual drop and would
+        /// leave a cancelled drag's payload sitting here indefinitely. Even
+        /// so, OnFolderDrop does not trust this field's mere non-emptiness
+        /// to mean "the current drop is ours" — see IsInternalDrag — since a
+        /// missed lifecycle path here would otherwise let a LATER, unrelated
+        /// drop (including one dragged in from outside this process, e.g.
+        /// Windows Explorer) silently relocate whatever this field still
+        /// held.</summary>
         private IReadOnlyList<PhotoItem> _dragPayload = Array.Empty<PhotoItem>();
+
+        /// <summary>App-private DataPackage format id stamped onto every
+        /// drag PhotoGrid starts (OnPhotoGridDragItemsStarting) — the marker
+        /// OnFolderDragOver/OnFolderDrop check via IsInternalDrag before
+        /// trusting _dragPayload or accepting the drop at all. A drag
+        /// originating anywhere else (Windows Explorer, another app) never
+        /// carries this format, so it can never be mistaken for an internal
+        /// PhotoGrid drag no matter what stale field state happens to be
+        /// sitting around.</summary>
+        private const string InternalDragFormatId = "Maple.WinUI.PhotoGridDrag";
 
         // --- Drag source: PhotoGrid (CanDragItems="True" in MainWindow.xaml) ---
 
@@ -73,20 +92,46 @@ namespace Maple.WinUI
             // drop target outside this window (there is none in scope for
             // this ticket) would see instead of nothing.
             e.Data.SetText(string.Join("\n", eligible.Select(p => p.FilePath)));
+            // The marker IsInternalDrag checks — never read back through
+            // GetDataAsync, only Contains(), so the `true` value is never
+            // actually consumed.
+            e.Data.SetData(InternalDragFormatId, true);
             e.Data.RequestedOperation = DataPackageOperation.Move | DataPackageOperation.Copy;
         }
+
+        /// <summary>Fires however THIS drag ends — dropped on a valid
+        /// target, dropped on nothing that accepted it, or cancelled
+        /// outright (Esc) — which is what makes this the correct place to
+        /// retire _dragPayload rather than OnFolderDrop, which only runs on
+        /// an actual successful drop.</summary>
+        private void OnPhotoGridDragItemsCompleted(object sender, DragItemsCompletedEventArgs e)
+        {
+            _dragPayload = Array.Empty<PhotoItem>();
+        }
+
+        /// <summary>True only for a drag PhotoGrid itself started — see
+        /// InternalDragFormatId. Both OnFolderDragOver and OnFolderDrop
+        /// check this before doing anything with _dragPayload, so an
+        /// external drag (Explorer, another app) is inert here even if
+        /// OnPhotoGridDragItemsCompleted's cleanup were ever missed for some
+        /// other internal drag — defense in depth, not the only guard.</summary>
+        private static bool IsInternalDrag(DragEventArgs e) => e.DataView.Contains(InternalDragFormatId);
 
         // --- Drop target: each FOLDERS TreeViewItem (AllowDrop="True" in MainWindow.xaml) ---
 
         private void OnFolderDragEnter(object sender, DragEventArgs e)
         {
             // Background is a Control property (TreeViewItem : Control), not
-            // a bare FrameworkElement one. Only the coarse "is this even a
-            // real folder node" check runs here (no payload/self-drop
-            // analysis — that's OnFolderDragOver's job, which also drives
-            // the actual accept/reject cursor); a placeholder expander stub
-            // never highlights as a target.
-            if (sender is Control { DataContext: FolderNode { IsPlaceholder: false } node } control
+            // a bare FrameworkElement one. Gated on IsInternalDrag first: an
+            // external drag (Explorer, another app) should never highlight
+            // a folder row as a target this feature doesn't handle yet.
+            // Beyond that, only the coarse "is this even a real folder node"
+            // check runs here (no payload/self-drop analysis — that's
+            // OnFolderDragOver's job, which also drives the actual
+            // accept/reject cursor); a placeholder expander stub never
+            // highlights as a target.
+            if (IsInternalDrag(e)
+                && sender is Control { DataContext: FolderNode { IsPlaceholder: false } node } control
                 && !string.IsNullOrEmpty(node.Path))
                 control.Background = (SolidColorBrush)Application.Current.Resources["MaplePrimaryDim"];
         }
@@ -99,8 +144,17 @@ namespace Maple.WinUI
 
         private void OnFolderDragOver(object sender, DragEventArgs e)
         {
+            // Not our drag (e.g. Windows Explorer dragging files in) — leave
+            // AcceptedOperation untouched rather than marking this handled,
+            // so the drop falls through cleanly for future work (#2649/
+            // #2651 drop-to-mount) instead of this handler silently
+            // swallowing a gesture it has no business interpreting.
+            if (!IsInternalDrag(e))
+                return;
+
             e.Handled = true;
-            if (!TryResolveDropTarget(sender, out _, out var applicableSources))
+            var hasTarget = TryResolveDropTarget(sender, out _, out var applicableSources);
+            if (!DragMoveLogic.ShouldAcceptDrop(isInternalDrag: true, hasTarget))
             {
                 e.AcceptedOperation = DataPackageOperation.None;
                 return;
@@ -115,15 +169,24 @@ namespace Maple.WinUI
 
         private async void OnFolderDrop(object sender, DragEventArgs e)
         {
-            e.Handled = true;
             if (sender is Control resetTarget)
                 resetTarget.ClearValue(Control.BackgroundProperty);
 
-            if (!TryResolveDropTarget(sender, out var node, out var applicableSources) || node == null)
+            // Same guard as OnFolderDragOver, and the load-bearing one: this
+            // is what stops a drop from ever consuming _dragPayload unless
+            // the CURRENT drop actually originated from this app's own
+            // PhotoGrid — not "whatever _dragPayload happens to still hold,"
+            // which a missed cleanup path could otherwise leave stale after
+            // a cancelled internal drag.
+            if (!IsInternalDrag(e))
+                return;
+
+            e.Handled = true;
+            var hasTarget = TryResolveDropTarget(sender, out var node, out var applicableSources);
+            if (!DragMoveLogic.ShouldAcceptDrop(isInternalDrag: true, hasTarget) || node == null)
                 return;
 
             var payload = _dragPayload;
-            _dragPayload = Array.Empty<PhotoItem>();
             if (payload.Count == 0)
                 return;
 
