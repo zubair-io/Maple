@@ -278,4 +278,21 @@ describe('DragMoveService', () => {
     // Still the FIRST asset's collision prompt — the second call was a no-op.
     expect(service.collisionPrompt()).toEqual({ filename: ASSET_A.filename });
   });
+
+  it('dismissSummary clears the completed-drop summary banner', () => {
+    relocateAssetSpy.mockReturnValue(
+      of({
+        kind: 'relocated',
+        newAbsPath: '/x',
+        newPath: 'France',
+        newFilename: 'x',
+        renamedOnCollision: false,
+      }),
+    );
+    service.beginMove([ASSET_A.id], SOURCE_FOLDER_ID, TARGET_NODE, 'move');
+    expect(service.resultSummary()).not.toBeNull();
+
+    service.dismissSummary();
+    expect(service.resultSummary()).toBeNull();
+  });
 });

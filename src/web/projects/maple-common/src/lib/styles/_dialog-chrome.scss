@@ -137,3 +137,39 @@
     }
   }
 }
+
+/// Fixed-position "background op just finished" toast, anchored bottom-
+/// center — shared layout/placement between `folder-tree.component.scss`'s
+/// `.trash-partial-warning` (#2643) and `drag-move-summary-banner.component
+/// .scss`'s `.dms-banner` (#2644), which were a byte-identical 13-line copy
+/// of this positioning block before extraction. Colors are NOT part of the
+/// mixin (trash's toast is an error-colored rejection; drag-move's is a
+/// neutral surface-colored confirmation that can also report failures) —
+/// callers set `background`/`color`/`border` themselves after including
+/// this.
+@mixin toast-shell {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 90vw;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+/// The plain dismiss ("✕") button both toasts above use — inherits the
+/// toast's own text color, no chrome of its own.
+@mixin toast-dismiss-button {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 11px;
+  flex-shrink: 0;
+}

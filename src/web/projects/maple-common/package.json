@@ -2,6 +2,7 @@
   "name": "maple-common",
   "version": "0.0.1",
   "peerDependencies": {
+    "@angular/cdk": "^21.2.0",
     "@angular/common": "^21.2.0",
     "@angular/core": "^21.2.0",
     "@angular/router": "^21.2.0"
