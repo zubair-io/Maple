@@ -29,6 +29,17 @@ test-fixtures/*
 # the Bun test suite, Swift XCTest, and the Windows test project against
 # their own relocate/rename primitives.
 !test-fixtures/file-operations/
+# Exception: the film-look self-consistency goldens (epic #2683,
+# src/scripts/test_film_looks.sh) ARE committed — six 1024px-long-edge PNGs
+# (~1MB each), downscaled from the full-res candidate before being written
+# as a baseline. Not ACR references, just the ratchet's own prior output.
+# `references/` sits a level under the already-ignored `test-fixtures/*`, so
+# re-including a path under it needs the directory itself un-ignored first
+# (git won't recurse into an ignored dir to find a deeper negation), then
+# everything else directly under it re-ignored again save `film/`.
+!test-fixtures/references/
+test-fixtures/references/*
+!test-fixtures/references/film/
 
 # Rust
 target/
