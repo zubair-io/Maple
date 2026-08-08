@@ -59,7 +59,7 @@ export interface StageFailureOutcome {
  * Only an explicit `false` counts. An error that doesn't carry the flag says
  * nothing about retryability, so it keeps its full attempt budget.
  */
-export function isTerminalError(err: unknown): boolean {
+function isTerminalError(err: unknown): boolean {
   return (err as { retryable?: unknown } | null | undefined)?.retryable === false;
 }
 
