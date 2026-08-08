@@ -1,0 +1,19 @@
+<button
+  type="button"
+  class="export-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] border-[0.5px]"
+  [class.has-selection]="enabled()"
+  [class.no-selection]="!enabled()"
+  [class.bg-primary-dim]="enabled()"
+  [class.text-primary]="enabled()"
+  [class.border-primary]="enabled()"
+  [class.bg-input-bg]="!enabled()"
+  [class.text-text-muted]="!enabled()"
+  [class.border-border]="!enabled()"
+  [class.opacity-50]="!enabled()"
+  [disabled]="!enabled()"
+  [title]="buttonTitle()"
+  [attr.aria-label]="ariaLabel()"
+  (click)="clicked.emit()"
+>
+  <span>{{ displayLabel() }}</span>
+</button>
