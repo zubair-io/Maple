@@ -396,6 +396,15 @@ export function _resetFfiPoolForTests(): void {
   _pool = null;
 }
 
+/** Test-only: install a stand-in for the process-wide pool. Mirrors
+ * `setRawFfiForTests` / `setDescribeDepsForTests`. Pass `null` to restore
+ * lazy construction. Needed because the indexer's RAW paths reach for
+ * `ffiPool()` directly, so there is otherwise no way to exercise their
+ * dispatch decisions without the native dylib. */
+export function _setFfiPoolForTests(pool: FfiWorkerPool | null): void {
+  _pool = pool;
+}
+
 /** Test-only: build an isolated pool with an injected worker factory. The
  * `availableOverride` skips the real dylib probe so dispatch logic can run
  * without the native lib. */

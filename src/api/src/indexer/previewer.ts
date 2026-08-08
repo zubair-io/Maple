@@ -248,20 +248,94 @@ async function renderRawPreviewToFile(rawPath: string, outPath: string): Promise
     );
     return false;
   }
+  // quality 70 — this tier is both the client-facing "swap in over the
+  // thumbnail" preview and (after describe.ts's in-memory JPEG re-encode)
+  // the VLM's input, so it needs materially more fidelity than the 256px
+  // grid-thumbnail tier's quality-55 AVIF, but AVIF's efficiency means it
+  // doesn't need JPEG-equivalent-looking quality numbers to get there.
+  //
+  // Extraction failure REJECTS here rather than returning false: the pool
+  // marshals the child's error across the process boundary as a throw, and
+  // the underlying rc (8 = "no embedded preview / thumbnail in RAW") does
+  // not survive that trip — the message is a generic "render-failed (see
+  // child stderr)". So both branches fall through to the demosaic, and the
+  // fallback deliberately triggers on ANY extraction failure rather than
+  // trying to detect the no-preview case specifically. That is not a
+  // shortcut: a genuinely unreadable RAW fails the decode too and still
+  // returns false, one log line later.
   try {
-    // quality 70 — this tier is both the client-facing "swap in over the
-    // thumbnail" preview and (after describe.ts's in-memory JPEG re-encode)
-    // the VLM's input, so it needs materially more fidelity than the 256px
-    // grid-thumbnail tier's quality-55 AVIF, but AVIF's efficiency means it
-    // doesn't need JPEG-equivalent-looking quality numbers to get there.
-    return await pool.renderThumbnailAvifToFile(rawPath, outPath, PREVIEW_LONG_EDGE_PX, 70);
+    if (await pool.renderThumbnailAvifToFile(rawPath, outPath, PREVIEW_LONG_EDGE_PX, 70)) {
+      return true;
+    }
   } catch (e) {
-    return logRenderFailure({ rawPath }, e, 'FFI call threw');
+    log.debug(
+      { rawPath, err: e instanceof Error ? e.message : e },
+      'embedded-preview extraction failed — trying demosaic fallback',
+    );
   }
+  return await developRawPreviewToFile(rawPath, outPath);
   // Note: FFI path bakes orientation into pixels and emits a bare AVIF with
   // no EXIF. Bitmap paths (via imgdecode child) call sharp's .rotate() at
   // decode time. No inline orientation post-process needed — keeping sharp
   // out of worker-main's address space for isolation.
+}
+
+/**
+ * Fallback for a RAW that carries no embedded preview to extract.
+ *
+ * `renderThumbnailAvifToFile` only ever EXTRACTS the JPEG the camera or
+ * editor embedded; it fails with rc 8 ("no embedded preview / thumbnail in
+ * RAW") when there isn't one. Some RAWs genuinely have none — uncompressed
+ * Bayer CFA DNGs from phone cameras are the case that surfaced this
+ * (#2733): Lightroom writes a preview into the HDR composite it produces
+ * and none into the individual burst frames, so half a folder gets previews
+ * and half silently gets nothing, forever. Those assets then have no
+ * preview, no grid thumbnail, and no caption — describe parks on
+ * `preview-missing` and eventually dead-letters.
+ *
+ * So decode and demosaic the sensor data instead, via the same `raw-core`
+ * path the develop tier uses, with null adjustments for a neutral render.
+ * Measured on the assets that surfaced this, that costs ~1s — no slower
+ * than the extraction it replaces, because a full decode is roughly what
+ * extraction-plus-rescale was doing anyway.
+ *
+ * Two hops (develop to JPEG, then the imgdecode child) rather than asking
+ * for an AVIF directly: the FFI has no develop-to-AVIF entry point, and
+ * routing through `renderBitmapPreviewToFile` means the resize maths, AVIF
+ * encoder settings and quality are literally the bitmap path — no second
+ * encoder whose output could drift from it. Same rationale, and the same
+ * shape, as the video poster-frame path below.
+ */
+async function developRawPreviewToFile(rawPath: string, outPath: string): Promise<boolean> {
+  const pool = ffiPool();
+  const jpegPath = `${outPath}.develop.jpg`;
+  try {
+    // quality 90 — this JPEG is an intermediate that gets re-encoded to
+    // AVIF immediately, so it should not be the lossy step that matters.
+    const developed = await pool.renderDevelopJpegToFile(
+      rawPath,
+      null,
+      jpegPath,
+      PREVIEW_LONG_EDGE_PX,
+      90,
+    );
+    if (!developed) {
+      return logRenderFailure(
+        { rawPath },
+        'develop returned false',
+        'no embedded preview, and demosaic fallback failed',
+      );
+    }
+    return await renderBitmapPreviewToFile(jpegPath, outPath, 'jpg');
+  } catch (e) {
+    return logRenderFailure({ rawPath }, e, 'demosaic fallback threw');
+  } finally {
+    try {
+      await fs.unlink(jpegPath);
+    } catch {
+      /* develop failed before writing, or already gone */
+    }
+  }
 }
 
 /**
