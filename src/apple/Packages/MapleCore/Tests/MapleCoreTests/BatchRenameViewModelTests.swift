@@ -253,4 +253,82 @@ final class BatchRenameViewModelTests: XCTestCase {
         XCTAssertEqual(vm.preview.first?.newFilename, "0_a.dng")
         XCTAssertNil(vm.preview.first?.error)
     }
+
+    // MARK: - Regression: EXIF reads off-main and only-when-needed (jules re-review)
+
+    /// `renderLocalPreview` used to call `ImageMetadataReader
+    /// .readRawCaptureDateStrings` synchronously, on the main actor, for
+    /// EVERY asset on EVERY debounced keystroke — a blocking disk read
+    /// across the whole selection, even when the template had no
+    /// `{date:...}` token to justify it. A template with no date token must
+    /// perform ZERO reads.
+    func testTemplateWithoutDateTokenPerformsZeroExifReads() async throws {
+        let assets = [makeAsset("a.dng"), makeAsset("b.dng"), makeAsset("c.dng")]
+        let vm = BatchRenameViewModel(assets: assets, routing: .filesystem)
+        let counter = CallCounter()
+        vm.captureDateReader = { _ in
+            counter.increment()
+            return "2024:01:01 00:00:00"
+        }
+        vm.template = "{original}_renamed.{ext}"
+
+        await vm.refreshPreview()
+        // A second refresh (template still date-free) must stay at zero too.
+        vm.sequenceStart = 2
+        await vm.refreshPreview()
+
+        XCTAssertEqual(counter.count, 0)
+        XCTAssertEqual(vm.preview.map(\.newFilename), ["a_renamed.dng", "b_renamed.dng", "c_renamed.dng"])
+    }
+
+    /// When the template DOES use `{date:...}`, the cache is populated
+    /// exactly once — off the main actor — and reused across every later
+    /// `refreshPreview()`, never re-read per keystroke.
+    func testDateTokenPopulatesCaptureDateCacheOnceAcrossRepeatedRefreshes() async throws {
+        let assets = [makeAsset("a.dng"), makeAsset("b.dng"), makeAsset("c.dng")]
+        let vm = BatchRenameViewModel(assets: assets, routing: .filesystem)
+        let counter = CallCounter()
+        vm.captureDateReader = { _ in
+            counter.increment()
+            return "2024:01:01 00:00:00"
+        }
+        vm.template = "{date:%Y}_{original}.{ext}"
+
+        await vm.refreshPreview()
+        XCTAssertEqual(counter.count, assets.count, "expected exactly one read per asset on first resolve")
+        XCTAssertEqual(vm.preview.map(\.newFilename), ["2024_a.dng", "2024_b.dng", "2024_c.dng"])
+
+        // Repeated refreshes — including a template edit that still uses a
+        // date token — must reuse the cache, not re-read.
+        vm.sequenceStart = 7
+        await vm.refreshPreview()
+        vm.template = "{date:%Y}-{n}_{original}.{ext}"
+        await vm.refreshPreview()
+
+        XCTAssertEqual(
+            counter.count, assets.count,
+            "expected the reader to run exactly once per asset total, not once per refresh")
+    }
+}
+
+// MARK: - CallCounter
+
+/// Thread-safe call counter for `captureDateReader` injection —
+/// `ensureCapturedAtCacheIfNeeded` runs the reader concurrently inside a
+/// `TaskGroup`, off the main actor, so a plain `var` would race.
+private final class CallCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _count = 0
+
+    var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return _count
+    }
+
+    func increment() {
+        lock.lock()
+        _count += 1
+        lock.unlock()
+    }
 }
