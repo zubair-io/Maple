@@ -119,10 +119,20 @@ namespace Maple.WinUI.Services.FileOperations
             DragMoveCollisionChoice collisionChoice,
             Action<int, int>? onItemDone = null)
         {
+            // Tracks every NATURAL destination candidate (destinationDir +
+            // an item's own CurrentFileName, unsuffixed) this batch has
+            // already successfully relocated something onto — see
+            // ApplyOneAsync's header comment for why this is the one
+            // mechanism that closes BOTH the unflagged and the
+            // pre-scan-flagged versions of the same data-loss shape.
+            // OrdinalIgnoreCase: NTFS directory/file name comparison, same
+            // comparer LocalFileOperations uses throughout this service.
+            var claimedThisBatch = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var outcomes = new List<DragMoveItemOutcome>(items.Count);
             for (var i = 0; i < items.Count; i++)
             {
-                outcomes.Add(await ApplyOneAsync(items[i], destinationDir, mode, collidingKeys, collisionChoice)
+                outcomes.Add(await ApplyOneAsync(
+                    items[i], destinationDir, mode, collidingKeys, collisionChoice, claimedThisBatch)
                     .ConfigureAwait(false));
                 onItemDone?.Invoke(i + 1, items.Count);
             }
@@ -131,60 +141,83 @@ namespace Maple.WinUI.Services.FileOperations
 
         /// <summary>
         /// The pre-scan (<see cref="DetectCollisions"/>) runs once, before
-        /// ANY item in the batch has moved — it can never see a collision
-        /// that this SAME sequential apply creates mid-batch, e.g. two
-        /// same-basename items dragged together from two different source
-        /// folders: neither collides with the destination's pre-existing
-        /// contents, so neither lands in <paramref name="collidingKeys"/>,
-        /// but the SECOND one collides with the FIRST one's freshly-moved
-        /// file the instant the first relocate completes. Trusting the
-        /// stale pre-scan here — applying whatever policy the user chose
-        /// for the collisions they WERE shown — would silently destroy the
-        /// second photo under <see cref="DragMoveCollisionChoice.Replace"/>,
-        /// or drop it under <see cref="DragMoveCollisionChoice.Skip"/>,
-        /// neither of which the user ever approved for THIS file.
+        /// ANY item in the batch has moved, against whatever existed at
+        /// <paramref name="destinationDir"/> BEFORE the drop started. Two
+        /// different sequencing hazards can each let a batch-wide choice
+        /// silently apply to a file the user never actually consented to
+        /// touch:
         ///
-        /// The fix: re-probe the destination immediately before every
-        /// item's own relocate. A collision found here that IS one of
-        /// <paramref name="collidingKeys"/> (the user saw and decided on it)
-        /// gets the user's actual choice. A collision found here that is
-        /// NOT — discovered only because an earlier item in this batch just
-        /// landed — always resolves via <see cref="CollisionPolicy.AutoSuffix"/>
-        /// regardless of what was chosen, since that is the one policy that
-        /// can never lose data (never overwrites, never drops), and this
-        /// case is by construction a collision the user was never asked
-        /// about.
+        /// 1. UNFLAGGED: two same-basename items from different source
+        ///    folders, neither colliding with the destination's pre-existing
+        ///    contents at scan time (so neither lands in
+        ///    <paramref name="collidingKeys"/>) — but the SECOND one
+        ///    collides with the FIRST one's freshly-moved file the instant
+        ///    the first relocate completes.
+        /// 2. FLAGGED: the destination already has (say) IMG_001.dng, and
+        ///    the batch ALSO carries two items both named IMG_001.dng — the
+        ///    pre-scan flags BOTH of them as colliding with that one
+        ///    pre-existing file, so both carry `knownCollision = true`. The
+        ///    user's Replace choice was consent to overwrite the file that
+        ///    existed before the drop — not consent for the second dragged
+        ///    item to then overwrite the FIRST dragged item's result.
+        ///
+        /// Both hazards are the same shape once phrased correctly: consent
+        /// for a given destination name is consumed the first time this
+        /// batch successfully writes there. <paramref name="claimedThisBatch"/>
+        /// tracks exactly that — the NATURAL (unsuffixed) candidate name
+        /// each already-relocated item in this batch targeted. Any later
+        /// item whose own natural candidate is already claimed gets forced
+        /// onto <see cref="CollisionPolicy.AutoSuffix"/> — the one policy
+        /// that can never lose data — regardless of what the user chose,
+        /// and the outcome carries a <see cref="DragMoveItemOutcome.Note"/>
+        /// so the override is visible rather than indistinguishable from an
+        /// ordinary successful relocate.
         /// </summary>
         private static async Task<DragMoveItemOutcome> ApplyOneAsync(
             DragMoveSourceItem item,
             string destinationDir,
             RelocateMode mode,
             IReadOnlyCollection<string> collidingKeys,
-            DragMoveCollisionChoice collisionChoice)
+            DragMoveCollisionChoice collisionChoice,
+            HashSet<string> claimedThisBatch)
         {
             if (IsAlreadyInDestination(item, destinationDir))
                 return new DragMoveItemOutcome(item.Key, DragMoveOutcomeKind.Skipped,
                     item.CurrentFileName, Error: "Already in this folder.");
 
             var candidatePath = Path.Combine(destinationDir, item.CurrentFileName);
-            var collidesNow = File.Exists(candidatePath) || Directory.Exists(candidatePath);
+            var claimedBySibling = claimedThisBatch.Contains(candidatePath);
+            var collidesNow = !claimedBySibling
+                && (File.Exists(candidatePath) || Directory.Exists(candidatePath));
             var knownCollision = collidesNow && collidingKeys.Contains(item.Key);
 
-            if (knownCollision && collisionChoice == DragMoveCollisionChoice.Skip)
+            if (!claimedBySibling && knownCollision && collisionChoice == DragMoveCollisionChoice.Skip)
                 return new DragMoveItemOutcome(item.Key, DragMoveOutcomeKind.Skipped,
                     item.CurrentFileName, Error: "Skipped — a file with this name already exists there.");
 
-            var policy = collidesNow && !knownCollision
-                ? CollisionPolicy.AutoSuffix
-                : ToCollisionPolicy(collisionChoice);
+            // Claimed-by-a-sibling always overrides the chosen policy
+            // (including Skip — the ORIGINAL pre-existing occupant this
+            // item might also nominally collide with may already be gone,
+            // replaced by that sibling, so "skip" has no well-defined
+            // target left either). An unclaimed-but-live collision that
+            // ISN'T one the pre-scan flagged is the same defensive
+            // safety net as the claimed case — auto-suffix, never
+            // destructive — for a collision this code has no record the
+            // user was ever asked about.
+            var forcedAutoSuffix = claimedBySibling || (collidesNow && !knownCollision);
+            var policy = forcedAutoSuffix ? CollisionPolicy.AutoSuffix : ToCollisionPolicy(collisionChoice);
 
             try
             {
                 var outcome = await LocalFileOperations
                     .RelocateAsync(item.CurrentPath, destinationDir, newBasename: null, mode, policy)
                     .ConfigureAwait(false);
+                claimedThisBatch.Add(candidatePath);
+                var note = forcedAutoSuffix && outcome.RenamedDueToCollision
+                    ? "Renamed to avoid overwriting an item from this same drop."
+                    : null;
                 return new DragMoveItemOutcome(item.Key, DragMoveOutcomeKind.Relocated,
-                    item.CurrentFileName, outcome.PrimaryPath);
+                    item.CurrentFileName, outcome.PrimaryPath, Note: note);
             }
             catch (FileOperationException ex)
             {

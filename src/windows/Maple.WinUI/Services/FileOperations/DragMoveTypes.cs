@@ -54,11 +54,20 @@ namespace Maple.WinUI.Services.FileOperations
     }
 
     /// <summary>One item's outcome from a sequential drag-move/drag-copy
-    /// apply.</summary>
+    /// apply. <paramref name="Note"/> is set only when a
+    /// <see cref="Kind"/> of <see cref="DragMoveOutcomeKind.Relocated"/>
+    /// still deserves a caller-visible explanation — specifically, when
+    /// DragMoveLogic overrode the user's chosen collision policy because
+    /// this item's destination name was already claimed by an EARLIER item
+    /// from the SAME batch rather than by whatever existed before the drop
+    /// started (see DragMoveLogic.ApplyOneAsync's header comment). Without
+    /// this, an auto-suffixed result would look identical to an ordinary
+    /// successful relocate and the policy override would be silent.</summary>
     public sealed record DragMoveItemOutcome(
         string Key,
         DragMoveOutcomeKind Kind,
         string? FileName = null,
         string? NewPath = null,
-        string? Error = null);
+        string? Error = null,
+        string? Note = null);
 }
