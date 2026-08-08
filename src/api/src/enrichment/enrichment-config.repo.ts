@@ -86,22 +86,48 @@ export const DEFAULT_DESCRIBE_PROVIDER: DescribeProviderName = 'ollama';
 export const DEFAULT_DESCRIBE_OLLAMA_URL = 'http://localhost:11434';
 
 /**
- * Ollama library tag for the locked vision model. Requires Ollama >=
- * 0.30.5 (the tag's own floor). Single source of truth so the stage
- * handler, the bootstrap health check, and the UI copy can't drift.
+ * Ollama library tag for the locked vision model. Single source of truth
+ * so the stage handler, the bootstrap health check, and the UI copy can't
+ * drift.
  *
- * Lineage: `llava:latest` → `qwen2.5vl:7b` → `qwen3-vl:8b` → `gemma4:12b`.
- * Like qwen3-vl before it, gemma4 is a thinking model, so under the
- * `format` JSON-schema constraint it can route the whole response into
- * `thinking` and return an empty `response` — see the fallback in
+ * Lineage: `llava:latest` → `qwen2.5vl:7b` → `qwen3-vl:8b` → `gemma4:12b`
+ * → `gemma4:latest` (#2736).
+ *
+ * `gemma4:12b` shipped in #2726 and was pulled after it spent about an
+ * hour serving nothing on the deploy's host — every payload size, images
+ * and text alike — recovering only once it was force-unloaded. Measured
+ * afterwards on an idle box, all three candidates are healthy at rest;
+ * `gemma4:latest` is simply the cheapest of them:
+ *
+ *                  steady-state   VRAM     tags/asset
+ *   gemma4:latest      3.2s       3.4GB       6-9
+ *   gemma4:12b         6.9s       8.4GB       8-10
+ *   qwen3-vl:8b        4.9s        n/a       10-12
+ *
+ * The VRAM number is the one that matters operationally: this host also
+ * serves `bge-m3` to Meilisearch (semantic search reuses
+ * `describe_provider_url`), so a 3.4GB resident footprint leaves room for
+ * both where 8.4GB does not — and eviction churn between the two is the
+ * leading hypothesis for what wedged `gemma4:12b` (#2734).
+ *
+ * The trade is keyword density: `gemma4:latest` returns 6-9 `tags` where
+ * the prompt asks for 8-15 and qwen3-vl delivers 10-12. `tags` feeds
+ * `search_blob`, so thinner output is a real if modest search cost.
+ *
+ * gemma4 is a thinking model, so under the `format` JSON-schema
+ * constraint it can route the whole response into `thinking` and return
+ * an empty `response` — see the fallback in
  * `describe-providers/ollama.ts` (#2172).
  *
- * `ocr_meta.engine` (a Maple-internal discriminator) is unrelated and stays
- * the literal `"qwen2.5-vl"` (historical name) — changing it would
- * invalidate every existing DB row. The concrete model tag travels in
- * `engine_version` instead.
+ * Before changing this tag again, probe the candidate against the host the
+ * stage will ACTUALLY call, on that hardware, with the payload it
+ * ACTUALLY sends — the 1280-px preview re-encoded via
+ * `sharp(avif).jpeg({ quality: 90, mozjpeg: true })`, per `describe.ts`.
+ * The #2726 verification did neither: it ran against a developer Mac
+ * (Metal, not the deploy's CUDA box) using sharp's default jpeg quality
+ * (~25% smaller), and passed a model that then failed in production.
  */
-export const DESCRIBE_VISION_OLLAMA_TAG = 'gemma4:12b';
+export const DESCRIBE_VISION_OLLAMA_TAG = 'gemma4:latest';
 
 export const DEFAULT_DESCRIBE_MODELS: Record<DescribeProviderName, string> = {
   // See DESCRIBE_VISION_OLLAMA_TAG above. Produces structured JSON
