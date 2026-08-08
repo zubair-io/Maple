@@ -255,7 +255,10 @@ extension AppShell {
     /// happen given the sidebar only ever passes paths from its own tree,
     /// but the API rejects `..`/leading-`/` the same way `encodeTargetPath`
     /// does, so this fails closed rather than sending a malformed request).
-    private func cloudRelativePath(_ absPath: String, under libraryRootPath: String) -> String? {
+    /// Not `private`: `AppShell+AssetDrop.swift` (#2646) reuses this same
+    /// abs-path → library-relative-path derivation for the Cloud drop
+    /// target's `destination_path`.
+    func cloudRelativePath(_ absPath: String, under libraryRootPath: String) -> String? {
         let root = libraryRootPath.hasSuffix("/") ? String(libraryRootPath.dropLast()) : libraryRootPath
         guard absPath == root || absPath.hasPrefix(root + "/") else { return nil }
         guard absPath != root else { return "" }

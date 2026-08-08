@@ -45,6 +45,16 @@ struct LibrarySidebar: View {
     let onCreateFolder: (URL, Data, String) -> Void
     let onRenameFolder: (URL, Data, String) -> Void
     let onTrashFolder: (URL, Data) -> Void
+    /// Drag-onto-source-tree (#2646), local folder rows. `ids == nil` means
+    /// "use the current grid selection" — the "Move/Copy Selected Here"
+    /// context-menu item's path; non-nil is the literal drag payload.
+    /// `Bool` is `isCopy` (platform copy-modifier, or the explicit "Copy"
+    /// menu item).
+    var onDropAssets: (URL, Data, Set<AssetRef.ID>?, Bool) -> Void = { _, _, _, _ in }
+    /// How many assets are currently selected in the grid — gates whether
+    /// "Move/Copy Selected Here" appears in a folder row's context menu at
+    /// all (no point offering it with nothing selected).
+    var selectedAssetCount: Int = 0
     /// Bumped after any of the three actions above commits — re-triggers
     /// child enumeration on expanded rows (#2454-style generation counter;
     /// see `AppShell.folderRefreshGeneration`'s doc comment).
@@ -65,6 +75,11 @@ struct LibrarySidebar: View {
     /// SMB folder action with a target today — #2697 tracks building that
     /// tree, which unlocks Rename/Trash for SMB subfolder rows.
     let onCreateSMBFolder: (SMBCredentialStore.SavedShare, String) -> Void
+    /// Drag-onto-source-tree (#2646) onto the connected SMB share's root —
+    /// the only SMB drop target today (see `SMBShareRow`'s doc comment).
+    /// Same `ids == nil` ⇒ "use the current grid selection" contract as
+    /// `onDropAssets` above.
+    var onDropAssetsSMB: (SMBCredentialStore.SavedShare, Set<AssetRef.ID>?, Bool) -> Void = { _, _, _ in }
     /// Open the AddMapleCloudSheet (no prefilled domain).
     let onAddCloudServer: () -> Void
     /// User clicked a library row inside a cloud server section.
@@ -100,6 +115,11 @@ struct LibrarySidebar: View {
     /// with an explanation rather than a silent omission.
     let onCreateCloudFolder: (URL, String, String, String, String) -> Void
     let onRenameCloudFolder: (URL, String, String, String, String) -> Void
+    /// Drag-onto-source-tree (#2646) onto a Cloud library/subfolder row.
+    /// `(server, libraryFolderID, libraryRootPath, absPath, ids, isCopy)` —
+    /// same `ids == nil` ⇒ "use the current grid selection" contract as
+    /// `onDropAssets` above.
+    var onDropAssetsCloud: (URL, String, String, String, Set<AssetRef.ID>?, Bool) -> Void = { _, _, _, _, _, _ in }
     /// TIMELINE row tap (#2271/#2273) — opens the unified cross-source
     /// Timeline (every library on every connected server, unioned with
     /// PhotoKit). A navigating row, not a disclosure: it has no children of
@@ -211,7 +231,9 @@ struct LibrarySidebar: View {
                             },
                             onCreateFolder: onCreateFolder,
                             onRenameFolder: onRenameFolder,
-                            onTrashFolder: onTrashFolder
+                            onTrashFolder: onTrashFolder,
+                            onDropAssets: onDropAssets,
+                            selectedAssetCount: selectedAssetCount
                         )
                     }
                 }
@@ -329,7 +351,9 @@ struct LibrarySidebar: View {
                                 selection = .smbShare(share)
                                 onPickSMB(share)
                             },
-                            onCreateFolder: { name in onCreateSMBFolder(share, name) }
+                            onCreateFolder: { name in onCreateSMBFolder(share, name) },
+                            onDropAssets: { ids, isCopy in onDropAssetsSMB(share, ids, isCopy) },
+                            selectedAssetCount: selectedAssetCount
                         )
                     }
                 }
@@ -411,7 +435,11 @@ struct LibrarySidebar: View {
                     },
                     onRenameFolder: { libraryFolderID, libraryRootPath, absPath, newName in
                         onRenameCloudFolder(url, libraryFolderID, libraryRootPath, absPath, newName)
-                    }
+                    },
+                    onDropAssets: { libraryFolderID, libraryRootPath, absPath, ids, isCopy in
+                        onDropAssetsCloud(url, libraryFolderID, libraryRootPath, absPath, ids, isCopy)
+                    },
+                    selectedAssetCount: selectedAssetCount
                 )
                 // Keyed on the server's signed-in state so the load RE-RUNS when
                 // auth flips — most importantly false→true after the user signs
@@ -623,9 +651,15 @@ private struct SMBShareRow: View {
     let isSelected: Bool
     let onPick: () -> Void
     let onCreateFolder: (String) -> Void
+    /// Drag-onto-source-tree (#2646), onto the share ROOT — SMB has no
+    /// subfolder tree in the sidebar (see `AppShell+FolderContextMenu`'s
+    /// file header), so this row is the only SMB drop target today.
+    var onDropAssets: (Set<AssetRef.ID>?, Bool) -> Void = { _, _ in }
+    var selectedAssetCount: Int = 0
 
     @State private var showNewFolderAlert = false
     @State private var newFolderDraft = ""
+    @State private var isDropTargeted = false
 
     private var newFolderDraftIsValid: Bool {
         FilenameValidation.isValidFolderName(newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -639,7 +673,28 @@ private struct SMBShareRow: View {
             indent: 32,
             action: onPick
         )
+        .background(isDropTargeted ? MapleTokens.primary.opacity(0.15) : Color.clear)
+        .dropDestination(for: DraggedAssetPayload.self, action: { payloads, _ in
+            guard let payload = payloads.first, !payload.ids.isEmpty else { return false }
+            onDropAssets(Set(payload.ids), MapleDragModifier.isCopyRequested())
+            return true
+        }, isTargeted: { targeted in isDropTargeted = targeted })
         .contextMenu {
+            if selectedAssetCount > 0 {
+                Button {
+                    onDropAssets(nil, false)
+                } label: {
+                    Label("Move Selected Here", systemImage: "arrow.right.doc.on.clipboard")
+                }
+                .accessibilityIdentifier("smbShare.moveSelectedHere.\(share.host).\(share.share)")
+                Button {
+                    onDropAssets(nil, true)
+                } label: {
+                    Label("Copy Selected Here", systemImage: "doc.on.doc")
+                }
+                .accessibilityIdentifier("smbShare.copySelectedHere.\(share.host).\(share.share)")
+                Divider()
+            }
             Button {
                 newFolderDraft = ""
                 showNewFolderAlert = true
@@ -705,6 +760,12 @@ private struct FolderTreeRow: View {
     var onCreateFolder: ((URL, Data, String) -> Void)? = nil
     var onRenameFolder: ((URL, Data, String) -> Void)? = nil
     var onTrashFolder: ((URL, Data) -> Void)? = nil
+    /// Drag-onto-source-tree (#2646). See `LibrarySidebar.onDropAssets`'s
+    /// doc comment for the `ids == nil` ⇒ "use current grid selection"
+    /// contract.
+    var onDropAssets: (URL, Data, Set<AssetRef.ID>?, Bool) -> Void = { _, _, _, _ in }
+    /// Gates the "Move/Copy Selected Here" context-menu items.
+    var selectedAssetCount: Int = 0
 
     @State private var expanded = false
     @State private var children: [URL] = []
@@ -714,6 +775,7 @@ private struct FolderTreeRow: View {
     @State private var showRenameAlert = false
     @State private var renameDraft = ""
     @State private var showTrashConfirm = false
+    @State private var isDropTargeted = false
 
     private var isSelected: Bool { selectedPath == url.path }
     private var isAncestorOfSelection: Bool {
@@ -772,8 +834,34 @@ private struct FolderTreeRow: View {
             .padding(.leading, indent)
             .padding(.trailing, MapleTokens.Spacing.rowHorizontal)
             .padding(.vertical, MapleTokens.Spacing.rowVertical)
-            .background(isSelected ? MapleTokens.bgActive : Color.clear)
+            .background(isDropTargeted ? MapleTokens.primary.opacity(0.15)
+                        : (isSelected ? MapleTokens.bgActive : Color.clear))
+            // Drag-onto-source-tree (#2646). Default = move; the platform
+            // copy-modifier (Option on macOS — see `MapleDragModifier`) =
+            // copy. `payloads.first` is safe: a `.draggable` drag session
+            // carries exactly one `DraggedAssetPayload` (itself a LIST of
+            // ids for a multi-select drag), never multiple payloads.
+            .dropDestination(for: DraggedAssetPayload.self, action: { payloads, _ in
+                guard let payload = payloads.first, !payload.ids.isEmpty else { return false }
+                onDropAssets(url, rootBookmark, Set(payload.ids), MapleDragModifier.isCopyRequested())
+                return true
+            }, isTargeted: { targeted in isDropTargeted = targeted })
             .contextMenu {
+                if selectedAssetCount > 0 {
+                    Button {
+                        onDropAssets(url, rootBookmark, nil, false)
+                    } label: {
+                        Label("Move Selected Here", systemImage: "arrow.right.doc.on.clipboard")
+                    }
+                    .accessibilityIdentifier("folderTree.moveSelectedHere.\(url.path)")
+                    Button {
+                        onDropAssets(url, rootBookmark, nil, true)
+                    } label: {
+                        Label("Copy Selected Here", systemImage: "doc.on.doc")
+                    }
+                    .accessibilityIdentifier("folderTree.copySelectedHere.\(url.path)")
+                    Divider()
+                }
                 if onCreateFolder != nil {
                     Button {
                         newFolderDraft = ""
@@ -855,7 +943,9 @@ private struct FolderTreeRow: View {
                         onRemove: nil,
                         onCreateFolder: onCreateFolder,
                         onRenameFolder: onRenameFolder,
-                        onTrashFolder: onTrashFolder
+                        onTrashFolder: onTrashFolder,
+                        onDropAssets: onDropAssets,
+                        selectedAssetCount: selectedAssetCount
                     )
                 }
             }

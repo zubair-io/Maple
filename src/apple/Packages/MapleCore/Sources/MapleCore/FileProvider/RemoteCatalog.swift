@@ -295,6 +295,51 @@ private struct RenameErrorBody: Decodable {
     let error: String
 }
 
+/// `POST /api/assets/:id/relocate` success body (#2629's client counterpart,
+/// consumed by the drag-onto-source-tree flow, #2646). Mirrors
+/// `routes/assets/relocate.ts`'s response shape exactly — a superset of
+/// `RenameAssetResponse` (no `extension_changed`, since a cross-folder
+/// relocate has no "did the extension change" warning to surface).
+public struct RelocateAssetResponse: Decodable, Equatable, Sendable {
+    public let newAbsPath: String
+    public let newPath: String
+    public let newFilename: String
+    public let renamedOnCollision: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case newAbsPath = "new_abs_path"
+        case newPath = "new_path"
+        case newFilename = "new_filename"
+        case renamedOnCollision = "renamed_on_collision"
+    }
+}
+
+/// Outcome of `RemoteCatalog.relocateAsset`. Domain-neutral, matching
+/// `RenameAssetResult`'s shape.
+public enum RelocateAssetResult: Equatable, Sendable {
+    case ok(RelocateAssetResponse)
+    /// 200 with `skipped: true` — `collision: "skip"` found an existing
+    /// file at the destination and left both untouched. The drop-handling
+    /// caller uses THIS collision policy as its "detect a collision
+    /// without touching anything" probe (mirroring
+    /// `LocalFileOperations`'s `collision: .fail` probe), then re-calls
+    /// with `.replace`/`.keepBoth` once the user has chosen.
+    case skipped(reason: String)
+    /// 400 — an invalid `destination_path`/`destination_filename`.
+    case invalid(String)
+    /// 404 — the asset id doesn't exist.
+    case notFound
+}
+
+private struct RelocateSkippedBody: Decodable {
+    let skipped: Bool
+    let reason: String
+}
+
+private struct RelocateErrorBody: Decodable {
+    let error: String
+}
+
 /// One item of `POST /api/assets/batch-rename/preview`'s response
 /// (#2636/#2641) — a dry-run render of the template over one asset, with no
 /// filesystem or Mongo write. `duplicate` is `true` when a PRIOR item in the
@@ -996,6 +1041,62 @@ public actor RemoteCatalog {
             return .notFound
         default:
             throw URLError(.badServerResponse)
+        }
+    }
+
+    /// POST /api/assets/<id>/relocate — move or copy an asset (+ its XMP
+    /// sidecar) to a different folder within its own library (#2629, client
+    /// side #2646). `destinationPath` is POSIX-relative under the asset's
+    /// library root (`""` = root); `mode`/`collision` mirror
+    /// `RelocateMode`/the three ask-flow policies the drop-handling caller
+    /// resolves a collision to (`autoSuffix` maps to the server's
+    /// `"keep-both"` — same semantics, different vocabulary between the
+    /// on-device `CollisionPolicy` and the API's wire strings).
+    public func relocateAsset(
+        assetID: String, mode: RelocateMode, collision: CollisionPolicy,
+        destinationPath: String, destinationFilename: String? = nil
+    ) async throws -> RelocateAssetResult {
+        try Self.validateAssetID(assetID)
+        var req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/relocate"))
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = [
+            "mode": mode == .move ? "move" : "copy",
+            "collision": Self.wireCollision(collision),
+            "destination_path": destinationPath,
+        ]
+        if let destinationFilename { body["destination_filename"] = destinationFilename }
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, resp) = try await http.data(for: req)
+        let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
+        switch status {
+        case 200:
+            if let skipped = try? decoder.decode(RelocateSkippedBody.self, from: data), skipped.skipped {
+                return .skipped(reason: skipped.reason)
+            }
+            return .ok(try decoder.decode(RelocateAssetResponse.self, from: data))
+        case 400:
+            let message = (try? decoder.decode(RelocateErrorBody.self, from: data))?.error ?? "Invalid destination"
+            return .invalid(message)
+        case 404:
+            return .notFound
+        default:
+            throw URLError(.badServerResponse)
+        }
+    }
+
+    /// Maps the on-device `CollisionPolicy` vocabulary (shared with
+    /// `LocalFileOperations`/`SMBFileOperations`, which have no server
+    /// counterpart) onto the API's four wire strings. `.fail` is used as
+    /// the ask-flow's collision PROBE (see `RelocateAssetResult.skipped`'s
+    /// doc comment) — the server has no bare "fail" policy, so the probe
+    /// is sent as `"skip"`, which has the identical "detect, touch
+    /// nothing" effect.
+    private static func wireCollision(_ policy: CollisionPolicy) -> String {
+        switch policy {
+        case .autoSuffix: return "keep-both"
+        case .fail: return "skip"
+        case .replace: return "replace"
         }
     }
 

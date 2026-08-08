@@ -30,6 +30,13 @@ struct AppShellSidebar: View {
     let onCreateFolder: (URL, Data, String) -> Void
     let onRenameFolder: (URL, Data, String) -> Void
     let onTrashFolder: (URL, Data) -> Void
+    /// Drag-onto-source-tree (#2646) — forwarded to `LibrarySidebar`; see
+    /// its declarations for the full `ids == nil` ⇒ "use current
+    /// selection" contract.
+    var onDropAssets: (URL, Data, Set<AssetRef.ID>?, Bool) -> Void = { _, _, _, _ in }
+    var onDropAssetsSMB: (SMBCredentialStore.SavedShare, Set<AssetRef.ID>?, Bool) -> Void = { _, _, _ in }
+    var onDropAssetsCloud: (URL, String, String, String, Set<AssetRef.ID>?, Bool) -> Void = { _, _, _, _, _, _ in }
+    var selectedAssetCount: Int = 0
     var folderRefreshGeneration: Int = 0
     let onPickPhotosFilter: (PhotoKitFilter) -> Void
     let onRequestPhotosAccess: () -> Void
@@ -60,6 +67,8 @@ struct AppShellSidebar: View {
             onCreateFolder: onCreateFolder,
             onRenameFolder: onRenameFolder,
             onTrashFolder: onTrashFolder,
+            onDropAssets: onDropAssets,
+            selectedAssetCount: selectedAssetCount,
             folderRefreshGeneration: folderRefreshGeneration,
             onPickPhotosFilter: onPickPhotosFilter,
             onRequestPhotosAccess: onRequestPhotosAccess,
@@ -67,6 +76,7 @@ struct AppShellSidebar: View {
             onAddSMB: onAddSMB,
             onPickSMB: onPickSMB,
             onCreateSMBFolder: onCreateSMBFolder,
+            onDropAssetsSMB: onDropAssetsSMB,
             onAddCloudServer: onAddCloudServer,
             onPickCloudLibrary: onPickCloudLibrary,
             onListCloudDir: onListCloudDir,
@@ -78,6 +88,7 @@ struct AppShellSidebar: View {
             onLoadCloudFolders: onLoadCloudFolders,
             onCreateCloudFolder: onCreateCloudFolder,
             onRenameCloudFolder: onRenameCloudFolder,
+            onDropAssetsCloud: onDropAssetsCloud,
             onSelectTimeline: onSelectTimeline
         )
     }

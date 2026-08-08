@@ -337,6 +337,17 @@ struct AppShell: View {
     /// field, never as a generic alert. Cleared on the next `begin`/`commit`.
     @State var renameError: String?
 
+    /// Drag assets onto the source tree (#2646). See
+    /// `AppShell+AssetDrop.swift`. `assetDropTask` guards against two
+    /// overlapping drops interleaving collision prompts; `nil` when no
+    /// drop is running. `assetDropCollisionPrompt` drives
+    /// `AssetDropCollisionSheet`; `assetDropResults` drives the
+    /// end-of-batch report, shown only when something was skipped or
+    /// failed.
+    @State var assetDropTask: Task<Void, Never>?
+    @State var assetDropCollisionPrompt: AssetDropCollisionPrompt?
+    @State var assetDropResults: [AssetDropItemResult]?
+
     private var selectedSession: EditSession? {
         browseVM.selectedID.flatMap { sessions[$0] }
     }
@@ -735,6 +746,20 @@ struct AppShell: View {
                 .frame(minWidth: 560, minHeight: 480)
                 #endif
         }
+        // #2646: drag-onto-source-tree collision ask-flow + end-of-batch
+        // report. See `AppShell+AssetDrop.swift`.
+        .sheet(item: $assetDropCollisionPrompt) { prompt in
+            AssetDropCollisionSheet(displayName: prompt.displayName, onChoice: { choice in
+                assetDropCollisionPrompt = nil
+                prompt.resume(choice)
+            })
+        }
+        .sheet(isPresented: Binding(
+            get: { assetDropResults != nil },
+            set: { if !$0 { assetDropResults = nil } }
+        )) {
+            AssetDropResultSheet(results: assetDropResults ?? [], onDismiss: { assetDropResults = nil })
+        }
         // M2: panorama merge view — presented as a sheet on Mac/iPad.
         // Covers the full content area; Cancel dismisses back to Browse
         // and exits select mode.
@@ -903,6 +928,24 @@ struct AppShell: View {
             onTrashFolder: { url, bookmark in
                 trashLocalFolder(url, rootBookmark: bookmark)
             },
+            // #2646: drag-onto-source-tree, and its "Move/Copy Selected
+            // Here" keyboard/menu equivalent. All three row kinds share
+            // one AppShell entry point (`handleAssetDrop`) — see
+            // `AppShell+AssetDrop.swift`.
+            onDropAssets: { url, bookmark, ids, isCopy in
+                handleAssetDrop(ids: ids, destination: .local(folderURL: url, rootBookmark: bookmark), copy: isCopy)
+            },
+            onDropAssetsSMB: { share, ids, isCopy in
+                handleAssetDrop(ids: ids, destination: .smb(share: share), copy: isCopy)
+            },
+            onDropAssetsCloud: { server, libraryFolderID, libraryRootPath, absPath, ids, isCopy in
+                handleAssetDrop(
+                    ids: ids,
+                    destination: .cloud(server: server, libraryFolderID: libraryFolderID,
+                                        libraryRootPath: libraryRootPath, absPath: absPath),
+                    copy: isCopy)
+            },
+            selectedAssetCount: browseVM.isSelecting ? browseVM.selectedIDs.count : (browseVM.selectedID != nil ? 1 : 0),
             folderRefreshGeneration: folderRefreshGeneration,
             onPickPhotosFilter: { filter in loadPhotos(filter: filter) },
             onRequestPhotosAccess: { requestPhotosAccess() },
@@ -1072,6 +1115,21 @@ struct AppShell: View {
         // presented over the tab shell instead of the pane shell.
         .sheet(item: $batchRenameVM) { vm in
             BatchRenameSheet(vm: vm, onDismiss: { batchRenameVM = nil })
+        }
+        // #2646: same collision ask-flow + end-of-batch report as Mac/iPad,
+        // reachable here via a source-tree row's "Move/Copy Selected Here"
+        // menu item (drag itself is Mac/iPad only per the ticket).
+        .sheet(item: $assetDropCollisionPrompt) { prompt in
+            AssetDropCollisionSheet(displayName: prompt.displayName, onChoice: { choice in
+                assetDropCollisionPrompt = nil
+                prompt.resume(choice)
+            })
+        }
+        .sheet(isPresented: Binding(
+            get: { assetDropResults != nil },
+            set: { if !$0 { assetDropResults = nil } }
+        )) {
+            AssetDropResultSheet(results: assetDropResults ?? [], onDismiss: { assetDropResults = nil })
         }
     }
     #endif
