@@ -173,6 +173,31 @@ public final class BatchRenameViewModel: Identifiable {
     public private(set) var isApplying = false
     public private(set) var applyResults: [BatchRenameApplyResult]?
 
+    /// Per-asset EXIF `DateTimeOriginal` (verbatim wire format), populated
+    /// lazily by `ensureCapturedAtCacheIfNeeded` — see that method's doc for
+    /// why this is a one-time, off-main-actor pass rather than a per-
+    /// keystroke disk read. A present key with a `nil` value means "resolved,
+    /// no EXIF date"; an absent key means "not yet resolved."
+    private var capturedAtCache: [AssetRef.ID: String?] = [:]
+    /// `true` once `ensureCapturedAtCacheIfNeeded` has run its one resolve
+    /// pass over `assets` — guards against re-running it on a later
+    /// `refreshPreview()` once a date token has ever appeared in the
+    /// template. `assets` is a fixed snapshot for this view model's
+    /// lifetime, so ONE pass permanently covers every asset; there is never
+    /// a reason to re-resolve.
+    private var capturedAtCachePopulated = false
+
+    /// Reads a file-backed asset's EXIF `DateTimeOriginal` for the
+    /// `{date:FORMAT}` token. `@Sendable` and swappable (not just for
+    /// tests — any future caller that wants a different resolution
+    /// strategy can inject one) because `ensureCapturedAtCacheIfNeeded`
+    /// calls it from inside a `TaskGroup`, off the main actor. Defaults to
+    /// `ImageMetadataReader.readRawCaptureDateStrings` — a metadata-only
+    /// `ImageIO` read, no RAW decode.
+    public var captureDateReader: @Sendable (URL) -> String? = { url in
+        ImageMetadataReader.readRawCaptureDateStrings(from: url).dateTimeOriginal
+    }
+
     public init(
         assets: [AssetRef],
         routing: BatchRenameRouting,
@@ -203,9 +228,12 @@ public final class BatchRenameViewModel: Identifiable {
 
     /// Re-render every item's preview from the current `template` /
     /// `sequenceStart` / `sequencePadWidth`. Cheap enough to call on every
-    /// keystroke for Filesystem/SMB (pure string logic, no filesystem I/O
-    /// beyond a metadata-only EXIF read); Cloud debounces at the call site
-    /// since it's a network round trip — see `BatchRenameSheet`.
+    /// keystroke for Filesystem/SMB (pure string logic; the one disk-I/O
+    /// cost — EXIF capture-date resolution — is paid at most ONCE per
+    /// view model, off the main actor, and only when the template actually
+    /// uses `{date:...}`, via `ensureCapturedAtCacheIfNeeded`); Cloud
+    /// debounces at the call site since it's a network round trip — see
+    /// `BatchRenameSheet`.
     public func refreshPreview() async {
         guard !assets.isEmpty else { return }
         isPreviewing = true
@@ -216,11 +244,67 @@ public final class BatchRenameViewModel: Identifiable {
                 BatchRenamePreviewItem(id: $0.id, oldFilename: Self.fullFilename($0), error: reason)
             }
         case .filesystem, .smb:
+            // Populated (if needed at all) and fully AWAITED before
+            // rendering below — the preview is never computed against a
+            // half-resolved cache, so it can't show a stale/wrong date for
+            // some assets and a correct one for others within one render.
+            await ensureCapturedAtCacheIfNeeded(for: template)
             preview = Self.renderLocalPreview(
                 assets: assets, template: template,
-                sequenceStart: sequenceStart, sequencePadWidth: sequencePadWidth)
+                sequenceStart: sequenceStart, sequencePadWidth: sequencePadWidth,
+                capturedAtCache: capturedAtCache)
         case .cloud:
             preview = await renderCloudPreview()
+        }
+    }
+
+    /// `true` iff `template` contains a `{date:` token — a plain substring
+    /// check against the engine's own token grammar
+    /// (`raw_core::filename::parse_template`: a token body must literally
+    /// start with `"date:"`). A false positive (the substring appears
+    /// outside a real token) only costs a needless cache pass, never
+    /// correctness; there is no false negative, since any real date token
+    /// must contain this exact substring.
+    private static func templateNeedsCapturedAt(_ template: String) -> Bool {
+        template.contains("{date:")
+    }
+
+    /// Resolve every asset's EXIF capture date OFF THE MAIN ACTOR, exactly
+    /// once for this view model's lifetime, and only when the template
+    /// actually needs `{date:...}`. Two things this fixes relative to the
+    /// prior per-keystroke-per-asset synchronous read:
+    ///   1. It never blocks the main actor — the disk reads run inside a
+    ///      `TaskGroup` via the (Sendable, capturable) `captureDateReader`
+    ///      closure, not inline in `renderLocalPreview`.
+    ///   2. It never runs at all for a template with no date token — most
+    ///      templates (`{original}`, `{n}`-only, literal text) pay zero
+    ///      EXIF-read cost, not just a cheaper one.
+    /// `assets` is a fixed snapshot for this view model's lifetime, so one
+    /// pass — triggered by the FIRST refresh whose template needs it —
+    /// permanently covers every asset; a later refresh (even with a
+    /// different date-using template) reuses the cache instead of re-
+    /// reading.
+    private func ensureCapturedAtCacheIfNeeded(for template: String) async {
+        guard Self.templateNeedsCapturedAt(template), !capturedAtCachePopulated else { return }
+        capturedAtCachePopulated = true
+        let reader = captureDateReader
+        let targets = assets
+        let resolved: [(AssetRef.ID, String?)] = await withTaskGroup(
+            of: (AssetRef.ID, String?).self
+        ) { group in
+            for asset in targets {
+                group.addTask {
+                    guard let url = asset.primaryURL else { return (asset.id, nil) }
+                    return (asset.id, reader(url))
+                }
+            }
+            var results: [(AssetRef.ID, String?)] = []
+            results.reserveCapacity(targets.count)
+            for await result in group { results.append(result) }
+            return results
+        }
+        for (id, value) in resolved {
+            capturedAtCache[id] = value
         }
     }
 
@@ -228,9 +312,12 @@ public final class BatchRenameViewModel: Identifiable {
     /// applied in ORDER so a self-colliding template is flagged
     /// (`duplicate`) exactly like the API preview does for Cloud. No
     /// filesystem writes; `SidecarPath`/`FileManager` are never touched
-    /// here.
+    /// here. Reads captured-at from the ALREADY-POPULATED `capturedAtCache`
+    /// (a plain dictionary lookup) rather than hitting disk itself — see
+    /// `ensureCapturedAtCacheIfNeeded`.
     private static func renderLocalPreview(
-        assets: [AssetRef], template: String, sequenceStart: Int, sequencePadWidth: Int
+        assets: [AssetRef], template: String, sequenceStart: Int, sequencePadWidth: Int,
+        capturedAtCache: [AssetRef.ID: String?]
     ) -> [BatchRenamePreviewItem] {
         var seen = Set<String>()
         var items: [BatchRenamePreviewItem] = []
@@ -241,7 +328,7 @@ public final class BatchRenameViewModel: Identifiable {
             do {
                 let rendered = try FilenameTemplateEngine.render(
                     template: template, originalStem: stem, ext: ext,
-                    capturedAtExifString: capturedAtExifString(for: asset),
+                    capturedAtExifString: capturedAtCache[asset.id] ?? nil,
                     sequenceStart: sequenceStart, sequenceIndex: UInt64(index),
                     sequencePadWidth: sequencePadWidth)
                 let duplicate = seen.contains(rendered)
@@ -517,17 +604,4 @@ public final class BatchRenameViewModel: Identifiable {
         return (stem, ext)
     }
 
-    /// EXIF `DateTimeOriginal`, verbatim wire format, for `{date:FORMAT}`.
-    /// Only available for file-backed (Filesystem) assets — a cheap
-    /// metadata-only `ImageIO` read, no RAW decode. SMB assets render
-    /// `nil` here deliberately: fetching EXIF over the network would mean
-    /// downloading (part of) every selected file on every template edit,
-    /// which this sheet's live-preview contract can't afford. The engine's
-    /// documented fallback (`FALLBACK_DATE_TEXT`) covers this the same way
-    /// it covers any file with no EXIF date at all — see
-    /// `FilenameTemplateEngine.render`'s doc comment.
-    private static func capturedAtExifString(for asset: AssetRef) -> String? {
-        guard let url = asset.primaryURL else { return nil }
-        return ImageMetadataReader.readRawCaptureDateStrings(from: url).dateTimeOriginal
-    }
 }
