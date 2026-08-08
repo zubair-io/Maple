@@ -346,6 +346,12 @@ struct AppShell: View {
     /// failed.
     @State var assetDropTask: Task<Void, Never>?
     @State var assetDropCollisionPrompt: AssetDropCollisionPrompt?
+    /// Set alongside `assetDropCollisionPrompt` (same
+    /// `AssetDropCollisionResolver` instance the prompt itself carries) so
+    /// the sheet's `onDismiss` can still resolve an implicit dismissal
+    /// after `assetDropCollisionPrompt` has already gone `nil` — see
+    /// `AssetDropSheets.swift`.
+    @State var assetDropCollisionResolver: AssetDropCollisionResolver?
     @State var assetDropResults: [AssetDropItemResult]?
 
     private var selectedSession: EditSession? {
@@ -747,19 +753,12 @@ struct AppShell: View {
                 #endif
         }
         // #2646: drag-onto-source-tree collision ask-flow + end-of-batch
-        // report. See `AppShell+AssetDrop.swift`.
-        .sheet(item: $assetDropCollisionPrompt) { prompt in
-            AssetDropCollisionSheet(displayName: prompt.displayName, onChoice: { choice in
-                assetDropCollisionPrompt = nil
-                prompt.resume(choice)
-            })
-        }
-        .sheet(isPresented: Binding(
-            get: { assetDropResults != nil },
-            set: { if !$0 { assetDropResults = nil } }
-        )) {
-            AssetDropResultSheet(results: assetDropResults ?? [], onDismiss: { assetDropResults = nil })
-        }
+        // report. See `AppShell+AssetDrop.swift` / `AssetDropSheets.swift`.
+        .assetDropSheets(
+            collisionPrompt: $assetDropCollisionPrompt,
+            collisionResolver: $assetDropCollisionResolver,
+            results: $assetDropResults
+        )
         // M2: panorama merge view — presented as a sheet on Mac/iPad.
         // Covers the full content area; Cancel dismisses back to Browse
         // and exits select mode.
@@ -1118,19 +1117,14 @@ struct AppShell: View {
         }
         // #2646: same collision ask-flow + end-of-batch report as Mac/iPad,
         // reachable here via a source-tree row's "Move/Copy Selected Here"
-        // menu item (drag itself is Mac/iPad only per the ticket).
-        .sheet(item: $assetDropCollisionPrompt) { prompt in
-            AssetDropCollisionSheet(displayName: prompt.displayName, onChoice: { choice in
-                assetDropCollisionPrompt = nil
-                prompt.resume(choice)
-            })
-        }
-        .sheet(isPresented: Binding(
-            get: { assetDropResults != nil },
-            set: { if !$0 { assetDropResults = nil } }
-        )) {
-            AssetDropResultSheet(results: assetDropResults ?? [], onDismiss: { assetDropResults = nil })
-        }
+        // menu item (drag itself is Mac/iPad only per the ticket). Same
+        // shared helper as the Mac/iPad chain above — see its doc comment
+        // for why that sharing matters.
+        .assetDropSheets(
+            collisionPrompt: $assetDropCollisionPrompt,
+            collisionResolver: $assetDropCollisionResolver,
+            results: $assetDropResults
+        )
     }
     #endif
 
