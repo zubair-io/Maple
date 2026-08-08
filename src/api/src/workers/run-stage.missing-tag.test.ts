@@ -63,6 +63,14 @@ function matchVal(docVal: unknown, cond: unknown): boolean {
         case '$ne':
           if (docVal === opv) return false;
           break;
+        // Dates, for the retry-backoff gate (#2729). An absent field must NOT
+        // satisfy `$gt`, so that `$not: { $gt: now }` leaves never-failed rows
+        // claimable — mirroring Mongo, and the reason the gate is written as a
+        // negation in the first place.
+        case '$gt':
+          if (docVal === undefined || docVal === null) return false;
+          if (!(Number(docVal) > Number(opv))) return false;
+          break;
         case '$nin':
           if ((opv as unknown[]).includes(docVal)) return false;
           break;

@@ -139,6 +139,25 @@ export function matchesFilter(doc: unknown, filter: Record<string, unknown>): bo
         if (expected === false && docVal !== undefined) return false;
         if (expected === true && docVal === undefined) return false;
       }
+      // `$gt` / `$type` / `$not` back the retry-backoff gate (#2729) and the
+      // damaged park. Modelled here because this helper ignores operators it
+      // doesn't implement rather than throwing: without them the backoff gate
+      // was silently a no-op in every suite using this mock, so tests claimed
+      // to cover a claim query they were not actually evaluating.
+      //
+      // An absent field must not satisfy `$gt`, so `$not: { $gt: now }` leaves
+      // never-failed rows claimable — mirroring Mongo, and the whole reason
+      // the gate is expressed as a negation.
+      if ('$gt' in op) {
+        if (docVal === undefined || docVal === null) return false;
+        if (!(Number(docVal) > Number(op['$gt']))) return false;
+      }
+      if ('$type' in op) {
+        if (op['$type'] === 'string' && typeof docVal !== 'string') return false;
+      }
+      if ('$not' in op) {
+        if (matchesFilter({ v: docVal }, { v: op['$not'] })) return false;
+      }
     } else {
       if (docVal !== val) return false;
     }
@@ -166,4 +185,21 @@ export function applySet(doc: unknown, setDoc: Record<string, unknown>): void {
     }
     cur[parts[parts.length - 1]] = value;
   }
+}
+
+/**
+ * Simulate the per-asset retry backoff (#2729) having elapsed, so the next
+ * `runOnce` tick can claim the row again.
+ *
+ * Before backoff existed, consecutive ticks re-claimed a failed doc
+ * immediately and a test could just call `runOnce` N times in a row. That is
+ * no longer how production behaves — a failed asset is gated until
+ * `next_attempt_at` — so a test that still did it would be asserting a
+ * sequence the runner can no longer produce.
+ */
+export async function elapseRetryBackoff(
+  images: Collection<ImageDoc>,
+  stageName: string,
+): Promise<void> {
+  await images.updateMany({}, { $set: { [`stages.${stageName}.next_attempt_at`]: null } });
 }
