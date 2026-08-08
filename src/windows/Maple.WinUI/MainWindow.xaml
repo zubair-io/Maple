@@ -147,6 +147,10 @@
                                         KeyboardAcceleratorTextOverride="U" />
                         <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Batch Rename…" Click="OnBatchRename" />
+                        <!-- Keyboard/Narrator-accessible equivalent to dragging the
+                             selection onto a FOLDERS node (#2648) — same code path
+                             (RunDragMoveAsync), no drag gesture required. -->
+                        <MenuFlyoutItem Text="Move to Folder…" Click="OnMoveToFolder" />
                         <MenuFlyoutItem Text="Stitch Panorama…" Click="OnStitchPano" />
                     </MenuFlyout>
                 </Button.Flyout>
@@ -223,9 +227,18 @@
                                       AutomationProperties.Name="Folders">
                                 <TreeView.ItemTemplate>
                                     <DataTemplate x:DataType="vm:FolderNode">
+                                        <!-- Drag assets onto a folder (#2648): a drop target is
+                                             this specific TreeViewItem, not the TreeView as a
+                                             whole, so OnFolderDrop always knows exactly which
+                                             folder was targeted via DataContext. -->
                                         <TreeViewItem ItemsSource="{Binding Children}"
                                                       ToolTipService.ToolTip="{Binding Path}"
-                                                      AutomationProperties.Name="{Binding Name}">
+                                                      AutomationProperties.Name="{Binding Name}"
+                                                      AllowDrop="True"
+                                                      DragEnter="OnFolderDragEnter"
+                                                      DragLeave="OnFolderDragLeave"
+                                                      DragOver="OnFolderDragOver"
+                                                      Drop="OnFolderDrop">
                                             <TreeViewItem.ContextFlyout>
                                                 <MenuFlyout>
                                                     <MenuFlyoutItem Text="Remove from Library" Click="OnRemoveFolder"
@@ -393,6 +406,8 @@
                               SelectionMode="Extended" Padding="12"
                               SelectionChanged="OnPhotoGridSelectionChanged"
                               DoubleTapped="OnGridDoubleTapped"
+                              CanDragItems="True"
+                              DragItemsStarting="OnPhotoGridDragItemsStarting"
                               AutomationProperties.Name="Photo grid">
                         <GridView.GroupStyle>
                             <GroupStyle>
