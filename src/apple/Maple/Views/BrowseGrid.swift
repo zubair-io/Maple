@@ -244,6 +244,23 @@ struct BrowseGrid: View {
             multiSelectChecked: vm.isSelecting ? { asset in
                 vm.selectedIDs.contains(asset.id)
             } : nil,
+            // Drag-onto-source-tree (#2646). PhotoKit is neither a drag
+            // source nor a drop target (design doc) — no user-writable
+            // path to relocate. Every other current-grid asset (local,
+            // SMB, Cloud) is draggable; if the dragged tile is part of a
+            // larger active selection, the WHOLE selection rides along
+            // ("multi-select drag carries the whole selection if the
+            // dragged item is part of it").
+            dragPayload: { asset in
+                guard asset.thumbnailProvenance != .photoKit, !(vm.currentSource is PhotoKitSource) else {
+                    return nil
+                }
+                let active = vm.isSelecting ? vm.selectedIDs : (vm.selectedID.map { Set([$0]) } ?? [])
+                guard active.contains(asset.id), active.count > 1 else {
+                    return DraggedAssetPayload(ids: [asset.id])
+                }
+                return DraggedAssetPayload(ids: vm.assets.filter { active.contains($0.id) }.map(\.id))
+            },
             onTap: { asset in
                 if vm.isSelecting {
                     // Multi-select mode: tap toggles check.

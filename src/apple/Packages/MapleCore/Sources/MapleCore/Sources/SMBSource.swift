@@ -213,6 +213,29 @@ public actor SMBSource {
         return outcome.primaryPath
     }
 
+    /// Move or copy `ref`'s file into `destinationDir` (a share-relative
+    /// directory, e.g. `"/"` for the share root) — the drag-onto-source-tree
+    /// counterpart to `renameAsset` above (#2646). Same `pathByMapleId`/
+    /// `_assets` reconciliation, and a no-op for `mode: .copy` (the source
+    /// entry keeps pointing at the original, matching the API's "copy never
+    /// repoints the source" contract for Cloud — see
+    /// `relocateAsset` in `RemoteCatalog.swift`).
+    public func relocateAsset(
+        _ ref: ImageRef, to destinationDir: String, mode: RelocateMode, collision: CollisionPolicy
+    ) async throws -> RelocateOutcome {
+        guard let client else { throw SMBError.notConnected }
+        let sourcePath = path(for: ref)
+        let outcome = try await SMBFileOperations.relocate(
+            sourcePath, to: destinationDir, mode: mode, collision: collision, transport: client)
+        guard mode == .move else { return outcome }
+        pathByMapleId[ref.id] = outcome.primaryPath
+        if let idx = _assets.firstIndex(where: { $0.path == sourcePath }) {
+            let old = _assets[idx]
+            _assets[idx] = SMBAsset(path: outcome.primaryPath, size: old.size, mtime: old.mtime)
+        }
+        return outcome
+    }
+
     /// Write XMP sidecar bytes over SMB with retry (3 attempts, exponential back-off).
     public func writeSidecar(_ data: Data, for asset: SMBAsset) async throws {
         guard let client else { throw SMBError.notConnected }

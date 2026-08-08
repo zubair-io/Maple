@@ -45,6 +45,13 @@ struct PhotoThumbnailCell: View {
     /// Also suppresses the single-select outline so the two indicators don't
     /// conflict. When `nil` behaves as before (single-select outline only).
     var multiSelectChecked: Bool? = nil
+    /// Drag-onto-source-tree payload (#2646). `nil` disables dragging for
+    /// this cell entirely (the default — PhotoKit/merged-timeline surfaces
+    /// never opt in). When non-nil, carries either just this item's id or
+    /// the whole active selection — the caller (`BrowseGrid`) decides,
+    /// per the design doc's "multi-select drag carries the whole selection
+    /// if the dragged item is part of it."
+    var dragPayload: DraggedAssetPayload? = nil
     /// Cell tap handler.
     let onTap: () -> Void
     /// Fired from the cell's `.onAppear`. SwiftUI may call `.onAppear` more than
@@ -116,6 +123,7 @@ struct PhotoThumbnailCell: View {
             }
             .modifier(ZoomSourceTag(id: item.id, namespace: transitionNamespace))
             .contentShape(Rectangle())
+            .modifier(DragPayloadModifier(payload: dragPayload))
             .onTapGesture { onTap() }
             .onAppear { onAppear?() }
             // Accessibility: UITest harness resolves cells by displayName via
@@ -323,6 +331,37 @@ private struct ZoomSourceTag: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+// MARK: - DragPayloadModifier
+
+/// Applies `.draggable(_:)` when `payload` is non-nil (#2646); a no-op
+/// otherwise, so cells that never opt into dragging (`dragPayload` left at
+/// its `nil` default) don't pay for a drag-session gesture recognizer at
+/// all. The preview label surfaces the count for a multi-select drag
+/// ("12 photos") and the bare filename for a single one, matching the
+/// design doc's "drag preview conveying the count."
+private struct DragPayloadModifier: ViewModifier {
+    let payload: DraggedAssetPayload?
+
+    func body(content: Content) -> some View {
+        if let payload {
+            content.draggable(payload) {
+                dragPreview(count: payload.ids.count)
+            }
+        } else {
+            content
+        }
+    }
+
+    private func dragPreview(count: Int) -> some View {
+        Text(count > 1 ? "\(count) photos" : "1 photo")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.accentColor, in: Capsule())
     }
 }
 
