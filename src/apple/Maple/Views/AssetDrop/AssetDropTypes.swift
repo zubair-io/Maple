@@ -23,24 +23,20 @@ enum AssetDropDestination: Equatable {
     case cloud(server: URL, libraryFolderID: String, libraryRootPath: String, absPath: String)
 }
 
-// MARK: - AssetDropCollisionChoice
-
-/// The user's answer to a collision prompt for ONE asset — Skip / Replace /
-/// Keep Both, per the design doc's "Move / copy via drag-and-drop" section.
-enum AssetDropCollisionChoice {
-    case skip
-    case replace
-    case keepBoth
-}
+// MARK: - AssetDropCollisionPrompt
 
 /// Carries a pending collision decision from `AppShell+AssetDrop.swift`'s
-/// routing loop to the `AssetDropCollisionSheet` and back. `resume` fires
-/// exactly once — wraps the `CheckedContinuation` that's suspending the
-/// routing loop for this one asset.
+/// routing loop to the `AssetDropCollisionSheet` and back. `resolver` is
+/// the SAME `AssetDropCollisionResolver` instance the routing loop is
+/// awaiting — both a button tap (via this prompt) and the sheet's implicit
+/// dismissal (via `AppShell`'s separate `assetDropCollisionResolver`
+/// state, set at the same time as this prompt) can resolve it; the
+/// resolver itself guarantees only the first call actually resumes
+/// anything. See `AssetDropCollisionResolver`'s doc comment (MapleCore).
 struct AssetDropCollisionPrompt: Identifiable {
     let id = UUID()
     let displayName: String
-    let resume: (AssetDropCollisionChoice) -> Void
+    let resolver: AssetDropCollisionResolver
 }
 
 // MARK: - AssetDropItemResult
