@@ -17,14 +17,9 @@
  * (see `./registry.ts`) so `routes.ts` and `events.ts` can read live state.
  */
 
-import type { Collection, Filter, ObjectId } from 'mongodb';
+import type { Collection, ObjectId } from 'mongodb';
 import { child as childLogger } from '../log.ts';
-import {
-  assetAbsPath,
-  assetPrimaryFileInfo,
-  isEnoentError,
-  liveFileInfoElemMatch,
-} from '../indexer/images.repo.ts';
+import { assetAbsPath, assetPrimaryFileInfo, isEnoentError } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
 import { ThroughputWindow } from './throughput-window.ts';
@@ -76,14 +71,7 @@ export type {
 
 // Poll-loop timing policy lives in `./loop-policy.ts`. Re-exported here so the
 // many stage files and tests that import these from `run-stage.ts` keep working.
-export {
-  POLL_INTERVAL_MS,
-  BACKOFF_MS,
-  RETRY_BACKOFF_MS,
-  deriveBatchSize,
-  nextPollDelay,
-  retryDelayMs,
-} from './loop-policy.ts';
+export { POLL_INTERVAL_MS, BACKOFF_MS, deriveBatchSize, nextPollDelay } from './loop-policy.ts';
 
 // ---------------------------------------------------------------------------
 // Claim query.
@@ -158,6 +146,12 @@ export async function runOnce(
   });
   const claimable = docs.filter((d) => priorAttempts(d) < config.maxAttempts);
 
+  // Inherited complexity, reduced by this PR rather than introduced: the
+  // failure bookkeeping and the crash-exhausted reconciliation both moved out
+  // to `stage-failure.ts`, taking this body from ~234 lines to 184. What
+  // remains is the per-`StageResult`-variant writeback (patch / skip / rearm /
+  // damaged), which is the natural next extraction and wants its own change.
+  // fallow-ignore-next-line complexity
   await dispatchPool(claimable, config.concurrency, async (doc) => {
     const id = (doc as { _id: ObjectId })._id;
     const idStr = String(id);
@@ -452,6 +446,9 @@ export async function runStage<TPatch extends Record<string, unknown>>(
    * per-tick findOne calls. Pause latency remains ≤ ~2 s. */
   const CONFIG_RELOAD_INTERVAL_MS = 2000;
 
+  // Inherited complexity — untouched by this PR, surfaced only because the
+  // audit is scoped to changed files and this file changed.
+  // fallow-ignore-next-line complexity
   const poll = async (): Promise<void> => {
     if (shuttingDown) return;
     // Re-read config from Mongo so pause/resume written by the API process
