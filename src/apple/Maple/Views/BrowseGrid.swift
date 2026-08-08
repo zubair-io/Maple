@@ -251,6 +251,18 @@ struct BrowseGrid: View {
             // larger active selection, the WHOLE selection rides along
             // ("multi-select drag carries the whole selection if the
             // dragged item is part of it").
+            //
+            // Performance (review finding, jules): this closure runs once
+            // per VISIBLE cell on every render — a `vm.assets.filter` here
+            // was an O(library size) scan per cell, so scrolling a 50k-
+            // asset library re-ran millions of comparisons a frame. Build
+            // the payload straight from the (already O(1)-membership) `Set`
+            // of selected ids instead — O(selection size), not O(library
+            // size). Payload order is therefore selection-insertion order,
+            // not grid order; `AppShell+AssetDrop.swift`'s
+            // `performAssetDrop` restores grid order once, at drop time,
+            // from the already-materialized `browseVM.assets` array — not
+            // per cell here.
             dragPayload: { asset in
                 guard asset.thumbnailProvenance != .photoKit, !(vm.currentSource is PhotoKitSource) else {
                     return nil
@@ -259,7 +271,7 @@ struct BrowseGrid: View {
                 guard active.contains(asset.id), active.count > 1 else {
                     return DraggedAssetPayload(ids: [asset.id])
                 }
-                return DraggedAssetPayload(ids: vm.assets.filter { active.contains($0.id) }.map(\.id))
+                return DraggedAssetPayload(ids: Array(active))
             },
             onTap: { asset in
                 if vm.isSelecting {
