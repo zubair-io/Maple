@@ -149,6 +149,7 @@ Example output for a screenshot:
  *       values); caption grows to 1-3 sentences with few-shot density
  *       examples and a no-inferred-relationships rule; notable_objects
  *       gains a generic-term exclusion list; weather gains a
- *       light/shadow inference rule. Ships with the gemma4:12b default
+ *       light/shadow inference rule. Shipped with a gemma4:12b default
+ *       that moved to gemma4:latest in #2736; v7 is model-agnostic
  */
 export const DESCRIBE_VISION_PROMPT_VERSION = 7;

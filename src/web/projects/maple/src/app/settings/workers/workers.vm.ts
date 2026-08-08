@@ -210,7 +210,7 @@ export interface EnrichmentForm {
  * `DESCRIBE_VISION_OLLAMA_TAG`
  * + `FIXED_DESCRIBE_MODEL` in `src/api/src/enrichment/enrichment-config.repo.ts`
  * and `src/api/src/workers/stages/describe.ts`. */
-export const FIXED_DESCRIBE_MODEL = 'gemma4:12b';
+export const FIXED_DESCRIBE_MODEL = 'gemma4:latest';
 
 export type SaveState = 'idle' | 'saving' | 'success' | 'error';
 
