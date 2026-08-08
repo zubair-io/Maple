@@ -7,7 +7,9 @@ import {
 
 const VALID = {
   is_screenshot: false,
+  people_count: 1,
   caption: 'A child in a white lacrosse uniform sprints across a green field.',
+  tags: ['lacrosse', 'child', 'sports field', 'running', 'white uniform', 'outdoor'],
   subjects: ['person', 'child', 'athlete'],
   scene_type: 'outdoor',
   setting: 'sports field',
@@ -17,7 +19,7 @@ const VALID = {
   weather: 'clear',
   mood: 'energetic',
   colors: ['green', 'white', 'blue'],
-  composition: 'wide shot',
+  framing: 'wide',
   text_visible: null,
   notable_objects: ['lacrosse stick', 'helmet', 'cleats'],
   shot_type: 'action',
@@ -311,23 +313,37 @@ describe('parseVisionJson — rejection paths', () => {
     expect(out.scene_type).toBe('mixed');
   });
 
-  it('coerces composition synonyms when qwen emits shot_type values in the composition field', () => {
+  it('coerces framing synonyms when the model emits shot_type values in the framing field', () => {
     for (const [raw, expected] of [
-      // "candid" left the composition enum in v5 — it's a shot-type
-      // concept — so it now maps here too instead of round-tripping.
-      ['candid', 'wide shot'],
-      ['action', 'wide shot'],
-      ['static', 'wide shot'],
-      ['posed', 'portrait'],
-      ['architectural', 'wide shot'],
-      ['nature', 'landscape'],
-      ['event', 'wide shot'],
-      // pre-existing synonyms still work
-      ['panorama', 'wide shot'],
+      ['candid', 'wide'],
+      ['action', 'wide'],
+      ['static', 'wide'],
+      ['posed', 'medium'],
+      ['architectural', 'wide'],
+      ['nature', 'wide'],
+      ['event', 'wide'],
+      ['panorama', 'wide'],
       ['closeup', 'close-up'],
     ] as const) {
-      const out = parseVisionJson(JSON.stringify({ ...VALID, composition: raw }));
-      expect(out.composition).toBe(expected);
+      const out = parseVisionJson(JSON.stringify({ ...VALID, framing: raw }));
+      expect(out.framing).toBe(expected);
+    }
+  });
+
+  // The v6 vocabulary has to keep resolving: a model that has seen the old
+  // enum, and any old row replayed through the parser, must land on a legal
+  // `framing` value rather than dead-lettering.
+  it('maps the retired v6 composition vocabulary onto framing', () => {
+    for (const [raw, expected] of [
+      ['wide shot', 'wide'],
+      ['close-up', 'close-up'],
+      ['portrait', 'medium'],
+      ['landscape', 'wide'],
+      ['aerial', 'wide'],
+      ['macro', 'macro'],
+    ] as const) {
+      const out = parseVisionJson(JSON.stringify({ ...VALID, framing: raw }));
+      expect(out.framing).toBe(expected);
     }
   });
 
@@ -339,7 +355,7 @@ describe('parseVisionJson — rejection paths', () => {
       lighting: null,
       weather: null,
       mood: null,
-      composition: null,
+      framing: null,
       shot_type: null,
     };
     const out = parseVisionJson(JSON.stringify(v));
@@ -348,7 +364,7 @@ describe('parseVisionJson — rejection paths', () => {
     expect(out.lighting).toBe('unknown');
     expect(out.weather).toBe('unknown');
     expect(out.mood).toBe('neutral');
-    expect(out.composition).toBe('wide shot');
+    expect(out.framing).toBe('wide');
     expect(out.shot_type).toBe('static');
   });
 
@@ -362,8 +378,9 @@ describe('parseVisionJson — rejection paths', () => {
       time_of_day: 'afternoon',
       lighting: 'natural',
       weather: 'clear',
-      composition: 'wide shot',
+      framing: 'wide',
       shot_type: 'action',
+      people_count: 4,
     };
     const out = parseVisionJson(JSON.stringify(v));
     expect(out.scene_type).toBeNull();
@@ -372,8 +389,11 @@ describe('parseVisionJson — rejection paths', () => {
     expect(out.time_of_day).toBeNull();
     expect(out.lighting).toBeNull();
     expect(out.weather).toBeNull();
-    expect(out.composition).toBeNull();
+    expect(out.framing).toBeNull();
     expect(out.shot_type).toBeNull();
+    // A screenshot has no people to count no matter how many avatars the
+    // model saw in the UI — the parser clamps rather than trusting it.
+    expect(out.people_count).toBe(0);
     // Non-scene fields are unaffected by the short-circuit.
     expect(out.is_screenshot).toBe(true);
     expect(out.caption).toBe(VALID.caption);
@@ -415,7 +435,9 @@ describe('parseVisionJson — rejection paths', () => {
 describe('prompt ↔ parser cross-check', () => {
   const REQUIRED_KEYS = [
     'is_screenshot',
+    'people_count',
     'caption',
+    'tags',
     'subjects',
     'scene_type',
     'setting',
@@ -425,7 +447,7 @@ describe('prompt ↔ parser cross-check', () => {
     'weather',
     'mood',
     'colors',
-    'composition',
+    'framing',
     'text_visible',
     'notable_objects',
     'shot_type',
@@ -439,8 +461,16 @@ describe('prompt ↔ parser cross-check', () => {
     });
   }
 
-  it('DESCRIBE_VISION_PROMPT_VERSION is 6 (remove nudity and auto-hide prompt)', () => {
-    expect(DESCRIBE_VISION_PROMPT_VERSION).toBe(6);
+  it('DESCRIBE_VISION_PROMPT_VERSION is 7 (people_count, tags, framing)', () => {
+    expect(DESCRIBE_VISION_PROMPT_VERSION).toBe(7);
+  });
+
+  // The retired v6 vocabulary must not survive anywhere in the prompt: a
+  // stray "composition" key or a "wide shot" example would pull the model
+  // back toward values the v7 grammar rejects.
+  it('carries no v6 composition vocabulary', () => {
+    expect(/"composition"\s*:/.test(DEFAULT_DESCRIBE_VISION_PROMPT)).toBe(false);
+    expect(DEFAULT_DESCRIBE_VISION_PROMPT).not.toContain('wide shot');
   });
 });
 
@@ -453,7 +483,7 @@ describe('parseVisionJson — every enum is honoured', () => {
     ],
     ['lighting', ['natural', 'artificial', 'mixed', 'low-light', 'backlit', 'flash', 'unknown']],
     ['weather', ['clear', 'cloudy', 'rainy', 'snowy', 'foggy', 'indoor', 'unknown']],
-    ['composition', ['wide shot', 'close-up', 'portrait', 'landscape', 'aerial', 'macro']],
+    ['framing', ['wide', 'medium', 'close-up', 'macro']],
     ['shot_type', ['action', 'static', 'candid', 'posed', 'architectural', 'nature', 'event']],
   ];
 

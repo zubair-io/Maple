@@ -41,6 +41,12 @@ export interface ComposeSearchBlobInput {
   visionActivity?: string | null;
   /** Structured notable objects (e.g. ["lacrosse stick", "cleats"]). */
   visionNotableObjects?: string[] | null;
+  /** Flat search keywords from the describe stage (prompt v7). The
+   * caption already contributes via `description`, but prose tokenises
+   * unevenly — the keyword bag is what makes a term like "sledding"
+   * reliably present on every sledding photo. `null` on rows captioned
+   * before v7. */
+  visionTags?: string[] | null;
   /** Named people appearing in the asset (e.g. ["Greyson", "Maya"]).
    * Resolved from `faces[].person_id` by the caller — the blob can't
    * `$lookup` person names, so the meili stage passes them explicitly.
@@ -75,6 +81,7 @@ export function composeSearchBlob(input: ComposeSearchBlobInput): string {
   add(input.visionSetting);
   add(input.visionActivity);
   for (const o of input.visionNotableObjects ?? []) add(o);
+  for (const t of input.visionTags ?? []) add(t);
 
   // Named people — each name tokenised so "Greyson Smith" matches either
   // word. The meili stage filters out auto-generated `Person N` names

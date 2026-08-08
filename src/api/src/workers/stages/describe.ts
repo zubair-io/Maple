@@ -2,7 +2,7 @@
  * Describe (caption + structured vision) stage.
  *
  * Calls a vision LLM via the describe-provider abstraction (default:
- * Ollama serving qwen3-vl:8b) against the 1280-px preview produced
+ * Ollama serving gemma4:12b) against the 1280-px preview produced
  * by the preview stage, parses the structured-JSON response into a
  * typed `VisionDoc`, and writes:
  *
@@ -45,7 +45,7 @@ import {
   loadEnrichmentConfig,
   DEFAULT_DESCRIBE_VISION_PROMPT,
   DESCRIBE_VISION_PROMPT_VERSION,
-  QWEN_VL_OLLAMA_TAG,
+  DESCRIBE_VISION_OLLAMA_TAG,
 } from '../../enrichment/enrichment-config.repo.ts';
 import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.resolve.ts';
 import {
@@ -74,11 +74,11 @@ let _deps: DescribeDeps | null = null;
 
 /** Fixed model — sourced from the single shared constant so the stage,
  * the bootstrap health-check, and the UI copy can't drift. The
- * structured-JSON parser only accepts qwen-VL's output shape, so
- * allowing operator overrides would silently dead-letter every row.
- * Operators can still point at a remote Ollama via the URL config, but
- * provider/model/prompt are locked. */
-const FIXED_DESCRIBE_MODEL = QWEN_VL_OLLAMA_TAG;
+ * structured-JSON parser only accepts the shape this prompt + grammar
+ * schema produce, so allowing operator overrides would silently
+ * dead-letter every row. Operators can still point at a remote Ollama via
+ * the URL config, but provider/model/prompt are locked. */
+const FIXED_DESCRIBE_MODEL = DESCRIBE_VISION_OLLAMA_TAG;
 
 async function getDeps(): Promise<DescribeDeps> {
   if (_deps) return _deps;
@@ -328,7 +328,14 @@ const describeStage = defineStage({
   // field, verbatim OCR transcription, and `indoor_outdoor` dropped from
   // the schema.
   // v7: remove nudity classification and auto-hide logic (prompt v6)
-  targetVersion: 7,
+  //
+  // v8: gemma4:12b model swap + prompt v7 (DESCRIBE_VISION_PROMPT_VERSION
+  // 7) — adds `people_count` and `tags`, replaces `composition` with
+  // `framing` (tightness only), and tightens the caption rules. The new
+  // fields don't exist on v7 rows and can't be backfilled from them, so
+  // bumping is the only way every asset ends up with the same VisionDoc
+  // shape.
+  targetVersion: 8,
   dependsOn: ['preview'],
   defaults: {
     concurrency: 2,

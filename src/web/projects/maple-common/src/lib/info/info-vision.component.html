@@ -2,13 +2,27 @@
 @if (d.vision) {
   <maple-collapsible label="Vision" storageKey="info-vision">
     <div class="space-y-2 px-4 py-[5px]">
-      @if (d.vision.is_screenshot) {
-        <div class="flex">
-          <div
-            class="rounded-[3px] border-[0.5px] border-primary bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
-          >
-            Screenshot
-          </div>
+      <!-- Screenshot badge + people count. `people_count` is absent on rows
+           captioned before prompt v7, and absent is not the same as zero —
+           gate on the count being present AND non-zero so a pre-v7 row shows
+           nothing rather than a wrong "0 people". Screenshots are always 0,
+           so the two badges never both appear. -->
+      @if (d.vision.is_screenshot || d.vision.people_count) {
+        <div class="flex flex-wrap gap-1">
+          @if (d.vision.is_screenshot) {
+            <div
+              class="rounded-[3px] border-[0.5px] border-primary bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+            >
+              Screenshot
+            </div>
+          }
+          @if (d.vision.people_count) {
+            <div
+              class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main"
+            >
+              {{ d.vision.people_count }} {{ d.vision.people_count === 1 ? 'person' : 'people' }}
+            </div>
+          }
         </div>
       }
 
@@ -62,10 +76,12 @@
         }
       </div>
 
-      <!-- mood + composition + time/lighting/weather context (smaller, secondary row).
-           composition / time_of_day / lighting / weather are null on
+      <!-- mood + framing + time/lighting/weather context (smaller, secondary row).
+           framing / time_of_day / lighting / weather are null on
            screenshots (v5 short-circuit) — each chip is gated on a
-           populated value. -->
+           populated value. `framing ?? composition` renders the retired v6
+           field for rows the v7 re-describe hasn't reached yet; the two are
+           never both populated. -->
       <div class="flex flex-wrap gap-1">
         @if (d.vision.mood) {
           <div
@@ -74,11 +90,11 @@
             {{ d.vision.mood }}
           </div>
         }
-        @if (d.vision.composition) {
+        @if (d.vision.framing ?? d.vision.composition) {
           <div
             class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-muted"
           >
-            {{ d.vision.composition }}
+            {{ d.vision.framing ?? d.vision.composition }}
           </div>
         }
         @if (d.vision.time_of_day) {
@@ -116,6 +132,25 @@
                 class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main"
               >
                 {{ o }}
+              </div>
+            }
+          </div>
+        </div>
+      }
+
+      <!-- Search keywords (prompt v7). Muted rather than main-text: these
+           exist for the search index, and visually outranking `subjects`
+           and `notable_objects` — which are curated and far shorter —
+           would be misleading. Absent on pre-v7 rows. -->
+      @if (d.vision.tags && d.vision.tags.length > 0) {
+        <div>
+          <div class="mb-1 text-[10px] uppercase tracking-[0.3px] text-text-muted">Keywords</div>
+          <div class="flex flex-wrap gap-1">
+            @for (t of d.vision.tags; track t) {
+              <div
+                class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-muted"
+              >
+                {{ t }}
               </div>
             }
           </div>
