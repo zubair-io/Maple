@@ -155,6 +155,14 @@ enum ToolGlyphShapes {
         // unmistakably as a wheel rather than a tonal band.
         case .colorGrade:
             return [.circle(cx: 8, cy: 8, r: 4.8), dot(8, 5.4), dot(5.8, 9.2), dot(10.2, 9.2)]
+        // Frame with a row of sprocket-hole dots along the top and bottom
+        // edges — a film strip (#2683). Path data copied verbatim from the
+        // web's `tool-film` glyph in `tool-glyph-shapes.ts`.
+        case .filmLook:
+            return [
+                frame, dot(4.6, 3.4), dot(8, 3.4), dot(11.4, 3.4),
+                dot(4.6, 12.6), dot(8, 12.6), dot(11.4, 12.6),
+            ]
 
         // ── Detail ──────────────────────────────────────────────────────────
         // A single sharp peak rising off a flat baseline — edge acutance.
