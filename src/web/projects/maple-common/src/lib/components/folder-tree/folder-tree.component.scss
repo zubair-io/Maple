@@ -69,6 +69,18 @@
   outline-offset: -2px;
 }
 
+/* Drag-move/copy drop-target highlight (#2644). `.cdk-drop-list-receiving`
+   is applied by the CDK drag-drop module itself to a `cdkDropList` host
+   while a connected drag hovers it AND `cdkDropListEnterPredicate` allows
+   it — so a row that fails the predicate (the assets' own folder, a
+   non-folder row, an ineligible legacy node) never picks up this class,
+   which is what "rejected visually before drop" means in practice here. */
+.tree-row.cdk-drop-list-receiving {
+  background: var(--color-primary-dim);
+  outline: 1.5px dashed var(--color-primary);
+  outline-offset: -1.5px;
+}
+
 /* Trash partial-failure toast (#2643) — lives here (not in the deferred
    `FolderTreeCrudComponent`) because it must outlive the crud dialog that
    reported it: the dialog closes as soon as the trash call resolves, but the

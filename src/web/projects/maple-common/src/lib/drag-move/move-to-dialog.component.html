@@ -1,0 +1,76 @@
+<div
+  class="mtd-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-label="Move to…"
+  (click)="onBackdropClick()"
+  (keydown.escape)="onCancel()"
+>
+  <div class="mtd-card" (click)="$event.stopPropagation()">
+    <div class="mtd-header">
+      <span class="mtd-title">Move to…</span>
+      <button type="button" class="mtd-close" aria-label="Close" (click)="onCancel()">✕</button>
+    </div>
+
+    <div class="mtd-body">
+      <div class="mtd-tree" role="tree">
+        @for (root of rootFolders(); track root.id) {
+          <ng-container *ngTemplateOutlet="node; context: { $implicit: root, level: 0 }" />
+        }
+      </div>
+    </div>
+
+    <div class="mtd-footer">
+      <button type="button" class="mtd-btn mtd-btn-ghost" (click)="onCancel()">Cancel</button>
+      <button
+        type="button"
+        class="mtd-btn mtd-btn-primary"
+        [disabled]="!canConfirm()"
+        (click)="onConfirm()"
+      >
+        Move
+      </button>
+    </div>
+  </div>
+</div>
+
+<ng-template #node let-entry let-level="level">
+  @let hasChildren = (entry.children?.length ?? 0) > 0;
+  @let canExpand = !!entry.absPath || hasChildren;
+  @let disabledReason = disabledReasonFor(entry);
+  @let isSelected = selectedNode()?.id === entry.id;
+
+  <div
+    class="mtd-row"
+    role="treeitem"
+    [attr.aria-selected]="isSelected"
+    [attr.aria-disabled]="!!disabledReason"
+    [class.selected]="isSelected"
+    [class.disabled]="!!disabledReason"
+    [style.padding-left.px]="8 + level * 16"
+    [title]="disabledReason ?? ''"
+    (click)="selectNode(entry)"
+  >
+    @if (canExpand) {
+      <button
+        type="button"
+        class="mtd-chevron"
+        [attr.aria-label]="isOpen(entry) ? 'Collapse' : 'Expand'"
+        (click)="toggleOpen(entry); $event.stopPropagation()"
+      >
+        {{ isOpen(entry) ? '▾' : '▸' }}
+      </button>
+    } @else {
+      <span class="mtd-chevron-spacer"></span>
+    }
+    <span class="mtd-label">{{ entry.label }}</span>
+  </div>
+
+  @if (isOpen(entry) && hasChildren) {
+    @for (child of entry.children!; track child.id) {
+      @if (child.kind === 'folder') {
+        <ng-container *ngTemplateOutlet="node; context: { $implicit: child, level: level + 1 }" />
+      }
+    }
+  }
+</ng-template>

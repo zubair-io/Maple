@@ -118,7 +118,12 @@
 </div>
 
 <!-- Justified grid (cdk virtual scroll — only visible rows are rendered) -->
-<div class="flex-1 relative flex min-h-0">
+<div
+  class="flex-1 relative flex min-h-0"
+  cdkDropList
+  [id]="assetGridDropListId"
+  cdkDropListSortingDisabled
+>
   <cdk-virtual-scroll-viewport
     class="grid-scroll flex-1 bg-bg"
     #gridContainer
@@ -132,7 +137,13 @@
           class="flex-shrink-0"
           [style.width.px]="itemAspectRatio(item) * row.height"
           [style.height.px]="row.height"
+          cdkDrag
+          [cdkDragDisabled]="!isDraggable(item)"
+          [cdkDragData]="dragDataFor(item)"
         >
+          @if (isDraggable(item)) {
+            <div *cdkDragPreview class="drag-preview-badge">{{ dragPreviewLabel(item) }}</div>
+          }
           @if (item.kind === 'image') {
             @let isSelected = state.selectedAssetIds().has(item.asset.id);
             <maple-asset-thumb

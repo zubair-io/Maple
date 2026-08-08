@@ -7,6 +7,7 @@ import {
   LibraryPickerComponent,
   LibraryStateService,
   LoadingBannerComponent,
+  MoveToDialogComponent,
   PanoDialogComponent,
   TimelineViewComponent,
 } from '@maple-common';
@@ -27,6 +28,10 @@ import { SelfHostedBrowseController } from '../self-hosted-browse/self-hosted-br
     ErrorBannerComponent,
     LibraryPickerComponent,
     LoadingBannerComponent,
+    // Same non-`@defer`red, physical-separation shape as
+    // `BatchRenameDialogComponent` above (#2644) — this file lives only
+    // under `projects/maple`.
+    MoveToDialogComponent,
     PanoDialogComponent,
     TimelineViewComponent,
   ],

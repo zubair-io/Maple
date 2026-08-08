@@ -613,6 +613,43 @@ export class LibraryFetch {
   }
 
   /**
+   * Background re-pull of one folder's asset/subfolder listing (#2644),
+   * WITHOUT touching `selectedSourceId` — unlike `openSelfHostedSubfolder`,
+   * this never navigates the user's view. `DragMoveService` calls this for
+   * both the source and destination folder of a drag-move/copy once the
+   * whole per-asset queue settles, so the grid and sidebar tree pick up the
+   * server's post-relocate truth instead of the caller optimistically
+   * patching local state into a shape that might not match what the server
+   * actually did (partial-failure batches, auto-suffixed collisions, etc.
+   * — see the design doc's "refresh, don't mutate" note on drag-and-drop).
+   *
+   * Safe to call for a folder that isn't currently selected: `_applyFolderListing`
+   * only replaces `store.assets`/`store.gridFolders` entries keyed to THIS
+   * `sourceId`, and `_attachFolderChildren` only patches that node's sidebar
+   * subtree — neither touches the currently-displayed selection.
+   */
+  refreshFolderListing(sourceId: string): void {
+    if (this.store.backend !== 'self-hosted') return;
+    if (!sourceId.includes(':')) return;
+    try {
+      const addr = parseAddress(sourceId);
+      this._swrListFolder(
+        addr,
+        (listing, fresh) => {
+          if (!fresh) return; // only the network-authoritative pass matters here
+          this._applyFolderListing(sourceId, listing);
+        },
+        () => {
+          // Best-effort — a failed background refresh leaves the grid/tree
+          // showing the pre-relocate state until the next real navigation.
+        },
+      );
+    } catch {
+      // Unparseable id (e.g. a legacy `fs:` node) — nothing to refresh.
+    }
+  }
+
+  /**
    * Fire the content-aware `/scan` for the registered library that owns
    * `absPath`, then refresh the open folder's listing when it completes.
    *

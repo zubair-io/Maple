@@ -252,6 +252,21 @@ export * from './lib/batch-metadata/batch-metadata-confirm-dialog.component';
 export * from './lib/rename/asset-rename-capability';
 export * from './lib/rename/asset-rename.service';
 
+// #2644 — Drag assets onto the folder tree to move or copy. Shared
+// components (`asset-grid`, `folder-tree`) depend on `DragMoveCapability` /
+// `DRAG_MOVE_CAPABILITY`, not `DragMoveService`, directly — same rationale
+// as `ASSET_RENAME_CAPABILITY` above. `provideSelfHostedWorkspace()`
+// (`self-hosted-workspace.providers.ts`) is the only place that overrides
+// the token with `useExisting: DragMoveService`.
+export * from './lib/drag-move/drag-move.types';
+export * from './lib/drag-move/drag-move-capability';
+export * from './lib/drag-move/drag-move.service';
+export * from './lib/drag-move/drag-move-platform';
+export * from './lib/drag-move/asset-drag-data';
+export * from './lib/drag-move/drag-move-collision-dialog.component';
+export * from './lib/drag-move/drag-move-summary-banner.component';
+export * from './lib/drag-move/move-to-dialog.component';
+
 // #2640 — Batch rename dialog (multi-select → template-token rename).
 // Mounted directly (no `@defer`) by Self Hosted's `SelfHostedBrowseContent
 // Component`, the same way `BatchMetadataPanelComponent` (#1606) is —
