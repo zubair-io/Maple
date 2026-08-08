@@ -331,7 +331,10 @@ pub use present_chain::{present_chain_to_surface, PersistentPresentSurface};
 // Windows chain-output present (#2561): the SwapChainPanel twin of the Apple
 // surface entry above.
 #[cfg(all(target_os = "windows", not(target_arch = "wasm32")))]
-pub use present_chain_winui::{present_chain_to_swapchain_panel, PersistentSwapChainPanelSurface};
+pub use present_chain_winui::{
+    present_chain_to_swapchain_panel, present_chain_to_swapchain_panel_scaled,
+    PersistentSwapChainPanelSurface,
+};
 
 #[cfg(target_arch = "wasm32")]
 pub use present_web::{present_test_pattern_web, PresentReport, TARGET_COLOR_SPACE};
