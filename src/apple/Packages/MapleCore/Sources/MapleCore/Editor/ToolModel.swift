@@ -51,7 +51,7 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     // Color
     case temp, tint, vibrance, saturation, hsl, bwMix
     // Effects
-    case clarity, texture, dehaze, vignette, grain, colorGrade
+    case clarity, texture, dehaze, vignette, grain, filmLook, colorGrade
     // Detail
     case sharpen, noise, colorNR, captureSharpen, captureSigma, crop, presets
 
@@ -62,7 +62,7 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
             return .light
         case .temp, .tint, .vibrance, .saturation, .hsl, .bwMix:
             return .color
-        case .clarity, .texture, .dehaze, .vignette, .grain, .colorGrade:
+        case .clarity, .texture, .dehaze, .vignette, .grain, .filmLook, .colorGrade:
             return .effects
         case .sharpen, .noise, .colorNR, .captureSharpen, .captureSigma, .crop, .presets:
             return .detail
@@ -90,6 +90,7 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
         case .dehaze:     return "Dehaze"
         case .vignette:   return "Vignette"
         case .grain:      return "Grain"
+        case .filmLook:   return "Film"
         case .colorGrade: return "Color Grading"
         case .sharpen:        return "Sharpen"
         case .noise:          return "Noise"
@@ -129,6 +130,13 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     /// parametric region sub-params plus four per-channel point curves
     /// and no single primary field, so `displayRange` stays nil and
     /// `ToneCurveSection` is its whole control surface.
+    ///
+    /// Film (#2683) is wired and takes the same no-primary-field shape:
+    /// `filmLook` is a catalog-id string picked from `FilmSection`'s list
+    /// (not a drag-bar value), and its one scalar field, `filmStrength`,
+    /// is declared as this tool's single sub-param so its slider rides
+    /// the ordinary sub-param value pipe (HUD, undo). `displayRange`
+    /// stays nil and `FilmSection` is the whole control surface.
     public var isWired: Bool {
         switch self {
         case .crop:
