@@ -32,6 +32,11 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subject, Subscription, catchError, debounceTime, of, switchMap } from 'rxjs';
 import { errorMessage } from '../util/errors';
+import {
+  BatchRenameFormComponent,
+  type BatchRenameCollisionOption,
+} from './batch-rename-form.component';
+import { BatchRenameResultsComponent } from './batch-rename-results.component';
 import { BatchRenameService } from './batch-rename.service';
 import {
   BATCH_RENAME_TOKEN_HELP,
@@ -46,7 +51,7 @@ import {
 
 type Phase = 'edit' | 'applying' | 'done';
 
-const COLLISION_OPTIONS: ReadonlyArray<{ value: BatchRenameCollisionPolicy; label: string }> = [
+const COLLISION_OPTIONS: ReadonlyArray<BatchRenameCollisionOption> = [
   { value: 'auto-suffix', label: 'Auto-suffix (add a number)' },
   { value: 'skip', label: 'Skip' },
   { value: 'replace', label: 'Replace' },
@@ -59,6 +64,7 @@ const PREVIEW_DEBOUNCE_MS = 250;
 @Component({
   selector: 'app-batch-rename-dialog',
   standalone: true,
+  imports: [BatchRenameFormComponent, BatchRenameResultsComponent],
   templateUrl: './batch-rename-dialog.component.html',
   styleUrl: './batch-rename-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

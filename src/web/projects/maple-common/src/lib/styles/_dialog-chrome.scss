@@ -10,6 +10,49 @@
 // include site, so `.psd-btn { @include dialog-button; }` emits
 // `.psd-btn-ghost` / `.psd-btn-primary`.
 
+/// Full-viewport dim backdrop, centering whatever card sits inside it.
+/// Identical across every modal dialog (folder new/rename/trash, batch
+/// rename) — pulled in here for the same reason as `dialog-button` (#2718
+/// review: it was a fresh byte-identical copy in every new dialog's scss).
+@mixin dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+/// The card's shared chrome (surface, border, shadow, corner radius) —
+/// deliberately WITHOUT `max-width`/`max-height`, since those vary per
+/// dialog (a short confirm vs. batch rename's wider preview list). Callers
+/// add their own size on top: `.xyz-card { @include dialog-card-base;
+/// max-width: 360px; }`.
+@mixin dialog-card-base {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  border-radius: 8px;
+  background: var(--color-surface);
+  border: 0.5px solid var(--color-border);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+/// Card header band (title row) — border-bottom separates it from the body.
+@mixin dialog-header {
+  padding: 14px 16px;
+  border-bottom: 0.5px solid var(--color-border);
+}
+
+/// Header title text.
+@mixin dialog-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-main);
+}
+
 /// Header close button ("×"): 24×24, muted until hovered.
 @mixin dialog-close-button {
   display: flex;
@@ -30,6 +73,25 @@
   &:hover {
     background: var(--color-surface-hover);
     color: var(--color-text-main);
+  }
+}
+
+/// Text/number/select input: the 32px field every dialog form uses
+/// (folder new/rename, batch rename). Prefix-agnostic like `dialog-button` —
+/// `.xyz-input { @include dialog-input; }` picks up the shared look without
+/// re-declaring it per component.
+@mixin dialog-input {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 5px;
+  border: 0.5px solid var(--color-border);
+  background: var(--color-input-bg);
+  color: var(--color-text-main);
+  font-size: 13px;
+
+  &:focus {
+    outline: none;
+    border-color: var(--color-primary);
   }
 }
 

@@ -77,26 +77,52 @@ function unresolvedApplyResult(row: ResolvedBatchRenameId): BatchRenameItemResul
   return { address: row.address, kind: 'error', error: 'Could not resolve this asset' };
 }
 
+// One small mapper per `RawApplyResult.kind`, dispatched through a lookup
+// table rather than a single branching `switch` — keeps each function's own
+// complexity trivial (fallow flagged the switch-form as CRITICAL: 13
+// cyclomatic / 8 cognitive) while staying exhaustive over the union, since
+// `APPLY_RESULT_MAPPERS`'s key type is `RawApplyResult['kind']` itself.
+
+function mapRelocated(address: string, raw: RawApplyResult): BatchRenameItemResult {
+  return {
+    address,
+    kind: 'relocated',
+    oldFilename: raw.old_filename ?? '',
+    newFilename: raw.new_filename ?? '',
+    renamedOnCollision: raw.renamed_on_collision ?? false,
+    extensionChanged: raw.extension_changed ?? false,
+  };
+}
+
+function mapSkipped(address: string, raw: RawApplyResult): BatchRenameItemResult {
+  return { address, kind: 'skipped', reason: raw.reason ?? 'skipped' };
+}
+
+function mapNotFound(address: string): BatchRenameItemResult {
+  return { address, kind: 'not-found' };
+}
+
+function mapInvalid(address: string, raw: RawApplyResult): BatchRenameItemResult {
+  return { address, kind: 'invalid', error: raw.error ?? 'invalid template result' };
+}
+
+function mapErrorResult(address: string, raw: RawApplyResult): BatchRenameItemResult {
+  return { address, kind: 'error', error: raw.error ?? 'unknown error' };
+}
+
+const APPLY_RESULT_MAPPERS: Record<
+  RawApplyResult['kind'],
+  (address: string, raw: RawApplyResult) => BatchRenameItemResult
+> = {
+  relocated: mapRelocated,
+  skipped: mapSkipped,
+  'not-found': mapNotFound,
+  invalid: mapInvalid,
+  error: mapErrorResult,
+};
+
 function mapApplyResult(address: string, raw: RawApplyResult): BatchRenameItemResult {
-  switch (raw.kind) {
-    case 'relocated':
-      return {
-        address,
-        kind: 'relocated',
-        oldFilename: raw.old_filename ?? '',
-        newFilename: raw.new_filename ?? '',
-        renamedOnCollision: raw.renamed_on_collision ?? false,
-        extensionChanged: raw.extension_changed ?? false,
-      };
-    case 'skipped':
-      return { address, kind: 'skipped', reason: raw.reason ?? 'skipped' };
-    case 'not-found':
-      return { address, kind: 'not-found' };
-    case 'invalid':
-      return { address, kind: 'invalid', error: raw.error ?? 'invalid template result' };
-    case 'error':
-      return { address, kind: 'error', error: raw.error ?? 'unknown error' };
-  }
+  return APPLY_RESULT_MAPPERS[raw.kind](address, raw);
 }
 
 @Injectable({ providedIn: 'root' })

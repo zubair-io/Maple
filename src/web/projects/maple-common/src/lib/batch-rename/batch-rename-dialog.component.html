@@ -11,191 +11,39 @@
       <span class="brn-title">Batch Rename ({{ selections().length }})</span>
     </div>
 
-    @if (phase() === 'edit' || phase() === 'applying') {
-      <div class="brn-body">
-        <label class="brn-field">
-          <span class="brn-label">Template</span>
-          <input
-            #templateInput
-            type="text"
-            class="brn-input"
-            [value]="template()"
-            [attr.maxlength]="maxTemplateLength"
-            [disabled]="applyBusy()"
-            aria-label="Filename template"
-            placeholder="{{ '{original}' }}"
-            (input)="onTemplateInput($any($event.target).value)"
-          />
-        </label>
-
-        <div class="brn-tokens">
-          @for (help of tokenHelp; track help.token) {
-            <button
-              type="button"
-              class="brn-token-btn"
-              [disabled]="applyBusy()"
-              [title]="help.label"
-              (click)="insertToken(help.token)"
-            >
-              {{ help.token }}
-            </button>
-          }
-        </div>
-
-        <div class="brn-row">
-          <label class="brn-field brn-field-small">
-            <span class="brn-label">Start at</span>
-            <input
-              type="number"
-              class="brn-input"
-              min="0"
-              [value]="sequenceStart()"
-              [disabled]="applyBusy()"
-              aria-label="Sequence start"
-              (input)="onSequenceStartInput($any($event.target).value)"
-            />
-          </label>
-          <label class="brn-field brn-field-small">
-            <span class="brn-label">Pad width</span>
-            <input
-              type="number"
-              class="brn-input"
-              min="0"
-              [value]="sequencePadWidth()"
-              [disabled]="applyBusy()"
-              aria-label="Sequence zero-padding width"
-              (input)="onSequencePadWidthInput($any($event.target).value)"
-            />
-          </label>
-          <label class="brn-field brn-field-small">
-            <span class="brn-label">On collision</span>
-            <select
-              class="brn-input"
-              [disabled]="applyBusy()"
-              aria-label="Collision resolution"
-              (change)="onCollisionChange($any($event.target).value)"
-            >
-              @for (opt of collisionOptions; track opt.value) {
-                <option [value]="opt.value" [selected]="opt.value === collision()">
-                  {{ opt.label }}
-                </option>
-              }
-            </select>
-          </label>
-        </div>
-
-        @if (hasUnresolved()) {
-          <p class="brn-warning">{{ unresolvedMessage() }}</p>
-        }
-        @if (previewError(); as err) {
-          <p class="brn-error">{{ err }}</p>
-        }
-        @if (applyError(); as err) {
-          <p class="brn-error">{{ err }}</p>
-        }
-        @if (duplicateCount() > 0) {
-          <p class="brn-warning">
-            {{ duplicateCount() }} file{{ duplicateCount() === 1 ? '' : 's' }} in this template
-            would render the same name as another file — the collision policy above resolves it
-            during Apply.
-          </p>
-        }
-
-        <div class="brn-preview" role="list" aria-label="Rename preview">
-          @if (resolving() || (previewLoading() && previewItems().length === 0)) {
-            <p class="brn-preview-status">Loading preview…</p>
-          } @else {
-            @for (item of previewItems(); track item.address) {
-              <div
-                class="brn-preview-row"
-                role="listitem"
-                [class.brn-preview-row-error]="item.error"
-              >
-                <span class="brn-preview-old">{{ item.oldFilename ?? '—' }}</span>
-                <span class="brn-preview-arrow">→</span>
-                @if (item.error) {
-                  <span class="brn-preview-new brn-preview-new-error">{{ item.error }}</span>
-                } @else {
-                  <span class="brn-preview-new">
-                    {{ item.newFilename }}
-                    @if (item.duplicate) {
-                      <span class="brn-badge brn-badge-warning">duplicate</span>
-                    }
-                  </span>
-                }
-              </div>
-            }
-          }
-        </div>
-      </div>
-
-      <div class="brn-footer">
-        <button
-          type="button"
-          class="brn-btn brn-btn-ghost"
-          [disabled]="applyBusy()"
-          (click)="onCancel()"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          class="brn-btn brn-btn-primary"
-          [disabled]="!canApply()"
-          (click)="onApply()"
-        >
-          {{ applyBusy() ? 'Renaming…' : 'Apply' }}
-        </button>
-      </div>
-    }
-
     @if (phase() === 'done' && applyResult(); as result) {
-      <div class="brn-body">
-        <p class="brn-summary">{{ summaryMessage(result) }}</p>
-        <div class="brn-preview" role="list" aria-label="Rename results">
-          @for (item of result.results; track item.address) {
-            <div
-              class="brn-preview-row"
-              role="listitem"
-              [class.brn-preview-row-error]="
-                item.kind === 'error' || item.kind === 'invalid' || item.kind === 'not-found'
-              "
-            >
-              @switch (item.kind) {
-                @case ('relocated') {
-                  <span class="brn-preview-old">{{ item.oldFilename }}</span>
-                  <span class="brn-preview-arrow">→</span>
-                  <span class="brn-preview-new">
-                    {{ item.newFilename }}
-                    <span class="brn-badge brn-badge-success">renamed</span>
-                  </span>
-                }
-                @case ('skipped') {
-                  <span class="brn-preview-old">{{ item.address }}</span>
-                  <span class="brn-preview-arrow">→</span>
-                  <span class="brn-preview-new brn-preview-new-error">
-                    skipped: {{ item.reason }}
-                  </span>
-                }
-                @case ('not-found') {
-                  <span class="brn-preview-old">{{ item.address }}</span>
-                  <span class="brn-preview-arrow">→</span>
-                  <span class="brn-preview-new brn-preview-new-error">not found</span>
-                }
-                @default {
-                  <span class="brn-preview-old">{{ item.address }}</span>
-                  <span class="brn-preview-arrow">→</span>
-                  <span class="brn-preview-new brn-preview-new-error">{{ item.error }}</span>
-                }
-              }
-            </div>
-          }
-        </div>
-      </div>
-
-      <div class="brn-footer">
-        <button type="button" class="brn-btn brn-btn-primary" (click)="onClose()">Close</button>
-      </div>
+      <app-batch-rename-results
+        [result]="result"
+        [summary]="summaryMessage(result)"
+        (close)="onClose()"
+      />
+    } @else {
+      <app-batch-rename-form
+        [template]="template()"
+        [sequenceStart]="sequenceStart()"
+        [sequencePadWidth]="sequencePadWidth()"
+        [collision]="collision()"
+        [maxTemplateLength]="maxTemplateLength"
+        [tokenHelp]="tokenHelp"
+        [collisionOptions]="collisionOptions"
+        [resolving]="resolving()"
+        [hasUnresolved]="hasUnresolved()"
+        [unresolvedMessage]="hasUnresolved() ? unresolvedMessage() : ''"
+        [previewLoading]="previewLoading()"
+        [previewItems]="previewItems()"
+        [previewError]="previewError()"
+        [applyError]="applyError()"
+        [duplicateCount]="duplicateCount()"
+        [canApply]="canApply()"
+        [busy]="applyBusy()"
+        (templateInput)="onTemplateInput($event)"
+        (sequenceStartInput)="onSequenceStartInput($event)"
+        (sequencePadWidthInput)="onSequencePadWidthInput($event)"
+        (collisionChange)="onCollisionChange($event)"
+        (insertToken)="insertToken($event)"
+        (apply)="onApply()"
+        (cancel)="onCancel()"
+      />
     }
   </div>
 </div>

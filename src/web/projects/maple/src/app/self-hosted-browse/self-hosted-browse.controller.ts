@@ -3,6 +3,7 @@ import {
   BatchMetadataService,
   LibraryStateService,
   parseAddress,
+  type Asset,
   type AssetMetadataSnapshot,
   type BatchRenameSelection,
 } from '@maple-common';
@@ -35,10 +36,36 @@ export class SelfHostedBrowseController {
     this.panoAssetIds.set([]);
   }
 
-  openMetadata(): void {
+  /** The currently-selected assets, resolved against the selected folder's
+   * live asset list — shared by every action that operates on "whatever is
+   * selected right now" (`openMetadata`, `openBatchRename`). `null` when
+   * nothing is selected, so callers can early-return with one check instead
+   * of repeating the selected-ids-to-assets filter. */
+  private selectedAssetsOrNull(): Asset[] | null {
     const selected = this.state.selectedAssetIds();
     const assets = this.state.assetsInSelectedFolder().filter((asset) => selected.has(asset.id));
-    if (assets.length === 0) return;
+    return assets.length === 0 ? null : assets;
+  }
+
+  /** Re-sync the folder tree and, if the current source is a live Self
+   * Hosted subfolder, reopen it — shared by every action whose completion
+   * can change filenames/addresses under the current folder
+   * (`dismissMetadata`, `onBatchRenameApplied`). */
+  private refreshCurrentFolder(): void {
+    this.state.loadFolderTree();
+    const currentId = this.state.selectedSourceId();
+    if (!currentId?.includes(':')) return;
+    try {
+      const address = parseAddress(currentId);
+      this.state.openSelfHostedSubfolder(address.relPath, currentId);
+    } catch {
+      // A legacy source id has no subfolder route to refresh.
+    }
+  }
+
+  openMetadata(): void {
+    const assets = this.selectedAssetsOrNull();
+    if (!assets) return;
 
     this.snapshotsSubscription?.unsubscribe();
     this.snapshotsSubscription = this.metadata
@@ -72,24 +99,14 @@ export class SelfHostedBrowseController {
     this.snapshotsSubscription = null;
     this.metadataVisible.set(false);
     this.metadataSnapshots.set([]);
-    this.state.loadFolderTree();
-
-    const currentId = this.state.selectedSourceId();
-    if (!currentId?.includes(':')) return;
-    try {
-      const address = parseAddress(currentId);
-      this.state.openSelfHostedSubfolder(address.relPath, currentId);
-    } catch {
-      // A legacy source id has no subfolder route to refresh.
-    }
+    this.refreshCurrentFolder();
   }
 
   // ── Batch Rename (#2640) ──────────────────────────────────────────────
 
   openBatchRename(): void {
-    const selected = this.state.selectedAssetIds();
-    const assets = this.state.assetsInSelectedFolder().filter((asset) => selected.has(asset.id));
-    if (assets.length === 0) return;
+    const assets = this.selectedAssetsOrNull();
+    if (!assets) return;
     this.batchRenameSelections.set(
       assets.map((asset) => ({ address: asset.id, filename: asset.filename })),
     );
@@ -105,14 +122,6 @@ export class SelfHostedBrowseController {
    * refresh the same way `dismissMetadata` does so the grid reflects the
    * new names without a full page reload. */
   onBatchRenameApplied(): void {
-    this.state.loadFolderTree();
-    const currentId = this.state.selectedSourceId();
-    if (!currentId?.includes(':')) return;
-    try {
-      const address = parseAddress(currentId);
-      this.state.openSelfHostedSubfolder(address.relPath, currentId);
-    } catch {
-      // A legacy source id has no subfolder route to refresh.
-    }
+    this.refreshCurrentFolder();
   }
 }
