@@ -1,0 +1,50 @@
+// _batch-rename-chrome.scss — styles shared by the batch-rename dialog's
+// phase components (`batch-rename-form.component`,
+// `batch-rename-results.component`). Split out so the two phases don't
+// each carry their own copy of the body/footer rules — same rationale as
+// `styles/_dialog-chrome.scss`. The preview-list/badge rules used to live
+// here too, but moved to `batch-rename-preview-list.component.scss` once
+// that became the ONLY component rendering that markup (#2718 review) —
+// no more need for a shared mixin when there's a single consumer.
+
+@use '../styles/dialog-chrome' as chrome;
+
+@mixin body {
+  .brn-body {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow-y: auto;
+    min-height: 0;
+  }
+}
+
+@mixin message-lines {
+  .brn-warning {
+    margin: 0;
+    font-size: 11px;
+    color: var(--color-warning-text, #b8860b);
+  }
+
+  .brn-error {
+    margin: 0;
+    font-size: 11px;
+    color: var(--color-error-text);
+  }
+}
+
+@mixin footer {
+  .brn-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 16px;
+    border-top: 0.5px solid var(--color-border);
+    flex-shrink: 0;
+  }
+
+  .brn-btn {
+    @include chrome.dialog-button;
+  }
+}

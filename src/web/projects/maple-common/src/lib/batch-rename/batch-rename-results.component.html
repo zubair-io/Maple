@@ -1,0 +1,8 @@
+<div class="brn-body">
+  <p class="brn-summary">{{ summary() }}</p>
+  <app-batch-rename-preview-list [rows]="resultRows()" ariaLabel="Rename results" />
+</div>
+
+<div class="brn-footer">
+  <button type="button" class="brn-btn brn-btn-primary" (click)="close.emit()">Close</button>
+</div>
