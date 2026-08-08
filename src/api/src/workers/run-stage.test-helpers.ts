@@ -109,6 +109,41 @@ export function makeImagesMock(initial: ImageDoc[] = []): Collection<ImageDoc> {
   } as unknown as Collection<ImageDoc>;
 }
 
+/**
+ * One operator → does `docVal` satisfy it?
+ *
+ * A table rather than a chain of `if ('$op' in op)` blocks: each entry is
+ * independently readable, adding an operator is one line, and the complexity
+ * stays flat as the set grows instead of accumulating in a single function.
+ *
+ * `$gt` / `$type` / `$not` back the retry-backoff gate (#2729) and the damaged
+ * park. They matter because this mock IGNORES operators it doesn't implement
+ * rather than throwing (unlike the fail-closed sibling in
+ * `run-stage.missing-tag.test.ts`): before they were modelled, the backoff
+ * gate was silently a no-op in every suite using this helper, so those tests
+ * claimed to cover a claim query they were not actually evaluating.
+ */
+const OPERATORS: Record<string, (docVal: unknown, opv: unknown) => boolean> = {
+  // Absent is permissive for `$lt` — mirrors the claim query's version gate,
+  // where a doc with no `stages.<name>.version` must still be claimable.
+  $lt: (d, v) => d === undefined || (typeof d === 'number' && d < (v as number)),
+  $gte: (d, v) => typeof d === 'number' && d >= (v as number),
+  $ne: (d, v) => d !== v,
+  $nin: (d, v) => !(v as unknown[]).includes(d),
+  $exists: (d, v) => (v as boolean) === (d !== undefined),
+  // Absent must NOT satisfy `$gt`, so `$not: { $gt: now }` leaves never-failed
+  // rows claimable — mirroring Mongo, and the whole reason the retry gate is
+  // expressed as a negation rather than a comparison.
+  $gt: (d, v) => d !== undefined && d !== null && Number(d) > Number(v),
+  $type: (d, v) => v !== 'string' || typeof d === 'string',
+  $not: (d, v) => !matchesFilter({ v: d }, { v }),
+};
+
+// Down to 10 cyclomatic / 24 lines after the operator table above; what still
+// trips the gate is an ESTIMATED CRAP score, which fallow derives from export
+// references when no coverage report is supplied. This helper is exercised by
+// every run-stage suite.
+// fallow-ignore-next-line complexity
 export function matchesFilter(doc: unknown, filter: Record<string, unknown>): boolean {
   for (const [key, val] of Object.entries(filter)) {
     if (key === '$or') {
@@ -118,48 +153,17 @@ export function matchesFilter(doc: unknown, filter: Record<string, unknown>): bo
     }
 
     const docVal = getNestedValue(doc as Record<string, unknown>, key);
-    if (val !== null && typeof val === 'object') {
-      const op = val as Record<string, unknown>;
-      if ('$lt' in op) {
-        const limit = op['$lt'] as number;
-        if (docVal === undefined) continue;
-        if (!(typeof docVal === 'number' && docVal < limit)) return false;
-      }
-      if ('$gte' in op) {
-        if (docVal === undefined) return false;
-        if (!(typeof docVal === 'number' && docVal >= (op['$gte'] as number))) return false;
-      }
-      if ('$ne' in op && docVal === op['$ne']) return false;
-      if ('$nin' in op) {
-        const arr = op['$nin'] as unknown[];
-        if (arr.includes(docVal)) return false;
-      }
-      if ('$exists' in op) {
-        const expected = op['$exists'] as boolean;
-        if (expected === false && docVal !== undefined) return false;
-        if (expected === true && docVal === undefined) return false;
-      }
-      // `$gt` / `$type` / `$not` back the retry-backoff gate (#2729) and the
-      // damaged park. Modelled here because this helper ignores operators it
-      // doesn't implement rather than throwing: without them the backoff gate
-      // was silently a no-op in every suite using this mock, so tests claimed
-      // to cover a claim query they were not actually evaluating.
-      //
-      // An absent field must not satisfy `$gt`, so `$not: { $gt: now }` leaves
-      // never-failed rows claimable — mirroring Mongo, and the whole reason
-      // the gate is expressed as a negation.
-      if ('$gt' in op) {
-        if (docVal === undefined || docVal === null) return false;
-        if (!(Number(docVal) > Number(op['$gt']))) return false;
-      }
-      if ('$type' in op) {
-        if (op['$type'] === 'string' && typeof docVal !== 'string') return false;
-      }
-      if ('$not' in op) {
-        if (matchesFilter({ v: docVal }, { v: op['$not'] })) return false;
-      }
-    } else {
+    if (val === null || typeof val !== 'object') {
       if (docVal !== val) return false;
+      continue;
+    }
+
+    for (const [op, opv] of Object.entries(val as Record<string, unknown>)) {
+      const predicate = OPERATORS[op];
+      // Unknown operators stay ignored, as they always were here. Tightening
+      // that to fail-closed is worth doing, but it would surface unrelated
+      // gaps across many suites at once — separate change.
+      if (predicate && !predicate(docVal, opv)) return false;
     }
   }
   return true;
