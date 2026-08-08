@@ -19,6 +19,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { ObjectId } from 'mongodb';
 import sharp from 'sharp';
+import type { VisionDoc } from '../../db/schema.ts';
 import type { ImageDoc } from '../run-stage.ts';
 import type {
   DescribeProvider,
@@ -26,13 +27,17 @@ import type {
 } from '../../enrichment/describe-providers/index.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
 
-/** A fully-populated VisionDoc as qwen would return it for a real photo.
- * Spread-and-override this rather than hand-rolling partial docs, so a new
- * required field lands in every suite at once. */
-export const VALID_VISION = {
+/** A fully-populated VisionDoc as the model would return it for a real
+ * photo. Spread-and-override this rather than hand-rolling partial docs, so
+ * a new required field lands in every suite at once — the `VisionDoc`
+ * annotation is what makes that promise enforceable, since without it a
+ * field added to the schema type would leave this literal silently stale. */
+export const VALID_VISION: VisionDoc = {
   is_screenshot: false,
+  people_count: 0,
   nudity: 'none',
   caption: 'A red bicycle leaning against a brick wall.',
+  tags: ['bicycle', 'red', 'brick wall', 'alleyway', 'outdoor', 'parked'],
   subjects: ['vehicle'],
   scene_type: 'outdoor',
   setting: 'alleyway',
@@ -42,7 +47,7 @@ export const VALID_VISION = {
   weather: 'clear',
   mood: 'calm',
   colors: ['red', 'brown', 'grey'],
-  composition: 'close-up',
+  framing: 'close-up',
   text_visible: null,
   notable_objects: ['bicycle', 'brick wall'],
   shot_type: 'static',

@@ -86,27 +86,27 @@ export const DEFAULT_DESCRIBE_PROVIDER: DescribeProviderName = 'ollama';
 export const DEFAULT_DESCRIBE_OLLAMA_URL = 'http://localhost:11434';
 
 /**
- * Ollama library tag for the locked vision model. The qwen2.5 generation's
- * Ollama tag was dashless (`qwen2.5vl:7b`) while the HuggingFace form
- * (`qwen2.5-vl:7b`) 404'd. The qwen3 generation reverses this: the Ollama
- * tag IS dashed (`qwen3-vl:8b`). Requires Ollama >= 0.12.7. Single source
- * of truth so the stage handler, the bootstrap health check, and the UI
- * copy can't drift.
+ * Ollama library tag for the locked vision model. Requires Ollama >=
+ * 0.30.5 (the tag's own floor). Single source of truth so the stage
+ * handler, the bootstrap health check, and the UI copy can't drift.
+ *
+ * Lineage: `llava:latest` → `qwen2.5vl:7b` → `qwen3-vl:8b` → `gemma4:12b`.
+ * Like qwen3-vl before it, gemma4 is a thinking model, so under the
+ * `format` JSON-schema constraint it can route the whole response into
+ * `thinking` and return an empty `response` — see the fallback in
+ * `describe-providers/ollama.ts` (#2172).
  *
  * `ocr_meta.engine` (a Maple-internal discriminator) is unrelated and stays
  * the literal `"qwen2.5-vl"` (historical name) — changing it would
  * invalidate every existing DB row. The concrete model tag travels in
  * `engine_version` instead.
  */
-export const QWEN_VL_OLLAMA_TAG = 'qwen3-vl:8b';
+export const DESCRIBE_VISION_OLLAMA_TAG = 'gemma4:12b';
 
 export const DEFAULT_DESCRIBE_MODELS: Record<DescribeProviderName, string> = {
-  // Default to the Ollama qwen3-VL 8B tag (see QWEN_VL_OLLAMA_TAG above).
-  // Produces structured JSON matching DEFAULT_DESCRIBE_VISION_PROMPT below.
-  // The previous "llava:latest" default produced free-text captions
-  // incompatible with the parser; qwen2.5-vl:7b was the prior generation's
-  // pick before the qwen3-vl:8b upgrade.
-  ollama: QWEN_VL_OLLAMA_TAG,
+  // See DESCRIBE_VISION_OLLAMA_TAG above. Produces structured JSON
+  // matching DEFAULT_DESCRIBE_VISION_PROMPT.
+  ollama: DESCRIBE_VISION_OLLAMA_TAG,
   anthropic: 'claude-haiku-4-5',
   openai: 'gpt-4o-mini',
   gemini: 'gemini-flash',
