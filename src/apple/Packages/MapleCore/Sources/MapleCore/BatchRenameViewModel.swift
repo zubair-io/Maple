@@ -31,6 +31,36 @@
 // bearing for the common path.
 
 import Foundation
+import OSLog
+
+private let batchRenameLog = Logger(subsystem: "app.justmaple.aperture", category: "BatchRenameViewModel")
+
+/// Index a server response array by id, tolerating a duplicate id instead of
+/// trapping (`Dictionary(uniqueKeysWithValues:)` crashes outright on one).
+/// A duplicate is unexpected — either a caller-side duplicated selection or
+/// a malformed server response — so "first wins" (deterministic: whichever
+/// entry appeared first in `items`) is logged rather than silently accepted,
+/// while still letting the batch proceed instead of crashing over it.
+/// `internal` (not `private`) so `BatchRenameViewModelTests` can exercise
+/// the duplicate-id path directly rather than only indirectly through a
+/// mocked network call.
+func indexByIDTolerantOfDuplicates<Item>(
+    _ items: [Item], id: (Item) -> String
+) -> [String: Item] {
+    var seen = Set<String>()
+    var out: [String: Item] = [:]
+    out.reserveCapacity(items.count)
+    for item in items {
+        let key = id(item)
+        if !seen.insert(key).inserted {
+            batchRenameLog.error(
+                "indexByIDTolerantOfDuplicates: duplicate id \(key, privacy: .public) in response — keeping the first entry")
+            continue
+        }
+        out[key] = item
+    }
+    return out
+}
 
 // MARK: - Routing
 
@@ -212,7 +242,7 @@ public final class BatchRenameViewModel: Identifiable {
                 let rendered = try FilenameTemplateEngine.render(
                     template: template, originalStem: stem, ext: ext,
                     capturedAtExifString: capturedAtExifString(for: asset),
-                    sequenceStart: UInt64(sequenceStart), sequenceIndex: UInt64(index),
+                    sequenceStart: sequenceStart, sequenceIndex: UInt64(index),
                     sequencePadWidth: sequencePadWidth)
                 let duplicate = seen.contains(rendered)
                 seen.insert(rendered)
@@ -253,7 +283,7 @@ public final class BatchRenameViewModel: Identifiable {
             let items = try await cloudCatalog.previewBatchRename(
                 ids: presentIDs, template: template,
                 sequenceStart: sequenceStart, sequencePadWidth: sequencePadWidth)
-            let byID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+            let byID = indexByIDTolerantOfDuplicates(items, id: \.id)
             return zip(assets, ids).map { asset, stableID in
                 guard let stableID, let item = byID[stableID] else {
                     return BatchRenamePreviewItem(
@@ -280,10 +310,20 @@ public final class BatchRenameViewModel: Identifiable {
     /// then apply sequentially per routing. Always populates `applyResults`
     /// — including for `.unsupported` — so the sheet can show a per-file
     /// outcome list rather than a single pass/fail alert.
+    ///
+    /// `isApplying` is set BEFORE the first `await` (not after
+    /// `refreshPreview()` returns) so a second tap that lands while the
+    /// first call is still awaiting its own `refreshPreview()` sees the
+    /// guard and is refused outright — this method, the guard check, and
+    /// the `isApplying = true` that follows it all run synchronously on the
+    /// main actor up to that first suspension point, so there is no window
+    /// where two concurrent `apply()` calls could both pass the guard and
+    /// interleave two rename passes over the same files on disk.
     public func apply() async {
-        await refreshPreview()
+        guard !isApplying else { return }
         isApplying = true
         defer { isApplying = false }
+        await refreshPreview()
         switch routing {
         case .unsupported(let reason):
             applyResults = assets.map {
@@ -418,7 +458,7 @@ public final class BatchRenameViewModel: Identifiable {
             let response = try await cloudCatalog.batchRename(
                 ids: presentIDs, template: template, sequenceStart: sequenceStart,
                 sequencePadWidth: sequencePadWidth, collision: collision.apiValue)
-            let byID = Dictionary(uniqueKeysWithValues: response.results.map { ($0.id, $0) })
+            let byID = indexByIDTolerantOfDuplicates(response.results, id: \.id)
             return zip(assets, ids).map { asset, stableID in
                 let old = Self.fullFilename(asset)
                 guard let stableID else {
