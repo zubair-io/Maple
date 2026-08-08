@@ -53,8 +53,11 @@ function mockFetch(responses: MockResponse[]): {
 function headerOf(init: RequestInit | undefined, name: string): string | undefined {
   const raw = init?.headers;
   if (!raw) return undefined;
-  const entries = raw instanceof Headers ? [...raw.entries()] : Object.entries(raw);
-  const hit = entries.find(([k]) => k.toLowerCase() === name);
+
+  const needle = name.toLowerCase();
+  const entries =
+    raw instanceof Headers ? [...raw.entries()] : Array.isArray(raw) ? raw : Object.entries(raw);
+  const hit = entries.find(([k]) => k.toLowerCase() === needle);
   return hit?.[1];
 }
 
