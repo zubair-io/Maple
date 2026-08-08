@@ -263,17 +263,17 @@ async function renderRawPreviewToFile(rawPath: string, outPath: string): Promise
   // trying to detect the no-preview case specifically. That is not a
   // shortcut: a genuinely unreadable RAW fails the decode too and still
   // returns false, one log line later.
+  let extractError: string | null = null;
   try {
     if (await pool.renderThumbnailAvifToFile(rawPath, outPath, PREVIEW_LONG_EDGE_PX, 70)) {
       return true;
     }
+    extractError = 'extraction returned false';
   } catch (e) {
-    log.debug(
-      { rawPath, err: e instanceof Error ? e.message : e },
-      'embedded-preview extraction failed — trying demosaic fallback',
-    );
+    extractError = e instanceof Error ? e.message : String(e);
   }
-  return await developRawPreviewToFile(rawPath, outPath);
+  log.debug({ rawPath, extractError }, 'preview extraction failed — trying demosaic fallback');
+  return await developRawPreviewToFile(rawPath, outPath, extractError);
   // Note: FFI path bakes orientation into pixels and emits a bare AVIF with
   // no EXIF. Bitmap paths (via imgdecode child) call sharp's .rotate() at
   // decode time. No inline orientation post-process needed — keeping sharp
@@ -306,7 +306,11 @@ async function renderRawPreviewToFile(rawPath: string, outPath: string): Promise
  * encoder whose output could drift from it. Same rationale, and the same
  * shape, as the video poster-frame path below.
  */
-async function developRawPreviewToFile(rawPath: string, outPath: string): Promise<boolean> {
+async function developRawPreviewToFile(
+  rawPath: string,
+  outPath: string,
+  extractError: string | null,
+): Promise<boolean> {
   const pool = ffiPool();
   const jpegPath = `${outPath}.develop.jpg`;
   try {
@@ -328,7 +332,7 @@ async function developRawPreviewToFile(rawPath: string, outPath: string): Promis
     }
     return await renderBitmapPreviewToFile(jpegPath, outPath, 'jpg');
   } catch (e) {
-    return logRenderFailure({ rawPath }, e, 'demosaic fallback threw');
+    return logRenderFailure({ rawPath, extractError }, e, 'demosaic fallback threw');
   } finally {
     try {
       await fs.unlink(jpegPath);
