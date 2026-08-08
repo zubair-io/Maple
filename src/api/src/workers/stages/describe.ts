@@ -2,7 +2,7 @@
  * Describe (caption + structured vision) stage.
  *
  * Calls a vision LLM via the describe-provider abstraction (default:
- * Ollama serving gemma4:12b) against the 1280-px preview produced
+ * Ollama serving gemma4:latest) against the 1280-px preview produced
  * by the preview stage, parses the structured-JSON response into a
  * typed `VisionDoc`, and writes:
  *
@@ -329,12 +329,18 @@ const describeStage = defineStage({
   // the schema.
   // v7: remove nudity classification and auto-hide logic (prompt v6)
   //
-  // v8: gemma4:12b model swap + prompt v7 (DESCRIBE_VISION_PROMPT_VERSION
-  // 7) — adds `people_count` and `tags`, replaces `composition` with
-  // `framing` (tightness only), and tightens the caption rules. The new
-  // fields don't exist on v7 rows and can't be backfilled from them, so
-  // bumping is the only way every asset ends up with the same VisionDoc
-  // shape.
+  // v8: prompt v7 (DESCRIBE_VISION_PROMPT_VERSION 7) — adds `people_count`
+  // and `tags`, replaces `composition` with `framing` (tightness only),
+  // and tightens the caption rules. The new fields don't exist on v7 rows
+  // and can't be backfilled from them, so bumping is the only way every
+  // asset ends up with the same VisionDoc shape.
+  //
+  // v8 also shipped a gemma4:12b model swap, changed to gemma4:latest in
+  // #2736 after :12b stopped answering on the deploy's host. That change
+  // deliberately does NOT bump this number: prompt v7 is model-agnostic
+  // and produces the same VisionDoc shape on every candidate measured,
+  // and the v8 re-describe pass is still working through the library —
+  // bumping would restart it for nothing.
   targetVersion: 8,
   dependsOn: ['preview'],
   defaults: {
