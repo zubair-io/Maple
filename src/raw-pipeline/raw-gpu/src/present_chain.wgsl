@@ -367,16 +367,20 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         // interpolation happens on the f32 chain values BEFORE the dither +
         // quantize below, and the dither offset stays in SURFACE space so the
         // blue-noise cell is per-displayed-pixel like the 1:1 path.
-        let sx = (f32(px) + 0.5) * f32(params.src_width) / f32(params.width) - 0.5;
-        let sy = (f32(py) + 0.5) * f32(params.src_height) / f32(params.height) - 0.5;
+        // max(..., 0.0) BEFORE floor: at the left/top edge the centre offset
+        // makes the continuous coordinate negative, and flooring that would
+        // yield frac 0.75 against a clamped x0 — bleeding the neighbour into
+        // the edge pixel instead of clamp-to-edge holding it.
+        let sx = max((f32(px) + 0.5) * f32(params.src_width) / f32(params.width) - 0.5, 0.0);
+        let sy = max((f32(py) + 0.5) * f32(params.src_height) / f32(params.height) - 0.5, 0.0);
         let x0f = floor(sx);
         let y0f = floor(sy);
-        let fx = clamp(sx - x0f, 0.0, 1.0);
-        let fy = clamp(sy - y0f, 0.0, 1.0);
+        let fx = sx - x0f;
+        let fy = sy - y0f;
         let max_x = params.src_width - 1u;
         let max_y = params.src_height - 1u;
-        let x0 = u32(clamp(x0f, 0.0, f32(max_x)));
-        let y0 = u32(clamp(y0f, 0.0, f32(max_y)));
+        let x0 = min(u32(x0f), max_x);
+        let y0 = min(u32(y0f), max_y);
         let x1 = min(x0 + 1u, max_x);
         let y1 = min(y0 + 1u, max_y);
         let c00 = chain_buf[y0 * params.src_width + x0];
