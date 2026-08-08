@@ -49,6 +49,46 @@ function mockFetch(responses: MockResponse[]): {
   return { fetchImpl, calls };
 }
 
+/** Case-insensitive header lookup over whatever shape `init.headers` took. */
+function headerOf(init: RequestInit | undefined, name: string): string | undefined {
+  const raw = init?.headers;
+  if (!raw) return undefined;
+  const entries = raw instanceof Headers ? [...raw.entries()] : Object.entries(raw);
+  const hit = entries.find(([k]) => k.toLowerCase() === name);
+  return hit?.[1];
+}
+
+// Regression guard for #2728. Bun's fetch pools connections per origin and
+// Ollama reaps idle keep-alive sockets, so reusing one across a 10-25s
+// generation fails and then poisons the pool — every following request to
+// that origin dies in ~30-50ms with "Unable to connect", which reads as a
+// connectivity fault and is not one. Both paths must opt out, not just
+// `describe`: `health` shares the same origin and would seed the same pool.
+describe('OllamaProvider — connection reuse is disabled', () => {
+  it('sends Connection: close on describe', async () => {
+    const { fetchImpl, calls } = mockFetch([{ status: 200, body: { response: '{}' } }]);
+    const provider = new OllamaProvider({ baseUrl: 'http://ollama.test', fetchImpl });
+    await provider.describe([Buffer.from('jpeg')], { model: 'm', systemPrompt: 'p' });
+    expect(headerOf(calls[0]!.init, 'connection')).toBe('close');
+  });
+
+  it('sends Connection: close on health', async () => {
+    const { fetchImpl, calls } = mockFetch([{ status: 200, body: { models: [] } }]);
+    const provider = new OllamaProvider({ baseUrl: 'http://ollama.test', fetchImpl });
+    await provider.health();
+    expect(headerOf(calls[0]!.init, 'connection')).toBe('close');
+  });
+
+  // The header is merged into `init.headers`, so it must not clobber the
+  // content-type describe sets alongside it.
+  it('preserves the caller’s other headers', async () => {
+    const { fetchImpl, calls } = mockFetch([{ status: 200, body: { response: '{}' } }]);
+    const provider = new OllamaProvider({ baseUrl: 'http://ollama.test', fetchImpl });
+    await provider.describe([Buffer.from('jpeg')], { model: 'm', systemPrompt: 'p' });
+    expect(headerOf(calls[0]!.init, 'content-type')).toBe('application/json');
+  });
+});
+
 describe('OllamaProvider.health', () => {
   it('resolves on 200 from /api/tags', async () => {
     const { fetchImpl, calls } = mockFetch([{ status: 200, body: { models: [] } }]);
