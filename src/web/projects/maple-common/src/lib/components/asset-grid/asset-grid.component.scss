@@ -19,6 +19,24 @@
   border-color: var(--color-primary);
 }
 
+// Drag-move/copy preview (#2644): `*cdkDragPreview` replaces the dragged
+// tile's own DOM with this while it's in flight — a fixed-size badge (not
+// a resized thumbnail clone) is deliberate, since a multi-select drag has
+// no single "the" thumbnail to show and the count is the useful signal.
+.drag-preview-badge {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: var(--color-surface);
+  border: 0.5px solid var(--color-border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-main);
+  white-space: nowrap;
+}
+
 cdk-virtual-scroll-viewport.grid-scroll {
   /* cdk-virtual-scroll-viewport ships its own scroll container; padding goes
      on the inner content wrapper so the absolute-positioned items don't get

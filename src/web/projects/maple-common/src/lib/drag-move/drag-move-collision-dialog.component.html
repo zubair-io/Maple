@@ -1,0 +1,28 @@
+<div
+  class="dmc-backdrop"
+  role="alertdialog"
+  aria-modal="true"
+  [attr.aria-label]="'\'' + filename() + '\' already exists at the destination'"
+  (click)="onBackdropClick()"
+  (keydown.escape)="onSkip()"
+>
+  <div class="dmc-card" (click)="$event.stopPropagation()">
+    <div class="dmc-header">
+      <span class="dmc-title">File already exists</span>
+    </div>
+
+    <div class="dmc-body">
+      <p class="dmc-message">
+        "{{ filename() }}" already exists at the destination. Skip it, replace it, or keep both?
+      </p>
+    </div>
+
+    <div class="dmc-footer">
+      <button #skipButton type="button" class="dmc-btn dmc-btn-ghost" (click)="onSkip()">
+        Skip
+      </button>
+      <button type="button" class="dmc-btn dmc-btn-ghost" (click)="onKeepBoth()">Keep Both</button>
+      <button type="button" class="dmc-btn dmc-btn-primary" (click)="onReplace()">Replace</button>
+    </div>
+  </div>
+</div>
