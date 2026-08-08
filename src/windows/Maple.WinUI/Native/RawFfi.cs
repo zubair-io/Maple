@@ -93,6 +93,15 @@ namespace Maple.WinUI.Native
             uint maxPx, byte quality,
             [MarshalAs(UnmanagedType.LPUTF8Str)] string outPath);
 
+        // Scaled present (#2587 two-phase render): the surface stays at
+        // (targetW, targetH) while half- or full-res sessions present into it
+        // via the shader's bilinear upscale — no reconfigure on phase swaps.
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int maple_gpu_present_chain_winui_scaled(
+            MapleGpuLiveSession* handle, MapleGpuLiveParams* p,
+            IntPtr panelNative, IntPtr cancel, ulong surfaceGeneration,
+            uint targetW, uint targetH);
+
         // Multi-format developed export (#2584): raw_core::export behind the
         // C ABI. format = "jpeg"|"tiff"|"png"; colorSpace = "srgb"|"display-p3";
         // maxLongEdge 0 = native resolution; quality 0 = default 92 (JPEG only).
