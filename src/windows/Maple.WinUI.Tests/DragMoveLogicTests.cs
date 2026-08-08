@@ -290,5 +290,84 @@ namespace Maple.WinUI.Tests
             Assert.True(File.Exists(Path.Combine(_dest, "img.xmp")));
             Assert.False(File.Exists(Path.Combine(_src, "img.xmp")));
         }
+
+        [Fact]
+        public async Task IntraBatchSameBasenameCollision_NeverInheritsTheBatchWideReplaceChoice()
+        {
+            // The exact data-loss scenario found in review: two DIFFERENT
+            // source folders each contain "img.dng". Neither collides with
+            // the destination's pre-existing contents at scan time (the
+            // destination has no "img.dng" yet), so DetectCollisions could
+            // never have flagged this pair — only the UNRELATED
+            // pre-existing "taken.dng" is a known collision. If the
+            // sequential apply blindly applied the batch-wide Replace
+            // (chosen for "taken.dng") to every live collision it hits,
+            // the second "img.dng" would silently overwrite the first
+            // one's freshly-moved file the moment it lands — destroying a
+            // photo the user never approved touching. Both must survive.
+            var srcA = Path.Combine(_root, "srcA");
+            var srcB = Path.Combine(_root, "srcB");
+            Directory.CreateDirectory(srcA);
+            Directory.CreateDirectory(srcB);
+            var fileA = Path.Combine(srcA, "img.dng");
+            var fileB = Path.Combine(srcB, "img.dng");
+            File.WriteAllText(fileA, "from-A");
+            File.WriteAllText(fileB, "from-B");
+            var itemA = new DragMoveSourceItem("a", srcA, "img.dng", fileA);
+            var itemB = new DragMoveSourceItem("b", srcB, "img.dng", fileB);
+            var unrelated = WriteSourceItem("taken", "taken.dng", "new-taken");
+            File.WriteAllText(Path.Combine(_dest, "taken.dng"), "old-taken");
+
+            // Only "taken" was ever flagged by the pre-scan — "img.dng" from
+            // either source was never shown to the user.
+            var collidingKeys = new[] { "taken" };
+
+            var outcomes = await DragMoveLogic.ApplySequentialAsync(
+                new[] { itemA, itemB, unrelated }, _dest, RelocateMode.Move,
+                collidingKeys, DragMoveCollisionChoice.Replace);
+
+            Assert.All(outcomes, o => Assert.Equal(DragMoveOutcomeKind.Relocated, o.Kind));
+            // Nothing was silently lost: both "from-A" and "from-B" survive
+            // SOMEWHERE under the destination (auto-suffixed apart, not one
+            // overwriting the other).
+            var destContents = Directory.GetFiles(_dest)
+                .Where(p => Path.GetFileName(p).StartsWith("img", StringComparison.Ordinal))
+                .Select(File.ReadAllText)
+                .ToList();
+            Assert.Contains("from-A", destContents);
+            Assert.Contains("from-B", destContents);
+            // The collision the user WAS actually asked about (and chose
+            // Replace for) is genuinely replaced.
+            Assert.Equal("new-taken", File.ReadAllText(Path.Combine(_dest, "taken.dng")));
+        }
+
+        [Fact]
+        public async Task IntraBatchSameBasenameCollision_SkipChoiceStillDoesNotLoseTheSecondItem()
+        {
+            // Same shape as the Replace regression above, but with Skip
+            // chosen for the (unrelated) known collision — the unseen
+            // intra-batch collision must still resolve safely (auto-suffix)
+            // rather than inheriting Skip and leaving the second item
+            // stranded with no record of why.
+            var srcA = Path.Combine(_root, "srcA");
+            var srcB = Path.Combine(_root, "srcB");
+            Directory.CreateDirectory(srcA);
+            Directory.CreateDirectory(srcB);
+            var fileA = Path.Combine(srcA, "img.dng");
+            var fileB = Path.Combine(srcB, "img.dng");
+            File.WriteAllText(fileA, "from-A");
+            File.WriteAllText(fileB, "from-B");
+            var itemA = new DragMoveSourceItem("a", srcA, "img.dng", fileA);
+            var itemB = new DragMoveSourceItem("b", srcB, "img.dng", fileB);
+
+            var outcomes = await DragMoveLogic.ApplySequentialAsync(
+                new[] { itemA, itemB }, _dest, RelocateMode.Move,
+                Array.Empty<string>(), DragMoveCollisionChoice.Skip);
+
+            Assert.All(outcomes, o => Assert.Equal(DragMoveOutcomeKind.Relocated, o.Kind));
+            var destContents = Directory.GetFiles(_dest).Select(File.ReadAllText).ToList();
+            Assert.Contains("from-A", destContents);
+            Assert.Contains("from-B", destContents);
+        }
     }
 }
