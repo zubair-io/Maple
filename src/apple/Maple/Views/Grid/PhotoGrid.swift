@@ -102,6 +102,11 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
     /// `PhotoThumbnailCell.multiSelectChecked`. `nil` preserves the single-select
     /// outline behaviour of the original grid surfaces.
     var multiSelectChecked: ((Element) -> Bool?)? = nil
+    /// Drag-onto-source-tree payload (#2646). `nil` (the default) disables
+    /// dragging for every cell — only `BrowseGrid`'s normal (non-merged,
+    /// non-PhotoKit) grid opts in. Called per visible element, same shape
+    /// as `multiSelectChecked`.
+    var dragPayload: ((Element) -> DraggedAssetPayload?)? = nil
     let onTap: (Element) -> Void
     let makeItem: (Element) -> PhotoGridItem
     let leading: () -> Leading
@@ -119,6 +124,7 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
         transitionNamespace: Namespace.ID? = nil,
         onAppearItem: ((Element) -> Void)? = nil,
         multiSelectChecked: ((Element) -> Bool?)? = nil,
+        dragPayload: ((Element) -> DraggedAssetPayload?)? = nil,
         onTap: @escaping (Element) -> Void,
         makeItem: @escaping (Element) -> PhotoGridItem,
         @ViewBuilder leading: @escaping () -> Leading
@@ -131,6 +137,7 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
         self.transitionNamespace = transitionNamespace
         self.onAppearItem = onAppearItem
         self.multiSelectChecked = multiSelectChecked
+        self.dragPayload = dragPayload
         self.onTap = onTap
         self.makeItem = makeItem
         self.leading = leading
@@ -153,6 +160,7 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
                     isSelected: selection.contains(element.id),
                     transitionNamespace: transitionNamespace,
                     multiSelectChecked: multiSelectChecked?(element),
+                    dragPayload: dragPayload?(element),
                     onTap: { onTap(element) },
                     onAppear: onAppearItem.map { cb in { cb(element) } }
                 )
@@ -175,6 +183,7 @@ extension PhotoGrid where Leading == EmptyView {
         transitionNamespace: Namespace.ID? = nil,
         onAppearItem: ((Element) -> Void)? = nil,
         multiSelectChecked: ((Element) -> Bool?)? = nil,
+        dragPayload: ((Element) -> DraggedAssetPayload?)? = nil,
         onTap: @escaping (Element) -> Void,
         makeItem: @escaping (Element) -> PhotoGridItem
     ) {
@@ -187,6 +196,7 @@ extension PhotoGrid where Leading == EmptyView {
             transitionNamespace: transitionNamespace,
             onAppearItem: onAppearItem,
             multiSelectChecked: multiSelectChecked,
+            dragPayload: dragPayload,
             onTap: onTap,
             makeItem: makeItem,
             leading: { EmptyView() }
