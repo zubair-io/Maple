@@ -80,12 +80,13 @@ namespace Maple.WinUI.Services.FileOperations
 
         /// <summary>Maps a user's collision choice onto the existing
         /// <see cref="CollisionPolicy"/> RelocateAsync understands. Skip has
-        /// no policy of its own — ApplySequentialAsync filters skipped items
-        /// out before ever calling RelocateAsync, so this mapping is only
-        /// reached for items that must actually go through it; Fail is a
-        /// defensive fallback that should never fire in practice (a Skip
-        /// choice never reaches a colliding item, and a non-colliding item
-        /// never collides regardless of policy).</summary>
+        /// no policy of its own — ApplyOneAsync filters a known, Skip-chosen
+        /// collision out before ever calling RelocateAsync, so this mapping
+        /// is only reached for items that must actually go through it; Fail
+        /// is a defensive fallback that should never fire in practice (the
+        /// one remaining case that reaches it with a Skip choice is a
+        /// non-colliding item, which never triggers Fail regardless of
+        /// policy).</summary>
         internal static CollisionPolicy ToCollisionPolicy(DragMoveCollisionChoice choice) => choice switch
         {
             DragMoveCollisionChoice.Replace => CollisionPolicy.Replace,
@@ -100,7 +101,10 @@ namespace Maple.WinUI.Services.FileOperations
         /// later item's collision check must see an earlier item's real
         /// on-disk result). One item's failure is recorded per-item and does
         /// NOT stop the remaining items. <paramref name="collidingKeys"/> is
-        /// the pre-scan result from <see cref="DetectCollisions"/>;
+        /// the pre-scan result from <see cref="DetectCollisions"/> — used
+        /// ONLY to know which collisions the user was actually shown and
+        /// asked about (see ApplyOneAsync's header comment for why applying
+        /// their choice to a collision they never saw would be unsafe).
         /// <paramref name="collisionChoice"/> is what the user picked when
         /// shown that dialog (irrelevant, and safe to pass any value, when
         /// <paramref name="collidingKeys"/> is empty — nothing collided, so
@@ -115,32 +119,64 @@ namespace Maple.WinUI.Services.FileOperations
             DragMoveCollisionChoice collisionChoice,
             Action<int, int>? onItemDone = null)
         {
-            var policy = ToCollisionPolicy(collisionChoice);
             var outcomes = new List<DragMoveItemOutcome>(items.Count);
             for (var i = 0; i < items.Count; i++)
             {
-                outcomes.Add(await ApplyOneAsync(items[i], destinationDir, mode, collidingKeys, collisionChoice, policy)
+                outcomes.Add(await ApplyOneAsync(items[i], destinationDir, mode, collidingKeys, collisionChoice)
                     .ConfigureAwait(false));
                 onItemDone?.Invoke(i + 1, items.Count);
             }
             return outcomes;
         }
 
+        /// <summary>
+        /// The pre-scan (<see cref="DetectCollisions"/>) runs once, before
+        /// ANY item in the batch has moved — it can never see a collision
+        /// that this SAME sequential apply creates mid-batch, e.g. two
+        /// same-basename items dragged together from two different source
+        /// folders: neither collides with the destination's pre-existing
+        /// contents, so neither lands in <paramref name="collidingKeys"/>,
+        /// but the SECOND one collides with the FIRST one's freshly-moved
+        /// file the instant the first relocate completes. Trusting the
+        /// stale pre-scan here — applying whatever policy the user chose
+        /// for the collisions they WERE shown — would silently destroy the
+        /// second photo under <see cref="DragMoveCollisionChoice.Replace"/>,
+        /// or drop it under <see cref="DragMoveCollisionChoice.Skip"/>,
+        /// neither of which the user ever approved for THIS file.
+        ///
+        /// The fix: re-probe the destination immediately before every
+        /// item's own relocate. A collision found here that IS one of
+        /// <paramref name="collidingKeys"/> (the user saw and decided on it)
+        /// gets the user's actual choice. A collision found here that is
+        /// NOT — discovered only because an earlier item in this batch just
+        /// landed — always resolves via <see cref="CollisionPolicy.AutoSuffix"/>
+        /// regardless of what was chosen, since that is the one policy that
+        /// can never lose data (never overwrites, never drops), and this
+        /// case is by construction a collision the user was never asked
+        /// about.
+        /// </summary>
         private static async Task<DragMoveItemOutcome> ApplyOneAsync(
             DragMoveSourceItem item,
             string destinationDir,
             RelocateMode mode,
             IReadOnlyCollection<string> collidingKeys,
-            DragMoveCollisionChoice collisionChoice,
-            CollisionPolicy policy)
+            DragMoveCollisionChoice collisionChoice)
         {
             if (IsAlreadyInDestination(item, destinationDir))
                 return new DragMoveItemOutcome(item.Key, DragMoveOutcomeKind.Skipped,
                     item.CurrentFileName, Error: "Already in this folder.");
 
-            if (collisionChoice == DragMoveCollisionChoice.Skip && collidingKeys.Contains(item.Key))
+            var candidatePath = Path.Combine(destinationDir, item.CurrentFileName);
+            var collidesNow = File.Exists(candidatePath) || Directory.Exists(candidatePath);
+            var knownCollision = collidesNow && collidingKeys.Contains(item.Key);
+
+            if (knownCollision && collisionChoice == DragMoveCollisionChoice.Skip)
                 return new DragMoveItemOutcome(item.Key, DragMoveOutcomeKind.Skipped,
                     item.CurrentFileName, Error: "Skipped — a file with this name already exists there.");
+
+            var policy = collidesNow && !knownCollision
+                ? CollisionPolicy.AutoSuffix
+                : ToCollisionPolicy(collisionChoice);
 
             try
             {
