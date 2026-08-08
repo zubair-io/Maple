@@ -56,6 +56,11 @@ struct CloudServerSection: View {
   var onCreateFolder: ((String, String, String, String) -> Void)? = nil
   /// (libraryFolderID, libraryRootPath, absPath, newName).
   var onRenameFolder: ((String, String, String, String) -> Void)? = nil
+  /// Drag-onto-source-tree (#2646). `(libraryFolderID, libraryRootPath,
+  /// absPath, ids, isCopy)` — `ids == nil` ⇒ "use current grid selection".
+  var onDropAssets: (String, String, String, Set<AssetRef.ID>?, Bool) -> Void = { _, _, _, _, _ in }
+  /// Gates the "Move/Copy Selected Here" context-menu items.
+  var selectedAssetCount: Int = 0
 
   /// Per-server tree state — kept here (not on individual rows) so the
   /// disclosure state and fetched listings survive sibling re-renders.
@@ -105,7 +110,9 @@ struct CloudServerSection: View {
             expanded: $expanded,
             refreshGeneration: folderRefreshGeneration,
             onCreateFolder: onCreateFolder,
-            onRenameFolder: onRenameFolder
+            onRenameFolder: onRenameFolder,
+            onDropAssets: onDropAssets,
+            selectedAssetCount: selectedAssetCount
           )
         }
       }

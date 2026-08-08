@@ -64,7 +64,13 @@ struct CloudFolderTreeRow: View {
   var onCreateFolder: ((String, String, String, String) -> Void)? = nil
   /// (libraryFolderID, libraryRootPath, absPath, newName).
   var onRenameFolder: ((String, String, String, String) -> Void)? = nil
+  /// Drag-onto-source-tree (#2646). `ids == nil` ⇒ "use current grid
+  /// selection" (the "Move/Copy Selected Here" menu path).
+  var onDropAssets: (String, String, String, Set<AssetRef.ID>?, Bool) -> Void = { _, _, _, _, _ in }
+  /// Gates the "Move/Copy Selected Here" context-menu items.
+  var selectedAssetCount: Int = 0
 
+  @State private var isDropTargeted = false
   @State private var isLoading: Bool = false
   @State private var loadFailed: Bool = false
   /// Set on the first appear after we've auto-expanded for the current
@@ -158,8 +164,32 @@ struct CloudFolderTreeRow: View {
       .padding(.leading, indent)
       .padding(.trailing, MapleTokens.Spacing.rowHorizontal)
       .padding(.vertical, MapleTokens.Spacing.rowVertical)
-      .background(isSelected ? MapleTokens.bgActive : Color.clear)
+      .background(isDropTargeted ? MapleTokens.primary.opacity(0.15)
+                  : (isSelected ? MapleTokens.bgActive : Color.clear))
+      // Drag-onto-source-tree (#2646). See `FolderTreeRow`'s identical
+      // modifier (`LibrarySidebar.swift`) for the payload/modifier-key
+      // contract — this is its Cloud-row twin.
+      .dropDestination(for: DraggedAssetPayload.self, action: { payloads, _ in
+        guard let payload = payloads.first, !payload.ids.isEmpty else { return false }
+        onDropAssets(libraryFolderID, libraryRootPath, absPath, Set(payload.ids), MapleDragModifier.isCopyRequested())
+        return true
+      }, isTargeted: { targeted in isDropTargeted = targeted })
       .contextMenu {
+        if selectedAssetCount > 0 {
+          Button {
+            onDropAssets(libraryFolderID, libraryRootPath, absPath, nil, false)
+          } label: {
+            Label("Move Selected Here", systemImage: "arrow.right.doc.on.clipboard")
+          }
+          .accessibilityIdentifier("cloudFolderTree.moveSelectedHere.\(absPath)")
+          Button {
+            onDropAssets(libraryFolderID, libraryRootPath, absPath, nil, true)
+          } label: {
+            Label("Copy Selected Here", systemImage: "doc.on.doc")
+          }
+          .accessibilityIdentifier("cloudFolderTree.copySelectedHere.\(absPath)")
+          Divider()
+        }
         if onCreateFolder != nil {
           Button {
             newFolderDraft = ""
@@ -279,7 +309,9 @@ struct CloudFolderTreeRow: View {
               expanded: $expanded,
               refreshGeneration: refreshGeneration,
               onCreateFolder: onCreateFolder,
-              onRenameFolder: onRenameFolder
+              onRenameFolder: onRenameFolder,
+              onDropAssets: onDropAssets,
+              selectedAssetCount: selectedAssetCount
             )
           }
         }

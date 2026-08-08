@@ -60,7 +60,10 @@ extension AppShell {
         return nil
     }
 
-    private func isPhotoKitAsset(_ asset: AssetRef) -> Bool {
+    /// Not `private`: `AppShell+AssetDrop.swift` (#2646) reuses this exact
+    /// "no user-writable path" test to reject PhotoKit as a drop target
+    /// before attempting any relocate.
+    func isPhotoKitAsset(_ asset: AssetRef) -> Bool {
         if asset.thumbnailProvenance == .photoKit { return true }
         return asset.primaryURL == nil && asset.catalog == nil && browseVM.currentSource is PhotoKitSource
     }
