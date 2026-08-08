@@ -103,7 +103,6 @@
     cdkDropList
     [id]="'folder-drop-' + node.id"
     [cdkDropListData]="node"
-    [cdkDropListConnectedTo]="[assetGridDropListId]"
     [cdkDropListEnterPredicate]="dropEnterPredicate"
     (cdkDropListDropped)="onAssetsDropped($event, node)"
   >
