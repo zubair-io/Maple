@@ -224,7 +224,7 @@ extension AppShell {
     private func performCloudDrop(
         _ asset: AssetRef, destination: AssetDropDestination, mode: RelocateMode
     ) async -> AssetDropItemResult.Outcome {
-        guard case .cloud(let server, _, let libraryRootPath, let absPath) = destination else {
+        guard case .cloud(let server, let libraryFolderID, let libraryRootPath, let absPath) = destination else {
             return .failed("Invalid Cloud destination")
         }
         guard let catalog = asset.catalog, let assetID = asset.stableID else {
@@ -232,6 +232,17 @@ extension AppShell {
         }
         guard catalog.serverID == server else {
             return .failed("Dragging between different Cloud servers isn't supported yet.")
+        }
+        // #2725: see `CloudDropEligibility`'s doc comment — the relocate
+        // endpoint can't express a cross-library move, so it must be
+        // refused here rather than silently misplacing the file inside the
+        // asset's OWN library. Message matches the web sibling's
+        // `drag-move.service.ts` `dropDisabledReason` wording so the two
+        // products explain the same restriction identically.
+        guard CloudDropEligibility.isSameLibrary(
+            assetLibraryFolderID: catalog.folderID, destinationLibraryFolderID: libraryFolderID
+        ) else {
+            return .failed("Can't move between different libraries")
         }
         guard let destRel = cloudRelativePath(absPath, under: libraryRootPath) else {
             return .failed("\(absPath) is not under this library's root.")
