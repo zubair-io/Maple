@@ -119,6 +119,19 @@ export const DEFAULT_DESCRIBE_OLLAMA_URL = 'http://localhost:11434';
  * an empty `response` — see the fallback in
  * `describe-providers/ollama.ts` (#2172).
  *
+ * ACCEPTED RISK: `:latest` is a FLOATING tag, unlike every recent
+ * predecessor (`qwen2.5vl:7b`, `qwen3-vl:8b`). Re-pulling it on the model
+ * host can swap the underlying weights while this string — and therefore
+ * `vision_meta.model` on every row it captions — stays literally
+ * "gemma4:latest". That weakens the versioning contract described on
+ * `VisionDoc` ("Versioned by `vision_meta.{model, prompt_version}`"): you
+ * could not tell from the data which model produced which caption.
+ * Deliberate call (#2736) — no pinned tag on the host points at these
+ * weights (digest c6eb396d, unique), and `:latest` is materially cheaper
+ * than the pinned alternatives. If reproducibility starts to matter more
+ * than the 2x speed and VRAM saving, pin a concrete tag and bump
+ * `targetVersion` so the corpus is re-captioned under a known model.
+ *
  * Before changing this tag again, probe the candidate against the host the
  * stage will ACTUALLY call, on that hardware, with the payload it
  * ACTUALLY sends — the 1280-px preview re-encoded via
