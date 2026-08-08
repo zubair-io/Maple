@@ -133,11 +133,14 @@ describe('renderRawThumbToFile — demosaic fallback dispatch', () => {
 
   async function withPool<T>(pool: unknown, run: () => Promise<T>): Promise<T> {
     const { _setFfiPoolForTests } = await import('../ffi/ffi-pool.ts');
-    _setFfiPoolForTests(pool as never);
+    // Restore the PREVIOUS singleton, don't null it: the suite above builds a
+    // real pool via `ffiPool().available()`, and dropping that reference
+    // without shutting it down would orphan whatever it spawned.
+    const previous = _setFfiPoolForTests(pool as never);
     try {
       return await run();
     } finally {
-      _setFfiPoolForTests(null);
+      _setFfiPoolForTests(previous);
     }
   }
 
