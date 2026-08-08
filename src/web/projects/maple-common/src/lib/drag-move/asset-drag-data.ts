@@ -5,10 +5,16 @@
 
 import type { AssetId } from '../models/asset';
 
-/** The `cdkDropList` id every draggable grid tile's ancestor drop-list
- * shares, and every folder-tree row's `cdkDropListConnectedTo` points at —
- * the string CDK's app-wide `DragDropRegistry` uses to link a drag source
- * to a cross-list drop target. */
+/** Stable, readable `cdkDropList` id for the asset-grid's tile container —
+ * cosmetic only (DOM inspection / debugging). Cross-list connection is NOT
+ * wired through this id: `browse-shell.component.html` puts a single
+ * `cdkDropListGroup` on the ancestor that wraps both the grid and the
+ * folder-tree sidebar, which connects every descendant `cdkDropList`
+ * automatically (#2644 review — an earlier version pointed each folder
+ * row's `[cdkDropListConnectedTo]` at this id, which is backwards: CDK's
+ * `connectedTo` on list A grants list A's OWN items entry into the named
+ * targets, so that wiring let folder rows' empty item set enter the grid,
+ * not grid tiles enter folder rows, and the drag gesture never worked). */
 export const ASSET_GRID_DROP_LIST_ID = 'maple-asset-grid-drop-list';
 
 export interface AssetDragData {

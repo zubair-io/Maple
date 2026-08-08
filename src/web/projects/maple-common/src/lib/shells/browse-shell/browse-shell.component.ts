@@ -15,6 +15,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
+import { CdkDropListGroup } from '@angular/cdk/drag-drop';
 import { LibraryStateService } from '../../state/library-state.service';
 import { LAST_SOURCE_KEY } from '../../state/library-fetch.service';
 import { TypedStorage } from '../../util/typed-storage';
@@ -68,6 +69,7 @@ import { DragMoveSummaryBannerComponent } from '../../drag-move/drag-move-summar
     ToolbarActionsComponent,
     DragMoveCollisionDialogComponent,
     DragMoveSummaryBannerComponent,
+    CdkDropListGroup,
   ],
   templateUrl: './browse-shell.component.html',
   styleUrl: './browse-shell.component.scss',

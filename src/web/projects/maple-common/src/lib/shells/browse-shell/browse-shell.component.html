@@ -72,8 +72,21 @@
     </app-toolbar-actions>
   </div>
 
-  <!-- Body -->
-  <div class="flex-1 flex min-h-0 min-w-0 bg-bg">
+  <!-- Body — `cdkDropListGroup` connects every descendant `cdkDropList`
+       regardless of DOM position: the grid's tile drop-list (asset-grid,
+       under "Center" below) and each folder-tree row's drop-list (under
+       "Left", inside `app-folder-tree`) are both descendants of this div,
+       so a tile dragged out of the grid can enter any folder row without
+       either side needing to know the other's `id` (#2644 review — a
+       one-way `[cdkDropListConnectedTo]` on the folder rows pointing at
+       the grid's id was backwards: CDK's `connectedTo` grants THAT list's
+       OWN items entry into the named targets, so it let folder rows' (empty)
+       item set enter the grid, not grid tiles enter folder rows — the drag
+       gesture never worked). `cdkDropListEnterPredicate` on each row still
+       gates eligibility; folder rows expose no `cdkDrag` items themselves,
+       so the reverse direction (grid accepting a "drop" from a folder row)
+       is inert regardless of group membership. -->
+  <div class="flex-1 flex min-h-0 min-w-0 bg-bg" cdkDropListGroup>
     <!-- Left: sidebar (folder tree) — inline pane at tablet+; on phone the
          source-picker overlay drawer (below) replaces it. Search is a
          top-level destination (the /search route), not an in-sidebar field
