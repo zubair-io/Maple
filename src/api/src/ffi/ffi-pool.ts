@@ -396,13 +396,21 @@ export function _resetFfiPoolForTests(): void {
   _pool = null;
 }
 
-/** Test-only: install a stand-in for the process-wide pool. Mirrors
- * `setRawFfiForTests` / `setDescribeDepsForTests`. Pass `null` to restore
- * lazy construction. Needed because the indexer's RAW paths reach for
- * `ffiPool()` directly, so there is otherwise no way to exercise their
- * dispatch decisions without the native dylib. */
-export function _setFfiPoolForTests(pool: FfiWorkerPool | null): void {
+/** Test-only: install a stand-in for the process-wide pool, returning
+ * whatever was there before. Mirrors `setRawFfiForTests` /
+ * `setDescribeDepsForTests`. Needed because the indexer's RAW paths reach
+ * for `ffiPool()` directly, so there is otherwise no way to exercise their
+ * dispatch decisions without the native dylib.
+ *
+ * Returns the previous value so callers can RESTORE it rather than passing
+ * `null`. Nulling drops the reference to an already-constructed pool
+ * without shutting it down, orphaning any workers it spawned — and this
+ * singleton is process-wide, so a suite that built a real pool earlier
+ * (`thumbnailer.test.ts` does, via `ffiPool().available()`) would leak it. */
+export function _setFfiPoolForTests(pool: FfiWorkerPool | null): FfiWorkerPool | null {
+  const previous = _pool;
   _pool = pool;
+  return previous;
 }
 
 /** Test-only: build an isolated pool with an injected worker factory. The
