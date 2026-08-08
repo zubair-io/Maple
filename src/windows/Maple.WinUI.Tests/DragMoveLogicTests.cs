@@ -62,6 +62,24 @@ namespace Maple.WinUI.Tests
             Assert.True(DragMoveLogic.HasApplicableItem(items, @"C:\lib\target"));
         }
 
+        // --- ShouldAcceptDrop ---
+
+        [Theory]
+        [InlineData(true, true, true)]
+        [InlineData(true, false, false)]
+        [InlineData(false, true, false)]
+        [InlineData(false, false, false)]
+        public void ShouldAcceptDrop_RequiresBothInternalOriginAndApplicableTarget(
+            bool isInternalDrag, bool hasApplicableTarget, bool expected)
+        {
+            // Guards a real regression: an external drag (e.g. Windows
+            // Explorer) reaching OnFolderDrop with a stale-but-nonempty
+            // internal payload must never be accepted just because the
+            // target happens to be valid — BOTH conditions are required,
+            // not just one.
+            Assert.Equal(expected, DragMoveLogic.ShouldAcceptDrop(isInternalDrag, hasApplicableTarget));
+        }
+
         // --- DetectCollisions ---
 
         [Fact]

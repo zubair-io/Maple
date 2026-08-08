@@ -51,6 +51,21 @@ namespace Maple.WinUI.Services.FileOperations
         public static bool HasApplicableItem(IReadOnlyList<DragMoveSourceItem> items, string destinationDir) =>
             items.Any(i => !IsAlreadyInDestination(i, destinationDir));
 
+        /// <summary>Whether a drop event should be accepted/consumed —
+        /// requires BOTH that the drag actually originated from this app's
+        /// own PhotoGrid (<paramref name="isInternalDrag"/> — false for a
+        /// drag dragged in from Windows Explorer or another app, which
+        /// carries none of this app's private DataPackage marker) AND that
+        /// the target has at least one applicable item to relocate
+        /// (<paramref name="hasApplicableTarget"/>, from
+        /// <see cref="HasApplicableItem"/>). Extracted as its own pure
+        /// decision — rather than an inline `&amp;&amp;` at each of
+        /// DragOver's and Drop's call sites — so the two independent guards
+        /// can't silently be mis-ordered, dropped, or duplicated differently
+        /// between the two handlers.</summary>
+        public static bool ShouldAcceptDrop(bool isInternalDrag, bool hasApplicableTarget) =>
+            isInternalDrag && hasApplicableTarget;
+
         /// <summary>Which of <paramref name="items"/> would collide with an
         /// existing file (or folder) at <paramref name="destinationDir"/> if
         /// relocated there unchanged — the pre-scan that decides whether the
@@ -189,7 +204,12 @@ namespace Maple.WinUI.Services.FileOperations
             var claimedBySibling = claimedThisBatch.Contains(candidatePath);
             var collidesNow = !claimedBySibling
                 && (File.Exists(candidatePath) || Directory.Exists(candidatePath));
-            var knownCollision = collidesNow && collidingKeys.Contains(item.Key);
+            // OrdinalIgnoreCase: Key is a FilePath (Windows paths are
+            // case-insensitive-but-case-preserving), matching how callers
+            // treat the same keys elsewhere (e.g. EditSessionViewModel.
+            // DragMove.cs's byKey dictionary).
+            var knownCollision = collidesNow
+                && collidingKeys.Contains(item.Key, StringComparer.OrdinalIgnoreCase);
 
             if (!claimedBySibling && knownCollision && collisionChoice == DragMoveCollisionChoice.Skip)
                 return new DragMoveItemOutcome(item.Key, DragMoveOutcomeKind.Skipped,

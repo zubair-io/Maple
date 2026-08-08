@@ -408,6 +408,7 @@
                               DoubleTapped="OnGridDoubleTapped"
                               CanDragItems="True"
                               DragItemsStarting="OnPhotoGridDragItemsStarting"
+                              DragItemsCompleted="OnPhotoGridDragItemsCompleted"
                               AutomationProperties.Name="Photo grid">
                         <GridView.GroupStyle>
                             <GroupStyle>

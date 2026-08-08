@@ -109,6 +109,26 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
+        public async Task CollisionWithSkipChoice_MatchesCollidingKeyCaseInsensitively()
+        {
+            // Key is a FilePath; Windows paths are case-insensitive-but-
+            // case-preserving, and DetectCollisions/ApplyOneAsync must agree
+            // on that even if the two ever see the key in different casing.
+            File.WriteAllText(Path.Combine(_dest, "taken.dng"), "old");
+            var full = Path.Combine(_src, "taken.dng");
+            File.WriteAllText(full, "new");
+            var taken = new DragMoveSourceItem("TAKEN", _src, "taken.dng", full);
+            var colliding = new[] { "taken" }; // lowercase, item.Key is uppercase
+
+            var outcomes = await DragMoveLogic.ApplySequentialAsync(
+                new[] { taken }, _dest, RelocateMode.Move,
+                colliding, DragMoveCollisionChoice.Skip);
+
+            Assert.Equal(DragMoveOutcomeKind.Skipped, outcomes[0].Kind);
+            Assert.Equal("old", File.ReadAllText(Path.Combine(_dest, "taken.dng")));
+        }
+
+        [Fact]
         public async Task CollisionWithReplaceChoice_OverwritesTheDestination()
         {
             File.WriteAllText(Path.Combine(_dest, "taken.dng"), "old");
