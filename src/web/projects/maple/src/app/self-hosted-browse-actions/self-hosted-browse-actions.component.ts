@@ -1,10 +1,12 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { BATCH_RENAME_ENABLED, DRAG_MOVE_CAPABILITY, LibraryStateService } from '@maple-common';
 import { SelfHostedBrowseController } from '../self-hosted-browse/self-hosted-browse.controller';
+import { BrowseActionButtonComponent } from './browse-action-button.component';
 
 @Component({
   selector: 'app-self-hosted-browse-actions',
   standalone: true,
+  imports: [BrowseActionButtonComponent],
   templateUrl: './self-hosted-browse-actions.component.html',
   styleUrl: './self-hosted-browse-actions.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

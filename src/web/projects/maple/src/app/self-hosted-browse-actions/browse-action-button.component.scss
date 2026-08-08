@@ -1,0 +1,6 @@
+// Same `display: contents` as the parent's own host rule — this
+// component's single `<button>` needs to participate directly in the
+// parent's flex row, not be laid out as a block wrapping it.
+:host {
+  display: contents;
+}

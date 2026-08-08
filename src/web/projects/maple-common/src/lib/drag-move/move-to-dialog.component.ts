@@ -21,6 +21,12 @@
 // trigger site is Self-Hosted-app-only (the "Move to…" toolbar button
 // lives in `self-hosted-browse-actions.component.ts`, under
 // `projects/maple`, not the shared shell).
+//
+// The recursive folder-tree row rendering lives in
+// `MoveToTreePickerComponent` (#2644 review — fallow-audit-web flagged the
+// combined dialog+tree template as HIGH complexity); this file is now just
+// the dialog chrome (header/body/footer) plus the selection + confirm
+// state the picker reports up to.
 
 import {
   ChangeDetectionStrategy,
@@ -31,16 +37,16 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { NgTemplateOutlet } from '@angular/common';
 import { LibraryStateService } from '../state/library-state.service';
 import type { AssetId } from '../models/asset';
 import type { SidebarEntry } from '../models/folder';
 import { DRAG_MOVE_CAPABILITY } from './drag-move-capability';
+import { MoveToTreePickerComponent } from './move-to-tree-picker.component';
 
 @Component({
   selector: 'app-move-to-dialog',
   standalone: true,
-  imports: [NgTemplateOutlet],
+  imports: [MoveToTreePickerComponent],
   templateUrl: './move-to-dialog.component.html',
   styleUrl: './move-to-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -59,36 +65,15 @@ export class MoveToDialogComponent {
   );
 
   protected readonly selectedNode = signal<SidebarEntry | null>(null);
-  protected readonly openNodeIds = signal<Set<string>>(new Set());
+  protected readonly selectedNodeId = computed(() => this.selectedNode()?.id ?? null);
+  protected readonly canConfirm = computed(() => this.selectedNode() !== null);
 
-  protected isOpen(node: SidebarEntry): boolean {
-    return this.openNodeIds().has(node.id);
-  }
-
-  protected toggleOpen(node: SidebarEntry): void {
-    const hasChildren = (node.children?.length ?? 0) > 0;
-    const canExpand = !!node.absPath || hasChildren;
-    const willOpen = !this.isOpen(node);
-    this.openNodeIds.update((prev) => {
-      const next = new Set(prev);
-      willOpen ? next.add(node.id) : next.delete(node.id);
-      return next;
-    });
-    if (willOpen && canExpand && node.childrenStatus === undefined) {
-      this.state.expandFsFolder(node);
-    }
-  }
-
-  protected disabledReasonFor(node: SidebarEntry): string | null {
-    return this.dragMove.dropDisabledReason(node, this.sourceFolderId());
-  }
-
-  protected selectNode(node: SidebarEntry): void {
-    if (this.disabledReasonFor(node)) return;
+  /** The tree picker (`move-to-tree-picker.component.ts`) already runs
+   * `dropDisabledReason` before emitting `select`, so a disabled row never
+   * reaches here — this just records the choice. */
+  protected onNodeSelected(node: SidebarEntry): void {
     this.selectedNode.set(node);
   }
-
-  protected readonly canConfirm = computed(() => this.selectedNode() !== null);
 
   onConfirm(): void {
     const target = this.selectedNode();

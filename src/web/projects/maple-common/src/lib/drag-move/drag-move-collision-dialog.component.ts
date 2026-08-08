@@ -5,12 +5,15 @@
 // instead of confirm/cancel, per the design doc's collision policy for
 // user-initiated relocates.
 //
-// Always mounted directly (no `@defer`) in `folder-tree.component.html` —
-// same as `trashPartialWarning`'s inline banner there. Safe to keep eager:
-// this component only renders Skip/Replace/Keep Both buttons and emits
-// events, it carries no server import of its own — only
-// `DragMoveService` (reached through the `DragMoveCapability` token, not
-// imported here) talks to the API.
+// Always mounted directly (no `@defer`) in `browse-shell.component.html`
+// — NOT `folder-tree.component.html`: it lives at the shell level so it
+// stays reachable on phone, where the inline sidebar (and any
+// `FolderTreeComponent` instance inside it) is torn down whenever the
+// source-picker drawer is closed; see that file's own comment for the full
+// reasoning. Safe to keep eager: this component only renders Skip/Replace/
+// Keep Both buttons and emits events, it carries no server import of its
+// own — only `DragMoveService` (reached through the `DragMoveCapability`
+// token, not imported here) talks to the API.
 
 import {
   AfterViewInit,

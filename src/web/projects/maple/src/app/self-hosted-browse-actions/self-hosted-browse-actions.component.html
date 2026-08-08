@@ -1,79 +1,35 @@
-<button
-  type="button"
-  class="export-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] border-[0.5px]"
-  [class.has-selection]="canEditMetadata()"
-  [class.no-selection]="!canEditMetadata()"
-  [class.bg-primary-dim]="canEditMetadata()"
-  [class.text-primary]="canEditMetadata()"
-  [class.border-primary]="canEditMetadata()"
-  [class.bg-input-bg]="!canEditMetadata()"
-  [class.text-text-muted]="!canEditMetadata()"
-  [class.border-border]="!canEditMetadata()"
-  [class.opacity-50]="!canEditMetadata()"
-  [disabled]="!canEditMetadata()"
-  title="Edit metadata for selected photos"
-  aria-label="Edit metadata"
-  (click)="controller.openMetadata()"
->
-  <span>Edit Metadata…{{ canEditMetadata() ? ' (' + state.selectedCount() + ')' : '' }}</span>
-</button>
+<app-browse-action-button
+  [enabled]="canEditMetadata()"
+  label="Edit Metadata…"
+  [count]="state.selectedCount()"
+  buttonTitle="Edit metadata for selected photos"
+  ariaLabel="Edit metadata"
+  (clicked)="controller.openMetadata()"
+/>
 
-<button
-  type="button"
-  class="export-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] border-[0.5px]"
-  [class.has-selection]="canMergePano()"
-  [class.no-selection]="!canMergePano()"
-  [class.bg-primary-dim]="canMergePano()"
-  [class.text-primary]="canMergePano()"
-  [class.border-primary]="canMergePano()"
-  [class.bg-input-bg]="!canMergePano()"
-  [class.text-text-muted]="!canMergePano()"
-  [class.border-border]="!canMergePano()"
-  [class.opacity-50]="!canMergePano()"
-  [disabled]="!canMergePano()"
-  title="Stitch selected images into a panorama"
-  aria-label="Merge to panorama"
-  (click)="controller.openPano()"
->
-  <span>Merge to panorama…{{ canMergePano() ? ' (' + state.selectedCount() + ')' : '' }}</span>
-</button>
+<app-browse-action-button
+  [enabled]="canMergePano()"
+  label="Merge to panorama…"
+  [count]="state.selectedCount()"
+  buttonTitle="Stitch selected images into a panorama"
+  ariaLabel="Merge to panorama"
+  (clicked)="controller.openPano()"
+/>
 
-<button
-  type="button"
-  class="export-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] border-[0.5px]"
-  [class.has-selection]="canBatchRename()"
-  [class.no-selection]="!canBatchRename()"
-  [class.bg-primary-dim]="canBatchRename()"
-  [class.text-primary]="canBatchRename()"
-  [class.border-primary]="canBatchRename()"
-  [class.bg-input-bg]="!canBatchRename()"
-  [class.text-text-muted]="!canBatchRename()"
-  [class.border-border]="!canBatchRename()"
-  [class.opacity-50]="!canBatchRename()"
-  [disabled]="!canBatchRename()"
-  title="Rename selected photos with a template"
-  aria-label="Batch rename"
-  (click)="controller.openBatchRename()"
->
-  <span>Batch Rename…{{ canBatchRename() ? ' (' + state.selectedCount() + ')' : '' }}</span>
-</button>
+<app-browse-action-button
+  [enabled]="canBatchRename()"
+  label="Batch Rename…"
+  [count]="state.selectedCount()"
+  buttonTitle="Rename selected photos with a template"
+  ariaLabel="Batch rename"
+  (clicked)="controller.openBatchRename()"
+/>
 
-<button
-  type="button"
-  class="export-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] border-[0.5px]"
-  [class.has-selection]="canMoveTo()"
-  [class.no-selection]="!canMoveTo()"
-  [class.bg-primary-dim]="canMoveTo()"
-  [class.text-primary]="canMoveTo()"
-  [class.border-primary]="canMoveTo()"
-  [class.bg-input-bg]="!canMoveTo()"
-  [class.text-text-muted]="!canMoveTo()"
-  [class.border-border]="!canMoveTo()"
-  [class.opacity-50]="!canMoveTo()"
-  [disabled]="!canMoveTo()"
-  title="Move selected photos into a different folder"
-  aria-label="Move to"
-  (click)="controller.openMoveTo()"
->
-  <span>Move to…{{ canMoveTo() ? ' (' + state.selectedCount() + ')' : '' }}</span>
-</button>
+<app-browse-action-button
+  [enabled]="canMoveTo()"
+  label="Move to…"
+  [count]="state.selectedCount()"
+  buttonTitle="Move selected photos into a different folder"
+  ariaLabel="Move to"
+  (clicked)="controller.openMoveTo()"
+/>

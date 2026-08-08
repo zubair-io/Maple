@@ -1,0 +1,48 @@
+@for (entry of nodes(); track entry.id) {
+  @let expandable = canExpand(entry);
+  @let open = isOpen(entry);
+  @let disabledReason = disabledReasonFor(entry);
+  @let isSelected = selectedId() === entry.id;
+  @let reasonId = reasonElementId(entry);
+
+  <div
+    class="mtd-row"
+    role="treeitem"
+    [attr.aria-selected]="isSelected"
+    [attr.aria-disabled]="!!disabledReason"
+    [attr.aria-describedby]="reasonId"
+    [class.selected]="isSelected"
+    [class.disabled]="!!disabledReason"
+    [style.padding-left.px]="8 + level() * 16"
+    [title]="titleFor(entry)"
+    (click)="onRowClick(entry)"
+  >
+    <button
+      type="button"
+      class="mtd-chevron"
+      [class.mtd-chevron-hidden]="!expandable"
+      [class.open]="open"
+      [disabled]="!expandable"
+      [attr.aria-label]="open ? 'Collapse' : 'Expand'"
+      (click)="toggleOpen(entry); $event.stopPropagation()"
+    >
+      ▸
+    </button>
+    <span class="mtd-label">{{ entry.label }}</span>
+    <!-- Visually-hidden: the row's `title` already covers hover, this
+         covers keyboard/AT users who can't hover (#2644 review). Always
+         rendered (empty when the row is eligible) so the row's own
+         `aria-describedby` binding above stays unconditional. -->
+    <span class="mtd-visually-hidden" [id]="reasonId">{{ disabledReason }}</span>
+  </div>
+
+  @if (showChildren(entry)) {
+    <app-move-to-tree-picker
+      [nodes]="childFolders(entry)"
+      [level]="level() + 1"
+      [selectedId]="selectedId()"
+      [sourceFolderId]="sourceFolderId()"
+      (select)="select.emit($event)"
+    />
+  }
+}
