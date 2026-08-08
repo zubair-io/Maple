@@ -26,6 +26,11 @@ extension EditSession {
     /// `nil` when film-look export doesn't apply (no look, non-RAW,
     /// sourceless asset) or the FFI render itself failed — either case
     /// falls through to the normal CIImage-graph export at the call site.
+    ///
+    /// Non-RAW asset exports (JPEG, HEIF, etc.) always route through the
+    /// CIImage-graph path without film blending, while the GPU-live canvas
+    /// shows the look in real time — this cross-platform gap (#2713, Apple only)
+    /// is tracked for future unification.
     func renderExportWithFilmLook() async throws -> CIImage? {
         guard asset.isRaw, !model.filmLook.isEmpty,
               let url = asset.primaryURL,
