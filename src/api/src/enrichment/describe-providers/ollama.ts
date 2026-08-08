@@ -19,7 +19,8 @@ import {
 } from './index.ts';
 
 const DEFAULT_BASE_URL = 'http://localhost:11434';
-// qwen3-vl:8b on a 24 GB GPU is 8–12s typical per image (15-60% faster
+// gemma4:12b on a 24 GB GPU is 7–11s typical per image (measured on the
+// v7 prompt; qwen3-vl:8b before it was 8–12s, itself 15-60% faster
 // than the prior qwen2.5vl:7b generation per-token, similar VRAM), but can
 // spike to 30–60s under cold-load or when the model is paged in. 120s
 // leaves headroom without masking a genuinely hung backend.
@@ -150,7 +151,8 @@ async function parseGenerateBody(res: Response): Promise<OllamaGenerateResponse>
 /**
  * Resolve the model's generated text out of a decoded `/api/generate` body.
  *
- * qwen3-vl is a thinking model. Under a `format` JSON-schema constraint the
+ * The locked vision model is a thinking model. Under a `format`
+ * JSON-schema constraint the
  * grammar prevents it from emitting its `</think>` terminator, so Ollama's
  * template parser (observed on 0.30.11; `think: false` does not help)
  * classifies the ENTIRE constrained output as `thinking` and hands back

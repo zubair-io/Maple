@@ -206,10 +206,11 @@ export interface EnrichmentForm {
 /** Ollama tag the describe stage is locked to at runtime. The structured
  * JSON parser only accepts this model's output shape, so the operator's
  * DB-backed `describe_model` is ignored server-side and the UI surface
- * matches by treating the field as read-only. Mirrors `QWEN_VL_OLLAMA_TAG`
+ * matches by treating the field as read-only. Mirrors
+ * `DESCRIBE_VISION_OLLAMA_TAG`
  * + `FIXED_DESCRIBE_MODEL` in `src/api/src/enrichment/enrichment-config.repo.ts`
  * and `src/api/src/workers/stages/describe.ts`. */
-export const FIXED_DESCRIBE_MODEL = 'qwen3-vl:8b';
+export const FIXED_DESCRIBE_MODEL = 'gemma4:12b';
 
 export type SaveState = 'idle' | 'saving' | 'success' | 'error';
 

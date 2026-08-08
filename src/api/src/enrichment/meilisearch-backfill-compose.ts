@@ -123,6 +123,7 @@ export function composeDocument(
     visionSetting: nullIfMissing(visionFields.setting),
     visionActivity: nullIfMissing(visionFields.activity),
     visionNotableObjects: nullIfMissing(visionFields.notable_objects),
+    visionTags: nullIfMissing(visionFields.tags),
     people,
   });
   return {

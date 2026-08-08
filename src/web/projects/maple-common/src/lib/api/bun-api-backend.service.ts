@@ -218,17 +218,20 @@ export interface ApiDescriptionMeta {
 }
 
 /**
- * Structured vision metadata from the qwen3-vl describe stage.
+ * Structured vision metadata from the describe stage.
  * Mirrors `VisionDoc` in `src/api/src/db/schema.ts`. `null` until the
  * stage has run on the asset.
  *
- * Prompt v5 classifies `is_screenshot` first and nulls every scene field
+ * Prompt v7 classifies `is_screenshot` first and nulls every scene field
  * below when it's true (screenshot short-circuit) — that's why
- * `scene_type` / `time_of_day` / `lighting` / `weather` / `composition` /
+ * `scene_type` / `time_of_day` / `lighting` / `weather` / `framing` /
  * `shot_type` are nullable here.
  */
 export interface ApiVision {
   caption: string;
+  /** Flat search keywords (prompt v7). `undefined` on rows captioned
+   * before v7, which is why readers must guard before iterating. */
+  tags?: string[];
   subjects: string[];
   scene_type: 'indoor' | 'outdoor' | 'aerial' | 'macro' | 'studio' | 'mixed' | null;
   setting: string | null;
@@ -254,12 +257,21 @@ export interface ApiVision {
   weather: 'clear' | 'cloudy' | 'rainy' | 'snowy' | 'foggy' | 'indoor' | 'unknown' | null;
   mood: string;
   colors: string[];
-  composition: 'wide shot' | 'close-up' | 'portrait' | 'landscape' | 'aerial' | 'macro' | null;
+  /** Shot tightness (prompt v7). Replaced `composition`, which mixed
+   * tightness with orientation and vantage. */
+  framing?: 'wide' | 'medium' | 'close-up' | 'macro' | null;
+  /** @deprecated Superseded by `framing` in prompt v7; still present on
+   * rows captioned before the v7 re-run. */
+  composition?: 'wide shot' | 'close-up' | 'portrait' | 'landscape' | 'aerial' | 'macro' | null;
   text_visible: string | null;
   notable_objects: string[];
   shot_type: 'action' | 'static' | 'candid' | 'posed' | 'architectural' | 'nature' | 'event' | null;
   /** True when the image is a screenshot rather than a photograph. */
   is_screenshot: boolean;
+  /** People visible in the frame (prompt v7), partially-visible included.
+   * Always 0 on screenshots. `undefined` on rows captioned before v7 —
+   * distinct from a genuine 0, so the info pane must not render it. */
+  people_count?: number;
   /** Nudity classification ladder (prompt v5): `'explicit'` auto-hides the
    * asset, `'suggestive'` does not, `'none'` is the common case. */
   nudity: 'none' | 'suggestive' | 'explicit';
@@ -312,7 +324,7 @@ export interface ApiAssetDetail {
   description_meta: ApiDescriptionMeta | null;
   ocr_text: string | null;
   ocr_meta: ApiOcrMeta | null;
-  /** Structured vision data from the qwen3-vl describe stage. */
+  /** Structured vision data from the describe stage. */
   vision: ApiVision | null;
   vision_meta: ApiVisionMeta | null;
   /** Speech-to-text from the transcribe stage (video/audio assets).
