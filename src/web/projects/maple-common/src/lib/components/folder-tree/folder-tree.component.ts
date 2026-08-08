@@ -32,7 +32,7 @@ import {
 } from './folder-tree-crud.component';
 import { DRAG_MOVE_CAPABILITY } from '../../drag-move/drag-move-capability';
 import { isCopyModifierEvent } from '../../drag-move/drag-move-platform';
-import { ASSET_GRID_DROP_LIST_ID, type AssetDragData } from '../../drag-move/asset-drag-data';
+import type { AssetDragData } from '../../drag-move/asset-drag-data';
 
 /** Touch long-press → context menu. 500ms matches the platform convention
  * (iOS/Android system long-press threshold); 10px is the move tolerance
@@ -60,7 +60,6 @@ export class FolderTreeComponent {
   protected readonly extensions = inject(FOLDER_TREE_EXTENSIONS);
   private readonly crudEnabled = inject(FOLDER_TREE_CRUD_ENABLED);
   protected readonly dragMove = inject(DRAG_MOVE_CAPABILITY);
-  protected readonly assetGridDropListId = ASSET_GRID_DROP_LIST_ID;
 
   readonly crudRequest = signal<FolderCrudRequest | null>(null);
   readonly trashPartialWarning = signal<string | null>(null);

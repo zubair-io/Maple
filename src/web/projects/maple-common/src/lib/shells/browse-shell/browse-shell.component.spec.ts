@@ -2,7 +2,9 @@ import { signal } from '@angular/core';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { By } from '@angular/platform-browser';
+import { Router, provideRouter } from '@angular/router';
+import { CdkDropList, CdkDropListGroup } from '@angular/cdk/drag-drop';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LayoutService, type MapleLayout } from '../../layout-service';
 import { LibraryStateService } from '../../state/library-state.service';
@@ -195,5 +197,75 @@ describe('BrowseShellComponent capability boundary', () => {
     fixture.detectChanges();
 
     expect(startEditing).toHaveBeenCalledWith(asset);
+  });
+
+  // #2724 review — a pointer drag from a grid tile onto a folder-tree row
+  // never worked: an earlier version put `[cdkDropListConnectedTo]` on the
+  // folder ROWS pointing at the grid's id, but CDK's `connectedTo` is
+  // directional (it grants THAT list's own items entry into the named
+  // targets), so it let folder rows' empty item set enter the grid — never
+  // the reverse. The fix is a single `cdkDropListGroup` on the ancestor in
+  // `browse-shell.component.html` that wraps both the sidebar and the
+  // content area, which CDK's own drag-drop source (`beforeStarted`,
+  // `drag-drop.mjs`) resolves by unioning the STARTING list's own
+  // `connectedTo` with every OTHER member of `this._group._items` — so
+  // group membership, not `connectedTo`, is what actually has to be right.
+  //
+  // Simulating the full pointer gesture (mousedown/pointermove/pointerup)
+  // was not viable here: CDK's drop-target resolution depends on real
+  // element geometry from `getBoundingClientRect`, which jsdom (this
+  // project's unit-test DOM) always reports as a zero-size rect — the
+  // gesture would "complete" without ever exercising the geometry-based
+  // containment check that's actually load-bearing for this bug class.
+  // Instead this asserts the RESOLVED wiring the gesture depends on: the
+  // real `CdkDropListGroup` instance browse-shell renders actually
+  // contains BOTH the grid's tile container and a folder-tree row as
+  // members, which is precisely the fact CDK's own `beforeStarted` handler
+  // reads to decide what a drag can enter. A future regression that
+  // reintroduces a one-way `connectedTo`, drops the group off the
+  // ancestor, or scopes it to the wrong element breaks this test.
+  it('connects the asset-grid tile drop-list and a folder-tree row drop-list into one CdkDropListGroup (#2724)', () => {
+    const fixture = TestBed.createComponent(BrowseShellComponent);
+    // Setting `selectedSourceId` directly (rather than through the normal
+    // selection flow) fires browse-shell's own "mirror selection into the
+    // URL" effect against this spec's route-less `provideRouter([])` —
+    // irrelevant to what this test verifies, so it's stubbed out rather
+    // than left to reject unhandled.
+    vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const state = fixture.componentInstance.state;
+    const folderId = 'library:2026';
+    state.sidebarTree.set([{ kind: 'folder', id: folderId, label: '2026', count: null }]);
+    state.selectedSourceId.set(folderId);
+    state.assets.set([
+      {
+        id: `${folderId}/IMG_0001.CR3`,
+        filename: 'IMG_0001.CR3',
+        folderId,
+        rating: 0,
+        flag: 'unflagged',
+        colorLabel: null,
+        thumbnailGradient: '',
+        aspectRatio: 1.5,
+      },
+    ]);
+    fixture.detectChanges();
+    fixture.detectChanges();
+
+    const groupDebugEl = fixture.debugElement.query(By.directive(CdkDropListGroup));
+    expect(groupDebugEl).not.toBeNull();
+    const group = groupDebugEl.injector.get(CdkDropListGroup);
+
+    const gridDropListDebugEl = fixture.debugElement.query(
+      By.css('[id="maple-asset-grid-drop-list"]'),
+    );
+    const rowDropListDebugEl = fixture.debugElement.query(By.css(`[id="folder-drop-${folderId}"]`));
+    expect(gridDropListDebugEl).not.toBeNull();
+    expect(rowDropListDebugEl).not.toBeNull();
+
+    const gridDropList = gridDropListDebugEl.injector.get(CdkDropList);
+    const rowDropList = rowDropListDebugEl.injector.get(CdkDropList);
+
+    expect(group._items.has(gridDropList)).toBe(true);
+    expect(group._items.has(rowDropList)).toBe(true);
   });
 });
