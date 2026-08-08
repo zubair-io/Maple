@@ -34,6 +34,8 @@ import { POLL_INTERVAL_MS, deriveBatchSize, nextPollDelay } from './loop-policy.
 import { confirmAndTagMissing } from './tag-missing.ts';
 import { tagDamaged } from './tag-damaged.ts';
 import { dispatchPool } from './dispatch-pool.ts';
+import { reconcileCrashExhausted, recordStageFailure } from './stage-failure.ts';
+import { buildClaimQuery } from './claim-query.ts';
 import {
   bootConfig,
   defineStage,
@@ -59,6 +61,9 @@ import type {
 // ---------------------------------------------------------------------------
 
 export { bootConfig, defineStage, resolveStageDeps, versionBumpReset };
+// Claim query lives in `./claim-query.ts`; re-exported so existing importers
+// (`run-stage.ts`) keep working unchanged.
+export { buildClaimQuery } from './claim-query.ts';
 export type {
   ImageDoc,
   StageConfig,
@@ -71,52 +76,18 @@ export type {
 
 // Poll-loop timing policy lives in `./loop-policy.ts`. Re-exported here so the
 // many stage files and tests that import these from `run-stage.ts` keep working.
-export { POLL_INTERVAL_MS, BACKOFF_MS, deriveBatchSize, nextPollDelay } from './loop-policy.ts';
+export {
+  POLL_INTERVAL_MS,
+  BACKOFF_MS,
+  RETRY_BACKOFF_MS,
+  deriveBatchSize,
+  nextPollDelay,
+  retryDelayMs,
+} from './loop-policy.ts';
 
 // ---------------------------------------------------------------------------
 // Claim query.
 // ---------------------------------------------------------------------------
-
-export function buildClaimQuery(
-  name: string,
-  targetVersion: number,
-  dependsOn: Array<{ name: string; minVersion: number }>,
-  inFlight: Set<ObjectId>,
-  claimFilter?: Filter<ImageDoc>,
-): Filter<ImageDoc> {
-  const filter: Filter<ImageDoc> = {
-    $or: [
-      { [`stages.${name}.version`]: { $lt: targetVersion } },
-      { [`stages.${name}.version`]: { $exists: false } },
-    ],
-    [`stages.${name}.dead`]: { $ne: true },
-    // Require at least one LIVE on-disk location. An asset whose every
-    // `fileinfo` entry is non-live — `deleted_at` (bytes replaced) or
-    // `missing_since` (file vanished) — has nothing to process and is parked
-    // for EVERY stage until either the missing-reaper resolves it (recovers a
-    // location, or `$pull`s the dead entries and deletes the record) or a
-    // re-discover relinks a live location. Replaces the former root
-    // `missing_since` park: per-entry `missing_since` now expresses "this
-    // location is gone", and a row with no live entry is exactly the parked set.
-    ...liveFileInfoElemMatch(),
-    // Skip assets tagged damaged (`damaged.since` is an ISO string while
-    // tagged): the bytes are unreadable, so the file is parked for EVERY stage
-    // until an operator clears the tag from the Workers UI.
-    'damaged.since': { $not: { $type: 'string' } },
-  };
-  for (const dep of dependsOn) {
-    (filter as Record<string, unknown>)[`stages.${dep.name}.version`] = {
-      $gte: dep.minVersion,
-    };
-  }
-  if (inFlight.size > 0) {
-    (filter as Record<string, unknown>)['_id'] = { $nin: [...inFlight] };
-  }
-  // A stage-supplied predicate (e.g. transcribe's video/audio filename regex)
-  // is AND-ed on so it can't collide with the base query's own `fileinfo` /
-  // `$or` keys. Absent → the base query is returned unchanged.
-  return claimFilter ? { $and: [filter, claimFilter] } : filter;
-}
 
 /**
  * Resolve `(folder_id, abs_path)` from the doc's primary fileinfo entry and
@@ -178,24 +149,13 @@ export async function runOnce(
   const stageKey = `stages.${stage.name}`;
   const priorAttempts = (d: ImageDoc): number => d.stages?.[stage.name]?.attempts ?? 0;
 
-  // Crash-attributable claims (#897). The worker tier runs native code (onnx,
-  // libraw, sharp) that can `abort()` the whole process mid-handler — an
-  // UNCATCHABLE death the catch below never observes. A doc whose `attempts`
-  // reached `maxAttempts` but was never marked done OR dead can only have got
-  // there by aborting the worker on each claim (a normal throw dead-letters in
-  // the catch). Reconcile it here — mark it dead (+ damaged on file-reading
-  // stages) and DON'T re-dispatch — otherwise one poison asset re-claims on
-  // every respawn forever and the whole tier never drains.
-  const exhausted = docs.filter((d) => priorAttempts(d) >= config.maxAttempts);
-  for (const doc of exhausted) {
-    const id = (doc as { _id: ObjectId })._id;
-    const reason = `claimed ${priorAttempts(doc)}× without completing — worker aborted mid-handler (uncatchable native crash)`;
-    await images.updateOne(
-      { _id: id },
-      { $set: { [`${stageKey}.dead`]: true, [`${stageKey}.last_error`]: reason } },
-    );
-    if (stage.tagsDamagedOnDeadLetter) await tagDamaged(images, id, stage.name, reason);
-  }
+  await reconcileCrashExhausted({
+    images,
+    docs,
+    stage,
+    maxAttempts: config.maxAttempts,
+    priorAttempts,
+  });
   const claimable = docs.filter((d) => priorAttempts(d) < config.maxAttempts);
 
   await dispatchPool(claimable, config.concurrency, async (doc) => {
@@ -219,6 +179,11 @@ export async function runOnce(
         last_error: null,
         processed_at: new Date(),
         dead: false,
+        // Clear the failure trail so a recovered asset doesn't carry a stale
+        // error string (#2730) or a backoff gate (#2729) that would hold its
+        // NEXT version bump hostage for the remainder of the ladder.
+        failed_at: null,
+        next_attempt_at: null,
       };
 
       if ('patch' in result) {
@@ -354,20 +319,16 @@ export async function runOnce(
         }
         return;
       }
-      const msg = err instanceof Error ? err.message : String(err);
-      // `attempts` was already persisted at claim time (so an uncatchable death
-      // still counts), so compute `dead` from `attemptNo` rather than re-reading
-      // or re-incrementing.
-      const dead = attemptNo >= config.maxAttempts;
-      await images.updateOne(
-        { _id: id },
-        {
-          $set: {
-            [`${stageKey}.last_error`]: msg,
-            [`${stageKey}.dead`]: dead,
-          },
-        },
-      );
+      const { dead, message: msg } = await recordStageFailure({
+        images,
+        id,
+        idStr,
+        stageName: stage.name,
+        attemptNo,
+        maxAttempts: config.maxAttempts,
+        err,
+        log,
+      });
       // A file-reading stage that just exhausted its retries means the bytes
       // are unreadable (corrupt original, or an undecodable format). Tag the
       // asset `damaged` so the rest of the pipeline parks it instead of each
