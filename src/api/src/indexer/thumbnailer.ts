@@ -197,21 +197,76 @@ async function renderRawThumbToFile(rawPath: string, outPath: string): Promise<b
     );
     return false;
   }
+  // Extraction failure REJECTS rather than returning false — the pool
+  // marshals the child's error across the process boundary as a throw, and
+  // the underlying rc (8 = "no embedded preview / thumbnail in RAW") does
+  // not survive that trip. So both branches fall through to the demosaic,
+  // which therefore triggers on ANY extraction failure rather than
+  // detecting the no-preview case specifically; an unreadable RAW fails the
+  // decode too and still returns false.
   try {
-    return await pool.renderThumbnailAvifToFile(
-      rawPath,
-      outPath,
-      THUMB_LONG_EDGE_PX,
-      THUMB_AVIF_QUALITY,
-    );
+    if (
+      await pool.renderThumbnailAvifToFile(rawPath, outPath, THUMB_LONG_EDGE_PX, THUMB_AVIF_QUALITY)
+    ) {
+      return true;
+    }
   } catch (e) {
-    log.warn({ rawPath, err: e instanceof Error ? e.message : e }, 'FFI call threw');
-    return false;
+    log.debug(
+      { rawPath, err: e instanceof Error ? e.message : e },
+      'embedded-preview extraction failed — trying demosaic fallback',
+    );
   }
+  return await developRawThumbToFile(rawPath, outPath);
   // Note: FFI path bakes orientation into pixels and emits a bare AVIF with
   // no EXIF. Bitmap paths (via imgdecode child) call sharp's .rotate() at
   // decode time. No inline orientation post-process needed — keeping sharp
   // out of worker-main's address space for isolation.
+}
+
+/**
+ * Fallback for a RAW with no embedded preview to extract (#2733).
+ *
+ * `renderThumbnailAvifToFile` only EXTRACTS an embedded JPEG and fails with
+ * rc 8 when the file has none — which is the whole story for uncompressed
+ * Bayer CFA DNGs out of phone cameras. Without this those assets render as
+ * blank tiles in the grid forever, which is the most visible half of the
+ * bug; the preview tier has the same gap and the same fix in
+ * `previewer.ts`.
+ *
+ * Decode + demosaic through `raw-core` instead (null adjustments = neutral),
+ * then hand the JPEG to the same imgdecode child pool every bitmap goes
+ * through, exactly like the video poster-frame path below. Two hops so the
+ * resize maths, AVIF settings and orientation handling stay literally the
+ * bitmap path rather than a second encoder that could drift from it.
+ */
+async function developRawThumbToFile(rawPath: string, outPath: string): Promise<boolean> {
+  const pool = ffiPool();
+  const jpegPath = `${outPath}.develop.jpg`;
+  try {
+    // quality 90 on an intermediate that is immediately re-encoded to AVIF:
+    // the lossy step that matters is the AVIF one below.
+    const developed = await pool.renderDevelopJpegToFile(
+      rawPath,
+      null,
+      jpegPath,
+      THUMB_LONG_EDGE_PX,
+      90,
+    );
+    if (!developed) {
+      log.warn({ rawPath }, 'no embedded preview, and demosaic fallback failed');
+      return false;
+    }
+    return await renderBitmapThumbToFile(jpegPath, outPath, 'jpg');
+  } catch (e) {
+    log.warn({ rawPath, err: e instanceof Error ? e.message : e }, 'demosaic fallback threw');
+    return false;
+  } finally {
+    try {
+      await fs.unlink(jpegPath);
+    } catch {
+      /* develop failed before writing, or already gone */
+    }
+  }
 }
 
 /**
