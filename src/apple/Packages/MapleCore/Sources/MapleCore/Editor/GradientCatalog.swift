@@ -237,7 +237,8 @@ public enum GradientCatalog {
     /// no slider track of their own (`.crop`, `.presets`), and for
     /// `.bwMix` (#276) and `.colorGrade` (#275), which are wired but
     /// render eight per-hue weights and colour wheels respectively
-    /// instead of a gradient track.
+    /// instead of a gradient track. `.filmLook` (#2683) is the same
+    /// shape: a category-grouped catalog list, not a gradient track.
     public static func stops(for tool: Tool) -> [GradientStop]? {
         switch tool {
         case .exposure:       return exposure
@@ -267,7 +268,7 @@ public enum GradientCatalog {
         // gradient reads correctly for eight independent per-hue weights,
         // so it's excluded from the gradient-track requirement, the same
         // way colour grading is (#275: colour wheels, not a track).
-        case .crop, .presets, .colorGrade, .bwMix:
+        case .crop, .presets, .colorGrade, .bwMix, .filmLook:
             return nil
         }
     }

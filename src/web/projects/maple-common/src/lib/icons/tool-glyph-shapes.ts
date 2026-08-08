@@ -189,8 +189,8 @@ export const TOOL_ICON_SHAPES: Record<ToolIconName, readonly IconShape[]> = {
   // Frame with a row of sprocket-hole dots along the top and bottom edges —
   // a film strip (epic #2683). Reuses the Effects family's shared FRAME and
   // Grain's round-cap dot so it reads as one of this glyph family, not a
-  // borrowed asset. Not yet mirrored to Apple's `ToolGlyphShapes.swift` —
-  // `filmLook` is a web-only `ToolId` for now (epic #2683 Task 12).
+  // borrowed asset. Mirrored verbatim to Apple's `ToolGlyphShapes.swift`
+  // (`case .filmLook`, #2683 Task 11).
   'tool-film': [
     FRAME,
     dot(4.6, 3.4),

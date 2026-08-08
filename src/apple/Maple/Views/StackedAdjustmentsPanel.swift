@@ -342,6 +342,16 @@ struct StackedAdjustmentsPanel: View {
                     .padding(.horizontal, 14)
                     .padding(.bottom, 8)
             }
+
+            // Film (#2683) is pinned into the Effects section for the same
+            // structural reason: the catalog pick is a string id, not a
+            // scalar, so it has no `displayRange` and the living-slider
+            // stack above filters it out.
+            if group == .effects {
+                FilmSection(state: state)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 8)
+            }
         }
     }
 
@@ -352,6 +362,11 @@ struct StackedAdjustmentsPanel: View {
     private func modifiedCount(in group: ToolGroup) -> Int {
         Tool.tools(in: group)
             .filter { tool in
+                // Film (#2683): counts as modified once a look is chosen,
+                // even before Strength (its only sub-param) has moved.
+                if tool == .filmLook {
+                    return !state.session.model.filmLook.isEmpty
+                }
                 guard tool.isWired else { return false }
                 let subs = tool.subParams
                 if !subs.isEmpty {
