@@ -66,8 +66,14 @@ namespace Maple.WinUI
                 };
                 async Task<double> NextFrameAsync()
                 {
-                    await frameSignal.WaitAsync();
-                    frameTimes.TryDequeue(out var ms);
+                    // A missing frame means the two-frames-per-edit contract
+                    // broke — fail the run loudly instead of hanging forever.
+                    if (!await frameSignal.WaitAsync(TimeSpan.FromSeconds(30)))
+                        throw new TimeoutException(
+                            "qualify: no render frame within 30s (fast/refine contract broken)");
+                    if (!frameTimes.TryDequeue(out var ms))
+                        throw new InvalidOperationException(
+                            "qualify: frame signal fired with an empty queue");
                     return ms;
                 }
 

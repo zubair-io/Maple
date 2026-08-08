@@ -243,7 +243,15 @@ pub unsafe fn present_chain_to_swapchain_panel_scaled(
             "present_chain_winui: invalid image size {session_w}x{session_h}"
         ));
     }
-    let (width, height) = if target_w == 0 || target_h == 0 {
+    // A partial-zero target is always a host bug (a dropped struct field, a
+    // truncated marshal) — reject it rather than silently falling back.
+    if (target_w == 0) != (target_h == 0) {
+        return Err(format!(
+            "present_chain_winui: partial-zero target {target_w}x{target_h} \
+             (pass 0x0 for session dims, or both non-zero)"
+        ));
+    }
+    let (width, height) = if target_w == 0 {
         (session_w, session_h)
     } else {
         (target_w, target_h)
