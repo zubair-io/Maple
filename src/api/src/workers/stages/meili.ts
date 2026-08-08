@@ -147,6 +147,7 @@ function searchBlobFor(image: SearchableImage, vision: VisionDoc | null, people:
     visionSetting: nullIfMissing(vision?.setting),
     visionActivity: nullIfMissing(vision?.activity),
     visionNotableObjects: nullIfMissing(vision?.notable_objects),
+    visionTags: nullIfMissing(vision?.tags),
     people,
   });
 }
@@ -232,7 +233,7 @@ export async function meiliHandler(image: ImageDoc, _ctx: StageContext): Promise
     return { skip: 'no-resolvable-location' };
   }
 
-  // Vision signals from the qwen3-vl describe stage — see schema.ts
+  // Vision signals from the describe stage — see schema.ts
   // §VisionDoc. Optional: `vision` is null on assets that haven't been
   // through the describe stage yet (paused on first boot, paid provider
   // without a key, etc.) — the blob simply omits them in that case.

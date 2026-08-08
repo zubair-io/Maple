@@ -125,6 +125,30 @@ export function unwrapEnum(
   return result;
 }
 
+/** people_count (prompt v7) arrives as a plain integer from the
+ * grammar-constrained path, but the synonym-tolerance rationale that
+ * applies to the enums applies here too: an unconstrained provider
+ * returns "3", 3.0, or null on an empty frame. Fractions round down —
+ * a model emitting 2.5 saw two whole people and part of a third, and
+ * the whole-person count is the honest floor. Negative values and
+ * non-numeric strings are unrecoverable, so they fail. Missing / null
+ * collapses to 0 (matching the array fields' null → [] rule). */
+export function coercePeopleCount(v: unknown): number | typeof COERCE_FAIL {
+  if (v === null || v === undefined) return 0;
+  if (typeof v === 'number') {
+    if (!Number.isFinite(v) || v < 0) return COERCE_FAIL;
+    return Math.floor(v);
+  }
+  if (typeof v === 'string') {
+    const norm = v.trim();
+    if (norm === '') return 0;
+    const parsed = Number(norm);
+    if (!Number.isFinite(parsed) || parsed < 0) return COERCE_FAIL;
+    return Math.floor(parsed);
+  }
+  return COERCE_FAIL;
+}
+
 /** text_visible is often returned as a string array when multiple text
  * regions are visible (signs + a license plate). Join with newlines —
  * downstream consumers treat the field as opaque multi-line text. Empty

@@ -10,24 +10,23 @@ import {
   DEFAULT_MEILISEARCH_EMBEDDER_URL,
   DEFAULT_MEILISEARCH_SEMANTIC_RATIO,
   DEFAULT_MEILISEARCH_TASK_TIMEOUT_SECONDS,
-  QWEN_VL_OLLAMA_TAG,
+  DESCRIBE_VISION_OLLAMA_TAG,
   loadEnrichmentConfig,
   saveEnrichmentConfig,
 } from './enrichment-config.repo.ts';
 import { resolveEnrichmentConfig } from './enrichment-config.resolve.ts';
 
-describe('QWEN_VL_OLLAMA_TAG — pinned literal', () => {
+describe('DESCRIBE_VISION_OLLAMA_TAG — pinned literal', () => {
   // Hyphen vs no-hyphen burned us once (PR #182 follow-up) for the qwen2.5
   // generation: the Qwen team names it `qwen2.5-vl` but Ollama's library
-  // published it as `qwen2.5vl` (no hyphen). The qwen3 generation reverses
-  // this — Ollama's tag IS dashed (`qwen3-vl:8b`). Pinning the literal so
-  // a future rename doesn't 404 in CI instead of in prod.
+  // published it as `qwen2.5vl` (no hyphen). Pinning the literal so a
+  // future rename doesn't 404 in CI instead of in prod.
   it("matches Ollama's library tag exactly", () => {
-    expect(QWEN_VL_OLLAMA_TAG).toBe('qwen3-vl:8b');
+    expect(DESCRIBE_VISION_OLLAMA_TAG).toBe('gemma4:12b');
   });
 
   it('is the default for the Ollama provider', () => {
-    expect(DEFAULT_DESCRIBE_MODELS.ollama).toBe(QWEN_VL_OLLAMA_TAG);
+    expect(DEFAULT_DESCRIBE_MODELS.ollama).toBe(DESCRIBE_VISION_OLLAMA_TAG);
   });
 });
 

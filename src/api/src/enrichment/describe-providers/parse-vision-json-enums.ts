@@ -47,14 +47,11 @@ export const ALLOWED_WEATHER = new Set([
   'indoor',
   'unknown',
 ]);
-export const ALLOWED_COMPOSITION = new Set([
-  'wide shot',
-  'close-up',
-  'portrait',
-  'landscape',
-  'aerial',
-  'macro',
-]);
+/** Shot tightness only (prompt v7). The predecessor `composition` enum
+ * mixed tightness with frame orientation (`portrait`, `landscape`) and
+ * camera vantage (`aerial`), so no single value meant one thing; vantage
+ * now lives in `scene_type` and orientation is derivable from EXIF. */
+export const ALLOWED_FRAMING = new Set(['wide', 'medium', 'close-up', 'macro']);
 export const ALLOWED_SHOT_TYPE = new Set([
   'action',
   'static',
@@ -116,23 +113,38 @@ export const WEATHER_SYNONYMS: Record<string, string> = {
   haze: 'foggy',
   hazy: 'foggy',
 };
-export const COMPOSITION_SYNONYMS: Record<string, string> = {
-  panorama: 'wide shot',
-  panoramic: 'wide shot',
+/** Includes the retired v6 `composition` vocabulary, so a model that has
+ * seen the old enum (or an old row replayed through the parser) still
+ * lands on a legal `framing` value instead of dead-lettering. The
+ * orientation/vantage values collapse onto tightness: a `landscape` or
+ * `aerial` frame is a wide one, and a `portrait` frame of a subject is a
+ * medium shot. */
+export const FRAMING_SYNONYMS: Record<string, string> = {
+  'wide shot': 'wide',
+  'wide-angle': 'wide',
+  panorama: 'wide',
+  panoramic: 'wide',
+  landscape: 'wide',
+  establishing: 'wide',
+  aerial: 'wide',
+  'aerial shot': 'wide',
+  'medium shot': 'medium',
+  'mid shot': 'medium',
+  portrait: 'medium',
+  'waist-up': 'medium',
   closeup: 'close-up',
+  'close up': 'close-up',
+  'extreme close-up': 'close-up',
   'macro shot': 'macro',
-  'aerial shot': 'aerial',
-  // qwen sometimes confuses composition with shot_type and emits one of
-  // the shot_type enum values here. "candid" left the composition enum
-  // in v5 (it's a shot-type concept), so it now maps here too instead of
-  // round-tripping to itself.
-  candid: 'wide shot',
-  action: 'wide shot',
-  static: 'wide shot',
-  posed: 'portrait',
-  architectural: 'wide shot',
-  nature: 'landscape',
-  event: 'wide shot',
+  // The model sometimes confuses framing with shot_type and emits one of
+  // the shot_type enum values here.
+  candid: 'wide',
+  action: 'wide',
+  static: 'wide',
+  posed: 'medium',
+  architectural: 'wide',
+  nature: 'wide',
+  event: 'wide',
 };
 export const SHOT_TYPE_SYNONYMS: Record<string, string> = {
   motion: 'action',
@@ -151,7 +163,7 @@ export const ENUM_DEFAULTS = {
   time_of_day: 'unknown', // already in the enum
   lighting: 'unknown', // already in the enum
   weather: 'unknown', // already in the enum
-  composition: 'wide shot',
+  framing: 'wide',
   shot_type: 'static',
 } as const;
 
@@ -166,15 +178,22 @@ export const ENUM_DEFAULTS = {
  *
  * PROPERTY ORDER IS SIGNIFICANT — DO NOT ALPHABETIZE. Ollama's
  * grammar-constrained decode emits object properties in the order they
- * appear in this schema, and prompt v6's design rests on
- * classifying `is_screenshot` before the model commits to a
- * `caption` or any scene field, so that field must stay first.
+ * appear in this schema, and prompt v7's design rests on classifying
+ * `is_screenshot` and counting `people_count` before the model commits
+ * to a `caption` or any scene field, so those two must stay first.
+ *
+ * `tags` has no `minItems`: the prompt asks for 8-15, but a hard grammar
+ * floor would force the model to pad a near-empty frame with junk terms
+ * that then poison `search_blob`. `maxItems` is safe in the other
+ * direction — it only truncates.
  */
 export const VISION_DOC_JSON_SCHEMA = {
   type: 'object',
   properties: {
     is_screenshot: { type: 'boolean' },
+    people_count: { type: ['integer', 'null'], minimum: 0 },
     caption: { type: 'string', minLength: 1 },
+    tags: { type: ['array', 'null'], items: { type: 'string' }, maxItems: 15 },
     subjects: { type: ['array', 'null'], items: { type: 'string' } },
     scene_type: { type: ['string', 'null'], enum: [...ALLOWED_SCENE_TYPE, null] },
     setting: { type: ['string', 'null'] },
@@ -183,15 +202,17 @@ export const VISION_DOC_JSON_SCHEMA = {
     lighting: { type: ['string', 'null'], enum: [...ALLOWED_LIGHTING, null] },
     weather: { type: ['string', 'null'], enum: [...ALLOWED_WEATHER, null] },
     mood: { type: ['string', 'null'] },
-    colors: { type: ['array', 'null'], items: { type: 'string' } },
-    composition: { type: ['string', 'null'], enum: [...ALLOWED_COMPOSITION, null] },
+    colors: { type: ['array', 'null'], items: { type: 'string' }, maxItems: 5 },
+    framing: { type: ['string', 'null'], enum: [...ALLOWED_FRAMING, null] },
     text_visible: { type: ['string', 'null'] },
-    notable_objects: { type: ['array', 'null'], items: { type: 'string' } },
+    notable_objects: { type: ['array', 'null'], items: { type: 'string' }, maxItems: 8 },
     shot_type: { type: ['string', 'null'], enum: [...ALLOWED_SHOT_TYPE, null] },
   },
   required: [
     'is_screenshot',
+    'people_count',
     'caption',
+    'tags',
     'subjects',
     'scene_type',
     'setting',
@@ -201,7 +222,7 @@ export const VISION_DOC_JSON_SCHEMA = {
     'weather',
     'mood',
     'colors',
-    'composition',
+    'framing',
     'text_visible',
     'notable_objects',
     'shot_type',
