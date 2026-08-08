@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import type { ObjectId } from 'mongodb';
 import {
   _test,
   buildClaimQuery,
   defineStage,
-  deriveBatchSize,
   type ImageDoc,
   type StageState,
 } from './run-stage.ts';

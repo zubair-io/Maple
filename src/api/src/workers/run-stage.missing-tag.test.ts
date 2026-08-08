@@ -51,63 +51,47 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   return cur;
 }
 
+/**
+ * One operator → does `docVal` satisfy it?
+ *
+ * A table rather than a switch: each entry is independently readable, adding
+ * an operator is one line, and complexity stays flat as the set grows rather
+ * than accumulating in a single function.
+ */
+const OPERATORS: Record<string, (docVal: unknown, opv: unknown) => boolean> = {
+  $lt: (d, v) => typeof d === 'number' && d < (v as number),
+  $ne: (d, v) => d !== v,
+  // Dates, for the retry-backoff gate (#2729). An absent field must NOT
+  // satisfy `$gt`, so that `$not: { $gt: now }` leaves never-failed rows
+  // claimable — mirroring Mongo, and the reason the gate is written as a
+  // negation in the first place.
+  $gt: (d, v) => d !== undefined && d !== null && Number(d) > Number(v),
+  $nin: (d, v) => !(v as unknown[]).includes(d),
+  // `$in: [null]` matches null OR absent, mirroring Mongo.
+  $in: (d, v) =>
+    (v as unknown[]).some((x) => x === d || (x === null && (d === null || d === undefined))),
+  $exists: (d, v) => (v as boolean) === (d !== undefined),
+  $type: (d, v) => v !== 'string' || typeof d === 'string',
+  $not: (d, v) => !matchVal(d, v),
+  $elemMatch: (d, v) =>
+    Array.isArray(d) && d.some((el) => matchesFilter(el, v as Record<string, unknown>)),
+};
+
 /** Evaluate one field condition (a scalar equality or an operator object).
  * Supports the operator subset the claim query + per-entry tag write use. */
 function matchVal(docVal: unknown, cond: unknown): boolean {
-  if (cond !== null && typeof cond === 'object' && !Array.isArray(cond)) {
-    for (const [op, opv] of Object.entries(cond as Record<string, unknown>)) {
-      switch (op) {
-        case '$lt':
-          if (!(typeof docVal === 'number' && docVal < (opv as number))) return false;
-          break;
-        case '$ne':
-          if (docVal === opv) return false;
-          break;
-        // Dates, for the retry-backoff gate (#2729). An absent field must NOT
-        // satisfy `$gt`, so that `$not: { $gt: now }` leaves never-failed rows
-        // claimable — mirroring Mongo, and the reason the gate is written as a
-        // negation in the first place.
-        case '$gt':
-          if (docVal === undefined || docVal === null) return false;
-          if (!(Number(docVal) > Number(opv))) return false;
-          break;
-        case '$nin':
-          if ((opv as unknown[]).includes(docVal)) return false;
-          break;
-        case '$in':
-          // `$in: [null]` matches null OR absent, mirroring Mongo.
-          if (
-            !(opv as unknown[]).some(
-              (v) => v === docVal || (v === null && (docVal === null || docVal === undefined)),
-            )
-          )
-            return false;
-          break;
-        case '$exists': {
-          const expected = opv as boolean;
-          if (expected === false && docVal !== undefined) return false;
-          if (expected === true && docVal === undefined) return false;
-          break;
-        }
-        case '$type':
-          if (opv === 'string' && typeof docVal !== 'string') return false;
-          break;
-        case '$not':
-          if (matchVal(docVal, opv)) return false;
-          break;
-        case '$elemMatch':
-          if (!Array.isArray(docVal)) return false;
-          if (!docVal.some((el) => matchesFilter(el, opv as Record<string, unknown>))) return false;
-          break;
-        default:
-          // Fail closed: an operator the mock doesn't model would otherwise be
-          // silently ignored, letting a query-shape change pass unnoticed.
-          throw new Error(`mock matchVal: unsupported operator ${op}`);
-      }
-    }
-    return true;
+  if (cond === null || typeof cond !== 'object' || Array.isArray(cond)) {
+    return docVal === cond;
   }
-  return docVal === cond;
+  for (const [op, opv] of Object.entries(cond as Record<string, unknown>)) {
+    const predicate = OPERATORS[op];
+    // Fail closed: an operator the mock doesn't model would otherwise be
+    // silently ignored, letting a query-shape change pass unnoticed. This is
+    // what caught the retry-backoff gate's `$gt` on its first run (#2729).
+    if (!predicate) throw new Error(`mock matchVal: unsupported operator ${op}`);
+    if (!predicate(docVal, opv)) return false;
+  }
+  return true;
 }
 
 function matchesFilter(doc: unknown, filter: Record<string, unknown>): boolean {
