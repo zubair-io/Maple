@@ -54,6 +54,13 @@ struct ControlCard: View {
                 ToneCurveSection(state: state)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 14)
+            } else if state.armedTool == .filmLook {
+                // Category-grouped film catalog + strength slider replace
+                // the slider grid (#2683) — same no-primary-field shape as
+                // Tone Curve.
+                FilmSection(state: state)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 14)
             } else {
                 // Sub-param chip row for multi-param tools
                 let subs = state.armedSubParams

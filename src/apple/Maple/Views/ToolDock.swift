@@ -54,6 +54,16 @@ struct ToolDock: View {
                     tool: .toneCurve,
                     onPresetsTap: onPresetsTap
                 )
+                // Film — real Tool case since #2683. It belongs to the
+                // Effects GROUP but, like Curve, has no primary field (the
+                // catalog pick is a string id, not a drag-bar value), so
+                // `LivingSliderGrid` filters it out of that group's slider
+                // stack. The dock is therefore its only route here too.
+                SpecialDockButton(
+                    state: state,
+                    tool: .filmLook,
+                    onPresetsTap: onPresetsTap
+                )
                 // Presets — real Tool case; tapping also fires the presets sheet.
                 SpecialDockButton(
                     state: state,
@@ -90,6 +100,13 @@ private struct GroupDockButton: View {
     /// Dot shown when any tool in the group has a non-neutral value.
     private var isModified: Bool {
         Tool.tools(in: group).contains { tool in
+            // Film (#2683) has a catalog pick with no sub-param of its
+            // own — only its Strength scalar is a sub-param — so the dot
+            // must also light whenever a look is chosen, independent of
+            // whether Strength itself has moved off 100.
+            if tool == .filmLook, !state.session.model.filmLook.isEmpty {
+                return true
+            }
             guard tool.isWired else { return false }
             let subs = tool.subParams
             if !subs.isEmpty {
@@ -172,6 +189,9 @@ private struct SpecialDockButton: View {
 
     private var isModified: Bool {
         if tool == .crop { return !state.session.model.crop.isIdentity }
+        // Film (#2683): the dot must light on a chosen look even before
+        // Strength (its only sub-param) has been touched.
+        if tool == .filmLook { return !state.session.model.filmLook.isEmpty }
         guard tool.isWired else { return false }
         let subs = tool.subParams
         if !subs.isEmpty {

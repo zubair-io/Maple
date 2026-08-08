@@ -48,6 +48,13 @@ struct FlyoutSliderPanel: View {
                 // Tone Curve is armed (#367) — it carries eight fields and no
                 // single primary one, so this is its whole control surface.
                 ToneCurveSection(state: state)
+            } else if state.armedTool == .filmLook {
+                // Category-grouped film catalog + strength slider replace
+                // the sliders while Film is armed (#2683) — it has no
+                // single primary field (the catalog pick is a string id),
+                // so this is its whole control surface, same swap as
+                // Tone Curve.
+                FilmSection(state: state)
             } else {
                 // Sub-param chip row for multi-param tools.
                 let subs = state.armedSubParams

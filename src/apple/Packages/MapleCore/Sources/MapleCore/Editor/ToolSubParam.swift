@@ -355,6 +355,26 @@ extension Tool {
                              decimals: 0,
                              commitsOnRelease: true),
             ]
+        case .filmLook:
+            // Film (#2683) — the catalog pick (`AdjustmentModel.filmLook`)
+            // is a string id chosen from `FilmSection`'s list, not a
+            // scalar, so it is edited there directly rather than through
+            // a sub-param — same split ToneCurveSection draws between its
+            // point curves and its region sliders. `filmStrength` IS a
+            // plain scalar though, so it gets the ordinary sub-param
+            // treatment: one entry, so `FilmSection`'s strength slider
+            // rides the same arm/write/undo pipe every other slider does.
+            // `.linear` (not `.anchored`): the canonical default sits at
+            // the range's own upper bound (100), and `.anchored`'s
+            // divide-by-`(default - hi)` would be a division by zero
+            // there.
+            return [
+                ToolSubParam(id: "strength", label: "Strength",
+                             keyPath: \.filmStrength, mapping: .linear,
+                             range: AdjustmentModel.filmStrengthRange,
+                             defaultDisplayValue: Self.defaults.filmStrength,
+                             decimals: 0),
+            ]
         case .sharpen:
             return [
                 ToolSubParam(id: "amount", label: "Amount",

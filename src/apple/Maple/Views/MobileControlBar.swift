@@ -64,6 +64,11 @@ struct MobileControlBar: View {
                 // Curve plot + four region sliders replace the group slider
                 // stack (#367) — same no-primary-field shape as HSL.
                 ToneCurveSection(state: state)
+            } else if state.armedTool == .filmLook {
+                // Category-grouped film catalog + strength slider replace
+                // the group slider stack (#2683) — same no-primary-field
+                // shape as Tone Curve.
+                FilmSection(state: state)
             } else {
                 let subs = state.armedSubParams
                 if subs.count > 1 {
@@ -138,6 +143,14 @@ struct MobileControlBar: View {
                 MobileToolButton(
                     state: state,
                     tool: .toneCurve,
+                    onPresetsTap: onPresetsTap
+                )
+                // Film (#2683) — an Effects-group tool with no primary
+                // field, so the group slider stack filters it out; this
+                // button is its only route here, mirroring Curve.
+                MobileToolButton(
+                    state: state,
+                    tool: .filmLook,
                     onPresetsTap: onPresetsTap
                 )
                 MobileToolButton(

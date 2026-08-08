@@ -66,6 +66,12 @@ private struct ToolPillButton: View {
         if tool == .crop {
             return !state.session.model.crop.isIdentity
         }
+        // Film (#2683): the dot must light on a chosen look even before
+        // Strength (its only sub-param) has been touched — mirrors the
+        // Crop special-case above.
+        if tool == .filmLook {
+            return !state.session.model.filmLook.isEmpty
+        }
         guard tool.isWired else { return false }
         // Multi-param pills (#1108): the dot lights when ANY sub-param is
         // off its canonical default (e.g. Noise with only Color raised).
