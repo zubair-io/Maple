@@ -36,6 +36,14 @@ struct IPhoneLegacyControlBar: View {
                 ToneCurveSection(state: state)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 7)
+            } else if state.armedTool == .filmLook {
+                // Category-grouped film catalog + strength slider replace
+                // the drag bar (#2683): Film has no single primary field
+                // (the catalog pick is a string id), so this is its whole
+                // control surface, same swap as Tone Curve.
+                FilmSection(state: state)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 7)
             } else {
                 DragBar(state: state)
                     .padding(.vertical, 7)
