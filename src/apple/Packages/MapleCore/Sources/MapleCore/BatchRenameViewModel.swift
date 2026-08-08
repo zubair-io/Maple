@@ -1,14 +1,25 @@
 // BatchRenameViewModel.swift — view model for the Batch Rename sheet
 // (#2641, design doc § "Rename" — batch). Holds a snapshot of the selected
-// assets, renders a live before→after preview through the shared
-// `raw-core` template engine (`FilenameTemplateEngine`), and applies
-// SEQUENTIALLY — a shared-destination template can collide with itself
-// mid-batch, not only with a pre-existing file, so each item must see the
-// PREVIOUS item's already-applied result before it renders/resolves its
-// own collision. Matches `library/batch-rename.ts`'s contract exactly
-// (its doc comment explains why `Promise.all` is never used there; the
-// same reasoning is why this file's apply loops are plain sequential
-// `for` loops, never a `TaskGroup`).
+// assets and renders a live before→after preview through the shared
+// `raw-core` template engine (`FilenameTemplateEngine`).
+//
+// Split across three files, each a self-contained concern:
+//   • BatchRenameViewModel.swift (this file) — routing/collision/item
+//     types, the class's stored state + init, `canApply`, and the preview
+//     dispatcher (`refreshPreview`) + Cloud preview + shared name helpers.
+//   • BatchRenameViewModel+CaptureDates.swift — the EXIF capture-date
+//     cache (`captureDateReader`'s consumers): resolved off the main
+//     actor, once, only when the template needs `{date:...}`. See that
+//     file's header for the full reasoning.
+//   • BatchRenameViewModel+Apply.swift — `apply()` and its three
+//     per-source-kind paths (Filesystem / SMB / Cloud), applied
+//     SEQUENTIALLY — a shared-destination template can collide with itself
+//     mid-batch, not only with a pre-existing file, so each item must see
+//     the PREVIOUS item's already-applied result before it renders/
+//     resolves its own collision. Matches `library/batch-rename.ts`'s
+//     contract exactly (its doc comment explains why `Promise.all` is
+//     never used there; the same reasoning is why those apply loops are
+//     plain sequential `for` loops, never a `TaskGroup`).
 //
 // Routes by source kind, mirroring the single-asset rename ticket (#2638):
 //   • Filesystem — `LocalFileOperations.relocate`, one call per asset.
@@ -33,7 +44,7 @@
 import Foundation
 import OSLog
 
-private let batchRenameLog = Logger(subsystem: "app.justmaple.aperture", category: "BatchRenameViewModel")
+let batchRenameLog = Logger(subsystem: "app.justmaple.aperture", category: "BatchRenameViewModel")
 
 /// Index a server response array by id, tolerating a duplicate id instead of
 /// trapping (`Dictionary(uniqueKeysWithValues:)` crashes outright on one).
@@ -158,34 +169,40 @@ public final class BatchRenameViewModel: Identifiable {
     public let routing: BatchRenameRouting
 
     /// Live SMB source for `.smb` routing. `nil` for every other routing.
-    private let smbSource: SMBSource?
+    /// `internal` (not `private`) so `BatchRenameViewModel+Apply.swift` can
+    /// read it.
+    let smbSource: SMBSource?
     /// Live Cloud catalog client for `.cloud` routing. `nil` for every
-    /// other routing.
-    private let cloudCatalog: RemoteCatalog?
+    /// other routing. `internal` for the same cross-file reason as
+    /// `smbSource`.
+    let cloudCatalog: RemoteCatalog?
 
     public var template: String = "{original}"
     public var sequenceStart: Int = 1
     public var sequencePadWidth: Int = 0
     public var collision: BatchRenameCollisionChoice = .autoSuffix
 
-    public private(set) var preview: [BatchRenamePreviewItem]
+    public internal(set) var preview: [BatchRenamePreviewItem]
     public private(set) var isPreviewing = false
-    public private(set) var isApplying = false
-    public private(set) var applyResults: [BatchRenameApplyResult]?
+    public internal(set) var isApplying = false
+    public internal(set) var applyResults: [BatchRenameApplyResult]?
 
     /// Per-asset EXIF `DateTimeOriginal` (verbatim wire format), populated
-    /// lazily by `ensureCapturedAtCacheIfNeeded` — see that method's doc for
-    /// why this is a one-time, off-main-actor pass rather than a per-
-    /// keystroke disk read. A present key with a `nil` value means "resolved,
-    /// no EXIF date"; an absent key means "not yet resolved."
-    private var capturedAtCache: [AssetRef.ID: String?] = [:]
+    /// lazily by `ensureCapturedAtCacheIfNeeded`
+    /// (`BatchRenameViewModel+CaptureDates.swift`) — see that method's doc
+    /// for why this is a one-time, off-main-actor pass rather than a
+    /// per-keystroke disk read. A present key with a `nil` value means
+    /// "resolved, no EXIF date"; an absent key means "not yet resolved."
+    /// `internal` so the CaptureDates extension file can read/write it.
+    var capturedAtCache: [AssetRef.ID: String?] = [:]
     /// `true` once `ensureCapturedAtCacheIfNeeded` has run its one resolve
     /// pass over `assets` — guards against re-running it on a later
     /// `refreshPreview()` once a date token has ever appeared in the
     /// template. `assets` is a fixed snapshot for this view model's
     /// lifetime, so ONE pass permanently covers every asset; there is never
-    /// a reason to re-resolve.
-    private var capturedAtCachePopulated = false
+    /// a reason to re-resolve. `internal` for the same reason as
+    /// `capturedAtCache`.
+    var capturedAtCachePopulated = false
 
     /// Reads a file-backed asset's EXIF `DateTimeOriginal` for the
     /// `{date:FORMAT}` token. `@Sendable` and swappable (not just for
@@ -258,91 +275,6 @@ public final class BatchRenameViewModel: Identifiable {
         }
     }
 
-    /// `true` iff `template` contains a `{date:` token — a plain substring
-    /// check against the engine's own token grammar
-    /// (`raw_core::filename::parse_template`: a token body must literally
-    /// start with `"date:"`). A false positive (the substring appears
-    /// outside a real token) only costs a needless cache pass, never
-    /// correctness; there is no false negative, since any real date token
-    /// must contain this exact substring.
-    private static func templateNeedsCapturedAt(_ template: String) -> Bool {
-        template.contains("{date:")
-    }
-
-    /// Resolve every asset's EXIF capture date OFF THE MAIN ACTOR, exactly
-    /// once for this view model's lifetime, and only when the template
-    /// actually needs `{date:...}`. Two things this fixes relative to the
-    /// prior per-keystroke-per-asset synchronous read:
-    ///   1. It never blocks the main actor — the disk reads run inside a
-    ///      `TaskGroup` via the (Sendable, capturable) `captureDateReader`
-    ///      closure, not inline in `renderLocalPreview`.
-    ///   2. It never runs at all for a template with no date token — most
-    ///      templates (`{original}`, `{n}`-only, literal text) pay zero
-    ///      EXIF-read cost, not just a cheaper one.
-    /// `assets` is a fixed snapshot for this view model's lifetime, so one
-    /// pass — triggered by the FIRST refresh whose template needs it —
-    /// permanently covers every asset; a later refresh (even with a
-    /// different date-using template) reuses the cache instead of re-
-    /// reading.
-    private func ensureCapturedAtCacheIfNeeded(for template: String) async {
-        guard Self.templateNeedsCapturedAt(template), !capturedAtCachePopulated else { return }
-        capturedAtCachePopulated = true
-        let reader = captureDateReader
-        let targets = assets
-        let resolved: [(AssetRef.ID, String?)] = await withTaskGroup(
-            of: (AssetRef.ID, String?).self
-        ) { group in
-            for asset in targets {
-                group.addTask {
-                    guard let url = asset.primaryURL else { return (asset.id, nil) }
-                    return (asset.id, reader(url))
-                }
-            }
-            var results: [(AssetRef.ID, String?)] = []
-            results.reserveCapacity(targets.count)
-            for await result in group { results.append(result) }
-            return results
-        }
-        for (id, value) in resolved {
-            capturedAtCache[id] = value
-        }
-    }
-
-    /// Filesystem/SMB preview — the same template engine apply() uses,
-    /// applied in ORDER so a self-colliding template is flagged
-    /// (`duplicate`) exactly like the API preview does for Cloud. No
-    /// filesystem writes; `SidecarPath`/`FileManager` are never touched
-    /// here. Reads captured-at from the ALREADY-POPULATED `capturedAtCache`
-    /// (a plain dictionary lookup) rather than hitting disk itself — see
-    /// `ensureCapturedAtCacheIfNeeded`.
-    private static func renderLocalPreview(
-        assets: [AssetRef], template: String, sequenceStart: Int, sequencePadWidth: Int,
-        capturedAtCache: [AssetRef.ID: String?]
-    ) -> [BatchRenamePreviewItem] {
-        var seen = Set<String>()
-        var items: [BatchRenamePreviewItem] = []
-        items.reserveCapacity(assets.count)
-        for (index, asset) in assets.enumerated() {
-            let full = fullFilename(asset)
-            let (stem, ext) = splitStemExt(full)
-            do {
-                let rendered = try FilenameTemplateEngine.render(
-                    template: template, originalStem: stem, ext: ext,
-                    capturedAtExifString: capturedAtCache[asset.id] ?? nil,
-                    sequenceStart: sequenceStart, sequenceIndex: UInt64(index),
-                    sequencePadWidth: sequencePadWidth)
-                let duplicate = seen.contains(rendered)
-                seen.insert(rendered)
-                items.append(BatchRenamePreviewItem(
-                    id: asset.id, oldFilename: full, newFilename: rendered, duplicate: duplicate))
-            } catch {
-                items.append(BatchRenamePreviewItem(
-                    id: asset.id, oldFilename: full, error: error.localizedDescription))
-            }
-        }
-        return items
-    }
-
     /// Cloud preview — server-authoritative: it has the indexed EXIF
     /// `captured_at` this file never fetches locally, and its `duplicate`
     /// detection is the same code apply() will run against. Assets with no
@@ -390,198 +322,6 @@ public final class BatchRenameViewModel: Identifiable {
         }
     }
 
-    // MARK: - Apply
-
-    /// Refresh the preview once more (guards against a stale preview if the
-    /// caller applies without having awaited a prior debounced refresh),
-    /// then apply sequentially per routing. Always populates `applyResults`
-    /// — including for `.unsupported` — so the sheet can show a per-file
-    /// outcome list rather than a single pass/fail alert.
-    ///
-    /// `isApplying` is set BEFORE the first `await` (not after
-    /// `refreshPreview()` returns) so a second tap that lands while the
-    /// first call is still awaiting its own `refreshPreview()` sees the
-    /// guard and is refused outright — this method, the guard check, and
-    /// the `isApplying = true` that follows it all run synchronously on the
-    /// main actor up to that first suspension point, so there is no window
-    /// where two concurrent `apply()` calls could both pass the guard and
-    /// interleave two rename passes over the same files on disk.
-    public func apply() async {
-        guard !isApplying else { return }
-        isApplying = true
-        defer { isApplying = false }
-        await refreshPreview()
-        switch routing {
-        case .unsupported(let reason):
-            applyResults = assets.map {
-                BatchRenameApplyResult(
-                    id: $0.id, oldFilename: Self.fullFilename($0), outcome: .failed(reason))
-            }
-        case .filesystem:
-            applyResults = await applyFilesystem()
-        case .smb:
-            applyResults = await applySMB()
-        case .cloud:
-            applyResults = await applyCloud()
-        }
-    }
-
-    private func applyFilesystem() async -> [BatchRenameApplyResult] {
-        var results: [BatchRenameApplyResult] = []
-        results.reserveCapacity(assets.count)
-        for (asset, item) in zip(assets, preview) {
-            guard item.error == nil, let candidateName = item.newFilename else {
-                results.append(BatchRenameApplyResult(
-                    id: asset.id, oldFilename: item.oldFilename,
-                    outcome: .failed(item.error ?? "No rendered name.")))
-                continue
-            }
-            guard candidateName != item.oldFilename else {
-                results.append(BatchRenameApplyResult(
-                    id: asset.id, oldFilename: item.oldFilename,
-                    outcome: .renamed(newFilename: candidateName)))
-                continue
-            }
-            let newName = candidateName
-            guard let url = asset.primaryURL else {
-                results.append(BatchRenameApplyResult(
-                    id: asset.id, oldFilename: item.oldFilename,
-                    outcome: .failed("This asset has no file on disk.")))
-                continue
-            }
-            let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
-            let accessing = scope.startAccessingSecurityScopedResource()
-            defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
-            do {
-                let outcome = try await LocalFileOperations.relocate(
-                    url, to: url.deletingLastPathComponent(), newBasename: newName,
-                    mode: .move, collision: collision.localPolicy)
-                results.append(BatchRenameApplyResult(
-                    id: asset.id, oldFilename: item.oldFilename,
-                    outcome: .renamed(newFilename: (outcome.primaryPath as NSString).lastPathComponent)))
-            } catch FileOperationError.destinationExists where collision == .skip {
-                results.append(BatchRenameApplyResult(
-                    id: asset.id, oldFilename: item.oldFilename,
-                    outcome: .skipped(reason: "A file with that name already exists.")))
-            } catch {
-                results.append(BatchRenameApplyResult(
-                    id: asset.id, oldFilename: item.oldFilename,
-                    outcome: .failed(error.localizedDescription)))
-            }
-        }
-        return results
-    }
-
-    private func applySMB() async -> [BatchRenameApplyResult] {
-        guard let smbSource else {
-            return assets.map {
-                BatchRenameApplyResult(
-                    id: $0.id, oldFilename: Self.fullFilename($0),
-                    outcome: .failed("SMB share is not connected."))
-            }
-        }
-        var results: [BatchRenameApplyResult] = []
-        results.reserveCapacity(assets.count)
-        for (asset, item) in zip(assets, preview) {
-            guard item.error == nil, let candidateName = item.newFilename else {
-                results.append(BatchRenameApplyResult(
-                    id: asset.id, oldFilename: item.oldFilename,
-                    outcome: .failed(item.error ?? "No rendered name.")))
-                continue
-            }
-            guard candidateName != item.oldFilename else {
-                results.append(BatchRenameApplyResult(
-                    id: asset.id, oldFilename: item.oldFilename,
-                    outcome: .renamed(newFilename: candidateName)))
-                continue
-            }
-            let newName = candidateName
-            guard let mapleID = asset.stableID else {
-                results.append(BatchRenameApplyResult(
-                    id: asset.id, oldFilename: item.oldFilename,
-                    outcome: .failed("Missing SMB asset id.")))
-                continue
-            }
-            let ref = ImageRef(id: mapleID, displayName: asset.displayName, url: nil)
-            do {
-                let newPath = try await smbSource.renameAsset(
-                    ref, to: newName, collision: collision.localPolicy)
-                results.append(BatchRenameApplyResult(
-                    id: asset.id, oldFilename: item.oldFilename,
-                    outcome: .renamed(newFilename: (newPath as NSString).lastPathComponent)))
-            } catch FileOperationError.destinationExists where collision == .skip {
-                results.append(BatchRenameApplyResult(
-                    id: asset.id, oldFilename: item.oldFilename,
-                    outcome: .skipped(reason: "A file with that name already exists.")))
-            } catch {
-                results.append(BatchRenameApplyResult(
-                    id: asset.id, oldFilename: item.oldFilename,
-                    outcome: .failed(error.localizedDescription)))
-            }
-        }
-        return results
-    }
-
-    /// One HTTP call for the whole batch — the server already applies
-    /// sequentially (`batch-rename.ts`), so there is no per-asset loop here.
-    private func applyCloud() async -> [BatchRenameApplyResult] {
-        guard let cloudCatalog else {
-            return assets.map {
-                BatchRenameApplyResult(
-                    id: $0.id, oldFilename: Self.fullFilename($0),
-                    outcome: .failed("Not connected to the server."))
-            }
-        }
-        let ids = assets.map { $0.stableID }
-        let presentIDs = ids.compactMap { $0 }
-        guard !presentIDs.isEmpty else {
-            return assets.map {
-                BatchRenameApplyResult(
-                    id: $0.id, oldFilename: Self.fullFilename($0),
-                    outcome: .failed("This photo hasn't finished indexing on the server yet."))
-            }
-        }
-        do {
-            let response = try await cloudCatalog.batchRename(
-                ids: presentIDs, template: template, sequenceStart: sequenceStart,
-                sequencePadWidth: sequencePadWidth, collision: collision.apiValue)
-            let byID = indexByIDTolerantOfDuplicates(response.results, id: \.id)
-            return zip(assets, ids).map { asset, stableID in
-                let old = Self.fullFilename(asset)
-                guard let stableID else {
-                    return BatchRenameApplyResult(
-                        id: asset.id, oldFilename: old,
-                        outcome: .failed("This photo hasn't finished indexing on the server yet."))
-                }
-                guard let item = byID[stableID] else {
-                    return BatchRenameApplyResult(
-                        id: asset.id, oldFilename: old,
-                        outcome: .failed("No result returned by the server."))
-                }
-                switch item.kind {
-                case "relocated":
-                    return BatchRenameApplyResult(
-                        id: asset.id, oldFilename: old,
-                        outcome: .renamed(newFilename: item.newFilename ?? old))
-                case "skipped":
-                    return BatchRenameApplyResult(
-                        id: asset.id, oldFilename: old,
-                        outcome: .skipped(reason: item.reason ?? "collision"))
-                default:
-                    return BatchRenameApplyResult(
-                        id: asset.id, oldFilename: old,
-                        outcome: .failed(item.error ?? "Rename failed (\(item.kind))."))
-                }
-            }
-        } catch {
-            return assets.map {
-                BatchRenameApplyResult(
-                    id: $0.id, oldFilename: Self.fullFilename($0),
-                    outcome: .failed(error.localizedDescription))
-            }
-        }
-    }
-
     // MARK: - Helpers
 
     /// The full on-disk / catalog filename (stem + extension).
@@ -603,5 +343,4 @@ public final class BatchRenameViewModel: Identifiable {
         let stem = ext.isEmpty ? filename : ns.deletingPathExtension
         return (stem, ext)
     }
-
 }
