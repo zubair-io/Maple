@@ -1,0 +1,64 @@
+// AssetDropTypes.swift — shared vocabulary for the drag-assets-onto-the-
+// source-tree flow (#2646). Small, UI-facing types only; the actual
+// routing/file-op logic lives in `AppShell+AssetDrop.swift`.
+
+import Foundation
+import MapleCore
+
+// MARK: - AssetDropDestination
+
+/// Where a drag (or its keyboard/menu equivalent, "Move/Copy Selected
+/// Here") landed. One case per source kind the source tree shows today.
+/// PhotoKit deliberately has no case — the design doc: "PhotoKit is not a
+/// drag source or target" — so a PhotoKit row never constructs one of
+/// these in the first place.
+enum AssetDropDestination: Equatable {
+    /// `rootBookmark` is the nearest saved ancestor's security-scope
+    /// bookmark — the same value `FolderTreeRow` already threads to every
+    /// depth (see `AppShell+FolderContextMenu.swift`'s `withLocalFolderScope`).
+    case local(folderURL: URL, rootBookmark: Data)
+    /// SMB has no subfolder tree in the sidebar yet (#2697), so the only
+    /// valid SMB drop target is the connected share's root.
+    case smb(share: SMBCredentialStore.SavedShare)
+    case cloud(server: URL, libraryFolderID: String, libraryRootPath: String, absPath: String)
+}
+
+// MARK: - AssetDropCollisionChoice
+
+/// The user's answer to a collision prompt for ONE asset — Skip / Replace /
+/// Keep Both, per the design doc's "Move / copy via drag-and-drop" section.
+enum AssetDropCollisionChoice {
+    case skip
+    case replace
+    case keepBoth
+}
+
+/// Carries a pending collision decision from `AppShell+AssetDrop.swift`'s
+/// routing loop to the `AssetDropCollisionSheet` and back. `resume` fires
+/// exactly once — wraps the `CheckedContinuation` that's suspending the
+/// routing loop for this one asset.
+struct AssetDropCollisionPrompt: Identifiable {
+    let id = UUID()
+    let displayName: String
+    let resume: (AssetDropCollisionChoice) -> Void
+}
+
+// MARK: - AssetDropItemResult
+
+/// One item's outcome, for the end-of-batch report. The design doc:
+/// "report per-item outcomes including partial failure — do not collapse
+/// it to a single alert." A summary sheet is presented only when at least
+/// one item is `.skipped`/`.failed`; an all-`.moved`/`.copied` batch
+/// completes silently, matching Finder's own drag-and-drop.
+struct AssetDropItemResult: Identifiable {
+    let id: AssetRef.ID
+    let displayName: String
+    let outcome: Outcome
+
+    enum Outcome: Equatable {
+        case moved
+        case copied
+        case skipped(reason: String)
+        case failed(String)
+    }
+}
