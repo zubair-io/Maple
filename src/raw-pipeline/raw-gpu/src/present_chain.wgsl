@@ -39,10 +39,15 @@
 //   configuration.
 
 struct Params {
-    width: u32,   // source-image stride (= surface width), for (x, y) recovery
+    width: u32,   // surface width (and chain stride when src_width == 0)
     height: u32,  // surface height (bounds guard)
-    _pad0: u32,
-    _pad1: u32,
+    // Chain-buffer dims when they DIFFER from the surface (#2587's half-res
+    // fast pass presents a half session into the full-size surface through a
+    // bilinear upscale). 0 = chain dims equal surface dims — the exact
+    // pre-existing 1:1 load path, so Apple/web presents (which always pass 0)
+    // are bit-identical to before.
+    src_width: u32,
+    src_height: u32,
 };
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -350,9 +355,36 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     if (px >= params.width || py >= params.height) {
         return vec4<f32>(0.0, 0.0, 0.0, 1.0);
     }
-    let i = py * params.width + px;
     let off = blue_noise_offset_lsb(px, py);
-    let c = chain_buf[i];
+    var c: vec4<f32>;
+    if (params.src_width == 0u
+        || (params.src_width == params.width && params.src_height == params.height)) {
+        // 1:1 — the original path, untouched (parity-critical for Apple/web).
+        let i = py * params.width + px;
+        c = chain_buf[i];
+    } else {
+        // Bilinear upscale from the smaller chain grid (clamp-to-edge). The
+        // interpolation happens on the f32 chain values BEFORE the dither +
+        // quantize below, and the dither offset stays in SURFACE space so the
+        // blue-noise cell is per-displayed-pixel like the 1:1 path.
+        let sx = (f32(px) + 0.5) * f32(params.src_width) / f32(params.width) - 0.5;
+        let sy = (f32(py) + 0.5) * f32(params.src_height) / f32(params.height) - 0.5;
+        let x0f = floor(sx);
+        let y0f = floor(sy);
+        let fx = clamp(sx - x0f, 0.0, 1.0);
+        let fy = clamp(sy - y0f, 0.0, 1.0);
+        let max_x = params.src_width - 1u;
+        let max_y = params.src_height - 1u;
+        let x0 = u32(clamp(x0f, 0.0, f32(max_x)));
+        let y0 = u32(clamp(y0f, 0.0, f32(max_y)));
+        let x1 = min(x0 + 1u, max_x);
+        let y1 = min(y0 + 1u, max_y);
+        let c00 = chain_buf[y0 * params.src_width + x0];
+        let c10 = chain_buf[y0 * params.src_width + x1];
+        let c01 = chain_buf[y1 * params.src_width + x0];
+        let c11 = chain_buf[y1 * params.src_width + x1];
+        c = mix(mix(c00, c10, fx), mix(c01, c11, fx), fy);
+    }
     return vec4<f32>(
         quantized_channel(c.r, off),
         quantized_channel(c.g, off),
