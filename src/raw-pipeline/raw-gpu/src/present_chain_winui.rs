@@ -149,6 +149,9 @@ impl PersistentSwapChainPanelSurface {
 
     /// Draw the session's final f32 chain buffer into the surface's current
     /// backbuffer and present it. No configure — pure per-frame draw work.
+    /// When the session is SMALLER than the surface (#2587's half-res fast
+    /// pass into the fixed full-size surface), the present shader upscales
+    /// bilinearly — the surface never reconfigures across phase swaps.
     fn draw_and_present(
         &self,
         ctx: &GpuContext,
@@ -156,11 +159,18 @@ impl PersistentSwapChainPanelSurface {
         final_idx: usize,
     ) -> Result<(), String> {
         let chain_buf = session.ping_pong_buffer(final_idx);
-        let (_uniform, bind_group) = self.present_cache.get_or_build(
+        let (sw, sh) = session.dims();
+        let src_dims = if (sw, sh) == (self.width, self.height) {
+            (0, 0) // 1:1 — the parity-critical legacy path
+        } else {
+            (sw, sh)
+        };
+        let (_uniform, bind_group) = self.present_cache.get_or_build_scaled(
             ctx,
             &self.bind_group_layout,
             chain_buf,
             (self.width, self.height),
+            src_dims,
         );
         let frame = self
             .surface
@@ -201,13 +211,47 @@ pub unsafe fn present_chain_to_swapchain_panel(
     cache: &mut Option<PersistentSwapChainPanelSurface>,
     generation: u64,
 ) -> Result<(), String> {
+    present_chain_to_swapchain_panel_scaled(ctx, session, final_idx, panel, cache, generation, 0, 0)
+}
+
+/// [`present_chain_to_swapchain_panel`] with an explicit SURFACE size
+/// (#2587): the surface stays configured at `(target_w, target_h)` while
+/// sessions of any smaller size present into it via the shader's bilinear
+/// upscale — so the half-res fast pass and the full-res refine share ONE
+/// configured swapchain and phase swaps never pay a reconfigure.
+/// `target_w/target_h = 0` falls back to the session dims (the old behavior).
+///
+/// # Safety
+/// As for [`present_chain_to_swapchain_panel`].
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn present_chain_to_swapchain_panel_scaled(
+    ctx: &GpuContext,
+    session: &LiveSession,
+    final_idx: usize,
+    panel: *mut c_void,
+    cache: &mut Option<PersistentSwapChainPanelSurface>,
+    generation: u64,
+    target_w: u32,
+    target_h: u32,
+) -> Result<(), String> {
     if panel.is_null() {
         return Err("present_chain_winui: panel pointer is null".to_string());
     }
-    let (width, height) = session.dims();
-    if width == 0 || height == 0 {
+    let (session_w, session_h) = session.dims();
+    if session_w == 0 || session_h == 0 {
         return Err(format!(
-            "present_chain_winui: invalid image size {width}x{height}"
+            "present_chain_winui: invalid image size {session_w}x{session_h}"
+        ));
+    }
+    let (width, height) = if target_w == 0 || target_h == 0 {
+        (session_w, session_h)
+    } else {
+        (target_w, target_h)
+    };
+    if session_w > width || session_h > height {
+        return Err(format!(
+            "present_chain_winui: session {session_w}x{session_h} larger than the \
+             target surface {width}x{height} (downscale presents are not supported)"
         ));
     }
     // Validate against the device's real texture limit BEFORE configuring

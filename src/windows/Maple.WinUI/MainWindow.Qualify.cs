@@ -41,19 +41,35 @@ namespace Maple.WinUI
             {
                 Directory.CreateDirectory(outDir);
                 var ticks = new List<double>();
+                var refines = new List<double>();
                 var path = "gpu";
-                var tickWaiter = new TaskCompletionSource<double>(
-                    TaskCreationOptions.RunContinuationsAsynchronously);
-                // The 4th arg is fullRes-vs-half (see GpuFrameReady docs); the
-                // wiggle loop measures whatever the interactive tick presents,
-                // which is the half session when available.
+                // Every edit produces exactly TWO frames on both render paths:
+                // the interactive fast tick, then the debounced full-res
+                // refine (LoopAsync's two-phase contract). Queue them and
+                // consume by SEQUENCE — frame #1 after a wiggle is the fast
+                // tick (the 16ms-target metric), frame #2 the refine (allowed
+                // to be slow; reported, not gated). Awaiting the refine before
+                // the next wiggle also keeps its GPU work from overlapping the
+                // next measured tick.
+                var frameTimes = new System.Collections.Concurrent.ConcurrentQueue<double>();
+                var frameSignal = new SemaphoreSlim(0);
                 ViewModel.Renderer.GpuFrameReady += (_, _, ms, _) =>
-                    tickWaiter.TrySetResult(ms);
+                {
+                    frameTimes.Enqueue(ms);
+                    frameSignal.Release();
+                };
                 ViewModel.Renderer.FrameReady += (_, _, _, _, ms) =>
                 {
                     path = "cpu";
-                    tickWaiter.TrySetResult(ms);
+                    frameTimes.Enqueue(ms);
+                    frameSignal.Release();
                 };
+                async Task<double> NextFrameAsync()
+                {
+                    await frameSignal.WaitAsync();
+                    frameTimes.TryDequeue(out var ms);
+                    return ms;
+                }
 
                 var photo = new PhotoItem
                 {
@@ -66,20 +82,22 @@ namespace Maple.WinUI
                 ViewModel.SelectedPhoto = photo;
                 ViewModel.EnsureDecoded();
 
-                // First frame = decode + first render complete.
-                await tickWaiter.Task;
+                // First frame = decode + first render complete; then drain the
+                // initial refine so it can't bleed into the first measured tick.
+                await NextFrameAsync();
                 var decodeMs = Environment.TickCount64 - decodeStarted;
+                await NextFrameAsync();
 
                 for (var i = 0; i < QualifyTicks; i++)
                 {
-                    tickWaiter = new TaskCompletionSource<double>(
-                        TaskCreationOptions.RunContinuationsAsynchronously);
                     ViewModel.Adjustments.Exposure += i % 2 == 0 ? 0.01 : -0.01;
                     ViewModel.NotifyAdjustmentEdited();
-                    ticks.Add(await tickWaiter.Task);
+                    ticks.Add(await NextFrameAsync());
+                    refines.Add(await NextFrameAsync());
                 }
 
                 var sorted = ticks.OrderBy(v => v).ToList();
+                var sortedRefines = refines.OrderBy(v => v).ToList();
                 var report = new
                 {
                     raw = rawPath,
@@ -90,6 +108,8 @@ namespace Maple.WinUI
                     p95_ms = sorted[(int)Math.Min(sorted.Count - 1, Math.Ceiling(sorted.Count * 0.95) - 1)],
                     target_ms = 16.0,
                     hard_limit_ms = 50.0,
+                    refine_ms = refines,
+                    refine_median_ms = sortedRefines[sortedRefines.Count / 2],
                 };
                 await File.WriteAllTextAsync(
                     Path.Combine(outDir, "report.json"),

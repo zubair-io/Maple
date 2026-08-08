@@ -49,10 +49,12 @@ namespace Maple.WinUI.Services
         /// renderMillis). Raised on the render thread.</summary>
         public event Action<byte[], int, int, uint[], double>? FrameReady;
         /// <summary>GPU-path present completed: (width, height, presentMillis,
-        /// fullRes). fullRes=false means the HALF-RES session presented (the
-        /// panel needs the 2× scale); fullRes=true means the full session did
-        /// — normally the quiet refine, but also any fast tick where the half
-        /// session is unavailable. The pixels are already on screen.</summary>
+        /// fullRes). width/height are the SURFACE (full-image) dims for both
+        /// phases — a half-res fast pass is upscaled inside the present shader
+        /// (#2587), so the host panel never resizes. fullRes=false means the
+        /// half session sourced the frame; fullRes=true means the full session
+        /// did — normally the quiet refine, but also any fast tick where the
+        /// half session is unavailable. The pixels are already on screen.</summary>
         public event Action<int, int, double, bool>? GpuFrameReady;
         /// <summary>Histogram bins for the newest state (GPU path only — the
         /// CPU path carries bins on FrameReady).</summary>
@@ -289,12 +291,18 @@ namespace Maple.WinUI.Services
                             && halfImage != null
                             && ReferenceEquals(_gpuHalfImage, halfImage);
                     }
+                    // Target = the FULL image dims for both phases: the surface
+                    // stays configured once and the present shader upscales the
+                    // half session, so a phase swap never pays a reconfigure.
                     return halfActive
-                        ? GpuPresent(halfImage!, state, panel, generation, useHalf: true)
-                        : GpuPresent(image, state, panel, generation, useHalf: false);
+                        ? GpuPresent(halfImage!, state, panel, generation, useHalf: true,
+                            image.Width, image.Height)
+                        : GpuPresent(image, state, panel, generation, useHalf: false,
+                            image.Width, image.Height);
                 }
                 // Quiet refine: full-res present, then the histogram tick.
-                GpuPresent(image, state, panel, generation, useHalf: false);
+                GpuPresent(image, state, panel, generation, useHalf: false,
+                    image.Width, image.Height);
                 EmitHistogram(halfImage ?? image, state);
                 return true;
             }
@@ -305,7 +313,7 @@ namespace Maple.WinUI.Services
 
         private bool GpuPresent(
             DecodedImage image, AdjustmentState state, IntPtr panel, ulong generation,
-            bool useHalf)
+            bool useHalf, int targetWidth, int targetHeight)
         {
             // The present must run on the UI thread: the first configure calls
             // ISwapChainPanelNative::SetSwapChain, which rejects background
@@ -326,7 +334,8 @@ namespace Maple.WinUI.Services
             var completion = new TaskCompletionSource<int>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
             if (!queue.TryEnqueue(() => completion.TrySetResult(
-                    GpuPresentOnUiThread(image, state, panel, generation, useHalf))))
+                    GpuPresentOnUiThread(image, state, panel, generation, useHalf,
+                        targetWidth, targetHeight))))
             {
                 lock (_gate)
                 {
@@ -341,7 +350,10 @@ namespace Maple.WinUI.Services
             {
                 var total = Environment.TickCount64 - started;
                 DiagLog.Write($"[tick] {(useHalf ? "half" : "full")} total={total}ms ffi={_lastFfiMillis}ms");
-                GpuFrameReady?.Invoke(image.Width, image.Height, total, !useHalf);
+                // The presented surface is ALWAYS the target (full) size — the
+                // half session was upscaled in the present shader — so the panel
+                // never needs resizing between phases.
+                GpuFrameReady?.Invoke(targetWidth, targetHeight, total, !useHalf);
                 return true;
             }
 
@@ -362,7 +374,7 @@ namespace Maple.WinUI.Services
         /// when the session was superseded before the call.</summary>
         private unsafe int GpuPresentOnUiThread(
             DecodedImage image, AdjustmentState state, IntPtr panel, ulong generation,
-            bool useHalf)
+            bool useHalf, int targetWidth, int targetHeight)
         {
             var p = MapleGpuLiveParams.From(state, image);
             // Point tone curves (#2576): flat knot pairs, borrowed for the call.
@@ -421,8 +433,9 @@ namespace Maple.WinUI.Services
                         p.residual_lut_size = image.ResidualLutSize;
                     }
                     var ffiStarted = Environment.TickCount64;
-                    rc = RawFfi.maple_gpu_present_chain_winui(
-                        handle, &p, panel, IntPtr.Zero, generation);
+                    rc = RawFfi.maple_gpu_present_chain_winui_scaled(
+                        handle, &p, panel, IntPtr.Zero, generation,
+                        (uint)targetWidth, (uint)targetHeight);
                     _lastFfiMillis = Environment.TickCount64 - ffiStarted;
                 }
                 _lastGpuError = rc == 0 ? null : RawFfi.LastError();

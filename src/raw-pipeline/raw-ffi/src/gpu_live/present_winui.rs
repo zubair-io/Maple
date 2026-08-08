@@ -70,6 +70,37 @@ pub unsafe extern "C" fn maple_gpu_present_chain_winui(
     cancel: *const crate::cancel::MapleCancelFlag,
     surface_generation: u64,
 ) -> i32 {
+    maple_gpu_present_chain_winui_scaled(
+        handle,
+        params,
+        panel_native,
+        cancel,
+        surface_generation,
+        0,
+        0,
+    )
+}
+
+/// [`maple_gpu_present_chain_winui`] with an explicit SURFACE size (#2587's
+/// two-phase render): the swapchain stays configured at `(target_w, target_h)`
+/// while sessions of any smaller size present into it through the shader's
+/// bilinear upscale — so the half-res fast pass and the full-res refine share
+/// one configured swapchain and a phase swap never pays a reconfigure +
+/// settle double-present. `target_w/target_h = 0` = the session dims (the
+/// plain entry's behavior). Same return codes and safety contract.
+///
+/// # Safety
+/// As for [`maple_gpu_present_chain_winui`].
+#[no_mangle]
+pub unsafe extern "C" fn maple_gpu_present_chain_winui_scaled(
+    handle: *const MapleGpuLiveSession,
+    params: *const MapleGpuLiveParams,
+    panel_native: *mut c_void,
+    cancel: *const crate::cancel::MapleCancelFlag,
+    surface_generation: u64,
+    target_w: u32,
+    target_h: u32,
+) -> i32 {
     if handle.is_null() || params.is_null() || panel_native.is_null() {
         set_last_error("gpu_present_chain_winui: null pointer".into());
         return -1;
@@ -123,13 +154,15 @@ pub unsafe extern "C" fn maple_gpu_present_chain_winui(
         // `(surface_generation, panel, dims)` so a recycled COM address can
         // never be presented against a stale surface once the host bumps the
         // generation on re-registration.
-        match raw_gpu::present_chain_to_swapchain_panel(
+        match raw_gpu::present_chain_to_swapchain_panel_scaled(
             &state.ctx,
             &inner.session,
             final_idx,
             panel_native,
             &mut state.present_surface_winui,
             surface_generation,
+            target_w,
+            target_h,
         ) {
             Ok(()) => 0,
             Err(msg) => {

@@ -18,16 +18,18 @@ use crate::context::GpuContext;
 use std::cell::{Cell, RefCell};
 use std::sync::Arc;
 
-/// `repr(C)` uniform for `present_chain.wgsl`: the surface/image width (the
-/// row-major stride for the `(x, y)`→index recovery) + height (bounds guard).
-/// `_pad*` round to 16 bytes (WGSL uniform alignment).
+/// `repr(C)` uniform for `present_chain.wgsl`: the surface width/height, plus
+/// the chain-buffer dims when they differ from the surface (#2587's half-res
+/// fast pass — the shader bilinearly upscales). `src_* = 0` selects the exact
+/// 1:1 load path, byte-identical to the pre-#2587 uniform (these fields were
+/// the 16-byte alignment padding).
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct PresentParams {
     pub width: u32,
     pub height: u32,
-    pub _pad0: u32,
-    pub _pad1: u32,
+    pub src_width: u32,
+    pub src_height: u32,
 }
 
 /// Pick the surface format: the first *non-sRGB* BGRA/RGBA 8-bit the surface
@@ -147,12 +149,25 @@ pub(crate) fn build_present_dispatch(
     chain_buf: &wgpu::Buffer,
     dims: (u32, u32),
 ) -> PresentDispatch {
+    build_present_dispatch_scaled(ctx, bind_group_layout, chain_buf, dims, (0, 0))
+}
+
+/// [`build_present_dispatch`] with an explicit chain-buffer size differing
+/// from the surface (#2587 half-res fast pass). `src_dims = (0, 0)` is the
+/// 1:1 path — identical uniform bytes to the pre-#2587 build.
+pub(crate) fn build_present_dispatch_scaled(
+    ctx: &GpuContext,
+    bind_group_layout: &wgpu::BindGroupLayout,
+    chain_buf: &wgpu::Buffer,
+    dims: (u32, u32),
+    src_dims: (u32, u32),
+) -> PresentDispatch {
     let (width, height) = dims;
     let params = PresentParams {
         width,
         height,
-        _pad0: 0,
-        _pad1: 0,
+        src_width: src_dims.0,
+        src_height: src_dims.1,
     };
     let uniform = ctx.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("present-chain-uniform"),
@@ -176,7 +191,10 @@ pub(crate) fn build_present_dispatch(
             },
         ],
     });
-    PresentDispatch { uniform, bind_group }
+    PresentDispatch {
+        uniform,
+        bind_group,
+    }
 }
 
 /// Record the chain-present render pass into `encoder`: bind `bind_group`, draw
@@ -295,6 +313,22 @@ impl PresentDispatchCache {
         chain_buf: &wgpu::Buffer,
         dims: (u32, u32),
     ) -> (Arc<wgpu::Buffer>, Arc<wgpu::BindGroup>) {
+        self.get_or_build_scaled(ctx, bind_group_layout, chain_buf, dims, (0, 0))
+    }
+
+    /// [`Self::get_or_build`] with an explicit chain-buffer size (#2587 —
+    /// the winui surface presents half- and full-res sessions into one
+    /// fixed-size surface). The cache key stays the buffer identity: the two
+    /// sessions own distinct buffers, so a phase swap is an identity miss
+    /// that rebuilds with the right src dims.
+    pub fn get_or_build_scaled(
+        &self,
+        ctx: &GpuContext,
+        bind_group_layout: &wgpu::BindGroupLayout,
+        chain_buf: &wgpu::Buffer,
+        dims: (u32, u32),
+        src_dims: (u32, u32),
+    ) -> (Arc<wgpu::Buffer>, Arc<wgpu::BindGroup>) {
         let buf_identity = std::ptr::from_ref(chain_buf) as usize;
         if let Some(existing) = self.entry.borrow().as_ref() {
             if existing.buf_identity == buf_identity {
@@ -305,7 +339,8 @@ impl PresentDispatchCache {
             }
         }
         // Miss: build fresh, count it, cache it (replacing any stale entry).
-        let dispatch = build_present_dispatch(ctx, bind_group_layout, chain_buf, dims);
+        let dispatch =
+            build_present_dispatch_scaled(ctx, bind_group_layout, chain_buf, dims, src_dims);
         self.alloc_count.set(self.alloc_count.get() + 2);
         let uniform = Arc::new(dispatch.uniform);
         let bind_group = Arc::new(dispatch.bind_group);
