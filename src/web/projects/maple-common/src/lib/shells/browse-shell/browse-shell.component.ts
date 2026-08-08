@@ -43,6 +43,17 @@ import { selectSidebarEntry } from './source-selection';
 // asset-rename-capability.ts's module doc (keeps BunApiBackendService out
 // of Hosted's static bundle; BrowseShellComponent is shared by both apps).
 import { ASSET_RENAME_CAPABILITY } from '../../rename/asset-rename-capability';
+// Same reasoning for drag-move (#2644) — see drag-move-capability.ts's
+// module doc. Mounted here (not inside `FolderTreeComponent`) so the
+// collision prompt / completion summary stay reachable on phone, where the
+// inline sidebar (and the `FolderTreeComponent` instance inside it) is torn
+// down whenever the source-picker drawer is closed.
+import {
+  DRAG_MOVE_CAPABILITY,
+  type DragMoveCollisionPolicy,
+} from '../../drag-move/drag-move-capability';
+import { DragMoveCollisionDialogComponent } from '../../drag-move/drag-move-collision-dialog.component';
+import { DragMoveSummaryBannerComponent } from '../../drag-move/drag-move-summary-banner.component';
 
 @Component({
   selector: 'browse-shell',
@@ -55,6 +66,8 @@ import { ASSET_RENAME_CAPABILITY } from '../../rename/asset-rename-capability';
     PasteSettingsDialogComponent,
     SourcePickerDrawerComponent,
     ToolbarActionsComponent,
+    DragMoveCollisionDialogComponent,
+    DragMoveSummaryBannerComponent,
   ],
   templateUrl: './browse-shell.component.html',
   styleUrl: './browse-shell.component.scss',
@@ -70,6 +83,15 @@ export class BrowseShellComponent {
   private readonly clipboard = inject(AdjustmentClipboardService);
   private readonly layoutService = inject(LayoutService);
   private readonly renameSvc = inject(ASSET_RENAME_CAPABILITY);
+  protected readonly dragMove = inject(DRAG_MOVE_CAPABILITY);
+
+  onDragMoveCollisionResolved(policy: DragMoveCollisionPolicy): void {
+    this.dragMove.resolveCollision(policy);
+  }
+
+  onDismissDragMoveSummary(): void {
+    this.dragMove.dismissSummary();
+  }
 
   /** Active breakpoint — drives the source sidebar (inline pane vs phone
    * overlay drawer) and the toolbar action collapse. See `LayoutService`. */

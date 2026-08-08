@@ -12,6 +12,8 @@ import {
 import { SERVER_LIBRARY_IO } from './server-library-io';
 import { AssetRenameService } from '../rename/asset-rename.service';
 import { ASSET_RENAME_CAPABILITY } from '../rename/asset-rename-capability';
+import { DragMoveService } from '../drag-move/drag-move.service';
+import { DRAG_MOVE_CAPABILITY } from '../drag-move/drag-move-capability';
 
 function serverPersistenceFactory(): ServerWorkspacePersistence {
   const api = inject(BunApiBackendService);
@@ -37,5 +39,9 @@ export function provideSelfHostedWorkspace(): EnvironmentProviders {
     // keeps `AssetRenameService` (and `BunApiBackendService` through it) out
     // of Hosted's static import graph.
     { provide: ASSET_RENAME_CAPABILITY, useExisting: AssetRenameService },
+    // #2644 — drag-to-folder-tree move/copy, same indirection and same
+    // reason: only the Self Hosted composition root's import graph should
+    // ever reach `DragMoveService` (and `BunApiBackendService` through it).
+    { provide: DRAG_MOVE_CAPABILITY, useExisting: DragMoveService },
   ]);
 }

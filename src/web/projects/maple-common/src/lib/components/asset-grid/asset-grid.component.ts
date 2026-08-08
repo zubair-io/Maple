@@ -19,6 +19,7 @@ import {
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { ScrollingModule } from '@angular/cdk/scrolling';
+import { DragDropModule } from '@angular/cdk/drag-drop';
 import { LibraryStateService } from '../../state/library-state.service';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { Asset, AssetId } from '../../models/asset';
@@ -28,6 +29,8 @@ import { FolderTileComponent } from '../folder-tile/folder-tile.component';
 import { STORAGE_KEYS, TypedStorage } from '../../util/typed-storage';
 import { parseAddress } from '../../addressing/maple-address';
 import { viewRouteCommands } from '../../addressing/route-address';
+import { DRAG_MOVE_CAPABILITY } from '../../drag-move/drag-move-capability';
+import { ASSET_GRID_DROP_LIST_ID, type AssetDragData } from '../../drag-move/asset-drag-data';
 
 export type GridItem = { kind: 'folder'; folder: GridFolderItem } | { kind: 'image'; asset: Asset };
 
@@ -39,7 +42,13 @@ interface GridRow {
 @Component({
   selector: 'app-asset-grid',
   standalone: true,
-  imports: [MapleIconComponent, ScrollingModule, AssetThumbComponent, FolderTileComponent],
+  imports: [
+    MapleIconComponent,
+    ScrollingModule,
+    DragDropModule,
+    AssetThumbComponent,
+    FolderTileComponent,
+  ],
   templateUrl: './asset-grid.component.html',
   styleUrl: './asset-grid.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -64,6 +73,8 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
 
   readonly state = inject(LibraryStateService);
   private readonly router = inject(Router);
+  protected readonly dragMove = inject(DRAG_MOVE_CAPABILITY);
+  protected readonly assetGridDropListId = ASSET_GRID_DROP_LIST_ID;
 
   readonly STAR_INDICES = [1, 2, 3, 4, 5];
 
@@ -181,6 +192,46 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
     }
     this.state.openSelfHostedSubfolder(relPath, folder.id);
     this.state.setFolderOpen(folder.id, true);
+  }
+
+  // ── Drag-move / drag-copy source (#2644) ───────────────────────────────
+  // Only image tiles are draggable — grid-to-folder-tree move/copy is
+  // scoped to assets (the ticket title, and the design doc's "Drag assets
+  // from the grid"); dragging a grid folder tile is a different, unscoped
+  // feature. `dragEnabled` gates whether tiles are draggable at all (NOOP
+  // capability → always `false` on Hosted); `dragDataFor` still has to
+  // exist unconditionally because `cdkDrag`'s `[cdkDragData]` binding is
+  // evaluated regardless of `[cdkDragDisabled]`.
+
+  dragEnabled(): boolean {
+    return this.dragMove.available();
+  }
+
+  isDraggable(item: GridItem): boolean {
+    return item.kind === 'image' && this.dragEnabled();
+  }
+
+  /** The current folder every item in the grid lives under — the grid only
+   * ever shows one folder's contents, so this is the same for every drag. */
+  private currentFolderId(): string {
+    return this.state.selectedSourceId();
+  }
+
+  dragDataFor(item: GridItem): AssetDragData {
+    if (item.kind !== 'image') return { assetIds: [], sourceFolderId: this.currentFolderId() };
+    const selected = this.state.selectedAssetIds();
+    // Multi-select drag carries the whole selection only when the dragged
+    // tile is part of it (design doc) — dragging a tile OUTSIDE the current
+    // selection drags just that one tile, leaving the selection untouched.
+    const assetIds =
+      selected.size > 1 && selected.has(item.asset.id) ? [...selected] : [item.asset.id];
+    return { assetIds, sourceFolderId: this.currentFolderId() };
+  }
+
+  dragPreviewLabel(item: GridItem): string {
+    if (item.kind !== 'image') return '';
+    const data = this.dragDataFor(item);
+    return data.assetIds.length > 1 ? `${data.assetIds.length} photos` : item.asset.filename;
   }
 
   onThumbSizeChange(e: Event): void {
