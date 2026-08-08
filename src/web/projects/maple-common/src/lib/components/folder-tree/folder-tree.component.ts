@@ -18,6 +18,7 @@
 
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { DecimalPipe, NgComponentOutlet, NgTemplateOutlet } from '@angular/common';
+import { CdkDrag, CdkDragDrop, CdkDropList, DragDropModule } from '@angular/cdk/drag-drop';
 import { LibraryStateService } from '../../state/library-state.service';
 import { MapleIconComponent, MapleIconName } from '../../icons/maple-icon.component';
 import { SidebarEntry } from '../../models/folder';
@@ -29,6 +30,9 @@ import {
   type FolderCrudMutation,
   type FolderCrudRequest,
 } from './folder-tree-crud.component';
+import { DRAG_MOVE_CAPABILITY } from '../../drag-move/drag-move-capability';
+import { isCopyModifierEvent } from '../../drag-move/drag-move-platform';
+import { ASSET_GRID_DROP_LIST_ID, type AssetDragData } from '../../drag-move/asset-drag-data';
 
 /** Touch long-press → context menu. 500ms matches the platform convention
  * (iOS/Android system long-press threshold); 10px is the move tolerance
@@ -45,6 +49,7 @@ const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
     NgTemplateOutlet,
     DecimalPipe,
     FolderTreeCrudComponent,
+    DragDropModule,
   ],
   styleUrl: './folder-tree.component.scss',
   templateUrl: './folder-tree.component.html',
@@ -54,6 +59,8 @@ export class FolderTreeComponent {
   state = inject(LibraryStateService);
   protected readonly extensions = inject(FOLDER_TREE_EXTENSIONS);
   private readonly crudEnabled = inject(FOLDER_TREE_CRUD_ENABLED);
+  protected readonly dragMove = inject(DRAG_MOVE_CAPABILITY);
+  protected readonly assetGridDropListId = ASSET_GRID_DROP_LIST_ID;
 
   readonly crudRequest = signal<FolderCrudRequest | null>(null);
   readonly trashPartialWarning = signal<string | null>(null);
@@ -104,6 +111,40 @@ export class FolderTreeComponent {
       x: 'x',
     };
     return entry.icon && map[entry.icon] ? map[entry.icon] : 'dot';
+  }
+
+  // ── Drag-move / drag-copy (#2644) ───────────────────────────────────────
+  // The CDK mechanics (which rows are `cdkDropList`s, the drag preview, the
+  // receiving highlight) live directly here since they're plain UI with no
+  // server import — only the actual relocate call, reached through the
+  // `DragMoveCapability` token, is Self-Hosted-only. `dropDisabledReason`
+  // doubles as the `cdkDropListEnterPredicate`: a node CDK won't let the
+  // drag enter never shows the "receiving" highlight, which is how an
+  // invalid target (the assets' own current folder, a non-folder row, a
+  // legacy `fs:` node) gets rejected visually before drop.
+
+  /** Bound once, not per-row: reads the target node off `drop.data`
+   * (`[cdkDropListData]="node"`) and the drag payload off `drag.data`
+   * (`[cdkDragData]` on the grid tile), so a single function instance
+   * serves every row instead of a fresh closure per template evaluation. */
+  readonly dropEnterPredicate = (
+    drag: CdkDrag<AssetDragData>,
+    drop: CdkDropList<SidebarEntry>,
+  ): boolean => {
+    const node = drop.data;
+    const data = drag.data;
+    if (!node || !data) return false;
+    return this.dragMove.dropDisabledReason(node, data.sourceFolderId) === null;
+  };
+
+  onAssetsDropped(
+    event: CdkDragDrop<SidebarEntry, unknown, AssetDragData>,
+    node: SidebarEntry,
+  ): void {
+    const data = event.item.data;
+    if (!data || data.assetIds.length === 0) return;
+    const mode = isCopyModifierEvent(event.event as MouseEvent) ? 'copy' : 'move';
+    this.dragMove.beginMove(data.assetIds, data.sourceFolderId, node, mode);
   }
 
   // ── Context menu trigger ───────────────────────────────────────────────

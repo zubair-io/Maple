@@ -1,0 +1,49 @@
+// Same fixed-toast placement/chrome as `folder-tree.component.scss`'s
+// `.trash-partial-warning` — both are "background op just finished, here's
+// what happened" toasts anchored to the bottom of the viewport.
+.dms-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 90vw;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--color-surface);
+  border: 0.5px solid var(--color-border);
+  color: var(--color-text-main);
+  font-size: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+
+  button {
+    border: none;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+}
+
+.dms-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dms-detail {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.dms-detail-error {
+  color: var(--color-error-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

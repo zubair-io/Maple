@@ -184,6 +184,13 @@ export class LibraryStateService {
     this.fetch_.expandFsFolder(node);
   }
 
+  /** Background re-pull of one folder's listing, without navigating the
+   * user's current view there. See `LibraryFetch.refreshFolderListing`'s
+   * module doc (#2644). */
+  refreshFolderListing(sourceId: string): void {
+    this.fetch_.refreshFolderListing(sourceId);
+  }
+
   absPathFor(assetId: AssetId): string | undefined {
     return this.store.absPathFor(assetId);
   }

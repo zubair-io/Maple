@@ -1,0 +1,19 @@
+<div class="dms-banner" role="status">
+  <div class="dms-text">
+    <span>{{ headline() }}</span>
+    @if (summary().skipped > 0) {
+      <span class="dms-detail">{{ summary().skipped }} skipped</span>
+    }
+    @if (summary().failed.length > 0) {
+      <span class="dms-detail dms-detail-error">
+        {{ summary().failed.length }} failed:
+        {{
+          summary()
+            .failed.map((f) => f.filename)
+            .join(', ')
+        }}
+      </span>
+    }
+  </div>
+  <button type="button" (click)="onDismiss()" aria-label="Dismiss">✕</button>
+</div>
