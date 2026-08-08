@@ -99,3 +99,82 @@ describe('generatePreview — no-preview guard', () => {
     });
   }
 });
+
+/**
+ * Dispatch coverage for the no-embedded-preview demosaic fallback (#2733).
+ *
+ * The bug this pins: extraction failure REJECTS rather than returning false,
+ * because the FFI pool marshals the child's error across the process
+ * boundary as a throw. A fallback written only on the false branch is never
+ * reached — which is exactly how the first version of this fix shipped
+ * nothing while looking correct in a direct-FFI probe.
+ *
+ * Deliberately stops at the develop call. Returning false there
+ * short-circuits before `renderBitmapThumbToFile`, so these tests need no
+ * imgdecode child and no native dylib — they verify the decision, and the
+ * end-to-end behaviour is covered by rendering real RAWs.
+ */
+describe('renderRawThumbToFile — demosaic fallback dispatch', () => {
+  function fakePool(extract: () => Promise<boolean>) {
+    const calls: Array<{ fn: string; args: unknown[] }> = [];
+    const pool = {
+      available: () => true,
+      renderThumbnailAvifToFile: (...args: unknown[]) => {
+        calls.push({ fn: 'extract', args });
+        return extract();
+      },
+      renderDevelopJpegToFile: (...args: unknown[]) => {
+        calls.push({ fn: 'develop', args });
+        return Promise.resolve(false); // stop here — see block comment
+      },
+    };
+    return { pool, calls };
+  }
+
+  async function withPool<T>(pool: unknown, run: () => Promise<T>): Promise<T> {
+    const { _setFfiPoolForTests } = await import('../ffi/ffi-pool.ts');
+    _setFfiPoolForTests(pool as never);
+    try {
+      return await run();
+    } finally {
+      _setFfiPoolForTests(null);
+    }
+  }
+
+  async function thumbOf(pool: unknown): Promise<void> {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fallback-'));
+    const src = path.join(dir, 'shot.dng');
+    await fs.writeFile(src, 'not a real dng');
+    await withPool(pool, () => generateThumb(src, path.join(dir, 'out.avif')));
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+
+  it('falls back to develop when extraction THROWS', async () => {
+    const { pool, calls } = fakePool(() =>
+      Promise.reject(new Error('render-failed (see child stderr)')),
+    );
+    await thumbOf(pool);
+    expect(calls.map((c) => c.fn)).toEqual(['extract', 'develop']);
+  });
+
+  it('falls back to develop when extraction returns false', async () => {
+    const { pool, calls } = fakePool(() => Promise.resolve(false));
+    await thumbOf(pool);
+    expect(calls.map((c) => c.fn)).toEqual(['extract', 'develop']);
+  });
+
+  // The fast path must stay fast: a RAW that HAS an embedded preview must
+  // never pay for a demosaic. Measured, that is 168ms vs ~970ms.
+  it('does NOT develop when extraction succeeds', async () => {
+    const { pool, calls } = fakePool(() => Promise.resolve(true));
+    await thumbOf(pool);
+    expect(calls.map((c) => c.fn)).toEqual(['extract']);
+  });
+
+  it('develops neutrally — null xmp, so no adjustments are applied', async () => {
+    const { pool, calls } = fakePool(() => Promise.resolve(false));
+    await thumbOf(pool);
+    const develop = calls.find((c) => c.fn === 'develop');
+    expect(develop?.args[1]).toBeNull();
+  });
+});
