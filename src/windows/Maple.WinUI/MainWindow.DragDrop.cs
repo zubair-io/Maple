@@ -239,6 +239,13 @@ namespace Maple.WinUI
             var relocated = outcomes.Count(o => o.Kind == DragMoveOutcomeKind.Relocated);
             var skipped = outcomes.Count(o => o.Kind == DragMoveOutcomeKind.Skipped);
             var failed = outcomes.Count(o => o.Kind == DragMoveOutcomeKind.Error);
+            // A Relocated outcome can still carry a Note — DragMoveLogic set
+            // one when it overrode the chosen collision policy because this
+            // item's destination name was already claimed by an earlier
+            // item from the SAME drop (see DragMoveLogic.ApplyOneAsync).
+            // Those need to surface too, not just Skipped/Error, or the
+            // override would be invisible.
+            var noted = outcomes.Count(o => o.Kind == DragMoveOutcomeKind.Relocated && o.Note != null);
 
             var summary = (skipped, failed) switch
             {
@@ -249,18 +256,16 @@ namespace Maple.WinUI
             };
             AnnounceRename(summary);
 
-            if (failed == 0 && skipped == 0)
-                return; // no dialog for the common all-success case — the Narrator announcement already covers it
+            if (failed == 0 && skipped == 0 && noted == 0)
+                return; // no dialog for the common all-success, nothing-to-explain case
 
             var detail = new StackPanel { Spacing = 6 };
-            foreach (var outcome in outcomes.Where(o => o.Kind != DragMoveOutcomeKind.Relocated))
+            foreach (var outcome in outcomes.Where(o => o.Kind != DragMoveOutcomeKind.Relocated || o.Note != null))
             {
-                detail.Children.Add(new TextBlock
-                {
-                    Text = $"{outcome.FileName ?? "(unknown)"}: {outcome.Error ?? "unknown error"}",
-                    FontSize = 12,
-                    TextWrapping = TextWrapping.Wrap,
-                });
+                var text = outcome.Kind == DragMoveOutcomeKind.Relocated
+                    ? $"{outcome.FileName ?? "(unknown)"}: {outcome.Note}"
+                    : $"{outcome.FileName ?? "(unknown)"}: {outcome.Error ?? "unknown error"}";
+                detail.Children.Add(new TextBlock { Text = text, FontSize = 12, TextWrapping = TextWrapping.Wrap });
             }
             var reportDialog = new ContentDialog
             {
