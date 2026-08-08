@@ -10,13 +10,13 @@
  * key would poison the search index and the dead-letter triage UI is the
  * right surface for "the model produced garbage on this asset."
  *
- * v5 classifies `is_screenshot` first (see `VISION_DOC_JSON_SCHEMA` in
+ * v7 classifies `is_screenshot` first (see `VISION_DOC_JSON_SCHEMA` in
  * `parse-vision-json-enums.ts` for why property order matters) and, when
  * true, every scene-descriptive field (`scene_type`, `setting`, `activity`,
- * `time_of_day`, `lighting`, `weather`, `composition`, `shot_type`) is
- * forced to `null` regardless of what the model emitted for those fields —
- * the screenshot short-circuit is enforced here, not merely requested in
- * the prompt.
+ * `time_of_day`, `lighting`, `weather`, `framing`, `shot_type`) is
+ * forced to `null` and `people_count` to 0, regardless of what the model
+ * emitted for those fields — the screenshot short-circuit is enforced
+ * here, not merely requested in the prompt.
  *
  * Throws `VisionParseError` (a typed subclass of `Error`) with a truncated
  * snippet of the raw response in its message. The runtime then stamps
@@ -34,14 +34,14 @@
 import type { VisionDoc } from '../../db/schema.ts';
 import { stripFences, VisionParseError } from './parse-vision-json-errors.ts';
 import {
-  ALLOWED_COMPOSITION,
+  ALLOWED_FRAMING,
   ALLOWED_LIGHTING,
   ALLOWED_SCENE_TYPE,
   ALLOWED_SHOT_TYPE,
   ALLOWED_TIME_OF_DAY,
   ALLOWED_WEATHER,
-  COMPOSITION_SYNONYMS,
   ENUM_DEFAULTS,
+  FRAMING_SYNONYMS,
   LIGHTING_SYNONYMS,
   SCENE_TYPE_SYNONYMS,
   SHOT_TYPE_SYNONYMS,
@@ -54,6 +54,7 @@ import {
   COERCE_FAIL,
   coerceEnum,
   coerceIsScreenshot,
+  coercePeopleCount,
   coerceTextVisible,
   unwrapEnum,
 } from './parse-vision-json-coerce.ts';
@@ -104,12 +105,30 @@ export function parseVisionJson(raw: string): VisionDoc {
     );
   }
 
+  // Screenshots have no people to count regardless of what the model
+  // emitted — a UI mockup full of avatars is not a photo of people.
+  const rawPeopleCount = coercePeopleCount(obj.people_count);
+  if (rawPeopleCount === COERCE_FAIL) {
+    throw new VisionParseError(
+      'wrong-type',
+      'expected a non-negative integer (or coercible string)',
+      raw,
+      'people_count',
+    );
+  }
+  const people_count = is_screenshot ? 0 : rawPeopleCount;
+
   const caption = asString(obj.caption);
   if (caption === null) {
     throw new VisionParseError('wrong-type', 'expected string', raw, 'caption');
   }
   if (caption.trim().length === 0) {
     throw new VisionParseError('wrong-type', 'caption must not be empty', raw, 'caption');
+  }
+
+  const tags = asStringArrayOrEmpty(obj.tags);
+  if (tags === null) {
+    throw new VisionParseError('wrong-type', 'expected string[] | null', raw, 'tags');
   }
 
   const subjects = asStringArrayOrEmpty(obj.subjects);
@@ -189,19 +208,14 @@ export function parseVisionJson(raw: string): VisionDoc {
     throw new VisionParseError('wrong-type', 'expected string[] | null', raw, 'colors');
   }
 
-  const composition = is_screenshot
+  const framing = is_screenshot
     ? null
     : unwrapEnum(
-        coerceEnum(
-          obj.composition,
-          ALLOWED_COMPOSITION,
-          COMPOSITION_SYNONYMS,
-          ENUM_DEFAULTS.composition,
-        ),
-        'composition',
-        obj.composition,
+        coerceEnum(obj.framing, ALLOWED_FRAMING, FRAMING_SYNONYMS, ENUM_DEFAULTS.framing),
+        'framing',
+        obj.framing,
         raw,
-        ALLOWED_COMPOSITION,
+        ALLOWED_FRAMING,
       );
 
   const text_visible = coerceTextVisible(obj.text_visible);
@@ -231,6 +245,7 @@ export function parseVisionJson(raw: string): VisionDoc {
 
   return {
     caption,
+    tags,
     subjects,
     scene_type: scene_type as VisionDoc['scene_type'],
     setting,
@@ -240,11 +255,12 @@ export function parseVisionJson(raw: string): VisionDoc {
     weather: weather as VisionDoc['weather'],
     mood,
     colors,
-    composition: composition as VisionDoc['composition'],
+    framing: framing as VisionDoc['framing'],
     text_visible,
     notable_objects,
     shot_type: shot_type as VisionDoc['shot_type'],
     is_screenshot,
+    people_count,
     nudity: 'none',
   };
 }

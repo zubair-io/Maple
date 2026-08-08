@@ -103,6 +103,29 @@ describe('composeSearchBlob', () => {
     expect(tokens.has('athlete')).toBe(true);
   });
 
+  // Prompt v7's keyword bag exists precisely to put terms in the blob that
+  // the caption's prose never happens to contain, so the assertion that
+  // matters is a tag word landing when nothing else supplies it.
+  it('folds in vision tags, including terms absent from the caption', () => {
+    const out = composeSearchBlob({
+      description: 'A child sprinting across a green field.',
+      visionTags: ['lacrosse', 'youth sports', 'cleats'],
+    });
+    const tokens = new Set(out.split(' '));
+    expect(tokens.has('lacrosse')).toBe(true);
+    expect(tokens.has('youth')).toBe(true);
+    expect(tokens.has('sports')).toBe(true);
+    expect(tokens.has('cleats')).toBe(true);
+  });
+
+  // Rows captioned before v7 have no `tags`. Passing null must be
+  // indistinguishable from not passing the field at all.
+  it('treats null / omitted vision tags as no contribution', () => {
+    const withNull = composeSearchBlob({ description: 'Two cats', visionTags: null });
+    const omitted = composeSearchBlob({ description: 'Two cats' });
+    expect(withNull).toBe(omitted);
+  });
+
   it('vision arrays of length 0 contribute no tokens', () => {
     const out = composeSearchBlob({
       description: 'Two cats on a windowsill',

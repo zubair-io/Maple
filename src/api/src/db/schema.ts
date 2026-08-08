@@ -130,7 +130,7 @@ export interface AssetExif {
 }
 
 /**
- * Structured photo-vision metadata emitted by the qwen3-vl describe stage.
+ * Structured photo-vision metadata emitted by the describe stage.
  *
  * One JSON object per asset, produced by a single VLM pass over the 1280-px
  * preview. The fields are independently queryable so the UI can filter by
@@ -140,22 +140,27 @@ export interface AssetExif {
  * Versioned by `vision_meta.{model, prompt_version}`: bumping either causes
  * the runtime to invalidate stale rows and re-run the stage.
  *
- * Prompt v5 asks the model to classify `is_screenshot` and `nudity` before
- * every other field (grammar-constrained decode follows schema property
- * order — see `VISION_DOC_JSON_SCHEMA` in `parse-vision-json-enums.ts`), and
- * short-circuits the scene-descriptive fields to `null` when
- * `is_screenshot` is true. That is why `scene_type`, `time_of_day`,
- * `lighting`, `weather`, `composition`, and `shot_type` are nullable here —
- * they are always populated for photographs and always `null` for
- * screenshots.
+ * Prompt v7 asks the model to classify `is_screenshot` and count
+ * `people_count` before every other field (grammar-constrained decode
+ * follows schema property order — see `VISION_DOC_JSON_SCHEMA` in
+ * `parse-vision-json-enums.ts`), and short-circuits the scene-descriptive
+ * fields to `null` when `is_screenshot` is true. That is why `scene_type`,
+ * `time_of_day`, `lighting`, `weather`, `framing`, and `shot_type` are
+ * nullable here — they are always populated for photographs and always
+ * `null` for screenshots.
  *
  * Spec: `.archived-plans/specs/2026-05-19-qwen-vision-ocr-design.md`.
  */
 export interface VisionDoc {
-  /** 1–2 sentence caption focused on searchable content. Mirrors the
+  /** 1–3 sentence caption focused on searchable content. Mirrors the
    * top-level `description` field; kept here so the structured doc is
    * self-contained. */
   caption: string;
+  /** 8–15 flat lowercase keywords (prompt v7). Deliberately redundant
+   * with `caption`, `subjects`, and `notable_objects`: prose tokenises
+   * unevenly, so the keyword bag is what gives `search_blob` a dense,
+   * dependable set of terms per asset. `[]` on rows written before v7. */
+  tags: string[];
   /** Categorical subject types: "person", "child", "adult", "dog", "cat",
    * "building", "vehicle", "landscape", "food", "plant", … Open vocabulary,
    * but the prompt guides the model toward common values. */
@@ -195,11 +200,13 @@ export interface VisionDoc {
   mood: string;
   /** Dominant colors, max 5. */
   colors: string[];
-  /** `null` when `is_screenshot` is true (v5 screenshot short-circuit).
-   * `'candid'` was removed from the enum in v5 — it's a shot-type concept
-   * and the models frequently confused it with `shot_type`'s own
-   * `'candid'` value; see `COMPOSITION_SYNONYMS`. */
-  composition: 'wide shot' | 'close-up' | 'portrait' | 'landscape' | 'aerial' | 'macro' | null;
+  /** How tight the shot is. `null` when `is_screenshot` is true (v5
+   * screenshot short-circuit). Replaced `composition` in v7: that enum
+   * mixed tightness with frame orientation (`portrait`, `landscape`) and
+   * camera vantage (`aerial`), so no single value meant one thing.
+   * Vantage now lives in `scene_type`; orientation is derivable from
+   * EXIF. See `FRAMING_SYNONYMS` for the old-vocabulary mapping. */
+  framing: 'wide' | 'medium' | 'close-up' | 'macro' | null;
   /** Any readable text in the image, transcribed verbatim (case + line
    * order preserved). `null` when there is none. The describe stage
    * mirrors this value into `ocr_text` and stamps
@@ -216,6 +223,15 @@ export interface VisionDoc {
    * run, overwriting whatever the exif stage's filename heuristic
    * guessed first. */
   is_screenshot: boolean;
+  /** People visible in the frame, partially-visible people included
+   * (prompt v7). Always 0 when `is_screenshot` is true — enforced by the
+   * parser, not just asked for in the prompt. Asked before `caption` so
+   * the model commits to a count rather than writing "a couple walks…"
+   * over a frame holding four people. Distinct from `faces.length`,
+   * which counts what the face detector found: this counts what a person
+   * would say is in the photo, including backs of heads and silhouettes
+   * the detector misses. `0` on rows written before v7. */
+  people_count: number;
   /** Nudity classification ladder (prompt v5). `'explicit'` covers exposed
    * genitals/buttocks/female breasts (incl. art, statues, on-screen
    * content); `'suggestive'` covers sexualized posing or underwear/
@@ -236,6 +252,11 @@ export interface VisionDoc {
    * targetVersion-6 describe re-run drops it. Readers must handle its
    * absence. */
   indoor_outdoor?: 'indoor' | 'outdoor';
+  /** @deprecated Superseded by `framing` in prompt v7. Rows written under
+   * `prompt_version` <= 6 carry this instead; the targetVersion-8
+   * describe re-run rewrites them. Readers must handle both fields until
+   * every row has been re-captioned. */
+  composition?: 'wide shot' | 'close-up' | 'portrait' | 'landscape' | 'aerial' | 'macro' | null;
 }
 
 /**
@@ -248,7 +269,7 @@ export interface VisionDoc {
 export interface VisionMeta {
   /** Describe provider that produced this row. */
   provider: 'ollama' | 'anthropic' | 'openai' | 'gemini';
-  /** Concrete model tag, e.g. "qwen3-vl:8b". */
+  /** Concrete model tag, e.g. "gemma4:12b". */
   model: string;
   /** Bumped whenever the system prompt changes. */
   prompt_version: number;
@@ -406,7 +427,7 @@ export interface AssetDoc {
   /** True when this asset is a screenshot (phone/computer/app UI capture)
    * rather than a photograph. Set by the exif stage as a fast heuristic
    * (no camera_make + filename matches `Screenshot…` / `Screen Shot…`)
-   * and then overwritten by the describe stage with the qwen3-vl
+   * and then overwritten by the describe stage with the vision-model
    * verdict, which handles cropped screenshots and photos-of-screens
    * the heuristic can't. Mirrors `vision.is_screenshot` once describe
    * has run; until then, the heuristic value stands. */
@@ -441,7 +462,7 @@ export interface AssetDoc {
    * once the operator has seen it in the "newly hidden" review list.
    * Meaningless for `hidden_reason: 'manual'` — never set for those. */
   hidden_ack?: boolean;
-  /** Structured photo-vision metadata from the qwen3-vl describe stage.
+  /** Structured photo-vision metadata from the describe stage.
    * `null` until the stage has run on this asset. See `VisionDoc`. */
   vision?: VisionDoc | null;
   /** Provenance of the `vision` subdoc. Carries the model + prompt version

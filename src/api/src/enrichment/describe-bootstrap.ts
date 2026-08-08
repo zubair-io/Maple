@@ -17,7 +17,7 @@
 
 import { child as childLogger } from '../log.ts';
 import { getDescribeProvider, RemoteError } from './describe-providers/index.ts';
-import { loadEnrichmentConfig, QWEN_VL_OLLAMA_TAG } from './enrichment-config.repo.ts';
+import { loadEnrichmentConfig, DESCRIBE_VISION_OLLAMA_TAG } from './enrichment-config.repo.ts';
 import {
   resolveEnrichmentConfig,
   type ResolvedEnrichmentConfig,
@@ -28,7 +28,7 @@ const log = childLogger('describe');
 
 /** Logged at boot for operator visibility. Single source of truth for
  * the Ollama tag lives in `enrichment-config.repo.ts`. */
-const LOCKED_MODEL = QWEN_VL_OLLAMA_TAG;
+const LOCKED_MODEL = DESCRIBE_VISION_OLLAMA_TAG;
 
 /**
  * Lifecycle hook called at boot. In Plan 3+ the stage-controller runtime
