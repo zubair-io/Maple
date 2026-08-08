@@ -202,9 +202,13 @@ namespace Maple.WinUI
                 // Both phases present into ONE surface pinned at the full
                 // session dims (#2587) — the half-res fast pass is upscaled in
                 // the present shader — so the panel size never changes between
-                // fast and refined frames.
-                _gpuFrameDims = (width, height);
-                UpdatePanelFit();
+                // fast and refined frames. Re-fit only when the dims actually
+                // change (a new image/session), not on every drag tick.
+                if (_gpuFrameDims != (width, height))
+                {
+                    _gpuFrameDims = (width, height);
+                    UpdatePanelFit();
+                }
                 ViewportSwapChainPanel.Visibility = Visibility.Visible;
                 ViewportImage.Visibility = Visibility.Collapsed;
                 RenderStatsText.Text =
