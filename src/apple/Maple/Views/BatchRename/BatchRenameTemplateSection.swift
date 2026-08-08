@@ -66,13 +66,33 @@ struct BatchRenameTemplateSection: View {
 
     // MARK: - Sequence options
 
+    /// A negative value here would reach `UInt64(...)`/`UInt(...)` inside
+    /// `FilenameTemplateEngine.render` — that boundary now clamps
+    /// defensively rather than trapping, but the field itself refuses to
+    /// hold a negative number in the first place, so the user sees the
+    /// field snap back to `0` immediately instead of the value silently
+    /// changing out from under them only once a rename is attempted.
+    private var sequenceStartBinding: Binding<Int> {
+        Binding(get: { vm.sequenceStart }, set: { vm.sequenceStart = max(0, $0) })
+    }
+
+    /// Same non-negative guard as `sequenceStartBinding`. Deliberately does
+    /// NOT clamp an over-large value (above the engine's own 32-digit
+    /// bound) — that's left to reach `FilenameTemplateEngine.render`, which
+    /// rejects it with a typed `.sequencePadWidthTooLarge` error the
+    /// preview list surfaces per item, rather than this field silently
+    /// capping a width the user explicitly typed.
+    private var sequencePadWidthBinding: Binding<Int> {
+        Binding(get: { vm.sequencePadWidth }, set: { vm.sequencePadWidth = max(0, $0) })
+    }
+
     private var sequenceStartField: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Start at")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             TextField(
-                "1", value: $vm.sequenceStart,
+                "1", value: sequenceStartBinding,
                 format: .number.grouping(.never)
             )
             .textFieldStyle(.roundedBorder)
@@ -91,7 +111,7 @@ struct BatchRenameTemplateSection: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             TextField(
-                "0", value: $vm.sequencePadWidth,
+                "0", value: sequencePadWidthBinding,
                 format: .number.grouping(.never)
             )
             .textFieldStyle(.roundedBorder)

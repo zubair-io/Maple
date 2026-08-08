@@ -85,37 +85,54 @@ public enum FilenameTemplateEngine {
     ///     `{date:FORMAT}` token as its documented fallback text rather than
     ///     failing the whole call, so a mixed folder (some files with EXIF
     ///     dates, some without) still produces a name for every file.
+    ///   - sequenceStart: the value `{n}` takes for `sequenceIndex == 0`.
+    ///     Plain `Int` because it's UI-typed (a `TextField(value:)` can hand
+    ///     back a negative number) — clamped to `0` here, at the FFI
+    ///     boundary, before it ever reaches the `UInt64` the C ABI expects.
+    ///     `UInt64(negative)` traps unconditionally, so this clamp is not
+    ///     optional defense-in-depth; it is what keeps a stray "-1" in the
+    ///     sheet's sequence-start field from crashing the app instead of
+    ///     just rendering `{n}` as if the field had read `0`.
     ///   - sequenceIndex: zero-based position of this file within its batch
     ///     — combined with `sequenceStart` to produce `{n}`'s value
-    ///     (`sequenceStart + sequenceIndex`).
+    ///     (`sequenceStart + sequenceIndex`). Always caller-controlled (a
+    ///     loop index), never UI-typed, so this stays `UInt64` with no
+    ///     clamp needed.
     ///   - sequencePadWidth: minimum digit width for `{n}`; `0` means no
-    ///     padding. Bounded by the engine at 32 — a larger value throws
-    ///     `.sequencePadWidthTooLarge` rather than performing an unbounded
-    ///     allocation.
+    ///     padding. Same UI-typed/negative-clamp reasoning as
+    ///     `sequenceStart` applies below `0`. Above the engine's own bound
+    ///     (`MAX_SEQUENCE_PAD_WIDTH`, 32) this is deliberately NOT clamped —
+    ///     a too-large value is passed through so the engine rejects it with
+    ///     the typed `.sequencePadWidthTooLarge` error, which the batch-
+    ///     rename sheet surfaces inline per item rather than silently
+    ///     capping the user's requested width to something they didn't ask
+    ///     for.
     public static func render(
         template: String,
         originalStem: String,
         ext: String,
         capturedAtExifString: String?,
-        sequenceStart: UInt64,
+        sequenceStart: Int,
         sequenceIndex: UInt64,
         sequencePadWidth: Int
     ) throws -> String {
-        try template.withCString { templateC in
+        let clampedSequenceStart = UInt64(max(0, sequenceStart))
+        let clampedPadWidthFloor = max(0, sequencePadWidth)
+        return try template.withCString { templateC in
             try originalStem.withCString { stemC in
                 try ext.withCString { extC in
                     if let capturedAtExifString {
                         return try capturedAtExifString.withCString { dateC in
                             try renderRaw(
                                 templateC: templateC, stemC: stemC, extC: extC, dateC: dateC,
-                                sequenceStart: sequenceStart, sequenceIndex: sequenceIndex,
-                                sequencePadWidth: sequencePadWidth)
+                                sequenceStart: clampedSequenceStart, sequenceIndex: sequenceIndex,
+                                sequencePadWidth: clampedPadWidthFloor)
                         }
                     }
                     return try renderRaw(
                         templateC: templateC, stemC: stemC, extC: extC, dateC: nil,
-                        sequenceStart: sequenceStart, sequenceIndex: sequenceIndex,
-                        sequencePadWidth: sequencePadWidth)
+                        sequenceStart: clampedSequenceStart, sequenceIndex: sequenceIndex,
+                        sequencePadWidth: clampedPadWidthFloor)
                 }
             }
         }
