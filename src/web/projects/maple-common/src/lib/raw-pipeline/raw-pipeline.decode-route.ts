@@ -34,7 +34,7 @@ export type LegacyDecodeRoute = 'gpu' | 'sized' | 'film' | 'cpu';
  * 1. `gpu` — unsized, no film LUT, the request opts in, and the runtime
  *    advertises WebGPU.
  * 2. `sized` — a `maxLongEdge` cap was requested (film-on-sized has no
- *    dedicated sibling yet; falls through to the plain sized entry).
+ *    dedicated sibling yet — #2719; falls through to the plain sized entry).
  * 3. `film` — a non-empty `filmLut` rides the (unsized) request.
  * 4. `cpu` — the byte-for-byte legacy no-GPU, no-look path.
  */

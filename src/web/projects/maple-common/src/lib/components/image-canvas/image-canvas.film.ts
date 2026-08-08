@@ -13,10 +13,10 @@
 // Film only has a GPU live-session code path today (Task 9's routing
 // guarantee, `raw-pipeline.decode-route.ts`): the WASM-CPU 2D fast/refine
 // phases are SIZED requests, and raw-core has no sized+film-aware render
-// entry yet (a documented gap in that file, not this ticket's to close) — so
-// this helper is a no-op while the GPU live session isn't active. Export
-// (`ImageExportService`) is the OTHER place a `.mlut` gets fetched +
-// threaded through, independently of this class.
+// entry yet (a documented gap in that file — #2719, not this ticket's to
+// close) — so this helper is a no-op while the GPU live session isn't
+// active. Export (`ImageExportService`) is the OTHER place a `.mlut` gets
+// fetched + threaded through, independently of this class.
 //
 // `RawPipelineService.setFilmLut` transfers its `ArrayBuffer` argument, which
 // detaches it — so every post re-fetches from `FilmLutService`. That's cheap:
