@@ -61,7 +61,24 @@ extension AppShell {
     /// only, so two overlapping batches can't interleave collision prompts.
     func performAssetDrop(ids: [AssetRef.ID], destination: AssetDropDestination, mode: RelocateMode) {
         guard assetDropTask == nil else { return }
-        let dragged = ids.compactMap { id in browseVM.assets.first(where: { $0.id == id }) }
+        // Performance (review finding, jules): `ids.compactMap { browseVM
+        // .assets.first(where:) }` was O(dropped × library size) — a
+        // linear scan of the WHOLE library per dragged id, run on the main
+        // actor at drop time (5k dropped ids in a 50k library is ~250M
+        // comparisons). Build one id → asset index in a single O(library
+        // size) pass instead, then resolve every dropped id through it in
+        // O(1) each — O(library size + dropped count) total. Tolerant of a
+        // duplicate id in `browseVM.assets` (shouldn't happen, but
+        // "first wins" beats a crash — same trap `indexByIDTolerantOfDuplicates`
+        // guards in `BatchRenameViewModel`, reimplemented here rather than
+        // reused because that helper is `internal` to MapleCore and keyed
+        // on `String`, not `AssetRef.ID`).
+        var assetsByID: [AssetRef.ID: AssetRef] = [:]
+        assetsByID.reserveCapacity(browseVM.assets.count)
+        for asset in browseVM.assets where assetsByID[asset.id] == nil {
+            assetsByID[asset.id] = asset
+        }
+        let dragged = ids.compactMap { assetsByID[$0] }
         guard !dragged.isEmpty else { return }
         assetDropTask = Task { @MainActor in
             var results: [AssetDropItemResult] = []
