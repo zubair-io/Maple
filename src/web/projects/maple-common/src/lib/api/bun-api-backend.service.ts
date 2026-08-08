@@ -724,11 +724,27 @@ export class BunApiBackendService {
    * the component falls back to the placeholder block in that case.
    */
   getHistogram(assetId: string): Observable<ApiHistogram> {
-    const request = (mongoId: string): Observable<ApiHistogram> =>
-      this.http.get<ApiHistogram>(`${this.base}/assets/${encodeURIComponent(mongoId)}/histogram`);
-    return assetId.includes(':')
-      ? this.getAssetDetailsByAddress(assetId).pipe(switchMap(({ id }) => request(id)))
-      : request(assetId);
+    return this.withResolvedAssetId(assetId, (mongoId) =>
+      this.http.get<ApiHistogram>(`${this.base}/assets/${encodeURIComponent(mongoId)}/histogram`),
+    );
+  }
+
+  /**
+   * Resolve `assetIdOrAddress` to a Mongo id and run `request` against it —
+   * the "accepts either a Mongo id or a `slug:relPath` address" shape
+   * `getHistogram`, `renameAsset`, and `relocateAsset` all share (a Mongo id
+   * is used directly; an address is resolved via `getAssetDetailsByAddress`
+   * first, since the browse grid's assets only carry an address). Extracted
+   * after `renameAsset` and `relocateAsset` (#2644) were flagged as a
+   * 7-line clone of this exact resolve-or-request tail.
+   */
+  private withResolvedAssetId<T>(
+    assetIdOrAddress: string,
+    request: (mongoId: string) => Observable<T>,
+  ): Observable<T> {
+    return assetIdOrAddress.includes(':')
+      ? this.getAssetDetailsByAddress(assetIdOrAddress).pipe(switchMap(({ id }) => request(id)))
+      : request(assetIdOrAddress);
   }
 
   /**
@@ -750,7 +766,7 @@ export class BunApiBackendService {
     newFilename: string,
     collision: ApiCollisionPolicy = 'skip',
   ): Observable<ApiRenameOutcome> {
-    const request = (mongoId: string): Observable<ApiRenameOutcome> =>
+    return this.withResolvedAssetId(assetIdOrAddress, (mongoId) =>
       this.http
         .post<ApiRenameResponseRaw>(`${this.base}/assets/${encodeURIComponent(mongoId)}/rename`, {
           new_filename: newFilename,
@@ -770,10 +786,8 @@ export class BunApiBackendService {
                     extensionChanged: r.extension_changed ?? false,
                   },
           ),
-        );
-    return assetIdOrAddress.includes(':')
-      ? this.getAssetDetailsByAddress(assetIdOrAddress).pipe(switchMap(({ id }) => request(id)))
-      : request(assetIdOrAddress);
+        ),
+    );
   }
 
   /**
@@ -798,7 +812,7 @@ export class BunApiBackendService {
     destinationPath: string,
     destinationFilename?: string,
   ): Observable<ApiRelocateOutcome> {
-    const request = (mongoId: string): Observable<ApiRelocateOutcome> =>
+    return this.withResolvedAssetId(assetIdOrAddress, (mongoId) =>
       this.http
         .post<ApiRelocateResponseRaw>(
           `${this.base}/assets/${encodeURIComponent(mongoId)}/relocate`,
@@ -824,10 +838,8 @@ export class BunApiBackendService {
                     renamedOnCollision: r.renamed_on_collision ?? false,
                   },
           ),
-        );
-    return assetIdOrAddress.includes(':')
-      ? this.getAssetDetailsByAddress(assetIdOrAddress).pipe(switchMap(({ id }) => request(id)))
-      : request(assetIdOrAddress);
+        ),
+    );
   }
 
   /**

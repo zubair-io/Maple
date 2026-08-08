@@ -266,6 +266,7 @@ export * from './lib/drag-move/asset-drag-data';
 export * from './lib/drag-move/drag-move-collision-dialog.component';
 export * from './lib/drag-move/drag-move-summary-banner.component';
 export * from './lib/drag-move/move-to-dialog.component';
+export * from './lib/drag-move/move-to-tree-picker.component';
 
 // #2640 — Batch rename dialog (multi-select → template-token rename).
 // Mounted directly (no `@defer`) by Self Hosted's `SelfHostedBrowseContent
