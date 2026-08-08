@@ -1,36 +1,20 @@
 @use '../../styles/dialog-chrome' as chrome;
 
 .frn-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.55);
+  @include chrome.dialog-backdrop;
 }
 
 .frn-card {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
+  @include chrome.dialog-card-base;
   max-width: 360px;
-  border-radius: 8px;
-  background: var(--color-surface);
-  border: 0.5px solid var(--color-border);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
-  overflow: hidden;
 }
 
 .frn-header {
-  padding: 14px 16px;
-  border-bottom: 0.5px solid var(--color-border);
+  @include chrome.dialog-header;
 }
 
 .frn-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-text-main);
+  @include chrome.dialog-title;
 }
 
 .frn-body {
@@ -41,18 +25,7 @@
 }
 
 .frn-input {
-  height: 32px;
-  padding: 0 10px;
-  border-radius: 5px;
-  border: 0.5px solid var(--color-border);
-  background: var(--color-input-bg);
-  color: var(--color-text-main);
-  font-size: 13px;
-
-  &:focus {
-    outline: none;
-    border-color: var(--color-primary);
-  }
+  @include chrome.dialog-input;
 }
 
 .frn-error {

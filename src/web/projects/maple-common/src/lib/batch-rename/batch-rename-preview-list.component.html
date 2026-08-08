@@ -1,0 +1,23 @@
+<div class="brn-preview" role="list" [attr.aria-label]="ariaLabel()">
+  @if (loading()) {
+    <p class="brn-preview-status">{{ loadingLabel() }}</p>
+  } @else {
+    @for (row of rows(); track row.key) {
+      <div class="brn-preview-row" role="listitem" [class.brn-preview-row-error]="row.isError">
+        <span class="brn-preview-old">{{ row.oldText }}</span>
+        <span class="brn-preview-arrow">→</span>
+        <span class="brn-preview-new" [class.brn-preview-new-error]="row.isError">
+          {{ row.newText }}
+          @if (row.badge; as badge) {
+            <span
+              class="brn-badge"
+              [class.brn-badge-success]="badge.kind === 'success'"
+              [class.brn-badge-warning]="badge.kind === 'warning'"
+              >{{ badge.label }}</span
+            >
+          }
+        </span>
+      </div>
+    }
+  }
+</div>

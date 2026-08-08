@@ -1,0 +1,108 @@
+<div class="brn-body">
+  <label class="brn-field">
+    <span class="brn-label">Template</span>
+    <input
+      type="text"
+      class="brn-input"
+      [value]="template()"
+      [attr.maxlength]="maxTemplateLength()"
+      [disabled]="busy()"
+      aria-label="Filename template"
+      placeholder="{{ '{original}' }}"
+      (input)="templateInput.emit($any($event.target).value)"
+    />
+  </label>
+
+  <div class="brn-tokens">
+    @for (help of tokenHelp(); track help.token) {
+      <button
+        type="button"
+        class="brn-token-btn"
+        [disabled]="busy()"
+        [title]="help.label"
+        (click)="insertToken.emit(help.token)"
+      >
+        {{ help.token }}
+      </button>
+    }
+  </div>
+
+  <div class="brn-row">
+    <label class="brn-field brn-field-small">
+      <span class="brn-label">Start at</span>
+      <input
+        type="number"
+        class="brn-input"
+        min="0"
+        [value]="sequenceStart()"
+        [disabled]="busy()"
+        aria-label="Sequence start"
+        (input)="sequenceStartInput.emit($any($event.target).value)"
+      />
+    </label>
+    <label class="brn-field brn-field-small">
+      <span class="brn-label">Pad width</span>
+      <input
+        type="number"
+        class="brn-input"
+        min="0"
+        [value]="sequencePadWidth()"
+        [disabled]="busy()"
+        aria-label="Sequence zero-padding width"
+        (input)="sequencePadWidthInput.emit($any($event.target).value)"
+      />
+    </label>
+    <label class="brn-field brn-field-small">
+      <span class="brn-label">On collision</span>
+      <select
+        class="brn-input"
+        [disabled]="busy()"
+        aria-label="Collision resolution"
+        (change)="collisionChange.emit($any($event.target).value)"
+      >
+        @for (opt of collisionOptions(); track opt.value) {
+          <option [value]="opt.value" [selected]="opt.value === collision()">
+            {{ opt.label }}
+          </option>
+        }
+      </select>
+    </label>
+  </div>
+
+  @if (hasUnresolved()) {
+    <p class="brn-warning">{{ unresolvedMessage() }}</p>
+  }
+  @if (previewError(); as err) {
+    <p class="brn-error">{{ err }}</p>
+  }
+  @if (applyError(); as err) {
+    <p class="brn-error">{{ err }}</p>
+  }
+  @if (duplicateCount() > 0) {
+    <p class="brn-warning">
+      {{ duplicateCount() }} file{{ duplicateCount() === 1 ? '' : 's' }} in this template would
+      render the same name as another file — the collision policy above resolves it during Apply.
+    </p>
+  }
+
+  <app-batch-rename-preview-list
+    [rows]="previewRows()"
+    [loading]="previewListLoading()"
+    loadingLabel="Loading preview…"
+    ariaLabel="Rename preview"
+  />
+</div>
+
+<div class="brn-footer">
+  <button type="button" class="brn-btn brn-btn-ghost" [disabled]="busy()" (click)="cancel.emit()">
+    Cancel
+  </button>
+  <button
+    type="button"
+    class="brn-btn brn-btn-primary"
+    [disabled]="!canApply()"
+    (click)="apply.emit()"
+  >
+    {{ busy() ? 'Renaming…' : 'Apply' }}
+  </button>
+</div>
