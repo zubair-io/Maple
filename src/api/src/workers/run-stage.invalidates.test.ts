@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'bun:test';
 import { _test, defineStage, type ImageDoc } from './run-stage.ts';
-import { makeConfigMock, makeImagesMock } from './run-stage.test-helpers.ts';
+import { elapseRetryBackoff, makeConfigMock, makeImagesMock } from './run-stage.test-helpers.ts';
 
 const { runOnce } = _test;
 
@@ -142,6 +142,10 @@ describe('StageResult.invalidates', () => {
     expect(afterFailure!.stages!.describe).toMatchObject({ attempts: 1, dead: false });
     expect(afterFailure!.stages!.describe!.last_error).toContain('empty response');
     expect(afterFailure!.stages!.describe!.last_error).toContain('done_reason=load');
+    // The retryable failure gated the row behind its backoff (#2729); the
+    // elapse stands in for the wall-clock wait production does.
+    expect(afterFailure!.stages!.describe!.next_attempt_at).toBeInstanceOf(Date);
+    await elapseRetryBackoff(images, 'describe');
 
     await runOnce(testStage, cfg, images, configColl);
     const [afterRetry] = await images.find({}).toArray();

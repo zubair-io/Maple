@@ -35,6 +35,16 @@ export interface StageState {
   processed_at: Date | null;
   /** True when attempts >= maxAttempts. Excluded from the claim query. */
   dead: boolean;
+  /** Wall-clock time of the most recent FAILED attempt (#2730). Without it
+   * `last_error` has no "when" — it cannot be correlated against provider
+   * logs, deploys or restarts, and a stale string is indistinguishable from
+   * a live failure. Absent on rows that have never failed. */
+  failed_at?: Date | null;
+  /** Earliest time this asset may be claimed again after a failure (#2729).
+   * Absent on rows that have never failed, and cleared on success. The claim
+   * query treats absent as "claimable now", so pre-existing rows are
+   * unaffected. */
+  next_attempt_at?: Date | null;
 }
 
 export type ImageDoc = WithId<IndexerAssetDoc> & {
