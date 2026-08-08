@@ -122,3 +122,21 @@
   (paste)="onPasteDialogConfirm($event)"
   (dismiss)="onPasteDialogDismiss()"
 />
+
+<!-- Drag-move/copy collision prompt + completion summary (#2644). Both
+     signals default to null on the NOOP capability (Hosted), so mounting
+     these unconditionally is safe — no `@defer` needed. Lives here rather
+     than inside `app-folder-tree` so it stays reachable on phone, where the
+     inline sidebar (and any `FolderTreeComponent` instance inside it) is
+     torn down whenever the source-picker drawer is closed; the "Move to…"
+     keyboard equivalent has no folder-tree row of its own to anchor to. -->
+@if (dragMove.collisionPrompt(); as prompt) {
+  <app-drag-move-collision-dialog
+    [filename]="prompt.filename"
+    (resolve)="onDragMoveCollisionResolved($event)"
+  />
+}
+
+@if (dragMove.resultSummary(); as summary) {
+  <app-drag-move-summary-banner [summary]="summary" (dismiss)="onDismissDragMoveSummary()" />
+}

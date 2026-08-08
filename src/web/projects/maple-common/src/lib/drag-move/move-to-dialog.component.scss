@@ -1,0 +1,102 @@
+@use '../styles/dialog-chrome' as chrome;
+
+.mtd-backdrop {
+  @include chrome.dialog-backdrop;
+}
+
+.mtd-card {
+  @include chrome.dialog-card-base;
+  max-width: 420px;
+  max-height: 70vh;
+}
+
+.mtd-header {
+  @include chrome.dialog-header;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mtd-title {
+  @include chrome.dialog-title;
+}
+
+.mtd-close {
+  @include chrome.dialog-close-button;
+}
+
+.mtd-body {
+  padding: 8px;
+  overflow-y: auto;
+  min-height: 120px;
+}
+
+.mtd-tree {
+  display: flex;
+  flex-direction: column;
+}
+
+.mtd-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--color-text-main);
+  cursor: pointer;
+  user-select: none;
+
+  &:hover:not(.disabled) {
+    background: var(--color-surface-hover);
+  }
+
+  &.selected {
+    background: var(--color-primary-dim);
+    color: var(--color-primary);
+    font-weight: 500;
+  }
+
+  &.disabled {
+    color: var(--color-text-muted);
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.mtd-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.mtd-chevron-spacer {
+  width: 14px;
+  flex-shrink: 0;
+}
+
+.mtd-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mtd-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 0.5px solid var(--color-border);
+}
+
+.mtd-btn {
+  @include chrome.dialog-button;
+}

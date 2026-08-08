@@ -57,3 +57,23 @@
 >
   <span>Batch Rename…{{ canBatchRename() ? ' (' + state.selectedCount() + ')' : '' }}</span>
 </button>
+
+<button
+  type="button"
+  class="export-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] border-[0.5px]"
+  [class.has-selection]="canMoveTo()"
+  [class.no-selection]="!canMoveTo()"
+  [class.bg-primary-dim]="canMoveTo()"
+  [class.text-primary]="canMoveTo()"
+  [class.border-primary]="canMoveTo()"
+  [class.bg-input-bg]="!canMoveTo()"
+  [class.text-text-muted]="!canMoveTo()"
+  [class.border-border]="!canMoveTo()"
+  [class.opacity-50]="!canMoveTo()"
+  [disabled]="!canMoveTo()"
+  title="Move selected photos into a different folder"
+  aria-label="Move to"
+  (click)="controller.openMoveTo()"
+>
+  <span>Move to…{{ canMoveTo() ? ' (' + state.selectedCount() + ')' : '' }}</span>
+</button>

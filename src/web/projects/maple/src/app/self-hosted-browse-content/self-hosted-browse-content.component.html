@@ -37,3 +37,15 @@
     (applied)="controller.onBatchRenameApplied()"
   />
 }
+
+<!-- Move to… (#2644) — keyboard-reachable equivalent of drag-move. Starts
+     the same `DragMoveService` relocate queue a folder-tree drop starts;
+     the queue's collision dialog / result banner render from
+     `browse-shell.component.html`, not here. -->
+@if (controller.moveToVisible()) {
+  <app-move-to-dialog
+    [assetIds]="controller.moveToAssetIds()"
+    [sourceFolderId]="controller.moveToSourceFolderId()"
+    (dismiss)="controller.dismissMoveTo()"
+  />
+}

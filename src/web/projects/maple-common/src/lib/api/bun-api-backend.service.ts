@@ -426,6 +426,44 @@ export interface ApiDirListing {
   entries: ApiDirEntry[];
 }
 
+// ── Generic single-asset relocate (#2644) ───────────────────────────────────
+// Wire shapes mirror `POST /api/assets/:id/relocate` (`src/api/src/routes/
+// assets/relocate.ts`, #2629) — the same `relocateAsset` primitive `rename`
+// (above) is a thin same-folder wrapper over. `relocate` additionally takes a
+// `destinationPath` (the relocate can change folder, not just filename) and a
+// `mode` (`'move'` deletes the original after a verified copy; `'copy'`
+// leaves it in place — see `library/relocate-asset.ts`'s module doc for why
+// a copy does not repoint the source asset's DB identity).
+
+/** The relocate landed — the asset (on `move`) or a new duplicate (on
+ * `copy`) now lives at `newPath`/`newFilename`. */
+export interface ApiRelocatedResult {
+  kind: 'relocated';
+  newAbsPath: string;
+  newPath: string;
+  newFilename: string;
+  renamedOnCollision: boolean;
+}
+
+/** The server declined to write anything — same two `reason` values as
+ * `ApiRenameSkippedResult` (`'collision'` on a `collision: 'skip'` request,
+ * or `'already at destination'`). */
+export interface ApiRelocateSkippedResult {
+  kind: 'skipped';
+  reason: string;
+}
+
+export type ApiRelocateOutcome = ApiRelocatedResult | ApiRelocateSkippedResult;
+
+interface ApiRelocateResponseRaw {
+  new_abs_path?: string;
+  new_path?: string;
+  new_filename?: string;
+  renamed_on_collision?: boolean;
+  skipped?: true;
+  reason?: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class BunApiBackendService {
   private readonly http = inject(HttpClient);
@@ -742,6 +780,60 @@ export class BunApiBackendService {
                     newFilename: r.new_filename ?? newFilename,
                     renamedOnCollision: r.renamed_on_collision ?? false,
                     extensionChanged: r.extension_changed ?? false,
+                  },
+          ),
+        );
+    return assetIdOrAddress.includes(':')
+      ? this.getAssetDetailsByAddress(assetIdOrAddress).pipe(switchMap(({ id }) => request(id)))
+      : request(assetIdOrAddress);
+  }
+
+  /**
+   * Move or copy a single asset into a different folder
+   * (`POST /api/assets/:id/relocate`, #2629/#2644) — the drag-to-folder-tree
+   * and "Move to…" flows both funnel through this one call, one asset at a
+   * time (see `DragMoveService._processNext`, `drag-move.service.ts`, for the
+   * sequential per-asset queue with per-item collision prompts that batches
+   * this into a multi-select operation).
+   *
+   * `destinationPath` is the POSIX-relative folder under the asset's library
+   * root (`''` = root); `destinationFilename` defaults to the asset's current
+   * filename. `collision` defaults to `'skip'` so a same-name conflict at the
+   * destination comes back as a `'skipped'` outcome with `reason: 'collision'`
+   * instead of silently overwriting — the caller then re-issues the same
+   * request with `'replace'` or `'keep-both'` once the user picks.
+   */
+  relocateAsset(
+    assetIdOrAddress: string,
+    mode: 'move' | 'copy',
+    collision: ApiCollisionPolicy = 'skip',
+    destinationPath: string,
+    destinationFilename?: string,
+  ): Observable<ApiRelocateOutcome> {
+    const request = (mongoId: string): Observable<ApiRelocateOutcome> =>
+      this.http
+        .post<ApiRelocateResponseRaw>(
+          `${this.base}/assets/${encodeURIComponent(mongoId)}/relocate`,
+          {
+            mode,
+            collision,
+            destination_path: destinationPath,
+            ...(destinationFilename !== undefined
+              ? { destination_filename: destinationFilename }
+              : {}),
+          },
+        )
+        .pipe(
+          map(
+            (r): ApiRelocateOutcome =>
+              r.skipped
+                ? { kind: 'skipped', reason: r.reason ?? 'skipped' }
+                : {
+                    kind: 'relocated',
+                    newAbsPath: r.new_abs_path ?? '',
+                    newPath: r.new_path ?? '',
+                    newFilename: r.new_filename ?? destinationFilename ?? '',
+                    renamedOnCollision: r.renamed_on_collision ?? false,
                   },
           ),
         );

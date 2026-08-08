@@ -4,6 +4,7 @@ import {
   LibraryStateService,
   parseAddress,
   type Asset,
+  type AssetId,
   type AssetMetadataSnapshot,
   type BatchRenameSelection,
 } from '@maple-common';
@@ -21,6 +22,9 @@ export class SelfHostedBrowseController {
   readonly metadataSnapshots = signal<AssetMetadataSnapshot[]>([]);
   readonly batchRenameVisible = signal(false);
   readonly batchRenameSelections = signal<BatchRenameSelection[]>([]);
+  readonly moveToVisible = signal(false);
+  readonly moveToAssetIds = signal<AssetId[]>([]);
+  readonly moveToSourceFolderId = signal<string>('');
 
   constructor() {
     inject(DestroyRef).onDestroy(() => this.snapshotsSubscription?.unsubscribe());
@@ -123,5 +127,27 @@ export class SelfHostedBrowseController {
    * new names without a full page reload. */
   onBatchRenameApplied(): void {
     this.refreshCurrentFolder();
+  }
+
+  // ── Move to… (#2644 keyboard-reachable drag-move equivalent) ───────────
+
+  openMoveTo(): void {
+    const assets = this.selectedAssetsOrNull();
+    const sourceId = this.state.selectedSourceId();
+    if (!assets || !sourceId) return;
+    this.moveToAssetIds.set(assets.map((asset) => asset.id));
+    this.moveToSourceFolderId.set(sourceId);
+    this.moveToVisible.set(true);
+  }
+
+  /** The dialog itself only starts `DragMoveService`'s relocate queue
+   * (`DragMoveCapability.beginMove`) and closes immediately — the queue's
+   * own collision prompt / completion summary render from
+   * `browse-shell.component.html`, not here, so there is nothing else for
+   * this dismiss to do beyond resetting the dialog's own inputs. */
+  dismissMoveTo(): void {
+    this.moveToVisible.set(false);
+    this.moveToAssetIds.set([]);
+    this.moveToSourceFolderId.set('');
   }
 }
