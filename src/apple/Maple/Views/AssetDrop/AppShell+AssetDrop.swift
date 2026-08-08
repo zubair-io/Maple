@@ -292,14 +292,22 @@ extension AppShell {
     // MARK: - Collision ask-flow
 
     /// Suspends the routing loop for ONE asset until
-    /// `AssetDropCollisionSheet` resolves `assetDropCollisionPrompt`.
+    /// `AssetDropCollisionSheet` resolves `assetDropCollisionPrompt` — via
+    /// a button tap OR the sheet's implicit dismissal (swipe/Escape), both
+    /// funneled through the SAME `AssetDropCollisionResolver` so the
+    /// continuation resumes exactly once either way (review follow-up —
+    /// see `AssetDropCollisionResolver`'s doc comment for why the naive
+    /// button-only version could hang every subsequent drop for the rest
+    /// of the session). `assetDropCollisionResolver` is set alongside the
+    /// prompt specifically so `AppShell`'s `.sheet(onDismiss:)` can reach
+    /// it after `assetDropCollisionPrompt` itself may already be nil.
     /// Sequential by construction (the loop `await`s this before moving to
     /// the next asset) — exactly one prompt on screen at a time.
     private func requestCollisionChoice(displayName: String) async -> AssetDropCollisionChoice {
         await withCheckedContinuation { continuation in
-            assetDropCollisionPrompt = AssetDropCollisionPrompt(displayName: displayName) { choice in
-                continuation.resume(returning: choice)
-            }
+            let resolver = AssetDropCollisionResolver(continuation: continuation)
+            assetDropCollisionResolver = resolver
+            assetDropCollisionPrompt = AssetDropCollisionPrompt(displayName: displayName, resolver: resolver)
         }
     }
 
