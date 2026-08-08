@@ -111,38 +111,11 @@ export class OllamaProvider implements DescribeProvider {
     };
   }
 
-  /**
-   * Every request opts out of connection reuse via `Connection: close`.
-   *
-   * Bun's `fetch` pools connections per origin, and Ollama reaps idle
-   * keep-alive sockets. A `/api/generate` call runs 10-25s, which is long
-   * enough for the socket Bun pooled from the *previous* call to be reaped
-   * server-side; the reuse then fails with "The socket connection was
-   * closed unexpectedly", after which the poisoned pool fails every
-   * subsequent request to the origin in ~30-50ms with "Unable to connect.
-   * Is the computer able to access the url?" — which reads as a
-   * connectivity fault and is not one (#2728).
-   *
-   * Measured against a healthy Ollama, same payload and endpoint: curl with
-   * a fresh connection went 11/11 at concurrency 1 and 2, Bun's default
-   * keep-alive went 0/3, and Bun with this header went 6/8. Meilisearch
-   * calls the same server continuously for embeddings without incident,
-   * because it never goes through Bun's client.
-   *
-   * A ~1.3ms TCP handshake against a 10-25s generation is free, so there is
-   * no reason to keep chasing correct pool behaviour here. The residual
-   * failures this header does not cover are the runner's to absorb via
-   * retry backoff (#2729) — the two fixes are complementary.
-   */
   private async timedFetch(url: string, init: RequestInit): Promise<Response> {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
     try {
-      return await this.fetchImpl(url, {
-        ...init,
-        headers: { ...init.headers, connection: 'close' },
-        signal: ctrl.signal,
-      });
+      return await this.fetchImpl(url, { ...init, signal: ctrl.signal });
     } catch (err) {
       const aborted = err instanceof Error && (err.name === 'AbortError' || ctrl.signal.aborted);
       const msg = err instanceof Error ? err.message : String(err);
