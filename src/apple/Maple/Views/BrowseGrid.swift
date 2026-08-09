@@ -428,28 +428,32 @@ struct BrowseGrid: View {
 
     #if os(macOS)
     /// True only for a local-filesystem asset — the only case with a real
-    /// on-disk `primaryURL` Finder can point at. PhotoKit assets live in
-    /// the Photos library (no user-visible file), Cloud assets are
-    /// server-resident (`catalog` set, `primaryURL` nil), and SMB assets
-    /// are read over the network protocol directly (no local mount, so
-    /// also `primaryURL` nil) — all three fall out of this check for free.
+    /// on-disk `primaryURL` Finder can point at. Delegates to
+    /// `AssetRef.isRevealEligible` (RevealInFileManagerSelection.swift,
+    /// MapleCore) rather than re-deriving the check inline, so the same
+    /// rule PhotoKit/Cloud/SMB assets fall out of is covered by
+    /// `RevealInFileManagerSelectionTests` and can't drift between the
+    /// view and its test.
     private func revealEligible(_ asset: AssetRef) -> Bool {
-        asset.primaryURL != nil
+        asset.isRevealEligible
     }
 
     /// "Reveal in Finder" context-menu item. Mirrors `trashMenuItem`'s
     /// multi-select rule: if the right-clicked asset is part of a larger
-    /// active selection, every selected LOCAL asset (mixed selections
-    /// shouldn't happen within one grid, but `compactMap` filters
-    /// defensively) reveals together via `activateFileViewerSelecting`'s
-    /// array form — one Finder window, every item highlighted — otherwise
-    /// just this one.
+    /// active selection, every eligible selected asset reveals together
+    /// via `activateFileViewerSelecting`'s array form — one Finder window,
+    /// every item highlighted — otherwise just this one. The actual
+    /// selection → URLs derivation is `RevealInFileManagerSelection.urls`
+    /// (MapleCore, unit-tested) rather than an inline filter here — it
+    /// already converts the id list to a `Set` before filtering
+    /// `vm.assets`, so a select-all-then-Reveal on a large library stays
+    /// O(librarySize) instead of O(librarySize × selectionSize).
     @ViewBuilder
     private func revealMenuItem(for asset: AssetRef) -> some View {
         Button {
             let active = activeSelectionIDs()
             let ids = active.contains(asset.id) && active.count > 1 ? active : [asset.id]
-            let urls = vm.assets.filter { ids.contains($0.id) }.compactMap(\.primaryURL)
+            let urls = RevealInFileManagerSelection.urls(for: Set(ids), in: vm.assets)
             guard !urls.isEmpty else { return }
             NSWorkspace.shared.activateFileViewerSelecting(urls)
         } label: {
