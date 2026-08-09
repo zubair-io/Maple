@@ -33,3 +33,26 @@
   ariaLabel="Move to"
   (clicked)="controller.openMoveTo()"
 />
+
+<app-browse-action-button
+  [enabled]="canTrashSelected()"
+  label="Move to Trash"
+  [count]="state.selectedCount()"
+  buttonTitle="Send selected photos to Trash"
+  ariaLabel="Move to Trash"
+  (clicked)="trashSelected()"
+/>
+
+@if (trash.resultSummary(); as summary) {
+  <div class="trash-selected-summary" role="status">
+    <span>
+      @if (summary.failed.length > 0) {
+        Sent {{ summary.trashed }} of {{ summary.total }} to Trash — {{ summary.failed.length }}
+        failed.
+      } @else {
+        Sent {{ summary.trashed }} item(s) to Trash.
+      }
+    </span>
+    <button type="button" (click)="trash.dismissSummary()" aria-label="Dismiss">✕</button>
+  </div>
+}
