@@ -348,7 +348,15 @@ extension AppShell {
         }
 
         let currentSMBSource = browseVM.currentSource as? SMBSource
-        Task(priority: .utility) {
+        // `.detached` (review finding, jules): a plain `Task` here inherits
+        // `@MainActor` from `AppShell`, so the bookmark resolution +
+        // security-scope claim + directory walk below would all run on the
+        // main thread — exactly the per-launch main-thread work this sweep
+        // is supposed to stay off of. Nothing in this closure touches
+        // `AppShell`'s own UI state (`SMBSource` is its own actor;
+        // `UserDefaults` is thread-safe), so there's no MainActor hop
+        // needed anywhere in it.
+        Task.detached(priority: .utility) {
             #if os(iOS)
             for folder in SavedFolderStore.load() {
                 var isStale = false
