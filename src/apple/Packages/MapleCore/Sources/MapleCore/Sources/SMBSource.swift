@@ -236,6 +236,49 @@ public actor SMBSource {
         return outcome
     }
 
+    // MARK: - Trash / restore (#2653)
+
+    /// Trash `ref`'s file into `.maple/trash/<rel>` (SMB has no OS-trash
+    /// concept to call into — see `SMBFileOperations+Trash.swift`'s file
+    /// header). Same `pathByMapleId`/`_assets` reconciliation as
+    /// `relocateAsset`'s move branch.
+    public func trashAsset(_ ref: ImageRef) async throws -> RelocateOutcome {
+        guard let client else { throw SMBError.notConnected }
+        let sourcePath = path(for: ref)
+        let outcome = try await SMBFileOperations.trash(sourcePath, transport: client)
+        pathByMapleId[ref.id] = outcome.primaryPath
+        _assets.removeAll { $0.path == sourcePath }
+        return outcome
+    }
+
+    /// Every item currently sitting in this share's `.maple/trash` — backs
+    /// the in-app Trash browser for SMB sources.
+    public func listTrash() async throws -> [TrashedItem] {
+        guard let client else { throw SMBError.notConnected }
+        return await SMBFileOperations.listMapleTrash(transport: client)
+    }
+
+    /// Restore a trashed item to its original location.
+    public func restoreFromTrash(_ item: TrashedItem) async throws -> RelocateOutcome {
+        guard let client else { throw SMBError.notConnected }
+        return try await SMBFileOperations.restoreFromMapleTrash(item.primaryPath, transport: client)
+    }
+
+    /// Permanently delete a trashed item — no further recovery.
+    public func permanentlyDelete(_ item: TrashedItem) async throws {
+        guard let client else { throw SMBError.notConnected }
+        try await SMBFileOperations.permanentlyDeleteFromMapleTrash(item, transport: client)
+    }
+
+    /// Purges every `.maple/trash` item ≥30 days old. Called from the app's
+    /// debounced daily sweep (`AppShell+Trash.swift`) whenever an SMB share
+    /// is the connected source.
+    @discardableResult
+    public func sweepExpiredTrash(olderThanDays: Int = 30) async -> Int {
+        guard let client else { return 0 }
+        return await SMBFileOperations.sweepExpiredMapleTrash(olderThanDays: olderThanDays, transport: client)
+    }
+
     /// Write XMP sidecar bytes over SMB with retry (3 attempts, exponential back-off).
     public func writeSidecar(_ data: Data, for asset: SMBAsset) async throws {
         guard let client else { throw SMBError.notConnected }

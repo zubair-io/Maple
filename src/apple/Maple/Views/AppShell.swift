@@ -354,6 +354,23 @@ struct AppShell: View {
     @State var assetDropCollisionResolver: AssetDropCollisionResolver?
     @State var assetDropResults: [AssetDropItemResult]?
 
+    /// Grid Delete key / "Move to Trash" context menu (#2653). See
+    /// `AppShell+Trash.swift`. Same shape as the asset-drop state above:
+    /// `assetTrashTask` guards against overlapping batches, `assetTrashResults`
+    /// drives the end-of-batch report (shown only on failure or a
+    /// mixed-destination batch).
+    @State var assetTrashTask: Task<Void, Never>?
+    @State var assetTrashResults: [AssetTrashItemResult]?
+    /// In-app Trash browser (#2653) — `.maple/trash`-backed sources
+    /// (iOS/iPadOS Filesystem, SMB) and Cloud. `nil` when not shown; set by
+    /// the toolbar's "Trash" button for the current source.
+    @State var trashBrowserContext: TrashBrowserContext?
+    /// Throwaway connection backing the Trash browser when `trashBrowserContext`
+    /// is `.smb` — independent of `browseVM.currentSource` so browsing an
+    /// SMB share's trash doesn't disturb whatever the grid is currently
+    /// showing. Torn down when the sheet dismisses.
+    @State var trashBrowserSMBSource: SMBSource?
+
     private var selectedSession: EditSession? {
         browseVM.selectedID.flatMap { sessions[$0] }
     }
@@ -617,6 +634,11 @@ struct AppShell: View {
             // restore so the opened file lands as the active editor session.
             // Implementation: AppShell+DocumentOpen.swift (#1589).
             consumePendingOpenedDocument()
+            // 30-day `.maple/trash` auto-purge (#2653) — debounced to at
+            // most once per 24h, mirroring the PhotoKit orphan sweeper's
+            // launch-time cadence (`docs/spec/08-io.md` § "Deletion sweep").
+            // Implementation: AppShell+Trash.swift.
+            sweepExpiredMapleTrashIfDue()
         }
         // Warm-launch delivery. An `.onOpenURL` while the app is
         // already foregrounded sets `pendingDestination`; we observe
@@ -736,6 +758,8 @@ struct AppShell: View {
             onEditMetadata: { openBatchMetadata() },
             // #2641 batch rename.
             onBatchRename: { openBatchRename() },
+            // #2653: grid Delete-key/context-menu trash.
+            onTrashAssets: { ids in trashSelectedAssets(ids: Set(ids)) },
             // #944 copy/paste/sync adjustments.
             clipboard: adjustmentClipboard
         )
@@ -758,6 +782,16 @@ struct AppShell: View {
             collisionPrompt: $assetDropCollisionPrompt,
             collisionResolver: $assetDropCollisionResolver,
             results: $assetDropResults
+        )
+        // #2653: grid Delete-key/context-menu trash report + the in-app
+        // Trash browser. See `AppShell+Trash.swift` / `TrashSheets.swift`.
+        .assetTrashSheets(
+            results: $assetTrashResults,
+            trashBrowserContext: $trashBrowserContext,
+            onLoad: { await loadTrashBrowserRows() },
+            onRestore: { row in await restoreTrashBrowserRow(row) },
+            onPermanentlyDelete: { row in await permanentlyDeleteTrashBrowserRow(row) },
+            onDismissBrowser: { dismissTrashBrowser() }
         )
         // M2: panorama merge view — presented as a sheet on Mac/iPad.
         // Covers the full content area; Cancel dismisses back to Browse
@@ -1013,6 +1047,23 @@ struct AppShell: View {
                 renameCloudFolder(server: server, libraryFolderID: libraryFolderID,
                                   libraryRootPath: libraryRootPath, absPath: absPath, newName: newName)
             },
+            onTrashCloudFolder: { server, libraryFolderID, libraryRootPath, absPath in
+                trashCloudFolder(server: server, libraryFolderID: libraryFolderID,
+                                 libraryRootPath: libraryRootPath, absPath: absPath)
+            },
+            #if os(iOS)
+            // macOS Filesystem sources use the real OS Trash and have no
+            // in-app Trash node — see `AppShell+Trash.swift`'s file header.
+            onShowLocalTrash: { url, rootBookmark, displayName in
+                trashBrowserContext = .local(libraryRoot: url, rootBookmark: rootBookmark, displayName: displayName)
+            },
+            #endif
+            onShowSMBTrash: { share in
+                trashBrowserContext = .smb(share)
+            },
+            onShowCloudTrash: { server, libraryFolderID, displayName in
+                trashBrowserContext = .cloud(server: server, libraryFolderID: libraryFolderID, displayName: displayName)
+            },
             onSelectTimeline: { openAllSourcesTimeline() }
         )
     }
@@ -1082,6 +1133,8 @@ struct AppShell: View {
             onMergePanorama: { openPanoramaMerge() },
             onEditMetadata: { openBatchMetadata() },
             onBatchRename: { openBatchRename() },
+            // #2653: grid Delete-key/context-menu trash.
+            onTrashAssets: { ids in trashSelectedAssets(ids: Set(ids)) },
             clipboard: adjustmentClipboard
         )
         // M2: panorama merge sheet for iPhone — same sheet as Mac/iPad,
@@ -1124,6 +1177,16 @@ struct AppShell: View {
             collisionPrompt: $assetDropCollisionPrompt,
             collisionResolver: $assetDropCollisionResolver,
             results: $assetDropResults
+        )
+        // #2653: grid Delete-key/context-menu trash report + the in-app
+        // Trash browser. See `AppShell+Trash.swift` / `TrashSheets.swift`.
+        .assetTrashSheets(
+            results: $assetTrashResults,
+            trashBrowserContext: $trashBrowserContext,
+            onLoad: { await loadTrashBrowserRows() },
+            onRestore: { row in await restoreTrashBrowserRow(row) },
+            onPermanentlyDelete: { row in await permanentlyDeleteTrashBrowserRow(row) },
+            onDismissBrowser: { dismissTrashBrowser() }
         )
     }
     #endif

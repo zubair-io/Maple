@@ -73,9 +73,22 @@ actor FakeSMBTransport: SMBFileTransport {
         throw FakeSMBTransportError.notFound(path)
     }
 
+    /// Includes directory entries (with `.isDirectoryKey: true`) alongside
+    /// files — needed so `SMBFileOperations`'s trash-marker scheme (an
+    /// empty directory sibling, see `TrashMarker.swift`) is actually
+    /// listable in tests the same way a real recursive AMSMB2 walk returns
+    /// them (`SMBSource.listRAWFiles`'s doc comment: "Directories ... are
+    /// skipped" — implying production callers see and filter them, which
+    /// this fake previously didn't reproduce).
     func contentsOfDirectory(atPath path: String, recursive: Bool) async throws -> [[URLResourceKey: Any]] {
         let prefix = path.hasSuffix("/") ? path : path + "/"
-        return files.keys.filter { $0.hasPrefix(prefix) }.map { [.nameKey: ($0 as NSString).lastPathComponent, .pathKey: $0] }
+        let fileEntries: [[URLResourceKey: Any]] = files.keys.filter { $0.hasPrefix(prefix) }.map {
+            [.nameKey: ($0 as NSString).lastPathComponent, .pathKey: $0, .isDirectoryKey: false]
+        }
+        let dirEntries: [[URLResourceKey: Any]] = directories.filter { $0 != path && $0.hasPrefix(prefix) }.map {
+            [.nameKey: ($0 as NSString).lastPathComponent, .pathKey: $0, .isDirectoryKey: true]
+        }
+        return fileEntries + dirEntries
     }
 
     func copyItem(atPath path: String, toPath: String, recursive: Bool,

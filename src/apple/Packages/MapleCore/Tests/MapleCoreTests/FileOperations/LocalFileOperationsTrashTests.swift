@@ -53,6 +53,105 @@ final class LocalFileOperationsTrashTests: XCTestCase {
         XCTAssertThrowsError(try LocalFileOperations.trashDestinationDir(for: outsider, libraryRoot: root))
     }
 
+    // MARK: - Restore / list / purge (#2653)
+
+    func testTrashToMapleFolderWritesATrashedDateMarker() async throws {
+        let source = FileOperationsTestSupport.write("pixels", to: root.appendingPathComponent("IMG_1.dng"))
+        let outcome = try await LocalFileOperations.trashToMapleFolder(source, libraryRoot: root)
+
+        XCTAssertNotNil(LocalFileOperations.trashedDate(forItemAt: URL(fileURLWithPath: outcome.primaryPath)))
+    }
+
+    func testListMapleTrashFindsTrashedItemsAndSkipsMarkersAndSidecars() async throws {
+        let source = FileOperationsTestSupport.write(
+            "pixels", to: root.appendingPathComponent("2024/Paris/IMG_1.dng"))
+        FileOperationsTestSupport.write("<xmp/>", to: SidecarPath.sidecarURL(for: source))
+        _ = try await LocalFileOperations.trashToMapleFolder(source, libraryRoot: root)
+
+        let items = LocalFileOperations.listMapleTrash(libraryRoot: root)
+
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items[0].originalRelativePath, "2024/Paris/IMG_1.dng")
+        XCTAssertEqual(items[0].displayName, "IMG_1.dng")
+        XCTAssertNotNil(items[0].sidecarPath)
+        XCTAssertNotNil(items[0].trashedDate)
+    }
+
+    func testRestoreFromMapleTrashPutsTheItemBackAtItsOriginalRelativeLocation() async throws {
+        let source = FileOperationsTestSupport.write(
+            "pixels", to: root.appendingPathComponent("2024/Paris/IMG_1.dng"))
+        FileOperationsTestSupport.write("<xmp/>", to: SidecarPath.sidecarURL(for: source))
+        let trashed = try await LocalFileOperations.trashToMapleFolder(source, libraryRoot: root)
+
+        let restored = try await LocalFileOperations.restoreFromMapleTrash(
+            URL(fileURLWithPath: trashed.primaryPath), libraryRoot: root)
+
+        XCTAssertEqual(restored.primaryPath, source.path)
+        XCTAssertTrue(FileOperationsTestSupport.exists(source))
+        XCTAssertTrue(restored.sidecarFollowed)
+        // The marker is cleaned up on restore — nothing left behind in trash.
+        XCTAssertEqual(LocalFileOperations.listMapleTrash(libraryRoot: root).count, 0)
+    }
+
+    func testRestoreFromMapleTrashAutoSuffixesOnCollisionAtTheOriginalLocation() async throws {
+        let first = FileOperationsTestSupport.write("first", to: root.appendingPathComponent("IMG_1.dng"))
+        let trashedFirst = try await LocalFileOperations.trashToMapleFolder(first, libraryRoot: root)
+        // Something new now occupies the original spot.
+        _ = FileOperationsTestSupport.write("second", to: root.appendingPathComponent("IMG_1.dng"))
+
+        let restored = try await LocalFileOperations.restoreFromMapleTrash(
+            URL(fileURLWithPath: trashedFirst.primaryPath), libraryRoot: root)
+
+        XCTAssertTrue(restored.renamedDueToCollision)
+        XCTAssertEqual(URL(fileURLWithPath: restored.primaryPath).lastPathComponent, "IMG_1.1.dng")
+        // The pre-existing occupant is untouched.
+        XCTAssertEqual(FileOperationsTestSupport.contents(root.appendingPathComponent("IMG_1.dng")), "second")
+    }
+
+    func testPermanentlyDeleteFromMapleTrashRemovesPrimarySidecarAndMarker() async throws {
+        let source = FileOperationsTestSupport.write("pixels", to: root.appendingPathComponent("IMG_1.dng"))
+        FileOperationsTestSupport.write("<xmp/>", to: SidecarPath.sidecarURL(for: source))
+        _ = try await LocalFileOperations.trashToMapleFolder(source, libraryRoot: root)
+        let item = LocalFileOperations.listMapleTrash(libraryRoot: root)[0]
+
+        try LocalFileOperations.permanentlyDeleteFromMapleTrash(item)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: item.primaryPath))
+        XCTAssertEqual(LocalFileOperations.listMapleTrash(libraryRoot: root).count, 0)
+    }
+
+    func testSweepExpiredMapleTrashPurgesOnlyItemsOlderThanTheThreshold() async throws {
+        let old = FileOperationsTestSupport.write("old", to: root.appendingPathComponent("OLD.dng"))
+        let oldOutcome = try await LocalFileOperations.trashToMapleFolder(old, libraryRoot: root)
+        let recent = FileOperationsTestSupport.write("recent", to: root.appendingPathComponent("RECENT.dng"))
+        _ = try await LocalFileOperations.trashToMapleFolder(recent, libraryRoot: root)
+
+        // Back-date the OLD item's marker by re-writing it at a 40-day-old date.
+        LocalFileOperations.removeTrashedMarker(forItemAt: URL(fileURLWithPath: oldOutcome.primaryPath))
+        LocalFileOperations.writeTrashedMarker(
+            forItemAt: URL(fileURLWithPath: oldOutcome.primaryPath),
+            date: Date().addingTimeInterval(-40 * 86_400))
+
+        let purged = LocalFileOperations.sweepExpiredMapleTrash(libraryRoot: root, olderThanDays: 30)
+
+        XCTAssertEqual(purged, 1)
+        let remaining = LocalFileOperations.listMapleTrash(libraryRoot: root)
+        XCTAssertEqual(remaining.count, 1)
+        XCTAssertEqual(remaining[0].displayName, "RECENT.dng")
+    }
+
+    func testSweepExpiredMapleTrashNeverPurgesAnItemWithNoMarker() async throws {
+        // A "legacy" trashed item — moved directly, bypassing the marker
+        // write, simulating one trashed before this scheme existed.
+        let trashDir = try LocalFileOperations.trashDestinationDir(for: root.appendingPathComponent("IMG_1.dng"), libraryRoot: root)
+        FileOperationsTestSupport.write("pixels", to: trashDir.appendingPathComponent("IMG_1.dng"))
+
+        let purged = LocalFileOperations.sweepExpiredMapleTrash(libraryRoot: root, olderThanDays: 0)
+
+        XCTAssertEqual(purged, 0)
+        XCTAssertEqual(LocalFileOperations.listMapleTrash(libraryRoot: root).count, 1)
+    }
+
     // MARK: - Real OS Trash (macOS only)
 
     #if os(macOS)
