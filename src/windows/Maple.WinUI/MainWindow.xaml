@@ -76,6 +76,12 @@
                         <MenuFlyoutItem Text="Export…" Click="OnExportPhotos"
                                         KeyboardAcceleratorTextOverride="Ctrl+E" />
                         <MenuFlyoutSeparator />
+                        <!-- Restore from Maple's own trash (#2654) — SMB/network deletes and
+                             any local delete where the Recycle Bin call itself failed;
+                             local-drive deletes restore from File Explorer's Recycle Bin
+                             instead, not here. -->
+                        <MenuFlyoutItem Text="Restore from Maple Trash…" Click="OnRestoreFromMapleTrash" />
+                        <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Exit" Click="OnMenuExit" />
                     </MenuFlyout>
                 </Button.Flyout>
@@ -151,6 +157,13 @@
                              selection onto a FOLDERS node (#2648) — same code path
                              (RunDragMoveAsync), no drag gesture required. -->
                         <MenuFlyoutItem Text="Move to Folder…" Click="OnMoveToFolder" />
+                        <MenuFlyoutSeparator />
+                        <!-- Delete → Trash (#2654): local fixed drive uses the Windows
+                             Recycle Bin (Explorer owns Restore); SMB/failed-Recycle-Bin
+                             falls back to Maple's own .maple/trash, restorable from
+                             File → Restore from Maple Trash… -->
+                        <MenuFlyoutItem Text="Delete…" Click="OnDeleteSelectedPhotos"
+                                        KeyboardAcceleratorTextOverride="Del" />
                         <MenuFlyoutItem Text="Stitch Panorama…" Click="OnStitchPano" />
                     </MenuFlyout>
                 </Button.Flyout>
@@ -410,6 +423,16 @@
                               DragItemsStarting="OnPhotoGridDragItemsStarting"
                               DragItemsCompleted="OnPhotoGridDragItemsCompleted"
                               AutomationProperties.Name="Photo grid">
+                        <!-- Right-click Delete on the grid selection (#2654) — same
+                             OnDeleteSelectedPhotos handler as the Delete key and the
+                             Photo menu's "Delete…" item, so none of the three can
+                             drift from another. -->
+                        <GridView.ContextFlyout>
+                            <MenuFlyout>
+                                <MenuFlyoutItem Text="Delete…" Click="OnDeleteSelectedPhotos"
+                                                AutomationProperties.Name="Delete selected photos" />
+                            </MenuFlyout>
+                        </GridView.ContextFlyout>
                         <GridView.GroupStyle>
                             <GroupStyle>
                                 <GroupStyle.HeaderTemplate>
