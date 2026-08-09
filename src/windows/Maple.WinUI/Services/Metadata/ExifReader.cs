@@ -21,7 +21,8 @@ public sealed record ExifData(
     DateTime? DateTimeOriginal,
     int? Orientation,
     int? PixelWidth,
-    int? PixelHeight);
+    int? PixelHeight,
+    string? CameraSerial);
 
 /// <summary>
 /// Self-contained EXIF reader for TIFF-container RAW files (DNG, CR2, NEF, ARW,
@@ -46,6 +47,7 @@ public static class ExifReader
     private const ushort TagFocalLength = 0x920A;
     private const ushort TagExifPixelXDimension = 0xA002;
     private const ushort TagExifPixelYDimension = 0xA003;
+    private const ushort TagBodySerialNumber = 0xA431;
     private const ushort TagLensModel = 0xA434;
 
     // Safety caps against malformed files.
@@ -200,6 +202,9 @@ public static class ExifReader
                     break;
                 case TagLensModel:
                     acc.Lens ??= ReadAscii(tiff, entries, e, type, count);
+                    break;
+                case TagBodySerialNumber:
+                    acc.CameraSerial ??= ReadAscii(tiff, entries, e, type, count);
                     break;
                 case TagOrientation:
                     acc.Orientation ??= AsInt(ReadUnsigned(tiff, entries, e, type, count));
@@ -357,6 +362,7 @@ public static class ExifReader
         public string? Make;
         public string? Model;
         public string? Lens;
+        public string? CameraSerial;
         public int? Iso;
         public int? RecommendedExposureIndex;
         public double? FNumber;
@@ -384,8 +390,8 @@ public static class ExifReader
             var iso = Iso ?? (RecommendedExposureIndex is > 0 ? RecommendedExposureIndex : null);
             var result = new ExifData(
                 Make, Model, Lens, iso, FNumber, ExposureTime, FocalLength,
-                DateTimeOriginal, Orientation, _width, _height);
-            return result == new ExifData(null, null, null, null, null, null, null, null, null, null, null)
+                DateTimeOriginal, Orientation, _width, _height, CameraSerial);
+            return result == new ExifData(null, null, null, null, null, null, null, null, null, null, null, null)
                 ? null
                 : result;
         }

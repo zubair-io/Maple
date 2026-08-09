@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Maple.WinUI.Services;
+using Maple.WinUI.Services.FileOperations;
 using Maple.WinUI.Services.Metadata;
 using Maple.WinUI.Services.Xmp;
 
@@ -283,6 +284,10 @@ namespace Maple.WinUI.ViewModels
                         onReady?.Invoke();
                         return;
                     }
+                    // EnumerateAndReconcile carries the #2657 closed-app
+                    // rename fallback (EditSessionViewModel.RenameReconcile.cs).
+                    var filePaths = EnumerateAndReconcile(folderPath);
+
                     // Per-item try/catch (#2754), mirroring EditSessionViewModel.
                     // Watcher.cs's ChangesReady handler: one unreadable file
                     // (a transient FileInfo failure, a sidecar SidecarStore.Load
@@ -290,7 +295,7 @@ namespace Maple.WinUI.ViewModels
                     // aborting the whole folder's load — the outer try/catch
                     // around this Task.Run body still exists as the backstop
                     // for anything NOT scoped to a single file.
-                    var items = EnumerateImageFiles(folderPath)
+                    var items = filePaths
                         .TakeWhile(_ => !cts.Token.IsCancellationRequested)
                         .Select(filePath =>
                         {
@@ -354,7 +359,7 @@ namespace Maple.WinUI.ViewModels
                             ApplyFilters();
                             Timeline.GroupPhotosByDate(AllPhotos);
                             onReady?.Invoke();
-                            _ = Task.Run(() => HydrateLibraryAsync(items, cts.Token), cts.Token);
+                            _ = Task.Run(() => HydrateLibraryAsync(items, folderPath, cts.Token), cts.Token);
                         }
                         catch (Exception ex)
                         {
@@ -411,15 +416,22 @@ namespace Maple.WinUI.ViewModels
         }
 
         /// <summary>Thumbnails + EXIF, off the UI thread, cancellable when the
-        /// user navigates to another folder.</summary>
-        private async Task HydrateLibraryAsync(List<PhotoItem> items, CancellationToken ct)
+        /// user navigates to another folder. <paramref name="folderPath"/>,
+        /// when given, persists a fingerprint snapshot (#2657) so a later
+        /// scan can recognize an external rename instead of orphaning the
+        /// sidecar; null for the live-watcher arrival path, an incremental
+        /// batch that would make every untouched file look newly missing.</summary>
+        private async Task HydrateLibraryAsync(List<PhotoItem> items, string? folderPath, CancellationToken ct)
         {
+            var snapshot = new Dictionary<string, RenameReconciliationLogic.Fingerprint>(StringComparer.OrdinalIgnoreCase);
             foreach (var item in items)
             {
                 if (ct.IsCancellationRequested)
                     return;
 
                 var exif = ExifReader.Read(item.FilePath);
+                snapshot[item.FileName] = new RenameReconciliationLogic.Fingerprint(
+                    item.FileSizeBytes, exif?.DateTimeOriginal, exif?.CameraSerial);
                 var thumb = await _thumbnails.GetOrCreateAsync(item.FilePath, ct);
 
                 App.MainDispatcherQueue?.TryEnqueue(() =>
@@ -453,6 +465,8 @@ namespace Maple.WinUI.ViewModels
                     }
                 });
             }
+            if (!ct.IsCancellationRequested && folderPath != null)
+                SaveRenameSnapshot(folderPath, snapshot);
         }
 
         private static string? Join(string? a, string? b) =>
