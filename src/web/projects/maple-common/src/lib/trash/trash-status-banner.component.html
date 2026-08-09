@@ -1,0 +1,10 @@
+@if (toast(); as message) {
+  <div class="tsb-toast" role="status">
+    <span>{{ message }}</span>
+    <button type="button" (click)="dismissToast.emit()" aria-label="Dismiss">✕</button>
+  </div>
+}
+
+@if (loadError(); as error) {
+  <div class="tsb-error" role="alert">{{ error }}</div>
+}

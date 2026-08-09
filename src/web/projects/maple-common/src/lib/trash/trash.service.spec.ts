@@ -134,19 +134,21 @@ describe('TrashService', () => {
   });
 
   describe('trashAssets', () => {
-    it('sends every asset to Trash and reports a full success summary', async () => {
-      deleteAssetSpy.mockReturnValue(of(undefined));
+    it('sends every asset to Trash with intent=trash and reports a full success summary', async () => {
+      deleteAssetSpy.mockReturnValue(of({ kind: 'ok' }));
       service.trashAssets([ASSET_A.id, ASSET_B.id], LIBRARY_ID);
       expect(service.busy()).toBe(true);
       await vi.waitFor(() => expect(service.busy()).toBe(false));
       expect(deleteAssetSpy).toHaveBeenCalledTimes(2);
+      expect(deleteAssetSpy).toHaveBeenCalledWith(ASSET_A.id, 'trash');
+      expect(deleteAssetSpy).toHaveBeenCalledWith(ASSET_B.id, 'trash');
       expect(service.resultSummary()).toEqual({ total: 2, trashed: 2, failed: [] });
       expect(refreshFolderListingSpy).toHaveBeenCalledWith(LIBRARY_ID);
     });
 
     it('reports partial failure without aborting the rest of the batch', async () => {
       deleteAssetSpy.mockImplementation((id: string) =>
-        id === ASSET_A.id ? throwError(() => new Error('locked')) : of(undefined),
+        id === ASSET_A.id ? throwError(() => new Error('locked')) : of({ kind: 'ok' }),
       );
       service.trashAssets([ASSET_A.id, ASSET_B.id], LIBRARY_ID);
       await vi.waitFor(() => expect(service.busy()).toBe(false));
@@ -154,6 +156,26 @@ describe('TrashService', () => {
       expect(summary?.trashed).toBe(1);
       expect(summary?.failed).toHaveLength(1);
       expect(summary?.failed[0].assetId).toBe(ASSET_A.id);
+      expect(summary?.failed[0].alreadyTrashed).toBeUndefined();
+    });
+
+    // #2749 — a 409 (the caller's grid listing was stale: something else
+    // already trashed this asset) is a benign, distinct outcome, never a
+    // generic failure, and never a silent success either.
+    it('reports a 409 conflict as alreadyTrashed, not a generic failure', async () => {
+      deleteAssetSpy.mockImplementation((id: string) =>
+        id === ASSET_A.id ? of({ kind: 'conflict', state: 'trashed' }) : of({ kind: 'ok' }),
+      );
+      service.trashAssets([ASSET_A.id, ASSET_B.id], LIBRARY_ID);
+      await vi.waitFor(() => expect(service.busy()).toBe(false));
+      const summary = service.resultSummary();
+      expect(summary?.trashed).toBe(1);
+      expect(summary?.failed).toHaveLength(1);
+      expect(summary?.failed[0].assetId).toBe(ASSET_A.id);
+      expect(summary?.failed[0].alreadyTrashed).toBe(true);
+      expect(summary?.failed[0].reason).toMatch(/already in trash/i);
+      // The stale listing this conflict revealed still gets refreshed.
+      expect(refreshFolderListingSpy).toHaveBeenCalledWith(LIBRARY_ID);
     });
 
     it('is a no-op with an empty selection', () => {
@@ -163,7 +185,7 @@ describe('TrashService', () => {
     });
 
     it('dismissSummary clears the reported result', async () => {
-      deleteAssetSpy.mockReturnValue(of(undefined));
+      deleteAssetSpy.mockReturnValue(of({ kind: 'ok' }));
       service.trashAssets([ASSET_A.id], LIBRARY_ID);
       await vi.waitFor(() => expect(service.busy()).toBe(false));
       service.dismissSummary();

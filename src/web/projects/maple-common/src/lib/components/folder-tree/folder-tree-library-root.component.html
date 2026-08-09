@@ -1,0 +1,9 @@
+<app-folder-tree-node [node]="section()" [level]="0" (crudRequested)="crudRequested.emit($event)" />
+
+@if (libraryIdForTrashRow(); as trashLibraryId) {
+  <app-trash-node-row
+    [libraryLabel]="section().label"
+    [badge]="trashBadgeFor(trashLibraryId)"
+    (activate)="onTrashNodeActivate(trashLibraryId, section().label)"
+  />
+}

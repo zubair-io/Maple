@@ -1,0 +1,26 @@
+<!-- Right-click / long-press / keyboard-menu context menu, and its New
+     Folder / Rename / Move to Trash dialogs (#2643). `FolderTreeCrudComponent`
+     is referenced ONLY inside this `@defer` block, so it — and everything it
+     imports (the menu, the three dialogs, `FolderCrudService`) — code-splits
+     into its own chunk instead of the app's eager main bundle (#2705 review).
+     `crudRequest()` only ever becomes non-null on Self-Hosted (row handlers
+     no-op when `FOLDER_TREE_CRUD_ENABLED` is off), so Hosted never triggers
+     the load. -->
+@defer (when crudRequest() !== null) {
+  @if (crudRequest(); as request) {
+    <app-folder-tree-crud
+      [request]="request"
+      (closed)="crudClosed.emit()"
+      (mutated)="crudMutated.emit($event)"
+    />
+  }
+}
+
+@if (trashPartialWarning(); as warning) {
+  <div class="trash-partial-warning" role="status">
+    <span>{{ warning }}</span>
+    <button type="button" (click)="dismissTrashPartialWarning.emit()" aria-label="Dismiss">
+      ✕
+    </button>
+  </div>
+}

@@ -7,13 +7,19 @@
 //   GET  /api/folders/:id/trash          — paged list, newest-first
 //   POST /api/assets/:id/restore         — single-asset restore
 //   POST /api/folders/:id/restore-folder — recursive restore under a subtree
-//   DELETE /api/assets/:id               — dual-mode on the server: a live
-//       asset soft-deletes (send to Trash), an already-trashed asset
+//   DELETE /api/assets/:id?intent=trash|purge — dual-mode on the server: a
+//       live asset soft-deletes (send to Trash), an already-trashed asset
 //       permanently purges. Both call sites in `TrashService` hit the exact
-//       same endpoint — which branch runs is decided server-side by the
-//       asset's current `deleted_at`, never by the client — so one method
+//       same endpoint with an explicit `intent` (#2749) pinning which
+//       direction the caller means — the server 409s with `{ state }`
+//       instead of silently running the OTHER branch when the caller's
+//       listing turns out to be stale (a stale grid could otherwise
+//       irreversibly purge a photo its user only meant to trash; a stale
+//       Trash panel could otherwise quietly re-trash a photo someone had
+//       already restored while reporting "cannot be undone"). One method
 //       here (`deleteAsset`) serves both `trashAsset` and
-//       `deletePermanently`.
+//       `deletePermanently`, distinguished only by the `intent` argument —
+//       never inferred from local state.
 //
 // There is no server-side "delete this folder's trash permanently in one
 // call" endpoint — `routes/assets/trash.ts`'s module doc says as much
@@ -24,13 +30,14 @@
 // endpoint.
 
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { Observable, map } from 'rxjs';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { Observable, catchError, map, of, throwError } from 'rxjs';
 import { API_BASE_URL } from './api-base-url.token';
 import type { AssetId } from '../models/asset';
 import type {
   RestoreAssetResult,
   TrashBatchSummary,
+  TrashDeleteOutcome,
   TrashItem,
   TrashPage,
 } from '../trash/trash.types';
@@ -80,8 +87,9 @@ export class TrashApiService {
   /** One page of a library's trash, newest-first. `cursor` is the opaque
    * `nextCursor` from a prior page; omit for the first page. */
   listTrash(folderId: string, cursor?: string | null, limit = 100): Observable<TrashPage> {
-    let params: Record<string, string> = { limit: String(limit) };
-    if (cursor) params = { ...params, cursor };
+    const params: Record<string, string> = cursor
+      ? { limit: String(limit), cursor }
+      : { limit: String(limit) };
     return this.http
       .get<TrashPageWire>(`${this.base}/folders/${folderId}/trash`, { params })
       .pipe(map((page) => ({ items: page.items.map(toTrashItem), nextCursor: page.next_cursor })));
@@ -115,9 +123,28 @@ export class TrashApiService {
     );
   }
 
-  /** `DELETE /api/assets/:id` — soft-deletes a live asset (send to Trash)
-   * or permanently purges an already-trashed one. See file header. */
-  deleteAsset(assetId: AssetId): Observable<void> {
-    return this.http.delete<void>(`${this.base}/assets/${assetId}`);
+  /** `DELETE /api/assets/:id?intent=trash|purge` — soft-deletes a live
+   * asset (`intent: 'trash'`) or permanently purges an already-trashed one
+   * (`intent: 'purge'`). `intent` is REQUIRED here (unlike the server,
+   * which still accepts an omitted `intent` for the legacy File Provider
+   * contract — see file header) so no call site in this UI can silently
+   * fall into the wrong branch by forgetting to pass it.
+   *
+   * A state-mismatch 409 (the caller's listing was stale — see file
+   * header) resolves to `{ kind: 'conflict', state }` instead of throwing,
+   * so every caller handles it as a first-class per-item outcome rather
+   * than a generic HTTP failure. Any other error (network, 404, 500)
+   * still propagates through the returned observable's error channel. */
+  deleteAsset(assetId: AssetId, intent: 'trash' | 'purge'): Observable<TrashDeleteOutcome> {
+    return this.http.delete<void>(`${this.base}/assets/${assetId}`, { params: { intent } }).pipe(
+      map((): TrashDeleteOutcome => ({ kind: 'ok' })),
+      catchError((err: unknown) => {
+        if (err instanceof HttpErrorResponse && err.status === 409) {
+          const state = (err.error as { state?: 'trashed' | 'live' } | null)?.state ?? null;
+          return of<TrashDeleteOutcome>({ kind: 'conflict', state });
+        }
+        return throwError(() => err);
+      }),
+    );
   }
 }
