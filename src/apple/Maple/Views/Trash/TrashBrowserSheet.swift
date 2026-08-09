@@ -135,6 +135,7 @@ struct TrashBrowserSheet: View {
                         }
                         .buttonStyle(.bordered)
                         .accessibilityIdentifier("trashBrowser.deletePermanently.\(row.id)")
+                        .accessibilityLabel("Delete Permanently")
                     }
                 }
                 .accessibilityIdentifier("trashBrowser.row.\(row.displayName)")

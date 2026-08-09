@@ -113,6 +113,12 @@ extension AppShell {
 
     // MARK: - Cloud
 
+    // TODO(#2750): `deleteAsset` is dual-mode server-side — it infers
+    // trash-vs-purge from the asset's CURRENT `deleted_at` state, so a
+    // stale grid listing here could silently PURGE an already-trashed
+    // asset instead of trashing a live one. #2749 adds an explicit
+    // `?intent=trash|purge` query param with a 409 on mismatch; adopt it
+    // here once #2749 merges.
     private func performCloudTrash(_ asset: AssetRef) async -> AssetTrashItemResult.Outcome {
         guard let catalog = asset.catalog, let assetID = asset.stableID else {
             return .failed("This photo hasn't finished indexing on the server yet.")
@@ -213,10 +219,10 @@ extension AppShell {
         guard let trashBrowserContext else { return false }
         switch trashBrowserContext {
         case .local(let libraryRoot, let rootBookmark, _):
-            return await withLocalTrashScope(libraryRoot: libraryRoot, rootBookmark: rootBookmark) { _ in
+            return await withLocalTrashScope(libraryRoot: libraryRoot, rootBookmark: rootBookmark) { root in
                 let item = TrashedItem(id: row.id, primaryPath: row.id, sidecarPath: nil,
                                        originalRelativePath: row.displayName, trashedDate: row.trashedDate, size: row.size)
-                return (try? LocalFileOperations.permanentlyDeleteFromMapleTrash(item)) != nil
+                return (try? LocalFileOperations.permanentlyDeleteFromMapleTrash(item, libraryRoot: root)) != nil
             } ?? false
         case .smb(let share):
             guard let source = await connectedTrashSMBSource(for: share) else { return false }
@@ -231,7 +237,12 @@ extension AppShell {
         case .cloud(let server, _, _):
             // DELETE on an already-trashed asset is the server's permanent-
             // purge branch (`routes/assets/trash.ts`'s file header: "Already
-            // trashed → permanent purge").
+            // trashed → permanent purge"). TODO(#2750): this relies on the
+            // row shown in the browser still matching the server's CURRENT
+            // deleted_at state — if it was restored elsewhere between list
+            // and this call, this call would re-trash a now-live photo
+            // instead of purging it. Adopt `?intent=purge` (explicit, 409 on
+            // mismatch) once #2749 merges.
             let remote = makeCloudTrashClient(server: server)
             do {
                 try await remote.deleteAsset(assetID: row.id)
@@ -311,16 +322,23 @@ extension AppShell {
     /// performance invariants don't allow for a background maintenance
     /// task. Cloud's purge is entirely server-side (`workers/trash-gc.ts`)
     /// — nothing for the Apple client to do.
+    ///
+    /// The debounce timestamp is stamped AFTER the sweep work completes,
+    /// not before (review finding): stamping up front means an iOS
+    /// background kill mid-sweep silently skips the entire next 24h window
+    /// — a real loss for a purge that's already conservative about what it
+    /// touches. Runs as one `Task` (not fire-and-forget) precisely so
+    /// there's a completion point to stamp at.
     func sweepExpiredMapleTrashIfDue() {
         let defaults = UserDefaults.standard
         if let last = defaults.object(forKey: Self.trashSweepDebounceKey) as? Date,
            Date().timeIntervalSince(last) < Self.trashSweepInterval {
             return
         }
-        defaults.set(Date(), forKey: Self.trashSweepDebounceKey)
 
-        #if os(iOS)
-        Task.detached(priority: .utility) {
+        let currentSMBSource = browseVM.currentSource as? SMBSource
+        Task(priority: .utility) {
+            #if os(iOS)
             for folder in SavedFolderStore.load() {
                 var isStale = false
                 guard let root = try? URL(resolvingBookmarkData: folder.bookmark, options: [],
@@ -329,11 +347,11 @@ extension AppShell {
                 defer { if accessing { root.stopAccessingSecurityScopedResource() } }
                 LocalFileOperations.sweepExpiredMapleTrash(libraryRoot: root)
             }
-        }
-        #endif
-
-        if let source = browseVM.currentSource as? SMBSource {
-            Task { await source.sweepExpiredTrash() }
+            #endif
+            if let currentSMBSource {
+                await currentSMBSource.sweepExpiredTrash()
+            }
+            defaults.set(Date(), forKey: Self.trashSweepDebounceKey)
         }
     }
 }

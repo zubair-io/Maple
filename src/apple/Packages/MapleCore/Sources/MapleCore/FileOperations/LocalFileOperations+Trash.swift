@@ -145,7 +145,16 @@ extension LocalFileOperations {
     /// marker — with no further recovery. Best-effort on the sidecar/marker
     /// (matches every other cleanup path in this module); the primary
     /// unlink is the one call that throws.
-    public static func permanentlyDeleteFromMapleTrash(_ item: TrashedItem) throws {
+    ///
+    /// `libraryRoot` is REQUIRED and hard-guarded (review finding — every
+    /// other trash primitive in this file routes through
+    /// `trashDestinationDir`/`originalDestinationDir`, which refuse a path
+    /// outside `.maple/trash`; this is the one IRREVERSIBLE primitive in
+    /// the module, and it must not rely on a caller passing a `TrashedItem`
+    /// it trusts blindly — CLAUDE.md's "never write code that could delete
+    /// user photos" applies squarely here).
+    public static func permanentlyDeleteFromMapleTrash(_ item: TrashedItem, libraryRoot: URL) throws {
+        try requireUnderMapleTrash(item.primaryPath, libraryRoot: libraryRoot)
         let fm = FileManager.default
         try fm.removeItem(atPath: item.primaryPath)
         if let sidecarPath = item.sidecarPath {
@@ -154,23 +163,70 @@ extension LocalFileOperations {
         removeTrashedMarker(forItemAt: URL(fileURLWithPath: item.primaryPath))
     }
 
+    /// Throws `.invalidDestination` unless `path` resolves to somewhere
+    /// strictly inside `<libraryRoot>/.maple/trash` — the one check every
+    /// reversible sibling in this file already gets for free from
+    /// `trashDestinationDir`/`originalDestinationDir`, made explicit here
+    /// for the irreversible primitive that has no such helper of its own.
+    static func requireUnderMapleTrash(_ path: String, libraryRoot: URL) throws {
+        let trashRoot = libraryRoot.appendingPathComponent(".maple").appendingPathComponent("trash")
+            .standardizedFileURL.path
+        let candidate = URL(fileURLWithPath: path).standardizedFileURL.path
+        guard candidate.hasPrefix(trashRoot + "/") else {
+            throw FileOperationError.invalidDestination(
+                "\(path) is not inside .maple/trash under \(libraryRoot.path) — refusing permanent delete")
+        }
+    }
+
     /// Permanently deletes every item in `<libraryRoot>/.maple/trash` whose
-    /// marker says it's ≥`olderThanDays` old (design doc: "30-day
-    /// auto-purge applies to the Maple-private trash only"). Items with NO
-    /// marker (trashed before this scheme existed, or a marker write that
-    /// failed) are left alone rather than guessed at — the same
-    /// conservatism as the PhotoKit orphan sweeper only ever acting on
-    /// dated entries. Returns the count actually purged.
+    /// marker says it's MORE than `olderThanDays` full calendar days old
+    /// (design doc: "30-day auto-purge applies to the Maple-private trash
+    /// only" — `TrashMarker.daysElapsed`'s doc comment covers why this is a
+    /// day-to-day comparison, not a raw 24h-multiple, and why it's strictly
+    /// `>`, not `>=`). Items with NO marker (trashed before this scheme
+    /// existed, or a marker write that failed) are left alone rather than
+    /// guessed at — the same conservatism as the PhotoKit orphan sweeper
+    /// only ever acting on dated entries. Also removes any ORPHANED marker
+    /// (`sweepOrphanedMarkers`) whose primary is already gone. Returns the
+    /// total count of primaries purged plus orphaned markers removed.
     @discardableResult
     public static func sweepExpiredMapleTrash(libraryRoot: URL, olderThanDays: Int = 30, now: Date = Date()) -> Int {
         var purged = 0
         for item in listMapleTrash(libraryRoot: libraryRoot) {
             guard let trashedDate = item.trashedDate,
-                  now.timeIntervalSince(trashedDate) >= Double(olderThanDays) * 86_400
+                  TrashMarker.daysElapsed(since: trashedDate, now: now) > olderThanDays
             else { continue }
-            if (try? permanentlyDeleteFromMapleTrash(item)) != nil { purged += 1 }
+            if (try? permanentlyDeleteFromMapleTrash(item, libraryRoot: libraryRoot)) != nil { purged += 1 }
         }
+        purged += sweepOrphanedMarkers(libraryRoot: libraryRoot)
         return purged
+    }
+
+    /// Removes a trashed-date marker whose primary no longer exists — e.g.
+    /// the primary was permanently deleted, or removed externally. Without
+    /// this, an orphaned marker directory sits invisibly forever: both
+    /// `listMapleTrash` (which explicitly skips marker names while
+    /// enumerating primaries) and the age-based purge loop above (which
+    /// only ever iterates primaries) have no other path back to it. Folded
+    /// into `sweepExpiredMapleTrash` since both run on the same once-daily
+    /// cadence rather than needing a separate scheduled call.
+    static func sweepOrphanedMarkers(libraryRoot: URL) -> Int {
+        let trashRoot = libraryRoot.appendingPathComponent(".maple").appendingPathComponent("trash")
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: trashRoot, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
+        ) else { return 0 }
+        var removed = 0
+        for case let url as URL in enumerator {
+            guard let isDir = try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory, isDir == true
+            else { continue }
+            guard let parsed = TrashMarker.parseMarkerDirName(url.lastPathComponent) else { continue }
+            let primaryURL = url.deletingLastPathComponent().appendingPathComponent(parsed.basename)
+            guard !fm.fileExists(atPath: primaryURL.path) else { continue }
+            try? fm.removeItem(at: url)
+            removed += 1
+        }
+        return removed
     }
 
     // MARK: - Trashed-date marker (see TrashMarker.swift)
