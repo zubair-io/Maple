@@ -24,12 +24,22 @@ namespace Maple.WinUI.Services
         private readonly object _gate = new();
         private readonly HashSet<string> _added = new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _removed = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, string> _renamed = new(StringComparer.OrdinalIgnoreCase);
         private FileSystemWatcher? _watcher;
         private Timer? _debounce;
 
         /// <summary>One debounced batch of stable changes: files that appeared
         /// and files that disappeared, both already extension-filtered.</summary>
         public event Action<IReadOnlyList<string>, IReadOnlyList<string>>? ChangesReady;
+
+        /// <summary>One debounced batch of image-to-image renames observed
+        /// live (#2657) — both old and new paths, extension-filtered on both
+        /// sides. Fired separately from <see cref="ChangesReady"/> so a
+        /// consumer can follow the OS-reported identity directly (move the
+        /// sidecar, keep the in-memory item) instead of the generic
+        /// remove-then-add path, which would orphan the sidecar and lose the
+        /// item's rating/flag/color-label state.</summary>
+        public event Action<IReadOnlyList<(string OldPath, string NewPath)>>? RenamesReady;
 
         public LibraryWatcher(Func<string, bool> isImageFile)
         {
@@ -48,7 +58,7 @@ namespace Maple.WinUI.Services
                 };
                 watcher.Created += (_, e) => Queue(add: e.FullPath, remove: null);
                 watcher.Deleted += (_, e) => Queue(add: null, remove: e.FullPath);
-                watcher.Renamed += (_, e) => Queue(add: e.FullPath, remove: e.OldFullPath);
+                watcher.Renamed += (_, e) => QueueRenamed(e.OldFullPath, e.FullPath);
                 watcher.EnableRaisingEvents = true;
                 _watcher = watcher;
             }
@@ -72,7 +82,64 @@ namespace Maple.WinUI.Services
                 _debounce = null;
                 _added.Clear();
                 _removed.Clear();
+                _renamed.Clear();
             }
+        }
+
+        /// <summary>Handles a raw FileSystemWatcher Renamed event. Both sides
+        /// image files: recorded as a pending rename pair. Only one side an
+        /// image file: the grid only ever saw (or will ever see) one of the
+        /// two names, so the net effect collapses to a plain arrival or
+        /// departure — reuses <see cref="Queue"/> rather than duplicating its
+        /// stability-probe/coalescing logic.</summary>
+        private void QueueRenamed(string oldPath, string newPath)
+        {
+            var oldIsImage = _isImageFile(oldPath);
+            var newIsImage = _isImageFile(newPath);
+            if (!oldIsImage && !newIsImage)
+                return;
+            if (!oldIsImage)
+            {
+                Queue(add: newPath, remove: null);
+                return;
+            }
+            if (!newIsImage)
+            {
+                Queue(add: null, remove: oldPath);
+                return;
+            }
+
+            lock (_gate)
+            {
+                // Chain resolution: A->B is already pending and this event is
+                // B->C — collapse to A->C. Without this, the second rename in
+                // a rapid double-rename within one debounce window would try
+                // to move a sidecar that the first rename already moved.
+                var chainedFrom = _renamed.FirstOrDefault(
+                    kv => string.Equals(kv.Value, oldPath, StringComparison.OrdinalIgnoreCase)).Key;
+                if (chainedFrom != null)
+                {
+                    _renamed.Remove(chainedFrom);
+                    _renamed[chainedFrom] = newPath;
+                }
+                else if (_added.Contains(oldPath))
+                {
+                    // The file arrived AND got renamed before this debounce
+                    // window flushed — the app never saw the old name, so
+                    // this is just an arrival under the final name, not a
+                    // rename to reconcile.
+                    _added.Remove(oldPath);
+                    _added.Add(newPath);
+                }
+                else
+                {
+                    _renamed[oldPath] = newPath;
+                }
+                _added.Remove(newPath);
+                _removed.Remove(newPath);
+                _removed.Remove(oldPath);
+            }
+            RearmDebounce();
         }
 
         private void Queue(string? add, string? remove)
@@ -116,12 +183,15 @@ namespace Maple.WinUI.Services
         {
             List<string> candidates;
             List<string> removed;
+            List<KeyValuePair<string, string>> renameCandidates;
             lock (_gate)
             {
                 candidates = _added.ToList();
                 removed = _removed.ToList();
+                renameCandidates = _renamed.ToList();
                 _added.Clear();
                 _removed.Clear();
+                _renamed.Clear();
             }
 
             // File probes run OUTSIDE the gate — blocking I/O under the lock
@@ -140,14 +210,31 @@ namespace Maple.WinUI.Services
                 }
             }
 
+            var renamed = new List<(string OldPath, string NewPath)>();
+            var unstableRenames = new List<KeyValuePair<string, string>>();
+            foreach (var pair in renameCandidates)
+            {
+                switch (Probe(pair.Value))
+                {
+                    case FileProbe.Stable: renamed.Add((pair.Key, pair.Value)); break;
+                    case FileProbe.Locked: unstableRenames.Add(pair); break;
+                    case FileProbe.Missing: break;    // renamed again, or vanished, before we probed it
+                }
+            }
+
             if (added.Count > 0 || removed.Count > 0)
                 ChangesReady?.Invoke(added, removed);
-            if (unstable.Count == 0)
+            if (renamed.Count > 0)
+                RenamesReady?.Invoke(renamed);
+
+            if (unstable.Count == 0 && unstableRenames.Count == 0)
                 return;
             lock (_gate)
             {
                 foreach (var path in unstable)
                     _added.Add(path);
+                foreach (var pair in unstableRenames)
+                    _renamed[pair.Key] = pair.Value;
             }
             RearmDebounce();
         }
