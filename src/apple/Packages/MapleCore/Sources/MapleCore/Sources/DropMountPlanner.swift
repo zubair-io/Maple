@@ -68,14 +68,22 @@ public enum DropMountPlanner {
     ) -> DropPlan {
         guard !urls.isEmpty else { return .unsupported(extensions: []) }
 
+        // A dropped folder together with one of its own descendants (e.g.
+        // the folder AND a file inside it, both selected in Finder and
+        // dragged together) collapses to just the folder — otherwise the
+        // common-parent calc below lands one level too high (the folder's
+        // OWN parent), which is unscoped and never what the user meant by
+        // dragging the folder itself.
+        let topLevel = reduceToTopLevel(urls)
+
         if let existingRoot = mountedRoots.first(where: { root in
-            urls.allSatisfy { $0.isDescendant(ofOrEqualTo: root) }
+            topLevel.allSatisfy { $0.isDescendant(ofOrEqualTo: root) }
         }) {
-            return .navigateExisting(root: existingRoot, items: urls)
+            return .navigateExisting(root: existingRoot, items: topLevel)
         }
 
-        let folders = urls.filter(isDirectory)
-        let files = urls.filter { !isDirectory($0) }
+        let folders = topLevel.filter(isDirectory)
+        let files = topLevel.filter { !isDirectory($0) }
 
         // A single dropped folder mounts directly — no common-parent
         // computation needed, and nothing to select once landed in Browse.
@@ -106,5 +114,20 @@ public enum DropMountPlanner {
         }
 
         return .mountAndSelect(parentFolder: commonParent, files: targets)
+    }
+
+    /// Drop any URL that is a descendant-or-equal of ANOTHER url in the same
+    /// list — keeps only the "outermost" items. A dropped folder plus a
+    /// file inside it collapses to just the folder; a dropped folder plus
+    /// its own subfolder collapses to just the outer folder. Order-
+    /// independent and stable for duplicate entries (an exact duplicate
+    /// URL never removes itself, since `other != candidate` requires a
+    /// genuinely different value).
+    private static func reduceToTopLevel(_ urls: [URL]) -> [URL] {
+        urls.filter { candidate in
+            !urls.contains { other in
+                other != candidate && candidate.isDescendant(ofOrEqualTo: other)
+            }
+        }
     }
 }

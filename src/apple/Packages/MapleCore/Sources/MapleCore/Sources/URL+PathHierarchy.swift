@@ -11,10 +11,16 @@ import Foundation
 
 extension URL {
     /// True when `self` is `other` or lives anywhere inside it, compared by
-    /// standardized path components.
+    /// standardized path components, LOWERCASED before comparing — APFS
+    /// (macOS's default volume format) is case-insensitive-but-case-
+    /// preserving, so "/Users/x/Photos" and "/Users/x/photos" name the same
+    /// on-disk directory even though the strings differ. A dropped item
+    /// resolved through Finder/a bookmark can come back with either casing
+    /// depending on how it was originally typed, so a case-SENSITIVE
+    /// component compare here would miss a genuine "already mounted" match.
     public func isDescendant(ofOrEqualTo other: URL) -> Bool {
-        let selfComponents = standardizedFileURL.pathComponents
-        let otherComponents = other.standardizedFileURL.pathComponents
+        let selfComponents = standardizedFileURL.pathComponents.map { $0.lowercased() }
+        let otherComponents = other.standardizedFileURL.pathComponents.map { $0.lowercased() }
         guard otherComponents.count <= selfComponents.count else { return false }
         return Array(selfComponents.prefix(otherComponents.count)) == otherComponents
     }

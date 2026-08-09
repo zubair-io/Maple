@@ -325,6 +325,20 @@ struct AppShell: View {
     /// the sidebar's asset-drop `isDropTargeted` convention.
     @State private var isWindowDropTargeted = false
 
+    /// Single-flights the whole drop-to-mount flow (#2649 review finding
+    /// I2): SwiftUI's `.dropDestination` action closure can fire twice for
+    /// one physical drag-release, and the flow now awaits an async folder-
+    /// access confirmation panel (`confirmParentFolderAccess`) — without
+    /// this guard two overlapping drops could each present their own panel
+    /// or interleave mount state.
+    @State var isProcessingWindowDrop = false
+    /// iOS/iPadOS half of `confirmParentFolderAccess` (#2649): macOS uses
+    /// `NSOpenPanel` directly (no SwiftUI state needed); iOS has no
+    /// AppKit-equivalent seedable panel, so it bridges through this
+    /// `.fileImporter` + a suspended continuation instead.
+    @State var showDropConfirmationPicker = false
+    @State var dropConfirmationContinuation: CheckedContinuation<URL?, Never>?
+
     /// Bumped by `AppShell+FolderContextMenu` after a New Folder / Rename /
     /// Move to Trash action commits. `LibrarySidebar`'s tree rows watch this
     /// (mirrors `photosAuthGeneration`, #2454) to re-enumerate their
@@ -546,6 +560,28 @@ struct AppShell: View {
             if case .success(let url) = result {
                 loadFolder(url: url)
             }
+        }
+        // iOS/iPadOS half of the drop-to-mount folder-access confirmation
+        // (#2649) — see `confirmParentFolderAccess` in
+        // `AppShell+FolderDrop.swift`. macOS never sets
+        // `showDropConfirmationPicker` (it uses `NSOpenPanel` directly), so
+        // this modifier is inert there.
+        .fileImporter(isPresented: $showDropConfirmationPicker,
+                      allowedContentTypes: [.folder]) { result in
+            let url = try? result.get()
+            dropConfirmationContinuation?.resume(returning: url)
+            dropConfirmationContinuation = nil
+        }
+        // Safety net for cancel: `.fileImporter`'s completion handler is not
+        // reliably invoked when the user dismisses without picking anything
+        // — observed SwiftUI behavior, not documented — so a pending
+        // continuation could otherwise hang the drop flow forever. `nil`ing
+        // `dropConfirmationContinuation` in the completion handler above
+        // makes this a no-op on the normal (non-cancelled) path.
+        .onChange(of: showDropConfirmationPicker) { _, isPresented in
+            guard !isPresented else { return }
+            dropConfirmationContinuation?.resume(returning: nil)
+            dropConfirmationContinuation = nil
         }
         .sheet(isPresented: $showExport) {
             if let session = selectedSession {
@@ -1098,7 +1134,13 @@ struct AppShell: View {
             onShowCloudTrash: { server, libraryFolderID, displayName in
                 trashBrowserContext = .cloud(server: server, libraryFolderID: libraryFolderID, displayName: displayName)
             },
-            onSelectTimeline: { openAllSourcesTimeline() }
+            onSelectTimeline: { openAllSourcesTimeline() },
+            // OS file/folder drop-to-mount (#2649) — every sidebar row also
+            // installs its OWN `URL.self` drop target (see
+            // `LibrarySidebar.onDropURLs`'s doc comment for why a
+            // window-level-only handler leaves rows dead to Finder drags);
+            // all of them share this one entry point, same as the window.
+            onDropURLs: { urls in handleWindowDrop(urls) }
         )
     }
 

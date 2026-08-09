@@ -138,6 +138,19 @@ struct LibrarySidebar: View {
     /// `displayName`).
     var onShowCloudTrash: ((URL, String, String) -> Void)? = nil
     let onSelectTimeline: () -> Void
+    /// OS file/folder drop-to-mount (#2649). Every row below that already
+    /// installs a `.dropDestination(for: DraggedAssetPayload.self, …)`
+    /// (`FolderTreeRow`, `SMBShareRow`, `CloudFolderTreeRow`) ALSO installs
+    /// this as a second, same-view `.dropDestination(for: URL.self, …)` —
+    /// SwiftUI does not fall a non-matching drop through to an ANCESTOR
+    /// view's differently-typed `dropDestination` (a nested typed drop
+    /// target claims-and-rejects a Finder drag rather than letting it
+    /// bubble), so a window-level-only handler would leave every sidebar
+    /// row dead to Finder drops — the single most intuitive drop target.
+    /// Returns whether the drop was accepted, same contract as
+    /// `AppShell.handleWindowDrop`. Default no-op keeps the preview/other
+    /// call sites compiling.
+    var onDropURLs: ([URL]) -> Bool = { _ in false }
 
     // Section-open state (mockup: chevron open/closed).
     @State private var showFolders = true
@@ -246,6 +259,7 @@ struct LibrarySidebar: View {
                             onTrashFolder: onTrashFolder,
                             onShowTrash: onShowLocalTrash,
                             onDropAssets: onDropAssets,
+                            onDropURLs: onDropURLs,
                             selectedAssetCount: selectedAssetCount
                         )
                     }
@@ -366,6 +380,7 @@ struct LibrarySidebar: View {
                             },
                             onCreateFolder: { name in onCreateSMBFolder(share, name) },
                             onDropAssets: { ids, isCopy in onDropAssetsSMB(share, ids, isCopy) },
+                            onDropURLs: onDropURLs,
                             selectedAssetCount: selectedAssetCount,
                             onShowTrash: onShowSMBTrash.map { callback in { callback(share) } }
                         )
@@ -459,6 +474,7 @@ struct LibrarySidebar: View {
                     onDropAssets: { libraryFolderID, libraryRootPath, absPath, ids, isCopy in
                         onDropAssetsCloud(url, libraryFolderID, libraryRootPath, absPath, ids, isCopy)
                     },
+                    onDropURLs: onDropURLs,
                     selectedAssetCount: selectedAssetCount
                 )
                 // Keyed on the server's signed-in state so the load RE-RUNS when
@@ -675,6 +691,8 @@ private struct SMBShareRow: View {
     /// subfolder tree in the sidebar (see `AppShell+FolderContextMenu`'s
     /// file header), so this row is the only SMB drop target today.
     var onDropAssets: (Set<AssetRef.ID>?, Bool) -> Void = { _, _ in }
+    /// OS file/folder drop-to-mount (#2649). See `LibrarySidebar.onDropURLs`.
+    var onDropURLs: ([URL]) -> Bool = { _ in false }
     var selectedAssetCount: Int = 0
     /// "Show Trash…" (#2653) — SMB always uses `.maple/trash` (no OS
     /// recycle bin over a network share). `nil` suppresses the menu item.
@@ -702,6 +720,8 @@ private struct SMBShareRow: View {
             onDropAssets(Set(payload.ids), MapleDragModifier.isCopyRequested())
             return true
         }, isTargeted: { targeted in isDropTargeted = targeted })
+        // Second, same-view drop target for OS file/folder drops (#2649).
+        .dropDestination(for: URL.self, action: { urls, _ in onDropURLs(urls) })
         .contextMenu {
             if selectedAssetCount > 0 {
                 Button {
@@ -798,6 +818,10 @@ private struct FolderTreeRow: View {
     /// doc comment for the `ids == nil` ⇒ "use current grid selection"
     /// contract.
     var onDropAssets: (URL, Data, Set<AssetRef.ID>?, Bool) -> Void = { _, _, _, _ in }
+    /// OS file/folder drop-to-mount (#2649). See `LibrarySidebar.onDropURLs`'s
+    /// doc comment for why this row needs its OWN `URL.self` drop target
+    /// rather than relying on a window-level one.
+    var onDropURLs: ([URL]) -> Bool = { _ in false }
     /// Gates the "Move/Copy Selected Here" context-menu items.
     var selectedAssetCount: Int = 0
 
@@ -880,6 +904,11 @@ private struct FolderTreeRow: View {
                 onDropAssets(url, rootBookmark, Set(payload.ids), MapleDragModifier.isCopyRequested())
                 return true
             }, isTargeted: { targeted in isDropTargeted = targeted })
+            // Second, same-view drop target for OS file/folder drops (#2649)
+            // — a distinct type from `DraggedAssetPayload` above, so this is
+            // an ADDITIONAL registered type on this same drop target, not a
+            // competing nested one; see `LibrarySidebar.onDropURLs`.
+            .dropDestination(for: URL.self, action: { urls, _ in onDropURLs(urls) })
             .contextMenu {
                 if selectedAssetCount > 0 {
                     Button {
@@ -987,6 +1016,7 @@ private struct FolderTreeRow: View {
                         onRenameFolder: onRenameFolder,
                         onTrashFolder: onTrashFolder,
                         onDropAssets: onDropAssets,
+                        onDropURLs: onDropURLs,
                         selectedAssetCount: selectedAssetCount
                     )
                 }
