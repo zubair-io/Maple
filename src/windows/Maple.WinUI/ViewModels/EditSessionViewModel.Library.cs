@@ -247,10 +247,10 @@ namespace Maple.WinUI.ViewModels
         /// callers that need to select or open a specific dropped file only
         /// need FilePath/FileName to exist in <see cref="Photos"/>, not the
         /// full hydration. Both the background scan and the dispatcher
-        /// apply step are wrapped in a broad try/catch (#2754 review, a
-        /// jules finding): an unexpected exception mid-scan — a corrupt
-        /// sidecar SidecarStore.Load doesn't already swallow, a transient
-        /// FileInfo failure — must still invoke onReady, or an awaiting
+        /// apply step are wrapped in a broad try/catch (#2754): an
+        /// unexpected exception mid-scan — something not scoped to a
+        /// single file, since per-file failures are now caught below —
+        /// must still invoke onReady, or an awaiting
         /// AddLibraryFolderAsync/LoadDirectoryAsync (and whatever gate the
         /// caller holds, e.g. MainWindow.DropMount.cs's _dropGate) would
         /// hang forever.</summary>
@@ -283,28 +283,45 @@ namespace Maple.WinUI.ViewModels
                         onReady?.Invoke();
                         return;
                     }
+                    // Per-item try/catch (#2754), mirroring EditSessionViewModel.
+                    // Watcher.cs's ChangesReady handler: one unreadable file
+                    // (a transient FileInfo failure, a sidecar SidecarStore.Load
+                    // doesn't already swallow) skips that file rather than
+                    // aborting the whole folder's load — the outer try/catch
+                    // around this Task.Run body still exists as the backstop
+                    // for anything NOT scoped to a single file.
                     var items = EnumerateImageFiles(folderPath)
                         .TakeWhile(_ => !cts.Token.IsCancellationRequested)
                         .Select(filePath =>
                         {
-                            var info = new FileInfo(filePath);
-                            var item = new PhotoItem
+                            try
                             {
-                                FilePath = filePath,
-                                FileName = info.Name,
-                                Format = info.Extension.TrimStart('.').ToUpperInvariant(),
-                                FileSizeBytes = info.Length,
-                                FileModifiedUtc = info.LastWriteTimeUtc,
-                            };
-                            var sidecar = SidecarStore.Load(filePath);
-                            if (sidecar != null)
-                            {
-                                item.Rating = sidecar.Rating ?? 0;
-                                item.FlagStatus = sidecar.Flag ?? "none";
-                                item.ColorLabel = sidecar.ColorLabel;
+                                var info = new FileInfo(filePath);
+                                var item = new PhotoItem
+                                {
+                                    FilePath = filePath,
+                                    FileName = info.Name,
+                                    Format = info.Extension.TrimStart('.').ToUpperInvariant(),
+                                    FileSizeBytes = info.Length,
+                                    FileModifiedUtc = info.LastWriteTimeUtc,
+                                };
+                                var sidecar = SidecarStore.Load(filePath);
+                                if (sidecar != null)
+                                {
+                                    item.Rating = sidecar.Rating ?? 0;
+                                    item.FlagStatus = sidecar.Flag ?? "none";
+                                    item.ColorLabel = sidecar.ColorLabel;
+                                }
+                                return item;
                             }
-                            return item;
+                            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                            {
+                                DiagLog.Write($"[library] skipped unreadable file: {filePath}: {ex.Message}");
+                                return null;
+                            }
                         })
+                        .Where(item => item != null)
+                        .Select(item => item!)
                         .ToList();
                     if (cts.Token.IsCancellationRequested)
                     {
@@ -312,9 +329,9 @@ namespace Maple.WinUI.ViewModels
                         return;
                     }
 
-                    // TryEnqueue's return is captured (#2754 review, jules
-                    // re-review BLOCKING): App.MainDispatcherQueue can be
-                    // null, or TryEnqueue can return false (the dispatcher
+                    // TryEnqueue's return is captured (#2754):
+                    // App.MainDispatcherQueue can be null, or TryEnqueue
+                    // can return false (the dispatcher
                     // is shutting down), in which case the lambda — and the
                     // onReady?.Invoke() inside it — never runs at all. Left
                     // unchecked, that permanently hangs whatever awaits
@@ -371,9 +388,9 @@ namespace Maple.WinUI.ViewModels
         }
 
         // WatchBrowsedFolder / CreateLibraryWatcher (#2585 live grid updates)
-        // moved to EditSessionViewModel.Watcher.cs — split out (#2754
-        // review round) to stay under this file's line-budget after the
-        // #2651 drop-to-mount additions.
+        // moved to EditSessionViewModel.Watcher.cs — split out (#2754) to
+        // stay under this file's line-budget after the #2651 drop-to-mount
+        // additions.
 
         /// <summary>A folder shows its OWN images only — subfolders are reached
         /// through the tree. No recursion: a click on a huge library root must
