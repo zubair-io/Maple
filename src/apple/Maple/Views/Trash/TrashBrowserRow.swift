@@ -25,3 +25,17 @@ struct TrashBrowserRow: Identifiable, Equatable {
         self.size = item.size
     }
 }
+
+/// Outcome of a Restore / Delete Permanently action on one row (#2653,
+/// extended for #2750's Cloud `intent` adoption). `.stale` is the 409
+/// state-mismatch case: the Cloud server's `?intent=trash|purge` refused
+/// because the asset's CURRENT state doesn't match what this row assumed
+/// (e.g. it was restored elsewhere between listing and this call) — the
+/// action did NOT proceed (never a silent purge of a live photo), and the
+/// row is removed from view since it no longer belongs in this trash list,
+/// with `reason` shown so the removal isn't unexplained.
+enum TrashRowActionOutcome {
+    case succeeded
+    case stale(reason: String)
+    case failed(String)
+}
