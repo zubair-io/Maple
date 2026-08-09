@@ -274,7 +274,13 @@ extension AppShell {
         trashBrowserSMBSource = nil
     }
 
-    private func makeCloudTrashClient(server: URL) -> RemoteCatalog {
+    /// Not `private` (review finding, jules): `AppShell+FolderContextMenu
+    /// .swift`'s `trashCloudFolder` reuses this exact construction rather
+    /// than inventing its own — a second, drifted copy that skipped
+    /// `LocalNetworkResolver.shared.effectiveURL(for:)` was exactly the bug
+    /// caught here. One `RemoteCatalog(server:)` construction path for
+    /// every Cloud trash/restore call site in the app.
+    func makeCloudTrashClient(server: URL) -> RemoteCatalog {
         let httpClient = makeAuthenticatedHTTPClient(server: server)
         let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: server)
         return RemoteCatalog(http: httpClient, server: effectiveServer)
