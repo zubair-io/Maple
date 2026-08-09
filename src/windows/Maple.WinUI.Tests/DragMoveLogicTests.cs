@@ -99,7 +99,7 @@ namespace Maple.WinUI.Tests
         [Fact]
         public void IsEligibleDropTargetNode_UnavailableRoot_IsFalse()
         {
-            // #2754 review: an offline/missing library root (#2651) still
+            // #2754: an offline/missing library root (#2651) still
             // renders a row, but dragging a real photo onto it must not be
             // accepted — there's no directory there to relocate into.
             Assert.False(DragMoveLogic.IsEligibleDropTargetNode(
