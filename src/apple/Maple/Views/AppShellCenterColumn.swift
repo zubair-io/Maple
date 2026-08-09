@@ -102,6 +102,9 @@ struct AppShellCenterColumn: View {
     /// Called when the user taps "Batch Rename…" from the BrowseGrid
     /// multi-select action bar (#2641). nil hides the button.
     var onBatchRename: (() -> Void)? = nil
+    /// Delete key / "Move to Trash" context-menu item on BrowseGrid (#2653).
+    /// nil disables both.
+    var onTrashAssets: (([AssetRef.ID]) -> Void)? = nil
     /// App-level copy/paste/sync-adjustments clipboard (#944). nil hides the
     /// selection bar's paste/sync buttons and disables the ⌘C/⌘V shortcuts
     /// (e.g. previews).
@@ -219,6 +222,7 @@ struct AppShellCenterColumn: View {
                         onMergePanorama: onMergePanorama,
                         onEditMetadata: onEditMetadata,
                         onBatchRename: onBatchRename,
+                        onTrashAssets: onTrashAssets,
                         clipboard: clipboard
                     )
                 }
@@ -234,6 +238,7 @@ struct AppShellCenterColumn: View {
                     onMergePanorama: onMergePanorama,
                     onEditMetadata: onEditMetadata,
                     onBatchRename: onBatchRename,
+                    onTrashAssets: onTrashAssets,
                     clipboard: clipboard
                 )
                 #endif
