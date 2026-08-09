@@ -25,6 +25,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Maple.WinUI.Services;
 using Maple.WinUI.Services.FileOperations;
 using Maple.WinUI.ViewModels;
 
@@ -32,10 +33,34 @@ namespace Maple.WinUI
 {
     public sealed partial class MainWindow
     {
+        // Guards the whole confirm → progress → report flow below against a
+        // re-entrant second call — key-repeat on a held Delete key, or a
+        // second trigger landing in the gap between the confirm dialog
+        // closing and the progress dialog presenting, would otherwise try
+        // to open a second ContentDialog while WinUI only allows one, and
+        // OnDeleteSelectedPhotos's fire-and-forget `_ =`/keyboard-handler
+        // call site has nothing to observe that throw. See
+        // Services/SingleFlightGate.cs.
+        private readonly SingleFlightGate _deleteGate = new();
+
         private async void OnDeleteSelectedPhotos(object sender, RoutedEventArgs e) =>
             await RunDeleteSelectedPhotosAsync();
 
         private async Task RunDeleteSelectedPhotosAsync()
+        {
+            if (!_deleteGate.TryEnter())
+                return;
+            try
+            {
+                await RunDeleteSelectedPhotosCoreAsync();
+            }
+            finally
+            {
+                _deleteGate.Exit();
+            }
+        }
+
+        private async Task RunDeleteSelectedPhotosCoreAsync()
         {
             var selection = ViewModel.SelectedPhotos;
             var eligible = EditSessionViewModel.TrashEligible(selection);
