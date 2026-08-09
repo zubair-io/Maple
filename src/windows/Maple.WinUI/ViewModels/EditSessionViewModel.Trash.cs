@@ -74,8 +74,11 @@ namespace Maple.WinUI.ViewModels
         /// LibraryWatcher already owns grid removal.</summary>
         public Task<IReadOnlyList<TrashItemOutcome>> ApplyTrashAsync(
             IReadOnlyList<TrashSourceItem> sources, Action<int, int>? onItemDone = null) =>
+            // recycleBin passed positionally (not `recycleBin: null`) — a
+            // named argument can't be followed by a positional one
+            // (CS1738), and onItemDone here is positional.
             TrashSelectionLogic.ApplySequentialAsync(
-                sources, item => ResolveLibraryRootFor(item.PrimaryPath), recycleBin: null, onItemDone);
+                sources, item => ResolveLibraryRootFor(item.PrimaryPath), null, onItemDone);
 
         // --- Restore (.maple/trash only — Recycle Bin items restore via Explorer) ---
 
