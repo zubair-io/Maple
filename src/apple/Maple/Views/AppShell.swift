@@ -371,6 +371,22 @@ struct AppShell: View {
     /// showing. Torn down when the sheet dismisses.
     @State var trashBrowserSMBSource: SMBSource?
 
+    /// `nil` on macOS (Filesystem sources use the real OS Trash — see
+    /// `AppShell+Trash.swift`'s file header); wires the in-app Trash
+    /// browser on iOS/iPadOS. A computed property (not an inline `#if`
+    /// inside the `AppShellSidebar(...)` call) — conditional compilation
+    /// around a single labeled call argument doesn't parse cleanly mixed
+    /// with the surrounding unconditional arguments.
+    private var showLocalTrashHandler: ((URL, Data, String) -> Void)? {
+        #if os(iOS)
+        return { url, rootBookmark, displayName in
+            trashBrowserContext = .local(libraryRoot: url, rootBookmark: rootBookmark, displayName: displayName)
+        }
+        #else
+        return nil
+        #endif
+    }
+
     private var selectedSession: EditSession? {
         browseVM.selectedID.flatMap { sessions[$0] }
     }
@@ -1051,13 +1067,11 @@ struct AppShell: View {
                 trashCloudFolder(server: server, libraryFolderID: libraryFolderID,
                                  libraryRootPath: libraryRootPath, absPath: absPath)
             },
-            #if os(iOS)
             // macOS Filesystem sources use the real OS Trash and have no
             // in-app Trash node — see `AppShell+Trash.swift`'s file header.
-            onShowLocalTrash: { url, rootBookmark, displayName in
-                trashBrowserContext = .local(libraryRoot: url, rootBookmark: rootBookmark, displayName: displayName)
-            },
-            #endif
+            // `showLocalTrashHandler` is `nil` on macOS so the sidebar's
+            // "Show Trash…" item never appears there.
+            onShowLocalTrash: showLocalTrashHandler,
             onShowSMBTrash: { share in
                 trashBrowserContext = .smb(share)
             },

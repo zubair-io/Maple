@@ -86,6 +86,9 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
     var onEditMetadata: (() -> Void)? = nil
     /// #2641: called when the user taps "Batch Rename…" from PanoSelectionBar.
     var onBatchRename: (() -> Void)? = nil
+    /// #2653: Delete key / "Move to Trash" context-menu item, forwarded
+    /// through to BrowseGrid via AppShellCenterColumn.
+    var onTrashAssets: (([AssetRef.ID]) -> Void)? = nil
     /// #944: app-level copy/paste/sync-adjustments clipboard, forwarded
     /// through to BrowseGrid via AppShellCenterColumn.
     var clipboard: AdjustmentClipboard? = nil
@@ -132,6 +135,7 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
             onMergePanorama: onMergePanorama,
             onEditMetadata: onEditMetadata,
             onBatchRename: onBatchRename,
+            onTrashAssets: onTrashAssets,
             clipboard: clipboard
         )
         .navigationTitle(libraryTitle)

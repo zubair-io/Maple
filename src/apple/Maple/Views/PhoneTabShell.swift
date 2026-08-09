@@ -115,6 +115,9 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     var onEditMetadata: (() -> Void)? = nil
     /// #2641: triggers the batch rename sheet when the user taps "Batch Rename…".
     var onBatchRename: (() -> Void)? = nil
+    /// #2653: Delete key / "Move to Trash" context-menu item, forwarded
+    /// through to BrowseGrid via PhoneLibraryView / AppShellIPhoneShell.
+    var onTrashAssets: (([AssetRef.ID]) -> Void)? = nil
     /// #944: app-level copy/paste/sync-adjustments clipboard, forwarded
     /// through to BrowseGrid via PhoneLibraryView / AppShellIPhoneShell.
     var clipboard: AdjustmentClipboard? = nil
@@ -205,6 +208,7 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     onMergePanorama: onMergePanorama,
                     onEditMetadata: onEditMetadata,
                     onBatchRename: onBatchRename,
+                    onTrashAssets: onTrashAssets,
                     clipboard: clipboard
                 )
               }

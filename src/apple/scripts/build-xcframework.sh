@@ -600,7 +600,8 @@ IOS_ONLY_SYMBOLS=(
 # IOS_ONLY_SYMBOLS (present on SOME Apple slices), a Windows-only symbol must
 # be ABSENT from EVERY Apple slice — macOS and iOS alike.
 WINDOWS_ONLY_SYMBOLS=(
-    maple_gpu_present_chain_winui   # WinUI3 swapchain present (#2678, Windows-only)
+    maple_gpu_present_chain_winui          # WinUI3 swapchain present (#2678, Windows-only)
+    maple_gpu_present_chain_winui_scaled   # WinUI3 scaled present variant (#2678, Windows-only)
 )
 
 # (No `mapfile` — the Xcode/CLI shebang resolves to macOS's bash 3.2, which
