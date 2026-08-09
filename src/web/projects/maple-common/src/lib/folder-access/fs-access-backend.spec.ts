@@ -1,7 +1,9 @@
 import {
   fsAccessOpenDroppedFolder,
   fsAccessOpenFolder,
+  fsAccessPickContainingFolder,
   fsAccessReopenHandle,
+  fsAccessResolveCommonParent,
 } from './fs-access-backend';
 
 describe('fsAccessOpenFolder', () => {
@@ -97,5 +99,103 @@ describe('fsAccessOpenDroppedFolder', () => {
       failure: 'permission-denied',
       inputName: 'Reloaded RAWs',
     });
+  });
+});
+
+describe('fsAccessResolveCommonParent', () => {
+  function fileHandle(name: string): FileSystemFileHandle {
+    return { kind: 'file', name } as unknown as FileSystemFileHandle;
+  }
+
+  function dirHandle(
+    name: string,
+    opts: {
+      resolveMap?: Record<string, string[] | null>;
+      children?: Record<string, FileSystemDirectoryHandle>;
+    } = {},
+  ): FileSystemDirectoryHandle {
+    const resolveMap = opts.resolveMap ?? {};
+    const children = opts.children ?? {};
+    return {
+      kind: 'directory',
+      name,
+      resolve: vi.fn(async (h: FileSystemHandle) => resolveMap[h.name] ?? null),
+      getDirectoryHandle: vi.fn(async (segment: string) => {
+        const child = children[segment];
+        if (!child) throw new Error(`no such directory: ${segment}`);
+        return child;
+      }),
+    } as unknown as FileSystemDirectoryHandle;
+  }
+
+  it('returns the root itself when every file is a direct child', async () => {
+    const a = fileHandle('a.dng');
+    const b = fileHandle('b.dng');
+    const root = dirHandle('Library', {
+      resolveMap: { 'a.dng': ['a.dng'], 'b.dng': ['b.dng'] },
+    });
+
+    await expect(fsAccessResolveCommonParent(root, [a, b])).resolves.toEqual({
+      dir: root,
+      fileNames: ['a.dng', 'b.dng'],
+    });
+  });
+
+  it("descends through every intermediate directory to reach a nested file's immediate parent", async () => {
+    const nested = fileHandle('IMG_1.dng');
+    const trip = dirHandle('Trip');
+    const year = dirHandle('2024', { children: { Trip: trip } });
+    const root = dirHandle('Library', {
+      resolveMap: { 'IMG_1.dng': ['2024', 'Trip', 'IMG_1.dng'] },
+      children: { '2024': year },
+    });
+
+    await expect(fsAccessResolveCommonParent(root, [nested])).resolves.toEqual({
+      dir: trip,
+      fileNames: ['IMG_1.dng'],
+    });
+  });
+
+  it('returns null when the files are not siblings (no single common immediate parent)', async () => {
+    const inYear = fileHandle('a.dng');
+    const atRoot = fileHandle('b.dng');
+    const root = dirHandle('Library', {
+      resolveMap: { 'a.dng': ['2024', 'a.dng'], 'b.dng': ['b.dng'] },
+      children: { '2024': dirHandle('2024') },
+    });
+
+    await expect(fsAccessResolveCommonParent(root, [inYear, atRoot])).resolves.toBeNull();
+  });
+
+  it('returns null when a file is not under the root at all', async () => {
+    const outside = fileHandle('outside.dng');
+    const root = dirHandle('Library', { resolveMap: {} });
+
+    await expect(fsAccessResolveCommonParent(root, [outside])).resolves.toBeNull();
+  });
+});
+
+describe('fsAccessPickContainingFolder', () => {
+  const original = Object.getOwnPropertyDescriptor(window, 'showDirectoryPicker');
+
+  afterEach(() => {
+    if (original) Object.defineProperty(window, 'showDirectoryPicker', original);
+    else Reflect.deleteProperty(window, 'showDirectoryPicker');
+  });
+
+  it('uses its own picker id, distinct from "Open folder", so a remembered directory for that id cannot override startIn', async () => {
+    const showDirectoryPicker = vi.fn().mockResolvedValue({ kind: 'directory', name: 'Roll' });
+    Object.defineProperty(window, 'showDirectoryPicker', {
+      configurable: true,
+      value: showDirectoryPicker,
+    });
+    const startIn = { kind: 'file', name: 'a.dng' } as unknown as FileSystemHandle;
+
+    await fsAccessPickContainingFolder(startIn);
+
+    expect(showDirectoryPicker).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'maple-drop-seed', startIn }),
+    );
+    expect(showDirectoryPicker.mock.calls[0][0].id).not.toBe('maple-folder');
   });
 });
