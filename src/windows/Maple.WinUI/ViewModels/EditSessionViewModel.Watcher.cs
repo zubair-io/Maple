@@ -6,6 +6,7 @@
 // note (#2639) and EditSessionViewModel.DropMount.cs's.
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -97,10 +98,88 @@ namespace Maple.WinUI.ViewModels
                     ApplyFilters();
                     Timeline.GroupPhotosByDate(AllPhotos);
                     if (items.Count > 0)
-                        _ = Task.Run(() => HydrateLibraryAsync(items, CancellationToken.None));
+                        _ = Task.Run(() => HydrateLibraryAsync(items, null, CancellationToken.None));
                 });
             };
+            watcher.RenamesReady += ApplyLiveRenames;
             return watcher;
+        }
+
+        /// <summary>
+        /// A rename observed WHILE THE APP IS RUNNING (#2657) — follows
+        /// FileSystemWatcher's Renamed event exactly, no heuristic and no
+        /// false-positive risk: the OS already told us the old and new
+        /// identity are the same file. The generic added/removed path
+        /// (above) would instead drop the old PhotoItem and build a brand
+        /// new one from the new name, reading a sidecar that never followed
+        /// the rename — this is the orphaning bug the ticket exists to
+        /// close. Sidecar move + in-place identity update run here instead.
+        ///
+        /// No old-path cache-entry cleanup: nothing in the existing
+        /// in-app rename flow (EditSessionViewModel.Rename.cs's
+        /// ApplyRenameOutcome) deletes the old ThumbnailService cache entry
+        /// either — that gap is #2710, tracked separately, and this live
+        /// path stays consistent with it rather than growing new GC logic
+        /// no other rename path has.
+        /// </summary>
+        private void ApplyLiveRenames(IReadOnlyList<(string OldPath, string NewPath)> pairs)
+        {
+            var folder = CurrentFolderPath;
+            var reconciled = pairs
+                .Where(p => string.Equals(Path.GetDirectoryName(p.OldPath), folder, StringComparison.OrdinalIgnoreCase))
+                .Select(p =>
+                {
+                    try
+                    {
+                        RenameSidecarIfPresent(p.OldPath, p.NewPath);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        // The primary rename already happened on disk — an
+                        // item that keeps its identity but loses its edits
+                        // to a locked/colliding sidecar move beats orphaning
+                        // the grid entry entirely.
+                        DiagLog.Write($"[library] sidecar rename failed for {p.OldPath} -> {p.NewPath}: {ex.Message}");
+                    }
+                    return p;
+                })
+                .ToList();
+            if (reconciled.Count == 0)
+                return;
+
+            App.MainDispatcherQueue?.TryEnqueue(() =>
+            {
+                if (!string.Equals(CurrentFolderPath, folder, StringComparison.OrdinalIgnoreCase))
+                    return;    // user navigated away while the batch settled
+                var changed = false;
+                foreach (var (oldPath, newPath) in reconciled)
+                {
+                    var photo = AllPhotos.FirstOrDefault(p =>
+                        string.Equals(p.FilePath, oldPath, StringComparison.OrdinalIgnoreCase));
+                    if (photo == null)
+                        continue;    // watcher fired before the item ever loaded — nothing to reconcile
+                    ApplyRenameOutcome(photo, newPath);
+                    changed = true;
+                }
+                if (!changed)
+                    return;
+                ApplyFilters();
+                Timeline.GroupPhotosByDate(AllPhotos);
+            });
+        }
+
+        /// <summary>Moves the `.xmp` sidecar to follow an externally-renamed
+        /// primary. `overwrite: false` — a collision at the new sidecar path
+        /// means something already occupies that name, and silently
+        /// clobbering a stranger's edits is worse than leaving this one
+        /// orphaned (caught and logged by the caller).</summary>
+        private static void RenameSidecarIfPresent(string oldPrimaryPath, string newPrimaryPath)
+        {
+            var oldSidecar = SidecarStore.SidecarPathFor(oldPrimaryPath);
+            if (!File.Exists(oldSidecar))
+                return;
+            var newSidecar = SidecarStore.SidecarPathFor(newPrimaryPath);
+            File.Move(oldSidecar, newSidecar, overwrite: false);
         }
     }
 }
