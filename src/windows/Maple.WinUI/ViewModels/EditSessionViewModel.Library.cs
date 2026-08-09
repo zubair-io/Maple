@@ -164,19 +164,7 @@ namespace Maple.WinUI.ViewModels
             node.ChildrenLoaded = true;
             _ = Task.Run(() =>
             {
-                List<FolderNode> children;
-                try
-                {
-                    children = Directory.EnumerateDirectories(node.Path)
-                        .Where(d => !IsSkippableDirectory(d))
-                        .OrderBy(d => d, StringComparer.OrdinalIgnoreCase)
-                        .Select(BuildFolderNode)
-                        .ToList();
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    children = new List<FolderNode>();
-                }
+                var children = EnumerateChildFolderNodes(node.Path);
                 App.MainDispatcherQueue?.TryEnqueue(() =>
                 {
                     node.Children.Clear();
@@ -184,6 +172,29 @@ namespace Maple.WinUI.ViewModels
                         node.Children.Add(child);
                 });
             });
+        }
+
+        /// <summary>Off-UI-thread enumeration of one folder's immediate
+        /// subfolders as fresh <see cref="FolderNode"/>s — the shared body
+        /// behind <see cref="LoadFolderChildren"/> (lazy first expand) and
+        /// EditSessionViewModel.FolderCrud.cs's forced refresh after New
+        /// Folder / Rename / Move to Trash (#2647) mutate the subtree. Pure
+        /// with respect to view state: callers own marshaling the result
+        /// back onto the UI thread.</summary>
+        private static List<FolderNode> EnumerateChildFolderNodes(string path)
+        {
+            try
+            {
+                return Directory.EnumerateDirectories(path)
+                    .Where(d => !IsSkippableDirectory(d))
+                    .OrderBy(d => d, StringComparer.OrdinalIgnoreCase)
+                    .Select(BuildFolderNode)
+                    .ToList();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return new List<FolderNode>();
+            }
         }
 
         private static bool IsSkippableDirectory(string dir)
