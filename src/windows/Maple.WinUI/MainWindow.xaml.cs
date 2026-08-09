@@ -42,6 +42,7 @@ namespace Maple.WinUI
             {
                 root.DataContext = ViewModel;
                 root.KeyDown += OnRootKeyDown;
+                WireDropTarget(root);   // OS file/folder drops (#2651) — MainWindow.DropMount.cs
             }
 
             ViewModel.Renderer.FrameReady += OnFrameReady;
@@ -453,7 +454,7 @@ namespace Maple.WinUI
 
         private void OnFolderNodeInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
         {
-            if (args.InvokedItem is FolderNode { IsPlaceholder: false } node)
+            if (args.InvokedItem is FolderNode { IsPlaceholder: false, IsUnavailable: false } node)
             {
                 ViewModel.SetDateFilter(null, null);
                 ViewModel.LoadDirectory(node.Path);

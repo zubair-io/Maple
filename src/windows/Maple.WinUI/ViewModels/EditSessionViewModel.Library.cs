@@ -60,7 +60,7 @@ namespace Maple.WinUI.ViewModels
                 LoadDirectory(first);
         }
 
-        public void AddLibraryFolder(string folderPath)
+        public void AddLibraryFolder(string folderPath, Action? onReady = null)
         {
             if (!LibraryFolders.Contains(folderPath, StringComparer.OrdinalIgnoreCase))
             {
@@ -70,8 +70,13 @@ namespace Maple.WinUI.ViewModels
                 settings.Save();
                 RebuildFolderTree();
             }
-            LoadDirectory(folderPath);
+            LoadDirectory(folderPath, onReady);
         }
+
+        // AddLibraryFolderAsync / LoadDirectoryAsync — the awaitable
+        // wrappers #2651's drop-to-mount flow needs — live in
+        // EditSessionViewModel.DropMount.cs, to stay under this file's
+        // line-budget split (see that file's header).
 
         private void RebuildFolderTree()
         {
@@ -84,7 +89,17 @@ namespace Maple.WinUI.ViewModels
                     // unreachable network roots without freezing the shell.
                     if (!Directory.Exists(root))
                     {
+                        // #2651: a root dropped/added from removable or
+                        // network storage may not be reachable at this
+                        // launch. Degrades to a visible-but-inert tree row
+                        // (FolderNode.IsUnavailable) rather than silently
+                        // vanishing from the sidebar or popping an error
+                        // dialog — the explanation lives in the row's own
+                        // label/tooltip (MainWindow.xaml), not a dialog the
+                        // user has to dismiss before doing anything else.
+                        var missing = BuildUnavailableFolderNode(root);
                         DiagLog.Write($"[library] root unavailable: {root}");
+                        App.MainDispatcherQueue?.TryEnqueue(() => FolderTree.Add(missing));
                         return;
                     }
                     var node = BuildFolderNode(root);
@@ -92,6 +107,10 @@ namespace Maple.WinUI.ViewModels
                 });
             }
         }
+
+        // BuildUnavailableFolderNode lives in EditSessionViewModel.DropMount.cs
+        // (same partial class, so RebuildFolderTree above can still call it
+        // directly) — kept out of this file for the same line-budget reason.
 
         /// <summary>Build ONE tree node: name + an expander stub when the
         /// folder has subfolders. No recursion — children load on expand.</summary>
@@ -217,10 +236,24 @@ namespace Maple.WinUI.ViewModels
             }
         }
 
-        public void LoadDirectory(string folderPath)
+        public void LoadDirectory(string folderPath) => LoadDirectory(folderPath, onReady: null);
+
+        /// <summary><paramref name="onReady"/> (#2651) fires once — on the
+        /// dispatcher — after this call's own AllPhotos/ApplyFilters update
+        /// has landed, or immediately (off the UI thread) on any early-out
+        /// (blank path, missing folder, superseded by a newer LoadDirectory
+        /// call) so an awaiting caller can never hang. It fires BEFORE the
+        /// fire-and-forget thumbnail/EXIF hydration starts, not after —
+        /// callers that need to select or open a specific dropped file only
+        /// need FilePath/FileName to exist in <see cref="Photos"/>, not the
+        /// full hydration.</summary>
+        private void LoadDirectory(string folderPath, Action? onReady)
         {
             if (string.IsNullOrWhiteSpace(folderPath))
+            {
+                onReady?.Invoke();
                 return;
+            }
 
             _libraryCts?.Cancel();
             var cts = new CancellationTokenSource();
@@ -238,6 +271,7 @@ namespace Maple.WinUI.ViewModels
                 if (!Directory.Exists(folderPath))
                 {
                     DiagLog.Write($"[library] folder unavailable: {folderPath}");
+                    onReady?.Invoke();
                     return;
                 }
                 var items = EnumerateImageFiles(folderPath)
@@ -264,17 +298,24 @@ namespace Maple.WinUI.ViewModels
                     })
                     .ToList();
                 if (cts.Token.IsCancellationRequested)
+                {
+                    onReady?.Invoke();
                     return;
+                }
 
                 App.MainDispatcherQueue?.TryEnqueue(() =>
                 {
                     if (cts.Token.IsCancellationRequested)
+                    {
+                        onReady?.Invoke();
                         return;
+                    }
                     AllPhotos.Clear();
                     foreach (var item in items)
                         AllPhotos.Add(item);
                     ApplyFilters();
                     Timeline.GroupPhotosByDate(AllPhotos);
+                    onReady?.Invoke();
                     _ = Task.Run(() => HydrateLibraryAsync(items, cts.Token), cts.Token);
                 });
             }, cts.Token);
