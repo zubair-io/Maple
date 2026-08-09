@@ -168,7 +168,7 @@ namespace Maple.WinUI.Tests
         [Fact]
         public void Classify_MixedMountedAndUnmounted_MountRootExcludesAlreadyMountedItem()
         {
-            // #2754 review, IMPORTANT-4: the OLD behavior computed the
+            // #2754: the OLD behavior computed the
             // ancestor across EVERY accepted item, mounted or not — here
             // that would be _dir itself (the shared parent of RootA and
             // Fresh), which is an ANCESTOR of the already-registered RootA.
@@ -217,7 +217,7 @@ namespace Maple.WinUI.Tests
             Assert.Equal(new[] { file }, plan.SelectFiles);
         }
 
-        // --- Cross-volume drops (#2754 review, BLOCKING-1) ---
+        // --- Cross-volume drops (#2754) ---
         //
         // CommonAncestor is internal (not private) specifically so these
         // can exercise it directly against fabricated path strings — it

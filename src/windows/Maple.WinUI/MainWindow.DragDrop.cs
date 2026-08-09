@@ -129,7 +129,7 @@ namespace Maple.WinUI
             // check runs here (no payload/self-drop analysis — that's
             // OnFolderDragOver's job, which also drives the actual
             // accept/reject cursor); a placeholder expander stub, or an
-            // unavailable library root (#2754 review), never highlights as
+            // unavailable library root (#2754), never highlights as
             // a target.
             if (IsInternalDrag(e)
                 && sender is Control { DataContext: FolderNode node } control

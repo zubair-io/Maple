@@ -31,8 +31,8 @@ namespace Maple.WinUI.ViewModels
         /// EditSessionViewModel.FolderCrud.cs's RefreshFolderChildrenAsync.</summary>
         public Task AddLibraryFolderAsync(string folderPath)
         {
-            // RunContinuationsAsynchronously (#2754 review, jules NIT):
-            // onReady fires from a background-thread try/catch in some
+            // RunContinuationsAsynchronously (#2754): onReady fires from a
+            // background-thread try/catch in some
             // LoadDirectory paths, not only from the dispatcher — without
             // this, a synchronous TrySetResult there would run the
             // awaiter's continuation (the rest of MainWindow.DropMount.cs's
