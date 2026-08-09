@@ -320,6 +320,11 @@ struct AppShell: View {
     // next claim comes in or when `releaseScope()` is called on app exit.
     @State var activeScopeURL: URL?
 
+    /// True while an OS file/folder drag hovers the window (#2649) — drives
+    /// a highlight so the drop target is visible before release, mirroring
+    /// the sidebar's asset-drop `isDropTargeted` convention.
+    @State private var isWindowDropTargeted = false
+
     /// Bumped by `AppShell+FolderContextMenu` after a New Folder / Rename /
     /// Move to Trash action commits. `LibrarySidebar`'s tree rows watch this
     /// (mirrors `photosAuthGeneration`, #2454) to re-enumerate their
@@ -691,6 +696,21 @@ struct AppShell: View {
         GeometryReader { proxy in
             macShell
                 .environment(\.mapleLayout, MapleLayout.from(width: proxy.size.width))
+        }
+        // OS file/folder drop-to-mount (#2649), macOS + iPad only — iPhone
+        // renders `phoneTabShell` instead of this view. Routing lives in
+        // `AppShell+FolderDrop.swift`; this modifier is the only wiring.
+        .dropDestination(for: URL.self) { urls, _ in
+            handleWindowDrop(urls)
+        } isTargeted: { targeted in
+            isWindowDropTargeted = targeted
+        }
+        .overlay {
+            if isWindowDropTargeted {
+                MapleTokens.primary.opacity(0.12)
+                    .overlay(Rectangle().strokeBorder(MapleTokens.primary, lineWidth: 3))
+                    .allowsHitTesting(false)
+            }
         }
     }
 

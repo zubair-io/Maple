@@ -178,8 +178,13 @@ extension AppShell {
     /// the sub-folder's immediate children into the grid, and marks the
     /// sub-folder as the current library selection. Does NOT persist to
     /// `SavedFolderStore` — only top-level folders live in the recent list.
+    ///
+    /// `onComplete` runs after `browseVM.assets` has actually been replaced
+    /// (the load happens inside this method's own `Task`) — the drop-to-mount
+    /// flow (#2649) uses it to select specific dropped files only once
+    /// they're guaranteed to exist in `browseVM.assets`.
     @MainActor
-    func openSubFolder(url: URL, rootBookmark: Data) {
+    func openSubFolder(url: URL, rootBookmark: Data, onComplete: (@MainActor () -> Void)? = nil) {
         librarySelection = .folder(path: url.path)
         libraryTitle = url.lastPathComponent
         currentRootBookmark = rootBookmark
@@ -220,6 +225,7 @@ extension AppShell {
             // RAWs directly inside it, matching Finder-style drill-down.
             browseVM.loadFolder(url: url)
             pruneSessionsForNewAssetList()
+            onComplete?()
         }
     }
 
