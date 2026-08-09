@@ -73,6 +73,8 @@ struct CloudFolderTreeRow: View {
   /// Drag-onto-source-tree (#2646). `ids == nil` ⇒ "use current grid
   /// selection" (the "Move/Copy Selected Here" menu path).
   var onDropAssets: (String, String, String, Set<AssetRef.ID>?, Bool) -> Void = { _, _, _, _, _ in }
+  /// OS file/folder drop-to-mount (#2649). See `LibrarySidebar.onDropURLs`.
+  var onDropURLs: ([URL]) -> Bool = { _ in false }
   /// Gates the "Move/Copy Selected Here" context-menu items.
   var selectedAssetCount: Int = 0
 
@@ -181,6 +183,8 @@ struct CloudFolderTreeRow: View {
         onDropAssets(libraryFolderID, libraryRootPath, absPath, Set(payload.ids), MapleDragModifier.isCopyRequested())
         return true
       }, isTargeted: { targeted in isDropTargeted = targeted })
+      // Second, same-view drop target for OS file/folder drops (#2649).
+      .dropDestination(for: URL.self, action: { urls, _ in onDropURLs(urls) })
       .contextMenu {
         if selectedAssetCount > 0 {
           Button {
@@ -336,6 +340,7 @@ struct CloudFolderTreeRow: View {
               onTrashFolder: onTrashFolder,
               onShowTrash: onShowTrash,
               onDropAssets: onDropAssets,
+              onDropURLs: onDropURLs,
               selectedAssetCount: selectedAssetCount
             )
           }
