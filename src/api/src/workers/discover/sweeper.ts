@@ -7,7 +7,7 @@
  */
 import path from 'node:path';
 import { promises as fs, type Dirent } from 'node:fs';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId, WithId } from 'mongodb';
 import { assetsCollection } from '../../db/client.ts';
 import { SUPPORTED_EXTS, toPosixRelDir } from './types.ts';
 import type { WatchEvent } from './types.ts';
@@ -17,6 +17,12 @@ import type { FrontierDir } from './frontier.repo.ts';
 import { readCheckpoint, writeCheckpoint } from '../../indexer/checkpoint.ts';
 import { libraryRootAvailable, statKind } from '../missing-reaper.helpers.ts';
 import { child } from '../../log.ts';
+import {
+  reconcileRenamesInDirectory,
+  type MissingFileCandidate,
+  type NewFileCandidate,
+} from './rename-reconcile.ts';
+import type { AssetDoc, FileInfo } from '../../db/schema.ts';
 
 const log = child('discover');
 
@@ -49,11 +55,55 @@ export async function visitDirectory(
     return;
   }
 
+  const { subdirs, filesOnDisk } = partitionEntries(entries, dir.dir_path);
+
+  // Recorded files not seen in the listing → candidate removals. A missing
+  // entry is NOT trusted on its own: a `fs.readdir` can succeed yet return an
+  // incomplete set on a network share (SMB blip). Re-stat each candidate and
+  // only treat it as removed on a genuine ENOENT. A present file or an
+  // inconclusive stat error (EACCES/EIO/timeout) is left for the next sweep,
+  // so a truncated listing can never mass-tag present files `missing_since`.
+  // Even a confirmed per-file ENOENT is not enough when the LIBRARY ROOT is
+  // unavailable (#2171) — see `confirmMissingCandidates`'s own doc comment.
+  const { newCandidates, missingCandidates } = await loadDirectoryCandidates(
+    root,
+    dir.dir_path,
+    folderId,
+    filesOnDisk,
+  );
+
+  // Rename reconciliation (#2655): pair up missing/new candidates that share
+  // a cheap fingerprint (size + EXIF capture time + camera serial) BEFORE
+  // falling back to the ordinary created/removed treatment — a reconciled
+  // pair is excluded from both loops below, so it never becomes "new asset,
+  // orphaned sidecar" + "missing, eventually reaped".
+  const reconciled = await reconcileRenamesInDirectory(
+    newCandidates,
+    missingCandidates,
+    root,
+    folderId,
+  );
+
+  await emitUnreconciledEvents(newCandidates, missingCandidates, reconciled, root, deps);
+
+  await frontier.enqueueDirs(folderId, subdirs, dir.sweep_gen);
+  await frontier.completeDir(dir._id);
+}
+
+/** Splits a directory listing into subdirectories to descend into and
+ * supported image/video files present on disk (filename → absPath). Skips
+ * the DeDuplicate quarantine, every dotdir/dotfile (in particular `.maple/`
+ * — see the inline comment below), and anything whose extension isn't in
+ * `SUPPORTED_EXTS`. */
+function partitionEntries(
+  entries: readonly Dirent[],
+  dirPath: string,
+): { subdirs: string[]; filesOnDisk: Map<string, string> } {
   const subdirs: string[] = [];
   const filesOnDisk = new Map<string, string>(); // filename -> absPath (images only)
 
   for (const ent of entries) {
-    const abs = path.join(dir.dir_path, ent.name);
+    const abs = path.join(dirPath, ent.name);
     if (ent.isDirectory()) {
       // Never descend into:
       //   - the DeDuplicate quarantine. A moved copy is byte-identical to the
@@ -67,90 +117,122 @@ export async function visitDirectory(
       //     sweep then indexes too — a self-feeding `.maple/.maple/.../…jpg`
       //     loop. Matches the pattern other walkers already use
       //     (`workers/cache-gc.ts`, `routes/folders.ts`).
-      if (ent.name === DUPLICATES_DIR_NAME || ent.name.startsWith('.')) continue;
-      subdirs.push(abs);
+      if (ent.name !== DUPLICATES_DIR_NAME && !ent.name.startsWith('.')) subdirs.push(abs);
       continue;
     }
     // Skip non-files, non-images, and dotfiles (e.g. `.DS_Store`, AppleDouble
     // `._foo.jpg` resource forks — their extension matches but their content
     // doesn't).
-    if (!ent.isFile() || !isSupported(ent.name) || ent.name.startsWith('.')) continue;
-    filesOnDisk.set(ent.name, abs);
+    if (ent.isFile() && isSupported(ent.name) && !ent.name.startsWith('.')) {
+      filesOnDisk.set(ent.name, abs);
+    }
   }
+  return { subdirs, filesOnDisk };
+}
 
-  // ONE indexed read per dir: the non-deleted assets recorded directly in it.
-  // Drives BOTH "what's new" and "what's gone" — so writes happen only on real
-  // changes, never a per-file upsert storm.
-  const rel = toPosixRelDir(path.relative(root, dir.dir_path));
+type RecordedAsset = Pick<WithId<AssetDoc>, '_id' | 'size' | 'exif'> & {
+  fileinfo: FileInfo[];
+};
+
+/** ONE indexed read per dir: the non-deleted assets recorded directly in it.
+ * Drives BOTH "what's new" and "what's gone" — so writes happen only on real
+ * changes, never a per-file upsert storm. `size`/`exif` ride along on the
+ * same read (no extra round-trip) because the rename-reconcile pass needs
+ * them to fingerprint a candidate rename without re-reading the
+ * (already-missing) old file. Returns the unrecorded on-disk files and the
+ * confirmed-absent recorded entries — `visitDirectory`'s two candidate
+ * pools for reconciliation (and, for whatever reconciliation declines,
+ * the ordinary created/removed events). */
+async function loadDirectoryCandidates(
+  root: string,
+  dirPath: string,
+  folderId: ObjectId,
+  filesOnDisk: ReadonlyMap<string, string>,
+): Promise<{ newCandidates: NewFileCandidate[]; missingCandidates: MissingFileCandidate[] }> {
+  const rel = toPosixRelDir(path.relative(root, dirPath));
   const coll = await assetsCollection();
   const recorded = (await coll
     .find(
       { deleted_at: null, fileinfo: { $elemMatch: { library_id: folderId, path: rel } } },
-      { projection: { 'fileinfo.$': 1 } },
+      { projection: { 'fileinfo.$': 1, size: 1, exif: 1 } },
     )
-    .toArray()) as Array<{ fileinfo: Array<{ filename: string }> }>;
+    .toArray()) as RecordedAsset[];
   const recordedNames = new Set<string>();
   for (const a of recorded) {
     const fn = a.fileinfo?.[0]?.filename;
     if (fn) recordedNames.add(fn);
   }
 
-  // New files only → created (handleEvent upserts the stage skeleton). Files
-  // already recorded are SKIPPED — no write.
+  const newCandidates: NewFileCandidate[] = [];
   for (const [name, abs] of filesOnDisk) {
-    if (recordedNames.has(name)) continue;
-    await deps.handleEvent({ kind: 'created', absPath: abs }, folderId, root);
+    if (!recordedNames.has(name)) newCandidates.push({ filename: name, absPath: abs });
   }
 
-  // Recorded files not seen in the listing → candidate removals. A missing
-  // entry is NOT trusted on its own: a `fs.readdir` can succeed yet return an
-  // incomplete set on a network share (SMB blip). Re-stat each candidate and
-  // only emit `removed` on a genuine ENOENT. A present file or an inconclusive
-  // stat error (EACCES/EIO/timeout) is left for the next sweep, so a truncated
-  // listing can never mass-tag present files `missing_since`. (On a
-  // normalization-insensitive filesystem this also absorbs an NFC/NFD name
-  // mismatch that the exact-string listing check would miss; on a byte-exact
-  // filesystem such a mismatch is a genuine indexing bug, not a false removal.)
-  //
-  // Even a confirmed per-file ENOENT is not enough when the LIBRARY ROOT is
-  // unavailable (#2171): an unmounted bind/network mount is a present-but-
-  // EMPTY directory under which every stat ENOENTs, so a per-candidate stat
-  // cannot tell "file deleted" from "whole volume gone". Before the first
-  // removal is emitted, confirm the root is listable and non-empty; if not,
-  // emit nothing this visit and let a later sweep (mount restored) decide.
-  await emitConfirmedRemovals(recorded, filesOnDisk, dir.dir_path, root, deps);
-
-  await frontier.enqueueDirs(folderId, subdirs, dir.sweep_gen);
-  await frontier.completeDir(dir._id);
+  const missingCandidates = await confirmMissingCandidates(recorded, filesOnDisk, dirPath, root);
+  return { newCandidates, missingCandidates };
 }
 
-/** The removal pass of `visitDirectory`: re-stat each recorded-but-unlisted
- * candidate and emit `removed` only on a confirmed ENOENT under an available
- * library root. The root check is lazy — one readdir per visit, and only when
- * a candidate actually confirmed absent. */
-async function emitConfirmedRemovals(
-  recorded: Array<{ fileinfo: Array<{ filename: string }> }>,
-  filesOnDisk: ReadonlyMap<string, string>,
-  dirPath: string,
+/** Emits the ordinary `created`/`removed` events for every candidate the
+ * rename-reconcile pass did NOT resolve — a reconciled candidate must never
+ * also flow through here (it already got its own `update` event). */
+async function emitUnreconciledEvents(
+  newCandidates: readonly NewFileCandidate[],
+  missingCandidates: readonly MissingFileCandidate[],
+  reconciled: {
+    reconciledNewFilenames: ReadonlySet<string>;
+    reconciledMissingFilenames: ReadonlySet<string>;
+  },
   root: string,
   deps: ReconcileDeps,
 ): Promise<void> {
+  for (const c of newCandidates) {
+    if (reconciled.reconciledNewFilenames.has(c.filename)) continue;
+    await deps.handleEvent({ kind: 'created', absPath: c.absPath }, deps.folderId, root);
+  }
+  for (const m of missingCandidates) {
+    if (reconciled.reconciledMissingFilenames.has(m.filename)) continue;
+    await deps.handleEvent({ kind: 'removed', absPath: m.absPath }, deps.folderId, root);
+  }
+}
+
+/** The removal-confirmation pass of `visitDirectory`: re-stat each
+ * recorded-but-unlisted candidate and collect it only on a confirmed ENOENT
+ * under an available library root. The root check is lazy — one
+ * `libraryRootAvailable` call per visit, and only once a candidate has
+ * actually confirmed absent; a not-available root aborts with NO candidates
+ * at all (mirrors the prior emit-immediately behaviour exactly — see
+ * `sweeper.test.ts`'s unmounted-mountpoint case). */
+async function confirmMissingCandidates(
+  recorded: RecordedAsset[],
+  filesOnDisk: ReadonlyMap<string, string>,
+  dirPath: string,
+  root: string,
+): Promise<MissingFileCandidate[]> {
+  const out: MissingFileCandidate[] = [];
   let rootAvailable: boolean | null = null; // lazily checked, once per visit
   for (const a of recorded) {
-    const fn = a.fileinfo?.[0]?.filename;
-    if (!fn || filesOnDisk.has(fn)) continue;
-    const abs = path.join(dirPath, fn);
+    const entry = a.fileinfo?.[0];
+    if (!entry || filesOnDisk.has(entry.filename)) continue;
+    const abs = path.join(dirPath, entry.filename);
     if ((await statKind(abs)) !== 'absent') continue;
     rootAvailable ??= await libraryRootAvailable(root);
     if (!rootAvailable) {
       log.warn(
         { dir: dirPath, root },
-        'sweep: removal candidates found but library root is unavailable — emitting no removals',
+        'sweep: removal candidates found but library root is unavailable — confirming none',
       );
-      return;
+      return [];
     }
-    await deps.handleEvent({ kind: 'removed', absPath: abs }, deps.folderId, root);
+    out.push({
+      docId: a._id,
+      fileinfo: entry,
+      filename: entry.filename,
+      absPath: abs,
+      size: a.size,
+      exif: a.exif,
+    });
   }
+  return out;
 }
 
 /**

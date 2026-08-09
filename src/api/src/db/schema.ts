@@ -127,6 +127,15 @@ export interface AssetExif {
   focal_length: number | null;
   /** Decimal-degree GPS pair (parsed by exifr). */
   gps: { lat: number; lng: number } | null;
+  /** Camera body serial number (EXIF `SerialNumber`/`InternalSerialNumber`).
+   * Null on cameras/RAW containers that don't expose one, and on rows
+   * indexed before this field existed. Used (alongside `size` and
+   * `captured_at`) as part of the external-rename reconciliation fingerprint
+   * — see `workers/discover/rename-reconcile.ts` — NOT wired into the
+   * `maple_id` primary-form derivation (`indexer/id.ts` still passes `null`
+   * there; that upgrade is a separate, cross-platform-parity-sensitive
+   * change tracked outside this field's introduction). */
+  camera_serial: string | null;
 }
 
 /**
