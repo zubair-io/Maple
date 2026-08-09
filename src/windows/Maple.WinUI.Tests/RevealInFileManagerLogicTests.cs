@@ -75,9 +75,28 @@ namespace Maple.WinUI.Tests
             Assert.Null(RevealInFileManagerLogic.RevealTarget(System.Array.Empty<(string, bool)>()));
         }
 
+        // The quotes around the path are load-bearing for two separate reasons,
+        // both locked in below:
+        //   1. explorer.exe splits its own command line on the first comma
+        //      after "/select" — without quotes, a path containing a comma
+        //      (a legal Windows filename character) would be truncated at
+        //      that comma instead of treated as part of the path. Quoting the
+        //      field is what lets explorer.exe's parser see the whole path,
+        //      comma included, as one unit.
+        //   2. A trailing backslash immediately before the closing quote is
+        //      an escape sequence under Win32's CommandLineToArgvW (which
+        //      every Windows process, including explorer.exe, uses to split
+        //      ITS OWN argv): an odd run of backslashes before a `"` escapes
+        //      the quote rather than closing the string, so an untrimmed
+        //      `E:\` would leave the argument unterminated. SelectArgument
+        //      trims the trailing separator before quoting to sidestep that.
         [Theory]
         [InlineData(@"C:\Library\Vacation\photo.dng", "/select,\"C:\\Library\\Vacation\\photo.dng\"")]
         [InlineData(@"\\nas\share\photo.dng", "/select,\"\\\\nas\\share\\photo.dng\"")]
+        [InlineData(@"C:\My, Photos\a b.dng", "/select,\"C:\\My, Photos\\a b.dng\"")]
+        [InlineData(@"\\nas\My Share\a b.dng", "/select,\"\\\\nas\\My Share\\a b.dng\"")]
+        [InlineData(@"E:\", "/select,\"E:\"")]
+        [InlineData(@"C:\Library\", "/select,\"C:\\Library\"")]
         public void SelectArgument_QuotesRawPath(string path, string expected)
         {
             Assert.Equal(expected, RevealInFileManagerLogic.SelectArgument(path));

@@ -51,9 +51,34 @@ namespace Maple.WinUI.Services.FileOperations
             EligiblePaths(items).FirstOrDefault();
 
         /// The `explorer.exe` command-line argument for `/select,"path"`.
-        /// Single-quote around the raw path with no further escaping —
-        /// Windows paths can't themselves contain `"`, so there's no
-        /// argument-injection surface to guard against here.
-        public static string SelectArgument(string path) => $"/select,\"{path}\"";
+        /// Double-quoted around the (trailing-separator-trimmed) raw path,
+        /// with no further escaping — Windows paths can't themselves
+        /// contain `"`, so there's no argument-injection surface to guard
+        /// against here, and the quotes are exactly what lets `explorer
+        /// .exe`'s own comma-splitting parser treat an embedded `,` (a
+        /// legal filename character, e.g. `My, Photos\a.dng`) as part of
+        /// the path instead of a second switch separator.
+        ///
+        /// Trailing separator handling (review finding): a path ending in
+        /// `\` — the shape `FolderPicker` legitimately returns for a
+        /// whole-drive library root like `E:\`, and something the FOLDERS
+        /// tree's "Show in Explorer" item can hit directly — must NOT be
+        /// quoted as-is. Win32's `CommandLineToArgvW` (what every Windows
+        /// process, including `explorer.exe`, uses to split its own
+        /// command line) treats a run of backslashes immediately before a
+        /// `"` specially: an ODD count means the last backslash escapes
+        /// the quote rather than closing the string. One trailing `\`
+        /// before the closing `"` is exactly that odd case — the closing
+        /// quote is swallowed as a literal character, the argument never
+        /// terminates, and the rest of the command line misparses.
+        /// Trimming the trailing separator sidesteps the ambiguity
+        /// entirely rather than trying to double the backslash to make the
+        /// count even: `explorer /select,"E:"` resolves the same drive
+        /// root `"E:\"` would. `Path.TrimEndingDirectorySeparator` was
+        /// considered but deliberately not used — it leaves a bare root
+        /// like `E:\` untouched by design (it only trims a separator
+        /// "beyond the root"), which is exactly the case this needs
+        /// trimmed.
+        public static string SelectArgument(string path) => $"/select,\"{path.TrimEnd('\\')}\"";
     }
 }
