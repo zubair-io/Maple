@@ -94,9 +94,14 @@ public enum DropMountPlanner {
         let supportedFiles = files.filter {
             SupportedImageExtensions.all.contains($0.pathExtension.lowercased())
         }
+        // A file with no extension at all (`pathExtension == ""`) has no
+        // entry in `SupportedImageExtensions.all` either, so it lands here
+        // same as ".xyz" would — but an empty string reads as a rendering
+        // bug in the banner ("Maple can't open . Drop a…"), not a real
+        // extension the user typed. Map it to a descriptive token instead.
         let unsupportedExtensions = files
             .filter { !SupportedImageExtensions.all.contains($0.pathExtension.lowercased()) }
-            .map { $0.pathExtension }
+            .map { $0.pathExtension.isEmpty ? "file without an extension" : $0.pathExtension }
 
         // Folders are always valid mount targets in their own right (their
         // OWN path feeds the common-parent calc); only loose files can be

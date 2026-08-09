@@ -571,8 +571,18 @@ struct AppShell: View {
         // rather than each racing to touch `dropConfirmationContinuation`
         // directly (review findings on #2756: same continuation-race class
         // `AssetDropCollisionResolver` exists to close).
+        // Explicit `Result<URL, Error>` closure-parameter annotation — this
+        // is load-bearing, not stylistic. `.fileImporter` has two same-arity
+        // overloads (single `Result<URL, Error>` vs
+        // `allowsMultipleSelection:`'s `Result<[URL], Error>`), and without
+        // an explicit annotation the closure `{ result in … }` type-checked
+        // to a DIFFERENT overload on macOS than on iOS/iPadOS for this exact
+        // unconditional call site (macOS: `URL`; iOS: `[URL]`) — a genuine
+        // per-platform overload-resolution divergence, not a guess, found by
+        // building both platforms. Annotating forces the single-URL overload
+        // deterministically on both.
         .fileImporter(isPresented: $showDropConfirmationPicker,
-                      allowedContentTypes: [.folder]) { result in
+                      allowedContentTypes: [.folder]) { (result: Result<URL, Error>) in
             resolveDropConfirmation(try? result.get())
         }
         // Safety net for cancel: `.fileImporter`'s completion handler is not
