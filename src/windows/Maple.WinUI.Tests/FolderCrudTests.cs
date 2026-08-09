@@ -210,5 +210,38 @@ namespace Maple.WinUI.Tests
             Assert.Equal(folder, result); // recycle bin path — original location is the semantic result
             Assert.Contains(folder, fakeRecycleBin.Attempts);
         }
+
+        [Fact]
+        public async Task DeleteFolderAsync_TrashingTheLibraryRootItself_RecycleBinUnavailable_ThrowsInvalidDestination()
+        {
+            // Review finding (#2647 review round): trashing a library ROOT
+            // via the `.maple/trash` fallback is fundamentally different
+            // from trashing a subfolder — see
+            // DeleteFolderAsync_RecycleBinUnavailable_FallsBackToMapleTrashPreservingContents
+            // above for the ordinary subfolder case, which DOES work.
+            // TrashDestinationDir computes a trash location from the item's
+            // PARENT directory; a root's parent sits OUTSIDE the library
+            // entirely, so the computed destination fails the "is under
+            // library root" check this same method enforces on every other
+            // path. This test pins that failure mode so a future change
+            // doesn't silently "fix" it into something that actually moves a
+            // root's trash outside the library without a deliberate design
+            // decision (restore semantics for a root's own trash are
+            // themselves an open question — see FolderTreeCrudLogic.
+            // RootTrashUnsupported's doc comment for why Windows instead
+            // gates a root to Recycle-Bin-only at the call site rather than
+            // relying on this fallback).
+            var libraryRoot = Path.Combine(_dir, "Library");
+            Directory.CreateDirectory(libraryRoot);
+            File.WriteAllText(Path.Combine(libraryRoot, "photo.dng"), "bytes");
+
+            var fakeRecycleBin = new FakeRecycleBinService { Succeeds = false };
+
+            var ex = await Assert.ThrowsAsync<FileOperationException>(
+                () => LocalFileOperations.DeleteFolderAsync(libraryRoot, libraryRoot, fakeRecycleBin));
+
+            Assert.Equal(FileOperationErrorKind.InvalidDestination, ex.Kind);
+            Assert.True(Directory.Exists(libraryRoot)); // untouched — the throw happens before any move
+        }
     }
 }

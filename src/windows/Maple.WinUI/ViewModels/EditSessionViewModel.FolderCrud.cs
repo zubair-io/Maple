@@ -144,14 +144,34 @@ namespace Maple.WinUI.ViewModels
 
         // --- Move to Trash ---
 
+        /// <summary>Whether <paramref name="node"/> can be trashed at all —
+        /// checked BEFORE the confirmation dialog even opens (review
+        /// finding: a library root on a non-Recycle-Bin-capable path always
+        /// failed, and showing "Move to Trash?" for an action guaranteed to
+        /// fail is its own kind of silent-failure trap). False only for a
+        /// library root with no real Recycle Bin available — see
+        /// FolderTreeCrudLogic.RootTrashUnsupported's doc comment for why
+        /// there's no `.maple/trash` fallback a root could use
+        /// instead.</summary>
+        public (bool CanTrash, string? BlockedReason) CanTrashFolder(FolderNode node)
+        {
+            if (node.IsPlaceholder)
+                return (false, "That item can't be moved to Trash.");
+            var unsupported = FolderTreeCrudLogic.RootTrashUnsupported(
+                IsLibraryRoot(node.Path), LocalFileOperations.IsOnLocalFixedDrive(node.Path));
+            return unsupported ? (false, FolderTreeCrudLogic.RootTrashUnsupportedReason) : (true, null);
+        }
+
         /// <summary>Recursively trashes <paramref name="node"/> — Recycle
         /// Bin on a local fixed drive, `.maple/trash/&lt;rel&gt;` otherwise
         /// (LocalFileOperations.DeleteFolderAsync, #2632).</summary>
         public async Task<(bool Ok, string? Error)> TrashFolderInTreeAsync(FolderNode node)
         {
-            if (node.IsPlaceholder)
-                return (false, "That item can't be moved to Trash.");
+            var (canTrash, blockedReason) = CanTrashFolder(node);
+            if (!canTrash)
+                return (false, blockedReason);
 
+            var isRoot = IsLibraryRoot(node.Path);
             var libraryRoot = FolderTreeCrudLogic.FindLibraryRoot(LibraryFolders, node.Path);
             if (libraryRoot == null)
                 return (false, "Could not resolve this folder's library root.");
@@ -164,6 +184,23 @@ namespace Maple.WinUI.ViewModels
                 // move or a sluggish shell call from blocking the UI thread,
                 // same reasoning as Create/Rename above.
                 await Task.Run(() => LocalFileOperations.DeleteFolderAsync(node.Path, libraryRoot));
+            }
+            catch (FileOperationException ex) when (isRoot && ex.Kind == FileOperationErrorKind.InvalidDestination)
+            {
+                // CanTrashFolder's gate covers the PREDICTABLE case (SMB, or
+                // any other non-fixed-drive root). This catches the rare
+                // remaining one: a local-fixed-drive root where the Recycle
+                // Bin shell call itself fails at runtime, which falls
+                // through to the same circular `.maple/trash` fallback and
+                // throws TrashPaths' internal "not under library root"
+                // exception (Kind InvalidDestination) — accurate, but
+                // meaningless to a user. Reworded rather than surfaced
+                // verbatim. Filtered on Kind, not just isRoot, so any OTHER
+                // FileOperationException a root delete could throw still
+                // falls through to the generic handler below unmangled.
+                return (false, "Couldn't send this library root to the Recycle Bin, and there's no "
+                    + "other Trash location for a root's own folder. Remove it from the library "
+                    + "instead, or delete it manually from Explorer.");
             }
             catch (FileOperationException ex)
             {

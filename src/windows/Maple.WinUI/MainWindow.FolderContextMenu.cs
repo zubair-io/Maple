@@ -36,6 +36,7 @@ namespace Maple.WinUI
             var nameBox = new TextBox { Header = "Folder name", PlaceholderText = "New Folder" };
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(nameBox, "Folder name");
             var errorText = BuildFolderDialogErrorText();
+            WireFolderNameErrorAccessibility(nameBox, errorText);
 
             var dialog = new ContentDialog
             {
@@ -48,6 +49,10 @@ namespace Maple.WinUI
                 XamlRoot = (this.Content as FrameworkElement)?.XamlRoot,
             };
             nameBox.TextChanged += (_, _) => RefreshFolderNameValidation(dialog, errorText, nameBox.Text);
+            // Review finding: without this, initial keyboard focus lands on
+            // the Primary button (disabled or not) rather than the field the
+            // user actually needs to type into.
+            dialog.Opened += (_, _) => nameBox.Focus(FocusState.Programmatic);
 
             if (await dialog.ShowAsync() != ContentDialogResult.Primary)
                 return;
@@ -70,6 +75,7 @@ namespace Maple.WinUI
             var nameBox = new TextBox { Header = "Folder name", Text = node.Name };
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(nameBox, "Folder name");
             var errorText = BuildFolderDialogErrorText();
+            WireFolderNameErrorAccessibility(nameBox, errorText);
 
             var dialog = new ContentDialog
             {
@@ -85,6 +91,15 @@ namespace Maple.WinUI
             // frame, same as the web sibling's rename dialog.
             nameBox.TextChanged += (_, _) => RefreshFolderNameValidation(dialog, errorText, nameBox.Text);
             RefreshFolderNameValidation(dialog, errorText, nameBox.Text);
+            // Same focus fix as New Folder, plus select-all so typing
+            // immediately replaces the seeded current name (matches
+            // FocusRenameField's inline single-asset rename convention,
+            // MainWindow.Rename.cs).
+            dialog.Opened += (_, _) =>
+            {
+                nameBox.Focus(FocusState.Programmatic);
+                nameBox.SelectAll();
+            };
 
             if (await dialog.ShowAsync() != ContentDialogResult.Primary)
                 return;
@@ -111,6 +126,21 @@ namespace Maple.WinUI
             if (await ResolveFolderContextTargetAsync(sender) is not { } node)
                 return;
 
+            // Checked BEFORE the confirmation even shows (review finding: a
+            // library root with no real Recycle Bin available — an SMB
+            // root, or any root on a drive a Recycle Bin call can't reach —
+            // always failed after confirming, which is its own kind of
+            // silent-failure trap; refuse up front with the reason
+            // instead).
+            var (canTrash, blockedReason) = ViewModel.CanTrashFolder(node);
+            if (!canTrash)
+            {
+                var reason = blockedReason ?? "This folder can't be moved to Trash.";
+                AnnounceRename(reason);
+                await ShowMessageAsync("Move to Trash", reason);
+                return;
+            }
+
             // Named up front, before the confirmation shows — the design
             // doc's "must be visible in the UI rather than silently
             // different" for the Recycle Bin vs .maple\trash split.
@@ -130,6 +160,13 @@ namespace Maple.WinUI
                 DefaultButton = ContentDialogButton.Close,
                 XamlRoot = (this.Content as FrameworkElement)?.XamlRoot,
             };
+            // Review finding: DefaultButton only governs what Enter
+            // activates — WinUI still puts INITIAL keyboard focus on the
+            // Primary button (here, the destructive "Move to Trash") when
+            // Content isn't itself focusable, regardless of DefaultButton.
+            // Move focus onto Close/Cancel once the dialog's own focus scope
+            // is up, same fix applied to every dialog in this file.
+            dialog.Opened += (_, _) => FocusCloseButton(dialog);
             if (await dialog.ShowAsync() != ContentDialogResult.Primary)
                 return;
 
@@ -162,6 +199,23 @@ namespace Maple.WinUI
             return null;
         }
 
+        // --- Shared focus / dialog helpers ---
+
+        /// <summary>Moves initial keyboard focus off ContentDialog's default
+        /// target — WinUI puts it on the Primary button whenever Content
+        /// isn't itself focusable, REGARDLESS of DefaultButton (review
+        /// finding: DefaultButton only controls what Enter activates) — onto
+        /// the named Close-button template part, so a keyboard/Narrator user
+        /// opening a destructive confirmation never lands on the destructive
+        /// action first. "CloseButton" is the x:Name WinUI's own default
+        /// ContentDialog style gives that part; FindName resolves template
+        /// parts once the template has applied, which `Opened` guarantees.</summary>
+        private static void FocusCloseButton(ContentDialog dialog)
+        {
+            if (dialog.FindName("CloseButton") is Control closeButton)
+                closeButton.Focus(FocusState.Programmatic);
+        }
+
         // --- Shared name-dialog helpers ---
 
         private static TextBlock BuildFolderDialogErrorText() => new()
@@ -172,17 +226,37 @@ namespace Maple.WinUI
             Visibility = Visibility.Collapsed,
         };
 
+        /// <summary>Review finding: the error text was visible but silent to
+        /// Narrator. LiveSetting=Polite makes a Text change on
+        /// <paramref name="errorText"/> announce itself automatically — the
+        /// same mechanism RenameStatusText/AnnounceRename already rely on
+        /// (MainWindow.Rename.cs) — and DescribedBy associates the field
+        /// with its error so exploring the field on demand also surfaces
+        /// it, not just a live announcement at the moment it appears.</summary>
+        private static void WireFolderNameErrorAccessibility(TextBox nameBox, TextBlock errorText)
+        {
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetLiveSetting(
+                errorText, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
+            Microsoft.UI.Xaml.Automation.AutomationProperties.GetDescribedBy(nameBox).Add(errorText);
+        }
+
         /// <summary>Live validation through the same shared raw-core engine
         /// (maple_validate_filename) inline single-asset rename uses —
         /// disables the confirm button and surfaces the rejection reason
         /// right under the field, per #2643/#2645's wording convention,
         /// rather than letting an obviously-bad name round-trip to disk
-        /// first.</summary>
+        /// first. Only reassigns errorText.Text when it actually changed —
+        /// a live-region re-announces on every assignment even when the
+        /// value is identical (AnnounceRename's own comment notes the same
+        /// behavior), so re-typing into an already-invalid field wouldn't
+        /// otherwise re-announce the same message on every keystroke.</summary>
         private static void RefreshFolderNameValidation(ContentDialog dialog, TextBlock errorText, string typed)
         {
             var trimmed = typed.Trim();
             var error = trimmed.Length == 0 ? "Name can't be empty." : FilenameValidation.ValidationError(trimmed);
-            errorText.Text = error ?? string.Empty;
+            var text = error ?? string.Empty;
+            if (errorText.Text != text)
+                errorText.Text = text;
             errorText.Visibility = error != null ? Visibility.Visible : Visibility.Collapsed;
             dialog.IsPrimaryButtonEnabled = error == null;
         }
