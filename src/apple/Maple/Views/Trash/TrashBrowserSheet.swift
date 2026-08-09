@@ -15,10 +15,8 @@ import MapleCore
 struct TrashBrowserSheet: View {
     let context: TrashBrowserContext
     let onLoad: () async -> [TrashBrowserRow]
-    /// Returns `true` on success.
-    let onRestore: (TrashBrowserRow) async -> Bool
-    /// Returns `true` on success.
-    let onPermanentlyDelete: (TrashBrowserRow) async -> Bool
+    let onRestore: (TrashBrowserRow) async -> TrashRowActionOutcome
+    let onPermanentlyDelete: (TrashBrowserRow) async -> TrashRowActionOutcome
     let onDismiss: () -> Void
 
     @State private var rows: [TrashBrowserRow] = []
@@ -152,23 +150,33 @@ struct TrashBrowserSheet: View {
 
     private func restore(_ row: TrashBrowserRow) async {
         busyID = row.id
-        let ok = await onRestore(row)
+        let outcome = await onRestore(row)
         busyID = nil
-        if ok {
-            rows.removeAll { $0.id == row.id }
-        } else {
-            errorMessage = "Couldn't restore \"\(row.displayName)\" — the original location may no longer be reachable."
-        }
+        apply(outcome, to: row, failureFallback: "Couldn't restore \"\(row.displayName)\" — the original location may no longer be reachable.")
     }
 
     private func permanentlyDelete(_ row: TrashBrowserRow) async {
         busyID = row.id
-        let ok = await onPermanentlyDelete(row)
+        let outcome = await onPermanentlyDelete(row)
         busyID = nil
-        if ok {
+        apply(outcome, to: row, failureFallback: "Couldn't permanently delete \"\(row.displayName)\".")
+    }
+
+    /// Shared outcome handling for both actions. `.stale` (a Cloud
+    /// `?intent=` 409 — the server refused because the asset's actual
+    /// state no longer matches this row, e.g. it was restored elsewhere)
+    /// removes the row exactly like a success, since it no longer belongs
+    /// in this trash list, but still surfaces WHY via `errorMessage` so the
+    /// removal isn't unexplained.
+    private func apply(_ outcome: TrashRowActionOutcome, to row: TrashBrowserRow, failureFallback: String) {
+        switch outcome {
+        case .succeeded:
             rows.removeAll { $0.id == row.id }
-        } else {
-            errorMessage = "Couldn't permanently delete \"\(row.displayName)\"."
+        case .stale(let reason):
+            rows.removeAll { $0.id == row.id }
+            errorMessage = reason
+        case .failed(let message):
+            errorMessage = message.isEmpty ? failureFallback : message
         }
     }
 }
@@ -186,8 +194,8 @@ struct TrashBrowserSheet: View {
                 )),
             ]
         },
-        onRestore: { _ in true },
-        onPermanentlyDelete: { _ in true },
+        onRestore: { _ in .succeeded },
+        onPermanentlyDelete: { _ in .succeeded },
         onDismiss: {}
     )
 }

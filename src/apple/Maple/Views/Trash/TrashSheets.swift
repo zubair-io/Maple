@@ -13,8 +13,8 @@ extension View {
         results: Binding<[AssetTrashItemResult]?>,
         trashBrowserContext: Binding<TrashBrowserContext?>,
         onLoad: @escaping () async -> [TrashBrowserRow],
-        onRestore: @escaping (TrashBrowserRow) async -> Bool,
-        onPermanentlyDelete: @escaping (TrashBrowserRow) async -> Bool,
+        onRestore: @escaping (TrashBrowserRow) async -> TrashRowActionOutcome,
+        onPermanentlyDelete: @escaping (TrashBrowserRow) async -> TrashRowActionOutcome,
         onDismissBrowser: @escaping () -> Void
     ) -> some View {
         self

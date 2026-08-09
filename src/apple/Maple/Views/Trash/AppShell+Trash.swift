@@ -113,12 +113,13 @@ extension AppShell {
 
     // MARK: - Cloud
 
-    // TODO(#2750): `deleteAsset` is dual-mode server-side — it infers
-    // trash-vs-purge from the asset's CURRENT `deleted_at` state, so a
-    // stale grid listing here could silently PURGE an already-trashed
-    // asset instead of trashing a live one. #2749 adds an explicit
-    // `?intent=trash|purge` query param with a 409 on mismatch; adopt it
-    // here once #2749 merges.
+    /// `intent: .trash` (#2749/#2750) — closes the dual-mode staleness
+    /// race: a stale grid listing can no longer cause this call to silently
+    /// PURGE an already-trashed asset instead of trashing a live one. On
+    /// the 409 state-mismatch (which for `.trash` only ever means "this
+    /// asset is already trashed" — see `routes/assets/trash.ts`), this
+    /// reports the outcome plainly rather than pretending the trash
+    /// succeeded or falling through to any purge behavior.
     private func performCloudTrash(_ asset: AssetRef) async -> AssetTrashItemResult.Outcome {
         guard let catalog = asset.catalog, let assetID = asset.stableID else {
             return .failed("This photo hasn't finished indexing on the server yet.")
@@ -127,8 +128,12 @@ extension AppShell {
         let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: catalog.serverID)
         let remote = RemoteCatalog(http: httpClient, server: effectiveServer)
         do {
-            try await remote.deleteAsset(assetID: assetID)
-            return .trashed(destination: .cloudTrash)
+            switch try await remote.deleteAsset(assetID: assetID, intent: .trash) {
+            case .ok:
+                return .trashed(destination: .cloudTrash)
+            case .stateMismatch:
+                return .failed("This photo is already in the Cloud trash.")
+            }
         } catch {
             return .failed(error.localizedDescription)
         }
@@ -195,60 +200,66 @@ extension AppShell {
     }
 
     /// Backs `TrashBrowserSheet.onRestore`.
-    func restoreTrashBrowserRow(_ row: TrashBrowserRow) async -> Bool {
-        guard let trashBrowserContext else { return false }
+    func restoreTrashBrowserRow(_ row: TrashBrowserRow) async -> TrashRowActionOutcome {
+        guard let trashBrowserContext else { return .failed("") }
         switch trashBrowserContext {
         case .local(let libraryRoot, let rootBookmark, _):
-            return await withLocalTrashScope(libraryRoot: libraryRoot, rootBookmark: rootBookmark) { root in
+            let ok = await withLocalTrashScope(libraryRoot: libraryRoot, rootBookmark: rootBookmark) { root in
                 (try? await LocalFileOperations.restoreFromMapleTrash(URL(fileURLWithPath: row.id), libraryRoot: root)) != nil
             } ?? false
+            return ok ? .succeeded : .failed("")
         case .smb(let share):
-            guard let source = await connectedTrashSMBSource(for: share) else { return false }
-            return (try? await source.restoreFromTrash(
+            guard let source = await connectedTrashSMBSource(for: share) else { return .failed("") }
+            let ok = (try? await source.restoreFromTrash(
                 TrashedItem(id: row.id, primaryPath: row.id, sidecarPath: nil,
                            originalRelativePath: row.displayName, trashedDate: row.trashedDate, size: row.size)
             )) != nil
+            return ok ? .succeeded : .failed("")
         case .cloud(let server, _, _):
             let remote = makeCloudTrashClient(server: server)
-            return (try? await remote.restoreAsset(assetID: row.id, targetRelativePath: nil)) != nil
+            let ok = (try? await remote.restoreAsset(assetID: row.id, targetRelativePath: nil)) != nil
+            return ok ? .succeeded : .failed("")
         }
     }
 
     /// Backs `TrashBrowserSheet.onPermanentlyDelete`.
-    func permanentlyDeleteTrashBrowserRow(_ row: TrashBrowserRow) async -> Bool {
-        guard let trashBrowserContext else { return false }
+    func permanentlyDeleteTrashBrowserRow(_ row: TrashBrowserRow) async -> TrashRowActionOutcome {
+        guard let trashBrowserContext else { return .failed("") }
         switch trashBrowserContext {
         case .local(let libraryRoot, let rootBookmark, _):
-            return await withLocalTrashScope(libraryRoot: libraryRoot, rootBookmark: rootBookmark) { root in
+            let ok = await withLocalTrashScope(libraryRoot: libraryRoot, rootBookmark: rootBookmark) { root in
                 let item = TrashedItem(id: row.id, primaryPath: row.id, sidecarPath: nil,
                                        originalRelativePath: row.displayName, trashedDate: row.trashedDate, size: row.size)
                 return (try? LocalFileOperations.permanentlyDeleteFromMapleTrash(item, libraryRoot: root)) != nil
             } ?? false
+            return ok ? .succeeded : .failed("")
         case .smb(let share):
-            guard let source = await connectedTrashSMBSource(for: share) else { return false }
+            guard let source = await connectedTrashSMBSource(for: share) else { return .failed("") }
             let item = TrashedItem(id: row.id, primaryPath: row.id, sidecarPath: nil,
                                    originalRelativePath: row.displayName, trashedDate: row.trashedDate, size: row.size)
             do {
                 try await source.permanentlyDelete(item)
-                return true
+                return .succeeded
             } catch {
-                return false
+                return .failed("")
             }
         case .cloud(let server, _, _):
-            // DELETE on an already-trashed asset is the server's permanent-
-            // purge branch (`routes/assets/trash.ts`'s file header: "Already
-            // trashed → permanent purge"). TODO(#2750): this relies on the
-            // row shown in the browser still matching the server's CURRENT
-            // deleted_at state — if it was restored elsewhere between list
-            // and this call, this call would re-trash a now-live photo
-            // instead of purging it. Adopt `?intent=purge` (explicit, 409 on
-            // mismatch) once #2749 merges.
+            // `intent: .purge` (#2749/#2750) — the server refuses (409) if
+            // this row's asset is no longer actually trashed (e.g. restored
+            // elsewhere between listing and this call), rather than
+            // silently re-trashing a live photo. That refusal surfaces as
+            // `.stale`: the action did NOT proceed, and the row is removed
+            // from THIS list (it no longer belongs here) with a reason.
             let remote = makeCloudTrashClient(server: server)
             do {
-                try await remote.deleteAsset(assetID: row.id)
-                return true
+                switch try await remote.deleteAsset(assetID: row.id, intent: .purge) {
+                case .ok:
+                    return .succeeded
+                case .stateMismatch:
+                    return .stale(reason: "\"\(row.displayName)\" was restored elsewhere — it's no longer in the trash.")
+                }
             } catch {
-                return false
+                return .failed(error.localizedDescription)
             }
         }
     }

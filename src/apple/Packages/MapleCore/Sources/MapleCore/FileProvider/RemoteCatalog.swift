@@ -225,6 +225,30 @@ public enum UploadOutcome: Equatable, Sendable {
     case unsupported
 }
 
+/// Explicit intent for `RemoteCatalog.deleteAsset` (#2749) — see that
+/// method's doc comment for why omitting this (legacy dual-mode) is only
+/// correct for the File Provider extension, never a UI-driven call.
+public enum DeleteAssetIntent: String, Sendable {
+    case trash
+    case purge
+}
+
+/// Outcome of `RemoteCatalog.deleteAsset`. `.stateMismatch` is the 409 the
+/// server returns when the caller's `intent` doesn't match the asset's
+/// actual current state (asked to trash an already-trashed asset, or purge
+/// a live one) — `state` is the server's own read of that current state
+/// (`"trashed"` or `"live"`), for the caller to refresh against rather than
+/// silently retrying the original intent.
+public enum DeleteAssetResult: Equatable, Sendable {
+    case ok
+    case stateMismatch(state: String)
+}
+
+struct DeleteAssetConflictBody: Codable {
+    let error: String
+    let state: String
+}
+
 public struct MakeDirResponse: Codable, Equatable, Sendable {
     public let absPath: String
 
@@ -1020,14 +1044,36 @@ public actor RemoteCatalog {
         return .ok(try decoder.decode(MakeDirResponse.self, from: data))
     }
 
-    /// DELETE /api/assets/<id>. 204 = success; everything else throws.
-    /// Server distinguishes trash-vs-permanent-purge from the current
-    /// asset state — both code paths return 204.
-    public func deleteAsset(assetID: String) async throws {
-        var req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)"))
+    /// DELETE /api/assets/<id>. Server distinguishes trash-vs-permanent-purge
+    /// from the current asset state (legacy dual-mode) UNLESS `intent` is
+    /// supplied.
+    ///
+    /// `intent` closes the dual-mode staleness race (#2749): without it,
+    /// the same call means "trash" for a live asset and "PERMANENTLY purge"
+    /// for an already-trashed one, decided by state the caller may hold a
+    /// stale copy of — a stale grid listing could silently purge instead of
+    /// trash, or a stale Trash panel could "permanently delete" an asset
+    /// someone restored, quietly re-trashing a live photo instead. `nil`
+    /// preserves the legacy dual-mode contract byte-for-byte — the File
+    /// Provider extension (`FileProviderExtensionCore.swift`) depends on it
+    /// and cannot be flag-dayed; every UI-driven call (grid trash, Trash
+    /// browser) should pass an explicit `intent`.
+    @discardableResult
+    public func deleteAsset(assetID: String, intent: DeleteAssetIntent? = nil) async throws -> DeleteAssetResult {
+        var comps = URLComponents(url: server.appending(path: "/api/assets/\(assetID)"), resolvingAgainstBaseURL: false)!
+        if let intent {
+            comps.queryItems = [URLQueryItem(name: "intent", value: intent.rawValue)]
+        }
+        var req = URLRequest(url: comps.url!)
         req.httpMethod = "DELETE"
-        let (_, resp) = try await http.data(for: req)
+        let (data, resp) = try await http.data(for: req)
+        let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
+        if status == 409 {
+            let body = try? decoder.decode(DeleteAssetConflictBody.self, from: data)
+            return .stateMismatch(state: body?.state ?? "unknown")
+        }
         try Self.check2xx(resp)
+        return .ok
     }
 
     /// POST /api/assets/<id>/rename — same-folder single-asset rename
