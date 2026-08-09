@@ -109,5 +109,26 @@ namespace Maple.WinUI.ViewModels
         /// <summary>Marker child that makes the expander chevron show before
         /// the real children have been enumerated.</summary>
         public bool IsPlaceholder { get; init; }
+        /// <summary>True for a registered library root that isn't reachable
+        /// on disk right now (#2651) — a folder dropped or added from
+        /// removable/network storage that isn't connected at this launch.
+        /// Windows has no security-scoped bookmark like Apple's, so the raw
+        /// path is all that's persisted; a missing path degrades to this
+        /// flag (visible in the tree, explained in the tooltip) rather than
+        /// an error dialog or silently vanishing from the sidebar.</summary>
+        public bool IsUnavailable { get; init; }
+        /// <summary>What the FOLDERS tree row actually shows — the plain
+        /// name normally, with a visible "— not available" suffix for
+        /// <see cref="IsUnavailable"/> so the degraded state is legible in
+        /// the tree itself, not just a tooltip nobody hovers.</summary>
+        public string DisplayName => IsUnavailable ? $"{Name} — not available" : Name;
+        /// <summary>The tooltip text — the full path normally, or an
+        /// explanation of why an unavailable root can't be browsed right
+        /// now.</summary>
+        public string ToolTipText => IsUnavailable
+            ? $"{Path}\nNot available right now — this looks like removable or network storage "
+              + "that isn't currently connected. Reconnect it, or remove this folder from the "
+              + "library from its right-click menu."
+            : Path;
     }
 }
