@@ -187,17 +187,38 @@ export async function fsAccessRequestWrite(folder: MapleFolderHandle): Promise<b
 
 // ── Drop resolution (#2650) ─────────────────────────────────────────────────
 
+/** Result of `fsAccessResolveCommonParent`: the directory that directly
+ * contains every dropped file, plus each file's bare name within it. */
+export interface CommonParentMatch {
+  dir: FileSystemDirectoryHandle;
+  fileNames: string[];
+}
+
 /**
- * Confirm `dir` contains every one of `files`, returning each file's path
- * relative to `dir` (in the same order as `files`). Returns null the moment
- * any file is not a descendant of `dir` — a partial match is not "the same
- * folder" for mounting purposes.
+ * Find the directory that directly (immediately) contains every one of
+ * `files`, starting the search at `dir` — which may be a distant ancestor,
+ * not the immediate parent, when `dir` came from an already-known folder
+ * mounted higher up the tree than where the drop landed.
+ *
+ * `dir.resolve(file)` walks arbitrarily deep, so a naive "is it contained"
+ * check would happily match a file several directories below `dir` and
+ * hand back a multi-segment relative path — but Maple's folder mount only
+ * ever enumerates a directory's *direct* children as assets, so that file
+ * would never match anything by identity. Instead: resolve every file,
+ * require they all share the same immediate-parent path (i.e. they're
+ * siblings — true of any ordinary OS multi-select drag), then descend `dir`
+ * to that shared parent via `getDirectoryHandle` so the returned directory
+ * is the files' *actual* containing folder and `fileNames` are bare
+ * basenames Maple can match against real top-level assets.
+ *
+ * Returns null when any file isn't under `dir` at all, or when the files
+ * don't share a single immediate parent (they aren't siblings).
  */
-export async function fsAccessResolveAllUnder(
+export async function fsAccessResolveCommonParent(
   dir: FileSystemDirectoryHandle,
   files: FileSystemFileHandle[],
-): Promise<string[] | null> {
-  const paths: string[] = [];
+): Promise<CommonParentMatch | null> {
+  const resolved: string[][] = [];
   for (const file of files) {
     let segments: string[] | null;
     try {
@@ -205,10 +226,27 @@ export async function fsAccessResolveAllUnder(
     } catch {
       segments = null;
     }
-    if (!segments) return null;
-    paths.push(segments.join('/'));
+    if (!segments || segments.length === 0) return null;
+    resolved.push(segments);
   }
-  return paths;
+
+  const parentSegments = resolved[0].slice(0, -1);
+  const allSameParent = resolved.every(
+    (segments) =>
+      segments.length === parentSegments.length + 1 &&
+      segments.slice(0, -1).every((seg, i) => seg === parentSegments[i]),
+  );
+  if (!allSameParent) return null;
+
+  let parent = dir;
+  for (const segment of parentSegments) {
+    try {
+      parent = await parent.getDirectoryHandle(segment);
+    } catch {
+      return null;
+    }
+  }
+  return { dir: parent, fileNames: resolved.map((segments) => segments.at(-1) ?? '') };
 }
 
 /**
@@ -220,6 +258,13 @@ export async function fsAccessResolveAllUnder(
  * handle for, this is the only mechanism left to reference-mount it: seed the
  * native picker at the file's location via `startIn` and have the user
  * confirm the folder. Returns null if the user cancels.
+ *
+ * Deliberately uses its OWN picker `id` ('maple-drop-seed'), distinct from
+ * "Open folder"'s ('maple-folder'): Chromium remembers the last directory
+ * used for a given `id` and prefers that remembered location over `startIn`
+ * on every subsequent call. Sharing 'maple-folder' would mean the seeded
+ * picker opens wherever the user last used "Open folder" instead of at the
+ * dropped file's actual location, for anyone who's used that button before.
  */
 export async function fsAccessPickContainingFolder(
   startIn: FileSystemHandle,
@@ -227,7 +272,7 @@ export async function fsAccessPickContainingFolder(
   try {
     return await (window as unknown as WindowWithDirectoryPicker).showDirectoryPicker({
       mode: 'readwrite',
-      id: 'maple-folder',
+      id: 'maple-drop-seed',
       startIn,
     });
   } catch (error) {
