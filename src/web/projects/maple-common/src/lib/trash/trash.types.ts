@@ -57,13 +57,32 @@ export interface TrashBatchSummary {
   items: TrashBatchItem[];
 }
 
-/** One asset that failed to send to Trash from a grid multi-select
- * (`TrashCapability.trashAssets`) — same partial-failure shape
- * `DragMoveItemFailure` uses for the drag-move queue. */
+/** `TrashApiService.deleteAsset`'s per-call outcome (#2749). A 409 from the
+ * server means the caller's `intent` didn't match the asset's actual
+ * state — its listing was stale — and is a distinct, expected outcome, not
+ * a generic HTTP failure: `state: 'trashed'` on an `intent: 'trash'` call
+ * means it's already in Trash (someone else trashed it first); `state:
+ * 'live'` on an `intent: 'purge'` call means it was restored elsewhere
+ * before this purge landed. `state` can be `null` if the server ever omits
+ * it (defensive — every 409 `routes/assets/trash.ts` sends today includes
+ * it). */
+export type TrashDeleteOutcome =
+  | { kind: 'ok' }
+  | { kind: 'conflict'; state: 'trashed' | 'live' | null };
+
+/** One asset that did NOT end up trashed from a grid multi-select
+ * (`TrashCapability.trashAssets`) — either a real failure, or a benign
+ * `intent=trash` 409 (`alreadyTrashed: true`, someone else trashed it
+ * first — same partial-failure shape `DragMoveItemFailure` uses for the
+ * drag-move queue, extended with the conflict case). */
 export interface TrashItemFailure {
   assetId: AssetId;
   filename: string;
   reason: string;
+  /** True for the benign "someone else already trashed this" 409 — the
+   * caller should NOT report this as a failure the way a network/500 error
+   * is reported. */
+  alreadyTrashed?: boolean;
 }
 
 /** Outcome of a `trashAssets` batch, surfaced once the whole queue settles. */

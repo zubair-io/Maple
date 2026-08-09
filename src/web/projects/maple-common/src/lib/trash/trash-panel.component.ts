@@ -23,6 +23,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  OnInit,
   computed,
   inject,
   input,
@@ -31,23 +32,24 @@ import {
 } from '@angular/core';
 import { TrashApiService } from '../api/trash-api.service';
 import { TrashService } from './trash.service';
-import { TrashItemRowComponent } from './trash-item-row.component';
+import { TrashListComponent } from './trash-list.component';
+import { TrashToolbarComponent } from './trash-toolbar.component';
 import { TrashDeleteConfirmDialogComponent } from './trash-delete-confirm-dialog.component';
 import { errorMessage } from '../util/errors';
 import type { AssetId } from '../models/asset';
-import type { TrashItem } from './trash.types';
+import type { TrashDeleteOutcome, TrashItem } from './trash.types';
 
 type ConfirmTarget = { kind: 'item'; item: TrashItem } | { kind: 'all' };
 
 @Component({
   selector: 'app-trash-panel',
   standalone: true,
-  imports: [TrashItemRowComponent, TrashDeleteConfirmDialogComponent],
+  imports: [TrashListComponent, TrashToolbarComponent, TrashDeleteConfirmDialogComponent],
   templateUrl: './trash-panel.component.html',
   styleUrl: './trash-panel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class TrashPanelComponent {
+export class TrashPanelComponent implements OnInit {
   private readonly api = inject(TrashApiService);
   private readonly trash = inject(TrashService);
 
@@ -71,10 +73,17 @@ export class TrashPanelComponent {
   readonly busyKey = signal<AssetId | '*' | null>(null);
   readonly listBusy = computed(() => this.busyKey() !== null);
 
-  isRowBusy(assetId: AssetId): boolean {
-    const key = this.busyKey();
-    return key === assetId || key === '*';
-  }
+  /** Why "Restore All"/"Empty Trash" are disabled right now, or `null` when
+   * they're not — surfaced to sighted users as a `title` tooltip and to
+   * assistive tech via `aria-describedby` on a visually-hidden element (a
+   * `disabled` attribute alone announces nothing about WHY). Both toolbar
+   * actions share the same two reasons (empty list, an operation already
+   * in flight), so one computed serves both buttons. */
+  readonly toolbarDisabledReason = computed<string | null>(() => {
+    if (this.items().length === 0) return 'Trash is empty.';
+    if (this.listBusy()) return 'An operation is already in progress.';
+    return null;
+  });
 
   readonly confirmTarget = signal<ConfirmTarget | null>(null);
   readonly confirmBusy = signal(false);
@@ -85,13 +94,14 @@ export class TrashPanelComponent {
     return target.kind === 'item' ? target.item.filename : `${this.items().length} item(s)`;
   });
 
-  constructor() {
-    // `input.required` fields are set before the first change-detection
-    // pass, so a plain "load on construction, reload if the id ever
-    // changes" check in the getter-driven effect below covers both the
-    // initial open and (defensively) a libraryId swap without a full
-    // component teardown, even though the host always mounts a fresh
-    // instance per open today.
+  ngOnInit(): void {
+    // Required inputs aren't guaranteed readable in the constructor (and
+    // `TestBed.createComponent` + `setInput` never sets them until AFTER
+    // construction) — `ngOnInit` is the earliest point they're reliably
+    // available. The "already loaded for this id" guard in
+    // `loadFirstPageIfNeeded` defensively covers a `libraryId` swap
+    // without a full component teardown too, even though the host always
+    // mounts a fresh instance per open today.
     this.loadFirstPageIfNeeded();
   }
 
@@ -202,14 +212,36 @@ export class TrashPanelComponent {
     void this.deleteAllPermanently();
   }
 
+  /** Force the panel's own list to re-fetch from the server rather than
+   * trust its in-memory `items` — used only on a `state: 'live'` 409 (#2749):
+   * the item this panel still shows as trashed was actually restored
+   * elsewhere since the list was fetched, so the client's whole view of
+   * this library's Trash is stale, not just the one row. */
+  private refreshListingAfterConflict(): void {
+    this.loadedLibraryId.set(null);
+    this.loadFirstPageIfNeeded();
+  }
+
   private deleteOneItemPermanently(item: TrashItem): void {
     this.confirmBusy.set(true);
-    this.api.deleteAsset(item.assetId).subscribe({
-      next: () => {
+    // `intent: 'purge'` (#2749) — a single-item "Delete Permanently" only
+    // ever means "purge this trashed asset." A 409 with `state: 'live'`
+    // means it was restored (by this user elsewhere, or by someone else)
+    // between the panel loading it and this confirm — the dialog said
+    // "cannot be undone," so it must NOT silently re-trash a now-live
+    // photo to make that true; report the real outcome and refresh.
+    this.api.deleteAsset(item.assetId, 'purge').subscribe({
+      next: (outcome) => {
         this.confirmBusy.set(false);
         this.confirmTarget.set(null);
-        this.items.set(this.items().filter((i) => i.assetId !== item.assetId));
-        this.toast.set(`Permanently deleted "${item.filename}".`);
+        if (outcome.kind === 'ok') {
+          this.items.set(this.items().filter((i) => i.assetId !== item.assetId));
+          this.toast.set(`Permanently deleted "${item.filename}".`);
+          this.trash.notifyLibraryMutated(this.libraryId());
+          return;
+        }
+        this.toast.set(`"${item.filename}" was restored elsewhere — not deleted.`);
+        this.refreshListingAfterConflict();
         this.trash.notifyLibraryMutated(this.libraryId());
       },
       error: (err: unknown) => {
@@ -224,34 +256,58 @@ export class TrashPanelComponent {
    * `trash-api.service.ts`'s header). Loaded items only, not the whole
    * library's trash sight-unseen: if more pages exist (`nextCursor` was
    * non-null before this ran), the toast says so explicitly rather than
-   * silently claiming "Trash emptied" when older items remain unseen. */
+   * silently claiming "Trash emptied" when older items remain unseen.
+   *
+   * Each call passes `intent: 'purge'` (#2749); a per-item `state: 'live'`
+   * 409 (restored elsewhere since this list loaded) is tallied separately
+   * from a real failure and reported by name, not folded into "failed". */
   private async deleteAllPermanently(): Promise<void> {
     this.confirmBusy.set(true);
     const targets = this.items();
     const hadMorePages = this.nextCursor() !== null;
     let deleted = 0;
     let failed = 0;
+    const restoredElsewhere: string[] = [];
     for (const item of targets) {
       try {
-        await new Promise<void>((resolve, reject) => {
-          this.api.deleteAsset(item.assetId).subscribe({ next: () => resolve(), error: reject });
+        const outcome = await new Promise<TrashDeleteOutcome>((resolve, reject) => {
+          this.api.deleteAsset(item.assetId, 'purge').subscribe({
+            next: resolve,
+            error: reject,
+          });
         });
-        deleted += 1;
+        if (outcome.kind === 'ok') {
+          deleted += 1;
+        } else {
+          restoredElsewhere.push(item.filename);
+        }
       } catch {
         failed += 1;
       }
     }
     this.confirmBusy.set(false);
     this.confirmTarget.set(null);
-    this.loadedLibraryId.set(null); // force a fresh first page below
-    this.loadFirstPageIfNeeded();
+    if (restoredElsewhere.length > 0) {
+      // At least one item's state didn't match what this panel had
+      // loaded — trust the server's re-fetch over the client's filtered
+      // `items` array rather than guessing which other rows might also be
+      // stale.
+      this.refreshListingAfterConflict();
+    } else {
+      this.loadedLibraryId.set(null);
+      this.loadFirstPageIfNeeded();
+    }
     const moreNote = hadMorePages
       ? ' More items remain further back in Trash — reopen Empty Trash to continue.'
       : '';
+    const restoredNote =
+      restoredElsewhere.length > 0
+        ? ` ${restoredElsewhere.length} were restored elsewhere and not deleted (${restoredElsewhere.join(', ')}).`
+        : '';
     this.toast.set(
       failed > 0
-        ? `Permanently deleted ${deleted} of ${targets.length} item(s) — ${failed} failed.${moreNote}`
-        : `Permanently deleted ${deleted} item(s).${moreNote}`,
+        ? `Permanently deleted ${deleted} of ${targets.length} item(s) — ${failed} failed.${restoredNote}${moreNote}`
+        : `Permanently deleted ${deleted} item(s).${restoredNote}${moreNote}`,
     );
     this.trash.notifyLibraryMutated(this.libraryId());
   }

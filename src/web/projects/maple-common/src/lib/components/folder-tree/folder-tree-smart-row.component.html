@@ -1,0 +1,17 @@
+<div
+  class="tree-row mx-2 flex h-7 cursor-pointer items-center gap-2 rounded-md px-3 text-[12px] text-text-main transition-[background] duration-[120ms]"
+  [class.selected]="selected()"
+  (click)="activate.emit()"
+>
+  <maple-icon
+    [name]="icon()"
+    [size]="13"
+    [color]="selected() ? 'var(--color-primary)' : 'var(--color-text-muted)'"
+  />
+  <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ entry().label }}</span>
+  @if (entry().count != null) {
+    <span class="font-mono text-[10px] tabular-nums text-text-muted">{{
+      entry().count | number
+    }}</span>
+  }
+</div>

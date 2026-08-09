@@ -1,0 +1,11 @@
+// Shared with `folder-tree.component.scss`/`folder-tree-node.component.scss`
+// via `tree-row-chrome.scss` — see that file's doc comment.
+@use '../../styles/tree-row-chrome' as treeRow;
+
+:host {
+  display: block;
+}
+
+.tree-row {
+  @include treeRow.tree-row-interaction-states;
+}

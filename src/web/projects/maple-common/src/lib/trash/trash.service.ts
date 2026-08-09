@@ -19,7 +19,12 @@ import { LibraryStateService } from '../state/library-state.service';
 import type { AssetId } from '../models/asset';
 import { errorMessage } from '../util/errors';
 import type { TrashCapability } from './trash-capability';
-import type { TrashAssetsSummary, TrashCount, TrashItemFailure } from './trash.types';
+import type {
+  TrashAssetsSummary,
+  TrashCount,
+  TrashDeleteOutcome,
+  TrashItemFailure,
+} from './trash.types';
 
 /** Page size for the sidebar-badge count fetch — large enough that most
  * libraries' trash fits in one page (an exact count), small enough to stay
@@ -124,16 +129,34 @@ export class TrashService implements TrashCapability {
     for (const assetId of assetIds) {
       const filename = assetsById.get(assetId)?.filename ?? assetId;
       try {
-        await new Promise<void>((resolve, reject) => {
-          this.api.deleteAsset(assetId).subscribe({ next: () => resolve(), error: reject });
+        // `intent: 'trash'` (#2749) — this queue only ever means "send a
+        // live asset to Trash." A 409 here means the asset was ALREADY
+        // trashed by something else since the grid's listing was fetched;
+        // that's the goal already achieved, not a failure, so it's
+        // recorded as `alreadyTrashed` rather than lumped in with a real
+        // network/server error.
+        const outcome = await new Promise<TrashDeleteOutcome>((resolve, reject) => {
+          this.api.deleteAsset(assetId, 'trash').subscribe({ next: resolve, error: reject });
         });
-        trashed += 1;
+        if (outcome.kind === 'ok') {
+          trashed += 1;
+        } else {
+          failed.push({
+            assetId,
+            filename,
+            reason: 'Already in Trash — trashed by something else in the meantime.',
+            alreadyTrashed: true,
+          });
+        }
       } catch (err) {
         failed.push({ assetId, filename, reason: errorMessage(err) });
       }
     }
     this._busy.set(false);
     this._resultSummary.set({ total: assetIds.length, trashed, failed });
+    // Re-pull the source folder's listing regardless of outcome — covers
+    // both the assets that trashed successfully AND the `alreadyTrashed`
+    // conflicts, whose local view was already stale by definition.
     this.state.refreshFolderListing(sourceFolderId);
     // `currentRegisteredFolder()` reads off `selectedSourceId`, not the
     // `sourceFolderId` this batch trashed — correct in practice since a
