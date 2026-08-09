@@ -237,6 +237,25 @@ public struct MakeDirResponse: Codable, Equatable, Sendable {
     }
 }
 
+/// Decodes `POST /api/folders/<id>/trash-folder` and `/restore-folder`'s
+/// response body (`library/folder-trash.ts`'s `FolderBatchSummary`) —
+/// per-asset detail is preserved (`items`) so a partial failure can be
+/// surfaced item-by-item, matching every other multi-asset outcome report
+/// in this app (`AssetDropItemResult`, `CloudBatchRenameResultItem`).
+public struct FolderTrashSummary: Codable, Equatable, Sendable {
+    public struct Item: Codable, Equatable, Sendable {
+        public let assetId: String
+        public let filename: String
+        public let ok: Bool
+        public let error: String?
+    }
+
+    public let total: Int
+    public let succeeded: Int
+    public let failed: Int
+    public let items: [Item]
+}
+
 /// Outcome of `RemoteCatalog.moveFolder`. Domain-neutral so the HTTP
 /// layer stays free of FileProvider types — the extension maps
 /// `.conflict` to `NSFileProviderError.filenameCollision`.
@@ -1168,6 +1187,35 @@ public actor RemoteCatalog {
         let (data, resp) = try await http.data(for: req)
         try Self.check2xx(resp)
         return try decoder.decode(CloudBatchRenameResponse.self, from: data)
+    }
+
+    /// POST /api/folders/<id>/trash-folder — recursively trash every live
+    /// asset under a subfolder (#2630's server route, wired here for #2696).
+    /// `relativePath` is the subfolder's path relative to the library root,
+    /// same `X-Maple-Target-Path` header/validation contract as `makeDir`/
+    /// `moveFolder`. The response body is a per-asset summary the server
+    /// already produces (`library/folder-trash.ts`'s `trashFolderRecursive`);
+    /// this layer decodes it opaquely as `FolderTrashSummary` since the
+    /// caller only needs success/failure counts, not per-asset detail.
+    public func trashFolder(folderID: String, relativePath: String) async throws -> FolderTrashSummary {
+        var req = URLRequest(url: server.appending(path: "/api/folders/\(folderID)/trash-folder"))
+        req.httpMethod = "POST"
+        req.setValue(try Self.encodeTargetPath(relativePath), forHTTPHeaderField: "X-Maple-Target-Path")
+        let (data, resp) = try await http.data(for: req)
+        try Self.check2xx(resp)
+        return try decoder.decode(FolderTrashSummary.self, from: data)
+    }
+
+    /// POST /api/folders/<id>/restore-folder — the inverse of `trashFolder`:
+    /// restore every trashed asset whose original location was under this
+    /// subfolder.
+    public func restoreFolder(folderID: String, relativePath: String) async throws -> FolderTrashSummary {
+        var req = URLRequest(url: server.appending(path: "/api/folders/\(folderID)/restore-folder"))
+        req.httpMethod = "POST"
+        req.setValue(try Self.encodeTargetPath(relativePath), forHTTPHeaderField: "X-Maple-Target-Path")
+        let (data, resp) = try await http.data(for: req)
+        try Self.check2xx(resp)
+        return try decoder.decode(FolderTrashSummary.self, from: data)
     }
 
     /// GET /api/folders/<id>/trash. `cursor` and `limit` are optional.

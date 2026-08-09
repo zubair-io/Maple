@@ -9,15 +9,10 @@
 // actual filesystem/network operation lives in `MapleCore` or
 // `MapleCloudKit`, per the ticket's scope note.
 //
-// Cloud folder TRASH is deliberately NOT wired here: the API has no
-// folder-level trash route today (only per-asset `DELETE /api/assets/<id>`,
-// per the design doc's "Delete → Trash → Restore" section — folder-level
-// trash for Web/API is called out there as still-needed work, not
-// something this Apple ticket can route to). The sidebar surfaces this as
-// a disabled context-menu item with an explanation rather than a silent
-// omission — see `CloudFolderTreeRow`'s "Move to Trash" button. #2696
-// tracks wiring it once #2630/PR #2695's `POST /api/folders/:id/trash-folder`
-// merges.
+// Cloud folder TRASH (#2696) — `POST /api/folders/:id/trash-folder`
+// (#2630/#2695) recursively trashes every live asset under the subfolder;
+// `trashCloudFolder` below wires `CloudFolderTreeRow`'s "Move to Trash"
+// item to it via `RemoteCatalog.trashFolder`.
 //
 // SMB folder Rename/Trash are also not wired: `SMBSource` enumerates the
 // whole share recursively (`images()`) rather than exposing a per-directory
@@ -243,6 +238,34 @@ extension AppShell {
                     folderRefreshGeneration += 1
                 case .conflict:
                     browseVM.loadError = FileOperationError.destinationExists(targetAbsPath)
+                }
+            } catch {
+                browseVM.loadError = error
+            }
+        }
+    }
+
+    /// `POST /api/folders/<id>/trash-folder` via `RemoteCatalog` (#2696).
+    /// Recursive — every asset under `absPath` is trashed server-side.
+    /// Partial failure (some assets trashed, others not) surfaces as a
+    /// single error banner naming the failure count rather than a per-item
+    /// report: unlike the grid's multi-select trash, a folder trash has no
+    /// natural "list of items" the user picked one-by-one to show outcomes
+    /// against.
+    func trashCloudFolder(server: URL, libraryFolderID: String, libraryRootPath: String, absPath: String) {
+        guard let relative = cloudRelativePath(absPath, under: libraryRootPath), !relative.isEmpty else {
+            browseVM.loadError = FileOperationError.invalidDestination(
+                "\(absPath) is not under library root \(libraryRootPath)")
+            return
+        }
+        Task { @MainActor in
+            let catalog = RemoteCatalog(http: makeAuthenticatedHTTPClient(server: server), server: server)
+            do {
+                let summary = try await catalog.trashFolder(folderID: libraryFolderID, relativePath: relative)
+                folderRefreshGeneration += 1
+                if summary.failed > 0 {
+                    browseVM.loadError = FileOperationError.underlying(
+                        "\(summary.failed) of \(summary.total) items in this folder could not be trashed")
                 }
             } catch {
                 browseVM.loadError = error

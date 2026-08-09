@@ -59,6 +59,10 @@ struct PhotoThumbnailCell: View {
     /// it for session priming or page-load triggers, not exactly-once side effects.
     /// The thumbnail `.task(id:)` runs independently; this is a supplemental hook.
     var onAppear: (() -> Void)? = nil
+    /// Right-click / long-press context menu content (#2653 — grid "Move to
+    /// Trash"). `nil` disables the context menu entirely for this cell (the
+    /// default — merged-timeline/PhotoKit surfaces don't opt in).
+    var contextMenuItems: AnyView? = nil
 
     // MARK: State
 
@@ -126,6 +130,7 @@ struct PhotoThumbnailCell: View {
             .modifier(DragPayloadModifier(payload: dragPayload))
             .onTapGesture { onTap() }
             .onAppear { onAppear?() }
+            .modifier(OptionalContextMenu(items: contextMenuItems))
             // Accessibility: UITest harness resolves cells by displayName via
             // `app.otherElements["thumb-<displayName>"]` — mirrors LibraryCell's
             // `.accessibilityIdentifier("thumb-\(asset.displayName)")`.
@@ -150,6 +155,22 @@ struct PhotoThumbnailCell: View {
             }
     }
 
+}
+
+/// Attaches `.contextMenu` only when `items` is non-nil — an EMPTY
+/// `.contextMenu { }` still shows an empty popup on long-press/right-click,
+/// which would regress every grid surface that doesn't opt in (merged
+/// timeline, PhotoKit).
+private struct OptionalContextMenu: ViewModifier {
+    let items: AnyView?
+
+    func body(content: Content) -> some View {
+        if let items {
+            content.contextMenu { items }
+        } else {
+            content
+        }
+    }
 }
 
 // MARK: - GridCellOverlayView

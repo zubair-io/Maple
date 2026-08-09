@@ -45,6 +45,14 @@ struct LibrarySidebar: View {
     let onCreateFolder: (URL, Data, String) -> Void
     let onRenameFolder: (URL, Data, String) -> Void
     let onTrashFolder: (URL, Data) -> Void
+    /// "Show Trash…" (#2653) — see `FolderTreeRow.onShowTrash`'s doc
+    /// comment. `nil` on macOS (no in-app trash for local sources there).
+    var onShowLocalTrash: ((URL, Data, String) -> Void)? = nil
+    /// "Show Trash…" for a connected SMB share.
+    var onShowSMBTrash: ((SMBCredentialStore.SavedShare) -> Void)? = nil
+    /// "Show Trash…" for a Cloud library (`serverID`, `libraryFolderID`,
+    /// `displayName`).
+    var onShowCloudTrash: ((URL, String, String) -> Void)? = nil
     /// Drag-onto-source-tree (#2646), local folder rows. `ids == nil` means
     /// "use the current grid selection" — the "Move/Copy Selected Here"
     /// context-menu item's path; non-nil is the literal drag payload.
@@ -115,6 +123,10 @@ struct LibrarySidebar: View {
     /// with an explanation rather than a silent omission.
     let onCreateCloudFolder: (URL, String, String, String, String) -> Void
     let onRenameCloudFolder: (URL, String, String, String, String) -> Void
+    /// Source-tree context menu — recursive Move to Trash for a Cloud
+    /// subfolder (#2696), via `POST /api/folders/:id/trash-folder`.
+    /// `(server, libraryFolderID, libraryRootPath, absPath)`.
+    var onTrashCloudFolder: (URL, String, String, String) -> Void = { _, _, _, _ in }
     /// Drag-onto-source-tree (#2646) onto a Cloud library/subfolder row.
     /// `(server, libraryFolderID, libraryRootPath, absPath, ids, isCopy)` —
     /// same `ids == nil` ⇒ "use the current grid selection" contract as
@@ -232,6 +244,7 @@ struct LibrarySidebar: View {
                             onCreateFolder: onCreateFolder,
                             onRenameFolder: onRenameFolder,
                             onTrashFolder: onTrashFolder,
+                            onShowTrash: onShowLocalTrash,
                             onDropAssets: onDropAssets,
                             selectedAssetCount: selectedAssetCount
                         )
@@ -353,7 +366,8 @@ struct LibrarySidebar: View {
                             },
                             onCreateFolder: { name in onCreateSMBFolder(share, name) },
                             onDropAssets: { ids, isCopy in onDropAssetsSMB(share, ids, isCopy) },
-                            selectedAssetCount: selectedAssetCount
+                            selectedAssetCount: selectedAssetCount,
+                            onShowTrash: onShowSMBTrash.map { callback in { callback(share) } }
                         )
                     }
                 }
@@ -435,6 +449,12 @@ struct LibrarySidebar: View {
                     },
                     onRenameFolder: { libraryFolderID, libraryRootPath, absPath, newName in
                         onRenameCloudFolder(url, libraryFolderID, libraryRootPath, absPath, newName)
+                    },
+                    onTrashFolder: { libraryFolderID, libraryRootPath, absPath in
+                        onTrashCloudFolder(url, libraryFolderID, libraryRootPath, absPath)
+                    },
+                    onShowTrash: onShowCloudTrash.map { callback in
+                        { libraryFolderID, displayName in callback(url, libraryFolderID, displayName) }
                     },
                     onDropAssets: { libraryFolderID, libraryRootPath, absPath, ids, isCopy in
                         onDropAssetsCloud(url, libraryFolderID, libraryRootPath, absPath, ids, isCopy)
@@ -656,6 +676,9 @@ private struct SMBShareRow: View {
     /// file header), so this row is the only SMB drop target today.
     var onDropAssets: (Set<AssetRef.ID>?, Bool) -> Void = { _, _ in }
     var selectedAssetCount: Int = 0
+    /// "Show Trash…" (#2653) — SMB always uses `.maple/trash` (no OS
+    /// recycle bin over a network share). `nil` suppresses the menu item.
+    var onShowTrash: (() -> Void)? = nil
 
     @State private var showNewFolderAlert = false
     @State private var newFolderDraft = ""
@@ -702,6 +725,12 @@ private struct SMBShareRow: View {
                 Label("New Folder", systemImage: "folder.badge.plus")
             }
             .accessibilityIdentifier("smbShare.newFolder.\(share.host).\(share.share)")
+            if let onShowTrash {
+                Button(action: onShowTrash) {
+                    Label("Show Trash…", systemImage: "trash.circle")
+                }
+                .accessibilityIdentifier("smbShare.showTrash.\(share.host).\(share.share)")
+            }
         }
         .alert("New Folder", isPresented: $showNewFolderAlert) {
             TextField("Name", text: $newFolderDraft)
@@ -760,6 +789,11 @@ private struct FolderTreeRow: View {
     var onCreateFolder: ((URL, Data, String) -> Void)? = nil
     var onRenameFolder: ((URL, Data, String) -> Void)? = nil
     var onTrashFolder: ((URL, Data) -> Void)? = nil
+    /// "Show Trash…" (#2653) — depth == 0 only (the saved-folder root), and
+    /// only ever wired on iOS/iPadOS: macOS Filesystem sources use the real
+    /// OS Trash and have no in-app Trash node (see `AppShell+Trash.swift`'s
+    /// file header). `nil` suppresses the menu item.
+    var onShowTrash: ((URL, Data, String) -> Void)? = nil
     /// Drag-onto-source-tree (#2646). See `LibrarySidebar.onDropAssets`'s
     /// doc comment for the `ids == nil` ⇒ "use current grid selection"
     /// contract.
@@ -888,7 +922,15 @@ private struct FolderTreeRow: View {
                     }
                     .accessibilityIdentifier("folderTree.trash.\(url.path)")
                 }
-                if onRemove != nil, onCreateFolder != nil || onRenameFolder != nil || onTrashFolder != nil {
+                if depth == 0, let onShowTrash {
+                    Button {
+                        onShowTrash(url, rootBookmark, displayName)
+                    } label: {
+                        Label("Show Trash…", systemImage: "trash.circle")
+                    }
+                    .accessibilityIdentifier("folderTree.showTrash.\(url.path)")
+                }
+                if onRemove != nil, onCreateFolder != nil || onRenameFolder != nil || onTrashFolder != nil || onShowTrash != nil {
                     Divider()
                 }
                 if let onRemove {

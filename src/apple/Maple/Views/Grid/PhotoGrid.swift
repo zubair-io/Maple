@@ -107,6 +107,10 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
     /// non-PhotoKit) grid opts in. Called per visible element, same shape
     /// as `multiSelectChecked`.
     var dragPayload: ((Element) -> DraggedAssetPayload?)? = nil
+    /// Right-click / long-press context menu (#2653). Called per visible
+    /// element, same shape as `multiSelectChecked`/`dragPayload`. `nil`
+    /// (the default) disables the context menu for every cell.
+    var contextMenuItems: ((Element) -> AnyView?)? = nil
     let onTap: (Element) -> Void
     let makeItem: (Element) -> PhotoGridItem
     let leading: () -> Leading
@@ -125,6 +129,7 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
         onAppearItem: ((Element) -> Void)? = nil,
         multiSelectChecked: ((Element) -> Bool?)? = nil,
         dragPayload: ((Element) -> DraggedAssetPayload?)? = nil,
+        contextMenuItems: ((Element) -> AnyView?)? = nil,
         onTap: @escaping (Element) -> Void,
         makeItem: @escaping (Element) -> PhotoGridItem,
         @ViewBuilder leading: @escaping () -> Leading
@@ -138,6 +143,7 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
         self.onAppearItem = onAppearItem
         self.multiSelectChecked = multiSelectChecked
         self.dragPayload = dragPayload
+        self.contextMenuItems = contextMenuItems
         self.onTap = onTap
         self.makeItem = makeItem
         self.leading = leading
@@ -161,6 +167,7 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
                     transitionNamespace: transitionNamespace,
                     multiSelectChecked: multiSelectChecked?(element),
                     dragPayload: dragPayload?(element),
+                    contextMenuItems: contextMenuItems?(element),
                     onTap: { onTap(element) },
                     onAppear: onAppearItem.map { cb in { cb(element) } }
                 )
@@ -184,6 +191,7 @@ extension PhotoGrid where Leading == EmptyView {
         onAppearItem: ((Element) -> Void)? = nil,
         multiSelectChecked: ((Element) -> Bool?)? = nil,
         dragPayload: ((Element) -> DraggedAssetPayload?)? = nil,
+        contextMenuItems: ((Element) -> AnyView?)? = nil,
         onTap: @escaping (Element) -> Void,
         makeItem: @escaping (Element) -> PhotoGridItem
     ) {
@@ -197,6 +205,7 @@ extension PhotoGrid where Leading == EmptyView {
             onAppearItem: onAppearItem,
             multiSelectChecked: multiSelectChecked,
             dragPayload: dragPayload,
+            contextMenuItems: contextMenuItems,
             onTap: onTap,
             makeItem: makeItem,
             leading: { EmptyView() }
