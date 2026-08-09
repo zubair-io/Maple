@@ -64,6 +64,12 @@ struct CloudFolderTreeRow: View {
   var onCreateFolder: ((String, String, String, String) -> Void)? = nil
   /// (libraryFolderID, libraryRootPath, absPath, newName).
   var onRenameFolder: ((String, String, String, String) -> Void)? = nil
+  /// (libraryFolderID, libraryRootPath, absPath) — recursive Move to Trash
+  /// via `POST /api/folders/:id/trash-folder` (#2630/#2695, wired #2696).
+  /// `nil` suppresses the menu item (kept optional for the preview wrapper).
+  var onTrashFolder: ((String, String, String) -> Void)? = nil
+  /// "Show Trash…" (#2653) — library root only (depth == 0). `(libraryFolderID, displayName)`.
+  var onShowTrash: ((String, String) -> Void)? = nil
   /// Drag-onto-source-tree (#2646). `ids == nil` ⇒ "use current grid
   /// selection" (the "Move/Copy Selected Here" menu path).
   var onDropAssets: (String, String, String, Set<AssetRef.ID>?, Bool) -> Void = { _, _, _, _, _ in }
@@ -81,6 +87,7 @@ struct CloudFolderTreeRow: View {
   @State private var newFolderDraft = ""
   @State private var showRenameAlert = false
   @State private var renameDraft = ""
+  @State private var showTrashConfirm = false
 
   private var isExpanded: Bool { expanded.contains(absPath) }
 
@@ -216,19 +223,27 @@ struct CloudFolderTreeRow: View {
           }
           .accessibilityIdentifier("cloudFolderTree.rename.\(absPath)")
         }
-        // Move to Trash is intentionally absent-but-explained rather than
-        // silently omitted: the API has no folder-level trash route yet
-        // (only per-asset DELETE). #2630/PR #2695 adds
-        // `POST /api/folders/:id/trash-folder`; #2696 tracks wiring this
-        // button to it once that server route merges. Disabled + a reason
-        // keeps the gap visible to the user instead of looking like an
-        // accidental oversight.
-        Button {
-        } label: {
-          Label("Move to Trash (not available for Cloud folders yet)", systemImage: "trash")
+        // Move to Trash — wired to `POST /api/folders/:id/trash-folder`
+        // (#2630/#2695) as of #2696. Subfolder rows only (depth > 0), same
+        // reasoning as Rename above: the library root's relative path is
+        // empty, and trashing an entire registered library is a distinct
+        // "remove this library" operation this menu doesn't own.
+        if onTrashFolder != nil, depth > 0 {
+          Button(role: .destructive) {
+            showTrashConfirm = true
+          } label: {
+            Label("Move to Trash", systemImage: "trash")
+          }
+          .accessibilityIdentifier("cloudFolderTree.trash.\(absPath)")
         }
-        .disabled(true)
-        .accessibilityIdentifier("cloudFolderTree.trashUnavailable.\(absPath)")
+        if depth == 0, let onShowTrash {
+          Button {
+            onShowTrash(libraryFolderID, displayName)
+          } label: {
+            Label("Show Trash…", systemImage: "trash.circle")
+          }
+          .accessibilityIdentifier("cloudFolderTree.showTrash.\(absPath)")
+        }
         Divider()
         Button {
           refresh()
@@ -261,6 +276,14 @@ struct CloudFolderTreeRow: View {
         Button("Cancel", role: .cancel) {}
       } message: {
         Text(renameDraftIsValid ? " " : FilenameValidation.invalidNameMessage)
+      }
+      .confirmationDialog("Move to Trash", isPresented: $showTrashConfirm, titleVisibility: .visible) {
+        Button("Move to Trash", role: .destructive) {
+          onTrashFolder?(libraryFolderID, libraryRootPath, absPath)
+        }
+        Button("Cancel", role: .cancel) {}
+      } message: {
+        Text("\"\(displayName)\" and everything inside it will move to this server's Trash. Recursive — every asset underneath goes too.")
       }
       .onAppear { autoExpandIfOnChain() }
       .onChange(of: cloudCurrentPath) { _, _ in
@@ -310,6 +333,8 @@ struct CloudFolderTreeRow: View {
               refreshGeneration: refreshGeneration,
               onCreateFolder: onCreateFolder,
               onRenameFolder: onRenameFolder,
+              onTrashFolder: onTrashFolder,
+              onShowTrash: onShowTrash,
               onDropAssets: onDropAssets,
               selectedAssetCount: selectedAssetCount
             )

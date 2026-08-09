@@ -47,6 +47,12 @@ struct BrowseGrid: View {
     /// Fired when the user taps "Batch Rename…" from the selection bar
     /// (#2641). `nil` hides the button.
     var onBatchRename: (() -> Void)? = nil
+    /// Delete key / "Move to Trash" context-menu item (#2653). Fires with
+    /// the currently-active selection (multi-select checked set, or just
+    /// the focused single asset). `nil` disables both the Delete-key
+    /// shortcut and the per-cell context-menu item — e.g. previews, the
+    /// merged timeline (no grid selection concept there).
+    var onTrashAssets: (([AssetRef.ID]) -> Void)? = nil
     /// App-level copy/paste/sync-adjustments clipboard (#944). `nil` hides
     /// the selection bar's paste/sync buttons and disables the ⌘C/⌘V
     /// keyboard shortcuts (e.g. previews, where nothing is wired to write
@@ -178,6 +184,10 @@ struct BrowseGrid: View {
                 )
             }
         }
+        .onDeleteCommand {
+            guard let onTrashAssets else { return }
+            onTrashAssets(activeSelectionIDs())
+        }
         .keyboardShortcuts(
             vm: vm,
             sessions: sessions,
@@ -273,6 +283,9 @@ struct BrowseGrid: View {
                 }
                 return DraggedAssetPayload(ids: Array(active))
             },
+            contextMenuItems: onTrashAssets.map { trash in
+                { (asset: AssetRef) in AnyView(trashMenuItem(for: asset, onTrashAssets: trash)) }
+            },
             onTap: { asset in
                 if vm.isSelecting {
                     // Multi-select mode: tap toggles check.
@@ -335,6 +348,47 @@ struct BrowseGrid: View {
         case .cloudOnly: return .cloudOnly
         case .localOnly: return .localOnly
         }
+    }
+
+    // MARK: - Trash (#2653)
+
+    /// The grid's current selection — multi-select checked set, or just
+    /// the focused single asset. Same shape as the drag-payload "active
+    /// selection" computation above.
+    private func activeSelectionIDs() -> [AssetRef.ID] {
+        vm.isSelecting ? Array(vm.selectedIDs) : (vm.selectedID.map { [$0] } ?? [])
+    }
+
+    /// "Move to Trash" context-menu item for one cell. If the right-clicked
+    /// asset is part of a larger active multi-selection, the whole
+    /// selection trashes together (matching the drag-payload's "multi-select
+    /// carries the whole selection" rule); otherwise just this one asset.
+    /// Label wording surfaces the design doc's platform asymmetry (macOS
+    /// Filesystem → the real OS Trash) directly at the point of action,
+    /// rather than only after the fact in the result sheet.
+    @ViewBuilder
+    private func trashMenuItem(for asset: AssetRef, onTrashAssets: @escaping ([AssetRef.ID]) -> Void) -> some View {
+        if vm.currentSource is PhotoKitSource || asset.thumbnailProvenance == .photoKit {
+            Text("Photos Library items can't be trashed from Maple")
+        } else {
+            Button(role: .destructive) {
+                let active = activeSelectionIDs()
+                let ids = active.contains(asset.id) && active.count > 1 ? active : [asset.id]
+                onTrashAssets(ids)
+            } label: {
+                Label(trashMenuTitle(for: asset), systemImage: "trash")
+            }
+            .accessibilityIdentifier("browseGrid.trash.\(asset.displayName)")
+        }
+    }
+
+    private func trashMenuTitle(for asset: AssetRef) -> String {
+        #if os(macOS)
+        let isLocalFilesystem = asset.primaryURL != nil && asset.catalog == nil && !(vm.currentSource is SMBSource)
+        return isLocalFilesystem ? "Move to Trash (Finder)" : "Move to Trash"
+        #else
+        return "Move to Trash"
+        #endif
     }
 
     // MARK: - Copy / paste / sync adjustments (#944)
