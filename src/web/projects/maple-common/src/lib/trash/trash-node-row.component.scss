@@ -1,0 +1,23 @@
+// Standalone styles — this row lives in its own component (Angular's
+// default view encapsulation scopes `folder-tree.component.scss`'s
+// `.tree-row` rules to that OTHER template only), so the hover/focus/
+// visually-set-apart treatment for the Trash row is self-contained here
+// rather than reaching across components for shared class names.
+
+:host {
+  display: block;
+}
+
+.trash-row {
+  color: var(--color-text-muted);
+  font-style: italic;
+
+  &:hover {
+    background: var(--color-bg-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+  }
+}

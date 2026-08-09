@@ -15,7 +15,13 @@ export interface FolderTreeNode {
 
 // The sidebar tree also has "smart" virtual collections and albums.
 // We model them generically so the tree component can render all entry types.
-export type SidebarEntryKind = 'folder' | 'smart' | 'album' | 'section' | 'subheader';
+// 'trash' (#2652): the per-library Trash pseudo-node the folder-tree renders
+// as a sibling of each registered library root, visually set apart from
+// real folders. Not part of `LibraryStateService`'s persisted `sidebarTree`
+// signal — it's synthesized in the folder-tree component template from
+// `TrashCapability.available()` + `LibraryStateService.registeredFolders()`,
+// so it never needs its own tree-mutation plumbing.
+export type SidebarEntryKind = 'folder' | 'smart' | 'album' | 'section' | 'subheader' | 'trash';
 
 export interface SidebarEntry {
   kind: SidebarEntryKind;

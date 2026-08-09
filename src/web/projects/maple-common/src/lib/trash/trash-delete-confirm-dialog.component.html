@@ -1,0 +1,44 @@
+<div
+  class="tdc-backdrop"
+  role="alertdialog"
+  aria-modal="true"
+  [attr.aria-label]="'Permanently delete ' + targetLabel()"
+  (click)="onBackdropClick()"
+  (keydown.escape)="onCancel()"
+>
+  <div class="tdc-card" (click)="$event.stopPropagation()">
+    <div class="tdc-header">
+      <span class="tdc-title">Delete Permanently</span>
+    </div>
+
+    <div class="tdc-body">
+      <p class="tdc-message">
+        This permanently deletes <strong>{{ targetLabel() }}</strong> from disk. This action cannot
+        be undone — there is no further Trash or recovery step after this.
+      </p>
+      @if (serverError(); as err) {
+        <p class="tdc-error">{{ err }}</p>
+      }
+    </div>
+
+    <div class="tdc-footer">
+      <button
+        #cancelButton
+        type="button"
+        class="tdc-btn tdc-btn-ghost"
+        [disabled]="busy()"
+        (click)="onCancel()"
+      >
+        Cancel
+      </button>
+      <button
+        type="button"
+        class="tdc-btn tdc-btn-destructive"
+        [disabled]="busy()"
+        (click)="onConfirm()"
+      >
+        {{ busy() ? 'Deleting…' : 'Delete Permanently' }}
+      </button>
+    </div>
+  </div>
+</div>

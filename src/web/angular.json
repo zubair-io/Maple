@@ -147,6 +147,9 @@
             "tsConfig": "projects/maple/tsconfig.app.json",
             "webWorkerTsConfig": "tsconfig.worker.json",
             "inlineStyleLanguage": "scss",
+            "stylePreprocessorOptions": {
+              "includePaths": ["projects/maple-common/src/lib/styles"]
+            },
             "assets": [
               {
                 "glob": "**/*",

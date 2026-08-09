@@ -10,6 +10,8 @@ import {
   MoveToDialogComponent,
   PanoDialogComponent,
   TimelineViewComponent,
+  TrashPanelComponent,
+  TrashService,
 } from '@maple-common';
 import { SelfHostedBrowseController } from '../self-hosted-browse/self-hosted-browse.controller';
 
@@ -34,6 +36,11 @@ import { SelfHostedBrowseController } from '../self-hosted-browse/self-hosted-br
     MoveToDialogComponent,
     PanoDialogComponent,
     TimelineViewComponent,
+    // Trash panel (#2652) — same shape again; the trigger (the folder-tree
+    // Trash row) only ever reaches `TrashService` through the
+    // `TRASH_CAPABILITY` token, so this is the one place that actually
+    // mounts `<app-trash-panel>`.
+    TrashPanelComponent,
   ],
   templateUrl: './self-hosted-browse-content.component.html',
   styleUrl: './self-hosted-browse-content.component.scss',
@@ -42,6 +49,7 @@ import { SelfHostedBrowseController } from '../self-hosted-browse/self-hosted-br
 export class SelfHostedBrowseContentComponent implements OnInit {
   protected readonly state = inject(LibraryStateService);
   protected readonly controller = inject(SelfHostedBrowseController);
+  protected readonly trash = inject(TrashService);
 
   ngOnInit(): void {
     this.state.loadFolderTree();

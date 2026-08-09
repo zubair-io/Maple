@@ -1,0 +1,16 @@
+<div
+  class="tree-row trash-row mx-2 flex h-7 cursor-pointer items-center gap-2 rounded-md px-3 text-[12px] transition-[background] duration-[120ms]"
+  role="treeitem"
+  tabindex="0"
+  [attr.aria-label]="'Trash — ' + libraryLabel()"
+  (click)="activate.emit()"
+  (keydown.enter)="activate.emit()"
+  (keydown.space)="onKeydownSpace($event)"
+>
+  <div class="w-3 flex-shrink-0"></div>
+  <maple-icon name="trash" [size]="13" color="var(--color-text-muted)" />
+  <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">Trash</span>
+  @if (badge(); as label) {
+    <span class="font-mono text-[10px] tabular-nums text-text-muted">{{ label }}</span>
+  }
+</div>

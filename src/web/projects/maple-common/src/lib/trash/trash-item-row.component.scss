@@ -1,0 +1,77 @@
+.tir-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 0.5px solid var(--color-border);
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.tir-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.tir-filename {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tir-path {
+  font-size: 10.5px;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tir-size {
+  flex-shrink: 0;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: var(--color-text-muted);
+  min-width: 56px;
+  text-align: right;
+}
+
+.tir-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+.tir-btn {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 5px;
+  border: 0.5px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-main);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms;
+
+  &:hover:not(:disabled) {
+    background: var(--color-surface-hover);
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  &-destructive {
+    color: var(--color-error-text);
+  }
+}

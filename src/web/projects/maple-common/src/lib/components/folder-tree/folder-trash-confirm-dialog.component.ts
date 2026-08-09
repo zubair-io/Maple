@@ -2,16 +2,14 @@
 // folder-tree context menu (#2643). Names the actual folder being trashed
 // (never a generic "this folder") so the destructive action is unambiguous,
 // matching the Apple sibling's `confirmationDialog` message (#2645).
+//
+// Extends `DestructiveConfirmDialogBase` for the focus-management + busy-
+// guard mechanics shared with `trash/trash-delete-confirm-dialog.component
+// .ts` (#2652) — see that base class's module doc for why this was
+// extracted (a fallow-audit-web duplication finding).
 
-import {
-  ChangeDetectionStrategy,
-  Component,
-  ElementRef,
-  ViewChild,
-  AfterViewInit,
-  input,
-  output,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { DestructiveConfirmDialogBase } from '../confirm-dialog/destructive-confirm-dialog-base';
 
 @Component({
   selector: 'app-folder-trash-confirm-dialog',
@@ -20,30 +18,19 @@ import {
   styleUrl: './folder-trash-confirm-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class FolderTrashConfirmDialogComponent implements AfterViewInit {
+export class FolderTrashConfirmDialogComponent extends DestructiveConfirmDialogBase {
   readonly folderLabel = input.required<string>();
-  readonly busy = input<boolean>(false);
   readonly serverError = input<string | null>(null);
 
   readonly confirmTrash = output<void>();
   readonly dismiss = output<void>();
 
-  @ViewChild('cancelButton') private cancelButtonRef?: ElementRef<HTMLButtonElement>;
-
-  ngAfterViewInit(): void {
-    // Cancel is the default focus target for a destructive confirmation —
-    // matches the platform convention the Apple sibling's alert follows.
-    queueMicrotask(() => this.cancelButtonRef?.nativeElement.focus());
-  }
-
   onCancel(): void {
-    if (this.busy()) return;
-    this.dismiss.emit();
+    this.guardedCancel(() => this.dismiss.emit());
   }
 
   onConfirm(): void {
-    if (this.busy()) return;
-    this.confirmTrash.emit();
+    this.guardedConfirm(() => this.confirmTrash.emit());
   }
 
   onBackdropClick(): void {
