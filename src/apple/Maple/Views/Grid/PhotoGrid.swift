@@ -167,9 +167,9 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
                     transitionNamespace: transitionNamespace,
                     multiSelectChecked: multiSelectChecked?(element),
                     dragPayload: dragPayload?(element),
-                    contextMenuItems: contextMenuItems?(element),
                     onTap: { onTap(element) },
-                    onAppear: onAppearItem.map { cb in { cb(element) } }
+                    onAppear: onAppearItem.map { cb in { cb(element) } },
+                    contextMenuItems: contextMenuItems?(element)
                 )
                 // Tag each photo cell so ScrollViewReader.scrollTo can target it.
                 .id(element.id)

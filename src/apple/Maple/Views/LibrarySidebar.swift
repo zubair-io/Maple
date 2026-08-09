@@ -45,14 +45,6 @@ struct LibrarySidebar: View {
     let onCreateFolder: (URL, Data, String) -> Void
     let onRenameFolder: (URL, Data, String) -> Void
     let onTrashFolder: (URL, Data) -> Void
-    /// "Show Trash…" (#2653) — see `FolderTreeRow.onShowTrash`'s doc
-    /// comment. `nil` on macOS (no in-app trash for local sources there).
-    var onShowLocalTrash: ((URL, Data, String) -> Void)? = nil
-    /// "Show Trash…" for a connected SMB share.
-    var onShowSMBTrash: ((SMBCredentialStore.SavedShare) -> Void)? = nil
-    /// "Show Trash…" for a Cloud library (`serverID`, `libraryFolderID`,
-    /// `displayName`).
-    var onShowCloudTrash: ((URL, String, String) -> Void)? = nil
     /// Drag-onto-source-tree (#2646), local folder rows. `ids == nil` means
     /// "use the current grid selection" — the "Move/Copy Selected Here"
     /// context-menu item's path; non-nil is the literal drag payload.
@@ -137,6 +129,14 @@ struct LibrarySidebar: View {
     /// PhotoKit). A navigating row, not a disclosure: it has no children of
     /// its own, so tapping it just selects `.allSources` and lets the shell
     /// load the aggregating view model.
+    /// "Show Trash…" (#2653) — see `FolderTreeRow.onShowTrash`'s doc
+    /// comment. `nil` on macOS (no in-app trash for local sources there).
+    var onShowLocalTrash: ((URL, Data, String) -> Void)? = nil
+    /// "Show Trash…" for a connected SMB share.
+    var onShowSMBTrash: ((SMBCredentialStore.SavedShare) -> Void)? = nil
+    /// "Show Trash…" for a Cloud library (`serverID`, `libraryFolderID`,
+    /// `displayName`).
+    var onShowCloudTrash: ((URL, String, String) -> Void)? = nil
     let onSelectTimeline: () -> Void
 
     // Section-open state (mockup: chevron open/closed).
