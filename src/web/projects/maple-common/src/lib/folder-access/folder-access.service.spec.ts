@@ -18,9 +18,13 @@ function dirHandle(
     resolveMap?: Record<string, string[] | null>;
     isSameEntry?: boolean;
     permission?: 'granted' | 'denied';
+    /** Subdirectories reachable via `getDirectoryHandle(segment)` — needed to
+     * test descent to a nested file's immediate parent. */
+    children?: Record<string, FileSystemDirectoryHandle>;
   } = {},
 ): FileSystemDirectoryHandle {
   const resolveMap = opts.resolveMap ?? {};
+  const children = opts.children ?? {};
   return {
     kind: 'directory',
     name,
@@ -28,6 +32,11 @@ function dirHandle(
     requestPermission: vi.fn().mockResolvedValue(opts.permission ?? 'granted'),
     isSameEntry: vi.fn().mockResolvedValue(opts.isSameEntry ?? false),
     resolve: vi.fn(async (h: FileSystemHandle) => resolveMap[h.name] ?? null),
+    getDirectoryHandle: vi.fn(async (segment: string) => {
+      const child = children[segment];
+      if (!child) throw new Error(`dirHandle fixture: no child directory "${segment}"`);
+      return child;
+    }),
   } as unknown as FileSystemDirectoryHandle;
 }
 
@@ -209,5 +218,110 @@ describe('FolderAccessService.resolveDrop', () => {
     const resolution = await service.resolveDrop(dataTransferFor([null], dropFiles), []);
 
     expect(resolution).toMatchObject({ kind: 'copy-fallback', files: dropFiles });
+  });
+
+  it('descends to the immediate parent directory when a dropped file resolves several segments below a known root', async () => {
+    // A loose file dropped from a subdirectory of a known root must not be
+    // matched against the root's own (flat, top-level-only) asset list — it
+    // has to mount its REAL containing folder ("Trip"), two levels below
+    // "Library", so it becomes a normal top-level asset there.
+    restoreBackend = withFsAccessBackend();
+    const service = new FolderAccessService();
+    const nested = fileHandle('IMG_1.dng');
+    const tripDir = dirHandle('Trip');
+    const yearDir = dirHandle('2024', { children: { Trip: tripDir } });
+    const root = dirHandle('Library', {
+      resolveMap: { 'IMG_1.dng': ['2024', 'Trip', 'IMG_1.dng'] },
+      children: { '2024': yearDir },
+    });
+
+    const resolution = await service.resolveDrop(dataTransferFor([nested]), [
+      knownFolder(root, true),
+    ]);
+
+    // Even though the KNOWN folder ("Library") is the current one, the
+    // MOUNTED folder is a different, deeper directory — never alreadyOpen.
+    expect(resolution).toMatchObject({
+      kind: 'mounted',
+      alreadyOpen: false,
+      filePaths: ['IMG_1.dng'],
+      folder: { name: 'Trip', native: tripDir },
+    });
+  });
+
+  it('mounts the correct sibling subfolder per drop even when basenames collide across subfolders', async () => {
+    // Two different subfolders of the same known root both contain a
+    // "DSC0001.dng". A basename-only match (ignoring which subfolder the
+    // resolved path actually descends into) would silently select whichever
+    // one happened to be indexed first — assert each drop lands on its own,
+    // distinct immediate-parent folder instead.
+    restoreBackend = withFsAccessBackend();
+    const service = new FolderAccessService();
+    const sub2024 = dirHandle('2024');
+    const sub2025 = dirHandle('2025');
+    const rootSeenFrom2024 = dirHandle('Library', {
+      resolveMap: { 'DSC0001.dng': ['2024', 'DSC0001.dng'] },
+      children: { '2024': sub2024 },
+    });
+    const rootSeenFrom2025 = dirHandle('Library', {
+      resolveMap: { 'DSC0001.dng': ['2025', 'DSC0001.dng'] },
+      children: { '2025': sub2025 },
+    });
+
+    const resolutionA = await service.resolveDrop(dataTransferFor([fileHandle('DSC0001.dng')]), [
+      knownFolder(rootSeenFrom2024, true),
+    ]);
+    const resolutionB = await service.resolveDrop(dataTransferFor([fileHandle('DSC0001.dng')]), [
+      knownFolder(rootSeenFrom2025, true),
+    ]);
+
+    expect(resolutionA).toMatchObject({
+      kind: 'mounted',
+      filePaths: ['DSC0001.dng'],
+      folder: { name: '2024', native: sub2024 },
+    });
+    expect(resolutionB).toMatchObject({
+      kind: 'mounted',
+      filePaths: ['DSC0001.dng'],
+      folder: { name: '2025', native: sub2025 },
+    });
+  });
+
+  it('resolves to access-denied when a matched known-but-not-current folder has lost permission', async () => {
+    // resolve() positively proves the drop belongs to "Archive" — that's a
+    // different situation from "couldn't find it at all", so it must not
+    // silently fall through to copy-import or the generic seeded picker.
+    restoreBackend = withFsAccessBackend();
+    const service = new FolderAccessService();
+    const a = fileHandle('a.dng');
+    const persisted = dirHandle('Archive', {
+      resolveMap: { 'a.dng': ['a.dng'] },
+      permission: 'denied',
+    });
+
+    const resolution = await service.resolveDrop(dataTransferFor([a]), [
+      knownFolder(persisted, false),
+    ]);
+
+    expect(resolution).toEqual({ kind: 'access-denied', name: 'Archive' });
+    expect(picker()).not.toHaveBeenCalled();
+  });
+
+  it('fires onBeforePicker before opening the seeded confirmation picker', async () => {
+    restoreBackend = withFsAccessBackend();
+    const service = new FolderAccessService();
+    const a = fileHandle('a.dng');
+    const picked = dirHandle('NewRoll', { resolveMap: { 'a.dng': ['a.dng'] } });
+    const calls: string[] = [];
+    picker().mockImplementation(async () => {
+      calls.push('picker');
+      return picked;
+    });
+    const onBeforePicker = vi.fn(() => calls.push('notify'));
+
+    await service.resolveDrop(dataTransferFor([a]), [], onBeforePicker);
+
+    expect(onBeforePicker).toHaveBeenCalledOnce();
+    expect(calls).toEqual(['notify', 'picker']);
   });
 });
