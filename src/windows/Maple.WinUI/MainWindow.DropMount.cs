@@ -88,6 +88,19 @@ namespace Maple.WinUI
                 {
                     await RunDropMountAsync(e.DataView);
                 }
+                catch (Exception ex)
+                {
+                    // async void: an uncaught exception here crashes the
+                    // whole app (#2754) rather than just this one drop, so
+                    // this is the last line of defense, not a normal error
+                    // path — RunDropMountAsync/Classify/the ViewModel calls
+                    // it makes already handle their own expected failures
+                    // (GetStorageItemsAsync, a missing folder, a dispatcher
+                    // enqueue failure) without throwing.
+                    DiagLog.Write($"[drop] unexpected failure: {ex.Message}");
+                    await ShowMessageAsync("Can't open that",
+                        "Something went wrong opening the dropped item. Nothing was mounted or moved.");
+                }
                 finally
                 {
                     _dropGate.Exit();
@@ -117,8 +130,8 @@ namespace Maple.WinUI
                 return;
 
             // Classify does real Directory.Exists/File.Exists checks per
-            // dropped path — off the UI thread (#2754 review, BLOCKING-2),
-            // same reasoning EditSessionViewModel.Library.cs's
+            // dropped path — off the UI thread (#2754), same reasoning
+            // EditSessionViewModel.Library.cs's
             // InitializeLibrary/RebuildFolderTree already document: a dead
             // network share can block Exists for the OS's own timeout, and
             // that must never freeze the window. LibraryFolders is

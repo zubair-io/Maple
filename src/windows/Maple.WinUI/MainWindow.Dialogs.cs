@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Maple.WinUI.Services;
 
 namespace Maple.WinUI
 {
@@ -228,17 +229,17 @@ namespace Maple.WinUI
             }
         }
 
-        // One-dialog-at-a-time protection (#2754 review, IMPORTANT-5) for
-        // this generic informational/error dialog specifically — the
-        // shared entry point Export, Connect to Maple Cloud, Remove Folder,
-        // and now MainWindow.DropMount.cs's unsupported-drop explanation
-        // all funnel through. A real SemaphoreSlim queue, not a
-        // SingleFlightGate: unlike the per-FLOW gates (MainWindow.Trash.cs's
-        // _deleteGate and friends), which reject a re-entrant call outright
-        // because it's the SAME operation firing twice, two callers here
-        // are usually two DIFFERENT, both-legitimate messages — dropping
-        // the second silently would hide it from the user, so it waits its
-        // turn instead. This does not (and can't, without a much bigger
+        // One-dialog-at-a-time protection (#2754) for this generic
+        // informational/error dialog specifically — the shared entry point
+        // Export, Connect to Maple Cloud, Remove Folder, and now
+        // MainWindow.DropMount.cs's unsupported-drop explanation all funnel
+        // through. A real SemaphoreSlim queue, not a SingleFlightGate:
+        // unlike the per-FLOW gates (MainWindow.Trash.cs's _deleteGate and
+        // friends), which reject a re-entrant call outright because it's
+        // the SAME operation firing twice, two callers here are usually two
+        // DIFFERENT, both-legitimate messages — dropping the second
+        // silently would hide it from the user, so it waits its turn
+        // instead. This does not (and can't, without a much bigger
         // refactor) protect the handful of flows that build their own
         // ad hoc ContentDialog directly (RunDragMoveAsync's progress
         // dialog, RunDeleteSelectedPhotosAsync's confirm/progress dialogs,
@@ -252,12 +253,23 @@ namespace Maple.WinUI
             await _messageDialogGate.WaitAsync();
             try
             {
+                // The window can close while this call was queued behind
+                // another dialog (#2754) — XamlRoot goes null once Content
+                // is torn down, and ContentDialog.ShowAsync() throws given
+                // a null XamlRoot rather than just no-opping. Bail quietly:
+                // there's no window left to show a message in.
+                var xamlRoot = (this.Content as FrameworkElement)?.XamlRoot;
+                if (xamlRoot == null)
+                {
+                    DiagLog.Write($"[dialog] skipped \"{title}\" — window has no XamlRoot");
+                    return;
+                }
                 var dialog = new ContentDialog
                 {
                     Title = title,
                     Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
                     CloseButtonText = "OK",
-                    XamlRoot = (this.Content as FrameworkElement)?.XamlRoot,
+                    XamlRoot = xamlRoot,
                 };
                 await dialog.ShowAsync();
             }

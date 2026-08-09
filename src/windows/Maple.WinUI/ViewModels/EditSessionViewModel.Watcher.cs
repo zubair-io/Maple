@@ -1,7 +1,7 @@
 // EditSessionViewModel.Watcher.cs — live grid updates for the browsed
 // folder (#2585): new files join the grid (sorted, hydrated), deleted files
-// leave it. Split out of EditSessionViewModel.Library.cs (#2754 review
-// round) to stay under this codebase's line-budget after the #2651
+// leave it. Split out of EditSessionViewModel.Library.cs (#2754) to
+// stay under this codebase's line-budget after the #2651
 // drop-to-mount additions — same reasoning as that file's own prior split
 // note (#2639) and EditSessionViewModel.DropMount.cs's.
 

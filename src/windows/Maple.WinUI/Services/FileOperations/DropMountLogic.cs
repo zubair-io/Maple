@@ -128,7 +128,7 @@ namespace Maple.WinUI.Services.FileOperations
             // accepted item when nothing needs mounting (case 4 — the
             // folder to browse to still has to reflect everything that was
             // dropped), or ONLY the not-yet-mounted items when a mount IS
-            // needed (#2754 review, IMPORTANT-4): a MIXED drop's ancestor
+            // needed (#2754): a MIXED drop's ancestor
             // computed across an already-mounted item too can climb high
             // enough to overlap — even equal — an existing registered
             // root (AddLibraryFolder only dedupes an exact string match).
@@ -146,7 +146,7 @@ namespace Maple.WinUI.Services.FileOperations
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            // #2754 review, BLOCKING-1: items spanning two drives or two
+            // #2754: items spanning two drives or two
             // UNC shares have no real common ancestor — CommonAncestor
             // returns null rather than climbing to (and silently letting
             // the app mount/recursively scan) a drive or share root.
@@ -176,8 +176,8 @@ namespace Maple.WinUI.Services.FileOperations
         /// and more robust against drive-letter edge cases than splitting
         /// and rejoining path segments, and reuses the same
         /// case-insensitive containment check FolderTreeCrudLogic already
-        /// established (IsSameOrDescendant). Returns null (#2754 review,
-        /// BLOCKING-1) the moment a candidate can't climb any higher and
+        /// established (IsSameOrDescendant). Returns null (#2754) the
+        /// moment a candidate can't climb any higher and
         /// still isn't an ancestor of the path being checked — two drive
         /// letters, or two different UNC shares, have no real common
         /// ancestor, and the OLD behavior of quietly returning whatever
