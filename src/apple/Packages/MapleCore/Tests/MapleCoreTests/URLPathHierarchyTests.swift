@@ -43,6 +43,33 @@ final class URLPathHierarchyTests: XCTestCase {
         XCTAssertFalse(ancestor.isDescendant(ofOrEqualTo: parent))
     }
 
+    /// I4 (#2649 review): APFS — macOS's default volume format — is
+    /// case-insensitive-but-case-preserving, so a dropped item resolved
+    /// with different casing than the saved root must still match.
+    func testIsDescendantIsCaseInsensitive() {
+        let parent = URL(fileURLWithPath: "/Users/x/Photos")
+        let child = URL(fileURLWithPath: "/Users/x/photos/a.dng")
+        XCTAssertTrue(child.isDescendant(ofOrEqualTo: parent))
+    }
+
+    /// N1 (#2649 review): a fixture where `.standardizedFileURL` actually
+    /// changes the path, not just a no-op on an already-clean literal —
+    /// verified empirically (this repo's toolchain does NOT special-case
+    /// `/tmp`→`/private/tmp` the way NSString's `standardizingPath` docs
+    /// describe on some OS versions, so that fixture would silently test
+    /// nothing here). A redundant `/../` component IS reliably collapsed by
+    /// `.standardizedFileURL` on every platform this app ships on, which is
+    /// exactly the kind of divergence `isDescendant` must handle — a URL
+    /// built by joining path segments (e.g. `deletingLastPathComponent()`
+    /// followed by re-appending) can carry one even though nothing in the
+    /// app deliberately writes `..` — string equality would miss the match
+    /// a real filesystem call would consider identical.
+    func testIsDescendantResolvesRedundantPathComponents() {
+        let parent = URL(fileURLWithPath: "/Users/x/Photos")
+        let childWithRedundantComponent = URL(fileURLWithPath: "/Users/x/Photos/../Photos/a.dng")
+        XCTAssertTrue(childWithRedundantComponent.isDescendant(ofOrEqualTo: parent))
+    }
+
     // MARK: - commonParent(of:)
 
     func testCommonParentOfSingleFileIsItsDirectory() {
@@ -70,6 +97,18 @@ final class URLPathHierarchyTests: XCTestCase {
 
     func testCommonParentOfEmptyListIsNil() {
         XCTAssertNil(URL.commonParent(of: []))
+    }
+
+    /// N1 (#2649 review): same redundant-component divergence as
+    /// `testIsDescendantResolvesRedundantPathComponents`, exercised through
+    /// `commonParent` — two files spelled through different (but
+    /// filesystem-identical) paths must still resolve to ONE real common
+    /// ancestor, not the filesystem root because the un-standardized
+    /// strings never overlap.
+    func testCommonParentResolvesRedundantPathComponents() {
+        let a = URL(fileURLWithPath: "/Users/x/Trip/../Trip/Day1/a.dng")
+        let b = URL(fileURLWithPath: "/Users/x/Trip/Day1/b.dng")
+        XCTAssertEqual(URL.commonParent(of: [a, b]), URL(fileURLWithPath: "/Users/x/Trip/Day1"))
     }
 
     func testCommonParentIncludesFolderItemsOwnPathNotOneLevelUp() {

@@ -52,6 +52,14 @@ extension AppShell {
         // their own), so the folder ends up in the sidebar and usable —
         // but the user just saw a spurious "can't open folder" error.
         claimScope(for: url)
+        // Invalidate the OLD folder's bookmark in the SAME synchronous
+        // prefix as the `claimScope` call above — `activeScopeURL` just
+        // flipped to `url`, but the real bookmark for `url` isn't known
+        // until `FilesystemSource.open` resolves inside the `Task` below.
+        // Leaving the previous folder's (real, but now-mismatched) bookmark
+        // in place until then would let a drop-to-mount read (#2649 review
+        // finding I2) pair the NEW `activeScopeURL` with the OLD bookmark.
+        currentRootBookmark = nil
 
         // `url` here came from `.fileImporter` which returns a scope-backed
         // URL — propagate it to the VM so each synthesised AssetRef carries
@@ -235,7 +243,17 @@ extension AppShell {
     func openSavedFolder(_ folder: SavedFolder) {
         librarySelection = .folder(path: folder.path)
         libraryTitle = folder.displayName
-        currentRootBookmark = folder.bookmark
+        // Invalidate (not "set to the new value") synchronously — `folder.
+        // bookmark` only becomes a TRUE pairing with `activeScopeURL` once
+        // `claimScope(for:)` below actually runs, which happens later
+        // inside the `Task`. Setting the real value here would let a
+        // drop-to-mount read (#2649 review finding I2) observe
+        // `librarySelection`/`currentRootBookmark` already pointing at this
+        // folder while `activeScopeURL` still names the PREVIOUS one — a
+        // torn pairing that resolves a stale/wrong root's bookmark. `nil`
+        // is a safe degraded state: a reader mid-transition just sees "no
+        // settled bookmark yet" and falls through to a fresh mount.
+        currentRootBookmark = nil
         mode = .browse
         Task.detached { await ThumbnailLoader.shared.cancelAll() }
         // Resolve the bookmark, claim security scope, then run the native
@@ -270,6 +288,10 @@ extension AppShell {
             // eventually call into Rust. The previous `defer { stop }` released
             // before any of them ran, which is why Rust saw EPERM.
             claimScope(for: folderURL)
+            // Same synchronous prefix as `claimScope` above (no `await`
+            // between them) — `activeScopeURL` and `currentRootBookmark`
+            // become consistent in the same tick, closing the I2 gap.
+            currentRootBookmark = folder.bookmark
             // Scope-backed root for the VM so AssetRefs carry the token.
             browseVM.currentScopeRoot = folderURL
             await ThumbnailDiskCache.shared.configure(folderURL: folderURL)
