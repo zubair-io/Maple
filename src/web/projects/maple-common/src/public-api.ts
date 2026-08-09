@@ -291,6 +291,24 @@ export * from './lib/batch-rename/batch-rename.types';
 export * from './lib/batch-rename/batch-rename.service';
 export * from './lib/batch-rename/batch-rename-dialog.component';
 
+// #2652 — Trash pseudo-node (list/restore/delete-permanently). Same
+// non-`@defer`red, physical-separation shape as the batch-rename dialog
+// right above: `TrashPanelComponent` is mounted directly (no `@defer`) by
+// Self Hosted's `SelfHostedBrowseContentComponent`, which lives entirely
+// under `projects/maple` and is never reachable from Hosted's build graph —
+// plain tree-shaking keeps it (and `TrashApiService`'s asset/folder-trash
+// routes) out of Hosted's shipped bundle. The trigger site (the folder-tree
+// Trash row) is shared, so IT depends on `TrashCapability`/
+// `TRASH_CAPABILITY` only — never `TrashService` or `TrashPanelComponent`
+// directly.
+export * from './lib/trash/trash.types';
+export * from './lib/trash/trash-capability';
+export * from './lib/trash/trash.service';
+export * from './lib/trash/trash-panel.component';
+export * from './lib/trash/trash-item-row.component';
+export * from './lib/trash/trash-node-row.component';
+export * from './lib/trash/trash-delete-confirm-dialog.component';
+
 // M2 — Unified library addressing (MapleAddress + LibrarySource strategy).
 export * from './lib/addressing/maple-address';
 export * from './lib/addressing/library-source';
