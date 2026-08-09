@@ -10,6 +10,9 @@
 
 import SwiftUI
 import MapleCore
+#if os(macOS)
+import AppKit
+#endif
 
 // MARK: - GridDisplayMode
 // Moved to Maple/Views/Grid/ThumbnailImage.swift (#1490 M0).
@@ -283,8 +286,33 @@ struct BrowseGrid: View {
                 }
                 return DraggedAssetPayload(ids: Array(active))
             },
-            contextMenuItems: onTrashAssets.map { trash in
-                { (asset: AssetRef) in AnyView(trashMenuItem(for: asset, onTrashAssets: trash)) }
+            contextMenuItems: { (asset: AssetRef) in
+                // Reveal in Finder (#2658) rides in the same per-cell menu
+                // as Move to Trash rather than a second closure threaded
+                // through every Mac/iPad/iPhone shell — it needs no
+                // external wiring (NSWorkspace is a direct OS call), it's
+                // macOS-only (no Finder on iOS/iPadOS), and it self-gates
+                // on `revealEligible` so the item is HIDDEN — not shown
+                // disabled — for PhotoKit/Cloud/SMB assets that have no
+                // on-disk `primaryURL`.
+                #if os(macOS)
+                let showReveal = revealEligible(asset)
+                #else
+                let showReveal = false
+                #endif
+                guard onTrashAssets != nil || showReveal else { return nil }
+                return AnyView(
+                    Group {
+                        if let onTrashAssets {
+                            trashMenuItem(for: asset, onTrashAssets: onTrashAssets)
+                        }
+                        #if os(macOS)
+                        if showReveal {
+                            revealMenuItem(for: asset)
+                        }
+                        #endif
+                    }
+                )
             },
             onTap: { asset in
                 if vm.isSelecting {
@@ -390,6 +418,41 @@ struct BrowseGrid: View {
         return "Move to Trash"
         #endif
     }
+
+    // MARK: - Reveal in Finder (#2658)
+
+    #if os(macOS)
+    /// True only for a local-filesystem asset — the only case with a real
+    /// on-disk `primaryURL` Finder can point at. PhotoKit assets live in
+    /// the Photos library (no user-visible file), Cloud assets are
+    /// server-resident (`catalog` set, `primaryURL` nil), and SMB assets
+    /// are read over the network protocol directly (no local mount, so
+    /// also `primaryURL` nil) — all three fall out of this check for free.
+    private func revealEligible(_ asset: AssetRef) -> Bool {
+        asset.primaryURL != nil
+    }
+
+    /// "Reveal in Finder" context-menu item. Mirrors `trashMenuItem`'s
+    /// multi-select rule: if the right-clicked asset is part of a larger
+    /// active selection, every selected LOCAL asset (mixed selections
+    /// shouldn't happen within one grid, but `compactMap` filters
+    /// defensively) reveals together via `activateFileViewerSelecting`'s
+    /// array form — one Finder window, every item highlighted — otherwise
+    /// just this one.
+    @ViewBuilder
+    private func revealMenuItem(for asset: AssetRef) -> some View {
+        Button {
+            let active = activeSelectionIDs()
+            let ids = active.contains(asset.id) && active.count > 1 ? active : [asset.id]
+            let urls = vm.assets.filter { ids.contains($0.id) }.compactMap(\.primaryURL)
+            guard !urls.isEmpty else { return }
+            NSWorkspace.shared.activateFileViewerSelecting(urls)
+        } label: {
+            Label("Reveal in Finder", systemImage: "folder")
+        }
+        .accessibilityIdentifier("browseGrid.revealInFinder.\(asset.displayName)")
+    }
+    #endif
 
     // MARK: - Copy / paste / sync adjustments (#944)
 
