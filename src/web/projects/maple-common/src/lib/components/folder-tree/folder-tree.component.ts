@@ -16,7 +16,7 @@
 //     (`folder-tree-crud-capability.ts`), so the row handlers below never
 //     even open the menu on Hosted.
 
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
 import { DecimalPipe, NgComponentOutlet, NgTemplateOutlet } from '@angular/common';
 import { CdkDrag, CdkDragDrop, CdkDropList, DragDropModule } from '@angular/cdk/drag-drop';
 import { LibraryStateService } from '../../state/library-state.service';
@@ -33,6 +33,9 @@ import {
 import { DRAG_MOVE_CAPABILITY } from '../../drag-move/drag-move-capability';
 import { isCopyModifierEvent } from '../../drag-move/drag-move-platform';
 import type { AssetDragData } from '../../drag-move/asset-drag-data';
+import { TRASH_CAPABILITY } from '../../trash/trash-capability';
+import { libraryIdForRootNode, trashCountLabel } from '../../trash/trash-node';
+import { TrashNodeRowComponent } from '../../trash/trash-node-row.component';
 
 /** Touch long-press → context menu. 500ms matches the platform convention
  * (iOS/Android system long-press threshold); 10px is the move tolerance
@@ -50,6 +53,7 @@ const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
     DecimalPipe,
     FolderTreeCrudComponent,
     DragDropModule,
+    TrashNodeRowComponent,
   ],
   styleUrl: './folder-tree.component.scss',
   templateUrl: './folder-tree.component.html',
@@ -60,9 +64,23 @@ export class FolderTreeComponent {
   protected readonly extensions = inject(FOLDER_TREE_EXTENSIONS);
   private readonly crudEnabled = inject(FOLDER_TREE_CRUD_ENABLED);
   protected readonly dragMove = inject(DRAG_MOVE_CAPABILITY);
+  protected readonly trash = inject(TRASH_CAPABILITY);
 
   readonly crudRequest = signal<FolderCrudRequest | null>(null);
   readonly trashPartialWarning = signal<string | null>(null);
+
+  constructor() {
+    // Warm the sidebar Trash badge for every registered library root once
+    // Trash is available — cheap (one small paged request per library) and
+    // idempotent (`ensureCountLoaded` no-ops once a library's count is
+    // cached), so re-running on every `registeredFolders()` change is safe.
+    effect(() => {
+      if (!this.trash.available()) return;
+      for (const folder of this.state.registeredFolders()) {
+        this.trash.ensureCountLoaded(folder.id);
+      }
+    });
+  }
 
   /** Element to return focus to once the crud menu/dialog flow closes
    * (keyboard- or long-press-invoked; a mouse right-click leaves focus
@@ -214,6 +232,25 @@ export class FolderTreeComponent {
       this.longPressTimer = null;
     }
     this.longPressStart = null;
+  }
+
+  // ── Trash pseudo-node (#2652) ───────────────────────────────────────────
+  // Synthesized per library root rather than materialized into
+  // `LibraryStateService.sidebarTree` — see `trash-node.ts`'s module doc.
+  // `trash.available()` stays `false` on Hosted, so `libraryIdForTrashRow`
+  // returns `null` for every root there and the row never renders.
+
+  libraryIdForTrashRow(node: SidebarEntry): string | null {
+    if (!this.trash.available()) return null;
+    return libraryIdForRootNode(node.id, this.state.registeredFolders());
+  }
+
+  trashBadgeFor(libraryId: string): string | null {
+    return trashCountLabel(this.trash.countByLibrary()[libraryId]);
+  }
+
+  onTrashNodeActivate(libraryId: string, libraryLabel: string): void {
+    this.trash.open(libraryId, libraryLabel);
   }
 
   // ── Crud outcome handling ──────────────────────────────────────────────

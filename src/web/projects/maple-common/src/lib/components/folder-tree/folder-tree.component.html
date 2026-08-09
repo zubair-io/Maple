@@ -42,6 +42,18 @@
   } @else if (section.kind === 'folder') {
     <!-- Top-level library entry (the canonical case post-refactor). -->
     <ng-container *ngTemplateOutlet="folderNode; context: { $implicit: section, level: 0 }" />
+    <!-- Trash pseudo-node (#2652) — one per library root, visually set
+         apart from real folders. `libraryIdForTrashRow` returns null (no
+         row) on Hosted and for anything that isn't a real library root.
+         Markup lives in `TrashNodeRowComponent` — see that file's module
+         doc for why this stayed out of the recursive template above. -->
+    @if (libraryIdForTrashRow(section); as trashLibraryId) {
+      <app-trash-node-row
+        [libraryLabel]="section.label"
+        [badge]="trashBadgeFor(trashLibraryId)"
+        (activate)="onTrashNodeActivate(trashLibraryId, section.label)"
+      />
+    }
   } @else if (section.kind === 'subheader') {
     <div
       class="section-bar flex items-center px-5 text-[10px] font-semibold uppercase tracking-[0.06em] text-text-muted"

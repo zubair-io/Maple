@@ -14,6 +14,8 @@ import { AssetRenameService } from '../rename/asset-rename.service';
 import { ASSET_RENAME_CAPABILITY } from '../rename/asset-rename-capability';
 import { DragMoveService } from '../drag-move/drag-move.service';
 import { DRAG_MOVE_CAPABILITY } from '../drag-move/drag-move-capability';
+import { TrashService } from '../trash/trash.service';
+import { TRASH_CAPABILITY } from '../trash/trash-capability';
 
 function serverPersistenceFactory(): ServerWorkspacePersistence {
   const api = inject(BunApiBackendService);
@@ -43,5 +45,10 @@ export function provideSelfHostedWorkspace(): EnvironmentProviders {
     // reason: only the Self Hosted composition root's import graph should
     // ever reach `DragMoveService` (and `BunApiBackendService` through it).
     { provide: DRAG_MOVE_CAPABILITY, useExisting: DragMoveService },
+    // #2652 — Trash pseudo-node (list/restore/delete-permanently), same
+    // indirection and same reason: only the Self Hosted composition root's
+    // import graph should ever reach `TrashService` (and `TrashApiService`
+    // through it).
+    { provide: TRASH_CAPABILITY, useExisting: TrashService },
   ]);
 }
