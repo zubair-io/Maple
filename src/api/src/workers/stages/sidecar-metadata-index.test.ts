@@ -319,6 +319,7 @@ describe('sidecarMetadataIndexHandler — patch path', () => {
       shutter: null,
       focal_length: null,
       gps: null,
+      camera_serial: null,
     };
     const result = await sidecarMetadataIndexHandler(image, fakeCtx);
 

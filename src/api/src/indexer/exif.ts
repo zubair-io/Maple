@@ -95,6 +95,8 @@ export const EXIF_PICK_TAGS = [
   'GPSLongitude',
   'GPSLatitudeRef',
   'GPSLongitudeRef',
+  'SerialNumber',
+  'InternalSerialNumber',
 ] as const;
 
 type LooseRecord = Record<string, unknown>;
@@ -204,6 +206,7 @@ export function normalizeExif(raw: LooseRecord): AssetExif {
   }
   const camera_make = asString(raw['Make']);
   const camera_model = asString(raw['Model']);
+  const camera_serial = asString(raw['SerialNumber']) ?? asString(raw['InternalSerialNumber']);
   const lens = asString(raw['LensModel']) ?? asString(raw['Lens']) ?? asString(raw['LensInfo']);
   const iso = asNumber(raw['ISO']) ?? asNumber(raw['ISOSpeedRatings']);
   const aperture = asNumber(raw['FNumber']) ?? asNumber(raw['ApertureValue']);
@@ -229,6 +232,7 @@ export function normalizeExif(raw: LooseRecord): AssetExif {
     shutter,
     focal_length,
     gps,
+    camera_serial,
   };
 }
 

@@ -30,6 +30,7 @@ function fakeDoc(gps: { lat: number; lng: number } | null = { lat: 42.65, lng: -
       shutter: null,
       focal_length: null,
       gps,
+      camera_serial: null,
     },
     faces: [],
     description: null,

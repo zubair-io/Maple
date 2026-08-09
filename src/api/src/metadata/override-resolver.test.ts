@@ -56,6 +56,7 @@ describe('effectiveMetadata — no override', () => {
       shutter: '1/250',
       focal_length: 24,
       gps: { lat: 40.7128, lng: -74.006 },
+      camera_serial: null,
     },
     metadata_override: undefined,
   };
@@ -111,6 +112,7 @@ describe('effectiveMetadata — with override', () => {
       shutter: null,
       focal_length: null,
       gps: { lat: 40.7128, lng: -74.006 },
+      camera_serial: null,
     },
     metadata_override: override,
   };
@@ -164,6 +166,7 @@ describe('effectiveMetadata — nullish override falls back to exif (spec: overr
         shutter: null,
         focal_length: null,
         gps: { lat: 40.7128, lng: -74.006 },
+        camera_serial: null,
       },
       metadata_override: {
         edited_at: '2026-06-26T16:40:00Z',
@@ -189,6 +192,7 @@ describe('effectiveMetadata — nullish override falls back to exif (spec: overr
         shutter: null,
         focal_length: null,
         gps: null,
+        camera_serial: null,
       },
       metadata_override: {
         edited_at: '2026-06-26T16:40:00Z',

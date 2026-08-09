@@ -282,6 +282,7 @@ describe('exif stage — tryMergeWithExistingPrimary', () => {
       shutter: '1/250',
       focal_length: 24,
       gps: null,
+      camera_serial: null,
     };
     await __exifTestInternals.tryMergeWithExistingPrimary(loser as never, collidingId, {
       exif: freshExif,
