@@ -72,4 +72,30 @@ enum TrashMarker {
         guard let parsed = parseMarkerDirName(name), parsed.basename == itemBasename else { return nil }
         return parsed.date
     }
+
+    /// Whole calendar days elapsed between `trashedDate` and `now`, both
+    /// truncated to midnight UTC first (`dayFormatter`'s own day-only
+    /// granularity — the marker never stored a time-of-day to begin with).
+    ///
+    /// Review finding: comparing raw `timeIntervalSince` against
+    /// `days * 86_400` purges up to ~24h EARLY for an item trashed late in
+    /// the day (23:59 today reads as "1 day old" the instant midnight
+    /// ticks over). A day-to-day comparison, biased toward retaining
+    /// longer, is the correct read of "30-day auto-purge" — `sweep...`
+    /// below purges only once this is STRICTLY GREATER than the configured
+    /// threshold (i.e. day 31+ for a 30-day policy), never merely equal.
+    static func daysElapsed(since trashedDate: Date, now: Date) -> Int {
+        // MUST use the same UTC time zone `dayFormatter` parses marker
+        // names with — the marker only ever stores a date (never a
+        // time-of-day), so `dayFormatter.date(from:)` always reconstructs
+        // midnight UTC. Truncating THAT with a calendar in the device's
+        // local time zone (the `Calendar()` default) can shift it onto a
+        // different local day depending on the device's UTC offset,
+        // silently gaining or losing a day versus the intended comparison.
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        let markerDay = cal.startOfDay(for: trashedDate)
+        let todayDay = cal.startOfDay(for: now)
+        return cal.dateComponents([.day], from: markerDay, to: todayDay).day ?? 0
+    }
 }
