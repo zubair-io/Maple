@@ -93,10 +93,10 @@ struct AppShellSidebar: View {
             onCreateCloudFolder: onCreateCloudFolder,
             onRenameCloudFolder: onRenameCloudFolder,
             onTrashCloudFolder: onTrashCloudFolder,
+            onDropAssetsCloud: onDropAssetsCloud,
             onShowLocalTrash: onShowLocalTrash,
             onShowSMBTrash: onShowSMBTrash,
             onShowCloudTrash: onShowCloudTrash,
-            onDropAssetsCloud: onDropAssetsCloud,
             onSelectTimeline: onSelectTimeline
         )
     }
