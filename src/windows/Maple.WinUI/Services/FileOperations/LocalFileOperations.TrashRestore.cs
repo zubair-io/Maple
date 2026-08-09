@@ -48,12 +48,16 @@ namespace Maple.WinUI.Services.FileOperations
         /// folder after trashing its last photo). The `.origpath` marker
         /// (see this file's header), if one was written at trash time, is
         /// deleted on a successful restore so trash doesn't accumulate
-        /// orphaned markers.</summary>
+        /// orphaned markers. Throws <see cref="FileOperationException"/>
+        /// (kind <see cref="FileOperationErrorKind.InvalidDestination"/>)
+        /// without touching anything on disk if the recorded original path
+        /// would resolve outside <paramref name="libraryRoot"/> — see
+        /// <see cref="ResolveRestoreTargetPath"/>.</summary>
         public static async Task<RelocateOutcome> RestoreFromMapleTrashAsync(
             string trashPrimaryPath, string libraryRoot)
         {
             var relativePath = ComputeOriginalRelativePath(trashPrimaryPath, libraryRoot);
-            var targetPath = Path.Combine(libraryRoot, relativePath);
+            var targetPath = ResolveRestoreTargetPath(relativePath, libraryRoot);
             var destinationDir = Path.GetDirectoryName(targetPath) ?? libraryRoot;
             var basename = Path.GetFileName(targetPath);
 
@@ -70,6 +74,37 @@ namespace Maple.WinUI.Services.FileOperations
                 RelocateMode.Move, CollisionPolicy.Replace).ConfigureAwait(false);
             TryDelete(OriginalPathMarkerFor(trashPrimaryPath));
             return outcome;
+        }
+
+        /// <summary>Resolves <paramref name="relativePath"/> (from
+        /// <see cref="ComputeOriginalRelativePath"/>) against
+        /// <paramref name="libraryRoot"/> and REFUSES the result if it
+        /// doesn't stay inside the root, rather than silently restoring
+        /// somewhere else. Load-bearing, not defensive noise:
+        /// <paramref name="relativePath"/> can come straight from a
+        /// `.origpath` marker file's contents — data read off disk, and on
+        /// the `.maple/trash` fallback (SMB shares in particular) that file
+        /// sits on a share Maple doesn't otherwise control the contents of.
+        /// <see cref="Path.Combine(string, string)"/> passes an absolute
+        /// second argument through unchanged, and
+        /// <see cref="Path.GetFullPath(string)"/> resolves `..` segments —
+        /// together, an unvalidated marker turns this restore into an
+        /// arbitrary-path file WRITE (#2743 review finding). On a
+        /// violation, the trashed file and its marker are left exactly as
+        /// they were: this throws before <see cref="RestoreFromMapleTrashAsync"/>
+        /// creates any directory or even calls
+        /// <see cref="File.Exists(string)"/> against the untrusted
+        /// path.</summary>
+        internal static string ResolveRestoreTargetPath(string relativePath, string libraryRoot)
+        {
+            var rootFull = TrashPaths.NormalizeDir(Path.GetFullPath(libraryRoot));
+            var targetFull = Path.GetFullPath(Path.Combine(libraryRoot, relativePath));
+            var isUnderRoot = targetFull.StartsWith(
+                rootFull + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+            if (!isUnderRoot)
+                throw new FileOperationException(FileOperationErrorKind.InvalidDestination,
+                    $"recorded original path escapes the library root: {relativePath}");
+            return targetFull;
         }
 
         /// <summary>Best-effort marker recording <paramref name="originalRelativePath"/>
