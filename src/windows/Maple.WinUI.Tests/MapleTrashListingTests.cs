@@ -111,5 +111,59 @@ namespace Maple.WinUI.Tests
             Assert.Contains("photo.dng", item.DisplayLabel);
             Assert.Contains(item.RelativePath, item.DisplayLabel);
         }
+
+        [Fact]
+        public void ListTrashItemsForRoot_OneEntryVanishesBetweenDiscoveryAndStat_SkipsItWithoutAbortingTheWalk()
+        {
+            // #2743 review BLOCKING finding: FileInfo does no I/O of its own
+            // — .Length/.LastWriteTimeUtc do, lazily, the first time
+            // they're read. A file that's gone or locked by the time this
+            // module gets around to statting it (plausible on SMB, between
+            // Directory.EnumerateFiles discovering the name and this
+            // module reading its metadata) must not crash the whole
+            // listing. The injectable `stat` seam simulates exactly that
+            // moment without depending on winning a real filesystem race.
+            var root = Path.Combine(_dir, "Root");
+            WriteFile(root, Path.Combine(".maple", "trash", "survivor.dng"), "bytes");
+            var vanished = WriteFile(root, Path.Combine(".maple", "trash", "vanished.dng"), "bytes");
+
+            (long, DateTime) FlakyStat(string path)
+            {
+                if (string.Equals(path, vanished, StringComparison.OrdinalIgnoreCase))
+                    throw new FileNotFoundException("simulated: gone by stat time", path);
+                var info = new FileInfo(path);
+                return (info.Length, info.LastWriteTimeUtc);
+            }
+
+            var items = MapleTrashListing.ListTrashItemsForRoot(root, FlakyStat);
+
+            var item = Assert.Single(items);
+            Assert.Equal("survivor.dng", item.FileName);
+            Assert.DoesNotContain(items, i => i.FileName == "vanished.dng");
+        }
+
+        [Fact]
+        public void ListTrashItemsForRoot_LockedEntryThrowsIOException_SkipsItWithoutAbortingTheWalk()
+        {
+            // Same finding, the other real-world trigger: a sharing
+            // violation (IOException, not FileNotFoundException) rather
+            // than the file being fully gone.
+            var root = Path.Combine(_dir, "Root");
+            WriteFile(root, Path.Combine(".maple", "trash", "survivor.dng"), "bytes");
+            var locked = WriteFile(root, Path.Combine(".maple", "trash", "locked.dng"), "bytes");
+
+            (long, DateTime) FlakyStat(string path)
+            {
+                if (string.Equals(path, locked, StringComparison.OrdinalIgnoreCase))
+                    throw new IOException("simulated: sharing violation");
+                var info = new FileInfo(path);
+                return (info.Length, info.LastWriteTimeUtc);
+            }
+
+            var items = MapleTrashListing.ListTrashItemsForRoot(root, FlakyStat);
+
+            var item = Assert.Single(items);
+            Assert.Equal("survivor.dng", item.FileName);
+        }
     }
 }
