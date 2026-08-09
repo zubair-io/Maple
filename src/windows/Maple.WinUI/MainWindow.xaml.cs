@@ -567,6 +567,14 @@ namespace Maple.WinUI
                     if (ViewModel.ResolveRenameTarget() is { } renameTarget)
                         StartRename(renameTarget);
                     break;
+                // Delete → Trash (#2654): same OnDeleteSelectedPhotos entry
+                // point as the Photo menu's "Delete…" item and the grid's
+                // right-click ContextFlyout. Fire-and-forget from a
+                // synchronous key handler, same shape as every other
+                // async-dialog entry point reachable from this switch.
+                case VirtualKey.Delete when _mode == ShellMode.Browse:
+                    _ = RunDeleteSelectedPhotosAsync();
+                    break;
                 case VirtualKey.E when !ctrl && _mode == ShellMode.Preview:
                     SetMode(ShellMode.Edit);
                     ViewModel.EnsureDecoded();
