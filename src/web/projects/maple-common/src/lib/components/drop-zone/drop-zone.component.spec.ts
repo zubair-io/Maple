@@ -29,7 +29,11 @@ describe('DropZoneComponent drop routing', () => {
   const folderAccess = {
     hasFsAccess: true,
     persistedHandles: signal([]),
-    resolveDrop: vi.fn<() => Promise<DropResolution>>(),
+    resolveDrop:
+      vi.fn<
+        (dt: DataTransfer, known: unknown[], onBeforePicker?: () => void) => Promise<DropResolution>
+      >(),
+    whenPersistedHandlesReady: vi.fn<() => Promise<void>>(),
     openFolder: vi.fn(),
     requestWriteAccess: vi.fn(),
   };
@@ -55,6 +59,7 @@ describe('DropZoneComponent drop routing', () => {
     state.selectedSourceId.set('');
     state.openFolder.mockResolvedValue();
     router.navigate.mockResolvedValue(true);
+    folderAccess.whenPersistedHandlesReady.mockResolvedValue();
 
     await TestBed.configureTestingModule({
       imports: [DropZoneComponent],
@@ -160,5 +165,47 @@ describe('DropZoneComponent drop routing', () => {
     expect(state.openFolder).not.toHaveBeenCalled();
     expect(state.addImportedAsset).not.toHaveBeenCalled();
     expect(component.dropStatus()).toBeNull();
+  });
+
+  it('surfaces access-denied as an actionable error rather than a generic failure, without touching state', async () => {
+    folderAccess.resolveDrop.mockResolvedValue({ kind: 'access-denied', name: 'Archive' });
+
+    await drop({});
+
+    expect(component.openError()).toContain('Archive');
+    expect(component.openError()).toContain('re-grant');
+    expect(component.dropStatus()).toBeNull();
+    expect(state.openFolder).not.toHaveBeenCalled();
+    expect(state.addImportedAsset).not.toHaveBeenCalled();
+  });
+
+  it('shows a pending explanation before the seeded confirmation picker opens, driven by resolveDrop', async () => {
+    let statusWhilePickerOpen: unknown;
+    folderAccess.resolveDrop.mockImplementation(async (_dt, _known, onBeforePicker) => {
+      onBeforePicker?.();
+      statusWhilePickerOpen = component.dropStatus();
+      return { kind: 'cancelled' };
+    });
+
+    await drop({});
+
+    expect(statusWhilePickerOpen).toMatchObject({ kind: 'pending' });
+    // Cancellation clears the pending line rather than leaving it stuck.
+    expect(component.dropStatus()).toBeNull();
+  });
+
+  it('waits for persisted handles to finish loading before resolving the drop', async () => {
+    const order: string[] = [];
+    folderAccess.whenPersistedHandlesReady.mockImplementation(async () => {
+      order.push('ready');
+    });
+    folderAccess.resolveDrop.mockImplementation(async () => {
+      order.push('resolve');
+      return { kind: 'cancelled' };
+    });
+
+    await drop({});
+
+    expect(order).toEqual(['ready', 'resolve']);
   });
 });

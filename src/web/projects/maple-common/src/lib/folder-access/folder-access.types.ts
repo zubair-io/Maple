@@ -68,13 +68,22 @@ export interface KnownFolder {
  *   dropped folder, a dropped file (or files) found inside an already-known
  *   folder, or a dropped file (or files) whose containing folder the user
  *   confirmed via a picker seeded at its location (the FS Access API has no
- *   way to read a dropped file's parent directory directly). `filePaths` is
- *   empty for a whole-folder drop; otherwise it holds the paths (relative to
- *   `folder`) of the specific dropped files, for the caller to open or select.
+ *   way to read a dropped file's parent directory directly). `folder` is
+ *   always the files' *immediate* containing directory — when the drop
+ *   landed inside a known folder mounted higher up the tree, resolution
+ *   descends to that immediate parent (see `fsAccessResolveCommonParent`) so
+ *   `filePaths` are always bare basenames the caller can match directly
+ *   against that folder's top-level assets. `filePaths` is empty for a
+ *   whole-folder drop.
  * - `copy-fallback`  — reference-mounting isn't mechanically possible (no FS
  *   Access support, or the drop couldn't be resolved to real handles); the
  *   caller falls back to the copy-based import pipeline. `reason` is
  *   surfaced to the user so the platform asymmetry is visible, not hidden.
+ * - `access-denied`  — the drop's location was positively identified (inside
+ *   a folder Maple has a handle for) but permission on that handle has since
+ *   been revoked or expired. Distinct from `copy-fallback`: the caller
+ *   should not silently copy — the referenced location is known, just not
+ *   currently accessible — so it surfaces `name` for an actionable message.
  * - `cancelled`      — the user dismissed a native picker; no import happens.
  */
 export type DropResolution =
@@ -87,4 +96,5 @@ export type DropResolution =
       alreadyOpen: boolean;
     }
   | { kind: 'copy-fallback'; files: File[]; reason: string }
+  | { kind: 'access-denied'; name: string }
   | { kind: 'cancelled' };

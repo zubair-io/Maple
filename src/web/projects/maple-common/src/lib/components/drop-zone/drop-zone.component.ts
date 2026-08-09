@@ -25,10 +25,14 @@ interface MountedDrop {
   alreadyOpen: boolean;
 }
 
-/** Transient status line reported after a drop, so the platform asymmetry
- * (reference vs. copy) is stated rather than left for the user to guess. */
+/** Transient status line reported around a drop, so the platform asymmetry
+ * (reference vs. copy) is stated rather than left for the user to guess.
+ * `pending` is shown before the seeded confirmation picker opens, so that
+ * dialog doesn't appear with zero prior explanation. Access-denied and other
+ * failures go through `openError` instead, matching every other failure
+ * surface in this component. */
 interface DropStatus {
-  kind: 'referenced' | 'copied';
+  kind: 'referenced' | 'copied' | 'pending';
   message: string;
 }
 
@@ -55,6 +59,19 @@ export class DropZoneComponent {
   /** Which of the two drop outcomes just happened — surfaced so the
    * reference-vs-copy asymmetry (#2650) is stated, not hidden. */
   readonly dropStatus = signal<DropStatus | null>(null);
+
+  /** Text color for the drop-status line, by `DropStatus.kind`. A lookup
+   * table rather than template `[class.x]="a === b || a === c"` bindings,
+   * both for readability and to keep the template's branch count down. */
+  private static readonly DROP_STATUS_COLOR: Record<DropStatus['kind'], string> = {
+    referenced: 'text-text-muted',
+    pending: 'text-text-muted',
+    copied: 'text-warn',
+  };
+
+  dropStatusColorClass(kind: DropStatus['kind']): string {
+    return DropZoneComponent.DROP_STATUS_COLOR[kind];
+  }
 
   readonly showReadOnlyBanner = () => {
     const folder = this.state.currentFolder();
@@ -128,9 +145,31 @@ export class DropZoneComponent {
     this.dropStatus.set(null);
     this.openError.set(null);
     try {
-      const resolution = await this.folderAccess.resolveDrop(dataTransfer, this._knownFolders());
+      // A drop right after boot can race the constructor's background
+      // persisted-handle load — wait for it so `_knownFolders()` doesn't
+      // treat an already-known folder as unknown.
+      await this.folderAccess.whenPersistedHandlesReady();
+      const resolution = await this.folderAccess.resolveDrop(
+        dataTransfer,
+        this._knownFolders(),
+        // Fires just before the seeded confirmation picker opens, so that
+        // native dialog doesn't appear with no prior explanation.
+        () =>
+          this.dropStatus.set({
+            kind: 'pending',
+            message:
+              'Confirm the folder that contains the dropped file so Maple can reference it without copying…',
+          }),
+      );
       switch (resolution.kind) {
         case 'cancelled':
+          this.dropStatus.set(null);
+          return;
+        case 'access-denied':
+          this.dropStatus.set(null);
+          this.openError.set(
+            `Access to “${resolution.name}” was declined — re-grant it from the sources list, or drop again to copy instead.`,
+          );
           return;
         case 'copy-fallback':
           this.dropStatus.set({ kind: 'copied', message: resolution.reason });
@@ -141,6 +180,7 @@ export class DropZoneComponent {
           return;
       }
     } catch (err) {
+      this.dropStatus.set(null);
       this.openError.set(`Failed to reference the dropped location: ${errorMessage(err)}`);
       console.error('DropZoneComponent: handleDrop error', err);
     }
@@ -193,9 +233,14 @@ export class DropZoneComponent {
     }
   }
 
-  /** Resolve the mounted folder's relative file paths to their asset ids —
-   * only files `isSupportedRaw` accepted during enumeration exist here, so an
-   * unsupported dropped file simply won't resolve. */
+  /** Resolve the mounted folder's file names to their asset ids. `filePaths`
+   * are always bare basenames within `folder` — `FolderAccessService`
+   * resolves a drop down to the files' *immediate* containing directory
+   * before returning them (see `fsAccessResolveCommonParent`), so this never
+   * has to guess across subfolders or reconcile a multi-segment path against
+   * a flat, single-folder asset list. Only files `isSupportedRaw` accepted
+   * during enumeration exist here, so a genuinely unsupported dropped file
+   * simply won't resolve. */
   private _assetIdsForPaths(filePaths: string[]): AssetId[] {
     const folderId = this.state.selectedSourceId();
     const byFilename = new Map(
@@ -207,6 +252,10 @@ export class DropZoneComponent {
     return filePaths.map((p) => byFilename.get(p)).filter((id): id is AssetId => id !== undefined);
   }
 
+  /** `filePaths` and `ids` are the same length unless a dropped name has an
+   * extension `isSupportedRaw` rejects — every matchable file resolves (see
+   * `_assetIdsForPaths`), so any gap here is a genuinely unsupported type,
+   * not a lookup miss. */
   private _referencedMessage(
     folder: MapleFolderHandle,
     filePaths: string[],
