@@ -49,3 +49,15 @@
     (dismiss)="controller.dismissMoveTo()"
   />
 }
+
+<!-- Trash panel (#2652) — mounted fresh per open, same "mount fresh"
+     convention as the dialogs above. `trash.panelOpen()` is set/cleared by
+     `TrashService.open()`/`closePanel()`, called from the folder-tree's
+     Trash row through `TRASH_CAPABILITY`. -->
+@if (trash.panelOpen() && trash.panelLibraryId(); as libraryId) {
+  <app-trash-panel
+    [libraryId]="libraryId"
+    [libraryLabel]="trash.panelLibraryLabel()"
+    (dismiss)="trash.closePanel()"
+  />
+}
