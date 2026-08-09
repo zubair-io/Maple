@@ -565,23 +565,33 @@ struct AppShell: View {
         // (#2649) — see `confirmParentFolderAccess` in
         // `AppShell+FolderDrop.swift`. macOS never sets
         // `showDropConfirmationPicker` (it uses `NSOpenPanel` directly), so
-        // this modifier is inert there.
+        // this modifier is inert there. Resolution goes through
+        // `resolveDropConfirmation(_:)` — see its doc comment for why both
+        // this AND the `.onChange` fallback below call it unconditionally
+        // rather than each racing to touch `dropConfirmationContinuation`
+        // directly (review findings on #2756: same continuation-race class
+        // `AssetDropCollisionResolver` exists to close).
         .fileImporter(isPresented: $showDropConfirmationPicker,
                       allowedContentTypes: [.folder]) { result in
-            let url = try? result.get()
-            dropConfirmationContinuation?.resume(returning: url)
-            dropConfirmationContinuation = nil
+            resolveDropConfirmation(try? result.get())
         }
         // Safety net for cancel: `.fileImporter`'s completion handler is not
         // reliably invoked when the user dismisses without picking anything
         // — observed SwiftUI behavior, not documented — so a pending
-        // continuation could otherwise hang the drop flow forever. `nil`ing
-        // `dropConfirmationContinuation` in the completion handler above
-        // makes this a no-op on the normal (non-cancelled) path.
+        // continuation could otherwise hang the drop flow forever without
+        // this. Deferred by one run-loop turn via `Task`: SwiftUI fires
+        // this `.onChange` and the `.fileImporter` success closure above
+        // from the SAME dismissal event in an order this framework does
+        // not document, so a real pick's completion closure — already
+        // scheduled on the main run loop by the same dismissal — gets a
+        // chance to resolve first during the yield; `resolveDropConfirmation`'s
+        // single consume-point guard then makes THIS call a no-op instead
+        // of clobbering a successful pick with a false cancellation.
         .onChange(of: showDropConfirmationPicker) { _, isPresented in
             guard !isPresented else { return }
-            dropConfirmationContinuation?.resume(returning: nil)
-            dropConfirmationContinuation = nil
+            Task { @MainActor in
+                resolveDropConfirmation(nil)
+            }
         }
         .sheet(isPresented: $showExport) {
             if let session = selectedSession {
