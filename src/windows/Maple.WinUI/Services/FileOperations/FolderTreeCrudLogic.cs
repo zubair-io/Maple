@@ -76,5 +76,37 @@ namespace Maple.WinUI.Services.FileOperations
             isOnLocalFixedDrive
                 ? "the Recycle Bin"
                 : "Maple's Trash (.maple\\trash — permanently deleted after 30 days)";
+
+        /// <summary>True when trashing <paramref name="path"/> has no valid
+        /// destination at all — review finding: a library ROOT's
+        /// `.maple/trash` fallback would have to live under the root itself
+        /// (TrashPaths.TrashDestinationDir computes from the item's PARENT,
+        /// and a root's parent sits outside the library entirely), which is
+        /// circular — a directory can't be moved into a location computed
+        /// from itself, the same self-subtree problem
+        /// LocalFileOperations.Folders.cs's move guard exists to catch.
+        /// There is no non-circular restore story for "a root's own trash,"
+        /// so a root can ONLY be trashed via the real OS Recycle Bin (local
+        /// fixed drives); every other case — SMB, or a Recycle Bin call that
+        /// itself fails — has to be refused with an explanation rather than
+        /// silently hitting TrashPaths' "not under library root"
+        /// exception.</summary>
+        public static bool RootTrashUnsupported(bool isLibraryRoot, bool isOnLocalFixedDrive) =>
+            isLibraryRoot && !isOnLocalFixedDrive;
+
+        /// <summary>The explanation surfaced when <see
+        /// cref="RootTrashUnsupported"/> is true — shown up front (before
+        /// the confirmation dialog even opens) so the user never sees a
+        /// "Move to Trash?" prompt for an action that's guaranteed to fail.
+        /// Specifically the PREDICTABLE case (a network location with no
+        /// Recycle Bin at all); the rarer case — a local fixed drive whose
+        /// Recycle Bin call fails at runtime — gets its own message where
+        /// that failure is actually caught
+        /// (EditSessionViewModel.FolderCrud.cs's TrashFolderInTreeAsync).</summary>
+        public const string RootTrashUnsupportedReason =
+            "This is a library root on a location with no Recycle Bin (a network share, for example) "
+            + "— Maple's own Trash can't hold a root's own folder, only the folders inside it. Remove "
+            + "it from the library instead (nothing on disk is touched), or delete it manually from "
+            + "Explorer.";
     }
 }
