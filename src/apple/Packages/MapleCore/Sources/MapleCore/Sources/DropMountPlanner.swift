@@ -120,14 +120,40 @@ public enum DropMountPlanner {
     /// list — keeps only the "outermost" items. A dropped folder plus a
     /// file inside it collapses to just the folder; a dropped folder plus
     /// its own subfolder collapses to just the outer folder. Order-
-    /// independent and stable for duplicate entries (an exact duplicate
-    /// URL never removes itself, since `other != candidate` requires a
-    /// genuinely different value).
+    /// independent.
+    ///
+    /// Dedupes CASE-INSENSITIVE-equivalent entries FIRST (#2756 review
+    /// finding B2). Without this, two spellings of the exact same APFS
+    /// entry — e.g. `/tmp/a` and `/tmp/A` — would each satisfy
+    /// `isDescendant(ofOrEqualTo:)` against the OTHER (that check is
+    /// case-insensitive) while also satisfying the plain `!=` used to
+    /// tell "self" from "another item" (that check is case-SENSITIVE, so
+    /// two differently-cased strings for the same path count as "another
+    /// item" to each other) — each one's presence would make the OTHER
+    /// look like a redundant descendant, eliminating BOTH and leaving an
+    /// empty list that resolves to a spurious `.unsupported`.
     private static func reduceToTopLevel(_ urls: [URL]) -> [URL] {
-        urls.filter { candidate in
-            !urls.contains { other in
+        let deduped = dedupeByPath(urls)
+        return deduped.filter { candidate in
+            !deduped.contains { other in
                 other != candidate && candidate.isDescendant(ofOrEqualTo: other)
             }
         }
+    }
+
+    /// Collapses entries that name the SAME on-disk path under different
+    /// casing to a single representative (the first one encountered),
+    /// comparing standardized, lowercased path components — same
+    /// case-insensitive rule as `isDescendant(ofOrEqualTo:)`.
+    private static func dedupeByPath(_ urls: [URL]) -> [URL] {
+        var seenKeys = Set<[String]>()
+        var result: [URL] = []
+        for url in urls {
+            let key = url.standardizedFileURL.pathComponents.map { $0.lowercased() }
+            if seenKeys.insert(key).inserted {
+                result.append(url)
+            }
+        }
+        return result
     }
 }

@@ -204,6 +204,36 @@ final class DropMountPlannerTests: XCTestCase {
         XCTAssertEqual(plan, .navigateExisting(root: root, items: [subfolder]))
     }
 
+    /// B2 re-review (PR #2756): two spellings of the exact same APFS entry
+    /// — `/tmp/a` and `/tmp/A` — must NOT mutually eliminate. Before the
+    /// fix, `reduceToTopLevel` compared "is this a genuinely different
+    /// item" with case-SENSITIVE `!=` while comparing "is it inside the
+    /// other" with case-INSENSITIVE `isDescendant` — so each variant
+    /// counted as both "a different item" AND "a descendant of the other,"
+    /// and BOTH got dropped as redundant, leaving an empty list that
+    /// resolves to a spurious `.unsupported`. Injects `isDirectory` (no
+    /// real filesystem entry needed) since the point under test is the
+    /// dedupe/collapse logic itself, not directory detection.
+    func testCaseVariantDuplicatePairDoesNotMutuallyEliminate() {
+        let lowercase = URL(fileURLWithPath: "/tmp/MapleDropDuplicateTest/a")
+        let uppercase = URL(fileURLWithPath: "/tmp/MapleDropDuplicateTest/A")
+
+        let plan = DropMountPlanner.plan(
+            for: [lowercase, uppercase],
+            mountedRoots: [],
+            isDirectory: { _ in true }
+        )
+
+        XCTAssertNotEqual(plan, .unsupported(extensions: []))
+        guard case .mountFolder(let folder) = plan else {
+            return XCTFail("expected mountFolder, got \(plan)")
+        }
+        XCTAssertTrue(
+            folder.path.caseInsensitiveCompare(lowercase.path) == .orderedSame,
+            "expected the surviving entry to be one of the two case-variant spellings, got \(folder.path)"
+        )
+    }
+
     // MARK: - N2 (#2649 review): two folders, no files — documents intended selection behavior
 
     /// Two folders dropped together (no loose files) fall through to the

@@ -29,12 +29,26 @@ extension URL {
     /// URL's own parent directory (`deletingLastPathComponent()`), so a
     /// dropped folder counts by its own path, not one level up from it.
     /// `nil` only for an empty list.
+    ///
+    /// The shared-prefix walk compares LOWERCASED components — same APFS
+    /// case-insensitive-but-case-preserving reasoning as
+    /// `isDescendant(ofOrEqualTo:)` above. Comparing case-sensitively here
+    /// would make two differently-cased spellings of the SAME real
+    /// directory look like a divergence, terminating the shared prefix
+    /// early — worst case collapsing the "common parent" all the way to
+    /// `/` and asking the user to grant scope over the entire filesystem
+    /// (#2756 review finding B1). `common` itself keeps the ORIGINAL
+    /// (non-lowercased) components — only the comparison is
+    /// case-normalized — so the returned URL preserves whatever casing the
+    /// first-encountered spelling used.
     public static func commonParent(of urls: [URL]) -> URL? {
         guard let first = urls.first else { return nil }
         var common = first.standardizedFileURL.deletingLastPathComponent().pathComponents
         for url in urls.dropFirst() {
             let components = url.standardizedFileURL.deletingLastPathComponent().pathComponents
-            let sharedCount = zip(common, components).prefix { $0 == $1 }.count
+            let sharedCount = zip(common, components)
+                .prefix { $0.lowercased() == $1.lowercased() }
+                .count
             common = Array(common.prefix(sharedCount))
         }
         guard !common.isEmpty else { return nil }

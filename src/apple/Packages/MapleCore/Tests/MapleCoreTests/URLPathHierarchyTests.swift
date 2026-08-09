@@ -119,4 +119,19 @@ final class URLPathHierarchyTests: XCTestCase {
         let file = URL(fileURLWithPath: "/Users/x/Trip/Day2/b.dng")
         XCTAssertEqual(URL.commonParent(of: [folder, file]), URL(fileURLWithPath: "/Users/x/Trip"))
     }
+
+    /// B1 (PR #2756 re-review): a case-sensitive shared-prefix walk would
+    /// treat "photos" and "Photos" as diverging at that very component,
+    /// terminating the common prefix there and — with nothing shared
+    /// above it either in this fixture — collapsing all the way to `/`.
+    /// That's not a cosmetic wrong answer: the caller asks the user to
+    /// grant sandbox access to whatever `commonParent` returns, so `/`
+    /// means requesting scope over the entire filesystem.
+    func testCommonParentIsCaseInsensitive() {
+        let a = URL(fileURLWithPath: "/Users/X/Photos/a.dng")
+        let b = URL(fileURLWithPath: "/Users/X/photos/b.dng")
+        let result = URL.commonParent(of: [a, b])
+        XCTAssertNotEqual(result, URL(fileURLWithPath: "/"))
+        XCTAssertEqual(result, URL(fileURLWithPath: "/Users/X/Photos"))
+    }
 }

@@ -122,6 +122,22 @@ extension AppShell {
         #endif
     }
 
+    /// Single consume-point for `dropConfirmationContinuation` — the
+    /// `.fileImporter` success closure and its `.onChange`-driven cancel
+    /// fallback in `AppShell.swift` both call this unconditionally instead
+    /// of each touching the continuation directly. Only the FIRST call
+    /// actually resumes; every later call (including the deferred
+    /// cancel-fallback racing in after a real pick already resolved things)
+    /// is a silent no-op — same exactly-once shape as
+    /// `AssetDropCollisionResolver`, inlined here rather than extracted
+    /// since this is the one call site.
+    func resolveDropConfirmation(_ url: URL?) {
+        guard dropConfirmationContinuation != nil else { return }
+        let continuation = dropConfirmationContinuation
+        dropConfirmationContinuation = nil
+        continuation?.resume(returning: url)
+    }
+
     // MARK: - Mounted-root detection
 
     /// Every local-folder root the app already knows about: the currently
