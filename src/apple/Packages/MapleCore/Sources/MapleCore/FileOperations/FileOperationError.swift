@@ -61,6 +61,12 @@ public enum FileOperationError: Error, LocalizedError, Equatable {
     /// `Equatable` for tests.
     case underlying(String)
 
+    /// An OS file/folder drop (#2649) had no supported RAW/image/video/
+    /// audio extension among the dropped files, and no folder was dropped
+    /// either. Surfaced in `browseVM.loadError`'s banner so the refusal is
+    /// explained rather than silent.
+    case unsupportedDropType([String])
+
     public var errorDescription: String? {
         switch self {
         case .unsupportedSource(let s):
@@ -79,6 +85,11 @@ public enum FileOperationError: Error, LocalizedError, Equatable {
             return "Source and destination are the same file: \(s)"
         case .underlying(let s):
             return s
+        case .unsupportedDropType(let extensions):
+            let described = extensions.isEmpty
+                ? "no supported file type"
+                : extensions.joined(separator: ", ")
+            return "Unsupported file type: Maple can't open \(described). Drop a RAW, image, video, or audio file, or a folder."
         }
     }
 }
