@@ -14,8 +14,23 @@ import { errorMessage } from '../../util/errors';
 import { AssetId } from '../../models/asset';
 import { Router } from '@angular/router';
 import { FolderAccessService } from '../../folder-access/folder-access.service';
-import { MapleFolderHandle } from '../../folder-access/folder-access.types';
+import { KnownFolder, MapleFolderHandle } from '../../folder-access/folder-access.types';
 import { editRouteCommands } from '../../addressing/route-address';
+
+/** Result of resolving a drop to a mounted folder — the branch of
+ * `DropResolution` this component acts on once reference-mounting succeeded. */
+interface MountedDrop {
+  folder: MapleFolderHandle;
+  filePaths: string[];
+  alreadyOpen: boolean;
+}
+
+/** Transient status line reported after a drop, so the platform asymmetry
+ * (reference vs. copy) is stated rather than left for the user to guess. */
+interface DropStatus {
+  kind: 'referenced' | 'copied';
+  message: string;
+}
 
 @Component({
   selector: 'app-drop-zone',
@@ -37,6 +52,9 @@ export class DropZoneComponent {
   readonly pendingCount = signal(0);
   readonly opening = signal(false);
   readonly openError = signal<string | null>(null);
+  /** Which of the two drop outcomes just happened — surfaced so the
+   * reference-vs-copy asymmetry (#2650) is stated, not hidden. */
+  readonly dropStatus = signal<DropStatus | null>(null);
 
   readonly showReadOnlyBanner = () => {
     const folder = this.state.currentFolder();
@@ -96,11 +114,109 @@ export class DropZoneComponent {
   }
 
   @HostListener('document:drop', ['$event'])
-  onDrop(e: DragEvent): void {
+  async onDrop(e: DragEvent): Promise<void> {
     e.preventDefault();
     this.dragOver.set(false);
-    const files = Array.from(e.dataTransfer?.files ?? []);
-    void this.importFiles(files);
+    if (!e.dataTransfer) return;
+    await this.handleDrop(e.dataTransfer);
+  }
+
+  // ── Drop resolution (#2650) — reference-mount via FS Access when the ─────
+  // browser supports it; copy-import stays the explicit fallback otherwise.
+
+  private async handleDrop(dataTransfer: DataTransfer): Promise<void> {
+    this.dropStatus.set(null);
+    this.openError.set(null);
+    try {
+      const resolution = await this.folderAccess.resolveDrop(dataTransfer, this._knownFolders());
+      switch (resolution.kind) {
+        case 'cancelled':
+          return;
+        case 'copy-fallback':
+          this.dropStatus.set({ kind: 'copied', message: resolution.reason });
+          await this.importFiles(resolution.files);
+          return;
+        case 'mounted':
+          await this._openMountedDrop(resolution);
+          return;
+      }
+    } catch (err) {
+      this.openError.set(`Failed to reference the dropped location: ${errorMessage(err)}`);
+      console.error('DropZoneComponent: handleDrop error', err);
+    }
+  }
+
+  /** The folders Maple already has a handle for — the active folder plus
+   * every persisted one — so a drop landing inside one of them mounts
+   * silently instead of prompting a fresh native picker. */
+  private _knownFolders(): KnownFolder[] {
+    const known: KnownFolder[] = [];
+    const current = this.state.currentFolder();
+    if (current?.native) known.push({ handle: current, native: current.native, isCurrent: true });
+    for (const record of this.folderAccess.persistedHandles()) {
+      known.push({
+        handle: {
+          name: record.name,
+          read: false,
+          write: false,
+          native: record.handle,
+          persistedKey: record.key,
+        },
+        native: record.handle,
+        isCurrent: false,
+      });
+    }
+    return known;
+  }
+
+  private async _openMountedDrop(resolution: MountedDrop): Promise<void> {
+    const { folder, filePaths, alreadyOpen } = resolution;
+    if (!alreadyOpen) {
+      await this.state.openFolder(folder);
+      this.folderOpened.emit(folder);
+    }
+
+    const ids = this._assetIdsForPaths(filePaths);
+    this.dropStatus.set({
+      kind: 'referenced',
+      message: this._referencedMessage(folder, filePaths, ids),
+    });
+
+    // A whole-folder drop has nothing further to select — Browse already
+    // shows every asset the folder just contributed.
+    if (filePaths.length === 0 || ids.length === 0) return;
+    if (ids.length === 1) {
+      this.state.selectAsset(ids[0]);
+      void this.router.navigate(editRouteCommands(ids[0]));
+    } else {
+      this.state.selectMany(ids);
+    }
+  }
+
+  /** Resolve the mounted folder's relative file paths to their asset ids —
+   * only files `isSupportedRaw` accepted during enumeration exist here, so an
+   * unsupported dropped file simply won't resolve. */
+  private _assetIdsForPaths(filePaths: string[]): AssetId[] {
+    const folderId = this.state.selectedSourceId();
+    const byFilename = new Map(
+      this.state
+        .assets()
+        .filter((a) => a.folderId === folderId)
+        .map((a) => [a.filename, a.id] as const),
+    );
+    return filePaths.map((p) => byFilename.get(p)).filter((id): id is AssetId => id !== undefined);
+  }
+
+  private _referencedMessage(
+    folder: MapleFolderHandle,
+    filePaths: string[],
+    ids: AssetId[],
+  ): string {
+    if (filePaths.length === 0) return `Referenced “${folder.name}” — no copy made.`;
+    const skipped = filePaths.length - ids.length;
+    const noun = ids.length === 1 ? 'file' : 'files';
+    const skippedNote = skipped > 0 ? ` (${skipped} unsupported file type(s) skipped)` : '';
+    return `Referenced ${ids.length} ${noun} in “${folder.name}” — no copy made.${skippedNote}`;
   }
 
   // ── <input> picker ──────────────────────────────────────────────────────

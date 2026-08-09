@@ -55,6 +55,16 @@
     </span>
   }
 
+  @if (dropStatus(); as status) {
+    <span
+      class="text-[11px]"
+      [class.text-text-muted]="status.kind === 'referenced'"
+      [class.text-warn]="status.kind === 'copied'"
+    >
+      {{ status.message }}
+    </span>
+  }
+
   <!-- Hidden file inputs -->
   <input
     #filePicker
