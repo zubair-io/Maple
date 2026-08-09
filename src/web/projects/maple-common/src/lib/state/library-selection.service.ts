@@ -144,6 +144,14 @@ export class LibrarySelection {
     this.selectedAssetIds.set(new Set());
   }
 
+  /** Select several assets at once (#2650 — "Browse with selection" after a
+   * multi-file drop resolves to a mount). Focus lands on the first id so
+   * shift-click range-select continues from there. */
+  selectMany(ids: AssetId[]): void {
+    this.selectedAssetIds.set(new Set(ids));
+    this.focusedAssetId.set(ids[0] ?? null);
+  }
+
   /**
    * Follow a rename (#2637): swap `oldId` for `newId` wherever the
    * selection references it, so `focusedAsset` (which looks the id up in
