@@ -130,6 +130,39 @@ final class SMBFileOperationsFolderTests: XCTestCase {
         XCTAssertEqual(remaining[0].originalRelativePath, "RECENT.dng")
     }
 
+    /// Review finding — same irreversible-primitive guard as the local
+    /// engine's `testPermanentlyDeleteFromMapleTrashRefusesAPathOutsideMapleTrash`.
+    func testPermanentlyDeleteFromMapleTrashRefusesAPathOutsideMapleTrash() async throws {
+        let t = FakeSMBTransport()
+        await t.seed("still here", at: "/LIVE.dng")
+        let bogusItem = TrashedItem(
+            id: "/LIVE.dng", primaryPath: "/LIVE.dng", sidecarPath: nil,
+            originalRelativePath: "LIVE.dng", trashedDate: Date(), size: 10)
+
+        do {
+            try await SMBFileOperations.permanentlyDeleteFromMapleTrash(bogusItem, transport: t)
+            XCTFail("expected invalidDestination")
+        } catch FileOperationError.invalidDestination {
+            // expected
+        }
+        let stillThere = await t.fileExists(at: "/LIVE.dng")
+        XCTAssertTrue(stillThere, "the live file must be untouched")
+    }
+
+    func testSweepOrphanedMarkersRemovesAMarkerWhosePrimaryIsGone() async throws {
+        let t = FakeSMBTransport()
+        await t.seed("pixels", at: "/IMG_1.dng")
+        let outcome = try await SMBFileOperations.trash("/IMG_1.dng", transport: t)
+        // Simulate the primary vanishing externally, leaving its marker behind.
+        try await t.removeItem(atPath: outcome.primaryPath)
+
+        let removed = await SMBFileOperations.sweepOrphanedMarkers(transport: t)
+
+        XCTAssertEqual(removed, 1)
+        let items = await SMBFileOperations.listMapleTrash(transport: t)
+        XCTAssertEqual(items.count, 0)
+    }
+
     // MARK: - Name validation (#2645 review — same traversal guard as the
     // local engine's `LocalFileOperationsFolderTests`, against the fake
     // transport since there's no SMB server in this environment).
