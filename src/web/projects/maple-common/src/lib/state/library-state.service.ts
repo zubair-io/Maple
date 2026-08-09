@@ -377,6 +377,10 @@ export class LibraryStateService {
     this.selection.selectAsset(id, additive, range);
   }
 
+  selectMany(ids: AssetId[]): void {
+    this.selection.selectMany(ids);
+  }
+
   clearSelection(): void {
     this.selection.clearSelection();
   }

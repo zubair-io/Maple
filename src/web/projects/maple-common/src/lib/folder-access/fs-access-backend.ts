@@ -30,7 +30,10 @@ interface WindowWithDirectoryPicker extends Window {
   showDirectoryPicker(opts?: {
     mode?: 'read' | 'readwrite';
     id?: string;
-    startIn?: string;
+    // A well-known directory name, OR an existing handle whose containing
+    // directory the picker should open in — used by fsAccessPickContainingFolder
+    // to seed the picker at a dropped file's location.
+    startIn?: string | FileSystemHandle;
   }): Promise<FileSystemDirectoryHandle>;
 }
 
@@ -180,6 +183,57 @@ export async function fsAccessReopenHandle(
 export async function fsAccessRequestWrite(folder: MapleFolderHandle): Promise<boolean> {
   if (!folder.native) return false;
   return verifyPermission(folder.native, 'readwrite');
+}
+
+// ── Drop resolution (#2650) ─────────────────────────────────────────────────
+
+/**
+ * Confirm `dir` contains every one of `files`, returning each file's path
+ * relative to `dir` (in the same order as `files`). Returns null the moment
+ * any file is not a descendant of `dir` — a partial match is not "the same
+ * folder" for mounting purposes.
+ */
+export async function fsAccessResolveAllUnder(
+  dir: FileSystemDirectoryHandle,
+  files: FileSystemFileHandle[],
+): Promise<string[] | null> {
+  const paths: string[] = [];
+  for (const file of files) {
+    let segments: string[] | null;
+    try {
+      segments = await dir.resolve(file);
+    } catch {
+      segments = null;
+    }
+    if (!segments) return null;
+    paths.push(segments.join('/'));
+  }
+  return paths;
+}
+
+/**
+ * Prompt a directory picker seeded at `startIn`'s containing folder.
+ *
+ * The FS Access API gives no way to read a dropped file's parent directory
+ * directly (a deliberate privacy boundary — see web.dev's File System Access
+ * guide), so when a dropped file isn't inside any folder Maple already has a
+ * handle for, this is the only mechanism left to reference-mount it: seed the
+ * native picker at the file's location via `startIn` and have the user
+ * confirm the folder. Returns null if the user cancels.
+ */
+export async function fsAccessPickContainingFolder(
+  startIn: FileSystemHandle,
+): Promise<FileSystemDirectoryHandle | null> {
+  try {
+    return await (window as unknown as WindowWithDirectoryPicker).showDirectoryPicker({
+      mode: 'readwrite',
+      id: 'maple-folder',
+      startIn,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') return null;
+    throw folderPermissionError('the selected folder', error);
+  }
 }
 
 // ── List entries ──────────────────────────────────────────────────────────────

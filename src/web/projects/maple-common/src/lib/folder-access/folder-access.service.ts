@@ -12,6 +12,8 @@ import {
   PersistedHandleRecord,
   FolderAccessBackend,
   FileMetadata,
+  KnownFolder,
+  DropResolution,
 } from './folder-access.types';
 import {
   fsAccessOpenFolder,
@@ -23,6 +25,8 @@ import {
   fsAccessFileMetadata,
   fsAccessWriteFile,
   fsAccessEnsureSubdirectory,
+  fsAccessResolveAllUnder,
+  fsAccessPickContainingFolder,
   getPersistedHandles,
   removePersistedHandle,
 } from './fs-access-backend';
@@ -97,6 +101,150 @@ export class FolderAccessService {
       }
     }
     return null;
+  }
+
+  /**
+   * Resolve an OS drop for reference-mounting (#2650) — same mechanism as
+   * `openFolder`'s "Open folder" flow, extended to the drop gesture and to
+   * loose files. See `DropResolution` for the four outcomes this maps onto
+   * (single file, folder, multiple loose files, already-mounted) and why a
+   * loose file that isn't inside a known folder needs one more picker
+   * confirmation (the FS Access API exposes no parent-directory lookup).
+   *
+   * `knownFolders` — the folders Maple already has a handle for (typically
+   * the currently open folder plus every persisted handle) — is supplied by
+   * the caller rather than read from state here, to avoid this service
+   * depending on `LibraryStateService`.
+   */
+  async resolveDrop(
+    dataTransfer: DataTransfer,
+    knownFolders: KnownFolder[],
+  ): Promise<DropResolution> {
+    if (this.backend !== 'fs-access') {
+      return this._copyFallback(
+        dataTransfer,
+        'This browser cannot reference dropped files in place',
+      );
+    }
+
+    const resolved = await this._getDroppedHandles(dataTransfer);
+    if (!resolved) {
+      return this._copyFallback(
+        dataTransfer,
+        'This browser could not resolve the dropped item(s) to a file location',
+      );
+    }
+    const directories = resolved.filter(
+      (h): h is FileSystemDirectoryHandle => h.kind === 'directory',
+    );
+    const files = resolved.filter((h): h is FileSystemFileHandle => h.kind === 'file');
+
+    // Case: a single dropped folder — mount it directly, same as "Open folder".
+    if (directories.length === 1 && files.length === 0) {
+      return this._mountDroppedFolder(directories[0], knownFolders);
+    }
+
+    // Folders mixed with loose files, or several folders at once, fall
+    // outside the four supported cases — copy rather than guess.
+    if (directories.length > 0 || files.length === 0) {
+      return this._copyFallback(
+        dataTransfer,
+        'Dropping folders together with loose files is not supported for reference mounting',
+      );
+    }
+
+    return this._mountDroppedFiles(dataTransfer, files, knownFolders);
+  }
+
+  private _copyFallback(dataTransfer: DataTransfer, reason: string): DropResolution {
+    return {
+      kind: 'copy-fallback',
+      files: Array.from(dataTransfer.files),
+      reason: `${reason} — copied instead.`,
+    };
+  }
+
+  /** Resolve every dropped item to its FS Access handle, or null if any item
+   * couldn't be resolved (the whole drop then falls back to copy-import). */
+  private async _getDroppedHandles(dataTransfer: DataTransfer): Promise<FileSystemHandle[] | null> {
+    const items = Array.from(dataTransfer.items).filter((item) => item.kind === 'file');
+    const handles = await Promise.all(
+      items.map(
+        (item) =>
+          (item as DataTransferItemWithHandle).getAsFileSystemHandle?.() ?? Promise.resolve(null),
+      ),
+    );
+    if (handles.length === 0 || handles.some((h) => !h)) return null;
+    return handles as FileSystemHandle[];
+  }
+
+  /** A single dropped folder — mount it exactly like the "Open folder" flow. */
+  private async _mountDroppedFolder(
+    dir: FileSystemDirectoryHandle,
+    knownFolders: KnownFolder[],
+  ): Promise<DropResolution> {
+    const folder = await fsAccessOpenDroppedFolder(dir);
+    if (!folder) return { kind: 'cancelled' };
+    if (folder.persistedKey) await this._loadPersistedHandles();
+    const current = knownFolders.find((kf) => kf.isCurrent);
+    const alreadyOpen = current !== undefined && (await current.native.isSameEntry(dir));
+    return { kind: 'mounted', folder, filePaths: [], alreadyOpen };
+  }
+
+  /** One or more dropped loose files. Reuses a known folder's handle when the
+   * drop lands inside one; otherwise confirms the parent via a seeded picker
+   * (the FS Access API has no parent-directory lookup for a lone file). */
+  private async _mountDroppedFiles(
+    dataTransfer: DataTransfer,
+    files: FileSystemFileHandle[],
+    knownFolders: KnownFolder[],
+  ): Promise<DropResolution> {
+    const inKnownFolder = await this._mountIfInsideKnownFolder(files, knownFolders);
+    if (inKnownFolder) return inKnownFolder;
+    return this._mountViaSeededPicker(dataTransfer, files);
+  }
+
+  /** Try every known folder for one that already contains all of `files`. */
+  private async _mountIfInsideKnownFolder(
+    files: FileSystemFileHandle[],
+    knownFolders: KnownFolder[],
+  ): Promise<DropResolution | null> {
+    for (const known of knownFolders) {
+      const filePaths = await fsAccessResolveAllUnder(known.native, files);
+      if (!filePaths) continue;
+      if (known.isCurrent) {
+        return { kind: 'mounted', folder: known.handle, filePaths, alreadyOpen: true };
+      }
+      const reopened = await fsAccessReopenHandle({
+        key: known.handle.persistedKey ?? '',
+        name: known.handle.name,
+        handle: known.native,
+        accessedAt: Date.now(),
+      });
+      if (reopened) return { kind: 'mounted', folder: reopened, filePaths, alreadyOpen: false };
+    }
+    return null;
+  }
+
+  /** No known folder contains the drop — confirm its parent via a directory
+   * picker seeded at the first file's location. */
+  private async _mountViaSeededPicker(
+    dataTransfer: DataTransfer,
+    files: FileSystemFileHandle[],
+  ): Promise<DropResolution> {
+    const picked = await fsAccessPickContainingFolder(files[0]);
+    if (!picked) return { kind: 'cancelled' };
+    const filePaths = await fsAccessResolveAllUnder(picked, files);
+    if (!filePaths) {
+      return this._copyFallback(
+        dataTransfer,
+        'The selected folder did not contain the dropped file(s)',
+      );
+    }
+    const folder = await fsAccessOpenDroppedFolder(picked);
+    if (!folder) return { kind: 'cancelled' };
+    if (folder.persistedKey) await this._loadPersistedHandles();
+    return { kind: 'mounted', folder, filePaths, alreadyOpen: false };
   }
 
   /**
