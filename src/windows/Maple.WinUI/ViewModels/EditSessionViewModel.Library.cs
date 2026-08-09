@@ -312,7 +312,17 @@ namespace Maple.WinUI.ViewModels
                         return;
                     }
 
-                    App.MainDispatcherQueue?.TryEnqueue(() =>
+                    // TryEnqueue's return is captured (#2754 review, jules
+                    // re-review BLOCKING): App.MainDispatcherQueue can be
+                    // null, or TryEnqueue can return false (the dispatcher
+                    // is shutting down), in which case the lambda — and the
+                    // onReady?.Invoke() inside it — never runs at all. Left
+                    // unchecked, that permanently hangs whatever awaits
+                    // AddLibraryFolderAsync/LoadDirectoryAsync's
+                    // TaskCompletionSource, and with it MainWindow.
+                    // DropMount.cs's _dropGate, silently disabling drop-to-
+                    // mount for the rest of the session.
+                    var enqueued = App.MainDispatcherQueue?.TryEnqueue(() =>
                     {
                         try
                         {
@@ -334,7 +344,23 @@ namespace Maple.WinUI.ViewModels
                             DiagLog.Write($"[library] applying scanned folder failed: {folderPath}: {ex.Message}");
                             onReady?.Invoke();
                         }
-                    });
+                    }) ?? false;
+                    if (!enqueued)
+                    {
+                        // Resolved successfully, not exceptionally: every
+                        // caller of the awaitable wrappers already treats
+                        // "nothing resolved in AllPhotos" as a graceful,
+                        // expected outcome (MainWindow.DropMount.cs's
+                        // OpenDroppedFileAsync/BrowseDroppedFilesAsync fall
+                        // back to Browse / an announcement, never a thrown
+                        // exception) — this is that exact same case, just
+                        // reached a different way, so it degrades through
+                        // the same path rather than adding a new faulted-
+                        // Task surface an async void event handler would
+                        // have to catch.
+                        DiagLog.Write($"[library] dispatcher enqueue failed applying scanned folder: {folderPath}");
+                        onReady?.Invoke();
+                    }
                 }
                 catch (Exception ex)
                 {
