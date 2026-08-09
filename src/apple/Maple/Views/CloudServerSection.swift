@@ -56,6 +56,10 @@ struct CloudServerSection: View {
   var onCreateFolder: ((String, String, String, String) -> Void)? = nil
   /// (libraryFolderID, libraryRootPath, absPath, newName).
   var onRenameFolder: ((String, String, String, String) -> Void)? = nil
+  /// (libraryFolderID, libraryRootPath, absPath) — recursive Move to Trash
+  /// (#2696).
+  var onTrashFolder: ((String, String, String) -> Void)? = nil
+  var onShowTrash: ((String, String) -> Void)? = nil
   /// Drag-onto-source-tree (#2646). `(libraryFolderID, libraryRootPath,
   /// absPath, ids, isCopy)` — `ids == nil` ⇒ "use current grid selection".
   var onDropAssets: (String, String, String, Set<AssetRef.ID>?, Bool) -> Void = { _, _, _, _, _ in }
@@ -111,6 +115,8 @@ struct CloudServerSection: View {
             refreshGeneration: folderRefreshGeneration,
             onCreateFolder: onCreateFolder,
             onRenameFolder: onRenameFolder,
+            onTrashFolder: onTrashFolder,
+            onShowTrash: onShowTrash,
             onDropAssets: onDropAssets,
             selectedAssetCount: selectedAssetCount
           )

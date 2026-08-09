@@ -55,6 +55,10 @@ struct AppShellSidebar: View {
     let onLoadCloudFolders: (URL) async -> [CloudFolder]
     let onCreateCloudFolder: (URL, String, String, String, String) -> Void
     let onRenameCloudFolder: (URL, String, String, String, String) -> Void
+    var onTrashCloudFolder: (URL, String, String, String) -> Void = { _, _, _, _ in }
+    var onShowLocalTrash: ((URL, Data, String) -> Void)? = nil
+    var onShowSMBTrash: ((SMBCredentialStore.SavedShare) -> Void)? = nil
+    var onShowCloudTrash: ((URL, String, String) -> Void)? = nil
     let onSelectTimeline: () -> Void
 
     var body: some View {
@@ -88,6 +92,10 @@ struct AppShellSidebar: View {
             onLoadCloudFolders: onLoadCloudFolders,
             onCreateCloudFolder: onCreateCloudFolder,
             onRenameCloudFolder: onRenameCloudFolder,
+            onTrashCloudFolder: onTrashCloudFolder,
+            onShowLocalTrash: onShowLocalTrash,
+            onShowSMBTrash: onShowSMBTrash,
+            onShowCloudTrash: onShowCloudTrash,
             onDropAssetsCloud: onDropAssetsCloud,
             onSelectTimeline: onSelectTimeline
         )
