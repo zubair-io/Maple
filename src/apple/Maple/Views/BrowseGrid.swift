@@ -184,10 +184,15 @@ struct BrowseGrid: View {
                 )
             }
         }
+        // macOS maps the hardware Delete key to trash via `onDeleteCommand`;
+        // iOS doesn't ship that modifier (the iOS/iPad trash path is the
+        // multi-select action bar and the per-tile context menu).
+        #if os(macOS)
         .onDeleteCommand {
             guard let onTrashAssets else { return }
             onTrashAssets(activeSelectionIDs())
         }
+        #endif
         .keyboardShortcuts(
             vm: vm,
             sessions: sessions,
