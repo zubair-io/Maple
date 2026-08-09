@@ -14,46 +14,16 @@
 @for (section of state.sidebarTree(); track section.id) {
   @if (section.kind === 'section') {
     <!-- Legacy section header (only renders if a stale 'Folders' section
-         slipped through; the live state has libraries at the top level). -->
-    <div
-      class="section-bar mx-2 flex cursor-pointer items-center gap-1.5 rounded-md pl-2 pr-3 hover:bg-bg-hover"
-      (click)="state.toggleSection(section.id)"
-    >
-      <maple-icon
-        [name]="state.sectionOpen()[section.id] ? 'chevron-down' : 'chevron-right'"
-        [size]="10"
-        color="var(--color-text-muted)"
-        [strokeWidth]="2"
-      />
-      <span class="flex-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-text-muted">{{
-        section.label
-      }}</span>
-    </div>
-
-    @if (state.sectionOpen()[section.id]) {
-      <div class="mt-1">
-        @for (child of section.children || []; track child.id) {
-          @if (child.kind === 'folder') {
-            <ng-container *ngTemplateOutlet="folderNode; context: { $implicit: child, level: 1 }" />
-          }
-        }
-      </div>
-    }
+         slipped through; the live state has libraries at the top level).
+         See `FolderTreeLegacySectionComponent`'s module doc for why this
+         is its own component. -->
+    <app-folder-tree-legacy-section [section]="section" (crudRequested)="onCrudRequested($event)" />
   } @else if (section.kind === 'folder') {
-    <!-- Top-level library entry (the canonical case post-refactor). -->
-    <ng-container *ngTemplateOutlet="folderNode; context: { $implicit: section, level: 0 }" />
-    <!-- Trash pseudo-node (#2652) — one per library root, visually set
-         apart from real folders. `libraryIdForTrashRow` returns null (no
-         row) on Hosted and for anything that isn't a real library root.
-         Markup lives in `TrashNodeRowComponent` — see that file's module
-         doc for why this stayed out of the recursive template above. -->
-    @if (libraryIdForTrashRow(section); as trashLibraryId) {
-      <app-trash-node-row
-        [libraryLabel]="section.label"
-        [badge]="trashBadgeFor(trashLibraryId)"
-        (activate)="onTrashNodeActivate(trashLibraryId, section.label)"
-      />
-    }
+    <!-- Top-level library entry (the canonical case post-refactor) plus
+         its Trash pseudo-node (#2652). See
+         `FolderTreeLibraryRootComponent`'s module doc for why this is its
+         own component. -->
+    <app-folder-tree-library-root [section]="section" (crudRequested)="onCrudRequested($event)" />
   } @else if (section.kind === 'subheader') {
     <div
       class="section-bar flex items-center px-5 text-[10px] font-semibold uppercase tracking-[0.06em] text-text-muted"
@@ -61,140 +31,25 @@
       {{ section.label }}
     </div>
   } @else {
-    <!-- Smart item or album row at the top level -->
-    <div
-      class="tree-row mx-2 flex h-7 cursor-pointer items-center gap-2 rounded-md px-3 text-[12px] text-text-main transition-[background] duration-[120ms]"
-      [class.selected]="state.selectedSourceId() === section.id"
-      (click)="state.selectedSourceId.set(section.id)"
-    >
-      <maple-icon
-        [name]="iconForSmartOrAlbum(section)"
-        [size]="13"
-        [color]="
-          state.selectedSourceId() === section.id
-            ? 'var(--color-primary)'
-            : 'var(--color-text-muted)'
-        "
-      />
-      <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{
-        section.label
-      }}</span>
-      @if (section.count != null) {
-        <span class="font-mono text-[10px] tabular-nums text-text-muted">{{
-          section.count | number
-        }}</span>
-      }
-    </div>
-  }
-}
-
-<!-- Recursive folder-node template -->
-<ng-template #folderNode let-node let-level="level">
-  @let isOpen = isFolderOpen(node);
-  @let isSelected = state.selectedSourceId() === node.id;
-  @let hasLoadedChildren = (node.children?.length ?? 0) > 0;
-  @let canExpand = !!node.absPath || hasLoadedChildren;
-  @let isLoading = node.childrenStatus === 'loading';
-  @let hasError = node.childrenStatus === 'error';
-
-  <div
-    class="tree-row mx-2 flex h-7 cursor-pointer items-center gap-2 rounded-md text-[12px] text-text-main transition-[background] duration-[120ms]"
-    [class.selected]="isSelected"
-    [style.padding-left.px]="10 + level * 14"
-    [style.padding-right.px]="12"
-    tabindex="0"
-    [attr.aria-label]="node.label"
-    [attr.aria-haspopup]="node.kind === 'folder' ? 'menu' : null"
-    (click)="onFolderClick(node, $event)"
-    (contextmenu)="onFolderContextMenu(node, $event)"
-    (keydown)="onRowKeydown(node, $event)"
-    (pointerdown)="onRowPointerDown(node, $event)"
-    (pointermove)="onRowPointerMove($event)"
-    (pointerup)="onRowPointerUp()"
-    (pointercancel)="onRowPointerCancel()"
-    cdkDropList
-    [id]="'folder-drop-' + node.id"
-    [cdkDropListData]="node"
-    [cdkDropListEnterPredicate]="dropEnterPredicate"
-    (cdkDropListDropped)="onAssetsDropped($event, node)"
-  >
-    <!-- Expand/collapse chevron, spinner, or spacer -->
-    @if (canExpand) {
-      <div
-        class="flex w-3 flex-shrink-0 items-center justify-center"
-        (click)="onChevronClick(node, $event)"
-      >
-        @if (isLoading) {
-          <div
-            class="chevron-spinner h-2 w-2 rounded-full border-[1.5px] border-border"
-            aria-label="Loading"
-          ></div>
-        } @else if (hasError) {
-          <span class="text-[11px] leading-none text-error-text" [title]="node.childrenError"
-            >!</span
-          >
-        } @else {
-          <maple-icon
-            [name]="isOpen ? 'chevron-down' : 'chevron-right'"
-            [size]="10"
-            color="var(--color-text-muted)"
-            [strokeWidth]="2"
-          />
-        }
-      </div>
-    } @else {
-      <div class="w-3 flex-shrink-0"></div>
-    }
-
-    <!-- Folder icon -->
-    <maple-icon
-      [name]="isOpen && hasLoadedChildren ? 'folder-open' : 'folder'"
-      [size]="13"
-      [color]="isSelected ? 'var(--color-primary)' : 'var(--color-text-muted)'"
-    />
-
-    <!-- Name -->
-    <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ node.label }}</span>
-
-    <!-- Count -->
-    @if (node.count != null) {
-      <span class="mr-1 font-mono text-[10px] tabular-nums text-text-muted">{{ node.count }}</span>
-    }
-  </div>
-
-  <!-- Children (next nesting level) -->
-  @if (isOpen && hasLoadedChildren) {
-    @for (child of node.children!; track child.id) {
-      @if (child.kind === 'folder') {
-        <ng-container
-          *ngTemplateOutlet="folderNode; context: { $implicit: child, level: level + 1 }"
-        />
-      }
-    }
-  }
-</ng-template>
-
-<!-- Right-click / long-press / keyboard-menu context menu, and its New
-     Folder / Rename / Move to Trash dialogs (#2643). `FolderTreeCrudComponent`
-     is referenced ONLY inside this `@defer` block, so it — and everything it
-     imports (the menu, the three dialogs, `FolderCrudService`) — code-splits
-     into its own chunk instead of the app's eager main bundle (#2705 review).
-     `crudRequest()` only ever becomes non-null on Self-Hosted (row handlers
-     no-op when `FOLDER_TREE_CRUD_ENABLED` is off), so Hosted never triggers
-     the load. -->
-@defer (when crudRequest() !== null) {
-  @if (crudRequest(); as request) {
-    <app-folder-tree-crud
-      [request]="request"
-      (closed)="onCrudClosed()"
-      (mutated)="onCrudMutated($event)"
+    <!-- Smart item or album row at the top level. See
+         `FolderTreeSmartRowComponent`'s module doc for why this is its own
+         component. -->
+    <app-folder-tree-smart-row
+      [entry]="section"
+      [selected]="state.selectedSourceId() === section.id"
+      (activate)="state.selectedSourceId.set(section.id)"
     />
   }
 }
 
-@if (trashPartialWarning(); as warning) {
-  <div class="trash-partial-warning" role="status">
-    <span>{{ warning }}</span>
-    <button type="button" (click)="dismissTrashPartialWarning()" aria-label="Dismiss">✕</button>
-  </div>
-}
+<!-- Crud dialog + trash-partial-failure toast. See
+     `FolderTreeFooterComponent`'s module doc for why this is its own
+     component (still contains the `@defer` boundary the Hosted-capability
+     boundary check expects). -->
+<app-folder-tree-footer
+  [crudRequest]="crudRequest()"
+  [trashPartialWarning]="trashPartialWarning()"
+  (crudClosed)="onCrudClosed()"
+  (crudMutated)="onCrudMutated($event)"
+  (dismissTrashPartialWarning)="dismissTrashPartialWarning()"
+/>

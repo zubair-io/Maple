@@ -1,0 +1,28 @@
+<div
+  class="section-bar mx-2 flex cursor-pointer items-center gap-1.5 rounded-md pl-2 pr-3 hover:bg-bg-hover"
+  (click)="toggle()"
+>
+  <maple-icon
+    [name]="state.sectionOpen()[section().id] ? 'chevron-down' : 'chevron-right'"
+    [size]="10"
+    color="var(--color-text-muted)"
+    [strokeWidth]="2"
+  />
+  <span class="flex-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-text-muted">{{
+    section().label
+  }}</span>
+</div>
+
+@if (state.sectionOpen()[section().id]) {
+  <div class="mt-1">
+    @for (child of section().children || []; track child.id) {
+      @if (child.kind === 'folder') {
+        <app-folder-tree-node
+          [node]="child"
+          [level]="1"
+          (crudRequested)="crudRequested.emit($event)"
+        />
+      }
+    }
+  </div>
+}

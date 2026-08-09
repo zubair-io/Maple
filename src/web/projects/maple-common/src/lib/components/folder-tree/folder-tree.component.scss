@@ -1,5 +1,3 @@
-@use '../../styles/dialog-chrome' as chrome;
-
 :host {
   display: block;
   width: 100%;
@@ -24,20 +22,6 @@
   border-radius: 3px;
 }
 
-/* Spinner: needs animation + border-top-color override for the
-   rotating accent ring. Both are awkward to express as utilities. */
-.chevron-spinner {
-  border-top-color: var(--color-primary);
-  animation: spin 700ms linear infinite;
-}
-
-/* @keyframes are not Tailwind-expressible. */
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 /* Section header rows — the top "Library" bar, the FOLDERS/Photos Library
    section headers, subheaders (e.g. "Albums"), and the Timeline row — share
    one fixed height so the sidebar's header rhythm is uniform, matching the
@@ -48,51 +32,4 @@
 .section-bar {
   height: 28px;
   box-sizing: border-box;
-}
-
-/* Tree-row hover background + selected colors. We can't express the
-   "only on hover when not selected" combination as a static utility
-   (Tailwind has no :not() variant). Keep these pseudo-class rules
-   so the selected highlight + non-selected hover both work without
-   needing extra class bindings on every row. */
-.tree-row:hover:not(.selected) {
-  background: var(--color-bg-hover);
-}
-.tree-row.selected {
-  background: var(--color-primary-dim);
-  color: var(--color-primary);
-  font-weight: 500;
-}
-
-/* Focus ring for keyboard navigation — rows are `tabindex="0"` so the
-   folder-tree context menu (#2643) can open via ContextMenu/Shift+F10. */
-.tree-row:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: -2px;
-}
-
-/* Drag-move/copy drop-target highlight (#2644). `.cdk-drop-list-receiving`
-   is applied by the CDK drag-drop module itself to a `cdkDropList` host
-   while a connected drag hovers it AND `cdkDropListEnterPredicate` allows
-   it — so a row that fails the predicate (the assets' own folder, a
-   non-folder row, an ineligible legacy node) never picks up this class,
-   which is what "rejected visually before drop" means in practice here. */
-.tree-row.cdk-drop-list-receiving {
-  background: var(--color-primary-dim);
-  outline: 1.5px dashed var(--color-primary);
-  outline-offset: -1.5px;
-}
-
-/* Trash partial-failure toast (#2643) — lives here (not in the deferred
-   `FolderTreeCrudComponent`) because it must outlive the crud dialog that
-   reported it: the dialog closes as soon as the trash call resolves, but the
-   toast should stay up until the user dismisses it. */
-.trash-partial-warning {
-  @include chrome.toast-shell;
-  background: var(--color-error-bg);
-  color: var(--color-error-text);
-
-  button {
-    @include chrome.toast-dismiss-button;
-  }
 }
