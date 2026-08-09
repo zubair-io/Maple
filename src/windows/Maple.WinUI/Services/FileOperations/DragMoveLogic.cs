@@ -66,6 +66,20 @@ namespace Maple.WinUI.Services.FileOperations
         public static bool ShouldAcceptDrop(bool isInternalDrag, bool hasApplicableTarget) =>
             isInternalDrag && hasApplicableTarget;
 
+        /// <summary>True when a FOLDERS tree row is a legitimate drop
+        /// target for an internal PhotoGrid drag at all — before any
+        /// payload/self-drop analysis. False for a placeholder expander
+        /// stub, an empty path, or (#2754 review) an unavailable library
+        /// root (FolderNode.IsUnavailable, #2651): that row renders for a
+        /// path that isn't reachable on disk right now, so accepting a
+        /// drop there would relocate files against a directory that
+        /// doesn't exist. Takes primitive flags rather than a FolderNode
+        /// itself so this stays linkable into Maple.WinUI.Tests without
+        /// pulling FolderNode's file in — see that test project's own
+        /// header comment for why FolderNode isn't linkable there.</summary>
+        public static bool IsEligibleDropTargetNode(bool isPlaceholder, bool isUnavailable, bool hasPath) =>
+            !isPlaceholder && !isUnavailable && hasPath;
+
         /// <summary>Which of <paramref name="items"/> would collide with an
         /// existing file (or folder) at <paramref name="destinationDir"/> if
         /// relocated there unchanged — the pre-scan that decides whether the

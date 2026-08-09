@@ -77,6 +77,10 @@ namespace Maple.WinUI.Services.FileOperations
             ".tif", ".tiff", ".jpg", ".jpeg",
         };
 
+        private const string CrossVolumeReason =
+            "The dropped items live on different drives or network locations — drop items from one "
+            + "location at a time.";
+
         /// <summary>Resolves what an OS drop of <paramref
         /// name="droppedPaths"/> onto the app window should do, given the
         /// currently registered <paramref name="libraryRoots"/>. Performs
@@ -109,43 +113,85 @@ namespace Maple.WinUI.Services.FileOperations
             }
 
             if (accepted.Count == 0)
-                return new DropMountPlan(
-                    DropOutcomeKind.Unsupported,
-                    AlreadyMounted: false,
-                    MountRoot: null,
-                    NavigateFolder: string.Empty,
-                    SelectFiles: Array.Empty<string>(),
-                    UnsupportedReason: BuildUnsupportedReason(rejected));
-
-            var containingCandidates = accepted
-                .Select(a => a.IsDirectory ? a.Path : (Path.GetDirectoryName(a.Path) ?? a.Path))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            var navigateFolder = CommonAncestor(containingCandidates);
+                return Unsupported(BuildUnsupportedReason(rejected));
 
             var files = accepted.Where(a => !a.IsDirectory).Select(a => a.Path).ToList();
             var isSingleFile = accepted.Count == 1 && !accepted[0].IsDirectory;
             var kind = isSingleFile ? DropOutcomeKind.OpenFile : DropOutcomeKind.Browse;
 
-            var alreadyMounted = accepted.All(
-                a => FolderTreeCrudLogic.FindLibraryRoot(libraryRoots, a.Path) != null);
+            var unmounted = accepted
+                .Where(a => FolderTreeCrudLogic.FindLibraryRoot(libraryRoots, a.Path) == null)
+                .ToList();
+            var alreadyMounted = unmounted.Count == 0;
+
+            // The set the mount/navigate folder is computed from: every
+            // accepted item when nothing needs mounting (case 4 — the
+            // folder to browse to still has to reflect everything that was
+            // dropped), or ONLY the not-yet-mounted items when a mount IS
+            // needed (#2754 review, IMPORTANT-4): a MIXED drop's ancestor
+            // computed across an already-mounted item too can climb high
+            // enough to overlap — even equal — an existing registered
+            // root (AddLibraryFolder only dedupes an exact string match).
+            // Restricting the ancestor walk to just the items that
+            // actually need a new home keeps the computed mount target
+            // from ever reaching back up into a root that already exists.
+            // The already-mounted item(s) in a mixed drop simply aren't
+            // selected in the resulting Browse navigation — still reachable
+            // from their own existing spot in the tree — rather than
+            // inventing cross-folder selection semantics this ticket
+            // doesn't ask for.
+            var candidateSource = alreadyMounted ? accepted : unmounted;
+            var containingCandidates = candidateSource
+                .Select(a => a.IsDirectory ? a.Path : (Path.GetDirectoryName(a.Path) ?? a.Path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            // #2754 review, BLOCKING-1: items spanning two drives or two
+            // UNC shares have no real common ancestor — CommonAncestor
+            // returns null rather than climbing to (and silently letting
+            // the app mount/recursively scan) a drive or share root.
+            var commonFolder = CommonAncestor(containingCandidates);
+            if (commonFolder == null)
+                return Unsupported(CrossVolumeReason);
 
             return new DropMountPlan(
                 kind,
                 alreadyMounted,
-                MountRoot: alreadyMounted ? null : navigateFolder,
-                NavigateFolder: navigateFolder,
+                MountRoot: alreadyMounted ? null : commonFolder,
+                NavigateFolder: commonFolder,
                 SelectFiles: files,
                 UnsupportedReason: null);
         }
+
+        private static DropMountPlan Unsupported(string reason) => new(
+            DropOutcomeKind.Unsupported,
+            AlreadyMounted: false,
+            MountRoot: null,
+            NavigateFolder: string.Empty,
+            SelectFiles: Array.Empty<string>(),
+            UnsupportedReason: reason);
 
         /// <summary>Walks a starting candidate up its own ancestor chain
         /// until it's an ancestor-of-or-equal-to every other path — simpler
         /// and more robust against drive-letter edge cases than splitting
         /// and rejoining path segments, and reuses the same
         /// case-insensitive containment check FolderTreeCrudLogic already
-        /// established (IsSameOrDescendant).</summary>
-        private static string CommonAncestor(IReadOnlyList<string> paths)
+        /// established (IsSameOrDescendant). Returns null (#2754 review,
+        /// BLOCKING-1) the moment a candidate can't climb any higher and
+        /// still isn't an ancestor of the path being checked — two drive
+        /// letters, or two different UNC shares, have no real common
+        /// ancestor, and the OLD behavior of quietly returning whatever
+        /// drive/share root the climb happened to stop at would have made
+        /// the caller mount (and recursively scan) that entire root.
+        /// Internal (not private) so DropMountLogicTests can exercise the
+        /// cross-drive/cross-UNC-share cases directly against fabricated
+        /// path strings — this method does no filesystem I/O of its own,
+        /// so it doesn't need a real second drive or network share to
+        /// test, unlike a full Classify() call (which requires
+        /// Directory.Exists/File.Exists to actually be true for a path to
+        /// even reach here, and a genuine second volume isn't guaranteed
+        /// to exist in CI or on a developer's machine).</summary>
+        internal static string? CommonAncestor(IReadOnlyList<string> paths)
         {
             var candidate = TrashPaths.NormalizeDir(Path.GetFullPath(paths[0]));
             foreach (var path in paths.Skip(1))
@@ -156,7 +202,7 @@ namespace Maple.WinUI.Services.FileOperations
                     var parent = Path.GetDirectoryName(candidate);
                     if (string.IsNullOrEmpty(parent)
                         || string.Equals(parent, candidate, StringComparison.OrdinalIgnoreCase))
-                        break; // hit a drive root with nothing higher to climb
+                        return null; // hit a drive/share root with nothing higher to climb
                     candidate = parent;
                 }
             }

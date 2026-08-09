@@ -128,11 +128,13 @@ namespace Maple.WinUI
             // Beyond that, only the coarse "is this even a real folder node"
             // check runs here (no payload/self-drop analysis — that's
             // OnFolderDragOver's job, which also drives the actual
-            // accept/reject cursor); a placeholder expander stub never
-            // highlights as a target.
+            // accept/reject cursor); a placeholder expander stub, or an
+            // unavailable library root (#2754 review), never highlights as
+            // a target.
             if (IsInternalDrag(e)
-                && sender is Control { DataContext: FolderNode { IsPlaceholder: false } node } control
-                && !string.IsNullOrEmpty(node.Path))
+                && sender is Control { DataContext: FolderNode node } control
+                && DragMoveLogic.IsEligibleDropTargetNode(
+                    node.IsPlaceholder, node.IsUnavailable, !string.IsNullOrEmpty(node.Path)))
                 control.Background = (SolidColorBrush)Application.Current.Resources["MaplePrimaryDim"];
         }
 
@@ -208,8 +210,9 @@ namespace Maple.WinUI
         {
             node = null;
             applicableSources = Array.Empty<DragMoveSourceItem>();
-            if (sender is not FrameworkElement { DataContext: FolderNode candidate } || candidate.IsPlaceholder
-                || string.IsNullOrEmpty(candidate.Path))
+            if (sender is not FrameworkElement { DataContext: FolderNode candidate }
+                || !DragMoveLogic.IsEligibleDropTargetNode(
+                    candidate.IsPlaceholder, candidate.IsUnavailable, !string.IsNullOrEmpty(candidate.Path)))
                 return false;
 
             var sources = EditSessionViewModel.BuildDragMoveSources(_dragPayload);
