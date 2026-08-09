@@ -20,13 +20,32 @@ using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Maple.WinUI.Services;
 using Maple.WinUI.Services.FileOperations;
 
 namespace Maple.WinUI
 {
     public sealed partial class MainWindow
     {
+        // Same reentrancy hazard, same fix, as MainWindow.Trash.cs's
+        // _deleteGate — see that field's comment.
+        private readonly SingleFlightGate _restoreGate = new();
+
         private async void OnRestoreFromMapleTrash(object sender, RoutedEventArgs e)
+        {
+            if (!_restoreGate.TryEnter())
+                return;
+            try
+            {
+                await RunRestoreFromMapleTrashAsync();
+            }
+            finally
+            {
+                _restoreGate.Exit();
+            }
+        }
+
+        private async Task RunRestoreFromMapleTrashAsync()
         {
             var items = ViewModel.ListMapleTrash();
             if (items.Count == 0)
