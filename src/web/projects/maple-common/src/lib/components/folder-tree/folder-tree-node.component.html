@@ -1,0 +1,57 @@
+<div
+  class="tree-row mx-2 flex h-7 cursor-pointer items-center gap-2 rounded-md text-[12px] text-text-main transition-[background] duration-[120ms]"
+  [class.selected]="isSelected()"
+  [style.padding-left.px]="10 + level() * 14"
+  [style.padding-right.px]="12"
+  tabindex="0"
+  [attr.aria-label]="node().label"
+  [attr.aria-haspopup]="node().kind === 'folder' ? 'menu' : null"
+  (click)="onFolderClick($event)"
+  (contextmenu)="onContextMenu($event)"
+  (keydown)="onRowKeydown($event)"
+  (pointerdown)="onRowPointerDown($event)"
+  (pointermove)="onRowPointerMove($event)"
+  (pointerup)="onRowPointerUp()"
+  (pointercancel)="onRowPointerCancel()"
+  cdkDropList
+  [id]="'folder-drop-' + node().id"
+  [cdkDropListData]="node()"
+  [cdkDropListEnterPredicate]="dropEnterPredicate"
+  (cdkDropListDropped)="onAssetsDropped($event)"
+>
+  <!-- Expand/collapse chevron, spinner, or spacer -->
+  <app-folder-tree-expand-icon
+    [canExpand]="canExpand()"
+    [isOpen]="isOpen()"
+    [isLoading]="isLoading()"
+    [hasError]="hasError()"
+    [errorTitle]="node().childrenError"
+    (toggle)="onChevronClick()"
+  />
+
+  <!-- Folder icon -->
+  <maple-icon
+    [name]="isOpen() && hasLoadedChildren() ? 'folder-open' : 'folder'"
+    [size]="13"
+    [color]="isSelected() ? 'var(--color-primary)' : 'var(--color-text-muted)'"
+  />
+
+  <!-- Name -->
+  <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ node().label }}</span>
+
+  <!-- Count -->
+  @if (node().count != null) {
+    <span class="mr-1 font-mono text-[10px] tabular-nums text-text-muted">{{ node().count }}</span>
+  }
+</div>
+
+<!-- Children (next nesting level) -->
+@if (isOpen()) {
+  @for (child of folderChildren(); track child.id) {
+    <app-folder-tree-node
+      [node]="child"
+      [level]="level() + 1"
+      (crudRequested)="crudRequested.emit($event)"
+    />
+  }
+}

@@ -1,0 +1,25 @@
+<div class="tt-toolbar">
+  <button
+    type="button"
+    class="tt-btn"
+    [disabled]="disabledReason() !== null"
+    [attr.title]="disabledReason()"
+    [attr.aria-describedby]="disabledReason() ? 'tt-disabled-reason' : null"
+    (click)="restoreAll.emit()"
+  >
+    Restore All
+  </button>
+  <button
+    type="button"
+    class="tt-btn tt-btn-destructive"
+    [disabled]="disabledReason() !== null"
+    [attr.title]="disabledReason()"
+    [attr.aria-describedby]="disabledReason() ? 'tt-disabled-reason' : null"
+    (click)="emptyTrash.emit()"
+  >
+    Empty Trash
+  </button>
+  @if (disabledReason(); as reason) {
+    <span id="tt-disabled-reason" class="sr-only">{{ reason }}</span>
+  }
+</div>

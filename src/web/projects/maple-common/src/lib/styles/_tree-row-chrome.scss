@@ -1,0 +1,30 @@
+// _tree-row-chrome.scss — the interaction-state rules every `.tree-row` in
+// the sidebar shares: hover, selected, keyboard focus ring, and the
+// drag-move drop-target highlight. Both `folder-tree.component.scss` (the
+// top-level smart/album/legacy-section rows) and
+// `folder-tree-node.component.scss` (the recursive per-folder row,
+// extracted from `folder-tree.component.ts` in the #2749 review to fix a
+// template-complexity finding) render `.tree-row`-classed elements, but
+// Angular's per-component view encapsulation means neither's styles reach
+// the other — this mixin is the one definition, `@include`d in both,
+// rather than the byte-identical copy fallow-audit-web's duplication
+// detector flagged when the rules were first split.
+@mixin tree-row-interaction-states {
+  &:hover:not(.selected) {
+    background: var(--color-bg-hover);
+  }
+  &.selected {
+    background: var(--color-primary-dim);
+    color: var(--color-primary);
+    font-weight: 500;
+  }
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+  }
+  &.cdk-drop-list-receiving {
+    background: var(--color-primary-dim);
+    outline: 1.5px dashed var(--color-primary);
+    outline-offset: -1.5px;
+  }
+}

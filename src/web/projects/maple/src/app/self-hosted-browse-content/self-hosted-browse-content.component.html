@@ -25,39 +25,7 @@
   (dismiss)="controller.dismissMetadata()"
 />
 
-<!-- Batch Rename dialog (#2640) — mounted fresh per open, same "mount
-     fresh" convention as `FolderTreeCrudComponent` (#2643): the `@if`
-     tears the component down as soon as `dismiss` nulls the gating state,
-     so the next open gets a clean instance. See `public-api.ts`'s #2640
-     note for why this is a plain `@if`, not `@defer`. -->
-@if (controller.batchRenameVisible()) {
-  <app-batch-rename-dialog
-    [selections]="controller.batchRenameSelections()"
-    (dismiss)="controller.dismissBatchRename()"
-    (applied)="controller.onBatchRenameApplied()"
-  />
-}
-
-<!-- Move to… (#2644) — keyboard-reachable equivalent of drag-move. Starts
-     the same `DragMoveService` relocate queue a folder-tree drop starts;
-     the queue's collision dialog / result banner render from
-     `browse-shell.component.html`, not here. -->
-@if (controller.moveToVisible()) {
-  <app-move-to-dialog
-    [assetIds]="controller.moveToAssetIds()"
-    [sourceFolderId]="controller.moveToSourceFolderId()"
-    (dismiss)="controller.dismissMoveTo()"
-  />
-}
-
-<!-- Trash panel (#2652) — mounted fresh per open, same "mount fresh"
-     convention as the dialogs above. `trash.panelOpen()` is set/cleared by
-     `TrashService.open()`/`closePanel()`, called from the folder-tree's
-     Trash row through `TRASH_CAPABILITY`. -->
-@if (trash.panelOpen() && trash.panelLibraryId(); as libraryId) {
-  <app-trash-panel
-    [libraryId]="libraryId"
-    [libraryLabel]="trash.panelLibraryLabel()"
-    (dismiss)="trash.closePanel()"
-  />
-}
+<!-- Batch Rename (#2640) / Move to… (#2644) / Trash panel (#2652) — see
+     `SelfHostedConditionalDialogsComponent`'s module doc for why these
+     three `@if`-gated, "mount fresh per open" dialogs live there now. -->
+<app-self-hosted-conditional-dialogs />

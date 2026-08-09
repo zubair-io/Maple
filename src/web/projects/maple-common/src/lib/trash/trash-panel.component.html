@@ -11,56 +11,24 @@
       <button type="button" class="tp-close" aria-label="Close Trash" (click)="onClose()">✕</button>
     </div>
 
-    <div class="tp-toolbar">
-      <button
-        type="button"
-        class="tp-toolbar-btn"
-        [disabled]="listBusy() || items().length === 0"
-        (click)="onRestoreAll()"
-      >
-        Restore All
-      </button>
-      <button
-        type="button"
-        class="tp-toolbar-btn tp-toolbar-btn-destructive"
-        [disabled]="listBusy() || items().length === 0"
-        (click)="requestDeleteAll()"
-      >
-        Empty Trash
-      </button>
-    </div>
+    <app-trash-toolbar
+      [disabledReason]="toolbarDisabledReason()"
+      (restoreAll)="onRestoreAll()"
+      (emptyTrash)="requestDeleteAll()"
+    />
 
-    @if (toast(); as message) {
-      <div class="tp-toast" role="status">
-        <span>{{ message }}</span>
-        <button type="button" (click)="dismissToast()" aria-label="Dismiss">✕</button>
-      </div>
-    }
-
-    @if (loadError(); as error) {
-      <div class="tp-error" role="alert">{{ error }}</div>
-    }
-
-    <div class="tp-list" role="list">
-      @if (!loading() && items().length === 0 && !loadError()) {
-        <div class="tp-empty">Trash is empty.</div>
-      }
-      @for (item of items(); track item.assetId) {
-        <app-trash-item-row
-          [item]="item"
-          [busy]="isRowBusy(item.assetId)"
-          (restore)="onRestoreItem(item)"
-          (deletePermanently)="requestDeleteItem(item)"
-        />
-      }
-    </div>
-
-    @if (loading()) {
-      <div class="tp-loading" role="status">Loading…</div>
-    }
-    @if (nextCursor() && !loading()) {
-      <button type="button" class="tp-load-more" (click)="loadMore()">Load more</button>
-    }
+    <app-trash-list
+      [items]="items()"
+      [busyKey]="busyKey()"
+      [loading]="loading()"
+      [loadError]="loadError()"
+      [nextCursor]="nextCursor()"
+      [toast]="toast()"
+      (restore)="onRestoreItem($event)"
+      (deletePermanently)="requestDeleteItem($event)"
+      (loadMore)="loadMore()"
+      (dismissToast)="dismissToast()"
+    />
   </div>
 </div>
 

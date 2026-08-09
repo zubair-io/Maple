@@ -1,0 +1,21 @@
+@use '../styles/dialog-chrome' as chrome;
+
+.tsb-toast {
+  @include chrome.toast-shell;
+  position: static;
+  transform: none;
+  margin: 8px 16px 0;
+  background: var(--color-surface-hover);
+  color: var(--color-text-main);
+  border: 0.5px solid var(--color-border);
+
+  button {
+    @include chrome.toast-dismiss-button;
+  }
+}
+
+.tsb-error {
+  margin: 8px 16px 0;
+  font-size: 11px;
+  color: var(--color-error-text);
+}

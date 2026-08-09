@@ -1,0 +1,15 @@
+@use '../../styles/dialog-chrome' as chrome;
+
+/* Trash partial-failure toast (#2643) — lives here (not in the deferred
+   `FolderTreeCrudComponent`) because it must outlive the crud dialog that
+   reported it: the dialog closes as soon as the trash call resolves, but the
+   toast should stay up until the user dismisses it. */
+.trash-partial-warning {
+  @include chrome.toast-shell;
+  background: var(--color-error-bg);
+  color: var(--color-error-text);
+
+  button {
+    @include chrome.toast-dismiss-button;
+  }
+}

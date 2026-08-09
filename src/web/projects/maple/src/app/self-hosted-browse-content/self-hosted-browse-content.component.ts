@@ -2,18 +2,15 @@ import { ChangeDetectionStrategy, Component, OnInit, inject } from '@angular/cor
 import {
   AssetGridComponent,
   BatchMetadataPanelComponent,
-  BatchRenameDialogComponent,
   ErrorBannerComponent,
   LibraryPickerComponent,
   LibraryStateService,
   LoadingBannerComponent,
-  MoveToDialogComponent,
   PanoDialogComponent,
   TimelineViewComponent,
-  TrashPanelComponent,
-  TrashService,
 } from '@maple-common';
 import { SelfHostedBrowseController } from '../self-hosted-browse/self-hosted-browse.controller';
+import { SelfHostedConditionalDialogsComponent } from '../self-hosted-conditional-dialogs/self-hosted-conditional-dialogs.component';
 
 @Component({
   selector: 'app-self-hosted-browse-content',
@@ -21,26 +18,19 @@ import { SelfHostedBrowseController } from '../self-hosted-browse/self-hosted-br
   imports: [
     AssetGridComponent,
     BatchMetadataPanelComponent,
-    // Mounted directly, same shape as `BatchMetadataPanelComponent` right
-    // above — see `public-api.ts`'s #2640 note for why this stays
-    // non-`@defer`red: this file lives only under `projects/maple`, so
-    // plain tree-shaking already keeps it (and `BatchRenameService`'s
-    // `/assets/by-address` call) out of Hosted's build entirely.
-    BatchRenameDialogComponent,
     ErrorBannerComponent,
     LibraryPickerComponent,
     LoadingBannerComponent,
-    // Same non-`@defer`red, physical-separation shape as
-    // `BatchRenameDialogComponent` above (#2644) — this file lives only
-    // under `projects/maple`.
-    MoveToDialogComponent,
     PanoDialogComponent,
     TimelineViewComponent,
-    // Trash panel (#2652) — same shape again; the trigger (the folder-tree
-    // Trash row) only ever reaches `TrashService` through the
-    // `TRASH_CAPABILITY` token, so this is the one place that actually
-    // mounts `<app-trash-panel>`.
-    TrashPanelComponent,
+    // Batch Rename (#2640) / Move to… (#2644) / Trash panel (#2652) — see
+    // `SelfHostedConditionalDialogsComponent`'s module doc: same
+    // non-`@defer`red, physical-separation shape (this file lives only
+    // under `projects/maple`, so plain tree-shaking keeps those dialogs —
+    // and `BatchRenameService`/`TrashApiService`'s server-only routes —
+    // out of Hosted's build entirely), just relocated to its own file to
+    // keep this template's complexity down (#2749 review).
+    SelfHostedConditionalDialogsComponent,
   ],
   templateUrl: './self-hosted-browse-content.component.html',
   styleUrl: './self-hosted-browse-content.component.scss',
@@ -49,7 +39,6 @@ import { SelfHostedBrowseController } from '../self-hosted-browse/self-hosted-br
 export class SelfHostedBrowseContentComponent implements OnInit {
   protected readonly state = inject(LibraryStateService);
   protected readonly controller = inject(SelfHostedBrowseController);
-  protected readonly trash = inject(TrashService);
 
   ngOnInit(): void {
     this.state.loadFolderTree();
