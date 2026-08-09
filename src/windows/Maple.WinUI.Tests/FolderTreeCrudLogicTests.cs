@@ -110,5 +110,34 @@ namespace Maple.WinUI.Tests
             Assert.Contains(".maple", description);
             Assert.Contains("trash", description);
         }
+
+        // Review finding (#2647): a library root has no non-circular
+        // `.maple/trash` fallback (its parent sits outside the library, so
+        // TrashPaths.TrashDestinationDir always rejects it — see
+        // FolderCrudTests.
+        // DeleteFolderAsync_TrashingTheLibraryRootItself_RecycleBinUnavailable_ThrowsInvalidDestination
+        // for that failure pinned at the LocalFileOperations layer). Only
+        // the real Recycle Bin can trash a root at all.
+
+        [Fact]
+        public void RootTrashUnsupported_RootWithoutLocalFixedDrive_IsTrue()
+        {
+            Assert.True(FolderTreeCrudLogic.RootTrashUnsupported(isLibraryRoot: true, isOnLocalFixedDrive: false));
+        }
+
+        [Fact]
+        public void RootTrashUnsupported_RootOnLocalFixedDrive_IsFalse()
+        {
+            Assert.False(FolderTreeCrudLogic.RootTrashUnsupported(isLibraryRoot: true, isOnLocalFixedDrive: true));
+        }
+
+        [Fact]
+        public void RootTrashUnsupported_NonRootRegardlessOfDriveType_IsFalse()
+        {
+            // A subfolder always has a valid `.maple/trash` fallback under
+            // its own library root, so the gate never applies to it.
+            Assert.False(FolderTreeCrudLogic.RootTrashUnsupported(isLibraryRoot: false, isOnLocalFixedDrive: false));
+            Assert.False(FolderTreeCrudLogic.RootTrashUnsupported(isLibraryRoot: false, isOnLocalFixedDrive: true));
+        }
     }
 }
