@@ -80,6 +80,39 @@ namespace Maple.WinUI.Tests
             Assert.Equal(expected, DragMoveLogic.ShouldAcceptDrop(isInternalDrag, hasApplicableTarget));
         }
 
+        // --- IsEligibleDropTargetNode ---
+
+        [Fact]
+        public void IsEligibleDropTargetNode_NormalFolder_IsTrue()
+        {
+            Assert.True(DragMoveLogic.IsEligibleDropTargetNode(
+                isPlaceholder: false, isUnavailable: false, hasPath: true));
+        }
+
+        [Fact]
+        public void IsEligibleDropTargetNode_Placeholder_IsFalse()
+        {
+            Assert.False(DragMoveLogic.IsEligibleDropTargetNode(
+                isPlaceholder: true, isUnavailable: false, hasPath: true));
+        }
+
+        [Fact]
+        public void IsEligibleDropTargetNode_UnavailableRoot_IsFalse()
+        {
+            // #2754 review: an offline/missing library root (#2651) still
+            // renders a row, but dragging a real photo onto it must not be
+            // accepted — there's no directory there to relocate into.
+            Assert.False(DragMoveLogic.IsEligibleDropTargetNode(
+                isPlaceholder: false, isUnavailable: true, hasPath: true));
+        }
+
+        [Fact]
+        public void IsEligibleDropTargetNode_EmptyPath_IsFalse()
+        {
+            Assert.False(DragMoveLogic.IsEligibleDropTargetNode(
+                isPlaceholder: false, isUnavailable: false, hasPath: false));
+        }
+
         // --- DetectCollisions ---
 
         [Fact]

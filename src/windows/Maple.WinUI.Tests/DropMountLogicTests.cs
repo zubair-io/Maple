@@ -165,6 +165,114 @@ namespace Maple.WinUI.Tests
             Assert.NotNull(plan.MountRoot);
         }
 
+        [Fact]
+        public void Classify_MixedMountedAndUnmounted_MountRootExcludesAlreadyMountedItem()
+        {
+            // #2754 review, IMPORTANT-4: the OLD behavior computed the
+            // ancestor across EVERY accepted item, mounted or not — here
+            // that would be _dir itself (the shared parent of RootA and
+            // Fresh), which is an ANCESTOR of the already-registered RootA.
+            // AddLibraryFolder only dedupes an exact string match, so that
+            // would have registered a second, overlapping root. The fixed
+            // rule computes the mount target from only the not-yet-mounted
+            // item(s), so it lands on "Fresh" itself — no overlap with the
+            // existing root at all.
+            var rootA = MakeFolder("RootA");
+            var fileMounted = MakeFile(Path.Combine("RootA", "a.dng"));
+            var freshFolder = MakeFolder("Fresh");
+            var fileNew = MakeFile(Path.Combine("Fresh", "b.dng"));
+
+            var plan = DropMountLogic.Classify(new[] { fileMounted, fileNew }, new[] { rootA });
+
+            Assert.False(plan.AlreadyMounted);
+            Assert.Equal(freshFolder, plan.MountRoot);
+            Assert.False(FolderTreeCrudLogic.IsSameOrDescendant(plan.MountRoot!, rootA));
+            Assert.False(FolderTreeCrudLogic.IsSameOrDescendant(rootA, plan.MountRoot!));
+        }
+
+        [Fact]
+        public void Classify_MixedFileAndFolderInOneGesture_MountsCommonAncestorAndSelectsOnlyTheFile()
+        {
+            var parent = MakeFolder("Session");
+            var subfolder = MakeFolder(Path.Combine("Session", "Raws"));
+            var looseFile = MakeFile(Path.Combine("Session", "cover.jpg"));
+
+            var plan = DropMountLogic.Classify(new[] { looseFile, subfolder }, Array.Empty<string>());
+
+            Assert.Equal(DropOutcomeKind.Browse, plan.Kind);
+            Assert.Equal(parent, plan.MountRoot);
+            Assert.Equal(parent, plan.NavigateFolder);
+            Assert.Equal(new[] { looseFile }, plan.SelectFiles);
+        }
+
+        [Fact]
+        public void Classify_DuplicatePathDroppedTwice_DeduplicatesToOneItem()
+        {
+            var folder = MakeFolder("Once");
+            var file = MakeFile(Path.Combine("Once", "a.dng"));
+
+            var plan = DropMountLogic.Classify(new[] { file, file }, Array.Empty<string>());
+
+            Assert.Equal(DropOutcomeKind.OpenFile, plan.Kind);
+            Assert.Equal(new[] { file }, plan.SelectFiles);
+        }
+
+        // --- Cross-volume drops (#2754 review, BLOCKING-1) ---
+        //
+        // CommonAncestor is internal (not private) specifically so these
+        // can exercise it directly against fabricated path strings — it
+        // does no filesystem I/O of its own, so a real second drive or
+        // network share isn't needed (and isn't reliably present in CI or
+        // on a developer's machine). See DropMountLogic.CommonAncestor's
+        // doc comment.
+
+        [Fact]
+        public void CommonAncestor_TwoDifferentDriveLetters_ReturnsNull()
+        {
+            var paths = new[]
+            {
+                Path.Combine("C:" + Path.DirectorySeparatorChar, "Photos", "a.dng"),
+                Path.Combine("D:" + Path.DirectorySeparatorChar, "Photos", "b.dng"),
+            };
+
+            Assert.Null(DropMountLogic.CommonAncestor(paths));
+        }
+
+        [Fact]
+        public void CommonAncestor_TwoDifferentUncShares_ReturnsNull()
+        {
+            // Windows-only path shape (UNC) — this repo's CI only ever runs
+            // Maple.WinUI.Tests on windows-latest, and Path.GetFullPath's
+            // handling of a literal "C:\"/"\\server\share" path is a
+            // Windows-only guarantee anyway; same precedent as
+            // FolderTreeCrudLogicTests' own "C:\" literals.
+            var share1 = @"\\server1\PhotosShare\a.dng";
+            var share2 = @"\\server2\PhotosShare\b.dng";
+
+            Assert.Null(DropMountLogic.CommonAncestor(new[] { share1, share2 }));
+        }
+
+        [Fact]
+        public void CommonAncestor_SameDrive_ReturnsRealAncestorNotNull()
+        {
+            var root = Path.Combine("C:" + Path.DirectorySeparatorChar, "Library");
+            var paths = new[]
+            {
+                Path.Combine(root, "2026", "a.dng"),
+                Path.Combine(root, "2027", "b.dng"),
+            };
+
+            Assert.Equal(root, DropMountLogic.CommonAncestor(paths));
+        }
+
+        // Classify() itself, when CommonAncestor returns null, is covered
+        // by Classify_UnsupportedFileType_ReturnsUnsupportedWithReason's
+        // sibling assertions in spirit — the `if (commonFolder == null)
+        // return Unsupported(...)` branch in Classify is the same one-line
+        // guard regardless of WHY CommonAncestor returned null (cross-drive
+        // vs. anything else), so it doesn't need its own separate
+        // filesystem-dependent end-to-end test to be exercised in CI.
+
         // --- Unsupported type / missing on disk ---
 
         [Fact]

@@ -116,7 +116,17 @@ namespace Maple.WinUI
             if (paths.Count == 0)
                 return;
 
-            var plan = DropMountLogic.Classify(paths, ViewModel.LibraryFolders);
+            // Classify does real Directory.Exists/File.Exists checks per
+            // dropped path — off the UI thread (#2754 review, BLOCKING-2),
+            // same reasoning EditSessionViewModel.Library.cs's
+            // InitializeLibrary/RebuildFolderTree already document: a dead
+            // network share can block Exists for the OS's own timeout, and
+            // that must never freeze the window. LibraryFolders is
+            // snapshotted on the UI thread first — it's an
+            // ObservableCollection, not safe to read concurrently with a
+            // UI-thread mutation (AddLibraryFolder/RemoveLibraryFolder).
+            var libraryRootsSnapshot = ViewModel.LibraryFolders.ToList();
+            var plan = await Task.Run(() => DropMountLogic.Classify(paths, libraryRootsSnapshot));
             switch (plan.Kind)
             {
                 case DropOutcomeKind.Unsupported:
