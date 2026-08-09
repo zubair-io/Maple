@@ -126,8 +126,9 @@ namespace Maple.WinUI.ViewModels
         /// explanation of why an unavailable root can't be browsed right
         /// now.</summary>
         public string ToolTipText => IsUnavailable
-            ? $"{Path}\nNot available right now — this looks like removable or network storage "
-              + "that isn't currently connected. Reconnect it, or remove this folder from the "
+            ? $"{Path}\nNot available right now — it may be on removable or network storage that "
+              + "isn't currently connected, or the folder itself may have been moved, renamed, or "
+              + "deleted outside Maple. Reconnect or restore it, or remove this folder from the "
               + "library from its right-click menu."
             : Path;
     }

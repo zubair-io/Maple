@@ -31,7 +31,14 @@ namespace Maple.WinUI.ViewModels
         /// EditSessionViewModel.FolderCrud.cs's RefreshFolderChildrenAsync.</summary>
         public Task AddLibraryFolderAsync(string folderPath)
         {
-            var tcs = new TaskCompletionSource();
+            // RunContinuationsAsynchronously (#2754 review, jules NIT):
+            // onReady fires from a background-thread try/catch in some
+            // LoadDirectory paths, not only from the dispatcher — without
+            // this, a synchronous TrySetResult there would run the
+            // awaiter's continuation (the rest of MainWindow.DropMount.cs's
+            // async method) on that same background thread instead of
+            // hopping back to the UI thread the caller expects.
+            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             AddLibraryFolder(folderPath, () => tcs.TrySetResult());
             return tcs.Task;
         }
@@ -42,7 +49,7 @@ namespace Maple.WinUI.ViewModels
         /// needs registering.</summary>
         public Task LoadDirectoryAsync(string folderPath)
         {
-            var tcs = new TaskCompletionSource();
+            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             LoadDirectory(folderPath, () => tcs.TrySetResult());
             return tcs.Task;
         }
