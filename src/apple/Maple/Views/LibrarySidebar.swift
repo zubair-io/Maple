@@ -20,6 +20,9 @@
 import SwiftUI
 import Photos
 import MapleCore
+#if os(macOS)
+import AppKit
+#endif
 
 // The `LibrarySidebar` is rendered both as the leading column of the
 // tablet/desktop `NavigationSplitView` (`AppShellMacLayout`) and inside the
@@ -922,6 +925,21 @@ private struct FolderTreeRow: View {
                     }
                     .accessibilityIdentifier("folderTree.trash.\(url.path)")
                 }
+                #if os(macOS)
+                // Reveal in Finder (#2658) — every row this view renders
+                // (saved local folder, or a lazily-enumerated descendant)
+                // carries a real on-disk `url`, so unlike the grid's
+                // per-asset gating this needs no eligibility check at all:
+                // FolderTreeRow only exists for local Filesystem sources.
+                // macOS-only — there's no Finder on iOS/iPadOS, the other
+                // platform this same row renders on.
+                Button {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                } label: {
+                    Label("Reveal in Finder", systemImage: "folder")
+                }
+                .accessibilityIdentifier("folderTree.revealInFinder.\(url.path)")
+                #endif
                 if depth == 0, let onShowTrash {
                     Button {
                         onShowTrash(url, rootBookmark, displayName)

@@ -277,6 +277,17 @@
                                                         </MenuFlyoutItem.Icon>
                                                     </MenuFlyoutItem>
                                                     <MenuFlyoutSeparator />
+                                                    <!-- Show in Explorer (#2658) — every row this tree renders is a
+                                                         local or SMB/UNC path (Cloud lives in its own "MAPLE CLOUD"
+                                                         ListView below, not this TreeView), so unlike the grid's
+                                                         per-selection gating this item is always shown. -->
+                                                    <MenuFlyoutItem Text="Show in Explorer" Click="OnRevealFolderInExplorer"
+                                                                    AutomationProperties.Name="Show folder in Explorer">
+                                                        <MenuFlyoutItem.Icon>
+                                                            <FontIcon Glyph="&#xE838;" />
+                                                        </MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                    <MenuFlyoutSeparator />
                                                     <MenuFlyoutItem Text="Remove from Library" Click="OnRemoveFolder"
                                                                     AutomationProperties.Name="Remove folder from library">
                                                         <MenuFlyoutItem.Icon>
@@ -449,9 +460,20 @@
                         <!-- Right-click Delete on the grid selection (#2654) — same
                              OnDeleteSelectedPhotos handler as the Delete key and the
                              Photo menu's "Delete…" item, so none of the three can
-                             drift from another. -->
+                             drift from another. "Show in Explorer" (#2658) is HIDDEN
+                             (not disabled) when nothing in the selection has a local
+                             path — OnPhotoGridContextFlyoutOpening toggles both the
+                             item and its separator on every open. -->
                         <GridView.ContextFlyout>
-                            <MenuFlyout>
+                            <MenuFlyout Opening="OnPhotoGridContextFlyoutOpening">
+                                <MenuFlyoutItem x:Name="RevealInExplorerMenuItem" Text="Show in Explorer"
+                                                Click="OnRevealSelectedPhotosInExplorer"
+                                                AutomationProperties.Name="Show in Explorer">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE838;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutSeparator x:Name="RevealInExplorerSeparator" />
                                 <MenuFlyoutItem Text="Delete…" Click="OnDeleteSelectedPhotos"
                                                 AutomationProperties.Name="Delete selected photos" />
                             </MenuFlyout>
