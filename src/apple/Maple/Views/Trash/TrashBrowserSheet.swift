@@ -62,19 +62,29 @@ struct TrashBrowserSheet: View {
         }
         .frame(minWidth: 460, minHeight: 380)
         .task { await reload() }
+        // `presenting:` (review finding, jules): SwiftUI runs the dialog's
+        // dismissal — which flips `isPresented` false and, via our
+        // `Binding`'s setter, nils `pendingPermanentDelete` — BEFORE the
+        // tapped button's own action closure executes. A closure that read
+        // `pendingPermanentDelete` at action time (the prior shape) always
+        // saw it already `nil` and silently no-opped instead of deleting.
+        // `presenting:` hands the row to the actions closure AS A
+        // PARAMETER, captured at dialog-presentation time, so the action
+        // no longer depends on state that dismissal has already cleared.
         .confirmationDialog(
-            "Delete Permanently", isPresented: Binding(
+            "Delete Permanently",
+            isPresented: Binding(
                 get: { pendingPermanentDelete != nil },
                 set: { if !$0 { pendingPermanentDelete = nil } }
-            ), titleVisibility: .visible
-        ) {
+            ),
+            titleVisibility: .visible,
+            presenting: pendingPermanentDelete
+        ) { row in
             Button("Delete Permanently", role: .destructive) {
-                guard let row = pendingPermanentDelete else { return }
-                pendingPermanentDelete = nil
                 Task { await permanentlyDelete(row) }
             }
-            Button("Cancel", role: .cancel) { pendingPermanentDelete = nil }
-        } message: {
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
             Text("This item will be permanently deleted and cannot be recovered.")
         }
     }
@@ -172,6 +182,7 @@ struct TrashBrowserSheet: View {
         switch outcome {
         case .succeeded:
             rows.removeAll { $0.id == row.id }
+            errorMessage = nil
         case .stale(let reason):
             rows.removeAll { $0.id == row.id }
             errorMessage = reason
