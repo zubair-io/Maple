@@ -70,15 +70,29 @@ namespace Maple.WinUI.Services.FileOperations
         /// the quote rather than closing the string. One trailing `\`
         /// before the closing `"` is exactly that odd case — the closing
         /// quote is swallowed as a literal character, the argument never
-        /// terminates, and the rest of the command line misparses.
-        /// Trimming the trailing separator sidesteps the ambiguity
-        /// entirely rather than trying to double the backslash to make the
-        /// count even: `explorer /select,"E:"` resolves the same drive
-        /// root `"E:\"` would. `Path.TrimEndingDirectorySeparator` was
-        /// considered but deliberately not used — it leaves a bare root
-        /// like `E:\` untouched by design (it only trims a separator
-        /// "beyond the root"), which is exactly the case this needs
-        /// trimmed.
-        public static string SelectArgument(string path) => $"/select,\"{path.TrimEnd('\\')}\"";
+        /// terminates, and the rest of the command line misparses. Every
+        /// non-drive-root path is trimmed and quoted (`\\nas\Share\` ->
+        /// `"\\nas\Share"`, still an unambiguous absolute path once
+        /// trimmed).
+        ///
+        /// Bare drive designator special case (second review round): naive
+        /// trimming of a drive root — `E:\` -> `E:` — is wrong by the
+        /// Win32 path-semantics book even though it dodges the quoting
+        /// bug: `E:` alone is DRIVE-RELATIVE (it resolves against the
+        /// current directory Windows is tracking for drive E, not
+        /// necessarily its root), not the same thing as `E:\`. A bare
+        /// drive letter + colon can never legally contain a space or a
+        /// comma, though, so it needs no quoting at all — emitting it
+        /// UNQUOTED with its trailing `\` intact (`/select,E:\`) keeps it
+        /// an unambiguous absolute root reference, and with no closing
+        /// quote in the picture there's no backslash-escapes-the-quote
+        /// ambiguity to worry about either.
+        public static string SelectArgument(string path)
+        {
+            var trimmed = path.TrimEnd('\\');
+            return trimmed.Length == 2 && trimmed[1] == ':'
+                ? $"/select,{trimmed}\\"
+                : $"/select,\"{trimmed}\"";
+        }
     }
 }

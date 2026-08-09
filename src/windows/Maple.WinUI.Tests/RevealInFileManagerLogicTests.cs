@@ -89,13 +89,20 @@ namespace Maple.WinUI.Tests
         //      ITS OWN argv): an odd run of backslashes before a `"` escapes
         //      the quote rather than closing the string, so an untrimmed
         //      `E:\` would leave the argument unterminated. SelectArgument
-        //      trims the trailing separator before quoting to sidestep that.
+        //      trims the trailing separator before quoting to sidestep that
+        //      — EXCEPT for a bare drive root (see the next case), where
+        //      trimming to `"E:"` would be quoted correctly but semantically
+        //      wrong: `E:` alone is drive-RELATIVE in Win32, not the root,
+        //      so that case is emitted unquoted with the backslash kept
+        //      instead (`E:\` can't contain a space or comma, so it never
+        //      needed quoting to begin with).
         [Theory]
         [InlineData(@"C:\Library\Vacation\photo.dng", "/select,\"C:\\Library\\Vacation\\photo.dng\"")]
         [InlineData(@"\\nas\share\photo.dng", "/select,\"\\\\nas\\share\\photo.dng\"")]
         [InlineData(@"C:\My, Photos\a b.dng", "/select,\"C:\\My, Photos\\a b.dng\"")]
         [InlineData(@"\\nas\My Share\a b.dng", "/select,\"\\\\nas\\My Share\\a b.dng\"")]
-        [InlineData(@"E:\", "/select,\"E:\"")]
+        [InlineData(@"E:\", "/select,E:\\")]
+        [InlineData(@"E:", "/select,E:\\")]
         [InlineData(@"C:\Library\", "/select,\"C:\\Library\"")]
         public void SelectArgument_QuotesRawPath(string path, string expected)
         {
