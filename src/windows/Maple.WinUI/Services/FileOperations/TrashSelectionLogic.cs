@@ -84,6 +84,22 @@ namespace Maple.WinUI.Services.FileOperations
                 var destination = string.Equals(outcome.PrimaryPath, item.PrimaryPath, StringComparison.Ordinal)
                     ? TrashDestinationKind.RecycleBin
                     : TrashDestinationKind.MapleTrashFolder;
+
+                if (destination == TrashDestinationKind.MapleTrashFolder)
+                {
+                    // Record the TRUE original relative path now, while this
+                    // is still the one place that knows it — a trash-side
+                    // collision auto-suffixes outcome.PrimaryPath's basename
+                    // (LocalFileOperations.Trash.cs's
+                    // TrashToMapleFolderAsync), so inferring the original
+                    // name later from that suffixed trash-side path alone
+                    // would be wrong. See
+                    // LocalFileOperations.TrashRestore.cs's header (#2743
+                    // review fix) for the full story.
+                    var originalRelativePath = Path.GetRelativePath(libraryRoot, item.PrimaryPath);
+                    LocalFileOperations.TryWriteOriginalPathMarker(outcome.PrimaryPath, originalRelativePath);
+                }
+
                 return new TrashItemOutcome(item.Key, item.FileName, TrashOutcomeKind.Trashed, destination);
             }
             catch (FileOperationException ex)
