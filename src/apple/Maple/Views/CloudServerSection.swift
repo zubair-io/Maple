@@ -63,6 +63,8 @@ struct CloudServerSection: View {
   /// Drag-onto-source-tree (#2646). `(libraryFolderID, libraryRootPath,
   /// absPath, ids, isCopy)` — `ids == nil` ⇒ "use current grid selection".
   var onDropAssets: (String, String, String, Set<AssetRef.ID>?, Bool) -> Void = { _, _, _, _, _ in }
+  /// OS file/folder drop-to-mount (#2649). See `LibrarySidebar.onDropURLs`.
+  var onDropURLs: ([URL]) -> Bool = { _ in false }
   /// Gates the "Move/Copy Selected Here" context-menu items.
   var selectedAssetCount: Int = 0
 
@@ -118,6 +120,7 @@ struct CloudServerSection: View {
             onTrashFolder: onTrashFolder,
             onShowTrash: onShowTrash,
             onDropAssets: onDropAssets,
+            onDropURLs: onDropURLs,
             selectedAssetCount: selectedAssetCount
           )
         }

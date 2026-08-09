@@ -452,14 +452,30 @@ extension FilesystemSource {
     /// any isolation context (e.g. a `.fileImporter` success closure) — the
     /// panel itself is presented inside an explicit `MainActor.run` hop so we
     /// don't have to infect the call site with `@MainActor`.
-    public static func presentFolderPicker() async -> URL? {
+    ///
+    /// `seedDirectory` seeds `NSOpenPanel.directoryURL` — used by the
+    /// drop-to-mount flow (#2649) to open the panel already pointed at the
+    /// folder the user just dropped something from, rather than wherever
+    /// the panel last was. `prompt`/`message` let that same caller explain
+    /// WHY it's asking (macOS grants a sandboxed app scope on the exact
+    /// item a Finder drag carries, never that item's parent directory — so
+    /// enumerating the parent needs an explicit, separate user grant; no
+    /// code path around that exists).
+    public static func presentFolderPicker(
+        seedDirectory: URL? = nil,
+        prompt: String = "Open Folder",
+        message: String = "Choose a folder of RAW files to open in Maple"
+    ) async -> URL? {
         await MainActor.run {
             let panel = NSOpenPanel()
             panel.canChooseFiles = false
             panel.canChooseDirectories = true
             panel.allowsMultipleSelection = false
-            panel.prompt = "Open Folder"
-            panel.message = "Choose a folder of RAW files to open in Maple"
+            panel.prompt = prompt
+            panel.message = message
+            if let seedDirectory {
+                panel.directoryURL = seedDirectory
+            }
             guard panel.runModal() == .OK else { return nil as URL? }
             return panel.url
         }
