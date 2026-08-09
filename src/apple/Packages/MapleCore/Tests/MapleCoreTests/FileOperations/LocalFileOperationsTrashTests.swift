@@ -114,10 +114,61 @@ final class LocalFileOperationsTrashTests: XCTestCase {
         _ = try await LocalFileOperations.trashToMapleFolder(source, libraryRoot: root)
         let item = LocalFileOperations.listMapleTrash(libraryRoot: root)[0]
 
-        try LocalFileOperations.permanentlyDeleteFromMapleTrash(item)
+        try LocalFileOperations.permanentlyDeleteFromMapleTrash(item, libraryRoot: root)
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: item.primaryPath))
         XCTAssertEqual(LocalFileOperations.listMapleTrash(libraryRoot: root).count, 0)
+    }
+
+    /// Review finding — the ONE irreversible primitive in this module must
+    /// not trust a caller-supplied `TrashedItem` blindly. A path outside
+    /// `.maple/trash` (e.g. a live photo the caller mistakenly wrapped in a
+    /// `TrashedItem`) must be refused, not deleted.
+    func testPermanentlyDeleteFromMapleTrashRefusesAPathOutsideMapleTrash() throws {
+        let live = FileOperationsTestSupport.write("still here", to: root.appendingPathComponent("LIVE.dng"))
+        let bogusItem = TrashedItem(
+            id: live.path, primaryPath: live.path, sidecarPath: nil,
+            originalRelativePath: "LIVE.dng", trashedDate: Date(), size: 10)
+
+        XCTAssertThrowsError(try LocalFileOperations.permanentlyDeleteFromMapleTrash(bogusItem, libraryRoot: root)) { error in
+            guard case FileOperationError.invalidDestination = error else {
+                XCTFail("expected .invalidDestination, got \(error)")
+                return
+            }
+        }
+        XCTAssertTrue(FileOperationsTestSupport.exists(live), "the live file must be untouched")
+    }
+
+    func testSweepOrphanedMarkersRemovesAMarkerWhosePrimaryIsGone() async throws {
+        let source = FileOperationsTestSupport.write("pixels", to: root.appendingPathComponent("IMG_1.dng"))
+        let outcome = try await LocalFileOperations.trashToMapleFolder(source, libraryRoot: root)
+        // Simulate the primary vanishing out from under its marker (e.g. an
+        // external tool removed it) without going through this module.
+        try FileManager.default.removeItem(atPath: outcome.primaryPath)
+        XCTAssertNotNil(LocalFileOperations.trashedDate(forItemAt: URL(fileURLWithPath: outcome.primaryPath)),
+                        "the orphaned marker should still exist before the sweep")
+
+        let removed = LocalFileOperations.sweepOrphanedMarkers(libraryRoot: root)
+
+        XCTAssertEqual(removed, 1)
+        XCTAssertNil(LocalFileOperations.trashedDate(forItemAt: URL(fileURLWithPath: outcome.primaryPath)))
+    }
+
+    func testSweepExpiredMapleTrashDoesNotPurgeAnItemExactlyAtTheThreshold() async throws {
+        // A day-to-day comparison biased toward retaining longer: an item
+        // trashed EXACTLY 30 days ago (to the same time of day) must not be
+        // purged by a 30-day policy — only day 31+ qualifies.
+        let source = FileOperationsTestSupport.write("pixels", to: root.appendingPathComponent("IMG_1.dng"))
+        let outcome = try await LocalFileOperations.trashToMapleFolder(source, libraryRoot: root)
+        LocalFileOperations.removeTrashedMarker(forItemAt: URL(fileURLWithPath: outcome.primaryPath))
+        let now = Date()
+        LocalFileOperations.writeTrashedMarker(
+            forItemAt: URL(fileURLWithPath: outcome.primaryPath), date: now.addingTimeInterval(-30 * 86_400))
+
+        let purged = LocalFileOperations.sweepExpiredMapleTrash(libraryRoot: root, olderThanDays: 30, now: now)
+
+        XCTAssertEqual(purged, 0)
+        XCTAssertEqual(LocalFileOperations.listMapleTrash(libraryRoot: root).count, 1)
     }
 
     func testSweepExpiredMapleTrashPurgesOnlyItemsOlderThanTheThreshold() async throws {
