@@ -87,17 +87,51 @@ function restoreOutcomeResponse(
 }
 
 export const trashRoutes = new Elysia()
-  .delete('/:id', async ({ params, set }) => {
+  .delete('/:id', async ({ params, query, set }) => {
     const id = parseAssetId(params.id);
     if (!id) {
       set.status = 400;
       return { error: 'Invalid asset id' };
     }
 
+    // `intent` closes the dual-mode staleness race (#2749): without it,
+    // the same call means "trash" for a live asset and "PERMANENTLY purge"
+    // for an already-trashed one, decided by server-side state the caller
+    // may hold a stale copy of. A grid whose listing is stale can send
+    // what its user believes is a reversible trash and irreversibly purge
+    // the photo — or a stale Trash panel can "permanently delete" an asset
+    // someone restored, quietly re-trashing a live photo instead while its
+    // UI reports "cannot be undone". With `intent`, a state mismatch is a
+    // 409 the client surfaces and refreshes on, never a silent flip.
+    //
+    // Omitting `intent` preserves the legacy dual-mode contract byte-for-
+    // byte — the deployed File Provider extension depends on it and cannot
+    // be flag-dayed. UI clients (web Trash node, Apple trash, Windows)
+    // should always pass it.
+    const intent = query.intent;
+    if (intent !== undefined && intent !== 'trash' && intent !== 'purge') {
+      set.status = 400;
+      return { error: "intent must be 'trash' or 'purge' when provided" };
+    }
+
     const info = await findCoreInfoById(id);
     if (!info) {
       set.status = 404;
       return { error: 'Asset not found' };
+    }
+
+    if (intent === 'trash' && info.deleted_at) {
+      // Raced: someone else already trashed it. For an explicit trash
+      // intent that is success-shaped (the asset IS in the trash), but a
+      // 204 would hide that the caller's listing is stale — 409 with a
+      // distinct error lets the client refresh and, critically, never
+      // falls through to the purge branch below.
+      set.status = 409;
+      return { error: 'Asset is already trashed', state: 'trashed' };
+    }
+    if (intent === 'purge' && !info.deleted_at) {
+      set.status = 409;
+      return { error: 'Asset is not trashed — refusing to purge a live asset', state: 'live' };
     }
 
     // Already trashed → permanent purge. No folder-level analogue in this
