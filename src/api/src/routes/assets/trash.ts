@@ -29,6 +29,7 @@
  */
 
 import { Elysia, t } from 'elysia';
+import type { ObjectId } from 'mongodb';
 import { unlink } from 'node:fs/promises';
 import { listPairedSidecars } from '../../fs/xmp-conflict.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
@@ -86,6 +87,62 @@ function restoreOutcomeResponse(
   }
 }
 
+/** The permanent-purge branch of DELETE /:id — the asset is already
+ * trashed; unlink the file + sidecars, hard-delete the doc, emit the
+ * File Provider delete change. Extracted from the route handler purely
+ * for unit-size; behavior is unchanged and it still has no folder-level
+ * analogue (#2630).
+ */
+async function purgeTrashedAsset(
+  id: ObjectId,
+  info: NonNullable<Awaited<ReturnType<typeof findCoreInfoById>>>,
+  set: { status?: number | string },
+): Promise<{ error: string } | undefined> {
+  const libs = await loadLibraryRoots();
+  const absPathResolved = assetAbsPath(info, libs);
+  if (!absPathResolved) {
+    set.status = 404;
+    return { error: 'Asset has no resolvable location' };
+  }
+  const absPath = absPathResolved;
+  try {
+    await unlink(absPath);
+  } catch {
+    /* file may already be gone */
+  }
+  const sidecars = await listPairedSidecars(absPath);
+  for (const sidecar of sidecars) {
+    try {
+      await unlink(sidecar);
+    } catch {}
+  }
+  await hardDelete(id);
+  // The doc was already tombstoned in Meilisearch by the prior
+  // soft-delete (`tombstone` sets `deletedAt`, which the search filter
+  // excludes) — no per-asset delete-document call is made here.
+  // That tombstoned document is NOT garbage-collected by a later bulk
+  // backfill: the backfill cursor scans live Mongo rows and only
+  // re-tombstones/re-upserts documents for rows it still finds there.
+  // `hardDelete` just removed this asset's Mongo row, so no future
+  // backfill pass will ever see this id again to clean it up — the
+  // tombstoned Meilisearch document accumulates in the index
+  // permanently. It stays invisible to every route/service query
+  // because they all filter `deletedAt IS NULL`, so this is a storage
+  // leak in Meilisearch, not a correctness bug. An actual GC would
+  // need a dedicated sweep (diff Meilisearch document ids against live
+  // Mongo `maple_id`s and hard-delete the stragglers) — not implemented.
+  set.status = 204;
+  // Emit a delete change so the File Provider extension drops this
+  // item from its working set on the next pull.
+  await recordAndPublishAssetChange({
+    kind: 'delete',
+    asset_id: id,
+    folder_id: info.folder_id,
+    abs_path: absPath,
+  }).catch(() => {});
+  return;
+}
+
 export const trashRoutes = new Elysia()
   .delete('/:id', async ({ params, query, set }) => {
     const id = parseAssetId(params.id);
@@ -134,52 +191,8 @@ export const trashRoutes = new Elysia()
       return { error: 'Asset is not trashed — refusing to purge a live asset', state: 'live' };
     }
 
-    // Already trashed → permanent purge. No folder-level analogue in this
-    // ticket's scope (#2630) — stays inline.
     if (info.deleted_at) {
-      const libs = await loadLibraryRoots();
-      const absPathResolved = assetAbsPath(info, libs);
-      if (!absPathResolved) {
-        set.status = 404;
-        return { error: 'Asset has no resolvable location' };
-      }
-      const absPath = absPathResolved;
-      try {
-        await unlink(absPath);
-      } catch {
-        /* file may already be gone */
-      }
-      const sidecars = await listPairedSidecars(absPath);
-      for (const sidecar of sidecars) {
-        try {
-          await unlink(sidecar);
-        } catch {}
-      }
-      await hardDelete(id);
-      // The doc was already tombstoned in Meilisearch by the prior
-      // soft-delete (`tombstone` sets `deletedAt`, which the search filter
-      // excludes) — no per-asset delete-document call is made here.
-      // That tombstoned document is NOT garbage-collected by a later bulk
-      // backfill: the backfill cursor scans live Mongo rows and only
-      // re-tombstones/re-upserts documents for rows it still finds there.
-      // `hardDelete` just removed this asset's Mongo row, so no future
-      // backfill pass will ever see this id again to clean it up — the
-      // tombstoned Meilisearch document accumulates in the index
-      // permanently. It stays invisible to every route/service query
-      // because they all filter `deletedAt IS NULL`, so this is a storage
-      // leak in Meilisearch, not a correctness bug. An actual GC would
-      // need a dedicated sweep (diff Meilisearch document ids against live
-      // Mongo `maple_id`s and hard-delete the stragglers) — not implemented.
-      set.status = 204;
-      // Emit a delete change so the File Provider extension drops this
-      // item from its working set on the next pull.
-      await recordAndPublishAssetChange({
-        kind: 'delete',
-        asset_id: id,
-        folder_id: info.folder_id,
-        abs_path: absPath,
-      }).catch(() => {});
-      return;
+      return await purgeTrashedAsset(id, info, set);
     }
 
     const outcome = await trashAssetById(id);
