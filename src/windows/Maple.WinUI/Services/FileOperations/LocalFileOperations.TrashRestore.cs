@@ -7,14 +7,28 @@
 // (SMB, or any local-fixed-drive delete where the Recycle Bin call itself
 // failed).
 //
-// Mirrors the API's `moveOutOfTrash` (`src/api/src/fs/trash.ts`): the
-// original relative path is recovered by inverting
-// `TrashPaths.TrashDestinationDir`'s path math (trash preserves relative
-// directory structure so restore can reconstruct it), and a destination
-// that's already occupied gets a `.restored[.N]` suffix — the same
-// intentionally different, human-legible naming `pickFreeRestoredPath`
+// Mirrors the API's `moveOutOfTrash` (`src/api/src/fs/trash.ts`): a
+// destination that's already occupied gets a `.restored[.N]` suffix — the
+// same intentionally different, human-legible naming `pickFreeRestoredPath`
 // established server-side — rather than the generic `.N` CollisionResolver
 // uses elsewhere in this module.
+//
+// #2743 review fix: the ORIGINAL relative path is no longer recovered by
+// inverting `TrashPaths.TrashDestinationDir`'s path math alone. That
+// inversion is exact for the common case, but `TrashToMapleFolderAsync`
+// (LocalFileOperations.Trash.cs) auto-suffixes the trash-side BASENAME on a
+// trash-side collision — two different photos trashed from the same
+// original folder with the same name — and inverting that suffixed name
+// silently returns the wrong original ("photo.1.jpg" as if that were the
+// real name, permanently renaming the restored file). The true original
+// relative path is instead RECORDED at trash time, in a plain `.origpath`
+// marker file next to the trashed primary (`TryWriteOriginalPathMarker`,
+// written by `Services/FileOperations/TrashSelectionLogic.cs`'s
+// `ApplyOneAsync` — the caller that still has the pre-trash path in hand).
+// Path-inversion survives only as the fallback for a trash item with no
+// marker (e.g. one trashed before this fix shipped) — exact except across
+// exactly the trash-side-collision case that motivated recording the
+// marker in the first place.
 
 using System;
 using System.IO;
@@ -31,7 +45,10 @@ namespace Maple.WinUI.Services.FileOperations
         /// back to its original location under <paramref name="libraryRoot"/>.
         /// The destination directory is created if the original folder no
         /// longer exists (e.g. the user deleted an otherwise-now-empty
-        /// folder after trashing its last photo).</summary>
+        /// folder after trashing its last photo). The `.origpath` marker
+        /// (see this file's header), if one was written at trash time, is
+        /// deleted on a successful restore so trash doesn't accumulate
+        /// orphaned markers.</summary>
         public static async Task<RelocateOutcome> RestoreFromMapleTrashAsync(
             string trashPrimaryPath, string libraryRoot)
         {
@@ -49,15 +66,61 @@ namespace Maple.WinUI.Services.FileOperations
             // RelocateAsync to use it as-is rather than re-running its own
             // (differently-named) auto-suffix logic on top of a name this
             // method already resolved.
-            return await RelocateAsync(trashPrimaryPath, destinationDir, finalBasename,
+            var outcome = await RelocateAsync(trashPrimaryPath, destinationDir, finalBasename,
                 RelocateMode.Move, CollisionPolicy.Replace).ConfigureAwait(false);
+            TryDelete(OriginalPathMarkerFor(trashPrimaryPath));
+            return outcome;
+        }
+
+        /// <summary>Best-effort marker recording <paramref name="originalRelativePath"/>
+        /// as the exact relative path (from the library root)
+        /// <paramref name="trashPrimaryPath"/> originally occupied — written
+        /// once, at trash time, by the caller that still has that
+        /// information (see this file's header). Never fatal to the trash
+        /// operation itself: worst case, <see cref="ComputeOriginalRelativePath"/>'s
+        /// path-inversion fallback runs at restore time instead, exactly as
+        /// it did before this marker existed.</summary>
+        public static void TryWriteOriginalPathMarker(string trashPrimaryPath, string originalRelativePath)
+        {
+            try
+            {
+                File.WriteAllText(OriginalPathMarkerFor(trashPrimaryPath), originalRelativePath);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
+
+        /// <summary>The relative path (from the library root)
+        /// <paramref name="trashItemPath"/> should restore to. Prefers the
+        /// recorded `.origpath` marker — exact by construction, see this
+        /// file's header — and falls back to inverting
+        /// <see cref="TrashPaths.TrashDestinationDir"/>'s path math only
+        /// when no marker exists.</summary>
+        internal static string ComputeOriginalRelativePath(string trashItemPath, string libraryRoot)
+        {
+            var markerPath = OriginalPathMarkerFor(trashItemPath);
+            try
+            {
+                if (File.Exists(markerPath))
+                {
+                    var recorded = File.ReadAllText(markerPath).Trim();
+                    if (recorded.Length > 0) return recorded;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+
+            return InferOriginalRelativePath(trashItemPath, libraryRoot);
         }
 
         /// <summary>Inverts <see cref="TrashPaths.TrashDestinationDir"/>:
         /// given a path inside `&lt;libraryRoot&gt;/.maple/trash/…`, returns
         /// the relative path (directory + filename) it originally occupied
-        /// under <paramref name="libraryRoot"/>.</summary>
-        internal static string ComputeOriginalRelativePath(string trashItemPath, string libraryRoot)
+        /// under <paramref name="libraryRoot"/>. Exact EXCEPT across a
+        /// trash-side basename collision, where the trash-side name itself
+        /// carries a numeric suffix the original never had — see this
+        /// file's header; <see cref="ComputeOriginalRelativePath"/> only
+        /// falls back to this when no `.origpath` marker recorded the real
+        /// answer.</summary>
+        internal static string InferOriginalRelativePath(string trashItemPath, string libraryRoot)
         {
             var rootFull = TrashPaths.NormalizeDir(Path.GetFullPath(libraryRoot));
             var itemFull = Path.GetFullPath(trashItemPath);
@@ -72,6 +135,12 @@ namespace Maple.WinUI.Services.FileOperations
 
             return itemFull[(trashRoot.Length + 1)..];
         }
+
+        /// <summary>`&lt;trashPrimaryPath&gt;.origpath` — deterministic from
+        /// the trash-side primary path alone, so a caller that only has the
+        /// trash-side path (a restore, or a trash listing) never needs
+        /// separate plumbing to find the marker.</summary>
+        internal static string OriginalPathMarkerFor(string trashPrimaryPath) => trashPrimaryPath + ".origpath";
 
         /// <summary>`&lt;stem&gt;.restored&lt;ext&gt;`, then
         /// `&lt;stem&gt;.restored.N&lt;ext&gt;` — mirrors the API's
