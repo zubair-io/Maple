@@ -56,11 +56,7 @@
   }
 
   @if (dropStatus(); as status) {
-    <span
-      class="text-[11px]"
-      [class.text-text-muted]="status.kind === 'referenced'"
-      [class.text-warn]="status.kind === 'copied'"
-    >
+    <span class="text-[11px]" [class]="dropStatusColorClass(status.kind)">
       {{ status.message }}
     </span>
   }

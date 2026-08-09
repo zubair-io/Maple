@@ -25,7 +25,7 @@ import {
   fsAccessFileMetadata,
   fsAccessWriteFile,
   fsAccessEnsureSubdirectory,
-  fsAccessResolveAllUnder,
+  fsAccessResolveCommonParent,
   fsAccessPickContainingFolder,
   getPersistedHandles,
   removePersistedHandle,
@@ -38,6 +38,7 @@ import {
   fallbackWriteFile,
   fallbackEnsureSubdirectory,
 } from './fallback-backend';
+import { FolderAccessError } from './folder-access.error';
 
 interface DataTransferItemWithHandle extends DataTransferItem {
   getAsFileSystemHandle?: () => Promise<FileSystemHandle | null>;
@@ -57,11 +58,23 @@ export class FolderAccessService {
   /** Persisted handles the user has opened before (FS Access only). */
   readonly persistedHandles = signal<PersistedHandleRecord[]>([]);
 
+  /** Settles once the constructor's background persisted-handle load has
+   * finished. `resolveDrop` callers should await `whenPersistedHandlesReady()`
+   * first — otherwise a drop fired right after boot would see an empty
+   * `persistedHandles()` and treat an already-known folder as unknown. */
+  private readonly _persistedHandlesReady: Promise<void>;
+
   constructor() {
-    if (this.hasFsAccess) {
-      // Load persisted handles in the background; don't block construction.
-      void this._loadPersistedHandles();
-    }
+    // Load persisted handles in the background; don't block construction —
+    // callers that need them settled (resolveDrop) await the promise instead.
+    this._persistedHandlesReady = this.hasFsAccess
+      ? this._loadPersistedHandles()
+      : Promise.resolve();
+  }
+
+  /** Resolves once the initial persisted-handle load has settled. */
+  async whenPersistedHandlesReady(): Promise<void> {
+    await this._persistedHandlesReady;
   }
 
   // ── Backend detection ──────────────────────────────────────────────────────
@@ -114,11 +127,31 @@ export class FolderAccessService {
    * `knownFolders` — the folders Maple already has a handle for (typically
    * the currently open folder plus every persisted handle) — is supplied by
    * the caller rather than read from state here, to avoid this service
-   * depending on `LibraryStateService`.
+   * depending on `LibraryStateService`. Callers should `await
+   * whenPersistedHandlesReady()` before building that list, or a drop right
+   * after boot can miss a folder whose persisted-handle load hadn't landed
+   * yet.
+   *
+   * `onBeforePicker`, if given, fires immediately before a loose-file drop
+   * that isn't inside any known folder opens the seeded confirmation picker
+   * — callers use it to show an explanation ahead of that native dialog
+   * rather than have it appear with no context.
+   *
+   * A permission failure while re-opening an already-identified but
+   * not-currently-open known folder (its location was positively found, but
+   * access has since been revoked or expired) resolves to `access-denied`
+   * rather than throwing — see `_mountIfInsideKnownFolder`. That's a
+   * different situation from "couldn't be resolved at all"
+   * (`copy-fallback`): the referenced location is known, just not currently
+   * reachable, so re-granting fixes it. A permission failure anywhere else
+   * (e.g. the folder-drop or picker-confirm consent prompt itself being
+   * denied) is a fresh, never-granted consent request, not a revocation —
+   * those still throw for the caller's generic error handling.
    */
   async resolveDrop(
     dataTransfer: DataTransfer,
     knownFolders: KnownFolder[],
+    onBeforePicker?: () => void,
   ): Promise<DropResolution> {
     if (this.backend !== 'fs-access') {
       return this._copyFallback(
@@ -153,7 +186,7 @@ export class FolderAccessService {
       );
     }
 
-    return this._mountDroppedFiles(dataTransfer, files, knownFolders);
+    return this._mountDroppedFiles(dataTransfer, files, knownFolders, onBeforePicker);
   }
 
   private _copyFallback(dataTransfer: DataTransfer, reason: string): DropResolution {
@@ -198,32 +231,82 @@ export class FolderAccessService {
     dataTransfer: DataTransfer,
     files: FileSystemFileHandle[],
     knownFolders: KnownFolder[],
+    onBeforePicker?: () => void,
   ): Promise<DropResolution> {
     const inKnownFolder = await this._mountIfInsideKnownFolder(files, knownFolders);
     if (inKnownFolder) return inKnownFolder;
+    onBeforePicker?.();
     return this._mountViaSeededPicker(dataTransfer, files);
   }
 
-  /** Try every known folder for one that already contains all of `files`. */
+  /**
+   * Try every known folder for one whose subtree contains all of `files` as
+   * siblings, mounting the files' *immediate* containing directory — which
+   * may be a subfolder of `known`, not `known` itself; see
+   * `fsAccessResolveCommonParent`.
+   */
   private async _mountIfInsideKnownFolder(
     files: FileSystemFileHandle[],
     knownFolders: KnownFolder[],
   ): Promise<DropResolution | null> {
     for (const known of knownFolders) {
-      const filePaths = await fsAccessResolveAllUnder(known.native, files);
-      if (!filePaths) continue;
-      if (known.isCurrent) {
-        return { kind: 'mounted', folder: known.handle, filePaths, alreadyOpen: true };
-      }
+      const match = await fsAccessResolveCommonParent(known.native, files);
+      if (!match) continue;
+      const resolution =
+        match.dir === known.native
+          ? await this._mountKnownFolderItself(known, match.fileNames)
+          : await this._mountSubfolderOfKnown(match.dir, match.fileNames);
+      if (resolution) return resolution;
+    }
+    return null;
+  }
+
+  /**
+   * The drop landed directly in `known` itself. A permission failure while
+   * re-opening it resolves to `access-denied` rather than throwing:
+   * `resolve()` already positively proved this drop belongs to `known`, so
+   * "couldn't reach it" here specifically means access to an identified
+   * location was revoked, not a fresh consent denial — worth a distinct,
+   * actionable outcome for the caller.
+   */
+  private async _mountKnownFolderItself(
+    known: KnownFolder,
+    fileNames: string[],
+  ): Promise<DropResolution | null> {
+    if (known.isCurrent) {
+      return { kind: 'mounted', folder: known.handle, filePaths: fileNames, alreadyOpen: true };
+    }
+    try {
       const reopened = await fsAccessReopenHandle({
         key: known.handle.persistedKey ?? '',
         name: known.handle.name,
         handle: known.native,
         accessedAt: Date.now(),
       });
-      if (reopened) return { kind: 'mounted', folder: reopened, filePaths, alreadyOpen: false };
+      return reopened
+        ? { kind: 'mounted', folder: reopened, filePaths: fileNames, alreadyOpen: false }
+        : null;
+    } catch (err) {
+      if (err instanceof FolderAccessError)
+        return { kind: 'access-denied', name: known.handle.name };
+      throw err;
     }
-    return null;
+  }
+
+  /**
+   * The drop landed in a subfolder of a known folder — mount that subfolder
+   * directly (its own reference identity, its own permission grant), not
+   * the higher-level root, so the dropped file(s) become ordinary top-level
+   * assets of their real containing folder. This is a fresh mount (never
+   * previously granted), so a denial here is a normal consent decline, not
+   * a revocation — let it throw like any other first-time mount.
+   */
+  private async _mountSubfolderOfKnown(
+    dir: FileSystemDirectoryHandle,
+    fileNames: string[],
+  ): Promise<DropResolution | null> {
+    const folder = await fsAccessOpenDroppedFolder(dir);
+    return folder ? { kind: 'mounted', folder, filePaths: fileNames, alreadyOpen: false } : null;
   }
 
   /** No known folder contains the drop — confirm its parent via a directory
@@ -234,17 +317,17 @@ export class FolderAccessService {
   ): Promise<DropResolution> {
     const picked = await fsAccessPickContainingFolder(files[0]);
     if (!picked) return { kind: 'cancelled' };
-    const filePaths = await fsAccessResolveAllUnder(picked, files);
-    if (!filePaths) {
+    const match = await fsAccessResolveCommonParent(picked, files);
+    if (!match) {
       return this._copyFallback(
         dataTransfer,
         'The selected folder did not contain the dropped file(s)',
       );
     }
-    const folder = await fsAccessOpenDroppedFolder(picked);
+    const folder = await fsAccessOpenDroppedFolder(match.dir);
     if (!folder) return { kind: 'cancelled' };
     if (folder.persistedKey) await this._loadPersistedHandles();
-    return { kind: 'mounted', folder, filePaths, alreadyOpen: false };
+    return { kind: 'mounted', folder, filePaths: match.fileNames, alreadyOpen: false };
   }
 
   /**
