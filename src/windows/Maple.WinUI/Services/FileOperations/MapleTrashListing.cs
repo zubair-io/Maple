@@ -65,8 +65,13 @@ namespace Maple.WinUI.Services.FileOperations
                 // orphaned .xmp with no matching primary (shouldn't happen
                 // given TrashAsync always moves both together, but not
                 // impossible after a partial failure) is silently excluded
-                // rather than shown as a restorable "asset".
-                if (string.Equals(Path.GetExtension(primaryPath), ".xmp", StringComparison.OrdinalIgnoreCase))
+                // rather than shown as a restorable "asset". `.origpath`
+                // marker files (LocalFileOperations.TrashRestore.cs, #2743
+                // review fix) are this module's own bookkeeping — never a
+                // restorable asset either.
+                var extension = Path.GetExtension(primaryPath);
+                if (string.Equals(extension, ".xmp", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(extension, ".origpath", StringComparison.OrdinalIgnoreCase))
                     continue;
 
                 string? sidecarPath;

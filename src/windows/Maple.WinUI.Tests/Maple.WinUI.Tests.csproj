@@ -50,7 +50,9 @@
     shell32 P/Invoke (RecycleBinService.cs) that compiles on any TFM
     regardless of OS, so it links the same way. `DiagLog.cs` is pulled in
     too since LocalFileOperations' best-effort delete paths log through it
-    and it has no WinUI dependency of its own.
+    and it has no WinUI dependency of its own. `SingleFlightGate.cs` (#2743
+    review fix) is a plain bool-backed guard with zero dependencies of its
+    own, linked individually the same way `DiagLog.cs` is.
 
     NOT linked: `Services\ThumbnailService.cs` (#2659's
     `ThumbnailCacheRelocateLeakTests` needs its cache-path scheme, but the
@@ -67,5 +69,6 @@
     <Compile Include="..\Maple.WinUI\ViewModels\SelectionLogic.cs" LinkBase="ViewModels" />
     <Compile Include="..\Maple.WinUI\Services\FileOperations\*.cs" LinkBase="FileOperations" />
     <Compile Include="..\Maple.WinUI\Services\DiagLog.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\SingleFlightGate.cs" LinkBase="Services" />
   </ItemGroup>
 </Project>
