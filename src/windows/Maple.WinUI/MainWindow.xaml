@@ -245,8 +245,8 @@
                                              whole, so OnFolderDrop always knows exactly which
                                              folder was targeted via DataContext. -->
                                         <TreeViewItem ItemsSource="{Binding Children}"
-                                                      ToolTipService.ToolTip="{Binding Path}"
-                                                      AutomationProperties.Name="{Binding Name}"
+                                                      ToolTipService.ToolTip="{Binding ToolTipText}"
+                                                      AutomationProperties.Name="{Binding DisplayName}"
                                                       AllowDrop="True"
                                                       DragEnter="OnFolderDragEnter"
                                                       DragLeave="OnFolderDragLeave"
@@ -288,7 +288,7 @@
                                             <StackPanel Orientation="Horizontal" Spacing="8">
                                                 <controls:MapleIconControl IconName="folder" Size="13"
                                                                            IconBrush="{StaticResource MapleTextMuted}" />
-                                                <TextBlock Text="{Binding Name}" FontSize="12" VerticalAlignment="Center"
+                                                <TextBlock Text="{Binding DisplayName}" FontSize="12" VerticalAlignment="Center"
                                                            TextTrimming="CharacterEllipsis" />
                                             </StackPanel>
                                         </TreeViewItem>
