@@ -259,7 +259,12 @@ extension AppShell {
             return
         }
         Task { @MainActor in
-            let catalog = RemoteCatalog(http: makeAuthenticatedHTTPClient(server: server), server: server)
+            // `makeCloudTrashClient` (`AppShell+Trash.swift`) — routes
+            // through `LocalNetworkResolver.shared.effectiveURL(for:)` so a
+            // server reachable on the local network doesn't take the WAN
+            // path (review finding, jules: a raw `RemoteCatalog(server:
+            // server)` construction here skipped that entirely).
+            let catalog = makeCloudTrashClient(server: server)
             do {
                 let summary = try await catalog.trashFolder(folderID: libraryFolderID, relativePath: relative)
                 folderRefreshGeneration += 1
