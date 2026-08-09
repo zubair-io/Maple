@@ -246,7 +246,14 @@ namespace Maple.WinUI.ViewModels
         /// fire-and-forget thumbnail/EXIF hydration starts, not after —
         /// callers that need to select or open a specific dropped file only
         /// need FilePath/FileName to exist in <see cref="Photos"/>, not the
-        /// full hydration.</summary>
+        /// full hydration. Both the background scan and the dispatcher
+        /// apply step are wrapped in a broad try/catch (#2754 review, a
+        /// jules finding): an unexpected exception mid-scan — a corrupt
+        /// sidecar SidecarStore.Load doesn't already swallow, a transient
+        /// FileInfo failure — must still invoke onReady, or an awaiting
+        /// AddLibraryFolderAsync/LoadDirectoryAsync (and whatever gate the
+        /// caller holds, e.g. MainWindow.DropMount.cs's _dropGate) would
+        /// hang forever.</summary>
         private void LoadDirectory(string folderPath, Action? onReady)
         {
             if (string.IsNullOrWhiteSpace(folderPath))
@@ -268,82 +275,17 @@ namespace Maple.WinUI.ViewModels
             // shell. Results land back on the dispatcher unless superseded.
             _ = Task.Run(() =>
             {
-                if (!Directory.Exists(folderPath))
+                try
                 {
-                    DiagLog.Write($"[library] folder unavailable: {folderPath}");
-                    onReady?.Invoke();
-                    return;
-                }
-                var items = EnumerateImageFiles(folderPath)
-                    .TakeWhile(_ => !cts.Token.IsCancellationRequested)
-                    .Select(filePath =>
+                    if (!Directory.Exists(folderPath))
                     {
-                        var info = new FileInfo(filePath);
-                        var item = new PhotoItem
-                        {
-                            FilePath = filePath,
-                            FileName = info.Name,
-                            Format = info.Extension.TrimStart('.').ToUpperInvariant(),
-                            FileSizeBytes = info.Length,
-                            FileModifiedUtc = info.LastWriteTimeUtc,
-                        };
-                        var sidecar = SidecarStore.Load(filePath);
-                        if (sidecar != null)
-                        {
-                            item.Rating = sidecar.Rating ?? 0;
-                            item.FlagStatus = sidecar.Flag ?? "none";
-                            item.ColorLabel = sidecar.ColorLabel;
-                        }
-                        return item;
-                    })
-                    .ToList();
-                if (cts.Token.IsCancellationRequested)
-                {
-                    onReady?.Invoke();
-                    return;
-                }
-
-                App.MainDispatcherQueue?.TryEnqueue(() =>
-                {
-                    if (cts.Token.IsCancellationRequested)
-                    {
+                        DiagLog.Write($"[library] folder unavailable: {folderPath}");
                         onReady?.Invoke();
                         return;
                     }
-                    AllPhotos.Clear();
-                    foreach (var item in items)
-                        AllPhotos.Add(item);
-                    ApplyFilters();
-                    Timeline.GroupPhotosByDate(AllPhotos);
-                    onReady?.Invoke();
-                    _ = Task.Run(() => HydrateLibraryAsync(items, cts.Token), cts.Token);
-                });
-            }, cts.Token);
-        }
-
-        /// <summary>Live grid updates for the browsed folder (#2585): new files
-        /// join the grid (sorted, hydrated), deleted files leave it. Cloud
-        /// browsing stops the watcher (LoadCloudFolderAsync has no local dir).</summary>
-        private void WatchBrowsedFolder(string folderPath)
-        {
-            _libraryWatcher ??= CreateLibraryWatcher();
-            _libraryWatcher.Watch(folderPath);
-        }
-
-        private LibraryWatcher CreateLibraryWatcher()
-        {
-            var watcher = new LibraryWatcher(
-                path => SupportedExtensions.Contains(Path.GetExtension(path)));
-            watcher.ChangesReady += (added, removed) =>
-            {
-                // Build the new items off the watcher thread (FileInfo + sidecar
-                // read), then apply the whole batch on the dispatcher.
-                var folder = CurrentFolderPath;
-                var items = added
-                    .Where(p => string.Equals(Path.GetDirectoryName(p), folder, StringComparison.OrdinalIgnoreCase))
-                    .Select(filePath =>
-                    {
-                        try
+                    var items = EnumerateImageFiles(folderPath)
+                        .TakeWhile(_ => !cts.Token.IsCancellationRequested)
+                        .Select(filePath =>
                         {
                             var info = new FileInfo(filePath);
                             var item = new PhotoItem
@@ -362,51 +304,50 @@ namespace Maple.WinUI.ViewModels
                                 item.ColorLabel = sidecar.ColorLabel;
                             }
                             return item;
-                        }
-                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                        {
-                            return null;
-                        }
-                    })
-                    .Where(item => item != null)
-                    .Select(item => item!)
-                    .ToList();
-
-                App.MainDispatcherQueue?.TryEnqueue(() =>
-                {
-                    if (!string.Equals(CurrentFolderPath, folder, StringComparison.OrdinalIgnoreCase))
-                        return;    // user navigated away while the batch settled
-                    var changed = false;
-                    foreach (var path in removed)
+                        })
+                        .ToList();
+                    if (cts.Token.IsCancellationRequested)
                     {
-                        var victim = AllPhotos.FirstOrDefault(p =>
-                            string.Equals(p.FilePath, path, StringComparison.OrdinalIgnoreCase));
-                        if (victim == null)
-                            continue;
-                        AllPhotos.Remove(victim);
-                        if (ReferenceEquals(SelectedPhoto, victim))
-                            SelectedPhoto = null;
-                        changed = true;
-                    }
-                    foreach (var item in items)
-                    {
-                        if (AllPhotos.Any(p => string.Equals(p.FilePath, item.FilePath, StringComparison.OrdinalIgnoreCase)))
-                            continue;
-                        var at = AllPhotos.TakeWhile(p =>
-                            string.Compare(p.FilePath, item.FilePath, StringComparison.OrdinalIgnoreCase) < 0).Count();
-                        AllPhotos.Insert(at, item);
-                        changed = true;
-                    }
-                    if (!changed)
+                        onReady?.Invoke();
                         return;
-                    ApplyFilters();
-                    Timeline.GroupPhotosByDate(AllPhotos);
-                    if (items.Count > 0)
-                        _ = Task.Run(() => HydrateLibraryAsync(items, CancellationToken.None));
-                });
-            };
-            return watcher;
+                    }
+
+                    App.MainDispatcherQueue?.TryEnqueue(() =>
+                    {
+                        try
+                        {
+                            if (cts.Token.IsCancellationRequested)
+                            {
+                                onReady?.Invoke();
+                                return;
+                            }
+                            AllPhotos.Clear();
+                            foreach (var item in items)
+                                AllPhotos.Add(item);
+                            ApplyFilters();
+                            Timeline.GroupPhotosByDate(AllPhotos);
+                            onReady?.Invoke();
+                            _ = Task.Run(() => HydrateLibraryAsync(items, cts.Token), cts.Token);
+                        }
+                        catch (Exception ex)
+                        {
+                            DiagLog.Write($"[library] applying scanned folder failed: {folderPath}: {ex.Message}");
+                            onReady?.Invoke();
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    DiagLog.Write($"[library] folder scan failed: {folderPath}: {ex.Message}");
+                    onReady?.Invoke();
+                }
+            }, cts.Token);
         }
+
+        // WatchBrowsedFolder / CreateLibraryWatcher (#2585 live grid updates)
+        // moved to EditSessionViewModel.Watcher.cs — split out (#2754
+        // review round) to stay under this file's line-budget after the
+        // #2651 drop-to-mount additions.
 
         /// <summary>A folder shows its OWN images only — subfolders are reached
         /// through the tree. No recursion: a click on a huge library root must
