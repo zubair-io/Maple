@@ -240,7 +240,30 @@
                                                       DragOver="OnFolderDragOver"
                                                       Drop="OnFolderDrop">
                                             <TreeViewItem.ContextFlyout>
+                                                <!-- New Folder / Rename / Move to Trash (#2647) — fires on
+                                                     right-click, touch long-press, AND the keyboard
+                                                     context-menu key automatically; no extra input wiring
+                                                     needed. Handlers live in MainWindow.FolderContextMenu.cs. -->
                                                 <MenuFlyout>
+                                                    <MenuFlyoutItem Text="New Folder…" Click="OnNewFolderInTree"
+                                                                    AutomationProperties.Name="New folder">
+                                                        <MenuFlyoutItem.Icon>
+                                                            <FontIcon Glyph="&#xE710;" />
+                                                        </MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                    <MenuFlyoutItem Text="Rename…" Click="OnRenameFolderInTree"
+                                                                    AutomationProperties.Name="Rename folder">
+                                                        <MenuFlyoutItem.Icon>
+                                                            <FontIcon Glyph="&#xE8AC;" />
+                                                        </MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                    <MenuFlyoutItem Text="Move to Trash" Click="OnTrashFolderInTree"
+                                                                    AutomationProperties.Name="Move folder to Trash">
+                                                        <MenuFlyoutItem.Icon>
+                                                            <FontIcon Glyph="&#xE74D;" />
+                                                        </MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                    <MenuFlyoutSeparator />
                                                     <MenuFlyoutItem Text="Remove from Library" Click="OnRemoveFolder"
                                                                     AutomationProperties.Name="Remove folder from library">
                                                         <MenuFlyoutItem.Icon>
