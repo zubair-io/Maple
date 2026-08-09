@@ -184,10 +184,15 @@ struct BrowseGrid: View {
                 )
             }
         }
+        // .onDeleteCommand is macOS-only; on iOS/iPadOS the trash flow stays
+        // reachable through the context menu (#2760 — this shipped unguarded
+        // in #2745 and broke the iOS build).
+        #if os(macOS)
         .onDeleteCommand {
             guard let onTrashAssets else { return }
             onTrashAssets(activeSelectionIDs())
         }
+        #endif
         .keyboardShortcuts(
             vm: vm,
             sessions: sessions,
