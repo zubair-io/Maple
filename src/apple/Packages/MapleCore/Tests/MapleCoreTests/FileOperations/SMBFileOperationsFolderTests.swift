@@ -68,6 +68,68 @@ final class SMBFileOperationsFolderTests: XCTestCase {
         XCTAssertTrue(oldGone)
     }
 
+    // MARK: - Restore / list / purge (#2653)
+
+    func testListMapleTrashFindsTheTrashedItem() async throws {
+        let t = FakeSMBTransport()
+        await t.seed("pixels", at: "/2024/Paris/IMG_1.dng")
+        _ = try await SMBFileOperations.trash("/2024/Paris/IMG_1.dng", transport: t)
+
+        let items = await SMBFileOperations.listMapleTrash(transport: t)
+
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items[0].originalRelativePath, "2024/Paris/IMG_1.dng")
+        XCTAssertNotNil(items[0].trashedDate)
+    }
+
+    func testRestoreFromMapleTrashPutsTheItemBackAtItsOriginalLocation() async throws {
+        let t = FakeSMBTransport()
+        await t.seed("pixels", at: "/2024/Paris/IMG_1.dng")
+        let trashed = try await SMBFileOperations.trash("/2024/Paris/IMG_1.dng", transport: t)
+
+        let restored = try await SMBFileOperations.restoreFromMapleTrash(trashed.primaryPath, transport: t)
+
+        XCTAssertEqual(restored.primaryPath, "/2024/Paris/IMG_1.dng")
+        let backOnDisk = await t.fileExists(at: "/2024/Paris/IMG_1.dng")
+        XCTAssertTrue(backOnDisk)
+        let items = await SMBFileOperations.listMapleTrash(transport: t)
+        XCTAssertEqual(items.count, 0)
+    }
+
+    func testPermanentlyDeleteFromMapleTrashRemovesThePrimary() async throws {
+        let t = FakeSMBTransport()
+        await t.seed("pixels", at: "/IMG_1.dng")
+        _ = try await SMBFileOperations.trash("/IMG_1.dng", transport: t)
+        let item = await SMBFileOperations.listMapleTrash(transport: t)[0]
+
+        try await SMBFileOperations.permanentlyDeleteFromMapleTrash(item, transport: t)
+
+        let gone = await !t.fileExists(at: item.primaryPath)
+        XCTAssertTrue(gone)
+        let items = await SMBFileOperations.listMapleTrash(transport: t)
+        XCTAssertEqual(items.count, 0)
+    }
+
+    func testSweepExpiredMapleTrashPurgesOnlyItemsOlderThanTheThreshold() async throws {
+        let t = FakeSMBTransport()
+        await t.seed("old", at: "/OLD.dng")
+        let oldOutcome = try await SMBFileOperations.trash("/OLD.dng", transport: t)
+        await t.seed("recent", at: "/RECENT.dng")
+        _ = try await SMBFileOperations.trash("/RECENT.dng", transport: t)
+
+        // Back-date the OLD item's marker.
+        await SMBFileOperations.removeTrashedMarker(forItemAt: oldOutcome.primaryPath, transport: t)
+        await SMBFileOperations.writeTrashedMarker(
+            forItemAt: oldOutcome.primaryPath, date: Date().addingTimeInterval(-40 * 86_400), transport: t)
+
+        let purged = await SMBFileOperations.sweepExpiredMapleTrash(olderThanDays: 30, transport: t)
+
+        XCTAssertEqual(purged, 1)
+        let remaining = await SMBFileOperations.listMapleTrash(transport: t)
+        XCTAssertEqual(remaining.count, 1)
+        XCTAssertEqual(remaining[0].originalRelativePath, "RECENT.dng")
+    }
+
     // MARK: - Name validation (#2645 review — same traversal guard as the
     // local engine's `LocalFileOperationsFolderTests`, against the fake
     // transport since there's no SMB server in this environment).
