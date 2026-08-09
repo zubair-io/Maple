@@ -1,0 +1,26 @@
+<app-trash-status-banner
+  [toast]="toast()"
+  [loadError]="loadError()"
+  (dismissToast)="dismissToast.emit()"
+/>
+
+<div class="tl-list" role="list">
+  @if (!loading() && items().length === 0 && !loadError()) {
+    <div class="tl-empty">Trash is empty.</div>
+  }
+  @for (item of items(); track item.assetId) {
+    <app-trash-item-row
+      [item]="item"
+      [busy]="isRowBusy(item.assetId)"
+      (restore)="restore.emit(item)"
+      (deletePermanently)="deletePermanently.emit(item)"
+    />
+  }
+</div>
+
+@if (loading()) {
+  <div class="tl-loading" role="status">Loading…</div>
+}
+@if (nextCursor() && !loading()) {
+  <button type="button" class="tl-load-more" (click)="loadMore.emit()">Load more</button>
+}

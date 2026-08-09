@@ -20,7 +20,9 @@ export interface TrashCapability {
   /** Whether Trash is wired up at all (`false` on Hosted, and on any
    * Self-Hosted context that hasn't composed `provideSelfHostedWorkspace()`
    * yet). Gates whether the folder-tree renders a Trash node and whether
-   * the grid's Delete key / "Move to Trash" action does anything. */
+   * the grid toolbar's "Move to Trash" action does anything. (A Delete-key
+   * shortcut on the grid is tracked separately — #2752 — and not wired up
+   * yet; `trashAssets` below is ready for it.) */
   readonly available: Signal<boolean>;
 
   /** Per-library trashed-item counts, for the sidebar Trash node's badge.
@@ -46,8 +48,9 @@ export interface TrashCapability {
    * same contract `DragMoveSummary` uses. */
   readonly resultSummary: Signal<TrashAssetsSummary | null>;
   /** Send `assetIds` (currently viewed under `sourceFolderId`) to Trash —
-   * the grid's Delete key and "Move to Trash" toolbar action both call
-   * this. No-op while a previous batch is still in flight. */
+   * the grid's "Move to Trash" toolbar action calls this today; a Delete-
+   * key shortcut (#2752, not yet implemented) will call the same method
+   * once it lands. No-op while a previous batch is still in flight. */
   trashAssets(assetIds: AssetId[], sourceFolderId: string): void;
   /** Dismiss the completed-batch summary banner. */
   dismissSummary(): void;
