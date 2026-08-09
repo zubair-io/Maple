@@ -157,6 +157,19 @@ final class DropMountPlannerTests: XCTestCase {
         XCTAssertEqual(plan, .openFile(file: raw.standardizedFileURL, parentFolder: folder.standardizedFileURL))
     }
 
+    /// A file with NO extension at all has `pathExtension == ""`, which
+    /// would otherwise render the `unsupportedDropType` banner as
+    /// "Maple can't open . Drop a…" — an empty string standing in for
+    /// the extension reads as a rendering bug, not a real answer to "what
+    /// did you drop." Mapped to a descriptive token instead.
+    func testUnsupportedExtensionlessFileReportsDescriptiveToken() throws {
+        let file = try makeFile("README")
+
+        let plan = DropMountPlanner.plan(for: [file], mountedRoots: [])
+
+        XCTAssertEqual(plan, .unsupported(extensions: ["file without an extension"]))
+    }
+
     func testEmptyDropIsUnsupported() {
         let plan = DropMountPlanner.plan(for: [], mountedRoots: [])
         XCTAssertEqual(plan, .unsupported(extensions: []))
