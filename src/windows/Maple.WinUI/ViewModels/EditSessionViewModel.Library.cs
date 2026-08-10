@@ -284,8 +284,7 @@ namespace Maple.WinUI.ViewModels
                         onReady?.Invoke();
                         return;
                     }
-                    // EnumerateAndReconcile carries the #2657 closed-app
-                    // rename fallback (EditSessionViewModel.RenameReconcile.cs).
+                    // #2657 closed-app rename fallback lives in EnumerateAndReconcile.
                     var filePaths = EnumerateAndReconcile(folderPath);
 
                     // Per-item try/catch (#2754), mirroring EditSessionViewModel.
@@ -417,10 +416,9 @@ namespace Maple.WinUI.ViewModels
 
         /// <summary>Thumbnails + EXIF, off the UI thread, cancellable when the
         /// user navigates to another folder. <paramref name="folderPath"/>,
-        /// when given, persists a fingerprint snapshot (#2657) so a later
-        /// scan can recognize an external rename instead of orphaning the
-        /// sidecar; null for the live-watcher arrival path, an incremental
-        /// batch that would make every untouched file look newly missing.</summary>
+        /// given, persists a #2657 fingerprint snapshot for a later scan;
+        /// null for the live-watcher arrival path (an incremental batch, not
+        /// the folder's full contents).</summary>
         private async Task HydrateLibraryAsync(List<PhotoItem> items, string? folderPath, CancellationToken ct)
         {
             var snapshot = new Dictionary<string, RenameReconciliationLogic.Fingerprint>(StringComparer.OrdinalIgnoreCase);
@@ -429,7 +427,9 @@ namespace Maple.WinUI.ViewModels
                 if (ct.IsCancellationRequested)
                     return;
 
-                var exif = ExifReader.Read(item.FilePath);
+                // SafeReadExif (#2754 pattern): one locked or since-vanished
+                // file must not abort hydration for the rest of the folder.
+                var exif = SafeReadExif(item.FilePath);
                 snapshot[item.FileName] = new RenameReconciliationLogic.Fingerprint(
                     item.FileSizeBytes, exif?.DateTimeOriginal, exif?.CameraSerial);
                 var thumb = await _thumbnails.GetOrCreateAsync(item.FilePath, ct);

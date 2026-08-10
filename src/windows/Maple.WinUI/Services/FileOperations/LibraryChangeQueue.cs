@@ -33,6 +33,66 @@ namespace Maple.WinUI.Services.FileOperations
             IReadOnlyList<string> Removed,
             IReadOnlyList<KeyValuePair<string, string>> Renamed);
 
+        /// <summary>The outcome of a real file-stability probe (LibraryWatcher's
+        /// Probe, backed by a File.Open share-mode check) — factored out so
+        /// <see cref="Resolve"/> can be driven by a canned classification in
+        /// tests instead of real file I/O.</summary>
+        public enum FileStability { Stable, Locked, Missing }
+
+        /// <summary>One resolved batch, ready to report: everything a
+        /// stability probe confirmed as settled, plus what needs to stay
+        /// pending for the next debounce cycle.</summary>
+        public readonly record struct Resolved(
+            IReadOnlyList<string> Added,
+            IReadOnlyList<string> Removed,
+            IReadOnlyList<(string OldPath, string NewPath)> Renamed,
+            IReadOnlyList<string> UnstableAdded,
+            IReadOnlyList<KeyValuePair<string, string>> UnstableRenamed);
+
+        /// <summary>
+        /// Combines a <see cref="Drained"/> batch with a per-path stability
+        /// classification (<paramref name="probe"/> — real file I/O in
+        /// production, canned values in a test) into the final reportable
+        /// batch.
+        ///
+        /// A pending rename whose target has gone <see
+        /// cref="FileStability.Missing"/> by probe time (the rename raced
+        /// another rename or a delete right as the debounce timer fired)
+        /// reports the OLD path removed rather than silently dropping the
+        /// pending rename — the old path is the last name the grid ever
+        /// knew this file by, and dropping it instead of reporting the
+        /// removal would leave it as a permanent ghost in the grid.
+        /// </summary>
+        public static Resolved Resolve(Drained drained, Func<string, FileStability> probe)
+        {
+            var added = new List<string>();
+            var unstableAdded = new List<string>();
+            foreach (var path in drained.Added)
+            {
+                switch (probe(path))
+                {
+                    case FileStability.Stable: added.Add(path); break;
+                    case FileStability.Locked: unstableAdded.Add(path); break;
+                    case FileStability.Missing: break;
+                }
+            }
+
+            var removed = new List<string>(drained.Removed);
+            var renamed = new List<(string OldPath, string NewPath)>();
+            var unstableRenamed = new List<KeyValuePair<string, string>>();
+            foreach (var pair in drained.Renamed)
+            {
+                switch (probe(pair.Value))
+                {
+                    case FileStability.Stable: renamed.Add((pair.Key, pair.Value)); break;
+                    case FileStability.Locked: unstableRenamed.Add(pair); break;
+                    case FileStability.Missing: removed.Add(pair.Key); break;
+                }
+            }
+
+            return new Resolved(added, removed, renamed, unstableAdded, unstableRenamed);
+        }
+
         public void Clear()
         {
             lock (_gate)
