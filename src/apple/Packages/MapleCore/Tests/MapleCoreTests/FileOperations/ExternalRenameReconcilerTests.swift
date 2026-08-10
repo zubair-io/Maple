@@ -10,15 +10,23 @@ import XCTest
 
 final class ExternalRenameReconcilerTests: XCTestCase {
     private var root: URL!
+    /// One shared store per test, mirroring `FilesystemSource`'s real usage
+    /// (#2656 review — B4): production always passes the SAME
+    /// `LibraryIndexStore` instance across every `reconcile` call for a
+    /// folder's lifetime, so these tests do too rather than constructing a
+    /// fresh instance per call.
+    private var store: LibraryIndexStore!
 
     override func setUp() {
         super.setUp()
         root = FileOperationsTestSupport.makeTempDir()
+        store = LibraryIndexStore(folderURL: root)
     }
 
     override func tearDown() {
         FileOperationsTestSupport.cleanup(root)
         root = nil
+        store = nil
         super.tearDown()
     }
 
@@ -39,12 +47,18 @@ final class ExternalRenameReconcilerTests: XCTestCase {
         let oldURL = root.appendingPathComponent("IMG_1.dng")
         FileOperationsTestSupport.write("pixels", to: oldURL)
         FileOperationsTestSupport.write("<xmp edits='real'/>", to: SidecarPath.sidecarURL(for: oldURL))
-        let fingerprint = fp(1000, "2026:01:01 10:00:00", "SN1")
+        // Size-gate (#2656 review — I7) rejects a new candidate whose REAL
+        // on-disk `stat` size doesn't match a missing candidate's cached
+        // size before even calling the fingerprint provider — so the
+        // injected fingerprint's `size` must agree with what's actually
+        // written to disk ("pixels" = 6 bytes), unlike the `dateTimeOriginal`
+        // /`cameraSerial` fields, which the gate never inspects.
+        let fingerprint = fp(6, "2026:01:01 10:00:00", "SN1")
 
         // Scan #1 (folder as Maple last saw it) — seeds the LibraryIndex's
         // cached fingerprint for IMG_1.dng.
         _ = await ExternalRenameReconciler.reconcile(
-            folderURL: root, currentFiles: [oldURL], fingerprintProvider: provider(["IMG_1.dng": fingerprint]))
+            store: store, folderURL: root, currentFiles: [oldURL], fingerprintProvider: provider(["IMG_1.dng": fingerprint]))
 
         // Finder renames the file (and ONLY the file — the sidecar is left
         // behind under the old name, exactly like a real Finder rename).
@@ -53,7 +67,7 @@ final class ExternalRenameReconcilerTests: XCTestCase {
 
         // Scan #2 (either the next `open()`, or a live watcher callback).
         let applied = await ExternalRenameReconciler.reconcile(
-            folderURL: root, currentFiles: [newURL], fingerprintProvider: provider(["IMG_2.dng": fingerprint]))
+            store: store, folderURL: root, currentFiles: [newURL], fingerprintProvider: provider(["IMG_2.dng": fingerprint]))
 
         XCTAssertEqual(applied, [ExternalRenameMatcher.Match(oldPath: oldURL.path, newPath: newURL.path)])
         XCTAssertFalse(FileOperationsTestSupport.exists(SidecarPath.sidecarURL(for: oldURL)))
@@ -67,14 +81,16 @@ final class ExternalRenameReconcilerTests: XCTestCase {
     func testTwoMissingCandidatesSharingAFingerprintDeclineAndLeaveBothSidecarsOrphaned() async throws {
         let oneURL = root.appendingPathComponent("one.dng")
         let twoURL = root.appendingPathComponent("two.dng")
-        let shared = fp(500, "2026:02:02 00:00:00")
+        // "pixels1"/"pixels2" are both 7 bytes — the size-gate (I7) must see
+        // a real match before this test's ambiguity is even reachable.
+        let shared = fp(7, "2026:02:02 00:00:00")
         FileOperationsTestSupport.write("pixels1", to: oneURL)
         FileOperationsTestSupport.write("pixels2", to: twoURL)
         FileOperationsTestSupport.write("<xmp edits='one'/>", to: SidecarPath.sidecarURL(for: oneURL))
         FileOperationsTestSupport.write("<xmp edits='two'/>", to: SidecarPath.sidecarURL(for: twoURL))
 
         _ = await ExternalRenameReconciler.reconcile(
-            folderURL: root, currentFiles: [oneURL, twoURL],
+            store: store, folderURL: root, currentFiles: [oneURL, twoURL],
             fingerprintProvider: provider(["one.dng": shared, "two.dng": shared]))
 
         // Both vanish; only ONE new file carrying the shared fingerprint
@@ -85,7 +101,7 @@ final class ExternalRenameReconcilerTests: XCTestCase {
         FileOperationsTestSupport.write("pixels1", to: renamedURL)
 
         let applied = await ExternalRenameReconciler.reconcile(
-            folderURL: root, currentFiles: [renamedURL],
+            store: store, folderURL: root, currentFiles: [renamedURL],
             fingerprintProvider: provider(["renamed.dng": shared]))
 
         XCTAssertTrue(applied.isEmpty, "two missing candidates sharing a fingerprint must decline, not guess")
@@ -98,10 +114,14 @@ final class ExternalRenameReconcilerTests: XCTestCase {
         let beachURL = root.appendingPathComponent("beach.dng")
         FileOperationsTestSupport.write("pixels", to: beachURL)
         FileOperationsTestSupport.write("<xmp edits='beach'/>", to: SidecarPath.sidecarURL(for: beachURL))
-        let sameSize: Int64 = 999_999
+        // Both files' real content is "pixels" (6 bytes) so the size-gate
+        // (I7) — which checks the REAL on-disk size, not the fingerprint's
+        // declared one — lets both through and this test actually exercises
+        // the DateTimeOriginal mismatch it's named for.
+        let sameSize: Int64 = 6
 
         _ = await ExternalRenameReconciler.reconcile(
-            folderURL: root, currentFiles: [beachURL],
+            store: store, folderURL: root, currentFiles: [beachURL],
             fingerprintProvider: provider(["beach.dng": fp(sameSize, "2026:03:01 09:00:00")]))
 
         try FileManager.default.moveItem(at: beachURL, to: root.appendingPathComponent("gone.dng"))
@@ -112,7 +132,7 @@ final class ExternalRenameReconcilerTests: XCTestCase {
         FileOperationsTestSupport.write("pixels", to: mountainURL)
 
         let applied = await ExternalRenameReconciler.reconcile(
-            folderURL: root, currentFiles: [mountainURL],
+            store: store, folderURL: root, currentFiles: [mountainURL],
             fingerprintProvider: provider(["mountain.dng": fp(sameSize, "2026:03:20 18:00:00")]))
 
         XCTAssertTrue(applied.isEmpty)
@@ -122,26 +142,110 @@ final class ExternalRenameReconcilerTests: XCTestCase {
                       "beach.dng's sidecar stays orphaned rather than being wrongly attached")
     }
 
+    // MARK: - Size-gate (#2656 review — I7): skip the EXIF read entirely
+    // for a new file whose real on-disk size can't possibly match
+
+    /// Lock-protected counter — a plain captured `var` can't satisfy
+    /// `@Sendable` closure requirements. Mirrors `FolderChangeWatcherTests
+    /// .FireCounter`.
+    private final class CallCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+        func increment() { lock.lock(); count += 1; lock.unlock() }
+        var current: Int { lock.lock(); defer { lock.unlock() }; return count }
+    }
+
+    func testSizeGateNeverInvokesTheFingerprintProviderForANonMatchingSize() async throws {
+        let oldURL = root.appendingPathComponent("IMG_1.dng")
+        FileOperationsTestSupport.write(String(repeating: "a", count: 100), to: oldURL)
+        FileOperationsTestSupport.write("<xmp edits='real'/>", to: SidecarPath.sidecarURL(for: oldURL))
+        let missingFingerprint = fp(100, "2026:06:01 00:00:00")
+
+        // Seed the LibraryIndex with IMG_1.dng's fingerprint directly
+        // (rather than through a full `reconcile` call) — isolates this
+        // test from `syncFingerprintCache`'s own, independent provider
+        // calls, which `reconcile(...)` also makes and which would
+        // otherwise conflate two different reasons the provider might
+        // legitimately be invoked.
+        try await store.updateFingerprints([
+            LibraryIndexStore.FingerprintUpdate(
+                name: "IMG_1.dng", size: 100, mtime: nil,
+                dateTimeOriginal: "2026:06:01 00:00:00", cameraSerial: nil),
+        ])
+
+        try FileManager.default.removeItem(at: oldURL)
+        let newURL = root.appendingPathComponent("IMG_2.dng")
+        // Deliberately NOT 100 bytes — the size-gate must reject this
+        // candidate from a cheap `stat` alone, before ever asking the
+        // (expensive, EXIF-reading) provider for a fingerprint.
+        FileOperationsTestSupport.write("pixels", to: newURL)
+
+        let counter = CallCounter()
+        let previousEntries = try await store.load()?.entries ?? [:]
+        let applied = await ExternalRenameReconciler.applyReconciliation(
+            store: store, folderURL: root, currentFiles: [newURL],
+            previousEntries: previousEntries,
+            fingerprintProvider: { url in
+                counter.increment()
+                // Even a provider that WOULD produce a matching fingerprint
+                // must never be consulted — the gate rejects on size first.
+                return missingFingerprint
+            })
+
+        XCTAssertTrue(applied.isEmpty)
+        XCTAssertEqual(counter.current, 0, "the fingerprint provider must never be called for a size that can't match")
+        XCTAssertTrue(FileOperationsTestSupport.exists(SidecarPath.sidecarURL(for: oldURL)))
+    }
+
     // MARK: - No spurious reconciliation
 
     func testNoMissingFilesMeansNoReconciliationEvenWithNewFiles() async throws {
         let existingURL = root.appendingPathComponent("existing.dng")
         FileOperationsTestSupport.write("pixels", to: existingURL)
         _ = await ExternalRenameReconciler.reconcile(
-            folderURL: root, currentFiles: [existingURL],
+            store: store, folderURL: root, currentFiles: [existingURL],
             fingerprintProvider: provider(["existing.dng": fp(10, "2026:04:01 00:00:00")]))
 
         let addedURL = root.appendingPathComponent("added.dng")
         FileOperationsTestSupport.write("pixels", to: addedURL)
 
         let applied = await ExternalRenameReconciler.reconcile(
-            folderURL: root, currentFiles: [existingURL, addedURL],
+            store: store, folderURL: root, currentFiles: [existingURL, addedURL],
             fingerprintProvider: provider([
                 "existing.dng": fp(10, "2026:04:01 00:00:00"),
                 "added.dng": fp(10, "2026:04:01 00:00:00"),
             ]))
 
         XCTAssertTrue(applied.isEmpty, "a plain new import with nothing missing is not a rename")
+    }
+
+    // MARK: - Batched fingerprint cache writes (#2656 review — B1)
+
+    /// One `reconcile` call warming several files' fingerprints for the
+    /// first time must still leave every one of them correctly recorded —
+    /// `syncFingerprintCache` batches every change into a single `store.
+    /// updateFingerprints(_:)` call rather than one `save()` per file, and
+    /// this is the correctness half of that (the perf half — exactly one
+    /// atomic write no matter how many files — is a property of
+    /// `updateFingerprints`'s implementation, covered by inspection: it
+    /// calls `save()` exactly once, after its loop).
+    func testOneReconcileCallWarmsFingerprintsForEveryFileInOneBatch() async throws {
+        let names = ["a.dng", "b.dng", "c.dng"]
+        let urls = names.map { root.appendingPathComponent($0) }
+        for url in urls {
+            FileOperationsTestSupport.write("pixels", to: url)
+        }
+        let table = Dictionary(uniqueKeysWithValues: names.map { ($0, fp(6, "2026:07:01 00:00:00")) })
+
+        _ = await ExternalRenameReconciler.reconcile(
+            store: store, folderURL: root, currentFiles: urls, fingerprintProvider: provider(table))
+
+        let freshStore = LibraryIndexStore(folderURL: root)
+        let index = try await freshStore.load()
+        for name in names {
+            let entry = try XCTUnwrap(index?.entries[name], "\(name) must have been warmed by the single batch call")
+            XCTAssertEqual(entry.dateTimeOriginal, "2026:07:01 00:00:00")
+        }
     }
 
     func testAnUnfingerprintableMissingEntryIsExcludedFromMatching() async throws {
@@ -162,7 +266,7 @@ final class ExternalRenameReconcilerTests: XCTestCase {
         let newURL = root.appendingPathComponent("IMG_2.dng")
 
         let applied = await ExternalRenameReconciler.reconcile(
-            folderURL: root, currentFiles: [newURL],
+            store: store, folderURL: root, currentFiles: [newURL],
             fingerprintProvider: provider(["IMG_2.dng": fp(1, "2026:05:01 00:00:00")]))
 
         XCTAssertTrue(applied.isEmpty)

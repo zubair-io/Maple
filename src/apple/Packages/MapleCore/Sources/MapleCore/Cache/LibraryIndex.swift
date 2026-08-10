@@ -103,26 +103,53 @@ public actor LibraryIndexStore {
         try save()
     }
 
-    // MARK: - Update fingerprint (#2656)
+    // MARK: - Update fingerprints, batched (#2656)
 
-    /// Record `name`'s cheap external-rename fingerprint (size, mtime, EXIF
-    /// `DateTimeOriginal`, camera serial) without touching its culling
-    /// state — `ExternalRenameReconciler` calls this on every successful
-    /// folder scan so a LATER scan (after this file has vanished, renamed
-    /// away by Finder) still has something to match a newly-appeared file
-    /// against. Creates the entry if this is the first time `name` has been
-    /// seen, exactly like `updateEntry`.
-    public func updateFingerprint(
-        name: String, size: Int64?, mtime: Date?, dateTimeOriginal: String?, cameraSerial: String?
-    ) throws {
+    /// One file's cheap external-rename fingerprint, as recorded by
+    /// `updateFingerprints(_:)`.
+    public struct FingerprintUpdate: Sendable {
+        public let name: String
+        public let size: Int64?
+        public let mtime: Date?
+        public let dateTimeOriginal: String?
+        public let cameraSerial: String?
+
+        public init(name: String, size: Int64?, mtime: Date?, dateTimeOriginal: String?, cameraSerial: String?) {
+            self.name = name
+            self.size = size
+            self.mtime = mtime
+            self.dateTimeOriginal = dateTimeOriginal
+            self.cameraSerial = cameraSerial
+        }
+    }
+
+    /// Record every fingerprint in `updates` (size, mtime, EXIF
+    /// `DateTimeOriginal`, camera serial) without touching culling state,
+    /// in exactly ONE `save()` — a single atomic JSON rewrite regardless of
+    /// how many files are being warmed. `ExternalRenameReconciler` calls
+    /// this once per folder scan so a LATER scan (after a file has vanished,
+    /// renamed away by Finder) still has something to match a newly-appeared
+    /// file against.
+    ///
+    /// A prior per-file `updateFingerprint` (one `save()` each) meant the
+    /// first scan of an N-file folder paid N full-JSON atomic rewrites in a
+    /// row, serialized through this actor, for a scan that usually has
+    /// nothing to reconcile — real cost on a large library with no benefit.
+    /// Batching collapses that to one write no matter how many entries
+    /// changed. Creates an entry for any `name` not already present, exactly
+    /// like `updateEntry`. A no-op (no `save()` at all) for an empty array.
+    public func updateFingerprints(_ updates: [FingerprintUpdate]) throws {
+        guard !updates.isEmpty else { return }
         if index == nil { _ = try? load() }
         if index == nil { index = LibraryIndex(folderURL: folderURL) }
-        var entry = index?.entries[name] ?? LibraryIndex.LibraryEntry(name: name)
-        entry.size = size
-        entry.mtime = mtime
-        entry.dateTimeOriginal = dateTimeOriginal
-        entry.cameraSerial = cameraSerial
-        index?.entries[name] = entry
+        for update in updates {
+            var entry = index?.entries[update.name] ?? LibraryIndex.LibraryEntry(name: update.name)
+            entry.size = update.size
+            entry.mtime = update.mtime
+            entry.dateTimeOriginal = update.dateTimeOriginal
+            entry.cameraSerial = update.cameraSerial
+            index?.entries[update.name] = entry
+        }
         try save()
     }
 
