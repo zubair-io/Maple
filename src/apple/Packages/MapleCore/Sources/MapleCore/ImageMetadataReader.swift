@@ -296,7 +296,13 @@ public enum ImageMetadataReader {
     /// EXIF dictionary attached to the SENSOR data wins, not the embedded
     /// JPEG preview's. Fall back to index 0 when no subimage has a usable
     /// pixel-size pair.
-    private static func bestSubimageIndex(in src: CGImageSource) -> Int {
+    ///
+    /// `internal` (not `private`): shared with
+    /// `ImageMetadataReader+CameraSerial.swift` (#2656), which reads the
+    /// same best-subimage EXIF dictionary for the body serial number and
+    /// needs the identical multi-IFD DNG handling `readRawCaptureDateStrings`
+    /// already gets right.
+    static func bestSubimageIndex(in src: CGImageSource) -> Int {
         let count = CGImageSourceGetCount(src)
         var best: (idx: Int, area: Double)? = nil
         for i in 0..<count {
