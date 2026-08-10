@@ -20,7 +20,7 @@ const IDB_VERSION = 1;
 
 /** Persisted record. `bytes` is the raw `.mlut` v1 buffer, byte-identical to
  *  what the network served — no re-encoding on write or read. */
-export interface FilmLutCacheRecord {
+interface FilmLutCacheRecord {
   /** Film-catalog id (== `papp:FilmLook` value == `.mlut` filename stem). */
   id: string;
   bytes: ArrayBuffer;
@@ -38,7 +38,7 @@ export interface FilmLutCache {
 }
 
 @Injectable({ providedIn: 'root' })
-export class FilmLutIdbCache implements FilmLutCache {
+class FilmLutIdbCache implements FilmLutCache {
   async get(id: string): Promise<ArrayBuffer | null> {
     const db = await this._open();
     const tx = db.transaction(IDB_STORE, 'readonly');
