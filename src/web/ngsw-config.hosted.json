@@ -34,16 +34,5 @@
       }
     }
   ],
-  "dataGroups": [
-    {
-      "name": "film-luts",
-      "urls": ["/film-luts/*.mlut"],
-      "cacheConfig": {
-        "strategy": "performance",
-        "maxSize": 12,
-        "maxAge": "30d"
-      }
-    }
-  ],
   "navigationUrls": ["/**", "!/**/*.*", "!/**/*__*", "!/**/*__*/**", "!/api/**"]
 }
