@@ -77,6 +77,14 @@ struct EditorView: View {
     @State private var hudVisible = false
     @State private var hudHideTask: Task<Void, Never>?
 
+    /// Frame (in `editorCanvas` space) of whichever floating chrome panel is
+    /// currently reporting itself as a wheel-exclusion region — e.g.
+    /// `FlyoutSliderPanel` while its Film catalog list is showing (#2683).
+    /// Threaded into `CanvasZoomHost` so a trackpad scroll over the panel
+    /// reaches the panel's own `ScrollView` instead of nudging the armed
+    /// tool or zooming/panning the canvas underneath it.
+    @State private var wheelExclusionFrame: CGRect?
+
     // ── TEMPORARY: control-panel variant (exploration only) ──────────────────
     // Persisted with @AppStorage so the choice survives app restarts during
     // design review.  Default is `.compact` (the existing A2 layout).
@@ -209,6 +217,10 @@ struct EditorView: View {
                     .ignoresSafeArea(edges: .bottom)
                     .opacity(chromeOpacity)
                     .allowsHitTesting(isRegular || chromeVisible)
+                    // Covers part of the canvas with its own scrollable Film
+                    // catalog list — exclude its frame from CanvasZoomHost's
+                    // scroll-wheel catcher (#2683).
+                    .reportsWheelExclusion(in: "editorCanvas")
             }
 
             // ── LAYER 4 : top pill header ─────────────────────────────────
@@ -347,6 +359,10 @@ struct EditorView: View {
         // keeps its top inset so the pill clears the notch/status bar.
         .ignoresSafeArea(edges: isRegular ? .top : [])
         .background(MapleTokens.bg.ignoresSafeArea())
+        // Shared coordinate space for wheel-exclusion frame reporting
+        // (#2683) — see `wheelExclusionFrame`.
+        .coordinateSpace(name: "editorCanvas")
+        .onPreferenceChange(CanvasWheelExclusionKey.self) { wheelExclusionFrame = $0 }
         // Scope the shell identifier to a CONTAINER element (#1769). A bare
         // `.accessibilityIdentifier` on a multi-element view BROADCASTS the
         // identifier onto every contained accessibility element, overriding
@@ -471,7 +487,8 @@ struct EditorView: View {
                     onWheelEditing: { steps, unit in
                         state.wheelNudge(steps: steps, unit: unit)
                     },
-                    canvasReady: canvasIsReady
+                    canvasReady: canvasIsReady,
+                    wheelExcludedFrame: wheelExclusionFrame
                 ) {
                     canvasLeaf
                 } fallback: {
