@@ -73,6 +73,10 @@ export class ImageCanvasComponent
   private readonly embeddedPreview = inject(EmbeddedPreviewService);
   private readonly injector = inject(Injector);
   private readonly cropSession = inject(CropSessionService);
+  // Read via `this.host.filmLut` in ImageCanvasFilmSync (image-canvas.film.ts),
+  // where `this` satisfies `FilmSyncHost` structurally; fallow's dead-code pass
+  // doesn't trace property access through a type-only-imported interface field.
+  // fallow-ignore-next-line unused-class-member
   readonly filmLut = inject(FilmLutService); // #2683, read by ImageCanvasFilmSync
 
   readonly loading = signal(false);

@@ -42,7 +42,7 @@ const CATEGORY_LABEL: Record<FilmCategory, string> = {
 };
 
 /** One category's row group, pre-filtered from `FILM_CATALOG`. */
-export interface FilmCategoryGroup {
+interface FilmCategoryGroup {
   readonly category: FilmCategory;
   readonly label: string;
   readonly looks: ReadonlyArray<(typeof FILM_CATALOG)[number]>;
@@ -85,14 +85,6 @@ export class FilmPanelComponent {
   readonly hasActiveLook = computed<boolean>(() => this.activeLookId().length > 0);
 
   readonly strength = computed<number>(() => this.adj()?.filmStrength ?? this.strengthMax);
-
-  /** Display name for the active look, for the panel's own header/chip —
-   *  '' when None is selected. */
-  readonly activeLookName = computed<string>(() => {
-    const id = this.activeLookId();
-    if (!id) return '';
-    return FILM_CATALOG.find((entry) => entry.id === id)?.name ?? id;
-  });
 
   isActive(lookId: string): boolean {
     return this.activeLookId() === lookId;
