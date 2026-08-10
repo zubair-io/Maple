@@ -295,9 +295,9 @@ extension EditSession {
         // and drive progress via CloudByteDownloadBox.
         if let url = asset.primaryURL,
            let downloadProgress,
-           fileProviderObserver == nil {
+           deepZoomState.fileProviderObserver == nil {
             let observer = FileProviderDownloadObserver()
-            fileProviderObserver = observer
+            deepZoomState.fileProviderObserver = observer
             Task { @MainActor in
                 await observer.start(url: url, progress: downloadProgress)
             }
