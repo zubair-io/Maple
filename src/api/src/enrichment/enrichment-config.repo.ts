@@ -91,56 +91,56 @@ export const DEFAULT_DESCRIBE_OLLAMA_URL = 'http://localhost:11434';
  * drift.
  *
  * Lineage: `llava:latest` → `qwen2.5vl:7b` → `qwen3-vl:8b` → `gemma4:12b`
- * → `gemma4:latest` (#2736).
+ * → `gemma4:latest` → back to `gemma4:12b`.
  *
- * `gemma4:12b` shipped in #2726 and was pulled after it spent about an
- * hour serving nothing on the deploy's host — every payload size, images
- * and text alike — recovering only once it was force-unloaded. Measured
- * afterwards on an idle box, all three candidates are healthy at rest;
- * `gemma4:latest` is simply the cheapest of them:
+ * READ THIS BEFORE TRUSTING THE TAG. `gemma4:12b` previously spent about
+ * an hour on the deploy's host serving NOTHING — every payload size,
+ * images and text alike, including a bare "Say the single word: ok" —
+ * recovering only when it was force-unloaded. The cause was never found
+ * (#2734). It has since passed every controlled test: 12/12 sequential
+ * production-shaped requests held resident, and a streaming probe showing
+ * healthy token flow. But "could not reproduce" is not "fixed".
  *
- *                  steady-state   VRAM     tags/asset
- *   gemma4:latest      3.2s       3.4GB       6-9
- *   gemma4:12b         6.9s       8.4GB       8-10
- *   qwen3-vl:8b        4.9s        n/a       10-12
+ * Every other explanation offered for that window was investigated and
+ * refuted: Bun connection pooling (#2728, reverted), payload size, model
+ * wedging under residency, eviction churn against the embedder, the
+ * host's stale Intel/IPEX env vars, and thinking-loop runaway generation.
+ * None survived. The strongest surviving hypothesis is memory pressure
+ * from oversized models sharing the card — `qwen3.6:27b` (27.8B) and
+ * `ornith:35b` (21GB) against ~20.7GB of VRAM — which is untested,
+ * because it needs `OLLAMA_DEBUG=1` and the runner's own stderr on death.
  *
- * The VRAM number is the one that matters operationally: this host also
- * serves `bge-m3` to Meilisearch (semantic search reuses
- * `describe_provider_url`), so a 3.4GB resident footprint leaves room for
- * both where 8.4GB does not — and eviction churn between the two is the
- * leading hypothesis for what wedged `gemma4:12b` (#2734).
+ * Measured on the deploy's host, production payload (1280-px preview at
+ * q90 mozjpeg), v7 prompt + v7 grammar schema:
  *
- * The trade is keyword density: `gemma4:latest` returns 6-9 `tags` where
- * the prompt asks for 8-15 and qwen3-vl delivers 10-12. `tags` feeds
- * `search_blob`, so thinner output is a real if modest search cost.
+ *                  prompt tok   latency   VRAM     tags/asset
+ *   gemma4:12b        1547       ~6.9s   8.4GB       8-10
+ *   gemma4:latest     1547       ~3.2s   3.4GB        6-9
+ *   qwen3.5:9b        2355       ~6.2s   6.5GB       8-10
  *
- * gemma4 is a thinking model, so under the `format` JSON-schema
- * constraint it can route the whole response into `thinking` and return
- * an empty `response` — see the fallback in
- * `describe-providers/ollama.ts` (#2172).
+ * `:12b` is pinned, where `:latest` floats — a re-pull could swap the
+ * weights while `vision_meta.model` kept reading "gemma4:latest", which
+ * would quietly break the versioning contract `VisionDoc` documents.
  *
- * ACCEPTED RISK: `:latest` is a FLOATING tag, unlike every recent
- * predecessor (`qwen2.5vl:7b`, `qwen3-vl:8b`). Re-pulling it on the model
- * host can swap the underlying weights while this string — and therefore
- * `vision_meta.model` on every row it captions — stays literally
- * "gemma4:latest". That weakens the versioning contract described on
- * `VisionDoc` ("Versioned by `vision_meta.{model, prompt_version}`"): you
- * could not tell from the data which model produced which caption.
- * Deliberate call (#2736) — no pinned tag on the host points at these
- * weights (digest c6eb396d, unique), and `:latest` is materially cheaper
- * than the pinned alternatives. If reproducibility starts to matter more
- * than the 2x speed and VRAM saving, pin a concrete tag and bump
- * `targetVersion` so the corpus is re-captioned under a known model.
+ * VRAM is affordable: the embedder (`bge-m3`, 0.7GB) coexists with any of
+ * these, and measured cross-model concurrency showed embeds unaffected by
+ * an in-flight describe (340ms against 328ms solo). The two never contend.
+ *
+ * Thinking is left ON. gemma4 returns the whole VisionDoc in `response`
+ * with `thinking` empty either way (measured), so `think: false` would be
+ * a no-op here. It is NOT a no-op on qwen models — `qwen3.5:9b` returns
+ * `response: ""` and puts 682-832 chars in `thinking`, surviving only via
+ * the fallback in `describe-providers/ollama.ts` (#2172). Revisit if the
+ * tag ever moves back to a qwen.
  *
  * Before changing this tag again, probe the candidate against the host the
- * stage will ACTUALLY call, on that hardware, with the payload it
- * ACTUALLY sends — the 1280-px preview re-encoded via
- * `sharp(avif).jpeg({ quality: 90, mozjpeg: true })`, per `describe.ts`.
- * The #2726 verification did neither: it ran against a developer Mac
- * (Metal, not the deploy's CUDA box) using sharp's default jpeg quality
- * (~25% smaller), and passed a model that then failed in production.
+ * stage will ACTUALLY call, on that hardware, with the payload it ACTUALLY
+ * sends. The #2726 verification did neither — it ran against a developer
+ * Mac (Metal, not the deploy's CUDA box) using sharp's default jpeg
+ * quality (~25% smaller than production) — and passed a model that then
+ * failed in production.
  */
-export const DESCRIBE_VISION_OLLAMA_TAG = 'gemma4:latest';
+export const DESCRIBE_VISION_OLLAMA_TAG = 'gemma4:12b';
 
 export const DEFAULT_DESCRIBE_MODELS: Record<DescribeProviderName, string> = {
   // See DESCRIBE_VISION_OLLAMA_TAG above. Produces structured JSON
