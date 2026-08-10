@@ -8,27 +8,37 @@
 // `.filmLook` and this section IS its control surface.
 //
 //   ┌────────────────────────────────────────────────┐
-//   │  None                                       ✓   │  ← clears the look
-//   │  BLACK & WHITE                                  │  ← category header
-//   │  Agfa APX 100                                   │
-//   │  Agfa APX 25                                    │
-//   │  …                                              │
-//   │  COLOR NEGATIVE                                 │
-//   │  Kodak Portra 400                          ✓    │  ← selected look
-//   │  …                                              │
+//   │ [Black & White] [Cinema Print] [Color Neg] ›    │  ← category chips
+//   ├────────────────────────────────────────────────┤
+//   │  None                                       ✓   │  ← clears the look,
+//   │  Agfa APX 100                                   │     pinned above the
+//   │  Agfa APX 25                                    │     SELECTED
+//   │  …                                              │     category's looks
 //   ├────────────────────────────────────────────────┤
 //   │  Strength      ──────────●───────────    100    │  ← only while a
 //   └────────────────────────────────────────────────┘     look is active
 //
-// `FilmCatalog.all` (generated from `raw-core`'s `FILM_CATALOG`) is grouped
-// by `FilmCategory`, walked in `FilmCategory.allCases` declaration order so
-// the section list always presents the same six groups in the same order.
-// Picking a look is a discrete action — like the Black & White toggle in
-// `EditorState.setBlackWhite` — so it commits its own undo boundary before
-// the write, not a continuous drag. Strength IS a continuous scalar, so it
-// is declared as `Tool.filmLook`'s one sub-param and rides the ordinary
-// sub-param value pipe (`arm(subParamId:)` + `setArmedDisplayValue`), the
-// same shape `ToneCurveSection`'s region sliders use.
+// One category's looks (~10-20 rows) at a time, not all six stacked into a
+// single ~600-row scroll (round-2 live feedback: the flat scroll was too
+// long to navigate). The chip row lets the user switch categories; the list
+// below shows only the selected one. `FilmCatalog.all` (generated from
+// `raw-core`'s `FILM_CATALOG`) is grouped by `FilmCategory`; the chip row
+// walks `FilmCategory.allCases` declaration order so the six chips always
+// present in the same order. Picking a look is a discrete action — like the
+// Black & White toggle in `EditorState.setBlackWhite` — so it commits its
+// own undo boundary before the write, not a continuous drag. Strength IS a
+// continuous scalar, so it is declared as `Tool.filmLook`'s one sub-param
+// and rides the ordinary sub-param value pipe (`arm(subParamId:)` +
+// `setArmedDisplayValue`), the same shape `ToneCurveSection`'s region
+// sliders use.
+//
+// The category chip row is horizontally scrollable (six chips don't all fit
+// the 300pt panel width) — it rides inside `FlyoutSliderPanel`, which
+// reports its own frame as a wheel-exclusion region to `CanvasZoomHost`
+// (#2683 round 2, Bug A fix): that exclusion covers the WHOLE panel, not
+// just the look list, so trackpad scroll over the chip row reaches its
+// `ScrollView` the same way it reaches the look list below, instead of
+// hijacking the armed tool's wheel-nudge or the canvas zoom.
 //
 // The Angular twin owns its own `film-section.component.ts` (epic #2683
 // Task 12); both read the same generated `FilmCatalog` / `filmLook` field
@@ -42,25 +52,30 @@ import SwiftUI
 struct FilmSection: View {
     @Bindable var state: EditorState
 
-    /// `FilmCatalog.all` grouped by category, in `FilmCategory.allCases`
-    /// order. Built once — the catalog is a static generated table, not
-    /// session state.
-    private static let categorized: [(category: FilmCategory, looks: [FilmLookEntry])] = {
-        let grouped = Dictionary(grouping: FilmCatalog.all, by: \.category)
-        return FilmCategory.allCases.compactMap { category in
-            grouped[category].map { (category, $0) }
-        }
-    }()
+    /// `FilmCatalog.all` grouped by category. Built once — the catalog is a
+    /// static generated table, not session state.
+    private static let looksByCategory: [FilmCategory: [FilmLookEntry]] =
+        Dictionary(grouping: FilmCatalog.all, by: \.category)
 
     /// Film's one sub-param — declared on `Tool.filmLook` so its slider
     /// shares the ordinary arm/write/undo pipe every other tool's does.
     private static let strengthSub = Tool.filmLook.subParams[0]
+
+    /// The category chip row's current selection. Local UI state, not part
+    /// of the edit model — `.onAppear` (re-)derives it from the ACTIVE
+    /// look's category each time the panel mounts (arming Film re-mounts
+    /// `FilmSection`, per `FlyoutSliderPanel`'s tool-swap branches), so
+    /// switching tools away and back to Film always lands the chip row on
+    /// whichever category the current look actually belongs to, rather than
+    /// remembering a stale in-session pick.
+    @State private var selectedCategory: FilmCategory = FilmCategory.allCases.first ?? .blackWhite
 
     private var activeLookId: String { state.session.model.filmLook }
     private var isLookActive: Bool { !activeLookId.isEmpty }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            categoryChipRow
             lookList
             if isLookActive {
                 strengthSlider
@@ -69,16 +84,67 @@ struct FilmSection: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("editor-film-section")
+        .onAppear {
+            selectedCategory = Self.defaultCategory(forActiveLookId: activeLookId)
+        }
+    }
+
+    // MARK: - Category chip row
+
+    private var categoryChipRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(FilmCategory.allCases, id: \.self) { category in
+                    FilmCategoryChip(
+                        category: category,
+                        isSelected: category == selectedCategory,
+                        action: { selectedCategory = category }
+                    )
+                }
+            }
+            // Keeps the first/last chip's selection ring from clipping
+            // against the scroll edge.
+            .padding(.horizontal, 1)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("film-category-row")
+    }
+
+    /// The ACTIVE look's category, or the first category when no look is
+    /// set (or the id doesn't resolve — a stale/removed catalog entry).
+    private static func defaultCategory(forActiveLookId lookId: String) -> FilmCategory {
+        FilmCatalog.all.first(where: { $0.id == lookId })?.category
+            ?? FilmCategory.allCases.first
+            ?? .blackWhite
+    }
+
+    static func categoryDisplayName(_ category: FilmCategory) -> String {
+        switch category {
+        case .blackWhite:       return "Black & White"
+        case .cinemaPrint:      return "Cinema Print"
+        case .colorNegative:    return "Color Negative"
+        case .consumerVintage:  return "Consumer & Vintage"
+        case .instant:          return "Instant"
+        case .slide:            return "Slide"
+        }
     }
 
     // MARK: - Look list
 
+    /// Only the SELECTED category's looks — the None row stays pinned above
+    /// them regardless of which category is showing, so clearing the look
+    /// never requires switching categories first.
     private var lookList: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 2) {
                 noneRow
-                ForEach(Self.categorized, id: \.category) { entry in
-                    categorySection(entry.category, entry.looks)
+                ForEach(Self.looksByCategory[selectedCategory] ?? [], id: \.id) { look in
+                    FilmLookRow(
+                        title: look.name,
+                        isSelected: look.id == activeLookId,
+                        action: { selectLook(look.id) }
+                    )
+                    .accessibilityIdentifier("film-look-row-\(look.id)")
                 }
             }
         }
@@ -90,11 +156,11 @@ struct FilmSection: View {
         // inside its own outer `ScrollView(.vertical)` — a `maxHeight:`
         // ceiling only caps an already-resolved ideal size, so an ambiguous
         // proposal from either kind of host can still resolve smaller than
-        // the ~600-row catalog needs, clipping the tail with nothing left to
-        // scroll. A fixed height removes the ambiguity outright: this region
-        // is always exactly this tall, so its own scroll is never in
-        // question. `.clipped()` backstops the boundary so a stray row
-        // can't bleed past it while a host is still settling layout.
+        // one category's row count needs, clipping the tail with nothing
+        // left to scroll. A fixed height removes the ambiguity outright:
+        // this region is always exactly this tall, so its own scroll is
+        // never in question. `.clipped()` backstops the boundary so a stray
+        // row can't bleed past it while a host is still settling layout.
         .frame(height: 240)
         .clipped()
     }
@@ -102,36 +168,6 @@ struct FilmSection: View {
     private var noneRow: some View {
         FilmLookRow(title: "None", isSelected: !isLookActive, action: clearLook)
             .accessibilityIdentifier("film-look-none")
-    }
-
-    private func categorySection(_ category: FilmCategory, _ looks: [FilmLookEntry]) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(Self.categoryDisplayName(category).uppercased())
-                .font(.system(size: 9, weight: .semibold))
-                .tracking(0.6)
-                .foregroundStyle(ProTokens.textMuted)
-                .padding(.top, 8)
-                .accessibilityIdentifier("film-category-\(category.rawValue)")
-            ForEach(looks, id: \.id) { look in
-                FilmLookRow(
-                    title: look.name,
-                    isSelected: look.id == activeLookId,
-                    action: { selectLook(look.id) }
-                )
-                .accessibilityIdentifier("film-look-row-\(look.id)")
-            }
-        }
-    }
-
-    private static func categoryDisplayName(_ category: FilmCategory) -> String {
-        switch category {
-        case .blackWhite:       return "Black & White"
-        case .cinemaPrint:      return "Cinema Print"
-        case .colorNegative:    return "Color Negative"
-        case .consumerVintage:  return "Consumer & Vintage"
-        case .instant:          return "Instant"
-        case .slide:            return "Slide"
-        }
     }
 
     // MARK: - Strength slider
@@ -210,6 +246,42 @@ private struct FilmLookRow: View {
         .buttonStyle(.plain)
         .accessibilityLabel("\(title) film look")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+// MARK: - FilmCategoryChip
+
+/// One chip in the category row — same idiom `SubParamRow`'s
+/// `SubParamChip` and `ControlCard`'s `GroupChipsRow` chip use (capsule,
+/// accent fill + border when selected, plain label otherwise), rendered
+/// with `ProTokens` to match the rest of this Pro-flyout panel rather than
+/// `SubParamRow`'s `MapleTokens` (that one lives in the legacy DragBar
+/// chrome).
+private struct FilmCategoryChip: View {
+    let category: FilmCategory
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(FilmSection.categoryDisplayName(category))
+                .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
+                .foregroundStyle(isSelected ? ProTokens.accent : ProTokens.textMuted)
+                .lineLimit(1)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    Capsule().fill(isSelected ? ProTokens.accent(0x28) : Color.clear)
+                )
+                .overlay(
+                    Capsule().stroke(isSelected ? ProTokens.accent : ProTokens.border, lineWidth: 0.5)
+                )
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(FilmSection.categoryDisplayName(category))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier("film-category-\(category.rawValue)")
     }
 }
 
