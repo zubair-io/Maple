@@ -7,7 +7,7 @@
  * Requires: MAPLE_MONGO_URI (or a local MongoDB on localhost:27017).
  * Skips gracefully when Mongo is unreachable.
  */
-import { describe, expect, it, beforeAll, afterAll, afterEach } from 'bun:test';
+import { describe, expect, it, beforeAll, afterAll, afterEach, spyOn } from 'bun:test';
 import { mkdtemp, writeFile, rm, readFile, stat } from 'node:fs/promises';
 import type { MongoClient } from 'mongodb';
 import { type Db, ObjectId } from 'mongodb';
@@ -15,6 +15,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { tryConnect } from './_test-helpers.ts';
 import { readExif } from '../../indexer/exif.ts';
+import * as exifModule from '../../indexer/exif.ts';
+import { reconcileRenamesInDirectory, type MissingFileCandidate } from './rename-reconcile.ts';
 import type { Collection } from 'mongodb';
 import type { AssetDoc } from '../../db/schema.ts';
 
@@ -357,6 +359,148 @@ describe('rename reconciliation (#2655)', () => {
     const newRow = await coll.findOne({ 'fileinfo.filename': 'photo-new.dng' });
     expect(newRow).not.toBeNull();
     expect(newRow!._id.toString()).not.toBe(indexed!._id.toString());
+
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('declines when the fileinfo entry changed concurrently between discovery and repoint (sidecar left untouched)', async () => {
+    if (!mongoReachable) return;
+    const { assetsCollection } = await import('../../db/client.ts');
+
+    const root = await mkdtemp(path.join(os.tmpdir(), 'maple-rename-race-'));
+    const folderId = new ObjectId();
+    const bytes = makeExifTiff({ captureDate: '2024:03:03 10:00:00', serial: 'CAM-RACE' });
+
+    // The row's REAL current fileinfo entry — filename 'actual-current.dng'.
+    // This stands in for a concurrent writer (another sweeper worker, a
+    // manual rename route call, a dedupe move) having already changed this
+    // exact entry after the sweeper's `find()` snapshotted it but before
+    // reconciliation runs its repoint write.
+    const coll = await assetsCollection();
+    const docId = new ObjectId();
+    await coll.insertOne({
+      _id: docId,
+      maple_id: 'race-1',
+      fileinfo: [{ library_id: folderId, path: '', filename: 'actual-current.dng' }],
+      size: bytes.length,
+      exif: { captured_at: '2024-03-03T10:00:00.000Z', camera_serial: 'CAM-RACE' },
+      rating: 0,
+      flag: 0,
+      color_label: '',
+      deleted_at: null,
+      indexed_at: new Date().toISOString(),
+      stages: {},
+    } as never);
+
+    // A real sidecar sitting next to the STALE (pre-race) path the
+    // candidate below still believes is current.
+    const staleAbsPath = path.join(root, 'stale-snapshot.dng');
+    const staleSidecar = path.join(root, 'stale-snapshot.xmp');
+    await writeFile(staleSidecar, '<xmp>never touched</xmp>');
+
+    const freshAbsPath = path.join(root, 'new-name.dng');
+    await writeFile(freshAbsPath, bytes);
+
+    const staleCandidate: MissingFileCandidate = {
+      docId,
+      // Deliberately mismatched vs. what's actually in Mongo right now —
+      // the query's elemMatch (library_id/path/filename/deleted_at:null)
+      // can never match, so the repoint must decline.
+      fileinfo: { library_id: folderId, path: '', filename: 'stale-snapshot.dng' },
+      filename: 'stale-snapshot.dng',
+      absPath: staleAbsPath,
+      size: bytes.length,
+      exif: { captured_at: '2024-03-03T10:00:00.000Z', camera_serial: 'CAM-RACE' } as never,
+    };
+
+    const result = await reconcileRenamesInDirectory(
+      [{ filename: 'new-name.dng', absPath: freshAbsPath }],
+      [staleCandidate],
+      root,
+      folderId,
+    );
+
+    expect(result.reconciledMissingFilenames.size).toBe(0);
+    expect(result.reconciledNewFilenames.size).toBe(0);
+
+    // Row untouched: still the REAL current entry, not repointed to either
+    // the stale candidate's belief or the fresh filename.
+    const row = await fetchRow(coll, docId);
+    expect(row!.fileinfo[0]!.filename).toBe('actual-current.dng');
+
+    // Sidecar never moved — repoint-first ordering means the sidecar move
+    // is never even attempted once the repoint itself declines.
+    expect(await readFile(staleSidecar, 'utf8')).toBe('<xmp>never touched</xmp>');
+    const wouldBeNewSidecar = path.join(root, 'new-name.xmp');
+    await expect(stat(wouldBeNewSidecar)).rejects.toThrow();
+
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('short-circuits before readExif for a new file whose size matches no missing candidate', async () => {
+    if (!mongoReachable) return;
+    const { assetsCollection } = await import('../../db/client.ts');
+
+    const root = await mkdtemp(path.join(os.tmpdir(), 'maple-rename-sizecheck-'));
+    const folderId = new ObjectId();
+    const missingBytes = makeExifTiff({ captureDate: '2024:05:05 11:00:00', serial: 'CAM-SIZE' });
+
+    const coll = await assetsCollection();
+    const docId = new ObjectId();
+    await coll.insertOne({
+      _id: docId,
+      maple_id: 'size-1',
+      fileinfo: [{ library_id: folderId, path: '', filename: 'gone.dng' }],
+      size: missingBytes.length,
+      exif: { captured_at: '2024-05-05T11:00:00.000Z', camera_serial: 'CAM-SIZE' },
+      rating: 0,
+      flag: 0,
+      color_label: '',
+      deleted_at: null,
+      indexed_at: new Date().toISOString(),
+      stages: {},
+    } as never);
+
+    const matchingAbsPath = path.join(root, 'matches-size.dng');
+    await writeFile(matchingAbsPath, missingBytes);
+    // A wrong-size file — same directory, but its byte length can never
+    // equal the one missing candidate's size, so the fingerprint's cheap
+    // first key already rules it out before any EXIF parse.
+    const wrongSizeAbsPath = path.join(root, 'wrong-size.dng');
+    await writeFile(
+      wrongSizeAbsPath,
+      Buffer.concat([missingBytes, Buffer.from('extra-tail-bytes')]),
+    );
+
+    const readCalls: string[] = [];
+    const spy = spyOn(exifModule, 'readExif').mockImplementation(async (absPath: string) => {
+      readCalls.push(absPath);
+      return readExif(absPath);
+    });
+    try {
+      const missingCandidate: MissingFileCandidate = {
+        docId,
+        fileinfo: { library_id: folderId, path: '', filename: 'gone.dng' },
+        filename: 'gone.dng',
+        absPath: path.join(root, 'gone.dng'),
+        size: missingBytes.length,
+        exif: { captured_at: '2024-05-05T11:00:00.000Z', camera_serial: 'CAM-SIZE' } as never,
+      };
+      await reconcileRenamesInDirectory(
+        [
+          { filename: 'matches-size.dng', absPath: matchingAbsPath },
+          { filename: 'wrong-size.dng', absPath: wrongSizeAbsPath },
+        ],
+        [missingCandidate],
+        root,
+        folderId,
+      );
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(readCalls).toContain(matchingAbsPath);
+    expect(readCalls).not.toContain(wrongSizeAbsPath);
 
     await rm(root, { recursive: true, force: true });
   });

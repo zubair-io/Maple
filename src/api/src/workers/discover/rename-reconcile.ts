@@ -104,20 +104,29 @@ function missingFingerprint(c: MissingFileCandidate): Fingerprint | null {
   return { size: c.size, capturedAt, serial: c.exif?.camera_serial ?? null };
 }
 
-/** Reads just enough of the new file to fingerprint it: a `stat` for size
- * and a `readExif` pass for the capture timestamp + camera serial — the
- * same header-only read the `exif` stage would perform on this file anyway,
- * not a second full-file pass. Any failure (unreadable/corrupt/mid-copy
- * file, unsupported format) yields `null` — the file simply isn't a
+/** Reads just enough of the new file to fingerprint it: a `stat` for size,
+ * then — ONLY when that size matches at least one missing candidate's size
+ * — a `readExif` pass for the capture timestamp + camera serial (the same
+ * header-only read the `exif` stage would perform on this file anyway, not
+ * a second full-file pass). Size is the cheap first key of the fingerprint,
+ * so a size that matches nothing short-circuits before ever opening the
+ * file for EXIF — the common case in any directory with more than a
+ * handful of unindexed files, where most sizes won't match any missing
+ * candidate at all. Any failure (unreadable/corrupt/mid-copy file,
+ * unsupported format) yields `null` — the file simply isn't a
  * reconciliation candidate this visit; the sweeper's normal `created` path
  * (and the exif stage after it) handles it on its own terms. */
-async function newFileFingerprint(absPath: string): Promise<Fingerprint | null> {
+async function newFileFingerprint(
+  absPath: string,
+  candidateSizes: ReadonlySet<number>,
+): Promise<Fingerprint | null> {
   let size: number;
   try {
     size = (await nodeFs.stat(absPath)).size;
   } catch {
     return null;
   }
+  if (!candidateSizes.has(size)) return null;
   let exif: AssetExif | null;
   try {
     exif = await readExif(absPath);
@@ -180,11 +189,8 @@ function* resolvableBucketPairs(
  * cross-volume relocate would (`fs/relocate.ts`).
  *
  * Returns `false` only on a genuine move FAILURE (sidecar present but
- * couldn't be relocated) — the caller must decline the whole reconcile
- * rather than repoint the DB out from under a sidecar that stayed behind at
- * the old path, which would reproduce the exact orphaning this feature
- * exists to prevent. Returns `true` when there was no sidecar to move at
- * all (never edited) or the move succeeded. */
+ * couldn't be relocated). Returns `true` when there was no sidecar to move
+ * at all (never edited) or the move succeeded. */
 async function moveSidecarIfPresent(oldAbsPath: string, newAbsPath: string): Promise<boolean> {
   const oldSidecar = xmpSidecarPath(oldAbsPath);
   try {
@@ -199,7 +205,7 @@ async function moveSidecarIfPresent(oldAbsPath: string, newAbsPath: string): Pro
   } catch (err) {
     log.warn(
       { oldSidecar, newSidecar, err: err instanceof Error ? err.message : err },
-      'rename-reconcile: sidecar move failed — declining to repoint',
+      'rename-reconcile: sidecar move failed',
     );
     return false;
   }
@@ -209,7 +215,19 @@ async function moveSidecarIfPresent(oldAbsPath: string, newAbsPath: string): Pro
  * place: same `_id`, same `maple_id`, same edits, same stage history except
  * the cache-writing stages (thumb/preview), which reset to v0 so the
  * workers regenerate them at the new location — the established move
- * pattern `library/relocate-asset.ts` uses for an in-app relocate. */
+ * pattern `library/relocate-asset.ts` uses for an in-app relocate.
+ *
+ * The OLD entry's `(library_id, path, filename, deleted_at: null)` is part
+ * of the top-level QUERY filter, not just the `arrayFilters` — mirroring
+ * `library/relocate-asset.ts`'s `repointToNewLocation`. That matters: with
+ * the old entry matched only via `arrayFilters`, a concurrent change to
+ * that exact fileinfo entry (another repoint, a trash, a dedupe move) makes
+ * the array-filtered `$set` clauses silently no-op while `_id` alone still
+ * matches — and this update's OTHER top-level field (`indexed_at`, always a
+ * fresh timestamp) would still report a real `modifiedCount`, masking the
+ * no-op. Folding the old values into the query itself means `matchedCount`
+ * only comes back positive when the exact entry we read moments ago is
+ * still there to update. */
 async function repointFileinfoEntry(
   candidate: MissingFileCandidate,
   newEntry: { path: string; filename: string },
@@ -229,21 +247,106 @@ async function repointFileinfoEntry(
     set[`stages.${stage}.last_error`] = null;
     set[`stages.${stage}.dead`] = false;
   }
-  const res = await coll.updateOne({ _id: candidate.docId }, { $set: set } as never, {
-    arrayFilters: [
-      {
-        'e.library_id': candidate.fileinfo.library_id,
-        'e.path': candidate.fileinfo.path,
-        'e.filename': candidate.fileinfo.filename,
+  const res = await coll.updateOne(
+    {
+      _id: candidate.docId,
+      fileinfo: {
+        $elemMatch: {
+          library_id: candidate.fileinfo.library_id,
+          path: candidate.fileinfo.path,
+          filename: candidate.fileinfo.filename,
+          deleted_at: null,
+        },
       },
-    ],
-  });
-  return res.matchedCount > 0;
+    },
+    { $set: set } as never,
+    {
+      arrayFilters: [
+        {
+          'e.library_id': candidate.fileinfo.library_id,
+          'e.path': candidate.fileinfo.path,
+          'e.filename': candidate.fileinfo.filename,
+        },
+      ],
+    },
+  );
+  return res.matchedCount > 0 && res.modifiedCount > 0;
 }
 
-/** Reconciles one resolved (missing, fresh) pair: move the sidecar, then
- * repoint the DB row. Declines (returns `false`, no DB write) if the
- * sidecar move fails — see `moveSidecarIfPresent`. */
+/** Reverses `repointFileinfoEntry` exactly: restores the entry (now sitting
+ * at `newEntry`) back to `original`'s path/filename/missing markers. Used
+ * ONLY when the repoint itself succeeded but the follow-on sidecar move
+ * then failed — see `reconcilePair`'s ordering comment for why that
+ * specific failure needs an explicit undo rather than being left in place.
+ * Best-effort: if even the rollback write fails, the row is left
+ * (rare, logged) with a location that has no sidecar of its own on disk —
+ * an orphaned-sidecar-shaped failure, not a misattributed-edits one. */
+async function rollbackRepoint(
+  docId: ObjectId,
+  newEntry: { path: string; filename: string },
+  original: FileInfo,
+): Promise<void> {
+  const coll = await assetsCollection();
+  try {
+    const res = await coll.updateOne(
+      {
+        _id: docId,
+        fileinfo: {
+          $elemMatch: {
+            library_id: original.library_id,
+            path: newEntry.path,
+            filename: newEntry.filename,
+            deleted_at: null,
+          },
+        },
+      },
+      {
+        $set: {
+          'fileinfo.$[e].path': original.path,
+          'fileinfo.$[e].filename': original.filename,
+          'fileinfo.$[e].missing_since': original.missing_since ?? null,
+          'fileinfo.$[e].missing_reason': original.missing_reason ?? null,
+        },
+      } as never,
+      {
+        arrayFilters: [
+          {
+            'e.library_id': original.library_id,
+            'e.path': newEntry.path,
+            'e.filename': newEntry.filename,
+          },
+        ],
+      },
+    );
+    if (res.matchedCount === 0) {
+      log.warn(
+        { docId: docId.toHexString() },
+        'rename-reconcile: rollback found no matching entry — row changed again concurrently',
+      );
+    }
+  } catch (err) {
+    log.warn(
+      { docId: docId.toHexString(), err: err instanceof Error ? err.message : err },
+      'rename-reconcile: rollback after failed sidecar move itself failed — row now points to a location with no sidecar of its own',
+    );
+  }
+}
+
+/** Reconciles one resolved (missing, fresh) pair: repoint the DB row FIRST,
+ * then move the sidecar — and roll the repoint back if the sidecar move
+ * fails. This ordering is deliberate: the two things that can go wrong are
+ * "repoint declines" (someone else already changed this exact fileinfo
+ * entry — trivially safe, nothing on disk or in the DB has moved yet) and
+ * "sidecar move fails after a successful repoint" (rare FS error — rolled
+ * back here so the row and the sidecar's actual location can never
+ * disagree). The alternative ordering (move the sidecar first) fails the
+ * WRONG way: if the repoint then declined, the sidecar would already sit at
+ * the new path while the DB still called the new file "unindexed" — a
+ * plain rescan would index it as its own asset and silently inherit a
+ * DIFFERENT photo's edit history by path coincidence, the exact
+ * misattribution this feature exists to prevent. Repoint-first only ever
+ * degrades to a plain orphaned sidecar (the pre-existing, already-tolerated
+ * failure mode this feature reduces), never a wrong attachment. */
 async function reconcilePair(
   missing: MissingFileCandidate,
   fresh: NewFileCandidate,
@@ -259,13 +362,20 @@ async function reconcilePair(
     return false;
   }
 
-  if (!(await moveSidecarIfPresent(missing.absPath, fresh.absPath))) return false;
-
   const repointed = await repointFileinfoEntry(missing, newEntry);
   if (!repointed) {
     log.warn(
       { docId: missing.docId.toHexString() },
       'rename-reconcile: fileinfo entry changed concurrently — declining repoint',
+    );
+    return false;
+  }
+
+  if (!(await moveSidecarIfPresent(missing.absPath, fresh.absPath))) {
+    await rollbackRepoint(missing.docId, newEntry, missing.fileinfo);
+    log.warn(
+      { docId: missing.docId.toHexString() },
+      'rename-reconcile: sidecar move failed after repoint — rolled back, declining',
     );
     return false;
   }
@@ -308,17 +418,26 @@ export async function reconcileRenamesInDirectory(
   const missingGroups = groupByFingerprint(missingCandidates, missingFingerprint);
   if (missingGroups.size === 0) return EMPTY_RESULT;
 
-  // Only bother reading a new file's EXIF when at least one missing candidate
-  // could conceivably pair with it — `missingGroups.size === 0` already
-  // short-circuited above, so every remaining new file gets one read.
-  const withFingerprints = await Promise.all(
-    newCandidates.map(async (candidate) => ({
-      candidate,
-      fp: await newFileFingerprint(candidate.absPath),
-    })),
-  );
+  // The set of sizes that actually appear in a viable missing-side
+  // fingerprint (i.e. the same candidates `missingGroups` was built from) —
+  // `newFileFingerprint`'s cheap first filter, computed with zero extra I/O
+  // since `missingFingerprint` only reads already-in-memory doc fields.
+  const missingSizes = new Set<number>();
+  for (const c of missingCandidates) {
+    const fp = missingFingerprint(c);
+    if (fp) missingSizes.add(fp.size);
+  }
+
+  // Sequential, not fan-out: a directory can hold thousands of unindexed
+  // files, and each candidate potentially costs a `stat` + a `readExif`
+  // pass. This is a background sweep with no latency budget worth an
+  // unbounded `Promise.all` — running one file at a time keeps open-FD and
+  // memory use O(1) regardless of directory size (`newFileFingerprint`'s
+  // size short-circuit above already skips the EXIF read for the common
+  // case where nothing in the directory is missing that size).
   const newGroups = new Map<string, NewFileCandidate[]>();
-  for (const { candidate, fp } of withFingerprints) {
+  for (const candidate of newCandidates) {
+    const fp = await newFileFingerprint(candidate.absPath, missingSizes);
     if (fp === null) continue;
     const key = fingerprintKey(fp);
     const bucket = newGroups.get(key);
