@@ -50,4 +50,20 @@ final class MapleThumbCacheKeyTests: XCTestCase {
         let b = MapleThumbCacheKey.thumbFilename(forRawBasename: "IMG_0001.ARW")
         XCTAssertEqual(a, b)
     }
+
+    // MARK: - On-share render contract (#2690)
+
+    /// Pins these two constants against `src/api/src/thumbs/render.ts`'s
+    /// `THUMB_LONG_EDGE_PX` (512) and `THUMB_AVIF_QUALITY` (55, on the
+    /// API's 0...100 scale — 0.55 here on ImageIO's 0...1 scale). A client
+    /// that writes to the shared `.maple/thumbs/` path at any OTHER
+    /// size/quality permanently downgrades that entry for every other
+    /// reader — the API's thumbnailer never re-renders an existing entry
+    /// just because a fresher write landed at a smaller size. If this test
+    /// fails, `src/api/src/thumbs/render.ts` and this file have drifted;
+    /// update whichever one is stale, not just this test.
+    func testOnShareRenderContractMatchesTheAPI() {
+        XCTAssertEqual(MapleThumbCacheKey.onShareThumbLongEdgePx, 512)
+        XCTAssertEqual(MapleThumbCacheKey.onShareThumbAVIFQuality, 0.55)
+    }
 }
