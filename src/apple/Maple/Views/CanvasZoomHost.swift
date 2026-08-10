@@ -56,15 +56,15 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     /// True when the consumer has pixels to show — the leaf renders
     /// framed + gestured; otherwise the fallback shows.
     let canvasReady: Bool
-    /// Frame (in this host's own local coordinate space) of a floating
-    /// chrome panel currently covering part of the canvas — e.g.
-    /// `FlyoutSliderPanel`'s film catalog list (#2683). `ScrollWheelCatcher`
-    /// is a plain `NSView` sized to the whole canvas and knows nothing about
-    /// SwiftUI's z-order, so without this it swallows every scroll-wheel
-    /// event under its bounds even when a chrome panel is drawn on top —
-    /// hijacking the panel's own `ScrollView` and routing trackpad scroll
-    /// into the armed tool's wheel-nudge (or canvas zoom/pan) instead.
-    /// `nil` when no panel is covering the canvas.
+    /// Frame (host-local coordinate space) of a floating chrome panel
+    /// covering part of the canvas — e.g. `FlyoutSliderPanel`'s film
+    /// catalog list while Film is armed (#2683). `ScrollWheelCatcher` is a
+    /// plain `NSView` sized to the whole canvas and knows nothing about
+    /// SwiftUI's z-order, so without this it swallows scroll-wheel events
+    /// even under a panel drawn on top. `nil` when no panel covers the
+    /// canvas, or `EditorView` has scoped it off (`reportsWheelExclusion(
+    /// in:active:)`) for the currently-armed tool — every tool but Film
+    /// keeps the plain-wheel nudge on `onWheelEditing` above.
     var wheelExcludedFrame: CGRect? = nil
     /// The canvas leaf (CIImage raster / GPU layer). The host frames it
     /// to the resolved display frame; the leaf fills that proposal.
@@ -391,11 +391,8 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
 
 // MARK: - CanvasWheelExclusionFrame (macOS panel → CanvasZoomHost plumbing)
 
-/// Reports a floating chrome panel's frame, in `CanvasZoomHost`'s own
-/// coordinate space, up to the consumer so it can be threaded into
-/// `wheelExcludedFrame` — see that property's doc comment for why (#2683).
-/// `nil` frames (a panel that isn't mounted) clear a stale exclusion rather
-/// than reducing/merging, since exactly one such panel is ever on screen.
+/// Reports a panel's frame up to `wheelExcludedFrame` (#2683). `nil`
+/// (unmounted, or scoped off) clears rather than merges — one panel only.
 struct CanvasWheelExclusionKey: PreferenceKey {
     static let defaultValue: CGRect? = nil
     static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
@@ -403,18 +400,29 @@ struct CanvasWheelExclusionKey: PreferenceKey {
     }
 }
 
+/// The `active`-gated decision `reportsWheelExclusion(in:active:)` makes —
+/// pulled out for unit testing (`CanvasWheelExclusionTests`, `MapleTests`
+/// target). `active: false` always resolves to `nil`, keeping the
+/// plain-wheel armed-tool nudge working for every tool but Film (#2683
+/// round-2 review item 1: previously excluded unconditionally).
+enum CanvasWheelExclusion {
+    static func resolvedFrame(panelFrame: CGRect, active: Bool) -> CGRect? {
+        active ? panelFrame : nil
+    }
+}
+
 extension View {
-    /// Marks this view's frame (resolved in the `named` coordinate space
-    /// shared with the hosting `CanvasZoomHost`) as a wheel-exclusion region —
-    /// apply to a floating panel that sits on top of the canvas and owns its
-    /// own scrollable content, so trackpad scroll over it reaches the
-    /// panel's `ScrollView` instead of the canvas's zoom/pan/wheel-nudge.
-    func reportsWheelExclusion(in named: String) -> some View {
+    /// Marks this frame (in `named` coordinate space) a wheel-exclusion
+    /// region while `active` — trackpad scroll over it then reaches its own
+    /// `ScrollView` instead of the canvas's zoom/pan/wheel-nudge.
+    func reportsWheelExclusion(in named: String, active: Bool) -> some View {
         background(
             GeometryReader { proxy in
                 Color.clear.preference(
                     key: CanvasWheelExclusionKey.self,
-                    value: proxy.frame(in: .named(named))
+                    value: CanvasWheelExclusion.resolvedFrame(
+                        panelFrame: proxy.frame(in: .named(named)), active: active
+                    )
                 )
             }
         )

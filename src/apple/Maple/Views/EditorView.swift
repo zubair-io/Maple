@@ -217,10 +217,18 @@ struct EditorView: View {
                     .ignoresSafeArea(edges: .bottom)
                     .opacity(chromeOpacity)
                     .allowsHitTesting(isRegular || chromeVisible)
-                    // Covers part of the canvas with its own scrollable Film
-                    // catalog list — exclude its frame from CanvasZoomHost's
-                    // scroll-wheel catcher (#2683).
-                    .reportsWheelExclusion(in: "editorCanvas")
+                    // Excludes this panel's frame from CanvasZoomHost's
+                    // scroll-wheel catcher ONLY while Film is armed — that's
+                    // the one tool whose surface (`FilmSection`'s category
+                    // chip row + catalog list) owns its own scrollable
+                    // content the wheel catcher would otherwise hijack into
+                    // wheel-nudge/zoom (#2683). Every other tool keeps
+                    // relying on wheel-over-panel reaching `onWheelEditing`
+                    // (the documented plain-wheel armed-tool nudge,
+                    // `CanvasZoomHost`'s own header comment) — an
+                    // unconditional exclusion here would silently break
+                    // that for every non-Film tool (#2683 round-2 review).
+                    .reportsWheelExclusion(in: "editorCanvas", active: state.armedTool == .filmLook)
             }
 
             // ── LAYER 4 : top pill header ─────────────────────────────────
