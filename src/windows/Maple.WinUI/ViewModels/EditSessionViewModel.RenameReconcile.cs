@@ -114,11 +114,32 @@ namespace Maple.WinUI.ViewModels
                 var info = new FileInfo(filePath);
                 if (!info.Exists)
                     return null;
-                var exif = ExifReader.Read(filePath);
+                var exif = SafeReadExif(filePath);
                 return new RenameReconciliationLogic.Fingerprint(info.Length, exif?.DateTimeOriginal, exif?.CameraSerial);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                return null;
+            }
+        }
+
+        /// <summary>Wraps ExifReader.Read with the same per-item fault
+        /// tolerance every folder-scan/hydration loop in this file uses
+        /// (#2754 pattern) — used here and by HydrateLibraryAsync
+        /// (EditSessionViewModel.Library.cs) so neither ever aborts a whole
+        /// folder over one locked or since-vanished file. ExifReader.Read
+        /// is documented to never throw on its own, but wrapping the call
+        /// site keeps that guarantee from being a silent, undocumented
+        /// assumption at every caller.</summary>
+        private static ExifData? SafeReadExif(string filePath)
+        {
+            try
+            {
+                return ExifReader.Read(filePath);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                DiagLog.Write($"[library] EXIF read failed for {filePath}: {ex.Message}");
                 return null;
             }
         }
