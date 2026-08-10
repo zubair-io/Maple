@@ -69,6 +69,30 @@ public actor FilesystemSource {
     /// design.
     private var idCache: MapleIdCacheStore?
 
+    /// Live folder-content watcher (#2656) — fires (debounced) whenever a
+    /// direct child of the open folder is created, removed, or renamed, so
+    /// an external rename made in Finder while Maple is open gets
+    /// reconciled without waiting for the next `open()`. `nil` until a
+    /// folder is opened/restored, or when `FolderChangeWatcher.init?`
+    /// itself fails (best-effort — see its doc comment); reset to `nil` in
+    /// `close()`.
+    private var changeWatcher: FolderChangeWatcher?
+
+    /// Test seam (#2656): overridable so tests can inject deterministic
+    /// fingerprints without real EXIF-bearing fixtures on disk — see
+    /// `ExternalRenameFingerprint.live`'s doc comment for why the
+    /// production default can't be driven from plain temp-dir files.
+    /// `internal`, not `public` — production callers always get `.live`.
+    var externalRenameFingerprintProvider: @Sendable (URL) -> ExternalRenameFingerprint? = ExternalRenameFingerprint.live
+
+    /// Test seam (#2656): sets `externalRenameFingerprintProvider` from
+    /// outside the actor. A plain property assignment works too (actor
+    /// state is externally settable via `await`), but a dedicated method
+    /// reads more clearly at call sites than `await source.foo = bar`.
+    func setExternalRenameFingerprintProvider(_ provider: @escaping @Sendable (URL) -> ExternalRenameFingerprint?) {
+        externalRenameFingerprintProvider = provider
+    }
+
     /// Bytes read per `FallbackFormHasher.update(_:)` call when streaming a
     /// whole file for fallback-form id derivation — bounded so a 100+ MB RAW
     /// is never held in memory as one buffer. 4 MiB balances syscall count
@@ -91,7 +115,7 @@ public actor FilesystemSource {
     /// The scope claim is held for the lifetime of the source (see
     /// `scopeURL`) — detached render/thumbnail tasks need the claim to
     /// survive the return of this call.
-    public func open(folderURL: URL) throws {
+    public func open(folderURL: URL) async throws {
         // Resolve any existing scoped access from a prior folder.
         stopAccess()
 
@@ -105,7 +129,8 @@ public actor FilesystemSource {
             relativeTo: nil
         )
         self.idCache = MapleIdCacheStore(folderURL: folderURL)
-        try _index()
+        try await _index()
+        startWatchingForExternalChanges(folderURL)
         // Deliberately DO NOT stopAccessingSecurityScopedResource here — the
         // scope must outlive the index call for later render / thumbnail
         // tasks to succeed. Released in `close()` / `deinit`.
@@ -113,7 +138,7 @@ public actor FilesystemSource {
 
     /// Re-open a previously saved security-scoped bookmark (across launches).
     /// Keeps the scope claim alive for the life of the source.
-    public func restore(fromBookmarkData data: Data) throws {
+    public func restore(fromBookmarkData data: Data) async throws {
         stopAccess()
         var isStale = false
         let url = try URL(
@@ -130,7 +155,8 @@ public actor FilesystemSource {
             ? try url.bookmarkData(options: Self.bookmarkCreationOptions, includingResourceValuesForKeys: nil, relativeTo: nil)
             : data
         self.idCache = MapleIdCacheStore(folderURL: url)
-        try _index()
+        try await _index()
+        startWatchingForExternalChanges(url)
         // Keep scope open — see `open(folderURL:)` for rationale.
     }
 
@@ -141,6 +167,8 @@ public actor FilesystemSource {
     /// or explicitly when the source is rotated out of `BrowseViewModel`.
     public func close() {
         stopAccess()
+        changeWatcher?.stop()
+        changeWatcher = nil
         folderURL = nil
         scopeURL = nil
         bookmarkData = nil
@@ -176,14 +204,48 @@ public actor FilesystemSource {
         }
     }
 
-    // MARK: Private
+    /// Start a live watcher on `folder` (#2656) so an external rename made
+    /// in Finder while this folder is open gets reconciled without waiting
+    /// for the next `open()`. Best-effort: `FolderChangeWatcher.init?`
+    /// returning `nil` (folder unreadable for `O_EVTONLY`) just means no
+    /// live reconciliation this session — the next-launch rescan path is
+    /// unaffected. `[weak self]` — the watcher must never keep this actor
+    /// alive past `close()`/`deinit`.
+    private func startWatchingForExternalChanges(_ folder: URL) {
+        changeWatcher?.stop()
+        changeWatcher = FolderChangeWatcher(folderURL: folder) { [weak self] in
+            Task { await self?.reindexAfterExternalChange() }
+        }
+    }
+
+    /// The watcher's debounced callback: re-run `_index()`, which re-scans
+    /// the folder and reconciles through `ExternalRenameReconciler` exactly
+    /// like a fresh `open()` would. Errors are swallowed — a transient
+    /// listing failure (folder briefly unavailable mid-rename) just means
+    /// this live refresh is skipped; the next FS event or app relaunch
+    /// tries again.
+    private func reindexAfterExternalChange() async {
+        try? await _index()
+    }
+
+    // MARK: Private (internal for #2656 test seam — see below)
 
     /// List RAW files **directly** inside `folderURL` — not recursively.
     /// Browsing is Finder-style: the grid shows only what's at the current
     /// depth and drill-down is a separate action. `FileManager.enumerator`
     /// would walk descendants, flattening every RAW in the tree into one
     /// list; we use `contentsOfDirectory` instead which stops at one level.
-    private func _index() throws {
+    ///
+    /// Runs `ExternalRenameReconciler` (#2656) against the fresh listing
+    /// before rebuilding `_assets` — a same-folder external rename reconciled
+    /// here means the sidecar has already followed by the time `_assets`
+    /// (and thus `images()`) reflects the new filename.
+    ///
+    /// `internal`, not `private`: `FilesystemSourceExternalRenameTests`
+    /// calls this directly to simulate the watcher's debounced callback
+    /// firing (real `DispatchSource` timing is covered separately, and much
+    /// more cheaply, by `FolderChangeWatcherTests`).
+    func _index() async throws {
         guard let folder = folderURL else { return }
         // Scope is already claimed in `open(folderURL:)` / `restore(...)` and
         // held for the life of the source — no need to re-bracket here.
@@ -194,9 +256,12 @@ public actor FilesystemSource {
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         )
+        let imageURLs = contents.filter { SupportedImageExtensions.all.contains($0.pathExtension.lowercased()) }
 
-        _assets = contents
-            .filter { SupportedImageExtensions.all.contains($0.pathExtension.lowercased()) }
+        await ExternalRenameReconciler.reconcile(
+            folderURL: folder, currentFiles: imageURLs, fingerprintProvider: externalRenameFingerprintProvider)
+
+        _assets = imageURLs
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
             .map { FileAsset(url: $0) }
     }
