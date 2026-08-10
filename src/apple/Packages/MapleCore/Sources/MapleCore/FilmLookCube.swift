@@ -22,9 +22,15 @@
 // DATA itself (`identity.lerp(film, strength/100)` per node, in the
 // gamma-encoded domain). Core Image's own tri-linear cube interpolation
 // (vs. raw-core's tetrahedral `tetra_sample`) and the linear-vs-encoded
-// blend domain both introduce a small, bounded divergence from the
-// reference — acceptable for this interactive display path; the export
-// path (`EditSession+FilmExport.swift`) stays bit-exact via
+// blend domain both introduce divergence from the reference — MEASURED
+// (not asserted) by `FilmLookCubeDivergenceTests`, which composites this
+// exact filter on top of a `maple-cli`-rendered no-film PNG and diffs
+// against `maple_render_file_with_film`'s exact output for the same look:
+// on `test_0005.RAF` / `color_negative_kodak_portra_400`, mean ΔE2000 =
+// 0.39 (strength 100) / 0.52 (strength 50), max = 2.87 / 2.88 — see that
+// test file for the full numbers and methodology. Acceptable for this
+// interactive display path; the export path
+// (`EditSession+FilmExport.swift`) stays bit-exact via
 // `maple_render_file_with_film`.
 //
 // Cost: baking a 33-node cube is a ~36k-iteration scalar loop (well under
