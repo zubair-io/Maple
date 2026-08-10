@@ -82,7 +82,21 @@ struct FilmSection: View {
                 }
             }
         }
-        .frame(maxHeight: 280)
+        // A FIXED height (not `maxHeight:`) rather than a ceiling: every
+        // host that mounts `FilmSection` (`ControlCard`, `FlyoutSliderPanel`,
+        // `StackedAdjustmentsPanel`, `MobileControlBar`,
+        // `IPhoneLegacyControlBar`) hugs its content with no height of its
+        // own, and `StackedAdjustmentsPanel` additionally nests this list
+        // inside its own outer `ScrollView(.vertical)` — a `maxHeight:`
+        // ceiling only caps an already-resolved ideal size, so an ambiguous
+        // proposal from either kind of host can still resolve smaller than
+        // the ~600-row catalog needs, clipping the tail with nothing left to
+        // scroll. A fixed height removes the ambiguity outright: this region
+        // is always exactly this tall, so its own scroll is never in
+        // question. `.clipped()` backstops the boundary so a stray row
+        // can't bleed past it while a host is still settling layout.
+        .frame(height: 240)
+        .clipped()
     }
 
     private var noneRow: some View {
