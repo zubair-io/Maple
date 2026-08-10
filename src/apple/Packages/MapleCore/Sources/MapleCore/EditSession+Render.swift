@@ -170,6 +170,13 @@ extension EditSession {
         let cachedWbFrame = snapshot.wbFrame
         // #1781/#1976: frame as-shot anchor when a frame is present (wbDeltaAnchor).
         let asShot: ImageEditPipeline.AsShotWB? = wbDeltaAnchor
+        // Resolved on MainActor, once, shared by both branches below — see
+        // `FilmLookCube.apply`'s doc comment for why this closes #2713 for
+        // the CPU fallback chain. `filmLutStore`'s cache is a plain,
+        // unsynchronized class, so this call (like its other callers) must
+        // stay on MainActor rather than racing from either branch's
+        // detached render task.
+        let filmLattice = filmLutStore.lattice(for: m.filmLook)
         // Auto Profile (#812) fetch is NOT resolved here. It used to be fetched
         // unconditionally at this point, but that runs a cold per-image FFI fit
         // (seconds + a multi-GB develop transient on a 100MP RAW) even when the
@@ -238,15 +245,17 @@ extension EditSession {
                 // Auto Profile LUT now, immediately before the fallback filter
                 // chain that actually uses it.
                 //
-                // KNOWN GAP (#2713, epic #2683): this CPU fallback chain
+                // #2713 / epic #2683: this CPU fallback chain
                 // (`processSceneLinear`/`processSceneLinearNonRaw`, via
-                // `maple_apply_scene_linear_chain_f32`) does NOT apply
-                // `model.filmLook` — that FFI struct has no film field yet.
-                // This is production-reachable whenever GPU-live is on but a
-                // present fails (`gpuPresentFailed`), not just when
-                // `MAPLE_GPU_LIVE=0`. Tracked as a staged follow-up, not a
-                // silent hole — see #2713 for the raw-ffi work needed to
-                // close it.
+                // `maple_apply_scene_linear_chain_f32`) still has no
+                // `model.filmLook` field in that FFI struct — but its output
+                // is display-encoded sRGB, the same domain a `.mlut` lattice
+                // is baked in, so `FilmLookCube.apply` below composites the
+                // look as a `CIColorCubeWithColorSpace` on top of the CIImage
+                // result instead of inside the FFI chain. That closes the gap
+                // for THIS (interactive canvas) path — `EditSession+
+                // FilmExport.swift`'s non-RAW export path is untouched, still
+                // tracked under #2713.
                 let profileLUT = await autoProfileLUTForCPURender(asset: asset, model: m)
                 MemoryProbe.sample("after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
                 // The fit is a multi-second suspension on a cold image, and the
@@ -258,7 +267,7 @@ extension EditSession {
                     return
                 }
                 image = await Task.detached(priority: .userInitiated) {
-                    mapleStage(filterStageName) {
+                    let processed = mapleStage(filterStageName) { () -> CIImage in
                         if !isRaw {
                             return pipeline.processSceneLinearNonRaw(
                                 decoded: cached, model: m, targetSize: processTarget,
@@ -275,6 +284,7 @@ extension EditSession {
                             wbFrame: cachedWbFrame
                         )
                     }
+                    return FilmLookCube.apply(to: processed, lattice: filmLattice, strengthPct: m.filmStrength)
                 }.value
             } else {
                 // Both phases decode to their bounded display target so the
@@ -353,15 +363,11 @@ extension EditSession {
                 // Auto Profile LUT now, immediately before the fallback filter
                 // chain that actually uses it.
                 //
-                // KNOWN GAP (#2713, epic #2683): this CPU fallback chain
-                // (`processSceneLinear`/`processSceneLinearNonRaw`, via
-                // `maple_apply_scene_linear_chain_f32`) does NOT apply
-                // `model.filmLook` — that FFI struct has no film field yet.
-                // This is production-reachable whenever GPU-live is on but a
-                // present fails (`gpuPresentFailed`), not just when
-                // `MAPLE_GPU_LIVE=0`. Tracked as a staged follow-up, not a
-                // silent hole — see #2713 for the raw-ffi work needed to
-                // close it.
+                // #2713 / epic #2683: see the cached branch above — the film
+                // look is composited as a `CIColorCubeWithColorSpace` on the
+                // FFI chain's display-encoded output rather than inside the
+                // FFI struct itself, closing the gap for this (interactive
+                // canvas) path.
                 let profileLUT = await autoProfileLUTForCPURender(asset: asset, model: m)
                 MemoryProbe.sample("after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
                 // Same bail as the cached branch: the fit suspension may have
@@ -372,7 +378,7 @@ extension EditSession {
                     return
                 }
                 let processed = await Task.detached(priority: .userInitiated) {
-                    mapleStage(filterStageName) {
+                    let developed = mapleStage(filterStageName) { () -> CIImage in
                         if !isRaw {
                             return pipeline.processSceneLinearNonRaw(
                                 decoded: decoded, model: m, targetSize: processTarget,
@@ -389,6 +395,7 @@ extension EditSession {
                             wbFrame: freshWbFrame
                         )
                     }
+                    return FilmLookCube.apply(to: developed, lattice: filmLattice, strengthPct: m.filmStrength)
                 }.value
                 image = processed
             }

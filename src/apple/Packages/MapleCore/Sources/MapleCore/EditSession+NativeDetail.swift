@@ -75,6 +75,13 @@ extension EditSession {
         let m = model
         let pipeline = self.pipeline
         let renderer = nativeDetailRenderer
+        // Resolved on MainActor (matching `filmLutStore`'s other callers,
+        // `syncFilmLutForPresent`/`renderExportWithFilmLook`) — its cache
+        // is a plain, unsynchronized class, so every call must stay on
+        // MainActor rather than racing from the detached render below.
+        // `Optional<(data:[Float], size:Int, key:UInt32)>` is Sendable, so
+        // it captures cleanly into the detached closure (#2683 / #2713).
+        let filmLattice = filmLutStore.lattice(for: m.filmLook)
         let snapshot = await renderActor.snapshot(forAsset: asset)
         adoptDecodedWbFrame(snapshot.wbFrame)
         // #1976: the live WB delta is applied ONCE, by `processSceneLinear`
@@ -139,7 +146,19 @@ extension EditSession {
                     iso: snapshot.iso,
                     wbFrame: snapshot.wbFrame
                 )
-                let cropped = processed.cropped(to: localDetailRect)
+                // Film look (#2683): `processSceneLinear`'s output is
+                // already the final gamma-encoded sRGB image, the same
+                // domain the `.mlut` lattice is baked in — bake the cube
+                // here rather than in the FFI chain (#2713). Closes the
+                // "film vanishes at 100% zoom" gap: this is the CPU
+                // native-detail path that renders every interactive
+                // pixel-for-pixel refine.
+                let filmed = FilmLookCube.apply(
+                    to: processed,
+                    lattice: filmLattice,
+                    strengthPct: m.filmStrength
+                )
+                let cropped = filmed.cropped(to: localDetailRect)
                 guard let cg = pipeline.materializeRegion(
                     cropped,
                     rect: localDetailRect
