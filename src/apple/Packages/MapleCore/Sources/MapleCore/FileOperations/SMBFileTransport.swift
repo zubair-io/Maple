@@ -25,6 +25,27 @@ public protocol SMBFileTransport: Sendable {
     func createDirectory(atPath path: String) async throws
     func moveItem(atPath path: String, toPath: String) async throws
     func setAttributes(attributes: [URLResourceKey: Any], ofItemAtPath path: String) async throws
+    /// Whole-file read, added for the on-share `.maple/thumbs/` cache
+    /// (#2690): `SMBThumbCache` reads/writes through this same protocol so
+    /// its tests substitute `FakeSMBTransport` instead of requiring a live
+    /// SMB server, mirroring the relocate engine's existing seam. Named
+    /// distinctly from AMSMB2's own overloaded `contents(atPath:range:)` —
+    /// that method is generic over `RangeExpression` with a defaulted
+    /// `progress` parameter, which doesn't structurally satisfy a
+    /// non-generic protocol requirement of the same name, so the `SM2Manager`
+    /// conformance below wraps it explicitly instead of matching for free.
+    func readFile(atPath path: String) async throws -> Data
+    /// Whole-file write — same naming rationale as `readFile` above; wraps
+    /// AMSMB2's `write(data:toPath:progress:)`.
+    func writeFile(data: Data, toPath path: String) async throws
 }
 
-extension SMB2Manager: SMBFileTransport {}
+extension SMB2Manager: SMBFileTransport {
+    public func readFile(atPath path: String) async throws -> Data {
+        try await contents(atPath: path, range: Range<UInt64>?.none)
+    }
+
+    public func writeFile(data: Data, toPath path: String) async throws {
+        try await write(data: data, toPath: path, progress: nil)
+    }
+}

@@ -163,6 +163,22 @@ public protocol ImageSource: Actor {
     /// nothing to hand back yet (e.g. Indexer hasn't rendered `.maple/thumbs/`).
     func thumb(for ref: ImageRef) async throws -> Data?
 
+    /// Best-effort write-back for a freshly rendered thumbnail (#2690) —
+    /// called by `ThumbnailLoader`'s sourceless render-from-bytes fallback
+    /// right after it produces AVIF bytes for `ref`, so a source that owns a
+    /// shared/persistent thumb location (e.g. `SMBSource`'s on-share
+    /// `.maple/thumbs/`) can persist them there: the NEXT session — and
+    /// every other Maple client reading that same location — then hits via
+    /// `thumb(for:)` instead of re-rendering. Default no-op (see the
+    /// extension below) — sources with no such location (PhotoKit, plain
+    /// filesystem, which already writes its own asset-relative
+    /// `.maple/thumbs/` via `ThumbnailDiskCache`/`ThumbnailLoader` keyed by
+    /// URL, not by source) don't need to override this. MUST NOT throw or
+    /// block the caller on failure — a write-only cache miss degrades
+    /// silently to "this session re-renders it next time," never to a
+    /// user-visible error.
+    func writeThumb(_ data: Data, for ref: ImageRef) async
+
     /// ~1600 px preview bytes (JPEG). Returns `nil` when not rendered yet.
     func preview(for ref: ImageRef) async throws -> Data?
 
@@ -177,6 +193,14 @@ public protocol ImageSource: Actor {
     /// search at all (filesystem, SMB, PhotoKit without a local index);
     /// returns `.some([])` when it can search but found nothing.
     func search(_ query: SearchQuery) async throws -> [ImageRef]?
+}
+
+// MARK: - ImageSource default write-back
+
+extension ImageSource {
+    /// Default no-op — see the protocol requirement's doc comment. Only
+    /// `SMBSource` overrides this today.
+    public func writeThumb(_ data: Data, for ref: ImageRef) async {}
 }
 
 // MARK: - ImageSourceError
