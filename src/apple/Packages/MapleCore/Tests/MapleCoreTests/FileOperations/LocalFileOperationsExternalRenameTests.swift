@@ -105,6 +105,49 @@ final class LocalFileOperationsExternalRenameTests: XCTestCase {
         XCTAssertFalse(FileOperationsTestSupport.exists(oldThumb))
     }
 
+    // MARK: - Case-only rename (#2656 review — I5)
+
+    func testCaseOnlyRenameMovesTheSidecarInsteadOfBeingMistakenForAStaleMatch() async throws {
+        let oldURL = root.appendingPathComponent("IMG_1.dng")
+        let newURL = root.appendingPathComponent("img_1.dng")
+        FileOperationsTestSupport.write("pixels", to: oldURL)
+        FileOperationsTestSupport.write("<xmp edits='real'/>", to: SidecarPath.sidecarURL(for: oldURL))
+
+        // A real case-only rename, exactly what Finder does for "just change
+        // the casing" — same inode, new stored casing. On APFS (case-
+        // insensitive-but-case-preserving), `fileExists(atPath:)` for
+        // EITHER casing now resolves to this same file.
+        try FileManager.default.moveItem(at: oldURL, to: newURL)
+
+        let applied = await LocalFileOperations.applyExternalRename(
+            oldPrimaryPath: oldURL.path, newPrimaryPath: newURL.path)
+
+        XCTAssertTrue(
+            applied,
+            "a case-only rename must not be mistaken for a stale match — the plain "
+            + "'!fileExists(old) && fileExists(new)' check alone resolves case-insensitively and would wrongly decline this")
+
+        // The stored casing on disk must have actually followed the rename
+        // — this is what distinguishes "the fix worked" from "nothing ran
+        // but the case-insensitive read happened to still find the old
+        // sidecar under its original casing."
+        let contents = try FileManager.default.contentsOfDirectory(atPath: root.path)
+        XCTAssertTrue(contents.contains("img_1.xmp"), "the sidecar's stored casing must follow the rename")
+        XCTAssertFalse(contents.contains("IMG_1.xmp"))
+    }
+
+    func testCaseOnlyRenameWithNoSidecarStillApplies() async throws {
+        let oldURL = root.appendingPathComponent("IMG_1.dng")
+        let newURL = root.appendingPathComponent("img_1.dng")
+        FileOperationsTestSupport.write("pixels", to: oldURL)
+        try FileManager.default.moveItem(at: oldURL, to: newURL)
+
+        let applied = await LocalFileOperations.applyExternalRename(
+            oldPrimaryPath: oldURL.path, newPrimaryPath: newURL.path)
+
+        XCTAssertTrue(applied, "a case-only rename with nothing to move for the sidecar is still a successful apply")
+    }
+
     func testAppliesRenameCarriesCullingToTheNewLibraryIndexEntry() async throws {
         let oldURL = root.appendingPathComponent("IMG_1.dng")
         let newURL = root.appendingPathComponent("IMG_2.dng")
@@ -121,5 +164,29 @@ final class LocalFileOperationsExternalRenameTests: XCTestCase {
         let newEntry = try XCTUnwrap(index?.entries["IMG_2.dng"])
         XCTAssertEqual(newEntry.stars, 4)
         XCTAssertEqual(newEntry.flag, "pick")
+    }
+
+    // MARK: - Shared LibraryIndexStore (#2656 review — B4)
+
+    func testUsesTheProvidedLibraryIndexStoreInsteadOfConstructingAFreshOne() async throws {
+        let oldURL = root.appendingPathComponent("IMG_1.dng")
+        let newURL = root.appendingPathComponent("IMG_2.dng")
+        FileOperationsTestSupport.write("pixels", to: newURL)
+
+        let sharedStore = LibraryIndexStore(folderURL: root)
+        try await sharedStore.updateEntry(name: "IMG_1.dng", culling: CullingState(stars: 5, flag: .pick))
+
+        let applied = await LocalFileOperations.applyExternalRename(
+            oldPrimaryPath: oldURL.path, newPrimaryPath: newURL.path, libraryIndexStore: sharedStore)
+
+        XCTAssertTrue(applied)
+        // Read back through the SAME instance the caller passed in — proves
+        // the write actually went through it rather than a fresh, separate
+        // `LibraryIndexStore` racing the same `index.json`.
+        let index = try await sharedStore.load()
+        XCTAssertNil(index?.entries["IMG_1.dng"])
+        let entry = try XCTUnwrap(index?.entries["IMG_2.dng"])
+        XCTAssertEqual(entry.stars, 5)
+        XCTAssertEqual(entry.flag, "pick")
     }
 }
