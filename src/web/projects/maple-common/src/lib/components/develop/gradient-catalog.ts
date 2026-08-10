@@ -13,7 +13,7 @@
 import type { ToolId } from '../../editor/tool-model';
 
 /** Sub-param ids that carry their own gradient override. */
-export type SubParamGradientKey = string;
+type SubParamGradientKey = string;
 
 /** Gradient entry: a CSS `linear-gradient(...)` value string. */
 export type GradientValue = string;
