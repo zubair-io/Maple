@@ -126,4 +126,51 @@ final class FilesystemSourceExternalRenameTests: XCTestCase {
         XCTAssertFalse(FileOperationsTestSupport.exists(SidecarPath.sidecarURL(for: renamedURL)),
                        "renamed.dng must not inherit either photo's edits")
     }
+
+    // MARK: - Reentrancy guard (#2656 review — B3)
+
+    /// `_index()` suspends mid-flight (at the reconcile `await`, or —
+    /// deterministically for this test — at `indexTestDelayNanoseconds`'s
+    /// sleep). `FilesystemSource` is an actor, so a SECOND `_index()` call
+    /// can start and finish inside that window. Without the generation
+    /// guard, the first (now-stale) call resuming afterward would overwrite
+    /// `_assets` with its own outdated listing, silently undoing the
+    /// fresher scan. This reproduces that window deterministically: a slow
+    /// call captures the folder as `[a, b]`, a fast call that starts and
+    /// finishes entirely while the slow one is sleeping changes the folder
+    /// to `[a, c]` — the slow call's write, once it finally resumes, must
+    /// be dropped.
+    func testAStaleReentrantIndexCallDoesNotOverwriteAFresherOne() async throws {
+        let aURL = tmpDir.appendingPathComponent("a.dng")
+        try Data("pixels".utf8).write(to: aURL)
+
+        let source = FilesystemSource()
+        await source.setExternalRenameFingerprintProvider(stubProvider)
+        try await source.open(folderURL: tmpDir)  // generation 1, assets = [a]
+
+        // Slow this NEXT `_index()` call down so a concurrent, faster call
+        // can complete entirely while it's suspended.
+        await source.setIndexTestDelayNanoseconds(500_000_000)
+        try Data("pixels".utf8).write(to: tmpDir.appendingPathComponent("b.dng"))
+
+        async let slowCall: () = source._index()  // generation 2, will see [a, b], then sleep 0.5s
+
+        // Give the slow call time to pass its directory listing and reach
+        // the sleep before mutating the folder further.
+        try await Task.sleep(nanoseconds: 150_000_000)
+
+        // A second, fast call (delay reset to 0) sees a DIFFERENT folder
+        // state and finishes completely before the slow call wakes up.
+        await source.setIndexTestDelayNanoseconds(0)
+        try FileManager.default.removeItem(at: tmpDir.appendingPathComponent("b.dng"))
+        try Data("pixels".utf8).write(to: tmpDir.appendingPathComponent("c.dng"))
+        try await source._index()  // generation 3, assets = [a, c]
+
+        _ = try await slowCall  // generation 2 resumes; must see itself stale and drop its write
+
+        let names = await source.assets.map(\.name)
+        XCTAssertEqual(
+            Set(names), ["a", "c"],
+            "the fresher (generation 3) result must win; the stale (generation 2) call must not overwrite it with [a, b]")
+    }
 }
