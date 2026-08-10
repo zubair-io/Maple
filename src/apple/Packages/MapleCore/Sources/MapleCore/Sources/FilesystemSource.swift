@@ -9,6 +9,11 @@
 // sidecars (stored alongside) and reads/writes them via XMPSidecarStore.
 
 import Foundation
+import OSLog
+
+/// Shared with `FilesystemSource+ExternalRename.swift` — not file-private,
+/// so both files' log lines land under the same category.
+let filesystemSourceLog = Logger(subsystem: "app.justmaple.aperture", category: "FilesystemSource")
 
 // MARK: - FilesystemSource
 
@@ -67,7 +72,8 @@ public actor FilesystemSource {
     /// every browse. `nil` until a folder is opened/restored; reset to
     /// `nil` in `close()`. See `MapleIdCache.swift` for the multi-writer
     /// design.
-    private var idCache: MapleIdCacheStore?
+    /// Not file-private — `FilesystemSource+MapleId.swift` reads this.
+    var idCache: MapleIdCacheStore?
 
     /// Live folder-content watcher (#2656) — fires (debounced) whenever a
     /// direct child of the open folder is created, removed, or renamed, so
@@ -75,8 +81,39 @@ public actor FilesystemSource {
     /// reconciled without waiting for the next `open()`. `nil` until a
     /// folder is opened/restored, or when `FolderChangeWatcher.init?`
     /// itself fails (best-effort — see its doc comment); reset to `nil` in
-    /// `close()`.
-    private var changeWatcher: FolderChangeWatcher?
+    /// `close()`. Not file-private — `FilesystemSource+ExternalRename.swift`
+    /// (`startWatchingForExternalChanges` and friends) reads/writes this.
+    var changeWatcher: FolderChangeWatcher?
+
+    /// Owned per-folder `LibraryIndex` store (#2656 review — B4). Created
+    /// fresh in `open()`/`restore()`, reset to `nil` in `close()`, and
+    /// passed into every `ExternalRenameReconciler.reconcile` call for this
+    /// folder's lifetime — sharing ONE actor instance means every
+    /// fingerprint read/write for this folder is serialized through it,
+    /// instead of racing independent `LibraryIndexStore` instances that each
+    /// re-read `index.json` from disk and can silently drop each other's
+    /// writes (last `save()` wins).
+    private var libraryIndexStore: LibraryIndexStore?
+
+    /// Bumped at the top of every `_index()` call (#2656 review — B3).
+    /// `FilesystemSource` is an actor, and `_index()` suspends at its
+    /// `await ExternalRenameReconciler.reconcile(...)` call — actor
+    /// reentrancy means a SECOND `_index()` (the watcher firing while
+    /// `open()`'s own `_index()` is still mid-flight, or two watcher ticks
+    /// racing) can start and finish in that gap. Without a check, the first
+    /// call resuming afterward would overwrite `_assets` with its own
+    /// now-stale listing, silently undoing the fresher scan. Each call
+    /// captures its own generation and only writes `_assets` if it's still
+    /// the most recent one when it resumes.
+    private var indexGeneration: Int = 0
+
+    /// Test seam (#2656 review — B3): when nonzero, `_index()` sleeps this
+    /// long right before its generation check / `_assets` write — widens
+    /// the reentrancy window `indexGeneration` guards against from
+    /// "whatever the real `await` happens to take" to something a test can
+    /// control deterministically. Zero (the default) in production: no
+    /// delay, no behavior change. `internal`, not `public`.
+    var indexTestDelayNanoseconds: UInt64 = 0
 
     /// Test seam (#2656): overridable so tests can inject deterministic
     /// fingerprints without real EXIF-bearing fixtures on disk — see
@@ -85,19 +122,12 @@ public actor FilesystemSource {
     /// `internal`, not `public` — production callers always get `.live`.
     var externalRenameFingerprintProvider: @Sendable (URL) -> ExternalRenameFingerprint? = ExternalRenameFingerprint.live
 
-    /// Test seam (#2656): sets `externalRenameFingerprintProvider` from
-    /// outside the actor. A plain property assignment works too (actor
-    /// state is externally settable via `await`), but a dedicated method
-    /// reads more clearly at call sites than `await source.foo = bar`.
-    func setExternalRenameFingerprintProvider(_ provider: @escaping @Sendable (URL) -> ExternalRenameFingerprint?) {
-        externalRenameFingerprintProvider = provider
-    }
-
     /// Bytes read per `FallbackFormHasher.update(_:)` call when streaming a
     /// whole file for fallback-form id derivation — bounded so a 100+ MB RAW
     /// is never held in memory as one buffer. 4 MiB balances syscall count
     /// against peak memory; not a tuned constant, just a reasonable bound.
-    private static let fallbackHashChunkSize = 4 * 1024 * 1024
+    /// Not file-private — `FilesystemSource+MapleId.swift` reads this.
+    static let fallbackHashChunkSize = 4 * 1024 * 1024
 
     public var assets: [FileAsset] { _assets }
     /// Expose the scope-backed ancestor so other parts of the pipeline can
@@ -129,6 +159,7 @@ public actor FilesystemSource {
             relativeTo: nil
         )
         self.idCache = MapleIdCacheStore(folderURL: folderURL)
+        self.libraryIndexStore = LibraryIndexStore(folderURL: folderURL)
         try await _index()
         startWatchingForExternalChanges(folderURL)
         // Deliberately DO NOT stopAccessingSecurityScopedResource here — the
@@ -155,6 +186,7 @@ public actor FilesystemSource {
             ? try url.bookmarkData(options: Self.bookmarkCreationOptions, includingResourceValuesForKeys: nil, relativeTo: nil)
             : data
         self.idCache = MapleIdCacheStore(folderURL: url)
+        self.libraryIndexStore = LibraryIndexStore(folderURL: url)
         try await _index()
         startWatchingForExternalChanges(url)
         // Keep scope open — see `open(folderURL:)` for rationale.
@@ -174,6 +206,7 @@ public actor FilesystemSource {
         bookmarkData = nil
         _assets = []
         idCache = nil
+        libraryIndexStore = nil
     }
 
     /// Stop accessing the security-scoped resource, if we've been holding
@@ -204,30 +237,6 @@ public actor FilesystemSource {
         }
     }
 
-    /// Start a live watcher on `folder` (#2656) so an external rename made
-    /// in Finder while this folder is open gets reconciled without waiting
-    /// for the next `open()`. Best-effort: `FolderChangeWatcher.init?`
-    /// returning `nil` (folder unreadable for `O_EVTONLY`) just means no
-    /// live reconciliation this session — the next-launch rescan path is
-    /// unaffected. `[weak self]` — the watcher must never keep this actor
-    /// alive past `close()`/`deinit`.
-    private func startWatchingForExternalChanges(_ folder: URL) {
-        changeWatcher?.stop()
-        changeWatcher = FolderChangeWatcher(folderURL: folder) { [weak self] in
-            Task { await self?.reindexAfterExternalChange() }
-        }
-    }
-
-    /// The watcher's debounced callback: re-run `_index()`, which re-scans
-    /// the folder and reconciles through `ExternalRenameReconciler` exactly
-    /// like a fresh `open()` would. Errors are swallowed — a transient
-    /// listing failure (folder briefly unavailable mid-rename) just means
-    /// this live refresh is skipped; the next FS event or app relaunch
-    /// tries again.
-    private func reindexAfterExternalChange() async {
-        try? await _index()
-    }
-
     // MARK: Private (internal for #2656 test seam — see below)
 
     /// List RAW files **directly** inside `folderURL` — not recursively.
@@ -241,12 +250,18 @@ public actor FilesystemSource {
     /// here means the sidecar has already followed by the time `_assets`
     /// (and thus `images()`) reflects the new filename.
     ///
+    /// Reentrancy-safe (#2656 review — B3): captures its own generation and
+    /// only writes `_assets` if it's still the most recent call when it
+    /// resumes past the `await` below — see `indexGeneration`'s doc comment.
+    ///
     /// `internal`, not `private`: `FilesystemSourceExternalRenameTests`
     /// calls this directly to simulate the watcher's debounced callback
     /// firing (real `DispatchSource` timing is covered separately, and much
     /// more cheaply, by `FolderChangeWatcherTests`).
     func _index() async throws {
         guard let folder = folderURL else { return }
+        indexGeneration += 1
+        let generation = indexGeneration
         // Scope is already claimed in `open(folderURL:)` / `restore(...)` and
         // held for the life of the source — no need to re-bracket here.
 
@@ -258,100 +273,25 @@ public actor FilesystemSource {
         )
         let imageURLs = contents.filter { SupportedImageExtensions.all.contains($0.pathExtension.lowercased()) }
 
-        await ExternalRenameReconciler.reconcile(
-            folderURL: folder, currentFiles: imageURLs, fingerprintProvider: externalRenameFingerprintProvider)
+        if let store = libraryIndexStore {
+            await ExternalRenameReconciler.reconcile(
+                store: store, folderURL: folder, currentFiles: imageURLs,
+                fingerprintProvider: externalRenameFingerprintProvider)
+        }
 
+        if indexTestDelayNanoseconds > 0 {
+            try? await Task.sleep(nanoseconds: indexTestDelayNanoseconds)
+        }
+
+        // A newer `_index()` call already completed and wrote `_assets`
+        // while this one was suspended above — drop this stale write rather
+        // than clobber the fresher result.
+        guard generation == indexGeneration else { return }
         _assets = imageURLs
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
             .map { FileAsset(url: $0) }
     }
 
-    // MARK: - maple_id derivation (#1995)
-
-    /// Resolve a maple_id for `asset`, consulting the folder's id-cache
-    /// first (`MapleIdCacheStore.lookup`) and only re-deriving (then
-    /// persisting) on a cache miss or a stale entry (size/mtime mismatch —
-    /// the file was replaced at this path since the id was last computed).
-    /// Returns `nil` when the file's attributes can't be read or derivation
-    /// itself fails; `images()` falls back to the file path in that case.
-    private func mapleId(for asset: FileAsset) async -> String? {
-        guard let idCache else { return nil }
-        // `FileManager.attributesOfItem(atPath:)`, NOT `URL.resourceValues
-        // (forKeys:)` — `URL` caches fetched resource values on the URL
-        // value itself, so re-querying the SAME `FileAsset.url` (stored once
-        // in `_assets`, reused across every `images()` call) after the file
-        // changed on disk can silently return the FIRST call's stale
-        // snapshot instead of a fresh stat(). `attributesOfItem(atPath:)`
-        // has no such cache — every call is a real stat(2).
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: asset.url.path),
-              let size = (attrs[.size] as? NSNumber)?.int64Value,
-              let modDate = attrs[.modificationDate] as? Date
-        else { return nil }
-
-        let sizeI64 = size
-        let mtime = modDate.timeIntervalSince1970
-        // Non-recursive listing (`_index()`) means every asset's filename is
-        // already a stable, unambiguous key within this folder — no need
-        // for the full absolute path.
-        let cacheKey = asset.url.lastPathComponent
-
-        if let cached = await idCache.lookup(path: cacheKey, size: sizeI64, mtime: mtime) {
-            return cached
-        }
-        guard let derived = await deriveMapleId(for: asset, filesize: sizeI64) else { return nil }
-        await idCache.record(path: cacheKey, mapleId: derived, size: sizeI64, mtime: mtime)
-        return derived
-    }
-
-    /// Derive a maple_id from scratch: read the first 64 KB + raw EXIF
-    /// capture-date strings for the primary-form attempt, and hand a
-    /// chunked `FileHandle` reader to `MapleIdDerivation.derive` for the
-    /// fallback-form path so a large RAW is never held in memory as one
-    /// buffer.
-    private func deriveMapleId(for asset: FileAsset, filesize: Int64) async -> String? {
-        guard let handle = try? FileHandle(forReadingFrom: asset.url) else { return nil }
-        defer { try? handle.close() }
-
-        let headBytes = (try? handle.read(upToCount: Self.mapleIdHeadByteCount)) ?? Data()
-        let dates = ImageMetadataReader.readRawCaptureDateStrings(from: asset.url)
-        // Rewind — the head read above consumed the handle's offset, and
-        // the fallback-form path (if reached) needs the WHOLE file from
-        // byte 0, head bytes included. A silently-swallowed seek failure
-        // here would corrupt the fallback-form hash (missing its first 64
-        // KB) without any signal, so this checks explicitly rather than
-        // `try?`-and-proceed.
-        do {
-            try handle.seek(toOffset: 0)
-        } catch {
-            return nil
-        }
-
-        // `try` (not `try?`) inside the closure: a transient
-        // `FileHandle.read` error must reach `derive`'s `rethrows`
-        // propagation, not collapse to empty `Data` — which `derive`'s loop
-        // reads as EOF, silently hashing only a prefix of the file into a
-        // wrong fallback-form id. `derive`'s own `try?` at this call site
-        // catches that (and any other) thrown error and collapses it to
-        // `nil`, matching this function's established fail-safe-to-nil
-        // contract (mirrors `SMBSource.deriveMapleId`'s identical
-        // throw-then-`try?` shape for the same reason).
-        return try? await MapleIdDerivation.derive(
-            headBytes: headBytes,
-            exifDateTimeOriginal: dates.dateTimeOriginal,
-            exifCreateDate: dates.createDate,
-            filesize: UInt64(filesize),
-            nextChunk: {
-                try handle.read(upToCount: Self.fallbackHashChunkSize) ?? Data()
-            }
-        )
-    }
-
-    /// First 64 KB of a file — the bound the primary-form head hash reads.
-    /// Matches `raw_core::SHA1_HEAD_BYTES` (`id.rs`); duplicated as a literal
-    /// rather than threaded across the FFI boundary for a single integer —
-    /// `MapleId.primary` ignores anything past this bound regardless of how
-    /// much the caller hands it, so reading more here would just waste I/O.
-    fileprivate static let mapleIdHeadByteCount = 64 * 1024
 }
 
 // MARK: - ImageSource conformance

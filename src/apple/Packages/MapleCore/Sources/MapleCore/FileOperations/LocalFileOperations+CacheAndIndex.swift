@@ -54,19 +54,30 @@ extension LocalFileOperations {
     /// over from the old entry when one existed, so a moved photo doesn't
     /// transiently look unflagged to a consumer reading the index cache
     /// before the folder is next fully rebuilt.
-    static func refreshLibraryIndexAfterMove(_ plan: RelocatePlan) async {
+    ///
+    /// `externalStore`, when provided, is used for BOTH the old and new
+    /// folder instead of constructing fresh `LibraryIndexStore` actors
+    /// (#2656): a caller that already owns a persistent store for this
+    /// folder — `FilesystemSource` does, for the folder it has open — must
+    /// route every read/write for that folder through the SAME actor
+    /// instance, or two independent instances racing the same `index.json`
+    /// can silently drop each other's writes (last `save()` wins). Callers
+    /// only ever pass this when old and new share a folder (same-folder
+    /// external rename is the only caller that does); a cross-folder
+    /// `relocate()` still gets fresh, per-folder instances as before.
+    static func refreshLibraryIndexAfterMove(_ plan: RelocatePlan, using externalStore: LibraryIndexStore? = nil) async {
         let oldURL = URL(fileURLWithPath: plan.sourcePrimaryPath)
         let newURL = URL(fileURLWithPath: plan.finalPrimaryPath)
         let oldFolder = oldURL.deletingLastPathComponent()
         let newFolder = newURL.deletingLastPathComponent()
 
-        let oldStore = LibraryIndexStore(folderURL: oldFolder)
+        let oldStore = externalStore ?? LibraryIndexStore(folderURL: oldFolder)
         let priorEntry = (try? await oldStore.load())?.entries[oldURL.lastPathComponent]
         try? await oldStore.removeEntry(named: oldURL.lastPathComponent)
 
         let newStore = oldFolder.path == newFolder.path
             ? oldStore
-            : LibraryIndexStore(folderURL: newFolder)
+            : (externalStore ?? LibraryIndexStore(folderURL: newFolder))
         let culling = CullingState(
             stars: priorEntry?.stars ?? 0,
             flag: priorEntry.flatMap { CullFlag(rawValue: $0.flag) } ?? .none
