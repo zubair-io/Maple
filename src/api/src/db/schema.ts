@@ -278,7 +278,7 @@ export interface VisionDoc {
 export interface VisionMeta {
   /** Describe provider that produced this row. */
   provider: 'ollama' | 'anthropic' | 'openai' | 'gemini';
-  /** Concrete model tag, e.g. "gemma4:latest". */
+  /** Concrete model tag, e.g. "gemma4:12b". */
   model: string;
   /** Bumped whenever the system prompt changes. */
   prompt_version: number;

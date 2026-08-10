@@ -22,7 +22,7 @@ describe('DESCRIBE_VISION_OLLAMA_TAG — pinned literal', () => {
   // published it as `qwen2.5vl` (no hyphen). Pinning the literal so a
   // future rename doesn't 404 in CI instead of in prod.
   it("matches Ollama's library tag exactly", () => {
-    expect(DESCRIBE_VISION_OLLAMA_TAG).toBe('gemma4:latest');
+    expect(DESCRIBE_VISION_OLLAMA_TAG).toBe('gemma4:12b');
   });
 
   it('is the default for the Ollama provider', () => {
