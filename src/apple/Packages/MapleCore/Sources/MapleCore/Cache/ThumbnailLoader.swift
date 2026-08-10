@@ -383,16 +383,23 @@ public actor ThumbnailLoader {
                     guard let data = Self.encodeThumbnail(image, ctx: Self.staticEncodeCIContext) else {
                         return nil
                     }
-                    await ThumbnailDiskCache.shared.storeThumbnailData(data, forKey: key)
-                    // Best-effort write-back to the source's own shared
-                    // cache location (#2690) — e.g. SMBSource persists this
-                    // to the on-share `.maple/thumbs/`, so the next session
-                    // (and every other Maple client on the share) hits via
-                    // `source.thumb(for:)` above instead of re-rendering.
-                    // No-op for sources that don't override `writeThumb`.
-                    if let source, let ref {
-                        await source.writeThumb(data, for: ref)
-                    }
+                    // On-share write-back candidate (#2690), re-encoded from
+                    // the SAME already-decoded `image` at the CANONICAL
+                    // contract size/quality — 512px/q0.55, matching the
+                    // API's `THUMB_LONG_EDGE_PX`/`THUMB_AVIF_QUALITY`
+                    // (`MapleThumbCacheKey`'s doc comment) — NOT `data`
+                    // above, which is the smaller 256px/q0.5 local-grid
+                    // render. Persisting the local-grid size to the shared
+                    // path would permanently downgrade that entry for every
+                    // other client, since the API's mtime-freshness guard
+                    // never re-renders over a fresher file once one exists.
+                    let onShareData = Self.encodeThumbnail(
+                        image, ctx: Self.staticEncodeCIContext,
+                        targetLongEdge: MapleThumbCacheKey.onShareThumbLongEdgePx,
+                        quality: MapleThumbCacheKey.onShareThumbAVIFQuality)
+                    await Self.persistFallbackRender(
+                        localData: data, onShareData: onShareData,
+                        key: key, source: source, ref: ref)
                     return data
                 } catch {
                     return nil
@@ -411,11 +418,60 @@ public actor ThumbnailLoader {
         return result
     }
 
+    /// Persists a render-from-bytes fallback's output: stores `localData`
+    /// (the local-grid-sized AVIF) in `ThumbnailDiskCache`, and — when the
+    /// source has somewhere shared to put it — fires the on-share
+    /// write-back as an UNSTRUCTURED, un-awaited `Task` rather than
+    /// `await`ing `source.writeThumb` inline.
+    ///
+    /// This is deliberate (#2690 review): `writeThumb` for `SMBSource` is
+    /// up to four network round trips (create-directory, temp write,
+    /// best-effort remove, rename) over SMB. Awaiting it here would hold
+    /// BOTH the caller of `load(for:from:)` (a grid cell, on a cold
+    /// 200-asset browse that's every cell in the grid) and the decode-slot
+    /// gate (released by the caller right after this function returns)
+    /// through that network round-trip chain — serializing the whole grid
+    /// behind SMB writes on a slow share, which is worse than not having
+    /// an on-share cache at all. Firing detached lets this function — and
+    /// therefore `load(for:from:)` — return as soon as the LOCAL cache
+    /// write lands, exactly like the disk-cache-only behavior before
+    /// `writeThumb` existed; the write-back completes independently and
+    /// its result is never observed by the caller (by design — see
+    /// `ImageSource.writeThumb`'s doc comment on why it can't throw).
+    ///
+    /// Split out from the render closure specifically so this dispatch
+    /// behavior is unit-testable without a real RAW decode (no FFI-mocking
+    /// seam exists for `PipelineRenderer` — see `ThumbnailLoaderTests.swift`'s
+    /// header) — `ThumbnailLoaderWriteBackTests` drives THIS function
+    /// directly with a gated stub source to pin "returns before the
+    /// write-back completes" and "write-back receives the right bytes/ref."
+    static func persistFallbackRender(
+        localData: Data, onShareData: Data?, key: String,
+        source: (any ImageSource)?, ref: ImageRef?
+    ) async {
+        await ThumbnailDiskCache.shared.storeThumbnailData(localData, forKey: key)
+        guard let source, let ref, let onShareData else { return }
+        Task.detached(priority: .background) {
+            await source.writeThumb(onShareData, for: ref)
+        }
+    }
+
     // MARK: - Helpers
 
     /// Downscale the pipeline-produced RGB buffer to the thumbnail long-edge
     /// and AVIF-encode at `ThumbnailEncoder.quality`.
-    private static func encodeThumbnail(_ image: MapleImageData, ctx: CIContext) -> Data? {
+    /// `targetLongEdge`/`quality` default to the local-grid contract (256px
+    /// / `ThumbnailEncoder.quality`). The render-from-bytes fallback also
+    /// calls this with the on-share contract's parameters
+    /// (`MapleThumbCacheKey.onShareThumbLongEdgePx`/`onShareThumbAVIFQuality`,
+    /// #2690) to produce a SEPARATE write-back candidate from the same
+    /// already-decoded `image` — one RAW decode, two encodes, no second FFI
+    /// call.
+    private static func encodeThumbnail(
+        _ image: MapleImageData, ctx: CIContext,
+        targetLongEdge: CGFloat = ThumbnailDiskCache.defaultThumbSize.width,
+        quality: CGFloat = ThumbnailEncoder.quality
+    ) -> Data? {
         guard image.pixels.count == image.width * image.height * 3 else { return nil }
 
         let bitmapInfo = CGImageAlphaInfo.none.rawValue
@@ -435,15 +491,13 @@ public actor ThumbnailLoader {
         ) else { return nil }
 
         var ci = CIImage(cgImage: cgImg)
-        // Downscale to 256 px long edge.
-        let target = ThumbnailDiskCache.defaultThumbSize.width
         let longEdge = CGFloat(max(image.width, image.height))
-        if longEdge > target {
-            let scale = target / longEdge
+        if longEdge > targetLongEdge {
+            let scale = targetLongEdge / longEdge
             ci = ci.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         }
 
-        return ThumbnailEncoder.encode(ci, ctx: ctx)
+        return ThumbnailEncoder.encode(ci, ctx: ctx, quality: quality)
     }
 
     /// Extract a poster frame from a video file using AVFoundation (#1642).
