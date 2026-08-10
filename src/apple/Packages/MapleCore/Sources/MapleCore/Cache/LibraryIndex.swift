@@ -29,15 +29,30 @@ public struct LibraryIndex: Codable, Sendable {
         public var stars: Int
         public var flag: String  // "none" | "pick" | "reject"
         public var thumbnailHash: String?
+        /// Cheap external-rename fingerprint (issue #2656) — EXIF
+        /// `DateTimeOriginal` + (when the camera writes one) body serial
+        /// number, captured the last time this file was successfully
+        /// fingerprinted. Both `nil` for entries never fingerprinted (older
+        /// index files decode these as `nil` automatically — additive,
+        /// non-breaking `Codable` fields) or for files ImageIO can't read
+        /// EXIF from at all. `ExternalRenameReconciler` requires
+        /// `dateTimeOriginal` to consider an entry a rename candidate —
+        /// see `ExternalRenameFingerprint`'s doc comment for why a
+        /// size-only fallback is never acceptable.
+        public var dateTimeOriginal: String?
+        public var cameraSerial: String?
 
         public init(name: String, mtime: Date? = nil, size: Int64? = nil,
-                    stars: Int = 0, flag: String = "none", thumbnailHash: String? = nil) {
+                    stars: Int = 0, flag: String = "none", thumbnailHash: String? = nil,
+                    dateTimeOriginal: String? = nil, cameraSerial: String? = nil) {
             self.name = name
             self.mtime = mtime
             self.size = size
             self.stars = stars
             self.flag = flag
             self.thumbnailHash = thumbnailHash
+            self.dateTimeOriginal = dateTimeOriginal
+            self.cameraSerial = cameraSerial
         }
     }
 }
@@ -84,6 +99,29 @@ public actor LibraryIndexStore {
         entry.stars = culling.stars
         entry.flag = culling.flag.rawValue
         if let mtime { entry.mtime = mtime }
+        index?.entries[name] = entry
+        try save()
+    }
+
+    // MARK: - Update fingerprint (#2656)
+
+    /// Record `name`'s cheap external-rename fingerprint (size, mtime, EXIF
+    /// `DateTimeOriginal`, camera serial) without touching its culling
+    /// state — `ExternalRenameReconciler` calls this on every successful
+    /// folder scan so a LATER scan (after this file has vanished, renamed
+    /// away by Finder) still has something to match a newly-appeared file
+    /// against. Creates the entry if this is the first time `name` has been
+    /// seen, exactly like `updateEntry`.
+    public func updateFingerprint(
+        name: String, size: Int64?, mtime: Date?, dateTimeOriginal: String?, cameraSerial: String?
+    ) throws {
+        if index == nil { _ = try? load() }
+        if index == nil { index = LibraryIndex(folderURL: folderURL) }
+        var entry = index?.entries[name] ?? LibraryIndex.LibraryEntry(name: name)
+        entry.size = size
+        entry.mtime = mtime
+        entry.dateTimeOriginal = dateTimeOriginal
+        entry.cameraSerial = cameraSerial
         index?.entries[name] = entry
         try save()
     }
