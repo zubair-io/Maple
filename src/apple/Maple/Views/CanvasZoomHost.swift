@@ -56,6 +56,16 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     /// True when the consumer has pixels to show — the leaf renders
     /// framed + gestured; otherwise the fallback shows.
     let canvasReady: Bool
+    /// Frame (in this host's own local coordinate space) of a floating
+    /// chrome panel currently covering part of the canvas — e.g.
+    /// `FlyoutSliderPanel`'s film catalog list (#2683). `ScrollWheelCatcher`
+    /// is a plain `NSView` sized to the whole canvas and knows nothing about
+    /// SwiftUI's z-order, so without this it swallows every scroll-wheel
+    /// event under its bounds even when a chrome panel is drawn on top —
+    /// hijacking the panel's own `ScrollView` and routing trackpad scroll
+    /// into the armed tool's wheel-nudge (or canvas zoom/pan) instead.
+    /// `nil` when no panel is covering the canvas.
+    var wheelExcludedFrame: CGRect? = nil
     /// The canvas leaf (CIImage raster / GPU layer). The host frames it
     /// to the resolved display frame; the leaf fills that proposal.
     @ViewBuilder let canvasLeaf: () -> CanvasLeaf
@@ -314,6 +324,14 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     /// Wheel routing per the spec §5.0 table. Returns true when the
     /// event was consumed.
     private func handleWheel(_ event: ScrollWheelCatcher.WheelEvent) -> Bool {
+        // The event location falls under a floating chrome panel (e.g. the
+        // Film catalog list) rather than the canvas itself — let it pass
+        // through unhandled so AppKit's normal responder chain can deliver
+        // it to the panel's own `ScrollView`, instead of stealing it for
+        // wheel-nudge / pan / zoom (#2683).
+        if let excluded = wheelExcludedFrame, excluded.contains(event.location) {
+            return false
+        }
         switch controller.wheelIntent(commandHeld: event.commandHeld) {
         case .zoom:
             // Momentum tails from a previous flick shouldn't keep
@@ -368,6 +386,38 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
             .padding(8)
             .accessibilityLabel(FullImageViewVM.zoomAccessibilityLabel(for: scale))
             .accessibilityIdentifier("canvas-zoom-indicator")
+    }
+}
+
+// MARK: - CanvasWheelExclusionFrame (macOS panel → CanvasZoomHost plumbing)
+
+/// Reports a floating chrome panel's frame, in `CanvasZoomHost`'s own
+/// coordinate space, up to the consumer so it can be threaded into
+/// `wheelExcludedFrame` — see that property's doc comment for why (#2683).
+/// `nil` frames (a panel that isn't mounted) clear a stale exclusion rather
+/// than reducing/merging, since exactly one such panel is ever on screen.
+struct CanvasWheelExclusionKey: PreferenceKey {
+    static let defaultValue: CGRect? = nil
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
+        value = nextValue() ?? value
+    }
+}
+
+extension View {
+    /// Marks this view's frame (resolved in the `named` coordinate space
+    /// shared with the hosting `CanvasZoomHost`) as a wheel-exclusion region —
+    /// apply to a floating panel that sits on top of the canvas and owns its
+    /// own scrollable content, so trackpad scroll over it reaches the
+    /// panel's `ScrollView` instead of the canvas's zoom/pan/wheel-nudge.
+    func reportsWheelExclusion(in named: String) -> some View {
+        background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: CanvasWheelExclusionKey.self,
+                    value: proxy.frame(in: .named(named))
+                )
+            }
+        )
     }
 }
 
