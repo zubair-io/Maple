@@ -248,6 +248,74 @@ final class ExternalRenameReconcilerTests: XCTestCase {
         }
     }
 
+    // MARK: - EXIF-less files (#2656 review, jules follow-up)
+
+    /// A file the provider returns `nil` for (a PNG screenshot, a video, a
+    /// corrupt RAW) must still count against `syncFingerprintCache`'s
+    /// per-scan cap — otherwise a folder of thousands of EXIF-less files
+    /// bypasses the cap entirely and reads every one of them in a single
+    /// burst. The cap itself (`maxFingerprintWarmupPerScan`) is private, so
+    /// this drives it indirectly: write more files than any reasonable cap
+    /// (300) and confirm ONE scan does not warm all of them.
+    func testExifLessFilesCountAgainstTheWarmupCap() async throws {
+        let count = 300
+        let urls = (0..<count).map { root.appendingPathComponent("shot-\($0).png") }
+        for url in urls {
+            FileOperationsTestSupport.write("pixels", to: url)
+        }
+        // Every file is "EXIF-less" — the provider always returns nil.
+        let alwaysNil: @Sendable (URL) -> ExternalRenameFingerprint? = { _ in nil }
+
+        _ = await ExternalRenameReconciler.reconcile(
+            store: store, folderURL: root, currentFiles: urls, fingerprintProvider: alwaysNil)
+
+        let firstScanIndex = try await LibraryIndexStore(folderURL: root).load()
+        let attemptedAfterFirstScan = firstScanIndex?.entries.values.filter { $0.fingerprintAttempted == true }.count ?? 0
+        XCTAssertGreaterThan(attemptedAfterFirstScan, 0)
+        XCTAssertLessThan(
+            attemptedAfterFirstScan, count,
+            "a single scan must not warm every EXIF-less file when there are more than the per-scan cap")
+
+        // A second scan (unchanged files) must make progress on the REST —
+        // proves the cap makes warm-up incremental rather than permanently
+        // stuck below full coverage.
+        _ = await ExternalRenameReconciler.reconcile(
+            store: store, folderURL: root, currentFiles: urls, fingerprintProvider: alwaysNil)
+        let secondScanIndex = try await LibraryIndexStore(folderURL: root).load()
+        let attemptedAfterSecondScan = secondScanIndex?.entries.values.filter { $0.fingerprintAttempted == true }.count ?? 0
+        XCTAssertGreaterThan(attemptedAfterSecondScan, attemptedAfterFirstScan)
+    }
+
+    /// Once an EXIF-less file has been recorded (`fingerprintAttempted ==
+    /// true` at its current size/mtime), a LATER scan over the same,
+    /// unchanged folder must not re-invoke the provider for it at all —
+    /// otherwise every single scan (every watcher tick) pays a full
+    /// `ImageIO` read for that file for as long as it sits in the folder.
+    func testUnchangedExifLessFolderTriggersNoProviderCallsOnASecondScan() async throws {
+        let names = ["clip.mov", "screenshot.png", "corrupt.dng"]
+        let urls = names.map { root.appendingPathComponent($0) }
+        for url in urls {
+            FileOperationsTestSupport.write("pixels", to: url)
+        }
+
+        let counter = CallCounter()
+        let countingNilProvider: @Sendable (URL) -> ExternalRenameFingerprint? = { _ in
+            counter.increment()
+            return nil
+        }
+
+        _ = await ExternalRenameReconciler.reconcile(
+            store: store, folderURL: root, currentFiles: urls, fingerprintProvider: countingNilProvider)
+        XCTAssertEqual(counter.current, names.count, "sanity: the first scan must have attempted every file")
+
+        _ = await ExternalRenameReconciler.reconcile(
+            store: store, folderURL: root, currentFiles: urls, fingerprintProvider: countingNilProvider)
+
+        XCTAssertEqual(
+            counter.current, names.count,
+            "an unchanged, already-attempted EXIF-less file must not be re-read on a later scan")
+    }
+
     func testAnUnfingerprintableMissingEntryIsExcludedFromMatching() async throws {
         // The old entry was NEVER successfully fingerprinted (e.g. its EXIF
         // couldn't be read on the scan that saw it) — `dateTimeOriginal` is
