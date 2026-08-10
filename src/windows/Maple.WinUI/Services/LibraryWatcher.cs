@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Threading;
+using Maple.WinUI.Services.FileOperations;
 
 namespace Maple.WinUI.Services
 {
@@ -15,16 +15,20 @@ namespace Maple.WinUI.Services
     /// hundreds of files in seconds; one coalesced (added, removed) callback
     /// keeps the grid update cheap. Sidecar (*.xmp) changes are handled by
     /// SidecarWatcher, not here.
+    ///
+    /// The actual add/remove/rename bookkeeping lives in
+    /// LibraryChangeQueue (Services/FileOperations/LibraryChangeQueue.cs) —
+    /// this class owns only the FileSystemWatcher wiring, the debounce
+    /// timer, and the file-stability probe, none of which that WinUI-free,
+    /// xUnit-tested class can or should own.
     /// </summary>
     public sealed class LibraryWatcher : IDisposable
     {
         private const int DebounceMs = 900;
 
         private readonly Func<string, bool> _isImageFile;
-        private readonly object _gate = new();
-        private readonly HashSet<string> _added = new(StringComparer.OrdinalIgnoreCase);
-        private readonly HashSet<string> _removed = new(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, string> _renamed = new(StringComparer.OrdinalIgnoreCase);
+        private readonly LibraryChangeQueue _queue = new();
+        private readonly object _timerGate = new();
         private FileSystemWatcher? _watcher;
         private Timer? _debounce;
 
@@ -56,8 +60,8 @@ namespace Maple.WinUI.Services
                     IncludeSubdirectories = false,
                     NotifyFilter = NotifyFilters.FileName | NotifyFilters.Size,
                 };
-                watcher.Created += (_, e) => Queue(add: e.FullPath, remove: null);
-                watcher.Deleted += (_, e) => Queue(add: null, remove: e.FullPath);
+                watcher.Created += (_, e) => QueueAdded(e.FullPath);
+                watcher.Deleted += (_, e) => QueueRemoved(e.FullPath);
                 watcher.Renamed += (_, e) => QueueRenamed(e.OldFullPath, e.FullPath);
                 watcher.EnableRaisingEvents = true;
                 _watcher = watcher;
@@ -74,24 +78,36 @@ namespace Maple.WinUI.Services
         {
             _watcher?.Dispose();
             _watcher = null;
-            lock (_gate)
+            lock (_timerGate)
             {
                 // Kill the debounce too — a timer surviving Stop() would fire
                 // Flush() for a folder the user already navigated away from.
                 _debounce?.Dispose();
                 _debounce = null;
-                _added.Clear();
-                _removed.Clear();
-                _renamed.Clear();
             }
+            _queue.Clear();
         }
 
-        /// <summary>Handles a raw FileSystemWatcher Renamed event. Both sides
-        /// image files: recorded as a pending rename pair. Only one side an
-        /// image file: the grid only ever saw (or will ever see) one of the
-        /// two names, so the net effect collapses to a plain arrival or
-        /// departure — reuses <see cref="Queue"/> rather than duplicating its
-        /// stability-probe/coalescing logic.</summary>
+        private void QueueAdded(string path)
+        {
+            if (!_isImageFile(path))
+                return;
+            _queue.QueueAdded(path);
+            RearmDebounce();
+        }
+
+        private void QueueRemoved(string path)
+        {
+            if (!_isImageFile(path))
+                return;
+            _queue.QueueRemoved(path);
+            RearmDebounce();
+        }
+
+        /// <summary>Only one side an image file: the grid only ever saw (or
+        /// will ever see) one of the two names, so the net effect collapses
+        /// to a plain arrival or departure rather than a rename to
+        /// reconcile.</summary>
         private void QueueRenamed(string oldPath, string newPath)
         {
             var oldIsImage = _isImageFile(oldPath);
@@ -100,67 +116,17 @@ namespace Maple.WinUI.Services
                 return;
             if (!oldIsImage)
             {
-                Queue(add: newPath, remove: null);
+                _queue.QueueAdded(newPath);
+                RearmDebounce();
                 return;
             }
             if (!newIsImage)
             {
-                Queue(add: null, remove: oldPath);
+                _queue.QueueRemoved(oldPath);
+                RearmDebounce();
                 return;
             }
-
-            lock (_gate)
-            {
-                // Chain resolution: A->B is already pending and this event is
-                // B->C — collapse to A->C. Without this, the second rename in
-                // a rapid double-rename within one debounce window would try
-                // to move a sidecar that the first rename already moved.
-                var chainedFrom = _renamed.FirstOrDefault(
-                    kv => string.Equals(kv.Value, oldPath, StringComparison.OrdinalIgnoreCase)).Key;
-                if (chainedFrom != null)
-                {
-                    _renamed.Remove(chainedFrom);
-                    _renamed[chainedFrom] = newPath;
-                }
-                else if (_added.Contains(oldPath))
-                {
-                    // The file arrived AND got renamed before this debounce
-                    // window flushed — the app never saw the old name, so
-                    // this is just an arrival under the final name, not a
-                    // rename to reconcile.
-                    _added.Remove(oldPath);
-                    _added.Add(newPath);
-                }
-                else
-                {
-                    _renamed[oldPath] = newPath;
-                }
-                _added.Remove(newPath);
-                _removed.Remove(newPath);
-                _removed.Remove(oldPath);
-            }
-            RearmDebounce();
-        }
-
-        private void Queue(string? add, string? remove)
-        {
-            var addOk = add != null && _isImageFile(add);
-            var removeOk = remove != null && _isImageFile(remove);
-            if (!addOk && !removeOk)
-                return;
-            lock (_gate)
-            {
-                if (addOk)
-                {
-                    _added.Add(add!);
-                    _removed.Remove(add!);
-                }
-                if (removeOk)
-                {
-                    _removed.Add(remove!);
-                    _added.Remove(remove!);
-                }
-            }
+            _queue.QueueRenamed(oldPath, newPath);
             RearmDebounce();
         }
 
@@ -168,7 +134,7 @@ namespace Maple.WinUI.Services
         /// filesystem event. No-op once the watcher is stopped.</summary>
         private void RearmDebounce()
         {
-            lock (_gate)
+            lock (_timerGate)
             {
                 if (_watcher == null)
                     return;
@@ -181,26 +147,16 @@ namespace Maple.WinUI.Services
 
         private void Flush()
         {
-            List<string> candidates;
-            List<string> removed;
-            List<KeyValuePair<string, string>> renameCandidates;
-            lock (_gate)
-            {
-                candidates = _added.ToList();
-                removed = _removed.ToList();
-                renameCandidates = _renamed.ToList();
-                _added.Clear();
-                _removed.Clear();
-                _renamed.Clear();
-            }
+            var drained = _queue.Drain();
 
-            // File probes run OUTSIDE the gate — blocking I/O under the lock
-            // would stall the FileSystemWatcher threads calling Queue(). A file
-            // still mid-copy stays pending; a file that vanished is dropped so
-            // a create+delete flurry can never pin the debounce forever.
+            // File probes run outside any lock — blocking I/O there would
+            // stall the FileSystemWatcher threads calling QueueAdded/
+            // QueueRemoved/QueueRenamed. A file still mid-copy stays
+            // pending; a file that vanished is dropped so a create+delete
+            // flurry can never pin the debounce forever.
             var added = new List<string>();
             var unstable = new List<string>();
-            foreach (var path in candidates)
+            foreach (var path in drained.Added)
             {
                 switch (Probe(path))
                 {
@@ -212,7 +168,7 @@ namespace Maple.WinUI.Services
 
             var renamed = new List<(string OldPath, string NewPath)>();
             var unstableRenames = new List<KeyValuePair<string, string>>();
-            foreach (var pair in renameCandidates)
+            foreach (var pair in drained.Renamed)
             {
                 switch (Probe(pair.Value))
                 {
@@ -222,20 +178,14 @@ namespace Maple.WinUI.Services
                 }
             }
 
-            if (added.Count > 0 || removed.Count > 0)
-                ChangesReady?.Invoke(added, removed);
+            if (added.Count > 0 || drained.Removed.Count > 0)
+                ChangesReady?.Invoke(added, drained.Removed);
             if (renamed.Count > 0)
                 RenamesReady?.Invoke(renamed);
 
             if (unstable.Count == 0 && unstableRenames.Count == 0)
                 return;
-            lock (_gate)
-            {
-                foreach (var path in unstable)
-                    _added.Add(path);
-                foreach (var pair in unstableRenames)
-                    _renamed[pair.Key] = pair.Value;
-            }
+            _queue.Requeue(unstable, unstableRenames);
             RearmDebounce();
         }
 
