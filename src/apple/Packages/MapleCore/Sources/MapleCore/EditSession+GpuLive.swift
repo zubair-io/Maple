@@ -181,6 +181,29 @@ extension EditSession {
             }
         }
 
+        // #2683 round 2: bail BEFORE the Auto Profile fit / film-lut sync
+        // below if a newer render has already superseded this one — both of
+        // those calls mutate persistent `driver` state (the fitted cube, and
+        // `currentFilmLutKey` via `syncFilmLutForPresent`) as a side effect,
+        // independent of whether THIS present goes on to actually run. Left
+        // unguarded, a present that's ABOUT to be dropped by the late
+        // generation gate below still marks the driver "in sync" with the
+        // look this call resolved — and since `syncFilmLutForPresent`'s own
+        // guard is "skip the push when the key already matches," a later,
+        // genuinely-live present for the SAME look sees no key change and
+        // may skip work assuming the drawable already reflects it, when in
+        // fact the frame that would have shown it was the one just dropped.
+        // This early check shrinks that window; the original late check
+        // below stays as the final guard against staleness that develops
+        // during THIS call's own awaits (the readback/open and the fit).
+        if let gen {
+            let live = await renderActor.currentGeneration()
+            guard gen == live, !Task.isCancelled else {
+                editSessionLogger.debug("GPU live present gen=\(gen) stale before film sync (current=\(live)), dropping")
+                return true // handled (intentionally dropped) — do NOT fall to CPU
+            }
+        }
+
         // Auto Profile fit: RAW + Auto only. Non-RAW assets have no rawPath to
         // fit from; their view chain runs through the identity profile artifacts
         // (`params.rs` defaults to the identity curve + 2³ LUT) (#1331).
