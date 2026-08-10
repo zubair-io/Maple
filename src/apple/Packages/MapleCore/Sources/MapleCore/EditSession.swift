@@ -339,7 +339,29 @@ public final class EditSession {
         didSet {
             guard pixelScale != oldValue else { return }
             clearNativeDetailPreview()
-            _scheduleRefine()
+            // #2683 round 2: while zoomed at/past `NativeDetailLOD
+            // .minimumPixelScale`, `refineBody` (EditSession+
+            // RenderScheduling) never calls `decodeAndRender` — every pixel
+            // comes from `refineNativeDetail`'s CPU-only patch, so a GPU-live
+            // present (`presentViaGpuLive`/`syncFilmLutForPresent`) only
+            // happens incidentally, when a model edit triggers its own
+            // fast-phase render while zoomed in, with no guarantee it lands
+            // before the user zooms back out. At fit, `refineBody`'s
+            // `fast == refine` short-circuit then skips `decodeAndRender`
+            // entirely and just persists whatever's already published — so a
+            // look changed while zoomed in can surface stale at fit even
+            // though it rendered correctly at 100%. Force a full fast-phase
+            // render (which always reaches `decodeAndRender`, unlike a bare
+            // `_scheduleRefine()`) on the transition OUT of native-detail
+            // range so the fit view is always fresh; every other change
+            // (entering, or panning/zooming within, native detail) keeps the
+            // cheaper `_scheduleRefine()` path.
+            if oldValue >= NativeDetailLOD.minimumPixelScale,
+               pixelScale < NativeDetailLOD.minimumPixelScale {
+                _scheduleRender(phase: .fast)
+            } else {
+                _scheduleRefine()
+            }
         }
     }
     public var showingOriginal: Bool = false
