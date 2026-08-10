@@ -2,7 +2,7 @@
  * Describe (caption + structured vision) stage.
  *
  * Calls a vision LLM via the describe-provider abstraction (default:
- * Ollama serving gemma4:latest) against the 1280-px preview produced
+ * Ollama serving gemma4:12b) against the 1280-px preview produced
  * by the preview stage, parses the structured-JSON response into a
  * typed `VisionDoc`, and writes:
  *
@@ -341,7 +341,17 @@ const describeStage = defineStage({
   // and produces the same VisionDoc shape on every candidate measured,
   // and the v8 re-describe pass is still working through the library —
   // bumping would restart it for nothing.
-  targetVersion: 8,
+  //
+  // v9: model returns to gemma4:12b. Unlike the v8 swap this DOES bump,
+  // because v8 rows are a mix — some captioned by gemma4:12b before it
+  // stopped responding, some by gemma4:latest after. Two models, one
+  // version number, and `vision_meta.model` is the only way to tell them
+  // apart. Bumping re-captions the corpus under a single known model so
+  // the version means something again.
+  //
+  // Cost is a full re-describe of the library at ~7s/asset. That is the
+  // price of the mixed-provenance v8 rows, not of the model choice.
+  targetVersion: 9,
   dependsOn: ['preview'],
   defaults: {
     concurrency: 2,
