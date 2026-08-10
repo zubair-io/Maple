@@ -151,6 +151,16 @@ public enum ExternalRenameReconciler {
     /// every change collected this call in exactly ONE `store.
     /// updateFingerprints(_:)` — one atomic JSON rewrite no matter how many
     /// entries changed, instead of one rewrite per file.
+    ///
+    /// A file the provider comes back `nil` for (a PNG screenshot, a video,
+    /// a corrupt RAW — anything with no readable EXIF) still gets an entry
+    /// recorded, with `dateTimeOriginal`/`cameraSerial` left `nil` but
+    /// `fingerprintAttempted` stamped `true` (see that field's doc comment
+    /// on `LibraryIndex.LibraryEntry`) — this is what makes the failed
+    /// attempt count against `maxFingerprintWarmupPerScan` (so a folder of
+    /// thousands of EXIF-less files can't blow through the cap in one
+    /// scan) AND lets the freshness check below skip it on every later scan
+    /// instead of re-reading its EXIF every single time.
     private static func syncFingerprintCache(
         store: LibraryIndexStore, currentFiles: [URL],
         fingerprintProvider: @Sendable (URL) -> ExternalRenameFingerprint?
@@ -168,10 +178,18 @@ public enum ExternalRenameReconciler {
             let mtime = attrs[.modificationDate] as? Date
 
             if let existing = existingEntries[name],
-               existing.size == size, existing.mtime == mtime, existing.dateTimeOriginal != nil {
+               existing.size == size, existing.mtime == mtime,
+               existing.dateTimeOriginal != nil || existing.fingerprintAttempted == true {
                 continue
             }
-            guard let fingerprint = fingerprintProvider(url) else { continue }
+            guard let fingerprint = fingerprintProvider(url) else {
+                // A genuine attempt that found no EXIF — record the
+                // sentinel so this file isn't re-read every scan, and so it
+                // still counts toward this scan's cap.
+                updates.append(LibraryIndexStore.FingerprintUpdate(
+                    name: name, size: size, mtime: mtime, dateTimeOriginal: nil, cameraSerial: nil))
+                continue
+            }
             updates.append(LibraryIndexStore.FingerprintUpdate(
                 name: name, size: fingerprint.size, mtime: mtime,
                 dateTimeOriginal: fingerprint.dateTimeOriginal, cameraSerial: fingerprint.cameraSerial))
