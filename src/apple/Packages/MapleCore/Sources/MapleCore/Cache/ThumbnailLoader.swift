@@ -354,13 +354,15 @@ public actor ThumbnailLoader {
         let displayName = asset.displayName
         let provider = asset.bytesProvider
         let hint = asset.hintExtension ?? ""
+        // Built once, reused by both the source.thumb() branch and the
+        // fallback's write-back call below — only id+displayName are
+        // needed; URL is unused for sourceless adapters.
+        let ref = stableID.map { ImageRef(id: $0, displayName: displayName) }
         let task = Task.detached(priority: .utility) { () -> Data? in
             // Source-provided thumbnail (server-rendered / PhotoKit fast
-            // path). Network-bound, so not decode-slot gated. Reconstruct an
-            // ImageRef the source can dispatch on — only id+displayName are
-            // needed; URL is unused for sourceless adapters.
-            if let source, let stableID {
-                let ref = ImageRef(id: stableID, displayName: displayName)
+            // path / SMB on-share cache, #2690). Network-bound, so not
+            // decode-slot gated.
+            if let source, let ref {
                 if let bytes = (try? await source.thumb(for: ref)) ?? nil {
                     await ThumbnailDiskCache.shared.storeThumbnailData(bytes, forKey: key)
                     return bytes
@@ -382,6 +384,15 @@ public actor ThumbnailLoader {
                         return nil
                     }
                     await ThumbnailDiskCache.shared.storeThumbnailData(data, forKey: key)
+                    // Best-effort write-back to the source's own shared
+                    // cache location (#2690) — e.g. SMBSource persists this
+                    // to the on-share `.maple/thumbs/`, so the next session
+                    // (and every other Maple client on the share) hits via
+                    // `source.thumb(for:)` above instead of re-rendering.
+                    // No-op for sources that don't override `writeThumb`.
+                    if let source, let ref {
+                        await source.writeThumb(data, for: ref)
+                    }
                     return data
                 } catch {
                     return nil
