@@ -170,15 +170,15 @@ extension EditSession {
     /// existing instance. Must be called from the main actor — the
     /// session itself is `@MainActor` so this is implicit.
     func ensureTileManager() -> TileManager {
-        if let mgr = tileManager { return mgr }
+        if let mgr = deepZoomState.tileManager { return mgr }
         let mgr = TileManager(rawCache: RawImageCache.shared)
-        tileManager = mgr
+        deepZoomState.tileManager = mgr
         // Subscribe to tile-completion events. Each tile insert pokes
         // the refine scheduler so the deep-zoom composite progressively
         // refines. The subscription task lives until the session
         // deinits or the asset switches.
-        tileEventsTask?.cancel()
-        tileEventsTask = Task { [weak self, weak mgr] in
+        deepZoomState.tileEventsTask?.cancel()
+        deepZoomState.tileEventsTask = Task { [weak self, weak mgr] in
             guard let mgr else { return }
             // `events()` is actor-isolated; the await hops onto the
             // tile manager's actor to construct the stream. Iterating

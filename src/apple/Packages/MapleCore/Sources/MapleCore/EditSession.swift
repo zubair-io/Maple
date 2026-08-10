@@ -457,63 +457,33 @@ public final class EditSession {
     /// most once per cold-open (#2041).
     @ObservationIgnored var cachedPreviewSeedPendingViewport = false
 
-    // MARK: Deep zoom (Plan 3 / Ticket 06 M4)
+    // MARK: Deep zoom (Plan 3 / Ticket 06 M4) — storage + field docs moved
+    // to `DeepZoomState.swift` (#2683 round-2, 570-line headroom gate).
+    // `internal`: `tileManager`/`tileEventsTask`/`fileProviderObserver`
+    // are reached as `deepZoomState.x` directly from
+    // `EditSession+Cache/Hydration/DeepZoom.swift`; `viewportSourceRect`/
+    // `previewSize` keep public forwarding properties below (public API +
+    // `previewSize`'s scheduling side effects, documented on
+    // `DeepZoomState.previewSize`).
+    @ObservationIgnored var deepZoomState = DeepZoomState()
 
-    /// Tile manager for deep-zoom (`pixelScale >= 1.0`) refine renders.
-    /// Created lazily on the first deep-zoom request so that
-    /// fit-mode-only sessions never allocate one. Shares the
-    /// process-wide `RawImageCache.shared` so the rawler decode is
-    /// reused across sessions and tile fetches.
-    @ObservationIgnored var tileManager: TileManager?
+    public internal(set) var viewportSourceRect: CGRect {
+        get { deepZoomState.viewportSourceRect }
+        set { deepZoomState.viewportSourceRect = newValue }
+    }
 
-    /// Background task that listens to `tileManager.events()` and
-    /// re-kicks `_scheduleRefine()` whenever a tile lands. Cancelled
-    /// when the asset switches or the session deinits.
-    @ObservationIgnored var tileEventsTask: Task<Void, Never>?
-
-    /// Observer that drives `downloadProgress` while iOS/macOS materializes
-    /// a FileProvider-backed asset (Files-app sidebar / iCloud Drive).
-    /// Created lazily by `openAssetPipelineAsync` for URL-backed assets;
-    /// stays nil for cloud-search opens (those drive progress via
-    /// `CloudByteDownloadBox`) and for sourceless assets without a URL.
-    @ObservationIgnored var fileProviderObserver: FileProviderDownloadObserver?
-
-    /// Visible region in oriented full-image source-pixel coords. Set by
-    /// `CanvasZoomController` via `updateTileVisibleRegion(viewport:zoom:)`.
-    /// `_scheduleRefine`'s deep-zoom branch reads this when targeting
-    /// the tile manager. `.zero` disables the deep-zoom branch.
-    public internal(set) var viewportSourceRect: CGRect = .zero
-
-    /// Viewport size in real pixels — set by `GpuLiveCanvasView` /
-    /// `CanvasZoomController`. Used as the fast phase's target size so the
-    /// filter chain runs at viewport resolution rather than native resolution.
-    public var previewSize: CGSize = .zero {
-        didSet {
-            guard previewSize != oldValue else { return }
+    public var previewSize: CGSize {
+        get { deepZoomState.previewSize }
+        set {
+            let oldValue = deepZoomState.previewSize
+            guard newValue != oldValue else { return }
+            deepZoomState.previewSize = newValue
             clearNativeDetailPreview()
-            // First-time mount: we went from .zero to a real size. The first
-            // render (usually triggered by `ensureRenderStarted()` before the
-            // canvas mounted) used the zero target and produced nothing
-            // visible. Re-kick the fast phase against the real viewport so
-            // the image appears immediately; refine follows.
             if oldValue == .zero {
                 _scheduleRender(phase: .fast)
             } else {
-                // Later resize (window drag) — refine only. `_scheduleRender`
-                // also cancels the prior refine, so a continuous window drag
-                // coalesces into a single refine pass after the user stops.
                 _scheduleRefine()
             }
-            // A viewport landed — if the cache-preview seed is still waiting
-            // for a usable width (#2041), give it a correctly-bucketed shot.
-            // Deliberately OUTSIDE the zero-transition branch: a sub-pixel
-            // layout-churn transient (0 → 0.5) takes the zero branch but
-            // fails the seed's `width >= 1` guard and re-arms the pending
-            // flag; the real width then arrives with `oldValue == 0.5`, so
-            // gating the retry on `oldValue == .zero` would strand the flag
-            // forever (jules review). The internal
-            // `guard cachedPreviewSeedPendingViewport` makes this free on
-            // every non-pending update.
             retryCachedPreviewSeedIfPending()
         }
     }
