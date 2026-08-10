@@ -149,72 +149,50 @@ namespace Maple.WinUI.Services
         {
             var drained = _queue.Drain();
 
-            // File probes run outside any lock — blocking I/O there would
-            // stall the FileSystemWatcher threads calling QueueAdded/
-            // QueueRemoved/QueueRenamed. A file still mid-copy stays
-            // pending; a file that vanished is dropped so a create+delete
-            // flurry can never pin the debounce forever.
-            var added = new List<string>();
-            var unstable = new List<string>();
-            foreach (var path in drained.Added)
-            {
-                switch (Probe(path))
-                {
-                    case FileProbe.Stable: added.Add(path); break;
-                    case FileProbe.Locked: unstable.Add(path); break;
-                    case FileProbe.Missing: break;
-                }
-            }
+            // Probe runs outside any lock — blocking I/O there would stall
+            // the FileSystemWatcher threads calling QueueAdded/QueueRemoved/
+            // QueueRenamed. Resolve is pure (LibraryChangeQueue.cs): it just
+            // combines the drained batch with what Probe found, including
+            // reporting a pending rename's OLD path removed when the
+            // renamed-to file has gone missing by probe time rather than
+            // silently dropping it (which would leave a permanent ghost).
+            var resolved = LibraryChangeQueue.Resolve(drained, Probe);
 
-            var renamed = new List<(string OldPath, string NewPath)>();
-            var unstableRenames = new List<KeyValuePair<string, string>>();
-            foreach (var pair in drained.Renamed)
-            {
-                switch (Probe(pair.Value))
-                {
-                    case FileProbe.Stable: renamed.Add((pair.Key, pair.Value)); break;
-                    case FileProbe.Locked: unstableRenames.Add(pair); break;
-                    case FileProbe.Missing: break;    // renamed again, or vanished, before we probed it
-                }
-            }
+            if (resolved.Added.Count > 0 || resolved.Removed.Count > 0)
+                ChangesReady?.Invoke(resolved.Added, resolved.Removed);
+            if (resolved.Renamed.Count > 0)
+                RenamesReady?.Invoke(resolved.Renamed);
 
-            if (added.Count > 0 || drained.Removed.Count > 0)
-                ChangesReady?.Invoke(added, drained.Removed);
-            if (renamed.Count > 0)
-                RenamesReady?.Invoke(renamed);
-
-            if (unstable.Count == 0 && unstableRenames.Count == 0)
+            if (resolved.UnstableAdded.Count == 0 && resolved.UnstableRenamed.Count == 0)
                 return;
-            _queue.Requeue(unstable, unstableRenames);
+            _queue.Requeue(resolved.UnstableAdded, resolved.UnstableRenamed);
             RearmDebounce();
         }
 
-        private enum FileProbe { Stable, Locked, Missing }
-
-        private static FileProbe Probe(string path)
+        private static LibraryChangeQueue.FileStability Probe(string path)
         {
             try
             {
                 // FileShare.None: only stable once NO other handle is open — a
                 // writer that allows read-sharing must not count as finished.
                 using var _ = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.None);
-                return FileProbe.Stable;
+                return LibraryChangeQueue.FileStability.Stable;
             }
             catch (FileNotFoundException)
             {
-                return FileProbe.Missing;
+                return LibraryChangeQueue.FileStability.Missing;
             }
             catch (DirectoryNotFoundException)
             {
-                return FileProbe.Missing;
+                return LibraryChangeQueue.FileStability.Missing;
             }
             catch (IOException)
             {
-                return FileProbe.Locked;    // writer still holds it
+                return LibraryChangeQueue.FileStability.Locked;    // writer still holds it
             }
             catch (UnauthorizedAccessException)
             {
-                return FileProbe.Locked;
+                return LibraryChangeQueue.FileStability.Locked;
             }
         }
 
