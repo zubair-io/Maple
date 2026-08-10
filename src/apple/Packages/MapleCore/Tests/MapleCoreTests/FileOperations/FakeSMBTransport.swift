@@ -142,6 +142,16 @@ actor FakeSMBTransport: SMBFileTransport {
             files[path] = entry
         }
     }
+
+    func readFile(atPath path: String) async throws -> Data {
+        guard let entry = files[path] else { throw FakeSMBTransportError.notFound(path) }
+        return entry.data
+    }
+
+    func writeFile(data: Data, toPath path: String) async throws {
+        files[path] = Entry(data: data, mtime: Date())
+        registerDirectory((path as NSString).deletingLastPathComponent)
+    }
 }
 
 enum FakeSMBTransportError: Error {
