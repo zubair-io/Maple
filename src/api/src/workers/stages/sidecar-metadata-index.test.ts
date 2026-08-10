@@ -322,7 +322,6 @@ describe('sidecarMetadataIndexHandler — patch path', () => {
       camera_serial: null,
     };
     const result = await sidecarMetadataIndexHandler(image, fakeCtx);
-
     expect(result).toHaveProperty('patch');
     if (!('patch' in result)) throw new Error('Expected patch result');
     const patch = result.patch as Record<string, unknown>;
