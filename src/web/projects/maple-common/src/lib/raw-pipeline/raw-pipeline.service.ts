@@ -435,7 +435,13 @@ export class RawPipelineService implements OnDestroy {
    * `lookKey` is the `FilmLutService.filmLutKey`-derived content-identity
    * key for the loaded look. Does NOT itself trigger a re-render — the
    * caller's next `renderLiveSession` call picks up the new grid.
+   *
+   * Called via `this.host.pipeline.setFilmLut(...)` in ImageCanvasFilmSync
+   * (image-canvas.film.ts), where `pipeline` is a type-only-imported
+   * `RawPipelineService` field on the `FilmSyncHost` interface; fallow's
+   * dead-code pass doesn't trace calls through that indirection.
    */
+  // fallow-ignore-next-line unused-class-member
   setFilmLut(bytes: ArrayBuffer, lookKey: number): Promise<void> {
     let worker: Worker;
     try {
