@@ -19,8 +19,8 @@ import {
 } from './index.ts';
 
 const DEFAULT_BASE_URL = 'http://localhost:11434';
-// gemma4:latest on an RTX PRO 4000 is ~3s steady-state per image and
-// ~17s on a cold load (measured on the v7 prompt), but can
+// gemma4:12b on an RTX PRO 4000 is ~7s steady-state per image and ~17s
+// on a cold load (measured on the v7 prompt), but can
 // spike to 30–60s under cold-load or when the model is paged in. 120s
 // leaves headroom without masking a genuinely hung backend.
 const DEFAULT_TIMEOUT_MS = 120_000;
