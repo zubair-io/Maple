@@ -64,7 +64,8 @@ public actor SMBSource {
 
     // MARK: State
 
-    private var client: SMB2Manager?
+    // Not `private`: `SMBSource+Thumbs.swift` (#2690) reads this too.
+    var client: SMB2Manager?
     private var credentials: Credentials?
     private var _assets: [SMBAsset] = []
 
@@ -506,7 +507,9 @@ extension SMBSource: ImageSource {
         return refs
     }
 
-    public func thumb(for ref: ImageRef) async throws -> Data? { nil }
+    // thumb(for:)/writeThumb(_:for:) — on-share `.maple/thumbs/` cache
+    // (#2690) — live in SMBSource+Thumbs.swift (file-budget split).
+
     public func preview(for ref: ImageRef) async throws -> Data? { nil }
 
     public func rawBytes(for ref: ImageRef) async throws -> Data {
@@ -527,13 +530,15 @@ extension SMBSource: ImageSource {
     }
 
     /// Resolve `ref.id` (the maple_id hex, #1995) back to the share-relative
-    /// path `rawBytes`/`writeXMP` actually need to address the file over
-    /// SMB. Falls back to treating `ref.id` itself as the path — covers the
-    /// (expected-rare) case where maple_id derivation failed for this asset
-    /// and `images()` fell back to the path as the id, so `pathByMapleId`
-    /// maps it to itself anyway; this fallback just avoids a spurious lookup
-    /// miss in that case.
-    private func path(for ref: ImageRef) -> String {
+    /// path `rawBytes`/`writeXMP`/`thumb`/`writeThumb` actually need to
+    /// address the file over SMB. Falls back to treating `ref.id` itself as
+    /// the path — covers the (expected-rare) case where maple_id derivation
+    /// failed for this asset and `images()` fell back to the path as the
+    /// id, so `pathByMapleId` maps it to itself anyway; this fallback just
+    /// avoids a spurious lookup miss in that case.
+    ///
+    /// Not `private`: `SMBSource+Thumbs.swift` (#2690) calls this too.
+    func path(for ref: ImageRef) -> String {
         pathByMapleId[ref.id] ?? ref.id
     }
 
