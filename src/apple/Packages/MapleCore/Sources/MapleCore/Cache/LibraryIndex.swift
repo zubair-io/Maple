@@ -41,10 +41,25 @@ public struct LibraryIndex: Codable, Sendable {
         /// size-only fallback is never acceptable.
         public var dateTimeOriginal: String?
         public var cameraSerial: String?
+        /// `true` when a fingerprint read was actually attempted for this
+        /// file at its CURRENT `size`/`mtime` — including an attempt that
+        /// came back with no EXIF at all (a PNG screenshot, a video, a
+        /// corrupt RAW). Distinguishes "we tried and there's genuinely
+        /// nothing to fingerprint" from "never attempted" — without this,
+        /// an EXIF-less file has `dateTimeOriginal == nil` either way, so
+        /// `syncFingerprintCache`'s freshness check (keyed only on
+        /// `dateTimeOriginal != nil`) could never recognize "already tried,
+        /// don't bother again," and paid a full `ImageIO` read for that
+        /// file on EVERY single scan for as long as it sat in the folder.
+        /// `nil` for entries written before this field existed — additive,
+        /// non-breaking `Codable` field, decodes as `nil` on older
+        /// `index.json` files, treated the same as `false`.
+        public var fingerprintAttempted: Bool?
 
         public init(name: String, mtime: Date? = nil, size: Int64? = nil,
                     stars: Int = 0, flag: String = "none", thumbnailHash: String? = nil,
-                    dateTimeOriginal: String? = nil, cameraSerial: String? = nil) {
+                    dateTimeOriginal: String? = nil, cameraSerial: String? = nil,
+                    fingerprintAttempted: Bool? = nil) {
             self.name = name
             self.mtime = mtime
             self.size = size
@@ -53,6 +68,7 @@ public struct LibraryIndex: Codable, Sendable {
             self.thumbnailHash = thumbnailHash
             self.dateTimeOriginal = dateTimeOriginal
             self.cameraSerial = cameraSerial
+            self.fingerprintAttempted = fingerprintAttempted
         }
     }
 }
@@ -148,6 +164,10 @@ public actor LibraryIndexStore {
             entry.mtime = update.mtime
             entry.dateTimeOriginal = update.dateTimeOriginal
             entry.cameraSerial = update.cameraSerial
+            // Every call into this method represents a real attempt (success
+            // or not) at `update.size`/`update.mtime` — see
+            // `fingerprintAttempted`'s doc comment.
+            entry.fingerprintAttempted = true
             index?.entries[update.name] = entry
         }
         try save()
