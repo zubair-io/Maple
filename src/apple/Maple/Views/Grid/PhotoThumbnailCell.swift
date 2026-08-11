@@ -127,7 +127,14 @@ struct PhotoThumbnailCell: View {
             }
             .modifier(ZoomSourceTag(id: item.id, namespace: transitionNamespace))
             .contentShape(Rectangle())
-            .modifier(DragPayloadModifier(payload: dragPayload))
+            // Drag preview (#2779): the cell's already-decoded bitmap (or the
+            // sync `cachedImage` peek used above for the tile itself) — no
+            // new decode work for the preview closure. `nil` when neither is
+            // available yet (fast drag on a just-scrolled-in cell); the
+            // preview then falls back to `ThumbnailImage`'s placeholder.
+            .modifier(DragPayloadModifier(
+                payload: dragPayload,
+                thumbnail: decoded ?? ThumbnailDecoder.cachedImage(forKey: item.id)))
             .onTapGesture { onTap() }
             .onAppear { onAppear?() }
             .modifier(OptionalContextMenu(items: contextMenuItems))
@@ -360,29 +367,25 @@ private struct ZoomSourceTag: ViewModifier {
 /// Applies `.draggable(_:)` when `payload` is non-nil (#2646); a no-op
 /// otherwise, so cells that never opt into dragging (`dragPayload` left at
 /// its `nil` default) don't pay for a drag-session gesture recognizer at
-/// all. The preview label surfaces the count for a multi-select drag
-/// ("12 photos") and the bare filename for a single one, matching the
-/// design doc's "drag preview conveying the count."
+/// all. The preview (#2779) is the dragged tile's thumbnail via
+/// `AssetDragPreview`, with a "N Photos" count badge overlaid only when the
+/// payload carries more than one asset — a single-asset drag shows just the
+/// thumbnail, matching the design doc's Finder/Photos convention.
 private struct DragPayloadModifier: ViewModifier {
     let payload: DraggedAssetPayload?
+    /// The cell's already-decoded thumbnail, passed through from
+    /// `PhotoThumbnailCell.body` so the preview closure does no decode work
+    /// of its own. `nil` renders `AssetDragPreview`'s placeholder.
+    let thumbnail: CGImage?
 
     func body(content: Content) -> some View {
         if let payload {
             content.draggable(payload) {
-                dragPreview(count: payload.ids.count)
+                AssetDragPreview(thumbnail: thumbnail, count: payload.ids.count)
             }
         } else {
             content
         }
-    }
-
-    private func dragPreview(count: Int) -> some View {
-        Text(count > 1 ? "\(count) photos" : "1 photo")
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Color.accentColor, in: Capsule())
     }
 }
 

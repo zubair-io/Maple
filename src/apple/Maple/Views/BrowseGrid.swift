@@ -34,6 +34,24 @@ struct BrowseGrid: View {
     /// Single-click on a sub-folder cell. Shell navigates the explorer into
     /// that folder (claims security scope + reloads the grid).
     var onNavigateFolder: ((URL) -> Void)? = nil
+    /// Security-scope bookmark of the currently-browsed local folder — the
+    /// ancestor every sub-folder tile in `vm.subfolders` is a CHILD of.
+    /// Threaded straight from `AppShell`'s `currentRootBookmark`, the same
+    /// value the sidebar's `FolderTreeRow` re-claims scope from at any
+    /// depth (#2779). `vm.subfolders` is only ever populated by local
+    /// filesystem browsing (`BrowseViewModel.loadFolder`) — PhotoKit/SMB/
+    /// Cloud sources never set it — so `nil` here (no local folder open)
+    /// naturally also means no folder tiles are on screen to drop onto.
+    var currentRootBookmark: Data? = nil
+    /// Drop-onto-folder-tile (#2779). Same signature as
+    /// `LibrarySidebar.onDropAssets` and routed by `AppShell` into the
+    /// SAME `handleAssetDrop` entry point the sidebar's `FolderTreeRow`
+    /// uses — not a forked copy — so eligibility rules (PhotoKit excluded,
+    /// cross-source-kind rejected, same-folder-drop rejected as
+    /// `FileOperationError.sameFile`) and the Option-to-copy / collision
+    /// flow are identical between the two drop surfaces. `nil` disables
+    /// drop-onto-tile entirely (e.g. previews).
+    var onDropAssetsOnFolder: ((URL, Data, Set<AssetRef.ID>?, Bool) -> Void)? = nil
     /// Double-click on an image cell. Shell switches into Full-image / Edit
     /// mode with that asset as the active session.
     var onOpenEditor: ((AssetRef) -> Void)? = nil
@@ -344,9 +362,12 @@ struct BrowseGrid: View {
                         // feedback (scale + tinted background) so the
                         // user gets immediate confirmation the tap
                         // registered before the grid reloads.
-                        FolderCell(url: url) {
-                            onNavigateFolder?(url)
-                        }
+                        FolderCell(
+                            url: url,
+                            rootBookmark: currentRootBookmark,
+                            onDropAssets: onDropAssetsOnFolder,
+                            onNavigate: { onNavigateFolder?(url) }
+                        )
                     }
                 }
             }
@@ -537,9 +558,20 @@ struct BrowseGrid: View {
 /// Grid cell rendering a sub-folder. Single tap navigates into it; the
 /// cell is wrapped in a Button with a custom ButtonStyle so the user
 /// gets press feedback (scale + tinted overlay) before the grid reloads.
+///
+/// Drop target (#2779): mirrors `LibrarySidebar`'s `FolderTreeRow` — same
+/// payload type, same `isTargeted`-driven highlight, same
+/// `onDropAssets`/`rootBookmark` contract, routed by the caller into the
+/// identical `AppShell.handleAssetDrop` entry point. Active only when both
+/// `rootBookmark` and `onDropAssets` are non-nil (always true together in
+/// production; previews leave both `nil` and get no drop target).
 private struct FolderCell: View {
     let url: URL
+    let rootBookmark: Data?
+    let onDropAssets: ((URL, Data, Set<AssetRef.ID>?, Bool) -> Void)?
     let onNavigate: () -> Void
+
+    @State private var isDropTargeted = false
 
     var body: some View {
         Button(action: onNavigate) {
@@ -552,6 +584,16 @@ private struct FolderCell: View {
                             .font(.system(size: 36))
                             .foregroundStyle(MapleTokens.primary.opacity(0.85))
                     }
+                    .overlay {
+                        if isDropTargeted {
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(MapleTokens.primary.opacity(0.15))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .strokeBorder(MapleTokens.primary, lineWidth: 2)
+                                )
+                        }
+                    }
                 Text(url.lastPathComponent)
                     .font(MapleTokens.Typography.body)
                     .foregroundStyle(MapleTokens.textMain)
@@ -562,6 +604,12 @@ private struct FolderCell: View {
         }
         .buttonStyle(FolderCellButtonStyle())
         .accessibilityLabel("Folder \(url.lastPathComponent)")
+        .dropDestination(for: DraggedAssetPayload.self, action: { payloads, _ in
+            guard let rootBookmark, let onDropAssets,
+                  let payload = payloads.first, !payload.ids.isEmpty else { return false }
+            onDropAssets(url, rootBookmark, Set(payload.ids), MapleDragModifier.isCopyRequested())
+            return true
+        }, isTargeted: { targeted in isDropTargeted = targeted })
     }
 }
 
