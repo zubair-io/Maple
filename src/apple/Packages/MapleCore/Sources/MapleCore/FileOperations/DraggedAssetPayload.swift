@@ -46,4 +46,21 @@ public struct DraggedAssetPayload: Transferable, Equatable, Sendable {
             .split(separator: ",")
             .compactMap { UUID(uuidString: String($0)) }
     }
+
+    /// Count badge text for the drag preview (#2779) — "N Photos", shown
+    /// only when the payload carries more than one asset (the caller
+    /// overlays this on the thumbnail; a single-asset drag shows the bare
+    /// thumbnail, no badge). Pure and platform-independent so it's testable
+    /// without SwiftUI — the preview VIEW itself (thumbnail + overlay
+    /// layout) is not unit-testable and isn't covered here.
+    public var previewBadgeText: String {
+        Self.previewBadgeText(forCount: ids.count)
+    }
+
+    /// Same text, addressable by a bare count — lets the drag-preview view
+    /// (`AssetDragPreview`, Maple app target) derive the badge string
+    /// without constructing a throwaway payload.
+    public static func previewBadgeText(forCount count: Int) -> String {
+        "\(count) Photos"
+    }
 }

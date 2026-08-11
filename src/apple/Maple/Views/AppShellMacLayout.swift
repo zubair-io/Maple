@@ -65,6 +65,10 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
     let onSelectLocalAsset: (ImageRef) -> Void
     let onGrantPhotosAccess: () -> Void
     let onNavigateFolder: (URL) -> Void
+    /// Forwarded to `AppShellCenterColumn` → `BrowseGrid` (#2779). See
+    /// `AppShellCenterColumn.currentRootBookmark`'s doc comment.
+    var currentRootBookmark: Data? = nil
+    var onDropAssetsOnFolder: ((URL, Data, Set<AssetRef.ID>?, Bool) -> Void)? = nil
     let onOpenEditor: (AssetRef) -> Void
     let onPrimeSession: (AssetRef) -> Void
     /// Recover from a vanished selection by flipping back to Browse.
@@ -202,6 +206,8 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
             onSelectLocalAsset: onSelectLocalAsset,
             onGrantPhotosAccess: onGrantPhotosAccess,
             onNavigateFolder: onNavigateFolder,
+            currentRootBookmark: currentRootBookmark,
+            onDropAssetsOnFolder: onDropAssetsOnFolder,
             onOpenEditor: onOpenEditor,
             onPrimeSession: onPrimeSession,
             onFullImageFallback: onFullImageFallback,
