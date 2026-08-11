@@ -23,12 +23,26 @@
 // this component is instantiated once by `EditorShellComponent`'s
 // `ngTemplateOutlet` and stays alive across tool switches — content
 // projection doesn't tear it down when `cardBodyFilm` isn't the slot in
-// view. So parity with "derive on mount" is reproduced explicitly: the
-// constructor effect below re-derives `selectedCategory` from the active
-// look's category every time `EditorStateService.armedTool()` transitions
-// TO `'filmLook'` (including the first time, on construction), the same
-// "re-open Film → land on whichever category the current look belongs to"
-// behavior `FilmSection.onAppear` gives Apple.
+// view. So parity with "derive on mount" is reproduced explicitly via the
+// constructor effect below, keyed on TWO identities rather than one:
+//
+//   - `armedTool()` transitioning TO `'filmLook'` (including the first run,
+//     on construction) — "re-open Film → land on whichever category the
+//     current look belongs to", `FilmSection.onAppear`'s behavior.
+//   - `focusedAssetId()` changing WHILE already armed on Film — filmstrip
+//     navigation doesn't re-arm the tool, so without this the chip row goes
+//     stale when the user browses photos with Film left open: the new
+//     asset's active look silently falls outside the still-selected
+//     category and the visible list simply omits it (round 1 review fix).
+//
+// Deliberately NOT keyed on `activeLookId()` itself: that value also
+// changes when the user manually picks a look or clicks "None" on the SAME
+// asset, and re-deriving on every such tick would yank the chip row away
+// mid-browse the instant they clear a look (an empty `filmLook` resolves to
+// the first category, which may not be the one they're looking at). Only
+// asset identity changing (a new asset was navigated to) — or the tool
+// arming — should move the chip row; a look edit on the asset already open
+// must not.
 //
 // Writes go straight to `LibraryStateService.updateAdjustment`, the same
 // single write path `ColorGradingPanelComponent`/the WB pad use — the
@@ -143,16 +157,18 @@ export class FilmPanelComponent {
   });
 
   constructor() {
-    // Mirrors `FilmSection.onAppear` on Apple: every time Film becomes the
-    // armed tool, land the chip row on whichever category the ACTIVE look
-    // belongs to (or the first category, on "None"/an unresolved id) —
-    // not whatever was last clicked in a prior Film session. This effect
-    // (rather than a one-time constructor read) is what reproduces that
-    // "on mount" semantics despite this component's instance persisting
-    // across tool switches (content projection keeps it alive; see the
-    // file banner above).
+    // See the file banner: re-derives `selectedCategory` from the active
+    // look's category whenever Film (re-)arms OR the focused asset changes
+    // while Film is already armed — never on a same-asset look edit. Both
+    // `armedTool()` and `focusedAssetId()` are TRACKED (their identity is
+    // exactly the "did the panel context change" signal this needs);
+    // `activeLookId()` is read `untracked` so a manual look/None pick on
+    // the same asset can't itself re-trigger this effect.
     effect(() => {
-      if (this.editorState.armedTool() !== 'filmLook') return;
+      const tool = this.editorState.armedTool();
+      this.library.focusedAssetId(); // tracked for its identity only — the
+      // value itself is re-read (untracked, via activeLookId) below.
+      if (tool !== 'filmLook') return;
       const lookId = untracked(this.activeLookId);
       this.selectedCategory.set(FilmPanelComponent.defaultCategory(lookId));
     });
