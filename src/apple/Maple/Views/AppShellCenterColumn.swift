@@ -69,6 +69,14 @@ struct AppShellCenterColumn: View {
     let onSelectLocalAsset: (ImageRef) -> Void
     let onGrantPhotosAccess: () -> Void
     let onNavigateFolder: (URL) -> Void
+    /// Security-scope bookmark for the currently-browsed local folder,
+    /// forwarded to `BrowseGrid`'s folder tiles as drop targets (#2779).
+    /// `nil` outside a local-folder browse (PhotoKit/SMB/Cloud) — see
+    /// `BrowseGrid.currentRootBookmark`'s doc comment.
+    var currentRootBookmark: Data? = nil
+    /// Drop-onto-folder-tile (#2779), forwarded to `BrowseGrid`. `nil`
+    /// disables it (e.g. previews).
+    var onDropAssetsOnFolder: ((URL, Data, Set<AssetRef.ID>?, Bool) -> Void)? = nil
     let onOpenEditor: (AssetRef) -> Void
     let onPrimeSession: (AssetRef) -> Void
     /// Recover from a vanished selection by flipping back to Browse.
@@ -217,6 +225,8 @@ struct AppShellCenterColumn: View {
                         displayMode: $browseDisplayMode,
                         onGrantPhotosAccess: onGrantPhotosAccess,
                         onNavigateFolder: onNavigateFolder,
+                        currentRootBookmark: currentRootBookmark,
+                        onDropAssetsOnFolder: onDropAssetsOnFolder,
                         onOpenEditor: onOpenEditor,
                         onPrimeSession: onPrimeSession,
                         onMergePanorama: onMergePanorama,
@@ -233,6 +243,8 @@ struct AppShellCenterColumn: View {
                     displayMode: $browseDisplayMode,
                     onGrantPhotosAccess: onGrantPhotosAccess,
                     onNavigateFolder: onNavigateFolder,
+                    currentRootBookmark: currentRootBookmark,
+                    onDropAssetsOnFolder: onDropAssetsOnFolder,
                     onOpenEditor: onOpenEditor,
                     onPrimeSession: onPrimeSession,
                     onMergePanorama: onMergePanorama,
