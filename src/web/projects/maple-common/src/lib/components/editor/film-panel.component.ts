@@ -3,10 +3,32 @@
 //
 // Projected into `pro-control-card`'s `cardBodyFilm` slot (same shape as
 // `pro-color-grading-panel`'s `cardBodyGrade`) whenever the Film sub-tool
-// chip is armed. Lists the 100-entry `FILM_CATALOG` grouped by its 6
-// categories, plus a "None" row that clears the look. The strength slider
-// only shows once a look is selected — there is nothing to mix strength
-// against on "None".
+// chip is armed. Lists the 100-entry `FILM_CATALOG` behind a horizontal
+// category chip row — UX parity with Apple's `FilmSection` (#2683 round 2):
+// one category's ~10-20 looks at a time instead of all 100 stacked into a
+// single scroll, plus a "None" row pinned above the filtered list that
+// clears the look regardless of which category is selected. The strength
+// slider only shows once a look is selected — there is nothing to mix
+// strength against on "None".
+//
+// The chip row reuses `pro-control-card`'s sub-tool chip idiom (`.subtool-row`
+// / `.subtool-chip` in `control-card.component.scss`) rather than inventing
+// new chrome — see `.film-category-row` / `.film-category-chip` below,
+// styled identically but scoped to this component (Angular's `styleUrl`
+// encapsulation means the class names can't just be shared across files).
+//
+// `selectedCategory` is local UI state, not part of the edit model. Unlike
+// `FilmSection` (a SwiftUI view re-mounted by `FlyoutSliderPanel`'s tool-swap
+// branches, so `.onAppear` naturally re-fires every time Film is (re-)armed),
+// this component is instantiated once by `EditorShellComponent`'s
+// `ngTemplateOutlet` and stays alive across tool switches — content
+// projection doesn't tear it down when `cardBodyFilm` isn't the slot in
+// view. So parity with "derive on mount" is reproduced explicitly: the
+// constructor effect below re-derives `selectedCategory` from the active
+// look's category every time `EditorStateService.armedTool()` transitions
+// TO `'filmLook'` (including the first time, on construction), the same
+// "re-open Film → land on whichever category the current look belongs to"
+// behavior `FilmSection.onAppear` gives Apple.
 //
 // Writes go straight to `LibraryStateService.updateAdjustment`, the same
 // single write path `ColorGradingPanelComponent`/the WB pad use — the
@@ -16,8 +38,17 @@
 // `adjustmentFor(id)().filmLook` and posts `set-film-lut` to the worker —
 // the panel only ever writes the catalog id + strength scalar.
 
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+} from '@angular/core';
 import { LibraryStateService } from '../../state/library-state.service';
+import { EditorStateService } from '../../editor/editor-state.service';
 import { LivingSliderComponent } from '../develop/living-slider.component';
 import { FILM_CATALOG, type FilmCategory } from '../../generated/film-catalog.generated';
 import { ADJUSTMENT_RANGES, type AdjustmentModel } from '../../models/adjustment-model';
@@ -56,6 +87,18 @@ const CATEGORY_GROUPS: readonly FilmCategoryGroup[] = CATEGORY_ORDER.map((catego
   looks: FILM_CATALOG.filter((entry) => entry.category === category),
 }));
 
+/** The category chip row's options, in `CATEGORY_ORDER` declaration order —
+ *  the six chips always present in the same order, mirroring
+ *  `FilmCategory.allCases` on the Apple side. */
+interface FilmCategoryOption {
+  readonly id: FilmCategory;
+  readonly label: string;
+}
+const CATEGORY_OPTIONS: readonly FilmCategoryOption[] = CATEGORY_ORDER.map((id) => ({
+  id,
+  label: CATEGORY_LABEL[id],
+}));
+
 const STRENGTH_RANGE = ADJUSTMENT_RANGES.filmStrength;
 
 @Component({
@@ -68,8 +111,9 @@ const STRENGTH_RANGE = ADJUSTMENT_RANGES.filmStrength;
 })
 export class FilmPanelComponent {
   private readonly library = inject(LibraryStateService);
+  private readonly editorState = inject(EditorStateService);
 
-  readonly groups = CATEGORY_GROUPS;
+  readonly categories = CATEGORY_OPTIONS;
   readonly strengthMin = STRENGTH_RANGE[0];
   readonly strengthMax = STRENGTH_RANGE[1];
 
@@ -86,8 +130,48 @@ export class FilmPanelComponent {
 
   readonly strength = computed<number>(() => this.adj()?.filmStrength ?? this.strengthMax);
 
+  /** The category chip row's current selection — re-derived (see the
+   *  constructor effect) rather than remembered indefinitely, so it always
+   *  reflects the active look whenever Film is (re-)armed. */
+  readonly selectedCategory = signal<FilmCategory>(CATEGORY_ORDER[0]);
+
+  /** Only the SELECTED category's looks — the None row (rendered separately
+   *  in the template) stays pinned above them regardless of category. */
+  readonly activeGroup = computed<FilmCategoryGroup>(() => {
+    const category = this.selectedCategory();
+    return CATEGORY_GROUPS.find((group) => group.category === category) ?? CATEGORY_GROUPS[0];
+  });
+
+  constructor() {
+    // Mirrors `FilmSection.onAppear` on Apple: every time Film becomes the
+    // armed tool, land the chip row on whichever category the ACTIVE look
+    // belongs to (or the first category, on "None"/an unresolved id) —
+    // not whatever was last clicked in a prior Film session. This effect
+    // (rather than a one-time constructor read) is what reproduces that
+    // "on mount" semantics despite this component's instance persisting
+    // across tool switches (content projection keeps it alive; see the
+    // file banner above).
+    effect(() => {
+      if (this.editorState.armedTool() !== 'filmLook') return;
+      const lookId = untracked(this.activeLookId);
+      this.selectedCategory.set(FilmPanelComponent.defaultCategory(lookId));
+    });
+  }
+
+  private static defaultCategory(lookId: string): FilmCategory {
+    return FILM_CATALOG.find((entry) => entry.id === lookId)?.category ?? CATEGORY_ORDER[0];
+  }
+
   isActive(lookId: string): boolean {
     return this.activeLookId() === lookId;
+  }
+
+  isCategoryActive(category: FilmCategory): boolean {
+    return this.selectedCategory() === category;
+  }
+
+  selectCategory(category: FilmCategory): void {
+    this.selectedCategory.set(category);
   }
 
   selectLook(lookId: string): void {

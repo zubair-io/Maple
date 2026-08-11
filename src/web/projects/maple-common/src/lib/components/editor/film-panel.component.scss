@@ -13,11 +13,55 @@
   min-height: 0;
 }
 
+// Category chip row (#2780) — same idiom `ControlCardComponent`'s
+// `.subtool-row` / `.subtool-chip` use (capsule, accent fill + border when
+// selected), rescoped here since Angular's `styleUrl` encapsulation means
+// the classes can't just be shared across component files. Horizontally
+// scrollable: six chips don't all fit the 300px panel column, mirroring
+// `FilmSection`'s `ScrollView(.horizontal)` chip row on Apple.
+.film-category-row {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.film-category-chip {
+  flex-shrink: 0;
+  padding: 3px 11px;
+  border-radius: 20px;
+  border: 0.5px solid var(--pro-border);
+  background: transparent;
+  font-size: 11px;
+  color: var(--pro-text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 120ms ease-out,
+    border-color 120ms ease-out;
+
+  &.film-category-chip--active {
+    background: var(--pro-accent-28);
+    border-color: var(--pro-accent);
+    color: var(--pro-accent);
+    font-weight: 600;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--pro-accent);
+    outline-offset: 2px;
+  }
+}
+
 .film-look-list {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-height: 320px;
+  max-height: 240px;
   overflow-y: auto;
 }
 
