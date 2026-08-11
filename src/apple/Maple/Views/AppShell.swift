@@ -803,6 +803,13 @@ struct AppShell: View {
             onSelectLocalAsset: { ref in openLocalPhotoKitAsset(ref) },
             onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
             onNavigateFolder: { url in navigateFolder(url) },
+            // #2779: folder-tile drop target in the grid, routed into the
+            // SAME `handleAssetDrop` entry point the sidebar's
+            // `FolderTreeRow` uses — see `AppShell+AssetDrop.swift`.
+            currentRootBookmark: currentRootBookmark,
+            onDropAssetsOnFolder: { url, bookmark, ids, isCopy in
+                handleAssetDrop(ids: ids, destination: .local(folderURL: url, rootBookmark: bookmark), copy: isCopy)
+            },
             onOpenEditor: { asset in openEditor(for: asset) },
             onPrimeSession: { asset in ensureSession(for: asset) },
             onFullImageFallback: { mode = .browse },
