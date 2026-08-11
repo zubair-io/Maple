@@ -1,17 +1,22 @@
 // FilmPanelComponent — unit tests (epic #2683, Task 12; category picker
-// #2780).
+// #2780; round-1 review fix: re-derive on focused-asset change while armed).
 //
 // Strategy mirrors `profile-section.component.spec.ts`: stub
-// `LibraryStateService` with a writable signal so the active `filmLook` /
-// `filmStrength` can be flipped, and stub `EditorStateService.armedTool`
-// with a writable signal so the chip row's "derive on (re-)arm" effect
-// (parity with Apple's `FilmSection.onAppear`) can be exercised. Assert the
-// 6 category chips render in catalog order, only the selected category's
-// looks are listed (with None pinned above them regardless of category),
-// clicking a chip swaps the list, selection dispatches
-// `updateAdjustment({ filmLook })`, the strength slider only shows once a
-// look is active, and the active look's category is what the chip row lands
-// on both at construction and whenever Film is re-armed.
+// `LibraryStateService` with a writable `focusedAssetId` signal and a
+// PER-ASSET adjustment-model map (so switching the focused asset actually
+// switches which `filmLook` is "active", the way the real filmstrip does),
+// and stub `EditorStateService.armedTool` with a writable signal so the
+// chip row's derivation effect (parity with Apple's `FilmSection.onAppear`,
+// plus the asset-identity case Apple doesn't need — see the component file
+// banner) can be exercised. Assert the 6 category chips render in catalog
+// order, only the selected category's looks are listed (with None pinned
+// above them regardless of category), clicking a chip swaps the list,
+// selection dispatches `updateAdjustment({ filmLook })`, the strength
+// slider only shows once a look is active, and the active look's category
+// is what the chip row lands on at construction, whenever Film is re-armed,
+// AND whenever the focused asset changes while Film stays armed — without
+// a manually-picked category being yanked away by an in-place look edit on
+// the SAME asset.
 
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -26,13 +31,33 @@ import type { ToolId } from '../../editor/tool-model';
 
 const ASSET_ID = 'local-asset-1';
 
+/** Per-asset adjustment-model map, so `focusedAssetId` actually changing
+ *  asset means `adjustmentFor(id)()` returns a DIFFERENT model — the same
+ *  shape real filmstrip navigation has, needed to exercise the round-1 fix
+ *  (re-derive the chip row's category when the focused asset changes). */
 class FakeLibraryStateService {
   focusedAssetId = signal<string | undefined>(ASSET_ID);
-  private adj = signal<AdjustmentModel>({ ...defaultAdjustmentModel() });
-  adjustmentFor = vi.fn(() => this.adj);
-  updateAdjustment = vi.fn((_id: string, patch: Partial<AdjustmentModel>) => {
-    this.adj.update((m) => ({ ...m, ...patch }));
+  private readonly models = new Map<string, ReturnType<typeof signal<AdjustmentModel>>>();
+
+  private modelFor(id: string) {
+    const existing = this.models.get(id);
+    if (existing) return existing;
+    const created = signal<AdjustmentModel>({ ...defaultAdjustmentModel() });
+    this.models.set(id, created);
+    return created;
+  }
+
+  adjustmentFor = vi.fn((id: string) => this.modelFor(id));
+
+  updateAdjustment = vi.fn((id: string, patch: Partial<AdjustmentModel>) => {
+    this.modelFor(id).update((m) => ({ ...m, ...patch }));
   });
+
+  /** Seeds `assetId`'s model with `filmLook` before it's ever focused —
+   *  for asserting the derived category once the panel switches to it. */
+  seedLook(assetId: string, filmLook: string): void {
+    this.modelFor(assetId).update((m) => ({ ...m, filmLook }));
+  }
 }
 
 class FakeEditorStateService {
@@ -176,9 +201,7 @@ describe('FilmPanelComponent', () => {
     const state = new FakeLibraryStateService();
     // Pre-seed an active look BEFORE the component is constructed, so the
     // constructor effect's initial run is what derives the category.
-    state.adjustmentFor = vi.fn(() =>
-      signal({ ...defaultAdjustmentModel(), filmLook: BW_LOOK.id }),
-    );
+    state.seedLook(ASSET_ID, BW_LOOK.id);
     const editorState = new FakeEditorStateService();
     TestBed.configureTestingModule({
       imports: [FilmPanelComponent],
@@ -216,6 +239,55 @@ describe('FilmPanelComponent', () => {
     editorState.armedTool.set('filmLook');
     fixture.detectChanges();
 
+    expect(fixture.componentInstance.selectedCategory()).toBe(BW_CATEGORY);
+    const bwChip = categoryChips(fixture).find(
+      (c) => c.dataset['testid'] === `film-category-${BW_CATEGORY}`,
+    )!;
+    expect(bwChip.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  // Round-1 review fix: filmstrip navigation (a `focusedAssetId` change)
+  // doesn't re-arm the tool, so without a fix keyed on asset identity the
+  // chip row went stale — the new asset's look silently fell outside the
+  // still-selected category and was omitted from the visible list.
+  it('re-derives the selected category when the focused asset changes while Film stays armed', () => {
+    const OTHER_ASSET_ID = 'local-asset-2';
+    const SLIDE_LOOK = FILM_CATALOG.find((e) => e.category === 'slide')!;
+    const { fixture, state, editorState } = makeFixture();
+
+    // Arm Film on asset 1 (color_negative, the default — no look set yet).
+    expect(editorState.armedTool()).toBe('filmLook');
+    expect(fixture.componentInstance.selectedCategory()).toBe('color_negative');
+
+    // Seed asset 2 with a look in a DIFFERENT category, then simulate
+    // filmstrip navigation to it — Film stays armed throughout, exactly
+    // like the real filmstrip's "next photo" flow.
+    state.seedLook(OTHER_ASSET_ID, SLIDE_LOOK.id);
+    state.focusedAssetId.set(OTHER_ASSET_ID);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.selectedCategory()).toBe('slide');
+    const slideChip = categoryChips(fixture).find(
+      (c) => c.dataset['testid'] === 'film-category-slide',
+    )!;
+    expect(slideChip.getAttribute('aria-pressed')).toBe('true');
+    expect(lookButtons(fixture).some((r) => r.textContent?.trim() === SLIDE_LOOK.name)).toBe(true);
+  });
+
+  // Round-1 review fix, the flip side: a look edit on the SAME asset (manual
+  // pick, or clearing via None) must NOT yank a manually-selected category
+  // away, since the category identity that drives re-derivation is keyed on
+  // `focusedAssetId`/`armedTool`, not on `filmLook` itself.
+  it('preserves a manually selected category when picking a look from it on the same asset', () => {
+    const { fixture, state } = makeFixture();
+
+    fixture.componentInstance.selectCategory(BW_CATEGORY);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.selectedCategory()).toBe(BW_CATEGORY);
+
+    clickLook(fixture, BW_LOOK);
+
+    expect(state.updateAdjustment).toHaveBeenCalledWith(ASSET_ID, { filmLook: BW_LOOK.id });
     expect(fixture.componentInstance.selectedCategory()).toBe(BW_CATEGORY);
     const bwChip = categoryChips(fixture).find(
       (c) => c.dataset['testid'] === `film-category-${BW_CATEGORY}`,
