@@ -1,5 +1,27 @@
-<!-- FilmPanelComponent — catalog picker + strength slider (#2683) -->
+<!-- FilmPanelComponent — category chip row + filtered catalog picker +
+     strength slider (#2683, #2780). One category's looks at a time, not all
+     100 stacked into a single scroll — see the file banner. -->
 <div class="film-panel" data-testid="film-panel">
+  <div
+    class="film-category-row"
+    role="group"
+    aria-label="Film categories"
+    data-testid="film-category-row"
+  >
+    @for (category of categories; track category.id) {
+      <button
+        type="button"
+        class="film-category-chip"
+        [class.film-category-chip--active]="isCategoryActive(category.id)"
+        [attr.aria-pressed]="isCategoryActive(category.id)"
+        [attr.data-testid]="'film-category-' + category.id"
+        (click)="selectCategory(category.id)"
+      >
+        {{ category.label }}
+      </button>
+    }
+  </div>
+
   <div class="film-look-list" role="listbox" aria-label="Film looks">
     <button
       type="button"
@@ -7,28 +29,28 @@
       role="option"
       [class.film-look-row--active]="!hasActiveLook()"
       [attr.aria-selected]="!hasActiveLook()"
+      data-testid="film-look-none"
       (click)="selectNone()"
     >
       None
     </button>
 
-    @for (group of groups; track group.category) {
-      <div class="film-category">
-        <div class="film-category-label">{{ group.label }}</div>
-        @for (look of group.looks; track look.id) {
-          <button
-            type="button"
-            class="film-look-row"
-            role="option"
-            [class.film-look-row--active]="isActive(look.id)"
-            [attr.aria-selected]="isActive(look.id)"
-            (click)="selectLook(look.id)"
-          >
-            {{ look.name }}
-          </button>
-        }
-      </div>
-    }
+    <div class="film-category">
+      <div class="film-category-label">{{ activeGroup().label }}</div>
+      @for (look of activeGroup().looks; track look.id) {
+        <button
+          type="button"
+          class="film-look-row"
+          role="option"
+          [class.film-look-row--active]="isActive(look.id)"
+          [attr.aria-selected]="isActive(look.id)"
+          [attr.data-testid]="'film-look-row-' + look.id"
+          (click)="selectLook(look.id)"
+        >
+          {{ look.name }}
+        </button>
+      }
+    </div>
   </div>
 
   @if (hasActiveLook()) {
