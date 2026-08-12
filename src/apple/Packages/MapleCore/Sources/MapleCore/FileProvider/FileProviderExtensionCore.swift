@@ -744,7 +744,9 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                             rootCache: rootCache,
                                             folderID: folderID,
                                             relativePath: relativePath,
-                                            containerIdentifier: containerItemIdentifier)
+                                            containerIdentifier: containerItemIdentifier,
+                                            cursorStore: cursorStore,
+                                            domainID: domain.identifier.rawValue)
         case .asset:
             throw NSError(domain: NSFileProviderErrorDomain,
                           code: NSFileProviderError.noSuchItem.rawValue)
@@ -1637,18 +1639,29 @@ public final class DeferredFolderEnumerator: NSObject, NSFileProviderEnumerator 
     private let folderID: String
     private let relativePath: String
     private let containerIdentifier: NSFileProviderItemIdentifier
+    private let cursorStore: ChangeCursorStore
+    private let domainID: String
     private let log = Logger(subsystem: "app.justmaple.aperture.fileprovider", category: "enumerator")
+
+    /// Per-call cap on rows pulled from `/api/changes`. Mirrors
+    /// `WorkingSetEnumerator.changesPageLimit`: on a full page we report
+    /// `moreComing: true` and the OS loops back from the new anchor.
+    private static let changesPageLimit = 500
 
     public init(catalog: RemoteCatalog,
                 rootCache: LibraryRootCache,
                 folderID: String,
                 relativePath: String,
-                containerIdentifier: NSFileProviderItemIdentifier) {
+                containerIdentifier: NSFileProviderItemIdentifier,
+                cursorStore: ChangeCursorStore,
+                domainID: String) {
         self.catalog = catalog
         self.rootCache = rootCache
         self.folderID = folderID
         self.relativePath = relativePath
         self.containerIdentifier = containerIdentifier
+        self.cursorStore = cursorStore
+        self.domainID = domainID
     }
 
     public func invalidate() {}
@@ -1677,12 +1690,41 @@ public final class DeferredFolderEnumerator: NSObject, NSFileProviderEnumerator 
         }
     }
 
-    public func enumerateChanges(for observer: NSFileProviderChangeObserver, from anchor: NSFileProviderSyncAnchor) {
-        observer.finishEnumeratingChanges(upTo: anchor, moreComing: false)
+    public func currentSyncAnchor(completionHandler: @escaping (NSFileProviderSyncAnchor?) -> Void) {
+        // The last cursor the change feed persisted for this domain. Cheap
+        // and network-free; a slightly stale value only replays changes the
+        // OS then applies idempotently, which is the safe direction.
+        completionHandler(FolderChangeMatching.anchor(cursorStore.load(domain: domainID)))
     }
 
-    public func currentSyncAnchor(completionHandler: @escaping (NSFileProviderSyncAnchor?) -> Void) {
-        completionHandler(NSFileProviderSyncAnchor(Data("0".utf8)))
+    public func enumerateChanges(for observer: NSFileProviderChangeObserver,
+                                 from anchor: NSFileProviderSyncAnchor) {
+        let since = FolderChangeMatching.parseAnchor(anchor)
+        Task {
+            do {
+                let page = try await catalog.listChanges(since: since,
+                                                         limit: Self.changesPageLimit)
+                let split = FolderChangeMatching.partition(changes: page.changes,
+                                                           folderID: folderID,
+                                                           relativePath: relativePath)
+                observer.didUpdate(split.updates)
+                observer.didDeleteItems(withIdentifiers: split.deletes)
+                // Advance past the whole page, not just the rows we kept —
+                // the filtered-out rows belong to other folders and must
+                // never be re-scanned by this enumerator.
+                let newAnchor = page.nextCursor.map { FolderChangeMatching.anchor($0) } ?? anchor
+                let moreComing = page.changes.count >= Self.changesPageLimit
+                observer.finishEnumeratingChanges(upTo: newAnchor, moreComing: moreComing)
+            } catch let e as StaleCursorError {
+                log.notice("folder stale cursor (server current=\(e.current)); requesting full re-enumeration")
+                observer.finishEnumeratingWithError(
+                    NSError(domain: NSFileProviderErrorDomain,
+                            code: NSFileProviderError.syncAnchorExpired.rawValue))
+            } catch {
+                log.error("folder enumerateChanges failed: \(error.localizedDescription, privacy: .public)")
+                observer.finishEnumeratingWithError(error)
+            }
+        }
     }
 }
 
