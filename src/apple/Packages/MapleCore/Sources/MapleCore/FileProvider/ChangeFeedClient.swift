@@ -76,8 +76,8 @@ final class ChangeFeedClient {
     /// effect on the next request.
     func updateServer(_ url: URL) {
         serverLock.lock()
+        defer { serverLock.unlock() }
         server = url
-        serverLock.unlock()
     }
 
     private func currentServer() -> URL {
