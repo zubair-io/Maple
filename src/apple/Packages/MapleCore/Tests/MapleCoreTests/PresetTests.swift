@@ -143,10 +143,21 @@ final class PresetTests: XCTestCase {
             "wb_method": .string("Cat16"),
             "tone_curve_mode": .string("RatioPreserving"),
             "capture_sharpening_radius": .number(1.5), // deprecated alias
+            "film_look": .string("kodak_portra_400"),  // film emulation (#2683)
+            "film_strength": .number(80),
             "contrast": .number(10),
         ])
         XCTAssertEqual(applied, 1)
         XCTAssertEqual(merged.contrast, 10, accuracy: 1e-9)
+    }
+
+    func testCaptureFieldsNeverEmitsFilmFields() {
+        // Film emulation (#2683) — film_look/film_strength exist in the
+        // generated FieldName but not on the Swift struct yet, so capture
+        // must never emit them.
+        let fields = PresetAdjustments.captureFields(from: .default)
+        XCTAssertNil(fields["film_look"])
+        XCTAssertNil(fields["film_strength"])
     }
 
     func testMergedAppliesAutoExposure() {
