@@ -26,8 +26,8 @@ final class SidecarTransactionContractFilesystemTests: XCTestCase {
   /// instance, reopen with a BRAND NEW `XMPSidecarStore` (a real "new
   /// session" — no shared in-memory cache), assert the semantic model and
   /// the passthrough bytes both survived, and assert the original asset's
-  /// digest never moved. Render + export runs once (cycle 1) and once more
-  /// after the last cycle (cycle 100) — full-pipeline decode/develop/encode
+  /// digest never moved. Render + export runs once (cycle 0) and once more
+  /// after the last cycle (cycle 99) — full-pipeline decode/develop/encode
   /// on every one of 100 cycles would multiply this suite's runtime for no
   /// additional signal beyond what the first and last cycle already prove.
   func test100CycleTransactionContract() async throws {
@@ -141,8 +141,11 @@ final class SidecarTransactionContractFilesystemTests: XCTestCase {
     XCTAssertNotNil(observed, "a permission-denied write must be observable, not silent")
 
     try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path)
+    let sidecarURL = SidecarPath.sidecarURL(for: originalURL)
+    let tmpURL = sidecarURL.deletingLastPathComponent()
+      .appendingPathComponent(".\(sidecarURL.lastPathComponent).tmp")
     XCTAssertFalse(
-      fm.fileExists(atPath: SidecarPath.sidecarURL(for: originalURL).path.appending(".tmp")),
+      fm.fileExists(atPath: tmpURL.path),
       "no partial temp file should survive a failed write")
   }
 
