@@ -66,4 +66,34 @@ extension RenderActor {
             )
         }.value
     }
+
+    /// Full decode→develop→render of a RAW+XMP with a film-look lattice
+    /// blended in (epic #2683, Task 10 / bugfix round 2). Wraps
+    /// `PipelineRenderer.render(rawPath:xmpPath:quality:filmLut:)` —
+    /// `maple_render_file_with_film` under the FFI — the same heavy,
+    /// CPU-bound call the plain `renderForExport` above keeps off the main
+    /// actor via `Task.detached`. This entry doesn't need the extra
+    /// `Task.detached` hop: `PipelineRenderer` is a stateless `Sendable`
+    /// struct around the FFI, and `RenderActor` is already a dedicated
+    /// actor distinct from `@MainActor` — running the call directly inside
+    /// this method keeps it off the main actor without adding a second
+    /// concurrency domain to reason about.
+    ///
+    /// `EditSession.renderExportWithFilmLook()` keeps the `@MainActor`-side
+    /// responsibilities (the applicability guard, flushing the pending
+    /// sidecar write, resolving the lattice from `filmLutStore`) and awaits
+    /// this method for the heavy render only.
+    public func renderExportWithFilmLook(
+        rawPath: URL,
+        xmpPath: URL?,
+        quality: PipelineRenderer.Quality,
+        filmLut: (data: [Float], size: Int, key: UInt32)?
+    ) throws -> MapleImageData {
+        try PipelineRenderer.render(
+            rawPath: rawPath,
+            xmpPath: xmpPath,
+            quality: quality,
+            filmLut: filmLut
+        )
+    }
 }
