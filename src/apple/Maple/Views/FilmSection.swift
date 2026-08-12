@@ -43,6 +43,19 @@
 // The Angular twin owns its own `film-section.component.ts` (epic #2683
 // Task 12); both read the same generated `FilmCatalog` / `filmLook` field
 // so the two pickers can't drift on which looks exist.
+//
+// iPhone (#2794): the layout above is the macOS/iPad shape. `FilmSection`
+// IS mounted in the phone chrome too (`MobileControlBar`,
+// `IPhoneLegacyControlBar`), but a fixed 240pt vertical list plus the chip
+// row and slider doesn't fit a phone's bottom control bar. On COMPACT width
+// (`horizontalSizeClass == .compact`, i.e. iPhone) the look list is replaced
+// by `FilmLookStrip` — a horizontally-scrolling row of look cards, same chip
+// row on top and same strength slider below. Sizing is compact-first: read
+// via `@Environment(\.horizontalSizeClass)`, same signal `ControlCard` /
+// `LivingSliderGrid` / `EditorView` already branch on for the phone-vs-tablet
+// split, so this doesn't invent a second convention for the same decision.
+// The strip lives in a sibling file (`FilmLookStrip.swift`) rather than
+// inline — this file was already near the 400-line soft budget.
 
 import MapleCore
 import SwiftUI
@@ -51,6 +64,10 @@ import SwiftUI
 
 struct FilmSection: View {
     @Bindable var state: EditorState
+
+    /// Compact width (iPhone) swaps the vertical look list for
+    /// `FilmLookStrip`'s horizontal card row — see the file header note.
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     /// `FilmCatalog.all` grouped by category. Built once — the catalog is a
     /// static generated table, not session state.
@@ -76,7 +93,16 @@ struct FilmSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             categoryChipRow
-            lookList
+            if horizontalSizeClass == .compact {
+                FilmLookStrip(
+                    looks: Self.looksByCategory[selectedCategory] ?? [],
+                    activeLookId: activeLookId,
+                    onSelectLook: selectLook,
+                    onSelectNone: clearLook
+                )
+            } else {
+                lookList
+            }
             if isLookActive {
                 strengthSlider
             }
