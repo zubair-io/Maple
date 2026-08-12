@@ -21,7 +21,7 @@
 //
 // The second thing this file documents is a real product bug this suite's
 // design work surfaced: `EditSession` never persists edits for SMB-sourced
-// assets at all (see the bug filed alongside this PR). That is a separate,
+// assets at all (see #2674, filed alongside this PR). That is a separate,
 // larger fix (wiring a `SidecarStoreProtocol` conformer for SMB through
 // `BrowseViewModel`/`AppShell+FolderActions`'s `ensureSession`), out of this
 // suite's scope per the stop-condition in the assignment — this test
@@ -118,7 +118,7 @@ final class SidecarTransactionContractSMBTests: XCTestCase {
       (AppShell+FolderActions.ensureSession never wires one because \
       SMB assets never set thumbnailProvenance and never have a \
       primaryURL) — edits are session-local and lost on teardown. \
-      See the bug filed alongside #2431.
+      See #2674, filed alongside #2431.
       """
     ) {
       XCTAssertTrue(
