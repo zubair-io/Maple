@@ -8,6 +8,15 @@ final class URLProtocolStub: URLProtocol, @unchecked Sendable {
   /// per request lets sequenced tests vary the response over time.
   nonisolated(unsafe) static var responseProvider: ((URLRequest) -> (Data, HTTPURLResponse))?
 
+  /// Optional hook checked before `responseProvider`. Returning a
+  /// non-nil `Error` fails the load as a genuine transport-level
+  /// failure (`URLProtocol.didFailWithError`) instead of delivering an
+  /// HTTP response — lets tests simulate real connectivity loss
+  /// (e.g. `URLError(.notConnectedToInternet)`), distinct from a
+  /// reached-but-bad-status response (`URLError(.badServerResponse)`,
+  /// which `responseProvider` + a non-2xx status already covers).
+  nonisolated(unsafe) static var errorProvider: ((URLRequest) -> Error?)?
+
   /// Captured request bodies — `URLProtocol` strips the body off the
   /// `URLRequest` once the system has handed it to the loader, so tests
   /// that need to inspect bodies must read from this dictionary keyed
@@ -30,6 +39,10 @@ final class URLProtocolStub: URLProtocol, @unchecked Sendable {
   override func startLoading() {
     if let body = readBody(from: request) {
       Self.capturedBodies[request.url?.absoluteString ?? ""] = body
+    }
+    if let errorProvider = Self.errorProvider, let error = errorProvider(request) {
+      client?.urlProtocol(self, didFailWithError: error)
+      return
     }
     guard let provider = Self.responseProvider else {
       let err = NSError(domain: "URLProtocolStub", code: -1,
@@ -97,6 +110,7 @@ extension URLSession {
     URLProtocolStub.delay = delay
     URLProtocolStub.onRequestStart = onRequestStart
     URLProtocolStub.onRequestEnd = onRequestEnd
+    URLProtocolStub.errorProvider = nil
     URLProtocolStub.responseProvider = { req in
       let resp = HTTPURLResponse(url: req.url!, statusCode: status,
                                  httpVersion: "HTTP/1.1",
@@ -108,10 +122,24 @@ extension URLSession {
 
   /// Variant where the test supplies a closure that returns the response
   /// for each request. Use for capturing bodies, multi-step flows, etc.
-  static func stubbedSequence(_ provider: @escaping (URLRequest) -> (Data, HTTPURLResponse)) -> URLSession {
+  /// Optional `delay` / `onRequestStart` / `onRequestEnd` (mirroring
+  /// `stubbed`) let concurrency-cap tests observe in-flight overlap
+  /// across a batch of DIFFERENT endpoints (e.g. one `/api/changes`
+  /// page fan-out into many `/api/assets/:id` GETs), and `errorProvider`
+  /// lets a specific request fail as a transport-level error rather than
+  /// deliver an HTTP response.
+  static func stubbedSequence(delay: Duration = .zero,
+                              onRequestStart: (@Sendable () async -> Void)? = nil,
+                              onRequestEnd: (@Sendable () async -> Void)? = nil,
+                              errorProvider: ((URLRequest) -> Error?)? = nil,
+                              _ provider: @escaping (URLRequest) -> (Data, HTTPURLResponse)) -> URLSession {
     let cfg = URLSessionConfiguration.ephemeral
     cfg.protocolClasses = [URLProtocolStub.self]
     URLProtocolStub.capturedBodies = [:]
+    URLProtocolStub.delay = delay
+    URLProtocolStub.onRequestStart = onRequestStart
+    URLProtocolStub.onRequestEnd = onRequestEnd
+    URLProtocolStub.errorProvider = errorProvider
     URLProtocolStub.responseProvider = provider
     return URLSession(configuration: cfg)
   }
