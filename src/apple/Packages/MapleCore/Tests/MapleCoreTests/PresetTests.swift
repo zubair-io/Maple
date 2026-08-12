@@ -143,21 +143,50 @@ final class PresetTests: XCTestCase {
             "wb_method": .string("Cat16"),
             "tone_curve_mode": .string("RatioPreserving"),
             "capture_sharpening_radius": .number(1.5), // deprecated alias
-            "film_look": .string("kodak_portra_400"),  // film emulation (#2683)
-            "film_strength": .number(80),
+            // `film_look` (#2683) is a free-form string with no Swift key
+            // path — skipped like the above. Its sibling `film_strength` IS
+            // a real Swift field now, so it is NOT in this payload; see
+            // `testMergedAppliesFilmStrengthButSkipsFilmLook`.
+            "film_look": .string("kodak_portra_400"),
             "contrast": .number(10),
         ])
         XCTAssertEqual(applied, 1)
         XCTAssertEqual(merged.contrast, 10, accuracy: 1e-9)
+        XCTAssertEqual(merged.filmLook, "")
     }
 
-    func testCaptureFieldsNeverEmitsFilmFields() {
-        // Film emulation (#2683) — film_look/film_strength exist in the
-        // generated FieldName but not on the Swift struct yet, so capture
-        // must never emit them.
-        let fields = PresetAdjustments.captureFields(from: .default)
+    func testMergedAppliesFilmStrengthButSkipsFilmLook() {
+        // Film emulation (#2683): the Swift model carries `filmStrength` as
+        // an ordinary numeric field, so a preset applies it like any slider.
+        // `filmLook` has no key path (free-form string) and stays skipped —
+        // the Apple-side preset gap tracked as #2720.
+        let (merged, applied) = PresetAdjustments.merged(.default, applying: [
+            "film_look": .string("kodak_portra_400"),
+            "film_strength": .number(80),
+        ])
+        XCTAssertEqual(applied, 1)
+        XCTAssertEqual(merged.filmStrength, 80, accuracy: 1e-9)
+        XCTAssertEqual(merged.filmLook, "")
+    }
+
+    func testCaptureFieldsNeverEmitsFilmLookButCapturesFilmStrength() {
+        // Film emulation (#2683). `film_look` has no Swift key path, so
+        // capture never emits it (Apple-side preset gap, #2720).
+        // `film_strength` IS a real numeric field: absent at its default
+        // (100, sparse-map convention), emitted once edited.
+        let atDefault = PresetAdjustments.captureFields(from: .default)
+        XCTAssertNil(atDefault["film_look"])
+        XCTAssertNil(atDefault["film_strength"])
+
+        var edited = AdjustmentModel.default
+        edited.filmLook = "kodak_portra_400"
+        edited.filmStrength = 62
+        let fields = PresetAdjustments.captureFields(from: edited)
         XCTAssertNil(fields["film_look"])
-        XCTAssertNil(fields["film_strength"])
+        guard case .number(let strength)? = fields["film_strength"] else {
+            return XCTFail("film_strength should be captured once non-default")
+        }
+        XCTAssertEqual(strength, 62, accuracy: 1e-9)
     }
 
     func testMergedAppliesAutoExposure() {
