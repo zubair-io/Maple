@@ -21,6 +21,10 @@ namespace Maple.WinUI
         /// raises OnLaunched). Consumed exactly once at the end of OnLaunched.</summary>
         private static IReadOnlyList<string>? _pendingFileActivation;
 
+        /// <summary>Cold-start counterpart for maple-app:// sign-in callbacks —
+        /// the same before-OnLaunched window as _pendingFileActivation.</summary>
+        private static Uri? _pendingAuthCallback;
+
         /// <summary>Activation entry: invoked by Program for both the
         /// cold-start activation and redirected activations from second
         /// instances. Routes maple-app:// sign-in callbacks and Explorer
@@ -60,7 +64,7 @@ namespace Maple.WinUI
                 {
                     uri = parsed;
                 }
-                else if (arg != null && System.IO.File.Exists(arg))
+                else if (arg != null && IsLikelyFilePath(arg))
                 {
                     // Registry-fallback file activation: `"exe" "%1"`.
                     DeliverFileActivation(new[] { arg });
@@ -71,8 +75,33 @@ namespace Maple.WinUI
                 return;
             Maple.WinUI.Services.DiagLog.Write($"[auth] callback activation: {uri.Scheme}://{uri.Host}");
             var captured = uri;
-            MainDispatcherQueue?.TryEnqueue(() =>
+            if (MainDispatcherQueue == null || _window == null)
+            {
+                // Cold start — same latch as the file activation below. Program
+                // routes the launching activation here before the XAML framework
+                // raises OnLaunched, so enqueueing now would silently drop the
+                // sign-in callback (pre-existing gap surfaced by #2797 review).
+                _pendingAuthCallback = captured;
+                return;
+            }
+            MainDispatcherQueue.TryEnqueue(() =>
                 (_window as MainWindow)?.HandleAuthCallback(captured));
+        }
+
+        /// <summary>Cheap string-only test for a registry-fallback file
+        /// activation argument ("%1"): a fully-qualified path with a supported
+        /// image extension. Deliberately NO File.Exists here — this runs
+        /// during activation routing, and Exists on a dead network share can
+        /// block for the OS timeout (the hazard the drop pipeline documents,
+        /// #2754). DropMountLogic.Classify does the real filesystem probes off
+        /// the UI thread and treats a vanished path as unsupported.</summary>
+        private static bool IsLikelyFilePath(string arg)
+        {
+            if (!System.IO.Path.IsPathFullyQualified(arg))
+                return false;
+            var ext = System.IO.Path.GetExtension(arg);
+            return Maple.WinUI.Services.FileOperations.DropMountLogic.SupportedExtensions
+                .Contains(ext, StringComparer.OrdinalIgnoreCase);
         }
 
         private static void DeliverFileActivation(IReadOnlyList<string> paths)
@@ -114,8 +143,14 @@ namespace Maple.WinUI
             MainDispatcherQueue = DispatcherQueue.GetForCurrentThread();
             _window = new MainWindow();
             _window.Activate();
-            // Cold-start file activation latched by DeliverFileActivation
-            // before the window existed (#2797).
+            // Cold-start activations latched before the window existed (#2797):
+            // a sign-in callback that launched the app, and/or an Explorer
+            // file open.
+            if (_pendingAuthCallback is { } pendingAuth)
+            {
+                _pendingAuthCallback = null;
+                (_window as MainWindow)?.HandleAuthCallback(pendingAuth);
+            }
             if (_pendingFileActivation is { } pending)
             {
                 _pendingFileActivation = null;
