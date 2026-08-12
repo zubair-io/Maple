@@ -94,9 +94,6 @@ test('Hosted writable folder creates its .maple cache without modifying the RAW'
     )
     .toContain('test_0006.DNG');
   const coldReadyMs = Date.now() - coldStarted;
-  // Finish the local font request before warm-cache document replacement so
-  // Chrome does not report its intentional cancellation as a request failure.
-  await page.evaluate(() => document.fonts.ready);
   await page.goto('/');
   const warmStarted = Date.now();
   await openHostedFolder(page, 'test_0006.DNG');
@@ -520,10 +517,6 @@ test('Hosted opens one RAW directly and downloads its XMP without a filmstrip', 
   await expect(page.getByRole('status', { name: 'Single-file save' })).toContainText(
     'XMP downloaded',
   );
-  // Finish any in-flight local font request before the document replacement
-  // below, so Chrome does not report its intentional cancellation as a
-  // request failure (same race as the reload/re-open case above).
-  await page.evaluate(() => document.fonts.ready);
   await page.goto('/');
   const reimportXmp = join(manifest.freshFolder, download.suggestedFilename());
   await writeFile(reimportXmp, xml);
