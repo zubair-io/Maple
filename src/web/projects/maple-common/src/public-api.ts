@@ -123,6 +123,7 @@ export * from './lib/shells/bottom-sheet.component';
 // comment).
 export * from './lib/shells/root-shell.component';
 export * from './lib/shells/protocol-handler.component';
+export * from './lib/shells/file-handler.component';
 
 // Service-worker app-update flow (background install + in-app toast + hard-nav
 // on next route change). Rendered by RootShellComponent; init() wired from each
