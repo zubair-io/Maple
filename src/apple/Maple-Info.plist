@@ -45,5 +45,59 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<!--
+	  Document-type claims (#2796). The open-file runtime has existed since
+	  #1589 (`.onOpenURL` → DocumentOpenRouter → AppShell), but without
+	  CFBundleDocumentTypes LaunchServices never lists Maple in Finder's
+	  "Open With" and iOS never offers it from the Files app.
+
+	  RAW coverage uses the `public.camera-raw-image` umbrella UTI: every
+	  system-declared vendor RAW type (DNG, CR2/CR3, NEF, ARW, RAF, ORF,
+	  IIQ, …) conforms to it, so one claim tracks the OS's own RAW
+	  knowledge without redeclaring system UTIs. Role Viewer +
+	  LSHandlerRank Alternate: Maple shows up in "Open With" and can be
+	  chosen as default by the user, but never steals double-click default
+	  from Preview/Photos on install — and Viewer is the honest role for a
+	  non-destructive editor that never writes the original.
+	-->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Camera RAW Image</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.camera-raw-image</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Image</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.jpeg</string>
+				<string>public.png</string>
+				<string>public.heic</string>
+				<string>public.heif</string>
+				<string>public.tiff</string>
+			</array>
+		</dict>
+	</array>
+	<!--
+	  iOS: open Files-app documents in place (a security-scoped URL to the
+	  original) instead of copying into Maple's sandbox inbox — in-place is
+	  what DocumentOpenRouter's scope-holding expects, and a copy would
+	  break the sidecar-next-to-original contract. Ignored on macOS.
+	-->
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 </dict>
 </plist>
