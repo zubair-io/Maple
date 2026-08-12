@@ -66,7 +66,11 @@ namespace Maple.WinUI
                 }
                 else if (arg != null && IsLikelyFilePath(arg))
                 {
-                    // Registry-fallback file activation: `"exe" "%1"`.
+                    // Registry-fallback file activation. The command template
+                    // (`"exe" "%1"`) wraps the path in quotes, but `arg` is
+                    // already unquoted here — the binding above strips them
+                    // with Trim('"'), the same normalization the maple-app://
+                    // fallback branch has always depended on.
                     DeliverFileActivation(new[] { arg });
                     return;
                 }
