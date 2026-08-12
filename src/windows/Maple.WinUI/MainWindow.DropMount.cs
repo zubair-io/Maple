@@ -1,5 +1,7 @@
 // MainWindow.DropMount.cs — OS file/folder drops onto the app window,
-// mounting by reference exactly as the Apple app does (#2651). This is the
+// mounting by reference exactly as the Apple app does (#2651), plus the
+// Explorer "Open with" file-activation entry (#2797), which funnels into
+// the same classify → mount/navigate → open pipeline. This is the
 // window-level counterpart to MainWindow.DragDrop.cs's internal PhotoGrid
 // -> sources-tree drag: that file's OnFolderDragOver/OnFolderDrop
 // deliberately leave AcceptedOperation untouched (and never set e.Handled)
@@ -126,6 +128,40 @@ namespace Maple.WinUI
             }
 
             var paths = items.Select(i => i.Path).Where(p => !string.IsNullOrEmpty(p)).ToList();
+            await RunOpenPathsAsync(paths);
+        }
+
+        /// <summary>Explorer "Open with" / double-click activation entry
+        /// (#2797) — App enqueues this on the UI thread for both cold-start
+        /// and redirected activations. Runs the same classify → mount/
+        /// navigate → open pipeline as an OS drop; `async void` for the same
+        /// reason OnWindowDrop is, with the same last-line-of-defense catch
+        /// (an uncaught exception in async void crashes the app, #2754).</summary>
+        public async void HandleFileActivation(IReadOnlyList<string> paths)
+        {
+            if (!_dropGate.TryEnter())
+                return;
+            try
+            {
+                await RunOpenPathsAsync(paths);
+            }
+            catch (Exception ex)
+            {
+                DiagLog.Write($"[file-open] unexpected failure: {ex.Message}");
+                await ShowMessageAsync("Can't open that",
+                    "Something went wrong opening the file. Nothing was mounted or moved.");
+            }
+            finally
+            {
+                _dropGate.Exit();
+            }
+        }
+
+        /// <summary>Shared open pipeline for OS drops and Explorer file
+        /// activations: classify the paths, then mount/navigate and open or
+        /// browse per the plan.</summary>
+        private async Task RunOpenPathsAsync(IReadOnlyList<string> paths)
+        {
             if (paths.Count == 0)
                 return;
 
