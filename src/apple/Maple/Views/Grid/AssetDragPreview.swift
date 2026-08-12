@@ -23,10 +23,12 @@ struct AssetDragPreview: View {
     let count: Int
 
     private static let side: CGFloat = 72
+    private static let cornerRadius: CGFloat = 6
 
     var body: some View {
         ThumbnailImage(image: thumbnail, displayMode: .fill)
             .frame(width: Self.side, height: Self.side)
+            .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
             .overlay(alignment: .bottomTrailing) {
                 if count > 1 {
                     countBadge

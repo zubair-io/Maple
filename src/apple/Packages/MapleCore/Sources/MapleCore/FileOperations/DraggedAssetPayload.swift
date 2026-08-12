@@ -37,11 +37,14 @@ public struct DraggedAssetPayload: Transferable, Equatable, Sendable {
         ProxyRepresentation(exporting: \.encoded, importing: DraggedAssetPayload.init(encoded:))
     }
 
-    private var encoded: String {
+    // `internal`, not `private`, so the round-trip these two halves form is
+    // reachable from the test target — a test that re-implements the
+    // comma-join instead of calling them proves nothing about this type.
+    var encoded: String {
         ids.map(\.uuidString).joined(separator: ",")
     }
 
-    private init(encoded: String) {
+    init(encoded: String) {
         self.ids = encoded
             .split(separator: ",")
             .compactMap { UUID(uuidString: String($0)) }
@@ -61,6 +64,6 @@ public struct DraggedAssetPayload: Transferable, Equatable, Sendable {
     /// (`AssetDragPreview`, Maple app target) derive the badge string
     /// without constructing a throwaway payload.
     public static func previewBadgeText(forCount count: Int) -> String {
-        "\(count) Photos"
+        count == 1 ? "1 Photo" : "\(count) Photos"
     }
 }
