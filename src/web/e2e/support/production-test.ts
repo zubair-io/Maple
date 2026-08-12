@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { expect, test as base } from '@playwright/test';
+import { expect, test as base, type Request } from '@playwright/test';
 import { readProductionFixtureManifest } from './production-fixtures';
 
 interface BrowserAudit {
@@ -7,6 +7,34 @@ interface BrowserAudit {
   readonly pageErrors: string[];
   readonly failedRequests: string[];
   readonly errorResponses: string[];
+}
+
+// A subresource (font, script, stylesheet, image, ...) that is still in
+// flight when the page navigates to a new document — or when the tab/context
+// tears down — gets its loader destroyed by Chromium, which reports it as
+// `net::ERR_ABORTED`. That is benign browser behavior, not an application
+// bug, so it must not fail the audit. Every OTHER cause of a failed request
+// (404, connection refused, CSP block, DNS failure, ...) surfaces as a
+// different `errorText` and must keep failing the audit regardless of
+// resource type.
+//
+// `xhr`/`fetch` are excluded from the exemption: those are the only
+// resource types the app's own JavaScript can cancel itself, via
+// `AbortController`. A `net::ERR_ABORTED` there could be a real bug (a
+// component racing its own cleanup and aborting a request it still needed)
+// rather than the browser discarding a request superseded by navigation, so
+// it stays fatal. Everything else Chrome fetches on the page's behalf
+// (`<link>`, `@font-face`, `<script src>`, `<img>`, the navigation document
+// itself, ...) has no such app-controlled cancellation path — the browser is
+// the only thing that can abort those, and it does so exactly when a
+// navigation or teardown discards the document that requested them.
+const SELF_ABORTABLE_RESOURCE_TYPES: ReadonlySet<string> = new Set(['xhr', 'fetch']);
+
+function isBenignNavigationAbort(request: Request): boolean {
+  return (
+    request.failure()?.errorText === 'net::ERR_ABORTED' &&
+    !SELF_ABORTABLE_RESOURCE_TYPES.has(request.resourceType())
+  );
 }
 
 const EXPECTED_SELF_HOSTED_BOOTSTRAP_401 =
@@ -73,6 +101,7 @@ export const test = base.extend<{ browserAudit: void }>({
       });
       page.on('pageerror', (error) => audit.pageErrors.push(error.message));
       page.on('requestfailed', (request) => {
+        if (isBenignNavigationAbort(request)) return;
         audit.failedRequests.push(
           `${request.method()} ${request.url()} ${request.failure()?.errorText}`,
         );
