@@ -18,6 +18,23 @@
 // Returning a `Bool` lets the call site in `body.task` short-circuit
 // (`if await loadUITestFixtureIfPresent() { return }`) rather than nest
 // the entire restore path in an `else` branch.
+//
+// #2795: on the iPhone shell (`MapleShellKind.current == .phoneTab`),
+// flipping `mode = .editing` is a no-op — `PhoneTabShell` never reads
+// `mode` for navigation, it drives push/pop off its own
+// `[LibraryDestination]` `NavigationStack` path (see `PhoneTabShell.swift`
+// header and `pushPreview`). Setting `mode` alone left the fixture asset
+// loaded into the grid but unreachable: no cell tap, no Preview/Edit
+// buttons. The fix pushes the SAME two-entry path a real grid tap +
+// Preview's Edit button would produce — `.preview(asset)` then
+// `.edit(asset)` — onto `libraryPath`, the exact stack `PhoneLibraryView`'s
+// `.navigationDestination(for: LibraryDestination.self)` already resolves
+// for production taps (`PhoneLibraryView.swift`, `LibraryDestination.swift`).
+// This is not a parallel navigation mechanism — it is the production path
+// array pre-loaded with the entries production code appends one at a time,
+// landing the harness directly in the S5 editor to match macOS's
+// `mode = .editing`. macOS/iPad (`macShell`, no `NavigationStack`) keep the
+// existing `mode`-flip behavior untouched.
 
 #if DEBUG
 import SwiftUI
@@ -54,6 +71,11 @@ extension AppShell {
             await session.loadSidecar()
             browseVM.selectedID = asset.id
             mode = .editing
+            #if os(iOS)
+            if MapleShellKind.current == .phoneTab {
+                libraryPath = [.preview(asset), .edit(asset)]
+            }
+            #endif
         }
         return true
     }
