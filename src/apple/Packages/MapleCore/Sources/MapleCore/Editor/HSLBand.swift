@@ -157,6 +157,6 @@ extension Tool {
 
     /// `hueRed`, `satOrange`, `lumMagenta`, … — the id shared with web.
     public static func hslSubParamId(channel: HSLChannel, band: HSLBand) -> String {
-        channel.idPrefix + band.id.prefix(1).uppercased() + band.id.dropFirst()
+        channel.idPrefix + band.id.prefix(1).uppercased() + String(band.id.dropFirst())
     }
 }
