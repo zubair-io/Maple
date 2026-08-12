@@ -33,9 +33,12 @@ import { LibraryStateService, isSupportedRaw } from '../state/library-state.serv
 import { AssetId } from '../models/asset';
 import { editRouteCommands } from '../addressing/route-address';
 
-/** Minimal typings for the File Handling API (not in TS's dom lib yet). */
+/** Minimal typings for the File Handling API (not in TS's dom lib yet).
+ * `files` is optional to match the defensive `?? []` in consume() — the
+ * spec always sends the array, but the typing shouldn't promise more than
+ * the code assumes. */
 interface LaunchParams {
-  readonly files: ReadonlyArray<FileSystemFileHandle>;
+  readonly files?: ReadonlyArray<FileSystemFileHandle>;
 }
 interface LaunchQueue {
   setConsumer(consumer: (params: LaunchParams) => void): void;
