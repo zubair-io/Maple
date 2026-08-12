@@ -13,7 +13,8 @@
 //   - enum fields → applied only when the value is a known variant
 //
 // Fields in `FieldName` that the Swift `AdjustmentModel` does NOT carry
-// (`wb_method`, `tone_curve_mode`, and the deprecated
+// (`wb_method`, `tone_curve_mode`, the film emulation pair `film_look` /
+// `film_strength`, and the deprecated
 // `capture_sharpening_radius` alias) map to nil below: never captured,
 // skipped on apply, preserved in storage — the passthrough rule keeps a
 // web-written preset intact even though Apple can't apply those fields
@@ -131,6 +132,13 @@ extension AdjustmentModel.FieldName {
         // enum below instead.
         case .wbMethod, .highlightRecovery, .autoExposure, .look, .profile,
              .toneCurveMode, .hotPixelSuppression, .blackWhite, .lensProfileEnable:
+            return nil
+        // Film emulation — the generated schema carries `film_look` (a look
+        // name) and `film_strength`, but the Swift `AdjustmentModel` has no
+        // properties for either yet, so both take the passthrough route
+        // described in this file's header: never captured, skipped on apply,
+        // preserved in storage.
+        case .filmLook, .filmStrength:
             return nil
         // Point curves (#366) — structured `ToneCurve` values, not scalars.
         // A preset `fields` map is flat (number | string | bool) on every
