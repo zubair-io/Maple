@@ -11,7 +11,7 @@
  * `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContract*Tests.swift`
  * — see that suite for the full four-adapter breakdown and the versioned
  * vector shared across every adapter, Apple and API alike (the same
- * `crs:Version="11.0"` fixture literal, reused here so this test drives the
+ * `crs:Version="15.0"` fixture literal, reused here so this test drives the
  * SAME vector rather than a fresh one).
  *
  * No mocks: every cycle is a real POST/GET through a real Elysia app
