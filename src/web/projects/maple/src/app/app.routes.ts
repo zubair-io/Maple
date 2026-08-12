@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 import {
   EditorShellComponent,
+  FileHandlerComponent,
   PreviewShellComponent,
   ProtocolHandlerComponent,
   authGuard,
@@ -62,6 +63,15 @@ export const routes: Routes = [
     path: 'protocol-handler',
     canActivate: [authGuard],
     component: ProtocolHandlerComponent,
+  },
+  // PWA `file_handlers` landing route (#2798) — see manifest.webmanifest and
+  // FileHandlerComponent. Chromium navigates here when the installed PWA is
+  // picked from the OS "Open with" menu; the picked files arrive through
+  // window.launchQueue.
+  {
+    path: 'open-file',
+    canActivate: [authGuard],
+    component: FileHandlerComponent,
   },
   // `/settings` lands on Workers. The card-grid landing was replaced by
   // the sidebar shell in v0.2. Non-owners hit authGuard inside

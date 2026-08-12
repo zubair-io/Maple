@@ -27,5 +27,32 @@
       "purpose": "maskable"
     }
   ],
-  "protocol_handlers": [{ "protocol": "web+maple", "url": "/protocol-handler?url=%s" }]
+  "protocol_handlers": [{ "protocol": "web+maple", "url": "/protocol-handler?url=%s" }],
+  "file_handlers": [
+    {
+      "action": "/open-file",
+      "accept": {
+        "image/x-adobe-dng": [".dng"],
+        "image/x-canon-cr2": [".cr2"],
+        "image/x-canon-cr3": [".cr3"],
+        "image/x-nikon-nef": [".nef"],
+        "image/x-sony-arw": [".arw"],
+        "image/x-fuji-raf": [".raf"],
+        "image/x-olympus-orf": [".orf"],
+        "image/x-panasonic-rw2": [".rw2"],
+        "image/x-pentax-pef": [".pef"],
+        "image/x-samsung-srw": [".srw"],
+        "image/x-sigma-x3f": [".x3f"],
+        "image/x-hasselblad-3fr": [".3fr"],
+        "image/x-mamiya-mef": [".mef"],
+        "image/x-epson-erf": [".erf"],
+        "image/x-hasselblad-fff": [".fff"],
+        "image/x-kodak-dcr": [".dcr"],
+        "image/x-leaf-mos": [".mos"],
+        "image/x-phaseone-iiq": [".iiq"],
+        "image/x-minolta-mrw": [".mrw"],
+        "image/x-panasonic-raw": [".raw"]
+      }
+    }
+  ]
 }
