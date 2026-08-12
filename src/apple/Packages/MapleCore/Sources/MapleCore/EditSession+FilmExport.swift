@@ -43,14 +43,30 @@ extension EditSession {
         // entirely by taking `model` directly).
         await flushPendingSidecarWrite()
 
+        // `startAccessingSecurityScopedResource` is a process-wide flag keyed
+        // on the URL, not actor/thread state, so it's safe to start it here
+        // on the main actor and stop it after the `RenderActor` call below
+        // returns — the pairing only needs to bracket the render, not share
+        // its isolation domain. The `defer` still runs after the `await`:
+        // Swift resumes this function (and its deferred cleanup) back on the
+        // main actor once the awaited call completes, whether it returns or
+        // throws.
         let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
         let accessing = scope.startAccessingSecurityScopedResource()
         defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
 
         let quality: PipelineRenderer.Quality = AmazeFlag.isEnabled ? .amaze : .full
+        // The heavy decode→develop→render FFI call is offloaded to
+        // `RenderActor` (bugfix round 2, #2683) — it was previously invoked
+        // synchronously right here on `@MainActor`, freezing the UI for the
+        // duration of a full-resolution RAW render. `lut` and the returned
+        // `MapleImageData` are both `Sendable` (a tuple of `[Float]`/`Int`/
+        // `UInt32`, and an explicitly `Sendable` struct respectively), so
+        // this crosses the actor boundary without any `@unchecked` escape
+        // hatch.
         let data: MapleImageData
         do {
-            data = try PipelineRenderer.render(
+            data = try await renderActor.renderExportWithFilmLook(
                 rawPath: url,
                 xmpPath: asset.sidecarURL,
                 quality: quality,
