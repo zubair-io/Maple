@@ -5,9 +5,19 @@
 // passkey). If yes, the form signs an existing user in via WebAuthn.
 
 import { Component, OnInit, inject, signal } from '@angular/core';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { AuthService, errorMessage } from '@maple-common';
+
+/**
+ * Post-sign-in destination from the guard's `returnUrl` query param
+ * (auth.guard.ts) — internal paths only, so a crafted link can't turn
+ * sign-in into an open redirect. `//host` is scheme-relative (external),
+ * hence the second check. Exported for unit tests.
+ */
+export function safeReturnUrl(raw: string | null): string {
+  return raw && raw.startsWith('/') && !raw.startsWith('//') ? raw : '/';
+}
 
 @Component({
   standalone: true,
@@ -19,6 +29,12 @@ import { AuthService, errorMessage } from '@maple-common';
 export class SignInComponent implements OnInit {
   private auth = inject(AuthService);
   private router = inject(Router);
+  private route = inject(ActivatedRoute);
+
+  /** Where to land after a successful sign-in (guard-provided, validated). */
+  private returnUrl(): string {
+    return safeReturnUrl(this.route.snapshot.queryParamMap.get('returnUrl'));
+  }
 
   email = '';
   claimed = signal<boolean | null>(null);
@@ -50,7 +66,7 @@ export class SignInComponent implements OnInit {
       // don't waste a round-trip loading the library only to be
       // closed.
       if (!this.auth.isNativeShell) {
-        await this.router.navigateByUrl('/');
+        await this.router.navigateByUrl(this.returnUrl());
       }
     } catch (e: unknown) {
       this.error.set(errorMessage(e));
@@ -70,7 +86,7 @@ export class SignInComponent implements OnInit {
     try {
       await this.auth.signIn();
       if (!this.auth.isNativeShell) {
-        await this.router.navigateByUrl('/');
+        await this.router.navigateByUrl(this.returnUrl());
       }
     } catch (e: unknown) {
       this.error.set(errorMessage(e));
@@ -85,7 +101,7 @@ export class SignInComponent implements OnInit {
     try {
       await this.auth.devSignIn();
       if (!this.auth.isNativeShell) {
-        await this.router.navigateByUrl('/');
+        await this.router.navigateByUrl(this.returnUrl());
       }
     } catch (e: unknown) {
       this.error.set(errorMessage(e));
