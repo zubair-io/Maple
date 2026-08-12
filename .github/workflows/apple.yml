@@ -1,0 +1,119 @@
+# .github/workflows/apple.yml
+#
+# Swift compile gate for the Apple platforms. Per #2789.
+#
+# No cloud CI built Swift, so a change that broke the MapleCore compile
+# merged green and main went red until a human built locally or an Xcode
+# Cloud archive failed (#2653, #2488, #2785 — the recurring class is a
+# codegen-added enum case landing beside an exhaustive switch that never
+# gained an arm: neither PR touches the other's lines, git merges both
+# cleanly, and nothing re-compiles until the TestFlight archive).
+#
+# Scope: COMPILE coverage only — `swift build` of the MapleCore package.
+# That alone would have caught every incident above. Running the tests
+# needs a real libraw_ffi.a (a full Rust cross-build, tens of minutes);
+# compiling only needs the cbindgen-generated header plus a stub archive,
+# because SwiftPM validates that the binary target's .a EXISTS but never
+# links a static library into a library target — linking happens in the
+# app/test executables, which this job doesn't build.
+#
+# The job runs on Apple- and raw-pipeline-scoped changes: every incident
+# class either edits src/apple/** directly (committed generated Swift,
+# hand-written Swift) or changes the raw-ffi surface the header is
+# generated from (src/raw-pipeline/**).
+
+name: apple
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/apple/**'
+      - 'src/raw-pipeline/**'
+      - '.github/workflows/apple.yml'
+  pull_request:
+    paths:
+      - 'src/apple/**'
+      - 'src/raw-pipeline/**'
+      - '.github/workflows/apple.yml'
+
+# Cancel in-progress runs on non-main refs (PRs, feature branches). Pushes to
+# main always run to completion so the protected-branch signal stays accurate.
+concurrency:
+  group: apple-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# Keep in sync with src/apple/ci_scripts/ci_post_clone.sh (Xcode Cloud pins
+# the same version so generated headers can't drift between the two CIs).
+env:
+  CBINDGEN_VERSION: '0.29.2'
+
+jobs:
+  swift-build:
+    name: swift-build (MapleCore compile gate)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      # The package is swift-tools-version 6.1; the image's default Xcode can
+      # lag the newest installed one, so select the highest deterministically.
+      - name: Select newest Xcode
+        run: |
+          XCODE_APP="$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+          echo "Selecting $XCODE_APP"
+          sudo xcode-select -s "$XCODE_APP"
+          swift --version
+
+      # cbindgen parses the raw-ffi crate to emit RawPipeline.h. It needs a
+      # Rust toolchain on PATH for `cargo metadata`, but never compiles the
+      # crate — no cross targets, no cargo build.
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cbindgen binary
+        id: cbindgen-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cbindgen
+          key: cbindgen-${{ env.CBINDGEN_VERSION }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install cbindgen
+        if: steps.cbindgen-cache.outputs.cache-hit != 'true'
+        run: cargo install cbindgen --locked --version "$CBINDGEN_VERSION"
+
+      # Stage the compile-only skeleton of RawPipeline.xcframework: the
+      # generated header everywhere a modulemap references it, plus an empty
+      # stub archive so SwiftPM's input validation passes. Compile-only —
+      # nothing links the archive (see the header comment).
+      - name: Stage RawPipeline header + stub archive
+        run: |
+          set -euo pipefail
+          FFI_DIR=src/raw-pipeline/raw-ffi
+          FRAMEWORK=src/apple/Frameworks/RawPipeline.xcframework
+          INCLUDE_DIR=src/apple/Packages/MapleCore/Sources/MapleCore/include
+
+          (cd "$FFI_DIR" && cbindgen --config cbindgen.toml --lang C \
+              --output /tmp/RawPipeline.h --crate raw-ffi)
+
+          cp /tmp/RawPipeline.h "$INCLUDE_DIR/RawPipeline.h"
+          for slice in ios-arm64 ios-arm64-simulator macos-arm64_x86_64; do
+            cp /tmp/RawPipeline.h "$FRAMEWORK/$slice/Headers/RawPipeline.h"
+          done
+
+          # macOS `ar` refuses an empty archive, so feed it one empty object.
+          echo 'static int _maple_compile_gate_stub;' \
+            | clang -x c -c - -o /tmp/maple_stub.o
+          ar -rc "$FRAMEWORK/macos-arm64_x86_64/libraw_ffi.a" /tmp/maple_stub.o
+
+      - name: Cache SwiftPM build directory
+        uses: actions/cache@v4
+        with:
+          path: |
+            src/apple/Packages/MapleCore/.build
+            ~/Library/Caches/org.swift.swiftpm
+          key: swiftpm-${{ runner.os }}-${{ hashFiles('src/apple/Packages/MapleCore/Package.resolved', '.github/workflows/apple.yml') }}
+          restore-keys: |
+            swiftpm-${{ runner.os }}-
+
+      - name: swift build
+        working-directory: src/apple/Packages/MapleCore
+        run: swift build
