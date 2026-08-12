@@ -63,6 +63,11 @@ public final class RootEnumerator: NSObject, NSFileProviderEnumerator {
     // `FileProviderExtension.handleChangeEvent`, which invalidates the
     // cache explicitly before signaling the enumerator.
     public func enumerateChanges(for observer: NSFileProviderChangeObserver, from anchor: NSFileProviderSyncAnchor) {
+        // Intentionally inert (#2547): this container lists library roots,
+        // which the asset change feed does not describe. Freshness comes
+        // from a full re-enumeration on signal (see the comment above,
+        // which is the actual freshness path for this container), not
+        // from a delta.
         observer.finishEnumeratingChanges(upTo: anchor, moreComing: false)
     }
 
@@ -78,23 +83,39 @@ public final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
     private let absolutePath: String
     private let containerIdentifier: NSFileProviderItemIdentifier
     private let pageSize: Int
+    private let cursorStore: ChangeCursorStore?
+    private let domainID: String
     private let log = Logger(subsystem: "app.justmaple.aperture.fileprovider", category: "enumerator")
+
+    /// Per-call cap on rows pulled from `/api/changes`. Mirrors
+    /// `WorkingSetEnumerator.changesPageLimit` / `DeferredFolderEnumerator`.
+    private static let changesPageLimit = 500
 
     /// `pageSize` is sent as the `?limit=` query param on every request.
     /// Defaults to 500 on macOS and 200 on iOS; the host extension picks
     /// the value via the platform-specific subclass entry-point. Tests
     /// override it to small numbers to exercise the multi-page path.
+    ///
+    /// `cursorStore`/`domainID` are optional so existing call sites and
+    /// tests compile unchanged — without a cursor store this type has no
+    /// cursor source and falls back to the prior inert behavior (the
+    /// container the OS actually enumerates is `DeferredFolderEnumerator`,
+    /// which always supplies one; this type is its item-listing worker).
     public init(catalog: RemoteCatalog,
                 folderID: String,
                 relativePath: String,
                 absolutePath: String,
                 containerIdentifier: NSFileProviderItemIdentifier,
-                pageSize: Int? = nil) {
+                pageSize: Int? = nil,
+                cursorStore: ChangeCursorStore? = nil,
+                domainID: String = "") {
         self.catalog = catalog
         self.folderID = folderID
         self.relativePath = relativePath
         self.absolutePath = absolutePath
         self.containerIdentifier = containerIdentifier
+        self.cursorStore = cursorStore
+        self.domainID = domainID
         #if os(iOS)
         self.pageSize = pageSize ?? 200
         #else
@@ -190,12 +211,48 @@ public final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
         }
     }
 
-    public func enumerateChanges(for observer: NSFileProviderChangeObserver, from anchor: NSFileProviderSyncAnchor) {
-        observer.finishEnumeratingChanges(upTo: anchor, moreComing: false)
+    public func currentSyncAnchor(completionHandler: @escaping (NSFileProviderSyncAnchor?) -> Void) {
+        guard let cursorStore else {
+            // No cursor source: report a stable anchor. The container the
+            // OS actually enumerates is `DeferredFolderEnumerator`, which
+            // has the real feed; this type is its listing worker.
+            completionHandler(FolderChangeMatching.anchor(0))
+            return
+        }
+        completionHandler(FolderChangeMatching.anchor(cursorStore.load(domain: domainID)))
     }
 
-    public func currentSyncAnchor(completionHandler: @escaping (NSFileProviderSyncAnchor?) -> Void) {
-        completionHandler(NSFileProviderSyncAnchor(Data("0".utf8)))
+    public func enumerateChanges(for observer: NSFileProviderChangeObserver,
+                                 from anchor: NSFileProviderSyncAnchor) {
+        guard cursorStore != nil else {
+            // No cursor source injected: keep the prior inert behavior
+            // rather than fabricate a delta from nothing.
+            observer.finishEnumeratingChanges(upTo: anchor, moreComing: false)
+            return
+        }
+        let since = FolderChangeMatching.parseAnchor(anchor)
+        Task {
+            do {
+                let page = try await catalog.listChanges(since: since,
+                                                         limit: Self.changesPageLimit)
+                let split = FolderChangeMatching.partition(changes: page.changes,
+                                                           folderID: folderID,
+                                                           relativePath: relativePath)
+                observer.didUpdate(split.updates)
+                observer.didDeleteItems(withIdentifiers: split.deletes)
+                let newAnchor = page.nextCursor.map { FolderChangeMatching.anchor($0) } ?? anchor
+                let moreComing = page.changes.count >= Self.changesPageLimit
+                observer.finishEnumeratingChanges(upTo: newAnchor, moreComing: moreComing)
+            } catch let e as StaleCursorError {
+                log.notice("folder stale cursor (server current=\(e.current)); requesting full re-enumeration")
+                observer.finishEnumeratingWithError(
+                    NSError(domain: NSFileProviderErrorDomain,
+                            code: NSFileProviderError.syncAnchorExpired.rawValue))
+            } catch {
+                log.error("folder enumerateChanges failed: \(error.localizedDescription, privacy: .public)")
+                observer.finishEnumeratingWithError(error)
+            }
+        }
     }
 }
 
@@ -230,6 +287,10 @@ public final class MapleDirEnumerator: NSObject, NSFileProviderEnumerator {
     }
 
     public func enumerateChanges(for observer: NSFileProviderChangeObserver, from anchor: NSFileProviderSyncAnchor) {
+        // Intentionally inert (#2547): this container always synthesizes
+        // the same single `thumbs/` child client-side — there is no server
+        // state for it to drift from, so there is nothing a delta could
+        // report.
         observer.finishEnumeratingChanges(upTo: anchor, moreComing: false)
     }
 
@@ -308,6 +369,11 @@ public final class MapleThumbsEnumerator: NSObject, NSFileProviderEnumerator {
     }
 
     public func enumerateChanges(for observer: NSFileProviderChangeObserver, from anchor: NSFileProviderSyncAnchor) {
+        // Intentionally inert (#2547): this container synthesizes
+        // `.thumb(assetID:)` children from the parent folder's own image
+        // listing rather than from the asset change feed, which the parent
+        // folder's own `enumerateChanges` now drives. A delta here would
+        // duplicate that signal, not add one.
         observer.finishEnumeratingChanges(upTo: anchor, moreComing: false)
     }
 
@@ -358,6 +424,10 @@ public final class TrashEnumerator: NSObject, NSFileProviderEnumerator {
     }
 
     public func enumerateChanges(for observer: NSFileProviderChangeObserver, from anchor: NSFileProviderSyncAnchor) {
+        // Intentionally inert (#2547): trashed items come from
+        // `GET /api/folders/:id/trash`, a separate feed the asset change
+        // feed does not describe. Freshness comes from a full
+        // re-enumeration on signal, not from a delta.
         observer.finishEnumeratingChanges(upTo: anchor, moreComing: false)
     }
 
