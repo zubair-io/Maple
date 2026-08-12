@@ -11,6 +11,7 @@
 // scratch — that's our 409-equivalent on the client side.
 
 import FileProvider
+import Foundation
 import OSLog
 
 final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
@@ -92,90 +93,81 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
     /// round-trip.
     private static let changesPageLimit = 500
 
+    /// Upper bound on simultaneous per-asset metadata GETs
+    /// (`RemoteCatalog.getAsset`) while resolving one `enumerateChanges`
+    /// batch. `catalog` is a single actor / HTTP client also serving
+    /// `item(for:)`, `fetchContents`, and interactive Finder browsing
+    /// concurrently, so firing all `changesPageLimit` (500) requests at
+    /// once would starve everything else the extension is doing — and
+    /// File Provider extensions run under a hard OS execution-time
+    /// budget, so 500 SEQUENTIAL round-trips (the bug this bounds) risks
+    /// the OS terminating enumeration mid-batch just as badly. 12 sits
+    /// between those two failure modes: a full 500-row batch drops from
+    /// ~500 sequential round-trips to ~42 bounded "waves," while leaving
+    /// headroom for whatever else is concurrently hitting the catalog.
+    private static let maxConcurrentMetadataFetches = 12
+
     func enumerateChanges(for observer: NSFileProviderChangeObserver,
                           from anchor: NSFileProviderSyncAnchor) {
         let since = Self.parseAnchor(anchor)
         Task {
             do {
                 let page = try await catalog.listChanges(since: since, limit: Self.changesPageLimit)
-                var updates: [NSFileProviderItem] = []
-                var deletes: [NSFileProviderItemIdentifier] = []
-                for ch in page.changes {
-                    guard let assetID = ch.assetID else { continue }
-                    let ident = NSFileProviderItemIdentifier(
-                        FileProviderIdentifier.asset(assetID).rawValue
+                // Prefetch the library roots ONCE per call. Each row
+                // used to resolve its parent via
+                // `FileProviderExtensionCore.resolveAssetParent(meta:
+                // rootCache:)`, which re-enters `LibraryRootCache
+                // .roots()` — an actor hop plus revalidation — on every
+                // single item. `enumerateItems` already prefetches once
+                // and resolves against the cached list via
+                // `Self.resolveParent(folderID:absPath:roots:)`; mirror
+                // that here (Copilot review, PR #2687).
+                let roots = (try? await rootCache?.roots()) ?? []
+                let resolution = await Self.resolveChanges(
+                    page.changes, catalog: catalog, roots: roots,
+                    workingSet: workingSet, log: log
+                )
+                switch resolution {
+                case .networkUnreachable:
+                    // A genuine connectivity failure (not merely a bad
+                    // HTTP status from a server we DID reach) hit the
+                    // per-asset metadata GET. Handing every row in the
+                    // batch its own stub — same hardcoded filename,
+                    // same `.rootContainer` parent — would paint
+                    // Finder with a pile of colliding "(stub)" entries
+                    // for the duration of the outage (jules WARN, PR
+                    // #2687). Fail the whole call instead: the anchor
+                    // is never advanced (no `finishEnumeratingChanges`
+                    // below), so the OS retries this exact batch once
+                    // connectivity returns.
+                    log.notice("network unreachable resolving \(page.changes.count) change(s); asking the OS to retry rather than stubbing")
+                    observer.finishEnumeratingWithError(
+                        NSError(domain: NSFileProviderErrorDomain,
+                                code: NSFileProviderError.serverUnreachable.rawValue)
                     )
-                    if ch.kind == .delete {
-                        deletes.append(ident)
-                        workingSet.remove(identifier: ident.rawValue)
-                        continue
+                case .resolved(let updates, let deletes):
+                    observer.didUpdate(updates)
+                    observer.didDeleteItems(withIdentifiers: deletes)
+                    let newAnchor = page.nextCursor.map { Self.anchor($0) } ?? anchor
+                    if let next = page.nextCursor {
+                        cursorStore.save(next, domain: domainID)
                     }
-                    // Resolve the asset's real metadata inline — the
-                    // per-asset GET `MapleItem`'s doc comment used to
-                    // defer to a "follow-up phase" (#2537). A stub
-                    // handed to `didUpdate` can read as authoritative
-                    // display metadata to the OS without a prompt
-                    // re-invocation of `item(for:)`, so a legacy/
-                    // degraded change row could paint "(stub)" in
-                    // Finder indefinitely. Doing the GET here means the
-                    // OS gets the real filename on the very first call.
-                    do {
-                        guard let meta = try await catalog.getAsset(assetID: assetID) else {
-                            // Genuine 404: the change-feed row raced a
-                            // server-side delete. Report it as a delete
-                            // rather than handing the OS an item whose
-                            // content will 404 forever.
-                            deletes.append(ident)
-                            workingSet.remove(identifier: ident.rawValue)
-                            continue
-                        }
-                        let parent = await FileProviderExtensionCore.resolveAssetParent(
-                            meta: meta, rootCache: rootCache
-                        )
-                        updates.append(MapleItem(assetMetadata: meta, parent: parent))
-                    } catch {
-                        // Transient failure (network/5xx) resolving the
-                        // real metadata. Fall back to the placeholder so
-                        // the itemVersion still bumps and the OS re-asks
-                        // via `item(for:)`; its parent is never
-                        // `.workingSet` (see `MapleItem`'s stub
-                        // initializer — that identifier is permanently
-                        // `noSuchItem`).
-                        log.notice("getAsset failed for \(assetID, privacy: .public) during enumerateChanges, falling back to stub: \(error.localizedDescription, privacy: .public)")
-                        let stub = MapleItem(stubAssetID: assetID,
-                                             cursor: ch.cursor,
-                                             folderID: ch.folderID,
-                                             relativePath: ch.relativePath)
-                        updates.append(stub)
+                    // Bump the list-cache invalidation counter and reseed
+                    // once we've absorbed enough changes. We keep the
+                    // counter cheap (in-memory, lost on extension recycle —
+                    // that's fine, recycle is itself a reseed trigger).
+                    eventsSinceListCacheReseed += page.changes.count
+                    if eventsSinceListCacheReseed >= Self.listCacheInvalidationThreshold {
+                        eventsSinceListCacheReseed = 0
+                        await listCache.invalidate()
                     }
-                    // Touch the working set so eviction reflects activity.
-                    workingSet.upsert(
-                        identifier: ident.rawValue,
-                        kind: .recent,
-                        lastTouched: ch.at
-                    )
+                    // If we hit the page cap there's almost certainly more
+                    // backlog beyond it. Tell the OS so it loops back with
+                    // the new anchor; the cursor we just persisted ensures
+                    // the next call starts where this one left off.
+                    let moreComing = page.changes.count >= Self.changesPageLimit
+                    observer.finishEnumeratingChanges(upTo: newAnchor, moreComing: moreComing)
                 }
-                observer.didUpdate(updates)
-                observer.didDeleteItems(withIdentifiers: deletes)
-                let newAnchor = page.nextCursor.map { Self.anchor($0) } ?? anchor
-                if let next = page.nextCursor {
-                    cursorStore.save(next, domain: domainID)
-                }
-                // Bump the list-cache invalidation counter and reseed
-                // once we've absorbed enough changes. We keep the
-                // counter cheap (in-memory, lost on extension recycle —
-                // that's fine, recycle is itself a reseed trigger).
-                eventsSinceListCacheReseed += page.changes.count
-                if eventsSinceListCacheReseed >= Self.listCacheInvalidationThreshold {
-                    eventsSinceListCacheReseed = 0
-                    await listCache.invalidate()
-                }
-                // If we hit the page cap there's almost certainly more
-                // backlog beyond it. Tell the OS so it loops back with
-                // the new anchor; the cursor we just persisted ensures
-                // the next call starts where this one left off.
-                let moreComing = page.changes.count >= Self.changesPageLimit
-                observer.finishEnumeratingChanges(upTo: newAnchor, moreComing: moreComing)
             } catch let e as StaleCursorError {
                 log.notice("stale cursor (server current=\(e.current)); requesting full re-enumeration")
                 observer.finishEnumeratingWithError(
@@ -186,6 +178,191 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                 log.error("enumerateChanges failed: \(error.localizedDescription, privacy: .public)")
                 observer.finishEnumeratingWithError(error)
             }
+        }
+    }
+
+    // MARK: - Bounded-concurrency change resolution
+
+    /// Outcome of resolving one change-feed row, tagged with its
+    /// position in the original `page.changes` array so results —
+    /// completed out of order by the task group in `resolveChanges` —
+    /// can be reassembled into the change feed's original order before
+    /// `didUpdate`/`didDeleteItems` ever see them.
+    private struct IndexedOutcome {
+        let index: Int
+        let outcome: ChangeOutcome
+    }
+
+    private enum ChangeOutcome {
+        case skip
+        case delete(NSFileProviderItemIdentifier)
+        case update(NSFileProviderItem)
+        /// The per-asset metadata GET failed because the network itself
+        /// was unreachable — see `isNetworkUnreachable`. Kept separate
+        /// from the generic transient-failure `.update(stub)` outcome so
+        /// `resolveChanges` can detect it and abort the whole batch
+        /// instead of handing back a stub for this (and, in a genuine
+        /// outage, every other) row.
+        case networkUnreachable
+    }
+
+    private enum ChangesResolution {
+        case resolved(updates: [NSFileProviderItem], deletes: [NSFileProviderItemIdentifier])
+        case networkUnreachable
+    }
+
+    /// Resolves every row in `changes` concurrently, bounded by
+    /// `maxConcurrentMetadataFetches` via `BoundedAsyncSemaphore`, and
+    /// reassembles the results in original change-feed order. Mutates
+    /// `workingSet` as a side effect of each row's resolution — safe to
+    /// call concurrently, since `WorkingSet` guards its table with an
+    /// internal `NSLock` (see `WorkingSet.swift`) and per-identifier
+    /// upsert/remove don't depend on cross-row ordering.
+    private static func resolveChanges(
+        _ changes: [AssetChange],
+        catalog: RemoteCatalog,
+        roots: [LibraryRoot],
+        workingSet: WorkingSet,
+        log: Logger
+    ) async -> ChangesResolution {
+        let semaphore = BoundedAsyncSemaphore(value: maxConcurrentMetadataFetches)
+        let indexed = await withTaskGroup(of: IndexedOutcome.self) { group in
+            for (index, ch) in changes.enumerated() {
+                group.addTask {
+                    let outcome = await Self.resolveChange(
+                        ch, catalog: catalog, roots: roots,
+                        workingSet: workingSet, semaphore: semaphore, log: log
+                    )
+                    return IndexedOutcome(index: index, outcome: outcome)
+                }
+            }
+            var results: [IndexedOutcome] = []
+            results.reserveCapacity(changes.count)
+            for await result in group {
+                results.append(result)
+            }
+            return results
+        }
+        let ordered = indexed.sorted { $0.index < $1.index }
+        let hitNetworkOutage = ordered.contains {
+            if case .networkUnreachable = $0.outcome { return true }
+            return false
+        }
+        guard !hitNetworkOutage else { return .networkUnreachable }
+
+        var updates: [NSFileProviderItem] = []
+        var deletes: [NSFileProviderItemIdentifier] = []
+        for entry in ordered {
+            switch entry.outcome {
+            case .skip, .networkUnreachable:
+                continue
+            case .delete(let ident):
+                deletes.append(ident)
+            case .update(let item):
+                updates.append(item)
+            }
+        }
+        return .resolved(updates: updates, deletes: deletes)
+    }
+
+    /// Resolves a single change-feed row. Delete rows and rows without
+    /// an `assetID` resolve synchronously; create/update rows do the
+    /// per-asset metadata GET (`RemoteCatalog.getAsset`), permit-gated
+    /// by `semaphore`, reproducing the three outcomes the old sequential
+    /// loop produced inline:
+    ///   - GET succeeds → real `MapleItem`, real folder parent (resolved
+    ///     against the pre-fetched `roots`, never a fresh actor hop).
+    ///   - GET 404s     → the change-feed row raced a server-side
+    ///     delete; report it as a delete instead of an item whose
+    ///     content will 404 forever.
+    ///   - GET throws a genuine connectivity error → `.networkUnreachable`
+    ///     (see `isNetworkUnreachable`), so the caller can abort the
+    ///     whole batch rather than stub every row in the outage.
+    ///   - GET throws any other error (bad HTTP status from a server we
+    ///     DID reach, decode failure, or `semaphore.acquire()` throwing
+    ///     `CancellationError` because the enclosing task was cancelled
+    ///     while queued behind the cap) → fall back to the placeholder
+    ///     so `itemVersion` still bumps and the OS re-asks via
+    ///     `item(for:)`; its parent is never `.workingSet` (see
+    ///     `MapleItem`'s stub initializer — that identifier is
+    ///     permanently `noSuchItem`).
+    private static func resolveChange(
+        _ ch: AssetChange,
+        catalog: RemoteCatalog,
+        roots: [LibraryRoot],
+        workingSet: WorkingSet,
+        semaphore: BoundedAsyncSemaphore,
+        log: Logger
+    ) async -> ChangeOutcome {
+        guard let assetID = ch.assetID else { return .skip }
+        let ident = NSFileProviderItemIdentifier(
+            FileProviderIdentifier.asset(assetID).rawValue
+        )
+        if ch.kind == .delete {
+            workingSet.remove(identifier: ident.rawValue)
+            return .delete(ident)
+        }
+
+        var acquired = false
+        defer {
+            // Fire-and-forget release — `defer` can't `await`. Mirrors
+            // the established `BoundedAsyncSemaphore` release idiom in
+            // `CloudTimelineViewModel.loadPage`; the detached Task won't
+            // be cancelled by this row's own cancellation.
+            if acquired {
+                Task.detached { await semaphore.release() }
+            }
+        }
+        do {
+            try await semaphore.acquire()
+            acquired = true
+            guard let meta = try await catalog.getAsset(assetID: assetID) else {
+                // Genuine 404: the change-feed row raced a server-side
+                // delete. Report it as a delete rather than handing the
+                // OS an item whose content will 404 forever.
+                workingSet.remove(identifier: ident.rawValue)
+                return .delete(ident)
+            }
+            let parent = Self.resolveParent(folderID: meta.folderID,
+                                            absPath: meta.absPath,
+                                            roots: roots)
+            // Touch the working set so eviction reflects activity.
+            workingSet.upsert(identifier: ident.rawValue, kind: .recent, lastTouched: ch.at)
+            return .update(MapleItem(assetMetadata: meta, parent: parent))
+        } catch {
+            if Self.isNetworkUnreachable(error) {
+                log.notice("network unreachable resolving \(assetID, privacy: .public) during enumerateChanges")
+                return .networkUnreachable
+            }
+            log.notice("getAsset failed for \(assetID, privacy: .public) during enumerateChanges, falling back to stub: \(error.localizedDescription, privacy: .public)")
+            let stub = MapleItem(stubAssetID: assetID,
+                                 cursor: ch.cursor,
+                                 folderID: ch.folderID,
+                                 relativePath: ch.relativePath)
+            workingSet.upsert(identifier: ident.rawValue, kind: .recent, lastTouched: ch.at)
+            return .update(stub)
+        }
+    }
+
+    /// True for `URLError` codes that mean the client couldn't reach the
+    /// network/host at all. Deliberately narrower than "any `URLError`":
+    /// `RemoteCatalog.check2xx` throws `URLError(.badServerResponse)` for
+    /// ANY non-2xx HTTP status, including a one-off 500 for a single
+    /// asset on an otherwise healthy connection — that case stays on the
+    /// per-item stub-fallback path (see
+    /// `testEnumerateChangesFallsBackToStubWithoutWorkingSetParent`),
+    /// since the server WAS reached and a retry of just that asset is
+    /// reasonable. These codes, by contrast, mean the request never got
+    /// a response from anything.
+    private static func isNetworkUnreachable(_ error: Error) -> Bool {
+        guard let urlError = error as? URLError else { return false }
+        switch urlError.code {
+        case .notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost,
+             .cannotFindHost, .dnsLookupFailed, .timedOut, .internationalRoamingOff,
+             .callIsActive, .dataNotAllowed:
+            return true
+        default:
+            return false
         }
     }
 

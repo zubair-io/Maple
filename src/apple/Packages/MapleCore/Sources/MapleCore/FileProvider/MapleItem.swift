@@ -271,9 +271,11 @@ public final class MapleItem: NSObject, NSFileProviderItem {
         self.size = nil
         // Encode the cursor in the modified date so `itemVersion`
         // (which derives both content + metadata versions from
-        // `modified.timeIntervalSince1970`) bumps on every delta. A
-        // follow-up phase should add a per-asset metadata GET so
-        // enumerateChanges can hand back real items in one round-trip.
+        // `modified.timeIntervalSince1970`) bumps on every delta.
+        // `WorkingSetEnumerator.enumerateChanges` does the per-asset
+        // metadata GET itself now (#2537) — this initializer is only
+        // reached when that GET fails, so the cursor is the only signal
+        // this placeholder has for bumping the version.
         self.modified = Date(timeIntervalSince1970: TimeInterval(cursor))
         // Extension is derived from the resolved filename so Quick
         // Look's "spacebar shows the right icon" affordance kicks in

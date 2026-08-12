@@ -29,6 +29,10 @@ final class WorkingSetEnumeratorChangesTests: XCTestCase {
         let workingSet = WorkingSet(capacity: 100)
         let tmpDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cursor-\(UUID().uuidString)")
+        // Mirrors `ChangeCursorStoreTests`' cleanup pattern — without
+        // this, every call leaks a `cursor-<uuid>` directory into the
+        // real temp dir for the life of the machine.
+        addTeardownBlock { try? FileManager.default.removeItem(at: tmpDir) }
         let cursorStore = ChangeCursorStore(directory: tmpDir)
         let listCache = WorkingSetListCache(catalog: catalog)
         let rootCache = LibraryRootCache(
@@ -171,6 +175,111 @@ final class WorkingSetEnumeratorChangesTests: XCTestCase {
         XCTAssertNotEqual(item.parentItemIdentifier, .workingSet,
                           ".workingSet is permanently noSuchItem — never a valid fallback parent")
         XCTAssertEqual(item.parentItemIdentifier, .rootContainer)
+    }
+
+    /// Regression coverage for the jules BLOCKING finding on PR #2687:
+    /// `enumerateChanges` used to `await` `catalog.getAsset` sequentially
+    /// inside a per-item loop, so a batch of N non-delete rows cost N
+    /// sequential round-trips. Drives a batch of 20 rows, each needing a
+    /// per-asset metadata GET, and asserts the resolution genuinely
+    /// overlaps (not accidentally serialized) while staying at or below
+    /// the configured cap (`maxConcurrentMetadataFetches` = 12) — and
+    /// that despite completing out of order, the OS still sees the items
+    /// back in the change feed's original order.
+    func testEnumerateChangesResolvesMetadataConcurrentlyUpToCap() async throws {
+        let assetIDs = (0..<20).map { String(format: "%024x", $0 + 1) }
+        let inFlight = ConcurrentRequestTracker()
+        let session = URLSession.stubbedSequence(
+            delay: .milliseconds(20),
+            onRequestStart: { await inFlight.enter() },
+            onRequestEnd: { await inFlight.leave() }
+        ) { req in
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 200,
+                                       httpVersion: "HTTP/1.1",
+                                       headerFields: ["Content-Type": "application/json"])!
+            if req.url!.path.contains("/api/changes") {
+                let rows = assetIDs.map { id in
+                    """
+                    {"cursor": 1, "asset_id": "\(id)", "folder_id": "F1",
+                     "kind": "update", "abs_path": "/srv/lib/\(id).dng", "at": "2026-05-16T00:00:00Z"}
+                    """
+                }.joined(separator: ",")
+                let body = "{\"changes\": [\(rows)], \"next_cursor\": 1}"
+                return (body.data(using: .utf8)!, resp)
+            }
+            // GET /api/assets/:id
+            let id = (req.url!.path as NSString).lastPathComponent
+            let body = """
+            {"id": "\(id)", "folder_id": "F1", "filename": "\(id).dng",
+             "abs_path": "/srv/lib/\(id).dng", "size": 4096, "mtime": 1700000000000, "rating": 0}
+            """
+            return (body.data(using: .utf8)!, resp)
+        }
+        let roots = [root(id: "F1", path: "/srv/lib")]
+        let enumerator = makeEnumerator(session: session, roots: roots)
+        let observer = TestChangeObserver()
+        enumerator.enumerateChanges(for: observer, from: anchor(0))
+        let finished = await observer.waitUntilFinished(timeoutSeconds: 10)
+        XCTAssertTrue(finished, "enumerateChanges did not finish in time")
+        XCTAssertNil(observer.error)
+        XCTAssertEqual(observer.updates.count, assetIDs.count)
+
+        let observedMax = await inFlight.observedMax
+        XCTAssertGreaterThan(observedMax, 1,
+                             "resolution should overlap, not run strictly sequentially")
+        XCTAssertLessThanOrEqual(observedMax, 12,
+                                 "must not exceed the configured concurrency cap (observed \(observedMax))")
+
+        // Ordering: the task group completes rows out of order, but the
+        // OS must still see them back in the change feed's original
+        // order.
+        let returnedFilenames = observer.updates.compactMap { ($0 as? MapleItem)?.filename }
+        XCTAssertEqual(returnedFilenames, assetIDs.map { "\($0).dng" },
+                       "enumerateChanges must preserve change-feed ordering despite concurrent resolution")
+    }
+
+    /// WARN finding (jules, PR #2687): before this fix, the per-item stub
+    /// fallback landed at `.rootContainer` with the hardcoded filename
+    /// "(stub)". During a genuine network outage, every non-delete row in
+    /// a batch would hit that SAME fallback, producing a pile of
+    /// identically-named "(stub)" items colliding at the top level of the
+    /// drive. A real connectivity failure (not merely a bad HTTP status —
+    /// see `testEnumerateChangesFallsBackToStubWithoutWorkingSetParent`
+    /// for that case) must instead abort the whole `enumerateChanges`
+    /// call, so the OS retries later against the same (unadvanced)
+    /// anchor rather than the extension painting junk into Finder.
+    func testEnumerateChangesAbortsOnNetworkUnreachableInsteadOfStubStorm() async throws {
+        let assetIDs = (0..<5).map { String(format: "%024x", $0 + 1) }
+        let session = URLSession.stubbedSequence(
+            errorProvider: { req in
+                req.url!.path.contains("/api/assets/") ? URLError(.notConnectedToInternet) : nil
+            }
+        ) { req in
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 200,
+                                       httpVersion: "HTTP/1.1",
+                                       headerFields: ["Content-Type": "application/json"])!
+            let rows = assetIDs.map { id in
+                """
+                {"cursor": 3, "asset_id": "\(id)", "folder_id": "F1",
+                 "kind": "update", "abs_path": "/srv/lib/\(id).dng", "at": "2026-05-16T00:00:00Z"}
+                """
+            }.joined(separator: ",")
+            let body = "{\"changes\": [\(rows)], \"next_cursor\": 3}"
+            return (body.data(using: .utf8)!, resp)
+        }
+        let roots = [root(id: "F1", path: "/srv/lib")]
+        let enumerator = makeEnumerator(session: session, roots: roots)
+        let observer = TestChangeObserver()
+        enumerator.enumerateChanges(for: observer, from: anchor(0))
+        let finished = await observer.waitUntilFinished(timeoutSeconds: 5)
+        XCTAssertTrue(finished, "enumerateChanges did not finish in time")
+        XCTAssertNotNil(observer.error, "a network outage must fail the enumeration, not stub every row")
+        XCTAssertTrue(observer.updates.isEmpty,
+                      "no stub items should be handed to the OS during a network outage")
+        XCTAssertTrue(observer.deletes.isEmpty)
+        let nsError = observer.error as NSError?
+        XCTAssertEqual(nsError?.domain, NSFileProviderErrorDomain)
+        XCTAssertEqual(nsError?.code, NSFileProviderError.serverUnreachable.rawValue)
     }
 }
 
