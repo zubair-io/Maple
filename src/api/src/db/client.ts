@@ -1625,6 +1625,23 @@ export async function ensureIndexes(): Promise<void> {
     .collection('person_merge_dismissals')
     .createIndex({ pair: 1 }, { unique: true, name: 'person_merge_dismissals_pair' });
 
+  // GET /api/map/clusters (#2825): the bbox `$match` ranges on BOTH
+  // `exif.gps.lat` and `exif.gps.lng`. Mongo's b-tree can only use ONE
+  // range bound per compound-index scan, so leading with `lat` still lets
+  // the planner seek the latitude band directly instead of a collection
+  // scan, then filter `lng` (and the rest of `buildFilter`'s predicate) as
+  // a residual over that narrowed set — the same trade-off the existing
+  // `exif_captured_at_gps_lat` donor-lookup index above makes. A partial
+  // filter (NOT `sparse`) keeps the index to just the GPS-bearing rows the
+  // map endpoint ever queries.
+  await db.collection('assets').createIndex(
+    { 'exif.gps.lat': 1, 'exif.gps.lng': 1 },
+    {
+      name: 'exif_gps_bbox',
+      partialFilterExpression: { 'exif.gps.lat': { $exists: true } },
+    },
+  );
+
   await ensureStageIndexes(db);
 
   log.info('indexes ensured');
