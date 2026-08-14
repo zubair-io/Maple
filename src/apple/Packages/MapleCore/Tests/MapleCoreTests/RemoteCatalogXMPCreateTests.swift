@@ -26,10 +26,17 @@ final class RemoteCatalogXMPCreateTests: XCTestCase {
         let http = AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session)
         let cat = RemoteCatalog(http: http, server: server)
 
+        // A concrete (non-nil) `ifMtimeMatches` — e.g. `createXMPItem`'s local
+        // `createOnlyPrecondition` stat found something and passed the
+        // guaranteed-mismatch sentinel — must still be suppressed once
+        // `requireAbsent` is true. Passing `nil` here would make the
+        // `XCTAssertNil` below trivially true regardless of the precedence
+        // logic in `putXMP`; a concrete Date is required to prove
+        // `requireAbsent` actually wins.
         let result = try await cat.putXMP(
             assetID: "650a1234567890abcdef1234",
             data: Data("<x:xmpmeta/>".utf8),
-            ifMtimeMatches: nil,
+            ifMtimeMatches: Date(timeIntervalSince1970: 0),
             deviceName: "test-device",
             requireAbsent: true
         )
@@ -40,8 +47,9 @@ final class RemoteCatalogXMPCreateTests: XCTestCase {
         let snap = observed.snapshot()
         XCTAssertEqual(snap.path, "/api/assets/650a1234567890abcdef1234/xmp")
         XCTAssertEqual(snap.requireAbsent, "true")
-        // A create-only write has no known prior mtime — the precondition
-        // header must not be sent alongside require-absent.
+        // `requireAbsent` takes priority over `ifMtimeMatches` — the
+        // precondition header must not be sent alongside require-absent,
+        // even though a concrete mtime was supplied above.
         XCTAssertNil(snap.ifMtimeMatches)
     }
 
