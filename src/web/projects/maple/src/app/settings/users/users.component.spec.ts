@@ -18,15 +18,16 @@
 
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
-import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { signal } from '@angular/core';
 import { AuthService, type AuthUser } from '@maple-common';
 import { UsersComponent } from './users.component';
 
 describe('UsersComponent', () => {
   let fixture: ComponentFixture<UsersComponent>;
+  let http: HttpTestingController;
 
   const owner: AuthUser = { id: 'u1', email: 'zubair@justmaple.app', role: 'owner' };
 
@@ -56,8 +57,19 @@ describe('UsersComponent', () => {
         },
       ],
     }).compileComponents();
+    http = TestBed.inject(HttpTestingController);
     fixture = TestBed.createComponent(UsersComponent);
   }
+
+  // Every user/invite call in this component goes through the stubbed
+  // AuthService, so the expectation is genuinely zero HttpClient traffic.
+  // Verifying it (rather than just providing the testing backend) is what
+  // makes that a real assertion: if the component later grows a direct
+  // HttpClient dependency, or a request leaks unflushed, these tests fail
+  // instead of silently passing. Matches the other specs in this directory.
+  afterEach(() => {
+    http.verify();
+  });
 
   const el = (): HTMLElement => fixture.nativeElement as HTMLElement;
 
