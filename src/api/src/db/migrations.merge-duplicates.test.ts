@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
-import { MongoClient, type Db } from 'mongodb';
+import { MongoClient, ObjectId, type Db } from 'mongodb';
 
 const TEST_DB = `maple_test_migrations_merge_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
@@ -68,6 +68,57 @@ afterAll(async () => {
   await closeDb();
 });
 
+// ---------------------------------------------------------------------------
+// Asset fixture helper — every test below inserts rows that only differ in a
+// handful of fields (library, maple_id, path/filename, the survivor-pick
+// fields, and whatever fileinfo[] the case is pinning). Factoring the
+// constant fields (size/mtime/color_label defaults) out here keeps each
+// test's insertMany call to the one or two fields that actually matter for
+// that case, instead of repeating the full ~11-field document literal.
+// ---------------------------------------------------------------------------
+
+interface FileinfoEntry {
+  path: string;
+  filename: string;
+  library_id: ObjectId;
+  deleted_at?: string | null;
+}
+
+interface AssetFixtureOpts {
+  id?: ObjectId;
+  library: ObjectId;
+  mapleId: string;
+  path: string;
+  filename?: string;
+  /** Override the whole fileinfo[] array for cases pinning a multi-entry union. */
+  fileinfo?: FileinfoEntry[];
+  rating?: number;
+  flag?: number;
+  colorLabel?: string;
+  indexedAt: string;
+}
+
+function makeAsset(opts: AssetFixtureOpts) {
+  const filename = opts.filename ?? 'x.dng';
+  const fileinfo = opts.fileinfo ?? [
+    { path: opts.path, filename, library_id: opts.library } satisfies FileinfoEntry,
+  ];
+  return {
+    _id: opts.id ?? new ObjectId(),
+    folder_id: opts.library,
+    filename,
+    abs_path: `/lib/${opts.path}/${filename}`,
+    fileinfo,
+    maple_id: opts.mapleId,
+    size: 1,
+    mtime: 1,
+    rating: opts.rating ?? 0,
+    flag: opts.flag ?? 0,
+    color_label: opts.colorLabel ?? '',
+    indexed_at: opts.indexedAt,
+  };
+}
+
 describe('mergeDuplicateAssets', () => {
   async function dropMapleIdIndex(): Promise<void> {
     // Drop both index names — `maple_id_gt_1` is the post-swap canonical
@@ -86,41 +137,22 @@ describe('mergeDuplicateAssets', () => {
   it('collapses rows sharing a maple_id into one with union fileinfo[]', async () => {
     if (!mongoReachable) return;
     const { mergeDuplicateAssets } = await import('./migrations.ts');
-    const { ObjectId } = await import('mongodb');
     await dropMapleIdIndex();
 
     const lib = new ObjectId();
     const sharedId = 'a'.repeat(32);
 
     await db!.collection('assets').insertMany([
-      {
-        _id: new ObjectId(),
-        folder_id: lib,
-        filename: 'x.dng',
-        abs_path: '/lib/a/x.dng',
-        fileinfo: [{ path: 'a', filename: 'x.dng', library_id: lib }],
-        maple_id: sharedId,
-        size: 1,
-        mtime: 1,
+      makeAsset({
+        library: lib,
+        mapleId: sharedId,
+        path: 'a',
         rating: 5,
         flag: 1,
-        color_label: 'red',
-        indexed_at: '2026-05-01T00:00:00Z',
-      },
-      {
-        _id: new ObjectId(),
-        folder_id: lib,
-        filename: 'x.dng',
-        abs_path: '/lib/b/x.dng',
-        fileinfo: [{ path: 'b', filename: 'x.dng', library_id: lib }],
-        maple_id: sharedId,
-        size: 1,
-        mtime: 1,
-        rating: 0,
-        flag: 0,
-        color_label: '',
-        indexed_at: '2026-05-10T00:00:00Z',
-      },
+        colorLabel: 'red',
+        indexedAt: '2026-05-01T00:00:00Z',
+      }),
+      makeAsset({ library: lib, mapleId: sharedId, path: 'b', indexedAt: '2026-05-10T00:00:00Z' }),
     ] as never);
 
     const result = await mergeDuplicateAssets(db!);
@@ -135,31 +167,25 @@ describe('mergeDuplicateAssets', () => {
     expect(rows[0]!.color_label).toBe('red');
     // fileinfo[] is the union, de-duped by (lib, path, filename).
     expect(rows[0]!.fileinfo).toHaveLength(2);
-    const sorted = (rows[0]!.fileinfo ?? []).map((e: any) => e.path).sort();
+    const sorted = (rows[0]!.fileinfo ?? []).map((e: { path: string }) => e.path).sort();
     expect(sorted).toEqual(['a', 'b']);
   });
 
   it('idempotent — does not touch already-unique rows', async () => {
     if (!mongoReachable) return;
     const { mergeDuplicateAssets } = await import('./migrations.ts');
-    const { ObjectId } = await import('mongodb');
     await dropMapleIdIndex();
 
     const lib = new ObjectId();
-    await db!.collection('assets').insertOne({
-      _id: new ObjectId(),
-      folder_id: lib,
-      filename: 'solo.dng',
-      abs_path: '/lib/solo.dng',
-      fileinfo: [{ path: '', filename: 'solo.dng', library_id: lib }],
-      maple_id: 'b'.repeat(32),
-      size: 1,
-      mtime: 1,
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: '2026-05-01T00:00:00Z',
-    } as never);
+    await db!.collection('assets').insertOne(
+      makeAsset({
+        library: lib,
+        mapleId: 'b'.repeat(32),
+        path: '',
+        filename: 'solo.dng',
+        indexedAt: '2026-05-01T00:00:00Z',
+      }) as never,
+    );
 
     const r1 = await mergeDuplicateAssets(db!);
     expect(r1.merged_groups).toBe(0);
@@ -170,7 +196,6 @@ describe('mergeDuplicateAssets', () => {
   it('preserves survivor _id (no reinsert; just $set fileinfo)', async () => {
     if (!mongoReachable) return;
     const { mergeDuplicateAssets } = await import('./migrations.ts');
-    const { ObjectId } = await import('mongodb');
     await dropMapleIdIndex();
 
     const lib = new ObjectId();
@@ -179,34 +204,23 @@ describe('mergeDuplicateAssets', () => {
     const sharedId = 'c'.repeat(32);
 
     await db!.collection('assets').insertMany([
-      {
-        _id: survivorId,
-        folder_id: lib,
+      makeAsset({
+        id: survivorId,
+        library: lib,
+        mapleId: sharedId,
+        path: 'A',
         filename: 'y.dng',
-        abs_path: '/lib/A/y.dng',
-        fileinfo: [{ path: 'A', filename: 'y.dng', library_id: lib }],
-        maple_id: sharedId,
-        size: 1,
-        mtime: 1,
         rating: 3,
-        flag: 0,
-        color_label: '',
-        indexed_at: '2026-05-01T00:00:00Z',
-      },
-      {
-        _id: loserId,
-        folder_id: lib,
+        indexedAt: '2026-05-01T00:00:00Z',
+      }),
+      makeAsset({
+        id: loserId,
+        library: lib,
+        mapleId: sharedId,
+        path: 'B',
         filename: 'y.dng',
-        abs_path: '/lib/B/y.dng',
-        fileinfo: [{ path: 'B', filename: 'y.dng', library_id: lib }],
-        maple_id: sharedId,
-        size: 1,
-        mtime: 1,
-        rating: 0,
-        flag: 0,
-        color_label: '',
-        indexed_at: '2026-05-09T00:00:00Z',
-      },
+        indexedAt: '2026-05-09T00:00:00Z',
+      }),
     ] as never);
 
     await mergeDuplicateAssets(db!);
@@ -219,25 +233,19 @@ describe('mergeDuplicateAssets', () => {
   it('handles 3+ rows in a group', async () => {
     if (!mongoReachable) return;
     const { mergeDuplicateAssets } = await import('./migrations.ts');
-    const { ObjectId } = await import('mongodb');
     await dropMapleIdIndex();
 
     const lib = new ObjectId();
     const sharedId = 'e'.repeat(32);
-    const rows = ['a', 'b', 'c', 'd'].map((p, i) => ({
-      _id: new ObjectId(),
-      folder_id: lib,
-      filename: 'z.dng',
-      abs_path: `/lib/${p}/z.dng`,
-      fileinfo: [{ path: p, filename: 'z.dng', library_id: lib }],
-      maple_id: sharedId,
-      size: 1,
-      mtime: 1,
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: `2026-05-0${1 + i}T00:00:00Z`,
-    }));
+    const rows = ['a', 'b', 'c', 'd'].map((p, i) =>
+      makeAsset({
+        library: lib,
+        mapleId: sharedId,
+        path: p,
+        filename: 'z.dng',
+        indexedAt: `2026-05-0${1 + i}T00:00:00Z`,
+      }),
+    );
     await db!.collection('assets').insertMany(rows as never[]);
 
     const result = await mergeDuplicateAssets(db!);
@@ -252,41 +260,29 @@ describe('mergeDuplicateAssets', () => {
   it('deduplicates fileinfo entries within the union', async () => {
     if (!mongoReachable) return;
     const { mergeDuplicateAssets } = await import('./migrations.ts');
-    const { ObjectId } = await import('mongodb');
     await dropMapleIdIndex();
 
     const lib = new ObjectId();
     const sharedId = 'f'.repeat(32);
-    const sameEntry = { path: 'shared', filename: 's.dng', library_id: lib };
+    const sameEntry: FileinfoEntry = { path: 'shared', filename: 's.dng', library_id: lib };
+
     await db!.collection('assets').insertMany([
-      {
-        _id: new ObjectId(),
-        folder_id: lib,
+      makeAsset({
+        library: lib,
+        mapleId: sharedId,
+        path: 'shared',
         filename: 's.dng',
-        abs_path: '/lib/shared/s.dng',
         fileinfo: [sameEntry, { path: 'a', filename: 's.dng', library_id: lib }],
-        maple_id: sharedId,
-        size: 1,
-        mtime: 1,
-        rating: 0,
-        flag: 0,
-        color_label: '',
-        indexed_at: '2026-05-01T00:00:00Z',
-      },
-      {
-        _id: new ObjectId(),
-        folder_id: lib,
+        indexedAt: '2026-05-01T00:00:00Z',
+      }),
+      makeAsset({
+        library: lib,
+        mapleId: sharedId,
+        path: 'shared',
         filename: 's.dng',
-        abs_path: '/lib/shared/s.dng',
         fileinfo: [sameEntry, { path: 'b', filename: 's.dng', library_id: lib }],
-        maple_id: sharedId,
-        size: 1,
-        mtime: 1,
-        rating: 0,
-        flag: 0,
-        color_label: '',
-        indexed_at: '2026-05-02T00:00:00Z',
-      },
+        indexedAt: '2026-05-02T00:00:00Z',
+      }),
     ] as never);
 
     await mergeDuplicateAssets(db!);
@@ -298,7 +294,6 @@ describe('mergeDuplicateAssets', () => {
   it("de-dup key tolerates '|' inside path/filename (JSON-encoded key)", async () => {
     if (!mongoReachable) return;
     const { mergeDuplicateAssets } = await import('./migrations.ts');
-    const { ObjectId } = await import('mongodb');
     await dropMapleIdIndex();
 
     const lib = new ObjectId();
@@ -307,34 +302,20 @@ describe('mergeDuplicateAssets', () => {
     // `${path}|${filename}` key: 'a|b' + 'c' vs 'a' + 'b|c'. The JSON-encoded
     // key keeps them separate, so the union must contain both entries.
     await db!.collection('assets').insertMany([
-      {
-        _id: new ObjectId(),
-        folder_id: lib,
+      makeAsset({
+        library: lib,
+        mapleId: sharedId,
+        path: 'a|b',
         filename: 'c',
-        abs_path: '/lib/a|b/c',
-        fileinfo: [{ path: 'a|b', filename: 'c', library_id: lib }],
-        maple_id: sharedId,
-        size: 1,
-        mtime: 1,
-        rating: 0,
-        flag: 0,
-        color_label: '',
-        indexed_at: '2026-05-01T00:00:00Z',
-      },
-      {
-        _id: new ObjectId(),
-        folder_id: lib,
+        indexedAt: '2026-05-01T00:00:00Z',
+      }),
+      makeAsset({
+        library: lib,
+        mapleId: sharedId,
+        path: 'a',
         filename: 'b|c',
-        abs_path: '/lib/a/b|c',
-        fileinfo: [{ path: 'a', filename: 'b|c', library_id: lib }],
-        maple_id: sharedId,
-        size: 1,
-        mtime: 1,
-        rating: 0,
-        flag: 0,
-        color_label: '',
-        indexed_at: '2026-05-02T00:00:00Z',
-      },
+        indexedAt: '2026-05-02T00:00:00Z',
+      }),
     ] as never);
 
     await mergeDuplicateAssets(db!);
@@ -350,7 +331,6 @@ describe('mergeDuplicateAssets', () => {
   it('de-dup prefers live entry over tombstoned for same (lib, path, filename)', async () => {
     if (!mongoReachable) return;
     const { mergeDuplicateAssets } = await import('./migrations.ts');
-    const { ObjectId } = await import('mongodb');
     await dropMapleIdIndex();
 
     const lib = new ObjectId();
@@ -358,41 +338,24 @@ describe('mergeDuplicateAssets', () => {
     // Same (lib, path, filename) across two rows: one tombstoned, the other
     // live. The merged union must keep the live entry, not the tombstone.
     await db!.collection('assets').insertMany([
-      {
-        _id: new ObjectId(),
-        folder_id: lib,
+      makeAsset({
+        library: lib,
+        mapleId: sharedId,
+        path: 'here',
         filename: 'q.dng',
-        abs_path: '/lib/here/q.dng',
         fileinfo: [
-          {
-            path: 'here',
-            filename: 'q.dng',
-            library_id: lib,
-            deleted_at: '2026-05-01T00:00:00Z',
-          },
+          { path: 'here', filename: 'q.dng', library_id: lib, deleted_at: '2026-05-01T00:00:00Z' },
         ],
-        maple_id: sharedId,
-        size: 1,
-        mtime: 1,
-        rating: 0,
-        flag: 0,
-        color_label: '',
-        indexed_at: '2026-05-01T00:00:00Z',
-      },
-      {
-        _id: new ObjectId(),
-        folder_id: lib,
+        indexedAt: '2026-05-01T00:00:00Z',
+      }),
+      makeAsset({
+        library: lib,
+        mapleId: sharedId,
+        path: 'here',
         filename: 'q.dng',
-        abs_path: '/lib/here/q.dng',
         fileinfo: [{ path: 'here', filename: 'q.dng', library_id: lib, deleted_at: null }],
-        maple_id: sharedId,
-        size: 1,
-        mtime: 1,
-        rating: 0,
-        flag: 0,
-        color_label: '',
-        indexed_at: '2026-05-02T00:00:00Z',
-      },
+        indexedAt: '2026-05-02T00:00:00Z',
+      }),
     ] as never);
 
     await mergeDuplicateAssets(db!);
@@ -406,7 +369,6 @@ describe('mergeDuplicateAssets', () => {
   it('handles multiple duplicate groups in a single pass without cross-group mixing', async () => {
     if (!mongoReachable) return;
     const { mergeDuplicateAssets } = await import('./migrations.ts');
-    const { ObjectId } = await import('mongodb');
     await dropMapleIdIndex();
 
     // Batching re-partitions a single find() result back into groups in
@@ -420,92 +382,53 @@ describe('mergeDuplicateAssets', () => {
 
     await db!.collection('assets').insertMany([
       // Group A: 2 rows, survivor keeps rating 9.
-      {
-        _id: new ObjectId(),
-        folder_id: lib,
+      makeAsset({
+        library: lib,
+        mapleId: sharedIdA,
+        path: 'groupA/1',
         filename: 'a.dng',
-        abs_path: '/lib/groupA/1/a.dng',
-        fileinfo: [{ path: 'groupA/1', filename: 'a.dng', library_id: lib }],
-        maple_id: sharedIdA,
-        size: 1,
-        mtime: 1,
         rating: 9,
-        flag: 0,
-        color_label: '',
-        indexed_at: '2026-05-01T00:00:00Z',
-      },
-      {
-        _id: new ObjectId(),
-        folder_id: lib,
+        indexedAt: '2026-05-01T00:00:00Z',
+      }),
+      makeAsset({
+        library: lib,
+        mapleId: sharedIdA,
+        path: 'groupA/2',
         filename: 'a.dng',
-        abs_path: '/lib/groupA/2/a.dng',
-        fileinfo: [{ path: 'groupA/2', filename: 'a.dng', library_id: lib }],
-        maple_id: sharedIdA,
-        size: 1,
-        mtime: 1,
-        rating: 0,
-        flag: 0,
-        color_label: '',
-        indexed_at: '2026-05-05T00:00:00Z',
-      },
+        indexedAt: '2026-05-05T00:00:00Z',
+      }),
       // Group B: 3 rows, survivor keeps rating 7.
-      {
-        _id: new ObjectId(),
-        folder_id: lib,
+      makeAsset({
+        library: lib,
+        mapleId: sharedIdB,
+        path: 'groupB/1',
         filename: 'b.dng',
-        abs_path: '/lib/groupB/1/b.dng',
-        fileinfo: [{ path: 'groupB/1', filename: 'b.dng', library_id: lib }],
-        maple_id: sharedIdB,
-        size: 1,
-        mtime: 1,
         rating: 7,
-        flag: 0,
-        color_label: '',
-        indexed_at: '2026-04-01T00:00:00Z',
-      },
-      {
-        _id: new ObjectId(),
-        folder_id: lib,
+        indexedAt: '2026-04-01T00:00:00Z',
+      }),
+      makeAsset({
+        library: lib,
+        mapleId: sharedIdB,
+        path: 'groupB/2',
         filename: 'b.dng',
-        abs_path: '/lib/groupB/2/b.dng',
-        fileinfo: [{ path: 'groupB/2', filename: 'b.dng', library_id: lib }],
-        maple_id: sharedIdB,
-        size: 1,
-        mtime: 1,
-        rating: 0,
-        flag: 0,
-        color_label: '',
-        indexed_at: '2026-04-02T00:00:00Z',
-      },
-      {
-        _id: new ObjectId(),
-        folder_id: lib,
+        indexedAt: '2026-04-02T00:00:00Z',
+      }),
+      makeAsset({
+        library: lib,
+        mapleId: sharedIdB,
+        path: 'groupB/3',
         filename: 'b.dng',
-        abs_path: '/lib/groupB/3/b.dng',
-        fileinfo: [{ path: 'groupB/3', filename: 'b.dng', library_id: lib }],
-        maple_id: sharedIdB,
-        size: 1,
-        mtime: 1,
-        rating: 0,
-        flag: 0,
-        color_label: '',
-        indexed_at: '2026-04-03T00:00:00Z',
-      },
+        indexedAt: '2026-04-03T00:00:00Z',
+      }),
       // Solo row, not part of any duplicate group — must be untouched.
-      {
-        _id: new ObjectId(),
-        folder_id: lib,
+      makeAsset({
+        library: lib,
+        mapleId: sharedIdC,
+        path: 'solo',
         filename: 'c.dng',
-        abs_path: '/lib/solo/c.dng',
-        fileinfo: [{ path: 'solo', filename: 'c.dng', library_id: lib }],
-        maple_id: sharedIdC,
-        size: 1,
-        mtime: 1,
         rating: 3,
-        flag: 0,
-        color_label: '',
-        indexed_at: '2026-06-01T00:00:00Z',
-      },
+        indexedAt: '2026-06-01T00:00:00Z',
+      }),
     ] as never);
 
     const result = await mergeDuplicateAssets(db!);
@@ -532,41 +455,26 @@ describe('mergeDuplicateAssets', () => {
     if (!mongoReachable) return;
     const { closeDb, ensureIndexes } = await import('./client.ts');
     const { migrationApplied } = await import('./migrations.ts');
-    const { ObjectId } = await import('mongodb');
     await closeDb();
     await dropMapleIdIndex();
 
     const lib = new ObjectId();
     const sharedId = 'd'.repeat(32);
     await db!.collection('assets').insertMany([
-      {
-        _id: new ObjectId(),
-        folder_id: lib,
+      makeAsset({
+        library: lib,
+        mapleId: sharedId,
+        path: 'a',
         filename: 'z.dng',
-        abs_path: '/lib/a/z.dng',
-        fileinfo: [{ path: 'a', filename: 'z.dng', library_id: lib }],
-        maple_id: sharedId,
-        size: 1,
-        mtime: 1,
-        rating: 0,
-        flag: 0,
-        color_label: '',
-        indexed_at: '2026-05-01T00:00:00Z',
-      },
-      {
-        _id: new ObjectId(),
-        folder_id: lib,
+        indexedAt: '2026-05-01T00:00:00Z',
+      }),
+      makeAsset({
+        library: lib,
+        mapleId: sharedId,
+        path: 'b',
         filename: 'z.dng',
-        abs_path: '/lib/b/z.dng',
-        fileinfo: [{ path: 'b', filename: 'z.dng', library_id: lib }],
-        maple_id: sharedId,
-        size: 1,
-        mtime: 1,
-        rating: 0,
-        flag: 0,
-        color_label: '',
-        indexed_at: '2026-05-02T00:00:00Z',
-      },
+        indexedAt: '2026-05-02T00:00:00Z',
+      }),
     ] as never);
 
     // ensureIndexes must merge dupes THEN successfully create the unique
