@@ -24,9 +24,14 @@ const TEST_DB = `maple_test_preview_route_${process.pid}`;
 // route then resolves `MAPLE_MONGO_DB` lazily, at request time, to that
 // other suite's database — where the asset this file inserted does not
 // exist — and the request 404s. Assigning in `beforeAll` (and restoring in
-// `afterAll`) is the pattern `db/assets.repo.person-names.test.ts` already
-// uses, and it wins because no other file's module body can run in between.
-const ORIGINAL_MONGO_DB = process.env.MAPLE_MONGO_DB;
+// `afterAll`) wins because no other file's module body can run in between.
+//
+// The saved value is captured in `beforeAll` too, for the same reason: a
+// module-scope read would snapshot whatever a sibling suite's module body
+// had already written, and `afterAll` would then restore that instead of
+// the real original. (`db/assets.repo.person-names.test.ts` reads it at
+// module scope — same latent trap, left alone here.)
+let ORIGINAL_MONGO_DB: string | undefined;
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;
@@ -57,6 +62,7 @@ async function tryConnect(): Promise<MongoClient | null> {
 }
 
 beforeAll(async () => {
+  ORIGINAL_MONGO_DB = process.env.MAPLE_MONGO_DB;
   process.env.MAPLE_MONGO_DB = TEST_DB;
   mongo = await tryConnect();
   mongoReachable = mongo !== null;
