@@ -16,11 +16,9 @@
  */
 
 import * as pathMod from 'node:path';
-import type { AnyBulkWriteOperation, Db, ObjectId } from 'mongodb';
+import type { AnyBulkWriteOperation, Db } from 'mongodb';
 import { child as childLogger } from '../log.ts';
 import { slugify, dedupeSlug } from '../library/slug.ts';
-
-const log = childLogger('db:migrations');
 
 export type MigrationId =
   | 'exif-captured-year-month-backfill'
@@ -199,150 +197,13 @@ export async function backfillFileinfo(db: Db): Promise<BackfillFileinfoResult> 
   return { scanned, updated, skipped };
 }
 
-// ---------------------------------------------------------------------------
-// merge-duplicate-assets-2026-05-21
-//
-// Healing pass: collapse pre-existing rows that share a `maple_id` into a
-// single row with a union of every group member's `fileinfo[]`.
-//
-// Why this exists even though the unique partial index `maple_id_gt_1`
-// forbids the state: on deploys where the index was never built (or was
-// dropped at some point) and PR 1's hash-stage races didn't merge cleanly,
-// the collection can carry "physical" duplicates that the runtime
-// constraint would now reject on insert. `ensureIndexes` calls this
-// BEFORE the `maple_id_gt_1` createIndex so the index creation succeeds
-// on the cleaned-up state — without this ordering, `createIndex` would
-// throw `DuplicateKey` and the boot would abort.
-//
-// Survivor rule: earliest `indexed_at` wins. This is the row most likely to
-// carry user-edited fields (rating, flag, color_label, faces, sidecar
-// mirrors). Ties on `indexed_at` are broken by `_id.toString()` so the
-// outcome is deterministic across boots.
-//
-// User-edited fields are NOT merged across rows — only the survivor's are
-// kept. Operators are expected to redo any edits made on losers; we log
-// the survivor + loser ids so audit is possible.
-//
-// Idempotent: a second call finds zero groups and is a no-op. Sentinel-gated
-// in `ensureIndexes` so it only runs once per database.
-// ---------------------------------------------------------------------------
-
-export interface MergeDuplicatesResult {
-  scanned_groups: number;
-  merged_groups: number;
-  deleted_rows: number;
-}
-
-interface DupGroup {
-  _id: string;
-  ids: ObjectId[];
-  count: number;
-}
-
-interface FileInfoEntryShape {
-  path: string;
-  filename: string;
-  library_id: ObjectId;
-  deleted_at?: string | null;
-}
-
-export async function mergeDuplicateAssets(db: Db): Promise<MergeDuplicatesResult> {
-  const dupes = await db
-    .collection('assets')
-    .aggregate<DupGroup>([
-      { $match: { maple_id: { $type: 'string' } } },
-      { $group: { _id: '$maple_id', ids: { $push: '$_id' }, count: { $sum: 1 } } },
-      { $match: { count: { $gt: 1 } } },
-    ])
-    .toArray();
-
-  let merged_groups = 0;
-  let deleted_rows = 0;
-
-  for (const group of dupes) {
-    // Projection: we only need the fields used by the survivor pick and the
-    // fileinfo union. Pulling whole docs would drag along `vision`,
-    // `search_blob`, etc. for every loser we're about to delete.
-    const rows = await db
-      .collection('assets')
-      .find(
-        { _id: { $in: group.ids } },
-        {
-          projection: {
-            _id: 1,
-            indexed_at: 1,
-            fileinfo: 1,
-            rating: 1,
-            flag: 1,
-            color_label: 1,
-          },
-        },
-      )
-      .toArray();
-    if (rows.length < 2) continue;
-
-    // Earliest indexed_at survives; ties broken by _id for determinism.
-    rows.sort((a, b) => {
-      const ai = (a.indexed_at as string) ?? '';
-      const bi = (b.indexed_at as string) ?? '';
-      if (ai === bi) return a._id.toString().localeCompare(b._id.toString());
-      return ai.localeCompare(bi);
-    });
-    const survivor = rows[0]!;
-    const losers = rows.slice(1);
-
-    // Union fileinfo across the group, de-duped by (library_id, path, filename).
-    // Key uses JSON.stringify so `|` (or any other separator) appearing inside
-    // `path` / `filename` can't cause collisions.
-    //
-    // When two entries share the key but one is live (`deleted_at` absent/null)
-    // and the other is tombstoned, prefer the live entry — otherwise the
-    // first-wins ordering could preserve a deleted entry for a path that's
-    // actually still on disk on another row.
-    const seen = new Map<string, FileInfoEntryShape>();
-    for (const row of rows) {
-      const list = (row.fileinfo ?? []) as FileInfoEntryShape[];
-      for (const entry of list) {
-        const key = JSON.stringify([entry.library_id.toHexString(), entry.path, entry.filename]);
-        const existing = seen.get(key);
-        if (!existing) {
-          seen.set(key, entry);
-          continue;
-        }
-        const existingDead = existing.deleted_at != null;
-        const candidateDead = entry.deleted_at != null;
-        if (existingDead && !candidateDead) {
-          seen.set(key, entry);
-        }
-        // Otherwise (both live, both dead, or candidate dead while existing
-        // live) keep the existing entry — first-seen wins.
-      }
-    }
-    const merged = Array.from(seen.values());
-
-    await db.collection('assets').updateOne({ _id: survivor._id }, { $set: { fileinfo: merged } });
-    const del = await db
-      .collection('assets')
-      .deleteMany({ _id: { $in: losers.map((l) => l._id) } });
-    merged_groups += 1;
-    deleted_rows += del.deletedCount ?? 0;
-    log.info(
-      {
-        maple_id: group._id,
-        survivor: survivor._id.toHexString(),
-        losers: losers.map((l) => l._id.toHexString()),
-        merged_locations: merged.length,
-      },
-      'merge-duplicate-assets: collapsed group',
-    );
-  }
-
-  return {
-    scanned_groups: dupes.length,
-    merged_groups,
-    deleted_rows,
-  };
-}
+// merge-duplicate-assets-2026-05-21 — healing pass: collapse pre-existing
+// rows that share a `maple_id` into a single row with a union of every
+// group member's `fileinfo[]`. Impl in migrations.merge-duplicates.ts (kept
+// out of this file to stay under the file-size budget — it's the largest
+// single migration and the batching refactor needs room to breathe).
+export type { MergeDuplicatesResult } from './migrations.merge-duplicates.ts';
+export { mergeDuplicateAssets } from './migrations.merge-duplicates.ts';
 
 // ---------------------------------------------------------------------------
 // drop-abs-path-2026-05-21 pre-flight
@@ -454,6 +315,8 @@ export interface BackfillFolderSlugsResult {
   skipped: number;
 }
 
+const FOLDER_SLUG_BATCH_SIZE = 500;
+
 export async function backfillFolderSlugs(db: Db): Promise<BackfillFolderSlugsResult> {
   const slugsLog = childLogger('db:migrations:folder-slugs');
 
@@ -475,24 +338,40 @@ export async function backfillFolderSlugs(db: Db): Promise<BackfillFolderSlugsRe
 
   let updated = 0;
   let skipped = 0;
+  let batch: AnyBulkWriteOperation[] = [];
+
+  // `bulkWrite` reports matched/modified counts for the whole chunk, not per
+  // op — a doc's guard filter only fails to match when another writer set
+  // its slug between the cursor read and this flush, so
+  // `chunk size - modifiedCount` is exactly the skipped count for that chunk.
+  const flush = async (): Promise<void> => {
+    if (batch.length === 0) return;
+    const res = await db.collection('folders').bulkWrite(batch, { ordered: false });
+    const modified = res.modifiedCount ?? 0;
+    updated += modified;
+    skipped += batch.length - modified;
+    batch = [];
+  };
 
   for await (const doc of cursor) {
+    // Slug derivation stays strictly sequential per doc — only the writes
+    // that follow are batched — so `taken` always reflects every slug minted
+    // so far in this pass, including ones still sitting in an unflushed batch.
     const label = (doc.label as string | undefined) ?? '';
     const base = slugify(label || pathMod.basename(doc.path as string) || 'library');
     const slug = dedupeSlug(base, taken);
     taken.add(slug);
-    const res = await db
-      .collection('folders')
-      .updateOne(
-        { _id: doc._id, $or: [{ slug: { $exists: false } }, { slug: null }] },
-        { $set: { slug } },
-      );
-    if (res.modifiedCount > 0) {
-      updated += 1;
-    } else {
-      skipped += 1;
-    }
+    batch.push({
+      updateOne: {
+        // Guard filter preserved verbatim: re-check on write so a row
+        // populated between cursor read and bulk flush stays untouched.
+        filter: { _id: doc._id, $or: [{ slug: { $exists: false } }, { slug: null }] },
+        update: { $set: { slug } },
+      },
+    });
+    if (batch.length >= FOLDER_SLUG_BATCH_SIZE) await flush();
   }
+  await flush();
 
   slugsLog.info({ updated, skipped }, 'backfilled folder slugs');
   return { updated, skipped };

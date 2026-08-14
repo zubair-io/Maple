@@ -118,6 +118,36 @@ describe('backfillFolderSlugs', () => {
     // Custom slug must be preserved
     expect((row as Record<string, unknown>)?.slug).toBe('my-custom-slug');
   });
+
+  it('batches writes across multiple bulkWrite chunks and still assigns every row a unique slug', async () => {
+    if (!mongoReachable) return;
+    const { backfillFolderSlugs } = await import('./migrations.ts');
+    // The backfill chunks writes at 500 ops/bulkWrite — insert enough rows to
+    // force 3 chunks (500 + 500 + 200) and confirm the chunk boundary doesn't
+    // lose updates, double-count, or let dedupeSlug repeat a slug across the
+    // boundary (taken/dedupeSlug derivation must stay sequential across chunks).
+    const ROWS = 1200;
+    const docs = Array.from({ length: ROWS }, (_, i) => ({
+      path: `/srv/bulk/${i}`,
+      label: 'Shared Label',
+      last_scan: null,
+      file_count: 0,
+      created_at: '2026-06-16T00:00:00Z',
+    }));
+    await db!.collection('folders').insertMany(docs);
+
+    const result = await backfillFolderSlugs(db!);
+    expect(result.updated).toBe(ROWS);
+    expect(result.skipped).toBe(0);
+
+    const rows = await db!.collection('folders').find({ label: 'Shared Label' }).toArray();
+    expect(rows).toHaveLength(ROWS);
+    const slugs = rows.map((r) => r.slug as string);
+    // Every row got a slug, and dedup held across the whole run, including
+    // across the chunk boundary — no two rows share a slug.
+    expect(new Set(slugs).size).toBe(ROWS);
+    expect(slugs.every((s) => typeof s === 'string' && s.length > 0)).toBe(true);
+  }, 20000);
 });
 
 // ---------------------------------------------------------------------------

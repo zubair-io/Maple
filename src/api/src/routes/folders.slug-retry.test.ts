@@ -116,6 +116,48 @@ describe('POST /api/folders — slug collision retry', () => {
     expect(body.label).toBe('My Library');
   });
 
+  it('two concurrent POSTs racing on the same base slug both succeed with distinct slugs', async () => {
+    if (!client || !db) {
+      console.log('[folders.slug-retry.test] MongoDB unreachable — skipping');
+      return;
+    }
+
+    // Unlike the pre-inserted-collision test above (where the taken-set read
+    // already sees the colliding slug), this drives a genuine TOCTOU race:
+    // two concurrent POSTs for the SAME label both start from an empty
+    // taken-set, both mint the same base slug, and only one insertOne can
+    // win the unique index. The loser's retry loop must recover with the
+    // widened in-memory taken-set (not a re-query) and succeed with a
+    // suffixed slug — not surface a 500.
+    const tmpDirA = `${tmpDir}-a`;
+    const tmpDirB = `${tmpDir}-b`;
+    await mkdir(tmpDirA, { recursive: true });
+    await mkdir(tmpDirB, { recursive: true });
+
+    const app = new Elysia().use(foldersRoutes);
+    const post = (path: string) =>
+      app.handle(
+        new Request('http://localhost/api/folders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path, label: 'Concurrent Library' }),
+        }),
+      );
+
+    const [resA, resB] = await Promise.all([post(tmpDirA), post(tmpDirB)]);
+
+    // Neither request may fail with a 500 on the collision.
+    expect(resA.status).toBe(201);
+    expect(resB.status).toBe(201);
+    const bodyA = (await resA.json()) as { slug: string; path: string };
+    const bodyB = (await resB.json()) as { slug: string; path: string };
+    expect(bodyA.slug).not.toBe(bodyB.slug);
+    expect([bodyA.slug, bodyB.slug].sort()).toEqual(['concurrent-library', 'concurrent-library-2']);
+
+    await rm(tmpDirA, { recursive: true, force: true });
+    await rm(tmpDirB, { recursive: true, force: true });
+  });
+
   it('GET /api/folders returns slug in the payload (client addresses libraries by slug)', async () => {
     if (!client || !db) {
       console.log('[folders.slug-retry.test] MongoDB unreachable — skipping');

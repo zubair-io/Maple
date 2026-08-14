@@ -245,20 +245,28 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       // On E11000 we increment the suffix and retry (up to 5 attempts) so
       // the request succeeds deterministically without exposing a 500 to the
       // caller.
+      //
+      // The taken-set is queried ONCE, before the loop — not re-queried on
+      // every retry. A re-query-per-attempt would keep reading the same
+      // pre-collision snapshot until the OTHER request's insert actually
+      // commits, so most retries would recompute the identical colliding
+      // slug and burn all 5 attempts on it, turning a recoverable race into
+      // a 500. Instead, each E11000 adds the slug that just collided to this
+      // in-memory set and re-runs `dedupeSlug` against the widened set — the
+      // retry loop stays entirely in-memory and always picks a new candidate.
       const baseSlug = slugify(derivedLabel);
       let slug: string;
       let insertResult: Awaited<ReturnType<typeof coll.insertOne>> | undefined;
       const MAX_SLUG_ATTEMPTS = 5;
+      const takenSlugs = await coll
+        .find({ slug: { $exists: true } } as never, {
+          projection: { slug: 1 },
+        })
+        .toArray()
+        .then(
+          (rows) => new Set((rows as Array<{ slug?: string }>).map((r) => r.slug!).filter(Boolean)),
+        );
       for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt++) {
-        const takenSlugs = await coll
-          .find({ slug: { $exists: true } } as never, {
-            projection: { slug: 1 },
-          })
-          .toArray()
-          .then(
-            (rows) =>
-              new Set((rows as Array<{ slug?: string }>).map((r) => r.slug!).filter(Boolean)),
-          );
         slug = dedupeSlug(baseSlug, takenSlugs);
         try {
           insertResult = await coll.insertOne({
@@ -276,8 +284,10 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
             keyPattern?: Record<string, unknown>;
           };
           if (mongoErr.code === 11000 && mongoErr.keyPattern?.['slug'] !== undefined) {
-            // Concurrent insert claimed the same slug — retry with fresh taken-set.
+            // Concurrent insert claimed this slug — widen the in-memory
+            // taken-set with the collision and retry (no re-query).
             log.warn({ attempt, slug: slug! }, 'slug duplicate-key on insert, retrying');
+            takenSlugs.add(slug!);
             continue;
           }
           throw err; // not a slug collision — rethrow
