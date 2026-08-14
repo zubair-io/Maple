@@ -10,7 +10,7 @@ import * as path from 'node:path';
 // configured backup root(s). Same `fs/promises` surface — see `mirrored.ts`.
 import * as fs from './mirrored.ts';
 import { readFileWithFailover } from './mirror-read.ts';
-import { deleteSidecar, writeSidecarAtomic } from './sidecar-io.ts';
+import { deleteSidecar, writeSidecarAtomic, writeSidecarCreateOnly } from './sidecar-io.ts';
 // Conflict-copy sidecars (`<base> (conflict from <device>).xmp`) live in their
 // own module; the precondition write below is their only producer here.
 import { pickFreeConflictPath } from './xmp-conflict.ts';
@@ -291,6 +291,14 @@ export type XmpWriteOutcome =
  * `ifMtimeMatchesEpoch: null` — `null` alone means "overwrite unconditionally",
  * which is correct for a modify with no known prior version but silently
  * destroys an existing sidecar when used from a create path (#2532).
+ *
+ * The `requireAbsent` check-and-write is genuinely atomic (#2784), not a
+ * `stat` followed by a `rename` — see `writeSidecarCreateOnly`. A caller's
+ * own local existence check (e.g. the FileProvider extension's client-side
+ * `createOnlyPrecondition` stat) is necessarily racy — another writer can
+ * create the sidecar after that stat runs and before this call lands — so
+ * the guarantee has to be enforced here, at the single point that actually
+ * touches the filesystem, independent of what any caller believed.
  */
 export async function writeXmpWithPrecondition(
   rawAbsPath: string,
@@ -314,12 +322,14 @@ export async function writeXmpWithPrecondition(
   };
 
   if (requireAbsent) {
-    const alreadyExists = await fs
-      .stat(sidecar)
-      .then(() => true)
-      .catch(() => false);
-    if (alreadyExists) return writeConflictCopy();
-  } else if (ifMtimeMatchesEpoch !== null) {
+    const created = await writeSidecarCreateOnly(sidecar, xmlContent, 'XMP write failed');
+    if ('exists' in created) return writeConflictCopy();
+    return created.ok
+      ? { kind: 'ok', mtime: created.mtime }
+      : { kind: 'error', error: created.error };
+  }
+
+  if (ifMtimeMatchesEpoch !== null) {
     let onDiskEpoch: number | null = null;
     try {
       const st = await fs.stat(sidecar);
