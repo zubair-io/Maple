@@ -23,6 +23,17 @@ final class WorkingSetEnumeratorChangesTests: XCTestCase {
         session: URLSession,
         roots: [LibraryRoot]
     ) -> WorkingSetEnumerator {
+        makeEnumeratorWithWorkingSet(session: session, roots: roots).enumerator
+    }
+
+    /// Same construction as `makeEnumerator`, but also hands back the
+    /// `WorkingSet` so a test can inspect its post-enumeration state —
+    /// needed to assert on cache-mutation ordering, which `updates`/
+    /// `deletes` alone can't observe.
+    private func makeEnumeratorWithWorkingSet(
+        session: URLSession,
+        roots: [LibraryRoot]
+    ) -> (enumerator: WorkingSetEnumerator, workingSet: WorkingSet) {
         let server = URL(string: "https://x.test")!
         let http = AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session)
         let catalog = RemoteCatalog(http: http, server: server, downloadURLSession: session)
@@ -40,7 +51,7 @@ final class WorkingSetEnumeratorChangesTests: XCTestCase {
             defaults: UserDefaults(suiteName: "test-\(UUID().uuidString)"),
             fetcher: { roots }
         )
-        return WorkingSetEnumerator(
+        let enumerator = WorkingSetEnumerator(
             catalog: catalog,
             workingSet: workingSet,
             cursorStore: cursorStore,
@@ -48,6 +59,7 @@ final class WorkingSetEnumeratorChangesTests: XCTestCase {
             listCache: listCache,
             rootCache: rootCache
         )
+        return (enumerator, workingSet)
     }
 
     private func anchor(_ cursor: Int64) -> NSFileProviderSyncAnchor {
@@ -280,6 +292,62 @@ final class WorkingSetEnumeratorChangesTests: XCTestCase {
         let nsError = observer.error as NSError?
         XCTAssertEqual(nsError?.domain, NSFileProviderErrorDomain)
         XCTAssertEqual(nsError?.code, NSFileProviderError.serverUnreachable.rawValue)
+    }
+
+    /// Regression coverage for jules' second BLOCKING finding on PR
+    /// #2687: `workingSet` mutations used to happen INSIDE each
+    /// concurrent row's task, so they landed in COMPLETION order, not
+    /// the feed-index order that `didUpdate`/`didDeleteItems` are
+    /// carefully reassembled into. A batch with an update for an asset
+    /// followed later in the feed by a delete for that SAME asset must
+    /// leave the working set without that asset — even if the update's
+    /// per-asset metadata GET is slow enough to finish AFTER the
+    /// delete's (synchronous, no-network) removal already ran.
+    func testEnumerateChangesAppliesWorkingSetMutationsInFeedOrderNotCompletionOrder() async throws {
+        let assetID = "dddddddddddddddddddddddd"
+        // The delay applies to every request on this session, including
+        // the one `/api/changes` call — that's fine, it's still awaited
+        // before the concurrent phase begins. What matters is that the
+        // update row's `/api/assets/:id` GET is slow relative to the
+        // delete row's resolution, which never touches the network at
+        // all and so completes near-instantly regardless of the delay.
+        let session = URLSession.stubbedSequence(delay: .milliseconds(50)) { req in
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 200,
+                                       httpVersion: "HTTP/1.1",
+                                       headerFields: ["Content-Type": "application/json"])!
+            if req.url!.path.contains("/api/changes") {
+                let body = """
+                {"changes": [
+                  {"cursor": 1, "asset_id": "\(assetID)", "folder_id": "F1",
+                   "kind": "update", "abs_path": "/srv/lib/a.dng", "at": "2026-05-16T00:00:00Z"},
+                  {"cursor": 2, "asset_id": "\(assetID)", "folder_id": null,
+                   "kind": "delete", "abs_path": null, "at": "2026-05-16T00:00:01Z"}
+                ], "next_cursor": 2}
+                """
+                return (body.data(using: .utf8)!, resp)
+            }
+            // GET /api/assets/:id — the update row's (slow) metadata GET.
+            let body = """
+            {"id": "\(assetID)", "folder_id": "F1", "filename": "a.dng",
+             "abs_path": "/srv/lib/a.dng", "size": 4096, "mtime": 1700000000000, "rating": 0}
+            """
+            return (body.data(using: .utf8)!, resp)
+        }
+        let roots = [root(id: "F1", path: "/srv/lib")]
+        let (enumerator, workingSet) = makeEnumeratorWithWorkingSet(session: session, roots: roots)
+        let observer = TestChangeObserver()
+        enumerator.enumerateChanges(for: observer, from: anchor(0))
+        let finished = await observer.waitUntilFinished(timeoutSeconds: 5)
+        XCTAssertTrue(finished, "enumerateChanges did not finish in time")
+        XCTAssertNil(observer.error)
+
+        let assetIdentifier = FileProviderIdentifier.asset(assetID).rawValue
+        XCTAssertNil(
+            workingSet.entry(for: assetIdentifier),
+            "the feed's last word for this asset was a delete — the working set must not still "
+            + "list it just because the update row's metadata GET finished after the delete's "
+            + "synchronous removal"
+        )
     }
 }
 

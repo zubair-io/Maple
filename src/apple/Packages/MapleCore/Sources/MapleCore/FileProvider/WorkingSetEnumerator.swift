@@ -212,12 +212,23 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
     }
 
     /// Resolves every row in `changes` concurrently, bounded by
-    /// `maxConcurrentMetadataFetches` via `BoundedAsyncSemaphore`, and
-    /// reassembles the results in original change-feed order. Mutates
-    /// `workingSet` as a side effect of each row's resolution — safe to
-    /// call concurrently, since `WorkingSet` guards its table with an
-    /// internal `NSLock` (see `WorkingSet.swift`) and per-identifier
-    /// upsert/remove don't depend on cross-row ordering.
+    /// `maxConcurrentMetadataFetches` via `BoundedAsyncSemaphore`, then
+    /// reassembles the results in original change-feed order.
+    ///
+    /// `workingSet` mutations happen HERE, in this synchronous pass over
+    /// `ordered` — never inside the concurrent per-row resolution
+    /// (`resolveChange`, which does not touch `workingSet` at all). A
+    /// row's own metadata GET can finish after a LATER row's
+    /// synchronous delete already ran, so completion order is not feed
+    /// order; mutating in completion order let a delete get silently
+    /// overwritten by a slower update for the same asset that the feed
+    /// said came first (jules review, PR #2687). Applying mutations
+    /// only after `ordered` is re-sorted back into feed index order
+    /// keeps a later delete always winning over an earlier update for
+    /// the same asset, and — since this loop runs only past the
+    /// `hitNetworkOutage` guard below — means a batch aborted for a
+    /// network outage applies NO mutations at all, instead of an
+    /// arbitrary subset the task group happened to finish first.
     private static func resolveChanges(
         _ changes: [AssetChange],
         catalog: RemoteCatalog,
@@ -231,7 +242,7 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                 group.addTask {
                     let outcome = await Self.resolveChange(
                         ch, catalog: catalog, roots: roots,
-                        workingSet: workingSet, semaphore: semaphore, log: log
+                        semaphore: semaphore, log: log
                     )
                     return IndexedOutcome(index: index, outcome: outcome)
                 }
@@ -258,8 +269,17 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                 continue
             case .delete(let ident):
                 deletes.append(ident)
+                workingSet.remove(identifier: ident.rawValue)
             case .update(let item):
                 updates.append(item)
+                // Touch the working set so eviction reflects activity.
+                // Uses the change-feed row's own timestamp (via
+                // `changes[entry.index]`, not wall-clock "now") so
+                // `lastTouched` reflects when the server recorded the
+                // event, matching the original sequential loop.
+                workingSet.upsert(identifier: item.itemIdentifier.rawValue,
+                                  kind: .recent,
+                                  lastTouched: changes[entry.index].at)
             }
         }
         return .resolved(updates: updates, deletes: deletes)
@@ -286,11 +306,14 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
     ///     `item(for:)`; its parent is never `.workingSet` (see
     ///     `MapleItem`'s stub initializer — that identifier is
     ///     permanently `noSuchItem`).
+    ///
+    /// Deliberately does NOT touch `workingSet` — see `resolveChanges`'s
+    /// doc comment for why those mutations are applied by the caller,
+    /// serially, in feed order, instead of from here.
     private static func resolveChange(
         _ ch: AssetChange,
         catalog: RemoteCatalog,
         roots: [LibraryRoot],
-        workingSet: WorkingSet,
         semaphore: BoundedAsyncSemaphore,
         log: Logger
     ) async -> ChangeOutcome {
@@ -299,7 +322,6 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
             FileProviderIdentifier.asset(assetID).rawValue
         )
         if ch.kind == .delete {
-            workingSet.remove(identifier: ident.rawValue)
             return .delete(ident)
         }
 
@@ -320,14 +342,11 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                 // Genuine 404: the change-feed row raced a server-side
                 // delete. Report it as a delete rather than handing the
                 // OS an item whose content will 404 forever.
-                workingSet.remove(identifier: ident.rawValue)
                 return .delete(ident)
             }
             let parent = Self.resolveParent(folderID: meta.folderID,
                                             absPath: meta.absPath,
                                             roots: roots)
-            // Touch the working set so eviction reflects activity.
-            workingSet.upsert(identifier: ident.rawValue, kind: .recent, lastTouched: ch.at)
             return .update(MapleItem(assetMetadata: meta, parent: parent))
         } catch {
             if Self.isNetworkUnreachable(error) {
@@ -339,7 +358,6 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                                  cursor: ch.cursor,
                                  folderID: ch.folderID,
                                  relativePath: ch.relativePath)
-            workingSet.upsert(identifier: ident.rawValue, kind: .recent, lastTouched: ch.at)
             return .update(stub)
         }
     }
