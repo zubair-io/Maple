@@ -28,15 +28,26 @@ struct SearchScreen: View {
   /// actually on screen when Menu was pressed, matching
   /// `TimelineScreen.focusedCellID`'s contract.
   @FocusState private var focusedCellID: String?
+  /// True when `initialParams` seeded the viewModel at construction — the
+  /// map screen's pin-tap → search entry (`TVMapScreen`, #2833) preset,
+  /// distinct from the plain Search tab which always starts idle. Drives
+  /// the initial `submit()` and the idle-vs-results decision in `content`
+  /// below: a `.hasLocationScope` preset carries an EMPTY `placeQuery`
+  /// (only `params.scope` is set), so `trimmedQuery.isEmpty` alone can't
+  /// tell "never searched" apart from "searching by scope, not text".
+  private let hasPreset: Bool
 
-  init(session: TVCloudSession, libraryID: String) {
+  init(session: TVCloudSession, libraryID: String, initialParams: SearchParams? = nil) {
     self.session = session
     self.libraryID = libraryID
-    _viewModel = State(initialValue: SearchViewModel(
+    self.hasPreset = initialParams != nil
+    let vm = SearchViewModel(
       server: session.server,
       libraryID: libraryID,
       searchClient: session.searchClient
-    ))
+    )
+    if let initialParams { vm.params = initialParams }
+    _viewModel = State(initialValue: vm)
   }
 
   /// Fixed-width columns matching `TimelineCell.size` — same uniform,
@@ -58,6 +69,13 @@ struct SearchScreen: View {
         content
       }
     }
+    // Plain (no-`id:`) `.task` is correct here for the same reason
+    // `TimelineScreen`'s load `.task` is: `TVMapScreen` presents this
+    // screen fresh via `.fullScreenCover(item:)` per pin tap, so every
+    // preset gets its own `SearchScreen` identity. No-op for the plain
+    // Search-tab entry (`hasPreset == false`) — that path stays
+    // driven entirely by `queryBinding`/`submitIfNonEmpty`.
+    .task { if hasPreset { await viewModel.submit() } }
     .fullScreenCover(item: $selectedAsset) { asset in
       let resultSet = viewModel.results
       let startIndex = resultSet.firstIndex(where: { $0.id == asset.id }) ?? 0
@@ -158,9 +176,16 @@ struct SearchScreen: View {
   /// `results` (a `loadMore()` page failed after earlier pages already
   /// rendered) deliberately falls through to `grid` — already-loaded
   /// results stay up rather than being replaced by a full-screen error.
+  ///
+  /// `viewModel.params.scope == nil` alongside the empty-text check:
+  /// `TVMapScreen`'s `.hasLocationScope` fallback (a tapped cell with no
+  /// `placeLabel`) preset lands here with an EMPTY `placeQuery` but
+  /// `params.scope = "places"` — a real, active filter, not "nothing
+  /// typed yet". Without this, that preset would show `idleView` forever
+  /// even after `submit()` successfully loads results.
   @ViewBuilder
   private var content: some View {
-    if trimmedQuery.isEmpty {
+    if trimmedQuery.isEmpty, viewModel.params.scope == nil {
       idleView
     } else if viewModel.isLoading, viewModel.results.isEmpty {
       loadingView
