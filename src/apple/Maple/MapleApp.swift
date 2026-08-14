@@ -227,6 +227,10 @@ struct MapleApp: App {
     static func startBackupIfAuthorized() async {
         guard let settings = BackupSettings.load(), settings.isConfigured,
               let serverBaseURL = URL(string: settings.serverURL) else { return }
+        // A configured backup could only have been set up with library access
+        // in hand — latch that evidence so users whose grant was revoked
+        // before PhotosAccessMemory existed still get the sidebar warning.
+        PhotosAccessMemory.latchGrantEvidence()
         let status = PhotoKitLibrary.authorizationStatus()
         guard status == .authorized || status == .limited else { return }
         await EngineHost.shared.start(settings: settings)
