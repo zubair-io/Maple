@@ -129,6 +129,16 @@ struct TVMapScreen: View {
     // ZStack), not just the `Map` — otherwise the pad's own default-focus
     // preference has no scope to register into.
     .focusScope(focusNamespace)
+    // Directional swipes are handled HERE, on the pins' and pad's common
+    // ancestor — NOT on `cameraPad`. SwiftUI bubbles an unhandled responder
+    // event to its ANCESTORS, never to siblings, and `cameraPad` is a sibling
+    // of `Map` inside this ZStack. With the pad owning `.onMoveCommand`, a
+    // swipe made while a pin held focus with no pin in that direction bubbled
+    // pin → Annotation → Map → ZStack and never reached the pad, leaving the
+    // user stuck on the pin unable to pan. `onMoveCommand` fires only for
+    // moves the focus engine did not itself consume, so pin-to-pin focus
+    // navigation is unaffected — only the leftover swipes pan the camera.
+    .onMoveCommand(perform: pan)
     .onPlayPauseCommand(perform: zoomOut)
     .task { viewModel.regionChanged(region) }
     .onChange(of: region) { _, newRegion in viewModel.regionChanged(newRegion) }
@@ -155,7 +165,6 @@ struct TVMapScreen: View {
     .buttonStyle(.plain)
     .focusEffectDisabled()
     .prefersDefaultFocus(orderedItems.isEmpty, in: focusNamespace)
-    .onMoveCommand(perform: pan)
     .accessibilityLabel("Map camera. Swipe to pan, press to zoom in.")
     .accessibilityIdentifier("tv-map-camera-pad")
   }
