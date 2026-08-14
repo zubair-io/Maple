@@ -24,23 +24,23 @@ on Apple. One shared API endpoint feeds pins and heatmap on both.
 
 ## Decisions (locked in brainstorming)
 
-| Decision | Choice | Consequence |
-| --- | --- | --- |
-| Platforms | Web + Apple | Two front-ends, one shared data endpoint |
-| Map SDK | Apple Maps everywhere | MapKit JS (web) + MapKit (native); no MapLibre |
-| Density view | True heatmap overlay | Custom overlay — MapKit has no built-in heatmap |
+| Decision         | Choice                           | Consequence                                            |
+| ---------------- | -------------------------------- | ------------------------------------------------------ |
+| Platforms        | Web + Apple                      | Two front-ends, one shared data endpoint               |
+| Map SDK          | Apple Maps everywhere            | MapKit JS (web) + MapKit (native); no MapLibre         |
+| Density view     | True heatmap overlay             | Custom overlay — MapKit has no built-in heatmap        |
 | Pin click target | Place-name search (`placeQuery`) | Uses search as it exists today; no new geo query field |
 
 ## Existing code this builds on
 
 - **viewMode toggle** — `library-state.service.ts` (`viewMode: 'folder' |
-  'timeline'`, `setViewMode`), surfaced by the single Timeline button in
+'timeline'`, `setViewMode`), surfaced by the single Timeline button in
   `self-hosted-sidebar-body.component.html`, rendered by the `@if` branch in
   `self-hosted-browse-content.component.html`. Map is a third member of this
   union — no new route.
 - **Geo data already on assets** — `exif.gps: { lat, lng } | null` and a
   reverse-geocoded `place` (with `place.rollups.locality / region /
-  country_code`) in `src/api/src/db/schema.ts`. Populated by the EXIF and
+country_code`) in `src/api/src/db/schema.ts`. Populated by the EXIF and
   `geocode` worker stages.
 - **Search aggregation pattern** — `src/api/src/routes/search/buckets.ts` and
   `facets.ts` are the template for a new location aggregation. `buildFilter`
@@ -56,6 +56,7 @@ on Apple. One shared API endpoint feeds pins and heatmap on both.
 `GET /api/map/clusters`
 
 Query params:
+
 - `bbox` — `west,south,east,north` viewport bounds.
 - `zoom` — integer zoom level; selects the grid cell size.
 - all existing search filter params (`q`, `placeQuery`, `scope`, date range,
@@ -63,6 +64,7 @@ Query params:
   `buildFilter`, so the map respects whatever the user has filtered to.
 
 Behavior — a Mongo aggregation, mirroring `buckets.ts`:
+
 1. `$match` = `buildFilter(...)` **AND** `exif.gps != null` **AND** inside
    `bbox`.
 2. Grid-bucket each point by a zoom-dependent cell size using `$floor` on
@@ -95,6 +97,7 @@ Index: add a compound/2d index supporting the `bbox` range on
 private key, consumed by `mapkit.init({ authorizationCallback })`.
 
 Configuration (per CLAUDE.md "configure via settings, not env vars"):
+
 - **Maps ID** and **Key ID** — DB-backed settings, edited on a settings page.
 - **Private key (.p8)** — a secret (secret store / env), never a UI-visible
   setting.
@@ -111,12 +114,12 @@ web-only.
 
 - **MapKit JS integration** — a small service/loader in `maple-common`: injects
   the MapKit JS script, initializes with the token callback (`GET
-  /api/map/token`), exposes an Angular-friendly wrapper.
+/api/map/token`), exposes an Angular-friendly wrapper.
 - **`map` viewMode** — widen the `viewMode` union to `'folder' | 'timeline' |
-  'map'` (`library-state.service.ts`, `browse-preferences.service.ts`,
+'map'` (`library-state.service.ts`, `browse-preferences.service.ts`,
   `source-selection.ts`), add a **Map** button under Timeline in
   `self-hosted-sidebar-body.component.html`, add an `@else if (viewMode ===
-  'map')` branch rendering `<app-map-view />` in
+'map')` branch rendering `<app-map-view />` in
   `self-hosted-browse-content.component.html`.
 - **`map-view` component** — owns the MapKit map instance:
   - Fetches `/api/map/clusters` for the current viewport + search filters;
@@ -182,19 +185,19 @@ Independent where the dependency graph allows; the API endpoint (T1) unblocks
 both front-ends.
 
 1. **T1 · API** — `GET /api/map/clusters` grid-aggregation endpoint (reuses
-   `buildFilter`) + `exif.gps` bbox index. *(unblocks T3–T7)*
+   `buildFilter`) + `exif.gps` bbox index. _(unblocks T3–T7)_
 2. **T2 · API** — `GET /api/map/token` MapKit JS token + Apple Maps settings
    (Maps ID / Key ID as settings, private key as secret) + settings-page
-   control. *(web-only; independent of T1)*
+   control. _(web-only; independent of T1)_
 3. **T3 · Web** — MapKit JS integration in `maple-common` + `map` viewMode +
    sidebar button + render branch + "Connect Apple Maps" empty state.
-   *(depends on T2 for token, T1 for data)*
+   _(depends on T2 for token, T1 for data)_
 4. **T4 · Web** — map-view: clustered thumbnail pins, zoom reveal, pin-click →
-   place search. *(depends on T3)*
-5. **T5 · Web** — heatmap density overlay synced to the map. *(depends on T3)*
+   place search. _(depends on T3)_
+5. **T5 · Web** — heatmap density overlay synced to the map. _(depends on T3)_
 6. **T6 · Apple** — native MapKit view: annotations, clustering, pin-tap →
-   place search. *(depends on T1)*
-7. **T7 · Apple** — native heatmap `MKOverlay`. *(depends on T6)*
+   place search. _(depends on T1)_
+7. **T7 · Apple** — native heatmap `MKOverlay`. _(depends on T6)_
 
 Board: **Files** (feature work). Each ticket ships its UI with its backend where
 applicable (no API-only PRs). Epic is not "done" until all seven land.
