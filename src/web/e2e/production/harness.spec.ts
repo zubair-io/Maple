@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
 import { test, expect } from '../support/production-test';
 import { readProductionFixtureManifest } from '../support/production-fixtures';
@@ -219,6 +219,17 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'chrome-hosted');
   const manifest = await readProductionFixtureManifest();
+  // The writable fixture folder is staged once per Playwright run
+  // (`stageProductionFixtures` in scripts/serve-production-e2e.ts), so the
+  // sidecar this test writes outlives the test. Every execution of it walks
+  // Exposure ~+1.03 EV upward (+0.01 arrow, +1.00 drag, +0.01 blocked-write
+  // arrow, +0.01 recovery arrow) and the next execution — a retry, a
+  // --repeat-each pass, or browse-preview-actions.spec.ts, which seeds this
+  // same sidecar at +1.25 EV — inherits that value as its starting point. The
+  // recovery assertion at the end needs ArrowRight to still move the slider,
+  // which the +4 EV clamp makes impossible once the inherited value drifts
+  // that far, so start from the pristine default every time (#2805).
+  await rm(join(manifest.writableFolder, 'test_0006.xmp'), { force: true });
   const picker = await installProductionFolderPicker(page, manifest.writableFolder);
   await captureWorkerStatus(page);
   const rayonHelperRequests: string[] = [];
@@ -257,6 +268,11 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
   );
   const beforeEditBytes = await readFile(beforeEditArtifact);
   const exposure = page.getByRole('slider', { name: 'Exposure' });
+  // Prove the deleted sidecar really left Exposure at its default before the
+  // edits below start climbing toward the +4 EV clamp. A leaked non-zero
+  // start must fail here, loudly, instead of surfacing 200 lines later as an
+  // ArrowRight that legitimately cannot move a maxed-out slider (#2805).
+  await expect(exposure).toHaveAttribute('aria-valuenow', '0');
   const selectedUrl = page.url();
   await exposure.focus();
   picker.clear();
@@ -432,7 +448,10 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
   const recoveredExposure = Number(recoveredExposureAttribute);
   expect(recoveredExposureAttribute).not.toBeNull();
   expect(Number.isFinite(recoveredExposure)).toBe(true);
-  expect(recoveredExposure).not.toBe(Number(editedExposure));
+  expect(
+    recoveredExposure,
+    'the ArrowRight after write permission returns must move Exposure again',
+  ).not.toBe(Number(editedExposure));
   await expect
     .poll(async () => {
       const xml = await readFile(sidecar, 'utf8').catch(() => '');
