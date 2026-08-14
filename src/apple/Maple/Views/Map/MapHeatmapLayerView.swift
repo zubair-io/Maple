@@ -40,10 +40,8 @@ struct MapHeatmapLayerView: View {
       // Cheap rejects first: past the crossfade, or nothing to draw at all.
       // Both skip the projection pass entirely.
       guard opacity > 0, !points.isEmpty else { return }
-      let blobs = heatmapBlobs()
-      guard !blobs.isEmpty else { return }
       context.withCGContext { cgContext in
-        MapHeatmapPainter.draw(blobs: blobs, opacity: opacity, in: cgContext)
+        MapHeatmapPainter.draw(blobs: heatmapBlobs(), opacity: opacity, in: cgContext)
       }
     }
     .allowsHitTesting(false)
@@ -52,11 +50,17 @@ struct MapHeatmapLayerView: View {
 
   /// Projects the pre-weighted points into screen space for the CURRENT
   /// camera — the only genuinely per-frame work here, since `proxy.convert`
-  /// depends on the live camera and its result changes every tick. Returns
-  /// `nil` for a coordinate MapKit can't currently project (effectively
-  /// off-map), which this drops rather than propagating.
-  private func heatmapBlobs() -> [MapHeatmapBlob] {
-    points.compactMap { heatPoint in
+  /// depends on the live camera and its result changes every tick. Drops
+  /// coordinates MapKit can't currently project (effectively off-map)
+  /// rather than propagating a `nil`.
+  ///
+  /// `lazy` so the projected blobs are consumed straight by the painter
+  /// without materializing an intermediate array on every draw. There's no
+  /// per-tile cull to do here (unlike the `MKOverlayRenderer` path): a
+  /// SwiftUI `Canvas` draws the whole layer in one pass, and `proxy.convert`
+  /// already returns `nil` for anything off-map.
+  private func heatmapBlobs() -> some Sequence<MapHeatmapBlob> {
+    points.lazy.compactMap { heatPoint in
       guard let center = proxy.convert(
         CLLocationCoordinate2D(latitude: heatPoint.latitude, longitude: heatPoint.longitude),
         to: .local

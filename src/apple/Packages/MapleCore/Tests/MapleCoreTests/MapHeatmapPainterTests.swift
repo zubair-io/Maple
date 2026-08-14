@@ -97,4 +97,19 @@ final class MapHeatmapPainterTests: XCTestCase {
     MapHeatmapPainter.draw(blobs: blobs, opacity: 1, in: context)
     XCTAssertEqual(alpha(atX: 100, y: 100, in: context), 0)
   }
+
+  /// `draw` takes a `Sequence` so callers can skip materializing an array
+  /// per draw — a `lazy` chain must paint identically to an eager one.
+  func test_draw_lazySequenceInput_paintsIdenticallyToArray() {
+    let eager = makeBitmapContext()
+    let lazily = makeBitmapContext()
+    let weights = [1.0, 0.5]
+    let blob = { (w: Double) in MapHeatmapBlob(center: CGPoint(x: 100, y: 100), radius: 40, weight: w) }
+
+    MapHeatmapPainter.draw(blobs: weights.map(blob), opacity: 1, in: eager)
+    MapHeatmapPainter.draw(blobs: weights.lazy.map(blob), opacity: 1, in: lazily)
+
+    XCTAssertGreaterThan(alpha(atX: 100, y: 100, in: eager), 0)
+    XCTAssertEqual(alpha(atX: 100, y: 100, in: eager), alpha(atX: 100, y: 100, in: lazily))
+  }
 }

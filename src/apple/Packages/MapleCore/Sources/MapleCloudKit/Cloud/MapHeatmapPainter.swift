@@ -86,11 +86,15 @@ public enum MapHeatmapPainter {
   /// Draws every blob with `.plusLighter` blending (overlapping blobs add
   /// up into a hotter-looking core — the standard heatmap look) at the
   /// given overall opacity (the zoom crossfade). No-op for `opacity <= 0`
-  /// or an empty `blobs` — callers should still prefer skipping the call
-  /// entirely when they already know opacity is 0, but this guard keeps
-  /// the function safe to call unconditionally too.
-  public static func draw(blobs: [MapHeatmapBlob], opacity: Double, in context: CGContext) {
-    guard opacity > 0, !blobs.isEmpty else { return }
+  /// — an empty sequence simply draws nothing (the loop never runs).
+  ///
+  /// Takes a `Sequence` rather than an `Array` specifically so callers can
+  /// hand over a `lazy` chain and skip materializing an intermediate
+  /// buffer. Blob centers and radii are camera-dependent, so unlike the
+  /// gradient they genuinely cannot be precomputed across draws — but they
+  /// don't have to be *collected* per draw either.
+  public static func draw(blobs: some Sequence<MapHeatmapBlob>, opacity: Double, in context: CGContext) {
+    guard opacity > 0 else { return }
     context.saveGState()
     context.setAlpha(CGFloat(opacity))
     context.setBlendMode(.plusLighter)
