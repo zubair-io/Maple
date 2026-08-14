@@ -153,9 +153,13 @@ final class EditorSubParamCatalogTests: XCTestCase {
         // deliberately NOT sub-params — a sub-param is a scalar key path by
         // construction and a curve is a point list — so this exclusion is
         // about the region sliders only, not a blanket opt-out for the tool.
+        // `.filmLook` carries a `strength` sub-param alongside its look
+        // selection, so it is multi-param for the same reason as the rest
+        // of this list — see #2812 for how it went missing here.
         for tool in Tool.allCases
         where tool != .noise && tool != .sharpen && tool != .vignette && tool != .grain
-            && tool != .colorGrade && tool != .hsl && tool != .bwMix && tool != .toneCurve {
+            && tool != .colorGrade && tool != .hsl && tool != .bwMix && tool != .toneCurve
+            && tool != .filmLook {
             XCTAssertTrue(tool.subParams.isEmpty, "\(tool) should be single-param")
             XCTAssertFalse(tool.isMultiParam)
             XCTAssertNil(tool.defaultSubParamId)
