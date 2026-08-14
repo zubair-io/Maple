@@ -77,6 +77,30 @@ final class MapViewportTests: XCTestCase {
       "an antimeridian-crossing region must signal west > east")
   }
 
+  /// A full-world (360°) span wrapping naively would send an off-center
+  /// camera's `west`/`east` to the SAME wrapped longitude (both -90 for a
+  /// center of 90°, e.g.), producing a zero-width box instead of "the
+  /// whole world" — the map would render 0 photos on a fully-zoomed-out,
+  /// off-center camera. Must short-circuit to the literal full range.
+  func test_bbox_wholeWorldSpanOffCenter_returnsFullRangeNotZeroWidth() {
+    let region = MapViewportRegion(centerLatitude: 0, centerLongitude: 90,
+                                   latitudeDelta: 180, longitudeDelta: 360)
+    let bbox = MapViewport.bbox(for: region)
+
+    XCTAssertEqual(bbox.west, -180)
+    XCTAssertEqual(bbox.east, 180)
+  }
+
+  /// Wider-than-the-world spans hit the same short-circuit.
+  func test_bbox_widerThanWorldSpanOffCenter_returnsFullRange() {
+    let region = MapViewportRegion(centerLatitude: 0, centerLongitude: -45,
+                                   latitudeDelta: 180, longitudeDelta: 400)
+    let bbox = MapViewport.bbox(for: region)
+
+    XCTAssertEqual(bbox.west, -180)
+    XCTAssertEqual(bbox.east, 180)
+  }
+
   // MARK: - zoomLevel(for:)
 
   /// The whole 360° world in one tile is zoom 0.
