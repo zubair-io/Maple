@@ -8,6 +8,7 @@ enum RootScreen: String, Identifiable {
   case timeline
   case lightTable
   case search
+  case map
 
   var id: String { rawValue }
 }
@@ -36,6 +37,7 @@ struct MenuScreen: View {
         MenuRow(title: "Timeline", systemImage: "photo.on.rectangle") { onSelect(.timeline) }
         MenuRow(title: "Light Table", systemImage: "rectangle.on.rectangle.angled") { onSelect(.lightTable) }
         MenuRow(title: "Search", systemImage: "magnifyingglass") { onSelect(.search) }
+        MenuRow(title: "Map", systemImage: "map") { onSelect(.map) }
         MenuRow(title: "Log Out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
           onForgotten()
         }
