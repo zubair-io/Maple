@@ -149,8 +149,7 @@ final class FolderChangeMatchingTests: XCTestCase {
                                           relativePath: "d",
                                           absolutePath: "/lib/d",
                                           containerIdentifier: .rootContainer,
-                                          cursorStore: cursorStore,
-                                          domainID: "d1")
+                                          changeCursor: (store: cursorStore, domainID: "d1"))
         let done = XCTestExpectation(description: "anchor")
         var seen: Int64?
         enumerator.currentSyncAnchor { anchor in
