@@ -105,9 +105,15 @@ struct SelfHostedSettingsTab: View {
                                 .buttonStyle(.borderedProminent)
                                 .controlSize(.small)
                             }
-                            // Per-server administration (#2766). Disabled
-                            // while signed out — every admin route needs a
-                            // bearer, so the window would only show errors.
+                            // Per-server administration (#2766). Enabled only
+                            // when definitively signed in: `signedIn[url]` is
+                            // nil until the Keychain check in `.task` runs, and
+                            // `== false` would treat that pending state as
+                            // signed-in and let a tokenless admin window open.
+                            // Note the Sign In button above deliberately keeps
+                            // `== false` — it must NOT flash during the same
+                            // pending window, so the two guards are asymmetric
+                            // on purpose.
                             Button("Manage…") {
                                 #if os(macOS)
                                 openWindow(id: "server-admin", value: url)
@@ -116,7 +122,7 @@ struct SelfHostedSettingsTab: View {
                                 #endif
                             }
                             .controlSize(.small)
-                            .disabled(signedIn[url] == false)
+                            .disabled(signedIn[url] != true)
                             .accessibilityIdentifier("cloud.manage.\(url.host ?? url.absoluteString)")
                             Button(role: .destructive) {
                                 registry.remove(url)

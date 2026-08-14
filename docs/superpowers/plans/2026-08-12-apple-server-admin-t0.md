@@ -1,6 +1,6 @@
 # ServerAdmin Shell + Network Settings Page (T0) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> This document is a historical record of how T0 was implemented. It was written as a task-by-task plan, which is why the steps carry `- [ ]` checkboxes; they tracked progress during implementation and are all complete as of PR #2852.
 
 **Goal:** Give Maple Exposure a per-server administration surface, entered from the Cloud settings tab, and deliver the Network settings page inside it.
 
