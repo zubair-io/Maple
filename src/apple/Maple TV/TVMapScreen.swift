@@ -12,10 +12,15 @@
 // `Map`'s own gesture handling (there is none here):
 //
 //   - A screen-filling, focusable "camera pad" (`cameraPad`) sits behind
-//     the pins. Its `.onMoveCommand` steps the camera via
+//     the pins, so there is always something focusable to hold focus and
+//     a Select target that zooms IN a step (`zoomedIn`).
+//   - `.onMoveCommand` is attached to the whole screen (the ZStack), NOT to
+//     the pad, and steps the camera via
 //     `TVMapCameraController.panned(_:direction:)` — pure region math, unit
-//     tested without any running focus engine. Its own Select action
-//     zooms IN a step (`zoomedIn`).
+//     tested without any running focus engine. It has to live on the pins'
+//     and pad's common ancestor: SwiftUI bubbles unhandled responder events
+//     to ancestors and never to siblings, so a pad-mounted handler never saw
+//     swipes made while a pin held focus.
 //   - `.onPlayPauseCommand`, attached to the whole screen (a dedicated
 //     hardware button, so it fires no matter which subview currently holds
 //     focus) zooms OUT a step. This is this screen's own reading of the
@@ -28,7 +33,7 @@
 //     focusable `Button`. tvOS's focus engine moves focus onto one
 //     directly when a swipe points at its on-screen position — ordinary
 //     tvOS behavior for any focusable sibling, needing no custom code
-//     here — falling through to the camera pad's `.onMoveCommand` only
+//     here — falling through to the screen-level `.onMoveCommand` only
 //     when there's no pin in that direction. So "moving focus between
 //     annotations" and "panning the empty map" fall out of the SAME swipe
 //     input without this screen picking one over the other itself.
@@ -82,20 +87,28 @@ struct TVMapScreen: View {
   }
 
   var body: some View {
+    // Resolved ONCE per body evaluation. `orderedItems` maps every cell and
+    // sorts the result, and it used to be read from inside the `ForEach` (for
+    // the default-focus comparison) as well as by `cameraPad` — so the sort ran
+    // once per pin plus twice more, turning an O(n log n) computation into
+    // O(n² log n) on a dense map.
+    let items = orderedItems
+    let defaultFocusID = items.first?.id
+
     ZStack {
       MapleTVTheme.background.ignoresSafeArea()
 
-      cameraPad
+      cameraPad(prefersDefaultFocus: items.isEmpty)
 
       Map(position: .constant(cameraPosition)) {
-        ForEach(orderedItems) { item in
+        ForEach(items) { item in
           Annotation(item.id, coordinate: CLLocationCoordinate2D(latitude: item.latitude, longitude: item.longitude)) {
             TVMapAnnotationButton(
               item: item,
               server: session.server,
               thumbClient: session.thumbClient,
               thumbCache: session.thumbCache,
-              isDefaultFocusTarget: item.id == orderedItems.first?.id,
+              isDefaultFocusTarget: item.id == defaultFocusID,
               focusNamespace: focusNamespace,
               onSelect: { activate(item) }
             )
@@ -149,11 +162,13 @@ struct TVMapScreen: View {
 
   // MARK: - Camera pad
 
-  /// Invisible, screen-filling focusable surface behind the pins. Its
-  /// Select action zooms in; its `.onMoveCommand` pans. See the header
-  /// comment for how this coexists with the pins' own focus-engine
-  /// navigation.
-  private var cameraPad: some View {
+  /// Invisible, screen-filling focusable surface behind the pins. Its Select
+  /// action zooms in. Panning is handled by the ZStack, not here — see the
+  /// `.onMoveCommand` comment there for why a sibling can't catch it.
+  ///
+  /// `prefersDefaultFocus` is passed in rather than read from `orderedItems`
+  /// so the ordered list is computed once per body evaluation.
+  private func cameraPad(prefersDefaultFocus: Bool) -> some View {
     Button(action: zoomIn) {
       Color.clear
         // `Color` has no intrinsic size — without this the Button's label
@@ -164,7 +179,7 @@ struct TVMapScreen: View {
     }
     .buttonStyle(.plain)
     .focusEffectDisabled()
-    .prefersDefaultFocus(orderedItems.isEmpty, in: focusNamespace)
+    .prefersDefaultFocus(prefersDefaultFocus, in: focusNamespace)
     .accessibilityLabel("Map camera. Swipe to pan, press to zoom in.")
     .accessibilityIdentifier("tv-map-camera-pad")
   }
