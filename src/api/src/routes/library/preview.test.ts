@@ -18,7 +18,15 @@ import {
 } from '../../indexer/libraries.cache.ts';
 
 const TEST_DB = `maple_test_preview_route_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+// Assigned in `beforeAll`, NOT at module scope (#2783). Every test file's
+// module body runs at import time, before any test does, so a module-scope
+// assignment is immediately clobbered by whichever suite imports last. The
+// route then resolves `MAPLE_MONGO_DB` lazily, at request time, to that
+// other suite's database — where the asset this file inserted does not
+// exist — and the request 404s. Assigning in `beforeAll` (and restoring in
+// `afterAll`) is the pattern `db/assets.repo.person-names.test.ts` already
+// uses, and it wins because no other file's module body can run in between.
+const ORIGINAL_MONGO_DB = process.env.MAPLE_MONGO_DB;
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;
@@ -49,6 +57,7 @@ async function tryConnect(): Promise<MongoClient | null> {
 }
 
 beforeAll(async () => {
+  process.env.MAPLE_MONGO_DB = TEST_DB;
   mongo = await tryConnect();
   mongoReachable = mongo !== null;
   if (!mongoReachable) {
@@ -73,6 +82,8 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+  if (ORIGINAL_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
+  else process.env.MAPLE_MONGO_DB = ORIGINAL_MONGO_DB;
   if (mongo) {
     try {
       await mongo.db(TEST_DB).dropDatabase();
