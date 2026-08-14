@@ -72,6 +72,45 @@ final class MapHeatmapOverlayTests: XCTestCase {
     XCTAssertTrue(rect.contains(tight))
   }
 
+  // MARK: - blobBounds (per-tile culling)
+
+  func test_blobBounds_isCenteredSquareOfTwiceTheRadius() {
+    let center = MKMapPoint(x: 1_000, y: 2_000)
+    let bounds = MapHeatmapOverlay.blobBounds(center: center, radiusMapPoints: 50)
+
+    XCTAssertEqual(bounds.minX, 950)
+    XCTAssertEqual(bounds.minY, 1_950)
+    XCTAssertEqual(bounds.width, 100)
+    XCTAssertEqual(bounds.height, 100)
+    XCTAssertTrue(bounds.contains(center))
+  }
+
+  /// The whole point of the cull: a blob far from the tile being drawn must
+  /// NOT intersect it, so the renderer can skip its `drawRadialGradient`.
+  func test_blobBounds_farFromTile_doesNotIntersect() {
+    let tile = MKMapRect(x: 0, y: 0, width: 100, height: 100)
+    let bounds = MapHeatmapOverlay.blobBounds(center: MKMapPoint(x: 10_000, y: 10_000), radiusMapPoints: 50)
+    XCTAssertFalse(bounds.intersects(tile))
+  }
+
+  func test_blobBounds_centeredInsideTile_intersects() {
+    let tile = MKMapRect(x: 0, y: 0, width: 100, height: 100)
+    let bounds = MapHeatmapOverlay.blobBounds(center: MKMapPoint(x: 50, y: 50), radiusMapPoints: 10)
+    XCTAssertTrue(bounds.intersects(tile))
+  }
+
+  /// A blob whose CENTER is outside the tile but whose radius reaches into
+  /// it must still be drawn — culling on the center alone would clip the
+  /// heat bleeding across every tile seam.
+  func test_blobBounds_centerOutsideTileButRadiusReachesIn_intersects() {
+    let tile = MKMapRect(x: 0, y: 0, width: 100, height: 100)
+    let center = MKMapPoint(x: 130, y: 50)
+    let bounds = MapHeatmapOverlay.blobBounds(center: center, radiusMapPoints: 50)
+
+    XCTAssertFalse(tile.contains(center), "center is outside the tile")
+    XCTAssertTrue(bounds.intersects(tile), "but its radius reaches in, so it must not be culled")
+  }
+
   // MARK: - coordinate
 
   func test_coordinate_emptyPoints_isOriginSentinel() {
