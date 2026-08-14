@@ -1,0 +1,71 @@
+<maple-settings-shell section="map">
+  <div class="page">
+    <header class="page-header">
+      <div class="titles">
+        <h1>Map</h1>
+        <p>
+          Configure the tile source the web Map view fetches base-map imagery from. Defaults to a
+          public OpenStreetMap raster source — no account or API key required.
+        </p>
+      </div>
+    </header>
+
+    @if (loading()) {
+      <div class="banner-loading">Loading…</div>
+    } @else if (loadError()) {
+      <div class="banner-error">{{ loadError() }}</div>
+    } @else {
+      <form class="settings-form" (ngSubmit)="save()">
+        <!-- Tile source URL -->
+        <div class="field-row">
+          <div class="field-label-group">
+            <label class="field-label" for="map-tile-url">Tile source URL</label>
+            <span class="field-hint">
+              A MapLibre raster tile template (with <code>{{ '{z}/{x}/{y}' }}</code> placeholders)
+              or a MapLibre style JSON URL. Leave blank to reset to the built-in OpenStreetMap
+              default.
+            </span>
+            @if (config()?.source?.tile_url) {
+              <span class="field-source">{{ sourceLabel(config()?.source?.tile_url) }}</span>
+            }
+          </div>
+          <div class="field-control">
+            <input
+              id="map-tile-url"
+              type="text"
+              class="text-input"
+              placeholder="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+              [ngModel]="fTileUrl()"
+              (ngModelChange)="fTileUrl.set($event)"
+              name="tileUrl"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+        </div>
+
+        <!-- Privacy note -->
+        <div class="info-row">
+          <span class="info-label">Privacy</span>
+          <span class="info-value muted">
+            Only base-map tile images are fetched from this URL. Photo locations are never sent to
+            it — pins and the heatmap are computed by Maple's own server from its own database.
+          </span>
+        </div>
+
+        <!-- Save / status -->
+        <div class="form-actions">
+          @if (saveState().kind === 'error') {
+            <span class="save-error">{{ $any(saveState()).message }}</span>
+          }
+          @if (saveState().kind === 'saved') {
+            <span class="save-ok">Saved.</span>
+          }
+          <button type="submit" class="save-btn" [disabled]="saveState().kind === 'saving'">
+            {{ saveState().kind === 'saving' ? 'Saving…' : 'Save' }}
+          </button>
+        </div>
+      </form>
+    }
+  </div>
+</maple-settings-shell>
