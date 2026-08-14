@@ -292,8 +292,19 @@ describe('GET /api/map/clusters', () => {
     // Tight bbox around NYC only — London/Paris/Alaska/Tokyo must not appear.
     const { status, body } = await get('bbox=-80,35,-60,45&zoom=4');
     expect(status).toBe(200);
-    expect(body.cells.length).toBe(1);
-    expect(body.cells[0]!.count).toBe(2);
+    // Asserted as "only the two NYC fixtures got through", not as a fixed cell
+    // count: this 20°-wide viewport now resolves a grid fine enough to separate
+    // the pair (they are ~1° apart), which is the #2856 fix working. What this
+    // test is actually about is the bbox filter, so it checks the total assets
+    // represented and that every cell sits inside the requested viewport.
+    const total = body.cells.reduce((sum, c) => sum + c.count, 0);
+    expect(total).toBe(2);
+    for (const cell of body.cells) {
+      expect(cell.lat).toBeGreaterThanOrEqual(35);
+      expect(cell.lat).toBeLessThanOrEqual(45);
+      expect(cell.lng).toBeGreaterThanOrEqual(-80);
+      expect(cell.lng).toBeLessThanOrEqual(-60);
+    }
   });
 
   it('composes with search filters (camera)', async () => {
@@ -394,6 +405,57 @@ describe('GET /api/map/clusters', () => {
     expect(body.cells.length).toBe(2);
     for (const cell of body.cells) {
       expect(cell.count).toBe(1);
+    }
+  });
+
+  // Regression for #2856, reproducing what was seen on-device (Apple TV):
+  // zooming never revealed more pins and no pin ever showed a photo preview.
+  // Clients derive `zoom` from their viewport span (`MapViewport.zoomLevel` =
+  // log2(360 / lonDelta)) and the grid was `360 / 2^zoom` — algebraically the
+  // viewport width, so exactly ONE cell covered the whole visible map at every
+  // zoom. `thumbKey` is only emitted for `count == 1` cells, and one cell
+  // holding every visible photo is never 1, which is why no thumbnail pin could
+  // ever render. Asserted end-to-end through the route rather than against the
+  // private grid helper, so it pins the behaviour a client actually observes.
+  it('returns a real grid at the whole-world view a client opens on (#2856)', async () => {
+    if (!mongoReachable) return;
+    // zoom=0 is what `zoomLevel` yields for the 360°-wide default camera.
+    const { status, body } = await get('bbox=-180,-90,180,90&zoom=0');
+    expect(status).toBe(200);
+    // The eight fixtures sit on four continents; they must not collapse into
+    // one or two lumps. Before the fix this returned a single cell.
+    expect(body.cells.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('emits a thumbnail-pin cell for an isolated photo at the default zoom (#2856)', async () => {
+    if (!mongoReachable) return;
+    const { status, body } = await get('bbox=-180,-90,180,90&zoom=0');
+    expect(status).toBe(200);
+    // Tokyo is thousands of km from every other fixture, so at a sane grid it
+    // is alone in its cell and therefore carries the thumbKey a client needs to
+    // draw the photo inside the pin.
+    const tokyo = findCell(body.cells, 35.68, 139.69);
+    expect(tokyo.count).toBe(1);
+    expect(tokyo.thumbKey).toBeDefined();
+  });
+
+  it('reveals more cells as the viewport zooms in on a dense area (#2856)', async () => {
+    if (!mongoReachable) return;
+    // Same NYC pair, two viewport widths. Tightening the viewport must resolve
+    // a finer grid; previously both requests returned exactly one cell because
+    // the cell tracked the viewport width.
+    const wide = await get('bbox=-100,20,-40,60&zoom=2');
+    const tight = await get('bbox=-74.6,39.6,-72.4,41.4&zoom=7');
+    expect(wide.status).toBe(200);
+    expect(tight.status).toBe(200);
+    const wideCell = findCell(wide.body.cells, 40.5, -73.5);
+    expect(wideCell.count).toBe(2);
+    // At the tight viewport the two points (1° apart) fall in separate cells,
+    // each becoming its own thumbnail pin.
+    expect(tight.body.cells.length).toBe(2);
+    for (const cell of tight.body.cells) {
+      expect(cell.count).toBe(1);
+      expect(cell.thumbKey).toBeDefined();
     }
   });
 

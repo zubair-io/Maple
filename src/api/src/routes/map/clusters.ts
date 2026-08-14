@@ -100,18 +100,52 @@ function bboxLngSpanDeg(bbox: ParsedBbox): number {
 }
 
 /**
- * The cell size actually used: the zoom's own cell, widened if needed so
- * neither axis spans more than `MAX_CELLS_PER_AXIS` cells. Coarsening
- * (rather than rejecting the request or truncating the result with a
- * `$limit`) keeps the response a complete, if lower-resolution, picture
- * of the viewport — which is what a heatmap/cluster view wants; dropping
- * cells would silently lose photos from the map.
+ * Floor on how coarse the grid may get, as a subdivision of the viewport.
+ * Without this the endpoint could return a single cell covering the entire
+ * visible map, which is useless as pins (one bubble, no zoom reveal) and
+ * useless as a heatmap (one uniform blob) — and it silently disables
+ * thumbnail pins entirely, because `thumbKey` is only emitted for
+ * `count == 1` cells and one cell holding every visible photo is never 1.
+ *
+ * That is not hypothetical: it was the observed behaviour on Apple TV
+ * (#2856). `zoom` and `bbox` arrive as independent params and every client
+ * derives zoom from its own viewport span (`log2(360 / lonDelta)`), which
+ * made the requested cell exactly one viewport wide at every zoom level.
+ * Deriving the bound from the viewport rather than trusting `zoom` keeps
+ * the endpoint correct for any client's zoom convention, so a single client
+ * getting that arithmetic wrong can no longer flatten the whole feature.
+ */
+const MIN_CELLS_PER_AXIS = 8;
+
+/**
+ * The cell size actually used: the zoom's own cell, clamped into the window
+ * the viewport can usefully support.
+ *
+ * - Widened (coarsened) so neither axis exceeds `MAX_CELLS_PER_AXIS` cells,
+ *   bounding response size and `$group` memory. Coarsening rather than
+ *   rejecting the request or truncating with a `$limit` keeps the response a
+ *   complete, if lower-resolution, picture of the viewport — dropping cells
+ *   would silently lose photos from the map.
+ * - Narrowed (refined) so each axis is divided into at least
+ *   `MIN_CELLS_PER_AXIS` cells, so there is always a real grid to cluster
+ *   and heat-map over.
+ *
+ * `zoom` therefore acts as a hint within that window: a client asking for a
+ * sensible cell size gets exactly it, while a client whose zoom convention
+ * disagrees with this grid still gets a usable viewport subdivision.
  */
 function effectiveCellSizeDeg(zoom: number, bbox: ParsedBbox): number {
+  const latSpan = bbox.north - bbox.south;
+  const lngSpan = bboxLngSpanDeg(bbox);
+  // Finest permitted: the tighter axis governs, so neither exceeds the cap.
+  const finest = Math.max(latSpan / MAX_CELLS_PER_AXIS, lngSpan / MAX_CELLS_PER_AXIS);
+  // Coarsest permitted: the *looser* axis governs, so both are subdivided.
+  const coarsest = Math.min(latSpan / MIN_CELLS_PER_AXIS, lngSpan / MIN_CELLS_PER_AXIS);
   const requested = cellSizeDegForZoom(zoom);
-  const minForLat = (bbox.north - bbox.south) / MAX_CELLS_PER_AXIS;
-  const minForLng = bboxLngSpanDeg(bbox) / MAX_CELLS_PER_AXIS;
-  return Math.max(requested, minForLat, minForLng);
+  // A degenerate viewport (zero span on an axis) collapses the window; the
+  // cost ceiling wins there, since `coarsest` carries no useful information.
+  if (!(coarsest > finest)) return finest;
+  return Math.min(Math.max(requested, finest), coarsest);
 }
 
 const LAT_LIMIT_DEG = 90;
