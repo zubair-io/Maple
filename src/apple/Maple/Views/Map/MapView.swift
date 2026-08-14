@@ -8,6 +8,15 @@
 // otherwise — MapAnnotationItem), and routes a pin/cluster tap to the
 // app's search filtered by the cell's place (AppShell+Map.swift's
 // `selectMapPlace`).
+//
+// Wrapped in `MapReader` (#2831) so `MapHeatmapLayerView` can draw the
+// heatmap density overlay in sync with the live camera — SwiftUI's `Map`
+// has no way to host a real `MKOverlay`/`MKOverlayRenderer` (see that
+// file's header comment), and `MapProxy` is the supported alternative.
+// `currentRegion` mirrors what `.onMapCameraChange` already reports to
+// `vm.regionChanged`; storing it in `@State` forces this view's body (and
+// so the heatmap `Canvas`) to redraw continuously during a pan/zoom, not
+// just after the VM's debounced fetch lands.
 
 import SwiftUI
 import MapKit
@@ -26,53 +35,72 @@ struct MapView: View {
 
   @State private var cameraPosition: MapCameraPosition = .automatic
   @State private var selectedAnnotationID: String?
+  @State private var currentRegion: MKCoordinateRegion?
 
   private var items: [MapAnnotationItem] {
     MapAnnotationItem.items(from: vm.cells)
   }
 
+  /// Same zoom convention `MapViewModel.fetch` uses to build the
+  /// `/api/map/clusters` `zoom` param — single source of truth so the
+  /// heatmap's crossfade lines up with the data the map is actually
+  /// showing. `0` (fully opaque, matching a whole-world view) before the
+  /// first camera report — harmless, since `vm.cells` is empty then too.
+  private var currentZoomLevel: Int {
+    guard let currentRegion else { return 0 }
+    return MapViewport.zoomLevel(for: MapViewVM.viewportRegion(from: currentRegion))
+  }
+
   var body: some View {
-    ZStack {
-      Map(position: $cameraPosition) {
-        ForEach(items) { item in
-          Annotation(item.id, coordinate: CLLocationCoordinate2D(latitude: item.latitude, longitude: item.longitude)) {
-            annotationContent(for: item)
+    MapReader { proxy in
+      ZStack {
+        Map(position: $cameraPosition) {
+          ForEach(items) { item in
+            Annotation(item.id, coordinate: CLLocationCoordinate2D(latitude: item.latitude, longitude: item.longitude)) {
+              annotationContent(for: item)
+            }
           }
         }
-      }
-      .mapStyle(.standard)
-      // `.continuous` so `MapViewModel.regionChanged` sees every pan/zoom
-      // tick — its own 300ms debounce is what actually bounds the request
-      // rate, matching the design doc's "debounced on region change".
-      .onMapCameraChange(frequency: .continuous) { context in
-        vm.regionChanged(MapViewVM.viewportRegion(from: context.region))
-      }
-      .accessibilityIdentifier("map-view")
+        .mapStyle(.standard)
+        // `.continuous` so `MapViewModel.regionChanged` sees every pan/zoom
+        // tick — its own 300ms debounce is what actually bounds the
+        // request rate, matching the design doc's "debounced on region
+        // change". Also drives `currentRegion`, which keeps the heatmap
+        // layer below tracking the live camera rather than only the
+        // debounced fetch.
+        .onMapCameraChange(frequency: .continuous) { context in
+          vm.regionChanged(MapViewVM.viewportRegion(from: context.region))
+          currentRegion = context.region
+        }
+        .accessibilityIdentifier("map-view")
 
-      if vm.isEmpty {
-        statePane(icon: "mappin.slash",
-                  title: MapViewVM.emptyStateTitle,
-                  detail: MapViewVM.emptyStateDetail)
-      } else if let error = vm.loadError, vm.cells.isEmpty {
-        // Only shown when there's nothing else to render — a failure with
-        // prior cells still on screen keeps showing those (MapViewModel
-        // never clears `cells` on error) rather than covering the map.
-        statePane(icon: "exclamationmark.triangle",
-                  title: MapViewVM.errorStateTitle,
-                  detail: MapViewVM.errorStateDetail(error))
-      }
+        MapHeatmapLayerView(cells: vm.cells, zoomLevel: currentZoomLevel, proxy: proxy)
 
-      if vm.isLoading {
-        ProgressView()
-          .controlSize(.small)
-          .padding(8)
-          .background(MapleTokens.surface, in: RoundedRectangle(cornerRadius: 8))
-          .padding(12)
-          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-          .allowsHitTesting(false)
+        if vm.isEmpty {
+          statePane(icon: "mappin.slash",
+                    title: MapViewVM.emptyStateTitle,
+                    detail: MapViewVM.emptyStateDetail)
+        } else if let error = vm.loadError, vm.cells.isEmpty {
+          // Only shown when there's nothing else to render — a failure with
+          // prior cells still on screen keeps showing those (MapViewModel
+          // never clears `cells` on error) rather than covering the map.
+          statePane(icon: "exclamationmark.triangle",
+                    title: MapViewVM.errorStateTitle,
+                    detail: MapViewVM.errorStateDetail(error))
+        }
+
+        if vm.isLoading {
+          ProgressView()
+            .controlSize(.small)
+            .padding(8)
+            .background(MapleTokens.surface, in: RoundedRectangle(cornerRadius: 8))
+            .padding(12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            .allowsHitTesting(false)
+        }
       }
+      .background(MapleTokens.bg)
     }
-    .background(MapleTokens.bg)
   }
 
   // MARK: - Annotation content
