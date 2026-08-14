@@ -5,12 +5,32 @@
  * batch, and asserts the recovered date/GPS land on `exif` and the right
  * downstream stage is nudged (geocode reset for GPS, blv reset for no-GPS).
  */
-import { describe, it, expect, afterEach, beforeAll, afterAll } from 'bun:test';
+import { describe, it, expect, afterAll, afterEach, beforeAll } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { ObjectId, type Collection } from 'mongodb';
 import { backfillVideoExif, VIDEO_META_VERSION } from './backfill-video-exif.ts';
+
+// Own per-pid database + explicit close — the repo-wide suite convention
+// (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
+// happens to name (the real `maple` dev DB when it runs first) and leaks its
+// singleton connection into later suites (the #2783 flake class).
+const TEST_DB = `maple_test_backfill_video_exif_e2e_${process.pid}`;
+process.env.MAPLE_MONGO_DB = TEST_DB;
+
+beforeAll(async () => {
+  const { closeDb } = await import('../../db/client.ts');
+  // Force the singleton to reconnect under this file's TEST_DB even when
+  // an earlier suite left it connected.
+  await closeDb();
+});
+
+afterAll(async () => {
+  const { closeDb, getDb, isDbConnected } = await import('../../db/client.ts');
+  if (isDbConnected()) await (await getDb()).dropDatabase();
+  await closeDb();
+});
 
 // ── minimal QuickTime box builders ─────────────────────────────────────────
 const box = (type: string, payload: Buffer): Buffer => {
@@ -75,18 +95,6 @@ async function connectOrSkip(label: string) {
     return null;
   }
 }
-
-// See refile-backups.e2e.test.ts for why this connection MUST be closed on
-// both ends (#2787): `getDb()` only re-reads `MAPLE_MONGO_DB` when no
-// connection is cached, so a leaked one here pins every later file in the
-// same `bun test` process to this file's ambient database.
-beforeAll(async () => {
-  await (await import('../../db/client.ts')).closeDb();
-});
-
-afterAll(async () => {
-  await (await import('../../db/client.ts')).closeDb();
-});
 
 describe('backfill-video-exif end-to-end', () => {
   let dir: string | null = null;
