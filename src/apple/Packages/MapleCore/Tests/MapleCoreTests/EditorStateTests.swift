@@ -402,12 +402,12 @@ final class EditorStateTests: XCTestCase {
 
     // MARK: - Tool catalog sanity
 
-    func testTwentySevenToolsExist() {
+    func testTwentyEightToolsExist() {
         // 22 base tools + Capture Sharpening Amount / Sigma, relocated to
         // the Detail group when the Develop tab was removed (#875), +
         // Brightness in Light (#1108 / #1102), + B&W Mix in Color (#276),
-        // + Tone Curve in Light (#367).
-        XCTAssertEqual(Tool.allCases.count, 27)
+        // + Tone Curve in Light (#367), + Film in Effects.
+        XCTAssertEqual(Tool.allCases.count, 28)
     }
 
     func testToolGroupMembership() {
@@ -415,7 +415,8 @@ final class EditorStateTests: XCTestCase {
         XCTAssertEqual(Tool.tools(in: .light).count, 8)
         // Color gained B&W Mix (#276): 5 → 6.
         XCTAssertEqual(Tool.tools(in: .color).count, 6)
-        XCTAssertEqual(Tool.tools(in: .effects).count, 6)
+        // Effects gained Film: 6 → 7.
+        XCTAssertEqual(Tool.tools(in: .effects).count, 7)
         // Detail gained captureSharpen + captureSigma (#875): 5 → 7.
         XCTAssertEqual(Tool.tools(in: .detail).count, 7)
     }
@@ -437,7 +438,7 @@ final class EditorStateTests: XCTestCase {
         XCTAssertEqual(session.model.brightness, 0, accuracy: 1e-9)
     }
 
-    func testWiredToolsCoverTwentySixTools() {
+    func testWiredToolsCoverTwentySevenTools() {
         // The S5 effects all left the #952 stub list as their stages
         // landed (vignette #1109, grain #1110, colorGrade #1111 —
         // superseded split tone at #275), and HSL left it at #274 — its 24
@@ -449,9 +450,10 @@ final class EditorStateTests: XCTestCase {
         // wired at #1108. B&W Mix (#276) joined wired — its eight
         // sub-params drive the `grayMixer*` fields. Tone Curve (#367)
         // joined wired with the same shape as HSL: four parametric region
-        // sub-params plus four point curves, and no primary field.
+        // sub-params plus four point curves, and no primary field. Film
+        // joined wired with a look selection plus a `strength` sub-param.
         let wired = Tool.allCases.filter { $0.isWired }
-        XCTAssertEqual(wired.count, 26)
+        XCTAssertEqual(wired.count, 27)
         XCTAssertTrue(Tool.hsl.isWired)
         XCTAssertNil(ToolValueMapping.displayRange(for: .hsl))
         XCTAssertTrue(Tool.toneCurve.isWired)
