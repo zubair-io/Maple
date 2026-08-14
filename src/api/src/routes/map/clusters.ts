@@ -48,11 +48,30 @@ const MapClustersQueryT = t.Object({
 });
 
 /** Grid resolution bounds. Mirrors the range of zoom levels a slippy-map
- * client actually presents — 0 = whole world in one cell, 20 =
- * building-scale. */
+ * client actually presents: 0 is the coarsest grid (one 360°-wide cell
+ * edge) and 20 is building-scale. Note that zoom 0 is NOT "the whole
+ * world in a single cell" — `$floor` puts negative and non-negative
+ * coordinates in different cells, so the coarsest grid still splits at
+ * the equator and the prime meridian. That's the same behaviour a tile
+ * grid has and it costs nothing here (the cap below is what actually
+ * bounds cell count), so the math is left alone. */
 const MIN_ZOOM = 0;
 const MAX_ZOOM = 20;
 const DEFAULT_ZOOM = 10;
+
+/**
+ * Ceiling on the cells one response may span, enforced per axis as
+ * `sqrt(MAX_GRID_CELLS)` = 64. This is what makes the endpoint's central
+ * promise true — "payload bounded to the number of visible cells" — for
+ * *every* input rather than only well-formed ones: `bbox` and `zoom`
+ * arrive as independent params, so a caller can ask for a whole-world
+ * bbox at zoom 20, where the requested cell is 0.0003° and the number of
+ * occupied cells degenerates to one per asset. That would put both the
+ * response size and the `$group` hash table at O(library size) instead of
+ * O(viewport). 64×64 is far more distinct pins/heatmap cells than a
+ * screen can usefully show.
+ */
+const MAX_CELLS_PER_AXIS = 64;
 
 /**
  * Degrees per grid cell at a given zoom: halves on every zoom step (the
@@ -72,6 +91,27 @@ interface ParsedBbox {
   south: number;
   east: number;
   north: number;
+}
+
+/** Longitude degrees the viewport covers, taking the antimeridian-
+ * crossing case (`west > east`) the long way round. */
+function bboxLngSpanDeg(bbox: ParsedBbox): number {
+  return bbox.west <= bbox.east ? bbox.east - bbox.west : 360 - (bbox.west - bbox.east);
+}
+
+/**
+ * The cell size actually used: the zoom's own cell, widened if needed so
+ * neither axis spans more than `MAX_CELLS_PER_AXIS` cells. Coarsening
+ * (rather than rejecting the request or truncating the result with a
+ * `$limit`) keeps the response a complete, if lower-resolution, picture
+ * of the viewport — which is what a heatmap/cluster view wants; dropping
+ * cells would silently lose photos from the map.
+ */
+function effectiveCellSizeDeg(zoom: number, bbox: ParsedBbox): number {
+  const requested = cellSizeDegForZoom(zoom);
+  const minForLat = (bbox.north - bbox.south) / MAX_CELLS_PER_AXIS;
+  const minForLng = bboxLngSpanDeg(bbox) / MAX_CELLS_PER_AXIS;
+  return Math.max(requested, minForLat, minForLng);
 }
 
 const LAT_LIMIT_DEG = 90;
@@ -119,16 +159,23 @@ function placeLabelFrom(
   return locality || region || countryCode || null;
 }
 
+/** One cell's representative asset, carried out of the `$group` as a
+ * single sub-document so the id and the fields read off that asset can't
+ * disagree (see the `$top` accumulator in the pipeline). */
+interface ClusterRepresentative {
+  id: ObjectId;
+  fileinfo: FileInfo[] | undefined;
+  locality: string | null | undefined;
+  region: string | null | undefined;
+  countryCode: string | null | undefined;
+}
+
 interface ClusterGroupRow {
   _id: { lat: number; lng: number };
   count: number;
   avgLat: number;
   avgLng: number;
-  representativeId: ObjectId;
-  fileinfo: FileInfo[] | undefined;
-  locality: string | null | undefined;
-  region: string | null | undefined;
-  countryCode: string | null | undefined;
+  representative: ClusterRepresentative;
 }
 
 interface MapCluster {
@@ -156,7 +203,7 @@ export const mapClustersRoute = new Elysia().get(
       return { error: bbox.error };
     }
     const zoom = clampInt(q.zoom, MIN_ZOOM, MAX_ZOOM, DEFAULT_ZOOM);
-    const cellSizeDeg = cellSizeDegForZoom(zoom);
+    const cellSizeDeg = effectiveCellSizeDeg(zoom, bbox);
 
     // Opt-in hidden-people exclusion — same pattern as buckets.ts/facets.ts.
     const hiddenIds = q.excludeHiddenPeople === 'true' ? await hiddenPersonIds() : [];
@@ -206,22 +253,40 @@ export const mapClustersRoute = new Elysia().get(
             __cellLng: { $floor: { $divide: ['$exif.gps.lng', cellSizeDeg] } },
           },
         },
-        // Stable order so every `$first` below resolves to the SAME
-        // representative document within a cell. The exact order is
-        // arbitrary (mirrors buckets.ts's sort-then-group shape); `_id`
-        // ascending just needs to be deterministic.
-        { $sort: { _id: 1 } },
         {
+          // `$top` (sortBy `_id`) rather than a pipeline-level `$sort`
+          // feeding `$first`: it picks each cell's representative WITHIN
+          // the group, so the pipeline never has to order the matched set
+          // as a whole. A pre-`$group` `{ $sort: { _id: 1 } }` is a
+          // blocking stage over every located asset in the viewport —
+          // O(library) memory and runtime at low zoom on a big library,
+          // the one part of this pipeline that genuinely could not be
+          // bounded by the `$match`. Sorting inside the accumulator also
+          // keeps the id and the fields read off that same asset
+          // consistent by construction, which a `$min` id plus separate
+          // `$first` fields would not guarantee.
+          //
+          // Cell count is capped (see MAX_CELLS_PER_AXIS), so the group's
+          // hash table holds at most ~4k of these sub-documents — hence
+          // no `allowDiskUse`: there is no longer a stage here whose
+          // memory scales with the number of matched assets.
           $group: {
             _id: { lat: '$__cellLat', lng: '$__cellLng' },
             count: { $sum: 1 },
             avgLat: { $avg: '$exif.gps.lat' },
             avgLng: { $avg: '$exif.gps.lng' },
-            representativeId: { $first: '$_id' },
-            fileinfo: { $first: '$fileinfo' },
-            locality: { $first: '$place.rollups.locality' },
-            region: { $first: '$place.rollups.region' },
-            countryCode: { $first: '$place.rollups.country_code' },
+            representative: {
+              $top: {
+                sortBy: { _id: 1 },
+                output: {
+                  id: '$_id',
+                  fileinfo: '$fileinfo',
+                  locality: '$place.rollups.locality',
+                  region: '$place.rollups.region',
+                  countryCode: '$place.rollups.country_code',
+                },
+              },
+            },
           },
         },
       ])
@@ -230,15 +295,16 @@ export const mapClustersRoute = new Elysia().get(
     const libraries = await loadLibraryRoots().catch(() => new Map<string, string>());
 
     const cells: MapCluster[] = rows.map((r) => {
+      const rep = r.representative;
       const cell: MapCluster = {
         lat: r.avgLat,
         lng: r.avgLng,
         count: r.count,
-        representativeAssetId: r.representativeId.toHexString(),
-        placeLabel: placeLabelFrom(r.locality, r.region, r.countryCode),
+        representativeAssetId: rep.id.toHexString(),
+        placeLabel: placeLabelFrom(rep.locality, rep.region, rep.countryCode),
       };
       if (r.count === 1) {
-        const asset = { fileinfo: r.fileinfo };
+        const asset = { fileinfo: rep.fileinfo };
         const primary = assetPrimaryFileInfo(asset);
         const absPath = primary ? assetAbsPath(asset, libraries) : null;
         if (absPath) {
