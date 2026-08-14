@@ -4,5 +4,5 @@
   "lib": {
     "entryFile": "src/public-api.ts"
   },
-  "allowedNonPeerDependencies": ["@noble/hashes", "exifr"]
+  "allowedNonPeerDependencies": ["@noble/hashes", "exifr", "maplibre-gl"]
 }

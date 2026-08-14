@@ -39,7 +39,7 @@ export type SortKey = 'date' | 'name';
 // value fall through to `'all'` via the existing default.
 export type CullFilter = 'all' | 'picks' | '4stars' | 'edited';
 export type DetailTab = 'info' | 'develop';
-export type BrowseViewMode = 'folder' | 'timeline';
+export type BrowseViewMode = 'folder' | 'timeline' | 'map';
 
 @Injectable({ providedIn: 'root' })
 export class BrowsePreferencesService {
@@ -87,13 +87,13 @@ export class BrowsePreferencesService {
     });
   }
 
-  // ── Browse-shell view mode (Folder vs Timeline) ──────────────────────────
+  // ── Browse-shell view mode (Folder vs Timeline vs Map) ────────────────────
   readonly viewMode = signal<BrowseViewMode>(
     // Guard against corrupted/manipulated storage — anything other than the
-    // two valid modes falls back to 'folder'.
+    // three valid modes falls back to 'folder'.
     (() => {
       const v = this._loadOrDefault<unknown>(STORAGE_KEYS.VIEW_MODE, 'folder');
-      return v === 'timeline' ? 'timeline' : 'folder';
+      return v === 'timeline' || v === 'map' ? v : 'folder';
     })(),
   );
 

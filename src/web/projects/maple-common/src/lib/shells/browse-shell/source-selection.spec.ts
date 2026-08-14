@@ -4,11 +4,14 @@ import type { LibraryStateService } from '../../state/library-state.service';
 import type { SidebarEntry } from '../../models/folder';
 import { selectSidebarEntry } from './source-selection';
 
-function makeState(overrides: { viewMode?: 'folder' | 'timeline'; sidebarTree?: SidebarEntry[] }) {
-  const viewMode = signal<'folder' | 'timeline'>(overrides.viewMode ?? 'folder');
+function makeState(overrides: {
+  viewMode?: 'folder' | 'timeline' | 'map';
+  sidebarTree?: SidebarEntry[];
+}) {
+  const viewMode = signal<'folder' | 'timeline' | 'map'>(overrides.viewMode ?? 'folder');
   return {
     viewMode,
-    setViewMode: vi.fn((mode: 'folder' | 'timeline') => viewMode.set(mode)),
+    setViewMode: vi.fn((mode: 'folder' | 'timeline' | 'map') => viewMode.set(mode)),
     sidebarTree: signal(overrides.sidebarTree ?? []),
     openSelfHostedSubfolder: vi.fn(),
     setFolderOpen: vi.fn(),
@@ -19,6 +22,15 @@ function makeState(overrides: { viewMode?: 'folder' | 'timeline'; sidebarTree?: 
 describe('selectSidebarEntry', () => {
   it('resets viewMode to folder when picking a tree entry while in timeline mode', () => {
     const state = makeState({ viewMode: 'timeline' });
+
+    selectSidebarEntry(state, 'smart-picks');
+
+    expect(state.setViewMode).toHaveBeenCalledWith('folder');
+    expect(state.viewMode()).toBe('folder');
+  });
+
+  it('resets viewMode to folder when picking a tree entry while in map mode', () => {
+    const state = makeState({ viewMode: 'map' });
 
     selectSidebarEntry(state, 'smart-picks');
 

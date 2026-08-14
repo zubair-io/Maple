@@ -6,6 +6,7 @@ import {
   LibraryPickerComponent,
   LibraryStateService,
   LoadingBannerComponent,
+  MapViewComponent,
   PanoDialogComponent,
   TimelineViewComponent,
 } from '@maple-common';
@@ -21,6 +22,7 @@ import { SelfHostedConditionalDialogsComponent } from '../self-hosted-conditiona
     ErrorBannerComponent,
     LibraryPickerComponent,
     LoadingBannerComponent,
+    MapViewComponent,
     PanoDialogComponent,
     TimelineViewComponent,
     // Batch Rename (#2640) / Move to… (#2644) / Trash panel (#2652) — see
