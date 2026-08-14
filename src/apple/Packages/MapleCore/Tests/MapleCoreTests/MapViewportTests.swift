@@ -48,16 +48,33 @@ final class MapViewportTests: XCTestCase {
     XCTAssertEqual(bbox.north, -87)
   }
 
-  /// Longitude is left unclamped — a region spanning the antimeridian
-  /// legitimately produces `west > east`, which the server treats as an
-  /// antimeridian-crossing box.
-  func test_bbox_leavesLongitudeUnclampedAcrossAntimeridian() {
+  /// A region spanning the antimeridian wraps its `east` bound back into
+  /// `[-180, 180]` (179 + 2 = 181 → wraps to -179), which is what actually
+  /// produces `west > east` — the signal the server treats as an
+  /// antimeridian-crossing box. Before the wrap, `east` would be an
+  /// out-of-range 181 and `west` (177) would never exceed it.
+  func test_bbox_wrapsLongitudeAcrossAntimeridian() {
     let region = MapViewportRegion(centerLatitude: 0, centerLongitude: 179,
                                    latitudeDelta: 1, longitudeDelta: 4)
     let bbox = MapViewport.bbox(for: region)
 
     XCTAssertEqual(bbox.west, 177)
-    XCTAssertEqual(bbox.east, 181)
+    XCTAssertEqual(bbox.east, -179)
+    XCTAssertGreaterThan(bbox.west, bbox.east,
+      "an antimeridian-crossing region must signal west > east")
+  }
+
+  /// Mirror case on the other side of the antimeridian: `west` wraps back
+  /// into range instead of `east`.
+  func test_bbox_wrapsLongitudeAcrossAntimeridian_negativeSide() {
+    let region = MapViewportRegion(centerLatitude: 0, centerLongitude: -179,
+                                   latitudeDelta: 1, longitudeDelta: 4)
+    let bbox = MapViewport.bbox(for: region)
+
+    XCTAssertEqual(bbox.west, 179)
+    XCTAssertEqual(bbox.east, -177)
+    XCTAssertGreaterThan(bbox.west, bbox.east,
+      "an antimeridian-crossing region must signal west > east")
   }
 
   // MARK: - zoomLevel(for:)

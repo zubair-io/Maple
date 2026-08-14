@@ -8,6 +8,7 @@
 // needs its own sizing/focus-effect pass).
 
 import SwiftUI
+import Foundation
 import MapleCore
 
 /// Circular thumbnail pin for a `count == 1` cell. Fetches its bytes the
@@ -62,8 +63,11 @@ struct MapClusterBubbleView: View {
   let count: Int
   let isSelected: Bool
 
+  /// Integer division would round a cluster of 1999 down to "1k" — format
+  /// with one decimal instead so it reads "2.0k".
   private var label: String {
-    count >= 1000 ? "\(count / 1000)k" : "\(count)"
+    guard count >= 1000 else { return "\(count)" }
+    return String(format: "%.1fk", Double(count) / 1000)
   }
 
   var body: some View {
