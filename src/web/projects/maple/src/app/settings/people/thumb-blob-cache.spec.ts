@@ -129,13 +129,18 @@ describe('ThumbBlobCache.ensure — absPath route', () => {
 
   it('is used when address is given but no librarySource was supplied to the constructor', async () => {
     const getThumbBlobUrl = vi.fn(async () => 'blob:fs-url');
-    const thumbBlob = vi.fn(async () => blob());
-    // No third constructor arg — librarySource is undefined.
-    const cache = new ThumbBlobCache(fakeApi(vi.fn()), fakeFsBrowse(getThumbBlobUrl));
+    const getThumb = vi.fn(() => of(blob()));
+    // No third constructor arg — librarySource is undefined, so the address
+    // route is unavailable even though ensure() is handed an address.
+    const cache = new ThumbBlobCache(fakeApi(getThumb), fakeFsBrowse(getThumbBlobUrl));
     cache.ensure('k1', 'lib:a.jpg', '/x/a.jpg', null);
     await settle();
-    expect(thumbBlob).not.toHaveBeenCalled();
     expect(getThumbBlobUrl).toHaveBeenCalledWith('/x/a.jpg');
+    // Falls back to absPath specifically — not past it to the apiAssetId
+    // route, the only other branch reachable from here. (Asserting on a
+    // `thumbBlob` mock instead would be vacuous: with no librarySource
+    // passed to the constructor, nothing could ever call it.)
+    expect(getThumb).not.toHaveBeenCalled();
   });
 
   it("a borrowed url is never revoked by destroy() — it's owned by FilesystemBrowseService", async () => {
