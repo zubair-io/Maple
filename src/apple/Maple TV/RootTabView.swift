@@ -11,9 +11,9 @@ import SwiftUI
 /// Remote's Menu button (Back) returns to the **Menu** hub from any content
 /// screen, and Back again from the Menu backgrounds the app (tvOS default —
 /// the menu attaches no `onExitCommand`, so the press isn't intercepted).
-/// The Menu (`MenuScreen`) is where Timeline / Light Table / Search are
-/// chosen and where Log Out (unpair) lives, so the content screens carry no
-/// navigation chrome of their own.
+/// The Menu (`MenuScreen`) is where Timeline / Light Table / Search / Map
+/// are chosen and where Log Out (unpair) lives, so the content screens
+/// carry no navigation chrome of their own.
 ///
 /// There is no idle screensaver: the Light Table is only shown when the user
 /// picks it from the Menu; nothing auto-activates.
@@ -46,6 +46,9 @@ struct RootTabView: View {
         .onExitCommand { screen = .menu }
     case .search:
       SearchScreen(session: session, libraryID: libraryID)
+        .onExitCommand { screen = .menu }
+    case .map:
+      TVMapScreen(session: session, libraryID: libraryID)
         .onExitCommand { screen = .menu }
     }
   }

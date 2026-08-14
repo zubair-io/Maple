@@ -80,4 +80,50 @@ final class MapAnnotationItemTests: XCTestCase {
                                          kind: .cluster(count: 2), placeLabel: nil)
     XCTAssertEqual(withoutLabel.searchTarget, .hasLocationScope)
   }
+
+  // MARK: - MapPlaceSearchTarget.apply(to:) — shared by every Apple map
+  // surface's pin-tap → search wiring (macOS/iOS's `selectMapPlace`, #2830;
+  // tvOS's `TVMapScreen.activate(_:)`, #2833).
+
+  func test_apply_placeQuery_setsPlaceQueryAndLeavesScopeUntouched() {
+    var params = SearchParams(libraryID: "lib-1")
+    params.scope = "people" // pre-existing filter must survive untouched.
+    MapPlaceSearchTarget.placeQuery("Kyoto").apply(to: &params)
+
+    XCTAssertEqual(params.placeQuery, "Kyoto")
+    XCTAssertEqual(params.scope, "people")
+    XCTAssertEqual(params.libraryID, "lib-1", "the caller's existing filter must be narrowed, not discarded")
+  }
+
+  func test_apply_hasLocationScope_setsPlacesScopeAndLeavesPlaceQueryUntouched() {
+    var params = SearchParams(libraryID: "lib-1")
+    params.placeQuery = "stale text"
+    MapPlaceSearchTarget.hasLocationScope.apply(to: &params)
+
+    XCTAssertEqual(params.scope, "places")
+    XCTAssertEqual(params.placeQuery, "stale text")
+  }
+
+  /// End-to-end fallback chain from a raw cell straight through to the
+  /// `SearchParams` a pin/cluster selection would submit: a cell with no
+  /// place data lands on the has-GPS scope, not a no-op.
+  func test_fallbackChain_cellWithoutPlaceLabel_resolvesToHasLocationScope() {
+    let cell = MapCluster(lat: 1, lng: 2, count: 3, representativeAssetId: "a4")
+    let item = MapAnnotationItem.from(cell)
+    var params = SearchParams()
+    item.searchTarget.apply(to: &params)
+
+    XCTAssertEqual(params.scope, "places")
+    XCTAssertEqual(params.placeQuery, "")
+  }
+
+  func test_fallbackChain_cellWithPlaceLabel_resolvesToPlaceQuery() {
+    let cell = MapCluster(lat: 1, lng: 2, count: 3, representativeAssetId: "a5", placeLabel: "Nairobi")
+    let item = MapAnnotationItem.from(cell)
+    var params = SearchParams()
+    item.searchTarget.apply(to: &params)
+
+    XCTAssertEqual(params.placeQuery, "Nairobi")
+    XCTAssertNil(params.scope)
+  }
 }
