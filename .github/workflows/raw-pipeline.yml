@@ -282,15 +282,18 @@ jobs:
         with:
           python-version: '3.12'
       # banding_check.py (#1627) needs numpy + an EXR reader (OpenEXR
-      # preferred, imageio fallback) — a strict subset of
-      # src/scripts/requirements.txt, installed here rather than the full
-      # file so this job doesn't pick up colour-science/scipy/tifffile it
-      # doesn't use. stage_stats_test.py and stage_diff_test.py (#2813) need
-      # the identical numpy/OpenEXR/imageio set to synthesize their EXR
-      # fixtures, so they ride this same install rather than adding a
-      # second one.
+      # preferred, imageio fallback) — installed here rather than the full
+      # src/scripts/requirements.txt so this job doesn't pick up
+      # scipy/tifffile it doesn't use. stage_stats_test.py and
+      # stage_diff_test.py (#2813) ride this same install for their
+      # numpy/OpenEXR/imageio EXR-synthesis needs, but stage_diff.py also
+      # does `import colour` (colour-science) for its ΔE00 math
+      # (RGB_to_XYZ/XYZ_to_Lab/delta_E) — verified against a clean venv
+      # containing only this install line, which reproduces a CI-exact
+      # failure without it. Add it explicitly rather than assuming
+      # stage_stats' narrower numpy-only need covers stage_diff too.
       - name: Install Python deps for the banding gate
-        run: pip install 'numpy>=1.26' 'OpenEXR>=3.2' 'imageio>=2.34'
+        run: pip install 'numpy>=1.26' 'OpenEXR>=3.2' 'imageio>=2.34' 'colour-science>=0.4.4'
       - name: Cache cargo registry + raw-pipeline target
         uses: actions/cache@v4
         with:
