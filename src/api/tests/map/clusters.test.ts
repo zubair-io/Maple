@@ -459,6 +459,36 @@ describe('GET /api/map/clusters', () => {
     }
   });
 
+  // The clamp window collapses when the viewport's aspect ratio exceeds
+  // MAX_CELLS_PER_AXIS / MIN_CELLS_PER_AXIS, and degenerately when a bbox has
+  // zero span. Both paths have to stay safe and keep honouring `zoom`.
+  it('survives a degenerate point bbox instead of dividing by zero (#2856)', async () => {
+    if (!mongoReachable) return;
+    // south == north and west == east pass validation (only south > north is
+    // rejected), so a client mid-gesture can legitimately send this. A zero
+    // cell size reaches `$divide` and fails the aggregation — but ONLY once a
+    // document matches, since Mongo evaluates the expression per-document. So
+    // the bbox is pinned exactly on the Tokyo fixture: an empty point bbox
+    // would pass this test for the wrong reason.
+    const { status, body } = await get('bbox=139.69,35.68,139.69,35.68&zoom=10');
+    expect(status).toBe(200);
+    expect(body.cells.length).toBe(1);
+    expect(body.cells[0]!.count).toBe(1);
+  });
+
+  it('still honours zoom on a skewed viewport (#2856)', async () => {
+    if (!mongoReachable) return;
+    // lat span 14, lng span 120 — an 8.5:1 viewport, past the point where the
+    // min/max window collapses. Pinning such a view to the cost ceiling would
+    // make zoom a no-op there, so a coarse zoom must still yield a coarser
+    // grid than a fine one.
+    const coarse = await get('bbox=-80,38,40,52&zoom=2');
+    const fine = await get('bbox=-80,38,40,52&zoom=8');
+    expect(coarse.status).toBe(200);
+    expect(fine.status).toBe(200);
+    expect(coarse.body.cells.length).toBeLessThan(fine.body.cells.length);
+  });
+
   it('caps grid resolution so a whole-world bbox cannot emit one cell per asset', async () => {
     if (!mongoReachable) return;
     const { status, body } = await get('bbox=-180,-90,180,90&zoom=20');

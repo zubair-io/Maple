@@ -142,9 +142,15 @@ function effectiveCellSizeDeg(zoom: number, bbox: ParsedBbox): number {
   // Coarsest permitted: the *looser* axis governs, so both are subdivided.
   const coarsest = Math.min(latSpan / MIN_CELLS_PER_AXIS, lngSpan / MIN_CELLS_PER_AXIS);
   const requested = cellSizeDegForZoom(zoom);
-  // A degenerate viewport (zero span on an axis) collapses the window; the
-  // cost ceiling wins there, since `coarsest` carries no useful information.
-  if (!(coarsest > finest)) return finest;
+  // The window collapses on a viewport skewed past MAX/MIN (one axis wants a
+  // finer floor than the other axis' ceiling allows), and degenerately on a
+  // zero-span bbox — `south == north` / `west == east` pass validation, so a
+  // client mid-gesture can send one. Drop the impossible `coarsest` bound but
+  // keep honouring `zoom` above the cost ceiling: returning `finest` outright
+  // would peg a skewed viewport to maximum resolution (making zoom a no-op
+  // there), and on a point bbox `finest` is 0, which reaches `$divide` and
+  // fails the aggregation as soon as any document matches.
+  if (!(coarsest > finest)) return Math.max(requested, finest);
   return Math.min(Math.max(requested, finest), coarsest);
 }
 
