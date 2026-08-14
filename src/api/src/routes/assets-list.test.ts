@@ -1,11 +1,24 @@
-import { afterAll, beforeEach, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { ObjectId, type Db } from 'mongodb';
 import { assetsListRoutes } from './assets-list.ts';
-import { getDb, isDbConnected } from '../db/client.ts';
+import { closeDb, getDb, isDbConnected } from '../db/client.ts';
+
+// Own per-pid database + explicit close — the repo-wide suite convention
+// (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
+// happens to name (the real `maple` dev DB when it runs first) and leaks its
+// singleton connection into later suites (the #2783 flake class).
+const TEST_DB = `maple_test_assets_list_${process.pid}`;
+process.env.MAPLE_MONGO_DB = TEST_DB;
 
 let db: Db | null = null;
 let mongoReachable = false;
+
+beforeAll(async () => {
+  // Force the singleton to reconnect under this file's TEST_DB even when an
+  // earlier suite left it connected.
+  await closeDb();
+});
 
 beforeEach(async () => {
   try {
@@ -20,7 +33,8 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
-  if (db) await db.collection('assets').deleteMany({});
+  if (db) await db.dropDatabase();
+  await closeDb();
 });
 
 async function seed(d: Db): Promise<void> {

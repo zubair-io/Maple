@@ -14,7 +14,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { importsRoutes } from './imports.ts';
-import { getDb, isDbConnected } from '../db/client.ts';
+import { closeDb, getDb, isDbConnected } from '../db/client.ts';
+
+// Own per-pid database + explicit close — the repo-wide suite convention
+// (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
+// happens to name (the real `maple` dev DB when it runs first) and leaks its
+// singleton connection into later suites (the #2783 flake class).
+const TEST_DB = `maple_test_imports_routes_${process.pid}`;
+process.env.MAPLE_MONGO_DB = TEST_DB;
 
 let db: Db | null = null;
 let mongoReachable = false;
@@ -40,6 +47,7 @@ beforeAll(async () => {
   await put('clip.mov', '2024-03-20T00:00:00Z');
 
   try {
+    await closeDb();
     db = await getDb();
     mongoReachable = isDbConnected();
   } catch {
@@ -63,6 +71,8 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+  if (db) await db.dropDatabase();
+  await closeDb();
   await fs.rm(sourceRoot, { recursive: true, force: true }).catch(() => {});
 });
 

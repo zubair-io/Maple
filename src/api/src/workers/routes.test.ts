@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, beforeAll } from 'bun:test';
+import { describe, expect, it, afterAll, beforeEach, beforeAll } from 'bun:test';
 import { Elysia } from 'elysia';
 import { workerRoutes, sanitizeWorkerConfig } from './routes.ts';
 import type { WorkerConfigDoc } from './worker-config.repo.ts';
@@ -6,12 +6,20 @@ import { stageRegistry } from './registry.ts';
 import { ALL_STAGE_NAMES } from './stages/manifest.ts';
 import { writeWorkerStatus } from './worker-status.repo.ts';
 import { WorkerConfigRepo } from './worker-config.repo.ts';
-import { getDb } from '../db/client.ts';
+import { closeDb, getDb } from '../db/client.ts';
 import type { StageStatusSnapshot } from './registry.ts';
+
+// Own per-pid database + explicit close — the repo-wide suite convention
+// (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
+// happens to name (the real `maple` dev DB when it runs first) and leaks its
+// singleton connection into later suites (the #2783 flake class).
+const TEST_DB = `maple_test_workers_routes_${process.pid}`;
+process.env.MAPLE_MONGO_DB = TEST_DB;
 
 let dbReachable = true;
 beforeAll(async () => {
   try {
+    await closeDb();
     await getDb();
   } catch {
     dbReachable = false;
@@ -28,6 +36,10 @@ beforeEach(async () => {
     // every test in this file starts from a true 0/0/0 baseline.
     await db.collection('assets').deleteMany({});
   }
+});
+afterAll(async () => {
+  if (dbReachable) await (await getDb()).dropDatabase();
+  await closeDb();
 });
 
 describe('sanitizeWorkerConfig', () => {

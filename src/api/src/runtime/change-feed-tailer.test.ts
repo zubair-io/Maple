@@ -1,13 +1,26 @@
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { ObjectId, type Db } from 'mongodb';
 import { ChangeFeedTailer } from './change-feed-tailer.ts';
 import { getChangeBus, __resetChangeBusForTests } from './change-bus.ts';
 import { recordAssetChange } from '../db/changes.repo.ts';
-import { getDb, isDbConnected } from '../db/client.ts';
+import { closeDb, getDb, isDbConnected } from '../db/client.ts';
 import type { AssetChangeWithId } from '../db/schema.ts';
+
+// Own per-pid database + explicit close — the repo-wide suite convention
+// (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
+// happens to name (the real `maple` dev DB when it runs first) and leaks its
+// singleton connection into later suites (the #2783 flake class).
+const TEST_DB = `maple_test_change_feed_tailer_${process.pid}`;
+process.env.MAPLE_MONGO_DB = TEST_DB;
 
 let db: Db | null = null;
 let mongoReachable = false;
+
+beforeAll(async () => {
+  // Force the singleton to reconnect under this file's TEST_DB even when an
+  // earlier suite left it connected.
+  await closeDb();
+});
 
 beforeEach(async () => {
   try {
@@ -28,10 +41,8 @@ afterEach(() => {
 });
 
 afterAll(async () => {
-  if (db) {
-    await db.collection('asset_changes').deleteMany({});
-    await db.collection('server_state').deleteMany({});
-  }
+  if (db) await db.dropDatabase();
+  await closeDb();
 });
 
 describe('ChangeFeedTailer', () => {

@@ -1,10 +1,18 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'bun:test';
+import { describe, it, expect, afterAll, beforeAll, beforeEach } from 'bun:test';
 import { ObjectId } from 'mongodb';
-import { getDb } from '../../db/client.ts';
+import { closeDb, getDb } from '../../db/client.ts';
+
+// Own per-pid database + explicit close — the repo-wide suite convention
+// (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
+// happens to name (the real `maple` dev DB when it runs first) and leaks its
+// singleton connection into later suites (the #2783 flake class).
+const TEST_DB = `maple_test_frontier_repo_${process.pid}`;
+process.env.MAPLE_MONGO_DB = TEST_DB;
 
 let reachable = true;
 beforeAll(async () => {
   try {
+    await closeDb();
     await getDb();
   } catch {
     reachable = false;
@@ -13,6 +21,10 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (!reachable) return;
   await (await getDb()).collection('discover_frontier').deleteMany({});
+});
+afterAll(async () => {
+  if (reachable) await (await getDb()).dropDatabase();
+  await closeDb();
 });
 
 describe('frontier.repo', () => {

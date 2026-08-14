@@ -1,13 +1,33 @@
 /**
  * End-to-end tests for the relocateBackupScreenshot describe-stage hook.
  */
-import { describe, it, expect, afterEach, beforeAll, afterAll } from 'bun:test';
+import { describe, it, expect, afterAll, afterEach, beforeAll } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { ObjectId } from 'mongodb';
 import { relocateBackupScreenshot } from './refile-backups.ts';
 import type { getDb as GetDbFn } from '../../db/client.ts';
+
+// Own per-pid database + explicit close — the repo-wide suite convention
+// (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
+// happens to name (the real `maple` dev DB when it runs first) and leaks its
+// singleton connection into later suites (the #2783 flake class).
+const TEST_DB = `maple_test_refile_backups_hook_e2e_${process.pid}`;
+process.env.MAPLE_MONGO_DB = TEST_DB;
+
+beforeAll(async () => {
+  const { closeDb } = await import('../../db/client.ts');
+  // Force the singleton to reconnect under this file's TEST_DB even when
+  // an earlier suite left it connected.
+  await closeDb();
+});
+
+afterAll(async () => {
+  const { closeDb, getDb, isDbConnected } = await import('../../db/client.ts');
+  if (isDbConnected()) await (await getDb()).dropDatabase();
+  await closeDb();
+});
 
 async function connectOrSkip(label: string): Promise<Awaited<ReturnType<typeof GetDbFn>> | null> {
   try {
@@ -18,18 +38,6 @@ async function connectOrSkip(label: string): Promise<Awaited<ReturnType<typeof G
     return null;
   }
 }
-
-// See refile-backups.e2e.test.ts for why this connection MUST be closed on
-// both ends (#2787): `getDb()` only re-reads `MAPLE_MONGO_DB` when no
-// connection is cached, so a leaked one here pins every later file in the
-// same `bun test` process to this file's ambient database.
-beforeAll(async () => {
-  await (await import('../../db/client.ts')).closeDb();
-});
-
-afterAll(async () => {
-  await (await import('../../db/client.ts')).closeDb();
-});
 
 describe('relocateBackupScreenshot (describe-stage hook)', () => {
   let dir: string | null = null;
