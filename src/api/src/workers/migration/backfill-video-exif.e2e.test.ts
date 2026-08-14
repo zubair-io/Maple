@@ -5,7 +5,7 @@
  * batch, and asserts the recovered date/GPS land on `exif` and the right
  * downstream stage is nudged (geocode reset for GPS, blv reset for no-GPS).
  */
-import { describe, it, expect, afterEach } from 'bun:test';
+import { describe, it, expect, afterEach, beforeAll, afterAll } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -75,6 +75,18 @@ async function connectOrSkip(label: string) {
     return null;
   }
 }
+
+// See refile-backups.e2e.test.ts for why this connection MUST be closed on
+// both ends (#2787): `getDb()` only re-reads `MAPLE_MONGO_DB` when no
+// connection is cached, so a leaked one here pins every later file in the
+// same `bun test` process to this file's ambient database.
+beforeAll(async () => {
+  await (await import('../../db/client.ts')).closeDb();
+});
+
+afterAll(async () => {
+  await (await import('../../db/client.ts')).closeDb();
+});
 
 describe('backfill-video-exif end-to-end', () => {
   let dir: string | null = null;

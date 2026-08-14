@@ -1,7 +1,7 @@
 /**
  * End-to-end tests for the relocateBackupScreenshot describe-stage hook.
  */
-import { describe, it, expect, afterEach } from 'bun:test';
+import { describe, it, expect, afterEach, beforeAll, afterAll } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -18,6 +18,18 @@ async function connectOrSkip(label: string): Promise<Awaited<ReturnType<typeof G
     return null;
   }
 }
+
+// See refile-backups.e2e.test.ts for why this connection MUST be closed on
+// both ends (#2787): `getDb()` only re-reads `MAPLE_MONGO_DB` when no
+// connection is cached, so a leaked one here pins every later file in the
+// same `bun test` process to this file's ambient database.
+beforeAll(async () => {
+  await (await import('../../db/client.ts')).closeDb();
+});
+
+afterAll(async () => {
+  await (await import('../../db/client.ts')).closeDb();
+});
 
 describe('relocateBackupScreenshot (describe-stage hook)', () => {
   let dir: string | null = null;
