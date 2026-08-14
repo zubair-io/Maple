@@ -104,6 +104,37 @@ final class DeferredFolderEnumeratorChangesTests: XCTestCase {
         XCTAssertEqual(observer.moreComing, false)
     }
 
+    /// Latent-trap regression (review finding on #2822): a page that
+    /// hits exactly `changesPageLimit` rows but carries no `next_cursor`
+    /// must NOT report `moreComing: true` — otherwise the OS re-asks
+    /// from the same (unchanged) anchor forever. Today's server always
+    /// attaches a cursor to a non-empty page (`src/api/.../changes.ts`),
+    /// so this exercises defense-in-depth against a server that doesn't.
+    func testFullPageWithoutNextCursorDoesNotLoopForever() {
+        let pageLimit = 500
+        StubURLProtocol.handler = { _ in
+            let rows = (0..<pageLimit).map { i in
+                "{\"cursor\":\(i + 1),\"asset_id\":\"a\(i)\",\"folder_id\":\"OTHER\",\"kind\":\"update\",\"abs_path\":null,\"relative_path\":\"other/\(i).dng\",\"at\":\"2026-08-12T00:00:00.000Z\"}"
+            }
+            let body = "{\"changes\":[\(rows.joined(separator: ","))]}"
+            return (200, Data(body.utf8), [:])
+        }
+
+        let enumerator = makeEnumerator(folderID: "F1", relativePath: "d")
+        let observer = ChangeObserver()
+        let startAnchor = FolderChangeMatching.anchor(10)
+        enumerator.enumerateChanges(for: observer, from: startAnchor)
+        wait(for: [observer.done], timeout: 5)
+
+        XCTAssertNil(observer.failure)
+        XCTAssertEqual(
+            observer.moreComing, false,
+            "a full page with no next_cursor must not claim more is coming — there is no cursor to advance to"
+        )
+        // No cursor to advance to: the anchor must not regress either.
+        XCTAssertEqual(observer.finishedAnchor, startAnchor)
+    }
+
     func testStaleCursorRequestsFullReEnumeration() {
         StubURLProtocol.handler = { _ in
             (409, Data(#"{"error":"stale cursor","current":99}"#.utf8), [:])

@@ -1700,28 +1700,36 @@ public final class DeferredFolderEnumerator: NSObject, NSFileProviderEnumerator 
     public func enumerateChanges(for observer: NSFileProviderChangeObserver,
                                  from anchor: NSFileProviderSyncAnchor) {
         let since = FolderChangeMatching.parseAnchor(anchor)
-        Task {
+        Task { [weak self] in
+            guard let self else { return }
             do {
-                let page = try await catalog.listChanges(since: since,
-                                                         limit: Self.changesPageLimit)
+                let page = try await self.catalog.listChanges(since: since,
+                                                               limit: Self.changesPageLimit)
                 let split = FolderChangeMatching.partition(changes: page.changes,
-                                                           folderID: folderID,
-                                                           relativePath: relativePath)
+                                                           folderID: self.folderID,
+                                                           relativePath: self.relativePath)
                 observer.didUpdate(split.updates)
                 observer.didDeleteItems(withIdentifiers: split.deletes)
                 // Advance past the whole page, not just the rows we kept —
                 // the filtered-out rows belong to other folders and must
                 // never be re-scanned by this enumerator.
                 let newAnchor = page.nextCursor.map { FolderChangeMatching.anchor($0) } ?? anchor
-                let moreComing = page.changes.count >= Self.changesPageLimit
+                // Only claim more is coming if there's an actual cursor to
+                // advance to next time. A full page with no next_cursor
+                // (shouldn't happen against today's server — a non-empty
+                // page always carries one, see src/api/.../changes.ts —
+                // but a client must not depend on server behavior for loop
+                // termination) would otherwise re-ask from this same
+                // anchor forever.
+                let moreComing = page.nextCursor != nil && page.changes.count >= Self.changesPageLimit
                 observer.finishEnumeratingChanges(upTo: newAnchor, moreComing: moreComing)
             } catch let e as StaleCursorError {
-                log.notice("folder stale cursor (server current=\(e.current)); requesting full re-enumeration")
+                self.log.notice("folder stale cursor (server current=\(e.current)); requesting full re-enumeration")
                 observer.finishEnumeratingWithError(
                     NSError(domain: NSFileProviderErrorDomain,
                             code: NSFileProviderError.syncAnchorExpired.rawValue))
             } catch {
-                log.error("folder enumerateChanges failed: \(error.localizedDescription, privacy: .public)")
+                self.log.error("folder enumerateChanges failed: \(error.localizedDescription, privacy: .public)")
                 observer.finishEnumeratingWithError(error)
             }
         }
