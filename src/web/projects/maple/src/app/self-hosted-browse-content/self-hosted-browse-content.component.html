@@ -9,6 +9,8 @@
 }
 @if (state.viewMode() === 'timeline') {
   <app-timeline-view />
+} @else if (state.viewMode() === 'map') {
+  <app-map-view />
 } @else {
   <app-asset-grid />
 }
