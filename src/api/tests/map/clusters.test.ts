@@ -81,42 +81,72 @@ beforeAll(async () => {
       _id: NYC_1_ID,
       ...baseFields(),
       fileinfo: fileinfo('nyc1.dng'),
-      exif: { captured_at: null, camera_make: 'Canon', camera_model: 'EOS R5', gps: { lat: 40.0, lng: -74.0 } },
+      exif: {
+        captured_at: null,
+        camera_make: 'Canon',
+        camera_model: 'EOS R5',
+        gps: { lat: 40.0, lng: -74.0 },
+      },
       place: { rollups: { locality: 'New York', region: 'New York', country_code: 'us' } },
     },
     {
       _id: NYC_2_ID,
       ...baseFields(),
       fileinfo: fileinfo('nyc2.dng'),
-      exif: { captured_at: null, camera_make: 'Nikon', camera_model: 'Z9', gps: { lat: 41.0, lng: -73.0 } },
+      exif: {
+        captured_at: null,
+        camera_make: 'Nikon',
+        camera_model: 'Z9',
+        gps: { lat: 41.0, lng: -73.0 },
+      },
       place: { rollups: { locality: null, region: 'New York', country_code: 'us' } },
     },
     {
       _id: LONDON_1_ID,
       ...baseFields(),
       fileinfo: fileinfo('london1.dng'),
-      exif: { captured_at: null, camera_make: 'Canon', camera_model: 'R6', gps: { lat: 51.5, lng: -0.12 } },
+      exif: {
+        captured_at: null,
+        camera_make: 'Canon',
+        camera_model: 'R6',
+        gps: { lat: 51.5, lng: -0.12 },
+      },
       place: { rollups: { locality: null, region: 'England', country_code: 'gb' } },
     },
     {
       _id: PARIS_1_ID,
       ...baseFields(),
       fileinfo: fileinfo('paris1.dng'),
-      exif: { captured_at: null, camera_make: 'Sony', camera_model: 'A7R V', gps: { lat: 48.85, lng: 2.35 } },
+      exif: {
+        captured_at: null,
+        camera_make: 'Sony',
+        camera_model: 'A7R V',
+        gps: { lat: 48.85, lng: 2.35 },
+      },
       place: { rollups: { locality: 'Paris', region: 'Île-de-France', country_code: 'fr' } },
     },
     {
       _id: ALASKA_1_ID,
       ...baseFields(),
       fileinfo: fileinfo('alaska1.dng'),
-      exif: { captured_at: null, camera_make: 'Sony', camera_model: 'A1', gps: { lat: 64.0, lng: -150.0 } },
+      exif: {
+        captured_at: null,
+        camera_make: 'Sony',
+        camera_model: 'A1',
+        gps: { lat: 64.0, lng: -150.0 },
+      },
       place: { rollups: { locality: null, region: null, country_code: 'us' } },
     },
     {
       _id: TOKYO_1_ID,
       ...baseFields(),
       fileinfo: fileinfo('tokyo1.dng'),
-      exif: { captured_at: null, camera_make: 'Fujifilm', camera_model: 'X-T5', gps: { lat: 35.68, lng: 139.69 } },
+      exif: {
+        captured_at: null,
+        camera_make: 'Fujifilm',
+        camera_model: 'X-T5',
+        gps: { lat: 35.68, lng: 139.69 },
+      },
       place: { rollups: { locality: 'Tokyo', region: 'Tokyo', country_code: 'jp' } },
     },
   ]);
@@ -154,7 +184,9 @@ async function get(qs: string): Promise<{ status: number; body: ClustersResponse
 }
 
 function findCell(cells: ClusterCell[], approxLat: number, approxLng: number): ClusterCell {
-  const found = cells.find((c) => Math.abs(c.lat - approxLat) < 1 && Math.abs(c.lng - approxLng) < 1);
+  const found = cells.find(
+    (c) => Math.abs(c.lat - approxLat) < 1 && Math.abs(c.lng - approxLng) < 1,
+  );
   if (!found) {
     throw new Error(`no cell near (${approxLat}, ${approxLng}) in ${JSON.stringify(cells)}`);
   }
