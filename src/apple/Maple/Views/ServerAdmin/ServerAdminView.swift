@@ -46,13 +46,23 @@ struct ServerAdminView: View {
         }
         #else
         NavigationStack {
-            List(sections) { section in
-                NavigationLink {
-                    page(for: section)
-                        .navigationTitle(section.title)
-                        .navigationBarTitleDisplayMode(.inline)
-                } label: {
-                    Label(section.title, systemImage: section.icon)
+            Group {
+                if sections.isEmpty {
+                    // Without this a non-owner gets a blank List and the
+                    // Manage… entry point looks broken. macOS states this
+                    // via `detail`; iOS has no detail column, so it needs
+                    // its own copy of the empty state.
+                    ownerRequired
+                } else {
+                    List(sections) { section in
+                        NavigationLink {
+                            page(for: section)
+                                .navigationTitle(section.title)
+                                .navigationBarTitleDisplayMode(.inline)
+                        } label: {
+                            Label(section.title, systemImage: section.icon)
+                        }
+                    }
                 }
             }
             .navigationTitle(serverName)
@@ -66,14 +76,21 @@ struct ServerAdminView: View {
         if let selection {
             page(for: selection)
         } else if sections.isEmpty {
-            ContentUnavailableView(
-                "Owner access required",
-                systemImage: "lock",
-                description: Text(
-                    "Server administration is available to the account that owns this server."))
+            ownerRequired
         } else {
             ContentUnavailableView("Select a section", systemImage: "sidebar.left")
         }
+    }
+
+    /// Shown when the signed-in account owns no visible sections. Shared by
+    /// the macOS detail column and the iOS stack so the two platforms can't
+    /// drift into one explaining itself and the other going blank.
+    private var ownerRequired: some View {
+        ContentUnavailableView(
+            "Owner access required",
+            systemImage: "lock",
+            description: Text(
+                "Server administration is available to the account that owns this server."))
     }
 
     @ViewBuilder
