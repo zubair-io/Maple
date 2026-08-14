@@ -12,11 +12,13 @@ import {
   AfterViewInit,
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   OnDestroy,
   inject,
   viewChild,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { MapLibreService } from '../../map/maplibre-map.service';
 
@@ -30,6 +32,7 @@ import { MapLibreService } from '../../map/maplibre-map.service';
 })
 export class MapViewComponent implements AfterViewInit, OnDestroy {
   private readonly mapService = inject(MapLibreService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly mapContainerRef = viewChild.required<ElementRef<HTMLElement>>('mapContainer');
 
@@ -37,7 +40,16 @@ export class MapViewComponent implements AfterViewInit, OnDestroy {
   readonly tilesUnreachable = this.mapService.tilesUnreachable;
 
   ngAfterViewInit(): void {
-    this.mapService.create(this.mapContainerRef().nativeElement).subscribe();
+    // `create()` resolves the tile-source config over the network before it
+    // mounts anything, so a viewMode switch can destroy this component with
+    // that fetch still in flight. Without this teardown the late emission
+    // mounts a map onto a detached container and strands the handle in
+    // `MapLibreService` — which is `providedIn: 'root'`, so nothing would ever
+    // `destroy()` it and the WebGL context leaks for the session.
+    this.mapService
+      .create(this.mapContainerRef().nativeElement)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe();
   }
 
   ngOnDestroy(): void {

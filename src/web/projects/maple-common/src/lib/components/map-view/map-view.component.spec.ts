@@ -8,7 +8,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { of } from 'rxjs';
+import { Subject, of, tap } from 'rxjs';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { MapLibreService } from '../../map/maplibre-map.service';
 import { MapViewComponent } from './map-view.component';
@@ -48,6 +48,45 @@ describe('MapViewComponent', () => {
     fixture.destroy();
 
     expect(destroy).toHaveBeenCalledOnce();
+  });
+
+  // `MapLibreService.create()` resolves the tile-source config over the
+  // network before it mounts anything, so a viewMode switch can destroy this
+  // component while that fetch is still in flight. The subscription has to be
+  // torn down with the component: `MapLibreService` is `providedIn: 'root'`,
+  // so a late emission would mount a MapLibre instance onto a detached
+  // container and park the handle in an app-lifetime singleton that nothing
+  // will ever call `destroy()` on — a permanently leaked WebGL context, and
+  // browsers cap how many of those a page may hold.
+  it('does not mount the map when destroyed before the config fetch completes', () => {
+    const pending = new Subject<void>();
+    // `delivered` fires only if the value actually reaches the component's
+    // subscriber — an unsubscribed chain never runs the `tap`.
+    const delivered = vi.fn();
+    create.mockReturnValue(pending.pipe(tap(delivered)));
+
+    const fixture = TestBed.createComponent(MapViewComponent);
+    fixture.detectChanges();
+    fixture.destroy();
+
+    // The config fetch resolves only after the component is already gone.
+    pending.next();
+
+    expect(delivered).not.toHaveBeenCalled();
+  });
+
+  it('unsubscribes from the in-flight create() on destroy', () => {
+    const pending = new Subject<void>();
+    create.mockReturnValue(pending.asObservable());
+
+    const fixture = TestBed.createComponent(MapViewComponent);
+    fixture.detectChanges();
+    expect(pending.observed).toBe(true);
+
+    fixture.destroy();
+
+    // No subscribers left behind once the component is torn down.
+    expect(pending.observed).toBe(false);
   });
 
   it('shows no notice while tiles are reachable', () => {
