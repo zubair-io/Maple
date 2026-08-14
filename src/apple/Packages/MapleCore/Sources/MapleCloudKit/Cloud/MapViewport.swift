@@ -65,9 +65,20 @@ public enum MapViewport {
   /// less than `center + halfLng` before wrapping.
   public static func bbox(for region: MapViewportRegion) -> MapBBox {
     let halfLat = region.latitudeDelta / 2
-    let halfLng = region.longitudeDelta / 2
     let south = max(region.centerLatitude - halfLat, -90)
     let north = min(region.centerLatitude + halfLat, 90)
+
+    // A span of the whole world (or wider) is a degenerate case for the
+    // wrap below: at exactly 360° both bounds wrap to the SAME longitude
+    // whenever the center isn't 0 (e.g. center 90°, halfLng 180° → west
+    // wraps to -90°, east also wraps to -90°), producing a zero-width box
+    // instead of "the whole world" — the map would show 0 photos at any
+    // off-center full zoom-out. Short-circuit to the literal full range.
+    guard region.longitudeDelta < 360 else {
+      return MapBBox(west: -180, south: south, east: 180, north: north)
+    }
+
+    let halfLng = region.longitudeDelta / 2
     let west = wrapLongitude(region.centerLongitude - halfLng)
     let east = wrapLongitude(region.centerLongitude + halfLng)
     return MapBBox(west: west, south: south, east: east, north: north)

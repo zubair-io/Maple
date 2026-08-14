@@ -46,6 +46,15 @@ extension AppShell {
             guard let serverID = resolvedServer else { return }
             let session = sessionFor(serverID)
             if !session.isSignedIn { await session.bootstrapAndRestore() }
+            // Bootstrap only restores an already-persisted token; it does
+            // not prompt for credentials. A server that genuinely needs
+            // fresh sign-in leaves the map on its (browse-grid) fallback
+            // silently rather than presenting `addCloudSheetTarget` here —
+            // the same trade-off `makePhoneSearchSession()` makes for the
+            // account-wide iPhone Search tab, unlike the per-library
+            // `loadCloudLibrary()` path, which does prompt. Not fixed here:
+            // building a sign-in prompt for an account-wide surface is a
+            // bigger change than this ticket's scope.
             guard session.isSignedIn else { return }
             // The user may have navigated away while the above awaited
             // (sign-in bootstrap) — don't clobber whatever they've since
@@ -78,14 +87,22 @@ extension AppShell {
     /// tap. Builds its own account-wide (no libraryID) search session off
     /// the map's own server rather than `activateSearch()`, which requires
     /// a `.cloudLibrary` selection Map has already replaced with `.map`.
+    ///
+    /// Seeds the new session from `mapVM.filter` — the SAME filter the map
+    /// itself queried `/api/map/clusters` with — before layering the tap's
+    /// place/scope on top, so a pin tap narrows the active filter (date
+    /// range, camera, …) rather than silently discarding it back to
+    /// "everything, everywhere."
     func selectMapPlace(_ target: MapPlaceSearchTarget) {
-        guard let serverID = mapVM?.server else { return }
+        guard let mapVM else { return }
+        let serverID = mapVM.server
         let httpClient = makeAuthenticatedHTTPClient(server: serverID)
         let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: serverID)
         let vm = SearchViewModel(
             server: serverID,
             libraryID: nil, // account-wide, same scope as the map itself
             searchClient: CloudSearchClient(server: effectiveServer, httpClient: httpClient))
+        vm.params = mapVM.filter
         switch target {
         case .placeQuery(let query):
             vm.params.placeQuery = query
