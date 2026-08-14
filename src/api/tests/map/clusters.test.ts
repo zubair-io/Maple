@@ -95,6 +95,21 @@ beforeAll(async () => {
   const db = mongo!.db(TEST_DB);
   await db.dropDatabase();
   await seedFolders(db, folderA, folderB);
+  // Mirrors the production `search_blob_text` index (see `ensureIndexes`).
+  // Needed by the placeQuery case below: `buildFilter` turns placeQuery
+  // into a `$text` predicate, and Mongo rejects `$text` outright without a
+  // text index — so without this the test would pass for the wrong reason.
+  await db.collection('assets').createIndex(
+    { search_blob: 'text' },
+    {
+      name: 'search_blob_text',
+      default_language: 'english',
+      partialFilterExpression: {
+        deleted_at: null,
+        search_blob: { $type: 'string', $gt: '' },
+      },
+    },
+  );
   await db.collection('assets').insertMany([
     {
       _id: NYC_1_ID,
@@ -107,6 +122,7 @@ beforeAll(async () => {
         gps: { lat: 40.0, lng: -74.0 },
       },
       place: { rollups: { locality: 'New York', region: 'New York', country_code: 'us' } },
+      search_blob: 'new york brooklyn bridge',
     },
     {
       _id: NYC_2_ID,
@@ -119,6 +135,7 @@ beforeAll(async () => {
         gps: { lat: 41.0, lng: -73.0 },
       },
       place: { rollups: { locality: null, region: 'New York', country_code: 'us' } },
+      search_blob: 'new york hudson valley',
     },
     {
       _id: LONDON_1_ID,
@@ -131,6 +148,7 @@ beforeAll(async () => {
         gps: { lat: 51.5, lng: -0.12 },
       },
       place: { rollups: { locality: null, region: 'England', country_code: 'gb' } },
+      search_blob: 'london england thames',
     },
     {
       _id: PARIS_1_ID,
@@ -143,6 +161,7 @@ beforeAll(async () => {
         gps: { lat: 48.85, lng: 2.35 },
       },
       place: { rollups: { locality: 'Paris', region: 'Île-de-France', country_code: 'fr' } },
+      search_blob: 'paris france seine',
     },
     {
       _id: ALASKA_1_ID,
@@ -289,6 +308,27 @@ describe('GET /api/map/clusters', () => {
     }
     const nyc = findCell(body.cells, 40.0, -74.0);
     expect(nyc.representativeAssetId).toBe(NYC_1_ID.toHexString());
+  });
+
+  // `placeQuery` is the one filter that reaches Mongo as `$text`, which has
+  // placement rules the other predicates don't (illegal under `$or`, and the
+  // partial text index only applies when the planner can prove the query
+  // implies it). It is therefore the case that proves the handler's `$and`
+  // composition is legal, not just collision-safe.
+  it('composes with the placeQuery text filter', async () => {
+    if (!mongoReachable) return;
+    const { status, body } = await get(`${NYC_LONDON_PARIS_BBOX}&zoom=4&placeQuery=thames`);
+    expect(status).toBe(200);
+    // Only london-1's blob mentions the Thames.
+    expect(body.cells.length).toBe(1);
+    expect(body.cells[0]!.count).toBe(1);
+    expect(body.cells[0]!.representativeAssetId).toBe(LONDON_1_ID.toHexString());
+
+    // And the bbox still applies on top of the text match: 'new york'
+    // matches both NYC rows, which share a cell.
+    const { body: nycBody } = await get(`${NYC_LONDON_PARIS_BBOX}&zoom=4&placeQuery=york`);
+    expect(nycBody.cells.length).toBe(1);
+    expect(nycBody.cells[0]!.count).toBe(2);
   });
 
   it('carries thumbKey only on single-count cells', async () => {
