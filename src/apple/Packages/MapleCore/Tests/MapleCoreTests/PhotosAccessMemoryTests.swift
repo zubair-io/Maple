@@ -68,6 +68,14 @@ final class PhotosAccessMemoryTests: XCTestCase {
         XCTAssertFalse(PhotosAccessMemory.lostAccess(current: .limited, defaults: defaults))
     }
 
+    func testGrantEvidenceLatchesWithoutObservedStatus() {
+        // A configured PhotoKit backup proves a past grant even though this
+        // memory never saw an authorized status read (it shipped later).
+        PhotosAccessMemory.latchGrantEvidence(defaults: defaults)
+        XCTAssertTrue(PhotosAccessMemory.lostAccess(current: .notDetermined, defaults: defaults))
+        XCTAssertFalse(PhotosAccessMemory.lostAccess(current: .authorized, defaults: defaults))
+    }
+
     func testRegrantAfterLossClearsWarning() {
         PhotosAccessMemory.record(.authorized, defaults: defaults)
         XCTAssertTrue(PhotosAccessMemory.lostAccess(current: .notDetermined, defaults: defaults))
