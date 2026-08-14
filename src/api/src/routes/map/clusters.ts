@@ -214,34 +214,44 @@ export const mapClustersRoute = new Elysia().get(
     }
     const finalFilter = applyLiveFilter(filterOrError);
 
-    // `finalFilter`'s only top-level key is always `$and` (or, when
-    // `buildFilter` used `$text`, a handful of literal field keys plus
-    // `$and`) — see `applyLiveFilter`'s doc comment. Mongo ANDs sibling
-    // top-level operators/fields implicitly, so spreading in the GPS +
-    // bbox predicates alongside it is safe and needs no extra `$and`
-    // wrapper.
-    const matchFilter: Record<string, unknown> = {
-      ...finalFilter,
-      'exif.gps': { $ne: null },
-      'exif.gps.lat': { $gte: bbox.south, $lte: bbox.north },
+    // Longitude containment. The ordinary case is a plain range; an
+    // antimeridian-crossing viewport (west > east, e.g. west=170,
+    // east=-170) means "east of `west` OR west of `east`".
+    //
+    // Note this makes the bbox FILTER correct across the seam. Grid
+    // bucketing is NOT merged across it — a point at lng=179.9 and one at
+    // lng=-179.9 land in different cells even though they're physically
+    // adjacent. That's an accepted, explicitly-called-out limitation for
+    // a density/cluster view (not a silent bug): the antimeridian is
+    // mid-ocean for every inhabited landmass, so a cell split there costs
+    // nothing in practice.
+    const lngClause =
+      bbox.west <= bbox.east
+        ? { 'exif.gps.lng': { $gte: bbox.west, $lte: bbox.east } }
+        : {
+            $or: [{ 'exif.gps.lng': { $gte: bbox.west } }, { 'exif.gps.lng': { $lte: bbox.east } }],
+          };
+
+    // Compose with `$and` rather than spreading `finalFilter` and adding
+    // sibling keys. Spreading looks equivalent today — `applyLiveFilter`
+    // currently returns `$and` at the top level — but it silently breaks
+    // the moment either side contributes a key the other also uses, and
+    // the antimeridian branch above contributes exactly such a key
+    // (`$or`). `buckets.ts` has the same note for the same reason: a
+    // naive spread + `$or` override there dropped the live-row constraint
+    // and let soft-deleted rows into the count. `$and` keeps every
+    // predicate restrictive no matter how `buildFilter` /
+    // `applyLiveFilter` evolve. Mongo's canonicalizer flattens the nested
+    // `$and`, and `$text` (which `placeQuery` adds) stays legal inside
+    // `$and` — the placeQuery test covers that path.
+    const matchFilter = {
+      $and: [
+        finalFilter,
+        { 'exif.gps': { $ne: null } },
+        { 'exif.gps.lat': { $gte: bbox.south, $lte: bbox.north } },
+        lngClause,
+      ],
     };
-    if (bbox.west <= bbox.east) {
-      matchFilter['exif.gps.lng'] = { $gte: bbox.west, $lte: bbox.east };
-    } else {
-      // Antimeridian-crossing viewport (west > east, e.g. west=170,
-      // east=-170): "inside the bbox" is everything east of `west` OR
-      // west of `east`. This keeps the $match FILTER correct across the
-      // seam. Grid bucketing below is NOT merged across it — a point at
-      // lng=179.9 and one at lng=-179.9 land in different cells even
-      // though they're physically adjacent. That's an accepted,
-      // explicitly-called-out limitation for a density/cluster view (not
-      // a silent bug): the antimeridian is mid-ocean for every inhabited
-      // landmass, so a cell split there costs nothing in practice.
-      matchFilter.$or = [
-        { 'exif.gps.lng': { $gte: bbox.west } },
-        { 'exif.gps.lng': { $lte: bbox.east } },
-      ];
-    }
 
     const coll = await assetsCollection();
     const rows = await coll
