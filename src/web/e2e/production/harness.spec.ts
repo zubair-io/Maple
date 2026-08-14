@@ -1,7 +1,10 @@
-import { access, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
 import { test, expect } from '../support/production-test';
-import { readProductionFixtureManifest } from '../support/production-fixtures';
+import {
+  readProductionFixtureManifest,
+  resetWritableFixtureFolder,
+} from '../support/production-fixtures';
 import { installProductionFolderPicker } from '../support/production-folder-picker';
 import { openHostedFolder, openHostedFolderEditor } from '../support/production-editor';
 import { HOSTED_SECURITY_HEADERS } from '../../scripts/hosted-security-header-contract';
@@ -219,29 +222,11 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'chrome-hosted');
   const manifest = await readProductionFixtureManifest();
-  // The writable fixture folder is staged once per Playwright run
-  // (`stageProductionFixtures` in scripts/serve-production-e2e.ts), so both
-  // the sidecar and the preview cache this test writes outlive the test. Take
-  // the folder back to pristine — every assertion below reads as "from the
-  // unedited default", and neither leftover survives that reading (#2805):
-  //
-  //   - The sidecar: each execution walks Exposure ~+1.03 EV upward (+0.01
-  //     arrow, +1.00 drag, +0.01 blocked-write arrow, +0.01 recovery arrow)
-  //     and the next one — a retry, a --repeat-each pass, or
-  //     browse-preview-actions.spec.ts, which seeds this same sidecar at
-  //     +1.25 EV — inherits it. The recovery assertion at the end needs
-  //     ArrowRight to still move the slider, which the +4 EV clamp makes
-  //     impossible once the inherited value has drifted that far.
-  //   - The preview cache: with the sidecar reset, every execution makes the
-  //     identical edit from the identical start, so the artifact it develops
-  //     is byte-identical to the one the previous execution left behind.
-  //     "The post-edit preview pixels must change" then compares this run's
-  //     developed preview against an identical developed preview instead of
-  //     against this run's unedited one, and can never come true.
-  await Promise.all([
-    rm(join(manifest.writableFolder, 'test_0006.xmp'), { force: true }),
-    rm(join(manifest.writableFolder, '.maple'), { recursive: true, force: true }),
-  ]);
+  // Every assertion below reads as "from the unedited default": Exposure
+  // starts at 0 with room to climb before the +4 EV clamp, and the developed
+  // preview is compared against this run's UNEDITED one. Both leftovers this
+  // reset clears have broken exactly those two readings (#2805).
+  await resetWritableFixtureFolder(manifest.writableFolder);
   const picker = await installProductionFolderPicker(page, manifest.writableFolder);
   await captureWorkerStatus(page);
   const rayonHelperRequests: string[] = [];

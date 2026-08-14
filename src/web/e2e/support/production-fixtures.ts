@@ -1,6 +1,15 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { access, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  access,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 
@@ -130,6 +139,40 @@ export async function stageProductionFixtures(
   await mkdir(dirname(PRODUCTION_FIXTURE_MANIFEST), { recursive: true });
   await writeFile(PRODUCTION_FIXTURE_MANIFEST, `${JSON.stringify(manifest, null, 2)}\n`);
   return manifest;
+}
+
+/**
+ * Take the shared writable fixture folder back to exactly what
+ * `stageProductionFixtures` staged: the two RAWs, no sidecars, no `.maple`.
+ *
+ * That folder is staged ONCE per Playwright run, not per test, so everything a
+ * test writes into it — sidecars, thumbnails, previews — is the next
+ * execution's starting state, whether the next execution is another spec, a
+ * retry, or a `--repeat-each` pass. Both halves have already bitten (#2805),
+ * in opposite directions:
+ *
+ *   - A leftover sidecar is an unknown starting adjustment. harness.spec's
+ *     writable-folder test walked Exposure ~+1.03 EV per execution until a
+ *     drag overshot the slider's +4 EV maximum, where ArrowRight is a
+ *     legitimate no-op and the test's recovery assertion cannot hold.
+ *   - A leftover `.maple` is an unknown starting cache. Once the sidecar reset
+ *     makes executions deterministic, the preview an execution develops is
+ *     byte-identical to the artifact the previous execution left behind, so
+ *     "the post-edit preview pixels must change" compares two identical
+ *     developed previews instead of the edited one against the unedited one.
+ *
+ * Reset both, then seed whatever the test actually needs — a partial reset is
+ * worse than none, because it removes the drift that was hiding a same-input
+ * comparison.
+ */
+export async function resetWritableFixtureFolder(writableFolder: string): Promise<void> {
+  const entries = await readdir(writableFolder).catch(() => [] as string[]);
+  await Promise.all([
+    ...entries
+      .filter((name) => name.toLowerCase().endsWith('.xmp'))
+      .map((name) => rm(join(writableFolder, name), { force: true })),
+    rm(join(writableFolder, '.maple'), { recursive: true, force: true }),
+  ]);
 }
 
 export async function readProductionFixtureManifest(): Promise<ProductionFixtureManifest> {

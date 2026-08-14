@@ -4,11 +4,14 @@ import {
   type Page,
   type Worker as PlaywrightWorker,
 } from '@playwright/test';
-import { readFile, rm } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { test, expect } from '../support/production-test';
-import { readProductionFixtureManifest } from '../support/production-fixtures';
+import {
+  readProductionFixtureManifest,
+  resetWritableFixtureFolder,
+} from '../support/production-fixtures';
 import { installProductionFolderPicker } from '../support/production-folder-picker';
 import {
   captureWorkerStatus,
@@ -102,7 +105,10 @@ test('Hosted cold embedded preview and warm .maple preview meet the open budgets
   const manifest = await readProductionFixtureManifest();
 
   const coldPicker = await installProductionFolderPicker(page, manifest.writableFolder);
-  await rm(join(manifest.writableFolder, '.maple'), { recursive: true, force: true });
+  // A cold open must measure a cold open: no `.maple` to hit, and no leftover
+  // sidecar silently turning the cold budget into a develop of someone else's
+  // adjustments (#2805).
+  await resetWritableFixtureFolder(manifest.writableFolder);
   coldPicker.clear();
   await openFolder(page, DNG);
   const coldPreview = await inPagePreviewPhases(
@@ -157,7 +163,10 @@ test('Hosted restores threaded Chromium CPU work and renders live WebGPU slider 
   test.skip(testInfo.project.name !== 'chrome-hosted');
   test.setTimeout(240_000);
   const manifest = await readProductionFixtureManifest();
-  await rm(join(manifest.writableFolder, 'test_0006.xmp'), { force: true });
+  // Hard budgets need a fixed input: Exposure at its default, and an open that
+  // decodes rather than painting whatever preview a previous test left in
+  // `.maple` (#2805).
+  await resetWritableFixtureFolder(manifest.writableFolder);
   await installProductionFolderPicker(page, manifest.writableFolder);
   await captureWorkerStatus(page);
   const observedWorkers: PlaywrightWorker[] = [];
@@ -242,7 +251,10 @@ test('Hosted visibly falls back without WebGPU and still renders, edits, and res
   test.setTimeout(240_000);
   const manifest = await readProductionFixtureManifest();
   const sidecar = join(manifest.writableFolder, 'test_0006.xmp');
-  await rm(sidecar, { force: true });
+  // This test proves the CPU fallback genuinely decodes and edits, so clear
+  // the preview cache that would otherwise let it paint a previous test's
+  // artifact, along with the sidecar whose value it asserts against (#2805).
+  await resetWritableFixtureFolder(manifest.writableFolder);
 
   const browser = await chromium.launch({
     channel: 'chrome',

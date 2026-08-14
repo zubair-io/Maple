@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto';
-import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Locator, Page, TestInfo } from '@playwright/test';
 import { expect, test } from '../support/production-test';
 import { installProductionFolderPicker } from '../support/production-folder-picker';
 import type { ProductionFolderPickerAudit } from '../support/production-folder-picker';
-import { readProductionFixtureManifest } from '../support/production-fixtures';
+import {
+  readProductionFixtureManifest,
+  resetWritableFixtureFolder,
+} from '../support/production-fixtures';
 
 const TARGET = 'test_0006.DNG';
 const OTHER_ASSET = 'test_0008.RAF';
@@ -198,7 +200,9 @@ for (const viewport of VIEWPORTS) {
     test.skip(testInfo.project.name !== 'chrome-hosted');
     test.setTimeout(240_000);
     const manifest = await readProductionFixtureManifest();
-    await rm(join(manifest.writableFolder, '.maple'), { recursive: true, force: true });
+    // Cold thumbnails are the point of this test, and a leftover sidecar is
+    // an unknown adjustment feeding the ones it generates (#2805).
+    await resetWritableFixtureFolder(manifest.writableFolder);
     const picker = await installProductionFolderPicker(page, manifest.writableFolder);
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
 
