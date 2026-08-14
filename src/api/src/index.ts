@@ -78,6 +78,7 @@ import { purgeSubthresholdFacesRoutes } from './routes/admin-purge-subthreshold-
 import { peopleRoutes } from './routes/people.ts';
 import { presetsRoutes } from './routes/presets.ts';
 import { panoRoutes } from './routes/pano.ts';
+import { mapConfigRoutes } from './routes/map-config.ts';
 import { geocodeReverseRoutes } from './routes/geocode-reverse.ts';
 import { batchMetadataRoutes } from './routes/batch-metadata.ts';
 import { backupIngestRoutes } from './routes/backup-ingest.ts';
@@ -236,6 +237,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
         // switch. Read by every signed-in client at startup and on a poll.
         .use(renderConfigRoutes)
         .use(panoRoutes)
+        .use(mapConfigRoutes)
         .use(changesRoutes)
         .use(mirrorRoutes)
         .use(derivativeAuditRoutes)

@@ -51,6 +51,9 @@ export * from './lib/api/imports-api.service';
 export * from './lib/api/pano.service';
 export * from './lib/pano/pano-dialog.component';
 
+// Map T2, #2826 — web Map view tile-source setting
+export * from './lib/api/map-config.service';
+
 // #943 — Edited-image export (render + encode + download, sidecar refreshed)
 export * from './lib/export/image-export.service';
 export * from './lib/export/export-dialog.component';
