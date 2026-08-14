@@ -31,6 +31,13 @@ enum PairSheetTarget: Identifiable {
 /// Lists registered servers (`CloudServerRegistry`) and lets the user add
 /// new ones via `AddMapleCloudSheet` or remove existing ones.
 struct SelfHostedSettingsTab: View {
+    /// Resolves the shared per-server `AuthSession` so ServerAdmin (#2766)
+    /// observes the same instance as the rest of the shell. The default is
+    /// the preview/test fallback and is deliberately NOT cached across
+    /// calls — every production construction site passes the real resolver
+    /// from `MapleApp`, or sign-out stops propagating.
+    var sessionFor: @MainActor (URL) -> AuthSession = AppShell.defaultSessionResolver
+
     @State private var registry = CloudServerRegistry.shared
     @State private var localNetwork = LocalNetworkResolver.shared
     /// Single sheet entry point. `.fresh` for "Add Server…", `.prefilled(host)`
@@ -47,6 +54,18 @@ struct SelfHostedSettingsTab: View {
     /// presence is an accurate "signed in?" signal. Refreshed on appear, on
     /// registry changes, and after the sign-in sheet closes.
     @State private var signedIn: [URL: Bool] = [:]
+    #if os(macOS)
+    @Environment(\.openWindow) private var openWindow
+    #else
+    /// Server whose admin sheet is presented. `URL` isn't `Identifiable`,
+    /// so it travels wrapped for `.sheet(item:)`.
+    @State private var adminTarget: AdminSheetTarget?
+
+    struct AdminSheetTarget: Identifiable {
+        let server: URL
+        var id: URL { server }
+    }
+    #endif
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -86,6 +105,19 @@ struct SelfHostedSettingsTab: View {
                                 .buttonStyle(.borderedProminent)
                                 .controlSize(.small)
                             }
+                            // Per-server administration (#2766). Disabled
+                            // while signed out — every admin route needs a
+                            // bearer, so the window would only show errors.
+                            Button("Manage…") {
+                                #if os(macOS)
+                                openWindow(id: "server-admin", value: url)
+                                #else
+                                adminTarget = AdminSheetTarget(server: url)
+                                #endif
+                            }
+                            .controlSize(.small)
+                            .disabled(signedIn[url] == false)
+                            .accessibilityIdentifier("cloud.manage.\(url.host ?? url.absoluteString)")
                             Button(role: .destructive) {
                                 registry.remove(url)
                             } label: {
@@ -158,6 +190,14 @@ struct SelfHostedSettingsTab: View {
                     onDismiss: { pairSheetTarget = nil }
                 )
             }
+        }
+        #endif
+        #if !os(macOS)
+        // ServerAdminView supplies its own NavigationStack on iOS, so a
+        // sheet works identically from the iPhone push list and from the
+        // iPad Settings modal (which has no stack to push onto).
+        .sheet(item: $adminTarget) { target in
+            ServerAdminView(server: target.server, session: sessionFor(target.server))
         }
         #endif
     }

@@ -42,32 +42,13 @@ struct ResolvedCloudAsset {
 extension AppShell {
     @MainActor
     func makeAuthenticatedHTTPClient(server: URL) -> AuthenticatedHTTPClient {
-        // Resolve the per-server session up front and capture the instance
-        // (a @MainActor, Sendable class) — not `self`, not the resolver — so
-        // the escaping onSignOut closure can't drag the AppShell view in.
-        let session = sessionFor(server)
-        return AuthenticatedHTTPClient(
-            server: server,
-            urlSession: .shared,
-            tokensProvider: { try? TokenStore.load(server: server) },
-            // Save AND mirror to the File Provider extension's shared store on
-            // every rotation, so a background extension never refreshes with a
-            // superseded token (→ server reuse-detection → family revoked →
-            // sign-out). See CloudTokenPersistence.
-            onTokensRefreshed: { try CloudTokenPersistence.persistRotated($0, server: server) },
-            // A request 401'd and its refresh was rejected — the refresh token
-            // is dead. Drive the OBSERVABLE AuthSession to signed-out (which
-            // also clears the Keychain) rather than clearing the Keychain alone.
-            // The old clear-only behavior left `session.isSignedIn` stuck true,
-            // so the next request passed the cold-start guards and fired with no
-            // bearer → the server's "missing bearer" 401, and the sidebar never
-            // surfaced a way back in. handleAuthExpired flips the state, so the
-            // sidebar shows "Sign in" and stops dispatching tokenless requests.
-            onSignOut: {
-                Task { @MainActor in await session.handleAuthExpired() }
-            },
-            refreshExecutor: BackgroundExecution()
-        )
+        // Resolve the per-server session up front and hand the instance
+        // (a @MainActor, Sendable class) to the factory — not `self`, not
+        // the resolver — so the escaping onSignOut closure can't drag the
+        // AppShell view in. The factory itself lives in
+        // ServerAdmin/CloudHTTPClientFactory.swift so ServerAdmin (#2766)
+        // builds an identically-configured client.
+        makeCloudHTTPClient(server: server, session: sessionFor(server))
     }
 
     @MainActor
