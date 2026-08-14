@@ -12,7 +12,7 @@
  *     literal-string equality queries on `maple_id` use it.
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from 'bun:test';
 import { MongoClient, type Db } from 'mongodb';
 
 const TEST_DB = `maple_test_client_${process.pid}`;
@@ -349,6 +349,74 @@ describe('ensureIndexes — maple_id index (Fix 4)', () => {
     }
     expect(dupKeyError).not.toBeNull();
     expect((dupKeyError as { code?: number }).code).toBe(11000);
+  });
+});
+
+describe('getDb — env-change awareness (#2783)', () => {
+  // The preview-route ETag flake: a test file that connects the singleton
+  // under its own MAPLE_MONGO_DB and never closes it leaks that connection
+  // into the next file, whose own MAPLE_MONGO_DB override is then silently
+  // ignored. getDb must re-read the env pair on every call and reconnect
+  // when it changed.
+  const ALT_DB = `${TEST_DB}_alt`;
+
+  afterEach(async () => {
+    process.env.MAPLE_MONGO_DB = TEST_DB;
+    const { closeDb } = await import('./client.ts');
+    await closeDb();
+    if (mongoReachable) await mongo!.db(ALT_DB).dropDatabase();
+  });
+
+  it('reconnects when MAPLE_MONGO_DB changes between calls', async () => {
+    if (!mongoReachable) return;
+    const { getDb, closeDb } = await import('./client.ts');
+    await closeDb();
+
+    process.env.MAPLE_MONGO_DB = TEST_DB;
+    const first = await getDb();
+    expect(first.databaseName).toBe(TEST_DB);
+
+    // The leaker scenario: env changes while the singleton is still
+    // connected. Pre-fix this returned the stale first connection.
+    process.env.MAPLE_MONGO_DB = ALT_DB;
+    const second = await getDb();
+    expect(second.databaseName).toBe(ALT_DB);
+
+    // The fresh connection actually works.
+    await second.collection('probe').insertOne({ ok: true });
+    expect(await mongo!.db(ALT_DB).collection('probe').countDocuments()).toBe(1);
+  });
+
+  it('returns the same Db instance while the env is unchanged (no reconnect churn)', async () => {
+    if (!mongoReachable) return;
+    const { getDb, closeDb } = await import('./client.ts');
+    await closeDb();
+
+    process.env.MAPLE_MONGO_DB = TEST_DB;
+    const first = await getDb();
+    const second = await getDb();
+    expect(second).toBe(first);
+  });
+
+  it('closeDb tears down an in-flight connect instead of leaking it', async () => {
+    if (!mongoReachable) return;
+    const { getDb, closeDb, isDbConnected } = await import('./client.ts');
+    await closeDb();
+
+    process.env.MAPLE_MONGO_DB = ALT_DB;
+    const inflight = getDb(); // deliberately not awaited — connect in flight
+    await closeDb();
+    expect(isDbConnected()).toBe(false);
+
+    // Once the in-flight connect settles, the singleton must NOT have
+    // adopted it — pre-fix, closeDb saw a null client, returned early, and
+    // the late connect installed itself as the live singleton.
+    await inflight.catch(() => undefined);
+    expect(isDbConnected()).toBe(false);
+
+    process.env.MAPLE_MONGO_DB = TEST_DB;
+    const fresh = await getDb();
+    expect(fresh.databaseName).toBe(TEST_DB);
   });
 });
 
