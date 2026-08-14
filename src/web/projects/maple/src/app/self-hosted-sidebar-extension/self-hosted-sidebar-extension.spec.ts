@@ -21,8 +21,8 @@ describe('Self Hosted sidebar extensions', () => {
   });
 
   it('keeps Timeline navigation in the body action', () => {
-    const viewMode = signal<'folder' | 'timeline'>('folder');
-    const setViewMode = vi.fn((mode: 'folder' | 'timeline') => viewMode.set(mode));
+    const viewMode = signal<'folder' | 'timeline' | 'map'>('folder');
+    const setViewMode = vi.fn((mode: 'folder' | 'timeline' | 'map') => viewMode.set(mode));
     TestBed.configureTestingModule({
       imports: [SelfHostedSidebarBodyComponent],
       providers: [{ provide: LibraryStateService, useValue: { viewMode, setViewMode } }],
@@ -30,11 +30,32 @@ describe('Self Hosted sidebar extensions', () => {
 
     const fixture = TestBed.createComponent(SelfHostedSidebarBodyComponent);
     fixture.detectChanges();
-    const timeline = fixture.nativeElement.querySelector('.tree-row');
+    const timeline = fixture.nativeElement.querySelectorAll('.tree-row')[0];
     timeline.click();
     fixture.detectChanges();
 
     expect(setViewMode).toHaveBeenCalledWith('timeline');
     expect(timeline.classList).toContain('selected');
+  });
+
+  it('keeps Map navigation, under Timeline, in the body action', () => {
+    const viewMode = signal<'folder' | 'timeline' | 'map'>('folder');
+    const setViewMode = vi.fn((mode: 'folder' | 'timeline' | 'map') => viewMode.set(mode));
+    TestBed.configureTestingModule({
+      imports: [SelfHostedSidebarBodyComponent],
+      providers: [{ provide: LibraryStateService, useValue: { viewMode, setViewMode } }],
+    });
+
+    const fixture = TestBed.createComponent(SelfHostedSidebarBodyComponent);
+    fixture.detectChanges();
+    const rows = fixture.nativeElement.querySelectorAll('.tree-row');
+    expect(rows).toHaveLength(2);
+    const map = rows[1];
+    expect(map.textContent).toContain('Map');
+    map.click();
+    fixture.detectChanges();
+
+    expect(setViewMode).toHaveBeenCalledWith('map');
+    expect(map.classList).toContain('selected');
   });
 });
