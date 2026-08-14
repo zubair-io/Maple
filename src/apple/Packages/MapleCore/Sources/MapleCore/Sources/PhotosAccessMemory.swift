@@ -31,6 +31,14 @@ public enum PhotosAccessMemory {
         defaults.set(true, forKey: grantedKey)
     }
 
+    /// Latch the memory from indirect evidence of a past grant — e.g. a
+    /// configured PhotoKit backup, which could only have been set up with
+    /// library access in hand. Covers users whose grant was revoked before
+    /// this memory existed to observe it directly.
+    public static func latchGrantEvidence(defaults: UserDefaults = .standard) {
+        defaults.set(true, forKey: grantedKey)
+    }
+
     /// True when access was granted in some earlier session but the current
     /// status no longer allows library reads — the "we lost permission"
     /// condition the sidebar warns about. Never true for a user who has
