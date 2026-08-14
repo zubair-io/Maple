@@ -60,11 +60,15 @@ export class MapLibreService {
 
   private instance: MapLibreMapHandle | null = null;
 
+  private readonly _tilesUnreachable = signal(false);
+
   /** Flips true the moment either the tile-source config fetch or the map's
    * own base tile source reports an error. Sticky for the instance's
    * lifetime — a fresh attempt only happens when `create()` runs again
-   * (e.g. after the operator updates the setting and the view remounts). */
-  readonly tilesUnreachable = signal(false);
+   * (e.g. after the operator updates the setting and the view remounts).
+   * Read-only to consumers: this service is `providedIn: 'root'`, so a
+   * writable handle would let any injector flip another view's state. */
+  readonly tilesUnreachable = this._tilesUnreachable.asReadonly();
 
   /**
    * Create a map inside `container` using the configured tile source.
@@ -73,11 +77,11 @@ export class MapLibreService {
    * rather than erroring the caller out.
    */
   create(container: HTMLElement): Observable<void> {
-    this.tilesUnreachable.set(false);
+    this._tilesUnreachable.set(false);
     return this.mapConfig.getConfig().pipe(
       map((config) => config.tile_url),
       catchError(() => {
-        this.tilesUnreachable.set(true);
+        this._tilesUnreachable.set(true);
         return of(null);
       }),
       map((tileUrl) => this._mount(container, tileUrl)),
@@ -107,7 +111,7 @@ export class MapLibreService {
     // carries no `sourceId` to filter on more precisely, and this style
     // never has more than the one source, so any error here means the
     // configured tile source needs operator attention.
-    instance.on('error', () => this.tilesUnreachable.set(true));
+    instance.on('error', () => this._tilesUnreachable.set(true));
     this.instance = instance;
   }
 }
