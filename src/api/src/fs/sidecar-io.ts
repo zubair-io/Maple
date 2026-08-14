@@ -115,7 +115,10 @@ export async function writeSidecarCreateOnly(
     const alreadyExists = isEexist(err);
     return alreadyExists
       ? { ok: false, exists: true }
-      : { ok: false, error: `${failureLabel}: ${err instanceof Error ? err.message : String(err)}` };
+      : {
+          ok: false,
+          error: `${failureLabel}: ${err instanceof Error ? err.message : String(err)}`,
+        };
   } finally {
     // The tmp file is redundant once `link` has published its content under
     // `destPath` (they're the same inode) — and it's still just clutter on
