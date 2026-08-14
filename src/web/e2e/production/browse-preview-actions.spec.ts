@@ -5,6 +5,7 @@ import { expect, test } from '../support/production-test';
 import { installProductionFolderPicker } from '../support/production-folder-picker';
 import {
   readProductionFixtureManifest,
+  resetWritableFixtureFolder,
   verifyOriginalRawHashes,
   verifyStagedRawHashes,
 } from '../support/production-fixtures';
@@ -63,8 +64,12 @@ async function waitForXmpWrite(page: Page, path: string, value: RegExp): Promise
 }
 
 async function gridNames(page: Page): Promise<string[]> {
+  // Every tile also renders the inline-rename trigger (#2706) as a sibling
+  // `> button` labelled "Rename <filename>". Exclude it: this helper reads the
+  // grid's asset names, and counting the rename affordance as an asset made
+  // the ordering assertions below read two entries per photo (#2849).
   return page
-    .locator('app-asset-grid maple-asset-thumb > button')
+    .locator('app-asset-grid maple-asset-thumb > button:not(.filename-bar)')
     .evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label') ?? ''));
 }
 
@@ -85,6 +90,11 @@ test('Hosted Browse and Preview visible actions work in installed Chrome', async
   const manifest = await readProductionFixtureManifest();
   const sourceXmp = join(manifest.writableFolder, 'test_0006.xmp');
   const targetXmp = join(manifest.writableFolder, 'test_0008.xmp');
+  // Copy/Paste/Sync assert against these exact seeded values, so reset to
+  // pristine first and then seed: the overwrite already pins both sidecars,
+  // but the preview cache a previous test left behind is unaccounted for
+  // (#2805).
+  await resetWritableFixtureFolder(manifest.writableFolder);
   await Promise.all([writeFile(sourceXmp, seedXmp(1.25)), writeFile(targetXmp, seedXmp(-0.5))]);
   const picker = await installProductionFolderPicker(page, manifest.writableFolder);
 
