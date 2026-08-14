@@ -28,6 +28,9 @@ public enum PhotosAccessMemory {
     public static func record(_ status: PHAuthorizationStatus,
                               defaults: UserDefaults = .standard) {
         guard status == .authorized || status == .limited else { return }
+        // Idempotent: status reads happen on every sidebar refresh, so skip
+        // the defaults write once the latch is already set.
+        guard !defaults.bool(forKey: grantedKey) else { return }
         defaults.set(true, forKey: grantedKey)
     }
 
