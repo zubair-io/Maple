@@ -49,6 +49,16 @@ async function tryConnect(): Promise<MongoClient | null> {
 }
 
 beforeAll(async () => {
+  // Re-pin the database and drop any cached handle before the route under
+  // test can reach `getDb()`. The module-scope assignment above is not
+  // enough on its own: every test file's module body runs before any of
+  // them execute, so the last file loaded wins `MAPLE_MONGO_DB`, and
+  // `getDb()` caches `_db` on first connect and never re-reads the env
+  // afterwards. Without this the route's `assetsCollection()` can read a
+  // different database than the one this file inserts fixtures into, and
+  // every lookup 404s (#2787).
+  process.env.MAPLE_MONGO_DB = TEST_DB;
+  await (await import('../../db/client.ts')).closeDb();
   mongo = await tryConnect();
   mongoReachable = mongo !== null;
   if (!mongoReachable) {

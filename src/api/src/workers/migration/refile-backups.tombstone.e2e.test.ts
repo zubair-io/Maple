@@ -39,9 +39,7 @@ function parisPlace(): Place {
   };
 }
 
-async function connectOrSkip(
-  label: string,
-): Promise<Awaited<ReturnType<typeof getDb>> | null> {
+async function connectOrSkip(label: string): Promise<Awaited<ReturnType<typeof getDb>> | null> {
   try {
     const { getDb } = await import('../../db/client.ts');
     return await getDb();
