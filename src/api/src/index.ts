@@ -64,6 +64,7 @@ import { fsRoutes } from './routes/fs.ts';
 import { fsThumbsRoutes } from './routes/fs-thumbs.ts';
 import { fsPreviewsRoutes } from './routes/fs-previews.ts';
 import { searchRoutes } from './routes/search.ts';
+import { mapRoutes } from './routes/map/index.ts';
 import { jobsRoutes } from './routes/jobs.ts';
 import { importsRoutes } from './routes/imports.ts';
 import { enrichmentRoutes } from './routes/enrichment.ts';
@@ -218,6 +219,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
         .use(fsThumbsRoutes)
         .use(fsPreviewsRoutes)
         .use(searchRoutes)
+        .use(mapRoutes)
         .use(jobsRoutes)
         .use(importsRoutes)
         .use(enrichmentRoutes)
