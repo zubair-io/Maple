@@ -8,7 +8,7 @@
  * smoke.test). The pure `computeCanonicalDir` logic is unit-tested in
  * `refile-backups.test.ts`.
  */
-import { describe, it, expect, afterEach } from 'bun:test';
+import { describe, it, expect, afterEach, beforeAll, afterAll } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -56,6 +56,30 @@ async function connectOrSkip(label: string): Promise<Awaited<ReturnType<typeof G
     return null;
   }
 }
+
+// This file (and its e2e siblings — tombstone/hook variants, plus
+// refile-legacy-daydir.e2e.test.ts, backfill-video-exif.e2e.test.ts) connects
+// via the shared `db/client.ts` singleton without pinning its own
+// `MAPLE_MONGO_DB`, so it's deliberately using the ambient database other
+// `getDb()`-based tests share. `getDb()` only re-reads `MAPLE_MONGO_DB` at
+// connect time (`_db` is cached once non-null), so leaving this connection
+// open would pin every LATER file in the same `bun test` process to
+// whatever database happened to be ambient here — even a file that sets its
+// own unique `MAPLE_MONGO_DB` right before its `beforeAll`, since that env
+// write has no effect once `_db` is already cached. #2787: this is exactly
+// what broke `preview.test.ts`'s "serves the single <filename>.avif" case —
+// this file's leaked connection outlived it, so the route's `assetsCollection()`
+// queried the wrong database and never found the freshly-inserted fixture,
+// producing a spurious 404. Close on both ends (mirrors
+// `library-relocate-video.e2e.test.ts`) so neither an earlier leak nor this
+// file's own connection escapes into whatever runs next.
+beforeAll(async () => {
+  await (await import('../../db/client.ts')).closeDb();
+});
+
+afterAll(async () => {
+  await (await import('../../db/client.ts')).closeDb();
+});
 
 describe('refile-backups end-to-end', () => {
   let dir: string | null = null;
