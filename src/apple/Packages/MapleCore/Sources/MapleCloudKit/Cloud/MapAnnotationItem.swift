@@ -93,3 +93,21 @@ extension MapAnnotationItem {
     return .placeQuery(trimmed)
   }
 }
+
+extension MapPlaceSearchTarget {
+  /// Applies this pin/cluster tap resolution onto a `SearchParams`,
+  /// narrowing whatever filter was already active (date range, camera, …)
+  /// rather than discarding it back to "everything, everywhere" — the same
+  /// fallback chain the design doc's "cell missing `placeLabel`" error
+  /// state specifies. Shared by every Apple map surface's pin-tap → search
+  /// wiring (macOS/iOS `AppShell+Map.swift.selectMapPlace`, #2830; tvOS
+  /// `TVMapScreen`, #2833) so the chain lives in exactly one place.
+  public func apply(to params: inout SearchParams) {
+    switch self {
+    case .placeQuery(let query):
+      params.placeQuery = query
+    case .hasLocationScope:
+      params.scope = "places"
+    }
+  }
+}
