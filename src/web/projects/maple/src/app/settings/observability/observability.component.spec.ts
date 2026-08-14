@@ -10,7 +10,7 @@
 
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
-import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { signal, type WritableSignal } from '@angular/core';
@@ -24,6 +24,7 @@ import { ObservabilityComponent } from './observability.component';
 
 describe('ObservabilityComponent', () => {
   let fixture: ComponentFixture<ObservabilityComponent>;
+  let http: HttpTestingController | null = null;
   let config: WritableSignal<ObservabilityConfigResponse | null>;
   let initialized: WritableSignal<boolean>;
   let lastError: WritableSignal<string | null>;
@@ -79,13 +80,21 @@ describe('ObservabilityComponent', () => {
         },
       ],
     }).compileComponents();
+    http = TestBed.inject(HttpTestingController);
     fixture = TestBed.createComponent(ObservabilityComponent);
   }
 
   beforeEach(() => {
+    http = null;
     localStorage.removeItem(STORAGE_KEYS.OBSERVABILITY_ENABLED);
   });
   afterEach(() => {
+    // The component reaches SigNoz/OTel exclusively through the stubbed
+    // ObservabilityService, so the expectation is zero HttpClient traffic.
+    // verify() turns that into a real assertion instead of an unused testing
+    // backend: an unflushed or unexpected request now fails the test rather
+    // than passing silently. Null when a test never called setup().
+    http?.verify();
     localStorage.removeItem(STORAGE_KEYS.OBSERVABILITY_ENABLED);
   });
 
@@ -257,7 +266,11 @@ describe('ObservabilityComponent', () => {
     config.set(CFG);
     fixture.detectChanges();
 
-    const ratioInput = el().querySelectorAll<HTMLInputElement>('.finput')[3];
+    // Selected by inputmode rather than `.finput` index: the ratio field is
+    // the only decimal input in the template, so this survives a field
+    // reorder that would silently repoint a positional `[3]` at the wrong
+    // control.
+    const ratioInput = el().querySelector<HTMLInputElement>('input[inputmode="decimal"]')!;
     ratioInput.value = '2';
     ratioInput.dispatchEvent(new Event('input'));
     fixture.detectChanges();
