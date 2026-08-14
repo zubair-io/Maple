@@ -11,6 +11,14 @@ import MapleBackup
 import UIKit
 #endif
 
+extension Notification.Name {
+    /// Posted by the AppShell grant flows the moment the user grants Photos
+    /// access in-app, so launch-gated work (the backup boot) can start
+    /// without waiting for the next cold start. PhotoKit itself publishes no
+    /// authorization-change notification (#2454), so this is the only signal.
+    static let maplePhotosAccessGranted = Notification.Name("maplePhotosAccessGranted")
+}
+
 @main
 struct MapleApp: App {
     /// One `AuthSession` per Self-Hosted server URL. Lazily created by
@@ -177,16 +185,14 @@ struct MapleApp: App {
                     )
                 }
                 .task {
-                    guard let settings = BackupSettings.load(), settings.isConfigured,
-                          let serverBaseURL = URL(string: settings.serverURL) else { return }
-                    await EngineHost.shared.start(settings: settings)
-                    // Use the same DeviceIdentity the engine just resolved.
-                    if let storage = try? DeviceIdentity.defaultStorageURL(),
-                       let deviceId = try? DeviceIdentity.current(storageURL: storage) {
-                        ChangeObserverWiring.start(deviceId: deviceId, settings: settings,
-                                                   libraryId: settings.libraryId,
-                                                   serverBaseURL: serverBaseURL)
-                    }
+                    await Self.startBackupIfAuthorized()
+                }
+                .onReceive(NotificationCenter.default.publisher(
+                    for: .maplePhotosAccessGranted)) { _ in
+                    // The user granted Photos access through the in-app flow
+                    // after a cold start that skipped the backup boot — start
+                    // it now instead of waiting for the next launch (#2851).
+                    Task { await Self.startBackupIfAuthorized() }
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     if newPhase == .background {
@@ -206,6 +212,31 @@ struct MapleApp: App {
                     }
                     #endif
                 }
+    }
+
+    /// Boot the backup engine + PhotoKit change-observer wiring, but only
+    /// when Photos authorization is already in hand. Starting either without
+    /// access used to raise the system permission dialog at launch with zero
+    /// user interaction — registering a `PHPhotoLibraryChangeObserver` while
+    /// `.notDetermined` IS an authorization request (#2454, #2851) — and let
+    /// the engine burn retry counts on rehydrated uploads whose assets can't
+    /// be fetched. When access is missing, the sidebar's lost-permission
+    /// warning is the user-visible signal; granting through the in-app flow
+    /// posts `.maplePhotosAccessGranted`, which re-runs this.
+    @MainActor
+    static func startBackupIfAuthorized() async {
+        guard let settings = BackupSettings.load(), settings.isConfigured,
+              let serverBaseURL = URL(string: settings.serverURL) else { return }
+        let status = PhotoKitLibrary.authorizationStatus()
+        guard status == .authorized || status == .limited else { return }
+        await EngineHost.shared.start(settings: settings)
+        // Use the same DeviceIdentity the engine just resolved.
+        if let storage = try? DeviceIdentity.defaultStorageURL(),
+           let deviceId = try? DeviceIdentity.current(storageURL: storage) {
+            ChangeObserverWiring.start(deviceId: deviceId, settings: settings,
+                                       libraryId: settings.libraryId,
+                                       serverBaseURL: serverBaseURL)
+        }
     }
 
     /// Register bundled .ttf font faces with the OS so `Font.custom("…", size:)`
