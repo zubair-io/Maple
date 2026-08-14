@@ -88,12 +88,13 @@ public enum MapViewport {
   /// for any realistic span (a region can be at most 360° wide), but the
   /// loop form is correct for arbitrarily large inputs too.
   ///
-  /// `public` (not just used internally by `bbox(for:)`): the tvOS camera
-  /// controller (`TVMapCameraController`, #2833) re-normalizes a region's
+  /// Shared rather than private to `bbox(for:)`: the tvOS camera controller
+  /// (`TVMapCameraController`, #2833) re-normalizes a region's
   /// `centerLongitude` after every explicit pan step, so a long Siri-Remote
-  /// session panning past the antimeridian doesn't let the center drift to
-  /// an ever-growing out-of-range value.
-  public static func wrapLongitude(_ lng: Double) -> Double {
+  /// session panning past the antimeridian doesn't let the center drift to an
+  /// ever-growing out-of-range value. Both callers live in this module, so
+  /// `internal` is enough — no reason to widen the package's public surface.
+  static func wrapLongitude(_ lng: Double) -> Double {
     var wrapped = lng
     while wrapped > 180 { wrapped -= 360 }
     while wrapped < -180 { wrapped += 360 }
