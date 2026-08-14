@@ -23,6 +23,11 @@ import SwiftUI
 import MapleCore
 
 struct PhoneSettingsView: View {
+    /// Threaded down to `SelfHostedSettingsTab` so ServerAdmin (#2766)
+    /// observes the app's shared per-server `AuthSession`. The default is
+    /// the preview fallback, which is not cached across calls.
+    var sessionFor: @MainActor (URL) -> AuthSession = AppShell.defaultSessionResolver
+
     var body: some View {
         List {
             Section("General") {
@@ -41,7 +46,7 @@ struct PhoneSettingsView: View {
                     SettingsMenuRow(icon: "icloud.and.arrow.up", label: "Backup")
                 }
                 NavigationLink {
-                    SelfHostedSettingsTab()
+                    SelfHostedSettingsTab(sessionFor: sessionFor)
                         .navigationTitle("Cloud")
                         .navigationBarTitleDisplayMode(.inline)
                 } label: {

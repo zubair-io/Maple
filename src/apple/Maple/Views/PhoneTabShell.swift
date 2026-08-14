@@ -81,6 +81,11 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     let browseVM: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
 
+    /// Passed through to the Settings tab so ServerAdmin (#2766) resolves
+    /// the app's shared per-server `AuthSession` rather than minting a new
+    /// one. Defaults to the preview fallback, which is not cached.
+    var sessionFor: @MainActor (URL) -> AuthSession = AppShell.defaultSessionResolver
+
     /// iPhone Search tab (S7): resolved-account key, session factory, and
     /// result-tap resolver. Distinct from the desktop overlay's `searchVM`.
     let phoneSearchServerKey: String?
@@ -229,7 +234,7 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     // S8 (#1903): grouped List + push, replacing the S1a
                     // placeholder that embedded SettingsView (itself a
                     // TabView) and produced a nested footer tab bar.
-                    PhoneSettingsView()
+                    PhoneSettingsView(sessionFor: sessionFor)
                         .navigationTitle("Settings")
                         .navigationBarTitleDisplayMode(.inline)
                 }
