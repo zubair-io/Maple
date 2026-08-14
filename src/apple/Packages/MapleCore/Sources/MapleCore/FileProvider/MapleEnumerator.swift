@@ -83,8 +83,12 @@ public final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
     private let absolutePath: String
     private let containerIdentifier: NSFileProviderItemIdentifier
     private let pageSize: Int
-    private let cursorStore: ChangeCursorStore?
-    private let domainID: String
+    /// Paired deliberately: a cursor store is meaningless without the
+    /// domain to key it by, and passing one without the other would silently
+    /// share a single `""`-domain cursor across every domain. Keeping them
+    /// in one optional makes that state unrepresentable rather than merely
+    /// discouraged.
+    private let changeCursor: (store: ChangeCursorStore, domainID: String)?
     private let log = Logger(subsystem: "app.justmaple.aperture.fileprovider", category: "enumerator")
 
     /// Per-call cap on rows pulled from `/api/changes`. Mirrors
@@ -96,7 +100,7 @@ public final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
     /// the value via the platform-specific subclass entry-point. Tests
     /// override it to small numbers to exercise the multi-page path.
     ///
-    /// `cursorStore`/`domainID` are optional so existing call sites and
+    /// `changeCursor` is optional so existing call sites and
     /// tests compile unchanged — without a cursor store this type has no
     /// cursor source and falls back to the prior inert behavior (the
     /// container the OS actually enumerates is `DeferredFolderEnumerator`,
@@ -107,15 +111,13 @@ public final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
                 absolutePath: String,
                 containerIdentifier: NSFileProviderItemIdentifier,
                 pageSize: Int? = nil,
-                cursorStore: ChangeCursorStore? = nil,
-                domainID: String = "") {
+                changeCursor: (store: ChangeCursorStore, domainID: String)? = nil) {
         self.catalog = catalog
         self.folderID = folderID
         self.relativePath = relativePath
         self.absolutePath = absolutePath
         self.containerIdentifier = containerIdentifier
-        self.cursorStore = cursorStore
-        self.domainID = domainID
+        self.changeCursor = changeCursor
         #if os(iOS)
         self.pageSize = pageSize ?? 200
         #else
@@ -212,19 +214,20 @@ public final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
     }
 
     public func currentSyncAnchor(completionHandler: @escaping (NSFileProviderSyncAnchor?) -> Void) {
-        guard let cursorStore else {
+        guard let changeCursor else {
             // No cursor source: report a stable anchor. The container the
             // OS actually enumerates is `DeferredFolderEnumerator`, which
             // has the real feed; this type is its listing worker.
             completionHandler(FolderChangeMatching.anchor(0))
             return
         }
-        completionHandler(FolderChangeMatching.anchor(cursorStore.load(domain: domainID)))
+        completionHandler(
+            FolderChangeMatching.anchor(changeCursor.store.load(domain: changeCursor.domainID)))
     }
 
     public func enumerateChanges(for observer: NSFileProviderChangeObserver,
                                  from anchor: NSFileProviderSyncAnchor) {
-        guard cursorStore != nil else {
+        guard changeCursor != nil else {
             // No cursor source injected: keep the prior inert behavior
             // rather than fabricate a delta from nothing.
             observer.finishEnumeratingChanges(upTo: anchor, moreComing: false)
