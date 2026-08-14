@@ -74,7 +74,7 @@ struct MapView: View {
         }
         .accessibilityIdentifier("map-view")
 
-        MapHeatmapLayerView(cells: vm.cells, zoomLevel: currentZoomLevel, proxy: proxy)
+        MapHeatmapLayerView(points: vm.heatmapPoints, zoomLevel: currentZoomLevel, proxy: proxy)
 
         if vm.isEmpty {
           statePane(icon: "mappin.slash",

@@ -89,6 +89,100 @@ final class MapViewModelTests: XCTestCase {
     XCTAssertFalse(vm.isEmpty, "a failure is not the same as a confirmed-empty result")
   }
 
+  // MARK: - heatmapPoints (#2831)
+
+  /// The heatmap's weights are derived once per fetch and published
+  /// alongside `cells`, so the draw path never has to normalize (an O(n)
+  /// max + allocation) on a per-frame basis. Weights are relative to the
+  /// hottest cell in the response: count 25 → 1.0, count 5 → 0.2.
+  func test_fetch_derivesHeatmapPointsFromCells() async throws {
+    let server = URL(string: "https://example.test")!
+    let json = """
+    {"cells":[{"lat":1,"lng":2,"count":5,"representativeAssetId":"a"},
+              {"lat":3,"lng":4,"count":25,"representativeAssetId":"b"}]}
+    """
+    let session = URLSession.stubbed(response: json)
+    let client = MapClustersClient(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
+    let vm = MapViewModel(server: server, client: client)
+
+    await vm.fetch(region: region())
+
+    XCTAssertEqual(vm.heatmapPoints.count, 2)
+    XCTAssertEqual(vm.heatmapPoints.map(\.weight), [0.2, 1.0])
+    XCTAssertEqual(vm.heatmapPoints.map(\.latitude), [1, 3])
+  }
+
+  /// A confirmed-empty region must publish no heat at all — otherwise the
+  /// heatmap would keep painting the previous region's blobs over an empty
+  /// map.
+  func test_fetch_emptyCells_clearsHeatmapPoints() async throws {
+    let server = URL(string: "https://example.test")!
+    nonisolated(unsafe) var requestCount = 0
+    let session = URLSession.stubbedSequence { req in
+      requestCount += 1
+      let json = requestCount == 1
+        ? #"{"cells":[{"lat":1,"lng":2,"count":3,"representativeAssetId":"a"}]}"#
+        : #"{"cells":[]}"#
+      let resp = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+                                 headerFields: ["Content-Type": "application/json"])!
+      return (Data(json.utf8), resp)
+    }
+    let client = MapClustersClient(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
+    let vm = MapViewModel(server: server, client: client)
+
+    await vm.fetch(region: region())
+    XCTAssertEqual(vm.heatmapPoints.count, 1)
+
+    await vm.fetch(region: region(lat: 5))
+    XCTAssertTrue(vm.heatmapPoints.isEmpty, "an empty region must publish no heat")
+  }
+
+  /// `heatmapPoints` must stay in lockstep with `cells` — including on the
+  /// failure path, where `cells` is deliberately NOT cleared so the map
+  /// keeps showing the last good data. The heatmap must keep showing the
+  /// same thing the pins do rather than blanking on its own.
+  func test_fetch_failure_keepsHeatmapPointsInLockstepWithCells() async throws {
+    let server = URL(string: "https://example.test")!
+    nonisolated(unsafe) var requestCount = 0
+    let session = URLSession.stubbedSequence { req in
+      requestCount += 1
+      if requestCount == 1 {
+        let json = #"{"cells":[{"lat":1,"lng":2,"count":4,"representativeAssetId":"a"}]}"#
+        let resp = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+                                   headerFields: ["Content-Type": "application/json"])!
+        return (Data(json.utf8), resp)
+      }
+      let resp = HTTPURLResponse(url: req.url!, statusCode: 500, httpVersion: "HTTP/1.1",
+                                 headerFields: ["Content-Type": "text/plain"])!
+      return (Data("server error".utf8), resp)
+    }
+    let client = MapClustersClient(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
+    let vm = MapViewModel(server: server, client: client)
+
+    await vm.fetch(region: region())
+    await vm.fetch(region: region(lat: 5))
+
+    XCTAssertEqual(vm.cells.count, 1)
+    XCTAssertEqual(vm.heatmapPoints.count, vm.cells.count,
+      "heatmapPoints must track cells exactly, including across a failed fetch")
+  }
+
+  /// The `preview(cells:)` factory routes through the same derivation, so a
+  /// SwiftUI preview shows heat rather than a bare map.
+  func test_preview_derivesHeatmapPoints() {
+    let vm = MapViewModel.preview(cells: [
+      MapCluster(lat: 10, lng: 20, count: 2, representativeAssetId: "a"),
+      MapCluster(lat: 11, lng: 21, count: 8, representativeAssetId: "b"),
+    ])
+    XCTAssertEqual(vm.heatmapPoints.map(\.weight), [0.25, 1.0])
+  }
+
   /// Stale-completion guard. A slow response for an earlier region must
   /// not clobber the cells a later region's (faster) fetch already wrote.
   func test_fetch_dropsStaleResponse_afterNewerFetchBumpsGeneration() async throws {

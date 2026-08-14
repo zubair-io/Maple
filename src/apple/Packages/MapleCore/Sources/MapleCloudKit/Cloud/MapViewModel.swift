@@ -23,6 +23,15 @@ public final class MapViewModel {
   /// untouched: a tile/data outage keeps showing the last good pins
   /// rather than blanking the map.
   public private(set) var cells: [MapCluster] = []
+  /// `cells` normalized into heatmap weights (#2831) — derived ONCE per
+  /// fetch, not once per draw. The heatmap layer redraws on every camera
+  /// tick (`.onMapCameraChange(frequency: .continuous)`), and normalization
+  /// is an O(n) max plus an array allocation; doing it inside the draw
+  /// closure would put an allocation in the render loop, which CLAUDE.md
+  /// § "Performance invariants" forbids outright. It's a pure function of
+  /// `cells`, so the right place to compute it is wherever `cells` changes.
+  /// Kept in lockstep by `applyCells(_:)` — never assign one without it.
+  public private(set) var heatmapPoints: [MapHeatmapPoint] = []
   public private(set) var isLoading = false
   public private(set) var loadError: Error?
   /// True once a fetch for the current region+filter has completed
@@ -97,7 +106,7 @@ public final class MapViewModel {
     do {
       let response = try await client.clusters(bbox: bbox, zoom: zoom, filter: filter)
       guard g == generation else { return }
-      cells = response.cells
+      applyCells(response.cells)
       isEmpty = response.cells.isEmpty
     } catch {
       guard g == generation else { return }
@@ -107,12 +116,20 @@ public final class MapViewModel {
     }
   }
 
+  /// The ONLY place `cells` is assigned — keeps `heatmapPoints` derived
+  /// from exactly the cells currently on screen, so the pins and the
+  /// heatmap can never disagree about what was fetched.
+  private func applyCells(_ newCells: [MapCluster]) {
+    cells = newCells
+    heatmapPoints = MapHeatmapPoint.points(from: newCells)
+  }
+
   // MARK: - Preview
 
   public static func preview(cells: [MapCluster] = []) -> MapViewModel {
     let server = URL(string: "https://preview.maple.invalid")!
     let vm = MapViewModel(server: server, client: MapClustersClient.preview(server: server))
-    vm.cells = cells
+    vm.applyCells(cells)
     vm.isEmpty = cells.isEmpty
     return vm
   }
