@@ -129,8 +129,11 @@ describe('POST /api/folders — slug collision retry', () => {
     // win the unique index. The loser's retry loop must recover with the
     // widened in-memory taken-set (not a re-query) and succeed with a
     // suffixed slug — not surface a 500.
-    const tmpDirA = `${tmpDir}-a`;
-    const tmpDirB = `${tmpDir}-b`;
+    // Nested INSIDE tmpDir, not siblings of it, so afterEach's recursive
+    // rm(tmpDir) always reclaims them — a sibling would leak under /tmp on
+    // any run where an assertion below throws before the cleanup line.
+    const tmpDirA = `${tmpDir}/a`;
+    const tmpDirB = `${tmpDir}/b`;
     await mkdir(tmpDirA, { recursive: true });
     await mkdir(tmpDirB, { recursive: true });
 
@@ -153,9 +156,6 @@ describe('POST /api/folders — slug collision retry', () => {
     const bodyB = (await resB.json()) as { slug: string; path: string };
     expect(bodyA.slug).not.toBe(bodyB.slug);
     expect([bodyA.slug, bodyB.slug].sort()).toEqual(['concurrent-library', 'concurrent-library-2']);
-
-    await rm(tmpDirA, { recursive: true, force: true });
-    await rm(tmpDirB, { recursive: true, force: true });
   });
 
   it('GET /api/folders returns slug in the payload (client addresses libraries by slug)', async () => {
