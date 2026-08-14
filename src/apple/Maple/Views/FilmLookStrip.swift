@@ -33,7 +33,9 @@ struct FilmLookStrip: View {
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
+            // Lazy so switching categories only realizes the cards actually
+            // on screen — same pattern as `FilmstripView`'s thumbnail rail.
+            LazyHStack(spacing: 6) {
                 FilmLookCard(title: "None", isSelected: !isLookActive, action: onSelectNone)
                     .accessibilityIdentifier("film-look-none")
                 ForEach(looks, id: \.id) { look in
