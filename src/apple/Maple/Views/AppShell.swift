@@ -890,7 +890,7 @@ struct AppShell: View {
             clipboard: adjustmentClipboard
         )
         .sheet(isPresented: $showSettings, onDismiss: { settingsInitialTab = nil }) {
-            SettingsView(initialTab: settingsInitialTab)
+            SettingsView(initialTab: settingsInitialTab, sessionFor: sessionFor)
                 .frame(minWidth: 540, minHeight: 480)
         }
         .sheet(item: $batchMetadataVM) { vm in
@@ -1266,7 +1266,9 @@ struct AppShell: View {
             onBatchRename: { openBatchRename() },
             // #2653: grid Delete-key/context-menu trash.
             onTrashAssets: { ids in trashSelectedAssets(ids: Set(ids)) },
-            clipboard: adjustmentClipboard
+            clipboard: adjustmentClipboard,
+            // ServerAdmin (#2766) reaches the Settings tab through here.
+            sessionFor: sessionFor
         )
         // M2: panorama merge sheet for iPhone — same sheet as Mac/iPad,
         // but presented over the tab shell instead of the pane shell.

@@ -129,8 +129,20 @@ struct MapleApp: App {
         // Settings scene. Self-Hosted server management lives here — the
         // sidebar only shows Self Hosted once at least one server is paired.
         Settings {
-            SettingsView()
+            SettingsView(sessionFor: { server in session(for: server) })
         }
+
+        // Per-server administration (#2766). A separate resizable window
+        // rather than a Settings tab: the Settings scene is a fixed
+        // 540×480 and the Workers table arriving in #2768 is eight columns
+        // wide. Keyed by server URL so two servers can be administered
+        // side by side.
+        WindowGroup(id: "server-admin", for: URL.self) { $server in
+            if let server {
+                ServerAdminView(server: server, session: session(for: server))
+            }
+        }
+        .defaultSize(width: 900, height: 620)
         #endif
     }
 
@@ -290,6 +302,12 @@ struct SettingsView: View {
     /// (e.g. the PanoMergeView "Configure in Settings → Pano" action).
     var initialTab: SettingsTab? = nil
 
+    /// Resolves the shared per-server `AuthSession` for the Cloud tab's
+    /// ServerAdmin entry point (#2766). Defaults to the preview/test
+    /// fallback, which is NOT cached across calls — production callers
+    /// pass `MapleApp.session(for:)`.
+    var sessionFor: @MainActor (URL) -> AuthSession = AppShell.defaultSessionResolver
+
     @State private var selectedTab: SettingsTab = .general
 
     var body: some View {
@@ -300,7 +318,7 @@ struct SettingsView: View {
             BackupSettingsView()
                 .tabItem { Label("Backup", systemImage: "icloud.and.arrow.up") }
                 .tag(SettingsTab.backup)
-            SelfHostedSettingsTab()
+            SelfHostedSettingsTab(sessionFor: sessionFor)
                 .tabItem { Label("Cloud", systemImage: "cloud") }
                 .tag(SettingsTab.selfHosted)
             PanoSettingsView()
