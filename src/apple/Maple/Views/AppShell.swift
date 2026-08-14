@@ -1227,6 +1227,8 @@ struct AppShell: View {
             browseDisplayMode: $browseDisplayMode,
             browseVM: browseVM,
             sessions: $sessions,
+            // ServerAdmin (#2766) reaches the Settings tab through here.
+            sessionFor: sessionFor,
             phoneSearchServerKey: phoneSearchServerKey,
             makePhoneSearchSession: { await makePhoneSearchSession() },
             resolveSearchAsset: { asset, server in prepareCloudSession(asset, server: server) },
@@ -1266,9 +1268,7 @@ struct AppShell: View {
             onBatchRename: { openBatchRename() },
             // #2653: grid Delete-key/context-menu trash.
             onTrashAssets: { ids in trashSelectedAssets(ids: Set(ids)) },
-            clipboard: adjustmentClipboard,
-            // ServerAdmin (#2766) reaches the Settings tab through here.
-            sessionFor: sessionFor
+            clipboard: adjustmentClipboard
         )
         // M2: panorama merge sheet for iPhone — same sheet as Mac/iPad,
         // but presented over the tab shell instead of the pane shell.
