@@ -22,4 +22,9 @@ public enum LibrarySelection: Hashable {
     /// from the sidebar's TIMELINE row, which sits above the per-server
     /// sections rather than nesting under one of them.
     case allSources
+    /// The native MapKit map view (#2830) — every located photo on the
+    /// resolved cloud server (see `AppShell.resolveSearchServerURL()`;
+    /// account-wide, same scoping as the phone Search tab, not tied to one
+    /// library). Selected from the sidebar's MAP row, next to TIMELINE.
+    case map
 }

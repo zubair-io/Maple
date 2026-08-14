@@ -49,6 +49,15 @@ struct AppShellCenterColumn: View {
     /// nils whichever one isn't current).
     let allSourcesTimelineVM: AllSourcesTimelineViewModel?
     let allSourcesTimelineThumbCache: CloudThumbCache?
+    /// Non-nil while the sidebar's MAP row (#2830, `.map` selection) is
+    /// current — takes precedence over the Timeline/grid branches below,
+    /// same mutual-exclusion discipline as `allSourcesTimelineVM`. Defaults
+    /// to nil: Map is Mac/iPad-only (reachable from the sidebar, which the
+    /// iPhone tab shell doesn't have) — the iPhone `AppShellIPhoneShell`
+    /// call site omits all three.
+    var mapVM: MapViewModel? = nil
+    var mapThumbClient: CloudThumbClient? = nil
+    var mapThumbCache: CloudThumbCache? = nil
     /// When true (and the search VM + thumb client/cache are present) the
     /// center column renders `CloudSearchView` instead of the grid /
     /// timeline. Takes precedence over the timeline branch but not the
@@ -64,6 +73,11 @@ struct AppShellCenterColumn: View {
 
     // Center-column callbacks — forward into AppShell action methods.
     let onSelectCloudAsset: (SearchAsset, URL) -> Void
+    /// Map pin/cluster tap (#2830) → AppShell activates search filtered by
+    /// the resolved target (a place name, or the has-GPS scope fallback).
+    /// Defaults to a no-op — unused on the iPhone shell, which never sets
+    /// `mapVM`.
+    var onSelectMapPlace: (MapPlaceSearchTarget) -> Void = { _ in }
     /// Dismiss the cloud search UI.
     let onCloseSearch: () -> Void
     let onSelectLocalAsset: (ImageRef) -> Void
@@ -177,7 +191,17 @@ struct AppShellCenterColumn: View {
                 onClose: onCloseSearch
             )
         } else {
-            if let allVM = allSourcesTimelineVM,
+            if let mvm = mapVM,
+               let thumbClient = mapThumbClient,
+               let thumbCache = mapThumbCache {
+                MapView(
+                    vm: mvm,
+                    thumbClient: thumbClient,
+                    thumbCache: thumbCache,
+                    host: mvm.server.cacheHostKey,
+                    onSelectPlace: onSelectMapPlace
+                )
+            } else if let allVM = allSourcesTimelineVM,
                let thumbCache = allSourcesTimelineThumbCache {
                 AllSourcesTimelineView(
                     vm: allVM,

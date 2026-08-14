@@ -43,6 +43,11 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
     let cloudTimelineThumbCache: CloudThumbCache?
     let allSourcesTimelineVM: AllSourcesTimelineViewModel?
     let allSourcesTimelineThumbCache: CloudThumbCache?
+    /// Non-nil while the sidebar's MAP row (#2830) is selected — same
+    /// mutual-exclusion discipline as `allSourcesTimelineVM`.
+    let mapVM: MapViewModel?
+    let mapThumbClient: CloudThumbClient?
+    let mapThumbCache: CloudThumbCache?
     let isSearchActive: Bool
     let searchVM: SearchViewModel?
     let searchThumbClient: CloudThumbClient?
@@ -60,6 +65,9 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
     // AppShell+PhotoKitActions). Centralising them here keeps the layout
     // pure-presentation and lets AppShell own all state mutation.
     let onSelectCloudAsset: (SearchAsset, URL) -> Void
+    /// Map pin/cluster tap (#2830) → AppShell activates search filtered by
+    /// the resolved target (a place name, or the has-GPS scope fallback).
+    let onSelectMapPlace: (MapPlaceSearchTarget) -> Void
     /// Dismiss the cloud search UI.
     let onCloseSearch: () -> Void
     let onSelectLocalAsset: (ImageRef) -> Void
@@ -194,6 +202,9 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
             cloudTimelineThumbCache: cloudTimelineThumbCache,
             allSourcesTimelineVM: allSourcesTimelineVM,
             allSourcesTimelineThumbCache: allSourcesTimelineThumbCache,
+            mapVM: mapVM,
+            mapThumbClient: mapThumbClient,
+            mapThumbCache: mapThumbCache,
             isSearchActive: isSearchActive,
             searchVM: searchVM,
             searchThumbClient: searchThumbClient,
@@ -202,6 +213,7 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
             browseVM: browseVM,
             sessions: $sessions,
             onSelectCloudAsset: onSelectCloudAsset,
+            onSelectMapPlace: onSelectMapPlace,
             onCloseSearch: onCloseSearch,
             onSelectLocalAsset: onSelectLocalAsset,
             onGrantPhotosAccess: onGrantPhotosAccess,
