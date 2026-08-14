@@ -60,6 +60,8 @@ struct AppShellSidebar: View {
     var onShowSMBTrash: ((SMBCredentialStore.SavedShare) -> Void)? = nil
     var onShowCloudTrash: ((URL, String, String) -> Void)? = nil
     let onSelectTimeline: () -> Void
+    /// MAP row (#2830) tap — forwarded to `LibrarySidebar`.
+    let onSelectMap: () -> Void
     /// OS file/folder drop-to-mount (#2649) — forwarded to `LibrarySidebar`;
     /// see its declaration for why every row needs this in addition to a
     /// window-level handler.
@@ -102,6 +104,7 @@ struct AppShellSidebar: View {
             onShowSMBTrash: onShowSMBTrash,
             onShowCloudTrash: onShowCloudTrash,
             onSelectTimeline: onSelectTimeline,
+            onSelectMap: onSelectMap,
             onDropURLs: onDropURLs
         )
     }

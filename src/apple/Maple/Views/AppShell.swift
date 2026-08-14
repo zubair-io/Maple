@@ -263,6 +263,19 @@ struct AppShell: View {
     /// cache safely serves every connected server.
     @State var allSourcesTimelineThumbCache: CloudThumbCache?
 
+    /// Set when the user selects the sidebar's MAP row (#2830); when
+    /// non-nil the center column renders `MapView` instead of
+    /// `BrowseGrid`/`CloudTimelineView`/`AllSourcesTimelineView`. Cleared
+    /// on every other selection, same discipline as `allSourcesTimelineVM`.
+    /// Account-wide (no libraryID) — same scoping as the phone Search tab,
+    /// resolved via `resolveSearchServerURL()`. See `AppShell+Map.swift`.
+    @State var mapVM: MapViewModel?
+    /// Thumb client + cache for the map's single-photo pins. Built
+    /// alongside `mapVM` for the same 401-refresh-coalescer reason as
+    /// `cloudTimelineThumbClient`.
+    @State var mapThumbClient: CloudThumbClient?
+    @State var mapThumbCache: CloudThumbCache?
+
     /// Histogram client for the currently-open cloud asset (#633). Set
     /// when `openCloudAsset(_:server:)` builds the editor session — the
     /// AuthenticatedHTTPClient is reused with the existing
@@ -675,6 +688,16 @@ struct AppShell: View {
                 allSourcesTimelineVM = nil
                 allSourcesTimelineThumbCache = nil
             }
+            // Map VM (#2830) is only meaningful while `.map` is selected —
+            // drop it on any other selection so the center column doesn't
+            // ghost-render it after the user picks a folder / library /
+            // Timeline / Photos filter.
+            if case .map = newValue { /* keep */ }
+            else {
+                mapVM = nil
+                mapThumbClient = nil
+                mapThumbCache = nil
+            }
             // Merged timeline only valid while a PhotoKit filter is active.
             if case .photosFilter = newValue { /* keep mergedCloudSource */ }
             else {
@@ -789,6 +812,9 @@ struct AppShell: View {
             cloudTimelineThumbCache: cloudTimelineThumbCache,
             allSourcesTimelineVM: allSourcesTimelineVM,
             allSourcesTimelineThumbCache: allSourcesTimelineThumbCache,
+            mapVM: mapVM,
+            mapThumbClient: mapThumbClient,
+            mapThumbCache: mapThumbCache,
             isSearchActive: isSearchActive,
             searchVM: searchVM,
             searchThumbClient: searchThumbClient,
@@ -799,6 +825,7 @@ struct AppShell: View {
             sidebar: { sharedSidebar },
             toolbarContent: { browseToolbarContent },
             onSelectCloudAsset: { asset, server in openCloudAsset(asset, server: server) },
+            onSelectMapPlace: { target in selectMapPlace(target) },
             onCloseSearch: { deactivateSearch() },
             onSelectLocalAsset: { ref in openLocalPhotoKitAsset(ref) },
             onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
@@ -1162,6 +1189,7 @@ struct AppShell: View {
                 trashBrowserContext = .cloud(server: server, libraryFolderID: libraryFolderID, displayName: displayName)
             },
             onSelectTimeline: { openAllSourcesTimeline() },
+            onSelectMap: { openMap() },
             // OS file/folder drop-to-mount (#2649) — every sidebar row also
             // installs its OWN `URL.self` drop target (see
             // `LibrarySidebar.onDropURLs`'s doc comment for why a
