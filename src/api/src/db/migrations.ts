@@ -202,7 +202,10 @@ export async function backfillFileinfo(db: Db): Promise<BackfillFileinfoResult> 
 // group member's `fileinfo[]`. Impl in migrations.merge-duplicates.ts (kept
 // out of this file to stay under the file-size budget — it's the largest
 // single migration and the batching refactor needs room to breathe).
-export type { MergeDuplicatesResult } from './migrations.merge-duplicates.ts';
+// `MergeDuplicatesResult` is not re-exported here: nothing outside
+// migrations.merge-duplicates.ts references it by name (callers get it via
+// inference from `mergeDuplicateAssets`'s return type), so re-exporting it
+// would just be a second dead export.
 export { mergeDuplicateAssets } from './migrations.merge-duplicates.ts';
 
 // ---------------------------------------------------------------------------

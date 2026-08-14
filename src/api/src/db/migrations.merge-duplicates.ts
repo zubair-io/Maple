@@ -113,6 +113,82 @@ function unionFileinfo(rows: DupRow[]): FileInfoEntryShape[] {
   return Array.from(seen.values());
 }
 
+/**
+ * Every candidate `_id` mapped back to the group (`maple_id`) it came from,
+ * plus the flattened id list for one batched `find` in place of one `find()`
+ * per group. Built entirely from the aggregate's own `ids` arrays, so this
+ * needs no extra query.
+ */
+function indexGroupIds(dupes: DupGroup[]): {
+  idToGroupKey: Map<string, string>;
+  allIds: ObjectId[];
+} {
+  const idToGroupKey = new Map<string, string>();
+  const allIds: ObjectId[] = [];
+  for (const group of dupes) {
+    for (const id of group.ids) {
+      idToGroupKey.set(id.toString(), group._id);
+      allIds.push(id);
+    }
+  }
+  return { idToGroupKey, allIds };
+}
+
+/** Re-partitions the single batched `find` result back into per-group rows. */
+function partitionRowsByGroup(
+  rows: DupRow[],
+  idToGroupKey: Map<string, string>,
+): Map<string, DupRow[]> {
+  const rowsByGroup = new Map<string, DupRow[]>();
+  for (const row of rows) {
+    const key = idToGroupKey.get(row._id.toString());
+    if (key === undefined) continue; // every row came from allIds — defensive only
+    const list = rowsByGroup.get(key);
+    if (list) list.push(row);
+    else rowsByGroup.set(key, [row]);
+  }
+  return rowsByGroup;
+}
+
+interface GroupMergeLogEntry {
+  maple_id: string;
+  survivor: string;
+  losers: string[];
+  merged_locations: number;
+}
+
+/**
+ * Computes one group's survivor `updateOne` + loser `deleteMany` ops (to be
+ * carried in the caller's single `bulkWrite`) plus its audit log entry. Null
+ * when the group no longer has 2+ rows at merge time (e.g. a prior partial
+ * run already collapsed it).
+ */
+function buildGroupMergeOps(
+  group: DupGroup,
+  rowsByGroup: Map<string, DupRow[]>,
+): { ops: AnyBulkWriteOperation[]; logEntry: GroupMergeLogEntry } | null {
+  const groupRows = rowsByGroup.get(group._id) ?? [];
+  if (groupRows.length < 2) return null;
+
+  const sorted = sortByIndexedAt(groupRows);
+  const survivor = sorted[0]!;
+  const losers = sorted.slice(1);
+  const merged = unionFileinfo(sorted);
+
+  return {
+    ops: [
+      { updateOne: { filter: { _id: survivor._id }, update: { $set: { fileinfo: merged } } } },
+      { deleteMany: { filter: { _id: { $in: losers.map((l) => l._id) } } } },
+    ],
+    logEntry: {
+      maple_id: group._id,
+      survivor: survivor._id.toHexString(),
+      losers: losers.map((l) => l._id.toHexString()),
+      merged_locations: merged.length,
+    },
+  };
+}
+
 export async function mergeDuplicateAssets(db: Db): Promise<MergeDuplicatesResult> {
   const dupes = await db
     .collection('assets')
@@ -127,18 +203,7 @@ export async function mergeDuplicateAssets(db: Db): Promise<MergeDuplicatesResul
     return { scanned_groups: 0, merged_groups: 0, deleted_rows: 0 };
   }
 
-  // Map every candidate _id back to the group (`maple_id`) it came from, and
-  // collect the full id set for one batched find in place of one find() per
-  // group. The map is built from the aggregate's own `ids` arrays, so this
-  // needs no extra query.
-  const idToGroupKey = new Map<string, string>();
-  const allIds: ObjectId[] = [];
-  for (const group of dupes) {
-    for (const id of group.ids) {
-      idToGroupKey.set(id.toString(), group._id);
-      allIds.push(id);
-    }
-  }
+  const { idToGroupKey, allIds } = indexGroupIds(dupes);
 
   // Projection: we only need the fields used by the survivor pick and the
   // fileinfo union. Pulling whole docs would drag along `vision`,
@@ -160,51 +225,18 @@ export async function mergeDuplicateAssets(db: Db): Promise<MergeDuplicatesResul
     )
     .toArray()) as DupRow[];
 
-  const rowsByGroup = new Map<string, DupRow[]>();
-  for (const row of rows) {
-    const key = idToGroupKey.get(row._id.toString());
-    if (key === undefined) continue; // every row came from allIds — defensive only
-    const list = rowsByGroup.get(key);
-    if (list) list.push(row);
-    else rowsByGroup.set(key, [row]);
-  }
+  const rowsByGroup = partitionRowsByGroup(rows, idToGroupKey);
 
   const ops: AnyBulkWriteOperation[] = [];
-  const logEntries: Array<{
-    maple_id: string;
-    survivor: string;
-    losers: string[];
-    merged_locations: number;
-  }> = [];
+  const logEntries: GroupMergeLogEntry[] = [];
   let merged_groups = 0;
 
   for (const group of dupes) {
-    const groupRows = rowsByGroup.get(group._id) ?? [];
-    if (groupRows.length < 2) continue;
-
-    const sorted = sortByIndexedAt(groupRows);
-    const survivor = sorted[0]!;
-    const losers = sorted.slice(1);
-    const merged = unionFileinfo(sorted);
-
-    ops.push({
-      updateOne: {
-        filter: { _id: survivor._id },
-        update: { $set: { fileinfo: merged } },
-      },
-    });
-    ops.push({
-      deleteMany: {
-        filter: { _id: { $in: losers.map((l) => l._id) } },
-      },
-    });
+    const built = buildGroupMergeOps(group, rowsByGroup);
+    if (!built) continue;
+    ops.push(...built.ops);
+    logEntries.push(built.logEntry);
     merged_groups += 1;
-    logEntries.push({
-      maple_id: group._id,
-      survivor: survivor._id.toHexString(),
-      losers: losers.map((l) => l._id.toHexString()),
-      merged_locations: merged.length,
-    });
   }
 
   const deleted_rows =
