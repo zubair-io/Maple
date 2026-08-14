@@ -103,12 +103,7 @@ extension AppShell {
             libraryID: nil, // account-wide, same scope as the map itself
             searchClient: CloudSearchClient(server: effectiveServer, httpClient: httpClient))
         vm.params = mapVM.filter
-        switch target {
-        case .placeQuery(let query):
-            vm.params.placeQuery = query
-        case .hasLocationScope:
-            vm.params.scope = "places"
-        }
+        target.apply(to: &vm.params)
         searchVM = vm
         searchThumbClient = CloudThumbClient(server: effectiveServer, httpClient: httpClient)
         searchThumbCache = CloudThumbCache()

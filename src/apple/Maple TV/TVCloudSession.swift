@@ -52,6 +52,12 @@ final class TVCloudSession {
   let searchClient: CloudSearchClient
   let thumbClient: CloudThumbClient
   let videoClient: CloudVideoClient
+  /// `/api/map/clusters` client. Feeds `TVMapScreen`'s `MapViewModel`
+  /// (#2833) — reuses `MapClustersClient` as-is, the same one macOS/iOS's
+  /// Map view (#2830) uses, since it already lives in MapleCloudKit
+  /// (portable, no MapleCore/RawPipeline dependency) for exactly this
+  /// reason.
+  let mapClient: MapClustersClient
   /// Shared across every `TVRemoteImage` this session's screens render
   /// (grid cells, and D6's full-screen viewer once it lands), so the
   /// disk-backed AVIF cache is a single instance per connected session
@@ -99,6 +105,7 @@ final class TVCloudSession {
     self.searchClient = CloudSearchClient(server: server, httpClient: httpClient)
     self.thumbClient = CloudThumbClient(server: server, httpClient: httpClient)
     self.videoClient = CloudVideoClient(server: server, httpClient: httpClient)
+    self.mapClient = MapClustersClient(server: server, httpClient: httpClient)
     self.foldersClient = CloudFoldersClient(server: server, httpClient: httpClient)
   }
 

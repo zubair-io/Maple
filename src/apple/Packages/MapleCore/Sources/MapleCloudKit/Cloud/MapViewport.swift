@@ -87,7 +87,13 @@ public enum MapViewport {
   /// Wraps a longitude into `[-180, 180]`. A single `while` pass suffices
   /// for any realistic span (a region can be at most 360° wide), but the
   /// loop form is correct for arbitrarily large inputs too.
-  private static func wrapLongitude(_ lng: Double) -> Double {
+  ///
+  /// `public` (not just used internally by `bbox(for:)`): the tvOS camera
+  /// controller (`TVMapCameraController`, #2833) re-normalizes a region's
+  /// `centerLongitude` after every explicit pan step, so a long Siri-Remote
+  /// session panning past the antimeridian doesn't let the center drift to
+  /// an ever-growing out-of-range value.
+  public static func wrapLongitude(_ lng: Double) -> Double {
     var wrapped = lng
     while wrapped > 180 { wrapped -= 360 }
     while wrapped < -180 { wrapped += 360 }
