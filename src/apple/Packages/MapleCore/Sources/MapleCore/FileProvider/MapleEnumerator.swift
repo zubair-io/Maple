@@ -231,7 +231,8 @@ public final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
             return
         }
         let since = FolderChangeMatching.parseAnchor(anchor)
-        Task {
+        Task { [weak self] in
+            guard let self else { return }
             do {
                 let page = try await catalog.listChanges(since: since,
                                                          limit: Self.changesPageLimit)
@@ -241,7 +242,10 @@ public final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
                 observer.didUpdate(split.updates)
                 observer.didDeleteItems(withIdentifiers: split.deletes)
                 let newAnchor = page.nextCursor.map { FolderChangeMatching.anchor($0) } ?? anchor
-                let moreComing = page.changes.count >= Self.changesPageLimit
+                // Only claim more is coming when the anchor actually moved.
+                // A full page with no cursor would otherwise send the OS
+                // back with the same anchor forever.
+                let moreComing = page.nextCursor != nil && page.changes.count >= Self.changesPageLimit
                 observer.finishEnumeratingChanges(upTo: newAnchor, moreComing: moreComing)
             } catch let e as StaleCursorError {
                 log.notice("folder stale cursor (server current=\(e.current)); requesting full re-enumeration")
