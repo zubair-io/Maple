@@ -18,6 +18,7 @@ export type SettingsSection =
   | 'observability'
   | 'network'
   | 'pano'
+  | 'map'
   | 'cloudflare';
 
 interface NavItem {
@@ -71,6 +72,14 @@ const ITEMS: readonly NavItem[] = [
     link: '/settings/pano',
     ownerOnly: true,
     sub: 'Panorama stitching',
+  },
+  {
+    id: 'map',
+    label: 'Map',
+    icon: 'globe',
+    link: '/settings/map',
+    ownerOnly: true,
+    sub: 'Tile source for the Map view',
   },
   { id: 'users', label: 'Users', icon: 'key', link: '/settings/users', ownerOnly: true },
   {
