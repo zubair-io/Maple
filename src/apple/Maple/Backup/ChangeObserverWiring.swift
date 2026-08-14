@@ -52,6 +52,16 @@ enum ChangeObserverWiring {
     static func start(deviceId: String, settings: BackupSettings,
                       libraryId: String, serverBaseURL: URL,
                       retryFailed: Bool = false) {
+        // Registering a `PHPhotoLibraryChangeObserver` while authorization is
+        // `.notDetermined` IS an authorization request (#2454) — starting the
+        // wiring without access in hand raised the system Photos dialog at
+        // launch with zero user interaction (#2851). Callers re-invoke start()
+        // once the user grants access through the in-app flow.
+        let status = PhotoKitLibrary.authorizationStatus()
+        guard status == .authorized || status == .limited else {
+            log.info("start skipped: Photos authorization is \(status.rawValue) — not subscribing, not walking")
+            return
+        }
         log.info("start subscribe deviceId=\(deviceId, privacy: .public) libraryId=\(libraryId, privacy: .public) server=\(serverBaseURL.absoluteString, privacy: .public) retryFailed=\(retryFailed)")
         // Reset cross-walk delete-diff state so a library change doesn't mark
         // assets in the new library as deleted (they weren't in the old set).
@@ -91,6 +101,14 @@ enum ChangeObserverWiring {
     /// tasks (that's reserved for an explicit user Restart).
     static func runWalk(deviceId: String, settings: BackupSettings,
                         libraryId: String, serverBaseURL: URL) async {
+        // Same gate as start(): without access the walk sees an empty library,
+        // which the delete-reconciliation diff would misread as "everything
+        // was deleted" on a later authorized walk's lastSeenPhids baseline.
+        let status = PhotoKitLibrary.authorizationStatus()
+        guard status == .authorized || status == .limited else {
+            log.info("runWalk skipped: Photos authorization is \(status.rawValue)")
+            return
+        }
         await enqueueAllNew(deviceId: deviceId, settings: settings,
                             libraryId: libraryId, serverBaseURL: serverBaseURL,
                             retryFailed: false)
