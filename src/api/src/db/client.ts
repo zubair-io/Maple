@@ -51,27 +51,66 @@ import type { WorkerConfigDoc } from '../workers/worker-config.repo.ts';
 
 const log = childLogger('db');
 
-// Singleton client; created once on first call to getDb().
-let _client: MongoClient | null = null;
-let _db: Db | null = null;
-let _connectPromise: Promise<Db> | null = null;
+// Singleton connection; created lazily and re-created whenever the
+// MAPLE_MONGO_URI / MAPLE_MONGO_DB pair changes between calls (test files
+// override them per-suite — see getDb).
+interface ActiveConnection {
+  key: string;
+  client: MongoClient;
+  db: Db;
+}
+
+interface PendingConnection {
+  key: string;
+  promise: Promise<Db>;
+  /** Set as soon as the MongoClient is constructed, so closeDb / a
+   * superseding getDb can close it even while the connect is in flight. */
+  client: MongoClient | null;
+}
+
+let _conn: ActiveConnection | null = null;
+let _pending: PendingConnection | null = null;
 
 /**
  * Returns a connected Db instance. Connects lazily on first call.
  * Throws a descriptive error if MongoDB is unreachable.
  *
- * MAPLE_MONGO_URI / MAPLE_MONGO_DB are read at connect time, not module load,
- * so tests that override them (e.g. search-route.test.ts) work even when
- * another test in the same bun process has already imported this module.
+ * MAPLE_MONGO_URI / MAPLE_MONGO_DB are read on EVERY call, not only the
+ * first: when the pair differs from what the live connection was created
+ * with, the stale connection is closed and a fresh one is opened under the
+ * current values. In production the env never changes after boot, so this
+ * costs one string compare per call. In tests it is what makes per-file
+ * MAPLE_MONGO_DB overrides reliable — without it, any suite that leaves the
+ * singleton connected silently pins every later suite to its database
+ * (#2783/#2819: the preview-route ETag/404 flake was exactly that leak).
  */
 export async function getDb(): Promise<Db> {
-  if (_db) return _db;
-  if (_connectPromise) return _connectPromise;
-
   const uri = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
   const dbName = process.env.MAPLE_MONGO_DB ?? 'maple';
+  const key = `${uri} ${dbName}`;
+  if (_conn?.key === key) return _conn.db;
+  if (_pending?.key === key) return _pending.promise;
 
-  _connectPromise = (async () => {
+  // First connection, or the env changed since the current connection was
+  // made — retire the stale client(s), then connect under the current env.
+  const staleConn = _conn;
+  const stalePending = _pending;
+  _conn = null;
+
+  const entry: PendingConnection = { key, promise: Promise.resolve(null as never), client: null };
+  entry.promise = (async () => {
+    if (stalePending) {
+      // Let the superseded connect settle, then close the client it built.
+      // Its own callers still receive their Db, but the singleton no longer
+      // references it (the `_pending === entry` guard below keeps a
+      // superseded connect from installing itself).
+      await stalePending.promise.catch(() => undefined);
+      await stalePending.client?.close(true).catch(() => undefined);
+    }
+    if (staleConn) {
+      await staleConn.client.close(true).catch(() => undefined);
+    }
+
     const client = new MongoClient(uri, {
       serverApi: {
         version: ServerApiVersion.v1,
@@ -81,17 +120,22 @@ export async function getDb(): Promise<Db> {
       connectTimeoutMS: 5000,
       serverSelectionTimeoutMS: 5000,
     });
+    entry.client = client;
 
     try {
       await client.connect();
       // Ping to verify the connection is live.
       await client.db('admin').command({ ping: 1 });
-      log.info({ uri }, 'connected to MongoDB');
-      _client = client;
-      _db = client.db(dbName);
-      return _db;
+      log.info({ uri, db: dbName }, 'connected to MongoDB');
+      const db = client.db(dbName);
+      if (_pending === entry) {
+        _conn = { key, client, db };
+        _pending = null;
+      }
+      return db;
     } catch (err) {
-      _connectPromise = null; // allow retry
+      if (_pending === entry) _pending = null; // allow retry
+      await client.close(true).catch(() => undefined);
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(
         `[db] Cannot connect to MongoDB (${uri}): ${msg}\n` +
@@ -100,13 +144,14 @@ export async function getDb(): Promise<Db> {
       );
     }
   })();
+  _pending = entry;
 
-  return _connectPromise;
+  return entry.promise;
 }
 
 /** Whether a live DB connection is currently established. */
 export function isDbConnected(): boolean {
-  return _db !== null;
+  return _conn !== null;
 }
 
 /** Typed collection helpers. */
@@ -1587,15 +1632,23 @@ export async function ensureIndexes(): Promise<void> {
 
 /** Gracefully close the connection (call on server shutdown). */
 export async function closeDb(): Promise<void> {
-  const localClient = _client;
-  if (!localClient) return;
+  const conn = _conn;
+  const pending = _pending;
+  _conn = null;
+  _pending = null;
 
-  _client = null;
-  _db = null;
-  _connectPromise = null;
+  if (pending) {
+    // A connect was still in flight — wait for it to settle, then close the
+    // client it created. Pre-#2783/#2819 this case returned early (no client
+    // yet), and the late connect installed itself as the live singleton,
+    // leaking past closeDb into the next test file.
+    await pending.promise.catch(() => undefined);
+    await pending.client?.close(true).catch(() => undefined);
+  }
 
+  if (!conn) return;
   try {
-    await localClient.close(true);
+    await conn.client.close(true);
     log.info('connection closed');
   } catch (err) {
     log.warn({ err: err instanceof Error ? err.message : err }, 'error closing connection');
