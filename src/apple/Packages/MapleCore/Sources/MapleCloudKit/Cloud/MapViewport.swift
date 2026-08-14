@@ -54,18 +54,33 @@ public struct MapBBox: Equatable, Sendable {
 public enum MapViewport {
   /// Half-span bounds around the region's center, clamped to valid
   /// latitude range. A region centered near a pole can push latitude past
-  /// ±90 — clamp it. Longitude is left unclamped: a region spanning the
-  /// antimeridian legitimately produces `west > east`, which the server
-  /// treats as an antimeridian-crossing box (same convention the web
-  /// MapLibre integration uses for its own bounds).
+  /// ±90 — clamp it. Longitude is WRAPPED (not clamped) into `[-180, 180]`:
+  /// a region spanning the antimeridian pushes the raw `east` (or `west`)
+  /// past that range (e.g. center 179°, span 4° → raw east 181°) — wrapping
+  /// it back in is what actually produces `west > east`, the signal the
+  /// server treats as an antimeridian-crossing box (same convention the web
+  /// MapLibre integration uses for its own bounds). Leaving the raw value
+  /// unwrapped would both send an out-of-range longitude on the wire and
+  /// never produce `west > east` at all, since `center - halfLng` is always
+  /// less than `center + halfLng` before wrapping.
   public static func bbox(for region: MapViewportRegion) -> MapBBox {
     let halfLat = region.latitudeDelta / 2
     let halfLng = region.longitudeDelta / 2
     let south = max(region.centerLatitude - halfLat, -90)
     let north = min(region.centerLatitude + halfLat, 90)
-    let west = region.centerLongitude - halfLng
-    let east = region.centerLongitude + halfLng
+    let west = wrapLongitude(region.centerLongitude - halfLng)
+    let east = wrapLongitude(region.centerLongitude + halfLng)
     return MapBBox(west: west, south: south, east: east, north: north)
+  }
+
+  /// Wraps a longitude into `[-180, 180]`. A single `while` pass suffices
+  /// for any realistic span (a region can be at most 360° wide), but the
+  /// loop form is correct for arbitrarily large inputs too.
+  private static func wrapLongitude(_ lng: Double) -> Double {
+    var wrapped = lng
+    while wrapped > 180 { wrapped -= 360 }
+    while wrapped < -180 { wrapped += 360 }
+    return wrapped
   }
 
   /// Integer zoom level implied by the region's longitude span, using the
