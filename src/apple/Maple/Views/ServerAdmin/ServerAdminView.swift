@@ -16,6 +16,17 @@ struct ServerAdminView: View {
     @State private var selection: ServerAdminSection?
     @State private var registry = CloudServerRegistry.shared
 
+    /// One authenticated client per server, built once and shared by every
+    /// admin page.
+    ///
+    /// This must NOT be constructed inside a ViewBuilder. `AuthenticatedHTTPClient`
+    /// coalesces 401 refreshes single-flight *per instance*, so a fresh instance
+    /// per body evaluation would let two concurrent requests each refresh, rotate
+    /// the refresh token twice, and trip the server's reuse detection — which
+    /// revokes the whole token family and signs the user out. It also takes a
+    /// `beginBackgroundTask` assertion per refresh via `BackgroundExecution`.
+    @State private var httpClient: AuthenticatedHTTPClient?
+
     private var sections: [ServerAdminSection] {
         ServerAdminSection.visible(isOwner: session.isOwner)
     }
@@ -28,6 +39,9 @@ struct ServerAdminView: View {
         content
             .task {
                 if selection == nil { selection = sections.first }
+                if httpClient == nil {
+                    httpClient = makeCloudHTTPClient(server: server, session: session)
+                }
             }
     }
 
@@ -95,12 +109,18 @@ struct ServerAdminView: View {
 
     @ViewBuilder
     private func page(for section: ServerAdminSection) -> some View {
-        switch section {
-        case .network:
-            NetworkSettingsView(
-                client: NetworkConfigClient(
-                    server: server,
-                    httpClient: makeCloudHTTPClient(server: server, session: session)))
+        if let httpClient {
+            switch section {
+            case .network:
+                // NetworkConfigClient itself is a stateless wrapper, so
+                // rebuilding it per evaluation is free — the shared
+                // `httpClient` above is the part that must not churn.
+                NetworkSettingsView(
+                    client: NetworkConfigClient(server: server, httpClient: httpClient))
+            }
+        } else {
+            // One `.task` tick, before the client exists.
+            ProgressView().controlSize(.small)
         }
     }
 }
