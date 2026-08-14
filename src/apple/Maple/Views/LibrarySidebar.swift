@@ -141,6 +141,9 @@ struct LibrarySidebar: View {
     /// `displayName`).
     var onShowCloudTrash: ((URL, String, String) -> Void)? = nil
     let onSelectTimeline: () -> Void
+    /// MAP row (#2830) tap — opens the native MapKit map view. Sits right
+    /// below TIMELINE, same navigating-row (not disclosure) shape.
+    let onSelectMap: () -> Void
     /// OS file/folder drop-to-mount (#2649). Every row below that already
     /// installs a `.dropDestination(for: DraggedAssetPayload.self, …)`
     /// (`FolderTreeRow`, `SMBShareRow`, `CloudFolderTreeRow`) ALSO installs
@@ -185,6 +188,7 @@ struct LibrarySidebar: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     timelineRow
+                    mapRow
                     separator
                     cloudServersSection
                     if !registry.servers.isEmpty { separator }
@@ -425,6 +429,35 @@ struct LibrarySidebar: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Timeline")
+        .accessibilityAddTraits(isActive ? [.isSelected] : [])
+    }
+
+    // MARK: - Map
+
+    /// MAP — the native MapKit map view (#2830), right below TIMELINE.
+    /// Same navigating-row shape: no children, so a tap selects `.map`
+    /// directly rather than expanding a disclosure group.
+    private var mapRow: some View {
+        let isActive = selection == .map
+        return Button(action: onSelectMap) {
+            HStack(spacing: 6) {
+                Image(systemName: "map")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(isActive ? MapleTokens.primary : MapleTokens.textMuted)
+                Text("Map".uppercased())
+                    .font(MapleTokens.Typography.eyebrow)
+                    .tracking(1.4)
+                    .foregroundStyle(isActive ? MapleTokens.primary : MapleTokens.textMuted)
+                Spacer()
+            }
+            .padding(.horizontal, MapleTokens.Spacing.rowHorizontal)
+            .frame(height: MapleTokens.Spacing.sectionHeaderHeight, alignment: .leading)
+            .background(isActive ? MapleTokens.bgActive : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Map")
+        .accessibilityIdentifier("sidebar-map-row")
         .accessibilityAddTraits(isActive ? [.isSelected] : [])
     }
 
@@ -1319,7 +1352,8 @@ private struct _LibrarySidebarPreviewWrapper: View {
       onLoadCloudFolders: { _ in [] },
       onCreateCloudFolder: { _, _, _, _, _ in },
       onRenameCloudFolder: { _, _, _, _, _ in },
-      onSelectTimeline: {}
+      onSelectTimeline: {},
+      onSelectMap: {}
     )
     .frame(width: 280, height: 700)
   }
