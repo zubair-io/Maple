@@ -10,7 +10,9 @@
 // in its center column for `.editing` (#816). The UITest harness was
 // migrated off the legacy `FullImageView` loupe to the S5 `.editing`/
 // EditorView canvas in #820; `FullImageView` / `Mode.fullImage` itself was
-// retired in #1807 once nothing else referenced it.
+// retired in #1807 once nothing else referenced it. The iPhone tab shell
+// reaches the same EditorView through its Library-tab NavigationStack rather
+// than through `mode`, so the fixture path also seeds `libraryPath` there.
 // The branch skips `restoreLastSource()` entirely — the harness wants a
 // known empty starting state. See
 // `.archived-plans/plans/2026-04-25-xcuitest-visual-harness.md`.
@@ -54,6 +56,22 @@ extension AppShell {
             await session.loadSidecar()
             browseVM.selectedID = asset.id
             mode = .editing
+            #if os(iOS)
+            // iPhone: `mode` alone lands nowhere. `AppShellIPhoneShell` never
+            // consumes `mode` to pick the center surface — the Library tab's
+            // `NavigationStack(path: $libraryPath)` does (see `openEditor` in
+            // AppShell+FolderActions for the same split on the deep-link /
+            // document-open path). Without this push the fixture asset only
+            // ever reaches the grid, so every iPhone-only UITest would have to
+            // hand-provision a real source instead. Push `.edit` directly
+            // rather than `.preview`: the harness waits on the
+            // `canvas-render-ready` identifier that the S5 `EditorView` canvas
+            // publishes, which is the same surface `mode = .editing` gives the
+            // pane shell.
+            if MapleShellKind.current == .phoneTab {
+                libraryPath = [.edit(asset)]
+            }
+            #endif
         }
         return true
     }
