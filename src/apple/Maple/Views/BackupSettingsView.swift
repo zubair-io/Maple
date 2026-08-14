@@ -100,7 +100,11 @@ struct BackupSettingsView: View {
             let photosStatus = await PhotoKitLibrary.requestAuthorization()
             guard photosStatus == .authorized || photosStatus == .limited else {
               settingsLog.error("start bail: Photos authorization is \(photosStatus.rawValue)")
+              #if os(macOS)
               photosAccessError = "Maple doesn't have Photos access. Grant it in System Settings → Privacy & Security → Photos, then try again."
+              #else
+              photosAccessError = "Maple doesn't have Photos access. Grant it in Settings → Privacy & Security → Photos → Maple, then try again."
+              #endif
               return
             }
             photosAccessError = nil
