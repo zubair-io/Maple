@@ -164,8 +164,12 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                     // If we hit the page cap there's almost certainly more
                     // backlog beyond it. Tell the OS so it loops back with
                     // the new anchor; the cursor we just persisted ensures
-                    // the next call starts where this one left off.
-                    let moreComing = page.changes.count >= Self.changesPageLimit
+                    // the next call starts where this one left off. Gate on
+                    // the cursor too: a full page without one leaves the
+                    // anchor where it was, and claiming more is coming would
+                    // send the OS back with the same anchor indefinitely.
+                    let moreComing = page.nextCursor != nil
+                        && page.changes.count >= Self.changesPageLimit
                     observer.finishEnumeratingChanges(upTo: newAnchor, moreComing: moreComing)
                 }
             } catch let e as StaleCursorError {
