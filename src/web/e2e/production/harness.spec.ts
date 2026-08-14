@@ -220,16 +220,28 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
   test.skip(testInfo.project.name !== 'chrome-hosted');
   const manifest = await readProductionFixtureManifest();
   // The writable fixture folder is staged once per Playwright run
-  // (`stageProductionFixtures` in scripts/serve-production-e2e.ts), so the
-  // sidecar this test writes outlives the test. Every execution of it walks
-  // Exposure ~+1.03 EV upward (+0.01 arrow, +1.00 drag, +0.01 blocked-write
-  // arrow, +0.01 recovery arrow) and the next execution — a retry, a
-  // --repeat-each pass, or browse-preview-actions.spec.ts, which seeds this
-  // same sidecar at +1.25 EV — inherits that value as its starting point. The
-  // recovery assertion at the end needs ArrowRight to still move the slider,
-  // which the +4 EV clamp makes impossible once the inherited value drifts
-  // that far, so start from the pristine default every time (#2805).
-  await rm(join(manifest.writableFolder, 'test_0006.xmp'), { force: true });
+  // (`stageProductionFixtures` in scripts/serve-production-e2e.ts), so both
+  // the sidecar and the preview cache this test writes outlive the test. Take
+  // the folder back to pristine — every assertion below reads as "from the
+  // unedited default", and neither leftover survives that reading (#2805):
+  //
+  //   - The sidecar: each execution walks Exposure ~+1.03 EV upward (+0.01
+  //     arrow, +1.00 drag, +0.01 blocked-write arrow, +0.01 recovery arrow)
+  //     and the next one — a retry, a --repeat-each pass, or
+  //     browse-preview-actions.spec.ts, which seeds this same sidecar at
+  //     +1.25 EV — inherits it. The recovery assertion at the end needs
+  //     ArrowRight to still move the slider, which the +4 EV clamp makes
+  //     impossible once the inherited value has drifted that far.
+  //   - The preview cache: with the sidecar reset, every execution makes the
+  //     identical edit from the identical start, so the artifact it develops
+  //     is byte-identical to the one the previous execution left behind.
+  //     "The post-edit preview pixels must change" then compares this run's
+  //     developed preview against an identical developed preview instead of
+  //     against this run's unedited one, and can never come true.
+  await Promise.all([
+    rm(join(manifest.writableFolder, 'test_0006.xmp'), { force: true }),
+    rm(join(manifest.writableFolder, '.maple'), { recursive: true, force: true }),
+  ]);
   const picker = await installProductionFolderPicker(page, manifest.writableFolder);
   await captureWorkerStatus(page);
   const rayonHelperRequests: string[] = [];
