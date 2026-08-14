@@ -12,6 +12,11 @@
  *   - `tokyo-1` (35.68, 139.69)                          → cell (1,6)
  * Cell indices computed by hand (`Math.floor(coord / 22.5)`) so the
  * counts/centroids assertions below are exact, not just "some cell".
+ *
+ * Plus two Sydney "twins" at (-33.86, 151.21) and (-33.86, 151.211),
+ * 0.001° apart, used only by the grid-cap tests at the bottom. Every
+ * other test's bbox stays in the northern hemisphere, so they don't
+ * perturb the counts above.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
@@ -20,8 +25,18 @@ import { MongoClient, ObjectId } from 'mongodb';
 import { fmtAuth, seedFolders, tryConnect } from '../search/_setup.ts';
 
 const TEST_DB = `maple_test_map_clusters_${process.pid}`;
-const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+
+/** Captured and installed inside `beforeAll`, restored in `afterAll` —
+ * deliberately NOT at module scope. `bun test` imports every file into one
+ * process and its file order varies between runs, so an import-time
+ * `process.env.MAPLE_MONGO_DB = …` is live from the moment this file is
+ * loaded until the moment its `afterAll` runs, which can span other
+ * files' tests. The `getDb` singleton latches the env pair it first
+ * observes, so a stray override outside this suite's own window is how a
+ * different suite ends up reading the wrong database (the root cause
+ * behind the preview-ETag flake, #2783 / PR #2814). Confining the
+ * mutation to the hooks keeps the window exactly this suite's runtime. */
+let priorMongoDb: string | undefined;
 
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
@@ -65,8 +80,12 @@ const LONDON_1_ID = new ObjectId();
 const PARIS_1_ID = new ObjectId();
 const ALASKA_1_ID = new ObjectId();
 const TOKYO_1_ID = new ObjectId();
+const SYDNEY_A_ID = new ObjectId();
+const SYDNEY_B_ID = new ObjectId();
 
 beforeAll(async () => {
+  priorMongoDb = process.env.MAPLE_MONGO_DB;
+  process.env.MAPLE_MONGO_DB = TEST_DB;
   mongo = await tryConnect();
   mongoReachable = mongo !== null;
   if (!mongoReachable) {
@@ -149,6 +168,36 @@ beforeAll(async () => {
       },
       place: { rollups: { locality: 'Tokyo', region: 'Tokyo', country_code: 'jp' } },
     },
+    // Two Sydney "twins" 0.001° apart — closer together than a
+    // world-bbox clamped cell (5.625°) but ~3 zoom-20 cells apart
+    // (0.00034° each). They are what makes the grid cap observable:
+    // separate cells under a tight viewport, one merged cell under a
+    // whole-world viewport at the same zoom. Far enough south that every
+    // other test's bbox excludes them.
+    {
+      _id: SYDNEY_A_ID,
+      ...baseFields(),
+      fileinfo: fileinfo('sydneyA.dng'),
+      exif: {
+        captured_at: null,
+        camera_make: 'Canon',
+        camera_model: 'R5',
+        gps: { lat: -33.86, lng: 151.21 },
+      },
+      place: { rollups: { locality: 'Sydney', region: 'New South Wales', country_code: 'au' } },
+    },
+    {
+      _id: SYDNEY_B_ID,
+      ...baseFields(),
+      fileinfo: fileinfo('sydneyB.dng'),
+      exif: {
+        captured_at: null,
+        camera_make: 'Canon',
+        camera_model: 'R5',
+        gps: { lat: -33.86, lng: 151.211 },
+      },
+      place: { rollups: { locality: 'Sydney', region: 'New South Wales', country_code: 'au' } },
+    },
   ]);
 
   const { closeDb } = await import('../../src/db/client.ts');
@@ -168,8 +217,8 @@ afterAll(async () => {
     const { closeDb } = await import('../../src/db/client.ts');
     await closeDb();
   } catch {}
-  if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
-  else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
+  if (priorMongoDb === undefined) delete process.env.MAPLE_MONGO_DB;
+  else process.env.MAPLE_MONGO_DB = priorMongoDb;
 });
 
 async function get(qs: string): Promise<{ status: number; body: ClustersResponse }> {
@@ -287,5 +336,42 @@ describe('GET /api/map/clusters', () => {
     const { status, body } = await get('zoom=4');
     expect(status).toBe(400);
     expect((body as unknown as { error: string }).error).toContain('bbox');
+  });
+
+  // The grid cap is what keeps the `$group` (and the response) O(viewport)
+  // rather than O(library): `bbox` and `zoom` are independent params, so
+  // "whole world at zoom 20" would otherwise put every asset in its own
+  // cell. The Sydney twins sit 0.001° apart — ~3 cells apart on a
+  // zoom-20 grid (0.00034°/cell), but well inside one cell once the cap
+  // coarsens a world viewport to 360/64 = 5.625°.
+  it('resolves the zoom-20 grid when the viewport is tight enough to afford it', async () => {
+    if (!mongoReachable) return;
+    const { status, body } = await get('bbox=151.2,-33.87,151.22,-33.85&zoom=20');
+    expect(status).toBe(200);
+    // Tight bbox: 0.02° / 64 = 0.0003125° minimum cell, finer than the
+    // zoom's own 0.00034° cell, so no coarsening happens and the twins
+    // stay in separate cells.
+    expect(body.cells.length).toBe(2);
+    for (const cell of body.cells) {
+      expect(cell.count).toBe(1);
+    }
+  });
+
+  it('caps grid resolution so a whole-world bbox cannot emit one cell per asset', async () => {
+    if (!mongoReachable) return;
+    const { status, body } = await get('bbox=-180,-90,180,90&zoom=20');
+    expect(status).toBe(200);
+
+    // Same zoom as the test above, but the cap coarsens the cell to
+    // 5.625°, which merges the twins into a single 2-count cell.
+    const sydney = findCell(body.cells, -33.86, 151.21);
+    expect(sydney.count).toBe(2);
+    expect(sydney.thumbKey).toBeUndefined();
+    expect(sydney.placeLabel).toBe('Sydney');
+
+    // Eight fixtures, but never eight cells: the twins share one.
+    expect(body.cells.length).toBe(7);
+    // Hard ceiling regardless of input (64 per axis).
+    expect(body.cells.length).toBeLessThanOrEqual(64 * 64);
   });
 });
