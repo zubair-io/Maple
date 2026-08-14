@@ -23,13 +23,16 @@ import { DEFAULT_MAP_TILE_URL } from '../map/map-config.repo.ts';
 const MONGO_URL = 'mongodb://localhost:27077';
 const TEST_DB = `maple_map_config_test_${process.pid}`;
 
-// See routes/pano.test.ts for why these are set at module scope and restored
-// in afterAll: getDb() is a singleton pinned to whichever env was live at
-// the first connect in the process, and bun test's file order varies.
-const PRIOR_MONGO_URI = process.env.MAPLE_MONGO_URI;
-const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
-process.env.MAPLE_MONGO_URI = MONGO_URL;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+// getDb() is a singleton pinned to whichever env was live at the first
+// connect in the process, and bun test's file order varies — captured and
+// restored around a real MongoDB the same way routes/pano.test.ts does.
+// Unlike that file, the capture/mutation itself happens INSIDE beforeAll,
+// not at module scope: bun evaluates every test file's module body during
+// the import/collection phase, before any file's tests actually run, so a
+// module-scope `process.env` write here would leak into every other file's
+// collection phase and race with their own env, not just this file's tests.
+let PRIOR_MONGO_URI: string | undefined;
+let PRIOR_MONGO_DB: string | undefined;
 
 const app = new Elysia().use(mapConfigRoutes);
 
@@ -38,6 +41,11 @@ let db: Db | null = null;
 let mongoReachable = false;
 
 beforeAll(async () => {
+  PRIOR_MONGO_URI = process.env.MAPLE_MONGO_URI;
+  PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
+  process.env.MAPLE_MONGO_URI = MONGO_URL;
+  process.env.MAPLE_MONGO_DB = TEST_DB;
+
   const { closeDb } = await import('../db/client.ts');
   await closeDb();
   try {
