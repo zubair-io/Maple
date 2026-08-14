@@ -29,6 +29,7 @@ extension AppShell {
         Task { @MainActor in
             let status = await PhotoKitLibrary.requestAuthorization()
             if status == .authorized || status == .limited {
+                NotificationCenter.default.post(name: .maplePhotosAccessGranted, object: nil)
                 loadPhotos(filter: .all)
             }
         }
@@ -93,6 +94,9 @@ extension AppShell {
             // Let the sidebar do the PhotoKit work it skipped while undecided
             // (read status, load albums, subscribe to library changes).
             photosAuthGeneration &+= 1
+            // And let app-level launch-gated work (the backup boot) start now
+            // instead of on the next cold launch (#2851).
+            NotificationCenter.default.post(name: .maplePhotosAccessGranted, object: nil)
             // User may have selected a filter before granting; fall back to .all.
             let filter: PhotoKitFilter
             if case .photosFilter(let f) = librarySelection { filter = f }
