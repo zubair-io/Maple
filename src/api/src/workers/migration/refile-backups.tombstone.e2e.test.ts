@@ -11,7 +11,7 @@
  *
  * Mongo-gated; skips when MongoDB is unreachable (mirrors refile-backups.e2e).
  */
-import { describe, it, expect, afterEach, beforeAll, afterAll } from 'bun:test';
+import { describe, it, expect, afterAll, afterEach, beforeAll } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -21,6 +21,26 @@ import { runMigrationTickOnce } from '../migration.ts';
 import { BACKUP_LAYOUT_VERSION } from './refile-backups.ts';
 import type { Place } from '../../db/schema.ts';
 import type { getDb } from '../../db/client.ts';
+
+// Own per-pid database + explicit close — the repo-wide suite convention
+// (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
+// happens to name (the real `maple` dev DB when it runs first) and leaks its
+// singleton connection into later suites (the #2783 flake class).
+const TEST_DB = `maple_test_refile_backups_tombstone_e2e_${process.pid}`;
+process.env.MAPLE_MONGO_DB = TEST_DB;
+
+beforeAll(async () => {
+  const { closeDb } = await import('../../db/client.ts');
+  // Force the singleton to reconnect under this file's TEST_DB even when
+  // an earlier suite left it connected.
+  await closeDb();
+});
+
+afterAll(async () => {
+  const { closeDb, getDb, isDbConnected } = await import('../../db/client.ts');
+  if (isDbConnected()) await (await getDb()).dropDatabase();
+  await closeDb();
+});
 
 const MIGRATION_ID = 'refile-backups';
 
@@ -48,18 +68,6 @@ async function connectOrSkip(label: string): Promise<Awaited<ReturnType<typeof g
     return null;
   }
 }
-
-// See refile-backups.e2e.test.ts for why this connection MUST be closed on
-// both ends (#2787): `getDb()` only re-reads `MAPLE_MONGO_DB` when no
-// connection is cached, so a leaked one here pins every later file in the
-// same `bun test` process to this file's ambient database.
-beforeAll(async () => {
-  await (await import('../../db/client.ts')).closeDb();
-});
-
-afterAll(async () => {
-  await (await import('../../db/client.ts')).closeDb();
-});
 
 describe('refile-backups — soft-deleted primary (#1519)', () => {
   let dir: string | null = null;

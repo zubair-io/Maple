@@ -8,11 +8,31 @@
  *
  * Requires a running MongoDB (skips if unreachable).
  */
-import { describe, expect, it, afterAll } from 'bun:test';
+import { describe, expect, it, afterAll, beforeAll } from 'bun:test';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import sharp from 'sharp';
+
+// Own per-pid database + explicit close — the repo-wide suite convention
+// (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
+// happens to name (the real `maple` dev DB when it runs first) and leaks its
+// singleton connection into later suites (the #2783 flake class).
+const TEST_DB = `maple_test_workers_smoke_${process.pid}`;
+process.env.MAPLE_MONGO_DB = TEST_DB;
+
+beforeAll(async () => {
+  const { closeDb } = await import('../db/client.ts');
+  // Force the singleton to reconnect under this file's TEST_DB even when
+  // an earlier suite left it connected.
+  await closeDb();
+});
+
+afterAll(async () => {
+  const { closeDb, getDb, isDbConnected } = await import('../db/client.ts');
+  if (isDbConnected()) await (await getDb()).dropDatabase();
+  await closeDb();
+});
 
 const TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 500;
