@@ -70,9 +70,9 @@ struct NetworkSettingsView: View {
 
             LabeledContent("Address") {
                 HStack(spacing: 4) {
-                    Text(config.localIP ?? "none")
+                    Text(NetworkSettingsVM.addressDisplay(config))
                         .foregroundStyle(config.localIP == nil ? .secondary : .primary)
-                    Text(provenance(config.source.localIP))
+                    Text(NetworkSettingsVM.provenanceLabel(config.source.localIP))
                         .foregroundStyle(.secondary)
                 }
             }
@@ -81,13 +81,13 @@ struct NetworkSettingsView: View {
             LabeledContent("Port") {
                 HStack(spacing: 4) {
                     Text("\(config.localPort)")
-                    Text(provenance(config.source.localPort))
+                    Text(NetworkSettingsVM.provenanceLabel(config.source.localPort))
                         .foregroundStyle(.secondary)
                 }
             }
             .accessibilityIdentifier("network.resolved.port")
 
-            if config.source.localIP == .unavailable && config.enabled {
+            if NetworkSettingsVM.shouldWarnNoLANAddress(config) {
                 Text("""
                     No LAN address could be detected. This is expected when the \
                     server runs inside a container with a bridge network — set an \
@@ -154,16 +154,6 @@ struct NetworkSettingsView: View {
             }
         }
         .listRowBackground(MapleTokens.surface)
-    }
-
-    private func provenance(_ source: NetworkValueSource) -> String {
-        switch source {
-        case .dbOverride: return "(operator override)"
-        case .autoDetected: return "(auto-detected)"
-        case .unavailable: return "(unavailable)"
-        case .defaultValue: return "(default)"
-        case .unknown: return ""
-        }
     }
 
     // MARK: - Actions
