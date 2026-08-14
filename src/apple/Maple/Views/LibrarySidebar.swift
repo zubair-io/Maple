@@ -327,7 +327,28 @@ struct LibrarySidebar: View {
                 }
             }
         } header: {
-            SectionHeaderRow(title: "Photos Library", isOpen: $showPhotos)
+            SectionHeaderRow(title: "Photos Library", isOpen: $showPhotos) {
+                if PhotosAccessMemory.lostAccess(current: photosStatus) {
+                    // Access was granted in an earlier session but the grant
+                    // is gone (revoked in Settings, TCC reset by a re-signed
+                    // build, device restore). Warn passively — never re-prompt
+                    // without user input (#2851). Tapping routes to the grid's
+                    // permission panel, which owns the request/Settings flow.
+                    Button {
+                        selection = .photosFilter(.all)
+                        onPickPhotosFilter(.all)
+                    } label: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(MapleTokens.warn)
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Photos access was removed. Click to reconnect.")
+                    .accessibilityLabel("Photos access was removed. Reconnect.")
+                }
+            }
         }
     }
 

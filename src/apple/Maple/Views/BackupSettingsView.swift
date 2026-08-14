@@ -7,6 +7,7 @@
 
 import SwiftUI
 import OSLog
+import Photos
 import MapleCore
 import MapleBackup
 
@@ -39,6 +40,11 @@ struct BackupSettingsView: View {
   /// If a future ticket wants a "hide the panel" affordance, write
   /// `Self.saveHasStarted(false)` from that code path.
   @State private var hasStarted = BackupSettingsView.loadHasStarted()
+
+  /// Set when Start/Restart is tapped without Photos access in hand (and the
+  /// one-shot system prompt is spent) — rendered under the button so the tap
+  /// never looks like a silent no-op (#2851).
+  @State private var photosAccessError: String?
 
   private static let hasStartedKey = "maple.backup.settings.hasStarted.v1"
 
@@ -85,6 +91,19 @@ struct BackupSettingsView: View {
         Button {
           Task {
             settingsLog.info("Start button tapped — saving + starting engine")
+            // Explicit user action, so requesting Photos authorization here
+            // is legitimate (it only prompts while `.notDetermined`; a
+            // spent/denied grant returns immediately). Booting the engine
+            // without access would burn retry counts on uploads whose
+            // assets can't be fetched, and the observer wiring is gated on
+            // access anyway (#2851).
+            let photosStatus = await PhotoKitLibrary.requestAuthorization()
+            guard photosStatus == .authorized || photosStatus == .limited else {
+              settingsLog.error("start bail: Photos authorization is \(photosStatus.rawValue)")
+              photosAccessError = "Maple doesn't have Photos access. Grant it in System Settings → Privacy & Security → Photos, then try again."
+              return
+            }
+            photosAccessError = nil
             settings.save()
             await EngineHost.shared.start(settings: settings)
             settingsLog.info("EngineHost.start returned engine=\(EngineHost.shared.engine != nil ? "ok" : "nil") err=\(EngineHost.shared.lastStartError ?? "none", privacy: .public)")
@@ -123,6 +142,11 @@ struct BackupSettingsView: View {
         .disabled(!settings.isConfigured)
         .buttonStyle(.borderedProminent)
         .accessibilityIdentifier("backup.startButton")
+        if let photosAccessError {
+          Label(photosAccessError, systemImage: "exclamationmark.triangle.fill")
+            .font(.callout)
+            .foregroundStyle(MapleTokens.warn)
+        }
       }
     }
     .formStyle(.grouped)

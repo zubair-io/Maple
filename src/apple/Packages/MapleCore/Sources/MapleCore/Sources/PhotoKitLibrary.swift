@@ -63,11 +63,18 @@ public struct PhotoKitAlbum: Sendable, Hashable, Identifiable, Codable {
 public enum PhotoKitLibrary {
 
     public static func authorizationStatus() -> PHAuthorizationStatus {
-        PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        // Every status read refreshes the "was access ever granted?" memory,
+        // so the lost-permission warning (#2851) works without any caller
+        // having to remember to record.
+        PhotosAccessMemory.record(status)
+        return status
     }
 
     public static func requestAuthorization() async -> PHAuthorizationStatus {
-        await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+        let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+        PhotosAccessMemory.record(status)
+        return status
     }
 
     /// Enumerate the user's albums (`PHAssetCollectionType.album`).
