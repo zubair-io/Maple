@@ -44,6 +44,8 @@ on:
       - 'src/scripts/test_banding.sh'
       - 'src/scripts/banding_check.py'
       - 'src/scripts/banding_check_test.py'
+      - 'src/scripts/stage_stats*.py'
+      - 'src/scripts/stage_diff*.py'
       - 'test-fixtures/banding_budgets.json'
       - '.github/workflows/raw-pipeline.yml'
   pull_request:
@@ -63,6 +65,8 @@ on:
       - 'src/scripts/test_banding.sh'
       - 'src/scripts/banding_check.py'
       - 'src/scripts/banding_check_test.py'
+      - 'src/scripts/stage_stats*.py'
+      - 'src/scripts/stage_diff*.py'
       - 'test-fixtures/banding_budgets.json'
       - '.github/workflows/raw-pipeline.yml'
 
@@ -281,7 +285,10 @@ jobs:
       # preferred, imageio fallback) — a strict subset of
       # src/scripts/requirements.txt, installed here rather than the full
       # file so this job doesn't pick up colour-science/scipy/tifffile it
-      # doesn't use.
+      # doesn't use. stage_stats_test.py and stage_diff_test.py (#2813) need
+      # the identical numpy/OpenEXR/imageio set to synthesize their EXR
+      # fixtures, so they ride this same install rather than adding a
+      # second one.
       - name: Install Python deps for the banding gate
         run: pip install 'numpy>=1.26' 'OpenEXR>=3.2' 'imageio>=2.34'
       - name: Cache cargo registry + raw-pipeline target
@@ -307,6 +314,14 @@ jobs:
         run: python3 src/scripts/banding_check_test.py
       - name: Banding second-difference gate (test_banding.sh, #1627/#1733)
         run: bash src/scripts/test_banding.sh
+      # stage_stats.py / stage_diff.py (#2813) — these tools and their tests
+      # existed on disk untouched by any CI job (added in f89204d57). Wired
+      # in here alongside banding_check_test.py: same standalone-script
+      # convention, same synthetic-EXR-fixture pattern, same Python deps.
+      - name: stage_stats.py unit tests
+        run: python3 src/scripts/stage_stats_test.py
+      - name: stage_diff.py unit tests
+        run: python3 src/scripts/stage_diff_test.py
 
   color-pipeline:
     name: color-pipeline (test_color_pipeline.sh)
