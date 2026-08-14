@@ -111,6 +111,13 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./settings/pano/pano-settings.component').then((m) => m.PanoSettingsComponent),
   },
+  // Map T2, #2826 — tile-source setting (style/tile URL) for the web Map view.
+  {
+    path: 'settings/map',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./settings/map/map-settings.component').then((m) => m.MapSettingsComponent),
+  },
   // #742 — Imports: copy a server-local folder into a registered library.
   {
     path: 'settings/imports',
