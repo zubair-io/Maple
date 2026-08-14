@@ -42,6 +42,23 @@ final class EditSessionSMBSidecarTests: XCTestCase {
     /// A sourceless `AssetRef` mirroring exactly what
     /// `BrowseViewModel.loadSource`'s sourceless branch now builds for an
     /// `SMBSource` — `.smb` provenance, `stableID` carrying the maple_id.
+    ///
+    /// The `stableID`/`ref.id` values these tests pass in (e.g.
+    /// `"smb-share/Photos/IMG_2674.dng"`) are path-shaped, not real maple_id
+    /// hex — deliberately so, and not a bug: `SMBSource.path(for:)`
+    /// (`pathByMapleId[ref.id] ?? ref.id`) falls back to treating `ref.id`
+    /// itself as the share path whenever there's no `pathByMapleId` entry,
+    /// which is exactly this test's setup (a fresh, never-`images()`'d
+    /// `SMBSource`). Production hits that same fallback branch, not just
+    /// this test, whenever maple_id derivation genuinely fails for an asset
+    /// (`images()`'s `mapleId(for:) ?? a.path`) — so a path-shaped id here
+    /// exercises a real, if rare, production code path rather than standing
+    /// in for one. It's also incidental to what these tests assert: the
+    /// `.notConnected` failure they check for comes from the `guard let
+    /// client` checks in `SMBSource`'s I/O methods, which fire before
+    /// `path(for:)`'s result is ever used for a network call — so the id's
+    /// shape has no bearing on whether these tests pass. A real maple_id hex
+    /// would exercise the same paths identically.
     private func smbAssetRef(stableID: String) -> AssetRef {
         AssetRef(
             displayName: "IMG_SMB_TEST.dng",
@@ -57,7 +74,8 @@ final class EditSessionSMBSidecarTests: XCTestCase {
     /// branch constructs: a fresh (unconnected) `SMBSource` — standing in
     /// for the browse session's live connection, which cannot be
     /// established without a real share — and an `ImageRef` carrying the
-    /// asset's maple_id.
+    /// asset's maple_id (see `smbAssetRef` above for why these tests use
+    /// path-shaped stand-in values rather than real maple_id hex).
     private func smbSidecarStore(stableID: String) -> SMBSidecarStore {
         let source = SMBSource()
         let ref = ImageRef(id: stableID, displayName: "IMG_SMB_TEST.dng")
@@ -121,6 +139,69 @@ final class EditSessionSMBSidecarTests: XCTestCase {
             session.sidecarError,
             "the slider edit never reached a real SMB write attempt — "
                 + "it was silently dropped, reproducing #2674")
+        guard case .notConnected = received as? SMBError else {
+            return XCTFail("expected SMBError.notConnected, got \(received)")
+        }
+    }
+
+    /// Distinguishes an explicit `flushPendingSidecarWrite()` from the
+    /// 750ms debounce timer firing on its own. `testModelEditRoutesThrough-
+    /// SMBSidecarStoreAndAttemptsARealWrite` above polls for up to 2s —
+    /// longer than `SMBSidecarStore.debounceInterval` — so it passes
+    /// whether or not the explicit flush does anything: the debounce timer
+    /// alone would eventually fire and write within that window. That's
+    /// exactly the gap `EditSession+Lifecycle.swift`'s `flushPending-
+    /// SidecarWrite()` fell into: its `as?` typecast chain covered
+    /// `XMPSidecarStore`/`PhotoKitSidecarStore`/`CloudSidecarStore` but not
+    /// `SMBSidecarStore`, so for SMB sessions the "explicit flush" was a
+    /// silent no-op and every edit made within the debounce window before
+    /// tearing the editor down was dropped — the exact class of bug #2674
+    /// exists to fix, resurfacing at teardown.
+    ///
+    /// This test polls only up to 300ms — well under the 750ms debounce —
+    /// immediately after calling `flushPendingSidecarWrite()`. `SMBSource`'s
+    /// `.notConnected` guard (`guard let client else { throw
+    /// SMBError.notConnected }`) is a synchronous check with no network
+    /// round trip, so if the explicit flush actually reaches
+    /// `SMBSidecarStore.flush()` the error surfaces almost instantly; if the
+    /// flush silently no-ops, nothing appears within 300ms and only the
+    /// (untested-here) 750ms timer would eventually produce it. A window
+    /// shorter than the debounce interval is the only way to tell "the
+    /// explicit flush worked" apart from "the timer happened to fire on its
+    /// own" — which is what makes this test able to actually fail against
+    /// the unfixed `as?` chain.
+    func testFlushPendingSidecarWriteForcesImmediateWriteBeforeDebounceFires() async throws {
+        let stableID = "smb-share/Photos/IMG_2674-c.dng"
+        let asset = smbAssetRef(stableID: stableID)
+        let store = smbSidecarStore(stableID: stableID)
+        let session = EditSession(asset: asset, remoteSidecarStore: store)
+
+        var edited = session.model
+        edited.exposure = 1.75
+        session.model = edited
+
+        // `model`'s didSet spawns a detached Task calling `store.update(...)`
+        // — yield so it actually runs before we flush (mirrors
+        // EditSessionPhotoKitSidecarTests / EditSessionTests conventions).
+        for _ in 0..<5 { await Task.yield() }
+        await session.flushPendingSidecarWrite()
+
+        // Poll for a window strictly shorter than SMBSidecarStore's 750ms
+        // debounce interval. Unlike the 2s poll above, this window cannot
+        // be satisfied by the debounce timer firing on its own — only an
+        // explicit flush that actually reaches the store can land here.
+        let deadline = Date().addingTimeInterval(0.3)
+        while Date() < deadline {
+            if session.sidecarError != nil { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let received = try XCTUnwrap(
+            session.sidecarError,
+            "flushPendingSidecarWrite() did not force an immediate SMB write "
+                + "attempt within a window shorter than the 750ms debounce — "
+                + "the SMB store is being silently skipped by the flush's "
+                + "as? typecast chain")
         guard case .notConnected = received as? SMBError else {
             return XCTFail("expected SMBError.notConnected, got \(received)")
         }
