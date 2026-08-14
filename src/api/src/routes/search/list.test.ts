@@ -24,12 +24,19 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { Elysia } from 'elysia';
 import { ObjectId, type Db } from 'mongodb';
 import { listRoute } from './list.ts';
-import { getDb, isDbConnected } from '../../db/client.ts';
+import { closeDb, getDb, isDbConnected } from '../../db/client.ts';
 import {
   setMeilisearchClientForTests,
   type MeilisearchClient,
   type MeilisearchSearchOptions,
 } from '../../enrichment/meilisearch-client.ts';
+
+// Own database + explicit close (the repo-wide suite convention): without
+// these this file connected the shared singleton to whatever MAPLE_MONGO_DB
+// happened to be set — the default `maple` dev DB when it ran first — and
+// leaked that connection into later suites (#2783).
+const TEST_DB = `maple_test_search_list_${process.pid}`;
+process.env.MAPLE_MONGO_DB = TEST_DB;
 
 let db: Db | null = null;
 let mongoReachable = false;
@@ -54,7 +61,8 @@ afterEach(() => {
 });
 
 afterAll(async () => {
-  if (db) await db.collection('assets').deleteMany({});
+  if (db) await db.dropDatabase();
+  await closeDb();
 });
 
 async function seed(d: Db): Promise<void> {
