@@ -1,17 +1,25 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import {
   WorkersStatusBroadcaster,
   cheapStatus,
   type WorkersStatusFrame,
 } from './status-broadcast.ts';
 import type { WorkersStatusPayload } from './routes.ts';
-import { getDb } from '../db/client.ts';
+import { closeDb, getDb } from '../db/client.ts';
 import { writeWorkerStatus } from './worker-status.repo.ts';
 import type { StageStatusSnapshot } from './registry.ts';
+
+// Own per-pid database + explicit close — the repo-wide suite convention
+// (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
+// happens to name (the real `maple` dev DB when it runs first) and leaks its
+// singleton connection into later suites (the #2783 flake class).
+const TEST_DB = `maple_test_status_broadcast_${process.pid}`;
+process.env.MAPLE_MONGO_DB = TEST_DB;
 
 let dbReachable = true;
 beforeAll(async () => {
   try {
+    await closeDb();
     await getDb();
   } catch {
     dbReachable = false;
@@ -26,6 +34,10 @@ async function cleanWorkerStatus(): Promise<void> {
 
 beforeEach(cleanWorkerStatus);
 afterEach(cleanWorkerStatus);
+afterAll(async () => {
+  if (dbReachable) await (await getDb()).dropDatabase();
+  await closeDb();
+});
 
 const fakePayload: WorkersStatusPayload = {
   stages: [

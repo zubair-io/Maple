@@ -10,10 +10,11 @@
  * runs).
  */
 
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { afterAll, beforeAll, describe, it, expect, beforeEach } from 'bun:test';
 import { Elysia } from 'elysia';
 import { workerRoutes } from './routes.ts';
 import { ffiPool, _resetFfiPoolForTests } from '../ffi/ffi-pool.ts';
+import { closeDb, getDb, isDbConnected } from '../db/client.ts';
 import { MAX_FFI_WORKERS, MIN_FFI_WORKERS } from '../ffi/ffi-pool-config.repo.ts';
 
 // getDb() blocks on a ~5s server-selection timeout when MongoDB is unreachable
@@ -23,6 +24,16 @@ const DB_TIMEOUT_MS = 15000;
 
 const TEST_DB = `maple_test_perf_route_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
+
+// Force the singleton to reconnect under TEST_DB even when an earlier suite
+// left it connected, and drop + close on the way out (#2835).
+beforeAll(async () => {
+  await closeDb();
+});
+afterAll(async () => {
+  if (isDbConnected()) await (await getDb()).dropDatabase();
+  await closeDb();
+});
 
 function app() {
   return new Elysia().use(workerRoutes());

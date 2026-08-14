@@ -25,7 +25,7 @@ import { ObjectId, type Db } from 'mongodb';
 import { listRoute } from './list.ts';
 import { _resetCacheForTests } from './total-cache.ts';
 import { encodeCursor } from './cursor.ts';
-import { getDb, isDbConnected } from '../../db/client.ts';
+import { closeDb, getDb, isDbConnected } from '../../db/client.ts';
 
 let db: Db | null = null;
 let mongoReachable = false;
@@ -78,8 +78,16 @@ function docFor(index: number, capturedAt: string | null | undefined): Record<st
 
 const TOTAL_SEEDED = TIMESTAMPS.length + NO_EXIF_COUNT;
 
+// Own per-pid database + explicit close — the repo-wide suite convention
+// (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
+// happens to name (the real `maple` dev DB when it runs first) and leaks its
+// singleton connection into later suites (the #2783 flake class).
+const TEST_DB = `maple_test_cursor_paging_${process.pid}`;
+process.env.MAPLE_MONGO_DB = TEST_DB;
+
 beforeAll(async () => {
   try {
+    await closeDb();
     db = await getDb();
     mongoReachable = isDbConnected();
   } catch {
@@ -100,7 +108,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (db) await db.collection('assets').deleteMany({});
+  if (db) await db.dropDatabase();
+  await closeDb();
   _resetCacheForTests();
 });
 

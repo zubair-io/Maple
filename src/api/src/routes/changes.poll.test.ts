@@ -1,13 +1,26 @@
-import { afterAll, beforeEach, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { ObjectId, type Db } from 'mongodb';
 import { changesRoutes } from './changes.ts';
 import { recordAssetChange } from '../db/changes.repo.ts';
-import { getDb, isDbConnected } from '../db/client.ts';
+import { closeDb, getDb, isDbConnected } from '../db/client.ts';
+
+// Own per-pid database + explicit close — the repo-wide suite convention
+// (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
+// happens to name (the real `maple` dev DB when it runs first) and leaks its
+// singleton connection into later suites (the #2783 flake class).
+const TEST_DB = `maple_test_changes_poll_${process.pid}`;
+process.env.MAPLE_MONGO_DB = TEST_DB;
 
 let db: Db | null = null;
 let app: Elysia | null = null;
 let mongoReachable = false;
+
+beforeAll(async () => {
+  // Force the singleton to reconnect under this file's TEST_DB even when an
+  // earlier suite left it connected.
+  await closeDb();
+});
 
 beforeEach(async () => {
   try {
@@ -18,18 +31,16 @@ beforeEach(async () => {
     return;
   }
   if (!mongoReachable || !db) return;
-  // Clean only the collections this test touches — sharing the cached
-  // singleton DB with other route tests means we must not dropDatabase.
+  // Per-test cleanup of the collections this file touches (the whole
+  // database is ours now — dropped in afterAll).
   await db.collection('asset_changes').deleteMany({});
   await db.collection('server_state').deleteMany({});
   app = new Elysia().use(changesRoutes);
 });
 
 afterAll(async () => {
-  if (db) {
-    await db.collection('asset_changes').deleteMany({});
-    await db.collection('server_state').deleteMany({});
-  }
+  if (db) await db.dropDatabase();
+  await closeDb();
 });
 
 describe('GET /api/changes', () => {

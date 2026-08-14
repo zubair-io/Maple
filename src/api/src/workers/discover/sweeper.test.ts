@@ -1,14 +1,22 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'bun:test';
+import { describe, it, expect, afterAll, beforeAll, beforeEach } from 'bun:test';
 import { ObjectId } from 'mongodb';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { getDb, assetsCollection } from '../../db/client.ts';
+import { closeDb, getDb, assetsCollection } from '../../db/client.ts';
 import type { WatchEvent } from './types.ts';
+
+// Own per-pid database + explicit close — the repo-wide suite convention
+// (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
+// happens to name (the real `maple` dev DB when it runs first) and leaks its
+// singleton connection into later suites (the #2783 flake class).
+const TEST_DB = `maple_test_discover_sweeper_${process.pid}`;
+process.env.MAPLE_MONGO_DB = TEST_DB;
 
 let reachable = true;
 beforeAll(async () => {
   try {
+    await closeDb();
     await getDb();
   } catch {
     reachable = false;
@@ -18,6 +26,10 @@ beforeEach(async () => {
   if (!reachable) return;
   await (await getDb()).collection('discover_frontier').deleteMany({});
   await (await assetsCollection()).deleteMany({});
+});
+afterAll(async () => {
+  if (reachable) await (await getDb()).dropDatabase();
+  await closeDb();
 });
 
 describe('visitDirectory', () => {
