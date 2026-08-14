@@ -206,7 +206,10 @@
                 "output": "/film-luts"
               }
             ],
-            "styles": ["projects/maple/src/styles.scss"],
+            "styles": [
+              "node_modules/maplibre-gl/dist/maplibre-gl.css",
+              "projects/maple/src/styles.scss"
+            ],
             "serviceWorker": "ngsw-config.json"
           },
           "configurations": {

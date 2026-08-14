@@ -1,0 +1,16 @@
+// Component-level styles for the map view. Layout is Tailwind; this file
+// only owns the rules a utility class can't reach — sizing the host so the
+// MapLibre canvas (which reads the container's measured box on construction)
+// has real dimensions to fill.
+
+:host {
+  display: block;
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.map-canvas {
+  position: absolute;
+  inset: 0;
+}

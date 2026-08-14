@@ -237,6 +237,12 @@ export * from './lib/state/timeline-state.service';
 export * from './lib/components/timeline-view/timeline-view.component';
 export * from './lib/components/timeline-view/timeline-filter-row.component';
 
+// Map view (web — Self-Hosted only). Map T3, #2827. `MapLibreInstanceFactory`
+// is intentionally NOT re-exported — it is the sole file that imports
+// `maplibre-gl` at runtime, and stays internal to `MapLibreService`.
+export * from './lib/map/maplibre-map.service';
+export * from './lib/components/map-view/map-view.component';
+
 // S7 (#622) — Search experience (phone tab content + tablet/desktop overlay).
 export * from './lib/search/search-types';
 export * from './lib/search/search-bar.component';

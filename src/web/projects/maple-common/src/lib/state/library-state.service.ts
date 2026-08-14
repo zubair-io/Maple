@@ -25,6 +25,7 @@ import { LibraryCache } from './library-cache.service';
 import { LibraryFetch } from './library-fetch.service';
 import { LibraryStatusService } from './library-status.service';
 import { BrowsePreferencesService } from './browse-preferences.service';
+import type { BrowseViewMode } from './browse-preferences.service';
 import { EditPreviewPersistService } from './edit-preview-persist.service';
 import { XmpAdjustmentRestoreService } from '../xmp/xmp-adjustment-restore.service';
 
@@ -119,9 +120,9 @@ export class LibraryStateService {
   // ── Active detail tab ─────────────────────────────────────────────────────
   readonly activeTab = this.prefs.activeTab;
 
-  // ── Browse-shell view mode (Folder vs Timeline) ──────────────────────────
+  // ── Browse-shell view mode (Folder vs Timeline vs Map) ────────────────────
   readonly viewMode = this.prefs.viewMode;
-  setViewMode(mode: 'folder' | 'timeline'): void {
+  setViewMode(mode: BrowseViewMode): void {
     this.prefs.setViewMode(mode);
   }
 
