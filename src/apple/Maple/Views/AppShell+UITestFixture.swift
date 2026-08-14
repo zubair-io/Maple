@@ -70,11 +70,19 @@ extension AppShell {
             sessions[asset.id] = session
             await session.loadSidecar()
             browseVM.selectedID = asset.id
-            mode = .editing
             #if os(iOS)
             if MapleShellKind.current == .phoneTab {
+                // Phone navigates purely by `libraryPath`. Leave `mode`
+                // alone: production never flips it on this shell, and
+                // `AppShellIPhoneToolbar` gates the browse-only sources
+                // hamburger on it — flipping it here would hide the
+                // hamburger once the stack pops back to the grid.
                 libraryPath = [.preview(asset), .edit(asset)]
+            } else {
+                mode = .editing
             }
+            #else
+            mode = .editing
             #endif
         }
         return true
