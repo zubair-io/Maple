@@ -18,13 +18,14 @@ import {
 } from '../../indexer/libraries.cache.ts';
 
 const TEST_DB = `maple_test_preview_route_${process.pid}`;
-// Captured BEFORE the assignment below, not inside `beforeAll`: module
-// bodies all run during Bun's import phase, so by the time any hook fires
-// the variable already reads `TEST_DB` and capturing it there would
-// restore nothing. `afterAll` puts this back so a later file that drops
-// the cached handle and re-reads the env doesn't inherit our database.
-const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+// Both the capture and the assignment live in `beforeAll`, never at module
+// scope. Bun evaluates every test file's module body during the import
+// phase, before any test runs, so a module-scope write here would clobber
+// (and be clobbered by) other files' writes, and a module-scope capture
+// would record whichever file happened to load last rather than the value
+// in effect when these tests run. `client.ts` reads this at connect time,
+// not module load, so deferring it costs nothing.
+let PRIOR_MONGO_DB: string | undefined;
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;
@@ -55,14 +56,12 @@ async function tryConnect(): Promise<MongoClient | null> {
 }
 
 beforeAll(async () => {
-  // Re-pin the database and drop any cached handle before the route under
-  // test can reach `getDb()`. The module-scope assignment above is not
-  // enough on its own: every test file's module body runs before any of
-  // them execute, so the last file loaded wins `MAPLE_MONGO_DB`, and
-  // `getDb()` caches `_db` on first connect and never re-reads the env
-  // afterwards. Without this the route's `assetsCollection()` can read a
-  // different database than the one this file inserts fixtures into, and
-  // every lookup 404s (#2787).
+  // Pin the database and drop any cached handle before the route under test
+  // can reach `getDb()`. `getDb()` caches `_db` on first connect and never
+  // re-reads the env afterwards, so without this the route's
+  // `assetsCollection()` can read a different database than the one this
+  // file inserts fixtures into, and every lookup 404s (#2787).
+  PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
   process.env.MAPLE_MONGO_DB = TEST_DB;
   await (await import('../../db/client.ts')).closeDb();
   mongo = await tryConnect();
