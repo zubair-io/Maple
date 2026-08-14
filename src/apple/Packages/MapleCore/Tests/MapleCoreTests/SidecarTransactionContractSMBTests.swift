@@ -19,15 +19,19 @@
 // which clears `client` — so "disconnect state is deterministic and
 // observable" (acceptance criterion #4) has direct coverage below.
 //
-// The second thing this file documents is a real product bug this suite's
-// design work surfaced: `EditSession` never persists edits for SMB-sourced
-// assets at all (see #2674, filed alongside this PR). That is a separate,
-// larger fix (wiring a `SidecarStoreProtocol` conformer for SMB through
-// `BrowseViewModel`/`AppShell+FolderActions`'s `ensureSession`), out of this
-// suite's scope per the stop-condition in the assignment — this test
-// documents the gap with `XCTExpectFailure` so CI stays green today and
-// fails loudly (not silently) the moment someone's fix makes it pass,
-// which is the signal to remove the expectation.
+// The second thing this file documented was a real product bug this
+// suite's design work surfaced: `EditSession` never persisted edits for
+// SMB-sourced assets at all (#2674, filed alongside this PR). That was
+// fixed by #2680 — `BrowseViewModel.loadSource` now tags SMB-sourced refs
+// with `.smb` provenance, and `AppShell+FolderActions.ensureSession`
+// resolves that provenance to a real `SMBSidecarStore` built from the
+// browse session's live `SMBSource` connection. `testEditSessionPersists-
+// EditsForSMBSourcedAssets` below now builds an `EditSession` the same way
+// `ensureSession`'s `.smb` branch does (see `EditSessionSMBSidecarTests.swift`
+// for the equivalent, more detailed coverage of this same wiring) and
+// asserts the store is real, no `XCTExpectFailure` needed — the
+// `XCTExpectFailure` this test carried before #2680 landed is gone; its
+// removal is itself the signal that the gap is closed.
 
 import XCTest
 
@@ -72,59 +76,52 @@ final class SidecarTransactionContractSMBTests: XCTestCase {
     }
   }
 
-  // MARK: - Documented gap: SMB edits are never persisted by EditSession
+  // MARK: - Fixed gap: SMB edits are now persisted by EditSession (#2674 → #2680)
 
-  /// Reproduces the real app wiring: an SMB-sourced `AssetRef` has
-  /// `primaryURL == nil` (`SMBSource.images()` deliberately leaves `url`
-  /// nil — the Rust decoder can't open an `smb://` URL) and, unlike the
-  /// PhotoKit/Cloud paths, nothing in `AppShell+FolderActions.ensureSession`
-  /// tags it with a `thumbnailProvenance` or constructs a
-  /// `SidecarStoreProtocol` for it. `EditSession.init` therefore falls to
-  /// its `sidecarStore = nil` branch, and every subsequent `model` edit's
-  /// `sidecarStore?.update(...)` is a silent no-op — the edit is real in
-  /// memory, renders live, and then evaporates the moment the session is
-  /// torn down. `SMBSource.writeXMP` — the real, working, retrying write
-  /// path this suite's other tests prove is individually correct — is
-  /// never called from the live app for this reason.
+  /// Reproduces the real, POST-#2680 app wiring: an SMB-sourced `AssetRef`
+  /// has `primaryURL == nil` (`SMBSource.images()` deliberately leaves `url`
+  /// nil — the Rust decoder can't open an `smb://` URL) and now carries
+  /// `.smb` `thumbnailProvenance` (`BrowseViewModel.loadSource`), which
+  /// `AppShell+FolderActions.ensureSession` resolves to a real
+  /// `SMBSidecarStore` built from the browse session's live `SMBSource`
+  /// connection — this test builds that same `SMBSidecarStore(source:ref:)`
+  /// shape directly and injects it the way `ensureSession` does. Before
+  /// #2680, `EditSession.init` fell to its `sidecarStore = nil` branch for
+  /// every SMB asset and every subsequent `model` edit's
+  /// `sidecarStore?.update(...)` was a silent no-op — the edit was real in
+  /// memory, rendered live, and evaporated the moment the session was torn
+  /// down. `SMBSource.writeXMP`/`.writeSidecarData` — the real, working,
+  /// retrying write path this suite's other tests prove is individually
+  /// correct — was never reachable from the live app for this reason.
   ///
-  /// `XCTExpectFailure` keeps this from failing CI today while making the
-  /// gap loud: once `ensureSession` is fixed to construct a real SMB
-  /// sidecar store, this assertion starts passing and XCTest reports
-  /// "expected failure did not occur," which is the cue to delete this
-  /// annotation.
-  func testEditSessionDoesNotPersistEditsForSMBSourcedAssets() async throws {
+  /// No live SMB server exists in this repo (see this file's header and
+  /// `SMBSourceSidecarTests.swift`), so `sidecarStore` is asserted non-nil
+  /// here rather than driving a full write/reopen contract cycle — the
+  /// deeper "does a real write actually get attempted" proof (via the
+  /// deterministic `.notConnected` failure) lives in
+  /// `EditSessionSMBSidecarTests.swift`, alongside the flush-forces-an-
+  /// immediate-write regression coverage for the teardown half of #2674.
+  func testEditSessionPersistsEditsForSMBSourcedAssets() async throws {
+    let stableID = "smb-share/Photos/IMG_0003.dng"
     let asset = AssetRef(
       displayName: "IMG_0003.dng",
       hintExtension: "dng",
-      stableID: "smb-share/Photos/IMG_0003.dng",
+      stableID: stableID,
       explicitIsRaw: true,
-      thumbnailProvenance: nil,  // exactly what SMB browsing produces today
+      thumbnailProvenance: .smb,  // what SMB browsing produces post-#2680
       bytesProvider: { Data() })
+    let store = SMBSidecarStore(
+      source: SMBSource(), ref: ImageRef(id: stableID, displayName: "IMG_0003.dng"))
 
-    // Do the async/actor-hopping setup BEFORE `XCTExpectFailure`: its
-    // failure-association is thread-local, and Swift Concurrency does
-    // not guarantee the resuming thread after an `await` matches the
-    // suspending one, so the assertion itself must run synchronously
-    // inside the block form for the expectation to attach correctly.
     let hasSidecarStore = await MainActor.run { () -> Bool in
-      let session = EditSession(asset: asset, remoteSidecarStore: nil)
+      let session = EditSession(asset: asset, remoteSidecarStore: store)
       session.model = SidecarContractVectors.fullyAuthoredModel()
       return session.sidecarStore != nil
     }
 
-    XCTExpectFailure(
-      """
-      SMB-sourced assets get no SidecarStoreProtocol from EditSession \
-      (AppShell+FolderActions.ensureSession never wires one because \
-      SMB assets never set thumbnailProvenance and never have a \
-      primaryURL) — edits are session-local and lost on teardown. \
-      See #2674, filed alongside #2431.
-      """
-    ) {
-      XCTAssertTrue(
-        hasSidecarStore,
-        "an SMB-sourced EditSession must have a real sidecar store wired, "
-          + "or every edit to an SMB-sourced photo is silently lost on session teardown")
-    }
+    XCTAssertTrue(
+      hasSidecarStore,
+      "an SMB-sourced EditSession must have a real sidecar store wired, "
+        + "or every edit to an SMB-sourced photo is silently lost on session teardown")
   }
 }
