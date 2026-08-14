@@ -13,7 +13,7 @@
 - **Ticket:** every commit on this branch works toward #2766; the PR body must contain `Closes #2766`.
 - **File-size budget:** soft 400 lines, headroom 570, hard 600. Split with real margin — aim well under 400, never land at 598. Check with `bash tools/check-file-budget.sh <path>`.
 - **Swift is not gated by cloud CI in this repo.** A green GitHub check proves nothing about this code. Verify locally.
-- **"Apple build" means all three targets.** macOS-only view modifiers break iOS silently. Build macOS *and* an iOS simulator destination before claiming done.
+- **"Apple build" means all three targets.** macOS-only view modifiers break iOS silently. Build macOS _and_ an iOS simulator destination before claiming done.
 - **XCUITest is non-functional on this machine** (#2525 — every class times out "enabling automation mode"). Do not add UI tests or plan verification around them.
 - **Conventional Commits** on the first line, enforced by the `commit-msg` lefthook.
 - **Language mode is Swift 5** package-wide (`Package.swift`) — do not introduce Swift 6 strict-concurrency-only constructs.
@@ -28,36 +28,36 @@
 
 **Create — `src/apple/Packages/MapleCore/Sources/MapleCloudKit/Admin/`**
 
-| File | Responsibility |
-| --- | --- |
-| `ServerAdminError.swift` | One error type for every admin client: status code plus the server's `{ "error": ... }` message. Reused by T1–T6. |
-| `NetworkConfig.swift` | Wire types for the network config: `NetworkConfig`, `NetworkConfigSource`, `NetworkValueSource`, `NetworkConfigPatch`. |
+| File                        | Responsibility                                                                                                                                 |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ServerAdminError.swift`    | One error type for every admin client: status code plus the server's `{ "error": ... }` message. Reused by T1–T6.                              |
+| `NetworkConfig.swift`       | Wire types for the network config: `NetworkConfig`, `NetworkConfigSource`, `NetworkValueSource`, `NetworkConfigPatch`.                         |
 | `NetworkSettingsForm.swift` | Pure form state and its two rules (seed only from `db_override`; port validation). No SwiftUI, no networking — this is the unit-testable core. |
-| `NetworkConfigClient.swift` | Actor wrapping the two endpoints. |
+| `NetworkConfigClient.swift` | Actor wrapping the two endpoints.                                                                                                              |
 
 **Create — `src/apple/Maple/Views/ServerAdmin/`**
 
-| File | Responsibility |
-| --- | --- |
-| `ServerAdminSection.swift` | The sidebar model: which sections exist, their titles, icons, and owner-only flag. Later tickets add cases here. |
-| `ServerAdminView.swift` | The host: `NavigationSplitView` on macOS, `List` in a `NavigationStack` on iOS. Owns section selection and owner filtering. |
-| `NetworkSettingsView.swift` | The Network page itself. |
+| File                           | Responsibility                                                                                                                                                                          |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ServerAdminSection.swift`     | The sidebar model: which sections exist, their titles, icons, and owner-only flag. Later tickets add cases here.                                                                        |
+| `ServerAdminView.swift`        | The host: `NavigationSplitView` on macOS, `List` in a `NavigationStack` on iOS. Owns section selection and owner filtering.                                                             |
+| `NetworkSettingsView.swift`    | The Network page itself.                                                                                                                                                                |
 | `CloudHTTPClientFactory.swift` | Standalone `makeCloudHTTPClient(server:session:)`, extracted from `AppShell+CloudActions.swift` so ServerAdmin builds an identically-configured client without depending on `AppShell`. |
 
 **Modify**
 
-| File | Change |
-| --- | --- |
+| File                                                   | Change                                                                                      |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
 | `src/apple/Maple/Views/AppShell+CloudActions.swift:44` | `makeAuthenticatedHTTPClient` delegates to the extracted factory instead of duplicating it. |
-| `src/apple/Maple/MapleApp.swift` | Register the macOS `WindowGroup(id:for:)` scene for ServerAdmin. |
-| `src/apple/Maple/Views/SelfHostedSettingsTab.swift` | Each server row gains a "Manage…" affordance. |
+| `src/apple/Maple/MapleApp.swift`                       | Register the macOS `WindowGroup(id:for:)` scene for ServerAdmin.                            |
+| `src/apple/Maple/Views/SelfHostedSettingsTab.swift`    | Each server row gains a "Manage…" affordance.                                               |
 
 **Test — `src/apple/Packages/MapleCore/Tests/MapleCoreTests/`**
 
-| File | Covers |
-| --- | --- |
+| File                             | Covers                                                                                                |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `NetworkConfigClientTests.swift` | Decode of the GET body, PUT body shape including explicit nulls, path targeting, and error surfacing. |
-| `NetworkSettingsFormTests.swift` | Seed provenance rule and port validation. |
+| `NetworkSettingsFormTests.swift` | Seed provenance rule and port validation.                                                             |
 
 Only Network appears in the sidebar in this ticket. Later tickets add their own `ServerAdminSection` case when they deliver the page, so there are no placeholder rows.
 
@@ -66,10 +66,12 @@ Only Network appears in the sidebar in this ticket. Later tickets add their own 
 ### Task 1: Shared admin error type
 
 **Files:**
+
 - Create: `src/apple/Packages/MapleCore/Sources/MapleCloudKit/Admin/ServerAdminError.swift`
 - Test: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/NetworkConfigClientTests.swift` (created in Task 3; this task ships the type only)
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: `public struct ServerAdminError: Error, LocalizedError, Equatable` with `public let statusCode: Int`, `public let message: String`, and `public static func from(data: Data, response: URLResponse) -> ServerAdminError?` returning nil for a 2xx response.
 
@@ -132,10 +134,12 @@ git commit -m "feat(apple): add ServerAdminError for admin API clients"
 ### Task 2: Network wire types
 
 **Files:**
+
 - Create: `src/apple/Packages/MapleCore/Sources/MapleCloudKit/Admin/NetworkConfig.swift`
 - Test: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/NetworkConfigClientTests.swift`
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces:
   - `public enum NetworkValueSource: String, Decodable, Sendable, Equatable` with cases `dbOverride` (`"db_override"`), `autoDetected` (`"auto_detected"`), `unavailable`, `defaultValue` (`"default"`), `unknown`.
@@ -348,10 +352,12 @@ git commit -m "feat(apple): add network config wire types"
 ### Task 3: NetworkConfigClient
 
 **Files:**
+
 - Create: `src/apple/Packages/MapleCore/Sources/MapleCloudKit/Admin/NetworkConfigClient.swift`
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/NetworkConfigClientTests.swift` (append a second test class)
 
 **Interfaces:**
+
 - Consumes: `NetworkConfig`, `NetworkConfigPatch`, `ServerAdminError` from Tasks 1–2. `AuthenticatedHTTPClient.data(for:)` from `MapleCloudKit/Auth/`.
 - Produces: `public actor NetworkConfigClient` with `public init(server: URL, httpClient: AuthenticatedHTTPClient)`, `public func fetch() async throws -> NetworkConfig`, `public func save(_ patch: NetworkConfigPatch) async throws -> NetworkConfig`, and `public static func preview(server:) -> NetworkConfigClient`.
 
@@ -530,10 +536,12 @@ git commit -m "feat(apple): add NetworkConfigClient"
 ### Task 4: Network form logic
 
 **Files:**
+
 - Create: `src/apple/Packages/MapleCore/Sources/MapleCloudKit/Admin/NetworkSettingsForm.swift`
 - Test: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/NetworkSettingsFormTests.swift`
 
 **Interfaces:**
+
 - Consumes: `NetworkConfig`, `NetworkConfigPatch`, `NetworkValueSource` from Task 2.
 - Produces:
   - `public struct NetworkSettingsForm: Equatable, Sendable` with `public var ipOverride: String`, `public var portOverride: String`, `public var enabled: Bool`, a `public init(ipOverride:portOverride:enabled:)` defaulting to empty strings and `false`.
@@ -744,10 +752,12 @@ git commit -m "feat(apple): add network settings form seeding and validation"
 ### Task 5: Extract the cloud HTTP client factory
 
 **Files:**
+
 - Create: `src/apple/Maple/Views/ServerAdmin/CloudHTTPClientFactory.swift`
 - Modify: `src/apple/Maple/Views/AppShell+CloudActions.swift:44-72`
 
 **Interfaces:**
+
 - Consumes: `AuthSession`, `TokenStore`, `CloudTokenPersistence`, `BackgroundExecution`.
 - Produces: `@MainActor func makeCloudHTTPClient(server: URL, session: AuthSession) -> AuthenticatedHTTPClient`.
 
@@ -810,10 +820,12 @@ Replace the body of `makeAuthenticatedHTTPClient` in `AppShell+CloudActions.swif
 - [ ] **Step 3: Build both platforms to confirm no regression**
 
 Run:
+
 ```bash
 cd src/apple && xcodebuild -project Maple.xcodeproj -scheme "Maple Exposure" \
   -destination 'platform=macOS' build 2>&1 | tail -5
 ```
+
 Expected: `** BUILD SUCCEEDED **`
 
 - [ ] **Step 4: Commit**
@@ -829,10 +841,12 @@ git commit -m "refactor(apple): extract cloud HTTP client factory from AppShell"
 ### Task 6: ServerAdmin section model and shell
 
 **Files:**
+
 - Create: `src/apple/Maple/Views/ServerAdmin/ServerAdminSection.swift`
 - Create: `src/apple/Maple/Views/ServerAdmin/ServerAdminView.swift`
 
 **Interfaces:**
+
 - Consumes: `AuthSession` (for `isOwner`), `CloudServerRegistry` (for the display name), `makeCloudHTTPClient` from Task 5.
 - Produces:
   - `enum ServerAdminSection: String, CaseIterable, Identifiable, Hashable` with case `network`, and `var title: String`, `var icon: String`, `var isOwnerOnly: Bool`.
@@ -992,9 +1006,11 @@ Expected: pass, well under 400 lines
 ### Task 7: Network settings page
 
 **Files:**
+
 - Create: `src/apple/Maple/Views/ServerAdmin/NetworkSettingsView.swift`
 
 **Interfaces:**
+
 - Consumes: `NetworkConfigClient`, `NetworkConfig`, `NetworkSettingsForm`, `ServerAdminError` from Tasks 1–4.
 - Produces: `struct NetworkSettingsView: View` with `init(client: NetworkConfigClient)`.
 
@@ -1217,10 +1233,12 @@ struct NetworkSettingsView: View {
 - [ ] **Step 2: Build for macOS**
 
 Run:
+
 ```bash
 cd src/apple && xcodebuild -project Maple.xcodeproj -scheme "Maple Exposure" \
   -destination 'platform=macOS' build 2>&1 | tail -5
 ```
+
 Expected: `** BUILD SUCCEEDED **`
 
 If `Text(...) + Text(...)` inside `LabeledContent` fails to type-check, replace the concatenation with an `HStack` of two `Text` views — do not drop the provenance suffix.
@@ -1228,10 +1246,12 @@ If `Text(...) + Text(...)` inside `LabeledContent` fails to type-check, replace 
 - [ ] **Step 3: Build for the iOS simulator**
 
 Run:
+
 ```bash
 cd src/apple && xcodebuild -project Maple.xcodeproj -scheme "Maple Exposure" \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build 2>&1 | tail -5
 ```
+
 Expected: `** BUILD SUCCEEDED **`
 
 This step exists because macOS-only modifiers compile fine on macOS and break iOS silently.
@@ -1255,10 +1275,12 @@ git commit -m "feat(apple): add ServerAdmin shell and Network settings page"
 ### Task 8: Wire the entry points
 
 **Files:**
+
 - Modify: `src/apple/Maple/MapleApp.swift:103-135`
 - Modify: `src/apple/Maple/Views/SelfHostedSettingsTab.swift:66-104`
 
 **Interfaces:**
+
 - Consumes: `ServerAdminView` from Task 6.
 - Produces: a macOS window scene with id `"server-admin"` keyed by `URL`; a "Manage…" control on each server row.
 
@@ -1352,12 +1374,14 @@ On macOS the `Settings` scene constructs `SettingsView()` directly, so pass `ses
 - [ ] **Step 4: Build both platforms**
 
 Run:
+
 ```bash
 cd src/apple && xcodebuild -project Maple.xcodeproj -scheme "Maple Exposure" \
   -destination 'platform=macOS' build 2>&1 | tail -5
 cd src/apple && xcodebuild -project Maple.xcodeproj -scheme "Maple Exposure" \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build 2>&1 | tail -5
 ```
+
 Expected: `** BUILD SUCCEEDED **` for both
 
 - [ ] **Step 5: Run the full package test suite**
