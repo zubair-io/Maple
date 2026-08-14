@@ -18,6 +18,12 @@ import {
 } from '../../indexer/libraries.cache.ts';
 
 const TEST_DB = `maple_test_preview_route_${process.pid}`;
+// Captured BEFORE the assignment below, not inside `beforeAll`: module
+// bodies all run during Bun's import phase, so by the time any hook fires
+// the variable already reads `TEST_DB` and capturing it there would
+// restore nothing. `afterAll` puts this back so a later file that drops
+// the cached handle and re-reads the env doesn't inherit our database.
+const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
 process.env.MAPLE_MONGO_DB = TEST_DB;
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
@@ -103,6 +109,14 @@ afterAll(async () => {
     }
   }
   invalidateLibraryRoots();
+  // Restore the env before dropping the cached handle, so the next file to
+  // reconnect reads whatever was there before this one rather than our
+  // per-pid database.
+  if (PRIOR_MONGO_DB === undefined) {
+    delete process.env.MAPLE_MONGO_DB;
+  } else {
+    process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
+  }
   const { closeDb } = await import('../../db/client.ts');
   await closeDb();
 });
