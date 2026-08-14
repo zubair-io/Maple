@@ -14,7 +14,7 @@
  */
 
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
+import type { ObjectId } from 'mongodb';
 import { assetsCollection } from '../../db/client.ts';
 import type { FileInfo } from '../../db/schema.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
@@ -33,7 +33,7 @@ import {
  * plus the viewport shape. Declared by spreading `SearchQueryT`'s
  * properties rather than re-typing them so the two schemas can never
  * drift apart. */
-export interface MapClustersQuery extends SearchQuery {
+interface MapClustersQuery extends SearchQuery {
   /** `west,south,east,north` viewport bounds in decimal degrees. */
   bbox?: string;
   /** Integer zoom level — selects the grid cell size (see
@@ -41,15 +41,15 @@ export interface MapClustersQuery extends SearchQuery {
   zoom?: string;
 }
 
-export const MapClustersQueryT = t.Object({
+const MapClustersQueryT = t.Object({
   ...SearchQueryT.properties,
   bbox: t.Optional(t.String()),
   zoom: t.Optional(t.String()),
 });
 
 /** Grid resolution bounds. Mirrors the range of zoom levels a slippy-map
- * client (MapKit JS / native MapKit) actually presents — 0 = whole world
- * in one cell, 20 = building-scale. */
+ * client actually presents — 0 = whole world in one cell, 20 =
+ * building-scale. */
 const MIN_ZOOM = 0;
 const MAX_ZOOM = 20;
 const DEFAULT_ZOOM = 10;
@@ -63,7 +63,7 @@ const DEFAULT_ZOOM = 10;
  * client needs stable, zoom-proportional cell counts for a heatmap/
  * cluster view, not geodesic-accurate cell areas.
  */
-export function cellSizeDegForZoom(zoom: number): number {
+function cellSizeDegForZoom(zoom: number): number {
   return 360 / Math.pow(2, zoom);
 }
 
@@ -74,23 +74,34 @@ interface ParsedBbox {
   north: number;
 }
 
+const LAT_LIMIT_DEG = 90;
+const LNG_LIMIT_DEG = 180;
+
+/** True when `value` lies within ±`limit` inclusive. */
+function withinAbs(value: number, limit: number): boolean {
+  return value >= -limit && value <= limit;
+}
+
 /** Parse+validate the `bbox` param. Returns `{ error }` for a missing or
  * malformed value — bbox is required because it's what bounds the
  * aggregation's cost and payload size; there is no sane "whole world"
- * default for a per-viewport endpoint. */
-export function parseBbox(raw: string | undefined): ParsedBbox | { error: string } {
-  if (raw === undefined || raw.trim().length === 0) {
-    return { error: 'Missing bbox (expected west,south,east,north)' };
-  }
-  const parts = raw.split(',').map((p) => Number(p.trim()));
+ * default for a per-viewport endpoint.
+ *
+ * Note the deliberate asymmetry between the two axes: `south > north` is
+ * rejected, but `west > east` is NOT — that's the legitimate
+ * antimeridian-crossing viewport the handler special-cases below. There
+ * is no equivalent wrap-around at the poles. */
+function parseBbox(raw: string | undefined): ParsedBbox | { error: string } {
+  const parts = (raw ?? '').split(',').map((p) => Number(p.trim()));
   if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) {
-    return { error: 'Invalid bbox: expected west,south,east,north' };
+    return { error: 'Invalid or missing bbox: expected west,south,east,north' };
   }
   const [west, south, east, north] = parts as [number, number, number, number];
-  if (south < -90 || south > 90 || north < -90 || north > 90 || south > north) {
+  const latsValid = withinAbs(south, LAT_LIMIT_DEG) && withinAbs(north, LAT_LIMIT_DEG);
+  if (!latsValid || south > north) {
     return { error: 'Invalid bbox: bad latitude range' };
   }
-  if (west < -180 || west > 180 || east < -180 || east > 180) {
+  if (!withinAbs(west, LNG_LIMIT_DEG) || !withinAbs(east, LNG_LIMIT_DEG)) {
     return { error: 'Invalid bbox: bad longitude range' };
   }
   return { west, south, east, north };
@@ -100,7 +111,7 @@ export function parseBbox(raw: string | undefined): ParsedBbox | { error: string
  * code → null. A pin click needs SOME label to build a `placeQuery`
  * from even when the geocoder only resolved a coarse level (rural,
  * ocean, or aerial shots often have no `locality`). */
-export function placeLabelFrom(
+function placeLabelFrom(
   locality: string | null | undefined,
   region: string | null | undefined,
   countryCode: string | null | undefined,
@@ -120,7 +131,7 @@ interface ClusterGroupRow {
   countryCode: string | null | undefined;
 }
 
-export interface MapCluster {
+interface MapCluster {
   lat: number;
   lng: number;
   count: number;
