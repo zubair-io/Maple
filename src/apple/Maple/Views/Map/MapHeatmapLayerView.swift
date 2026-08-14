@@ -25,14 +25,21 @@ import MapKit
 import MapleCore
 
 struct MapHeatmapLayerView: View {
-  let cells: [MapCluster]
+  /// Already-normalized weights straight off `MapViewModel.heatmapPoints`
+  /// — deliberately NOT the raw `[MapCluster]`. Normalizing here would run
+  /// an O(n) max plus an array allocation inside the draw closure below,
+  /// which fires on every camera tick; the VM derives this once per fetch
+  /// instead (see `MapViewModel.heatmapPoints`).
+  let points: [MapHeatmapPoint]
   let zoomLevel: Int
   let proxy: MapProxy
 
   var body: some View {
     Canvas { context, _ in
       let opacity = MapHeatmapZoomCrossfade.opacity(forZoomLevel: zoomLevel)
-      guard opacity > 0 else { return }
+      // Cheap rejects first: past the crossfade, or nothing to draw at all.
+      // Both skip the projection pass entirely.
+      guard opacity > 0, !points.isEmpty else { return }
       let blobs = heatmapBlobs()
       guard !blobs.isEmpty else { return }
       context.withCGContext { cgContext in
@@ -43,11 +50,13 @@ struct MapHeatmapLayerView: View {
     .accessibilityHidden(true)
   }
 
-  /// Screen-space blobs for the current camera — `proxy.convert` returns
+  /// Projects the pre-weighted points into screen space for the CURRENT
+  /// camera — the only genuinely per-frame work here, since `proxy.convert`
+  /// depends on the live camera and its result changes every tick. Returns
   /// `nil` for a coordinate MapKit can't currently project (effectively
   /// off-map), which this drops rather than propagating.
   private func heatmapBlobs() -> [MapHeatmapBlob] {
-    MapHeatmapPoint.points(from: cells).compactMap { heatPoint in
+    points.compactMap { heatPoint in
       guard let center = proxy.convert(
         CLLocationCoordinate2D(latitude: heatPoint.latitude, longitude: heatPoint.longitude),
         to: .local
