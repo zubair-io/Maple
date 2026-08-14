@@ -48,6 +48,20 @@ public final class MapHeatmapOverlay: NSObject, MKOverlay {
     MapHeatmapOverlay(points: MapHeatmapPoint.points(from: cells))
   }
 
+  /// Square map-rect footprint of one blob — its center expanded by the
+  /// blob's radius on every side. Used to cull blobs against the tile
+  /// `mapRect` MapKit hands `MKOverlayRenderer.draw`: that method is called
+  /// once per TILE, not once per frame, so without a cull every tile issues
+  /// a full-cost `drawRadialGradient` for every point in the whole overlay
+  /// — including points nowhere near that tile, which CoreGraphics then
+  /// merely clips away. Un-culled cost scales as (tiles × points).
+  static func blobBounds(center: MKMapPoint, radiusMapPoints: Double) -> MKMapRect {
+    MKMapRect(x: center.x - radiusMapPoints,
+              y: center.y - radiusMapPoints,
+              width: radiusMapPoints * 2,
+              height: radiusMapPoints * 2)
+  }
+
   /// Union of every point's map rect, padded by `paddingFraction` of the
   /// union's own size so a blob centered near the boundary doesn't get
   /// clipped — MapKit only asks a renderer to draw the intersection of
