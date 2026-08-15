@@ -37,12 +37,42 @@ public final class FileProviderMetaStore: @unchecked Sendable {
     private let log = Logger(subsystem: "app.justmaple.aperture.fileprovider",
                              category: "meta-store")
 
+    /// Soft TTL for rows. Every `fetchContents` call (RAW or sidecar)
+    /// inserts a brand-new row keyed by a freshly generated UUID
+    /// basename, and until #2536 nothing ever deleted an old one — the
+    /// App Group SQLite file grew unbounded under heavy Finder/Quick
+    /// Look use. The store is a re-derivable mirror only: a lookup miss
+    /// in `MaplePreviewProvider.providePreview` just falls back to slow
+    /// RAW materialization for that one Quick Look request, never data
+    /// loss. Default mirrors `QuickLookThumbDiskCache.ttl` (7 days) —
+    /// long enough that a same-week Quick Look/Finder revisit still
+    /// resolves, short enough that stale one-shot materializations don't
+    /// linger forever.
+    public let ttl: TimeInterval
+
+    /// Clock, injectable so tests can advance time deterministically
+    /// instead of sleeping past a real TTL/sweep window.
+    private let now: () -> Date
+
+    /// `Date` of the last full TTL sweep, mirroring
+    /// `QuickLookThumbDiskCache.lastSweepAt` — gates the sweep to at
+    /// most once per `sweepInterval` so a burst of `put()` calls (every
+    /// Finder browse / Quick Look preview) doesn't run a DELETE on every
+    /// single insert.
+    private var lastSweepAt: Date?
+
+    /// How often the TTL sweep can run, at most. Mirrors
+    /// `QuickLookThumbDiskCache.sweepInterval`.
+    private let sweepInterval: TimeInterval = 5 * 60
+
     /// Opens (or creates) the SQLite database at `url`. The schema is
     /// migrated to `Schema.current` on open. Multiple processes can open
     /// the same file concurrently — WAL mode is enabled so readers don't
     /// block writers.
-    public init(url: URL) throws {
+    public init(url: URL, ttl: TimeInterval = 7 * 24 * 60 * 60, now: @escaping () -> Date = Date.init) throws {
         self.url = url
+        self.ttl = ttl
+        self.now = now
         try queue.sync {
             try openLocked()
             try migrateLocked()
@@ -81,6 +111,12 @@ public final class FileProviderMetaStore: @unchecked Sendable {
     public func put(domain: String, localBasename: String,
                     assetID: String, conflictBasename: String?) throws {
         try queue.sync {
+            // Opportunistic eviction sweep — every `put()` is a potential
+            // growth point (see `ttl`'s doc comment), so this is where we
+            // gate unbounded growth. Runs before the insert; the interval
+            // gate keeps this a no-op on all but the first `put()` in any
+            // given `sweepInterval` window.
+            try sweepIfNeededLocked()
             let sql = """
             INSERT INTO fp_meta (domain, local_basename, asset_id, conflict_basename, updated_at)
             VALUES (?, ?, ?, ?, ?)
@@ -102,7 +138,7 @@ public final class FileProviderMetaStore: @unchecked Sendable {
             } else {
                 sqlite3_bind_null(stmt, 4)
             }
-            sqlite3_bind_int64(stmt, 5, Int64(Date().timeIntervalSince1970))
+            sqlite3_bind_int64(stmt, 5, Int64(now().timeIntervalSince1970))
             let rc = sqlite3_step(stmt)
             guard rc == SQLITE_DONE else {
                 throw StoreError.stepFailed(sql, rc)
@@ -124,6 +160,66 @@ public final class FileProviderMetaStore: @unchecked Sendable {
             guard rc == SQLITE_DONE else {
                 throw StoreError.stepFailed(sql, rc)
             }
+        }
+    }
+
+    // MARK: - Eviction (queue-private)
+
+    /// Deletes every row whose `updated_at` is older than `ttl`, at most
+    /// once per `sweepInterval`. Runs a single bulk `DELETE`, keyed on
+    /// `updated_at`, rather than looping per-row `remove()` calls —
+    /// `remove()` takes its own `queue.sync`, and `DispatchQueue.sync`
+    /// is not reentrant, so calling it from here (already inside a
+    /// `queue.sync`) would deadlock.
+    private func sweepIfNeededLocked() throws {
+        let nowValue = now()
+        if let last = lastSweepAt, nowValue.timeIntervalSince(last) < sweepInterval {
+            return
+        }
+        let cutoff = Int64(nowValue.timeIntervalSince1970 - ttl)
+        let sql = "DELETE FROM fp_meta WHERE updated_at < ?;"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            throw StoreError.prepareFailed(sql, sqlite3_errcode(db))
+        }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int64(stmt, 1, cutoff)
+        let rc = sqlite3_step(stmt)
+        guard rc == SQLITE_DONE else {
+            throw StoreError.stepFailed(sql, rc)
+        }
+        let evicted = sqlite3_changes(db)
+        lastSweepAt = nowValue
+        if evicted > 0 {
+            log.notice("ttl sweep evicted \(evicted, privacy: .public) row(s) older than \(self.ttl, privacy: .public)s")
+        }
+    }
+
+    // MARK: - Test accessors
+
+    /// Force a TTL sweep regardless of `sweepInterval` (test-only —
+    /// production gates on the interval via `put()`). Mirrors
+    /// `QuickLookThumbDiskCache._runSweepForTesting()`.
+    internal func _runSweepForTesting() throws {
+        try queue.sync {
+            lastSweepAt = nil
+            try sweepIfNeededLocked()
+        }
+    }
+
+    /// Total row count across all domains — test-only.
+    internal func _rowCountForTesting() throws -> Int {
+        try queue.sync {
+            let sql = "SELECT COUNT(*) FROM fp_meta;"
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                throw StoreError.prepareFailed(sql, sqlite3_errcode(db))
+            }
+            defer { sqlite3_finalize(stmt) }
+            guard sqlite3_step(stmt) == SQLITE_ROW else {
+                throw StoreError.stepFailed(sql, sqlite3_errcode(db))
+            }
+            return Int(sqlite3_column_int64(stmt, 0))
         }
     }
 
