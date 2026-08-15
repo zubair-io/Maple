@@ -217,6 +217,72 @@ final class FileProviderMetaStoreTests: XCTestCase {
         XCTAssertFalse(QuickLookResolver.isSidecarBasename(rawBasename))
     }
 
+    /// Coverage for #2536: `put()` fires on every `fetchContents` call
+    /// (one brand-new UUID-keyed row per RAW/sidecar materialization)
+    /// and previously nothing ever deleted an old row — the App Group
+    /// SQLite file grew unbounded under heavy Finder/Quick Look use.
+    /// `_runSweepForTesting()` forces the TTL sweep regardless of the
+    /// production `sweepInterval` gate, isolating the eviction logic
+    /// itself from the opportunistic-scheduling behaviour covered by
+    /// `testPutOpportunisticallyEvictsExpiredRows` below.
+    func testRunSweepForTestingEvictsRowsOlderThanTTL() throws {
+        let url = freshStoreURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        var now = Date(timeIntervalSince1970: 1_000_000)
+        let store = try FileProviderMetaStore(url: url, ttl: 50, now: { now })
+
+        try store.put(domain: "d", localBasename: "old", assetID: "a1", conflictBasename: nil)
+        XCTAssertEqual(try store._rowCountForTesting(), 1)
+
+        now = now.addingTimeInterval(51)
+        try store._runSweepForTesting()
+
+        XCTAssertNil(try store.get(domain: "d", localBasename: "old"),
+                     "row older than ttl must be evicted by the sweep")
+        XCTAssertEqual(try store._rowCountForTesting(), 0)
+    }
+
+    /// A row younger than `ttl` must survive a sweep — eviction is
+    /// age-gated, not "clear everything."
+    func testSweepPreservesRowsWithinTTL() throws {
+        let url = freshStoreURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let t0 = Date(timeIntervalSince1970: 1_000_000)
+        let store = try FileProviderMetaStore(url: url, ttl: 1_000, now: { t0 })
+
+        try store.put(domain: "d", localBasename: "fresh", assetID: "a1", conflictBasename: nil)
+        try store._runSweepForTesting()
+
+        XCTAssertNotNil(try store.get(domain: "d", localBasename: "fresh"))
+        XCTAssertEqual(try store._rowCountForTesting(), 1)
+    }
+
+    /// The production entry point: `put()` itself must opportunistically
+    /// sweep expired rows (not just the test-only forced sweep). This is
+    /// the actual fix for #2536's unbounded growth — every
+    /// `fetchContents` call both inserts one row and gives expired rows
+    /// a chance to be reclaimed.
+    func testPutOpportunisticallyEvictsExpiredRows() throws {
+        let url = freshStoreURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        var now = Date(timeIntervalSince1970: 1_000_000)
+        let store = try FileProviderMetaStore(url: url, ttl: 100, now: { now })
+
+        try store.put(domain: "d", localBasename: "old", assetID: "a1", conflictBasename: nil)
+        XCTAssertNotNil(try store.get(domain: "d", localBasename: "old"))
+
+        // Advance past both ttl (100s) and the production sweep-interval
+        // gate (5 min) so the next put()'s opportunistic sweep fires and
+        // catches this row.
+        now = now.addingTimeInterval(301)
+        try store.put(domain: "d", localBasename: "new", assetID: "a2", conflictBasename: nil)
+
+        XCTAssertNil(try store.get(domain: "d", localBasename: "old"),
+                     "row older than ttl must be evicted by the next put()'s opportunistic sweep")
+        XCTAssertNotNil(try store.get(domain: "d", localBasename: "new"))
+        XCTAssertEqual(try store._rowCountForTesting(), 1)
+    }
+
     func testSharedURLPrefersAppGroupContainer() throws {
         let stub = FileManager.default.temporaryDirectory
             .appendingPathComponent("group-stub-\(UUID().uuidString)", isDirectory: true)
