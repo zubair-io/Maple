@@ -55,7 +55,8 @@ export class SearchFilterPanelComponent {
 
   protected readonly showLabel = computed(() => {
     const t = this.total();
-    return t === null ? 'Show results' : `Show ${t.toLocaleString()} results`;
+    if (t === null) return 'Show results';
+    return `Show ${t.toLocaleString()} ${t === 1 ? 'result' : 'results'}`;
   });
 
   /** People rows the panel shows: selected ones surface even when they

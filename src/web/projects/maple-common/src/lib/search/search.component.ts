@@ -177,7 +177,9 @@ export class SearchComponent implements OnInit, AfterViewInit {
   /** Empty state — recents render only when nothing is being searched. */
   protected readonly showRecents = computed(() => !this.hasText() && !this.filtersActive());
 
-  protected readonly totalLabel = computed(() => `${this.total().toLocaleString()} results`);
+  protected readonly totalLabel = computed(
+    () => `${this.total().toLocaleString()} ${this.total() === 1 ? 'result' : 'results'}`,
+  );
 
   @ViewChild(SearchBarComponent) private searchBar?: SearchBarComponent;
 
