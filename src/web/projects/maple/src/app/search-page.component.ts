@@ -1,12 +1,11 @@
-// SearchPageComponent — `/search` route host for the responsive-program
-// S7 (#622) search experience in the Self-Hosted (maple) app.
+// SearchPageComponent — `/search` route host for the unified search
+// experience (#2865) in the Self-Hosted (maple) app.
 //
 // Wraps `<app-search>` from maple-common and wires it into the app
-// router: photo taps push to `/view/<id>` (the fast Preview surface,
-// Web Preview Surface Task 6c), and the "See all" button leaves the user
-// on the same page (no filtered grid view yet — that lands as part of S7
-// follow-up or as a redirect into the existing rich filter page at
-// `/search/advanced`).
+// router: photo taps push to `/view/<id>` (the fast Preview surface).
+// Filters, the panel, and the `@` tag picker are internal to
+// `<app-search>` — there is no separate advanced page anymore
+// (`/search/advanced` is a redirect here since #2865).
 //
 // On mount the component reads two query params off the route:
 //   - `?q=<query>` — the search term the browse-shell toolbar and the S1b
@@ -24,7 +23,7 @@ import {
   inject,
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { SearchComponent, SearchResult, SearchScope, viewRouteCommands } from '@maple-common';
+import { SearchComponent, SearchResult, viewRouteCommands } from '@maple-common';
 
 @Component({
   selector: 'maple-search-page',
@@ -34,9 +33,7 @@ import { SearchComponent, SearchResult, SearchScope, viewRouteCommands } from '@
     <app-search
       [initialQuery]="initialQuery"
       [autoFocus]="autoFocus"
-      [showFilters]="true"
       (photoTap)="onPhotoTap($event)"
-      (filters)="onFilters($event)"
       (queryChange)="onQueryChange($event)"
     />
   `,
@@ -76,18 +73,6 @@ export class SearchPageComponent implements AfterViewInit {
     // viewRouteCommands() passes those through as a single :slug segment and
     // PreviewShellComponent resolves them via the self-hosted-synth path.
     void this.router.navigate(viewRouteCommands(r.id));
-  }
-
-  protected onFilters(payload: { query: string; scope: SearchScope }): void {
-    // The Filters button routes into the rich filter page so the user can
-    // drill further (ISO/camera/lens ranges, vision facets). The rich page
-    // sits at `/search/advanced` and accepts `?q=` on entry; the current
-    // query is forwarded so the advanced box lands prefilled. Scope is in the
-    // payload type for a future filtered-grid landing without changing the
-    // `<app-search>` contract.
-    void this.router.navigate(['/search/advanced'], {
-      queryParams: payload.query ? { q: payload.query } : {},
-    });
   }
 
   protected onQueryChange(q: string): void {

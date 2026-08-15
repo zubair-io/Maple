@@ -1,30 +1,34 @@
-// SearchComponent — top-level search experience for S7 (#622).
+// SearchComponent — the unified search experience (#2865, epic #2862).
 //
-// Spec: docs/design/responsive-program/s7-search.md.
+// Design: one search model on every platform — free-text query + the
+// Date / People / Places filter set — with the filter panel right-docked
+// on desktop and a bottom sheet on phones, and an `@` tag picker for
+// people & places. Replaces both the S7 scope-chip page and the legacy
+// `/search/advanced` EXIF filter page (removed in the same change).
 //
-// Composes the search bar, scope chips, and three result sections (top
-// hits, photos preview, recents). Owns:
-//   - the query / scope signals. The host seeds the *initial* query via the
-//     `initialQuery` input (e.g. the `/search?q=…` deep link the toolbar and
-//     drawer search pill push to); from there this component owns the value.
-//     Live keystroke → URL round-trip is not implemented and not needed.
-//   - the 250ms debounce on query keystrokes → `SearchService.search()`.
-//   - the in-flight `Subscription` so scope changes / new queries
-//     cancel the previous fetch (no client-side filter — scope changes
-//     re-issue a server call).
-//   - infinite-scroll pagination via `onLoadMore()` (driven by the sentinel
-//     in PhotoResultsSectionComponent).
-//   - the recents list persisted at `cm.search.recent`.
+// Owns:
+//   - the query / filters / sort signals. The host seeds the *initial*
+//     query via `initialQuery` (the `/search?q=…` deep link); from there
+//     this component owns the value.
+//   - the 250ms debounce on query/filter changes → `SearchService.search()`.
+//     A search fires when there is residual text OR any active filter —
+//     filters-only searches are first-class (the server runs them on the
+//     structured seekable path).
+//   - the facets fetch (400ms debounce) that feeds the panel's People /
+//     Places rows, the tag picker, and the live "Show N results" count.
+//   - the `@` tag-picker state: a trailing `@token` in the query opens the
+//     picker and never reaches the server (it's stripped from the fetched
+//     text); picking a row toggles the filter and removes the token.
+//   - infinite-scroll pagination via `onLoadMore()` (sentinel in
+//     PhotoResultsSectionComponent), seek-cursor first, page fallback.
+//   - result-tile thumbnails: blob URLs via FilesystemBrowseService,
+//     cached for the component's lifetime (same contract the removed
+//     advanced page had).
+//   - the recents list persisted at `cm.search.recent` (shown when the
+//     query is empty and no filter is active).
 //
-// Routing:
-//   - photo tap → S5 Editor at `/edit/<id>`. If S5 hasn't merged in
-//     the consuming app this still works because the Self-Hosted
-//     EditorShellComponent is already at `/edit/:id` (today's contract).
-//     Hosted (`maple-syrup`) routes the same id through its
-//     EditorShellComponent.
-//   - Filters → host navigates to the advanced filter page with the current
-//     query + scope prefilled. Wired through the `filters` output so this
-//     component stays router-free.
+// Routing: photo tap → host navigates (`photoTap` output) so this
+// component stays router-free.
 
 import {
   AfterViewInit,
@@ -41,47 +45,50 @@ import {
   signal,
 } from '@angular/core';
 import { Subscription } from 'rxjs';
-import { SearchParams, SearchResult, SearchService, seekExhausted } from '../api/search.service';
+import {
+  SearchFacets,
+  SearchParams,
+  SearchResult,
+  SearchService,
+  seekExhausted,
+} from '../api/search.service';
+import { FilesystemBrowseService } from '../api/filesystem-browse.service';
 import { SearchBarComponent } from './search-bar.component';
-import { SearchScopeChipsComponent } from './search-scope-chips.component';
-import { TopHitsSectionComponent } from './top-hits-section.component';
+import { SearchFilterPanelComponent, FacetOption } from './search-filter-panel.component';
+import { SearchTagPickerComponent, TagPick } from './search-tag-picker.component';
 import { PhotoResultsSectionComponent } from './photo-results-section.component';
 import { RecentQueriesComponent } from './recent-queries.component';
+import { pushRecent, readRecents, writeRecents } from './search-types';
 import {
-  SearchScope,
-  TopHit,
-  pushRecent,
-  readRecents,
-  topHitsFromResults,
-  writeRecents,
-} from './search-types';
+  ActiveFilterChip,
+  EMPTY_FILTERS,
+  SearchFilters,
+  activeFilterChips,
+  activeFilterCount,
+  filtersToParams,
+  hasActiveFilters,
+  removeChip,
+  togglePerson,
+  togglePlace,
+} from './search-filters';
 
-/** Map a UI scope chip to the backend `SearchParams`. `all` keeps the
- * default no-scope request (the backend returns the full live set);
- * every other chip populates the `scope` param so the server filters by
- * the underlying field. `albums` is recognised end-to-end but the
- * backend currently returns `notImplemented: true` because no album
- * field exists yet — the FE keeps the chip enabled so the UI affordance
- * is uniform. See `#644` and `routes/search/query.ts`. */
-export function scopeToParams(scope: SearchScope): Partial<SearchParams> {
-  switch (scope) {
-    case 'all':
-      return {};
-    case 'photos':
-    case 'places':
-    case 'people':
-    case 'albums':
-      return { scope };
-  }
-}
+/** Inline-chip cap inside the pill — the rest collapse into "+N". */
+const MAX_INLINE_CHIPS = 2;
+
+/** Trailing `@token` matcher: an `@` at the start or after whitespace,
+ * followed by non-space text, at the END of the query. Group 2 is the
+ * fragment the tag picker filters on. */
+const TAG_TOKEN = /(^|\s)@([^\s@]*)$/;
+
+export type SearchSortOrder = 'captured_desc' | 'captured_asc';
 
 @Component({
   selector: 'app-search',
   standalone: true,
   imports: [
     SearchBarComponent,
-    SearchScopeChipsComponent,
-    TopHitsSectionComponent,
+    SearchFilterPanelComponent,
+    SearchTagPickerComponent,
     PhotoResultsSectionComponent,
     RecentQueriesComponent,
   ],
@@ -90,100 +97,119 @@ export function scopeToParams(scope: SearchScope): Partial<SearchParams> {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SearchComponent implements OnInit, AfterViewInit {
-  /** When true, focus the search bar on init. Hosts set this when the
-   * route lands via the drawer's `searchPillTap` pill (`autoFocus=1`)
-   * or when the phone Search tab becomes active. */
+  /** When true, focus the search bar on init (phone tab activation, the
+   * drawer search pill's `autoFocus=1` deep link). */
   readonly autoFocus = input<boolean>(false);
 
   /** Initial query the host seeds from the route (`/search?q=…`). Read once
-   * in `ngOnInit` — after that this component owns the query. Empty/whitespace
-   * leaves the bar blank (the effect trims before fetching, so no request
-   * fires for a whitespace-only seed). */
+   * in `ngOnInit` — after that this component owns the query. */
   readonly initialQuery = input<string>('');
 
-  /** When true, render the "Filters" button (emits `filters`). Hosts that
-   * have an advanced filter page (`/search/advanced`) set this; hosts without
-   * one (e.g. Hosted/maple-syrup) leave it false so no dead control shows. */
-  readonly showFilters = input<boolean>(false);
-
-  /** Emitted when the user taps a photo result. Hosts route to the
-   * Editor (S5) — kept as an output so this component stays router-free
-   * and can be embedded inside an overlay without owning navigation. */
+  /** Emitted when the user taps a photo result — hosts route to the
+   * preview/editor surface. */
   readonly photoTap = output<SearchResult>();
-  /** Emitted when the user taps a non-photo top hit (place / album /
-   * keyword / person). v0.1 never fires this because there are no
-   * non-photo top hits on the wire yet. */
-  readonly topHitTap = output<TopHit>();
-  /** Emitted when the user taps the Filters button. Hosts navigate to the
-   * advanced filter page (`/search/advanced`) with the current query + scope
-   * prefilled as query params. */
-  readonly filters = output<{ query: string; scope: SearchScope }>();
-  /** Emitted when the query input changes or is cleared. */
+  /** Emitted when the query input changes or is cleared (hosts sync `?q=`). */
   readonly queryChange = output<string>();
 
   private readonly searchService = inject(SearchService);
+  private readonly fs = inject(FilesystemBrowseService);
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly query = signal<string>('');
-  protected readonly scope = signal<SearchScope>('all');
+  protected readonly filters = signal<SearchFilters>(EMPTY_FILTERS);
+  protected readonly sort = signal<SearchSortOrder>('captured_desc');
   protected readonly results = signal<readonly SearchResult[]>([]);
   protected readonly total = signal<number>(0);
   protected readonly isStale = signal<boolean>(false);
   protected readonly recent = signal<readonly string[]>(readRecents());
   protected readonly page = signal<number>(0);
-  /** Seek cursor for the next page (#2129), or `null` when the server has
-   * none for this query — a relevance-ordered `placeQuery` (the usual case
-   * here), or a server predating the field. `onLoadMore` falls back to
-   * `page + 1` then, so both pagination modes coexist. A query that is
-   * purely a natural-language date ("2023") *does* get one: the server
-   * folds it into `from`/`to` and runs the structured, seekable path. */
+  /** Seek cursor for the next page (#2129); `null` on the relevance-ranked
+   * text path or when the chain is exhausted — `onLoadMore` falls back to
+   * `page + 1`, so both pagination modes coexist. */
   protected readonly nextCursor = signal<string | null>(null);
   protected readonly isLoadingMore = signal<boolean>(false);
+  /** Phone/tablet filter sheet visibility. On desktop (≥1024px) the panel
+   * is a permanently-docked column and this flag has no visible effect. */
+  protected readonly panelOpen = signal<boolean>(false);
+  /** Facets for the panel rows + tag picker + live "Show N" count. */
+  protected readonly facets = signal<SearchFacets | null>(null);
+  /** Result-id → blob URL, patched as thumbnails resolve. */
+  protected readonly thumbUrls = signal<ReadonlyMap<string, string>>(new Map());
+  /** Fragment of a trailing `@token` the user dismissed — keeps the picker
+   * closed for that exact token until typing changes it. */
+  private readonly dismissedTag = signal<string | null>(null);
 
-  /** Top hits = head-of-`results` until a dedicated endpoint lands.
-   * Derived (not a separate signal) so we never go out of sync with
-   * the photo grid. */
-  protected readonly topHits = computed(() =>
-    topHitsFromResults(this.results() as readonly SearchResult[], 3),
+  /** The trailing `@token` fragment, or null when the query has none. */
+  protected readonly tagFragment = computed(() => {
+    const m = TAG_TOKEN.exec(this.query());
+    return m === null ? null : m[2];
+  });
+
+  protected readonly tagPickerOpen = computed(
+    () => this.tagFragment() !== null && this.tagFragment() !== this.dismissedTag(),
   );
+
+  /** The text the server sees: the query minus any trailing `@token`
+   * (which belongs to the picker, not the search). */
+  protected readonly effectiveText = computed(() => this.query().replace(TAG_TOKEN, '$1').trim());
+
+  protected readonly hasText = computed(() => this.effectiveText().length > 0);
+  protected readonly filtersActive = computed(() => hasActiveFilters(this.filters()));
+  protected readonly activeCount = computed(() => activeFilterCount(this.filters()));
+
+  protected readonly allChips = computed(() => activeFilterChips(this.filters()));
+  protected readonly visibleChips = computed(() => this.allChips().slice(0, MAX_INLINE_CHIPS));
+  protected readonly overflowCount = computed(
+    () => this.allChips().length - this.visibleChips().length,
+  );
+
+  protected readonly facetPeople = computed<readonly FacetOption[]>(
+    () => this.facets()?.people ?? [],
+  );
+  protected readonly facetPlaces = computed<readonly FacetOption[]>(
+    () => this.facets()?.places ?? [],
+  );
+  protected readonly facetTotal = computed(() => this.facets()?.total ?? null);
 
   /** True when there are server-side results not yet loaded locally. */
   protected readonly canLoadMore = computed(() => this.results().length < this.total());
 
-  /** Display state for the recents section — hidden once the user types.
-   * Uses `trim()` so whitespace-only input behaves like an empty query
-   * (matching the search effect + `hasQuery`); otherwise typing spaces
-   * would hide recents while neither results nor the empty-state render. */
-  protected readonly showRecents = computed(() => this.query().trim().length === 0);
+  /** Empty state — recents render only when nothing is being searched. */
+  protected readonly showRecents = computed(() => !this.hasText() && !this.filtersActive());
 
-  /** Whether the host has issued at least one query against the API.
-   * Drives the "No matches" empty state in the photos section. */
-  protected readonly hasQuery = computed(() => this.query().trim().length > 0);
+  protected readonly totalLabel = computed(() => `${this.total().toLocaleString()} results`);
 
   @ViewChild(SearchBarComponent) private searchBar?: SearchBarComponent;
 
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private facetsTimer: ReturnType<typeof setTimeout> | null = null;
   private inFlight: Subscription | null = null;
+  private facetsInFlight: Subscription | null = null;
   private loadMoreSub: Subscription | null = null;
+  /** Lifetime blob-URL cache (id → URL) behind the `thumbUrls` signal, so
+   * back-and-forth queries restore instantly. */
+  private readonly thumbCache = new Map<string, string>();
+  private thumbQueue: SearchResult[] = [];
+  private thumbActive = 0;
 
   constructor() {
-    // Reactive search effect — keystrokes mutate `query()` / `scope()`,
-    // and this effect coalesces them into one fetch 250ms after the last
-    // change. Re-issuing the search cancels the previous subscription so
-    // a slow first response can't overwrite a fast second one.
+    // Reactive search effect — keystrokes and filter edits coalesce into
+    // one fetch 250ms after the last change. Re-issuing the search cancels
+    // the previous subscription so a slow first response can't overwrite a
+    // fast second one. Reads `effectiveText` (memoized), so typing inside
+    // a trailing `@token` does NOT re-fetch — the token never reaches the
+    // server.
     effect(() => {
-      const q = this.query();
-      const sc = this.scope();
+      const text = this.effectiveText();
+      const f = this.filters();
+      const sort = this.sort();
       if (this.debounceTimer !== null) clearTimeout(this.debounceTimer);
       this.inFlight?.unsubscribe();
       this.inFlight = null;
-      // Also cancel any in-flight load-more — the query changed, so the
-      // page we were loading is stale.
       this.loadMoreSub?.unsubscribe();
       this.loadMoreSub = null;
       this.isLoadingMore.set(false);
-      const trimmed = q.trim();
-      if (trimmed.length === 0) {
+      if (text.length === 0 && !hasActiveFilters(f)) {
         this.results.set([]);
         this.total.set(0);
         this.page.set(0);
@@ -194,50 +220,66 @@ export class SearchComponent implements OnInit, AfterViewInit {
       this.isStale.set(true);
       this.debounceTimer = setTimeout(() => {
         this.debounceTimer = null;
-        const params: SearchParams = {
-          // The responsive box is the *content* search: route the term to
-          // `placeQuery` (unified search_blob — place + caption + OCR + people,
-          // plus NL-date parsing and semantic ranking when Meilisearch is
-          // configured), matching the advanced search box. Sending `q`
-          // (filename/path substring) here meant a search for a place, person,
-          // or caption returned nothing — only literal filename hits.
-          placeQuery: trimmed,
-          page: 0,
-          limit: 30,
-          ...scopeToParams(sc),
-        };
         this.page.set(0);
         this.nextCursor.set(null);
-        this.inFlight = this.searchService.search(params).subscribe({
+        this.inFlight = this.searchService.search(this.buildParams({ page: 0 })).subscribe({
           next: (res) => {
             this.results.set(res.results);
             this.nextCursor.set(res.nextCursor ?? null);
             this.total.set(seekExhausted(res) ? res.results.length : res.total);
             this.isStale.set(false);
+            this.queueThumbs(res.results);
           },
           error: () => {
-            // Non-fatal — clear stale state so the UI stops dimming, but
-            // leave existing results in place so a transient backend hiccup
-            // doesn't clobber the user's view.
+            // Non-fatal — stop dimming but leave existing results so a
+            // transient backend hiccup doesn't clobber the user's view.
             this.isStale.set(false);
           },
         });
       }, 250);
     });
 
+    // Facets effect — refreshes the panel rows, the tag-picker lists, and
+    // the live "Show N results" count. Also runs with nothing active so
+    // the pickers have library-wide content before the first filter. The
+    // longer debounce keeps aggregation load off the keystroke path.
+    effect(() => {
+      const text = this.effectiveText();
+      const f = this.filters();
+      // Read both so either triggers a refresh; values are rebuilt below.
+      void text;
+      void f;
+      if (this.facetsTimer !== null) clearTimeout(this.facetsTimer);
+      this.facetsInFlight?.unsubscribe();
+      this.facetsTimer = setTimeout(() => {
+        this.facetsTimer = null;
+        const {
+          page: _page,
+          limit: _limit,
+          cursor: _cursor,
+          sort: _sort,
+          ...facetParams
+        } = this.buildParams({ page: 0 });
+        this.facetsInFlight = this.searchService.facets(facetParams).subscribe({
+          next: (f2) => this.facets.set(f2),
+          error: () => {
+            // Keep the last good facets — an aggregation hiccup shouldn't
+            // blank the pickers.
+          },
+        });
+      }, 400);
+    });
+
     this.destroyRef.onDestroy(() => {
       if (this.debounceTimer !== null) clearTimeout(this.debounceTimer);
+      if (this.facetsTimer !== null) clearTimeout(this.facetsTimer);
       this.inFlight?.unsubscribe();
+      this.facetsInFlight?.unsubscribe();
       this.loadMoreSub?.unsubscribe();
     });
   }
 
   ngOnInit(): void {
-    // Seed the query from the host (`/search?q=…`) before first render so the
-    // bar shows the deep-linked term and the constructor's search effect fires
-    // the initial fetch. Runs once — keystrokes own the value afterwards. Trim
-    // first so a whitespace-only seed leaves the bar blank (matches the
-    // `initialQuery` docstring) rather than rendering stray spaces.
     const seed = this.initialQuery().trim();
     if (seed) this.query.set(seed);
   }
@@ -245,40 +287,135 @@ export class SearchComponent implements OnInit, AfterViewInit {
   ngAfterViewInit(): void {
     if (this.autoFocus()) {
       // Defer one microtask so the DOM has settled — important on iOS
-      // where focusing in the same task as initial layout fires keyboard
-      // open before the field is laid out.
+      // where focusing during initial layout opens the keyboard before
+      // the field is laid out.
       queueMicrotask(() => this.searchBar?.focus());
     }
   }
 
-  /** Imperative focus hook — hosts call this when the search-pill
-   * `searchPillTap` event arrives after the route is already mounted. */
+  /** Imperative focus hook — hosts call this when the search-pill tap
+   * arrives after the route is already mounted. */
   focusSearchBar(): void {
     this.searchBar?.focus();
+  }
+
+  private buildParams(paging: { page?: number; cursor?: string }): SearchParams {
+    const text = this.effectiveText();
+    return {
+      // The box is the *content* search: the term routes to `placeQuery`
+      // (unified search_blob + NL dates + semantic ranking), never `q`
+      // (filename substring) — see #502/#518.
+      ...(text.length > 0 ? { placeQuery: text } : {}),
+      ...filtersToParams(this.filters()),
+      // With residual text the server ranks by relevance and ignores
+      // `sort`; the meta row shows "Best match" then instead of the
+      // Newest/Oldest control, so the UI never promises an order the
+      // server won't deliver.
+      ...(text.length === 0 ? { sort: this.sort() } : {}),
+      ...(paging.cursor !== undefined ? { cursor: paging.cursor } : { page: paging.page ?? 0 }),
+      limit: 30,
+    };
+  }
+
+  // ── Thumbnails ───────────────────────────────────────────────────────────
+
+  /** Queue blob-URL loads for results not yet cached, 4-wide. */
+  private queueThumbs(results: readonly SearchResult[]): void {
+    const fresh = results.filter(
+      (r) => !this.thumbCache.has(r.id) && !this.thumbQueue.some((q) => q.id === r.id),
+    );
+    this.thumbQueue.push(...fresh);
+    this.publishThumbs();
+    this.drainThumbQueue();
+  }
+
+  private drainThumbQueue(): void {
+    while (this.thumbActive < 4 && this.thumbQueue.length > 0) {
+      const next = this.thumbQueue.shift()!;
+      this.thumbActive += 1;
+      void this.fs
+        .getThumbBlobUrl(next.abs_path)
+        .then((url) => {
+          this.thumbCache.set(next.id, url);
+          this.publishThumbs();
+        })
+        .catch(() => {
+          // Tile keeps its placeholder glyph.
+        })
+        .finally(() => {
+          this.thumbActive -= 1;
+          this.drainThumbQueue();
+        });
+    }
+  }
+
+  private publishThumbs(): void {
+    this.thumbUrls.set(new Map(this.thumbCache));
   }
 
   // ── Bar handlers ─────────────────────────────────────────────────────────
 
   protected onQueryChange(q: string): void {
     this.query.set(q);
+    // A dismissed token stays dismissed only while unchanged — typing
+    // reopens the picker for the new fragment.
+    if (this.tagFragment() !== this.dismissedTag()) this.dismissedTag.set(null);
     this.queryChange.emit(q);
   }
 
   protected onClear(): void {
     this.query.set('');
+    this.dismissedTag.set(null);
     this.queryChange.emit('');
   }
 
   protected onSubmit(): void {
-    const q = this.query().trim();
+    const q = this.effectiveText();
     if (q.length === 0) return;
     const next = pushRecent(this.recent(), q);
     this.recent.set(next);
     writeRecents(next);
   }
 
-  protected onScopeChange(scope: SearchScope): void {
-    this.scope.set(scope);
+  protected onChipRemove(chip: ActiveFilterChip): void {
+    this.filters.set(removeChip(this.filters(), chip));
+  }
+
+  protected onFiltersTap(): void {
+    this.panelOpen.set(true);
+  }
+
+  // ── Filter panel handlers ────────────────────────────────────────────────
+
+  protected onFiltersChange(f: SearchFilters): void {
+    this.filters.set(f);
+  }
+
+  protected onClearAll(): void {
+    this.filters.set(EMPTY_FILTERS);
+  }
+
+  protected onPanelDismiss(): void {
+    this.panelOpen.set(false);
+  }
+
+  // ── Tag picker handlers ──────────────────────────────────────────────────
+
+  protected onTagPick(pick: TagPick): void {
+    const f = this.filters();
+    this.filters.set(
+      pick.kind === 'person' ? togglePerson(f, pick.value) : togglePlace(f, pick.value),
+    );
+    // Strip the `@token` the pick consumed; what remains is plain query text.
+    const stripped = this.query().replace(TAG_TOKEN, '$1').replace(/\s+$/, '');
+    this.query.set(stripped);
+    this.dismissedTag.set(null);
+    this.queryChange.emit(stripped);
+    this.searchBar?.focus();
+  }
+
+  protected onTagDismiss(): void {
+    this.dismissedTag.set(this.tagFragment());
   }
 
   // ── Result handlers ──────────────────────────────────────────────────────
@@ -290,31 +427,21 @@ export class SearchComponent implements OnInit, AfterViewInit {
     this.photoTap.emit(r);
   }
 
-  protected onTopHitTap(hit: TopHit): void {
-    if (hit.kind === 'photo' && hit.source) {
-      this.onPhotoTap(hit.source);
-      return;
-    }
-    this.topHitTap.emit(hit);
+  protected onSortChange(e: Event): void {
+    const v = (e.target as HTMLSelectElement).value;
+    this.sort.set(v === 'captured_asc' ? 'captured_asc' : 'captured_desc');
   }
 
   protected onLoadMore(): void {
-    const q = this.query().trim();
-    // Skip while a fresh (page-0) search is debouncing/in flight: the sentinel
-    // can still be intersecting from the previous result set, and paging the
-    // NEW query before page 0 returns would desync `page` and mix results.
-    if (this.isStale() || !this.canLoadMore() || this.isLoadingMore() || q.length === 0) return;
+    // Skip while a fresh (page-0) search is debouncing/in flight: the
+    // sentinel can still be intersecting from the previous result set.
+    if (this.isStale() || !this.canLoadMore() || this.isLoadingMore()) return;
+    if (!this.hasText() && !this.filtersActive()) return;
     this.isLoadingMore.set(true);
-    // Seek past the last row when the server gave us a cursor; fall back to
-    // the page counter otherwise (see `nextCursor`).
     const cursor = this.nextCursor();
     const nextPage = this.page() + 1;
-    const params: SearchParams = {
-      placeQuery: q,
-      ...(cursor !== null ? { cursor } : { page: nextPage }),
-      limit: 30,
-      ...scopeToParams(this.scope()),
-    };
+    const params =
+      cursor !== null ? this.buildParams({ cursor }) : this.buildParams({ page: nextPage });
     this.loadMoreSub?.unsubscribe();
     this.loadMoreSub = this.searchService.search(params).subscribe({
       next: (res) => {
@@ -326,18 +453,12 @@ export class SearchComponent implements OnInit, AfterViewInit {
         // it alone rather than adopting the server's echoed `page: 0`.
         if (cursor === null) this.page.set(nextPage);
         this.isLoadingMore.set(false);
+        this.queueThumbs(res.results);
       },
       error: () => {
         this.isLoadingMore.set(false);
       },
     });
-  }
-
-  protected onFilters(): void {
-    // Commit the query to recents on navigation, matching onPhotoTap() (and
-    // the prior onSeeAll() behaviour) so opening Filters records the search.
-    this.onSubmit();
-    this.filters.emit({ query: this.query().trim(), scope: this.scope() });
   }
 
   protected onRecentTap(q: string): void {

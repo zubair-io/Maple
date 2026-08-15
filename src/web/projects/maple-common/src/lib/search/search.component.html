@@ -1,38 +1,82 @@
 <div class="search" data-testid="search-root">
-  <div class="bar-row">
-    <app-search-bar
-      [query]="query()"
-      (queryChange)="onQueryChange($event)"
-      (clear)="onClear()"
-      (submit)="onSubmit()"
-    />
-    @if (showFilters()) {
-      <button
-        type="button"
-        class="filters-btn"
-        data-testid="search-filters"
-        (click)="onFilters()"
-        aria-label="Open filters"
-      >
-        Filters
-      </button>
+  <div class="main">
+    <div class="bar-area">
+      <app-search-bar
+        [query]="query()"
+        [chips]="visibleChips()"
+        [overflowCount]="overflowCount()"
+        [filterCount]="activeCount()"
+        (queryChange)="onQueryChange($event)"
+        (clear)="onClear()"
+        (submit)="onSubmit()"
+        (chipRemove)="onChipRemove($event)"
+        (filtersTap)="onFiltersTap()"
+      />
+      @if (tagPickerOpen()) {
+        <div class="tag-backdrop" data-testid="tag-picker-backdrop" (click)="onTagDismiss()"></div>
+        <div class="tag-host">
+          <app-search-tag-picker
+            [fragment]="tagFragment() ?? ''"
+            [people]="facetPeople()"
+            [places]="facetPlaces()"
+            [selectedPeople]="filters().people"
+            [selectedPlaces]="filters().places"
+            (pick)="onTagPick($event)"
+          />
+        </div>
+      }
+    </div>
+
+    @if (showRecents()) {
+      <app-recent-queries [recent]="recent()" (recentTap)="onRecentTap($event)" />
+    } @else {
+      <div class="meta-row">
+        <span class="results-count" data-testid="search-result-count">{{ totalLabel() }}</span>
+        @if (hasText()) {
+          <span class="sort-static" title="Text searches rank by relevance">Best match</span>
+        } @else {
+          <select
+            class="sort"
+            data-testid="search-sort"
+            aria-label="Sort results"
+            [value]="sort()"
+            (change)="onSortChange($event)"
+          >
+            <option value="captured_desc">Newest first</option>
+            <option value="captured_asc">Oldest first</option>
+          </select>
+        }
+      </div>
+      <app-photo-results-section
+        [results]="results()"
+        [thumbs]="thumbUrls()"
+        [isStale]="isStale()"
+        [hasQuery]="!isStale()"
+        [query]="effectiveText()"
+        [isLoadingMore]="isLoadingMore()"
+        (resultTap)="onPhotoTap($event)"
+        (loadMore)="onLoadMore()"
+      />
     }
   </div>
-  <app-search-scope-chips [scope]="scope()" (scopeChange)="onScopeChange($event)" />
 
-  @if (showRecents()) {
-    <app-recent-queries [recent]="recent()" (recentTap)="onRecentTap($event)" />
-  } @else {
-    <app-top-hits-section [hits]="topHits()" [query]="query()" (hitTap)="onTopHitTap($event)" />
-    <app-photo-results-section
-      [results]="results()"
-      [total]="total()"
-      [isStale]="isStale()"
-      [hasQuery]="hasQuery() && !isStale()"
-      [query]="query()"
-      [isLoadingMore]="isLoadingMore()"
-      (resultTap)="onPhotoTap($event)"
-      (loadMore)="onLoadMore()"
-    />
+  @if (panelOpen()) {
+    <div
+      class="sheet-backdrop"
+      data-testid="filter-sheet-backdrop"
+      (click)="onPanelDismiss()"
+    ></div>
   }
+  <div class="filter-host" [class.open]="panelOpen()" data-testid="filter-host">
+    <app-search-filter-panel
+      [filters]="filters()"
+      [people]="facetPeople()"
+      [places]="facetPlaces()"
+      [total]="facetTotal()"
+      [asSheet]="panelOpen()"
+      (filtersChange)="onFiltersChange($event)"
+      (clearAll)="onClearAll()"
+      (dismiss)="onPanelDismiss()"
+    />
+  </div>
 </div>
