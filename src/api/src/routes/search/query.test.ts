@@ -112,20 +112,19 @@ describe('place filter — label parsing and clause shape (#2864)', () => {
     });
   });
 
-  it('matches a bare label against either half of the tuple, other half null', () => {
+  it('matches a bare label against either half of the tuple, other half blank (null OR "")', () => {
+    const blank = { $in: [null, ''] };
     expect(placeLabelClause('Portland')).toEqual({
       $or: [
-        { 'place.rollups.locality': 'Portland', 'place.rollups.region': null },
-        { 'place.rollups.locality': null, 'place.rollups.region': 'Portland' },
+        { 'place.rollups.locality': 'Portland', 'place.rollups.region': blank },
+        { 'place.rollups.locality': blank, 'place.rollups.region': 'Portland' },
       ],
     });
   });
 
   it('one selected place becomes a top-level $or group', () => {
     const f = buildFilter({ place: 'Portland, OR' }) as Record<string, unknown>;
-    expect(f.$or).toEqual([
-      { 'place.rollups.locality': 'Portland', 'place.rollups.region': 'OR' },
-    ]);
+    expect(f.$or).toEqual([{ 'place.rollups.locality': 'Portland', 'place.rollups.region': 'OR' }]);
   });
 
   it('multiple places OR together; a free-text q demotes both groups into $and', () => {
