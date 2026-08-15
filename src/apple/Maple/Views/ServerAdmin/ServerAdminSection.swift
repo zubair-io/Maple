@@ -8,28 +8,33 @@ import Foundation
 
 enum ServerAdminSection: String, CaseIterable, Identifiable, Hashable {
     case network
+    case cloudflare
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .network: return "Network"
+        case .cloudflare: return "Cloudflare"
         }
     }
 
     var icon: String {
         switch self {
         case .network: return "wifi"
+        case .cloudflare: return "globe"
         }
     }
 
-    /// Mirrors the web's `ownerOnly` nav filter. This is presentation
-    /// only: `/api/network/config` is `requireAuth` server-side, so a
-    /// non-owner is not actually blocked by the API. Never treat a hidden
-    /// row as an access control.
+    /// Mirrors the web's `ownerOnly` nav filter.
+    ///
+    /// Enforcement is inconsistent server-side and the difference matters:
+    /// `/api/cloudflare/*` is genuinely `requireOwner` and returns 403 to a
+    /// member, whereas `/api/network/config` is only `requireAuth`, so
+    /// hiding it is presentation. Never treat a hidden row as access control.
     var isOwnerOnly: Bool {
         switch self {
-        case .network: return true
+        case .network, .cloudflare: return true
         }
     }
 

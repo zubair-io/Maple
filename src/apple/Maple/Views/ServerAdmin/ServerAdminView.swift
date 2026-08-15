@@ -112,11 +112,14 @@ struct ServerAdminView: View {
         if let httpClient {
             switch section {
             case .network:
-                // NetworkConfigClient itself is a stateless wrapper, so
-                // rebuilding it per evaluation is free — the shared
+                // These per-page clients are stateless wrappers, so
+                // rebuilding them per evaluation is free — the shared
                 // `httpClient` above is the part that must not churn.
                 NetworkSettingsView(
                     client: NetworkConfigClient(server: server, httpClient: httpClient))
+            case .cloudflare:
+                CloudflareSettingsView(
+                    client: CloudflareConfigClient(server: server, httpClient: httpClient))
             }
         } else {
             // One `.task` tick, before the client exists.
