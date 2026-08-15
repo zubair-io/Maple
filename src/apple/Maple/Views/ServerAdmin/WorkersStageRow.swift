@@ -12,6 +12,9 @@ struct WorkersStageRow: View {
     /// Nil while a pause/resume for this stage is in flight.
     let onTogglePause: (() -> Void)?
     let isBusy: Bool
+    /// Nil when the stage has no dead jobs — the count is the affordance,
+    /// so there's nothing to open (#2769).
+    var onShowDeadJobs: (() -> Void)?
 
     private var meta: StageMeta { StageCatalog.meta(for: stage.name) }
 
@@ -39,8 +42,17 @@ struct WorkersStageRow: View {
             metric(WorkersSettingsVM.inFlightLabel(stage), caption: "in flight")
             metric(WorkersSettingsVM.pendingLabel(stage), caption: "ready")
                 .help(StageCatalog.pendingDetail(stage))
-            metric("\(stage.dead)", caption: "dead")
-                .foregroundStyle(stage.dead > 0 ? .red : .primary)
+            if let onShowDeadJobs {
+                Button(action: onShowDeadJobs) {
+                    metric("\(stage.dead)", caption: "dead")
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("workers.dead.\(stage.name)")
+                .help("Show the failed jobs for this stage")
+            } else {
+                metric("\(stage.dead)", caption: "dead")
+            }
             metric(WorkersSettingsVM.throughputLabel(stage.throughput), caption: "rate")
 
             Button(WorkersSettingsVM.pauseActionLabel(stage.status)) {
