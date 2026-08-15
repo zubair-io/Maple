@@ -100,6 +100,50 @@ describe('MapClusterPinsService', () => {
     vi.useRealTimers();
   });
 
+  // Regression for the jules finding on #2828. `debounceTime` limits how OFTEN
+  // a fetch starts, but it never cancels one already in flight — so a slow
+  // response for an old viewport could resolve AFTER a fast response for the
+  // current one and repaint the map with pins from where the user used to be.
+  // This is the same hazard the Apple side guards with a generation counter in
+  // `MapViewModel`; on the web the equivalent is letting a new fetch supersede
+  // the previous one.
+  it('discards a superseded in-flight fetch rather than letting it overwrite newer pins', () => {
+    const slowOldViewport = new Subject<MapCluster[]>();
+    const fastNewViewport = new Subject<MapCluster[]>();
+    getClusters.mockReturnValueOnce(slowOldViewport).mockReturnValueOnce(fastNewViewport);
+
+    service.attach(handle); // fetch 1 (slow, "old viewport")
+    handle.fireMoveEnd();
+    vi.advanceTimersByTime(500); // debounce elapses → fetch 2 (fast, "new viewport")
+
+    // The newer viewport answers first.
+    fastNewViewport.next([cluster({ lat: 10, lng: 10, representativeAssetId: 'new' })]);
+    // Then the stale one finally answers.
+    slowOldViewport.next([cluster({ lat: 90, lng: 90, representativeAssetId: 'stale' })]);
+
+    const data = handle.sources.get(MAP_CLUSTER_SOURCE_ID) as {
+      features: Array<{ geometry: { coordinates: [number, number] } }>;
+    };
+    expect(data.features).toHaveLength(1);
+    // Must still be the NEW viewport's cell, not the stale one.
+    expect(data.features[0]!.geometry.coordinates).toEqual([10, 10]);
+  });
+
+  it('keeps the stream alive after a failed fetch', () => {
+    getClusters.mockReturnValueOnce(throwError(() => new Error('offline')));
+    service.attach(handle);
+
+    // A later move must still fetch — an error inside the pipeline must not
+    // terminate the outer moveEnd subscription.
+    getClusters.mockReturnValueOnce(of([cluster()]));
+    handle.fireMoveEnd();
+    vi.advanceTimersByTime(500);
+
+    expect(getClusters).toHaveBeenCalledTimes(2);
+    const data = handle.sources.get(MAP_CLUSTER_SOURCE_ID) as { features: unknown[] };
+    expect(data.features).toHaveLength(1);
+  });
+
   it('adds the shared cluster source and fetches immediately on attach', () => {
     getClusters.mockReturnValue(of([cluster()]));
 
