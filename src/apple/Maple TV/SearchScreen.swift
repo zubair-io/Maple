@@ -182,10 +182,14 @@ struct SearchScreen: View {
   /// `placeLabel`) preset lands here with an EMPTY `placeQuery` but
   /// `params.scope = "places"` — a real, active filter, not "nothing
   /// typed yet". Without this, that preset would show `idleView` forever
-  /// even after `submit()` successfully loads results.
+  /// even after `submit()` successfully loads results. Same reasoning for
+  /// `hasUnifiedFilters` (#2866): a preset carrying a date/people/place
+  /// filter with empty text is an active search, not idle. (tvOS defers
+  /// the unified filter *editing* UI; the params stay fully compatible.)
   @ViewBuilder
   private var content: some View {
-    if trimmedQuery.isEmpty, viewModel.params.scope == nil {
+    if trimmedQuery.isEmpty, viewModel.params.scope == nil,
+       !viewModel.params.hasUnifiedFilters {
       idleView
     } else if viewModel.isLoading, viewModel.results.isEmpty {
       loadingView

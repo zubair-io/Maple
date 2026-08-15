@@ -26,8 +26,9 @@ struct MapView: View {
   @Bindable var vm: MapViewModel
   let thumbClient: CloudThumbClient
   let thumbCache: CloudThumbCache
-  /// Namespaces the thumbnail cache the same way `CloudThumbTile` does —
-  /// `thumbKey` (an `abs_path`) alone isn't unique across servers.
+  /// Namespaces the thumbnail cache the same way `fetchCloudThumbBytes`
+  /// callers do — `thumbKey` (an `abs_path`) alone isn't unique across
+  /// servers.
   let host: String
   /// Pin/cluster tap → AppShell activates search filtered by the
   /// resolved target (a place name, or the has-GPS scope fallback).

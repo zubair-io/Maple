@@ -142,6 +142,15 @@ public struct SearchParams: Sendable, Equatable, Hashable {
   public var scope: String?
   /// Subject tags. Sent comma-joined; the server OR's within the field.
   public var subjects: [String] = []
+  /// Person display names (unified search filter, #2866). Sent comma-joined
+  /// as `people`; the server OR's within the field. Values come from the
+  /// `people` facet and round-trip verbatim.
+  public var people: [String] = []
+  /// Place labels (unified search filter, #2866). Sent pipe-joined as
+  /// `place` — labels themselves contain commas ("Portland, OR"), so the
+  /// separator is `|`. Values come from the `places` facet and round-trip
+  /// verbatim.
+  public var place: [String] = []
   /// Tri-state screenshot filter: true → screenshots only, false →
   /// photographs only, nil → both.
   public var isScreenshot: Bool?
@@ -173,8 +182,24 @@ public struct SearchParams: Sendable, Equatable, Hashable {
       || from != nil || to != nil
       || rating != nil || flag != nil || color != nil
       || !ext.isEmpty || sceneType != nil || activity != nil
-      || !subjects.isEmpty || isScreenshot != nil || hasCapturedAt != nil
+      || !subjects.isEmpty || !people.isEmpty || !place.isEmpty
+      || isScreenshot != nil || hasCapturedAt != nil
       || hidden != .none
+  }
+
+  /// True when any of the unified search filters (date range, people,
+  /// places — the whole filter surface of the unified search UI, #2866)
+  /// is set. A filters-only search (empty text, filters set) must still
+  /// fetch, so UI layers gate on this alongside the query text.
+  public var hasUnifiedFilters: Bool {
+    from != nil || to != nil || !people.isEmpty || !place.isEmpty
+  }
+
+  /// Badge count for the "Filters" control: the date range counts once
+  /// (preset or custom, from and/or to), plus one per selected person and
+  /// per selected place.
+  public var unifiedFilterCount: Int {
+    ((from != nil || to != nil) ? 1 : 0) + people.count + place.count
   }
 
   // MARK: - Serialisation
@@ -240,6 +265,8 @@ public struct SearchParams: Sendable, Equatable, Hashable {
     add("scope", scope)
     if hidden != .none { add("hidden", hidden.rawValue) }
     if !subjects.isEmpty { add("subjects", subjects.joined(separator: ",")) }
+    if !people.isEmpty { add("people", people.joined(separator: ",")) }
+    if !place.isEmpty { add("place", place.joined(separator: "|")) }
     if let isScreenshot { add("isScreenshot", isScreenshot ? "true" : "false") }
     return items
   }

@@ -129,6 +129,70 @@ final class SearchParamsTests: XCTestCase {
     XCTAssertTrue(p.hasActiveFilters)
   }
 
+  // MARK: - Unified filters (#2866)
+
+  func test_people_serialisesCommaJoined_onListAndFacetItems() {
+    var p = SearchParams(libraryID: "lib-1")
+    p.people = ["Priya Patel", "Sam Ochoa"]
+    XCTAssertEqual(dict(p.listQueryItems(page: 0, limit: 100))["people"],
+                   "Priya Patel,Sam Ochoa")
+    XCTAssertEqual(dict(p.facetQueryItems())["people"], "Priya Patel,Sam Ochoa")
+  }
+
+  func test_place_serialisesPipeJoined_onListAndFacetItems() {
+    // Pipe-joined because place labels themselves contain commas.
+    var p = SearchParams(libraryID: "lib-1")
+    p.place = ["Portland, OR", "Kyoto"]
+    XCTAssertEqual(dict(p.listQueryItems(page: 0, limit: 100))["place"],
+                   "Portland, OR|Kyoto")
+    XCTAssertEqual(dict(p.facetQueryItems())["place"], "Portland, OR|Kyoto")
+  }
+
+  func test_peopleAndPlace_omittedWhenEmpty() {
+    let p = SearchParams(libraryID: "lib-1")
+    let d = dict(p.listQueryItems(page: 0, limit: 100))
+    XCTAssertNil(d["people"])
+    XCTAssertNil(d["place"])
+  }
+
+  func test_peopleAndPlace_countAsActiveFilters() {
+    var p = SearchParams(libraryID: "lib-1")
+    XCTAssertFalse(p.hasActiveFilters)
+    p.people = ["Priya Patel"]
+    XCTAssertTrue(p.hasActiveFilters)
+    p.people = []
+    p.place = ["Kyoto"]
+    XCTAssertTrue(p.hasActiveFilters)
+  }
+
+  func test_hasUnifiedFilters_dateOrPeopleOrPlace() {
+    var p = SearchParams(libraryID: "lib-1")
+    p.placeQuery = "sunset"   // free text is not a filter
+    XCTAssertFalse(p.hasUnifiedFilters)
+    p.from = "2026-01-01"
+    XCTAssertTrue(p.hasUnifiedFilters)
+    p.from = nil
+    p.to = "2026-12-31"
+    XCTAssertTrue(p.hasUnifiedFilters)
+    p.to = nil
+    p.people = ["Priya Patel"]
+    XCTAssertTrue(p.hasUnifiedFilters)
+    p.people = []
+    p.place = ["Portland, OR"]
+    XCTAssertTrue(p.hasUnifiedFilters)
+  }
+
+  func test_unifiedFilterCount_dateCountsOnce() {
+    var p = SearchParams(libraryID: "lib-1")
+    XCTAssertEqual(p.unifiedFilterCount, 0)
+    p.from = "2026-01-01"
+    p.to = "2026-12-31"
+    XCTAssertEqual(p.unifiedFilterCount, 1, "from+to is one date-range filter")
+    p.people = ["Priya Patel", "Sam Ochoa"]
+    p.place = ["Kyoto"]
+    XCTAssertEqual(p.unifiedFilterCount, 4)
+  }
+
   func test_scope_serialisesWhenSet() {
     var p = SearchParams(libraryID: "lib-1")
     p.scope = "places"

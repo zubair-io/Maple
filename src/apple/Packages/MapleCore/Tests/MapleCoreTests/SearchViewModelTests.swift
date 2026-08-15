@@ -104,6 +104,35 @@ final class SearchViewModelTests: XCTestCase {
       "An un-cancelled debounce must issue at least one request")
   }
 
+  // MARK: - Filters-only search (#2866)
+
+  func test_filtersOnlySearch_emptyTextStillFetches() async throws {
+    // A search with no free text but an active unified filter (people /
+    // place / date) is a real search — it must hit the network.
+    let counter = RequestCounter()
+    let vm = makeCountingVM(counter)
+    vm.params.placeQuery = ""
+    vm.params.place = ["Portland, OR"]
+    XCTAssertTrue(vm.hasUnifiedFilters)
+    vm.queryChanged()
+    try await Task.sleep(for: .milliseconds(400))
+    XCTAssertGreaterThan(counter.count, 0,
+      "A filters-only search (empty text) must issue a request")
+  }
+
+  func test_unifiedFilterCount_passthrough() {
+    let server = URL(string: "https://acct.example")!
+    let vm = SearchViewModel(
+      server: server,
+      libraryID: nil,
+      searchClient: CloudSearchClient.preview(server: server))
+    XCTAssertEqual(vm.unifiedFilterCount, 0)
+    vm.params.people = ["Priya Patel"]
+    vm.params.from = "2026-01-01"
+    XCTAssertEqual(vm.unifiedFilterCount, 2)
+    XCTAssertTrue(vm.hasUnifiedFilters)
+  }
+
   // MARK: - Account-wide search (nil libraryID)
 
   @MainActor

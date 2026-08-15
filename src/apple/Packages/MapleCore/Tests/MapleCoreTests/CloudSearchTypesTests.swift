@@ -47,6 +47,40 @@ final class CloudSearchTypesTests: XCTestCase {
     XCTAssertNil(asset.place)
   }
 
+  // MARK: - SearchFacets people/places (#2866)
+
+  /// A server predating the `people` / `places` facet arrays must still
+  /// decode — absent keys default to empty, keeping older Self Hosted
+  /// deployments working with the new filter UI (it just shows no rows).
+  func test_decodeFacets_absentPeoplePlacesDefaultToEmpty() throws {
+    let json = """
+    {"total":3,"cameras":[],"lenses":[],"extensions":[],
+     "scene_types":[],"activities":[],"subjects":[],
+     "is_screenshot":{"true":0,"false":3,"unknown":0}}
+    """
+    let facets = try JSONDecoder().decode(SearchFacets.self, from: Data(json.utf8))
+    XCTAssertEqual(facets.total, 3)
+    XCTAssertEqual(facets.people, [])
+    XCTAssertEqual(facets.places, [])
+    XCTAssertNil(facets.iso_range)
+    XCTAssertNil(facets.capture_range)
+  }
+
+  func test_decodeFacets_peoplePlacesRoundTripValues() throws {
+    let json = """
+    {"total":9,"cameras":[],"lenses":[],"extensions":[],
+     "scene_types":[],"activities":[],"subjects":[],
+     "is_screenshot":{"true":0,"false":9,"unknown":0},
+     "people":[{"value":"Priya Patel","count":812},{"value":"Sam Ochoa","count":40}],
+     "places":[{"value":"Portland, OR","count":946}]}
+    """
+    let facets = try JSONDecoder().decode(SearchFacets.self, from: Data(json.utf8))
+    XCTAssertEqual(facets.people.map(\.value), ["Priya Patel", "Sam Ochoa"])
+    XCTAssertEqual(facets.people.map(\.count), [812, 40])
+    XCTAssertEqual(facets.places.first?.value, "Portland, OR")
+    XCTAssertEqual(facets.places.first?.count, 946)
+  }
+
   /// Unmodeled `Place` fields (address/pois/lat/lon/etc.) must not break
   /// decoding — `SearchAssetPlace` only models what the timeline
   /// caption/day-header needs, and synthesized Codable ignores extras.

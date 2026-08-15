@@ -43,10 +43,24 @@ struct CloudSearchView: View {
   }
 
   var body: some View {
-    VStack(spacing: 0) {
-      searchBar
-      Divider().overlay(MapleTokens.border)
-      resultsArea
+    HStack(spacing: 0) {
+      VStack(spacing: 0) {
+        searchBar
+        if vm.hasUnifiedFilters {
+          SearchActiveFilterChips(vm: vm, onOpenFilters: { showFilters = true })
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+        }
+        Divider().overlay(MapleTokens.border)
+        resultsArea
+      }
+      // Right-docked unified filter panel (#2866) — toggleable, beside the
+      // results rather than floating over them.
+      if showFilters {
+        Divider().overlay(MapleTokens.border)
+        SearchFilterPanel(vm: vm, onClose: { showFilters = false })
+          .frame(width: 320)
+      }
     }
     .background(MapleTokens.bg)
     // First appearance kicks an initial (empty-query) search so the user
@@ -120,20 +134,20 @@ struct CloudSearchView: View {
     } label: {
       HStack(spacing: 4) {
         Image(systemName: "line.3.horizontal.decrease.circle")
-        if vm.hasActiveFilters {
-          Circle().fill(MapleTokens.primary).frame(width: 6, height: 6)
+        if vm.unifiedFilterCount > 0 {
+          Text("\(vm.unifiedFilterCount)")
+            .font(MapleTokens.Typography.chipLabel)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(MapleTokens.primary, in: Capsule())
         }
       }
-      .foregroundStyle(vm.hasActiveFilters ? MapleTokens.primary : MapleTokens.textMuted)
+      .foregroundStyle(vm.unifiedFilterCount > 0 ? MapleTokens.primary : MapleTokens.textMuted)
     }
     .buttonStyle(.plain)
     .accessibilityLabel("Filters")
     .accessibilityIdentifier("search-filters")
-    .popover(isPresented: $showFilters, arrowEdge: .top) {
-      SearchFilterPanel(vm: vm)
-        .frame(minWidth: 320, idealWidth: 340, maxWidth: 380,
-               minHeight: 420, idealHeight: 520)
-    }
   }
 
   // MARK: - Results

@@ -40,7 +40,10 @@ struct SearchPhotoResultsSection: View {
 
     var body: some View {
         if hasQuery && results.isEmpty && !isStale {
-            Text("No matches for \u{201C}\(query)\u{201D}")
+            // Empty `query` = a filters-only search (#2866) — quote nothing.
+            Text(query.trimmingCharacters(in: .whitespaces).isEmpty
+                 ? "No matches for the current filters"
+                 : "No matches for \u{201C}\(query)\u{201D}")
                 .font(.custom("Lato-Regular", size: 13))
                 .foregroundStyle(MapleTokens.textMuted)
                 .frame(maxWidth: .infinity)
