@@ -13,7 +13,7 @@
  * `list.test.ts`.
  */
 
-import { afterAll, beforeEach, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { ObjectId, type Db } from 'mongodb';
 import { facetsRoute } from './facets.ts';
@@ -21,8 +21,16 @@ import { listRoute } from './list.ts';
 import { closeDb, getDb, isDbConnected } from '../../db/client.ts';
 
 // Own database + explicit close (the repo-wide suite convention, #2783).
+// The env assignment lives in beforeAll (and is restored in afterAll)
+// rather than at module scope, so importing this file can never clobber
+// another suite's database name.
 const TEST_DB = `maple_test_search_facets_pp_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+let prevMongoDb: string | undefined;
+
+beforeAll(() => {
+  prevMongoDb = process.env.MAPLE_MONGO_DB;
+  process.env.MAPLE_MONGO_DB = TEST_DB;
+});
 
 let db: Db | null = null;
 let mongoReachable = false;
@@ -30,10 +38,7 @@ let mongoReachable = false;
 const PRIYA = new ObjectId();
 const HIDDEN_PERSON = new ObjectId();
 
-function asset(
-  mapleId: string,
-  extra: Record<string, unknown>,
-): Record<string, unknown> {
+function asset(mapleId: string, extra: Record<string, unknown>): Record<string, unknown> {
   return {
     maple_id: mapleId,
     fileinfo: [
@@ -72,7 +77,9 @@ async function seed(d: Db): Promise<void> {
     asset('a-kyoto', {
       // Two detections of the same person on one asset — must count once.
       faces: [{ person_id: PRIYA.toHexString() }, { person_id: PRIYA.toHexString() }],
-      place: { rollups: { locality: 'Kyoto', region: null, country_code: 'jp' } },
+      // Region '' (not null): the bare "Kyoto" label must still round-trip
+      // through the filter — blank halves cover both null and ''.
+      place: { rollups: { locality: 'Kyoto', region: '', country_code: 'jp' } },
     }),
     asset('a-hiddenperson', {
       faces: [{ person_id: HIDDEN_PERSON.toHexString() }],
@@ -98,6 +105,8 @@ beforeEach(async () => {
 afterAll(async () => {
   if (db) await db.dropDatabase();
   await closeDb();
+  if (prevMongoDb === undefined) delete process.env.MAPLE_MONGO_DB;
+  else process.env.MAPLE_MONGO_DB = prevMongoDb;
 });
 
 describe('GET /api/search/facets — people & places buckets (#2864)', () => {
