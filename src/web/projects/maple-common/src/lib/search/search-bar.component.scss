@@ -1,77 +1,171 @@
-// SearchBarComponent — 38pt pill, accent caret, trailing ✕.
+// The unified-search pill: chips + input + clear + Filters in one bar.
 //
-// Spec: docs/design/responsive-program/s7-search.md §2.
-//
-// Caret styling: `caret-color` is the standardised CSS hook for the
-// blinking cursor colour; thickness is browser-driven (Chromium honours
-// `caret-shape: bar` in 121+ but the default already matches the spec's
-// 1.5pt visually). Blink cadence is OS-driven; no override needed.
-
-:host {
-  display: block;
-}
+// The caret-blink (accent, browser cadence) comes from `caret-color` — no
+// custom caret animation.
 
 .bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 38px;
-  padding: 0 12px;
-  background: var(--color-input-bg);
-  border: 0.5px solid var(--color-border);
-  border-radius: 19px;
-  color: var(--color-text-main);
-  caret-color: var(--color-primary);
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 38px;
+  padding: 4px 6px 4px 12px;
+  border-radius: 999px;
+  background: var(--color-input-bg, var(--color-surface-alt));
+  border: 1px solid var(--color-border, #44403c);
 }
 
 .lead {
-  flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
+  flex-shrink: 0;
   color: var(--color-text-muted);
 }
 
-.field {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 100%;
+.chip {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 4px 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border, #44403c);
+  background: var(--color-surface-alt);
+  color: var(--color-text-main);
+  font:
+    11px/1 'Lato',
+    sans-serif;
+  font-weight: 600;
+  max-width: 180px;
+}
+
+.chip-icon {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip-remove {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 50%;
   background: transparent;
-  border: 0;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0;
+}
+
+.chip-remove:hover {
+  background: var(--color-surface-hover, rgba(255, 255, 255, 0.08));
+  color: var(--color-text-main);
+}
+
+.chip-overflow {
+  border: none;
+  padding: 0 10px;
+  cursor: pointer;
+  color: var(--color-text-muted);
+}
+
+.chip-overflow:hover {
+  color: var(--color-text-main);
+}
+
+.field {
+  flex: 1;
+  min-width: 80px;
+  height: 28px;
+  background: transparent;
+  border: none;
   outline: none;
-  color: inherit;
+  color: var(--color-text-main);
+  caret-color: var(--color-primary, #e05d44);
   font:
     14px/1.2 'Lato',
-    -apple-system,
     sans-serif;
-  caret-color: inherit;
 }
 
 .field::placeholder {
   color: var(--color-text-muted);
 }
 
-// Strip the WebKit search-clear native button — we draw our own ✕.
-.field::-webkit-search-cancel-button,
-.field::-webkit-search-decoration {
-  -webkit-appearance: none;
-  appearance: none;
+// Hide the UA's own search-clear so ours is the only ✕.
+.field::-webkit-search-cancel-button {
+  display: none;
 }
 
 .clear {
-  flex: 0 0 auto;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
+  border: none;
   border-radius: 50%;
   background: var(--color-surface-alt);
   color: var(--color-text-muted);
-  border: 0;
   cursor: pointer;
   padding: 0;
 }
 
 .clear:hover {
-  background: var(--color-bg-hover);
+  color: var(--color-text-main);
+}
+
+.filters {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-main);
+  cursor: pointer;
+  font:
+    13px/1 'Lato',
+    sans-serif;
+  font-weight: 500;
+}
+
+.filters:hover {
+  background: var(--color-surface-hover, rgba(255, 255, 255, 0.08));
+}
+
+.filters-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--color-primary, #e05d44);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 0 3px;
+}
+
+// The textual "Filters" label is desktop chrome; the icon + badge carry
+// the affordance on phones (design: `showFilterLabel = !isMobile`).
+@media (max-width: 767px) {
+  .filters-label {
+    display: none;
+  }
 }
