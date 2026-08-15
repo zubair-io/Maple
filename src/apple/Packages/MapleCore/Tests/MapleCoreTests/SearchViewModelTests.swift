@@ -133,6 +133,50 @@ final class SearchViewModelTests: XCTestCase {
     XCTAssertTrue(vm.hasUnifiedFilters)
   }
 
+  // MARK: - Facets-only load (#2879)
+
+  func test_loadFacetsIfNeeded_populatesPickersWithoutRunningASearch() async {
+    let stub = FacetStub()
+    let vm = makeFacetVM(stub)
+
+    await vm.loadFacetsIfNeeded()
+
+    XCTAssertEqual(vm.peopleFacets.compactMap(\.value), ["Priya Patel"])
+    XCTAssertEqual(vm.placeFacets.compactMap(\.value), ["Portland, OR"])
+    XCTAssertTrue(vm.results.isEmpty,
+      "A facets-only load must not populate results — the iPhone empty-query state shows Recents")
+    XCTAssertEqual(stub.count(for: "/api/search"), 0,
+      "A facets-only load must not hit the result endpoint")
+    XCTAssertEqual(stub.count(for: "/api/search/facets"), 1)
+  }
+
+  func test_loadFacetsIfNeeded_isIdempotent() async {
+    let stub = FacetStub()
+    let vm = makeFacetVM(stub)
+
+    await vm.loadFacetsIfNeeded()
+    await vm.loadFacetsIfNeeded()
+
+    XCTAssertEqual(stub.count(for: "/api/search/facets"), 1,
+      "A second call with facets already loaded must not re-request")
+  }
+
+  func test_submitError_preservesPreviouslyLoadedFacets() async {
+    let stub = FacetStub()
+    let vm = makeFacetVM(stub)
+    await vm.loadFacetsIfNeeded()
+    XCTAssertFalse(vm.peopleFacets.isEmpty, "precondition: facets loaded")
+
+    stub.failEverything = true
+    await vm.submit()
+
+    XCTAssertNotNil(vm.loadError, "precondition: the search actually failed")
+    XCTAssertTrue(vm.results.isEmpty)
+    XCTAssertEqual(vm.peopleFacets.compactMap(\.value), ["Priya Patel"],
+      "A failed search must keep the last good facets — an aggregation hiccup shouldn't blank the pickers")
+    XCTAssertEqual(vm.placeFacets.compactMap(\.value), ["Portland, OR"])
+  }
+
   // MARK: - Account-wide search (nil libraryID)
 
   @MainActor
@@ -193,6 +237,57 @@ final class SearchViewModelTests: XCTestCase {
       httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
     return SearchViewModel(server: server, libraryID: "lib-test", searchClient: client)
   }
+
+  /// A VM whose `/api/search/facets` responses come from `stub` (which also
+  /// tallies requests per path, and can be flipped to fail everything).
+  private func makeFacetVM(_ stub: FacetStub) -> SearchViewModel {
+    let server = URL(string: "https://stub.test")!
+    let cfg = URLSessionConfiguration.ephemeral
+    cfg.protocolClasses = [StubURLProtocol.self]
+    StubURLProtocol.reset()
+    StubURLProtocol.responder = { request in stub.respond(to: request) }
+    let session = URLSession(configuration: cfg)
+    let client = CloudSearchClient(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
+    return SearchViewModel(server: server, libraryID: "lib-test", searchClient: client)
+  }
+}
+
+/// Serves a fixed facets payload, tallies requests per URL path, and can be
+/// switched to fail every request (the "aggregation hiccup" case). The
+/// responder runs off the main actor, so the state is lock-guarded.
+final class FacetStub: @unchecked Sendable {
+  private let lock = NSLock()
+  private var counts: [String: Int] = [:]
+  private var _failEverything = false
+
+  var failEverything: Bool {
+    get { lock.withLock { _failEverything } }
+    set { lock.withLock { _failEverything = newValue } }
+  }
+
+  func count(for path: String) -> Int { lock.withLock { counts[path] ?? 0 } }
+
+  func respond(to request: URLRequest) -> StubResponse {
+    let path = request.url?.path ?? ""
+    let failing: Bool = lock.withLock {
+      counts[path, default: 0] += 1
+      return _failEverything
+    }
+    if failing { return .http(status: 500, body: Data("boom".utf8)) }
+    guard path == "/api/search/facets" else {
+      return .http(status: 200, body: Data(#"{"results":[],"total":0}"#.utf8))
+    }
+    return .http(status: 200, body: Data(Self.facetsJSON.utf8))
+  }
+
+  private static let facetsJSON = """
+  {"total":7,"cameras":[],"lenses":[],"extensions":[],"scene_types":[],\
+  "activities":[],"subjects":[],"is_screenshot":{"true":0,"false":7,"unknown":0},\
+  "people":[{"value":"Priya Patel","count":4}],\
+  "places":[{"value":"Portland, OR","count":3}]}
+  """
 }
 
 /// Thread-safe request tally — `StubURLProtocol`'s responder runs off the

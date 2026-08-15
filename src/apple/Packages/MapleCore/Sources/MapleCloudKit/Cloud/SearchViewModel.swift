@@ -45,6 +45,10 @@ public final class SearchViewModel {
   private var generation: Int = 0
   /// Pending debounced search; cancelled when a newer keystroke arrives.
   private var debounceTask: Task<Void, Never>?
+  /// True while a facets-only load is in flight, so repeat calls to
+  /// `loadFacetsIfNeeded()` (view appear + filter sheet presented) collapse
+  /// into a single request.
+  private var isLoadingFacets: Bool = false
   /// The params last sent to the server. Lets `submitIfChanged()` skip a
   /// redundant round-trip when nothing actually changed (e.g. the filter
   /// popover closes without an edit).
@@ -183,10 +187,40 @@ public final class SearchViewModel {
       loadError = error
       results = []
       total = 0
-      // Drop facets too — leaving them would show the filter panel options
-      // from a previous successful query against a now-failed result set.
-      facets = nil
+      // Keep the last good facets (mirrors the web client): an aggregation
+      // hiccup shouldn't blank the People / Places pickers, and nothing is
+      // scheduled to refill them — `loadFacetsIfNeeded()` treats non-nil
+      // facets as loaded, so clearing here would strand the panel empty
+      // until the next successful search (#2879).
     }
+  }
+
+  /// Populate the filter panel's option lists WITHOUT running a result
+  /// search. The iPhone Search tab shows recent queries until the user
+  /// types, so nothing ever calls `submit()` from a cold, empty search —
+  /// which left People / Places empty and made the panel unusable until a
+  /// filter was already set, the chicken-and-egg in #2879. Running a full
+  /// empty-query `submit()` instead would replace the Recents list with
+  /// whole-library results, so this fetches facets alone.
+  ///
+  /// Idempotent: no-ops once facets are loaded or while a load is in
+  /// flight, and drops its response if a `submit()` superseded it.
+  public func loadFacetsIfNeeded() async {
+    guard facets == nil, !isLoadingFacets else { return }
+    let requested = params
+    if let cached = facetCache[requested] {
+      facets = cached
+      return
+    }
+    let g = generation
+    isLoadingFacets = true
+    defer { isLoadingFacets = false }
+    // Best-effort: a facet failure is not a search failure, so it must not
+    // raise the error banner over the (perfectly fine) Recents list.
+    guard let loaded = try? await searchClient.facets(requested) else { return }
+    guard g == generation else { return }
+    facetCache[requested] = loaded
+    facets = loaded
   }
 
   /// Re-run the search only if `params` changed since the last submit.
