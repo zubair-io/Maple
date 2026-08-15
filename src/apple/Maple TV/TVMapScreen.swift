@@ -37,6 +37,16 @@
 //     place-name-first, has-GPS-scope-fallback chain macOS/iOS use
 //     (`MapPlaceSearchTarget.apply(to:)`, shared in MapleCloudKit).
 //
+// Wrapped in `MapReader` (Map T9, #2834) so `TVMapHeatmapLayerView` can draw
+// the heatmap density overlay in sync with the live camera — same reasoning
+// as macOS/iOS's `MapView.swift`: SwiftUI's `Map` has no way to host a real
+// `MKOverlay`/`MKOverlayRenderer` on tvOS either (verified against the tvOS
+// 26.4 SDK — see that file's header), and `MapProxy` is the supported
+// alternative. `currentRegion` is only ever WRITTEN from the existing
+// `.onMapCameraChange(frequency: .onEnd)` callback below — the heatmap
+// layer reads it but never drives the camera, and no new camera-change
+// listener or frequency is introduced.
+//
 // Scoped to `libraryID` (unlike macOS/iOS's account-wide Map, which
 // replaces the whole library selection): every other TV content screen
 // (`TimelineScreen`, `SearchScreen`) is scoped the same way inside
@@ -54,6 +64,12 @@ struct TVMapScreen: View {
 
   @State private var viewModel: MapViewModel
   @State private var searchPresentation: TVMapSearchPresentation?
+  /// The camera MapKit last settled on, as reported by
+  /// `.onMapCameraChange(frequency: .onEnd)` below — the ONLY writer. Drives
+  /// `currentZoomLevel` for the heatmap's crossfade; read-only from the
+  /// heatmap's point of view, matching #2834's "reads cells and the current
+  /// camera; never moves the camera" contract.
+  @State private var currentRegion: MKCoordinateRegion?
   @Namespace private var focusNamespace
 
   init(session: TVCloudSession, libraryID: String) {
@@ -82,6 +98,17 @@ struct TVMapScreen: View {
       center: CLLocationCoordinate2D(latitude: 20, longitude: 0),
       span: MKCoordinateSpan(latitudeDelta: 140, longitudeDelta: 360)))
 
+  /// Same zoom convention `MapViewModel.fetch` uses to build the
+  /// `/api/map/clusters` `zoom` param — single source of truth so the
+  /// heatmap's crossfade lines up with the data the map is actually
+  /// showing. `0` (fully opaque, matching a whole-world view) before the
+  /// first camera report lands — harmless, since `viewModel.heatmapPoints`
+  /// is empty then too.
+  private var currentZoomLevel: Int {
+    guard let currentRegion else { return 0 }
+    return MapViewport.zoomLevel(for: MapViewportRegion(currentRegion))
+  }
+
   var body: some View {
     // Resolved ONCE per body evaluation. `orderedItems` maps every cell and
     // sorts the result, and it used to be read from inside the `ForEach` for
@@ -90,65 +117,73 @@ struct TVMapScreen: View {
     let items = orderedItems
     let defaultFocusID = items.first?.id
 
-    ZStack {
-      MapleTVTheme.background.ignoresSafeArea()
+    MapReader { proxy in
+      ZStack {
+        MapleTVTheme.background.ignoresSafeArea()
 
-      Map(initialPosition: Self.initialCameraPosition) {
-        ForEach(items) { item in
-          Annotation(item.id, coordinate: CLLocationCoordinate2D(latitude: item.latitude, longitude: item.longitude)) {
-            TVMapAnnotationButton(
-              item: item,
-              server: session.server,
-              thumbClient: session.thumbClient,
-              thumbCache: session.thumbCache,
-              isDefaultFocusTarget: item.id == defaultFocusID,
-              focusNamespace: focusNamespace,
-              onSelect: { activate(item) }
-            )
+        Map(initialPosition: Self.initialCameraPosition) {
+          ForEach(items) { item in
+            Annotation(item.id, coordinate: CLLocationCoordinate2D(latitude: item.latitude, longitude: item.longitude)) {
+              TVMapAnnotationButton(
+                item: item,
+                server: session.server,
+                thumbClient: session.thumbClient,
+                thumbCache: session.thumbCache,
+                isDefaultFocusTarget: item.id == defaultFocusID,
+                focusNamespace: focusNamespace,
+                onSelect: { activate(item) }
+              )
+            }
           }
         }
-      }
-      // Muted + no POIs: the base map is a backdrop for the pins, not the
-      // content. `.muted` desaturates it so photo thumbnails and cluster
-      // bubbles are the brightest thing on a big screen in a dim room, and
-      // dropping points of interest removes restaurant/shop labels that
-      // compete with the pins for attention. The map renders dark because
-      // `MapleTVApp` sets `.preferredColorScheme(.dark)` app-wide.
-      .mapStyle(.standard(emphasis: .muted, pointsOfInterest: .excludingAll))
-      .accessibilityIdentifier("tv-map-view")
+        // Muted + no POIs: the base map is a backdrop for the pins, not the
+        // content. `.muted` desaturates it so photo thumbnails and cluster
+        // bubbles are the brightest thing on a big screen in a dim room, and
+        // dropping points of interest removes restaurant/shop labels that
+        // compete with the pins for attention. The map renders dark because
+        // `MapleTVApp` sets `.preferredColorScheme(.dark)` app-wide.
+        .mapStyle(.standard(emphasis: .muted, pointsOfInterest: .excludingAll))
+        .accessibilityIdentifier("tv-map-view")
 
-      if viewModel.isEmpty {
-        statePane(icon: "mappin.slash", title: "No photos with location here",
-                  detail: "Pan or zoom to a different area, or check your active filters.")
-      } else if let error = viewModel.loadError, viewModel.cells.isEmpty {
-        statePane(icon: "wifi.exclamationmark", title: "Couldn't load photo locations",
-                  detail: error.localizedDescription)
-      }
+        TVMapHeatmapLayerView(points: viewModel.heatmapPoints, zoomLevel: currentZoomLevel, proxy: proxy)
 
-      if viewModel.isLoading {
-        ProgressView()
-          .tint(MapleTVTheme.textPrimary)
-          .padding(20)
-          .background(MapleTVTheme.surface, in: RoundedRectangle(cornerRadius: 16))
-          .padding(32)
-          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-          .allowsHitTesting(false)
+        if viewModel.isEmpty {
+          statePane(icon: "mappin.slash", title: "No photos with location here",
+                    detail: "Pan or zoom to a different area, or check your active filters.")
+        } else if let error = viewModel.loadError, viewModel.cells.isEmpty {
+          statePane(icon: "wifi.exclamationmark", title: "Couldn't load photo locations",
+                    detail: error.localizedDescription)
+        }
+
+        if viewModel.isLoading {
+          ProgressView()
+            .tint(MapleTVTheme.textPrimary)
+            .padding(20)
+            .background(MapleTVTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+            .padding(32)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            .allowsHitTesting(false)
+        }
       }
-    }
-    // Shared focus scope for the pins' `.prefersDefaultFocus(_:in:)`, so it
-    // wraps their common ancestor rather than just the `Map`.
-    .focusScope(focusNamespace)
-    // The ONLY refetch trigger, and the reason zooming reveals more pins: it
-    // reports the camera MapKit actually settled on, rather than a value this
-    // screen wrote. `.onEnd` fires once the movement stops, which already
-    // coalesces a gesture into a single fetch — `MapViewModel` still debounces
-    // and guards with a generation counter on top, so an in-flight response
-    // from an older camera can't overwrite a newer one.
-    .onMapCameraChange(frequency: .onEnd) { context in
-      viewModel.regionChanged(MapViewportRegion(context.region))
-    }
-    .fullScreenCover(item: $searchPresentation) { presentation in
-      SearchScreen(session: session, libraryID: libraryID, initialParams: presentation.params)
+      // Shared focus scope for the pins' `.prefersDefaultFocus(_:in:)`, so it
+      // wraps their common ancestor rather than just the `Map`.
+      .focusScope(focusNamespace)
+      // The ONLY refetch trigger, and the reason zooming reveals more pins: it
+      // reports the camera MapKit actually settled on, rather than a value this
+      // screen wrote. `.onEnd` fires once the movement stops, which already
+      // coalesces a gesture into a single fetch — `MapViewModel` still debounces
+      // and guards with a generation counter on top, so an in-flight response
+      // from an older camera can't overwrite a newer one. Also the sole writer
+      // of `currentRegion` (Map T9, #2834) — the heatmap's crossfade updates on
+      // the same cadence the pins refresh on, rather than adding a second,
+      // continuous camera listener purely for smoother mid-pan fading.
+      .onMapCameraChange(frequency: .onEnd) { context in
+        viewModel.regionChanged(MapViewportRegion(context.region))
+        currentRegion = context.region
+      }
+      .fullScreenCover(item: $searchPresentation) { presentation in
+        SearchScreen(session: session, libraryID: libraryID, initialParams: presentation.params)
+      }
     }
   }
 
