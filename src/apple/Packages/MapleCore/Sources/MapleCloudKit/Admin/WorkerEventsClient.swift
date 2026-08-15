@@ -20,6 +20,19 @@ import OSLog
 private let workerEventsLog = Logger(
   subsystem: "app.justmaple.aperture", category: "Cloud.WorkerEvents")
 
+/// What the events stream emits.
+///
+/// Connection state travels in-band rather than as separate observable
+/// state on the actor. The client reconnects internally, so without
+/// `.connected` / `.disconnected` a consumer cannot tell a live feed from a
+/// silently retrying one — it would only learn the socket died when the
+/// stream *finished*, which happens on teardown, not on a drop.
+public enum WorkerEventsUpdate: Sendable, Equatable {
+  case connected
+  case disconnected
+  case status(WorkersStatusFrame)
+}
+
 public actor WorkerEventsClient {
 
   /// Reconnect delays in seconds, matching worker-events.service.ts. The
@@ -28,10 +41,31 @@ public actor WorkerEventsClient {
   /// into multi-minute silence.
   public static let backoffSchedule: [Double] = [1, 2, 4, 8, 15]
 
-  public static func backoffDelay(attempt: Int) -> Double {
-    guard attempt > 0 else { return backoffSchedule[0] }
-    let index = min(attempt, backoffSchedule.count - 1)
-    return backoffSchedule[index]
+  /// Walks `backoffSchedule` across consecutive failures.
+  ///
+  /// This is a type rather than a free `delay(attempt:)` function because
+  /// the bug it replaces lived in the *caller*: the run loop incremented
+  /// its counter before asking for a delay, so the first retry waited 2s
+  /// instead of 1s while a unit test of the arithmetic alone still passed.
+  /// Driving the same object from both the loop and the test closes that
+  /// gap.
+  public struct BackoffSequencer: Sendable, Equatable {
+    private var attempt = 0
+
+    public init() {}
+
+    /// Delay for the next retry, then advance.
+    public mutating func nextDelay() -> Double {
+      let index = min(attempt, WorkerEventsClient.backoffSchedule.count - 1)
+      attempt += 1
+      return WorkerEventsClient.backoffSchedule[index]
+    }
+
+    /// Call after a connection succeeds, so a later drop starts from 1s
+    /// again rather than continuing a stale escalation.
+    public mutating func reset() {
+      attempt = 0
+    }
   }
 
   /// `https` → `wss`, `http` → `ws`, path `/api/events`.
@@ -77,15 +111,17 @@ public actor WorkerEventsClient {
 
   /// Stream of status frames, reconnecting until the consumer stops
   /// iterating or `stop()` is called.
-  public func frames() -> AsyncStream<WorkersStatusFrame> {
-    AsyncStream { continuation in
-      let loop = Task { await self.run(yielding: continuation) }
-      Task { await self.store(loop: loop) }
-      continuation.onTermination = { _ in
-        loop.cancel()
-        Task { await self.stop() }
-      }
+  public func frames() -> AsyncStream<WorkerEventsUpdate> {
+    let (stream, continuation) = AsyncStream<WorkerEventsUpdate>.makeStream()
+    let loop = Task { await self.run(yielding: continuation) }
+    runLoop = loop
+    continuation.onTermination = { [weak self] _ in
+      // Not actor-isolated, so the hop is real here — unlike the
+      // assignment above, which runs on the actor already.
+      loop.cancel()
+      Task { await self?.stop() }
     }
+    return stream
   }
 
   public func stop() {
@@ -95,33 +131,30 @@ public actor WorkerEventsClient {
     task = nil
   }
 
-  private func store(loop: Task<Void, Never>) {
-    runLoop = loop
-  }
-
-  private func run(yielding continuation: AsyncStream<WorkersStatusFrame>.Continuation) async {
-    var attempt = 0
+  private func run(yielding continuation: AsyncStream<WorkerEventsUpdate>.Continuation) async {
+    var backoff = BackoffSequencer()
     while !Task.isCancelled {
       do {
         try await connectAndStream(yielding: continuation)
         // A clean close still means we lost the feed; reconnect, but treat
         // it as a fresh sequence rather than continuing to back off.
-        attempt = 0
+        backoff.reset()
       } catch is CancellationError {
         break
       } catch {
-        workerEventsLog.debug("events socket dropped: \(error.localizedDescription, privacy: .public)")
-        attempt += 1
+        workerEventsLog.debug(
+          "events socket dropped: \(error.localizedDescription, privacy: .public)")
       }
+      // Whatever ended the connection, the consumer is no longer live.
+      continuation.yield(.disconnected)
       guard !Task.isCancelled else { break }
-      let delay = Self.backoffDelay(attempt: attempt)
-      try? await Task.sleep(for: .seconds(delay))
+      try? await Task.sleep(for: .seconds(backoff.nextDelay()))
     }
     continuation.finish()
   }
 
   private func connectAndStream(
-    yielding continuation: AsyncStream<WorkersStatusFrame>.Continuation
+    yielding continuation: AsyncStream<WorkerEventsUpdate>.Continuation
   ) async throws {
     guard let url = Self.eventsURL(for: server) else {
       throw ServerAdminError(statusCode: 0, message: "server URL has no ws/wss equivalent")
@@ -138,6 +171,7 @@ public actor WorkerEventsClient {
     // Auth must be the first frame; the server closes the socket if it
     // doesn't arrive.
     try await socket.send(.string(Self.authFrame(token: token)))
+    continuation.yield(.connected)
 
     let decoder = JSONDecoder()
     while !Task.isCancelled {
@@ -148,7 +182,7 @@ public actor WorkerEventsClient {
       guard let frame = try? decoder.decode(WorkersStatusFrame.self, from: data),
         frame.type == "workers-status"
       else { continue }
-      continuation.yield(frame)
+      continuation.yield(.status(frame))
     }
   }
 
