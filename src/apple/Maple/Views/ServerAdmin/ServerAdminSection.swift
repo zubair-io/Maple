@@ -1,12 +1,13 @@
 // ServerAdminSection.swift — the ServerAdmin sidebar model.
 //
 // One case per delivered page. Later tickets in epic #2765 add their case
-// here as they land (#2767 Cloudflare, #2768 Workers, #2773 Imports), so
+// here as they land (#2773 Imports remains), so
 // the sidebar never advertises a page that doesn't exist yet.
 
 import Foundation
 
 enum ServerAdminSection: String, CaseIterable, Identifiable, Hashable {
+    case workers
     case network
     case cloudflare
 
@@ -14,6 +15,7 @@ enum ServerAdminSection: String, CaseIterable, Identifiable, Hashable {
 
     var title: String {
         switch self {
+        case .workers: return "Workers"
         case .network: return "Network"
         case .cloudflare: return "Cloudflare"
         }
@@ -21,6 +23,7 @@ enum ServerAdminSection: String, CaseIterable, Identifiable, Hashable {
 
     var icon: String {
         switch self {
+        case .workers: return "gauge.with.dots.needle.bottom.50percent"
         case .network: return "wifi"
         case .cloudflare: return "globe"
         }
@@ -34,7 +37,9 @@ enum ServerAdminSection: String, CaseIterable, Identifiable, Hashable {
     /// hiding it is presentation. Never treat a hidden row as access control.
     var isOwnerOnly: Bool {
         switch self {
-        case .network, .cloudflare: return true
+        // Workers matches the web's ownerOnly nav flag, though
+        // /api/workers/* is only requireAuth server-side.
+        case .workers, .network, .cloudflare: return true
         }
     }
 
