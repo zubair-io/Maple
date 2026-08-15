@@ -175,11 +175,21 @@ final class TestEnumerationObserver: NSObject, NSFileProviderEnumerationObserver
     cv.lock(); self.error = error; finished = true; cv.signal(); cv.unlock()
   }
 
-  /// Resets `finished`/`batches` so the SAME observer instance can drive
-  /// a second `enumerateItems` call (the next page of a multi-page
-  /// walk) and `waitUntilFinished` again for that call specifically.
+  /// Resets every per-call field so the SAME observer instance can drive
+  /// a second `enumerateItems` call (the next page of a multi-page walk)
+  /// and `waitUntilFinished` again for that call specifically.
+  ///
+  /// `lastNextPage` is cleared along with the rest: leaving it set meant a
+  /// call that ended in `finishEnumeratingWithError` still reported the
+  /// PREVIOUS call's page token, so an assertion could read a stale value
+  /// and pass while the failure it was meant to catch went unnoticed.
   func resetForNextCall() {
-    cv.lock(); finished = false; batches = []; error = nil; cv.unlock()
+    cv.lock()
+    finished = false
+    batches = []
+    error = nil
+    lastNextPage = nil
+    cv.unlock()
   }
 
   func waitUntilFinished(timeoutSeconds: TimeInterval) async -> Bool {
