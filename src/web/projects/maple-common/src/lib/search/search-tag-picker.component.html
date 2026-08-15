@@ -7,58 +7,33 @@
     @if (isEmpty()) {
       <p class="none" data-testid="tag-picker-empty">No matching people or places</p>
     }
-    @if (peopleRows().length > 0) {
-      <h3 class="eyebrow">People</h3>
-      @for (p of peopleRows(); track p.value) {
+    @for (section of sections(); track section.kind) {
+      <h3 class="eyebrow">{{ section.title }}</h3>
+      @for (row of section.rows; track row.value) {
         <button
           type="button"
           class="row"
-          [class.selected]="p.selected"
-          [attr.data-testid]="'tag-person-' + p.value"
-          (click)="pick.emit({ kind: 'person', value: p.value })"
+          [class.selected]="row.selected"
+          [attr.data-testid]="'tag-' + section.kind + '-' + row.value"
+          (click)="pick.emit({ kind: section.kind, value: row.value })"
         >
-          <span class="avatar">{{ initial(p.value) }}</span>
-          <span class="name">{{ p.value }}</span>
-          <span class="count">{{ p.count }} {{ p.count === 1 ? 'photo' : 'photos' }}</span>
-          @if (p.selected) {
-            <svg class="check" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
-              <circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.4" />
-              <path
-                d="M4 7.2l2 2 4-4.5"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.6"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
+          @if (section.kind === 'person') {
+            <span class="avatar">{{ initial(row.value) }}</span>
+          } @else {
+            <span class="avatar">
+              <svg width="13" height="13" viewBox="0 0 12 12" aria-hidden="true">
+                <path
+                  d="M6 1.2A3.4 3.4 0 0 1 9.4 4.6C9.4 7 6 10.8 6 10.8S2.6 7 2.6 4.6A3.4 3.4 0 0 1 6 1.2z"
+                  fill="none"
+                  stroke="currentColor"
+                />
+                <circle cx="6" cy="4.6" r="1.2" fill="currentColor" />
+              </svg>
+            </span>
           }
-        </button>
-      }
-    }
-    @if (placeRows().length > 0) {
-      <h3 class="eyebrow">Places</h3>
-      @for (pl of placeRows(); track pl.value) {
-        <button
-          type="button"
-          class="row"
-          [class.selected]="pl.selected"
-          [attr.data-testid]="'tag-place-' + pl.value"
-          (click)="pick.emit({ kind: 'place', value: pl.value })"
-        >
-          <span class="avatar avatar-place">
-            <svg width="13" height="13" viewBox="0 0 12 12" aria-hidden="true">
-              <path
-                d="M6 1.2A3.4 3.4 0 0 1 9.4 4.6C9.4 7 6 10.8 6 10.8S2.6 7 2.6 4.6A3.4 3.4 0 0 1 6 1.2z"
-                fill="none"
-                stroke="currentColor"
-              />
-              <circle cx="6" cy="4.6" r="1.2" fill="currentColor" />
-            </svg>
-          </span>
-          <span class="name">{{ pl.value }}</span>
-          <span class="count">{{ pl.count }} {{ pl.count === 1 ? 'photo' : 'photos' }}</span>
-          @if (pl.selected) {
+          <span class="name">{{ row.value }}</span>
+          <span class="count">{{ row.countLabel }}</span>
+          @if (row.selected) {
             <svg class="check" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
               <circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.4" />
               <path
