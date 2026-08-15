@@ -6,6 +6,11 @@
 // (#2833) and the heatmap overlays (#2831/#2834) can adopt the same visual
 // language even where they don't share this exact file (tvOS's ten-foot UI
 // needs its own sizing/focus-effect pass).
+//
+// Phone sizing (#2878): both views read `\.mapleLayout` and shrink their
+// diameters on `.phone`. The desktop metrics below were tuned for Mac/iPad's
+// wider map viewport; reusing them verbatim on a phone's narrower viewport
+// packs nearby pins/clusters closer together and increases overlap.
 
 import SwiftUI
 import Foundation
@@ -22,9 +27,14 @@ struct MapThumbnailPinView: View {
   let thumbCache: CloudThumbCache
   let isSelected: Bool
 
+  @Environment(\.mapleLayout) private var layout
   @State private var decoded: CGImage?
 
   private var cacheKey: String { "\(host):\(thumbKey)" }
+
+  /// 40pt on Mac/iPad (a mouse-precision target on a wide viewport); 32pt on
+  /// phone, where the narrower viewport packs pins closer together (#2878).
+  private var diameter: CGFloat { layout == .phone ? 32 : 40 }
 
   var body: some View {
     Circle()
@@ -37,11 +47,11 @@ struct MapThumbnailPinView: View {
             .clipShape(Circle())
         } else {
           Image(systemName: "photo")
-            .font(.system(size: 12))
+            .font(.system(size: layout == .phone ? 10 : 12))
             .foregroundStyle(MapleTokens.textMuted)
         }
       }
-      .frame(width: 40, height: 40)
+      .frame(width: diameter, height: diameter)
       .overlay(
         Circle().strokeBorder(isSelected ? MapleTokens.primary : Color.white, lineWidth: isSelected ? 3 : 2)
       )
@@ -62,6 +72,8 @@ struct MapThumbnailPinView: View {
 struct MapClusterBubbleView: View {
   let count: Int
   let isSelected: Bool
+
+  @Environment(\.mapleLayout) private var layout
 
   /// Integer division would round a cluster of 1999 down to "1k" — format
   /// with one decimal instead so it reads "2.0k".
@@ -86,13 +98,15 @@ struct MapClusterBubbleView: View {
   }
 
   /// Bigger bubbles for bigger clusters, clamped to a sane range so a
-  /// library-wide cell doesn't swallow the map.
+  /// library-wide cell doesn't swallow the map. Phone gets a smaller scale
+  /// (#2878) — same reasoning as `MapThumbnailPinView.diameter`.
   private var bubbleDiameter: CGFloat {
+    let sizes: [CGFloat] = layout == .phone ? [26, 32, 38, 44] : [32, 40, 48, 56]
     switch count {
-    case ..<10: return 32
-    case 10..<100: return 40
-    case 100..<1000: return 48
-    default: return 56
+    case ..<10: return sizes[0]
+    case 10..<100: return sizes[1]
+    case 100..<1000: return sizes[2]
+    default: return sizes[3]
     }
   }
 }
