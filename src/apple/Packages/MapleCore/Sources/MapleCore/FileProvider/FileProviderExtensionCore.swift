@@ -831,7 +831,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         // (image-only): an image comes back with an asset id and surfaces as
         // an `.asset` item; everything else comes back without one and
         // surfaces as a path-addressed `.file` item (see uploadItem).
-        return uploadItem(basedOn: itemTemplate, contents: url, catalog: catalog, completionHandler: completionHandler)
+        return uploadItem(basedOn: itemTemplate, contents: url, catalog: catalog, options: options, completionHandler: completionHandler)
     }
 
     /// Create a subdirectory inside a library root (or a deeper folder
@@ -1032,6 +1032,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
     private func uploadItem(basedOn itemTemplate: NSFileProviderItem,
                             contents url: URL?,
                             catalog: RemoteCatalog,
+                            options: NSFileProviderCreateItemOptions = [],
                             completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void) -> Progress {
         guard let contentsURL = url else {
             completionHandler(nil, [], false,
@@ -1059,6 +1060,27 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         Task {
             defer { progress.completedUnitCount = 1 }
             do {
+                // #2538: `uploadFile` trashes-and-recreates on a name
+                // collision (see its doc comment), which is exactly
+                // wrong for a `.mayAlreadyExist` redelivery — the OS is
+                // telling us this item may already be synced, not asking
+                // us to duplicate it. Precheck the parent listing and
+                // skip straight to reporting the existing item when name
+                // + size both match; a size mismatch is a genuine
+                // collision and falls through to the normal upload.
+                if options.contains(.mayAlreadyExist) {
+                    let attrs = try? FileManager.default.attributesOfItem(atPath: contentsURL.path)
+                    let localSize = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
+                    if let parentAbs = await Self.resolveAbsolutePath(
+                        folderID: folderID, relativePath: parentRelative, rootCache: self.rootCache),
+                       let existing = try await Self.matchExistingUpload(
+                           catalog: catalog, parentAbsolutePath: parentAbs, filename: filename,
+                           localSize: localSize, folderID: folderID, targetRelativePath: targetRel,
+                           parentIdentifier: parentID, log: self.log) {
+                        completionHandler(existing, [], false, nil)
+                        return
+                    }
+                }
                 // folderID is a server-side opaque ObjectId so it's
                 // safe to surface; targetRel + bytes-from are user-
                 // visible path/filename — redact.
@@ -1342,10 +1364,29 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                 // Conflict copies are addressed by ?conflict=<basename> and
                 // skip the mtime precondition: the user is editing this
                 // exact file directly, not racing against the canonical.
+                //
+                // #2538: an OS-redelivered modifyItem (same baseVersion,
+                // after a write that already landed) leaves `priorMtime`
+                // stale, so the retry's precondition mismatches the
+                // server's now-later mtime — and a mismatch makes the
+                // server WRITE a fresh conflict copy rather than just
+                // report one, so there's nothing to clean up after the
+                // fact. Check first: identical bytes already on the
+                // canonical mean this write already landed, so drop the
+                // stale precondition (nil = unconditional overwrite,
+                // harmless when the bytes match) instead of racing it
+                // into a spurious "conflict from <device>" file.
+                let precondition: Date?
+                if conflictBasename == nil, priorMtime != nil,
+                   await Self.isRedundantSidecarWrite(catalog: catalog, assetID: assetID, bytes: xmpBytes) {
+                    precondition = nil
+                } else {
+                    precondition = conflictBasename == nil ? priorMtime : nil
+                }
                 let result = try await catalog.putXMP(
                     assetID: assetID,
                     data: xmpBytes,
-                    ifMtimeMatches: conflictBasename == nil ? priorMtime : nil,
+                    ifMtimeMatches: precondition,
                     deviceName: self.deviceName,
                     conflictBasename: conflictBasename
                 )
@@ -1557,6 +1598,77 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             FileProviderIdentifier.folder(folderID: folderID, relativePath: targetRelativePath).rawValue)
         targets.append(movedFolderSelf)
         return targets
+    }
+
+    /// #2538 (create side): `RemoteCatalog.uploadFile`'s doc comment
+    /// says a duplicate upload to an existing path trashes the prior
+    /// file and creates a brand-new asset. When the OS redelivers a
+    /// `createItem` with `.mayAlreadyExist` set (sync-state-loss
+    /// reimport, or a directory-merge recreate — see
+    /// `NSFileProviderCreateItemOptions`), calling `uploadFile` blindly
+    /// would trash-and-duplicate the very item the OS is telling us
+    /// might already be there. Pages through the parent directory and
+    /// returns the item already there when its name AND size match — a
+    /// size mismatch means same name, different content, which is a
+    /// real collision the existing trash-and-replace upload already
+    /// handles correctly, so it falls through (returns nil) instead of
+    /// masking it.
+    static func matchExistingUpload(catalog: RemoteCatalog,
+                                    parentAbsolutePath: String,
+                                    filename: String,
+                                    localSize: Int64,
+                                    folderID: String,
+                                    targetRelativePath: String,
+                                    parentIdentifier: NSFileProviderItemIdentifier,
+                                    log: Logger? = nil) async throws -> MapleItem? {
+        var cursor: String? = nil
+        var pageGuard = 0
+        repeat {
+            let page = try await catalog.listDir(absolutePath: parentAbsolutePath,
+                                                 cursor: cursor,
+                                                 limit: itemLookupPageLimit)
+            if let img = page.images.first(where: { $0.name == filename && $0.size == localSize }) {
+                return MapleItem(image: img, parentIdentifier: parentIdentifier)
+            }
+            if let file = page.files.first(where: { $0.name == filename && $0.size == localSize }) {
+                return MapleItem(file: file, folderID: folderID,
+                                 relativePath: targetRelativePath, parentIdentifier: parentIdentifier)
+            }
+            cursor = page.nextCursor
+            pageGuard += 1
+            if pageGuard > itemLookupMaxPages {
+                log?.error("matchExistingUpload page guard tripped at \(pageGuard) pages for \(parentAbsolutePath, privacy: .public)")
+                break
+            }
+        } while cursor != nil
+        return nil
+    }
+
+    /// #2538 (modify side): an OS-redelivered `modifyItem` for the same
+    /// sidecar edit (same `baseVersion`, after a write that already
+    /// landed — e.g. the extension process is killed after `putXMP`
+    /// returns 204 but before the completion handler is acknowledged)
+    /// leaves `priorMtime` pointing at the PRE-write mtime, so the
+    /// retry's `X-If-Mtime-Matches` precondition now mismatches the
+    /// server's current (post-write) mtime. Because a mismatch makes the
+    /// server WRITE a brand-new conflict-copy file
+    /// (`pickFreeConflictPath` in `xmp-conflict.ts`) rather than merely
+    /// report one, the damage happens on the write itself — nothing to
+    /// undo afterward. This is the precheck that catches it first: if
+    /// the canonical XMP already holds these exact bytes, the edit
+    /// already landed, so the caller can take the unconditional-
+    /// overwrite path (safe — it's the same bytes) instead of racing the
+    /// stale precondition into a spurious conflict copy. A fetch failure
+    /// returns `false` (not redundant) — the safe default is to fall
+    /// through to the existing precondition-guarded write rather than
+    /// risk silently skipping a real edit.
+    static func isRedundantSidecarWrite(catalog: RemoteCatalog,
+                                        assetID: String,
+                                        bytes: Data) async -> Bool {
+        guard let current = try? await catalog.getXMP(assetID: assetID, conflictBasename: nil) else {
+            return false
+        }
+        return current == bytes
     }
 
     /// Derive the FP parent identifier for an asset from its server
