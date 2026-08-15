@@ -11,9 +11,9 @@ import SwiftUI
 import Foundation
 import MapleCore
 
-/// Circular thumbnail pin for a `count == 1` cell. Fetches its bytes the
-/// same way `CloudThumbTile` does (cache-first, then the network client),
-/// decoded off-main via `ThumbnailDecoder`.
+/// Circular thumbnail pin for a `count == 1` cell. Fetches its bytes via
+/// the shared `fetchCloudThumbBytes` (cache-first, then the network
+/// client), decoded off-main via `ThumbnailDecoder`.
 struct MapThumbnailPinView: View {
   let assetID: String
   let thumbKey: String

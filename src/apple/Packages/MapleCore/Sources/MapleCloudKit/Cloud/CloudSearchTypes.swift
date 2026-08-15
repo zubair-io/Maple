@@ -283,4 +283,27 @@ public struct SearchFacets: Codable, Sendable {
   public let activities: [ValueFacet]
   public let subjects: [ValueFacet]
   public let is_screenshot: ScreenshotFacet
+  /// Named, non-hidden persons with filter-aware counts, descending
+  /// (#2866). `value` round-trips into `SearchParams.people`. Decoded
+  /// tolerant — absent on servers predating the field → empty.
+  public let people: [ValueFacet]
+  /// Place labels with filter-aware counts, descending (#2866). `value`
+  /// round-trips into `SearchParams.place`. Absent → empty, as above.
+  public let places: [ValueFacet]
+
+  public init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    total = try c.decode(Int.self, forKey: .total)
+    cameras = try c.decode([CameraFacet].self, forKey: .cameras)
+    lenses = try c.decode([ValueFacet].self, forKey: .lenses)
+    extensions = try c.decode([ValueFacet].self, forKey: .extensions)
+    iso_range = try c.decodeIfPresent(RangeFacet.self, forKey: .iso_range)
+    capture_range = try c.decodeIfPresent(CaptureRangeFacet.self, forKey: .capture_range)
+    scene_types = try c.decode([ValueFacet].self, forKey: .scene_types)
+    activities = try c.decode([ValueFacet].self, forKey: .activities)
+    subjects = try c.decode([ValueFacet].self, forKey: .subjects)
+    is_screenshot = try c.decode(ScreenshotFacet.self, forKey: .is_screenshot)
+    people = try c.decodeIfPresent([ValueFacet].self, forKey: .people) ?? []
+    places = try c.decodeIfPresent([ValueFacet].self, forKey: .places) ?? []
+  }
 }
