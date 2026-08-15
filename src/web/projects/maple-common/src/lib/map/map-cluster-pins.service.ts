@@ -28,7 +28,16 @@
 
 import { Injectable, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { Subject, debounceTime, startWith, takeUntil } from 'rxjs';
+import {
+  EMPTY,
+  type Observable,
+  Subject,
+  catchError,
+  debounceTime,
+  startWith,
+  switchMap,
+  takeUntil,
+} from 'rxjs';
 import { FilesystemBrowseService } from '../api/filesystem-browse.service';
 import { MapClustersService, type MapCluster } from '../api/map-clusters.service';
 import { MAP_CLUSTER_SOURCE_ID, cellsToFeatureCollection } from './map-cluster-source';
@@ -85,8 +94,19 @@ export class MapClusterPinsService {
     handle.onMoveEnd(() => this.moveEnd.next());
 
     this.moveEnd
-      .pipe(debounceTime(REFETCH_DEBOUNCE_MS), startWith(undefined), takeUntil(this.detached))
-      .subscribe(() => this.refresh());
+      .pipe(
+        debounceTime(REFETCH_DEBOUNCE_MS),
+        startWith(undefined),
+        // `switchMap`, not a manual subscribe per move: debouncing limits how
+        // OFTEN a fetch starts but never cancels one already in flight, so a
+        // slow response for an old viewport could resolve after a fast one for
+        // the current viewport and repaint the map with pins from where the
+        // user used to be. `switchMap` unsubscribes the superseded request —
+        // the same guarantee `MapViewModel`'s generation counter gives on Apple.
+        switchMap(() => this.fetchForCurrentViewport()),
+        takeUntil(this.detached),
+      )
+      .subscribe((cells) => this.render(cells));
   }
 
   /** Tear down this layer's subscriptions and markers. Does NOT touch the
@@ -102,20 +122,18 @@ export class MapClusterPinsService {
     this.handle = null;
   }
 
-  private refresh(): void {
+  /** One fetch for whatever the map is showing right now. Never errors: a
+   * failure completes empty so the outer `moveEnd` stream survives it, and
+   * because nothing is emitted the last good cells stay on the map rather than
+   * the viewport clearing (design doc § "Error / empty states"). `catchError`
+   * sits INSIDE this inner observable for exactly that reason — on the outer
+   * pipe it would tear down the subscription on the first network blip. */
+  private fetchForCurrentViewport(): Observable<MapCluster[]> {
     const handle = this.handle;
-    if (!handle) return;
+    if (!handle) return EMPTY;
     const bbox = handle.getBounds();
     const zoom = Math.round(handle.getZoom());
-    this.clustersApi
-      .getClusters(bbox, zoom)
-      .pipe(takeUntil(this.detached))
-      .subscribe({
-        next: (cells) => this.render(cells),
-        // Cluster fetch failure (design doc § "Error / empty states"): keep
-        // the last good cells rendered rather than clearing the map.
-        error: () => {},
-      });
+    return this.clustersApi.getClusters(bbox, zoom).pipe(catchError(() => EMPTY));
   }
 
   private render(cells: MapCluster[]): void {
