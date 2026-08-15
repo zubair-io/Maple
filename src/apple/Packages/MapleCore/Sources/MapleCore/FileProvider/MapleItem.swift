@@ -165,8 +165,15 @@ public final class MapleItem: NSObject, NSFileProviderItem {
     /// Capabilities allow reading (lazy materialization still works on
     /// trashed files), reparenting (drag back out of Trash to restore),
     /// and deleting (drag inside trash → permanent purge).
-    public init(trashed item: TrashItem, parentTrashIdentifier: NSFileProviderItemIdentifier) {
-        self.identifier = .asset(item.assetID)
+    ///
+    /// Returns nil when `item.assetID` is nil — a trashed row that isn't
+    /// an indexed image (#2546: `TrashItem.assetID` is now optional, to
+    /// stop one such row from failing the whole Trash listing's decode).
+    /// `TrashEnumerator` filters these out via `compactMap` and logs the
+    /// count, rather than surfacing a non-addressable item to Finder.
+    public init?(trashed item: TrashItem, parentTrashIdentifier: NSFileProviderItemIdentifier) {
+        guard let assetID = item.assetID, !assetID.isEmpty else { return nil }
+        self.identifier = .asset(assetID)
         self.displayName = item.filename
         self.isDirectory = false
         self.size = NSNumber(value: item.size)
