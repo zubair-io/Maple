@@ -416,7 +416,18 @@ public final class TrashEnumerator: NSObject, NSFileProviderEnumerator {
                     return s
                 }()
                 let resp = try await catalog.listTrash(folderID: folderID, limit: 200, cursor: cursor)
-                let items = resp.items.map { MapleItem(trashed: $0, parentTrashIdentifier: containerIdentifier) }
+                // Failable init (#2546) filters out rows with no asset id
+                // (a non-image file the server nonetheless listed as
+                // trashed) rather than letting the whole page's decode —
+                // or, pre-#2546, the whole response's Codable decode —
+                // fail atomically.
+                let items = resp.items.compactMap {
+                    MapleItem(trashed: $0, parentTrashIdentifier: containerIdentifier)
+                }
+                let skipped = resp.items.count - items.count
+                if skipped > 0 {
+                    log.error("trash enumerate: skipped \(skipped, privacy: .public) row(s) with no asset id")
+                }
                 observer.didEnumerate(items)
                 if let nextCursor = resp.nextCursor {
                     observer.finishEnumerating(upTo: NSFileProviderPage(Data(nextCursor.utf8)))
