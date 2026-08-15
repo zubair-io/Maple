@@ -96,13 +96,13 @@ struct SearchView: View {
         }
         .background(MapleTokens.bg.ignoresSafeArea())
         .accessibilityIdentifier("search-root")
-        .onChange(of: query) { _, _ in scheduleSearch(force: false) }
+        .onChange(of: query) { _, _ in scheduleSearch() }
         .onAppear {
             // The session / view model can arrive AFTER the user has already
             // typed (the `.searchable` field lives above this view and is
             // live while the session loads). Re-issue any pending query so it
             // isn't stranded showing no results until the next keystroke.
-            if !trimmedQuery.isEmpty { scheduleSearch(force: false) }
+            if !trimmedQuery.isEmpty { scheduleSearch() }
         }
         .onDisappear { debounceTask?.cancel() }
         .sheet(isPresented: $showFilters) {
@@ -170,10 +170,9 @@ struct SearchView: View {
     // MARK: - Search debounce
 
     /// Debounce keystrokes into one submission 250ms after the last change.
-    /// `force` shortcuts to an immediate fire. An empty query with no
-    /// active filters resets to idle; with filters set it still fetches
-    /// (a filters-only search is a real search).
-    private func scheduleSearch(force: Bool) {
+    /// An empty query with no active filters resets to idle; with filters
+    /// set it still fetches (a filters-only search is a real search).
+    private func scheduleSearch() {
         debounceTask?.cancel()
         let trimmed = trimmedQuery
         guard !trimmed.isEmpty || filtersActive else {
@@ -182,14 +181,15 @@ struct SearchView: View {
         }
         isStale = true
         debounceTask = Task { [viewModel] in
-            if !force {
-                try? await Task.sleep(for: .milliseconds(250))
-            }
+            try? await Task.sleep(for: .milliseconds(250))
             if Task.isCancelled { return }
             await MainActor.run {
                 viewModel?.params.placeQuery = trimmed
             }
-            await viewModel?.submit()
+            // A trailing-whitespace edit leaves `trimmed` — and so the whole
+            // param set — unchanged; `submitIfChanged` skips the redundant
+            // round-trip in that case.
+            await viewModel?.submitIfChanged()
             await MainActor.run { isStale = false }
         }
     }
