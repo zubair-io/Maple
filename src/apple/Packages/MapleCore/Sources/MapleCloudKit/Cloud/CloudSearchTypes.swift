@@ -244,6 +244,10 @@ public struct CameraFacet: Codable, Equatable, Sendable {
 public struct ValueFacet: Codable, Equatable, Sendable {
   public let value: String?
   public let count: Int
+
+  public init(value: String?, count: Int) {
+    self.value = value; self.count = count
+  }
 }
 
 /// `{ min, max }` numeric range. Decoded as Double so an integer ISO and a
