@@ -10,24 +10,46 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { Subject, of, tap } from 'rxjs';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { MapClusterPinsService } from '../../map/map-cluster-pins.service';
 import { MapLibreService } from '../../map/maplibre-map.service';
 import { MapViewComponent } from './map-view.component';
 
 describe('MapViewComponent', () => {
   let create: ReturnType<typeof vi.fn>;
   let destroy: ReturnType<typeof vi.fn>;
+  let currentHandle: ReturnType<typeof vi.fn>;
   let tilesUnreachable: ReturnType<typeof signal<boolean>>;
+  let attach: ReturnType<typeof vi.fn>;
+  let detach: ReturnType<typeof vi.fn>;
+  let empty: ReturnType<typeof signal<boolean>>;
+
+  const FAKE_HANDLE = { fake: true };
 
   beforeEach(() => {
     create = vi.fn(() => of(undefined));
     destroy = vi.fn();
+    currentHandle = vi.fn(() => FAKE_HANDLE);
     tilesUnreachable = signal(false);
+    attach = vi.fn();
+    detach = vi.fn();
+    empty = signal(false);
     TestBed.configureTestingModule({
       imports: [MapViewComponent],
       providers: [
         provideRouter([]),
-        { provide: MapLibreService, useValue: { create, destroy, tilesUnreachable } },
+        {
+          provide: MapLibreService,
+          useValue: { create, destroy, currentHandle, tilesUnreachable },
+        },
       ],
+    });
+    // `MapClusterPinsService` is provided directly on `MapViewComponent`'s
+    // own decorator (component-scoped, per that file's module doc) rather
+    // than at the module level, so overriding it for a test has to go
+    // through `overrideComponent` — a module-level provider of the same
+    // token would be shadowed by the component's own.
+    TestBed.overrideComponent(MapViewComponent, {
+      set: { providers: [{ provide: MapClusterPinsService, useValue: { attach, detach, empty } }] },
     });
   });
 
@@ -109,5 +131,57 @@ describe('MapViewComponent', () => {
     expect(notice?.querySelector('a')?.getAttribute('href')).toBe('/settings/map');
     // The failure notice layers over the canvas — it never replaces it.
     expect(fixture.nativeElement.querySelector('.map-canvas')).not.toBeNull();
+  });
+
+  // Map T4 (#2828) — pins layer attach/detach + the empty-viewport notice.
+  it('attaches the cluster-pins layer to the mounted map handle once create() resolves', () => {
+    const fixture = TestBed.createComponent(MapViewComponent);
+    fixture.detectChanges();
+
+    expect(attach).toHaveBeenCalledExactlyOnceWith(FAKE_HANDLE);
+  });
+
+  it('detaches the cluster-pins layer before tearing the map down', () => {
+    const fixture = TestBed.createComponent(MapViewComponent);
+    fixture.detectChanges();
+
+    fixture.destroy();
+
+    expect(detach).toHaveBeenCalledOnce();
+  });
+
+  it('does not attach the pins layer when destroyed before the config fetch completes', () => {
+    const pending = new Subject<void>();
+    create.mockReturnValue(pending.asObservable());
+
+    const fixture = TestBed.createComponent(MapViewComponent);
+    fixture.detectChanges();
+    fixture.destroy();
+    pending.next();
+
+    expect(attach).not.toHaveBeenCalled();
+  });
+
+  it('shows the empty-viewport notice without blanking the map surface', () => {
+    const fixture = TestBed.createComponent(MapViewComponent);
+    fixture.detectChanges();
+
+    empty.set(true);
+    fixture.detectChanges();
+
+    const notice = fixture.nativeElement.querySelector('[role="status"]');
+    expect(notice?.textContent).toContain('No photos with location here');
+    expect(fixture.nativeElement.querySelector('.map-canvas')).not.toBeNull();
+  });
+
+  it('suppresses the empty-viewport notice while the tiles-unreachable notice is showing', () => {
+    const fixture = TestBed.createComponent(MapViewComponent);
+    fixture.detectChanges();
+
+    empty.set(true);
+    tilesUnreachable.set(true);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('[role="status"]')).toBeNull();
   });
 });

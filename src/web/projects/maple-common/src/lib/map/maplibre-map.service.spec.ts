@@ -27,8 +27,24 @@ class FakeMapHandle implements MapLibreMapHandle {
     this.options = options;
   }
 
-  on(event: 'error', handler: (event: { error?: { message: string } }) => void): void {
-    if (event === 'error') this.errorHandler = handler;
+  onError(handler: (event: { error?: { message: string } }) => void): void {
+    this.errorHandler = handler;
+  }
+
+  // Map T4 (#2828) additions — unused by MapLibreService's own tests, which
+  // never touch pins/sources, but required to satisfy the widened
+  // interface.
+  onMoveEnd(): void {}
+  getBounds(): { west: number; south: number; east: number; north: number } {
+    return { west: 0, south: 0, east: 0, north: 0 };
+  }
+  getZoom(): number {
+    return 0;
+  }
+  addSource(): void {}
+  setSourceData(): void {}
+  addMarker(): { remove(): void } {
+    return { remove: () => {} };
   }
 
   remove(): void {
