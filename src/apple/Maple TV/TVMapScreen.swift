@@ -42,10 +42,12 @@
 // as macOS/iOS's `MapView.swift`: SwiftUI's `Map` has no way to host a real
 // `MKOverlay`/`MKOverlayRenderer` on tvOS either (verified against the tvOS
 // 26.4 SDK — see that file's header), and `MapProxy` is the supported
-// alternative. `currentRegion` is only ever WRITTEN from the existing
-// `.onMapCameraChange(frequency: .onEnd)` callback below — the heatmap
-// layer reads it but never drives the camera, and no new camera-change
-// listener or frequency is introduced.
+// alternative. There are two camera-change listeners as a result, and the
+// split matters: `.continuous` keeps `currentRegion` (and so the heatmap's
+// re-projection) aligned with the tiles DURING a pan, while `.onEnd` keeps the
+// expensive cluster refetch to once per gesture. Both only ever READ the
+// camera — neither writes it — so #2858's invariant that MapKit alone owns the
+// tvOS camera still holds.
 //
 // Scoped to `libraryID` (unlike macOS/iOS's account-wide Map, which
 // replaces the whole library selection): every other TV content screen
@@ -65,7 +67,8 @@ struct TVMapScreen: View {
   @State private var viewModel: MapViewModel
   @State private var searchPresentation: TVMapSearchPresentation?
   /// The camera MapKit last settled on, as reported by
-  /// `.onMapCameraChange(frequency: .onEnd)` below — the ONLY writer. Drives
+  /// `.onMapCameraChange(frequency: .continuous)` below — the only writer,
+  /// and continuous so the heatmap stays geographically aligned mid-pan. Drives
   /// `currentZoomLevel` for the heatmap's crossfade; read-only from the
   /// heatmap's point of view, matching #2834's "reads cells and the current
   /// camera; never moves the camera" contract.
@@ -168,18 +171,26 @@ struct TVMapScreen: View {
       // Shared focus scope for the pins' `.prefersDefaultFocus(_:in:)`, so it
       // wraps their common ancestor rather than just the `Map`.
       .focusScope(focusNamespace)
-      // The ONLY refetch trigger, and the reason zooming reveals more pins: it
-      // reports the camera MapKit actually settled on, rather than a value this
-      // screen wrote. `.onEnd` fires once the movement stops, which already
-      // coalesces a gesture into a single fetch — `MapViewModel` still debounces
-      // and guards with a generation counter on top, so an in-flight response
-      // from an older camera can't overwrite a newer one. Also the sole writer
-      // of `currentRegion` (Map T9, #2834) — the heatmap's crossfade updates on
-      // the same cadence the pins refresh on, rather than adding a second,
-      // continuous camera listener purely for smoother mid-pan fading.
+      // `currentRegion` must track the camera CONTINUOUSLY, not just at rest.
+      // The heatmap re-projects its points through `proxy.convert` on each
+      // `Canvas` evaluation, and the Canvas only re-evaluates when something it
+      // reads changes — so if this were only written `.onEnd`, the heat blobs
+      // would stay pinned to the screen while the map tiles slid underneath,
+      // losing geographic alignment for the whole duration of a pan and
+      // snapping back at the end. macOS/iOS already drive their heatmap this
+      // way (`MapView.swift`); TV matches so the two don't diverge.
+      //
+      // Observing the camera continuously is NOT the same as driving it: this
+      // only reads, so #2858's invariant — MapKit alone owns the camera — holds.
+      .onMapCameraChange(frequency: .continuous) { context in
+        currentRegion = context.region
+      }
+      // Refetching stays on `.onEnd`: it is the expensive half, and settling
+      // once per gesture is the point. `MapViewModel` debounces and
+      // generation-guards on top, so an in-flight response from an older camera
+      // can't overwrite a newer one.
       .onMapCameraChange(frequency: .onEnd) { context in
         viewModel.regionChanged(MapViewportRegion(context.region))
-        currentRegion = context.region
       }
       .fullScreenCover(item: $searchPresentation) { presentation in
         SearchScreen(session: session, libraryID: libraryID, initialParams: presentation.params)
