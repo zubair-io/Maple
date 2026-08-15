@@ -101,7 +101,9 @@ final class CloudSearchClientTests: XCTestCase {
      "scene_types":[{"value":"outdoor","count":5}],
      "activities":[{"value":"hiking","count":2}],
      "subjects":[{"value":"mountain","count":3}],
-     "is_screenshot":{"true":1,"false":5,"unknown":1}}
+     "is_screenshot":{"true":1,"false":5,"unknown":1},
+     "people":[{"value":"Priya Patel","count":812}],
+     "places":[{"value":"Portland, OR","count":946},{"value":"Kyoto","count":74}]}
     """
     let session = URLSession.stubbed(response: json)
     let client = CloudSearchClient(
@@ -119,6 +121,9 @@ final class CloudSearchClientTests: XCTestCase {
     XCTAssertEqual(facets.is_screenshot.trueCount, 1)
     XCTAssertEqual(facets.is_screenshot.falseCount, 5)
     XCTAssertEqual(facets.is_screenshot.unknown, 1)
+    XCTAssertEqual(facets.people.first?.value, "Priya Patel")
+    XCTAssertEqual(facets.people.first?.count, 812)
+    XCTAssertEqual(facets.places.map(\.value), ["Portland, OR", "Kyoto"])
   }
 
   // MARK: - relativePathPrefix
