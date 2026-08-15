@@ -1,0 +1,161 @@
+<div class="panel" data-testid="filter-panel">
+  @if (asSheet()) {
+    <div class="grab" aria-hidden="true"></div>
+  }
+  <header class="head">
+    <h2 class="title">Filters</h2>
+    @if (asSheet()) {
+      <button
+        type="button"
+        class="close"
+        aria-label="Close filters"
+        data-testid="filter-close"
+        (click)="dismiss.emit()"
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+          <path
+            d="M3.5 3.5l7 7M10.5 3.5l-7 7"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+          />
+        </svg>
+      </button>
+    }
+  </header>
+
+  <div class="body">
+    <section class="section">
+      <h3 class="eyebrow">Date range</h3>
+      <div class="preset-row">
+        @for (p of presets; track p.id) {
+          <button
+            type="button"
+            class="preset"
+            [class.active]="filters().datePreset === p.id"
+            [attr.aria-pressed]="filters().datePreset === p.id"
+            [attr.data-testid]="'filter-preset-' + p.id"
+            (click)="onPreset(p.id)"
+          >
+            {{ p.label }}
+          </button>
+        }
+      </div>
+      <div class="range-row">
+        <input
+          type="date"
+          class="date"
+          aria-label="From date"
+          data-testid="filter-date-from"
+          [value]="filters().from ?? ''"
+          (change)="onFrom($event)"
+        />
+        <input
+          type="date"
+          class="date"
+          aria-label="To date"
+          data-testid="filter-date-to"
+          [value]="filters().to ?? ''"
+          (change)="onTo($event)"
+        />
+      </div>
+    </section>
+
+    <section class="section">
+      <h3 class="eyebrow">People</h3>
+      @if (peopleRows().length === 0) {
+        <p class="none">No named people yet</p>
+      }
+      <ul class="rows">
+        @for (p of peopleRows(); track p.value) {
+          <li>
+            <button
+              type="button"
+              class="row"
+              [class.selected]="p.selected"
+              [attr.aria-pressed]="p.selected"
+              [attr.data-testid]="'filter-person-' + p.value"
+              (click)="onPerson(p.value)"
+            >
+              <span class="avatar">{{ initial(p.value) }}</span>
+              <span class="name">{{ p.value }}</span>
+              <span class="count">{{ p.count }}</span>
+              @if (p.selected) {
+                <svg class="check" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+                  <path
+                    d="M2.5 7.5l3 3 6-7"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              }
+            </button>
+          </li>
+        }
+      </ul>
+    </section>
+
+    <section class="section">
+      <h3 class="eyebrow">Places</h3>
+      @if (placeRows().length === 0) {
+        <p class="none">No geocoded places yet</p>
+      }
+      <ul class="rows">
+        @for (pl of placeRows(); track pl.value) {
+          <li>
+            <button
+              type="button"
+              class="row"
+              [class.selected]="pl.selected"
+              [attr.aria-pressed]="pl.selected"
+              [attr.data-testid]="'filter-place-' + pl.value"
+              (click)="onPlace(pl.value)"
+            >
+              <span class="avatar avatar-place">
+                <svg width="13" height="13" viewBox="0 0 12 12" aria-hidden="true">
+                  <path
+                    d="M6 1.2A3.4 3.4 0 0 1 9.4 4.6C9.4 7 6 10.8 6 10.8S2.6 7 2.6 4.6A3.4 3.4 0 0 1 6 1.2z"
+                    fill="none"
+                    stroke="currentColor"
+                  />
+                  <circle cx="6" cy="4.6" r="1.2" fill="currentColor" />
+                </svg>
+              </span>
+              <span class="name">{{ pl.value }}</span>
+              <span class="count">{{ pl.count }}</span>
+              @if (pl.selected) {
+                <svg class="check" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+                  <path
+                    d="M2.5 7.5l3 3 6-7"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              }
+            </button>
+          </li>
+        }
+      </ul>
+    </section>
+  </div>
+
+  <footer class="foot">
+    <button
+      type="button"
+      class="btn secondary"
+      data-testid="filter-clear-all"
+      (click)="clearAll.emit()"
+    >
+      Clear all
+    </button>
+    <button type="button" class="btn primary" data-testid="filter-apply" (click)="dismiss.emit()">
+      {{ showLabel() }}
+    </button>
+  </footer>
+</div>

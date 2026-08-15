@@ -158,11 +158,11 @@ export const routes: Routes = [
         (m) => m.NetworkSettingsComponent,
       ),
   },
-  // S7 (#622) — responsive-program search experience. `/search` lands on
-  // the new `<app-search>` (phone tab content + tablet/desktop overlay
-  // payload). The rich Self-Hosted filter page (cameras, lenses, EXIF
-  // ranges, vision facets) moves to `/search/advanced` so it stays
-  // reachable from the responsive page's "See all" link.
+  // Unified search (#2865, epic #2862) — `/search` is the ONE search
+  // surface: query + Date/People/Places filters + `@` tag picker, all
+  // inside `<app-search>`. The legacy EXIF filter page that lived at
+  // `/search/advanced` was removed in the same change; the redirect keeps
+  // old bookmarks working and carries `?q=` across.
   {
     path: 'search',
     canActivate: [authGuard],
@@ -170,8 +170,12 @@ export const routes: Routes = [
   },
   {
     path: 'search/advanced',
-    canActivate: [authGuard],
-    loadComponent: () => import('./search/search.component').then((m) => m.SearchComponent),
+    redirectTo: (redirect) => {
+      const q = redirect.queryParams['q'];
+      return typeof q === 'string' && q.length > 0
+        ? `/search?q=${encodeURIComponent(q)}`
+        : '/search';
+    },
   },
   // People — face-cluster identities. Lives inside the Settings shell;
   // the `:id` variant deep-links into the detail view. The legacy

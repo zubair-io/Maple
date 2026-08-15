@@ -34,6 +34,11 @@ class StubSearchService {
     this.subjects.push(subj);
     return new Observable((sub) => subj.subscribe(sub));
   }
+  // The unified page also fetches facets (panel rows / tag picker); these
+  // tests never resolve it — a hanging observable is enough.
+  facets(): Observable<never> {
+    return new Observable<never>(() => {});
+  }
 }
 
 function setup(q?: string): {

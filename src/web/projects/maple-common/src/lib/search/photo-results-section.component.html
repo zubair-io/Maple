@@ -1,10 +1,11 @@
 @if (hasQuery() && results().length === 0) {
-  <p class="empty" data-testid="search-no-results">No matches for &ldquo;{{ query() }}&rdquo;</p>
+  @if (query().length > 0) {
+    <p class="empty" data-testid="search-no-results">No matches for &ldquo;{{ query() }}&rdquo;</p>
+  } @else {
+    <p class="empty" data-testid="search-no-results">No matches for the current filters</p>
+  }
 } @else if (results().length > 0) {
   <section class="section" data-testid="photo-results-section">
-    <header class="eyebrow-row">
-      <h3 class="eyebrow">PHOTOS · {{ total() }}</h3>
-    </header>
     <ul class="grid" [class.stale]="isStale()">
       @for (r of results(); track trackResult($index, r)) {
         <li>
@@ -15,13 +16,17 @@
             [attr.aria-label]="r.filename"
             [attr.data-testid]="'search-tile-' + r.id"
           >
-            <span class="tile-fallback">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M4 6h16v12H4z" fill="none" stroke="currentColor" stroke-width="1" />
-                <circle cx="9" cy="11" r="1.5" fill="currentColor" />
-                <path d="M5 17l5-5 4 4 3-3 2 2v2H5z" fill="currentColor" />
-              </svg>
-            </span>
+            @if (thumbs().get(r.id); as url) {
+              <img class="tile-img" [src]="url" [alt]="r.filename" loading="lazy" />
+            } @else {
+              <span class="tile-fallback">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 6h16v12H4z" fill="none" stroke="currentColor" stroke-width="1" />
+                  <circle cx="9" cy="11" r="1.5" fill="currentColor" />
+                  <path d="M5 17l5-5 4 4 3-3 2 2v2H5z" fill="currentColor" />
+                </svg>
+              </span>
+            }
           </button>
         </li>
       }
