@@ -206,52 +206,61 @@ export interface SearchFacets {
   places?: Array<{ value: string; count: number }>;
 }
 
-/** Build HttpParams from a SearchParams object, skipping undefined / empty
- * values so the server sees exactly the params the user set. */
+/** `undefined` stays undefined (omitted); booleans stringify for the wire. */
+function boolStr(v: boolean | undefined): string | undefined {
+  if (v === undefined) return undefined;
+  return v ? 'true' : 'false';
+}
+
+/** Join a multi-value param, or omit it when empty/absent. */
+function joined(v: readonly string[] | undefined, sep: string): string | undefined {
+  return v !== undefined && v.length > 0 ? v.join(sep) : undefined;
+}
+
+/** Build HttpParams from a SearchParams object, skipping undefined / null /
+ * empty-string values so the server sees exactly the params the user set.
+ * Table-driven — every entry is pre-serialised, so adding a param is one
+ * row, not another branch. */
 function paramsFrom(p: SearchParams): HttpParams {
-  let h = new HttpParams();
-  const set = (k: string, v: unknown) => {
-    if (v === undefined || v === null) return;
-    if (typeof v === 'string' && v.length === 0) return;
-    h = h.set(k, String(v));
-  };
-  set('q', p.q);
-  set('placeQuery', p.placeQuery);
-  set('libraryId', p.libraryId);
-  set('camera', p.camera);
-  set('lens', p.lens);
-  set('isoMin', p.isoMin);
-  set('isoMax', p.isoMax);
-  set('apertureMin', p.apertureMin);
-  set('apertureMax', p.apertureMax);
-  set('focalMin', p.focalMin);
-  set('focalMax', p.focalMax);
-  set('from', p.from);
-  set('to', p.to);
-  set('rating', p.rating);
-  set('flag', p.flag);
-  set('color', p.color);
-  set('ext', p.ext);
-  // A cursor supersedes `page` — send one or the other, never both, so a
-  // stale page counter left on the caller's params can't shadow the seek.
-  if (p.cursor !== undefined && p.cursor !== '') set('cursor', p.cursor);
-  else set('page', p.page);
-  set('limit', p.limit);
-  set('sort', p.sort);
-  set('pathPrefix', p.pathPrefix);
-  if (p.hasCapturedAt !== undefined) set('hasCapturedAt', p.hasCapturedAt ? 'true' : 'false');
-  set('sceneType', p.sceneType);
-  set('activity', p.activity);
-  if (p.subjects && p.subjects.length > 0) {
-    set('subjects', p.subjects.join(','));
-  }
-  if (p.isScreenshot !== undefined) set('isScreenshot', p.isScreenshot ? 'true' : 'false');
-  if (p.people && p.people.length > 0) set('people', p.people.join(','));
-  // `|`-separated — place labels contain commas, so commas can't separate.
-  if (p.place && p.place.length > 0) set('place', p.place.join('|'));
-  set('scope', p.scope);
-  set('hidden', p.hidden);
-  return h;
+  const entries: ReadonlyArray<[string, string | number | undefined | null]> = [
+    ['q', p.q],
+    ['placeQuery', p.placeQuery],
+    ['libraryId', p.libraryId],
+    ['camera', p.camera],
+    ['lens', p.lens],
+    ['isoMin', p.isoMin],
+    ['isoMax', p.isoMax],
+    ['apertureMin', p.apertureMin],
+    ['apertureMax', p.apertureMax],
+    ['focalMin', p.focalMin],
+    ['focalMax', p.focalMax],
+    ['from', p.from],
+    ['to', p.to],
+    ['rating', p.rating],
+    ['flag', p.flag],
+    ['color', p.color],
+    ['ext', p.ext],
+    // A cursor supersedes `page` — send one or the other, never both, so a
+    // stale page counter left on the caller's params can't shadow the seek.
+    p.cursor !== undefined && p.cursor !== '' ? ['cursor', p.cursor] : ['page', p.page],
+    ['limit', p.limit],
+    ['sort', p.sort],
+    ['pathPrefix', p.pathPrefix],
+    ['hasCapturedAt', boolStr(p.hasCapturedAt)],
+    ['sceneType', p.sceneType],
+    ['activity', p.activity],
+    ['subjects', joined(p.subjects, ',')],
+    ['isScreenshot', boolStr(p.isScreenshot)],
+    ['people', joined(p.people, ',')],
+    // `|`-separated — place labels contain commas, so commas can't separate.
+    ['place', joined(p.place, '|')],
+    ['scope', p.scope],
+    ['hidden', p.hidden],
+  ];
+  return entries.reduce(
+    (h, [k, v]) => (v === undefined || v === null || v === '' ? h : h.set(k, String(v))),
+    new HttpParams(),
+  );
 }
 
 @Injectable({ providedIn: 'root' })

@@ -14,6 +14,7 @@
 // (`filtersChange`) instead of per-dimension outputs — the host owns state.
 
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import { SearchFacetSectionComponent } from './search-facet-section.component';
 import {
   DATE_PRESETS,
   SearchFilters,
@@ -31,6 +32,7 @@ export interface FacetOption {
 @Component({
   selector: 'app-search-filter-panel',
   standalone: true,
+  imports: [SearchFacetSectionComponent],
   templateUrl: './search-filter-panel.component.html',
   styleUrl: './search-filter-panel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -76,10 +78,6 @@ export class SearchFilterPanelComponent {
       ...o,
       selected: selected.includes(o.value),
     }));
-  }
-
-  protected initial(name: string): string {
-    return name.trim().charAt(0).toUpperCase();
   }
 
   protected onPreset(id: (typeof DATE_PRESETS)[number]['id']): void {
