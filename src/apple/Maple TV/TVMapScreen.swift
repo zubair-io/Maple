@@ -108,7 +108,13 @@ struct TVMapScreen: View {
           }
         }
       }
-      .mapStyle(.standard)
+      // Muted + no POIs: the base map is a backdrop for the pins, not the
+      // content. `.muted` desaturates it so photo thumbnails and cluster
+      // bubbles are the brightest thing on a big screen in a dim room, and
+      // dropping points of interest removes restaurant/shop labels that
+      // compete with the pins for attention. The map renders dark because
+      // `MapleTVApp` sets `.preferredColorScheme(.dark)` app-wide.
+      .mapStyle(.standard(emphasis: .muted, pointsOfInterest: .excludingAll))
       .accessibilityIdentifier("tv-map-view")
 
       if viewModel.isEmpty {
