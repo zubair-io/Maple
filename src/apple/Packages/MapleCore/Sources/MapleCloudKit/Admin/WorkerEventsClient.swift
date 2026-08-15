@@ -68,6 +68,24 @@ public actor WorkerEventsClient {
     }
   }
 
+  /// How long to wait for any frame before treating the socket as dead.
+  ///
+  /// The server broadcasts on a ~2s cadence (`COUNT_INTERVAL_MS` in
+  /// workers/status-broadcast.ts), so silence this long is roughly seven
+  /// missed ticks — comfortably past jitter, well short of the user
+  /// noticing frozen numbers.
+  ///
+  /// Without this, a device that loses connectivity *silently* — iOS
+  /// dropping Wi-Fi with no TCP FIN, which is routine — leaves
+  /// `receive()` suspended forever. The UI would keep claiming the feed is
+  /// live while showing counts that stopped updating, which is worse than
+  /// showing a disconnect, because nothing prompts a reconnect.
+  public static let readTimeout: Duration = .seconds(15)
+
+  /// Raised when `readTimeout` elapses with no frame. Surfaces as a normal
+  /// connection drop, so the run loop reconnects on the usual backoff.
+  struct FeedWentSilent: Error {}
+
   /// `https` → `wss`, `http` → `ws`, path `/api/events`.
   public static func eventsURL(for server: URL) -> URL? {
     guard var components = URLComponents(url: server, resolvingAgainstBaseURL: false) else {
@@ -175,7 +193,7 @@ public actor WorkerEventsClient {
 
     let decoder = JSONDecoder()
     while !Task.isCancelled {
-      let message = try await socket.receive()
+      let message = try await Self.receive(from: socket, timeout: Self.readTimeout)
       guard let data = Self.payload(of: message) else { continue }
       // Non-status frames share the channel; ignore what we don't model
       // rather than tearing down the socket for it.
@@ -183,6 +201,26 @@ public actor WorkerEventsClient {
         frame.type == "workers-status"
       else { continue }
       continuation.yield(.status(frame))
+    }
+  }
+
+  /// `socket.receive()` bounded by `timeout`.
+  ///
+  /// Races the read against a sleep. Whichever finishes first wins and the
+  /// loser is cancelled, so a timeout throws `FeedWentSilent` and unwinds
+  /// into the run loop's reconnect path exactly like a real drop.
+  private static func receive(
+    from socket: URLSessionWebSocketTask, timeout: Duration
+  ) async throws -> URLSessionWebSocketTask.Message {
+    try await withThrowingTaskGroup(of: URLSessionWebSocketTask.Message.self) { group in
+      group.addTask { try await socket.receive() }
+      group.addTask {
+        try await Task.sleep(for: timeout)
+        throw FeedWentSilent()
+      }
+      defer { group.cancelAll() }
+      guard let first = try await group.next() else { throw FeedWentSilent() }
+      return first
     }
   }
 
