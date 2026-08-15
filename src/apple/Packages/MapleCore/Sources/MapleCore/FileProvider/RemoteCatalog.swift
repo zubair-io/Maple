@@ -1,4 +1,5 @@
 // src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/RemoteCatalog.swift
+import FileProvider
 import Foundation
 import OSLog
 
@@ -692,7 +693,66 @@ public actor RemoteCatalog {
 
     internal static func check2xx(_ resp: URLResponse) throws {
         let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
-        guard (200..<300).contains(code) else { throw URLError(.badServerResponse) }
+        guard (200..<300).contains(code) else { throw Self.mapHTTPError(status: code) }
+    }
+
+    /// Maps an HTTP status code from the residual "anything else failed"
+    /// throw path to the `NSFileProviderError` case Finder can act on,
+    /// instead of a bare `URLError(.badServerResponse)` (#2548).
+    ///
+    /// Unlike the structured per-call outcomes elsewhere in this file
+    /// (`MoveFolderResult`, `RenameAssetResult`, `RelocateAssetResult`,
+    /// `DeleteAssetResult`, `XMPWriteResult`) — which stay domain-neutral
+    /// BY DESIGN (see their doc comments) because
+    /// `FileProviderExtensionCore` maps each KNOWN alternate outcome
+    /// explicitly — this covers the UNEXPECTED-status throw path.
+    /// Nothing downstream re-interprets a thrown `Error` from that path:
+    /// `FileProviderExtensionCore`'s `catch` blocks forward it to the OS
+    /// completion handler as-is. Encoding `NSFileProviderErrorDomain`
+    /// directly here (rather than a neutral wrapper nothing unwraps) is
+    /// what actually gets Finder the right UX for this path.
+    ///
+    /// - 401 -> `.notAuthenticated` — defensive: `AuthenticatedHTTPClient`
+    ///   already retries once after a token refresh, so a caller
+    ///   normally never sees a raw 401, but a persistent one should
+    ///   surface as an auth problem, not a generic transport failure.
+    /// - 404 -> `.noSuchItem` — the resource the caller addressed is
+    ///   gone server-side.
+    /// - 409 -> `.filenameCollision` — a residual conflict not already
+    ///   caught by a call's own structured 409 handling (several calls
+    ///   above already branch on 409 explicitly before ever reaching
+    ///   `check2xx`/this default path).
+    /// - 413 / 507 -> `.insufficientQuota` — "Payload Too Large" /
+    ///   "Insufficient Storage" are the standard HTTP-semantics codes
+    ///   (RFC 7231 §6.5.11, RFC 4918 §11.5) for an over-quota write.
+    ///   Today's server (`src/api/src/routes/folders.ts`) doesn't emit
+    ///   either yet — there's no quota enforcement wired up server-side
+    ///   as of this change — but the mapping is unambiguous per the
+    ///   RFCs regardless of what THIS server currently sends, so a
+    ///   future quota check gets the correct Finder UX for free instead
+    ///   of another silent "server response" error.
+    /// - anything else -> `URLError(.badServerResponse)` — genuinely
+    ///   transport-shaped (5xx other than 507, unexpected redirects);
+    ///   there's no better FileProvider-domain code for it, and the
+    ///   OS's default transient-error retry handling is the right
+    ///   response.
+    internal static func mapHTTPError(status: Int) -> Error {
+        switch status {
+        case 401:
+            return NSError(domain: NSFileProviderErrorDomain,
+                            code: NSFileProviderError.notAuthenticated.rawValue)
+        case 404:
+            return NSError(domain: NSFileProviderErrorDomain,
+                            code: NSFileProviderError.noSuchItem.rawValue)
+        case 409:
+            return NSError(domain: NSFileProviderErrorDomain,
+                            code: NSFileProviderError.filenameCollision.rawValue)
+        case 413, 507:
+            return NSError(domain: NSFileProviderErrorDomain,
+                            code: NSFileProviderError.insufficientQuota.rawValue)
+        default:
+            return URLError(.badServerResponse)
+        }
     }
 
     /// Validates that `assetID` is a 24-character hex Mongo ObjectID.
@@ -872,7 +932,7 @@ public actor RemoteCatalog {
                 ?? Date()
             return .conflict(path: body.conflict_path, mtime: mtime)
         }
-        throw URLError(.badServerResponse)
+        throw Self.mapHTTPError(status: status)
     }
 
     /// DELETE /api/assets/<assetID>/xmp[?conflict=<basename>]. Idempotent.
@@ -948,7 +1008,7 @@ public actor RemoteCatalog {
             return .ok(try decoder.decode(UploadResponse.self, from: data))
         }
         if status == 415 { return .unsupported }
-        throw URLError(.badServerResponse)
+        throw Self.mapHTTPError(status: status)
     }
 
     /// Stream a non-indexed file's bytes to `localURL` by its library-relative
@@ -1012,7 +1072,7 @@ public actor RemoteCatalog {
         req.setValue(try Self.encodeTargetPath(targetRelativePath), forHTTPHeaderField: "X-Maple-Target-Path")
         let (data, resp) = try await http.data(for: req)
         let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
-        guard status == 201 else { throw URLError(.badServerResponse) }
+        guard status == 201 else { throw Self.mapHTTPError(status: status) }
         return try decoder.decode(MakeDirResponse.self, from: data)
     }
 
@@ -1041,7 +1101,7 @@ public actor RemoteCatalog {
         let (data, resp) = try await http.data(for: req)
         let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
         if status == 409 { return .conflict }
-        guard status == 200 else { throw URLError(.badServerResponse) }
+        guard status == 200 else { throw Self.mapHTTPError(status: status) }
         return .ok(try decoder.decode(MakeDirResponse.self, from: data))
     }
 
@@ -1106,7 +1166,7 @@ public actor RemoteCatalog {
         case 404:
             return .notFound
         default:
-            throw URLError(.badServerResponse)
+            throw Self.mapHTTPError(status: status)
         }
     }
 
@@ -1147,7 +1207,7 @@ public actor RemoteCatalog {
         case 404:
             return .notFound
         default:
-            throw URLError(.badServerResponse)
+            throw Self.mapHTTPError(status: status)
         }
     }
 
