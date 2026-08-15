@@ -19,13 +19,13 @@ import MapleCore
 
 enum MapViewVM {
   /// Converts MapKit's region type into the framework-free
-  /// `MapViewportRegion` `MapViewModel`/`MapViewport` operate on.
+  /// `MapViewportRegion` `MapViewModel`/`MapViewport` operate on. The
+  /// conversion itself lives in MapleCloudKit
+  /// (`MapViewportRegion+MapKit.swift`) so tvOS — which cannot link this
+  /// target — shares the one implementation instead of forking its own, and
+  /// the bbox both platforms ask the server for can't drift apart.
   static func viewportRegion(from region: MKCoordinateRegion) -> MapViewportRegion {
-    MapViewportRegion(
-      centerLatitude: region.center.latitude,
-      centerLongitude: region.center.longitude,
-      latitudeDelta: region.span.latitudeDelta,
-      longitudeDelta: region.span.longitudeDelta)
+    MapViewportRegion(region)
   }
 
   /// Empty-state copy — distinct from the error-state copy below. A

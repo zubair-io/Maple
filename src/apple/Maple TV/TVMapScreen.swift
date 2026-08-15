@@ -7,36 +7,31 @@
 // MapleCore/RawPipeline) reuses them as-is instead of forking a parallel
 // copy.
 //
-// tvOS has no pan/pitch/rotate gestures and no cursor (design doc §"Apple
-// TV front-end"), so the camera is driven EXPLICITLY rather than through
-// `Map`'s own gesture handling (there is none here):
+// MapKit owns the camera here; this screen does NOT drive it (#2858).
 //
-//   - A screen-filling, focusable "camera pad" (`cameraPad`) sits behind
-//     the pins, so there is always something focusable to hold focus and
-//     a Select target that zooms IN a step (`zoomedIn`).
-//   - `.onMoveCommand` is attached to the whole screen (the ZStack), NOT to
-//     the pad, and steps the camera via
-//     `TVMapCameraController.panned(_:direction:)` — pure region math, unit
-//     tested without any running focus engine. It has to live on the pins'
-//     and pad's common ancestor: SwiftUI bubbles unhandled responder events
-//     to ancestors and never to siblings, so a pad-mounted handler never saw
-//     swipes made while a pin held focus.
-//   - `.onPlayPauseCommand`, attached to the whole screen (a dedicated
-//     hardware button, so it fires no matter which subview currently holds
-//     focus) zooms OUT a step. This is this screen's own reading of the
-//     ticket's "the select/play button zooms": Select is CONTEXTUAL here
-//     (zoom in when the pad has focus, activate a pin when a pin has
-//     focus — see below), so zooming back out needs a control that isn't
-//     also a pin's activation button, and Play/Pause is otherwise idle on
-//     this screen.
-//   - Each visible pin/cluster (`TVMapAnnotationButton`) is a REAL
-//     focusable `Button`. tvOS's focus engine moves focus onto one
-//     directly when a swipe points at its on-screen position — ordinary
-//     tvOS behavior for any focusable sibling, needing no custom code
-//     here — falling through to the screen-level `.onMoveCommand` only
-//     when there's no pin in that direction. So "moving focus between
-//     annotations" and "panning the empty map" fall out of the SAME swipe
-//     input without this screen picking one over the other itself.
+// #2833 originally hand-rolled a camera: a focusable full-screen "pad", a
+// screen-level `.onMoveCommand` that stepped the region, and
+// `.onPlayPauseCommand` to zoom out. That was built on the premise that tvOS
+// has no map interaction — a premise taken from the SDK showing
+// `rotateEnabled`, `pitchEnabled`, `showsZoomControls`, `showsCompass` and
+// callout taps all `API_UNAVAILABLE(tvos)`. Those really are unavailable, but
+// SwiftUI's `Map` ships its own tvOS interaction regardless (the Play/Pause
+// mode menu), so the hand-rolled layer ended up fighting it: two cameras
+// driving one map. Worse, the map was mounted with `position: .constant(...)`,
+// a read-only binding, so MapKit's camera movements could never write back
+// into our state — `onChange(of: region)` never fired for a user zoom and the
+// clusters silently never refetched.
+//
+// So:
+//
+//   - MapKit's built-in tvOS interaction pans and zooms. There is no camera
+//     pad, no `.onMoveCommand`, and no `.onPlayPauseCommand` on this screen.
+//   - `.onMapCameraChange(frequency: .onEnd)` reports the REAL camera, and is
+//     the single trigger for refetching clusters. Reading the actual camera
+//     rather than a value we wrote is what makes "more pins as you zoom in"
+//     work at all.
+//   - Each visible pin/cluster (`TVMapAnnotationButton`) is a REAL focusable
+//     `Button`, so tvOS's focus engine moves between them natively.
 //   - Selecting a focused pin/cluster navigates to `SearchScreen`, preset
 //     with the cell's resolved `MapPlaceSearchTarget` — the same
 //     place-name-first, has-GPS-scope-fallback chain macOS/iOS use
@@ -58,7 +53,6 @@ struct TVMapScreen: View {
   let libraryID: String
 
   @State private var viewModel: MapViewModel
-  @State private var region: MapViewportRegion = TVMapCameraController.defaultRegion
   @State private var searchPresentation: TVMapSearchPresentation?
   @Namespace private var focusNamespace
 
@@ -80,27 +74,26 @@ struct TVMapScreen: View {
     TVMapFocusOrder.ordered(MapAnnotationItem.items(from: viewModel.cells))
   }
 
-  private var cameraPosition: MapCameraPosition {
-    .region(MKCoordinateRegion(
-      center: CLLocationCoordinate2D(latitude: region.centerLatitude, longitude: region.centerLongitude),
-      span: MKCoordinateSpan(latitudeDelta: region.latitudeDelta, longitudeDelta: region.longitudeDelta)))
-  }
+  /// Where the camera STARTS. MapKit owns it from then on — this is passed as
+  /// `initialPosition`, never re-driven, so a user pan/zoom is not fought by a
+  /// value this screen keeps rewriting.
+  private static let initialCameraPosition: MapCameraPosition = .region(
+    MKCoordinateRegion(
+      center: CLLocationCoordinate2D(latitude: 20, longitude: 0),
+      span: MKCoordinateSpan(latitudeDelta: 140, longitudeDelta: 360)))
 
   var body: some View {
     // Resolved ONCE per body evaluation. `orderedItems` maps every cell and
-    // sorts the result, and it used to be read from inside the `ForEach` (for
-    // the default-focus comparison) as well as by `cameraPad` — so the sort ran
-    // once per pin plus twice more, turning an O(n log n) computation into
-    // O(n² log n) on a dense map.
+    // sorts the result, and it used to be read from inside the `ForEach` for
+    // the default-focus comparison — so the sort ran once per pin, turning an
+    // O(n log n) computation into O(n² log n) on a dense map.
     let items = orderedItems
     let defaultFocusID = items.first?.id
 
     ZStack {
       MapleTVTheme.background.ignoresSafeArea()
 
-      cameraPad(prefersDefaultFocus: items.isEmpty)
-
-      Map(position: .constant(cameraPosition)) {
+      Map(initialPosition: Self.initialCameraPosition) {
         ForEach(items) { item in
           Annotation(item.id, coordinate: CLLocationCoordinate2D(latitude: item.latitude, longitude: item.longitude)) {
             TVMapAnnotationButton(
@@ -136,74 +129,20 @@ struct TVMapScreen: View {
           .allowsHitTesting(false)
       }
     }
-    // Shared focus scope: `cameraPad` and each pin (`TVMapAnnotationButton`)
-    // both use `.prefersDefaultFocus(_:in: focusNamespace)` against this
-    // SAME namespace, so it has to wrap their common ancestor (this whole
-    // ZStack), not just the `Map` — otherwise the pad's own default-focus
-    // preference has no scope to register into.
+    // Shared focus scope for the pins' `.prefersDefaultFocus(_:in:)`, so it
+    // wraps their common ancestor rather than just the `Map`.
     .focusScope(focusNamespace)
-    // Directional swipes are handled HERE, on the pins' and pad's common
-    // ancestor — NOT on `cameraPad`. SwiftUI bubbles an unhandled responder
-    // event to its ANCESTORS, never to siblings, and `cameraPad` is a sibling
-    // of `Map` inside this ZStack. With the pad owning `.onMoveCommand`, a
-    // swipe made while a pin held focus with no pin in that direction bubbled
-    // pin → Annotation → Map → ZStack and never reached the pad, leaving the
-    // user stuck on the pin unable to pan. `onMoveCommand` fires only for
-    // moves the focus engine did not itself consume, so pin-to-pin focus
-    // navigation is unaffected — only the leftover swipes pan the camera.
-    .onMoveCommand(perform: pan)
-    .onPlayPauseCommand(perform: zoomOut)
-    .task { viewModel.regionChanged(region) }
-    .onChange(of: region) { _, newRegion in viewModel.regionChanged(newRegion) }
+    // The ONLY refetch trigger, and the reason zooming reveals more pins: it
+    // reports the camera MapKit actually settled on, rather than a value this
+    // screen wrote. `.onEnd` fires once the movement stops, which already
+    // coalesces a gesture into a single fetch — `MapViewModel` still debounces
+    // and guards with a generation counter on top, so an in-flight response
+    // from an older camera can't overwrite a newer one.
+    .onMapCameraChange(frequency: .onEnd) { context in
+      viewModel.regionChanged(MapViewportRegion(context.region))
+    }
     .fullScreenCover(item: $searchPresentation) { presentation in
       SearchScreen(session: session, libraryID: libraryID, initialParams: presentation.params)
-    }
-  }
-
-  // MARK: - Camera pad
-
-  /// Invisible, screen-filling focusable surface behind the pins. Its Select
-  /// action zooms in. Panning is handled by the ZStack, not here — see the
-  /// `.onMoveCommand` comment there for why a sibling can't catch it.
-  ///
-  /// `prefersDefaultFocus` is passed in rather than read from `orderedItems`
-  /// so the ordered list is computed once per body evaluation.
-  private func cameraPad(prefersDefaultFocus: Bool) -> some View {
-    Button(action: zoomIn) {
-      Color.clear
-        // `Color` has no intrinsic size — without this the Button's label
-        // (and so the button's own focusable/hittable frame) would size to
-        // zero rather than spanning the screen behind the pins.
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .focusEffectDisabled()
-    .prefersDefaultFocus(prefersDefaultFocus, in: focusNamespace)
-    .accessibilityLabel("Map camera. Swipe to pan, press to zoom in.")
-    .accessibilityIdentifier("tv-map-camera-pad")
-  }
-
-  private func pan(_ direction: MoveCommandDirection) {
-    guard let mapped = Self.panDirection(for: direction) else { return }
-    region = TVMapCameraController.panned(region, direction: mapped)
-  }
-
-  private func zoomIn() {
-    region = TVMapCameraController.zoomedIn(region)
-  }
-
-  private func zoomOut() {
-    region = TVMapCameraController.zoomedOut(region)
-  }
-
-  private static func panDirection(for direction: MoveCommandDirection) -> TVMapPanDirection? {
-    switch direction {
-    case .up: return .up
-    case .down: return .down
-    case .left: return .left
-    case .right: return .right
-    @unknown default: return nil
     }
   }
 
