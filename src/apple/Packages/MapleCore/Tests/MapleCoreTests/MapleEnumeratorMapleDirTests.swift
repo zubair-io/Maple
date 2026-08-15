@@ -117,7 +117,11 @@ final class MapleEnumeratorMapleDirTests: XCTestCase {
 
     func testMapleDirInjectedOnceAcrossPaginatedListing() async throws {
         // Multi-page enumeration: the `.maple/` item must only appear
-        // on the first page, not once per page.
+        // on the first page, not once per page. #2550: each
+        // `enumerateItems` call now surfaces exactly one server page, so
+        // this test drives both calls explicitly — feeding page 1's
+        // returned page back in as page 2's `startingAt:` — the same
+        // way the real OS resumes a paginated enumeration.
         StubURLProtocol.handler = { req in
             let q = req.url?.query ?? ""
             let isPage2 = q.contains("cursor=p2")
@@ -141,11 +145,54 @@ final class MapleEnumeratorMapleDirTests: XCTestCase {
         )
         let observer = TestEnumerationObserver()
         enumerator.enumerateItems(for: observer, startingAt: NSFileProviderPage(Data()))
+        var ok = await observer.waitUntilFinished(timeoutSeconds: 5)
+        XCTAssertTrue(ok)
+        let page1Items = observer.batches.flatMap { $0 }
+        let nextPage = try XCTUnwrap(observer.lastNextPage)
+
+        observer.resetForNextCall()
+        enumerator.enumerateItems(for: observer, startingAt: nextPage)
+        ok = await observer.waitUntilFinished(timeoutSeconds: 5)
+        XCTAssertTrue(ok)
+        let page2Items = observer.batches.flatMap { $0 }
+
+        let mapleItems = (page1Items + page2Items).filter { $0.filename == ".maple" }
+        XCTAssertEqual(mapleItems.count, 1, "got \((page1Items + page2Items).map(\.filename))")
+    }
+
+    /// #2550: `MapleThumbsEnumerator` must honor the OS's page token the
+    /// same way `FolderEnumerator` does, instead of full-draining every
+    /// server page internally.
+    func testMapleThumbsEnumeratorResumesFromOSSuppliedPage() async throws {
+        var requestedCursors: [String?] = []
+        StubURLProtocol.handler = { req in
+            let q = req.url?.query ?? ""
+            requestedCursors.append(q.contains("cursor=p2") ? "p2" : nil)
+            let json = """
+            {"path":"/lib","parent":"/","dirs":[],"images":[
+              {"name":"B.dng","path":"/lib/B.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng","id":"b00000000000000000000000"}
+            ],"sidecars":[]}
+            """
+            return (200, Data(json.utf8), [:])
+        }
+        let containerID = NSFileProviderItemIdentifier(
+            FileProviderIdentifier.mapleThumbsDir(folderID: "f1", parentRelativePath: "").rawValue
+        )
+        let enumerator = MapleThumbsEnumerator(
+            catalog: makeCatalog(),
+            folderID: "f1",
+            parentAbsolutePath: "/lib",
+            containerIdentifier: containerID,
+            pageSize: 1
+        )
+        let observer = TestEnumerationObserver()
+        enumerator.enumerateItems(for: observer, startingAt: NSFileProviderPage(Data("p2".utf8)))
         let ok = await observer.waitUntilFinished(timeoutSeconds: 5)
         XCTAssertTrue(ok)
+        XCTAssertNil(observer.error)
+        XCTAssertEqual(requestedCursors, ["p2"], "must hit the server with the OS-supplied cursor, not restart from the top")
         let items = observer.batches.flatMap { $0 }
-        let mapleItems = items.filter { $0.filename == ".maple" }
-        XCTAssertEqual(mapleItems.count, 1, "got \(items.map(\.filename))")
+        XCTAssertEqual(items.map(\.filename), [MapleThumbCacheKey.thumbFilename(forRawBasename: "B.dng")])
     }
 
     func testMapleDirEnumeratorReturnsThumbsChild() async {
