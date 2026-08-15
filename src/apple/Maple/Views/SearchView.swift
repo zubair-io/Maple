@@ -103,12 +103,20 @@ struct SearchView: View {
             // live while the session loads). Re-issue any pending query so it
             // isn't stranded showing no results until the next keystroke.
             if !trimmedQuery.isEmpty { scheduleSearch() }
+            // The filter sheet's People / Places rows come from the facets
+            // response, and an empty-query Search tab never submits — warm
+            // them here so the panel is usable without a query (#2879).
+            Task { await viewModel?.loadFacetsIfNeeded() }
         }
         .onDisappear { debounceTask?.cancel() }
         .sheet(isPresented: $showFilters) {
             if let viewModel {
                 SearchFilterPanel(vm: viewModel, onClose: { showFilters = false })
                     .presentationDetents([.large])
+                    // Covers the case where the session (and so the view
+                    // model) arrived after `onAppear` ran; a no-op once the
+                    // facets are loaded.
+                    .task { await viewModel.loadFacetsIfNeeded() }
             }
         }
     }
