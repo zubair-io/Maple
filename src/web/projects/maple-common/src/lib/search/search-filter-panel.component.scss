@@ -122,86 +122,9 @@
   color-scheme: dark light;
 }
 
-.rows {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.none {
-  margin: 0;
-  font:
-    12px/1.4 'Lato',
-    sans-serif;
-  color: var(--color-text-muted);
-}
-
-.row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 8px;
-  border: none;
-  border-left: 2px solid transparent;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--color-text-main);
-  text-align: left;
-  cursor: pointer;
-}
-
-.row:hover {
-  background: var(--color-surface-hover, rgba(255, 255, 255, 0.06));
-}
-
-.row.selected {
-  background: var(--color-surface-alt);
-  border-left-color: var(--color-primary, #e05d44);
-}
-
-.avatar {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--color-surface-alt);
-  color: var(--color-text-muted);
-  font:
-    12px/1 'Lato',
-    sans-serif;
-  font-weight: 700;
-}
-
-.name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font:
-    13px/1.2 'Lato',
-    sans-serif;
-}
-
-.count {
-  flex-shrink: 0;
-  font:
-    11px/1 'Lato',
-    sans-serif;
-  color: var(--color-text-muted);
-}
-
-.check {
-  flex-shrink: 0;
-  color: var(--color-primary, #e05d44);
-}
+// Row anatomy lives in `search-facet-section.component.scss` (via the
+// shared `_option-rows.scss` partial) — this file only styles the panel
+// chrome and the Date section.
 
 .foot {
   flex-shrink: 0;

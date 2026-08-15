@@ -1,5 +1,9 @@
 // Tag-picker CONTENT — the anchored-dropdown vs bottom-sheet placement
-// belongs to the host container (`search.component.scss`).
+// belongs to the host container (`search.component.scss`). Row anatomy
+// comes from the shared `_option-rows.scss` partial; this file adds the
+// picker chrome and the picker's denser row spacing.
+
+@use './option-rows' as option-rows;
 
 :host {
   display: block;
@@ -48,85 +52,17 @@
   padding: 8px;
 }
 
+@include option-rows.option-rows;
+
 .none {
-  margin: 0;
   padding: 10px;
-  font:
-    12px/1.4 'Lato',
-    sans-serif;
-  color: var(--color-text-muted);
 }
 
 .eyebrow {
-  margin: 0;
   padding: 8px 10px 6px;
-  font:
-    11px/1 'Lato',
-    sans-serif;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
 }
 
 .row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
   padding: 8px 10px;
-  border: none;
   border-radius: 8px;
-  background: transparent;
-  color: var(--color-text-main);
-  text-align: left;
-  cursor: pointer;
-}
-
-.row:hover {
-  background: var(--color-surface-hover, rgba(255, 255, 255, 0.06));
-}
-
-.row.selected {
-  background: var(--color-surface-alt);
-}
-
-.avatar {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--color-surface-alt);
-  color: var(--color-text-muted);
-  font:
-    12px/1 'Lato',
-    sans-serif;
-  font-weight: 700;
-}
-
-.name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font:
-    13px/1.2 'Lato',
-    sans-serif;
-}
-
-.count {
-  flex-shrink: 0;
-  font:
-    11px/1 'Lato',
-    sans-serif;
-  color: var(--color-text-muted);
-}
-
-.check {
-  flex-shrink: 0;
-  color: var(--color-primary, #e05d44);
 }

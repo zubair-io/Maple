@@ -247,6 +247,7 @@ export * from './lib/components/map-view/map-view.component';
 export * from './lib/search/search-types';
 export * from './lib/search/search-filters';
 export * from './lib/search/search-bar.component';
+export * from './lib/search/search-facet-section.component';
 export * from './lib/search/search-filter-panel.component';
 export * from './lib/search/search-tag-picker.component';
 export * from './lib/search/photo-results-section.component';
