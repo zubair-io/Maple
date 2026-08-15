@@ -30,14 +30,15 @@ import { placeTextForIndex, transcriptForIndex } from '../../enrichment/asset-do
 import { ASSET_DOC_SHAPE_VERSION } from '../../enrichment/meilisearch-embedder-template.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { peopleCollection } from '../../db/client.ts';
+import { AUTO_PERSON_NAME } from '../../people/auto-person-name.ts';
 import type { AssetFaceDoc, FileInfo, PersonDoc, VisionDoc } from '../../db/schema.ts';
 import { classifyMediaType } from '../../indexer/media-types.ts';
 
-/** Auto-generated cluster names ("Person 1", "Person 12", …). These are
- * placeholders, not real identities — folding them into the index would
- * pollute it with the high-frequency token "person", so we exclude them
- * from both the search blob and the Meili `people` attribute. */
-const AUTO_PERSON_NAME = /^Person \d+$/;
+// Auto-generated cluster names ("Person 1", "Person 12", …) are
+// placeholders, not real identities — folding them into the index would
+// pollute it with the high-frequency token "person", so they stay out of
+// both the search blob and the Meili `people` attribute. The predicate is
+// shared with the search facets picker (#2879).
 
 function validPersonIds(faces: AssetFaceDoc[] | null | undefined): ObjectId[] {
   if (!faces || faces.length === 0) return [];
