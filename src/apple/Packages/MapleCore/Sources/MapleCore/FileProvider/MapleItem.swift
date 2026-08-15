@@ -108,6 +108,44 @@ public final class MapleItem: NSObject, NSFileProviderItem {
         // `.allowsDeleting` to surface the action). RAWs remain
         // otherwise read-only — no in-place writes (.allowsWriting),
         // no rename (.allowsRenaming), no reparenting at this time.
+        //
+        // #2549 evaluated `.allowsTrashing` as the "more correct" name
+        // for this and concluded it must NOT be added here, because it
+        // would be a functional regression, not just a vocabulary
+        // change:
+        //
+        //   - `.allowsTrashing` tells Finder the item supports the OS's
+        //     OWN Trash mechanism — "Move to Trash" is then implemented
+        //     by the system calling `modifyItem` with the item
+        //     reparented to `NSFileProviderItemIdentifier.trashContainer`
+        //     (see `NSFileProviderReplicatedExtension.h`'s "all items
+        //     will always be a descendent of either the root item or
+        //     the trash item").
+        //   - This extension does not implement that mechanism:
+        //     `FileProviderExtensionCore.enumerator(for:)` returns a
+        //     bare `EmptyEnumerator()` for `.trashContainer`, and
+        //     `modifyItem`'s asset-reparent branch only understands a
+        //     new parent shaped like `FileProviderIdentifier.folder`
+        //     (restore-from-OUR-synthetic-trash) — parsing the OS's
+        //     reserved `trashContainer` identifier through
+        //     `FileProviderIdentifier(rawValue:)` throws `.invalidPrefix`
+        //     there, which `modifyItem` turns into `NSFeatureUnsupportedError`.
+        //   - So advertising `.allowsTrashing` would surface Finder's
+        //     "Move to Trash" affordance and then fail it every time —
+        //     worse than today's `.allowsDeleting`, which correctly
+        //     routes through `deleteItem` to `RemoteCatalog.deleteAsset`'s
+        //     server-side trash-first dual mode (see that method's doc
+        //     comment) and actually works.
+        //
+        // `.allowsEvicting` was also evaluated and rejected: it's been
+        // `API_DEPRECATED` since macOS 13 in favor of
+        // `NSFileProviderContentPolicy`, which this extension doesn't
+        // implement either — adding a deprecated, superseded capability
+        // isn't a real fix.
+        //
+        // Net: `.allowsDeleting` alone is the correct capability for
+        // this app's actual (app-level, not OS-native) trash-first
+        // behavior. No change from this evaluation.
         self.writeCapabilities = [.allowsReading, .allowsDeleting]
         self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
         self.parentItemIdentifier = parentIdentifier
@@ -162,9 +200,17 @@ public final class MapleItem: NSObject, NSFileProviderItem {
     /// Trashed asset surfaced inside the Trash container. Keeps the same
     /// `asset/<id>` identifier as the live item so identity is stable
     /// across delete/restore (per spec — server-side identifiers).
+    ///
     /// Capabilities allow reading (lazy materialization still works on
     /// trashed files), reparenting (drag back out of Trash to restore),
-    /// and deleting (drag inside trash → permanent purge).
+    /// and deleting. `.allowsDeleting` — not `.allowsTrashing` — is
+    /// correct here (#2549): Apple's own doc comment for `deleteItem`
+    /// (the `NSFileProviderReplicatedExtension` method this capability
+    /// gates) reads "This is called when the user deletes an item that
+    /// was already in the Trash" — i.e. permanent purge, which is
+    /// exactly what `RemoteCatalog.deleteAsset`'s dual-mode DELETE does
+    /// for an already-trashed asset (see its doc comment). There is no
+    /// "trash the trash" concept to reach for `.allowsTrashing` here.
     ///
     /// Returns nil when `item.assetID` is nil — a trashed row that isn't
     /// an indexed image (#2546: `TrashItem.assetID` is now optional, to
