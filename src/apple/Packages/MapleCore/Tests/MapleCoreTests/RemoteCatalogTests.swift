@@ -114,6 +114,30 @@ final class RemoteCatalogTests: XCTestCase {
         XCTAssertNil(resp.nextCursor)
     }
 
+    /// #2546: a trashed row with no `asset_id` (a non-image file the
+    /// server nonetheless listed under `/api/folders/:id/trash`) must
+    /// NOT fail the whole array's decode. Before the fix,
+    /// `TrashItem.assetID` was non-optional `String`, so the missing key
+    /// on the second row threw `DecodingError.keyNotFound` and took the
+    /// first (valid) row down with it.
+    func testDecodeTrashListToleratesRowWithoutAssetID() throws {
+        let json = """
+        {"items":[
+          {"asset_id":"a1","filename":"IMG_1.ARW","original_relative_path":"2024/IMG_1.ARW",
+           "trash_relative_path":".maple/trash/2024/IMG_1.ARW","size":40000000,
+           "mtime":"2026-05-15T10:00:00.123Z","deleted_at":"2026-05-15T10:00:00.456Z"},
+          {"filename":"notes.txt","original_relative_path":"2024/notes.txt",
+           "trash_relative_path":".maple/trash/2024/notes.txt","size":10,
+           "mtime":"2026-05-15T10:00:00.123Z","deleted_at":"2026-05-15T10:00:00.456Z"}
+        ],"next_cursor":null}
+        """.data(using: .utf8)!
+        let resp = try ISO8601FlexibleDateDecoding.decoder.decode(TrashListResponse.self, from: json)
+        XCTAssertEqual(resp.items.count, 2, "both rows must decode; a missing asset_id must not fail the array")
+        XCTAssertEqual(resp.items[0].assetID, "a1")
+        XCTAssertNil(resp.items[1].assetID, "row with no asset_id decodes to nil, not a thrown error")
+        XCTAssertEqual(resp.items[1].filename, "notes.txt")
+    }
+
     func testDecodeRestoreResponse() throws {
         let json = """
         {"asset_id":"a1","abs_path":"/library/2024/IMG_1.restored.ARW",

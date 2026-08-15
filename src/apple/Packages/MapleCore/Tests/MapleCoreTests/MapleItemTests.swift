@@ -137,4 +137,42 @@ final class MapleItemTests: XCTestCase {
         // And the actual helper should succeed where the naive form fails.
         XCTAssertNotNil(MapleItem.decodePriorMtime(item.itemVersion.contentVersion))
     }
+
+    // MARK: - Trashed item / missing asset id (#2546)
+
+    private func makeTrashItem(assetID: String?) -> TrashItem {
+        TrashItem(
+            assetID: assetID,
+            filename: "IMG_1.ARW",
+            originalRelativePath: "2024/IMG_1.ARW",
+            trashRelativePath: ".maple/trash/2024/IMG_1.ARW",
+            size: 40_000_000,
+            mtime: Date(timeIntervalSince1970: 1_700_000_000),
+            deletedAt: Date(timeIntervalSince1970: 1_700_000_100)
+        )
+    }
+
+    func testTrashedMapleItemBuildsForPresentAssetID() throws {
+        let parent = NSFileProviderItemIdentifier("trash/f1")
+        let item = MapleItem(trashed: makeTrashItem(assetID: "abc123"), parentTrashIdentifier: parent)
+        XCTAssertNotNil(item)
+        let parsed = try FileProviderIdentifier(rawValue: item!.itemIdentifier.rawValue)
+        XCTAssertEqual(parsed, .asset("abc123"))
+    }
+
+    /// #2546: `TrashItem.assetID` is now optional (a non-image row has
+    /// none). `MapleItem(trashed:)` must return nil rather than crash or
+    /// build an unaddressable item, mirroring the existing
+    /// `MapleItem(image:)` failable-init pattern for unindexed images.
+    func testTrashedMapleItemReturnsNilForMissingAssetID() {
+        let parent = NSFileProviderItemIdentifier("trash/f1")
+        let item = MapleItem(trashed: makeTrashItem(assetID: nil), parentTrashIdentifier: parent)
+        XCTAssertNil(item)
+    }
+
+    func testTrashedMapleItemReturnsNilForEmptyAssetID() {
+        let parent = NSFileProviderItemIdentifier("trash/f1")
+        let item = MapleItem(trashed: makeTrashItem(assetID: ""), parentTrashIdentifier: parent)
+        XCTAssertNil(item)
+    }
 }
