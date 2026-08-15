@@ -265,6 +265,16 @@ final class WorkerEventsClientTests: XCTestCase {
     XCTAssertEqual(backoff.nextDelay(), 1)
   }
 
+  func test_readTimeout_leavesRoomForSeveralMissedBroadcastTicks() {
+    // The server broadcasts every ~2s (COUNT_INTERVAL_MS). The watchdog
+    // must be long enough to ride out jitter and short enough that a
+    // silently-dropped connection doesn't leave stale counts labelled
+    // "live" — the failure mode iOS produces when Wi-Fi goes away without
+    // a TCP FIN.
+    XCTAssertGreaterThanOrEqual(WorkerEventsClient.readTimeout, .seconds(10))
+    XCTAssertLessThanOrEqual(WorkerEventsClient.readTimeout, .seconds(30))
+  }
+
   func test_updateEquatabilityDistinguishesConnectionStates() {
     // The view switches on these; conflating them is what made the
     // disconnect banner unreachable.
