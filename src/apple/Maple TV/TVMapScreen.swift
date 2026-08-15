@@ -42,12 +42,13 @@
 // as macOS/iOS's `MapView.swift`: SwiftUI's `Map` has no way to host a real
 // `MKOverlay`/`MKOverlayRenderer` on tvOS either (verified against the tvOS
 // 26.4 SDK — see that file's header), and `MapProxy` is the supported
-// alternative. There are two camera-change listeners as a result, and the
-// split matters: `.continuous` keeps `currentRegion` (and so the heatmap's
-// re-projection) aligned with the tiles DURING a pan, while `.onEnd` keeps the
-// expensive cluster refetch to once per gesture. Both only ever READ the
-// camera — neither writes it — so #2858's invariant that MapKit alone owns the
-// tvOS camera still holds.
+// alternative. The heatmap needs the camera CONTINUOUSLY (it re-projects every
+// frame to stay glued to the tiles), but that per-frame state deliberately
+// lives inside `TVMapHeatmapOverlay`, not here — on this screen it would
+// re-evaluate the whole body at ~60 FPS, re-running `orderedItems`' sort and
+// rebuilding the `Map` and its annotations. This screen keeps only the `.onEnd`
+// listener that drives refetching. Both listeners merely READ the camera, so
+// #2858's invariant that MapKit alone owns the tvOS camera still holds.
 //
 // Scoped to `libraryID` (unlike macOS/iOS's account-wide Map, which
 // replaces the whole library selection): every other TV content screen
@@ -66,13 +67,6 @@ struct TVMapScreen: View {
 
   @State private var viewModel: MapViewModel
   @State private var searchPresentation: TVMapSearchPresentation?
-  /// The camera MapKit last settled on, as reported by
-  /// `.onMapCameraChange(frequency: .continuous)` below — the only writer,
-  /// and continuous so the heatmap stays geographically aligned mid-pan. Drives
-  /// `currentZoomLevel` for the heatmap's crossfade; read-only from the
-  /// heatmap's point of view, matching #2834's "reads cells and the current
-  /// camera; never moves the camera" contract.
-  @State private var currentRegion: MKCoordinateRegion?
   @Namespace private var focusNamespace
 
   init(session: TVCloudSession, libraryID: String) {
@@ -100,17 +94,6 @@ struct TVMapScreen: View {
     MKCoordinateRegion(
       center: CLLocationCoordinate2D(latitude: 20, longitude: 0),
       span: MKCoordinateSpan(latitudeDelta: 140, longitudeDelta: 360)))
-
-  /// Same zoom convention `MapViewModel.fetch` uses to build the
-  /// `/api/map/clusters` `zoom` param — single source of truth so the
-  /// heatmap's crossfade lines up with the data the map is actually
-  /// showing. `0` (fully opaque, matching a whole-world view) before the
-  /// first camera report lands — harmless, since `viewModel.heatmapPoints`
-  /// is empty then too.
-  private var currentZoomLevel: Int {
-    guard let currentRegion else { return 0 }
-    return MapViewport.zoomLevel(for: MapViewportRegion(currentRegion))
-  }
 
   var body: some View {
     // Resolved ONCE per body evaluation. `orderedItems` maps every cell and
@@ -148,11 +131,7 @@ struct TVMapScreen: View {
         .mapStyle(.standard(emphasis: .muted, pointsOfInterest: .excludingAll))
         .accessibilityIdentifier("tv-map-view")
 
-        TVMapHeatmapLayerView(
-          points: viewModel.heatmapPoints,
-          zoomLevel: currentZoomLevel,
-          region: currentRegion,
-          proxy: proxy)
+        TVMapHeatmapOverlay(points: viewModel.heatmapPoints, proxy: proxy)
 
         if viewModel.isEmpty {
           statePane(icon: "mappin.slash", title: "No photos with location here",
@@ -175,22 +154,12 @@ struct TVMapScreen: View {
       // Shared focus scope for the pins' `.prefersDefaultFocus(_:in:)`, so it
       // wraps their common ancestor rather than just the `Map`.
       .focusScope(focusNamespace)
-      // `currentRegion` must track the camera CONTINUOUSLY, not just at rest.
-      // The heatmap re-projects its points through `proxy.convert` on each
-      // `Canvas` evaluation, and the Canvas only re-evaluates when something it
-      // reads changes — so if this were only written `.onEnd`, the heat blobs
-      // would stay pinned to the screen while the map tiles slid underneath,
-      // losing geographic alignment for the whole duration of a pan and
-      // snapping back at the end. macOS/iOS already drive their heatmap this
-      // way (`MapView.swift`); TV matches so the two don't diverge.
-      //
-      // Observing the camera continuously is NOT the same as driving it: this
-      // only reads, so #2858's invariant — MapKit alone owns the camera — holds.
-      .onMapCameraChange(frequency: .continuous) { context in
-        currentRegion = context.region
-      }
-      // Refetching stays on `.onEnd`: it is the expensive half, and settling
-      // once per gesture is the point. `MapViewModel` debounces and
+      // ONLY `.onEnd` here. The heatmap's continuous camera tracking lives
+      // inside `TVMapHeatmapOverlay` so the per-frame invalidation it needs is
+      // confined to that subtree — holding it on this screen would re-run
+      // `orderedItems`' sort and rebuild the `Map` and its annotations at
+      // ~60 FPS during every pan. Refetching belongs on `.onEnd` regardless: it
+      // is the expensive half, and settling once per gesture is the point. `MapViewModel` debounces and
       // generation-guards on top, so an in-flight response from an older camera
       // can't overwrite a newer one.
       .onMapCameraChange(frequency: .onEnd) { context in
