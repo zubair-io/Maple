@@ -1,19 +1,78 @@
 // SearchFilterPanel.swift
 //
-// The full filter surface for cloud search — popover content presented
-// from CloudSearchView's "filters" button. Mirrors the web search filter
-// sidebar: rating, flag, color, camera/lens, scene/activity, screenshot,
-// subjects, extensions, and ISO / aperture / focal / date ranges.
+// The unified search filter surface (#2866, epic #2862): Date range,
+// People, and Places — the same three-filter model as the web search
+// page. Replaces the old EXIF filter popover (camera/lens/ISO/aperture/
+// focal/scene/subjects/screenshot), which is no longer part of search.
 //
-// Discrete controls (stars, chips, menus) re-run the search immediately on
-// change. Free-text numeric / date fields apply on commit (Return) and on
-// panel dismiss, so a typed-but-not-submitted value still lands.
+// Hosted two ways: macOS/iPad docks it as a right-hand panel beside the
+// results (CloudSearchView); iPhone presents it as a sheet (SearchView).
+// Every control re-runs the search immediately on change, so the footer's
+// "Show N results" count (facets.total) is always live.
 
 import SwiftUI
 import MapleCore
 
+/// Single-select date presets. `range` computes the from/to strings the
+/// server expects (`YYYY-MM-DD`, widened server-side).
+enum SearchDatePreset: String, CaseIterable, Identifiable {
+  case today, last7, last30, thisYear
+
+  var id: String { rawValue }
+
+  var label: String {
+    switch self {
+    case .today: return "Today"
+    case .last7: return "Last 7 days"
+    case .last30: return "Last 30 days"
+    case .thisYear: return "This year"
+    }
+  }
+
+  func range(now: Date = Date(), calendar: Calendar = .current) -> (from: String, to: String) {
+    let today = SearchDateFormat.string(from: now)
+    switch self {
+    case .today:
+      return (today, today)
+    case .last7:
+      let start = calendar.date(byAdding: .day, value: -6, to: now) ?? now
+      return (SearchDateFormat.string(from: start), today)
+    case .last30:
+      let start = calendar.date(byAdding: .day, value: -29, to: now) ?? now
+      return (SearchDateFormat.string(from: start), today)
+    case .thisYear:
+      let year = calendar.component(.year, from: now)
+      return (String(format: "%04d-01-01", year), today)
+    }
+  }
+}
+
+/// `YYYY-MM-DD` ↔ `Date` conversion for the date filter fields — the
+/// exact wire shape `SearchParams.from` / `.to` carry.
+enum SearchDateFormat {
+  private static let formatter: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "yyyy-MM-dd"
+    f.locale = Locale(identifier: "en_US_POSIX")
+    return f
+  }()
+
+  static func string(from date: Date) -> String { formatter.string(from: date) }
+  static func date(from string: String) -> Date? { formatter.date(from: string) }
+
+  /// Human-readable chip label for a stored `YYYY-MM-DD`, falling back to
+  /// the raw string when unparseable.
+  static func display(_ string: String) -> String {
+    guard let date = date(from: string) else { return string }
+    return date.formatted(date: .abbreviated, time: .omitted)
+  }
+}
+
 struct SearchFilterPanel: View {
   @Bindable var vm: SearchViewModel
+  /// Dismiss the hosting surface (sheet / docked panel) — wired to the
+  /// footer's "Show N results".
+  var onClose: () -> Void = {}
 
   var body: some View {
     VStack(spacing: 0) {
@@ -21,42 +80,28 @@ struct SearchFilterPanel: View {
       Divider().overlay(MapleTokens.border)
       ScrollView {
         VStack(alignment: .leading, spacing: MapleTokens.Spacing.sectionGap) {
-          // Grouped to stay within the @ViewBuilder 10-subview limit.
-          Group {
-            ratingSection
-            flagSection
-            colorSection
-            cameraSection
-            lensSection
-            sceneSection
-            activitySection
-          }
-          Group {
-            screenshotSection
-            hiddenSection
-            subjectsSection
-            extensionsSection
-            rangeSection(title: "ISO",
-                         min: intBinding(\.isoMin), max: intBinding(\.isoMax))
-            rangeSection(title: "Aperture (f)",
-                         min: doubleBinding(\.apertureMin), max: doubleBinding(\.apertureMax))
-            rangeSection(title: "Focal length (mm)",
-                         min: doubleBinding(\.focalMin), max: doubleBinding(\.focalMax))
-            dateSection
-          }
+          dateSection
+          facetRowsSection(title: "People",
+                           rows: rowModels(facets: vm.peopleFacets, selected: vm.params.people),
+                           icon: .personInitial,
+                           selected: vm.params.people,
+                           toggle: togglePerson)
+          facetRowsSection(title: "Places",
+                           rows: rowModels(facets: vm.placeFacets, selected: vm.params.place),
+                           icon: .location,
+                           selected: vm.params.place,
+                           toggle: togglePlace)
         }
         .padding(MapleTokens.Spacing.panelInset)
         .frame(maxWidth: .infinity, alignment: .leading)
       }
+      Divider().overlay(MapleTokens.border)
+      footer
     }
     .background(MapleTokens.surface)
-    // Apply any typed-but-not-committed text fields when the panel closes —
-    // but only if something actually changed, so closing an untouched panel
-    // doesn't fire a redundant search + facets round-trip.
-    .onDisappear { Task { await vm.submitIfChanged() } }
   }
 
-  // MARK: - Header
+  // MARK: - Header / footer
 
   private var header: some View {
     HStack {
@@ -64,277 +109,250 @@ struct SearchFilterPanel: View {
         .font(MapleTokens.Typography.sheetTitle)
         .foregroundStyle(MapleTokens.textMain)
       Spacer()
-      if vm.hasActiveFilters {
-        Button("Clear all") { vm.clearFilters() }
-          .font(MapleTokens.Typography.body)
-          .buttonStyle(.plain)
-          .foregroundStyle(MapleTokens.primary)
-          .accessibilityIdentifier("search-clear-filters")
-      }
     }
     .padding(.horizontal, MapleTokens.Spacing.panelInset)
     .padding(.vertical, 10)
   }
 
-  // MARK: - Rating
-
-  private var ratingSection: some View {
-    section("Rating") {
-      HStack(spacing: 4) {
-        ForEach(1...5, id: \.self) { star in
-          Button {
-            // Tapping the active threshold clears it; otherwise set it.
-            vm.params.rating = (vm.params.rating == star) ? nil : star
-            Task { await vm.submit() }
-          } label: {
-            Image(systemName: (vm.params.rating ?? 0) >= star ? "star.fill" : "star")
-              .foregroundStyle((vm.params.rating ?? 0) >= star
-                               ? MapleTokens.star : MapleTokens.textMuted)
-          }
-          .buttonStyle(.plain)
-          .accessibilityLabel("\(star) star\(star == 1 ? "" : "s") and up")
-        }
-        if vm.params.rating != nil {
-          Text("& up")
-            .font(MapleTokens.Typography.body)
-            .foregroundStyle(MapleTokens.textMuted)
-        }
-      }
-    }
-  }
-
-  // MARK: - Flag
-
-  private var flagSection: some View {
-    section("Flag") {
-      HStack(spacing: 6) {
-        chip("Any", selected: vm.params.flag == nil) {
-          vm.params.flag = nil; Task { await vm.submit() }
-        }
-        ForEach(SearchFlag.allCases, id: \.self) { flag in
-          chip(flag.label, selected: vm.params.flag == flag) {
-            vm.params.flag = flag; Task { await vm.submit() }
-          }
-        }
-      }
-    }
-  }
-
-  // MARK: - Color
-
-  private var colorSection: some View {
-    section("Color label") {
-      HStack(spacing: 8) {
-        // "Any" — hollow circle.
-        Button {
-          vm.params.color = nil; Task { await vm.submit() }
-        } label: {
-          Circle()
-            .strokeBorder(MapleTokens.textMuted, lineWidth: 1.5)
-            .frame(width: 22, height: 22)
-            .overlay {
-              if vm.params.color == nil {
-                Image(systemName: "checkmark").font(.system(size: 10, weight: .bold))
-                  .foregroundStyle(MapleTokens.textMain)
-              }
-            }
-        }
+  private var footer: some View {
+    HStack {
+      Button("Clear all") { vm.clearFilters() }
         .buttonStyle(.plain)
-        .accessibilityLabel("Any color")
-
-        ForEach(SearchColor.allCases, id: \.self) { color in
-          Button {
-            vm.params.color = (vm.params.color == color) ? nil : color
-            Task { await vm.submit() }
-          } label: {
-            Circle()
-              .fill(Color(hex: color.swatchHex))
-              .frame(width: 22, height: 22)
-              .overlay {
-                if vm.params.color == color {
-                  Image(systemName: "checkmark").font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white)
-                }
-              }
-          }
-          .buttonStyle(.plain)
-          .accessibilityLabel(color.label)
-        }
+        .font(MapleTokens.Typography.body)
+        .foregroundStyle(MapleTokens.textMuted)
+        .disabled(!vm.hasUnifiedFilters)
+        .accessibilityIdentifier("search-clear-filters")
+      Spacer()
+      Button(action: onClose) {
+        Text(showResultsLabel)
+          .font(MapleTokens.Typography.chipLabel)
+          .foregroundStyle(.white)
+          .padding(.horizontal, 14)
+          .padding(.vertical, 8)
+          .background(MapleTokens.primary, in: Capsule())
       }
+      .buttonStyle(.plain)
+      .accessibilityIdentifier("search-show-results")
     }
+    .padding(.horizontal, MapleTokens.Spacing.panelInset)
+    .padding(.vertical, 10)
   }
 
-  // MARK: - Camera / Lens / Scene / Activity menus
-
-  private var cameraSection: some View {
-    section("Camera") {
-      facetMenu(
-        current: vm.params.camera,
-        options: (vm.facets?.cameras ?? []).compactMap { cam in
-          let value = cam.model ?? cam.make
-          guard let value, !value.isEmpty else { return nil }
-          let label = [cam.make, cam.model].compactMap { $0 }.joined(separator: " ")
-          return MenuOption(label: "\(label.isEmpty ? value : label) (\(cam.count))",
-                            value: value)
-        },
-        onPick: { vm.params.camera = $0; Task { await vm.submit() } })
-    }
-  }
-
-  private var lensSection: some View {
-    section("Lens") {
-      facetMenu(
-        current: vm.params.lens,
-        options: valueOptions(vm.facets?.lenses),
-        onPick: { vm.params.lens = $0; Task { await vm.submit() } })
-    }
-  }
-
-  private var sceneSection: some View {
-    section("Scene type") {
-      Menu {
-        Button { vm.params.sceneType = nil; Task { await vm.submit() } } label: {
-          menuRow("Any", selected: vm.params.sceneType == nil)
-        }
-        ForEach(SearchSceneType.allCases, id: \.self) { scene in
-          let count = facetCount(vm.facets?.scene_types, scene.rawValue)
-          Button { vm.params.sceneType = scene; Task { await vm.submit() } } label: {
-            menuRow("\(scene.label)\(count.map { " (\($0))" } ?? "")",
-                    selected: vm.params.sceneType == scene)
-          }
-        }
-      } label: {
-        menuLabel(vm.params.sceneType?.label ?? "Any")
-      }
-    }
-  }
-
-  private var activitySection: some View {
-    section("Activity") {
-      facetMenu(
-        current: vm.params.activity,
-        options: valueOptions(vm.facets?.activities),
-        onPick: { vm.params.activity = $0; Task { await vm.submit() } })
-    }
-  }
-
-  // MARK: - Screenshot
-
-  private var screenshotSection: some View {
-    section("Type") {
-      HStack(spacing: 6) {
-        chip("Any", selected: vm.params.isScreenshot == nil) {
-          vm.params.isScreenshot = nil; Task { await vm.submit() }
-        }
-        chip("Photos", selected: vm.params.isScreenshot == false) {
-          vm.params.isScreenshot = false; Task { await vm.submit() }
-        }
-        chip("Screenshots", selected: vm.params.isScreenshot == true) {
-          vm.params.isScreenshot = true; Task { await vm.submit() }
-        }
-      }
-    }
-  }
-
-  // MARK: - Hidden
-
-  private var hiddenSection: some View {
-    section("Hidden") {
-      HStack(spacing: 6) {
-        ForEach(SearchHidden.allCases, id: \.self) { opt in
-          chip(opt.label, selected: vm.params.hidden == opt) {
-            vm.params.hidden = opt; Task { await vm.submit() }
-          }
-        }
-      }
-    }
-  }
-
-  // MARK: - Subjects / Extensions (multi-select chips)
-
-  private var subjectsSection: some View {
-    let options = (vm.facets?.subjects ?? []).compactMap { $0.value }
-    return Group {
-      if options.isEmpty {
-        EmptyView()
-      } else {
-        section("Subjects") {
-          chipGrid(options, isOn: { vm.params.subjects.contains($0) }) { value in
-            toggle(&vm.params.subjects, value); Task { await vm.submit() }
-          }
-        }
-      }
-    }
-  }
-
-  private var extensionsSection: some View {
-    let options = (vm.facets?.extensions ?? []).compactMap { $0.value }
-    return Group {
-      if options.isEmpty {
-        EmptyView()
-      } else {
-        section("File type") {
-          chipGrid(options.map { $0.uppercased() },
-                   isOn: { vm.params.ext.contains($0.lowercased()) }) { value in
-            toggle(&vm.params.ext, value.lowercased()); Task { await vm.submit() }
-          }
-        }
-      }
-    }
-  }
-
-  // MARK: - Numeric ranges
-
-  private func rangeSection(title: String,
-                            min: Binding<String>,
-                            max: Binding<String>) -> some View {
-    section(title) {
-      HStack(spacing: 8) {
-        rangeField("Min", text: min)
-        Text("–").foregroundStyle(MapleTokens.textMuted)
-        rangeField("Max", text: max)
-      }
-    }
-  }
-
-  private func rangeField(_ placeholder: String, text: Binding<String>) -> some View {
-    TextField(placeholder, text: text)
-      .textFieldStyle(.plain)
-      .foregroundStyle(MapleTokens.textMain)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 6)
-      .background(MapleTokens.inputBg, in: RoundedRectangle(cornerRadius: 4))
-      .frame(maxWidth: .infinity)
-      .onSubmit { Task { await vm.submit() } }
-      #if os(iOS)
-      .keyboardType(.numbersAndPunctuation)
-      #endif
+  private var showResultsLabel: String {
+    vm.facetTotal == 1 ? "Show 1 result" : "Show \(vm.facetTotal) results"
   }
 
   // MARK: - Date range
 
   private var dateSection: some View {
-    section("Captured date") {
-      HStack(spacing: 8) {
-        dateField("From", text: stringBinding(\.from))
-        Text("–").foregroundStyle(MapleTokens.textMuted)
-        dateField("To", text: stringBinding(\.to))
+    section("Date range") {
+      VStack(alignment: .leading, spacing: 10) {
+        presetChips
+        dateFieldRow(label: "From", keyPath: \.from)
+        dateFieldRow(label: "To", keyPath: \.to)
       }
     }
   }
 
-  private func dateField(_ placeholder: String, text: Binding<String>) -> some View {
-    TextField("\(placeholder) (YYYY-MM-DD)", text: text)
-      .textFieldStyle(.plain)
-      .foregroundStyle(MapleTokens.textMain)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 6)
-      .background(MapleTokens.inputBg, in: RoundedRectangle(cornerRadius: 4))
-      .frame(maxWidth: .infinity)
-      .onSubmit { Task { await vm.submit() } }
+  private var presetChips: some View {
+    let active = activePreset
+    return LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 6)],
+                     alignment: .leading, spacing: 6) {
+      ForEach(SearchDatePreset.allCases) { preset in
+        chip(preset.label, selected: preset == active) {
+          // Single-select toggle: tapping the active preset clears the range.
+          let range = preset.range()
+          let clearing = preset == active
+          vm.params.from = clearing ? nil : range.from
+          vm.params.to = clearing ? nil : range.to
+          Task { await vm.submit() }
+        }
+        .accessibilityIdentifier("search-date-preset-\(preset.rawValue)")
+      }
+    }
   }
 
-  // MARK: - Reusable building blocks
+  /// The preset whose computed range matches the current from/to exactly,
+  /// if any — a custom-picked range matches none and lights no chip.
+  private var activePreset: SearchDatePreset? {
+    guard let from = vm.params.from, let to = vm.params.to else { return nil }
+    return SearchDatePreset.allCases.first { preset in
+      let range = preset.range()
+      return range.from == from && range.to == to
+    }
+  }
+
+  /// A custom date bound: unset shows an "Add" affordance (sets today,
+  /// revealing the picker); set shows a compact `DatePicker` + clear.
+  @ViewBuilder
+  private func dateFieldRow(label: String,
+                            keyPath: WritableKeyPath<SearchParams, String?>) -> some View {
+    HStack(spacing: 8) {
+      Text(label)
+        .font(MapleTokens.Typography.rowLabel)
+        .foregroundStyle(MapleTokens.textMuted)
+        .frame(width: 44, alignment: .leading)
+      if vm.params[keyPath: keyPath] != nil {
+        DatePicker("", selection: dateBinding(keyPath), displayedComponents: .date)
+          .labelsHidden()
+          .datePickerStyle(.compact)
+        Button {
+          vm.params[keyPath: keyPath] = nil
+          Task { await vm.submit() }
+        } label: {
+          Image(systemName: "xmark.circle.fill")
+            .foregroundStyle(MapleTokens.textMuted)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Clear \(label.lowercased()) date")
+      } else {
+        Button {
+          vm.params[keyPath: keyPath] = SearchDateFormat.string(from: Date())
+          Task { await vm.submit() }
+        } label: {
+          Label("Add date", systemImage: "calendar.badge.plus")
+            .font(MapleTokens.Typography.body)
+            .foregroundStyle(MapleTokens.primary)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add \(label.lowercased()) date")
+      }
+      Spacer()
+    }
+  }
+
+  private func dateBinding(_ keyPath: WritableKeyPath<SearchParams, String?>) -> Binding<Date> {
+    Binding(
+      get: {
+        vm.params[keyPath: keyPath].flatMap(SearchDateFormat.date(from:)) ?? Date()
+      },
+      set: { newValue in
+        vm.params[keyPath: keyPath] = SearchDateFormat.string(from: newValue)
+        Task { await vm.submit() }
+      })
+  }
+
+  // MARK: - People / Places rows
+
+  private enum RowIcon {
+    case personInitial
+    case location
+  }
+
+  private struct FacetRow: Identifiable {
+    let value: String
+    let count: Int?
+    var id: String { value }
+  }
+
+  /// Facet rows, unioned with any selected values the (filter-aware)
+  /// facet list no longer carries — a selected filter must always stay
+  /// visible and removable.
+  private func rowModels(facets: [ValueFacet], selected: [String]) -> [FacetRow] {
+    let fromFacets = facets.compactMap { facet -> FacetRow? in
+      guard let value = facet.value, !value.isEmpty else { return nil }
+      return FacetRow(value: value, count: facet.count)
+    }
+    let known = Set(fromFacets.map(\.value))
+    let orphans = selected.filter { !known.contains($0) }
+      .map { FacetRow(value: $0, count: nil) }
+    return orphans + fromFacets
+  }
+
+  @ViewBuilder
+  private func facetRowsSection(title: String,
+                                rows: [FacetRow],
+                                icon: RowIcon,
+                                selected: [String],
+                                toggle: @escaping (String) -> Void) -> some View {
+    if rows.isEmpty {
+      EmptyView()
+    } else {
+      section(title) {
+        VStack(spacing: 2) {
+          ForEach(rows) { row in
+            facetRow(row, icon: icon, isSelected: selected.contains(row.value)) {
+              toggle(row.value)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private func facetRow(_ row: FacetRow,
+                        icon: RowIcon,
+                        isSelected: Bool,
+                        action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      HStack(spacing: 10) {
+        rowIcon(icon, value: row.value)
+        Text(row.value)
+          .font(MapleTokens.Typography.rowLabel)
+          .foregroundStyle(MapleTokens.textMain)
+          .lineLimit(1)
+        Spacer()
+        if let count = row.count {
+          Text("\(count)")
+            .font(MapleTokens.Typography.body)
+            .foregroundStyle(MapleTokens.textMuted)
+        }
+        if isSelected {
+          Image(systemName: "checkmark")
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(MapleTokens.primary)
+        }
+      }
+      .padding(.vertical, 5)
+      .padding(.horizontal, 6)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .background(isSelected ? MapleTokens.surfaceAlt : .clear,
+                in: RoundedRectangle(cornerRadius: 6))
+    .accessibilityLabel(row.value)
+    .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+  }
+
+  @ViewBuilder
+  private func rowIcon(_ icon: RowIcon, value: String) -> some View {
+    switch icon {
+    case .personInitial:
+      Circle()
+        .fill(MapleTokens.surfaceAlt)
+        .frame(width: 26, height: 26)
+        .overlay {
+          Text(value.prefix(1).uppercased())
+            .font(MapleTokens.Typography.chipLabel)
+            .foregroundStyle(MapleTokens.textMain)
+        }
+    case .location:
+      Circle()
+        .fill(MapleTokens.surfaceAlt)
+        .frame(width: 26, height: 26)
+        .overlay {
+          Image(systemName: "mappin.and.ellipse")
+            .font(.system(size: 12))
+            .foregroundStyle(MapleTokens.textMuted)
+        }
+    }
+  }
+
+  private func togglePerson(_ value: String) {
+    vm.params.people = toggled(vm.params.people, value)
+    Task { await vm.submit() }
+  }
+
+  private func togglePlace(_ value: String) {
+    vm.params.place = toggled(vm.params.place, value)
+    Task { await vm.submit() }
+  }
+
+  private func toggled(_ array: [String], _ value: String) -> [String] {
+    array.contains(value) ? array.filter { $0 != value } : array + [value]
+  }
+
+  // MARK: - Building blocks
 
   @ViewBuilder
   private func section<Content: View>(_ title: String,
@@ -359,115 +377,11 @@ struct SearchFilterPanel: View {
     }
     .buttonStyle(.plain)
   }
-
-  private func chipGrid(_ options: [String],
-                        isOn: @escaping (String) -> Bool,
-                        toggle: @escaping (String) -> Void) -> some View {
-    LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 6)],
-              alignment: .leading, spacing: 6) {
-      ForEach(options, id: \.self) { option in
-        chip(option, selected: isOn(option)) { toggle(option) }
-      }
-    }
-  }
-
-  // MARK: - Facet menu helpers
-
-  private struct MenuOption: Identifiable {
-    let label: String
-    let value: String
-    var id: String { value }
-  }
-
-  private func valueOptions(_ facets: [ValueFacet]?) -> [MenuOption] {
-    (facets ?? []).compactMap { facet in
-      guard let value = facet.value, !value.isEmpty else { return nil }
-      return MenuOption(label: "\(value) (\(facet.count))", value: value)
-    }
-  }
-
-  private func facetCount(_ facets: [ValueFacet]?, _ value: String) -> Int? {
-    facets?.first { $0.value == value }?.count
-  }
-
-  @ViewBuilder
-  private func facetMenu(current: String?,
-                         options: [MenuOption],
-                         onPick: @escaping (String?) -> Void) -> some View {
-    Menu {
-      Button { onPick(nil) } label: {
-        menuRow("Any", selected: current == nil)
-      }
-      ForEach(options) { option in
-        Button { onPick(option.value) } label: {
-          menuRow(option.label, selected: current == option.value)
-        }
-      }
-    } label: {
-      menuLabel(current ?? "Any")
-    }
-    .disabled(options.isEmpty)
-  }
-
-  @ViewBuilder
-  private func menuRow(_ label: String, selected: Bool) -> some View {
-    if selected { Label(label, systemImage: "checkmark") } else { Text(label) }
-  }
-
-  private func menuLabel(_ text: String) -> some View {
-    HStack {
-      Text(text)
-        .font(MapleTokens.Typography.rowLabel)
-        .foregroundStyle(MapleTokens.textMain)
-        .lineLimit(1)
-      Spacer()
-      Image(systemName: "chevron.up.chevron.down")
-        .font(.system(size: 11))
-        .foregroundStyle(MapleTokens.textMuted)
-    }
-    .padding(.horizontal, 8)
-    .padding(.vertical, 6)
-    .background(MapleTokens.inputBg, in: RoundedRectangle(cornerRadius: 4))
-  }
-
-  // MARK: - Binding helpers
-
-  private func toggle(_ array: inout [String], _ value: String) {
-    if let idx = array.firstIndex(of: value) { array.remove(at: idx) }
-    else { array.append(value) }
-  }
-
-  private func intBinding(_ keyPath: WritableKeyPath<SearchParams, Int?>) -> Binding<String> {
-    Binding(
-      get: { vm.params[keyPath: keyPath].map(String.init) ?? "" },
-      set: { newValue in
-        let trimmed = newValue.trimmingCharacters(in: .whitespaces)
-        vm.params[keyPath: keyPath] = trimmed.isEmpty ? nil : Int(trimmed)
-      })
-  }
-
-  private func doubleBinding(_ keyPath: WritableKeyPath<SearchParams, Double?>) -> Binding<String> {
-    Binding(
-      get: { vm.params[keyPath: keyPath].map { String($0) } ?? "" },
-      set: { newValue in
-        let trimmed = newValue.trimmingCharacters(in: .whitespaces)
-        vm.params[keyPath: keyPath] = trimmed.isEmpty ? nil : Double(trimmed)
-      })
-  }
-
-  private func stringBinding(_ keyPath: WritableKeyPath<SearchParams, String?>) -> Binding<String> {
-    Binding(
-      get: { vm.params[keyPath: keyPath] ?? "" },
-      set: { newValue in
-        let trimmed = newValue.trimmingCharacters(in: .whitespaces)
-        vm.params[keyPath: keyPath] = trimmed.isEmpty ? nil : trimmed
-      })
-  }
 }
 
 // MARK: - Preview
 
 #Preview("Filters") {
   SearchFilterPanel(vm: SearchViewModel.preview(.loaded))
-    .frame(width: 340, height: 540)
+    .frame(width: 320, height: 560)
 }
