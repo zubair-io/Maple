@@ -16,8 +16,3 @@
 
 /** Matches exactly the clustering job's generated names. */
 export const AUTO_PERSON_NAME = /^Person \d+$/;
-
-/** True when `name` is a clustering placeholder rather than a real identity. */
-export function isAutoPersonName(name: string): boolean {
-  return AUTO_PERSON_NAME.test(name);
-}
