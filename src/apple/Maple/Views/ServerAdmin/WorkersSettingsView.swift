@@ -20,6 +20,15 @@ struct WorkersSettingsView: View {
     @State private var loadError: String?
     @State private var actionError: String?
     @State private var busyStage: String?
+    /// Stage whose dead-job drawer is open (#2769). `String` isn't
+    /// `Identifiable`, so it travels wrapped for `.sheet(item:)`.
+    @State private var deadDrawerStage: DeadDrawerTarget?
+    @State private var showDamagedDrawer = false
+
+    struct DeadDrawerTarget: Identifiable {
+        let stage: String
+        var id: String { stage }
+    }
 
     private var stages: [StageStatus] { feed.payload?.stages ?? [] }
 
@@ -40,7 +49,10 @@ struct WorkersSettingsView: View {
                                     // but inert — `togglePause` guards on
                                     // `busyStage`, so those taps silently
                                     // did nothing.
-                                    isBusy: busyStage != nil)
+                                    isBusy: busyStage != nil,
+                                    onShowDeadJobs: stage.dead > 0
+                                        ? { deadDrawerStage = DeadDrawerTarget(stage: stage.name) }
+                                        : nil)
                             }
                         }
                         .listRowBackground(MapleTokens.surface)
@@ -69,6 +81,20 @@ struct WorkersSettingsView: View {
         .mapleSettingsBackground()
         .task { await loadFallback() }
         .task { await consumeEvents() }
+        .sheet(item: $deadDrawerStage) { target in
+            DeadJobsDrawer(stage: target.stage, client: client) {
+                deadDrawerStage = nil
+                // A retry re-arms jobs, so the table's dead count is stale
+                // the moment the drawer closes.
+                Task { await refreshAfterTriage() }
+            }
+        }
+        .sheet(isPresented: $showDamagedDrawer) {
+            DamagedAssetsDrawer(client: client) {
+                showDamagedDrawer = false
+                Task { await refreshAfterTriage() }
+            }
+        }
     }
 
     // MARK: - Sections
@@ -82,7 +108,15 @@ struct WorkersSettingsView: View {
                 chip("Paused", "\(summary.paused)")
                 chip("Dead", "\(summary.dead)", tint: summary.dead > 0 ? .red : nil)
                 chip("Pending", "\(summary.pending)")
-                chip("Damaged", "\(payload.damaged)", tint: payload.damaged > 0 ? .orange : nil)
+                Button {
+                    showDamagedDrawer = true
+                } label: {
+                    chip(
+                        "Damaged", "\(payload.damaged)",
+                        tint: payload.damaged > 0 ? .orange : nil)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("workers.damagedChip")
             }
             .accessibilityIdentifier("workers.summary")
 
@@ -174,6 +208,12 @@ struct WorkersSettingsView: View {
     private func loadFallbackAfterAction() async {
         guard let snapshot = try? await client.status() else { return }
         feed.applyAuthoritative(snapshot)
+    }
+
+    /// Same idea after a drawer closes: retrying dead jobs or clearing
+    /// damaged tags changes counts the table is showing.
+    private func refreshAfterTriage() async {
+        await loadFallbackAfterAction()
     }
 }
 
