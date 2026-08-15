@@ -149,7 +149,8 @@ struct SearchView: View {
             .overlay(Capsule().stroke(MapleTokens.border, lineWidth: 0.5))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Filters")
+        .accessibilityLabel(vm.unifiedFilterCount > 0
+                            ? "Filters, \(vm.unifiedFilterCount) active" : "Filters")
         .accessibilityIdentifier("search-filters")
     }
 
