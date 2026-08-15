@@ -9,6 +9,7 @@
 
 import XCTest
 
+@testable import MapleCloudKit
 @testable import MapleCore
 
 // MARK: - Fixtures
@@ -263,6 +264,24 @@ final class WorkerEventsClientTests: XCTestCase {
     _ = backoff.nextDelay()
     backoff.reset()
     XCTAssertEqual(backoff.nextDelay(), 1)
+  }
+
+  func test_teardownOnlyAppliesToTheStreamThatIsStillCurrent() {
+    // Remount race: the old stream's onTermination hops onto the actor,
+    // by which time a new frames() may have installed a replacement loop.
+    // Tearing down there would kill the live feed with nothing to retry.
+    let oldLoop = Task<Void, Never> {}
+    let newLoop = Task<Void, Never> {}
+
+    XCTAssertTrue(
+      WorkerEventsClient.shouldTearDown(current: oldLoop, terminating: oldLoop),
+      "the still-current stream should clean itself up")
+    XCTAssertFalse(
+      WorkerEventsClient.shouldTearDown(current: newLoop, terminating: oldLoop),
+      "a superseded stream must not tear down its replacement")
+    XCTAssertFalse(
+      WorkerEventsClient.shouldTearDown(current: nil, terminating: oldLoop),
+      "already stopped — nothing to tear down")
   }
 
   func test_readTimeout_leavesRoomForSeveralMissedBroadcastTicks() {

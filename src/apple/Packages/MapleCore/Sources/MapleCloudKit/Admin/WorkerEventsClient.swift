@@ -130,16 +130,42 @@ public actor WorkerEventsClient {
   /// Stream of status frames, reconnecting until the consumer stops
   /// iterating or `stop()` is called.
   public func frames() -> AsyncStream<WorkerEventsUpdate> {
+    // A previous stream may still be running if the caller re-subscribed
+    // without letting the old one terminate. One socket per client.
+    runLoop?.cancel()
+
     let (stream, continuation) = AsyncStream<WorkerEventsUpdate>.makeStream()
     let loop = Task { await self.run(yielding: continuation) }
     runLoop = loop
     continuation.onTermination = { [weak self] _ in
       // Not actor-isolated, so the hop is real here — unlike the
       // assignment above, which runs on the actor already.
+      //
+      // That hop is exactly the hazard: by the time this lands on the
+      // actor, a remount may already have installed a NEW loop and socket.
+      // Tearing down unconditionally would cancel the replacement and
+      // leave the remounted view dead with nothing to trigger a retry —
+      // and remounting is ordinary here, since switching ServerAdmin
+      // sections and back recreates the view. Hence stop-if-still-current.
       loop.cancel()
-      Task { await self?.stop() }
+      Task { await self?.stopIfCurrent(loop) }
     }
     return stream
+  }
+
+  /// True when `terminating` is still the live loop, i.e. no newer
+  /// `frames()` has superseded it. Pure so the race is testable without
+  /// driving actor internals.
+  static func shouldTearDown(
+    current: Task<Void, Never>?, terminating: Task<Void, Never>
+  ) -> Bool {
+    current == terminating
+  }
+
+  /// Tear down only if the terminating stream is still the current one.
+  private func stopIfCurrent(_ loop: Task<Void, Never>) {
+    guard Self.shouldTearDown(current: runLoop, terminating: loop) else { return }
+    stop()
   }
 
   public func stop() {
