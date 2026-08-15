@@ -8,12 +8,10 @@
  */
 
 import { Elysia } from 'elysia';
+import { ObjectId } from 'mongodb';
 import { assetsCollection } from '../../db/client.ts';
-import {
-  hiddenPersonIds,
-  namesForPersonIds,
-  personIdsForNames,
-} from '../../people/people.repo.ts';
+import { hiddenPersonIds } from '../../people/people.repo.ts';
+import { namesForPersonIds, personIdsForNames } from '../../people/people-search-filter.repo.ts';
 import {
   applyLiveFilter,
   buildFilter,
@@ -23,11 +21,23 @@ import {
 } from './query.ts';
 
 /** Display label for one `place.rollups` bucket — the exact wire value the
- * `place` filter param parses back (`placeLabelClause` in `query.ts`):
- * "locality, region" when both are set, the bare non-null half otherwise. */
+ * `place` filter param parses back (`placeLabelClause` in
+ * `filter-terms.ts`): "locality, region" when both are set, the bare
+ * non-blank half otherwise. `''` normalises to blank exactly like the
+ * clause's `BLANK_HALF`, so a label can never be the empty string and
+ * every emitted label round-trips. */
 function placeLabel(locality: string | null, region: string | null): string | null {
-  if (locality && region) return `${locality}, ${region}`;
-  return locality ?? region;
+  const loc = locality || null;
+  const reg = region || null;
+  if (loc !== null && reg !== null) return `${loc}, ${reg}`;
+  return loc ?? reg;
+}
+
+/** Canonical (lowercase) hex for a person-id aggregation key, so the map
+ * lookup against `namesForPersonIds`' `toHexString()` keys can't miss on
+ * case. Invalid ids pass through untouched — they simply find no name. */
+function canonicalHex(id: string): string {
+  return ObjectId.isValid(id) ? new ObjectId(id).toHexString() : id;
 }
 
 export const facetsRoute = new Elysia().get(
@@ -288,9 +298,14 @@ export const facetsRoute = new Elysia().get(
 
     // Join the person-id buckets to display names; ids whose person is
     // hidden, merged away, or gone drop out (count order is preserved).
-    const personNames = await namesForPersonIds(peopleAgg.map((r) => r._id as string));
+    const personNames = await namesForPersonIds(
+      peopleAgg.map((r) => canonicalHex(r._id as string)),
+    );
     const people = peopleAgg
-      .map((r) => ({ value: personNames.get(r._id as string), count: r.count as number }))
+      .map((r) => ({
+        value: personNames.get(canonicalHex(r._id as string)),
+        count: r.count as number,
+      }))
       .filter((r): r is { value: string; count: number } => typeof r.value === 'string');
 
     // Label the place tuples. Two tuples can produce the same label (a

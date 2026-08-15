@@ -14,7 +14,8 @@
 
 import { Elysia } from 'elysia';
 import { assetsCollection } from '../../db/client.ts';
-import { hiddenPersonIds, personIdsForNames } from '../../people/people.repo.ts';
+import { hiddenPersonIds } from '../../people/people.repo.ts';
+import { personIdsForNames } from '../../people/people-search-filter.repo.ts';
 import {
   applyLiveFilter,
   buildFilter,
