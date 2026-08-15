@@ -1,7 +1,19 @@
 // PhoneTabShell.swift — top-level iPhone shell for the responsive
-// program (S1a, #597). Hosts a `TabView` with three NavigationStack
-// tabs (Library / Search / Settings) so each tab preserves its own
+// program (S1a, #597). Hosts a `TabView` with NavigationStack tabs
+// (Library / Map / Search / Settings) so each tab preserves its own
 // push depth and the bottom tab bar stays put while drilling down.
+//
+// The Map tab (#2878) follows Search's shape, not Library's: it owns its
+// own `mapPath` navigation stack rather than threading `mapVM` into the
+// Library tab's `AppShellIPhoneShell` call site. `AppShell`'s `openMap()`
+// (shared with the Mac/iPad sidebar's MAP row) clears `browseVM` and
+// `librarySelection` as a side effect of replacing the ONE Mac/iPad detail
+// column — reusing that same call from a co-equal Library tab would wipe
+// whatever folder/Timeline the Library tab was showing every time the user
+// merely glanced at the Map tab. An independent call site sidesteps that:
+// the Map tab renders its own `AppShellCenterColumn` fed by `mapVM` (still
+// populated by the shared `openMap()`), while the Library tab's own call
+// site is untouched and keeps whatever it was already showing.
 //
 // AppShell.body dispatches between this shell and the Mac/iPad pane
 // shell via `MapleShellKind.current == .phoneTab`. Persistence: the
@@ -23,6 +35,7 @@
 
 import SwiftUI
 import MapleCore
+import UIKit
 
 struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: View {
     /// Cold-start tab restoration. Distinct from any Detail-panel tab
@@ -54,6 +67,15 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     /// PhotoKit fast path entirely.
     @State private var cloudPreviewSource: (any ImageSource)?
 
+    /// Map tab's own navigation stack (#2878) — independent of `libraryPath`,
+    /// same shape `PhoneSearchTab`'s own `path` uses: a pin/cluster tap opens
+    /// the map's filtered search results, and tapping a result pushes
+    /// `.preview` here rather than onto the Library tab's stack.
+    @State private var mapPath: [LibraryDestination] = []
+    /// `CloudSource` for the map-search result currently pushed on `mapPath`
+    /// — same role as `cloudPreviewSource` for the Library tab's pushes.
+    @State private var mapPreviewSource: (any ImageSource)?
+
     /// Live text for the Search tab's native `.searchable` field (the
     /// iOS 26 `Tab(role: .search)` search bar). Bound into `PhoneSearchTab`.
     @State private var searchQuery: String = ""
@@ -73,6 +95,13 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     let cloudTimelineThumbCache: CloudThumbCache?
     let allSourcesTimelineVM: AllSourcesTimelineViewModel?
     let allSourcesTimelineThumbCache: CloudThumbCache?
+    /// Map tab state (#2878) — forwarded straight to the Map tab's own
+    /// `AppShellCenterColumn` call site (`mapTabContent`). Populated by
+    /// AppShell's `openMap()`, same three values `AppShellMacLayout` gets
+    /// from the Mac/iPad sidebar's MAP row.
+    let mapVM: MapViewModel?
+    let mapThumbClient: CloudThumbClient?
+    let mapThumbCache: CloudThumbCache?
     let isSearchActive: Bool
     let searchVM: SearchViewModel?
     let searchThumbClient: CloudThumbClient?
@@ -104,6 +133,17 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     // Mac / iPad keep the `mode`-flip handlers (they have no NavigationStack)
     // — that wiring is unchanged in `AppShell.macShell`.
     let onSelectCloudAsset: (SearchAsset, URL) -> ResolvedCloudAsset?
+    /// Map pin/cluster tap (#2830) → AppShell activates search filtered by
+    /// the resolved target (a place name, or the has-GPS scope fallback).
+    /// Forwarded to the Map tab's `AppShellCenterColumn` call site (#2878) —
+    /// mirrors `AppShellMacLayout`'s identically-named property.
+    let onSelectMapPlace: (MapPlaceSearchTarget) -> Void
+    /// MAP tab selection (#2878) — resolves the account-wide session and
+    /// stands up `mapVM` / `mapThumbClient` / `mapThumbCache` on AppShell.
+    /// Mirrors the Mac/iPad sidebar's MAP row (`AppShellSidebar.onSelectMap`)
+    /// — the phone tab shell has no sidebar, so the Map tab itself is the
+    /// entry point.
+    let onSelectMap: () -> Void
     let onCloseSearch: () -> Void
     let onSelectLocalAsset: (ImageRef) -> AssetRef?
     let onGrantPhotosAccess: () -> Void
@@ -219,6 +259,43 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
               }
             }
 
+            Tab("Map", systemImage: "map", value: "map") {
+                NavigationStack(path: $mapPath) {
+                    mapTabContent
+                        .navigationTitle("Map")
+                        .navigationBarTitleDisplayMode(.inline)
+                        // Mirrors PhoneLibraryView / PhoneSearchTab's resolution
+                        // (Fast Preview §1): `.preview` → the fast static
+                        // surface, `.edit` → the editor. Both hide the tab bar +
+                        // system nav bar; each ships its own 44pt header with a
+                        // back button.
+                        .navigationDestination(for: LibraryDestination.self) { destination in
+                            Group {
+                                switch destination {
+                                case .preview(let ref):
+                                    PreviewDestination(
+                                        asset: ref,
+                                        // A map search result is a single-asset
+                                        // preview, same shape PhoneSearchTab uses
+                                        // for its own results — there's no
+                                        // sibling list to hand the filmstrip.
+                                        assets: [ref],
+                                        source: mapPreviewSource,
+                                        sessions: $sessions,
+                                        onClose: popMapPreviewWithoutAnimation,
+                                        onEdit: { mapPath.append(.edit($0)) },
+                                        onSelectionChanged: { _ in }
+                                    )
+                                case .edit(let ref):
+                                    EditorDestination(asset: ref, sessions: $sessions)
+                                }
+                            }
+                            .toolbar(.hidden, for: .tabBar)
+                            .toolbar(.hidden, for: .navigationBar)
+                        }
+                }
+            }
+
             Tab("Search", systemImage: "magnifyingglass", value: "search", role: .search) {
                 PhoneSearchTab(
                     sessions: $sessions,
@@ -256,6 +333,64 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
             rootRevealFolder?(asset)
             activeTab = "library"
         })
+        // #2878: stand up the map session whenever the Map tab becomes
+        // active — including on a cold launch that restores straight onto
+        // it (`initial: true`), matching the Mac/iPad sidebar's MAP row,
+        // which fires `openMap()` on every tap of that row.
+        .onChange(of: activeTab, initial: true) { _, newValue in
+            if newValue == "map" { onSelectMap() }
+        }
+    }
+
+    /// Map tab content (#2878) — its own `AppShellCenterColumn` call site,
+    /// independent of the Library tab's (`PhoneLibraryView` →
+    /// `AppShellIPhoneShell`; see this file's header for why). Reuses the
+    /// exact same closures the Library tab wires below (`onSelectCloudAsset`,
+    /// `onSelectLocalAsset`, `onGrantPhotosAccess`, `onNavigateFolder`,
+    /// `onPrimeSession`, `onFullImageFallback`) — only the push target
+    /// (`mapPath` vs. `libraryPath`) differs.
+    @ViewBuilder
+    private var mapTabContent: some View {
+        AppShellCenterColumn(
+            isFullImage: false,
+            selectedSession: nil,
+            cloudTimelineVM: nil,
+            cloudTimelineThumbClient: nil,
+            cloudTimelineThumbCache: nil,
+            allSourcesTimelineVM: nil,
+            allSourcesTimelineThumbCache: nil,
+            mapVM: mapVM,
+            mapThumbClient: mapThumbClient,
+            mapThumbCache: mapThumbCache,
+            isSearchActive: isSearchActive,
+            searchVM: searchVM,
+            searchThumbClient: searchThumbClient,
+            searchThumbCache: searchThumbCache,
+            browseDisplayMode: $browseDisplayMode,
+            browseVM: browseVM,
+            sessions: $sessions,
+            // Pin/cluster tap → CloudSearchView; tapping a result resolves
+            // its session and pushes Preview onto THIS tab's stack — same
+            // shape as the Library tab's `onSelectCloudAsset` wrapper below.
+            onSelectCloudAsset: { asset, server in
+                if let resolved = onSelectCloudAsset(asset, server) {
+                    mapPreviewSource = resolved.source
+                    mapPath.append(.preview(resolved.ref))
+                }
+            },
+            onSelectMapPlace: onSelectMapPlace,
+            onCloseSearch: onCloseSearch,
+            onSelectLocalAsset: { ref in
+                if let assetRef = onSelectLocalAsset(ref) {
+                    mapPath.append(.preview(assetRef))
+                }
+            },
+            onGrantPhotosAccess: onGrantPhotosAccess,
+            onNavigateFolder: onNavigateFolder,
+            onOpenEditor: { mapPath.append(.preview($0)) },
+            onPrimeSession: onPrimeSession,
+            onFullImageFallback: onFullImageFallback
+        )
     }
 
     /// Prefill the Search tab with `text` and switch to it. `SearchView`'s
@@ -280,6 +415,22 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
         transaction.disablesAnimations = true
         withTransaction(transaction) {
             libraryPath.append(.preview(asset))
+        }
+    }
+
+    /// Pop the Map tab's top destination without the stack's own slide.
+    /// `PreviewDestination` runs its own scale/fade close, so a second
+    /// animation here would play on top of one that has already ended. Same
+    /// helper as `PhoneLibraryView.popPreviewWithoutAnimation` / the Search
+    /// tab's `PhoneSearchTab.popWithoutAnimation`, targeting `mapPath`.
+    private func popMapPreviewWithoutAnimation() {
+        guard !mapPath.isEmpty else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        UIView.performWithoutAnimation {
+            withTransaction(transaction) {
+                _ = mapPath.removeLast()
+            }
         }
     }
 }
