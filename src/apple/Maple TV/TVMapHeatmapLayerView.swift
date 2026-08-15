@@ -46,6 +46,17 @@ struct TVMapHeatmapLayerView: View {
   /// closure, which would put an O(n) allocation in the render loop.
   let points: [MapHeatmapPoint]
   let zoomLevel: Int
+  /// The live camera. The draw closure never reads it — `proxy.convert`
+  /// already projects against the current camera — but it is taken as an input
+  /// so SwiftUI has something that actually CHANGES during a pan.
+  ///
+  /// Without it this view's inputs are effectively constant mid-pan: `points`
+  /// only change on a refetch, and `zoomLevel` is a rounded `Int` that holds
+  /// steady across a whole pan. SwiftUI would skip re-evaluating the body, the
+  /// `Canvas` would never redraw, and the blobs would sit glued to the screen
+  /// while the tiles slid underneath — geographically wrong until the gesture
+  /// ended, then snapping into place.
+  let region: MKCoordinateRegion?
   let proxy: MapProxy
 
   var body: some View {
