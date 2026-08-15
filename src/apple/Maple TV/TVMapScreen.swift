@@ -148,7 +148,11 @@ struct TVMapScreen: View {
         .mapStyle(.standard(emphasis: .muted, pointsOfInterest: .excludingAll))
         .accessibilityIdentifier("tv-map-view")
 
-        TVMapHeatmapLayerView(points: viewModel.heatmapPoints, zoomLevel: currentZoomLevel, proxy: proxy)
+        TVMapHeatmapLayerView(
+          points: viewModel.heatmapPoints,
+          zoomLevel: currentZoomLevel,
+          region: currentRegion,
+          proxy: proxy)
 
         if viewModel.isEmpty {
           statePane(icon: "mappin.slash", title: "No photos with location here",
