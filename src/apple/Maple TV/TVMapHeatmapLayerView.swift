@@ -90,3 +90,40 @@ struct TVMapHeatmapLayerView: View {
     }
   }
 }
+
+/// Owns the continuously-updating camera state for the heatmap, so that state
+/// does NOT live on `TVMapScreen`.
+///
+/// The heat layer has to re-project every frame of a pan to stay aligned with
+/// the tiles, which means something must invalidate at ~60 FPS. Holding that
+/// `@State` on the screen would re-evaluate the screen's whole body per frame —
+/// re-running `orderedItems`' map + sort and rebuilding the `Map` and its
+/// annotation `ForEach` — which the performance invariants in root `CLAUDE.md`
+/// rule out, and which this screen has already been bitten by once (the
+/// O(n² log n) sort fixed in #2854).
+///
+/// Keeping the state here confines the per-frame invalidation to this small
+/// subtree: the `Canvas` redraws, the map and pins above it do not rebuild.
+/// `TVMapScreen` keeps only the `.onEnd` listener that drives refetching.
+struct TVMapHeatmapOverlay: View {
+  let points: [MapHeatmapPoint]
+  let proxy: MapProxy
+
+  @State private var region: MKCoordinateRegion?
+
+  /// Same zoom convention `MapViewModel.fetch` uses for the `/api/map/clusters`
+  /// `zoom` param, so the crossfade lines up with the data on screen. `0`
+  /// (fully opaque, matching a whole-world view) before the first camera report
+  /// — harmless, because `points` is empty then too.
+  private var zoomLevel: Int {
+    guard let region else { return 0 }
+    return MapViewport.zoomLevel(for: MapViewportRegion(region))
+  }
+
+  var body: some View {
+    TVMapHeatmapLayerView(points: points, zoomLevel: zoomLevel, region: region, proxy: proxy)
+      .onMapCameraChange(frequency: .continuous) { context in
+        region = context.region
+      }
+  }
+}
