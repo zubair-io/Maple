@@ -6,14 +6,20 @@
 // The Map tab (#2878) follows Search's shape, not Library's: it owns its
 // own `mapPath` navigation stack rather than threading `mapVM` into the
 // Library tab's `AppShellIPhoneShell` call site. `AppShell`'s `openMap()`
-// (shared with the Mac/iPad sidebar's MAP row) clears `browseVM` and
-// `librarySelection` as a side effect of replacing the ONE Mac/iPad detail
-// column — reusing that same call from a co-equal Library tab would wipe
-// whatever folder/Timeline the Library tab was showing every time the user
-// merely glanced at the Map tab. An independent call site sidesteps that:
-// the Map tab renders its own `AppShellCenterColumn` fed by `mapVM` (still
-// populated by the shared `openMap()`), while the Library tab's own call
-// site is untouched and keeps whatever it was already showing.
+// (shared with the Mac/iPad sidebar's MAP row) still clears the shared
+// `browseVM` and flips `librarySelection` globally, exactly as it does on
+// Mac/iPad — an independent call site does NOT protect the Library tab's
+// underlying content from that side effect (visiting Map still leaves the
+// Library tab's grid empty until the user picks a new source from the
+// drawer, same trade-off the pre-existing Timeline-via-drawer entry point
+// already accepts). What the independent call site DOES avoid is a
+// visual/render-priority problem: `AppShellCenterColumn`'s map branch
+// takes precedence over the grid, so if `mapVM` were ALSO threaded into
+// the Library tab's call site, that tab would keep showing the map (not
+// its own grid) after every Map-tab visit, for as long as
+// `librarySelection == .map` — i.e. the two tabs would visually collapse
+// into one. Keeping the Map tab's `AppShellCenterColumn` call separate
+// means only the Map tab ever renders `MapView`.
 //
 // AppShell.body dispatches between this shell and the Mac/iPad pane
 // shell via `MapleShellKind.current == .phoneTab`. Persistence: the
@@ -374,20 +380,24 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
             // shape as the Library tab's `onSelectCloudAsset` wrapper below.
             onSelectCloudAsset: { asset, server in
                 if let resolved = onSelectCloudAsset(asset, server) {
-                    mapPreviewSource = resolved.source
-                    mapPath.append(.preview(resolved.ref))
+                    pushMapPreview(resolved.ref, cloudSource: resolved.source)
                 }
             },
             onSelectMapPlace: onSelectMapPlace,
             onCloseSearch: onCloseSearch,
+            // No `cloudSource` argument — if the map can't stand up (e.g. no
+            // signed-in cloud account) and this tab falls back to rendering
+            // the grid off the shared `browseVM`, a local asset tap here must
+            // NOT inherit `mapPreviewSource` left over from an earlier
+            // cloud-search-result push on this same tab (#2878 review).
             onSelectLocalAsset: { ref in
                 if let assetRef = onSelectLocalAsset(ref) {
-                    mapPath.append(.preview(assetRef))
+                    pushMapPreview(assetRef)
                 }
             },
             onGrantPhotosAccess: onGrantPhotosAccess,
             onNavigateFolder: onNavigateFolder,
-            onOpenEditor: { mapPath.append(.preview($0)) },
+            onOpenEditor: { pushMapPreview($0) },
             onPrimeSession: onPrimeSession,
             onFullImageFallback: onFullImageFallback
         )
@@ -415,6 +425,22 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
         transaction.disablesAnimations = true
         withTransaction(transaction) {
             libraryPath.append(.preview(asset))
+        }
+    }
+
+    /// `pushPreview`'s Map-tab counterpart, targeting `mapPath` /
+    /// `mapPreviewSource` instead of `libraryPath` / `cloudPreviewSource`.
+    /// Same unconditional-assignment discipline: a local/grid-fallback push
+    /// (no `cloudSource` argument) must CLEAR any source left over from an
+    /// earlier cloud-search-result push on this tab, or a later local asset
+    /// would inherit a stale cloud `ImageSource` and mis-resolve its Preview
+    /// image tiers.
+    private func pushMapPreview(_ asset: AssetRef, cloudSource: (any ImageSource)? = nil) {
+        mapPreviewSource = cloudSource
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            mapPath.append(.preview(asset))
         }
     }
 

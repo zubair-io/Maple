@@ -99,14 +99,20 @@ struct MapClusterBubbleView: View {
 
   /// Bigger bubbles for bigger clusters, clamped to a sane range so a
   /// library-wide cell doesn't swallow the map. Phone gets a smaller scale
-  /// (#2878) — same reasoning as `MapThumbnailPinView.diameter`.
+  /// (#2878) — same reasoning as `MapThumbnailPinView.diameter`. Returns
+  /// constant literals directly (no intermediate array) — this re-evaluates
+  /// on every annotation redraw during a pan/zoom, and a fresh `[CGFloat]`
+  /// per evaluation is an avoidable allocation in that path.
   private var bubbleDiameter: CGFloat {
-    let sizes: [CGFloat] = layout == .phone ? [26, 32, 38, 44] : [32, 40, 48, 56]
-    switch count {
-    case ..<10: return sizes[0]
-    case 10..<100: return sizes[1]
-    case 100..<1000: return sizes[2]
-    default: return sizes[3]
+    switch (layout, count) {
+    case (.phone, ..<10): return 26
+    case (.phone, 10..<100): return 32
+    case (.phone, 100..<1000): return 38
+    case (.phone, _): return 44
+    case (_, ..<10): return 32
+    case (_, 10..<100): return 40
+    case (_, 100..<1000): return 48
+    case (_, _): return 56
     }
   }
 }
