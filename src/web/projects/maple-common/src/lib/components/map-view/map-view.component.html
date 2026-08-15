@@ -11,3 +11,15 @@
     </a>
   </div>
 }
+
+<!-- Empty-viewport notice (design doc § "Error / empty states") — layers
+     over the canvas without blocking it, so the map keeps panning. Only
+     shown once tiles are actually reachable; the tiles-unreachable notice
+     above already explains why nothing else is visible in that case. -->
+@if (noLocatedPhotos() && !tilesUnreachable()) {
+  <div class="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center" role="status">
+    <span class="rounded-full bg-black/60 px-3 py-1 text-xs text-white backdrop-blur-[4px]">
+      No photos with location here
+    </span>
+  </div>
+}
