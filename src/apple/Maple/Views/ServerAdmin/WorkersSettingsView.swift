@@ -81,18 +81,19 @@ struct WorkersSettingsView: View {
         .mapleSettingsBackground()
         .task { await loadFallback() }
         .task { await consumeEvents() }
-        .sheet(item: $deadDrawerStage) { target in
+        // The refresh hangs off SwiftUI's own `onDismiss`, not the drawer's
+        // Done button: Escape, a backdrop click, and swipe-to-dismiss all
+        // set the binding directly without routing through the drawer's
+        // callback. Hanging it off Done would leave the table showing
+        // pre-triage counts after the most common gesture on iPhone.
+        .sheet(item: $deadDrawerStage, onDismiss: { Task { await refreshAfterTriage() } }) { target in
             DeadJobsDrawer(stage: target.stage, client: client) {
                 deadDrawerStage = nil
-                // A retry re-arms jobs, so the table's dead count is stale
-                // the moment the drawer closes.
-                Task { await refreshAfterTriage() }
             }
         }
-        .sheet(isPresented: $showDamagedDrawer) {
+        .sheet(isPresented: $showDamagedDrawer, onDismiss: { Task { await refreshAfterTriage() } }) {
             DamagedAssetsDrawer(client: client) {
                 showDamagedDrawer = false
-                Task { await refreshAfterTriage() }
             }
         }
     }
