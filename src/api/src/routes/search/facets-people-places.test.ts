@@ -37,6 +37,11 @@ let mongoReachable = false;
 
 const PRIYA = new ObjectId();
 const HIDDEN_PERSON = new ObjectId();
+/** Clustering placeholder (`Person N`) — must never reach the picker (#2879). */
+const AUTO_PERSON = new ObjectId();
+/** Operator-named cluster that merely STARTS with "Person" — the anchored
+ * predicate must keep it (the `startsWith` heuristic would eat it). */
+const PERSON_ALICE = new ObjectId();
 
 function asset(mapleId: string, extra: Record<string, unknown>): Record<string, unknown> {
   return {
@@ -68,6 +73,14 @@ async function seed(d: Db): Promise<void> {
       merged_into: null,
       hidden: true,
     },
+    { _id: AUTO_PERSON, name: 'Person 7', created_at: 'now', updated_at: 'now', merged_into: null },
+    {
+      _id: PERSON_ALICE,
+      name: 'Person Alice',
+      created_at: 'now',
+      updated_at: 'now',
+      merged_into: null,
+    },
   ] as never);
   await d.collection('assets').insertMany([
     asset('a-portland', {
@@ -83,6 +96,10 @@ async function seed(d: Db): Promise<void> {
     }),
     asset('a-hiddenperson', {
       faces: [{ person_id: HIDDEN_PERSON.toHexString() }],
+      place: null,
+    }),
+    asset('a-autoperson', {
+      faces: [{ person_id: AUTO_PERSON.toHexString() }, { person_id: PERSON_ALICE.toHexString() }],
       place: null,
     }),
   ] as never);
@@ -109,6 +126,13 @@ afterAll(async () => {
   else process.env.MAPLE_MONGO_DB = prevMongoDb;
 });
 
+/** The `people` bucket's values, for assertions that only care about who
+ * is listed rather than the counts. */
+function peopleValues(body: unknown): string[] {
+  const people = (body as { people: Array<{ value: string }> }).people;
+  return people.map((p) => p.value);
+}
+
 describe('GET /api/search/facets — people & places buckets (#2864)', () => {
   it('lists named, visible persons with per-asset counts (dup faces count once)', async () => {
     if (!mongoReachable || !db) return;
@@ -116,7 +140,23 @@ describe('GET /api/search/facets — people & places buckets (#2864)', () => {
     const res = await app.handle(new Request('http://localhost/facets'));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.people).toEqual([{ value: 'Priya Patel', count: 2 }]);
+    // Priya (2 assets) and the operator-named "Person Alice" (1). The
+    // clustering placeholder and the hidden person are both absent.
+    expect(body.people).toEqual([
+      { value: 'Priya Patel', count: 2 },
+      { value: 'Person Alice', count: 1 },
+    ]);
+  });
+
+  it('omits clustering placeholders ("Person N") from the picker (#2879)', async () => {
+    if (!mongoReachable || !db) return;
+    const app = new Elysia().use(facetsRoute);
+    const res = await app.handle(new Request('http://localhost/facets'));
+    const values = peopleValues(await res.json()).sort();
+    // "Person 7" is a placeholder the operator hasn't named — it carries no
+    // meaning as a filter row. "Person Alice" is a real name that merely
+    // starts with the same word: the predicate is anchored, so it stays.
+    expect(values).toEqual(['Person Alice', 'Priya Patel']);
   });
 
   it('labels place buckets as "locality, region" / bare locality', async () => {
