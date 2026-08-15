@@ -61,7 +61,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             self.rootCache = nil
             self.deviceName = resolvedDeviceName
             self.metaStore = resolvedMetaStore
-            self.workingSet = WorkingSet(capacity: 20_000)
+            self.workingSet = WorkingSet(capacity: WorkingSet.defaultCapacity)
             self.cursorStore = ChangeCursorStore()
             self.workingSetListCache = nil
             super.init()
@@ -78,7 +78,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             onSignOut: { TokenStore.clear(server: cfg.serverURL) }
         )
         let catalog = RemoteCatalog(http: http, server: cfg.serverURL)
-        let resolvedWorkingSet = WorkingSet(capacity: 20_000)
+        let resolvedWorkingSet = WorkingSet(capacity: WorkingSet.defaultCapacity)
         let resolvedCursorStore = ChangeCursorStore()
         self.dormant = false
         self.catalog = catalog

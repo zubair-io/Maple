@@ -42,6 +42,20 @@ public struct WorkingSetEntry: Sendable, Equatable {
 }
 
 public final class WorkingSet: @unchecked Sendable {
+    /// Platform-conditional default capacity (#2551). iOS app extensions
+    /// run under much tighter RAM ceilings than macOS — mirrors the
+    /// existing `#if os(iOS)` precedent for `FolderEnumerator.pageSize`
+    /// (`MapleEnumerator.swift`) rather than inventing a new mechanism.
+    /// `WorkingSetEntry` is small (~16 bytes plus a heap-allocated
+    /// identifier-string key), so 20k on macOS is a few MB; 2.5k on iOS
+    /// keeps the same order-of-magnitude headroom relative to the
+    /// tighter extension memory budget.
+    #if os(iOS)
+    public static let defaultCapacity = 2_500
+    #else
+    public static let defaultCapacity = 20_000
+    #endif
+
     public let capacity: Int
     private var entries: [String: WorkingSetEntry] = [:]
     /// Protects `entries`. The working set is mutated from multiple
@@ -51,7 +65,7 @@ public final class WorkingSet: @unchecked Sendable {
     /// trivial — only the SSE consumer + occasional OS enumerations.
     private let lock = NSLock()
 
-    public init(capacity: Int = 20_000) {
+    public init(capacity: Int = WorkingSet.defaultCapacity) {
         self.capacity = capacity
     }
 
