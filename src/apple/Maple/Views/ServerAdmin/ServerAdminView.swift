@@ -143,6 +143,9 @@ struct ServerAdminView: View {
                 WorkersSettingsView(
                     client: WorkersAdminClient(server: server, httpClient: httpClient),
                     events: eventsClient)
+            case .imports:
+                ImportsSettingsView(
+                    client: ImportsClient(server: server, httpClient: httpClient))
             }
         } else {
             // One `.task` tick, before the client exists.
