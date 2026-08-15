@@ -1055,6 +1055,7 @@ public actor RemoteCatalog {
     /// browser) should pass an explicit `intent`.
     @discardableResult
     public func deleteAsset(assetID: String, intent: DeleteAssetIntent? = nil) async throws -> DeleteAssetResult {
+        try Self.validateAssetID(assetID)
         var comps = URLComponents(url: server.appending(path: "/api/assets/\(assetID)"), resolvingAgainstBaseURL: false)!
         if let intent {
             comps.queryItems = [URLQueryItem(name: "intent", value: intent.rawValue)]
