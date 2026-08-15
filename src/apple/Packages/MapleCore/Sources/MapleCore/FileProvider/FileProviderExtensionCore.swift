@@ -814,7 +814,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         // because the OS, not the filename, decides whether the
         // template is a directory.
         if itemTemplate.contentType?.conforms(to: .folder) == true {
-            return createFolderItem(basedOn: itemTemplate, catalog: catalog, completionHandler: completionHandler)
+            return createFolderItem(basedOn: itemTemplate, catalog: catalog, options: options, completionHandler: completionHandler)
         }
 
         let filename = itemTemplate.filename
@@ -842,6 +842,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
     /// upload was attempted.
     private func createFolderItem(basedOn itemTemplate: NSFileProviderItem,
                                   catalog: RemoteCatalog,
+                                  options: NSFileProviderCreateItemOptions = [],
                                   completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void) -> Progress {
         let parentID = itemTemplate.parentItemIdentifier
         let parsed: FileProviderIdentifier
@@ -866,6 +867,36 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         Task {
             defer { progress.completedUnitCount = 1 }
             do {
+                // #2542: `catalog.makeDir` is `mkdir -p` server-side —
+                // idempotent, 201 whether or not the folder pre-existed —
+                // so nothing in its response distinguishes "genuinely
+                // new" from "already there." `.mayAlreadyExist` is the
+                // OS's own signal that finding one here should be a
+                // merge (sync-state-loss reimport, or a directory-merge
+                // recreate), so honor it by skipping straight to mkdir,
+                // matching its existing idempotent behaviour. Otherwise
+                // check first: a pre-existing sibling folder with this
+                // name — e.g. two near-simultaneous folder creations
+                // from different clients — is a genuine collision, not
+                // a no-op merge, and must be surfaced rather than
+                // silently swallowed.
+                if !options.contains(.mayAlreadyExist),
+                   let parentAbs = await Self.resolveAbsolutePath(
+                       folderID: folderID, relativePath: parentRelative, rootCache: self.rootCache),
+                   let existing = try await Self.findChildDir(
+                       catalog: catalog, absolutePath: parentAbs, childName: filename, log: self.log) {
+                    let collidingItem = MapleItem(
+                        subdirectory: existing,
+                        parentFolderID: folderID,
+                        parentRelativePath: parentRelative,
+                        parentIdentifier: parentID
+                    )
+                    completionHandler(nil, [], false,
+                        NSError(domain: NSFileProviderErrorDomain,
+                                code: NSFileProviderError.filenameCollision.rawValue,
+                                userInfo: [NSFileProviderErrorItemKey: collidingItem]))
+                    return
+                }
                 self.log.notice("mkdir folderID=\(folderID, privacy: .public) target=\(targetRel, privacy: .private)")
                 let resp = try await catalog.makeDir(folderID: folderID, targetRelativePath: targetRel)
                 // Server doesn't return an mtime — synthesize `now`. The
@@ -1478,6 +1509,24 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             }
         } while cursor != nil
         return nil
+    }
+
+    /// Resolve `folderID + relativePath` to the absolute path on the
+    /// server's filesystem via the cached library-roots list — the same
+    /// lookup `item(for:)` and `assetID(forSidecarNamed:)` do inline,
+    /// shared so #2542 (folder-create collision precheck) and #2538
+    /// (upload-retry precheck) don't each repeat it. Returns nil when the
+    /// cache is unavailable or the folder isn't in it; callers treat that
+    /// as "can't precheck" and fall through to the network-authoritative
+    /// operation unconditionally, exactly as before either precheck
+    /// existed.
+    static func resolveAbsolutePath(folderID: String,
+                                    relativePath: String,
+                                    rootCache: LibraryRootCache?) async -> String? {
+        guard let rootCache,
+              let roots = try? await rootCache.roots(),
+              let root = roots.first(where: { $0.id == folderID }) else { return nil }
+        return relativePath.isEmpty ? root.path : "\(root.path)/\(relativePath)"
     }
 
     /// Derive the FP parent identifier for an asset from its server
