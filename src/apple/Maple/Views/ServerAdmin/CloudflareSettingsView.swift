@@ -237,7 +237,11 @@ struct CloudflareSettingsView: View {
             loadState = .loaded(config)
             saveState = .succeeded
             saveConfirmationTask?.cancel()
-            saveConfirmationTask = Task {
+            // Explicitly @MainActor rather than relying on isolation
+            // inheritance: this closure mutates SwiftUI @State, and the
+            // codebase spells that out at its other Task sites
+            // (SelfHostedSettingsTab, AppShell+CloudActions).
+            saveConfirmationTask = Task { @MainActor in
                 try? await Task.sleep(for: .seconds(2))
                 if !Task.isCancelled, saveState == .succeeded { saveState = .idle }
             }

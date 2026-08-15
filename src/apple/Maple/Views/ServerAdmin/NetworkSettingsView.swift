@@ -190,7 +190,10 @@ struct NetworkSettingsView: View {
             loadState = .loaded(config)
             didSave = true
             saveConfirmationTask?.cancel()
-            saveConfirmationTask = Task {
+            // Explicitly @MainActor for the same reason as the Cloudflare
+            // page — this mutates SwiftUI @State and shouldn't depend on
+            // isolation inheritance to be correct.
+            saveConfirmationTask = Task { @MainActor in
                 try? await Task.sleep(for: .seconds(2))
                 if !Task.isCancelled { didSave = false }
             }
