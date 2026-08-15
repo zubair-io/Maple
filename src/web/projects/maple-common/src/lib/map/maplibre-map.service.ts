@@ -96,6 +96,16 @@ export class MapLibreService {
     this.instance = null;
   }
 
+  /** The live map handle, or `null` before `create()` resolves / after
+   * `destroy()`. Exposed so a co-located, component-scoped layer (Map T4's
+   * `MapClusterPinsService`) can drive sources/markers on the SAME
+   * instance without this service knowing anything about pins — it stays
+   * the pin-agnostic "mount a base map" wrapper the module doc above
+   * describes. */
+  currentHandle(): MapLibreMapHandle | null {
+    return this.instance;
+  }
+
   private _mount(container: HTMLElement, tileUrl: string | null): void {
     this.destroy();
     const instance = this.factory.create({
@@ -111,7 +121,7 @@ export class MapLibreService {
     // carries no `sourceId` to filter on more precisely, and this style
     // never has more than the one source, so any error here means the
     // configured tile source needs operator attention.
-    instance.on('error', () => this._tilesUnreachable.set(true));
+    instance.onError(() => this._tilesUnreachable.set(true));
     this.instance = instance;
   }
 }
