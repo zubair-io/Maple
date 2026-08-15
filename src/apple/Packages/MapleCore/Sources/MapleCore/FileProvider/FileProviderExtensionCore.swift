@@ -1208,17 +1208,17 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                         // with the path. Reload the new parent so the OS
                         // re-enumerates the subtree under its new identifiers;
                         // reload the old parent too on a cross-folder move so
-                        // its stale entry drops.
-                        await self.signalEnumeratorReload(parent: newParentID)
-                        let oldParentRelative: String = {
-                            guard let slash = sourceRelative.lastIndex(of: "/") else { return "" }
-                            return String(sourceRelative[..<slash])
-                        }()
-                        let oldParentID = NSFileProviderItemIdentifier(
-                            FileProviderIdentifier.folder(folderID: folderID,
-                                                           relativePath: oldParentRelative).rawValue)
-                        if oldParentID != newParentID {
-                            await self.signalEnumeratorReload(parent: oldParentID)
+                        // its stale entry drops; and reload the folder's OWN
+                        // new identifier (#2541) so a Finder window open ON
+                        // the moved folder refreshes immediately instead of
+                        // waiting on incidental re-enumeration.
+                        for target in Self.enumeratorReloadTargets(
+                            folderID: folderID,
+                            newParentID: newParentID,
+                            sourceRelativePath: sourceRelative,
+                            targetRelativePath: targetRelative
+                        ) {
+                            await self.signalEnumeratorReload(parent: target)
                         }
                     }
                 } catch {
@@ -1527,6 +1527,36 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
               let roots = try? await rootCache.roots(),
               let root = roots.first(where: { $0.id == folderID }) else { return nil }
         return relativePath.isEmpty ? root.path : "\(root.path)/\(relativePath)"
+    }
+
+    /// #2541: the full set of parent identifiers that must be signalled
+    /// after a folder move/rename. A grep of every
+    /// `signalEnumerator`/`signalEnumeratorReload` call site found none
+    /// targeting the moved folder's OWN new identifier — folder
+    /// identifiers embed their relative path, so a move changes the
+    /// folder's own identifier too, and without this the OS doesn't
+    /// re-enumerate the subtree (e.g. a Finder window open ON the moved
+    /// folder) until an incidental re-enumeration happens to hit it.
+    /// Pulled out as a pure function so the fix is testable without a
+    /// live `NSFileProviderManager`.
+    static func enumeratorReloadTargets(folderID: String,
+                                        newParentID: NSFileProviderItemIdentifier,
+                                        sourceRelativePath: String,
+                                        targetRelativePath: String) -> [NSFileProviderItemIdentifier] {
+        var targets: [NSFileProviderItemIdentifier] = [newParentID]
+        let oldParentRelative: String = {
+            guard let slash = sourceRelativePath.lastIndex(of: "/") else { return "" }
+            return String(sourceRelativePath[..<slash])
+        }()
+        let oldParentID = NSFileProviderItemIdentifier(
+            FileProviderIdentifier.folder(folderID: folderID, relativePath: oldParentRelative).rawValue)
+        if oldParentID != newParentID {
+            targets.append(oldParentID)
+        }
+        let movedFolderSelf = NSFileProviderItemIdentifier(
+            FileProviderIdentifier.folder(folderID: folderID, relativePath: targetRelativePath).rawValue)
+        targets.append(movedFolderSelf)
+        return targets
     }
 
     /// Derive the FP parent identifier for an asset from its server
