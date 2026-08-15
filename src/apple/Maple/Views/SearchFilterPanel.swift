@@ -9,70 +9,21 @@
 // results (CloudSearchView); iPhone presents it as a sheet (SearchView).
 // Every control re-runs the search immediately on change, so the footer's
 // "Show N results" count (facets.total) is always live.
+//
+// Date presets, wire-date formatting, and row derivation live in
+// SearchFilterPanel+VM.swift (the `+VM.swift` pattern, issue #192) —
+// this file only renders.
 
 import SwiftUI
 import MapleCore
-
-/// Single-select date presets. `range` computes the from/to strings the
-/// server expects (`YYYY-MM-DD`, widened server-side).
-enum SearchDatePreset: String, CaseIterable, Identifiable {
-  case today, last7, last30, thisYear
-
-  var id: String { rawValue }
-
-  var label: String {
-    switch self {
-    case .today: return "Today"
-    case .last7: return "Last 7 days"
-    case .last30: return "Last 30 days"
-    case .thisYear: return "This year"
-    }
-  }
-
-  func range(now: Date = Date(), calendar: Calendar = .current) -> (from: String, to: String) {
-    let today = SearchDateFormat.string(from: now)
-    switch self {
-    case .today:
-      return (today, today)
-    case .last7:
-      let start = calendar.date(byAdding: .day, value: -6, to: now) ?? now
-      return (SearchDateFormat.string(from: start), today)
-    case .last30:
-      let start = calendar.date(byAdding: .day, value: -29, to: now) ?? now
-      return (SearchDateFormat.string(from: start), today)
-    case .thisYear:
-      let year = calendar.component(.year, from: now)
-      return (String(format: "%04d-01-01", year), today)
-    }
-  }
-}
-
-/// `YYYY-MM-DD` ↔ `Date` conversion for the date filter fields — the
-/// exact wire shape `SearchParams.from` / `.to` carry.
-enum SearchDateFormat {
-  private static let formatter: DateFormatter = {
-    let f = DateFormatter()
-    f.dateFormat = "yyyy-MM-dd"
-    f.locale = Locale(identifier: "en_US_POSIX")
-    return f
-  }()
-
-  static func string(from date: Date) -> String { formatter.string(from: date) }
-  static func date(from string: String) -> Date? { formatter.date(from: string) }
-
-  /// Human-readable chip label for a stored `YYYY-MM-DD`, falling back to
-  /// the raw string when unparseable.
-  static func display(_ string: String) -> String {
-    guard let date = date(from: string) else { return string }
-    return date.formatted(date: .abbreviated, time: .omitted)
-  }
-}
 
 struct SearchFilterPanel: View {
   @Bindable var vm: SearchViewModel
   /// Dismiss the hosting surface (sheet / docked panel) — wired to the
   /// footer's "Show N results".
   var onClose: () -> Void = {}
+
+  private typealias FacetRow = SearchFilterPanelVM.FacetRow
 
   var body: some View {
     VStack(spacing: 0) {
@@ -82,12 +33,14 @@ struct SearchFilterPanel: View {
         VStack(alignment: .leading, spacing: MapleTokens.Spacing.sectionGap) {
           dateSection
           facetRowsSection(title: "People",
-                           rows: rowModels(facets: vm.peopleFacets, selected: vm.params.people),
+                           rows: SearchFilterPanelVM.rowModels(
+                             facets: vm.peopleFacets, selected: vm.params.people),
                            icon: .personInitial,
                            selected: vm.params.people,
                            toggle: togglePerson)
           facetRowsSection(title: "Places",
-                           rows: rowModels(facets: vm.placeFacets, selected: vm.params.place),
+                           rows: SearchFilterPanelVM.rowModels(
+                             facets: vm.placeFacets, selected: vm.params.place),
                            icon: .location,
                            selected: vm.params.place,
                            toggle: togglePlace)
@@ -155,7 +108,8 @@ struct SearchFilterPanel: View {
   }
 
   private var presetChips: some View {
-    let active = activePreset
+    // Computed once per render, not per chip.
+    let active = SearchDatePreset.matching(from: vm.params.from, to: vm.params.to)
     return LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 6)],
                      alignment: .leading, spacing: 6) {
       ForEach(SearchDatePreset.allCases) { preset in
@@ -169,16 +123,6 @@ struct SearchFilterPanel: View {
         }
         .accessibilityIdentifier("search-date-preset-\(preset.rawValue)")
       }
-    }
-  }
-
-  /// The preset whose computed range matches the current from/to exactly,
-  /// if any — a custom-picked range matches none and lights no chip.
-  private var activePreset: SearchDatePreset? {
-    guard let from = vm.params.from, let to = vm.params.to else { return nil }
-    return SearchDatePreset.allCases.first { preset in
-      let range = preset.range()
-      return range.from == from && range.to == to
     }
   }
 
@@ -237,26 +181,6 @@ struct SearchFilterPanel: View {
   private enum RowIcon {
     case personInitial
     case location
-  }
-
-  private struct FacetRow: Identifiable {
-    let value: String
-    let count: Int?
-    var id: String { value }
-  }
-
-  /// Facet rows, unioned with any selected values the (filter-aware)
-  /// facet list no longer carries — a selected filter must always stay
-  /// visible and removable.
-  private func rowModels(facets: [ValueFacet], selected: [String]) -> [FacetRow] {
-    let fromFacets = facets.compactMap { facet -> FacetRow? in
-      guard let value = facet.value, !value.isEmpty else { return nil }
-      return FacetRow(value: value, count: facet.count)
-    }
-    let known = Set(fromFacets.map(\.value))
-    let orphans = selected.filter { !known.contains($0) }
-      .map { FacetRow(value: $0, count: nil) }
-    return orphans + fromFacets
   }
 
   @ViewBuilder
@@ -339,17 +263,13 @@ struct SearchFilterPanel: View {
   }
 
   private func togglePerson(_ value: String) {
-    vm.params.people = toggled(vm.params.people, value)
+    vm.params.people = SearchFilterPanelVM.toggled(vm.params.people, value)
     Task { await vm.submit() }
   }
 
   private func togglePlace(_ value: String) {
-    vm.params.place = toggled(vm.params.place, value)
+    vm.params.place = SearchFilterPanelVM.toggled(vm.params.place, value)
     Task { await vm.submit() }
-  }
-
-  private func toggled(_ array: [String], _ value: String) -> [String] {
-    array.contains(value) ? array.filter { $0 != value } : array + [value]
   }
 
   // MARK: - Building blocks

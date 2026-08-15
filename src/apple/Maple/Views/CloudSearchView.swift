@@ -146,7 +146,8 @@ struct CloudSearchView: View {
       .foregroundStyle(vm.unifiedFilterCount > 0 ? MapleTokens.primary : MapleTokens.textMuted)
     }
     .buttonStyle(.plain)
-    .accessibilityLabel("Filters")
+    .accessibilityLabel(vm.unifiedFilterCount > 0
+                        ? "Filters, \(vm.unifiedFilterCount) active" : "Filters")
     .accessibilityIdentifier("search-filters")
   }
 
