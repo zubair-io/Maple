@@ -447,14 +447,38 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
 /// extension's lifetime. The change feed is the keep-fresh path; this
 /// cache exists so repeated `.workingSet` enumerations don't refetch
 /// from scratch on every call.
+///
+/// Two invalidation paths keep the cache from serving stale data
+/// indefinitely:
+///   - Event-count gated: `WorkingSetEnumerator` calls `invalidate()`
+///     after absorbing `listCacheInvalidationThreshold` change-feed
+///     events.
+///   - Time-based fallback (#2545): a long-lived extension process
+///     that stays under the event threshold — plausible, especially
+///     combined with non-image file changes never incrementing that
+///     counter — would otherwise serve a stale list forever, since the
+///     event path is the ONLY thing that ever called `invalidate()`.
+///     `entries()` now self-expires past `ttl` regardless of whether
+///     anything ever called `invalidate()`.
 actor WorkingSetListCache {
     private let catalog: RemoteCatalog
     private var cached: [AssetListEntry]?
+    private var cachedAt: Date?
+    private let ttl: TimeInterval
+    private let now: () -> Date
 
-    init(catalog: RemoteCatalog) { self.catalog = catalog }
+    /// `now` is injectable so tests can advance the clock deterministically
+    /// instead of sleeping past a real TTL window.
+    init(catalog: RemoteCatalog, ttl: TimeInterval = 5 * 60, now: @escaping () -> Date = Date.init) {
+        self.catalog = catalog
+        self.ttl = ttl
+        self.now = now
+    }
 
     func entries() async throws -> [AssetListEntry] {
-        if let c = cached { return c }
+        if let c = cached, let cachedAt, now().timeIntervalSince(cachedAt) < ttl {
+            return c
+        }
         // Pull all three filters and merge by id. Cap each query at 20k
         // (server-side ceiling) — the working set itself is capped at
         // 20k, so we never need more across the union.
@@ -471,8 +495,12 @@ actor WorkingSetListCache {
         for e in a + b { byId[e.id] = e }
         let merged = Array(byId.values)
         cached = merged
+        cachedAt = now()
         return merged
     }
 
-    func invalidate() { cached = nil }
+    func invalidate() {
+        cached = nil
+        cachedAt = nil
+    }
 }
