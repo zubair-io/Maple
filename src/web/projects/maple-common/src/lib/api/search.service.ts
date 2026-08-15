@@ -86,6 +86,15 @@ export interface SearchParams {
   /** Tri-state screenshot filter: `true` → screenshots only, `false` →
    * photographs only, `undefined` → both. */
   isScreenshot?: boolean;
+  /** Selected person display names — the unified People filter picker
+   * (#2864/#2865). Sent as a comma-separated `people` param; the server
+   * resolves names to person ids and matches `faces.person_id`. OR within
+   * the field, AND against other filters. */
+  people?: string[];
+  /** Selected place labels straight from the facets `places` bucket
+   * (#2864/#2865). Sent as a `|`-separated `place` param — the labels
+   * themselves contain commas ("Portland, OR"). OR within the field. */
+  place?: string[];
   /** S7 search chip scope. See `SearchScopeParam`. */
   scope?: SearchScopeParam;
   /** Hidden image filter option. */
@@ -187,6 +196,14 @@ export interface SearchFacets {
   /** Tri-state screenshot bucket counts. `unknown` covers legacy rows
    * indexed before #175 where the field wasn't written. */
   is_screenshot: { true: number; false: number; unknown: number };
+  /** Per-person asset counts for the unified People picker (#2864) —
+   * named, non-hidden persons, filter-aware, descending. Absent on
+   * servers predating the field; readers coerce to `[]`. */
+  people?: Array<{ value: string; count: number }>;
+  /** Per-place asset counts for the unified Places picker (#2864). The
+   * `value` labels feed the `place` filter param verbatim. Absent on
+   * servers predating the field; readers coerce to `[]`. */
+  places?: Array<{ value: string; count: number }>;
 }
 
 /** Build HttpParams from a SearchParams object, skipping undefined / empty
@@ -229,6 +246,9 @@ function paramsFrom(p: SearchParams): HttpParams {
     set('subjects', p.subjects.join(','));
   }
   if (p.isScreenshot !== undefined) set('isScreenshot', p.isScreenshot ? 'true' : 'false');
+  if (p.people && p.people.length > 0) set('people', p.people.join(','));
+  // `|`-separated — place labels contain commas, so commas can't separate.
+  if (p.place && p.place.length > 0) set('place', p.place.join('|'));
   set('scope', p.scope);
   set('hidden', p.hidden);
   return h;

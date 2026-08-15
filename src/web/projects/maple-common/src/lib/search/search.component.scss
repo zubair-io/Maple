@@ -1,6 +1,11 @@
-// SearchComponent — vertical stack of bar / chips / sections.
+// Unified-search layout (#2865): main column + the filter panel.
 //
-// Spec: docs/design/responsive-program/s7-search.md §2.
+// One panel DOM node, two placements — ≥1024px it is a permanently-docked
+// right column; below that it becomes a bottom sheet toggled by
+// `panelOpen` (`.open`). Same content component either way, matching the
+// design's "only the overlay's placement changes" rule. The tag picker
+// follows the same trick: anchored dropdown under the bar on desktop,
+// bottom sheet on phones.
 
 :host {
   display: block;
@@ -11,53 +16,150 @@
 
 .search {
   display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 12px;
   height: 100%;
+  min-height: 0;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
   overflow-y: auto;
-  // Prevent the (phone-width-designed) column from stretching edge-to-edge
-  // on wide monitors.
   max-width: 1100px;
   margin-inline: auto;
 }
 
-// Below the phone breakpoint, go back to edge-to-edge with just padding.
-@media (max-width: 767px) {
-  .search {
-    max-width: none;
-    padding: 12px;
-  }
+.bar-area {
+  position: relative;
 }
 
-.bar-row {
+.meta-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
 }
 
-.bar-row app-search-bar {
-  flex: 1;
-  min-width: 0;
-}
-
-.filters-btn {
-  flex-shrink: 0;
-  background: transparent;
-  border: 1px solid var(--color-border, #44403c);
-  border-radius: 6px;
-  padding: 0 10px;
-  height: 32px;
+.results-count {
   font:
-    12px/1 'Lato',
+    11px/1 'Lato',
     sans-serif;
-  font-weight: 700;
-  color: var(--color-text-main);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 120ms linear;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
 }
 
-.filters-btn:hover {
-  background: var(--color-surface-alt);
+.sort,
+.sort-static {
+  font:
+    12px/1.2 'Lato',
+    sans-serif;
+  color: var(--color-text-muted);
+}
+
+.sort {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.sort:focus-visible {
+  outline: 1px solid var(--color-primary, #e05d44);
+  border-radius: 4px;
+}
+
+// ── Tag picker placement ─────────────────────────────────────────────────
+
+.tag-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: transparent;
+}
+
+.tag-host {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: min(420px, 100%);
+  max-height: 60vh;
+  z-index: 31;
+  border: 1px solid var(--color-border, #44403c);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  display: flex;
+}
+
+// ── Filter panel placement ───────────────────────────────────────────────
+
+.filter-host {
+  flex-shrink: 0;
+  width: 320px;
+  border-left: 1px solid var(--color-border, #44403c);
+  display: flex;
+  min-height: 0;
+}
+
+.sheet-backdrop {
+  display: none;
+}
+
+@media (max-width: 1023px) {
+  .filter-host {
+    display: none;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    height: 78%;
+    z-index: 41;
+    border-left: none;
+    border-radius: 16px 16px 0 0;
+    overflow: hidden;
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.4);
+  }
+
+  .filter-host.open {
+    display: flex;
+  }
+
+  .sheet-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgba(0, 0, 0, 0.45);
+  }
+
+  // Phone tag picker: bottom sheet instead of an anchored dropdown.
+  .tag-host {
+    position: fixed;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-height: 70%;
+    height: 70%;
+    border: none;
+    border-radius: 16px 16px 0 0;
+    z-index: 31;
+  }
+
+  .tag-backdrop {
+    background: rgba(0, 0, 0, 0.45);
+  }
+}
+
+@media (max-width: 767px) {
+  .main {
+    max-width: none;
+  }
 }
