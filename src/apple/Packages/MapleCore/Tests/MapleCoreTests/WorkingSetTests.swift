@@ -108,6 +108,24 @@ final class WorkingSetTests: XCTestCase {
         XCTAssertLessThanOrEqual(ws.count(), 5_000)
     }
 
+    /// #2551: iOS app extensions run under much tighter RAM ceilings than
+    /// macOS, so the default capacity must be platform-conditional —
+    /// mirroring the existing `#if os(iOS)` precedent for
+    /// `FolderEnumerator.pageSize` (`MapleEnumerator.swift`) rather than a
+    /// one-size-fits-all constant.
+    func testDefaultCapacityIsPlatformConditional() {
+        #if os(iOS)
+        XCTAssertEqual(WorkingSet.defaultCapacity, 2_500)
+        #else
+        XCTAssertEqual(WorkingSet.defaultCapacity, 20_000)
+        #endif
+    }
+
+    func testDefaultInitUsesPlatformCapacity() {
+        let ws = WorkingSet()
+        XCTAssertEqual(ws.capacity, WorkingSet.defaultCapacity)
+    }
+
     func testEvictsActiveOnlyAfterRecentExhausted() {
         let ws = WorkingSet(capacity: 2)
         let now = Date()
