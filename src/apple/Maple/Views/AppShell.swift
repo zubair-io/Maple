@@ -275,6 +275,13 @@ struct AppShell: View {
     /// `cloudTimelineThumbClient`.
     @State var mapThumbClient: CloudThumbClient?
     @State var mapThumbCache: CloudThumbCache?
+    /// Why `.map` has no `mapVM` to render yet (#2848) — `nil` only while
+    /// `mapVM` is non-nil or `.map` isn't the current selection.
+    /// `AppShellCenterColumn` renders `MapEmptyState(reason:)` from this
+    /// instead of falling through to the browse grid when `.map` is
+    /// selected but `mapVM` is still nil. Set by `openMap()`
+    /// (`AppShell+Map.swift`); cleared below on any non-`.map` selection.
+    @State var mapUnavailableReason: MapUnavailableReason?
 
     /// Histogram client for the currently-open cloud asset (#633). Set
     /// when `openCloudAsset(_:server:)` builds the editor session — the
@@ -697,6 +704,7 @@ struct AppShell: View {
                 mapVM = nil
                 mapThumbClient = nil
                 mapThumbCache = nil
+                mapUnavailableReason = nil
             }
             // Merged timeline only valid while a PhotoKit filter is active.
             if case .photosFilter = newValue { /* keep mergedCloudSource */ }
@@ -815,6 +823,7 @@ struct AppShell: View {
             mapVM: mapVM,
             mapThumbClient: mapThumbClient,
             mapThumbCache: mapThumbCache,
+            mapUnavailableReason: mapUnavailableReason,
             isSearchActive: isSearchActive,
             searchVM: searchVM,
             searchThumbClient: searchThumbClient,
@@ -1226,6 +1235,7 @@ struct AppShell: View {
             mapVM: mapVM,
             mapThumbClient: mapThumbClient,
             mapThumbCache: mapThumbCache,
+            mapUnavailableReason: mapUnavailableReason,
             isSearchActive: isSearchActive,
             searchVM: searchVM,
             searchThumbClient: searchThumbClient,

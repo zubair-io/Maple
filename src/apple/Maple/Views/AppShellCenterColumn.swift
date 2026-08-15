@@ -58,6 +58,15 @@ struct AppShellCenterColumn: View {
     var mapVM: MapViewModel? = nil
     var mapThumbClient: CloudThumbClient? = nil
     var mapThumbCache: CloudThumbCache? = nil
+    /// Why `.map` has no `mapVM` to render yet (#2848) — non-nil whenever
+    /// `.map` is the current selection but `mapVM`/`mapThumbClient`/
+    /// `mapThumbCache` aren't all ready (no cloud account, sign-in
+    /// required, or still bootstrapping one). Drives the `MapEmptyState`
+    /// branch below instead of the fallthrough to
+    /// Timeline/BrowseGrid/LibraryGrid a `nil` `mapVM` used to produce
+    /// silently. `nil` both when the map is ready (`mapVM` non-nil) and
+    /// when `.map` isn't selected at all — see `AppShell.mapUnavailableReason`.
+    var mapUnavailableReason: MapUnavailableReason? = nil
     /// When true (and the search VM + thumb client/cache are present) the
     /// center column renders `CloudSearchView` instead of the grid /
     /// timeline. Takes precedence over the timeline branch but not the
@@ -201,6 +210,12 @@ struct AppShellCenterColumn: View {
                     host: mvm.server.cacheHostKey,
                     onSelectPlace: onSelectMapPlace
                 )
+            } else if let reason = mapUnavailableReason {
+                // `.map` is selected but not ready — a real empty state
+                // (#2848) instead of falling through to the Timeline/grid
+                // branches below, which would otherwise render silently
+                // under a "Map" title with nothing explaining why.
+                MapEmptyState(reason: reason)
             } else if let allVM = allSourcesTimelineVM,
                let thumbCache = allSourcesTimelineThumbCache {
                 AllSourcesTimelineView(
