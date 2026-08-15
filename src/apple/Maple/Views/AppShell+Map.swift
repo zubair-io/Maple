@@ -42,24 +42,43 @@ extension AppShell {
         mapThumbClient = nil
         mapThumbCache = nil
 
+        guard let serverID = resolvedServer else {
+            // No connected cloud account at all — `AppShellCenterColumn`
+            // renders `MapEmptyState(.noAccount)` (#2848) instead of
+            // falling through to the browse grid.
+            mapUnavailableReason = .noAccount
+            return
+        }
+        // Bootstrapping an already-connected account's token — shown as a
+        // brief spinner (#2848) rather than falling through to the grid
+        // while this awaits below.
+        mapUnavailableReason = .connecting
+
         Task { @MainActor in
-            guard let serverID = resolvedServer else { return }
             let session = sessionFor(serverID)
             if !session.isSignedIn { await session.bootstrapAndRestore() }
-            // Bootstrap only restores an already-persisted token; it does
-            // not prompt for credentials. A server that genuinely needs
-            // fresh sign-in leaves the map on its (browse-grid) fallback
-            // silently rather than presenting `addCloudSheetTarget` here —
-            // the same trade-off `makePhoneSearchSession()` makes for the
-            // account-wide iPhone Search tab, unlike the per-library
-            // `loadCloudLibrary()` path, which does prompt. Not fixed here:
-            // building a sign-in prompt for an account-wide surface is a
-            // bigger change than this ticket's scope.
-            guard session.isSignedIn else { return }
             // The user may have navigated away while the above awaited
             // (sign-in bootstrap) — don't clobber whatever they've since
-            // selected with a stale map VM.
+            // selected with a stale map VM or unavailable-reason.
             guard librarySelection == .map else { return }
+
+            // `hasAccount` is trivially true here (`serverID` is non-nil by
+            // construction) — routing through the shared selector still
+            // keeps "what reason, if any" single-sourced with its test
+            // coverage rather than re-deriving `.signInRequired` inline.
+            if let reason = MapAvailability.reason(hasAccount: true, isSignedIn: session.isSignedIn) {
+                // Bootstrap only restores an already-persisted token; it
+                // does not prompt for credentials. A server that genuinely
+                // needs fresh sign-in surfaces `MapEmptyState(.signInRequired)`
+                // (#2848) rather than presenting `addCloudSheetTarget` here —
+                // the same trade-off `makePhoneSearchSession()` makes for the
+                // account-wide iPhone Search tab, unlike the per-library
+                // `loadCloudLibrary()` path, which does prompt. Not fixed
+                // here: building a sign-in prompt for an account-wide
+                // surface is a bigger change than this ticket's scope.
+                mapUnavailableReason = reason
+                return
+            }
 
             let httpClient = makeAuthenticatedHTTPClient(server: serverID)
             let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: serverID)
@@ -73,7 +92,9 @@ extension AppShell {
 
     /// The server Map queries: the currently-open cloud library's server if
     /// there is one, else the first connected cloud account. `nil` → no
-    /// cloud account connected → the map opens to its empty state.
+    /// cloud account connected → `openMap()` sets `mapUnavailableReason =
+    /// .noAccount` and `AppShellCenterColumn` renders `MapEmptyState`
+    /// instead of `MapView` (#2848).
     private func resolveMapServerURL() -> URL? {
         if case .cloudLibrary(let serverID, _) = librarySelection { return serverID }
         return CloudServerRegistry.shared.servers.first
