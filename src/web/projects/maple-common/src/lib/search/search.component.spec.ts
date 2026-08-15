@@ -152,6 +152,29 @@ describe('SearchComponent (unified search)', () => {
     expect(stub.calls[0].sort).toBeUndefined();
   });
 
+  it('loads facets with no query and no filters so the pickers are usable immediately (#2879)', () => {
+    // Filtering by a person or place is a first-class entry point: the
+    // panel must be populated before the user types anything. The facets
+    // effect is deliberately NOT gated on text/filters (unlike the results
+    // effect, asserted below) — this is the regression guard for that.
+    vi.advanceTimersByTime(400);
+    expect(stub.facetCalls.length).toBe(1);
+    expect(stub.facetCalls[0].placeQuery).toBeUndefined();
+    expect(stub.facetCalls[0].people).toBeUndefined();
+    expect(stub.facetCalls[0].place).toBeUndefined();
+    // …and no result search fired for the empty state.
+    expect(stub.calls.length).toBe(0);
+
+    stub.resolveLatestFacets();
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="filter-person-Priya Patel"]'),
+    ).toBeTruthy();
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="filter-place-Portland, OR"]'),
+    ).toBeTruthy();
+  });
+
   it('fires a filters-only search (no text) with sort + filter params', () => {
     click(fixture, 'filter-preset-thisYear');
     vi.advanceTimersByTime(250);

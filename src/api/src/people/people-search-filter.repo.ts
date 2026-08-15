@@ -7,6 +7,7 @@
 
 import { ObjectId } from 'mongodb';
 import { peopleCollection } from '../db/client.ts';
+import { AUTO_PERSON_NAME } from './auto-person-name.ts';
 
 /** Hex ids for the display names in search's `people` filter.
  * Case-insensitive under the same collation as the unique name index.
@@ -28,12 +29,16 @@ export async function personIdsForNames(names: string[]): Promise<string[] | nul
   return rows.map((row) => row._id.toHexString());
 }
 
-/** Hex id → display name for live, visible, named persons — the join half
- * of the facets `people` bucket: the faces aggregation groups by
+/** Hex id → display name for live, visible, genuinely-named persons — the
+ * join half of the facets `people` bucket: the faces aggregation groups by
  * `person_id` and this maps the surviving ids to names. Hidden and
- * merged-away persons are omitted so they drop out of the picker. Keys
- * are canonical `toHexString()` output (lowercase) — callers must
- * canonicalize their lookup keys the same way. */
+ * merged-away persons are omitted so they drop out of the picker, and so
+ * are clustering placeholders (`Person N`, #2879): a cluster the operator
+ * hasn't named yet has no label worth showing and nothing a user could
+ * mean by picking it. The Meili `people` attribute already excludes them
+ * (`workers/stages/meili.ts`), so this also makes the two agree. Keys are
+ * canonical `toHexString()` output (lowercase) — callers must canonicalize
+ * their lookup keys the same way. */
 export async function namesForPersonIds(hexIds: string[]): Promise<Map<string, string>> {
   const valid = hexIds.filter((id) => ObjectId.isValid(id));
   if (valid.length === 0) return new Map();
@@ -44,6 +49,7 @@ export async function namesForPersonIds(hexIds: string[]): Promise<Map<string, s
         _id: { $in: valid.map((id) => new ObjectId(id)) },
         merged_into: null,
         hidden: { $ne: true },
+        name: { $not: AUTO_PERSON_NAME },
       },
       { projection: { _id: 1, name: 1 } },
     )
