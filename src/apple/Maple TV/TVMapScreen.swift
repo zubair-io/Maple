@@ -67,6 +67,12 @@ struct TVMapScreen: View {
 
   @State private var viewModel: MapViewModel
   @State private var searchPresentation: TVMapSearchPresentation?
+  /// Written by the `.continuous` listener on the ZStack below, read ONLY by
+  /// `TVMapHeatmapOverlay`. Because it's `@Observable` and this body never
+  /// reads `region`, the per-frame camera updates invalidate the heat overlay
+  /// without rebuilding this screen — see the type's doc for why the listener
+  /// can't live on the overlay itself.
+  @State private var cameraTracker = TVMapCameraTracker()
   @Namespace private var focusNamespace
 
   init(session: TVCloudSession, libraryID: String) {
@@ -131,7 +137,7 @@ struct TVMapScreen: View {
         .mapStyle(.standard(emphasis: .muted, pointsOfInterest: .excludingAll))
         .accessibilityIdentifier("tv-map-view")
 
-        TVMapHeatmapOverlay(points: viewModel.heatmapPoints, proxy: proxy)
+        TVMapHeatmapOverlay(points: viewModel.heatmapPoints, tracker: cameraTracker, proxy: proxy)
 
         if viewModel.isEmpty {
           statePane(icon: "mappin.slash", title: "No photos with location here",
@@ -154,12 +160,17 @@ struct TVMapScreen: View {
       // Shared focus scope for the pins' `.prefersDefaultFocus(_:in:)`, so it
       // wraps their common ancestor rather than just the `Map`.
       .focusScope(focusNamespace)
-      // ONLY `.onEnd` here. The heatmap's continuous camera tracking lives
-      // inside `TVMapHeatmapOverlay` so the per-frame invalidation it needs is
-      // confined to that subtree — holding it on this screen would re-run
-      // `orderedItems`' sort and rebuild the `Map` and its annotations at
-      // ~60 FPS during every pan. Refetching belongs on `.onEnd` regardless: it
-      // is the expensive half, and settling once per gesture is the point. `MapViewModel` debounces and
+      // The heatmap's per-frame camera feed. It has to be attached HERE, on an
+      // ancestor of the `Map` — `.onMapCameraChange` never fires on a sibling,
+      // and the heat layer is a sibling inside the ZStack. Writing into the
+      // `@Observable` tracker rather than `@State` is what keeps the cost
+      // contained: this body never reads `tracker.region`, so it isn't
+      // invalidated; only the overlay that reads it redraws.
+      .onMapCameraChange(frequency: .continuous) { context in
+        cameraTracker.region = context.region
+      }
+      // Refetching stays on `.onEnd`: it is the expensive half, and settling
+      // once per gesture is the point. `MapViewModel` debounces and
       // generation-guards on top, so an in-flight response from an older camera
       // can't overwrite a newer one.
       .onMapCameraChange(frequency: .onEnd) { context in

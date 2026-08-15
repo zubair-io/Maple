@@ -91,39 +91,47 @@ struct TVMapHeatmapLayerView: View {
   }
 }
 
-/// Owns the continuously-updating camera state for the heatmap, so that state
-/// does NOT live on `TVMapScreen`.
+/// Live camera state for the heatmap, held in an `@Observable` reference type
+/// so the listener and the reader can sit in different places in the tree.
 ///
-/// The heat layer has to re-project every frame of a pan to stay aligned with
-/// the tiles, which means something must invalidate at ~60 FPS. Holding that
-/// `@State` on the screen would re-evaluate the screen's whole body per frame —
-/// re-running `orderedItems`' map + sort and rebuilding the `Map` and its
-/// annotation `ForEach` — which the performance invariants in root `CLAUDE.md`
-/// rule out, and which this screen has already been bitten by once (the
-/// O(n² log n) sort fixed in #2854).
+/// Both halves of that split are load-bearing:
 ///
-/// Keeping the state here confines the per-frame invalidation to this small
-/// subtree: the `Canvas` redraws, the map and pins above it do not rebuild.
-/// `TVMapScreen` keeps only the `.onEnd` listener that drives refetching.
+///  - `.onMapCameraChange` only fires when applied to a `Map` or an ANCESTOR of
+///    one. The heat layer is a SIBLING of the `Map` inside the screen's
+///    `ZStack`, so a listener attached to the layer never fires at all — the
+///    same ancestor-not-sibling rule that broke `.onMoveCommand` on the old
+///    camera pad (#2858). The listener therefore stays on the ZStack.
+///  - Writing that camera into `@State` on the screen would re-evaluate the
+///    screen's whole body every frame of a pan, re-running `orderedItems`' sort
+///    and rebuilding the `Map` and its annotations at ~60 FPS.
+///
+/// `@Observable` resolves the tension: only views that actually READ `region`
+/// during body evaluation are invalidated when it changes. `TVMapScreen` holds
+/// the tracker but never reads it, so it does not rebuild; the heat overlay
+/// reads it, so its `Canvas` redraws in step with the tiles.
+@Observable
+final class TVMapCameraTracker {
+  var region: MKCoordinateRegion?
+}
+
+/// The heat layer plus the zoom derivation, isolated so that reading the live
+/// camera invalidates only this subtree.
 struct TVMapHeatmapOverlay: View {
   let points: [MapHeatmapPoint]
+  let tracker: TVMapCameraTracker
   let proxy: MapProxy
-
-  @State private var region: MKCoordinateRegion?
 
   /// Same zoom convention `MapViewModel.fetch` uses for the `/api/map/clusters`
   /// `zoom` param, so the crossfade lines up with the data on screen. `0`
   /// (fully opaque, matching a whole-world view) before the first camera report
   /// — harmless, because `points` is empty then too.
   private var zoomLevel: Int {
-    guard let region else { return 0 }
+    guard let region = tracker.region else { return 0 }
     return MapViewport.zoomLevel(for: MapViewportRegion(region))
   }
 
   var body: some View {
-    TVMapHeatmapLayerView(points: points, zoomLevel: zoomLevel, region: region, proxy: proxy)
-      .onMapCameraChange(frequency: .continuous) { context in
-        region = context.region
-      }
+    TVMapHeatmapLayerView(
+      points: points, zoomLevel: zoomLevel, region: tracker.region, proxy: proxy)
   }
 }
