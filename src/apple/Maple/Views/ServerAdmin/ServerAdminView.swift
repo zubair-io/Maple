@@ -27,6 +27,12 @@ struct ServerAdminView: View {
     /// `beginBackgroundTask` assertion per refresh via `BackgroundExecution`.
     @State private var httpClient: AuthenticatedHTTPClient?
 
+    /// One events socket per server, for the same reason as `httpClient`
+    /// but more acutely: this one owns a live WebSocket and a reconnect
+    /// loop, so rebuilding it per body evaluation would tear down and
+    /// re-handshake the connection on every state change.
+    @State private var eventsClient: WorkerEventsClient?
+
     private var sections: [ServerAdminSection] {
         ServerAdminSection.visible(isOwner: session.isOwner)
     }
@@ -41,6 +47,19 @@ struct ServerAdminView: View {
                 if selection == nil { selection = sections.first }
                 if httpClient == nil {
                     httpClient = makeCloudHTTPClient(server: server, session: session)
+                }
+                if eventsClient == nil {
+                    let target = server
+                    eventsClient = WorkerEventsClient(server: target) {
+                        // Read the token per connection attempt rather than
+                        // capturing one: a reconnect after a long drop must
+                        // use whatever the refresh path has since rotated in.
+                        guard let access = try TokenStore.load(server: target)?.access else {
+                            throw ServerAdminError(
+                                statusCode: 401, message: "not signed in to this server")
+                        }
+                        return access
+                    }
                 }
             }
     }
@@ -109,7 +128,7 @@ struct ServerAdminView: View {
 
     @ViewBuilder
     private func page(for section: ServerAdminSection) -> some View {
-        if let httpClient {
+        if let httpClient, let eventsClient {
             switch section {
             case .network:
                 // These per-page clients are stateless wrappers, so
@@ -120,6 +139,10 @@ struct ServerAdminView: View {
             case .cloudflare:
                 CloudflareSettingsView(
                     client: CloudflareConfigClient(server: server, httpClient: httpClient))
+            case .workers:
+                WorkersSettingsView(
+                    client: WorkersAdminClient(server: server, httpClient: httpClient),
+                    events: eventsClient)
             }
         } else {
             // One `.task` tick, before the client exists.
