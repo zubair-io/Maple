@@ -6,7 +6,7 @@
 // alongside it was removed with the S7 top-hits section in the unified
 // search redesign (#2866).
 
-import SwiftUI
+import Foundation
 import MapleCore
 
 /// Fetch JPEG thumb bytes: cache first, then the network client (populating
