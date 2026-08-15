@@ -78,6 +78,66 @@ export function asNumber(value: string | undefined): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+/** Person names from the comma-separated `people` param, trimmed and
+ * de-blanked. Shared by the Meilisearch branch (which filters on the
+ * `people` attribute directly) and the routes, which resolve the names to
+ * person ids (`personIdsForNames`) for `buildFilter`'s Mongo clause. */
+export function peopleNames(raw: string | undefined): string[] {
+  if (typeof raw !== 'string' || raw.trim().length === 0) return [];
+  return raw
+    .split(',')
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+}
+
+/** Place labels from the `|`-separated `place` param (labels contain
+ * commas, so commas can't separate entries). */
+export function parsePlaceLabels(raw: string | undefined): string[] {
+  if (typeof raw !== 'string' || raw.trim().length === 0) return [];
+  return raw
+    .split('|')
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+}
+
+/** Mongo clause for one place label, inverting the label rule the facets
+ * endpoint uses (`placeLabel` in `facets.ts`): "locality, region" splits on
+ * the LAST ", " back into the exact rollup tuple; a bare label is either a
+ * region-less locality or a locality-less region, so it matches both. */
+export function placeLabelClause(label: string): Record<string, unknown> {
+  const idx = label.lastIndexOf(', ');
+  if (idx > 0) {
+    return {
+      'place.rollups.locality': label.slice(0, idx),
+      'place.rollups.region': label.slice(idx + 2),
+    };
+  }
+  return {
+    $or: [
+      { 'place.rollups.locality': label, 'place.rollups.region': null },
+      { 'place.rollups.locality': null, 'place.rollups.region': label },
+    ],
+  };
+}
+
+/** Attach an OR-group to the filter without letting it clobber (or be
+ * clobbered by) an existing top-level `$or` — Mongo allows one `$or` per
+ * level, so a second group demotes both into `$and`. */
+function addOrGroup(filter: Filter<AssetDoc>, group: unknown[]): void {
+  const f = filter as { $or?: unknown[]; $and?: unknown[] };
+  if (f.$and) {
+    f.$and.push({ $or: group });
+    return;
+  }
+  if (f.$or) {
+    const existing = f.$or;
+    delete f.$or;
+    f.$and = [{ $or: existing }, { $or: group }];
+    return;
+  }
+  f.$or = group;
+}
+
 /** Bare-date detector: matches `YYYY-MM-DD` with no time component. */
 const BARE_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -166,6 +226,12 @@ export function buildFilter(
    * access. Only consulted when `q.excludeHiddenPeople === 'true'`; callers
    * skip the lookup entirely otherwise. */
   hiddenPersonIds: string[] = [],
+  /** Hex person ids the `people` param's names resolved to, supplied by the
+   * (async) caller — same pattern as `hiddenPersonIds`. `null` means "no
+   * people filter requested"; `[]` means the names resolved to no live
+   * person and must match NOTHING (an empty `$in` does exactly that), not
+   * everything. Resolution lives in `people.repo.ts` (`personIdsForNames`). */
+  peoplePersonIds: string[] | null = null,
 ): Filter<AssetDoc> | { error: string } {
   const filter: Filter<AssetDoc> = {};
 
@@ -212,18 +278,33 @@ export function buildFilter(
   // Camera substring across make + model.
   if (q.camera && q.camera.trim().length > 0) {
     const pattern = escapeRegex(q.camera.trim());
-    const camOr = [
+    // Combined with any prior $or (q) via $and so both sets remain restrictive.
+    addOrGroup(filter, [
       { 'exif.camera_make': { $regex: pattern, $options: 'i' } },
       { 'exif.camera_model': { $regex: pattern, $options: 'i' } },
-    ];
-    if ((filter as { $or?: unknown[] }).$or) {
-      // Combine prior $or (q) with this one via $and so both sets remain restrictive.
-      const existing = (filter as { $or?: unknown[] }).$or!;
-      delete (filter as { $or?: unknown[] }).$or;
-      (filter as { $and?: unknown[] }).$and = [{ $or: existing }, { $or: camOr }];
-    } else {
-      (filter as { $or?: unknown[] }).$or = camOr;
-    }
+    ]);
+  }
+
+  // Structured place filter (#2864) — labels round-trip from the facets
+  // `places` bucket. OR within the field (any selected place matches), AND
+  // against everything else via the `addOrGroup` demotion.
+  const placeLabels = parsePlaceLabels(q.place);
+  if (placeLabels.length > 0) {
+    addOrGroup(
+      filter,
+      placeLabels.map((label) => placeLabelClause(label)),
+    );
+  }
+
+  // Explicit person picker (#2864). The Meilisearch branch filters on its
+  // `people` attribute by name; this is the Mongo-path equivalent, matching
+  // any face assigned to any of the resolved persons. Hidden faces can't
+  // slip in: hiding a face forces its `person_id` to null (see
+  // `AssetFaceDoc.hidden`), so the id match alone is sufficient.
+  if (peoplePersonIds !== null) {
+    (filter as Record<string, unknown>).faces = {
+      $elemMatch: { person_id: { $in: peoplePersonIds } },
+    };
   }
 
   // Lens substring.
@@ -434,7 +515,14 @@ export function buildFilter(
   // above. A separate top-level key from `scope=people`'s `faces.0` presence
   // check, so the two AND together rather than overwriting each other.
   if (q.excludeHiddenPeople === 'true' && hiddenPersonIds.length > 0) {
+    // Merge rather than assign — the explicit person picker above may have
+    // already put an `$elemMatch` on `faces`, and both operators are legal
+    // side by side on one field path (they AND together).
+    const existingFaces = (filter as Record<string, unknown>).faces as
+      | Record<string, unknown>
+      | undefined;
     (filter as Record<string, unknown>).faces = {
+      ...(existingFaces ?? {}),
       $not: { $elemMatch: { person_id: { $in: hiddenPersonIds } } },
     };
   }

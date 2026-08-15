@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'bun:test';
-import { applyLiveFilter, buildFilter, SEARCHABLE_COLOR_LABELS } from './query.ts';
+import {
+  applyLiveFilter,
+  buildFilter,
+  parsePlaceLabels,
+  peopleNames,
+  placeLabelClause,
+  SEARCHABLE_COLOR_LABELS,
+} from './query.ts';
 import { COLOR_LABELS as XMP_COLOR_LABELS } from '../../xmp/color-label.ts';
 
 /**
@@ -75,5 +82,98 @@ describe('search color filter — vocabulary parity with the XMP writers (#1657)
   it('rejects a color outside the six-color vocabulary', () => {
     const result = buildFilter({ color: 'magenta' });
     expect(result).toEqual({ error: 'Invalid color: magenta' });
+  });
+});
+
+/**
+ * #2864 — the unified-search structured filters. `place` labels round-trip
+ * through the exact inverse of the facets endpoint's `placeLabel` rule, and
+ * the `people` clause consumes caller-resolved person ids (names never reach
+ * `buildFilter`). Both are OR within the field, AND against other filters.
+ */
+describe('place filter — label parsing and clause shape (#2864)', () => {
+  it('splits the wire param on | and trims blanks', () => {
+    expect(parsePlaceLabels('Portland, OR|Kyoto, Japan')).toEqual(['Portland, OR', 'Kyoto, Japan']);
+    expect(parsePlaceLabels(' Portland, OR | ')).toEqual(['Portland, OR']);
+    expect(parsePlaceLabels(undefined)).toEqual([]);
+    expect(parsePlaceLabels('  ')).toEqual([]);
+  });
+
+  it('parses "locality, region" back into the rollup tuple on the LAST comma', () => {
+    expect(placeLabelClause('Portland, OR')).toEqual({
+      'place.rollups.locality': 'Portland',
+      'place.rollups.region': 'OR',
+    });
+    // A locality that itself contains ", " keeps everything before the last
+    // separator — the label was built by joining exactly one ", ".
+    expect(placeLabelClause('San Miguel, de Allende, GTO')).toEqual({
+      'place.rollups.locality': 'San Miguel, de Allende',
+      'place.rollups.region': 'GTO',
+    });
+  });
+
+  it('matches a bare label against either half of the tuple, other half null', () => {
+    expect(placeLabelClause('Portland')).toEqual({
+      $or: [
+        { 'place.rollups.locality': 'Portland', 'place.rollups.region': null },
+        { 'place.rollups.locality': null, 'place.rollups.region': 'Portland' },
+      ],
+    });
+  });
+
+  it('one selected place becomes a top-level $or group', () => {
+    const f = buildFilter({ place: 'Portland, OR' }) as Record<string, unknown>;
+    expect(f.$or).toEqual([
+      { 'place.rollups.locality': 'Portland', 'place.rollups.region': 'OR' },
+    ]);
+  });
+
+  it('multiple places OR together; a free-text q demotes both groups into $and', () => {
+    const f = buildFilter({ q: 'DJI', place: 'Portland, OR|Kyoto' }) as {
+      $and?: Array<Record<string, unknown>>;
+      $or?: unknown;
+    };
+    expect(f.$or).toBeUndefined();
+    expect(f.$and).toHaveLength(2);
+    const placeGroup = f.$and!.find((c) =>
+      JSON.stringify(c).includes('place.rollups.locality'),
+    ) as { $or: unknown[] };
+    expect(placeGroup.$or).toHaveLength(2);
+  });
+});
+
+describe('people filter — resolved-id clause (#2864)', () => {
+  it('null (no people requested) adds no faces clause', () => {
+    const f = buildFilter({}, [], null) as Record<string, unknown>;
+    expect(f.faces).toBeUndefined();
+  });
+
+  it('resolved ids match any face assigned to any selected person', () => {
+    const f = buildFilter({}, [], ['aaa', 'bbb']) as Record<string, unknown>;
+    expect(f.faces).toEqual({ $elemMatch: { person_id: { $in: ['aaa', 'bbb'] } } });
+  });
+
+  it('names that resolved to no live person match NOTHING (empty $in), not everything', () => {
+    const f = buildFilter({}, [], []) as Record<string, unknown>;
+    expect(f.faces).toEqual({ $elemMatch: { person_id: { $in: [] } } });
+  });
+
+  it('composes with excludeHiddenPeople on the same field path instead of being clobbered', () => {
+    const f = buildFilter({ excludeHiddenPeople: 'true' }, ['hidden1'], ['aaa']) as Record<
+      string,
+      unknown
+    >;
+    expect(f.faces).toEqual({
+      $elemMatch: { person_id: { $in: ['aaa'] } },
+      $not: { $elemMatch: { person_id: { $in: ['hidden1'] } } },
+    });
+  });
+});
+
+describe('peopleNames — wire parsing (#2864)', () => {
+  it('splits on commas, trims, drops blanks', () => {
+    expect(peopleNames('Priya Patel, Alex Chen ,')).toEqual(['Priya Patel', 'Alex Chen']);
+    expect(peopleNames(undefined)).toEqual([]);
+    expect(peopleNames('   ')).toEqual([]);
   });
 });

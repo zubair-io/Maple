@@ -23,7 +23,7 @@ import { loadLibraryRoots, loadLibraryIdToSlug } from '../../indexer/libraries.c
 import { meilisearchClient } from '../../enrichment/meilisearch-client.ts';
 import { child as childLogger } from '../../log.ts';
 import { projectAsset, type SearchResult } from './project.ts';
-import { applyLiveFilter, type SearchQuery } from './query.ts';
+import { applyLiveFilter, peopleNames, type SearchQuery } from './query.ts';
 
 const searchLog = childLogger('search');
 
@@ -49,16 +49,13 @@ export function usesPlaceText(resolved: SearchQuery): boolean {
   return typeof resolved.placeQuery === 'string' && resolved.placeQuery.trim().length > 0;
 }
 
-/** Comma-separated person names for the Meili `people` filter, or
- * `undefined` when the explicit person picker is empty. The Mongo `$text`
- * fallback already covers names via `search_blob`. */
-function peopleNames(resolved: SearchQuery): string[] | undefined {
-  const raw = resolved.people;
-  if (typeof raw !== 'string' || raw.trim().length === 0) return undefined;
-  return raw
-    .split(',')
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0);
+/** Person names for the Meili `people` filter, or `undefined` when the
+ * explicit person picker is empty (parsing shared with the routes via
+ * `peopleNames` in `query.ts`). Meili filters by name directly; the Mongo
+ * re-fetch below additionally applies `buildFilter`'s id-based clause. */
+function meiliPeople(resolved: SearchQuery): string[] | undefined {
+  const names = peopleNames(resolved.people);
+  return names.length > 0 ? names : undefined;
 }
 
 /**
@@ -80,7 +77,7 @@ export async function meiliPage(input: MeiliPageInput): Promise<MeiliPage | null
     // candidate page stays dense with rows the re-fetch will keep.
     const hit = await meili.search(resolved.placeQuery!.trim(), {
       folderId: libraryId,
-      people: peopleNames(resolved),
+      people: meiliPeople(resolved),
       semantic: meili.semanticConfigured(),
       includeHidden: resolved.hidden === 'all',
       onlyHidden: resolved.hidden === 'only',
