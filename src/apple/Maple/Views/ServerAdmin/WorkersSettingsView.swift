@@ -34,7 +34,13 @@ struct WorkersSettingsView: View {
                                 WorkersStageRow(
                                     stage: stage,
                                     onTogglePause: { Task { await togglePause(stage) } },
-                                    isBusy: busyStage == stage.name)
+                                    // Every row disables while any action
+                                    // is in flight. Disabling only the
+                                    // acting row left the others clickable
+                                    // but inert — `togglePause` guards on
+                                    // `busyStage`, so those taps silently
+                                    // did nothing.
+                                    isBusy: busyStage != nil)
                             }
                         }
                         .listRowBackground(MapleTokens.surface)
@@ -125,12 +131,21 @@ struct WorkersSettingsView: View {
     }
 
     private func consumeEvents() async {
-        for await frame in await events.frames() {
-            isLive = true
-            feed.apply(frame)
+        // Connection state arrives in-band. The client reconnects
+        // internally, so the stream finishing means teardown, not a drop —
+        // reading liveness from that would leave the banner permanently
+        // hidden through every real disconnect.
+        for await update in await events.frames() {
+            switch update {
+            case .connected:
+                isLive = true
+            case .disconnected:
+                isLive = false
+            case .status(let frame):
+                isLive = true
+                feed.apply(frame)
+            }
         }
-        // The stream only finishes when the client stops retrying or the
-        // view goes away.
         isLive = false
     }
 
