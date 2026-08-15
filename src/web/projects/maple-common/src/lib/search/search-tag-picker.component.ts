@@ -6,6 +6,9 @@
 // filter and the host strips the token from the query. Placement is the
 // host's job: anchored dropdown under the bar on desktop, bottom sheet on
 // phones — same content either way (see `search.component.scss`).
+//
+// The template renders one sectioned loop over a precomputed view model
+// (rows carry their own count label), keeping its branching flat.
 
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import type { FacetOption } from './search-filter-panel.component';
@@ -13,6 +16,17 @@ import type { FacetOption } from './search-filter-panel.component';
 export interface TagPick {
   readonly kind: 'person' | 'place';
   readonly value: string;
+}
+
+interface TagRow extends FacetOption {
+  readonly selected: boolean;
+  readonly countLabel: string;
+}
+
+interface TagSection {
+  readonly title: string;
+  readonly kind: 'person' | 'place';
+  readonly rows: TagRow[];
 }
 
 @Component({
@@ -32,15 +46,22 @@ export class SearchTagPickerComponent {
 
   readonly pick = output<TagPick>();
 
-  protected readonly peopleRows = computed(() =>
-    filterRows(this.people(), this.fragment(), this.selectedPeople()),
+  protected readonly sections = computed<TagSection[]>(() =>
+    [
+      {
+        title: 'People',
+        kind: 'person' as const,
+        rows: filterRows(this.people(), this.fragment(), this.selectedPeople()),
+      },
+      {
+        title: 'Places',
+        kind: 'place' as const,
+        rows: filterRows(this.places(), this.fragment(), this.selectedPlaces()),
+      },
+    ].filter((s) => s.rows.length > 0),
   );
-  protected readonly placeRows = computed(() =>
-    filterRows(this.places(), this.fragment(), this.selectedPlaces()),
-  );
-  protected readonly isEmpty = computed(
-    () => this.peopleRows().length === 0 && this.placeRows().length === 0,
-  );
+
+  protected readonly isEmpty = computed(() => this.sections().length === 0);
 
   protected initial(name: string): string {
     return name.trim().charAt(0).toUpperCase();
@@ -51,9 +72,13 @@ function filterRows(
   options: readonly FacetOption[],
   fragment: string,
   selected: readonly string[],
-): Array<FacetOption & { selected: boolean }> {
+): TagRow[] {
   const needle = fragment.trim().toLowerCase();
   const matched =
     needle.length === 0 ? options : options.filter((o) => o.value.toLowerCase().includes(needle));
-  return matched.map((o) => ({ ...o, selected: selected.includes(o.value) }));
+  return matched.map((o) => ({
+    ...o,
+    selected: selected.includes(o.value),
+    countLabel: `${o.count} ${o.count === 1 ? 'photo' : 'photos'}`,
+  }));
 }
