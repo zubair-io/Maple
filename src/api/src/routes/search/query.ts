@@ -78,47 +78,11 @@ export function asNumber(value: string | undefined): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-/** Person names from the comma-separated `people` param, trimmed and
- * de-blanked. Shared by the Meilisearch branch (which filters on the
- * `people` attribute directly) and the routes, which resolve the names to
- * person ids (`personIdsForNames`) for `buildFilter`'s Mongo clause. */
-export function peopleNames(raw: string | undefined): string[] {
-  if (typeof raw !== 'string' || raw.trim().length === 0) return [];
-  return raw
-    .split(',')
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0);
-}
-
-/** Place labels from the `|`-separated `place` param (labels contain
- * commas, so commas can't separate entries). */
-export function parsePlaceLabels(raw: string | undefined): string[] {
-  if (typeof raw !== 'string' || raw.trim().length === 0) return [];
-  return raw
-    .split('|')
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0);
-}
-
-/** Mongo clause for one place label, inverting the label rule the facets
- * endpoint uses (`placeLabel` in `facets.ts`): "locality, region" splits on
- * the LAST ", " back into the exact rollup tuple; a bare label is either a
- * region-less locality or a locality-less region, so it matches both. */
-export function placeLabelClause(label: string): Record<string, unknown> {
-  const idx = label.lastIndexOf(', ');
-  if (idx > 0) {
-    return {
-      'place.rollups.locality': label.slice(0, idx),
-      'place.rollups.region': label.slice(idx + 2),
-    };
-  }
-  return {
-    $or: [
-      { 'place.rollups.locality': label, 'place.rollups.region': null },
-      { 'place.rollups.locality': null, 'place.rollups.region': label },
-    ],
-  };
-}
+// The `people`/`place` wire-term parsing and the place-label clause live
+// in `filter-terms.ts` (file-size budget split, mirroring `query-schema.ts`)
+// — re-exported here so importers keep one entry point.
+import { parsePlaceLabels, placeLabelClause } from './filter-terms.ts';
+export { parsePlaceLabels, peopleNames, placeLabelClause } from './filter-terms.ts';
 
 /** Attach an OR-group to the filter without letting it clobber (or be
  * clobbered by) an existing top-level `$or` — Mongo allows one `$or` per
