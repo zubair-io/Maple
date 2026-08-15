@@ -156,7 +156,13 @@ public struct UploadResponse: Codable, Equatable, Sendable {
 }
 
 public struct TrashItem: Codable, Equatable, Sendable {
-    public let assetID: String
+    /// nil when the trashed row is not an indexed image — mirrors
+    /// `FileChild`/`UploadResponse.assetID`. A non-optional `assetID`
+    /// here (the pre-#2546 shape) meant a single non-image row in
+    /// `/api/folders/:id/trash` failed `[TrashItem]`'s array decode
+    /// ATOMICALLY, taking the whole Trash listing down with it instead
+    /// of just that one row.
+    public let assetID: String?
     public let filename: String
     public let originalRelativePath: String
     public let trashRelativePath: String
@@ -164,7 +170,7 @@ public struct TrashItem: Codable, Equatable, Sendable {
     public let mtime: Date
     public let deletedAt: Date
 
-    public init(assetID: String, filename: String, originalRelativePath: String, trashRelativePath: String, size: Int64, mtime: Date, deletedAt: Date) {
+    public init(assetID: String?, filename: String, originalRelativePath: String, trashRelativePath: String, size: Int64, mtime: Date, deletedAt: Date) {
         self.assetID = assetID
         self.filename = filename
         self.originalRelativePath = originalRelativePath
