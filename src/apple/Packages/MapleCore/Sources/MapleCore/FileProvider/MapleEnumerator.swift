@@ -2,6 +2,39 @@
 import FileProvider
 import OSLog
 
+/// Shared cursor <-> `NSFileProviderPage` codec for the enumerators that
+/// paginate through a REST endpoint's own opaque `next_cursor`
+/// (`FolderEnumerator`, `MapleThumbsEnumerator`, `TrashEnumerator`).
+///
+/// #2550: `FolderEnumerator`/`MapleThumbsEnumerator` used to ignore the
+/// OS's `startingAt` page entirely and full-drain every server page
+/// internally before calling `finishEnumerating` once — a second,
+/// enumerator-private pagination scheme layered underneath the OS's own.
+/// `TrashEnumerator` already did this correctly (one server page per
+/// `enumerateItems` call, OS page in → OS page out); this type factors
+/// that exact codec out so all three enumerators reconcile against the
+/// OS's page token as the SOLE pagination mechanism, rather than each
+/// maintaining its own.
+enum FileProviderPageCursor {
+    /// Decodes the OS-supplied starting page into a server cursor.
+    /// Returns nil for the OS's own "start from the top" sentinels — a
+    /// plain empty `Data` (what tests pass), or either of
+    /// `NSFileProviderInitialPageSortedByDate`/`ByName` (opaque system
+    /// bytes that don't happen to decode as one of our own cursor
+    /// strings). `"0"` is also treated as "no cursor" — the same
+    /// placeholder this file's sync anchors (`NSFileProviderSyncAnchor(
+    /// Data("0".utf8))`) use for "nothing yet," kept consistent here in
+    /// case a caller round-trips one through the wrong slot.
+    static func decode(_ page: NSFileProviderPage) -> String? {
+        guard let s = String(data: page.rawValue, encoding: .utf8), !s.isEmpty, s != "0" else { return nil }
+        return s
+    }
+
+    static func encode(_ cursor: String) -> NSFileProviderPage {
+        NSFileProviderPage(Data(cursor.utf8))
+    }
+}
+
 public final class RootEnumerator: NSObject, NSFileProviderEnumerator {
     private let catalog: RemoteCatalog
     private let rootCache: LibraryRootCache?
@@ -130,82 +163,91 @@ public final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
     public func enumerateItems(for observer: NSFileProviderEnumerationObserver, startingAt page: NSFileProviderPage) {
         Task {
             do {
-                var cursor: String? = nil
-                var firstPage = true
-                repeat {
-                    let contents = try await catalog.listDir(absolutePath: absolutePath,
-                                                              cursor: cursor,
-                                                              limit: pageSize)
-                    var items: [NSFileProviderItem] = contents.dirs.map { d in
-                        MapleItem(subdirectory: d,
-                                  parentFolderID: folderID,
-                                  parentRelativePath: relativePath,
-                                  parentIdentifier: containerIdentifier)
-                    }
-                    // Failable init filters out unindexed images.
-                    items.append(contentsOf: contents.images.compactMap {
-                        MapleItem(image: $0, parentIdentifier: containerIdentifier)
-                    })
-                    // Build a lookup from asset ID to that asset's filename
-                    // base (no extension) so each sidecar can resolve
-                    // canonical-vs-conflict status.
-                    var assetIDToBase: [String: String] = [:]
-                    for img in contents.images {
-                        guard let id = img.assetID else { continue }
-                        let dot = img.name.lastIndex(of: ".")
-                        let base = dot.map { String(img.name[..<$0]) } ?? img.name
-                        assetIDToBase[id] = base
-                    }
-                    for sidecar in contents.sidecars {
-                        let base = assetIDToBase[sidecar.assetID] ?? sidecar.name
-                        items.append(MapleItem(sidecar: sidecar,
-                                               parentImageBase: base,
-                                               parentIdentifier: containerIdentifier))
-                    }
-                    // Non-image files (video, documents, extensionless, …):
-                    // stored + synced but never indexed, so they're addressed
-                    // by their library-relative path rather than an asset id.
-                    for file in contents.files {
-                        let childRel = relativePath.isEmpty ? file.name : "\(relativePath)/\(file.name)"
-                        items.append(MapleItem(file: file,
-                                               folderID: folderID,
-                                               relativePath: childRel,
-                                               parentIdentifier: containerIdentifier))
-                    }
-                    // Inject the synthesized `.maple/` container on the
-                    // first page only. The server's `/api/fs/dir` hides
-                    // dotdirs (see `src/api/.../routes/fs.ts`), so we
-                    // can't enumerate `.maple/` through the catalog —
-                    // synthesize it client-side so future readers of
-                    // the FP mount (the app's Folder-View path, #101)
-                    // can find the pre-baked thumbnails next to the
-                    // photos.
-                    //
-                    // The server's `.maple/thumbs/` lives under EVERY
-                    // folder (per-folder layout — see
-                    // `src/api/.../fs/xmp.ts` `resolveThumbPath`), so
-                    // we surface one `.maple/` per enumerable folder
-                    // regardless of depth, not just at the library root.
-                    //
-                    // Empty case (no thumbs cached yet, or empty parent
-                    // folder) is handled naturally — the nested
-                    // `.maple/thumbs/` enumerator returns an empty list
-                    // and never touches the server's filesystem. Finder
-                    // hides the entry from human users via the leading
-                    // `.` so this only changes the machine-readable
-                    // view.
-                    if firstPage {
-                        items.append(MapleItem(
-                            mapleDir: folderID,
-                            parentRelativePath: relativePath,
-                            parentIdentifier: containerIdentifier
-                        ))
-                        firstPage = false
-                    }
-                    observer.didEnumerate(items)
-                    cursor = contents.nextCursor
-                } while cursor != nil
-                observer.finishEnumerating(upTo: nil)
+                // #2550: honor the OS's own page token as the sole
+                // pagination mechanism — no second, enumerator-private
+                // cursor loop underneath it. Each call surfaces exactly
+                // ONE server page and hands the next server cursor back
+                // via `finishEnumerating(upTo:)`; if the OS interrupts
+                // the enumeration (memory/time pressure, especially on
+                // iOS), it resumes by calling this method again with
+                // that page, and we resume the SERVER walk from that
+                // exact cursor instead of re-fetching from the start.
+                let cursor = FileProviderPageCursor.decode(page)
+                let contents = try await catalog.listDir(absolutePath: absolutePath,
+                                                          cursor: cursor,
+                                                          limit: pageSize)
+                var items: [NSFileProviderItem] = contents.dirs.map { d in
+                    MapleItem(subdirectory: d,
+                              parentFolderID: folderID,
+                              parentRelativePath: relativePath,
+                              parentIdentifier: containerIdentifier)
+                }
+                // Failable init filters out unindexed images.
+                items.append(contentsOf: contents.images.compactMap {
+                    MapleItem(image: $0, parentIdentifier: containerIdentifier)
+                })
+                // Build a lookup from asset ID to that asset's filename
+                // base (no extension) so each sidecar can resolve
+                // canonical-vs-conflict status.
+                var assetIDToBase: [String: String] = [:]
+                for img in contents.images {
+                    guard let id = img.assetID else { continue }
+                    let dot = img.name.lastIndex(of: ".")
+                    let base = dot.map { String(img.name[..<$0]) } ?? img.name
+                    assetIDToBase[id] = base
+                }
+                for sidecar in contents.sidecars {
+                    let base = assetIDToBase[sidecar.assetID] ?? sidecar.name
+                    items.append(MapleItem(sidecar: sidecar,
+                                           parentImageBase: base,
+                                           parentIdentifier: containerIdentifier))
+                }
+                // Non-image files (video, documents, extensionless, …):
+                // stored + synced but never indexed, so they're addressed
+                // by their library-relative path rather than an asset id.
+                for file in contents.files {
+                    let childRel = relativePath.isEmpty ? file.name : "\(relativePath)/\(file.name)"
+                    items.append(MapleItem(file: file,
+                                           folderID: folderID,
+                                           relativePath: childRel,
+                                           parentIdentifier: containerIdentifier))
+                }
+                // Inject the synthesized `.maple/` container only on the
+                // TRUE first page of the overall enumeration — i.e. when
+                // the OS handed us no continuation cursor. The server's
+                // `/api/fs/dir` hides dotdirs (see
+                // `src/api/.../routes/fs.ts`), so we can't enumerate
+                // `.maple/` through the catalog — synthesize it
+                // client-side so future readers of the FP mount (the
+                // app's Folder-View path, #101) can find the pre-baked
+                // thumbnails next to the photos.
+                //
+                // The server's `.maple/thumbs/` lives under EVERY
+                // folder (per-folder layout — see
+                // `src/api/.../fs/xmp.ts` `resolveThumbPath`), so
+                // we surface one `.maple/` per enumerable folder
+                // regardless of depth, not just at the library root.
+                //
+                // Empty case (no thumbs cached yet, or empty parent
+                // folder) is handled naturally — the nested
+                // `.maple/thumbs/` enumerator returns an empty list
+                // and never touches the server's filesystem. Finder
+                // hides the entry from human users via the leading
+                // `.` so this only changes the machine-readable
+                // view.
+                //
+                // A RESUMED page (non-nil cursor) must NOT re-inject
+                // this — the OS already received it on an earlier call
+                // to this method, back when `cursor` was nil.
+                if cursor == nil {
+                    items.append(MapleItem(
+                        mapleDir: folderID,
+                        parentRelativePath: relativePath,
+                        parentIdentifier: containerIdentifier
+                    ))
+                }
+                observer.didEnumerate(items)
+                observer.finishEnumerating(upTo: contents.nextCursor.map(FileProviderPageCursor.encode))
             } catch {
                 log.error("folder enumerate failed: \(error.localizedDescription, privacy: .public)")
                 observer.finishEnumeratingWithError(error)
@@ -345,29 +387,30 @@ public final class MapleThumbsEnumerator: NSObject, NSFileProviderEnumerator {
     public func enumerateItems(for observer: NSFileProviderEnumerationObserver, startingAt page: NSFileProviderPage) {
         Task {
             do {
-                var cursor: String? = nil
-                repeat {
-                    let contents = try await catalog.listDir(absolutePath: parentAbsolutePath,
-                                                              cursor: cursor,
-                                                              limit: pageSize)
-                    var items: [NSFileProviderItem] = []
-                    for img in contents.images {
-                        // Skip unindexed images: a thumb item without
-                        // an assetID has nothing to fetch. Mirrors the
-                        // image-enumeration path (`MapleItem(image:)`
-                        // is failable on the same condition).
-                        guard let assetID = img.assetID, !assetID.isEmpty else { continue }
-                        let thumbName = MapleThumbCacheKey.thumbFilename(forRawBasename: img.name)
-                        items.append(MapleItem(
-                            thumbForAsset: assetID,
-                            displayFilename: thumbName,
-                            parentIdentifier: containerIdentifier
-                        ))
-                    }
-                    observer.didEnumerate(items)
-                    cursor = contents.nextCursor
-                } while cursor != nil
-                observer.finishEnumerating(upTo: nil)
+                // #2550: one server page per call, resuming from the
+                // OS's own page token — see `FileProviderPageCursor`'s
+                // doc comment and `FolderEnumerator.enumerateItems`,
+                // which this mirrors exactly.
+                let cursor = FileProviderPageCursor.decode(page)
+                let contents = try await catalog.listDir(absolutePath: parentAbsolutePath,
+                                                          cursor: cursor,
+                                                          limit: pageSize)
+                var items: [NSFileProviderItem] = []
+                for img in contents.images {
+                    // Skip unindexed images: a thumb item without
+                    // an assetID has nothing to fetch. Mirrors the
+                    // image-enumeration path (`MapleItem(image:)`
+                    // is failable on the same condition).
+                    guard let assetID = img.assetID, !assetID.isEmpty else { continue }
+                    let thumbName = MapleThumbCacheKey.thumbFilename(forRawBasename: img.name)
+                    items.append(MapleItem(
+                        thumbForAsset: assetID,
+                        displayFilename: thumbName,
+                        parentIdentifier: containerIdentifier
+                    ))
+                }
+                observer.didEnumerate(items)
+                observer.finishEnumerating(upTo: contents.nextCursor.map(FileProviderPageCursor.encode))
             } catch {
                 log.error("maple thumbs enumerate failed: \(error.localizedDescription, privacy: .public)")
                 observer.finishEnumeratingWithError(error)
@@ -410,11 +453,7 @@ public final class TrashEnumerator: NSObject, NSFileProviderEnumerator {
     public func enumerateItems(for observer: NSFileProviderEnumerationObserver, startingAt page: NSFileProviderPage) {
         Task {
             do {
-                // Cursor encoded as the page bytes when present; nil for first page.
-                let cursor: String? = {
-                    guard let s = String(data: page.rawValue, encoding: .utf8), !s.isEmpty, s != "0" else { return nil }
-                    return s
-                }()
+                let cursor = FileProviderPageCursor.decode(page)
                 let resp = try await catalog.listTrash(folderID: folderID, limit: 200, cursor: cursor)
                 // Failable init (#2546) filters out rows with no asset id
                 // (a non-image file the server nonetheless listed as
@@ -429,11 +468,7 @@ public final class TrashEnumerator: NSObject, NSFileProviderEnumerator {
                     log.error("trash enumerate: skipped \(skipped, privacy: .public) row(s) with no asset id")
                 }
                 observer.didEnumerate(items)
-                if let nextCursor = resp.nextCursor {
-                    observer.finishEnumerating(upTo: NSFileProviderPage(Data(nextCursor.utf8)))
-                } else {
-                    observer.finishEnumerating(upTo: nil)
-                }
+                observer.finishEnumerating(upTo: resp.nextCursor.map(FileProviderPageCursor.encode))
             } catch {
                 log.error("trash enumerate failed: \(error.localizedDescription, privacy: .public)")
                 observer.finishEnumeratingWithError(error)
