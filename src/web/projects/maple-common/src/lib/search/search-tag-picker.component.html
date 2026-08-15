@@ -19,7 +19,7 @@
         >
           <span class="avatar">{{ initial(p.value) }}</span>
           <span class="name">{{ p.value }}</span>
-          <span class="count">{{ p.count }} photos</span>
+          <span class="count">{{ p.count }} {{ p.count === 1 ? 'photo' : 'photos' }}</span>
           @if (p.selected) {
             <svg class="check" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
               <circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.4" />
@@ -57,7 +57,7 @@
             </svg>
           </span>
           <span class="name">{{ pl.value }}</span>
-          <span class="count">{{ pl.count }} photos</span>
+          <span class="count">{{ pl.count }} {{ pl.count === 1 ? 'photo' : 'photos' }}</span>
           @if (pl.selected) {
             <svg class="check" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
               <circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.4" />
