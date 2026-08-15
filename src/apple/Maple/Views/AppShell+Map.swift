@@ -87,6 +87,13 @@ extension AppShell {
                 client: MapClustersClient(server: effectiveServer, httpClient: httpClient))
             mapThumbClient = CloudThumbClient(server: effectiveServer, httpClient: httpClient)
             mapThumbCache = CloudThumbCache()
+            // Clear the `.connecting` placeholder now that `mapVM` is ready —
+            // `AppShellCenterColumn` already prefers a non-nil `mapVM` over
+            // `mapUnavailableReason`, so this has no visible effect, but
+            // leaving it stale would contradict this property's own doc
+            // comment ("`nil` only while `mapVM` is non-nil ...") the next
+            // time something reads it (#2848 review).
+            mapUnavailableReason = nil
         }
     }
 
