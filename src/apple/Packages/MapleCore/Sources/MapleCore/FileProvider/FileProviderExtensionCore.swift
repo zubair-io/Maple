@@ -1068,9 +1068,17 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                 // skip straight to reporting the existing item when name
                 // + size both match; a size mismatch is a genuine
                 // collision and falls through to the normal upload.
-                if options.contains(.mayAlreadyExist) {
-                    let attrs = try? FileManager.default.attributesOfItem(atPath: contentsURL.path)
-                    let localSize = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
+                // Size is REQUIRED for the precheck, never defaulted. A
+                // failed `stat` (or a missing `.size`) used to fall back to
+                // 0, which can match an unrelated empty entry on the server
+                // and skip an upload the user actually made — silently
+                // losing the file. When we can't read the local size we
+                // simply don't take the shortcut and fall through to the
+                // normal upload, whose own collision handling is correct.
+                if options.contains(.mayAlreadyExist),
+                   let localSize = (try? FileManager.default
+                       .attributesOfItem(atPath: contentsURL.path))?[.size]
+                       .flatMap({ ($0 as? NSNumber)?.int64Value }) {
                     if let parentAbs = await Self.resolveAbsolutePath(
                         folderID: folderID, relativePath: parentRelative, rootCache: self.rootCache),
                        let existing = try await Self.matchExistingUpload(
