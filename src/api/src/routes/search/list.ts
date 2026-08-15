@@ -24,7 +24,7 @@ import { Elysia } from 'elysia';
 import type { ObjectId } from 'mongodb';
 import type { Filter, Sort } from 'mongodb';
 import { assetsCollection } from '../../db/client.ts';
-import { hiddenPersonIds } from '../../people/people.repo.ts';
+import { hiddenPersonIds, personIdsForNames } from '../../people/people.repo.ts';
 import { loadLibraryRoots, loadLibraryIdToSlug } from '../../indexer/libraries.cache.ts';
 import type { AssetDoc } from '../../db/schema.ts';
 import { projectAsset } from './project.ts';
@@ -33,6 +33,7 @@ import {
   buildFilter,
   clampInt,
   extractDatesFromQuery,
+  peopleNames,
   SEARCH_SCOPES,
   SearchQueryT,
   type SearchQuery,
@@ -54,7 +55,11 @@ export const listRoute = new Elysia().get(
     // Only pay for the hidden-people lookup when the caller asked to exclude
     // them (opt-in — see `SearchQuery.excludeHiddenPeople`).
     const hiddenIds = resolved.excludeHiddenPeople === 'true' ? await hiddenPersonIds() : [];
-    const filterOrError = buildFilter(resolved, hiddenIds);
+    // The `people` param carries display names; the Mongo clause needs the
+    // person ids faces are tagged with. Resolution is async, so it happens
+    // here and `buildFilter` stays pure (same contract as `hiddenIds`).
+    const peopleIds = await personIdsForNames(peopleNames(resolved.people));
+    const filterOrError = buildFilter(resolved, hiddenIds, peopleIds);
     if ('error' in filterOrError) {
       set.status = 400;
       return { error: filterOrError.error };
