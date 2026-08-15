@@ -4,14 +4,14 @@
 // native system tab bar (iOS 26 `Tab(role: .search)` + `.searchable` +
 // `.tabBarMinimizeBehavior`, wired in `PhoneTabShell`), so they're the same
 // element as the Library / Settings tabs. This view is just the *content*
-// under the search field: the scope chips plus either recent queries (empty
-// query) or the paginated result grid. The live query text is owned by the
-// host's `.searchable` and passed in as a binding.
+// under the search field: the unified filter row (#2866 — active chips +
+// Filters button opening the Date/People/Places sheet) plus either recent
+// queries (idle) or the paginated result grid. The live query text is
+// owned by the host's `.searchable` and passed in as a binding.
 //
 // State:
 //   • `query` — the live text (binding from `.searchable`). A 250ms debounce
 //     drives a `SearchViewModel` submission when a `vm` is injected.
-//   • `scope` — `SearchScope` enum chip selection.
 //   • `recent` — JSON-encoded `[String]` in `@AppStorage("cm.search.recent")`,
 //     capped at 10, dedup'd, most-recent-first.
 
@@ -33,8 +33,8 @@ struct SearchView: View {
     /// Preview §1).
     var onSelectAsset: (SearchAsset) -> Void = { _ in }
 
-    @State private var scope: SearchScope = .all
     @State private var isStale: Bool = false
+    @State private var showFilters = false
     @AppStorage("cm.search.recent") private var recentJSON: String = "[]"
 
     /// Debounces query → SearchViewModel submission. Recreated whenever
@@ -61,13 +61,18 @@ struct SearchView: View {
 
     private var trimmedQuery: String { query.trimmingCharacters(in: .whitespaces) }
 
+    /// A filters-only search (empty text, Date/People/Places set) is a
+    /// real search — it must fetch and show results, not recents.
+    private var filtersActive: Bool { viewModel?.hasUnifiedFilters ?? false }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                SearchScopeChips(scope: $scope)
-                    .onChange(of: scope) { _, _ in scheduleSearch(force: true) }
+                if let viewModel {
+                    filterRow(viewModel)
+                }
 
-                if trimmedQuery.isEmpty {
+                if trimmedQuery.isEmpty && !filtersActive {
                     SearchRecentQueries(recent: recent, onTap: tapRecent)
                 } else {
                     SearchPhotoResultsSection(
@@ -100,6 +105,52 @@ struct SearchView: View {
             if !trimmedQuery.isEmpty { scheduleSearch(force: false) }
         }
         .onDisappear { debounceTask?.cancel() }
+        .sheet(isPresented: $showFilters) {
+            if let viewModel {
+                SearchFilterPanel(vm: viewModel, onClose: { showFilters = false })
+                    .presentationDetents([.large])
+            }
+        }
+    }
+
+    // MARK: - Filter row
+
+    /// Active chips + the Filters control (badge = active count) that
+    /// opens the unified Date/People/Places sheet.
+    private func filterRow(_ vm: SearchViewModel) -> some View {
+        HStack(spacing: 8) {
+            SearchActiveFilterChips(vm: vm, onOpenFilters: { showFilters = true })
+            Spacer(minLength: 0)
+            filtersButton(vm)
+        }
+    }
+
+    private func filtersButton(_ vm: SearchViewModel) -> some View {
+        Button {
+            showFilters = true
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "line.3.horizontal.decrease.circle")
+                Text("Filters")
+                    .font(MapleTokens.Typography.chipLabel)
+                if vm.unifiedFilterCount > 0 {
+                    Text("\(vm.unifiedFilterCount)")
+                        .font(MapleTokens.Typography.chipLabel)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(MapleTokens.primary, in: Capsule())
+                }
+            }
+            .foregroundStyle(vm.unifiedFilterCount > 0 ? MapleTokens.primary : MapleTokens.textMain)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(MapleTokens.surfaceAlt, in: Capsule())
+            .overlay(Capsule().stroke(MapleTokens.border, lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Filters")
+        .accessibilityIdentifier("search-filters")
     }
 
     // MARK: - Actions
@@ -118,43 +169,28 @@ struct SearchView: View {
 
     // MARK: - Search debounce
 
-    /// Debounce keystrokes / scope changes into one submission 250ms after
-    /// the last change. `force` shortcuts to an immediate fire for chip
-    /// taps (the user expects scope changes to update the grid the moment
-    /// the chip is selected, not 250ms later).
+    /// Debounce keystrokes into one submission 250ms after the last change.
+    /// `force` shortcuts to an immediate fire. An empty query with no
+    /// active filters resets to idle; with filters set it still fetches
+    /// (a filters-only search is a real search).
     private func scheduleSearch(force: Bool) {
         debounceTask?.cancel()
         let trimmed = trimmedQuery
-        guard !trimmed.isEmpty else {
+        guard !trimmed.isEmpty || filtersActive else {
             isStale = false
             return
         }
         isStale = true
-        debounceTask = Task { [scope, viewModel] in
+        debounceTask = Task { [viewModel] in
             if !force {
                 try? await Task.sleep(for: .milliseconds(250))
             }
             if Task.isCancelled { return }
             await MainActor.run {
                 viewModel?.params.placeQuery = trimmed
-                applyScopeParams(scope, on: viewModel)
             }
             await viewModel?.submit()
             await MainActor.run { isStale = false }
-        }
-    }
-
-    /// Map the S7 scope chip into the server `scope` param. `all` / `photos`
-    /// = the full live set (no scope token, matching the web + server, which
-    /// treat absent and `photos` identically). `places` / `people` narrow
-    /// server-side; `albums` is server-not-implemented (returns empty).
-    private func applyScopeParams(_ scope: SearchScope, on vm: SearchViewModel?) {
-        guard let vm else { return }
-        switch scope {
-        case .all, .photos: vm.params.scope = nil
-        case .places:       vm.params.scope = "places"
-        case .people:       vm.params.scope = "people"
-        case .albums:       vm.params.scope = "albums"
         }
     }
 }

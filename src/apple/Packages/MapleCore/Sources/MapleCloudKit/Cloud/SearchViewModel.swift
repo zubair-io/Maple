@@ -80,6 +80,26 @@ public final class SearchViewModel {
   /// True when any structured filter is set (drives the "filters" dot).
   public var hasActiveFilters: Bool { params.hasActiveFilters }
 
+  /// True when any unified filter (date range / people / places) is set.
+  /// A filters-only search (empty text, filters set) must still fetch —
+  /// UI layers that gate their fetch on non-empty text OR on this.
+  public var hasUnifiedFilters: Bool { params.hasUnifiedFilters }
+
+  /// Badge count for the "Filters" control (date range = 1, + one per
+  /// selected person / place).
+  public var unifiedFilterCount: Int { params.unifiedFilterCount }
+
+  /// Facet rows for the filter panel's PEOPLE section ([] until the first
+  /// facets response, or on servers predating the field).
+  public var peopleFacets: [ValueFacet] { facets?.people ?? [] }
+
+  /// Facet rows for the filter panel's PLACES section.
+  public var placeFacets: [ValueFacet] { facets?.places ?? [] }
+
+  /// Live "Show N results" count for the current filter set — the facets
+  /// total when one is loaded, else the result-list total.
+  public var facetTotal: Int { facets?.total ?? total }
+
   // MARK: - Loaders
 
   /// Debounced text-input handler. Coalesces rapid keystrokes into one
