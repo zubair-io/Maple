@@ -240,16 +240,35 @@ final class WorkerEventsClientTests: XCTestCase {
     XCTAssertEqual(obj.keys.count, 2)
   }
 
+  func test_backoff_firstRetryWaitsOneSecondNotTwo() {
+    // Regression: the run loop used to increment its counter *before*
+    // asking for a delay, so the real sequence started at 2s while a test
+    // of the arithmetic in isolation still passed. Driving the sequencer
+    // the way the loop drives it is the point of this test.
+    var backoff = WorkerEventsClient.BackoffSequencer()
+    XCTAssertEqual(backoff.nextDelay(), 1)
+  }
+
   func test_backoff_followsScheduleThenHoldsAtFifteen() {
-    // Matches worker-events.service.ts: 1/2/4/8/15, then 15 forever rather
-    // than growing — a rebooting box shouldn't push the client into
-    // multi-minute silence.
-    XCTAssertEqual(WorkerEventsClient.backoffDelay(attempt: 0), 1)
-    XCTAssertEqual(WorkerEventsClient.backoffDelay(attempt: 1), 2)
-    XCTAssertEqual(WorkerEventsClient.backoffDelay(attempt: 2), 4)
-    XCTAssertEqual(WorkerEventsClient.backoffDelay(attempt: 3), 8)
-    XCTAssertEqual(WorkerEventsClient.backoffDelay(attempt: 4), 15)
-    XCTAssertEqual(WorkerEventsClient.backoffDelay(attempt: 12), 15)
+    var backoff = WorkerEventsClient.BackoffSequencer()
+    let observed = (0..<8).map { _ in backoff.nextDelay() }
+    XCTAssertEqual(observed, [1, 2, 4, 8, 15, 15, 15, 15])
+  }
+
+  func test_backoff_resetReturnsToOneSecond() {
+    // A connection that succeeded and later dropped starts a fresh
+    // sequence rather than continuing a stale escalation.
+    var backoff = WorkerEventsClient.BackoffSequencer()
+    _ = backoff.nextDelay()
+    _ = backoff.nextDelay()
+    backoff.reset()
+    XCTAssertEqual(backoff.nextDelay(), 1)
+  }
+
+  func test_updateEquatabilityDistinguishesConnectionStates() {
+    // The view switches on these; conflating them is what made the
+    // disconnect banner unreachable.
+    XCTAssertNotEqual(WorkerEventsUpdate.connected, WorkerEventsUpdate.disconnected)
   }
 }
 

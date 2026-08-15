@@ -21,9 +21,12 @@ import Foundation
 public struct WorkersFeed: Sendable, Equatable {
   /// What the table should render. Nil until anything arrives.
   public private(set) var payload: WorkersStatusPayload?
-  /// Whether `payload` came from a counted source. Once true, uncounted
-  /// frames are only used to refresh the stage list's shape, never its
-  /// numbers.
+  /// Whether anything counted has been displayed yet.
+  ///
+  /// Once true it stays true, and its only job is to make `applyFallback`
+  /// decline — a slow HTTP response must not rewind the table to startup
+  /// values after the socket has delivered fresher ones. Uncounted frames
+  /// are gated separately, on `payload` being nil, not on this flag.
   public private(set) var hasCountedData: Bool
 
   public init() {
