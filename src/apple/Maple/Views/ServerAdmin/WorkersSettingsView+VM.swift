@@ -1,0 +1,71 @@
+// WorkersSettingsView+VM.swift — Pure-function view-model helpers for the
+// Workers page.
+//
+// Pattern (issue #192): no SwiftUI import, unit-testable in isolation. That
+// constraint is why `statusTone` returns a semantic case rather than a
+// `Color` — the view owns the palette, this file owns the meaning.
+
+import Foundation
+import MapleCore
+
+enum WorkersSettingsVM {
+
+    /// Semantic colour role for a stage's status dot. Mirrors the web's
+    /// three hex values (#4ade80 / #a8a29e / #f87171) without importing a
+    /// UI framework to say so.
+    enum StatusTone: Equatable {
+        case active
+        case idle
+        case fault
+    }
+
+    static func statusTone(_ state: StageRunState) -> StatusTone {
+        switch state {
+        case .running: return .active
+        case .error: return .fault
+        case .paused, .starting, .restarting, .stopped, .unknown: return .idle
+        }
+    }
+
+    /// Throughput as items per minute, or an em-dash when a stage has done
+    /// nothing. Zero is rendered as "—" rather than "0 /min" so an idle
+    /// stage doesn't read as a stalled one.
+    static func throughputLabel(_ throughput: Double) -> String {
+        guard throughput > 0 else { return "—" }
+        return "\(Int(throughput.rounded())) /min"
+    }
+
+    /// In-flight against the batch ceiling, e.g. "2 / 8".
+    static func inFlightLabel(_ stage: StageStatus) -> String {
+        "\(stage.inFlight) / \(stage.batchSize)"
+    }
+
+    /// Queue depth, annotating the blocked share when there is one.
+    ///
+    /// Blocked means an upstream stage hasn't produced what this one needs.
+    /// Surfacing it inline matters because a stage sitting at zero ready
+    /// with thousands blocked looks broken until you know that.
+    static func pendingLabel(_ stage: StageStatus) -> String {
+        guard stage.blocked > 0 else { return "\(stage.ready)" }
+        return "\(stage.ready) · \(stage.blocked) blkd"
+    }
+
+    /// Whether the row's action pauses (true) or resumes (false).
+    static func isPausable(_ state: StageRunState) -> Bool {
+        state != .paused
+    }
+
+    static func pauseActionLabel(_ state: StageRunState) -> String {
+        isPausable(state) ? "Pause" : "Resume"
+    }
+
+    /// Connection banner text, or nil when the live feed is healthy.
+    ///
+    /// Only shown once something has been displayed: before the first
+    /// payload the page already shows its own loading state, and stacking a
+    /// "reconnecting" banner on top of that is noise.
+    static func connectionNotice(isLive: Bool, hasPayload: Bool) -> String? {
+        guard hasPayload, !isLive else { return nil }
+        return "Live updates disconnected — reconnecting."
+    }
+}
