@@ -9,8 +9,26 @@
 
 import { Elysia } from 'elysia';
 import { assetsCollection } from '../../db/client.ts';
-import { hiddenPersonIds } from '../../people/people.repo.ts';
-import { applyLiveFilter, buildFilter, SearchQueryT, type SearchQuery } from './query.ts';
+import {
+  hiddenPersonIds,
+  namesForPersonIds,
+  personIdsForNames,
+} from '../../people/people.repo.ts';
+import {
+  applyLiveFilter,
+  buildFilter,
+  peopleNames,
+  SearchQueryT,
+  type SearchQuery,
+} from './query.ts';
+
+/** Display label for one `place.rollups` bucket — the exact wire value the
+ * `place` filter param parses back (`placeLabelClause` in `query.ts`):
+ * "locality, region" when both are set, the bare non-null half otherwise. */
+function placeLabel(locality: string | null, region: string | null): string | null {
+  if (locality && region) return `${locality}, ${region}`;
+  return locality ?? region;
+}
 
 export const facetsRoute = new Elysia().get(
   '/facets',
@@ -19,7 +37,10 @@ export const facetsRoute = new Elysia().get(
     // excludes hidden people (opt-in; skips the lookup otherwise).
     const hiddenIds =
       (query as SearchQuery).excludeHiddenPeople === 'true' ? await hiddenPersonIds() : [];
-    const filterOrError = buildFilter(query as SearchQuery, hiddenIds);
+    // Names → person ids, same contract as the list route: facet counts must
+    // agree with the result list when a person filter is active.
+    const peopleIds = await personIdsForNames(peopleNames((query as SearchQuery).people));
+    const filterOrError = buildFilter(query as SearchQuery, hiddenIds, peopleIds);
     if ('error' in filterOrError) {
       set.status = 400;
       return { error: filterOrError.error };
@@ -39,6 +60,8 @@ export const facetsRoute = new Elysia().get(
       activityAgg,
       subjectsAgg,
       screenshotAgg,
+      peopleAgg,
+      placesAgg,
     ] = await Promise.all([
       coll.countDocuments(finalFilter),
       coll
@@ -169,6 +192,65 @@ export const facetsRoute = new Elysia().get(
           { $group: { _id: '$bucket', count: { $sum: 1 } } },
         ])
         .toArray(),
+      // People (#2864) — assets per assigned person. Group on the DISTINCT
+      // person ids per asset (not per face) so a group shot with the same
+      // person detected twice counts once; the id → name join happens in JS
+      // below (`namesForPersonIds`), where hidden and merged-away persons
+      // drop out. A hidden FACE can't contribute — hiding a face nulls its
+      // `person_id`, and the `$ne: null` match drops unassigned faces.
+      coll
+        .aggregate([
+          { $match: finalFilter },
+          {
+            $project: {
+              person_ids: {
+                $setUnion: [
+                  {
+                    $map: {
+                      input: { $ifNull: ['$faces', []] },
+                      as: 'f',
+                      in: '$$f.person_id',
+                    },
+                  },
+                  [],
+                ],
+              },
+            },
+          },
+          { $unwind: '$person_ids' },
+          { $match: { person_ids: { $nin: [null, ''] } } },
+          { $group: { _id: '$person_ids', count: { $sum: 1 } } },
+          { $sort: { count: -1 } },
+          { $limit: 100 },
+        ])
+        .toArray(),
+      // Places (#2864) — assets per geocode rollup tuple. The tuple → label
+      // rule lives in `placeLabel` and must stay the inverse of
+      // `placeLabelClause` in `query.ts`.
+      coll
+        .aggregate([
+          { $match: finalFilter },
+          {
+            $match: {
+              $or: [
+                { 'place.rollups.locality': { $nin: [null, ''] } },
+                { 'place.rollups.region': { $nin: [null, ''] } },
+              ],
+            },
+          },
+          {
+            $group: {
+              _id: {
+                locality: '$place.rollups.locality',
+                region: '$place.rollups.region',
+              },
+              count: { $sum: 1 },
+            },
+          },
+          { $sort: { count: -1 } },
+          { $limit: 100 },
+        ])
+        .toArray(),
     ]);
 
     const cameras = cameraAgg.map((r) => ({
@@ -204,6 +286,27 @@ export const facetsRoute = new Elysia().get(
       .filter((r) => typeof r._id === 'string' && r._id.length > 0)
       .map((r) => ({ value: r._id as string, count: r.count as number }));
 
+    // Join the person-id buckets to display names; ids whose person is
+    // hidden, merged away, or gone drop out (count order is preserved).
+    const personNames = await namesForPersonIds(peopleAgg.map((r) => r._id as string));
+    const people = peopleAgg
+      .map((r) => ({ value: personNames.get(r._id as string), count: r.count as number }))
+      .filter((r): r is { value: string; count: number } => typeof r.value === 'string');
+
+    // Label the place tuples. Two tuples can produce the same label (a
+    // region-less locality and a locality-less region with the same text) —
+    // merge their counts, matching `placeLabelClause`'s both-halves OR.
+    const placeCounts = new Map<string, number>();
+    for (const r of placesAgg) {
+      const id = r._id as { locality: string | null; region: string | null };
+      const label = placeLabel(id.locality ?? null, id.region ?? null);
+      if (label === null) continue;
+      placeCounts.set(label, (placeCounts.get(label) ?? 0) + (r.count as number));
+    }
+    const places = [...placeCounts.entries()]
+      .map(([value, count]) => ({ value, count }))
+      .sort((a, b) => b.count - a.count);
+
     const is_screenshot = {
       true: (screenshotAgg.find((r) => r._id === 'true')?.count as number | undefined) ?? 0,
       false: (screenshotAgg.find((r) => r._id === 'false')?.count as number | undefined) ?? 0,
@@ -221,6 +324,8 @@ export const facetsRoute = new Elysia().get(
       activities,
       subjects,
       is_screenshot,
+      people,
+      places,
     };
   },
   { query: SearchQueryT },

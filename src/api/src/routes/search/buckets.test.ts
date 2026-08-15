@@ -62,10 +62,10 @@ describe('makeBucketsCacheKey — scope isolation (#2131)', () => {
  * asserts the keys (and the "field absent" key) are all distinct.
  *
  * `NON_FILTER_FIELDS` lists the `SearchQuery` fields `buildFilter` never
- * reads: `page`/`limit`/`sort` (pagination/ordering only — the buckets
- * aggregation ignores them) and `people` (wired to the Meilisearch
- * `people` filterable attribute, not the Mongo filter — see its doc
- * comment in `query.ts`).
+ * reads: `page`/`limit`/`sort`/`cursor` (pagination/ordering only — the
+ * buckets aggregation ignores them). `people` moved OUT of this list in
+ * #2864, when it became a real Mongo filter (resolved person ids on
+ * `faces.person_id`) alongside the new `place` param.
  *
  * `ALL_SEARCH_QUERY_FIELDS` is a `Record<keyof SearchQuery, true>` — if a
  * field is added to or removed from the `SearchQuery` interface without
@@ -100,12 +100,14 @@ const FILTER_AFFECTING_FIELD_VALUES: Record<string, [string, string]> = {
   activity: ['hiking', 'skiing'],
   subjects: ['dog', 'cat'],
   isScreenshot: ['true', 'false'],
+  people: ['Alice Example', 'Bob Example'],
+  place: ['Portland, OR', 'Kyoto, Japan'],
   hidden: ['only', 'all'],
   scope: ['places', 'people'],
   excludeHiddenPeople: ['true', 'false'],
 };
 
-const NON_FILTER_FIELDS = new Set(['people', 'page', 'limit', 'sort', 'cursor']);
+const NON_FILTER_FIELDS = new Set(['page', 'limit', 'sort', 'cursor']);
 
 const ALL_SEARCH_QUERY_FIELDS: Record<keyof SearchQuery, true> = {
   q: true,
@@ -132,6 +134,7 @@ const ALL_SEARCH_QUERY_FIELDS: Record<keyof SearchQuery, true> = {
   subjects: true,
   isScreenshot: true,
   people: true,
+  place: true,
   scope: true,
   hidden: true,
   excludeHiddenPeople: true,

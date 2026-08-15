@@ -49,9 +49,18 @@ export interface SearchQuery {
    * only photographs, omitted shows everything. */
   isScreenshot?: string;
   /** Comma-separated person names for an explicit person picker. Passed to
-   * the Meilisearch `people` filterable attribute; the Mongo `$text`
-   * fallback already covers names via `search_blob`. */
+   * the Meilisearch `people` filterable attribute, and (#2864) filtered on
+   * the Mongo path via `faces.person_id` — the route resolves names to
+   * person ids (`personIdsForNames`) and hands them to `buildFilter`.
+   * OR within the field, AND against other filters (mirrors `subjects`). */
   people?: string;
+  /** `|`-separated place labels from the facets `places` bucket
+   * ("Portland, OR|Kyoto, Japan"). Pipe-separated because the labels
+   * themselves contain commas. Each label parses back into the
+   * `place.rollups` tuple the facet built it from — "locality, region"
+   * or a bare locality/region. OR within the field, AND against other
+   * filters (mirrors `subjects`). #2864. */
+  place?: string;
   /** UI scope chip from the responsive-program S7 search surface.
    * `photos` (or absent) is the default and matches the full live set;
    * `places` narrows to assets with EXIF GPS; `people` narrows to assets
@@ -105,6 +114,7 @@ export const SearchQueryT = t.Object({
   subjects: t.Optional(t.String()),
   isScreenshot: t.Optional(t.String()),
   people: t.Optional(t.String()),
+  place: t.Optional(t.String()),
   scope: t.Optional(t.String()),
   hidden: t.Optional(t.String()),
   excludeHiddenPeople: t.Optional(t.String()),

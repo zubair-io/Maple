@@ -14,8 +14,14 @@
 
 import { Elysia } from 'elysia';
 import { assetsCollection } from '../../db/client.ts';
-import { hiddenPersonIds } from '../../people/people.repo.ts';
-import { applyLiveFilter, buildFilter, SearchQueryT, type SearchQuery } from './query.ts';
+import { hiddenPersonIds, personIdsForNames } from '../../people/people.repo.ts';
+import {
+  applyLiveFilter,
+  buildFilter,
+  peopleNames,
+  SearchQueryT,
+  type SearchQuery,
+} from './query.ts';
 
 // ── Buckets response cache ────────────────────────────────────────────
 // Module-scoped because the cache lives for the process lifetime. Keys
@@ -40,14 +46,14 @@ const bucketsCache = new Map<string, CachedBuckets>();
  * requests that differ only in that field collide on the same cache
  * entry within the 30s TTL and serve each other's histogram.
  * `page`/`limit`/`sort` are deliberately excluded: `buildFilter` never
- * reads them, so they can't change the aggregation result. `people` is
- * also excluded: it's wired to Meilisearch filtering, not `buildFilter`
- * — see the field's doc comment in `SearchQuery`. Referenced by the
- * completeness test in `buckets.test.ts`, which enumerates this list
+ * reads them, so they can't change the aggregation result. Referenced by
+ * the completeness test in `buckets.test.ts`, which enumerates this list
  * against `SearchQuery`.
  */
 const BUCKETS_CACHE_KEY_FIELDS = [
   'pathPrefix',
+  'people',
+  'place',
   'libraryId',
   'excludeHiddenPeople',
   'q',
@@ -144,7 +150,8 @@ export const bucketsRoute = new Elysia().get(
     // `excludeHiddenPeople=true` request would hit the DB even on a hit.
     const hiddenIds =
       (query as SearchQuery).excludeHiddenPeople === 'true' ? await hiddenPersonIds() : [];
-    const filterOrError = buildFilter(query as SearchQuery, hiddenIds);
+    const peopleIds = await personIdsForNames(peopleNames((query as SearchQuery).people));
+    const filterOrError = buildFilter(query as SearchQuery, hiddenIds, peopleIds);
     if ('error' in filterOrError) {
       set.status = 400;
       return { error: filterOrError.error };

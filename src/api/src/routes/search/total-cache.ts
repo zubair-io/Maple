@@ -30,8 +30,8 @@ const totalCache = new Map<string, CachedTotal>();
 /** Every field that feeds `buildFilter` (i.e. the full filter set the
  * count depends on), in a fixed order. `page`/`limit`/`sort`/`cursor` are
  * deliberately excluded because `countDocuments` doesn't depend on
- * pagination or ordering, and `people` is excluded because it only feeds
- * the Meilisearch path (never the Mongo filter this cache guards). */
+ * pagination or ordering. `people` and `place` joined the list in #2864,
+ * when both became Mongo filters. */
 const TOTAL_CACHE_KEY_FIELDS = [
   'pathPrefix',
   'libraryId',
@@ -56,6 +56,8 @@ const TOTAL_CACHE_KEY_FIELDS = [
   'activity',
   'subjects',
   'isScreenshot',
+  'people',
+  'place',
   'scope',
   'hidden',
 ] as const satisfies ReadonlyArray<keyof SearchQuery>;
