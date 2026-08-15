@@ -48,6 +48,10 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
     let mapVM: MapViewModel?
     let mapThumbClient: CloudThumbClient?
     let mapThumbCache: CloudThumbCache?
+    /// Why `.map` has no `mapVM` yet (#2848) — forwarded straight through
+    /// to `AppShellCenterColumn`'s `MapEmptyState`. `nil` whenever `mapVM`
+    /// is set or `.map` isn't selected; see `AppShell.mapUnavailableReason`.
+    let mapUnavailableReason: MapUnavailableReason?
     let isSearchActive: Bool
     let searchVM: SearchViewModel?
     let searchThumbClient: CloudThumbClient?
@@ -205,6 +209,7 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
             mapVM: mapVM,
             mapThumbClient: mapThumbClient,
             mapThumbCache: mapThumbCache,
+            mapUnavailableReason: mapUnavailableReason,
             isSearchActive: isSearchActive,
             searchVM: searchVM,
             searchThumbClient: searchThumbClient,

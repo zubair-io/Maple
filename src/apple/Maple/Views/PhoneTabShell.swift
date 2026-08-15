@@ -108,6 +108,11 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     let mapVM: MapViewModel?
     let mapThumbClient: CloudThumbClient?
     let mapThumbCache: CloudThumbCache?
+    /// Why the Map tab has no `mapVM` yet (#2848) — forwarded to
+    /// `mapTabContent`'s `AppShellCenterColumn` so it renders
+    /// `MapEmptyState` (no cloud account / sign-in required / connecting)
+    /// instead of falling through to the shared `browseVM`'s grid.
+    let mapUnavailableReason: MapUnavailableReason?
     let isSearchActive: Bool
     let searchVM: SearchViewModel?
     let searchThumbClient: CloudThumbClient?
@@ -368,6 +373,7 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
             mapVM: mapVM,
             mapThumbClient: mapThumbClient,
             mapThumbCache: mapThumbCache,
+            mapUnavailableReason: mapUnavailableReason,
             isSearchActive: isSearchActive,
             searchVM: searchVM,
             searchThumbClient: searchThumbClient,
