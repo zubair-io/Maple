@@ -14,10 +14,9 @@ import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { pendingEnrichment } from '../src/db/schema.ts';
 import { searchBlobUpdateExpression } from '../src/enrichment/search-blob.ts';
 import { fakeAuth } from './helpers/test-auth.ts';
+import { withTestDb } from '../src/db/test-db.test-helpers.ts';
 
-const TEST_DB = `maple_test_assets_overrides_${process.pid}`;
-const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_assets_overrides_${process.pid}`);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;
@@ -107,8 +106,6 @@ afterAll(async () => {
     const { closeDb } = await import('../src/db/client.ts');
     await closeDb();
   } catch {}
-  if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
-  else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
 });
 
 async function put(
