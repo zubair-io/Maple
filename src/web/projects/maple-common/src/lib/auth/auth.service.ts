@@ -12,6 +12,9 @@ export interface AuthUser {
   id: string;
   email: string;
   role: 'owner' | 'member';
+  /** Per-user "file access" permission (#2893) — wire format from the API.
+   * Absent (pre-upgrade server) means granted. */
+  file_access?: boolean;
 }
 
 /** A paired device (Apple TV) — see `AuthService.listDeviceSessions`. */
@@ -161,6 +164,13 @@ export class AuthService {
   }
   get isOwner(): boolean {
     return this.user()?.role === 'owner';
+  }
+  /** May this user browse the filesystem / move files (#2893)? True while
+   * signed out or against a pre-upgrade server — route guards handle
+   * authentication; this only narrows UI for known-restricted members. */
+  get canBrowseFiles(): boolean {
+    const u = this.user();
+    return !u || u.file_access !== false;
   }
   get isSignedIn(): boolean {
     return this.user() !== null;

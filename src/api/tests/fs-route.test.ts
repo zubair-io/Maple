@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as fs from 'node:fs/promises';
+import { fakeAuth } from './helpers/test-auth.ts';
+import { Elysia } from 'elysia';
 
 // These tests intentionally exercise the `listDir` default-roots path (no
 // MAPLE_ROOTS set — jail defaults to `/`). Other describe blocks in the suite
@@ -34,7 +36,7 @@ describe('GET /api/fs/list', () => {
 
   it('returns a JSON listing for a valid path', async () => {
     const { fsRoutes } = await import('../src/routes/fs.ts');
-    const app = fsRoutes;
+    const app = new Elysia().use(fakeAuth()).use(fsRoutes);
     const res = await app.handle(
       new Request(`http://localhost/api/fs/list?path=${encodeURIComponent(tmpRoot)}`),
     );
@@ -47,14 +49,16 @@ describe('GET /api/fs/list', () => {
 
   it('422s on a missing path query param', async () => {
     const { fsRoutes } = await import('../src/routes/fs.ts');
-    const res = await fsRoutes.handle(new Request('http://localhost/api/fs/list'));
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
+    const res = await authedApp.handle(new Request('http://localhost/api/fs/list'));
     // Elysia returns 422 for schema validation failures (missing required field).
     expect(res.status).toBe(422);
   });
 
   it('400s on a relative path', async () => {
     const { fsRoutes } = await import('../src/routes/fs.ts');
-    const res = await fsRoutes.handle(
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
+    const res = await authedApp.handle(
       new Request('http://localhost/api/fs/list?path=relative/path'),
     );
     expect(res.status).toBe(400);
@@ -64,7 +68,10 @@ describe('GET /api/fs/list', () => {
 
   it('respects showAll=1', async () => {
     const { fsRoutes } = await import('../src/routes/fs.ts');
-    const res = await fsRoutes.handle(new Request('http://localhost/api/fs/list?path=/&showAll=1'));
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
+    const res = await authedApp.handle(
+      new Request('http://localhost/api/fs/list?path=/&showAll=1'),
+    );
     expect(res.status).toBe(200);
     const json = await res.json();
     // /etc exists on macOS and Linux; with showAll=1 it's included.
@@ -97,8 +104,9 @@ describe('GET /api/fs/raw', () => {
 
   it('streams original bytes for a non-RAW (sharp) image', async () => {
     const { fsRoutes } = await import('../src/routes/fs.ts');
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
     const abs = await fs.realpath(path.join(tmpRoot, 'photo.jpg'));
-    const res = await fsRoutes.handle(
+    const res = await authedApp.handle(
       new Request(`http://localhost/api/fs/raw?path=${encodeURIComponent(abs)}`),
     );
     expect(res.status).toBe(200);
@@ -110,8 +118,9 @@ describe('GET /api/fs/raw', () => {
 
   it('415s on a genuinely unsupported extension', async () => {
     const { fsRoutes } = await import('../src/routes/fs.ts');
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
     const abs = await fs.realpath(path.join(tmpRoot, 'notes.txt'));
-    const res = await fsRoutes.handle(
+    const res = await authedApp.handle(
       new Request(`http://localhost/api/fs/raw?path=${encodeURIComponent(abs)}`),
     );
     expect(res.status).toBe(415);

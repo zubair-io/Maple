@@ -15,6 +15,7 @@ import path from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { importsRoutes } from './imports.ts';
 import { closeDb, getDb, isDbConnected } from '../db/client.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
 // Own per-pid database + explicit close — the repo-wide suite convention
 // (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
@@ -25,7 +26,7 @@ process.env.MAPLE_MONGO_DB = TEST_DB;
 
 let db: Db | null = null;
 let mongoReachable = false;
-const app = new Elysia().use(importsRoutes);
+const app = new Elysia().use(fakeAuth()).use(importsRoutes);
 let sourceRoot: string;
 let libraryId: ObjectId;
 

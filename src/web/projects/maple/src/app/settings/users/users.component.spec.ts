@@ -22,7 +22,8 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { provideRouter } from '@angular/router';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { signal } from '@angular/core';
-import { AuthService, type AuthUser } from '@maple-common';
+import { of } from 'rxjs';
+import { AuthService, BunApiBackendService, type ApiUser, type AuthUser } from '@maple-common';
 import { UsersComponent } from './users.component';
 
 describe('UsersComponent', () => {
@@ -30,6 +31,25 @@ describe('UsersComponent', () => {
   let http: HttpTestingController;
 
   const owner: AuthUser = { id: 'u1', email: 'zubair@justmaple.app', role: 'owner' };
+
+  const ROSTER: ApiUser[] = [
+    {
+      id: 'u1',
+      email: 'zubair@justmaple.app',
+      role: 'owner',
+      file_access: true,
+      created_at: '2026-01-01T00:00:00Z',
+      last_seen_at: '2026-08-01T00:00:00Z',
+    },
+    {
+      id: 'u2',
+      email: 'member@justmaple.app',
+      role: 'member',
+      file_access: true,
+      created_at: '2026-02-01T00:00:00Z',
+      last_seen_at: null,
+    },
+  ];
 
   const invite = (overrides: Partial<Record<string, unknown>> = {}) => ({
     code: 'ABC123',
@@ -39,8 +59,18 @@ describe('UsersComponent', () => {
     ...overrides,
   });
 
-  async function setup(authOverrides: Partial<AuthService> = {}): Promise<void> {
+  let listUsers: ReturnType<typeof vi.fn>;
+  let setUserFileAccess: ReturnType<typeof vi.fn>;
+
+  async function setup(
+    authOverrides: Partial<AuthService> = {},
+    apiOverrides: Partial<Record<string, unknown>> = {},
+  ): Promise<void> {
     TestBed.resetTestingModule();
+    listUsers = vi.fn(() => of(ROSTER));
+    setUserFileAccess = vi.fn((id: string, granted: boolean) =>
+      of({ ...ROSTER.find((u) => u.id === id)!, file_access: granted }),
+    );
     await TestBed.configureTestingModule({
       imports: [UsersComponent],
       providers: [
@@ -54,6 +84,10 @@ describe('UsersComponent', () => {
             listInvites: vi.fn().mockResolvedValue([]),
             ...authOverrides,
           },
+        },
+        {
+          provide: BunApiBackendService,
+          useValue: { listUsers, setUserFileAccess, ...apiOverrides },
         },
       ],
     }).compileComponents();
@@ -94,17 +128,45 @@ describe('UsersComponent', () => {
     fixture.detectChanges();
   }
 
-  it('renders the signed-in user as the sole member row', async () => {
+  it('renders the full roster with a YOU chip on the signed-in row (#2893)', async () => {
     await setup();
     fixture.detectChanges();
-    await Promise.resolve();
+    await settle();
     fixture.detectChanges();
 
     const rows = el().querySelectorAll('.member-row');
-    expect(rows.length).toBe(1);
+    expect(rows.length).toBe(2);
     expect(rows[0].textContent).toContain('zubair@justmaple.app');
     expect(rows[0].textContent).toContain('YOU');
     expect(rows[0].textContent).toContain('OWNER');
+    // Owner has no toggle — permission is unconditional.
+    expect(rows[0].querySelector('input[type="checkbox"]')).toBeNull();
+    expect(rows[0].textContent).toContain('always');
+    // Member row gets the file-access toggle, checked by default.
+    const memberToggle = rows[1].querySelector<HTMLInputElement>('input[type="checkbox"]');
+    expect(memberToggle?.checked).toBe(true);
+    expect(rows[1].textContent).not.toContain('YOU');
+  });
+
+  it('toggling a member off PATCHes file_access=false and re-renders unchecked', async () => {
+    await setup();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+
+    const toggle = el()
+      .querySelectorAll('.member-row')[1]
+      .querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event('change'));
+    await settle();
+    fixture.detectChanges();
+
+    expect(setUserFileAccess).toHaveBeenCalledWith('u2', false);
+    const after = el()
+      .querySelectorAll('.member-row')[1]
+      .querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    expect(after.checked).toBe(false);
   });
 
   it('renders one invite-row per pending invite from listInvites()', async () => {
@@ -113,7 +175,7 @@ describe('UsersComponent', () => {
       .mockResolvedValue([invite(), invite({ code: 'DEF456', email: 'b@justmaple.app' })]);
     await setup({ listInvites });
     fixture.detectChanges();
-    await Promise.resolve();
+    await settle();
     fixture.detectChanges();
 
     const rows = el().querySelectorAll('.invite-row');
@@ -137,7 +199,7 @@ describe('UsersComponent', () => {
       .mockResolvedValue([invite({ consumed_at: '2026-08-01T00:00:00Z' })]);
     await setup({ listInvites });
     fixture.detectChanges();
-    await Promise.resolve();
+    await settle();
     fixture.detectChanges();
 
     const row = el().querySelector('.invite-row')!;
@@ -191,7 +253,7 @@ describe('UsersComponent', () => {
     const listInvites = vi.fn().mockResolvedValueOnce([invite()]).mockResolvedValueOnce([]);
     await setup({ rescindInvite, listInvites });
     fixture.detectChanges();
-    await Promise.resolve();
+    await settle();
     fixture.detectChanges();
 
     el().querySelector<HTMLButtonElement>('.revoke-btn')!.click();

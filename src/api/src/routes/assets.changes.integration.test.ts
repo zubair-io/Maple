@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { assetsRoutes } from './assets.ts';
 import { listChangesSince } from '../db/changes.repo.ts';
 import { closeDb, getDb, isDbConnected } from '../db/client.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
 // Own per-pid database + explicit close — the repo-wide suite convention
 // (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
@@ -76,7 +77,7 @@ describe('assets routes — change emission', () => {
       indexed_at: new Date().toISOString(),
     } as never);
 
-    const app = new Elysia().use(assetsRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsRoutes);
     const res = await app.handle(
       new Request(`http://localhost/api/assets/${assetId.toHexString()}/xmp`, {
         method: 'PUT',
@@ -127,7 +128,7 @@ describe('assets routes — change emission', () => {
       indexed_at: new Date().toISOString(),
     } as never);
 
-    const app = new Elysia().use(assetsRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsRoutes);
     const res = await app.handle(
       new Request(`http://localhost/api/assets/${assetId.toHexString()}/xmp`, { method: 'DELETE' }),
     );

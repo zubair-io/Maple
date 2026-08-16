@@ -17,6 +17,7 @@
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import { batchRenameAssets, previewBatchRename } from '../../library/batch-rename.ts';
+import { requireFileAccessBeforeHandle } from '../../auth/middleware.ts';
 
 const TemplateFieldsSchema = {
   ids: t.Array(t.String(), { minItems: 1 }),
@@ -79,6 +80,7 @@ export const batchRenameRoutes = new Elysia()
       };
     },
     {
+      beforeHandle: requireFileAccessBeforeHandle,
       body: BatchRenamePreviewBodySchema,
       detail: {
         summary: 'Preview a batch-rename template over an ordered asset list (no writes)',
@@ -136,6 +138,7 @@ export const batchRenameRoutes = new Elysia()
       };
     },
     {
+      beforeHandle: requireFileAccessBeforeHandle,
       body: BatchRenameBodySchema,
       detail: {
         summary: 'Apply a batch-rename template over an ordered asset list, sequentially',

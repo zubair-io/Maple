@@ -26,6 +26,7 @@ import { foldersCollection } from '../db/client.ts';
 import type { FolderDoc } from '../db/schema.ts';
 import { validateRelPathHeader } from './folders.ts';
 import { trashFolderRecursive, restoreFolderRecursive } from '../library/folder-trash.ts';
+import { requireFileAccess } from '../auth/middleware.ts';
 
 type ResolvedTarget = { folderId: ObjectId; folder: WithId<FolderDoc>; relPath: string };
 type ResolveError = { status: number; error: string };
@@ -93,7 +94,9 @@ async function runFolderBatch(
   return summary;
 }
 
+// Folder trash/restore mutates the filesystem — file-access-gated (#2893).
 export const foldersTrashRoutes = new Elysia({ prefix: '/api/folders' })
+  .use(requireFileAccess)
   .post('/:id/trash-folder', ({ params, headers, set }) =>
     runFolderBatch(params.id, headers, set, trashFolderRecursive),
   )

@@ -13,6 +13,7 @@ import * as path from 'node:path';
 import { folderRoutes } from './folder.ts';
 import { setLibraryBySlugForTests } from '../../indexer/libraries.cache.ts';
 import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { fakeAuth } from '../../../tests/helpers/test-auth.ts';
 
 const TEST_DB = `maple_test_folder_route_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
@@ -24,7 +25,7 @@ let db: Db | null = null;
 let tmpDir = '';
 let libraryId = new ObjectId();
 
-const app = new Elysia().use(folderRoutes);
+const app = new Elysia().use(fakeAuth()).use(folderRoutes);
 
 async function tryConnect(): Promise<MongoClient | null> {
   const c = new MongoClient(MONGO_URI, {
