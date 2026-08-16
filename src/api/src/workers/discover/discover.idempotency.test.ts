@@ -16,9 +16,9 @@ import { type Db } from 'mongodb';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { tryConnect } from './_test-helpers.ts';
+import { withTestDb } from '../../db/test-db.test-helpers.ts';
 
-const TEST_DB = `maple_test_discover_idem_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_discover_idem_${process.pid}`);
 
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
