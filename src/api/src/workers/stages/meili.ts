@@ -69,6 +69,8 @@ export async function loadNamedPeople(
       _id: { $in: [...uniqueIds.values()] },
       merged_into: null,
       hidden: { $ne: true },
+      // #2894 — an excluded person's name must not be searchable.
+      excluded: { $ne: true },
     } as never)
     .project<{ _id: ObjectId; name: PersonDoc['name'] }>({ _id: 1, name: 1 })
     .toArray();

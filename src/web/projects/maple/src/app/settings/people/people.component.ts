@@ -506,6 +506,23 @@ export class PeopleComponent implements OnDestroy {
     }
   }
 
+  /** Exclude (#2894) is reversible (Excluded page, restore anytime) and
+   * non-destructive — nothing on disk changes — but it's a bigger hammer
+   * than hide: the person's photos leave search, the timeline, and every
+   * other listing. Still toast-confirmed rather than dialog-blocked, for
+   * the same reasons as {@link hidePerson}. */
+  async excludeSelectedCluster(): Promise<void> {
+    const detail = this.selected();
+    if (!detail) return;
+    try {
+      await this.store.excludePerson(detail.id);
+      this.showToast(`Excluded ${detail.name} — their photos will no longer appear`, 'success');
+      this.closeDetail();
+    } catch (err) {
+      this.showToast(errorMessage(err), 'error');
+    }
+  }
+
   // ── Face-key helper ─────────────────────────────────────────────────
   // Shared `@for` track-by across the visible-faces grid and the
   // merge-suggestion "Compare faces" strip. Per-face selection + bulk

@@ -19,11 +19,8 @@
           <maple-settings-icon name="back" [size]="13" color="#a8a29e" />
           <span>People</span>
         </button>
-        <h1>Hidden people</h1>
-        <p>
-          People you've hidden from the main list. Their photos stay grouped and they keep
-          collecting newly-detected faces — restore one anytime to bring it back.
-        </p>
+        <h1>{{ copy.title }}</h1>
+        <p>{{ copy.description }}</p>
       </div>
     </header>
 
@@ -32,10 +29,11 @@
         <div class="stats-line">Loading…</div>
       } @else if (!hasPeople()) {
         <div class="empty-card">
-          <h3>No hidden people.</h3>
+          <h3>{{ copy.emptyTitle }}</h3>
           <p>
-            When you hide someone on the <a routerLink="/settings/people">People page</a>, they show
-            up here so you can restore them later.
+            When you {{ copy.emptyAction }} someone on the
+            <a routerLink="/settings/people">People page</a>, they show up here so you can restore
+            them later.
           </p>
         </div>
       } @else {
