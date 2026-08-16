@@ -167,13 +167,19 @@ describe('MapViewComponent', () => {
     expect(heatmapAttach).toHaveBeenCalledExactlyOnceWith(FAKE_HANDLE);
   });
 
-  it('attaches the heatmap layer before the pins layer, so the heatmap stays underneath in the map’s own layer stack', () => {
+  // Regression guard for a real MapLibre failure mode: the heatmap layer
+  // reads from the shared cluster source, but only `pins.attach()` actually
+  // creates that source (`handle.addSource(...)`). Attaching the heatmap
+  // layer before the source exists makes a real `maplibregl.Map` throw
+  // synchronously ("source not found") — the fakes here can't catch that
+  // themselves, so this test locks in the required call order instead.
+  it('attaches the pins layer (which creates the shared source) before the heatmap layer (which reads from it)', () => {
     const fixture = TestBed.createComponent(MapViewComponent);
     fixture.detectChanges();
 
-    const heatmapOrder = heatmapAttach.mock.invocationCallOrder[0]!;
     const pinsOrder = attach.mock.invocationCallOrder[0]!;
-    expect(heatmapOrder).toBeLessThan(pinsOrder);
+    const heatmapOrder = heatmapAttach.mock.invocationCallOrder[0]!;
+    expect(pinsOrder).toBeLessThan(heatmapOrder);
   });
 
   it('does not attach the pins layer when destroyed before the config fetch completes', () => {

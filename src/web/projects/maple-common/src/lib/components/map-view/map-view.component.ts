@@ -4,18 +4,21 @@
 // Mounts a MapLibre map (via `MapLibreService`) into a plain `<div>` on
 // `ngAfterViewInit`; the SDK itself never appears in this file or its
 // template — see `MapLibreService`'s module doc. Once the map instance
-// exists, `MapHeatmapLayerService` attaches its density-overlay layer first,
-// then `MapClusterPinsService` (both provided here, component-scoped, so
-// their state lives and dies with this one mount) attaches and owns the
-// clustered pins/count-bubbles layer — see each service's module doc.
-// Heatmap-before-pins is a deliberate ordering, not just declaration order:
-// it keeps the heatmap layer underneath anything pins add to the map's own
-// layer stack, which is what "heatmap renders beneath the pins" actually
-// means for a canvas layer (today's DOM `Marker` pins already render above
-// the canvas regardless of order, per the SDK). This component's other job
-// is showing an inline notice — never a blanked feature — when the
-// configured tile source is unreachable, or when the viewport has no
-// located photos (design doc § "Error / empty states").
+// exists, `MapClusterPinsService` (provided here, component-scoped, so its
+// state lives and dies with this one mount) attaches first: its `attach()`
+// synchronously adds the shared `MAP_CLUSTER_SOURCE_ID` GeoJSON source, and
+// owns the clustered pins/count-bubbles layer — see that service's module
+// doc. `MapHeatmapLayerService` attaches second, adding a `heatmap` layer
+// that reads from that same source: MapLibre requires a layer's source to
+// already exist at `addLayer` time, so pins-before-heatmap is a hard
+// ordering requirement here, not a style choice — reversing it makes
+// MapLibre throw synchronously ("source not found"). Layer *z*-order
+// between heatmap and pins is a separate, already-solved concern: pins are
+// HTML `Marker`s, which the SDK always renders in their own DOM layer above
+// the canvas regardless of style-layer order. This component's other job is
+// showing an inline notice — never a blanked feature — when the configured
+// tile source is unreachable, or when the viewport has no located photos
+// (design doc § "Error / empty states").
 
 import {
   AfterViewInit,
@@ -70,8 +73,10 @@ export class MapViewComponent implements AfterViewInit, OnDestroy {
       .subscribe(() => {
         const handle = this.mapService.currentHandle();
         if (!handle) return;
-        this.heatmap.attach(handle);
+        // Order matters: `pins.attach()` adds the shared source the heatmap
+        // layer reads from — see module doc.
         this.pins.attach(handle);
+        this.heatmap.attach(handle);
       });
   }
 
