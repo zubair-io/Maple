@@ -19,6 +19,11 @@
 // Reuses `MapViewModel.cells` via the `cells` parameter — no second fetch,
 // no parallel data path. Non-interactive: sits above the `Map` in z-order
 // but must not steal pin taps.
+//
+// `region` (#2869) is a per-frame change signal, not drawing input — see
+// this struct's doc comment on that property, and `MapHeatmapCameraLayer`
+// below for how it's fed from the live camera without invalidating the rest
+// of `MapView`.
 
 import SwiftUI
 import MapKit
@@ -32,6 +37,17 @@ struct MapHeatmapLayerView: View {
   /// instead (see `MapViewModel.heatmapPoints`).
   let points: [MapHeatmapPoint]
   let zoomLevel: Int
+  /// The live camera. The draw closure never reads it — `proxy.convert`
+  /// already projects against the current camera — but it is taken as an
+  /// input so SwiftUI has something that actually CHANGES during a pan.
+  ///
+  /// Without it this view's inputs are effectively constant mid-pan:
+  /// `points` only change on a refetch, and `zoomLevel` is a rounded `Int`
+  /// that holds steady across a whole pan. SwiftUI would skip re-evaluating
+  /// the body, the `Canvas` would never redraw, and the blobs would sit
+  /// glued to the screen while the tiles slid underneath — geographically
+  /// wrong until the gesture ended, then snapping into place (#2869).
+  let region: MKCoordinateRegion?
   let proxy: MapProxy
 
   var body: some View {
@@ -67,5 +83,28 @@ struct MapHeatmapLayerView: View {
       ) else { return nil }
       return MapHeatmapBlob(center: center, radius: MapHeatmapPainter.radius(forWeight: heatPoint.weight), weight: heatPoint.weight)
     }
+  }
+}
+
+/// The heat layer plus the zoom derivation, isolated so that reading the
+/// live camera invalidates only this subtree — mirrors tvOS's
+/// `TVMapHeatmapOverlay` (`Maple TV/TVMapHeatmapLayerView.swift`), sharing
+/// the same `MapCameraTracker` type (MapleCloudKit) rather than forking a
+/// second one (#2869).
+///
+/// `MapView` holds the tracker but never reads `.region`/`.zoomLevel`
+/// itself, so a pan/zoom invalidates only this small subtree instead of the
+/// whole screen (including the annotation content) at the camera's update
+/// frequency. See `MapCameraTracker`'s doc comment for why the listener that
+/// writes into the tracker has to stay on `MapView`'s `Map` — an ancestor —
+/// rather than move down here, onto a sibling of the `Map`.
+struct MapHeatmapCameraLayer: View {
+  let points: [MapHeatmapPoint]
+  let tracker: MapCameraTracker
+  let proxy: MapProxy
+
+  var body: some View {
+    MapHeatmapLayerView(
+      points: points, zoomLevel: tracker.zoomLevel, region: tracker.region, proxy: proxy)
   }
 }
