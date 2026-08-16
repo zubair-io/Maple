@@ -22,6 +22,9 @@ struct WorkersStageRow: View {
     /// Nil when the stage has no dead jobs — the count is the affordance,
     /// so there's nothing to open (#2769).
     var onShowDeadJobs: (() -> Void)?
+    /// False while only the registry snapshot has arrived, so the count
+    /// columns render as unknown rather than as a confident zero (#2910).
+    var counted: Bool = true
 
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -97,8 +100,8 @@ struct WorkersStageRow: View {
 
             Spacer(minLength: 8)
 
-            metric(WorkersSettingsVM.inFlightLabel(stage), caption: "in flight")
-            metric(WorkersSettingsVM.pendingLabel(stage), caption: "ready")
+            metric(WorkersSettingsVM.inFlightLabel(stage, counted: counted), caption: "in flight")
+            metric(WorkersSettingsVM.pendingLabel(stage, counted: counted), caption: "ready")
                 .help(StageCatalog.pendingDetail(stage))
             deadMetric
             metric(WorkersSettingsVM.throughputLabel(stage.throughput), caption: "rate")
@@ -119,6 +122,10 @@ struct WorkersStageRow: View {
         Button(WorkersSettingsVM.pauseActionLabel(stage.status)) {
             onTogglePause?()
         }
+        // .borderless is what stops a List row from routing every tap in
+        // the card to this button — the default style made the whole row a
+        // Pause target, including the areas that read as plain data (#2910).
+        .buttonStyle(.borderless)
         .controlSize(.small)
         .lineLimit(1)
         .disabled(onTogglePause == nil || isBusy)
@@ -130,18 +137,19 @@ struct WorkersStageRow: View {
     /// open, so the drawer from #2769 is still reachable on iPhone.
     private var inlineMetrics: some View {
         HStack(spacing: 6) {
-            Text(WorkersSettingsVM.inFlightLabel(stage) + " in flight")
+            Text(WorkersSettingsVM.inFlightLabel(stage, counted: counted) + " in flight")
             Text("·")
-            Text(WorkersSettingsVM.pendingLabel(stage) + " ready")
+            Text(WorkersSettingsVM.pendingLabel(stage, counted: counted) + " ready")
             Text("·")
             if let onShowDeadJobs {
                 Button(action: onShowDeadJobs) {
-                    Text("\(stage.dead) dead").foregroundStyle(.red)
+                    Text(WorkersSettingsVM.deadLabel(stage, counted: counted) + " dead")
+                        .foregroundStyle(.red)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
                 .accessibilityIdentifier("workers.dead.\(stage.name)")
             } else {
-                Text("\(stage.dead) dead")
+                Text(WorkersSettingsVM.deadLabel(stage, counted: counted) + " dead")
             }
             Text("·")
             Text(WorkersSettingsVM.throughputLabel(stage.throughput))
@@ -157,14 +165,14 @@ struct WorkersStageRow: View {
     private var deadMetric: some View {
         if let onShowDeadJobs {
             Button(action: onShowDeadJobs) {
-                metric("\(stage.dead)", caption: "dead")
+                metric(WorkersSettingsVM.deadLabel(stage, counted: counted), caption: "dead")
                     .foregroundStyle(.red)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.borderless)
             .accessibilityIdentifier("workers.dead.\(stage.name)")
             .help("Show the failed jobs for this stage")
         } else {
-            metric("\(stage.dead)", caption: "dead")
+            metric(WorkersSettingsVM.deadLabel(stage, counted: counted), caption: "dead")
         }
     }
 

@@ -52,7 +52,8 @@ struct WorkersSettingsView: View {
                                     isBusy: busyStage != nil,
                                     onShowDeadJobs: stage.dead > 0
                                         ? { deadDrawerStage = DeadDrawerTarget(stage: stage.name) }
-                                        : nil)
+                                        : nil,
+                                    counted: feed.hasCountedData)
                             }
                         }
                         .listRowBackground(MapleTokens.surface)
@@ -121,6 +122,20 @@ struct WorkersSettingsView: View {
             }
             .accessibilityIdentifier("workers.summary")
 
+            if let pending = WorkersSettingsVM.countsPendingNotice(
+                hasCountedData: feed.hasCountedData, hasPayload: feed.payload != nil)
+            {
+                Label(pending, systemImage: "hourglass")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("workers.countsPending")
+            }
+            if let loadError {
+                Label(loadError, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .accessibilityIdentifier("workers.statusFetchError")
+            }
             if let notice = WorkersSettingsVM.connectionNotice(
                 isLive: isLive, hasPayload: feed.payload != nil)
             {
@@ -159,9 +174,12 @@ struct WorkersSettingsView: View {
             feed.applyFallback(snapshot)
             loadError = nil
         } catch {
-            // Only surface this if the socket hasn't already populated the
-            // table — a failed fallback is invisible when live data works.
-            if feed.payload == nil { loadError = error.localizedDescription }
+            // Surface this even when the socket has painted something. The
+            // cheap snapshot carries no counts, so a failed fallback is
+            // precisely when the operator most needs to know why the
+            // numbers are missing — swallowing it is how #2910 looked like
+            // an idle pipeline instead of a broken request.
+            loadError = error.localizedDescription
         }
     }
 
