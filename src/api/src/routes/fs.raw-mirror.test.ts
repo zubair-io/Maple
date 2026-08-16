@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import { clearMirrorRoots, setMirrorRoots } from '../fs/mirror-registry.ts';
 import { markMirrorUnhealthy, resetMirrorHealth, resetReadBalancer } from '../fs/mirror-read.ts';
 import { fsRoutes } from './fs.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
 const RAW_BYTES = 'raw-bytes-for-the-decoder';
 
@@ -28,6 +29,7 @@ let priorRoots: string | undefined;
 
 function get(path: string): Promise<Response> {
   return new Elysia()
+    .use(fakeAuth())
     .use(fsRoutes)
     .handle(new Request(`http://localhost/api/fs/raw?path=${encodeURIComponent(path)}`));
 }

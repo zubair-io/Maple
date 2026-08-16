@@ -4,6 +4,7 @@ import { ObjectId, type Db } from 'mongodb';
 import { changesRoutes } from './changes.ts';
 import { recordAssetChange } from '../db/changes.repo.ts';
 import { closeDb, getDb, isDbConnected } from '../db/client.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
 // Own per-pid database + explicit close — the repo-wide suite convention
 // (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
@@ -35,7 +36,7 @@ beforeEach(async () => {
   // database is ours now — dropped in afterAll).
   await db.collection('asset_changes').deleteMany({});
   await db.collection('server_state').deleteMany({});
-  app = new Elysia().use(changesRoutes);
+  app = new Elysia().use(fakeAuth()).use(changesRoutes);
 });
 
 afterAll(async () => {

@@ -19,6 +19,13 @@ export interface AccessClaims {
   sub: string; // user_id
   email: string;
   role: 'owner' | 'member';
+  /**
+   * Per-user "file access" permission (#2893): may this user browse the
+   * filesystem and move/rename/trash files? Rides in the token (same
+   * stateless trade as `role` — revocation lands within the 15-min TTL).
+   * Owners always have it.
+   */
+  file_access: boolean;
   iat: number;
   exp: number;
 }
@@ -32,13 +39,13 @@ function secretKey(secret: string): Uint8Array {
  * Web-Crypto-backed signing has no synchronous API.
  */
 export async function signAccessToken(
-  payload: { sub: string; email: string; role: 'owner' | 'member' },
+  payload: { sub: string; email: string; role: 'owner' | 'member'; file_access: boolean },
   secret: string,
   opts: { expiresInSeconds?: number } = {},
 ): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const exp = now + (opts.expiresInSeconds ?? ACCESS_TTL_SECONDS);
-  return new SignJWT({ email: payload.email, role: payload.role })
+  return new SignJWT({ email: payload.email, role: payload.role, file_access: payload.file_access })
     .setProtectedHeader({ alg: ALG, typ: 'JWT' })
     .setSubject(payload.sub)
     .setIssuedAt(now)
@@ -65,7 +72,7 @@ export async function verifyAccessToken(jwt: string, secret: string): Promise<Ac
       throw new Error('bad signature', { cause: e });
     throw new Error('malformed token', { cause: e });
   }
-  const { sub, email, role, iat, exp } = claims;
+  const { sub, email, role, file_access, iat, exp } = claims;
   if (
     typeof sub !== 'string' ||
     typeof email !== 'string' ||
@@ -78,6 +85,10 @@ export async function verifyAccessToken(jwt: string, secret: string): Promise<Ac
     sub,
     email,
     role,
+    // Tokens minted before #2893 carry no file_access claim; every user had
+    // full access then, so absent = true. Owners are always true regardless
+    // (the mint side enforces it; this is belt-and-braces for old tokens).
+    file_access: role === 'owner' ? true : file_access !== false,
     iat: typeof iat === 'number' ? iat : 0,
     exp,
   };

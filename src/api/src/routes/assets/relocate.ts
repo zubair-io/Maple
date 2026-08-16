@@ -20,6 +20,7 @@ import { relocateAsset } from '../../library/relocate-asset.ts';
 import { validateRelPathShape } from '../../library/address.ts';
 import { isSafeFilename } from '../../backup/path-formatter.ts';
 import { parseAssetIdOr400, relocateResultResponse } from './_shared.ts';
+import { requireFileAccessBeforeHandle } from '../../auth/middleware.ts';
 
 const RelocateBodySchema = t.Object({
   mode: t.Union([t.Literal('move'), t.Literal('copy')]),
@@ -81,6 +82,7 @@ export const relocateRoutes = new Elysia().post(
     return responseBody;
   },
   {
+    beforeHandle: requireFileAccessBeforeHandle,
     body: RelocateBodySchema,
     detail: {
       summary: 'Relocate (move or copy) a single asset + its XMP sidecar',

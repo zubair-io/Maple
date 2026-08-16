@@ -16,13 +16,14 @@ import * as path from 'node:path';
 import { relocateRoutes } from './relocate.ts';
 import { closeDb } from '../../db/client.ts';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
+import { fakeAuth } from '../../../tests/helpers/test-auth.ts';
 
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 const TEST_DB = `maple_relocate_route_test_${process.pid}`;
 const ORIGINAL_MONGO_DB = process.env.MAPLE_MONGO_DB;
 const ORIGINAL_MONGO_URI = process.env.MAPLE_MONGO_URI;
 
-const app = new Elysia({ prefix: '/api/assets' }).use(relocateRoutes);
+const app = new Elysia({ prefix: '/api/assets' }).use(fakeAuth()).use(relocateRoutes);
 
 async function postRelocate(id: string, body: unknown): Promise<Response> {
   return app.handle(

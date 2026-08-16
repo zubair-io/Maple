@@ -1,10 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { Elysia } from "elysia";
-import { MongoClient, ObjectId, type Db } from "mongodb";
-import { closeDb } from "../db/client.ts";
-import { foldersRoutes } from "./folders.ts";
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { Elysia } from 'elysia';
+import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { closeDb } from '../db/client.ts';
+import { foldersRoutes } from './folders.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
+const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 // Shared DB name across all etag tests in this process so the
 // module-cached MongoClient (which is keyed on the env var read at first
 // connect) never points at a stale DB when tests interleave.
@@ -16,7 +17,7 @@ async function tryConnect(): Promise<MongoClient | null> {
   });
   try {
     await c.connect();
-    await c.db("admin").command({ ping: 1 });
+    await c.db('admin').command({ ping: 1 });
     return c;
   } catch {
     try {
@@ -26,7 +27,7 @@ async function tryConnect(): Promise<MongoClient | null> {
   }
 }
 
-describe("GET /api/folders — ETag", () => {
+describe('GET /api/folders — ETag', () => {
   let client: MongoClient | null = null;
   let db: Db | null = null;
 
@@ -41,10 +42,10 @@ describe("GET /api/folders — ETag", () => {
     await closeDb();
     db = client.db(TEST_DB);
     await db.dropDatabase();
-    await db.collection("folders").insertOne({
+    await db.collection('folders').insertOne({
       _id: new ObjectId(),
-      path: "/srv/p",
-      label: "p",
+      path: '/srv/p',
+      label: 'p',
       last_scan: null,
       file_count: 0,
       created_at: new Date().toISOString(),
@@ -63,52 +64,51 @@ describe("GET /api/folders — ETag", () => {
     client = null;
   });
 
-
-  it("returns ETag header on 200", async () => {
+  it('returns ETag header on 200', async () => {
     if (!client) {
-      console.log("[folders.etag.test] MongoDB unreachable — skipping");
+      console.log('[folders.etag.test] MongoDB unreachable — skipping');
       return;
     }
-    const app = new Elysia().use(foldersRoutes);
-    const res = await app.handle(new Request("http://localhost/api/folders"));
+    const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
+    const res = await app.handle(new Request('http://localhost/api/folders'));
     expect(res.status).toBe(200);
-    expect(res.headers.get("ETag")).toMatch(/^"[a-f0-9]+"$/);
+    expect(res.headers.get('ETag')).toMatch(/^"[a-f0-9]+"$/);
   });
 
-  it("returns 304 when If-None-Match matches", async () => {
+  it('returns 304 when If-None-Match matches', async () => {
     if (!client) return;
-    const app = new Elysia().use(foldersRoutes);
-    const first = await app.handle(new Request("http://localhost/api/folders"));
-    const etag = first.headers.get("ETag")!;
+    const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
+    const first = await app.handle(new Request('http://localhost/api/folders'));
+    const etag = first.headers.get('ETag')!;
     const second = await app.handle(
-      new Request("http://localhost/api/folders", {
-        headers: { "If-None-Match": etag },
+      new Request('http://localhost/api/folders', {
+        headers: { 'If-None-Match': etag },
       }),
     );
     expect(second.status).toBe(304);
     expect((await second.text()).length).toBe(0);
-    expect(second.headers.get("ETag")).toBe(etag);
+    expect(second.headers.get('ETag')).toBe(etag);
   });
 
-  it("returns 200 with a new ETag when folders change", async () => {
+  it('returns 200 with a new ETag when folders change', async () => {
     if (!client || !db) return;
-    const app = new Elysia().use(foldersRoutes);
-    const first = await app.handle(new Request("http://localhost/api/folders"));
-    const etag1 = first.headers.get("ETag")!;
-    await db.collection("folders").insertOne({
+    const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
+    const first = await app.handle(new Request('http://localhost/api/folders'));
+    const etag1 = first.headers.get('ETag')!;
+    await db.collection('folders').insertOne({
       _id: new ObjectId(),
-      path: "/srv/q",
-      label: "q",
+      path: '/srv/q',
+      label: 'q',
       last_scan: null,
       file_count: 0,
       created_at: new Date().toISOString(),
     } as never);
     const second = await app.handle(
-      new Request("http://localhost/api/folders", {
-        headers: { "If-None-Match": etag1 },
+      new Request('http://localhost/api/folders', {
+        headers: { 'If-None-Match': etag1 },
       }),
     );
     expect(second.status).toBe(200);
-    expect(second.headers.get("ETag")).not.toBe(etag1);
+    expect(second.headers.get('ETag')).not.toBe(etag1);
   });
 });

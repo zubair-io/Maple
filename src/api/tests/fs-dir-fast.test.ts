@@ -13,6 +13,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as fs from 'node:fs/promises';
+import { fakeAuth } from './helpers/test-auth.ts';
+import { Elysia } from 'elysia';
 
 describe('GET /api/fs/dir-fast', () => {
   let tmpRoot: string;
@@ -46,7 +48,8 @@ describe('GET /api/fs/dir-fast', () => {
 
   it('returns subdirs and image files at the level, no sidecars/exif/id', async () => {
     const { fsRoutes } = await import('../src/routes/fs.ts');
-    const res = await fsRoutes.handle(
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
+    const res = await authedApp.handle(
       new Request(`http://localhost/api/fs/dir-fast?path=${encodeURIComponent(tmpRoot)}`),
     );
     expect(res.status).toBe(200);
@@ -76,7 +79,8 @@ describe('GET /api/fs/dir-fast', () => {
 
   it('drops .xmp filenames from the listing', async () => {
     const { fsRoutes } = await import('../src/routes/fs.ts');
-    const res = await fsRoutes.handle(
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
+    const res = await authedApp.handle(
       new Request(`http://localhost/api/fs/dir-fast?path=${encodeURIComponent(tmpRoot)}`),
     );
     const json = (await res.json()) as { images: Array<{ name: string }> };
@@ -86,7 +90,8 @@ describe('GET /api/fs/dir-fast', () => {
 
   it('returns 400 for path outside MAPLE_ROOTS', async () => {
     const { fsRoutes } = await import('../src/routes/fs.ts');
-    const res = await fsRoutes.handle(
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
+    const res = await authedApp.handle(
       new Request(`http://localhost/api/fs/dir-fast?path=${encodeURIComponent('/tmp')}`),
     );
     expect(res.status).toBe(400);
@@ -94,7 +99,8 @@ describe('GET /api/fs/dir-fast', () => {
 
   it('rejects non-absolute path', async () => {
     const { fsRoutes } = await import('../src/routes/fs.ts');
-    const res = await fsRoutes.handle(
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
+    const res = await authedApp.handle(
       new Request(`http://localhost/api/fs/dir-fast?path=${encodeURIComponent('relative/path')}`),
     );
     expect(res.status).toBe(400);
@@ -102,7 +108,8 @@ describe('GET /api/fs/dir-fast', () => {
 
   it('rejects non-integer limit', async () => {
     const { fsRoutes } = await import('../src/routes/fs.ts');
-    const res = await fsRoutes.handle(
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
+    const res = await authedApp.handle(
       new Request(`http://localhost/api/fs/dir-fast?path=${encodeURIComponent(tmpRoot)}&limit=abc`),
     );
     expect(res.status).toBe(400);

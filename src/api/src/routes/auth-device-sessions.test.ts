@@ -49,7 +49,7 @@ async function seedUser(email: string): Promise<ObjectId> {
 
 async function bearerFor(userId: ObjectId, email: string): Promise<string> {
   return signAccessToken(
-    { sub: userId.toHexString(), email, role: 'owner' },
+    { sub: userId.toHexString(), email, role: 'owner', file_access: true },
     process.env.MAPLE_JWT_SECRET!,
   );
 }
