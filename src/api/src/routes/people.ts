@@ -37,6 +37,7 @@ import {
 import { mergePeopleInto } from '../people/people-merge.repo.ts';
 import { dismissMergeSuggestion } from '../people/people-merge-suggestions.repo.ts';
 import { setPersonCover } from '../people/people-cover.repo.ts';
+import { personNameError } from '../people/person-name.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('people:routes');
@@ -211,9 +212,10 @@ export const peopleRoutes = new Elysia({ prefix: '/api/people' })
     '/',
     async ({ body, set }) => {
       const name = body.name.trim();
-      if (name.length === 0) {
+      const invalid = personNameError(name);
+      if (invalid) {
         set.status = 400;
-        return { error: 'name must not be empty' };
+        return { error: invalid };
       }
       const person = await createPerson(name);
       return {
@@ -236,9 +238,10 @@ export const peopleRoutes = new Elysia({ prefix: '/api/people' })
         return { error: 'invalid person id' };
       }
       const name = body.name.trim();
-      if (name.length === 0) {
+      const invalid = personNameError(name);
+      if (invalid) {
         set.status = 400;
-        return { error: 'name must not be empty' };
+        return { error: invalid };
       }
       try {
         const result = await renamePerson(id, name);
