@@ -18,6 +18,7 @@ import {
 } from '../auth/webauthn.ts';
 import { redeemInvite, createInvite, listInvites, rescindInvite } from '../auth/invites.ts';
 import { signAccessToken, REFRESH_TTL_SECONDS } from '../auth/tokens.ts';
+import { userFileAccess } from '../auth/permissions.ts';
 import {
   issueRefreshToken,
   RefreshError,
@@ -85,6 +86,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
           sub: user._id.toHexString(),
           email: user.email,
           role: user.role,
+          file_access: userFileAccess(user),
         },
         jwtSecret(),
       );
@@ -103,6 +105,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
           id: user._id.toHexString(),
           email: user.email,
           role: user.role,
+          file_access: userFileAccess(user),
         },
       };
     },
@@ -215,7 +218,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
         });
 
         const access_token = await signAccessToken(
-          { sub: userId.toHexString(), email, role },
+          { sub: userId.toHexString(), email, role, file_access: userFileAccess({ role }) },
           jwtSecret(),
         );
         const refresh = await issueRefreshToken(userId, body.device_label);
@@ -229,7 +232,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
         });
         return {
           access_token,
-          user: { id: userId.toHexString(), email, role },
+          user: { id: userId.toHexString(), email, role, file_access: userFileAccess({ role }) },
         };
       } catch (e) {
         if (userId) await u.deleteOne({ _id: userId });
@@ -347,6 +350,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
           sub: user._id.toHexString(),
           email: user.email,
           role: user.role,
+          file_access: userFileAccess(user),
         },
         jwtSecret(),
       );
@@ -367,6 +371,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
           id: user._id.toHexString(),
           email: user.email,
           role: user.role,
+          file_access: userFileAccess(user),
         },
       };
     },
@@ -424,6 +429,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
           sub: user._id.toHexString(),
           email: user.email,
           role: user.role,
+          file_access: userFileAccess(user),
         },
         jwtSecret(),
       );

@@ -22,6 +22,7 @@
 import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
 import { NgComponentOutlet } from '@angular/common';
 import { LibraryStateService } from '../../state/library-state.service';
+import { AuthService } from '../../auth/auth.service';
 import { selectSidebarEntry } from '../../shells/browse-shell/source-selection';
 import { FOLDER_TREE_EXTENSIONS } from './folder-tree-extension';
 import type { FolderCrudMutation, FolderCrudRequest } from './folder-tree-crud.component';
@@ -48,6 +49,8 @@ import { TRASH_CAPABILITY } from '../../trash/trash-capability';
 })
 export class FolderTreeComponent {
   state = inject(LibraryStateService);
+  /** Restricted members (#2893) see no Library tree — Timeline/Map only. */
+  protected readonly auth = inject(AuthService);
   protected readonly extensions = inject(FOLDER_TREE_EXTENSIONS);
   protected readonly trash = inject(TRASH_CAPABILITY);
 
@@ -67,6 +70,9 @@ export class FolderTreeComponent {
     // cached), so re-running on every `registeredFolders()` change is safe.
     effect(() => {
       if (!this.trash.available()) return;
+      // No tree, no Trash badges — and the per-library trash listing is
+      // file-access-gated server-side anyway (#2893).
+      if (!this.auth.canBrowseFiles) return;
       for (const folder of this.state.registeredFolders()) {
         this.trash.ensureCountLoaded(folder.id);
       }

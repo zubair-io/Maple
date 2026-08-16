@@ -27,6 +27,7 @@ import { DUPLICATES_DIR_NAME } from '../fs/duplicates.ts';
 import { listPairedSidecars } from '../fs/xmp-conflict.ts';
 import { child as childLogger } from '../log.ts';
 import { computeBodyETag, ifNoneMatchEqual } from '../runtime/http-etag.ts';
+import { requireFileAccessBeforeHandle } from '../auth/middleware.ts';
 import { handleEvent } from '../workers/discover/index.ts';
 import { invalidateLibraryRoots, loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { slugify, dedupeSlug } from '../library/slug.ts';
@@ -343,6 +344,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       };
     },
     {
+      beforeHandle: requireFileAccessBeforeHandle,
       body: t.Object({
         path: t.String({ minLength: 1 }),
         label: t.Optional(t.String()),
@@ -402,6 +404,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       };
     },
     {
+      beforeHandle: requireFileAccessBeforeHandle,
       query: t.Object({
         page: t.Optional(t.String()),
         limit: t.Optional(t.String()),
@@ -412,64 +415,68 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   // Rescan a folder — resets stages.*.version to 0 (and clears dead/attempts/
   // last_error) for every asset doc whose primary fileinfo entry is in the
   // library. The stage controllers pick them up on their next poll cycle.
-  .post('/:id/rescan', async ({ params, set }) => {
-    const folderIdStr = params.id;
-    if (!ObjectId.isValid(folderIdStr)) {
-      set.status = 400;
-      return { ok: false, error: 'Invalid folderId' };
-    }
-    const id = new ObjectId(folderIdStr);
-    const folders = await foldersCollection();
-    const folder = await folders.findOne({ _id: id });
-    if (!folder) {
-      set.status = 404;
-      return { ok: false, error: 'Folder not found' };
-    }
-    const scanRoot = folder.path;
+  .post(
+    '/:id/rescan',
+    async ({ params, set }) => {
+      const folderIdStr = params.id;
+      if (!ObjectId.isValid(folderIdStr)) {
+        set.status = 400;
+        return { ok: false, error: 'Invalid folderId' };
+      }
+      const id = new ObjectId(folderIdStr);
+      const folders = await foldersCollection();
+      const folder = await folders.findOne({ _id: id });
+      if (!folder) {
+        set.status = 404;
+        return { ok: false, error: 'Folder not found' };
+      }
+      const scanRoot = folder.path;
 
-    // Build the $set payload: zero every stage's version and clear
-    // dead/attempts/last_error so the claim query picks the docs back up.
-    const stageResetFields: Record<string, unknown> = {};
-    for (const stage of stageManifest) {
-      stageResetFields[`stages.${stage.name}.version`] = 0;
-      stageResetFields[`stages.${stage.name}.dead`] = false;
-      stageResetFields[`stages.${stage.name}.attempts`] = 0;
-      stageResetFields[`stages.${stage.name}.last_error`] = null;
-    }
+      // Build the $set payload: zero every stage's version and clear
+      // dead/attempts/last_error so the claim query picks the docs back up.
+      const stageResetFields: Record<string, unknown> = {};
+      for (const stage of stageManifest) {
+        stageResetFields[`stages.${stage.name}.version`] = 0;
+        stageResetFields[`stages.${stage.name}.dead`] = false;
+        stageResetFields[`stages.${stage.name}.attempts`] = 0;
+        stageResetFields[`stages.${stage.name}.last_error`] = null;
+      }
 
-    const assets = await assetsCollection();
-    const updateResult = await (assets as unknown as Collection<Document>).updateMany(
-      { 'fileinfo.library_id': id },
-      { $set: stageResetFields },
-    );
+      const assets = await assetsCollection();
+      const updateResult = await (assets as unknown as Collection<Document>).updateMany(
+        { 'fileinfo.library_id': id },
+        { $set: stageResetFields },
+      );
 
-    // Re-walk the filesystem so a moved/new file is re-discovered and relinked
-    // (handleEvent dedups by maple_id/sha1_head, appends a live fileinfo, and
-    // clears deleted_at). Without this the button only zeroed stage versions —
-    // it could not recover a file whose only fileinfo was a soft-deleted old
-    // path. The walk runs to completion within the request: libraries are
-    // bounded and the dedup path is idempotent + concurrency-safe.
-    await scanFolderAndDiscover(scanRoot, id, scanRoot);
-    const scannedAt = new Date().toISOString();
-    await folders.updateOne({ _id: id }, { $set: { last_scan: scannedAt } });
+      // Re-walk the filesystem so a moved/new file is re-discovered and relinked
+      // (handleEvent dedups by maple_id/sha1_head, appends a live fileinfo, and
+      // clears deleted_at). Without this the button only zeroed stage versions —
+      // it could not recover a file whose only fileinfo was a soft-deleted old
+      // path. The walk runs to completion within the request: libraries are
+      // bounded and the dedup path is idempotent + concurrency-safe.
+      await scanFolderAndDiscover(scanRoot, id, scanRoot);
+      const scannedAt = new Date().toISOString();
+      await folders.updateOne({ _id: id }, { $set: { last_scan: scannedAt } });
 
-    log.info(
-      {
+      log.info(
+        {
+          folderId: folderIdStr,
+          path: scanRoot,
+          modified: updateResult.modifiedCount,
+        },
+        'rescan: stage versions zeroed + folder re-walked',
+      );
+
+      return {
+        ok: true,
         folderId: folderIdStr,
         path: scanRoot,
-        modified: updateResult.modifiedCount,
-      },
-      'rescan: stage versions zeroed + folder re-walked',
-    );
-
-    return {
-      ok: true,
-      folderId: folderIdStr,
-      path: scanRoot,
-      reset: updateResult.modifiedCount,
-      last_scan: scannedAt,
-    };
-  })
+        reset: updateResult.modifiedCount,
+        last_scan: scannedAt,
+      };
+    },
+    { beforeHandle: requireFileAccessBeforeHandle },
+  )
 
   // Content-aware re-discover for auto-scan-on-open (#804). Walks the folder
   // tree and pushes every supported file through the discover producer, which
@@ -481,51 +488,55 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   // doesn't re-walk. The walk runs to completion within the request (bounded
   // libraries; the dedup path is idempotent + concurrency-safe), so callers
   // get an authoritative "scan done" before refreshing their listing.
-  .post('/:id/scan', async ({ params, set }) => {
-    const folderIdStr = params.id;
-    if (!ObjectId.isValid(folderIdStr)) {
-      set.status = 400;
-      return { ok: false, error: 'Invalid folderId' };
-    }
-    const id = new ObjectId(folderIdStr);
-    const folders = await foldersCollection();
-    const folder = await folders.findOne({ _id: id });
-    if (!folder) {
-      set.status = 404;
-      return { ok: false, error: 'Folder not found' };
-    }
+  .post(
+    '/:id/scan',
+    async ({ params, set }) => {
+      const folderIdStr = params.id;
+      if (!ObjectId.isValid(folderIdStr)) {
+        set.status = 400;
+        return { ok: false, error: 'Invalid folderId' };
+      }
+      const id = new ObjectId(folderIdStr);
+      const folders = await foldersCollection();
+      const folder = await folders.findOne({ _id: id });
+      if (!folder) {
+        set.status = 404;
+        return { ok: false, error: 'Folder not found' };
+      }
 
-    // last_scan de-bounce: skip the re-walk when the folder was scanned
-    // within the recent window. Repeated/concurrent calls are safe either
-    // way (the discover path is idempotent), but skipping avoids redundant
-    // filesystem walks on rapid navigation.
-    const lastScan = folder.last_scan ? Date.parse(folder.last_scan) : NaN;
-    if (Number.isFinite(lastScan) && Date.now() - lastScan < SCAN_RECENT_WINDOW_MS) {
+      // last_scan de-bounce: skip the re-walk when the folder was scanned
+      // within the recent window. Repeated/concurrent calls are safe either
+      // way (the discover path is idempotent), but skipping avoids redundant
+      // filesystem walks on rapid navigation.
+      const lastScan = folder.last_scan ? Date.parse(folder.last_scan) : NaN;
+      if (Number.isFinite(lastScan) && Date.now() - lastScan < SCAN_RECENT_WINDOW_MS) {
+        return {
+          ok: true,
+          folderId: folderIdStr,
+          path: folder.path,
+          skipped: 'recent' as const,
+          last_scan: folder.last_scan,
+        };
+      }
+
+      await scanFolderAndDiscover(folder.path, id, folder.path);
+      const scannedAt = new Date().toISOString();
+      await folders.updateOne({ _id: id }, { $set: { last_scan: scannedAt } });
+
+      log.info(
+        { folderId: folderIdStr, path: folder.path },
+        'scan: folder re-walked (discover-only)',
+      );
+
       return {
         ok: true,
         folderId: folderIdStr,
         path: folder.path,
-        skipped: 'recent' as const,
-        last_scan: folder.last_scan,
+        last_scan: scannedAt,
       };
-    }
-
-    await scanFolderAndDiscover(folder.path, id, folder.path);
-    const scannedAt = new Date().toISOString();
-    await folders.updateOne({ _id: id }, { $set: { last_scan: scannedAt } });
-
-    log.info(
-      { folderId: folderIdStr, path: folder.path },
-      'scan: folder re-walked (discover-only)',
-    );
-
-    return {
-      ok: true,
-      folderId: folderIdStr,
-      path: folder.path,
-      last_scan: scannedAt,
-    };
-  })
+    },
+    { beforeHandle: requireFileAccessBeforeHandle },
+  )
 
   // Streaming upload: body is raw file bytes, target path in X-Maple-Target-Path.
   //
@@ -907,6 +918,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       // buffering. With no `type:` / `parse:` set, Elysia leaves the
       // body untouched.
       parse: 'none',
+      beforeHandle: requireFileAccessBeforeHandle,
     },
   )
 
@@ -1006,39 +1018,43 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   // folder as parent). Without an explicit mkdir hook the folder
   // createItem fell into featureUnsupported and the whole drag aborted
   // before any child file got a chance to upload.
-  .post('/:id/mkdir', async ({ params, headers, set }) => {
-    let folderId: ObjectId;
-    try {
-      folderId = new ObjectId(params.id);
-    } catch {
-      set.status = 400;
-      return { error: 'Invalid folder id' };
-    }
+  .post(
+    '/:id/mkdir',
+    async ({ params, headers, set }) => {
+      let folderId: ObjectId;
+      try {
+        folderId = new ObjectId(params.id);
+      } catch {
+        set.status = 400;
+        return { error: 'Invalid folder id' };
+      }
 
-    const folders = await foldersCollection();
-    const folder = await folders.findOne({ _id: folderId });
-    if (!folder) {
-      set.status = 404;
-      return { error: 'Folder not found' };
-    }
+      const folders = await foldersCollection();
+      const folder = await folders.findOne({ _id: folderId });
+      if (!folder) {
+        set.status = 404;
+        return { error: 'Folder not found' };
+      }
 
-    const validated = decodeAndValidateTargetPath(headers);
-    if (!validated.ok) {
-      set.status = validated.status;
-      return { error: validated.error };
-    }
-    const absPath = nodePath.join(folder.path, validated.target);
-    try {
-      await mkdir(absPath, { recursive: true });
-    } catch (err) {
-      set.status = 500;
-      return {
-        error: `mkdir failed: ${err instanceof Error ? err.message : String(err)}`,
-      };
-    }
-    set.status = 201;
-    return { abs_path: absPath };
-  })
+      const validated = decodeAndValidateTargetPath(headers);
+      if (!validated.ok) {
+        set.status = validated.status;
+        return { error: validated.error };
+      }
+      const absPath = nodePath.join(folder.path, validated.target);
+      try {
+        await mkdir(absPath, { recursive: true });
+      } catch (err) {
+        set.status = 500;
+        return {
+          error: `mkdir failed: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
+      set.status = 201;
+      return { abs_path: absPath };
+    },
+    { beforeHandle: requireFileAccessBeforeHandle },
+  )
 
   // Rename or move a subdirectory within a library root. Source path in
   // `X-Maple-Source-Path`, destination path in `X-Maple-Target-Path`
@@ -1054,88 +1070,92 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   // `.parentItemIdentifier`). Without it, folder rename returned
   // featureUnsupported and Finder surfaced an error while leaving the
   // freshly-created "untitled folder" stranded on the server.
-  .post('/:id/move', async ({ params, headers, set }) => {
-    let folderId: ObjectId;
-    try {
-      folderId = new ObjectId(params.id);
-    } catch {
-      set.status = 400;
-      return { error: 'Invalid folder id' };
-    }
+  .post(
+    '/:id/move',
+    async ({ params, headers, set }) => {
+      let folderId: ObjectId;
+      try {
+        folderId = new ObjectId(params.id);
+      } catch {
+        set.status = 400;
+        return { error: 'Invalid folder id' };
+      }
 
-    const folders = await foldersCollection();
-    const folder = await folders.findOne({ _id: folderId });
-    if (!folder) {
-      set.status = 404;
-      return { error: 'Folder not found' };
-    }
+      const folders = await foldersCollection();
+      const folder = await folders.findOne({ _id: folderId });
+      if (!folder) {
+        set.status = 404;
+        return { error: 'Folder not found' };
+      }
 
-    const source = validateRelPathHeader(headers['x-maple-source-path'], 'X-Maple-Source-Path');
-    if (!source.ok) {
-      set.status = source.status;
-      return { error: source.error };
-    }
-    const target = validateRelPathHeader(headers['x-maple-target-path'], 'X-Maple-Target-Path');
-    if (!target.ok) {
-      set.status = target.status;
-      return { error: target.error };
-    }
+      const source = validateRelPathHeader(headers['x-maple-source-path'], 'X-Maple-Source-Path');
+      if (!source.ok) {
+        set.status = source.status;
+        return { error: source.error };
+      }
+      const target = validateRelPathHeader(headers['x-maple-target-path'], 'X-Maple-Target-Path');
+      if (!target.ok) {
+        set.status = target.status;
+        return { error: target.error };
+      }
 
-    const absSource = nodePath.join(folder.path, source.target);
-    const absTarget = nodePath.join(folder.path, target.target);
+      const absSource = nodePath.join(folder.path, source.target);
+      const absTarget = nodePath.join(folder.path, target.target);
 
-    // Reject moving a folder onto itself or into its own subtree — that
-    // would either be a no-op or an `fs.rename` error, and silently
-    // mangles the tree if it ever succeeded.
-    const rel = nodePath.relative(absSource, absTarget);
-    if (rel === '' || (!rel.startsWith('..') && !nodePath.isAbsolute(rel))) {
-      set.status = 400;
-      return { error: 'Cannot move a folder into itself or its own subtree' };
-    }
+      // Reject moving a folder onto itself or into its own subtree — that
+      // would either be a no-op or an `fs.rename` error, and silently
+      // mangles the tree if it ever succeeded.
+      const rel = nodePath.relative(absSource, absTarget);
+      if (rel === '' || (!rel.startsWith('..') && !nodePath.isAbsolute(rel))) {
+        set.status = 400;
+        return { error: 'Cannot move a folder into itself or its own subtree' };
+      }
 
-    let srcStat;
-    try {
-      srcStat = await stat(absSource);
-    } catch {
-      set.status = 404;
-      return { error: 'Source folder not found' };
-    }
-    if (!srcStat.isDirectory()) {
-      set.status = 400;
-      return { error: 'Source is not a directory' };
-    }
+      let srcStat;
+      try {
+        srcStat = await stat(absSource);
+      } catch {
+        set.status = 404;
+        return { error: 'Source folder not found' };
+      }
+      if (!srcStat.isDirectory()) {
+        set.status = 400;
+        return { error: 'Source is not a directory' };
+      }
 
-    // Refuse to clobber an existing destination. `fs.rename` would
-    // overwrite an empty dir or fail on a non-empty one; an explicit
-    // 409 lets Finder surface a name collision instead. Only ENOENT
-    // (target is free) is the happy path — any other stat error
-    // (permissions, transient IO) is surfaced as a 500 rather than
-    // silently proceeding to rename.
-    try {
-      await stat(absTarget);
-      set.status = 409;
-      return { error: 'Target already exists' };
-    } catch (err) {
-      if ((err as { code?: string }).code !== 'ENOENT') {
+      // Refuse to clobber an existing destination. `fs.rename` would
+      // overwrite an empty dir or fail on a non-empty one; an explicit
+      // 409 lets Finder surface a name collision instead. Only ENOENT
+      // (target is free) is the happy path — any other stat error
+      // (permissions, transient IO) is surfaced as a 500 rather than
+      // silently proceeding to rename.
+      try {
+        await stat(absTarget);
+        set.status = 409;
+        return { error: 'Target already exists' };
+      } catch (err) {
+        if ((err as { code?: string }).code !== 'ENOENT') {
+          set.status = 500;
+          return {
+            error: `stat failed: ${err instanceof Error ? err.message : String(err)}`,
+          };
+        }
+      }
+
+      try {
+        await mkdir(nodePath.dirname(absTarget), { recursive: true });
+        await rename(absSource, absTarget);
+      } catch (err) {
         set.status = 500;
         return {
-          error: `stat failed: ${err instanceof Error ? err.message : String(err)}`,
+          error: `move failed: ${err instanceof Error ? err.message : String(err)}`,
         };
       }
-    }
-
-    try {
-      await mkdir(nodePath.dirname(absTarget), { recursive: true });
-      await rename(absSource, absTarget);
-    } catch (err) {
-      set.status = 500;
-      return {
-        error: `move failed: ${err instanceof Error ? err.message : String(err)}`,
-      };
-    }
-    set.status = 200;
-    return { abs_path: absTarget };
-  })
+      set.status = 200;
+      return { abs_path: absTarget };
+    },
+    { beforeHandle: requireFileAccessBeforeHandle },
+  )
 
   // Paged list of trashed assets for one library, newest-first.
   // Cursor format: "<deleted_at_iso>|<hex_id>" — page where
@@ -1240,6 +1260,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       };
     },
     {
+      beforeHandle: requireFileAccessBeforeHandle,
       query: t.Object({
         limit: t.Optional(t.String()),
         cursor: t.Optional(t.String()),

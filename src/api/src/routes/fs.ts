@@ -46,6 +46,7 @@ import {
 } from '../fs/browse.ts';
 import { resolveOriginalReadSource } from '../fs/mirror-read.ts';
 import { child as childLogger } from '../log.ts';
+import { requireFileAccess } from '../auth/middleware.ts';
 import { computeBodyETag, ifNoneMatchEqual } from '../runtime/http-etag.ts';
 
 const log = childLogger('fs/dir');
@@ -65,7 +66,11 @@ async function realpathOrResolve(p: string): Promise<string> {
   }
 }
 
+// Path-addressed filesystem browsing + raw reads are the definition of
+// "file access" (#2893) — the whole module is gated. Members without the
+// permission keep /api/fs/thumb|preview (separate modules) for timeline.
 export const fsRoutes = new Elysia({ prefix: '/api/fs' })
+  .use(requireFileAccess)
   .get(
     '/list',
     async ({ query, set }) => {

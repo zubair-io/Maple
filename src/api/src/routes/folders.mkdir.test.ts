@@ -9,16 +9,17 @@
  * Requires a running MongoDB (skips gracefully if unreachable).
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { Elysia } from "elysia";
-import { mkdtemp, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import * as nodePath from "node:path";
-import { MongoClient, ObjectId, type Db } from "mongodb";
-import { closeDb } from "../db/client.ts";
-import { foldersRoutes } from "./folders.ts";
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { Elysia } from 'elysia';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import * as nodePath from 'node:path';
+import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { closeDb } from '../db/client.ts';
+import { foldersRoutes } from './folders.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
+const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 const TEST_DB = `maple_folders_mkdir_test_${process.pid}`;
 
 async function tryConnect(): Promise<MongoClient | null> {
@@ -28,15 +29,17 @@ async function tryConnect(): Promise<MongoClient | null> {
   });
   try {
     await c.connect();
-    await c.db("admin").command({ ping: 1 });
+    await c.db('admin').command({ ping: 1 });
     return c;
   } catch {
-    try { await c.close(); } catch {}
+    try {
+      await c.close();
+    } catch {}
     return null;
   }
 }
 
-describe("POST /api/folders/:id/mkdir", () => {
+describe('POST /api/folders/:id/mkdir', () => {
   let mongo: MongoClient | null = null;
   let db: Db | null = null;
   let folderId: ObjectId | null = null;
@@ -50,12 +53,12 @@ describe("POST /api/folders/:id/mkdir", () => {
     await closeDb();
     db = mongo.db(TEST_DB);
     await db.dropDatabase();
-    folderPath = await mkdtemp(nodePath.join(tmpdir(), "maple-mkdir-test-"));
+    folderPath = await mkdtemp(nodePath.join(tmpdir(), 'maple-mkdir-test-'));
     folderId = new ObjectId();
-    await db.collection("folders").insertOne({
+    await db.collection('folders').insertOne({
       _id: folderId,
       path: folderPath,
-      label: "mkdir-test",
+      label: 'mkdir-test',
       last_scan: null,
       file_count: 0,
       created_at: new Date().toISOString(),
@@ -74,73 +77,73 @@ describe("POST /api/folders/:id/mkdir", () => {
   });
 
   function call(target: string): Promise<Response> {
-    const app = new Elysia().use(foldersRoutes);
+    const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
     const url = `http://localhost/api/folders/${folderId!.toHexString()}/mkdir`;
     return app.handle(
       new Request(url, {
-        method: "POST",
-        headers: { "X-Maple-Target-Path": target },
-      })
+        method: 'POST',
+        headers: { 'X-Maple-Target-Path': target },
+      }),
     );
   }
 
-  it("creates a single-level subdirectory and returns 201 with abs_path", async () => {
+  it('creates a single-level subdirectory and returns 201 with abs_path', async () => {
     if (!mongo || !db || !folderId) {
-      console.log("[folders.mkdir.test] MongoDB unreachable — skipping");
+      console.log('[folders.mkdir.test] MongoDB unreachable — skipping');
       return;
     }
-    const res = await call("Pictures");
+    const res = await call('Pictures');
     expect(res.status).toBe(201);
     const body = (await res.json()) as { abs_path: string };
-    const expected = nodePath.join(folderPath!, "Pictures");
+    const expected = nodePath.join(folderPath!, 'Pictures');
     expect(body.abs_path).toBe(expected);
     const st = await stat(expected);
     expect(st.isDirectory()).toBe(true);
   });
 
-  it("creates nested directories in one call (mkdir -p)", async () => {
+  it('creates nested directories in one call (mkdir -p)', async () => {
     if (!mongo || !db || !folderId) return;
-    const res = await call("2026/Adam/04-02");
+    const res = await call('2026/Adam/04-02');
     expect(res.status).toBe(201);
-    const st = await stat(nodePath.join(folderPath!, "2026/Adam/04-02"));
+    const st = await stat(nodePath.join(folderPath!, '2026/Adam/04-02'));
     expect(st.isDirectory()).toBe(true);
   });
 
-  it("is idempotent when the directory already exists", async () => {
+  it('is idempotent when the directory already exists', async () => {
     if (!mongo || !db || !folderId) return;
-    const first = await call("Pictures");
+    const first = await call('Pictures');
     expect(first.status).toBe(201);
-    const second = await call("Pictures");
+    const second = await call('Pictures');
     expect(second.status).toBe(201);
   });
 
-  it("rejects path traversal", async () => {
+  it('rejects path traversal', async () => {
     if (!mongo || !db || !folderId) return;
-    const res = await call("../outside");
+    const res = await call('../outside');
     expect(res.status).toBe(400);
   });
 
-  it("rejects leading-dot path components", async () => {
+  it('rejects leading-dot path components', async () => {
     if (!mongo || !db || !folderId) return;
-    const res = await call(".maple/leaked");
+    const res = await call('.maple/leaked');
     expect(res.status).toBe(400);
   });
 
-  it("rejects absolute paths", async () => {
+  it('rejects absolute paths', async () => {
     if (!mongo || !db || !folderId) return;
-    const res = await call("/etc/evil");
+    const res = await call('/etc/evil');
     expect(res.status).toBe(400);
   });
 
-  it("returns 404 for an unknown folder id", async () => {
+  it('returns 404 for an unknown folder id', async () => {
     if (!mongo || !db) return;
-    const app = new Elysia().use(foldersRoutes);
+    const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
     const url = `http://localhost/api/folders/${new ObjectId().toHexString()}/mkdir`;
     const res = await app.handle(
       new Request(url, {
-        method: "POST",
-        headers: { "X-Maple-Target-Path": "Pictures" },
-      })
+        method: 'POST',
+        headers: { 'X-Maple-Target-Path': 'Pictures' },
+      }),
     );
     expect(res.status).toBe(404);
   });

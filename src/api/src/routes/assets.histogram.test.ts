@@ -24,6 +24,7 @@ import { closeDb } from '../db/client.ts';
 import { assetsRoutes } from './assets.ts';
 import { cachePathForAsset } from '../fs/xmp.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 const TEST_DB = `maple_histogram_test_${process.pid}`;
@@ -118,14 +119,14 @@ describe('GET /api/assets/:id/histogram', () => {
       console.log('[assets.histogram.test] MongoDB unreachable — skipping');
       return;
     }
-    const app = new Elysia().use(assetsRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsRoutes);
     const res = await app.handle(new Request(url('not-an-objectid')));
     expect(res.status).toBe(400);
   });
 
   it('404s on an unknown asset id', async () => {
     if (!client) return;
-    const app = new Elysia().use(assetsRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsRoutes);
     const res = await app.handle(new Request(url(new ObjectId().toHexString())));
     expect(res.status).toBe(404);
   });
@@ -165,7 +166,7 @@ describe('GET /api/assets/:id/histogram', () => {
     b[100] = 10;
     await writeFile(jsonPath, JSON.stringify({ key, bins: { r, g, b } }), 'utf-8');
 
-    const app = new Elysia().use(assetsRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsRoutes);
     const res = await app.handle(new Request(url(assetId!.toHexString())));
     expect(res.status).toBe(200);
     expect(res.headers.get('ETag')).toBe(`"${key}"`);
@@ -188,7 +189,7 @@ describe('GET /api/assets/:id/histogram', () => {
     const rawStat = await stat(rawPath!);
     const key = `${Math.floor(rawStat.mtimeMs)}-none`;
     const etag = `"${key}"`;
-    const app = new Elysia().use(assetsRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsRoutes);
     const res = await app.handle(
       new Request(url(assetId!.toHexString()), {
         headers: { 'If-None-Match': etag },
@@ -231,7 +232,7 @@ describe('GET /api/assets/:id/histogram', () => {
     const b = new Array(256).fill(0);
     await writeFile(jsonPath, JSON.stringify({ key: keyBefore, bins: { r, g, b } }), 'utf-8');
 
-    const app = new Elysia().use(assetsRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsRoutes);
     const first = await app.handle(new Request(url(assetId!.toHexString())));
     expect(first.status).toBe(200);
     const etag1 = first.headers.get('ETag');
@@ -260,7 +261,7 @@ describe('GET /api/assets/:id/histogram', () => {
     // No pre-staged cache file. With libraw_ffi.dylib absent from the
     // test environment, ffiPool().computeHistogram rejects with the
     // sentinel "dylib not available" error and the route surfaces a 503.
-    const app = new Elysia().use(assetsRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsRoutes);
     const res = await app.handle(new Request(url(assetId!.toHexString())));
     // If the host happens to have the dylib built locally, the route
     // can succeed with 200 — accept either, since the 503 branch is

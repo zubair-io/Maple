@@ -1,28 +1,30 @@
-import { describe, it, expect, beforeAll, afterAll } from "bun:test";
-import * as path from "node:path";
-import * as os from "node:os";
-import * as fs from "node:fs/promises";
+import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import * as fs from 'node:fs/promises';
+import { fakeAuth } from './helpers/test-auth.ts';
+import { Elysia } from 'elysia';
 
-describe("GET /api/fs/dir paging", () => {
+describe('GET /api/fs/dir paging', () => {
   let tmpRoot: string;
   let realTmpRoot: string;
   let small: string;
   let big: string;
 
   beforeAll(async () => {
-    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "maple-fsdir-paging-"));
+    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-fsdir-paging-'));
     realTmpRoot = await fs.realpath(tmpRoot);
 
-    small = path.join(tmpRoot, "small");
-    big = path.join(tmpRoot, "big");
+    small = path.join(tmpRoot, 'small');
+    big = path.join(tmpRoot, 'big');
     await fs.mkdir(small);
     await fs.mkdir(big);
 
     for (let i = 0; i < 200; i++) {
-      await fs.writeFile(path.join(small, `IMG_${String(i).padStart(4, "0")}.dng`), "x");
+      await fs.writeFile(path.join(small, `IMG_${String(i).padStart(4, '0')}.dng`), 'x');
     }
     for (let i = 0; i < 1200; i++) {
-      await fs.writeFile(path.join(big, `IMG_${String(i).padStart(4, "0")}.dng`), "x");
+      await fs.writeFile(path.join(big, `IMG_${String(i).padStart(4, '0')}.dng`), 'x');
     }
 
     process.env.MAPLE_ROOTS = realTmpRoot;
@@ -33,9 +35,10 @@ describe("GET /api/fs/dir paging", () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
 
-  it("small dir without cursor returns single shot, no next_cursor", async () => {
-    const { fsRoutes } = await import("../src/routes/fs.ts");
-    const res = await fsRoutes.handle(
+  it('small dir without cursor returns single shot, no next_cursor', async () => {
+    const { fsRoutes } = await import('../src/routes/fs.ts');
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
+    const res = await authedApp.handle(
       new Request(`http://localhost/api/fs/dir?path=${encodeURIComponent(small)}`),
     );
     expect(res.status).toBe(200);
@@ -44,22 +47,21 @@ describe("GET /api/fs/dir paging", () => {
     expect(json.next_cursor ?? null).toBeNull();
   });
 
-  it("big dir paginates across three responses with default limit 500", async () => {
-    const { fsRoutes } = await import("../src/routes/fs.ts");
+  it('big dir paginates across three responses with default limit 500', async () => {
+    const { fsRoutes } = await import('../src/routes/fs.ts');
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
     // First page (no cursor) — opt-in via &limit=500 so paged mode
     // engages without a cursor.
-    const r1 = await fsRoutes.handle(
-      new Request(
-        `http://localhost/api/fs/dir?path=${encodeURIComponent(big)}&limit=500`,
-      ),
+    const r1 = await authedApp.handle(
+      new Request(`http://localhost/api/fs/dir?path=${encodeURIComponent(big)}&limit=500`),
     );
     expect(r1.status).toBe(200);
     const j1 = await r1.json();
     expect(j1.images.length).toBe(500);
-    expect(typeof j1.next_cursor).toBe("string");
+    expect(typeof j1.next_cursor).toBe('string');
 
     // Second page (follow cursor).
-    const r2 = await fsRoutes.handle(
+    const r2 = await authedApp.handle(
       new Request(
         `http://localhost/api/fs/dir?path=${encodeURIComponent(big)}&cursor=${encodeURIComponent(j1.next_cursor)}`,
       ),
@@ -67,10 +69,10 @@ describe("GET /api/fs/dir paging", () => {
     expect(r2.status).toBe(200);
     const j2 = await r2.json();
     expect(j2.images.length).toBe(500);
-    expect(typeof j2.next_cursor).toBe("string");
+    expect(typeof j2.next_cursor).toBe('string');
 
     // Third (last) page.
-    const r3 = await fsRoutes.handle(
+    const r3 = await authedApp.handle(
       new Request(
         `http://localhost/api/fs/dir?path=${encodeURIComponent(big)}&cursor=${encodeURIComponent(j2.next_cursor)}`,
       ),
@@ -89,35 +91,34 @@ describe("GET /api/fs/dir paging", () => {
     expect(all.size).toBe(1200);
   });
 
-  it("limit=10abc returns 400 (strict integer validation)", async () => {
-    const { fsRoutes } = await import("../src/routes/fs.ts");
+  it('limit=10abc returns 400 (strict integer validation)', async () => {
+    const { fsRoutes } = await import('../src/routes/fs.ts');
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
     // Number.parseInt would happily accept "10abc" → 10. The strict
     // regex pre-check must reject it as a 400 instead, matching the
     // error message contract.
-    const res = await fsRoutes.handle(
-      new Request(
-        `http://localhost/api/fs/dir?path=${encodeURIComponent(big)}&limit=10abc`,
-      ),
+    const res = await authedApp.handle(
+      new Request(`http://localhost/api/fs/dir?path=${encodeURIComponent(big)}&limit=10abc`),
     );
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(typeof json.error).toBe("string");
-    expect(json.error).toContain("limit");
+    expect(typeof json.error).toBe('string');
+    expect(json.error).toContain('limit');
   });
 
-  it("limit=abc returns 400", async () => {
-    const { fsRoutes } = await import("../src/routes/fs.ts");
-    const res = await fsRoutes.handle(
-      new Request(
-        `http://localhost/api/fs/dir?path=${encodeURIComponent(big)}&limit=abc`,
-      ),
+  it('limit=abc returns 400', async () => {
+    const { fsRoutes } = await import('../src/routes/fs.ts');
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
+    const res = await authedApp.handle(
+      new Request(`http://localhost/api/fs/dir?path=${encodeURIComponent(big)}&limit=abc`),
     );
     expect(res.status).toBe(400);
   });
 
-  it("invalid cursor returns 400", async () => {
-    const { fsRoutes } = await import("../src/routes/fs.ts");
-    const res = await fsRoutes.handle(
+  it('invalid cursor returns 400', async () => {
+    const { fsRoutes } = await import('../src/routes/fs.ts');
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
+    const res = await authedApp.handle(
       new Request(
         `http://localhost/api/fs/dir?path=${encodeURIComponent(big)}&cursor=not-base64!!`,
       ),
@@ -125,12 +126,11 @@ describe("GET /api/fs/dir paging", () => {
     expect(res.status).toBe(400);
   });
 
-  it("limit > 2000 clamped to 2000", async () => {
-    const { fsRoutes } = await import("../src/routes/fs.ts");
-    const res = await fsRoutes.handle(
-      new Request(
-        `http://localhost/api/fs/dir?path=${encodeURIComponent(big)}&limit=5000`,
-      ),
+  it('limit > 2000 clamped to 2000', async () => {
+    const { fsRoutes } = await import('../src/routes/fs.ts');
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
+    const res = await authedApp.handle(
+      new Request(`http://localhost/api/fs/dir?path=${encodeURIComponent(big)}&limit=5000`),
     );
     expect(res.status).toBe(200);
     const json = await res.json();

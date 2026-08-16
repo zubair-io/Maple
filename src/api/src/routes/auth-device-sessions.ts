@@ -13,6 +13,7 @@ import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import { refreshTokensCollection, usersCollection } from '../db/client.ts';
 import { signAccessToken, hashRefreshToken } from '../auth/tokens.ts';
+import { userFileAccess } from '../auth/permissions.ts';
 import {
   issueRefreshToken,
   listDeviceSessions,
@@ -68,7 +69,12 @@ export const authDeviceSessionRoutes = new Elysia({ prefix: '/api/auth/device-se
       }
       const minted = await issueRefreshToken(userId, body.label, { platform: body.platform });
       const access_token = await signAccessToken(
-        { sub: userId.toHexString(), email: user.email, role: user.role },
+        {
+          sub: userId.toHexString(),
+          email: user.email,
+          role: user.role,
+          file_access: userFileAccess(user),
+        },
         jwtSecret(),
       );
       return { id: minted.familyId.toHexString(), access_token, refresh_token: minted.raw };

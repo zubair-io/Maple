@@ -13,6 +13,8 @@ import * as os from 'node:os';
 import * as fs from 'node:fs/promises';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { pendingEnrichment } from '../src/db/schema.ts';
+import { fakeAuth } from './helpers/test-auth.ts';
+import { Elysia } from 'elysia';
 
 const TEST_DB = `maple_test_fs_dir_sidecars_${process.pid}`;
 const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
@@ -138,8 +140,9 @@ describe('GET /api/fs/dir — sidecars[] pairing', () => {
   it('pairs canonical + conflict sidecars to the same asset', async () => {
     if (!mongoReachable) return;
     const { fsRoutes } = await import('../src/routes/fs.ts');
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
     const url = `http://localhost/api/fs/dir?path=${encodeURIComponent(realTmpRoot)}`;
-    const res = await fsRoutes.handle(new Request(url));
+    const res = await authedApp.handle(new Request(url));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       sidecars: Array<{ name: string; asset_id: string }>;
@@ -158,8 +161,9 @@ describe('GET /api/fs/dir — sidecars[] pairing', () => {
   it('drops orphan sidecars (no paired indexed asset)', async () => {
     if (!mongoReachable) return;
     const { fsRoutes } = await import('../src/routes/fs.ts');
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
     const url = `http://localhost/api/fs/dir?path=${encodeURIComponent(realTmpRoot)}`;
-    const res = await fsRoutes.handle(new Request(url));
+    const res = await authedApp.handle(new Request(url));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       sidecars: Array<{ name: string }>;

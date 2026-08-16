@@ -13,6 +13,7 @@ import { Elysia } from 'elysia';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { pendingEnrichment } from '../src/db/schema.ts';
 import { searchBlobUpdateExpression } from '../src/enrichment/search-blob.ts';
+import { fakeAuth } from './helpers/test-auth.ts';
 
 const TEST_DB = `maple_test_assets_overrides_${process.pid}`;
 const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
@@ -84,7 +85,7 @@ beforeAll(async () => {
   await closeDb();
 
   const { assetsRoutes } = await import('../src/routes/assets.ts');
-  app = new Elysia().use(assetsRoutes) as unknown as Elysia;
+  app = new Elysia().use(fakeAuth()).use(assetsRoutes) as unknown as Elysia;
 });
 
 beforeEach(async () => {

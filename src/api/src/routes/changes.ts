@@ -10,10 +10,11 @@
  *     prefixed by a replay of buffered events > since.
  */
 
-import { Elysia, sse, t } from "elysia";
-import { listChangesSince } from "../db/changes.repo.ts";
-import { getChangeBus } from "../runtime/change-bus.ts";
-import type { AssetChangeWithId } from "../db/schema.ts";
+import { Elysia, sse, t } from 'elysia';
+import { listChangesSince } from '../db/changes.repo.ts';
+import { getChangeBus } from '../runtime/change-bus.ts';
+import type { AssetChangeWithId } from '../db/schema.ts';
+import { requireFileAccess } from '../auth/middleware.ts';
 
 // Bounded backlog per SSE connection. Mirrors the ChangeBus ring-buffer
 // capacity — a client that can't keep up with 10k buffered events is
@@ -38,8 +39,8 @@ const SSE_KEEPALIVE_MS = 15_000;
 // parser would treat as a JSON payload and fail to decode. Yielding a
 // Uint8Array bypasses the format() step (see enqueueBinaryChunk in
 // `elysia/dist/adapter/utils.js`) and writes the raw bytes through.
-const SSE_KEEPALIVE_FRAME = new TextEncoder().encode(": keepalive\n\n");
-const SSE_STREAM_OPENED_FRAME = new TextEncoder().encode(": stream opened\n\n");
+const SSE_KEEPALIVE_FRAME = new TextEncoder().encode(': keepalive\n\n');
+const SSE_STREAM_OPENED_FRAME = new TextEncoder().encode(': stream opened\n\n');
 
 interface ChangePayload {
   cursor: number;
@@ -79,20 +80,23 @@ function asPayload(r: AssetChangeWithId): ChangePayload {
  */
 function sseChangeFrame(ev: AssetChangeWithId): ReturnType<typeof sse> {
   return sse({
-    event: "change",
+    event: 'change',
     id: String(ev.cursor),
     data: asPayload(ev),
   });
 }
 
-export const changesRoutes = new Elysia({ prefix: "/api/changes" })
+// The change feed exists for the File Provider extension — a filesystem
+// surface, so file-access-gated (#2893).
+export const changesRoutes = new Elysia({ prefix: '/api/changes' })
+  .use(requireFileAccess)
   .get(
-    "/",
+    '/',
     async ({ query, set }) => {
-      const since = Number.parseInt(query.since ?? "0", 10);
+      const since = Number.parseInt(query.since ?? '0', 10);
       if (!Number.isFinite(since) || since < 0) {
         set.status = 400;
-        return { error: "since must be a non-negative integer" };
+        return { error: 'since must be a non-negative integer' };
       }
       // Validate `limit` rather than coercing NaN through Math.max — a
       // garbage value like `?limit=abc` would otherwise produce NaN ->
@@ -104,14 +108,13 @@ export const changesRoutes = new Elysia({ prefix: "/api/changes" })
         const parsed = Number.parseInt(rawLimit, 10);
         if (!Number.isFinite(parsed) || parsed < 1) {
           set.status = 400;
-          return { error: "limit must be a positive integer" };
+          return { error: 'limit must be a positive integer' };
         }
         limit = Math.min(parsed, 1000);
       }
       const rows = await listChangesSince(undefined, { since, limit });
       const payload = rows.map(asPayload);
-      const next_cursor =
-        rows.length > 0 ? rows[rows.length - 1]!.cursor : undefined;
+      const next_cursor = rows.length > 0 ? rows[rows.length - 1]!.cursor : undefined;
       return { changes: payload, next_cursor };
     },
     {
@@ -119,29 +122,29 @@ export const changesRoutes = new Elysia({ prefix: "/api/changes" })
         since: t.Optional(t.String()),
         limit: t.Optional(t.String()),
       }),
-    }
+    },
   )
   .get(
-    "/subscribe",
+    '/subscribe',
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     async function* ({ query, set, request }) {
-      const since = Number.parseInt(query.since ?? "0", 10);
+      const since = Number.parseInt(query.since ?? '0', 10);
       if (!Number.isFinite(since) || since < 0) {
         set.status = 400;
-        return { error: "since must be a non-negative integer" };
+        return { error: 'since must be a non-negative integer' };
       }
       const bus = getChangeBus();
       if (!bus.isCursorReplayable(since)) {
         set.status = 409;
         const current = bus.snapshot().at(-1)?.cursor ?? 0;
-        return { error: "cursor too old", current };
+        return { error: 'cursor too old', current };
       }
 
-      set.headers["content-type"] = "text/event-stream";
-      set.headers["cache-control"] = "no-cache, no-transform";
-      set.headers["connection"] = "keep-alive";
+      set.headers['content-type'] = 'text/event-stream';
+      set.headers['cache-control'] = 'no-cache, no-transform';
+      set.headers['connection'] = 'keep-alive';
       // Disable Nginx-style proxy buffering — SSE is incompatible with it.
-      set.headers["x-accel-buffering"] = "no";
+      set.headers['x-accel-buffering'] = 'no';
 
       // 1. Subscribe + snapshot BEFORE the first yield. The previous
       //    iteration of this code yielded the open frame first, which
@@ -154,7 +157,7 @@ export const changesRoutes = new Elysia({ prefix: "/api/changes" })
       //    seam window is empty.
       const queue: AssetChangeWithId[] = [];
       let queueOverflow = false;
-      let waiter: ((v: "event") => void) | null = null;
+      let waiter: ((v: 'event') => void) | null = null;
       const unsub = bus.subscribe((ev) => {
         if (queueOverflow) return;
         if (queue.length >= SSE_QUEUE_LIMIT) {
@@ -165,14 +168,14 @@ export const changesRoutes = new Elysia({ prefix: "/api/changes" })
           queueOverflow = true;
           queue.length = 0;
           if (waiter) {
-            waiter("event");
+            waiter('event');
             waiter = null;
           }
           return;
         }
         queue.push(ev);
         if (waiter) {
-          waiter("event");
+          waiter('event');
           waiter = null;
         }
       });
@@ -193,7 +196,7 @@ export const changesRoutes = new Elysia({ prefix: "/api/changes" })
         unsub();
         set.status = 409;
         const current = bus.snapshot().at(-1)?.cursor ?? 0;
-        return { error: "cursor too old", current };
+        return { error: 'cursor too old', current };
       }
 
       // 4. Now safe to flush headers. Yield the open frame as raw bytes
@@ -217,19 +220,19 @@ export const changesRoutes = new Elysia({ prefix: "/api/changes" })
             if (remainingLifetime <= 0) break;
             const lifetimeMs = Math.min(SSE_KEEPALIVE_MS, remainingLifetime);
             // Race keepalive vs next event vs abort vs lifetime.
-            const aborted = new Promise<"abort">((resolve) => {
-              const onAbort = (): void => resolve("abort");
-              request.signal.addEventListener("abort", onAbort, { once: true });
+            const aborted = new Promise<'abort'>((resolve) => {
+              const onAbort = (): void => resolve('abort');
+              request.signal.addEventListener('abort', onAbort, { once: true });
             });
-            const event = new Promise<"event">((resolve) => {
+            const event = new Promise<'event'>((resolve) => {
               waiter = resolve;
             });
-            const keepalive = new Promise<"keepalive">((resolve) =>
-              setTimeout(() => resolve("keepalive"), lifetimeMs)
+            const keepalive = new Promise<'keepalive'>((resolve) =>
+              setTimeout(() => resolve('keepalive'), lifetimeMs),
             );
             const result = await Promise.race([event, keepalive, aborted]);
-            if (result === "abort") break;
-            if (result === "keepalive") {
+            if (result === 'abort') break;
+            if (result === 'keepalive') {
               // Raw SSE comment frame — Uint8Array bypasses Elysia's
               // `data:` wrapping (see SSE_KEEPALIVE_FRAME comment).
               yield SSE_KEEPALIVE_FRAME;
@@ -251,5 +254,5 @@ export const changesRoutes = new Elysia({ prefix: "/api/changes" })
       query: t.Object({
         since: t.Optional(t.String()),
       }),
-    }
+    },
   );

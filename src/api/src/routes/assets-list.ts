@@ -16,14 +16,16 @@
  * validation + repo dispatch only.
  */
 
-import { Elysia, t } from "elysia";
-import { findListItems, type ListFilter } from "../db/assets.repo.ts";
+import { Elysia, t } from 'elysia';
+import { findListItems, type ListFilter } from '../db/assets.repo.ts';
+import { requireFileAccess } from '../auth/middleware.ts';
 
-export const assetsListRoutes = new Elysia({ prefix: "/api/assets" }).get(
-  "/",
+// The File Provider working-set list is a filesystem surface (#2893).
+export const assetsListRoutes = new Elysia({ prefix: '/api/assets' }).use(requireFileAccess).get(
+  '/',
   async ({ query, set }) => {
     const filter: ListFilter = { liveOnly: true };
-    if (query.has_xmp === "1") filter.hasXmp = true;
+    if (query.has_xmp === '1') filter.hasXmp = true;
     if (query.rating_gte !== undefined) {
       // L: reject non-integer rating_gte rather than silently broaden
       // the result set. Garbage input was previously dropped and the
@@ -31,7 +33,7 @@ export const assetsListRoutes = new Elysia({ prefix: "/api/assets" }).get(
       const v = Number.parseInt(query.rating_gte, 10);
       if (!Number.isFinite(v)) {
         set.status = 400;
-        return { error: "rating_gte must be an integer" };
+        return { error: 'rating_gte must be an integer' };
       }
       filter.ratingGte = v;
     }
@@ -39,7 +41,7 @@ export const assetsListRoutes = new Elysia({ prefix: "/api/assets" }).get(
       const d = new Date(query.captured_after);
       if (isNaN(d.getTime())) {
         set.status = 400;
-        return { error: "captured_after must be an ISO 8601 date" };
+        return { error: 'captured_after must be an ISO 8601 date' };
       }
       filter.capturedAfterIso = d.toISOString();
     }
@@ -54,7 +56,7 @@ export const assetsListRoutes = new Elysia({ prefix: "/api/assets" }).get(
       const parsed = Number.parseInt(query.limit, 10);
       if (!Number.isFinite(parsed) || parsed < 1) {
         set.status = 400;
-        return { error: "limit must be a positive integer" };
+        return { error: 'limit must be a positive integer' };
       }
       limit = parsed;
     }
@@ -68,5 +70,5 @@ export const assetsListRoutes = new Elysia({ prefix: "/api/assets" }).get(
       captured_after: t.Optional(t.String()),
       limit: t.Optional(t.String()),
     }),
-  }
+  },
 );

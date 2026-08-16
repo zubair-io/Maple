@@ -9,6 +9,7 @@ import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import { usersCollection } from '../db/client.ts';
 import { signAccessToken } from '../auth/tokens.ts';
+import { userFileAccess } from '../auth/permissions.ts';
 import { issueRefreshToken } from '../auth/refresh_store.ts';
 import { issueNativeCode, redeemNativeCode } from '../auth/native_code_store.ts';
 import { requireAuth } from '../auth/middleware.ts';
@@ -50,6 +51,7 @@ export const nativeCodeRedeemRoutes = new Elysia().post(
         sub: user._id.toHexString(),
         email: user.email,
         role: user.role,
+        file_access: userFileAccess(user),
       },
       jwtSecret(),
     );
@@ -59,7 +61,12 @@ export const nativeCodeRedeemRoutes = new Elysia().post(
     return {
       access_token,
       refresh_token: refresh.raw,
-      user: { id: user._id.toHexString(), email: user.email, role: user.role },
+      user: {
+        id: user._id.toHexString(),
+        email: user.email,
+        role: user.role,
+        file_access: userFileAccess(user),
+      },
       state: redeemed.state,
     };
   },

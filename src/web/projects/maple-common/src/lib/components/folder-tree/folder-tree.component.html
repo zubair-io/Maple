@@ -1,44 +1,51 @@
-<div class="section-bar flex items-center pl-4 pr-3">
-  <span class="flex-1 text-[11px] font-semibold tracking-[0.04em] text-text-muted uppercase"
-    >Library</span
-  >
-  @if (extensions; as appExtensions) {
-    <ng-container *ngComponentOutlet="appExtensions.header" />
-  }
-</div>
+@if (auth.canBrowseFiles) {
+  <div class="section-bar flex items-center pl-4 pr-3">
+    <span class="flex-1 text-[11px] font-semibold tracking-[0.04em] text-text-muted uppercase"
+      >Library</span
+    >
+    @if (extensions; as appExtensions) {
+      <ng-container *ngComponentOutlet="appExtensions.header" />
+    }
+  </div>
+}
 
 @if (extensions; as appExtensions) {
   <ng-container *ngComponentOutlet="appExtensions.body" />
 }
 
-@for (section of state.sidebarTree(); track section.id) {
-  @if (section.kind === 'section') {
-    <!-- Legacy section header (only renders if a stale 'Folders' section
+@if (auth.canBrowseFiles) {
+  @for (section of state.sidebarTree(); track section.id) {
+    @if (section.kind === 'section') {
+      <!-- Legacy section header (only renders if a stale 'Folders' section
          slipped through; the live state has libraries at the top level).
          See `FolderTreeLegacySectionComponent`'s module doc for why this
          is its own component. -->
-    <app-folder-tree-legacy-section [section]="section" (crudRequested)="onCrudRequested($event)" />
-  } @else if (section.kind === 'folder') {
-    <!-- Top-level library entry (the canonical case post-refactor) plus
+      <app-folder-tree-legacy-section
+        [section]="section"
+        (crudRequested)="onCrudRequested($event)"
+      />
+    } @else if (section.kind === 'folder') {
+      <!-- Top-level library entry (the canonical case post-refactor) plus
          its Trash pseudo-node (#2652). See
          `FolderTreeLibraryRootComponent`'s module doc for why this is its
          own component. -->
-    <app-folder-tree-library-root [section]="section" (crudRequested)="onCrudRequested($event)" />
-  } @else if (section.kind === 'subheader') {
-    <div
-      class="section-bar flex items-center px-5 text-[10px] font-semibold uppercase tracking-[0.06em] text-text-muted"
-    >
-      {{ section.label }}
-    </div>
-  } @else {
-    <!-- Smart item or album row at the top level. See
+      <app-folder-tree-library-root [section]="section" (crudRequested)="onCrudRequested($event)" />
+    } @else if (section.kind === 'subheader') {
+      <div
+        class="section-bar flex items-center px-5 text-[10px] font-semibold uppercase tracking-[0.06em] text-text-muted"
+      >
+        {{ section.label }}
+      </div>
+    } @else {
+      <!-- Smart item or album row at the top level. See
          `FolderTreeSmartRowComponent`'s module doc for why this is its own
          component. -->
-    <app-folder-tree-smart-row
-      [entry]="section"
-      [selected]="state.selectedSourceId() === section.id"
-      (activate)="state.selectedSourceId.set(section.id)"
-    />
+      <app-folder-tree-smart-row
+        [entry]="section"
+        [selected]="state.selectedSourceId() === section.id"
+        (activate)="state.selectedSourceId.set(section.id)"
+      />
+    }
   }
 }
 

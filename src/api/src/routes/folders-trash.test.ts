@@ -18,6 +18,7 @@ import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { closeDb } from '../db/client.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import { foldersTrashRoutes } from './folders-trash.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 const TEST_DB = `maple_folders_trash_route_test_${process.pid}`;
@@ -79,7 +80,7 @@ describe('POST /api/folders/:id/trash-folder + /restore-folder', () => {
   });
 
   function call(action: 'trash-folder' | 'restore-folder', target: string): Promise<Response> {
-    const app = new Elysia().use(foldersTrashRoutes);
+    const app = new Elysia().use(fakeAuth()).use(foldersTrashRoutes);
     const url = `http://localhost/api/folders/${folderId!.toHexString()}/${action}`;
     return app.handle(
       new Request(url, {

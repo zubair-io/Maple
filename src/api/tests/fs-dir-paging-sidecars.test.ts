@@ -18,6 +18,8 @@ import * as os from 'node:os';
 import * as fs from 'node:fs/promises';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { pendingEnrichment } from '../src/db/schema.ts';
+import { fakeAuth } from './helpers/test-auth.ts';
+import { Elysia } from 'elysia';
 
 const TEST_DB = `maple_test_fs_dir_paging_sidecars_${process.pid}`;
 const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
@@ -146,6 +148,7 @@ describe('GET /api/fs/dir — paged sidecar pairing across page boundaries', () 
   it('every sidecar across paged responses resolves its asset_id', async () => {
     if (!mongoReachable) return;
     const { fsRoutes } = await import('../src/routes/fs.ts');
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
 
     // localeCompare interleaves names: IMG_0000.ARW < IMG_0000.xmp <
     // IMG_0001.ARW < IMG_0001.xmp < … so any limit ≥ 2 keeps each
@@ -164,7 +167,7 @@ describe('GET /api/fs/dir — paged sidecar pairing across page boundaries', () 
       });
       if (cursor) qs.set('cursor', cursor);
       const url = `http://localhost/api/fs/dir?${qs.toString()}`;
-      const res = await fsRoutes.handle(new Request(url));
+      const res = await authedApp.handle(new Request(url));
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         images: Array<{ name: string }>;

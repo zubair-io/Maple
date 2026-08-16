@@ -1274,6 +1274,14 @@ export type UserRole = 'owner' | 'member';
 export interface UserDoc {
   email: string; // unique, lowercased
   role: UserRole;
+  /**
+   * Per-user "file access" permission (#2893). Absent/true = the user may
+   * browse the filesystem and move/rename/trash files; explicit `false`
+   * restricts a member to photo backup, timeline, and search. Owners always
+   * have file access regardless of this field — see
+   * `auth/permissions.ts::userFileAccess`.
+   */
+  file_access?: boolean;
   created_at: string;
   last_seen_at: string | null;
 }

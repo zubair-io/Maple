@@ -18,6 +18,7 @@ import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { mkdir, rm } from 'node:fs/promises';
 import { closeDb } from '../db/client.ts';
 import { foldersRoutes } from './folders.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 const TEST_DB = `maple_test_slug_retry_${process.pid}`;
@@ -98,7 +99,7 @@ describe('POST /api/folders — slug collision retry', () => {
       created_at: new Date().toISOString(),
     } as never);
 
-    const app = new Elysia().use(foldersRoutes);
+    const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
     const res = await app.handle(
       new Request('http://localhost/api/folders', {
         method: 'POST',
@@ -137,7 +138,7 @@ describe('POST /api/folders — slug collision retry', () => {
     await mkdir(tmpDirA, { recursive: true });
     await mkdir(tmpDirB, { recursive: true });
 
-    const app = new Elysia().use(foldersRoutes);
+    const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
     const post = (path: string) =>
       app.handle(
         new Request('http://localhost/api/folders', {
@@ -173,7 +174,7 @@ describe('POST /api/folders — slug collision retry', () => {
       created_at: new Date().toISOString(),
     } as never);
 
-    const app = new Elysia().use(foldersRoutes);
+    const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
     const res = await app.handle(new Request('http://localhost/api/folders'));
     expect(res.status).toBe(200);
     const body = (await res.json()) as Array<{ id: string; slug?: string }>;

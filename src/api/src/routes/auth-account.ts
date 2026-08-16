@@ -17,6 +17,7 @@ import {
 } from '../auth/webauthn.ts';
 import { signStepUpToken, STEP_UP_TTL_SECONDS } from '../auth/tokens.ts';
 import { requireAuth, stepUpBeforeHandle } from '../auth/middleware.ts';
+import { userFileAccess } from '../auth/permissions.ts';
 
 function jwtSecret(): string {
   const s = process.env.MAPLE_JWT_SECRET;
@@ -45,7 +46,14 @@ export const accountRoutes = new Elysia({ prefix: '/api/auth' })
       )
       .toArray();
     return {
-      user: user ? { id: user._id.toHexString(), email: user.email, role: user.role } : null,
+      user: user
+        ? {
+            id: user._id.toHexString(),
+            email: user.email,
+            role: user.role,
+            file_access: userFileAccess(user),
+          }
+        : null,
       credentials: creds.map((c) => ({
         id: c._id.toHexString(),
         device_label: c.device_label,

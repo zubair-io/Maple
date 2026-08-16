@@ -1,10 +1,9 @@
 // UsersComponent — `/settings/users` (auth + owner-gated).
 //
-// Two sections: a Members row for the signed-in user (AuthService only
-// exposes the current `user` signal — there's no server endpoint for a
-// full member roster yet) and Invite codes. Owners can issue invites and
-// rescind unconsumed ones. The fresh-invite card surfaces the share URL +
-// QR for quick handoff.
+// Two sections: the full member roster (GET /api/users, #2893) with a
+// per-member "file access" toggle, and Invite codes. Owners can issue
+// invites and rescind unconsumed ones. The fresh-invite card surfaces the
+// share URL + QR for quick handoff.
 
 import {
   ChangeDetectionStrategy,
@@ -15,7 +14,8 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { AuthService, errorMessage } from '@maple-common';
+import { firstValueFrom } from 'rxjs';
+import { type ApiUser, AuthService, BunApiBackendService, errorMessage } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 
@@ -43,13 +43,17 @@ interface FreshInvite {
 })
 export class UsersComponent implements OnInit {
   protected auth = inject(AuthService);
+  private readonly api = inject(BunApiBackendService);
 
   protected email = '';
+  protected readonly users = signal<ApiUser[]>([]);
   protected readonly invites = signal<Invite[]>([]);
   protected readonly freshInvite = signal<FreshInvite | null>(null);
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly showInviteForm = signal(false);
+  /** User id whose file-access PATCH is in flight (disables that toggle). */
+  protected readonly togglingId = signal<string | null>(null);
 
   protected readonly currentUser = computed(() => this.auth.user());
 
@@ -59,11 +63,35 @@ export class UsersComponent implements OnInit {
 
   private async refresh(): Promise<void> {
     try {
-      const list = await this.auth.listInvites();
+      const [users, list] = await Promise.all([
+        firstValueFrom(this.api.listUsers()),
+        this.auth.listInvites(),
+      ]);
+      this.users.set(users);
       this.invites.set(list as Invite[]);
     } catch (e: unknown) {
       this.error.set(errorMessage(e));
     }
+  }
+
+  async setFileAccess(user: ApiUser, granted: boolean): Promise<void> {
+    this.togglingId.set(user.id);
+    this.error.set(null);
+    try {
+      const updated = await firstValueFrom(this.api.setUserFileAccess(user.id, granted));
+      this.users.update((list) => list.map((u) => (u.id === updated.id ? updated : u)));
+    } catch (e: unknown) {
+      this.error.set(errorMessage(e));
+    } finally {
+      this.togglingId.set(null);
+    }
+  }
+
+  protected lastSeenLabel(u: ApiUser): string {
+    if (u.id === this.currentUser()?.id) return 'now';
+    if (!u.last_seen_at) return '—';
+    const seen = new Date(u.last_seen_at);
+    return Number.isNaN(seen.getTime()) ? u.last_seen_at : seen.toLocaleString();
   }
 
   openInvite(): void {

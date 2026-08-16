@@ -3,6 +3,7 @@ import { ComponentFixture, DeferBlockState, TestBed } from '@angular/core/testin
 import { of } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
 import { LibraryStateService } from '../../state/library-state.service';
+import { AuthService } from '../../auth/auth.service';
 import { FolderCrudService } from '../../api/folder-crud.service';
 import { SidebarEntry } from '../../models/folder';
 import { provideFolderTreeExtensions } from './folder-tree-extension';
@@ -43,6 +44,39 @@ describe('FolderTreeComponent extensions', () => {
 
     expect(header.textContent).toContain('Header action');
     expect(header.textContent).not.toContain('Body action');
+    expect(fixture.nativeElement.textContent).toContain('Body action');
+  });
+
+  it('hides the Library section (header + tree) for a member without file access (#2893)', async () => {
+    TestBed.configureTestingModule({
+      imports: [FolderTreeComponent],
+      providers: [
+        {
+          provide: LibraryStateService,
+          useValue: {
+            sidebarTree: signal<SidebarEntry[]>([
+              { kind: 'folder', id: 'photos:', label: 'Photos', count: null },
+            ]),
+            selectedSourceId: signal(''),
+            registeredFolders: signal([]),
+          },
+        },
+        { provide: AuthService, useValue: { canBrowseFiles: false } },
+        provideFolderTreeExtensions({
+          header: TestHeaderComponent,
+          body: TestBodyComponent,
+        }),
+      ],
+    });
+    await TestBed.compileComponents();
+
+    const fixture = TestBed.createComponent(FolderTreeComponent);
+    fixture.detectChanges();
+
+    // No Library header (which also hosts the add-folder ＋ action) and no
+    // library rows — but the extension body (Timeline/Map rows) stays.
+    expect(fixture.nativeElement.querySelector('.section-bar')).toBeNull();
+    expect(fixture.nativeElement.textContent).not.toContain('Photos');
     expect(fixture.nativeElement.textContent).toContain('Body action');
   });
 });

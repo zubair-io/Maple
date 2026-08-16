@@ -17,7 +17,7 @@ async function makeBearer(): Promise<string> {
   const secret = process.env.MAPLE_JWT_SECRET ?? 'x'.repeat(32);
   process.env.MAPLE_JWT_SECRET = secret;
   return `Bearer ${await signAccessToken(
-    { sub: '0'.repeat(24), email: 'test@maple.local', role: 'owner' },
+    { sub: '0'.repeat(24), email: 'test@maple.local', role: 'owner', file_access: true },
     secret,
   )}`;
 }

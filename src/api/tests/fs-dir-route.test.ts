@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as fs from 'node:fs/promises';
+import { fakeAuth } from './helpers/test-auth.ts';
+import { Elysia } from 'elysia';
 
 describe('GET /api/fs/dir', () => {
   let tmpRoot: string;
@@ -46,7 +48,8 @@ describe('GET /api/fs/dir', () => {
 
   it('returns subdirs and image files (RAW + bitmap) at the level', async () => {
     const { fsRoutes } = await import('../src/routes/fs.ts');
-    const res = await fsRoutes.handle(
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
+    const res = await authedApp.handle(
       new Request(`http://localhost/api/fs/dir?path=${encodeURIComponent(tmpRoot)}`),
     );
     expect(res.status).toBe(200);
@@ -94,7 +97,8 @@ describe('GET /api/fs/dir', () => {
 
   it('filters out non-selectable files (.txt) but surfaces videos (.mp4) in images', async () => {
     const { fsRoutes } = await import('../src/routes/fs.ts');
-    const res = await fsRoutes.handle(
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
+    const res = await authedApp.handle(
       new Request(`http://localhost/api/fs/dir?path=${encodeURIComponent(tmpRoot)}`),
     );
     const json = await res.json();
@@ -109,7 +113,8 @@ describe('GET /api/fs/dir', () => {
 
   it('filters out dotfiles and dotdirs (including .maple/)', async () => {
     const { fsRoutes } = await import('../src/routes/fs.ts');
-    const res = await fsRoutes.handle(
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
+    const res = await authedApp.handle(
       new Request(`http://localhost/api/fs/dir?path=${encodeURIComponent(tmpRoot)}`),
     );
     const json = await res.json();
@@ -122,9 +127,10 @@ describe('GET /api/fs/dir', () => {
 
   it('400s on a path outside MAPLE_ROOTS', async () => {
     const { fsRoutes } = await import('../src/routes/fs.ts');
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
     // /etc is real (and outside MAPLE_ROOTS=tmpRoot), so realpath() succeeds
     // and the jail check fires.
-    const res = await fsRoutes.handle(new Request('http://localhost/api/fs/dir?path=/etc'));
+    const res = await authedApp.handle(new Request('http://localhost/api/fs/dir?path=/etc'));
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toMatch(/MAPLE_ROOTS/i);
@@ -132,8 +138,9 @@ describe('GET /api/fs/dir', () => {
 
   it('400s on a non-existent path', async () => {
     const { fsRoutes } = await import('../src/routes/fs.ts');
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
     const missing = path.join(tmpRoot, 'does-not-exist-xyz');
-    const res = await fsRoutes.handle(
+    const res = await authedApp.handle(
       new Request(`http://localhost/api/fs/dir?path=${encodeURIComponent(missing)}`),
     );
     expect(res.status).toBe(400);
@@ -143,7 +150,8 @@ describe('GET /api/fs/dir', () => {
 
   it('400s on a relative path (validation in handler)', async () => {
     const { fsRoutes } = await import('../src/routes/fs.ts');
-    const res = await fsRoutes.handle(
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
+    const res = await authedApp.handle(
       new Request('http://localhost/api/fs/dir?path=relative/here'),
     );
     expect(res.status).toBe(400);
@@ -153,7 +161,8 @@ describe('GET /api/fs/dir', () => {
 
   it('422s when path query param is missing', async () => {
     const { fsRoutes } = await import('../src/routes/fs.ts');
-    const res = await fsRoutes.handle(new Request('http://localhost/api/fs/dir'));
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
+    const res = await authedApp.handle(new Request('http://localhost/api/fs/dir'));
     expect(res.status).toBe(422);
   });
 });

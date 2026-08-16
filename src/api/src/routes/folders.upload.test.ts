@@ -19,6 +19,7 @@ import * as nodePath from 'node:path';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { closeDb } from '../db/client.ts';
 import { foldersRoutes } from './folders.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 const TEST_DB = `maple_folders_upload_test_${process.pid}`;
@@ -84,7 +85,7 @@ describe('POST /api/folders/:id/upload → asset_changes emit', () => {
       return;
     }
 
-    const app = new Elysia().use(foldersRoutes);
+    const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
     const fileBytes = new Uint8Array([0x49, 0x49, 0x2a, 0x00]); // TIFF magic; harmless body
     const target = 'uploaded.dng';
     const url = `http://localhost/api/folders/${folderId.toHexString()}/upload`;
@@ -132,7 +133,7 @@ describe('POST /api/folders/:id/upload → asset_changes emit', () => {
 
   it('rejects X-Maple-Target-Path containing backslashes with 400', async () => {
     if (!mongo || !db || !folderId) return;
-    const app = new Elysia().use(foldersRoutes);
+    const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
     const fileBytes = new Uint8Array([0x49, 0x49, 0x2a, 0x00]);
     // Percent-encode the backslashes so the raw header bytes are still
     // valid HTTP; `decodeURIComponent` will turn them back into `\`
@@ -157,7 +158,7 @@ describe('POST /api/folders/:id/upload → asset_changes emit', () => {
 
   it('uploads to a subdirectory record fileinfo[0].path correctly', async () => {
     if (!mongo || !db || !folderId) return;
-    const app = new Elysia().use(foldersRoutes);
+    const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
     const fileBytes = new Uint8Array([0x49, 0x49, 0x2a, 0x00]);
     const target = 'vacation/2024/uploaded2.dng';
     const url = `http://localhost/api/folders/${folderId.toHexString()}/upload`;
