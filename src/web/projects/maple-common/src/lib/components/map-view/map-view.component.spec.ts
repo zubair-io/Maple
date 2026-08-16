@@ -11,6 +11,7 @@ import { provideRouter } from '@angular/router';
 import { Subject, of, tap } from 'rxjs';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { MapClusterPinsService } from '../../map/map-cluster-pins.service';
+import { MapHeatmapLayerService } from '../../map/map-heatmap-layer.service';
 import { MapLibreService } from '../../map/maplibre-map.service';
 import { MapViewComponent } from './map-view.component';
 
@@ -22,6 +23,7 @@ describe('MapViewComponent', () => {
   let attach: ReturnType<typeof vi.fn>;
   let detach: ReturnType<typeof vi.fn>;
   let empty: ReturnType<typeof signal<boolean>>;
+  let heatmapAttach: ReturnType<typeof vi.fn>;
 
   const FAKE_HANDLE = { fake: true };
 
@@ -33,6 +35,7 @@ describe('MapViewComponent', () => {
     attach = vi.fn();
     detach = vi.fn();
     empty = signal(false);
+    heatmapAttach = vi.fn();
     TestBed.configureTestingModule({
       imports: [MapViewComponent],
       providers: [
@@ -43,13 +46,19 @@ describe('MapViewComponent', () => {
         },
       ],
     });
-    // `MapClusterPinsService` is provided directly on `MapViewComponent`'s
-    // own decorator (component-scoped, per that file's module doc) rather
-    // than at the module level, so overriding it for a test has to go
-    // through `overrideComponent` — a module-level provider of the same
-    // token would be shadowed by the component's own.
+    // `MapClusterPinsService`/`MapHeatmapLayerService` are provided directly
+    // on `MapViewComponent`'s own decorator (component-scoped, per each
+    // service's module doc) rather than at the module level, so overriding
+    // them for a test has to go through `overrideComponent` — a
+    // module-level provider of the same token would be shadowed by the
+    // component's own.
     TestBed.overrideComponent(MapViewComponent, {
-      set: { providers: [{ provide: MapClusterPinsService, useValue: { attach, detach, empty } }] },
+      set: {
+        providers: [
+          { provide: MapClusterPinsService, useValue: { attach, detach, empty } },
+          { provide: MapHeatmapLayerService, useValue: { attach: heatmapAttach } },
+        ],
+      },
     });
   });
 
@@ -148,6 +157,23 @@ describe('MapViewComponent', () => {
     fixture.destroy();
 
     expect(detach).toHaveBeenCalledOnce();
+  });
+
+  // Map T5 (#2829) — heatmap layer attach, and its ordering relative to pins.
+  it('attaches the heatmap layer to the mounted map handle once create() resolves', () => {
+    const fixture = TestBed.createComponent(MapViewComponent);
+    fixture.detectChanges();
+
+    expect(heatmapAttach).toHaveBeenCalledExactlyOnceWith(FAKE_HANDLE);
+  });
+
+  it('attaches the heatmap layer before the pins layer, so the heatmap stays underneath in the map’s own layer stack', () => {
+    const fixture = TestBed.createComponent(MapViewComponent);
+    fixture.detectChanges();
+
+    const heatmapOrder = heatmapAttach.mock.invocationCallOrder[0]!;
+    const pinsOrder = attach.mock.invocationCallOrder[0]!;
+    expect(heatmapOrder).toBeLessThan(pinsOrder);
   });
 
   it('does not attach the pins layer when destroyed before the config fetch completes', () => {

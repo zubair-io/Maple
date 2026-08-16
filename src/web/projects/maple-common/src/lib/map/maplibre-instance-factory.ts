@@ -22,6 +22,7 @@ import {
 } from 'maplibre-gl';
 import type { MapBoundingBox } from '../api/map-clusters.service';
 import type { ClusterFeatureCollection } from './map-cluster-source';
+import { buildHeatmapLayer } from './map-heatmap-layer';
 
 /** A single DOM marker mounted on the map (Map T4, #2828) — the handle for
  * a thumbnail pin or count bubble. Narrow on purpose: callers only ever
@@ -54,6 +55,13 @@ export interface MapLibreMapHandle {
    * later. `element` is owned by the caller — MapLibre only reads its
    * bounding box for positioning. */
   addMarker(element: HTMLElement, lngLat: [number, number]): MapLibreMarkerHandle;
+  /** Adds the density-overlay `heatmap` layer (Map T5, #2829) reading from
+   * `sourceId` — the shared cluster source. Call once per mounted instance,
+   * after `addSource`. Added as a plain canvas style layer with no
+   * `beforeId`: pins are HTML `Marker`s, which MapLibre always renders in
+   * their own DOM layer above the WebGL canvas regardless of style-layer
+   * order, so this already paints beneath them without needing one. */
+  addHeatmapLayer(sourceId: string): void;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -84,6 +92,9 @@ export class MapLibreInstanceFactory {
       addMarker: (element, lngLat) => {
         const marker = new MapLibreMarker({ element }).setLngLat(lngLat).addTo(map);
         return { remove: () => marker.remove() };
+      },
+      addHeatmapLayer: (sourceId) => {
+        map.addLayer(buildHeatmapLayer(sourceId));
       },
     };
   }
