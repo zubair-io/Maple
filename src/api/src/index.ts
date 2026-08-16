@@ -46,12 +46,7 @@ import { child as childLogger } from './log.ts';
 import { ensureJwtSecret } from './auth/jwt-bootstrap.ts';
 import { requestContext } from './middleware/request-context.ts';
 import { healthRoutes } from './routes/health.ts';
-import { networkPublicRoutes, networkSettingsRoutes } from './routes/network.ts';
-import { foldersRoutes } from './routes/folders.ts';
-import { foldersTrashRoutes } from './routes/folders-trash.ts';
-import { assetsRoutes } from './routes/assets.ts';
-import { xmpPathRoutes } from './routes/xmp.ts';
-import { previewPathRoutes } from './routes/preview.ts';
+import { networkPublicRoutes } from './routes/network.ts';
 import { eventsRoutes } from './routes/events.ts';
 import { videoRoutes } from './routes/video.ts';
 import { securityHeaders } from './middleware/security-headers.ts';
@@ -60,51 +55,19 @@ import { nativeCodeRedeemRoutes, nativeCodeIssueRoutes } from './routes/auth-nat
 import { lanHandoffIssueRoutes, lanHandoffRedeemRoutes } from './routes/auth-lan-handoff.ts';
 import { accountRoutes } from './routes/auth-account.ts';
 import { authDeviceSessionRoutes } from './routes/auth-device-sessions.ts';
-import { fsRoutes } from './routes/fs.ts';
-import { fsThumbsRoutes } from './routes/fs-thumbs.ts';
-import { fsPreviewsRoutes } from './routes/fs-previews.ts';
-import { searchRoutes } from './routes/search.ts';
-import { mapRoutes } from './routes/map/index.ts';
-import { jobsRoutes } from './routes/jobs.ts';
-import { importsRoutes } from './routes/imports.ts';
-import { enrichmentRoutes } from './routes/enrichment.ts';
 import { cloudflareRoutes } from './routes/cloudflare.ts';
 import { usersRoutes } from './routes/users.ts';
-import { observabilityRoutes } from './routes/observability.ts';
-import { meilisearchBackfillRoutes } from './routes/admin-backfill-meilisearch.ts';
-import { adminMeilisearchStatusRoutes } from './routes/admin-meilisearch-status.ts';
 import { serviceApiKeyAdminRoutes } from './routes/service-api-keys.ts';
 import { serviceAssetSearchRoutes } from './routes/service-asset-search.ts';
-import { purgeSubthresholdFacesRoutes } from './routes/admin-purge-subthreshold-faces.ts';
-import { peopleRoutes } from './routes/people.ts';
-import { presetsRoutes } from './routes/presets.ts';
-import { panoRoutes } from './routes/pano.ts';
-import { mapConfigRoutes } from './routes/map-config.ts';
 import { geocodeReverseRoutes } from './routes/geocode-reverse.ts';
-import { batchMetadataRoutes } from './routes/batch-metadata.ts';
-import { backupIngestRoutes } from './routes/backup-ingest.ts';
 import { BACKUP_CHUNK_DIR, clearBackupChunkDir } from './backup/config.ts';
 import { uploadSessions } from './backup/upload-session.ts';
-import { backupStateRoutes } from './routes/backup-state.ts';
-import { backupExistsRoutes } from './routes/backup-exists.ts';
-import { backupSidecarRoutes } from './routes/backup-sidecar.ts';
-import { backupRenderedRoutes } from './routes/backup-rendered.ts';
-import { backupNotifyDeletedRoutes } from './routes/backup-notify-deleted.ts';
-import { changesRoutes } from './routes/changes.ts';
-import { mirrorRoutes } from './routes/mirror.ts';
-import { derivativeAuditRoutes } from './routes/derivative-audit.ts';
-import { assetsListRoutes } from './routes/assets-list.ts';
-import { photosRoutes } from './routes/photos.ts';
-import { displayRoutes } from './routes/display.ts';
-import { renderConfigRoutes } from './routes/render-config.ts';
-import { requireAuth } from './auth/middleware.ts';
 import { staticUiPlugin } from './routes/static_ui.ts';
+import { authedApi } from './routes/authed-api.ts';
 import { getDb, ensureIndexes, closeDb } from './db/client.ts';
 import { loadMirrorConfig } from './fs/mirror-config.ts';
 import { flushPendingMirrorOps } from './fs/mirrored.ts';
 import { installMirrorQueueSink } from './workers/mirror/sink.ts';
-import { workerRoutes } from './workers/routes.ts';
-import { libraryRoutes } from './routes/library/index.ts';
 import { initializeHttpSearch } from './enrichment/meilisearch-http-bootstrap.ts';
 import {
   loadObservabilityConfig,
@@ -184,69 +147,12 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     .use(eventsRoutes)
     .use(videoRoutes)
 
-    // Authenticated API routes — wrapped in a sub-app so the `requireAuth`
-    // scoped-derive only applies to these. Without the sub-app the derive
-    // would leak forward to `staticUiPlugin`, breaking unauthenticated cold
-    // loads (you can't reach /sign-in if the server demands a bearer to
-    // serve index.html).
-    .use(
-      new Elysia({ name: 'authedApi' })
-        .use(requireAuth)
-        // PhotoKit-backup routes — chunked ingest, reconciliation/dedup
-        // probes, sidecar + rendered-companion uploads, and deletion
-        // reconciliation. Gated behind requireAuth (#853): they accept file
-        // writes and destructive deletes, so they must never be reachable
-        // without a bearer. The Apple backup clients attach the access token
-        // (#855); path containment on the writes is tightened in #854.
-        .use(backupIngestRoutes)
-        .use(backupStateRoutes)
-        .use(backupExistsRoutes)
-        .use(backupSidecarRoutes)
-        .use(backupRenderedRoutes)
-        .use(backupNotifyDeletedRoutes)
-        .use(foldersRoutes)
-        // Recursive folder trash/restore (#2630) — separate module, same
-        // `/api/folders` prefix, kept out of folders.ts to stay under the
-        // file-size budget.
-        .use(foldersTrashRoutes)
-        // M1 unified library addressing routes (slug:relPath).
-        // Mounted before assetsRoutes so /api/folder|image|thumb|preview
-        // are not shadowed by other prefixes.
-        .use(libraryRoutes)
-        // Mounted BEFORE assetsRoutes so the bare `GET /api/assets` list
-        // endpoint matches before the `:id`-prefixed routes shadow it.
-        .use(assetsListRoutes)
-        .use(assetsRoutes)
-        .use(xmpPathRoutes)
-        .use(previewPathRoutes)
-        .use(batchMetadataRoutes)
-        .use(fsRoutes)
-        .use(fsThumbsRoutes)
-        .use(fsPreviewsRoutes)
-        .use(searchRoutes)
-        .use(mapRoutes)
-        .use(jobsRoutes)
-        .use(importsRoutes)
-        .use(enrichmentRoutes)
-        .use(observabilityRoutes)
-        .use(networkSettingsRoutes)
-        .use(meilisearchBackfillRoutes)
-        .use(adminMeilisearchStatusRoutes)
-        .use(purgeSubthresholdFacesRoutes)
-        .use(peopleRoutes)
-        .use(presetsRoutes)
-        .use(photosRoutes)
-        .use(displayRoutes)
-        // Render runtime config (#1062) — the web GPU live-render ramp/kill
-        // switch. Read by every signed-in client at startup and on a poll.
-        .use(renderConfigRoutes)
-        .use(panoRoutes)
-        .use(mapConfigRoutes)
-        .use(changesRoutes)
-        .use(mirrorRoutes)
-        .use(derivativeAuditRoutes)
-        .use(workerRoutes()),
-    )
+    // Authenticated API routes — the shared-bearer sub-app, extracted to
+    // routes/authed-api.ts (#2893). Wrapped so the `requireAuth`
+    // scoped-derive only applies to those routes and can't leak forward to
+    // `staticUiPlugin` (unauthenticated cold loads must still reach
+    // /sign-in's index.html).
+    .use(authedApi)
 
     // Native PKCE code issue (authed) — wrapped in its own sub-app so its
     // `requireAuth` scoped-derive stays contained (same isolation as authedApi).
