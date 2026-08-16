@@ -320,22 +320,19 @@ extension AppShell {
     }
 
     /// Stand up a search session for `serverID`, scoped to `libraryID` (nil
-    /// = account-wide — the scope Map uses, since it has no per-library
-    /// concept), seeded with `params` (defaults to a blank `SearchParams()`
-    /// for that library). Reuses the same `AuthenticatedHTTPClient` for the
+    /// = account-wide, the scope Map uses), seeded with `params` (defaults
+    /// to a blank `SearchParams()`). One `AuthenticatedHTTPClient` backs the
     /// search + thumb clients (one 401-refresh coalescer) for the VM's
     /// lifetime.
     ///
-    /// The one shared path both cloud-library search (`activateSearch()`)
-    /// and the Map pin/cluster tap (`AppShell+Map.swift`'s
-    /// `selectMapPlace`) build their session through (#2886) — before this,
-    /// `selectMapPlace` hand-built its own `SearchViewModel` /
-    /// `CloudSearchClient` / `CloudThumbClient` / `CloudThumbCache` because
-    /// the no-args `activateSearch()` below is gated on a `.cloudLibrary`
-    /// selection, which Map replaces with `.map`. Taking the server and
-    /// library scope as explicit arguments (rather than deriving them from
-    /// `librarySelection`) removes that gate for callers that already know
-    /// their own scope.
+    /// The shared path both cloud-library search (`activateSearch()` below)
+    /// and the Map pin/cluster tap (`AppShell+Map.swift`'s `selectMapPlace`)
+    /// build their session through (#2886), replacing `selectMapPlace`'s
+    /// hand-built `SearchViewModel`/`CloudSearchClient`/`CloudThumbClient`/
+    /// `CloudThumbCache` — the no-args overload below is gated on a
+    /// `.cloudLibrary` selection, which Map replaces with `.map`, so this
+    /// overload takes server/scope explicitly instead of reading them off
+    /// `librarySelection`.
     @MainActor
     func activateSearch(server serverID: URL, libraryID: String?, params: SearchParams? = nil) {
         let httpClient = makeAuthenticatedHTTPClient(server: serverID)
