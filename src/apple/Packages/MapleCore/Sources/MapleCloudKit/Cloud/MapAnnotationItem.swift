@@ -110,4 +110,20 @@ extension MapPlaceSearchTarget {
       params.scope = "places"
     }
   }
+
+  /// Seeds `SearchParams` from `filter` — the SAME filter the map itself
+  /// queried `/api/map/clusters` with — then layers this tap's resolved
+  /// place/scope on top via `apply(to:)`, so a pin tap narrows the active
+  /// filter (date range, camera, …) rather than discarding it back to
+  /// "everything, everywhere." The single composition `selectMapPlace`
+  /// (`AppShell+Map.swift`, #2830/#2886) hands to
+  /// `activateSearch(server:libraryID:params:)` — pulled out here (rather
+  /// than left inline in the `@MainActor` AppShell extension) so it's
+  /// covered by a plain `MapleCoreTests` unit test instead of only being
+  /// exercisable end-to-end through the app target.
+  public func searchParams(seededFrom filter: SearchParams) -> SearchParams {
+    var params = filter
+    apply(to: &params)
+    return params
+  }
 }

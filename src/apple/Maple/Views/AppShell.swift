@@ -1229,8 +1229,9 @@ struct AppShell: View {
             cloudTimelineThumbCache: cloudTimelineThumbCache,
             allSourcesTimelineVM: allSourcesTimelineVM,
             allSourcesTimelineThumbCache: allSourcesTimelineThumbCache,
-            // #2878: the Map tab's own AppShellCenterColumn call site
-            // (PhoneTabShell.mapTabContent) — same three values the Mac/iPad
+            // #2886: forwarded to the Library tab's AppShellCenterColumn
+            // call site (PhoneTabShell → PhoneLibraryView →
+            // AppShellIPhoneShell) — same three values the Mac/iPad
             // sidebar's MAP row feeds AppShellMacLayout.
             mapVM: mapVM,
             mapThumbClient: mapThumbClient,
@@ -1259,9 +1260,6 @@ struct AppShell: View {
             // client) is identical — only the navigation target differs.
             onSelectCloudAsset: { asset, server in prepareCloudSession(asset, server: server) },
             onSelectMapPlace: { target in selectMapPlace(target) },
-            // #2878: MAP tab selection — same action the Mac/iPad sidebar's
-            // MAP row triggers (`onSelectMap: { openMap() }` above).
-            onSelectMap: { openMap() },
             onCloseSearch: { deactivateSearch() },
             onSelectLocalAsset: { ref in
                 // Mirror the legacy `openLocalPhotoKitAsset` error handling

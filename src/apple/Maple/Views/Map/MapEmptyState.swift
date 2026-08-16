@@ -7,8 +7,9 @@
 // existing precedent for an account-wide cloud surface with nothing
 // connected. Unlike that view this one is NOT `#if os(iOS)`-gated: it
 // renders on the Mac/iPad sidebar's MAP row (via `AppShellMacLayout`) as
-// well as the iPhone Map tab (via `PhoneTabShell.mapTabContent`) — both
-// route through the same `AppShellCenterColumn` branch.
+// well as the iPhone sidebar's MAP row (#2886, via `PhoneTabShell` →
+// `PhoneLibraryView` → `AppShellIPhoneShell`) — both route through the
+// same `AppShellCenterColumn` branch.
 //
 // `MapUnavailableReason` (MapleCloudKit) carries three cases:
 //   - `.noAccount`      — no cloud account connected at all.
