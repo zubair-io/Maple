@@ -68,6 +68,7 @@
         "src/workers/cache-gc.mirror.test.ts",
         "src/fs/root.ts",
         "src/fs/root.test.ts",
+        "src/fs/root-connectivity.test.ts",
         "src/imports/scan.ts",
         "src/routes/folders.mkdir.test.ts",
         "src/routes/fs-thumbs.cache-hit.test.ts",
