@@ -91,47 +91,23 @@ struct TVMapHeatmapLayerView: View {
   }
 }
 
-/// Live camera state for the heatmap, held in an `@Observable` reference type
-/// so the listener and the reader can sit in different places in the tree.
-///
-/// Both halves of that split are load-bearing:
-///
-///  - `.onMapCameraChange` only fires when applied to a `Map` or an ANCESTOR of
-///    one. The heat layer is a SIBLING of the `Map` inside the screen's
-///    `ZStack`, so a listener attached to the layer never fires at all — the
-///    same ancestor-not-sibling rule that broke `.onMoveCommand` on the old
-///    camera pad (#2858). The listener therefore stays on the ZStack.
-///  - Writing that camera into `@State` on the screen would re-evaluate the
-///    screen's whole body every frame of a pan, re-running `orderedItems`' sort
-///    and rebuilding the `Map` and its annotations at ~60 FPS.
-///
-/// `@Observable` resolves the tension: only views that actually READ `region`
-/// during body evaluation are invalidated when it changes. `TVMapScreen` holds
-/// the tracker but never reads it, so it does not rebuild; the heat overlay
-/// reads it, so its `Canvas` redraws in step with the tiles.
-@Observable
-final class TVMapCameraTracker {
-  var region: MKCoordinateRegion?
-}
-
 /// The heat layer plus the zoom derivation, isolated so that reading the live
 /// camera invalidates only this subtree.
+///
+/// The live-camera tracker itself (`MapCameraTracker`, `@Observable`) lives
+/// in MapleCloudKit rather than here — macOS/iOS's `MapHeatmapCameraLayer`
+/// (#2869) needs the exact same containment trick, and this repo shares that
+/// kind of type rather than forking a per-platform copy. See that type's doc
+/// comment for why holding the camera in an `@Observable` reference type,
+/// rather than `@State` on `TVMapScreen`, is what keeps a pan/zoom from
+/// re-evaluating the whole screen body at ~60 FPS.
 struct TVMapHeatmapOverlay: View {
   let points: [MapHeatmapPoint]
-  let tracker: TVMapCameraTracker
+  let tracker: MapCameraTracker
   let proxy: MapProxy
-
-  /// Same zoom convention `MapViewModel.fetch` uses for the `/api/map/clusters`
-  /// `zoom` param, so the crossfade lines up with the data on screen. `0`
-  /// (fully opaque, matching a whole-world view) before the first camera report
-  /// — harmless, because `points` is empty then too.
-  private var zoomLevel: Int {
-    guard let region = tracker.region else { return 0 }
-    return MapViewport.zoomLevel(for: MapViewportRegion(region))
-  }
 
   var body: some View {
     TVMapHeatmapLayerView(
-      points: points, zoomLevel: zoomLevel, region: tracker.region, proxy: proxy)
+      points: points, zoomLevel: tracker.zoomLevel, region: tracker.region, proxy: proxy)
   }
 }
