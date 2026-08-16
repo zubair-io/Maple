@@ -139,6 +139,9 @@ struct ServerAdminView: View {
             case .cloudflare:
                 CloudflareSettingsView(
                     client: CloudflareConfigClient(server: server, httpClient: httpClient))
+            case .enrichment:
+                EnrichmentSettingsView(
+                    client: EnrichmentConfigClient(server: server, httpClient: httpClient))
             case .workers:
                 WorkersSettingsView(
                     client: WorkersAdminClient(server: server, httpClient: httpClient),
