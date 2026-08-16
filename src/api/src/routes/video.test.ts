@@ -30,7 +30,10 @@ describe('GET /api/video/fs', () => {
       root: dir,
       label: 'Video test library',
     });
-    token = await signAccessToken({ sub: 'u1', email: 'user@example.com', role: 'member' }, SECRET);
+    token = await signAccessToken(
+      { sub: 'u1', email: 'user@example.com', role: 'member', file_access: true },
+      SECRET,
+    );
   });
 
   afterEach(async () => {
@@ -123,5 +126,26 @@ describe('GET /api/video/fs', () => {
     expect(response.status).toBe(206);
     expect(response.headers.get('Content-Range')).toBe('bytes 4-7/10');
     expect(await response.text()).toBe('4567');
+  });
+
+  test('403s the path-addressed /video/fs for a member without file access (#2893)', async () => {
+    const restricted = await signAccessToken(
+      { sub: 'u1', email: 'user@example.com', role: 'member', file_access: false },
+      SECRET,
+    );
+    expect((await request(undefined, restricted)).status).toBe(403);
+  });
+
+  test('the address-based slug route stays open to a member without file access (#2893)', async () => {
+    // Same policy as /api/image: search/timeline hand out addresses, and
+    // reading media at a known address is not filesystem browsing.
+    const restricted = await signAccessToken(
+      { sub: 'u1', email: 'user@example.com', role: 'member', file_access: false },
+      SECRET,
+    );
+    const response = await new Elysia()
+      .use(videoRoutes)
+      .handle(new Request(`http://localhost/api/video/video-test/clip.mp4?token=${restricted}`));
+    expect(response.status).toBe(200);
   });
 });

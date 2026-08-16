@@ -6,7 +6,7 @@
  */
 import { Elysia, t } from 'elysia';
 import * as path from 'node:path';
-import { verifyAccessToken } from '../auth/tokens.ts';
+import { verifyAccessToken, type AccessClaims } from '../auth/tokens.ts';
 import { resolveAddress } from '../library/address.ts';
 import { VIDEO_EXTS } from '../indexer/media-types.ts';
 import { resolveJailedFile } from './fs-jail.ts';
@@ -24,13 +24,12 @@ function jwtSecret(): string {
   return secret;
 }
 
-async function authorized(token: string | undefined): Promise<boolean> {
-  if (!token) return false;
+async function authorized(token: string | undefined): Promise<AccessClaims | null> {
+  if (!token) return null;
   try {
-    await verifyAccessToken(token, jwtSecret());
-    return true;
+    return await verifyAccessToken(token, jwtSecret());
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -42,9 +41,19 @@ export const videoRoutes = new Elysia({ prefix: '/api' })
   .get(
     '/video/fs',
     async ({ query, headers, set }) => {
-      if (!(await authorized(query.token))) {
+      const claims = await authorized(query.token);
+      if (!claims) {
         set.status = 401;
         return { error: 'Invalid or expired access token' };
+      }
+      // Path-addressed read of an arbitrary jailed file — the same surface
+      // as /api/fs/raw, so it carries the same file-access gate (#2893).
+      // The address-based /video/:slug route below stays open to every
+      // member: search/timeline hand out addresses, and reading pixels at a
+      // known address is not filesystem browsing.
+      if (!claims.file_access) {
+        set.status = 403;
+        return { error: 'file access permission required' };
       }
       if (!query.path) {
         set.status = 400;
@@ -78,7 +87,7 @@ export const videoRoutes = new Elysia({ prefix: '/api' })
   .get(
     '/video/:slug/*',
     async ({ params, query, headers, set }) => {
-      if (!(await authorized(query.token))) {
+      if ((await authorized(query.token)) === null) {
         set.status = 401;
         return { error: 'Invalid or expired access token' };
       }
