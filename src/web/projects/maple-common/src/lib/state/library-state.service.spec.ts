@@ -156,4 +156,50 @@ describe('LibraryStateService — Self-Hosted picker + addLibraryFolder', () => 
       expect(svc.backendError()).toContain('nope');
     });
   });
+
+  describe('loadFolderTree — disconnected sources (#2892)', () => {
+    const folder = (id: string, slug: string, connected?: boolean): ApiFolder => ({
+      id,
+      slug,
+      path: `/mnt/${slug}`,
+      label: slug,
+      last_scan: null,
+      file_count: 5,
+      created_at: '2026-01-01T00:00:00Z',
+      ...(connected === undefined ? {} : { connected }),
+    });
+
+    it('keeps disconnected sources out of the sidebar but in registeredFolders', () => {
+      api.listFolders = vi.fn(() => of([folder('f1', 'photos', true), folder('f2', 'nas', false)]));
+
+      svc.loadFolderTree();
+
+      const treeIds = svc.sidebarTree().map((e) => e.id);
+      expect(treeIds).toContain('photos:');
+      expect(treeIds).not.toContain('nas:');
+      // The full list (path resolution, Settings → Sources) still has both.
+      expect(svc.registeredFolders().map((f) => f.id)).toEqual(['f1', 'f2']);
+      expect(svc.backendEmpty()).toBe(false);
+    });
+
+    it('treats a missing `connected` field (pre-upgrade server) as connected', () => {
+      api.listFolders = vi.fn(() => of([folder('f1', 'photos')]));
+
+      svc.loadFolderTree();
+
+      expect(svc.sidebarTree().map((e) => e.id)).toContain('photos:');
+    });
+
+    it('shows a retryable banner (not the add-a-folder empty state) when every source is unreachable', () => {
+      api.listFolders = vi.fn(() =>
+        of([folder('f1', 'photos', false), folder('f2', 'nas', false)]),
+      );
+
+      svc.loadFolderTree();
+
+      expect(svc.sidebarTree()).toEqual([]);
+      expect(svc.backendEmpty()).toBe(false);
+      expect(svc.backendError()).toContain('unreachable');
+    });
+  });
 });

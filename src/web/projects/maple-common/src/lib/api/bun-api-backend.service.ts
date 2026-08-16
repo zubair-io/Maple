@@ -469,8 +469,10 @@ export class BunApiBackendService {
   private readonly http = inject(HttpClient);
   private readonly base = inject(API_BASE_URL);
 
-  listFolders(): Observable<ApiFolder[]> {
-    return this.http.get<ApiFolder[]>(`${this.base}/folders`);
+  /** `fresh` bypasses the server's 30s connectivity cache — used by the
+   * Settings → Sources "Check again" action (#2892). */
+  listFolders(opts: { fresh?: boolean } = {}): Observable<ApiFolder[]> {
+    return this.http.get<ApiFolder[]>(`${this.base}/folders${opts.fresh ? '?fresh=1' : ''}`);
   }
 
   registerFolder(folderPath: string): Observable<ApiFolder> {

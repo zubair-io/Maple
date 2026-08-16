@@ -18,6 +18,7 @@ import { sha1 } from '@noble/hashes/legacy.js';
 import { foldersCollection, assetsCollection } from '../db/client.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import { validateRoot } from '../fs/root.ts';
+import { rootsConnected } from '../fs/root-connectivity.ts';
 import { RAW_EXTENSIONS } from '../fs/browse.ts';
 import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
 import { STUB_IMAGE_EXTENSIONS, AUDIO_EXTENSIONS } from '../fs/browse.ts';
@@ -184,9 +185,16 @@ async function resolveFolderRelPath(
 export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   // List all folders. Body-hash ETag + If-None-Match short-circuit so the
   // File Provider extension can revalidate cheaply on cold Finder open.
-  .get('/', async ({ headers }) => {
+  .get('/', async ({ headers, query }) => {
     const coll = await foldersCollection();
     const docs = await coll.find({}).sort({ created_at: 1 }).toArray();
+    // Timeout-capped + briefly cached, so a dead SMB mount can't hang the
+    // sidebar's boot request (#2892) — see fs/root-connectivity.ts.
+    // `?fresh=1` (Settings → Sources "Check again") bypasses the cache.
+    const connectivity = await rootsConnected(
+      docs.map((d) => ({ path: d.path, fileCount: d.file_count ?? 0 })),
+      { fresh: query.fresh === '1' },
+    );
     const payload = docs.map((d) => ({
       id: d._id.toHexString(),
       // slug is the public M1 address identifier; the web client falls back to
@@ -195,8 +203,10 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       path: d.path,
       label: d.label,
       last_scan: d.last_scan,
-      file_count: d.file_count,
+      // Pre-slug-era docs can miss file_count; the DTO promises a number.
+      file_count: d.file_count ?? 0,
       created_at: d.created_at,
+      connected: connectivity.get(d.path) ?? false,
     }));
     const body = JSON.stringify(payload);
     const etag = computeBodyETag(body);

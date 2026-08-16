@@ -313,15 +313,26 @@ export class LibraryFetch {
     this.api.listFolders().subscribe({
       next: (folders) => {
         this.store.registeredFolders.set(folders);
-        this._applyFolderTree(folders);
+        // Disconnected roots (unmounted share, unplugged drive) stay out of
+        // the sidebar; Settings → Sources is where they surface (#2892).
+        // `connected` is absent on pre-upgrade servers — treat as connected.
+        const connected = folders.filter((f) => f.connected !== false);
+        this._applyFolderTree(connected);
         if (folders.length === 0) {
           this.status.backendEmpty.set(true);
+        } else if (connected.length === 0) {
+          // Libraries exist but none are reachable. The inline "add a
+          // folder" empty state would be misleading here — show a retryable
+          // banner instead.
+          this.status.backendError.set(
+            'All library sources are currently unreachable. Check that your drives or network shares are mounted, then retry — or review them under Settings → Sources.',
+          );
         } else {
           // Land the user on a folder so the grid isn't an empty "pick a
           // folder" state. Skipped when something already set the selection
           // (e.g. BrowseShell read `?folder=<absPath>` from the URL on cold
           // start, or the user clicked a folder mid-flight).
-          this._selectInitialFolder(folders);
+          this._selectInitialFolder(connected);
         }
         this.status.backendLoading.set(false);
       },
