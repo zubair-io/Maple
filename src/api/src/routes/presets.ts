@@ -19,7 +19,7 @@
  */
 
 import { Elysia, t } from 'elysia';
-import { ObjectId, type WithId } from 'mongodb';
+import type { WithId } from 'mongodb';
 import { presetsCollection } from '../db/client.ts';
 import type { PresetDoc } from '../db/schema.ts';
 import {
@@ -28,6 +28,7 @@ import {
   validatePresetDocument,
 } from '../presets/preset-validation.ts';
 import { child as childLogger } from '../log.ts';
+import { safeObjectId } from '../db/safe-object-id.ts';
 
 const log = childLogger('presets:routes');
 
@@ -81,15 +82,6 @@ function toWireRow(row: WithId<PresetDoc>) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
-}
-
-function safeObjectId(raw: string): ObjectId | null {
-  if (!raw || raw.length !== 24 || !/^[0-9a-f]{24}$/i.test(raw)) return null;
-  try {
-    return new ObjectId(raw);
-  } catch {
-    return null;
-  }
 }
 
 export const presetsRoutes = new Elysia({ prefix: '/api/presets' })

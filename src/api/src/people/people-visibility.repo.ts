@@ -16,7 +16,11 @@
 import type { ObjectId } from 'mongodb';
 import { peopleCollection } from '../db/client.ts';
 import { markAssetsForMeiliReindexBestEffort } from './people-search-reindex.ts';
-import { listPeopleByFilter, type ListPeopleOptions, type PersonWithCount } from './people.repo.ts';
+import {
+  listPeopleByFilter,
+  type ListPeopleOptions,
+  type PersonWithCount,
+} from './people-list-core.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('people:visibility');
@@ -52,7 +56,7 @@ export async function listExcludedPeople(
  * pointing at a merged-away hidden person should stay excluded too. Ids are
  * hex strings because `faces[].person_id` stores the person's hex id, not an
  * ObjectId. */
-export async function hiddenPersonIds(): Promise<string[]> {
+async function hiddenPersonIds(): Promise<string[]> {
   const coll = await peopleCollection();
   const rows = await coll.find({ hidden: true }, { projection: { _id: 1 } }).toArray();
   return rows.map((row) => row._id.toHexString());
@@ -60,10 +64,23 @@ export async function hiddenPersonIds(): Promise<string[]> {
 
 /** Hex ids of every EXCLUDED person (#2894), for search's always-on
  * exclusion filter. Same merged-row rationale as `hiddenPersonIds`. */
-export async function excludedPersonIds(): Promise<string[]> {
+async function excludedPersonIds(): Promise<string[]> {
   const coll = await peopleCollection();
   const rows = await coll.find({ excluded: true }, { projection: { _id: 1 } }).toArray();
   return rows.map((row) => row._id.toHexString());
+}
+
+/**
+ * The person ids a search-shaped route must drop from its result set:
+ * excluded people always (#2894), hidden people only when the request
+ * opted in via `excludeHiddenPeople=true`. One helper so the four callers
+ * (search list, buckets, facets, map clusters) can't drift.
+ */
+export async function personIdsToDrop(excludeHiddenPeople: string | undefined): Promise<string[]> {
+  return [
+    ...(await excludedPersonIds()),
+    ...(excludeHiddenPeople === 'true' ? await hiddenPersonIds() : []),
+  ];
 }
 
 /** Set one visibility flag + `updated_at`, then queue the Meili name-token

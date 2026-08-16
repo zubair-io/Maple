@@ -286,6 +286,24 @@ export function assetPrimaryFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): FileInf
 }
 
 /**
+ * `slug:relPath` address of an asset's primary file, or null when the
+ * owning library has no slug (pre-M1 install) or no live fileinfo exists.
+ * `idToSlug` comes from `loadLibraryIdToSlug()` — passed in so batch
+ * callers resolve the map once.
+ */
+export function assetAddress(
+  asset: Pick<AssetDoc, 'fileinfo'>,
+  idToSlug: ReadonlyMap<string, string>,
+): string | null {
+  const primary = assetPrimaryFileInfo(asset);
+  if (!primary) return null;
+  const slug = idToSlug.get(primary.library_id.toHexString());
+  if (!slug) return null;
+  const relPath = primary.path ? `${primary.path}/${primary.filename}` : primary.filename;
+  return `${slug}:${relPath}`;
+}
+
+/**
  * True when the asset HAS `fileinfo` entries but none of them is live — i.e.
  * it once had at least one on-disk location and all of them are now gone
  * (every entry `deleted_at` and/or `missing_since`). Distinct from "no

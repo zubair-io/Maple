@@ -4,7 +4,7 @@ import type { Filter } from 'mongodb';
 import { assetsCollection } from '../db/client.ts';
 import { toDetailDto } from '../db/assets.transform.ts';
 import { loadLibraryRoots, loadLibraryIdToSlug } from '../indexer/libraries.cache.ts';
-import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
+import { assetAddress } from '../indexer/images.repo.ts';
 import type { AssetDoc } from '../db/schema.ts';
 
 /** Response is capped, not paginated — this backs a Settings alert list,
@@ -34,16 +34,7 @@ export const photosRoutes = new Elysia()
         // slug:relPath address, used by the batch-metadata `/api/xmp/batch`
         // route — the DTO's `id` is a Mongo ObjectId hex string and cannot
         // be resolved by `resolveAddressString`.
-        let address: string | null = null;
-        const primary = assetPrimaryFileInfo(doc);
-        if (primary) {
-          const slug = idToSlug.get(primary.library_id.toHexString());
-          if (slug) {
-            const relPath = primary.path ? `${primary.path}/${primary.filename}` : primary.filename;
-            address = `${slug}:${relPath}`;
-          }
-        }
-        return { ...toDetailDto(doc, libs), address };
+        return { ...toDetailDto(doc, libs), address: assetAddress(doc, idToSlug) };
       });
     },
     {
