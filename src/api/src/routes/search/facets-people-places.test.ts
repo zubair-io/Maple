@@ -13,24 +13,16 @@
  * `list.test.ts`.
  */
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { ObjectId, type Db } from 'mongodb';
 import { facetsRoute } from './facets.ts';
 import { listRoute } from './list.ts';
 import { closeDb, getDb, isDbConnected } from '../../db/client.ts';
+import { withTestDb } from '../../db/test-db.test-helpers.ts';
 
 // Own database + explicit close (the repo-wide suite convention, #2783).
-// The env assignment lives in beforeAll (and is restored in afterAll)
-// rather than at module scope, so importing this file can never clobber
-// another suite's database name.
-const TEST_DB = `maple_test_search_facets_pp_${process.pid}`;
-let prevMongoDb: string | undefined;
-
-beforeAll(() => {
-  prevMongoDb = process.env.MAPLE_MONGO_DB;
-  process.env.MAPLE_MONGO_DB = TEST_DB;
-});
+withTestDb(`maple_test_search_facets_pp_${process.pid}`);
 
 let db: Db | null = null;
 let mongoReachable = false;
@@ -122,8 +114,6 @@ beforeEach(async () => {
 afterAll(async () => {
   if (db) await db.dropDatabase();
   await closeDb();
-  if (prevMongoDb === undefined) delete process.env.MAPLE_MONGO_DB;
-  else process.env.MAPLE_MONGO_DB = prevMongoDb;
 });
 
 /** The `people` bucket's values, for assertions that only care about who
