@@ -161,6 +161,20 @@ final class WorkersFeedTests: XCTestCase {
     XCTAssertFalse(feed.hasCountedData)
   }
 
+  func test_uncountedFramesKeepFlowingUntilCountsArrive() {
+    // #2910: gating on `payload == nil` froze the display on the FIRST
+    // cheap snapshot, so when counted ticks never arrived the live fields
+    // (status, in-flight, throughput) stopped updating too — not just the
+    // counts. Uncounted frames must keep applying while counts are absent.
+    var feed = WorkersFeed()
+    XCTAssertTrue(feed.apply(WorkersStatusFrame(status: payload(pending: 0), counted: false)))
+    XCTAssertTrue(
+      feed.apply(WorkersStatusFrame(status: payload(pending: 0, damaged: 3), counted: false)),
+      "a later cheap frame should still refresh the live fields")
+    XCTAssertEqual(feed.payload?.damaged, 3)
+    XCTAssertFalse(feed.hasCountedData)
+  }
+
   func test_uncountedFrameNeverOverwritesRealCounts() {
     // The regression this type exists to prevent: a reconnect's zeroed
     // snapshot making a busy queue look drained.
@@ -290,8 +304,12 @@ final class WorkerEventsClientTests: XCTestCase {
     // silently-dropped connection doesn't leave stale counts labelled
     // "live" — the failure mode iOS produces when Wi-Fi goes away without
     // a TCP FIN.
-    XCTAssertGreaterThanOrEqual(WorkerEventsClient.readTimeout, .seconds(10))
-    XCTAssertLessThanOrEqual(WorkerEventsClient.readTimeout, .seconds(30))
+    // Raised from 15s in #2910: a counted tick fans out countDocuments
+    // across every stage, so on a large library the gap between counted
+    // frames far exceeds the local ~2s case this was first sized against,
+    // and a tight watchdog tore the socket down before counts ever landed.
+    XCTAssertGreaterThanOrEqual(WorkerEventsClient.readTimeout, .seconds(45))
+    XCTAssertLessThanOrEqual(WorkerEventsClient.readTimeout, .seconds(120))
   }
 
   func test_updateEquatabilityDistinguishesConnectionStates() {
