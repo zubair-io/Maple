@@ -91,6 +91,10 @@ struct DescribeSettingsRow: View {
         .onDisappear { saveConfirmationTask?.cancel() }
     }
 
+    // @MainActor because a SwiftUI View is not globally actor-isolated in
+    // Swift 5 mode and `.task` takes a @Sendable closure, so an unannotated
+    // async method mutating @State would publish from the cooperative pool.
+    @MainActor
     private func save() async {
         saveState = .running
         testState = .idle
@@ -110,6 +114,7 @@ struct DescribeSettingsRow: View {
         }
     }
 
+    @MainActor
     private func test() async {
         testState = .running
         do {
