@@ -38,21 +38,6 @@ export function isAutoNamed(name: string): boolean {
   return AUTO_NAME_RE.test(name);
 }
 
-// ── Name validation ───────────────────────────────────────────────────────
-
-/** Client mirror of the server's person-name rule (`person-name.ts`), so a
- * bad name is rejected before the round trip. Commas are refused because
- * search's `people` filter param is comma-separated on the wire — a name
- * containing one would split into names that resolve to nobody and the
- * filter would silently return nothing (#2877). Returns the message to
- * show, or null when the name is fine. */
-export function personNameError(name: string): string | null {
-  const trimmed = name.trim();
-  if (trimmed.length === 0) return 'Name must not be empty';
-  if (trimmed.includes(',')) return 'Name must not contain a comma';
-  return null;
-}
-
 // ── List-view derivation ──────────────────────────────────────────────────
 
 export interface PeopleStats {

@@ -27,7 +27,7 @@ import {
   type SuggestedMergeInfo,
 } from './people-merge-suggestion-info.repo.ts';
 import { mergeInto } from './people-merge.repo.ts';
-import { personNameError } from './person-name.ts';
+import { assertValidPersonName } from './person-name.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('people:repo');
@@ -117,11 +117,7 @@ function nowIso(): string {
  * rejected.
  */
 export async function createPerson(name: string): Promise<PersonWithId> {
-  const trimmed = name.trim();
-  const invalid = personNameError(trimmed);
-  if (invalid) {
-    throw new Error(invalid);
-  }
+  const trimmed = assertValidPersonName(name);
   const coll = await peopleCollection();
   const existing = await findByNameCI(coll, trimmed);
   if (existing) return existing;
@@ -156,11 +152,7 @@ export async function createPerson(name: string): Promise<PersonWithId> {
  * of which side of the rename the operator triggered.
  */
 export async function renamePerson(id: ObjectId, name: string): Promise<RenameResult> {
-  const trimmed = name.trim();
-  const invalid = personNameError(trimmed);
-  if (invalid) {
-    throw new Error(invalid);
-  }
+  const trimmed = assertValidPersonName(name);
   const coll = await peopleCollection();
   const subject = await coll.findOne({ _id: id });
   if (!subject) {
