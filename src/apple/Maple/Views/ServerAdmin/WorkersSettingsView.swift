@@ -24,6 +24,9 @@ struct WorkersSettingsView: View {
     /// `Identifiable`, so it travels wrapped for `.sheet(item:)`.
     @State private var deadDrawerStage: DeadDrawerTarget?
     @State private var showDamagedDrawer = false
+    /// Stages whose runtime detail is expanded (#2770). A set rather than a
+    /// single selection so comparing two stages doesn't collapse the first.
+    @State private var expanded: Set<String> = []
 
     struct DeadDrawerTarget: Identifiable {
         let stage: String
@@ -40,6 +43,7 @@ struct WorkersSettingsView: View {
                     if !entry.rows.isEmpty {
                         Section(entry.group.rawValue) {
                             ForEach(entry.rows) { stage in
+                                VStack(alignment: .leading, spacing: 0) {
                                 WorkersStageRow(
                                     stage: stage,
                                     onTogglePause: { Task { await togglePause(stage) } },
@@ -53,7 +57,21 @@ struct WorkersSettingsView: View {
                                     onShowDeadJobs: stage.dead > 0
                                         ? { deadDrawerStage = DeadDrawerTarget(stage: stage.name) }
                                         : nil,
-                                    counted: feed.hasCountedData)
+                                    counted: feed.hasCountedData,
+                                    isExpanded: expanded.contains(stage.name),
+                                    onToggleExpanded: {
+                                        if expanded.contains(stage.name) {
+                                            expanded.remove(stage.name)
+                                        } else {
+                                            expanded.insert(stage.name)
+                                        }
+                                    })
+                                if expanded.contains(stage.name) {
+                                    StageRuntimeSection(
+                                        stage: stage, client: client,
+                                        onSaved: { Task { await refreshAfterTriage() } })
+                                }
+                                }
                             }
                         }
                         .listRowBackground(MapleTokens.surface)

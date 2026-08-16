@@ -25,6 +25,10 @@ struct WorkersStageRow: View {
     /// False while only the registry snapshot has arrived, so the count
     /// columns render as unknown rather than as a confident zero (#2910).
     var counted: Bool = true
+    /// Whether the runtime detail below this row is open (#2770).
+    var isExpanded: Bool = false
+    /// Nil disables the disclosure entirely.
+    var onToggleExpanded: (() -> Void)?
 
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -56,6 +60,7 @@ struct WorkersStageRow: View {
     private var compactBody: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
+                disclosure
                 Image(systemName: meta.icon)
                     .foregroundStyle(.secondary)
                 Text(stage.name)
@@ -79,6 +84,7 @@ struct WorkersStageRow: View {
     /// macOS and regular-width iPad: the metric strip.
     private var wideBody: some View {
         HStack(spacing: 10) {
+            disclosure
             Image(systemName: meta.icon)
                 .frame(width: 18)
                 .foregroundStyle(.secondary)
@@ -111,6 +117,26 @@ struct WorkersStageRow: View {
     }
 
     // MARK: - Pieces
+
+    /// Explicit control rather than making the whole row tappable — the
+    /// row already learned that lesson with Pause (#2910), and a card that
+    /// both expands and pauses depending on where you hit it is worse.
+    @ViewBuilder
+    private var disclosure: some View {
+        if let onToggleExpanded {
+            Button(action: onToggleExpanded) {
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(isExpanded ? "Collapse \(stage.name)" : "Expand \(stage.name)")
+            .accessibilityIdentifier("workers.disclosure.\(stage.name)")
+        } else {
+            Color.clear.frame(width: 16, height: 1)
+        }
+    }
 
     private var statusDot: some View {
         Circle()
