@@ -68,6 +68,26 @@ export class ThumbBlobCache {
     return null;
   }
 
+  /** `ensure` for a cover-shaped record (a person row) — key derivation +
+   * null-guard in one place, shared by both people pages. */
+  ensureCover(p: {
+    coverAddress?: string | null;
+    coverAbsPath: string | null;
+    coverAssetId: string | null;
+  }): void {
+    const key = ThumbBlobCache.coverKey(p);
+    if (key) this.ensure(key, p.coverAddress ?? null, p.coverAbsPath, p.coverAssetId);
+  }
+
+  /** `url` keyed by a cover-shaped record. */
+  coverUrl(p: {
+    coverAddress?: string | null;
+    coverAbsPath: string | null;
+    coverAssetId: string | null;
+  }): string | null {
+    return this.url(ThumbBlobCache.coverKey(p));
+  }
+
   /** Idempotently load the thumb URL for `cacheKey` (the dedup key).
    *
    * Resolution order (routed on the EXPLICIT args, never sniffed from the key):

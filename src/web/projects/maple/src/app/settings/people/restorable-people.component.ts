@@ -45,6 +45,7 @@ import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 import { MapleVisibleOnceDirective } from './visible-once.directive';
 import { ThumbBlobCache } from './thumb-blob-cache';
+import { PeopleGridHost, bindGridViewport, createToast } from './people-grid-layout';
 import {
   Toast,
   Tone,
@@ -78,9 +79,7 @@ import {
   styleUrl: './people.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class RestorablePeopleComponent implements OnDestroy {
-  private readonly api = inject(BunApiBackendService);
-  private readonly fsBrowse = inject(FilesystemBrowseService);
+export class RestorablePeopleComponent extends PeopleGridHost {
   private readonly store = inject(PeopleStore);
 
   /** Which recovery list this instance renders — from route `data.kind`. */
@@ -127,7 +126,8 @@ export class RestorablePeopleComponent implements OnDestroy {
 
   readonly sortedPeople = computed(() => sortPeople(this.people()));
 
-  readonly toast = signal<Toast | null>(null);
+  private readonly toastCtl = createToast();
+  readonly toast = this.toastCtl.toast;
 
   /** Restore in flight, keyed by person id, so a card can show "Restoring…"
    * and disable its button without blocking the rest of the grid. */
@@ -138,69 +138,24 @@ export class RestorablePeopleComponent implements OnDestroy {
   // ── Virtual-scroll grid (mirrors PeopleComponent) ──────────────────────────
 
   private readonly peopleScrollContent = viewChild<ElementRef<HTMLElement>>('peopleScrollContent');
-  private readonly containerWidth = signal<number>(900);
-  private readonly minCardWidth = computed(() => (this.containerWidth() <= 767 ? 140 : 180));
 
-  readonly gridColumns = computed(() =>
-    peopleGridColumns(this.containerWidth(), this.minCardWidth()),
-  );
-  readonly cardWidth = computed(() => peopleCardWidth(this.containerWidth(), this.gridColumns()));
-  readonly rowHeight = computed(() => peopleRowHeight(this.cardWidth()));
-  protected readonly gridGap = PEOPLE_GRID.GAP;
   readonly peopleRows = computed(() => chunkPeopleRows(this.sortedPeople(), this.gridColumns()));
   trackRow = peopleRowKey;
 
   protected readonly imgNaturalDims = signal<ReadonlyMap<string, NaturalDims>>(new Map());
 
-  private readonly thumbs = new ThumbBlobCache(this.api, this.fsBrowse);
-
   constructor() {
+    super();
     // SWR list: first entry fetches, later entries serve cached + refresh.
     if (this.kind === 'hidden') this.store.ensureHidden();
     else this.store.ensureExcluded();
 
-    // Re-target the ResizeObserver each time the viewport appears (it lives in
-    // a conditional block, like the main People list).
-    effect((onCleanup) => {
-      // Guard `nativeElement` too, not just the ref: after the @if swap
-      // between the empty state and the populated grid, the signal query
-      // can briefly hold a stale ElementRef whose nativeElement is
-      // undefined, and observeViewport would crash on `host.clientWidth`
-      // every change-detection pass (mirrors the PeopleComponent fix, #2081).
-      const host = this.peopleScrollContent()?.nativeElement;
-      if (!host) return;
-      this.observeViewport(host);
-      onCleanup(() => this.resizeObserver?.disconnect());
-    });
-  }
-
-  private resizeObserver?: ResizeObserver;
-
-  private observeViewport(host: HTMLElement): void {
-    this.containerWidth.set(host.clientWidth || 900);
-    if (typeof ResizeObserver === 'undefined') return;
-    this.resizeObserver?.disconnect();
-    this.resizeObserver = new ResizeObserver((entries) => {
-      for (const e of entries) this.containerWidth.set(e.contentRect.width);
-    });
-    this.resizeObserver.observe(host);
-  }
-
-  ngOnDestroy(): void {
-    this.thumbs.destroy();
-    this.resizeObserver?.disconnect();
+    // Re-target the ResizeObserver each time the viewport appears (it lives
+    // in a conditional block, like the main People list).
+    bindGridViewport(this.layout, this.peopleScrollContent);
   }
 
   // ── Cover thumbs (reused from People) ──────────────────────────────────────
-
-  ensureCoverThumb(p: ApiPerson): void {
-    const key = ThumbBlobCache.coverKey(p);
-    if (key) this.thumbs.ensure(key, p.coverAddress ?? null, p.coverAbsPath, p.coverAssetId);
-  }
-
-  coverThumbUrl(person: ApiPerson): string | null {
-    return this.thumbs.url(ThumbBlobCache.coverKey(person));
-  }
 
   onFaceImgLoad(url: string, event: Event): void {
     const img = event.target as HTMLImageElement;
@@ -241,10 +196,6 @@ export class RestorablePeopleComponent implements OnDestroy {
   }
 
   private showToast(text: string, tone: Tone): void {
-    this.toast.set({ text, tone });
-    setTimeout(() => {
-      const cur = this.toast();
-      if (cur && cur.text === text) this.toast.set(null);
-    }, TOAST_TTL_MS);
+    this.toastCtl.show(text, tone);
   }
 }
