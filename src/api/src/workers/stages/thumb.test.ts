@@ -7,10 +7,10 @@ import { MongoClient, ObjectId, type Db } from 'mongodb';
 import thumbStage from './thumb.ts';
 import { resolveThumbPath, resolveThumbPathForAsset, sha256Prefix16 } from '../../fs/xmp.ts';
 import * as videoPosterModule from '../../thumbs/video-poster.ts';
+import { withTestDb } from '../../db/test-db.test-helpers.ts';
 
 // --- shared test-DB harness for the path-keyed cache-path block below ---
-const TEST_DB = `maple_test_thumb_stage_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_thumb_stage_${process.pid}`);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 async function tryConnect(): Promise<MongoClient | null> {

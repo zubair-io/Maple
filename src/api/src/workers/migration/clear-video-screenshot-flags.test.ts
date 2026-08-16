@@ -25,9 +25,9 @@ import {
   clearVideoScreenshotFlags,
   VIDEO_SCREENSHOT_CLEAR_VERSION,
 } from './clear-video-screenshot-flags.ts';
+import { withTestDb } from '../../db/test-db.test-helpers.ts';
 
-const TEST_DB = `maple_test_clear_video_screenshot_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_clear_video_screenshot_${process.pid}`);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;

@@ -5,27 +5,32 @@ import { describe, it, expect, afterAll, afterEach, beforeAll } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { ObjectId } from 'mongodb';
+import { ObjectId, type Db } from 'mongodb';
 import { relocateBackupScreenshot } from './refile-backups.ts';
 import type { getDb as GetDbFn } from '../../db/client.ts';
+import { withTestDb } from '../../db/test-db.test-helpers.ts';
 
 // Own per-pid database + explicit close — the repo-wide suite convention
 // (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
 // happens to name (the real `maple` dev DB when it runs first) and leaks its
 // singleton connection into later suites (the #2783 flake class).
-const TEST_DB = `maple_test_refile_backups_hook_e2e_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+withTestDb(`maple_test_refile_backups_hook_e2e_${process.pid}`);
+
+// Captured here, not re-resolved in afterAll: withTestDb restores
+// MAPLE_MONGO_DB before this suite's teardown runs.
+let suiteDb: Db | null = null;
 
 beforeAll(async () => {
-  const { closeDb } = await import('../../db/client.ts');
+  const { closeDb, getDb } = await import('../../db/client.ts');
   // Force the singleton to reconnect under this file's TEST_DB even when
   // an earlier suite left it connected.
   await closeDb();
+  suiteDb = await getDb().catch(() => null);
 });
 
 afterAll(async () => {
-  const { closeDb, getDb, isDbConnected } = await import('../../db/client.ts');
-  if (isDbConnected()) await (await getDb()).dropDatabase();
+  const { closeDb } = await import('../../db/client.ts');
+  if (suiteDb) await suiteDb.dropDatabase();
   await closeDb();
 });
 
