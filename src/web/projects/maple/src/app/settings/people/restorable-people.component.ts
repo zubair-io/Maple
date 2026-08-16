@@ -137,7 +137,7 @@ export class RestorablePeopleComponent extends PeopleGridHost {
 
   // ── Virtual-scroll grid (mirrors PeopleComponent) ──────────────────────────
 
-  private readonly peopleScrollContent = viewChild<ElementRef<HTMLElement>>('peopleScrollContent');
+  private readonly peopleScrollContent = viewChild('peopleScrollContent', { read: ElementRef });
 
   readonly peopleRows = computed(() => chunkPeopleRows(this.sortedPeople(), this.gridColumns()));
   trackRow = peopleRowKey;
