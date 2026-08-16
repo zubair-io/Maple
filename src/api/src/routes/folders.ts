@@ -192,7 +192,9 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
     // sidebar's boot request (#2892) — see fs/root-connectivity.ts.
     // `?fresh=1` (Settings → Sources "Check again") bypasses the cache.
     const connectivity = await rootsConnected(
-      docs.map((d) => ({ path: d.path, fileCount: d.file_count ?? 0 })),
+      // file_count passes through RAW: undefined (legacy doc) must not be
+      // conflated with a known-empty 0 — see root-connectivity.ts's policy.
+      docs.map((d) => ({ path: d.path, fileCount: d.file_count })),
       { fresh: query.fresh === '1' },
     );
     const payload = docs.map((d) => ({
