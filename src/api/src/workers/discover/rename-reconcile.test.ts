@@ -19,9 +19,9 @@ import * as exifModule from '../../indexer/exif.ts';
 import { reconcileRenamesInDirectory, type MissingFileCandidate } from './rename-reconcile.ts';
 import type { Collection } from 'mongodb';
 import type { AssetDoc } from '../../db/schema.ts';
+import { withTestDb } from '../../db/test-db.test-helpers.ts';
 
-const TEST_DB = `maple_test_rename_reconcile_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_rename_reconcile_${process.pid}`);
 
 let mongo: MongoClient | null = null;
 let mongoReachable = false;

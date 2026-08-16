@@ -1,4 +1,5 @@
 import { describe, expect, it, afterAll, beforeEach, beforeAll } from 'bun:test';
+import type { Db } from 'mongodb';
 import { Elysia } from 'elysia';
 import { workerRoutes, sanitizeWorkerConfig } from './routes.ts';
 import type { WorkerConfigDoc } from './worker-config.repo.ts';
@@ -8,19 +9,23 @@ import { writeWorkerStatus } from './worker-status.repo.ts';
 import { WorkerConfigRepo } from './worker-config.repo.ts';
 import { closeDb, getDb } from '../db/client.ts';
 import type { StageStatusSnapshot } from './registry.ts';
+import { withTestDb } from '../db/test-db.test-helpers.ts';
 
 // Own per-pid database + explicit close — the repo-wide suite convention
 // (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
 // happens to name (the real `maple` dev DB when it runs first) and leaks its
 // singleton connection into later suites (the #2783 flake class).
-const TEST_DB = `maple_test_workers_routes_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+withTestDb(`maple_test_workers_routes_${process.pid}`);
+
+// Captured here, not re-resolved in afterAll: withTestDb restores
+// MAPLE_MONGO_DB before this suite's teardown runs.
+let suiteDb: Db | null = null;
 
 let dbReachable = true;
 beforeAll(async () => {
   try {
     await closeDb();
-    await getDb();
+    suiteDb = await getDb();
   } catch {
     dbReachable = false;
   }
@@ -38,7 +43,7 @@ beforeEach(async () => {
   }
 });
 afterAll(async () => {
-  if (dbReachable) await (await getDb()).dropDatabase();
+  if (suiteDb) await suiteDb.dropDatabase();
   await closeDb();
 });
 

@@ -25,10 +25,10 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { LIB_A, LIB_B, videoAsset, photoAsset } from './video-geo-backfill.fixtures.ts';
+import { withTestDb } from '../../db/test-db.test-helpers.ts';
 
 // Unique DB per test run to avoid cross-run pollution.
-const TEST_DB = `maple_test_video_geo_backfill_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_video_geo_backfill_${process.pid}`);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;

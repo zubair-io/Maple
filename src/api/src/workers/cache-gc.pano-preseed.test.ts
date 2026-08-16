@@ -18,9 +18,9 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { sha256Prefix16 } from '../fs/xmp.ts';
+import { withTestDb } from '../db/test-db.test-helpers.ts';
 
-const TEST_DB = `maple_test_cache_gc_preseed_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_cache_gc_preseed_${process.pid}`);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;

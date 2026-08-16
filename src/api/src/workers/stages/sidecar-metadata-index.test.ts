@@ -18,12 +18,11 @@ import type { ImageDoc } from '../run-stage.ts';
 import type { StageContext } from '../stage-config.ts';
 import type { Logger } from 'pino';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
+import { withTestDb } from '../../db/test-db.test-helpers.ts';
 
-// Isolate the shared db-client singleton to a unique test DB and reset it
-// around this file so any incidental Mongo touch neither hits the real `maple`
-// DB nor leaks the connection into later test files (convention from
-// folder.test.ts / imports/repo.test.ts).
-process.env.MAPLE_MONGO_DB = `maple_test_override_ingest_${process.pid}`;
+// Isolate the shared db-client singleton so any incidental Mongo touch here
+// neither hits the real `maple` DB nor leaks the connection into later files.
+withTestDb(`maple_test_override_ingest_${process.pid}`);
 beforeAll(async () => {
   await (await import('../../db/client.ts')).closeDb();
 });
