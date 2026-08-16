@@ -1007,6 +1007,16 @@ export interface PersonDoc {
    * faces keep flowing into the hidden person rather than spawning a fresh
    * visible "Person N". Additive — no migration needed. */
   hidden?: boolean;
+  /** Operator exclusion marker (#2894) — strictly stronger than `hidden`.
+   * An excluded person's photos are dropped from every non-file listing
+   * API UNCONDITIONALLY (search results, timeline buckets, facets, map
+   * clusters — no opt-in flag, unlike `excludeHiddenPeople`), their name
+   * is dropped from the Meili index, and the person appears in no people
+   * listing except the recovery list (`GET /api/people/excluded`). Direct
+   * file browsing (folder contents) is deliberately unaffected. Faces stay
+   * assigned and the row stays a clustering seed, same as `hidden`.
+   * Additive — no migration needed. */
+  excluded?: boolean;
   /** Best-matching other live, non-hidden, non-dismissed person by centroid
    * cosine similarity, if it clears MERGE_SUGGESTION_THRESHOLD
    * (`people-merge-suggestions.ts`). Refreshed by the clustering job

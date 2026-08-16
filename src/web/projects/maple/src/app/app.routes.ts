@@ -199,13 +199,27 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./settings/people/people.component').then((m) => m.PeopleComponent),
   },
-  // Hidden page MUST precede the `:id` detail route — otherwise the router
-  // would match "hidden" as a person id and route to the people detail view.
+  // Hidden + Excluded pages MUST precede the `:id` detail route — otherwise
+  // the router would match "hidden"/"excluded" as a person id and route to
+  // the people detail view. One component serves both, selected by
+  // `data.kind` (#2894).
   {
     path: 'settings/people/hidden',
     canActivate: [authGuard],
+    data: { kind: 'hidden' },
     loadComponent: () =>
-      import('./settings/people/hidden-people.component').then((m) => m.HiddenPeopleComponent),
+      import('./settings/people/restorable-people.component').then(
+        (m) => m.RestorablePeopleComponent,
+      ),
+  },
+  {
+    path: 'settings/people/excluded',
+    canActivate: [authGuard],
+    data: { kind: 'excluded' },
+    loadComponent: () =>
+      import('./settings/people/restorable-people.component').then(
+        (m) => m.RestorablePeopleComponent,
+      ),
   },
   {
     path: 'settings/people/:id',

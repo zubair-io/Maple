@@ -410,6 +410,71 @@ export class PeopleStore implements Store<ApiPerson[]> {
     });
   }
 
+  // ── Excluded-list cache (#2894; the recovery list) ─────────────────────────
+  // Same SWR + dirty-refetch shape as the hidden slice above.
+
+  private readonly _excluded = signal<ApiPerson[] | undefined>(undefined);
+  private readonly _excludedLoading = signal<boolean>(false);
+  private readonly _excludedError = signal<Error | null>(null);
+  private _excludedInFlight = false;
+  private _excludedDirty = false;
+
+  /** The excluded-people list, or undefined before the first fetch resolves. */
+  readonly excluded: Signal<ApiPerson[] | undefined> = this._excluded.asReadonly();
+
+  readonly excludedLoading: Signal<boolean> = computed(
+    () => this._excludedLoading() && this._excluded() === undefined,
+  );
+
+  readonly excludedRefreshing: Signal<boolean> = computed(
+    () => this._excludedLoading() && this._excluded() !== undefined,
+  );
+
+  readonly excludedError: Signal<Error | null> = this._excludedError.asReadonly();
+
+  readonly excludedStatus: Signal<StoreStatus> = computed(() => {
+    if (this._excludedError()) return 'error';
+    if (this.excludedLoading()) return 'loading';
+    if (this.excludedRefreshing()) return 'refreshing';
+    if (this._excluded() !== undefined) return 'loaded';
+    return 'idle';
+  });
+
+  /** SWR read of the excluded list — safe to call on every page entry. */
+  ensureExcluded(): void {
+    this._fetchExcluded();
+  }
+
+  /** Force an excluded-list re-fetch (after exclude / unexclude). */
+  invalidateExcluded(): void {
+    this._fetchExcluded();
+  }
+
+  private _fetchExcluded(): void {
+    if (this._excludedInFlight) {
+      this._excludedDirty = true;
+      return;
+    }
+    this._excludedInFlight = true;
+    this._excludedDirty = false;
+    this._excludedLoading.set(true);
+    this._excludedError.set(null);
+    this.api.listExcludedPeople().subscribe({
+      next: (rows) => {
+        this._excluded.set(rows);
+        this._excludedLoading.set(false);
+        this._excludedInFlight = false;
+        if (this._excludedDirty) this._fetchExcluded();
+      },
+      error: (err: unknown) => {
+        this._excludedError.set(err instanceof Error ? err : new Error(String(err)));
+        this._excludedLoading.set(false);
+        this._excludedInFlight = false;
+        if (this._excludedDirty) this._fetchExcluded();
+      },
+    });
+  }
+
   // ── Mutation pass-throughs ──────────────────────────────────────────────────
   //
   // The store does not own most mutation endpoints (they live on
@@ -426,6 +491,7 @@ export class PeopleStore implements Store<ApiPerson[]> {
     ids.forEach((id) => this.evictDetail(id));
     this.invalidate();
     this.invalidateHidden();
+    this.invalidateExcluded();
   }
 
   /** Optimistically drop the given ids from the cached list SIGNAL (not a
@@ -484,6 +550,27 @@ export class PeopleStore implements Store<ApiPerson[]> {
   /** Restore a hidden person, then evict + refresh both lists. Throws on failure. */
   async unhidePerson(id: string): Promise<void> {
     await firstValueFrom(this.api.unhidePerson(id));
+    this._evictAndRefreshLists([id]);
+  }
+
+  /** Exclude a person (#2894) — same optimistic-removal contract as
+   * `hidePerson`: the row leaves the cached main list immediately and is
+   * restored locally if the server call fails. */
+  async excludePerson(id: string): Promise<void> {
+    const [removed] = this._removeFromList([id]);
+    try {
+      await firstValueFrom(this.api.excludePerson(id));
+    } catch (err) {
+      if (removed) this._restoreToList([removed]);
+      throw err;
+    }
+    this.evictDetail(id);
+    this.invalidateExcluded();
+  }
+
+  /** Restore an excluded person, then evict + refresh the lists. */
+  async unexcludePerson(id: string): Promise<void> {
+    await firstValueFrom(this.api.unexcludePerson(id));
     this._evictAndRefreshLists([id]);
   }
 

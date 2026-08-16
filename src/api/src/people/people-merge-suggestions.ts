@@ -23,6 +23,7 @@ export interface SuggestionCandidate {
   /** L2-normalised — cosine similarity is then a dot product. */
   centroid: Float32Array;
   hidden: boolean;
+  excluded: boolean;
 }
 
 /** How many ranked candidates to keep per person. The read side walks the
@@ -96,7 +97,7 @@ export function computeMergeSuggestions(
   threshold: number = MERGE_SUGGESTION_THRESHOLD,
   limit: number = MERGE_SUGGESTION_CANDIDATES,
 ): MergeSuggestion[] {
-  const visible = people.filter((p) => !p.hidden);
+  const visible = people.filter((p) => !p.hidden && !p.excluded);
   return visible
     .map((person) => {
       const candidates = topMatchesFor(person, visible, dismissedPairs, threshold, limit);

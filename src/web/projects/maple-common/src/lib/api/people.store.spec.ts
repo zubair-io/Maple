@@ -79,6 +79,10 @@ class ApiStub {
   hiddenResult: ApiPerson[] = [person('h1', 'Hidden Hugo')];
   listPeople = vi.fn(() => of(this.listResult));
   listHiddenPeople = vi.fn(() => of(this.hiddenResult));
+  excludedResult: ApiPerson[] = [];
+  listExcludedPeople = vi.fn(() => of(this.excludedResult));
+  excludePerson = vi.fn((_id: string) => of({ ok: true as const }));
+  unexcludePerson = vi.fn((_id: string) => of({ ok: true as const }));
   // The store calls getPerson(id, { offset, limit }); the stub accepts (and
   // ignores) the page opts so call-shape assertions and the runtime path match.
   getPerson = vi.fn((id: string, _page?: { offset: number; limit: number }) =>

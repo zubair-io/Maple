@@ -1,18 +1,22 @@
-// HiddenPeopleComponent — `/settings/people/hidden` (auth + owner-gated).
+// RestorablePeopleComponent — `/settings/people/hidden` AND
+// `/settings/people/excluded` (auth + owner-gated), selected by route
+// `data.kind`.
 //
-// The Hidden page: lists soft-hidden people (those an operator hid from the
-// main People list) and lets them be restored. Hidden persons keep their
-// faces grouped server-side and stay clustering seeds, so restoring one
-// brings back a fully-populated cluster rather than an empty shell.
+// One page, two recovery lists. Hidden: people an operator hid from the
+// main People list (photos still appear everywhere). Excluded (#2894):
+// people whose photos are dropped from search/timeline/every non-file
+// listing. Both keep their faces grouped server-side and stay clustering
+// seeds, so restoring one brings back a fully-populated cluster rather
+// than an empty shell.
 //
 // Reuses the People list presentation: the same card grid, the same
 // CDK virtual-scroll row-packing (people can be many), the same
 // bbox-cropped cover thumbs via {@link ThumbBlobCache}, and the same pure
 // view-model helpers in `people.vm.ts`. Only the data source (the store's
-// hidden-list SWR cache) and the per-card action ("Restore" instead of
-// "Hide") differ.
+// per-kind SWR cache) and the per-card action ("Restore") differ from the
+// main list.
 //
-// State source of truth is the store's hidden-list SWR cache: cached rows
+// State source of truth is the store's per-kind SWR cache: cached rows
 // render instantly on re-entry while a background refresh validates.
 
 import {
@@ -27,6 +31,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
+import { ActivatedRoute } from '@angular/router';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { RouterLink } from '@angular/router';
 import {
@@ -60,7 +65,7 @@ import {
 
 @Component({
   standalone: true,
-  selector: 'maple-hidden-people',
+  selector: 'maple-restorable-people',
   imports: [
     DecimalPipe,
     RouterLink,
@@ -69,28 +74,56 @@ import {
     SettingsIconComponent,
     MapleVisibleOnceDirective,
   ],
-  templateUrl: './hidden-people.component.html',
+  templateUrl: './restorable-people.component.html',
   styleUrl: './people.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class HiddenPeopleComponent implements OnDestroy {
+export class RestorablePeopleComponent implements OnDestroy {
   private readonly api = inject(BunApiBackendService);
   private readonly fsBrowse = inject(FilesystemBrowseService);
   private readonly store = inject(PeopleStore);
 
-  /** Hidden people, fed by the store's hidden-list SWR cache. `?? []` so the
+  /** Which recovery list this instance renders — from route `data.kind`. */
+  protected readonly kind: 'hidden' | 'excluded' =
+    inject(ActivatedRoute).snapshot.data['kind'] === 'excluded' ? 'excluded' : 'hidden';
+
+  protected readonly copy =
+    this.kind === 'hidden'
+      ? {
+          title: 'Hidden people',
+          description:
+            "People you've hidden from the main list. Their photos stay grouped and they keep " +
+            'collecting newly-detected faces — restore one anytime to bring it back.',
+          emptyTitle: 'No hidden people.',
+          emptyAction: 'hide',
+        }
+      : {
+          title: 'Excluded people',
+          description:
+            "People you've excluded. Their photos are left out of search, the timeline, and " +
+            'every other listing (files on disk are untouched), and their name is not ' +
+            'searchable — restore one anytime to bring everything back.',
+          emptyTitle: 'No excluded people.',
+          emptyAction: 'exclude',
+        };
+
+  /** The recovery list, fed by the store's per-kind SWR cache. `?? []` so the
    * template's `@for` sees an array before the first fetch resolves. */
-  readonly people = computed<ApiPerson[]>(() => this.store.hidden() ?? []);
+  readonly people = computed<ApiPerson[]>(() =>
+    this.kind === 'hidden' ? (this.store.hidden() ?? []) : (this.store.excluded() ?? []),
+  );
 
   readonly loadError = computed<string | null>(() => {
-    const err = this.store.hiddenError();
+    const err = this.kind === 'hidden' ? this.store.hiddenError() : this.store.excludedError();
     return err ? errorMessage(err) : null;
   });
 
   readonly hasPeople = computed(() => this.people().length > 0);
 
   /** First fetch in flight (nothing cached to show yet). */
-  readonly loading = computed(() => this.store.hiddenLoading());
+  readonly loading = computed(() =>
+    this.kind === 'hidden' ? this.store.hiddenLoading() : this.store.excludedLoading(),
+  );
 
   readonly sortedPeople = computed(() => sortPeople(this.people()));
 
@@ -122,8 +155,9 @@ export class HiddenPeopleComponent implements OnDestroy {
   private readonly thumbs = new ThumbBlobCache(this.api, this.fsBrowse);
 
   constructor() {
-    // SWR hidden list: first entry fetches, later entries serve cached + refresh.
-    this.store.ensureHidden();
+    // SWR list: first entry fetches, later entries serve cached + refresh.
+    if (this.kind === 'hidden') this.store.ensureHidden();
+    else this.store.ensureExcluded();
 
     // Re-target the ResizeObserver each time the viewport appears (it lives in
     // a conditional block, like the main People list).
@@ -186,13 +220,14 @@ export class HiddenPeopleComponent implements OnDestroy {
     return this.restoringIds().has(id);
   }
 
-  /** Restore a hidden person — clears the flag server-side and refreshes both
-   * lists so the person leaves the Hidden page and returns to People. */
+  /** Restore a person — clears the flag server-side and refreshes the lists
+   * so the person leaves this page and returns to People. */
   async restore(person: ApiPerson): Promise<void> {
     if (this.isRestoring(person.id)) return;
     this.restoringIds.update((s) => new Set(s).add(person.id));
     try {
-      await this.store.unhidePerson(person.id);
+      if (this.kind === 'hidden') await this.store.unhidePerson(person.id);
+      else await this.store.unexcludePerson(person.id);
       this.showToast(`Restored ${person.name}`, 'success');
     } catch (err) {
       this.showToast(errorMessage(err), 'error');

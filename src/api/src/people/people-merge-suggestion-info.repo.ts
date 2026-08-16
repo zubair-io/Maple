@@ -67,7 +67,7 @@ export async function loadSuggestedMergeInfo(
     const candidateHex = candidate.personId.toHexString();
     if (dismissed.has(sortedPairKey(personHex, candidateHex))) continue;
     const target = await coll.findOne({ _id: candidate.personId });
-    if (!target || target.merged_into || target.hidden) continue;
+    if (!target || target.merged_into || target.hidden || target.excluded) continue;
     return {
       personId: target._id,
       name: target.name,
