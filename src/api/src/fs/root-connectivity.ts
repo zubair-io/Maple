@@ -8,12 +8,17 @@
 // Policy (deliberately reuses the missing-reaper's evidence rules — see
 // `libraryRootAvailable` in workers/missing-reaper.helpers.ts):
 //   - path does not stat as a directory       → disconnected
-//   - library has indexed files (file_count>0)
-//     but the root lists as empty/unlistable  → disconnected (the classic
-//     unmounted-SMB signature: the mount point stats fine but is empty)
-//   - brand-new library with nothing indexed  → connected while the path
-//     stats, even if empty — a just-registered empty folder must not vanish
-//     from the sidebar the moment it is added
+//   - library has indexed files (file_count>0),
+//     or an unknown count (legacy doc, field
+//     never denormalized), but the root lists
+//     as empty/unlistable                     → disconnected (the classic
+//     unmounted-SMB signature: the mount point stats fine but is empty;
+//     an unknown count must not get the empty-root grace — the doc predates
+//     the field, so the library almost certainly has content)
+//   - brand-new library with a KNOWN zero
+//     file_count                              → connected while the path
+//     stats as a directory, even if empty — a just-registered empty folder
+//     must not vanish from the sidebar the moment it is added
 //
 // Every check is capped by a hard timeout: stat/opendir on a dead network
 // mount can hang for tens of seconds, and `GET /api/folders` is on the
@@ -21,7 +26,8 @@
 // slow is not usable) and results are cached briefly so File Provider
 // revalidation polls don't re-stat every root.
 
-import { libraryRootAvailable, statKind } from '../workers/missing-reaper.helpers.ts';
+import { stat } from 'node:fs/promises';
+import { libraryRootAvailable } from '../workers/missing-reaper.helpers.ts';
 
 const CHECK_TIMEOUT_MS = 1_500;
 const CACHE_TTL_MS = 30_000;
@@ -47,21 +53,30 @@ async function withTimeout(check: Promise<boolean>): Promise<boolean> {
   }
 }
 
-async function checkRoot(path: string, fileCount: number): Promise<boolean> {
-  if ((await statKind(path)) !== 'present') return false;
-  return fileCount > 0 ? libraryRootAvailable(path) : true;
+async function checkRoot(path: string, fileCount: number | undefined): Promise<boolean> {
+  // Own stat rather than the reaper's `statKind`: connectivity must also
+  // reject a path that exists but is no longer a DIRECTORY (statKind's
+  // present/absent/error trichotomy doesn't distinguish).
+  const isDirectory = await stat(path).then(
+    (st) => st.isDirectory(),
+    () => false,
+  );
+  if (!isDirectory) return false;
+  return fileCount === 0 ? true : libraryRootAvailable(path);
 }
 
 /**
  * Connectivity for one registered root. `fileCount` is the library's
- * indexed `file_count` (drives the empty-root policy above). `fresh: true`
+ * indexed `file_count` (drives the empty-root policy above) — pass it
+ * through raw: `undefined` (legacy doc without the field) is deliberately
+ * NOT the same as `0` (known-empty fresh registration). `fresh: true`
  * skips the cached result (still repopulates it) — used by the Settings →
  * Sources "Check again" action, where serving a ≤30s-old answer would make
  * the button a no-op.
  */
 export async function rootConnected(
   path: string,
-  fileCount: number,
+  fileCount: number | undefined,
   opts: { fresh?: boolean } = {},
 ): Promise<boolean> {
   const cached = cache.get(path);
@@ -78,7 +93,7 @@ export async function rootConnected(
  * cached + timeout-capped). Returns `path → connected`.
  */
 export async function rootsConnected(
-  roots: readonly { path: string; fileCount: number }[],
+  roots: readonly { path: string; fileCount: number | undefined }[],
   opts: { fresh?: boolean } = {},
 ): Promise<Map<string, boolean>> {
   const entries = await Promise.all(
