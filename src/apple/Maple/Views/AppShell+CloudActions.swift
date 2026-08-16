@@ -320,19 +320,15 @@ extension AppShell {
     }
 
     /// Stand up a search session for `serverID`, scoped to `libraryID` (nil
-    /// = account-wide, the scope Map uses), seeded with `params` (defaults
-    /// to a blank `SearchParams()`). One `AuthenticatedHTTPClient` backs the
-    /// search + thumb clients (one 401-refresh coalescer) for the VM's
-    /// lifetime.
+    /// = account-wide, the scope Map uses), seeded with `params`. One
+    /// `AuthenticatedHTTPClient` backs the search + thumb clients (one
+    /// 401-refresh coalescer) for the VM's lifetime.
     ///
     /// The shared path both cloud-library search (`activateSearch()` below)
-    /// and the Map pin/cluster tap (`AppShell+Map.swift`'s `selectMapPlace`)
-    /// build their session through (#2886), replacing `selectMapPlace`'s
-    /// hand-built `SearchViewModel`/`CloudSearchClient`/`CloudThumbClient`/
-    /// `CloudThumbCache` — the no-args overload below is gated on a
-    /// `.cloudLibrary` selection, which Map replaces with `.map`, so this
-    /// overload takes server/scope explicitly instead of reading them off
-    /// `librarySelection`.
+    /// and the Map pin/cluster tap (`selectMapPlace`, `AppShell+Map.swift`)
+    /// build their session through (#2886) — the no-args overload is gated
+    /// on a `.cloudLibrary` selection, which Map replaces with `.map`, so
+    /// this one takes server/scope explicitly instead.
     @MainActor
     func activateSearch(server serverID: URL, libraryID: String?, params: SearchParams? = nil) {
         let httpClient = makeAuthenticatedHTTPClient(server: serverID)
@@ -341,7 +337,12 @@ extension AppShell {
             server: serverID,
             libraryID: libraryID,
             searchClient: CloudSearchClient(server: effectiveServer, httpClient: httpClient))
-        vm.params = params ?? vm.params
+        // `SearchParams.libraryID` — not the argument above — is what hits
+        // the wire (`listQueryItems()`), so force it to match: a caller-
+        // seeded `params` can never silently search the wrong scope.
+        var resolvedParams = params ?? vm.params
+        resolvedParams.libraryID = libraryID
+        vm.params = resolvedParams
         searchVM = vm
         searchThumbClient = CloudThumbClient(server: effectiveServer, httpClient: httpClient)
         searchThumbCache = CloudThumbCache()
