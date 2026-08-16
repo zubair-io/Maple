@@ -8,10 +8,12 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { withTestDb, withTestEnv } from '../db/test-db.test-helpers.ts';
 
-// Isolate from the real maple DB.
-process.env.MAPLE_MONGO_DB = `maple_test_browse_stub_audio_${process.pid}`;
-process.env.MAPLE_ROOTS = '/';
+// Isolate from the real maple DB, and from every later suite's idea of where
+// the library roots are — `/` must not outlive this file.
+withTestDb(`maple_test_browse_stub_audio_${process.pid}`);
+withTestEnv('MAPLE_ROOTS', '/');
 
 beforeAll(async () => {
   await (await import('../db/client.ts')).closeDb();

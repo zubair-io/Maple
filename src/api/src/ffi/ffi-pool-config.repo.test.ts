@@ -15,6 +15,7 @@ import {
   resolveFfiPoolConfig,
   savePerformanceConfig,
 } from './ffi-pool-config.repo.ts';
+import { withTestDb } from '../db/test-db.test-helpers.ts';
 
 describe('clampFfiWorkers', () => {
   it('clamps below MIN up to MIN', () => {
@@ -81,8 +82,7 @@ describe('resolveFfiPoolConfig — precedence', () => {
 });
 
 // ── Real-Mongo round-trip ────────────────────────────────────────────────
-const TEST_DB = `maple_test_ffi_pool_cfg_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_ffi_pool_cfg_${process.pid}`);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;
