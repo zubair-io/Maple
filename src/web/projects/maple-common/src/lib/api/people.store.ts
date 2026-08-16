@@ -46,6 +46,7 @@ import {
   type ApiPersonFace,
 } from './bun-api-backend.service';
 import type { Store, StoreStatus } from '../state/store';
+import { RecoveryListSlice } from './people-recovery-slice';
 
 /**
  * Page size for the detail face grid's infinite scroll. Mirrors the API's
@@ -330,149 +331,46 @@ export class PeopleStore implements Store<ApiPerson[]> {
     }
   }
 
-  // ── Hidden-list cache (the Hidden page) ─────────────────────────────────────
+  // ── Recovery-list caches: hidden (#2124) + excluded (#2894) ────────────────
   //
-  // Same SWR shape as the main list — `hidden` / `hiddenLoading` /
-  // `hiddenRefreshing` / `hiddenError` signals plus `ensureHidden()` /
-  // `invalidateHidden()`. A separate in-flight guard so it never collides with
-  // the main list. Hiding / unhiding a person invalidates both lists.
+  // Two instances of the same SWR slice (people-recovery-slice.ts): separate
+  // in-flight guards so neither collides with the main list or each other.
+  // The public names below are kept stable for existing consumers.
 
-  private readonly _hidden = signal<ApiPerson[] | undefined>(undefined);
-  private readonly _hiddenLoading = signal<boolean>(false);
-  private readonly _hiddenError = signal<Error | null>(null);
-  private _hiddenInFlight = false;
-  /** Set when `ensureHidden`/`invalidateHidden` is called during an in-flight
-   * fetch. The completion handler re-fetches once so a post-mutation
-   * invalidation can't be swallowed by an earlier-started request (which
-   * would leave the Hidden page showing stale membership). */
-  private _hiddenDirty = false;
+  private readonly hiddenSlice = new RecoveryListSlice(() => this.api.listHiddenPeople());
+  private readonly excludedSlice = new RecoveryListSlice(() => this.api.listExcludedPeople());
 
-  /** The hidden-people list, or undefined before the first fetch resolves. */
-  readonly hidden: Signal<ApiPerson[] | undefined> = this._hidden.asReadonly();
+  readonly hidden = this.hiddenSlice.rows;
+  readonly hiddenLoading = this.hiddenSlice.loading;
+  readonly hiddenRefreshing = this.hiddenSlice.refreshing;
+  readonly hiddenError = this.hiddenSlice.error;
+  readonly hiddenStatus = this.hiddenSlice.status;
 
-  /** First hidden-list fetch in flight (nothing cached to show). */
-  readonly hiddenLoading: Signal<boolean> = computed(
-    () => this._hiddenLoading() && this._hidden() === undefined,
-  );
+  // The excluded slice exposes only what its page consumes (rows/loading/
+  // error) — add refreshing/status aliases when a consumer actually needs
+  // them, mirroring the hidden pair above.
+  readonly excluded = this.excludedSlice.rows;
+  readonly excludedLoading = this.excludedSlice.loading;
+  readonly excludedError = this.excludedSlice.error;
 
-  /** Hidden-list re-fetch in flight while a cached value is shown. */
-  readonly hiddenRefreshing: Signal<boolean> = computed(
-    () => this._hiddenLoading() && this._hidden() !== undefined,
-  );
-
-  readonly hiddenError: Signal<Error | null> = this._hiddenError.asReadonly();
-
-  readonly hiddenStatus: Signal<StoreStatus> = computed(() => {
-    if (this._hiddenError()) return 'error';
-    if (this.hiddenLoading()) return 'loading';
-    if (this.hiddenRefreshing()) return 'refreshing';
-    if (this._hidden() !== undefined) return 'loaded';
-    return 'idle';
-  });
-
-  /** SWR read of the hidden list. First call fetches; later calls serve the
-   * cached value and refresh in the background. Safe to call on every Hidden
-   * page entry. */
+  /** SWR read of the hidden list — safe to call on every Hidden page entry. */
   ensureHidden(): void {
-    this._fetchHidden();
+    this.hiddenSlice.ensure();
   }
 
-  /** Force a hidden-list re-fetch (after hide / unhide). Keeps the cached
-   * value visible while the refresh lands. */
+  /** Force a hidden-list re-fetch (after hide / unhide). */
   invalidateHidden(): void {
-    this._fetchHidden();
+    this.hiddenSlice.invalidate();
   }
-
-  private _fetchHidden(): void {
-    if (this._hiddenInFlight) {
-      // A refresh is already running; remember that the result is now stale
-      // so we re-fetch once it lands instead of dropping this call.
-      this._hiddenDirty = true;
-      return;
-    }
-    this._hiddenInFlight = true;
-    this._hiddenDirty = false;
-    this._hiddenLoading.set(true);
-    this._hiddenError.set(null);
-    this.api.listHiddenPeople().subscribe({
-      next: (rows) => {
-        this._hidden.set(rows);
-        this._hiddenLoading.set(false);
-        this._hiddenInFlight = false;
-        if (this._hiddenDirty) this._fetchHidden();
-      },
-      error: (err: unknown) => {
-        this._hiddenError.set(err instanceof Error ? err : new Error(String(err)));
-        this._hiddenLoading.set(false);
-        this._hiddenInFlight = false;
-        if (this._hiddenDirty) this._fetchHidden();
-      },
-    });
-  }
-
-  // ── Excluded-list cache (#2894; the recovery list) ─────────────────────────
-  // Same SWR + dirty-refetch shape as the hidden slice above.
-
-  private readonly _excluded = signal<ApiPerson[] | undefined>(undefined);
-  private readonly _excludedLoading = signal<boolean>(false);
-  private readonly _excludedError = signal<Error | null>(null);
-  private _excludedInFlight = false;
-  private _excludedDirty = false;
-
-  /** The excluded-people list, or undefined before the first fetch resolves. */
-  readonly excluded: Signal<ApiPerson[] | undefined> = this._excluded.asReadonly();
-
-  readonly excludedLoading: Signal<boolean> = computed(
-    () => this._excludedLoading() && this._excluded() === undefined,
-  );
-
-  readonly excludedRefreshing: Signal<boolean> = computed(
-    () => this._excludedLoading() && this._excluded() !== undefined,
-  );
-
-  readonly excludedError: Signal<Error | null> = this._excludedError.asReadonly();
-
-  readonly excludedStatus: Signal<StoreStatus> = computed(() => {
-    if (this._excludedError()) return 'error';
-    if (this.excludedLoading()) return 'loading';
-    if (this.excludedRefreshing()) return 'refreshing';
-    if (this._excluded() !== undefined) return 'loaded';
-    return 'idle';
-  });
 
   /** SWR read of the excluded list — safe to call on every page entry. */
   ensureExcluded(): void {
-    this._fetchExcluded();
+    this.excludedSlice.ensure();
   }
 
   /** Force an excluded-list re-fetch (after exclude / unexclude). */
   invalidateExcluded(): void {
-    this._fetchExcluded();
-  }
-
-  private _fetchExcluded(): void {
-    if (this._excludedInFlight) {
-      this._excludedDirty = true;
-      return;
-    }
-    this._excludedInFlight = true;
-    this._excludedDirty = false;
-    this._excludedLoading.set(true);
-    this._excludedError.set(null);
-    this.api.listExcludedPeople().subscribe({
-      next: (rows) => {
-        this._excluded.set(rows);
-        this._excludedLoading.set(false);
-        this._excludedInFlight = false;
-        if (this._excludedDirty) this._fetchExcluded();
-      },
-      error: (err: unknown) => {
-        this._excludedError.set(err instanceof Error ? err : new Error(String(err)));
-        this._excludedLoading.set(false);
-        this._excludedInFlight = false;
-        if (this._excludedDirty) this._fetchExcluded();
-      },
-    });
+    this.excludedSlice.invalidate();
   }
 
   // ── Mutation pass-throughs ──────────────────────────────────────────────────
@@ -565,6 +463,10 @@ export class PeopleStore implements Store<ApiPerson[]> {
       throw err;
     }
     this.evictDetail(id);
+    // Both recovery lists: a hidden person who gets excluded leaves the
+    // server-side hidden list (exclusion is the stronger state), so the
+    // cached Hidden page must converge too.
+    this.invalidateHidden();
     this.invalidateExcluded();
   }
 

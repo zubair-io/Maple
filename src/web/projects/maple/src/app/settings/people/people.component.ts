@@ -53,6 +53,7 @@ import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 import { MapleVisibleOnceDirective } from './visible-once.directive';
 import { ThumbBlobCache } from './thumb-blob-cache';
+import { PeopleGridHost, bindGridViewport, createToast } from './people-grid-layout';
 import { FaceThumbCrop } from './face-thumb-crop';
 import {
   TOAST_TTL_MS,
@@ -97,10 +98,11 @@ import { PeopleFaceBulkController } from './people-face-bulk.controller';
   styleUrl: './people.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class PeopleComponent implements OnDestroy {
-  private readonly api = inject(BunApiBackendService);
-  private readonly fsBrowse = inject(FilesystemBrowseService);
-  private readonly librarySource: LibrarySource = inject(LIBRARY_SOURCE);
+export class PeopleComponent extends PeopleGridHost {
+  /** Redeclared over PeopleGridHost's field (same root singleton): direct
+   * `this.api.renamePerson(...)`-style calls in this file need a local
+   * declaration for cross-file reference analysis to bind against. */
+  protected override readonly api = inject(BunApiBackendService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
@@ -134,7 +136,8 @@ export class PeopleComponent implements OnDestroy {
   readonly editingId = signal<string | null>(null);
   readonly draftName = signal<string>('');
 
-  readonly toast = signal<Toast | null>(null);
+  private readonly toastCtl = createToast();
+  readonly toast = this.toastCtl.toast;
 
   /** Minimum detector confidence (0-100) for the visible-faces filter.
    * Labelled "Min detector confidence" in the UI — the API's
@@ -205,28 +208,6 @@ export class PeopleComponent implements OnDestroy {
    * populated list view, and re-appears on back-navigation. */
   private readonly peopleScrollContent = viewChild<ElementRef<HTMLElement>>('peopleScrollContent');
 
-  /** Measured inner width of the viewport. Seeded until the ResizeObserver
-   * reports the real width. */
-  private readonly containerWidth = signal<number>(900);
-
-  /** Min card width — denser on narrow (phone) viewports, matching the old
-   * responsive `minmax(140px|180px, 1fr)` CSS. */
-  private readonly minCardWidth = computed(() => (this.containerWidth() <= 767 ? 140 : 180));
-
-  readonly gridColumns = computed(() =>
-    peopleGridColumns(this.containerWidth(), this.minCardWidth()),
-  );
-
-  /** Square card side (px) for the current column count + container width. */
-  readonly cardWidth = computed(() => peopleCardWidth(this.containerWidth(), this.gridColumns()));
-
-  /** Fixed row height fed to the viewport `itemSize`. */
-  readonly rowHeight = computed(() => peopleRowHeight(this.cardWidth()));
-
-  /** Inter-card gap + per-row bottom margin (px). One source of truth shared
-   * with the packing math (`peopleRowHeight` adds one `GAP`/row). */
-  protected readonly gridGap = PEOPLE_GRID.GAP;
-
   /** Sorted people packed into fixed-width rows for the virtual viewport. */
   readonly peopleRows = computed(() => chunkPeopleRows(this.visiblePeople(), this.gridColumns()));
 
@@ -264,10 +245,6 @@ export class PeopleComponent implements OnDestroy {
   /** Face-thumbnail crop-transform state (natural-dims capture + transform).
    * Shared by the list cover thumbs and the detail face grid. */
   protected readonly crop = new FaceThumbCrop();
-
-  /** Bearer-gated thumbnail blob cache. See {@link ThumbBlobCache} for
-   * lifecycle / cache-key rules. Created once per component instance. */
-  private readonly thumbs = new ThumbBlobCache(this.api, this.fsBrowse, this.librarySource);
 
   /** Detail-view per-face selection + bulk move/unassign/hide. Declared
    * before {@link detailCtl}, which reads its `selectedFaces` signal. */
@@ -310,6 +287,7 @@ export class PeopleComponent implements OnDestroy {
   readonly selectedRouteId = computed(() => this.routeParamMap().get('id'));
 
   constructor() {
+    super();
     // SWR list: first entry fetches, later entries serve cached + refresh.
     this.store.ensureList();
 
@@ -339,49 +317,7 @@ export class PeopleComponent implements OnDestroy {
       this.detailCtl.prefetchDetailThumbs();
     });
 
-    // Re-target the ResizeObserver each time the virtual-scroll viewport
-    // appears. It lives in conditional template blocks (only the populated
-    // list view renders it), so a signal-query effect catches first paint and
-    // back-navigation alike. `onCleanup` disconnects when the viewport goes
-    // away (the detail view removes it from the DOM) so a detached element
-    // isn't observed/retained until destroy; the effect re-attaches when the
-    // query resolves to a fresh element again.
-    effect((onCleanup) => {
-      // Guard `nativeElement` too, not just the ref: after the @if swap
-      // between the list grid and the detail view, the signal query can
-      // briefly hold a stale ElementRef whose nativeElement is undefined,
-      // and observeViewport would crash on `host.clientWidth` (#2080).
-      const host = this.peopleScrollContent()?.nativeElement;
-      if (!host) return;
-      this.observeViewport(host);
-      onCleanup(() => this.resizeObserver?.disconnect());
-    });
-  }
-
-  /** ResizeObserver on the viewport content so the column count + card/row
-   * sizes track the container width. Re-targeted by the constructor effect. */
-  private resizeObserver?: ResizeObserver;
-
-  /** (Re)attach the ResizeObserver to the current viewport host and seed the
-   * width immediately. Disconnects any prior observer first. */
-  private observeViewport(host: HTMLElement): void {
-    this.containerWidth.set(host.clientWidth || 900);
-    if (typeof ResizeObserver === 'undefined') return; // SSR / very old browser
-    this.resizeObserver?.disconnect();
-    this.resizeObserver = new ResizeObserver((entries) => {
-      for (const e of entries) this.containerWidth.set(e.contentRect.width);
-    });
-    this.resizeObserver.observe(host);
-  }
-
-  ngOnDestroy(): void {
-    this.thumbs.destroy();
-    this.resizeObserver?.disconnect();
-  }
-
-  ensureCoverThumb(p: ApiPerson): void {
-    const key = ThumbBlobCache.coverKey(p);
-    if (key) this.thumbs.ensure(key, p.coverAddress ?? null, p.coverAbsPath, p.coverAssetId);
+    bindGridViewport(this.layout, this.peopleScrollContent);
   }
 
   /** Re-fetch the people list. Routes through the store's `invalidate()` so
@@ -534,10 +470,6 @@ export class PeopleComponent implements OnDestroy {
 
   // ── Cover-thumb URL helpers ─────────────────────────────────────────
 
-  coverThumbUrl(person: ApiPerson): string | null {
-    return this.thumbs.url(ThumbBlobCache.coverKey(person));
-  }
-
   detailCoverUrl(detail: ApiPersonDetail): string | null {
     const original = this.people().find((p) => p.id === detail.id);
     if (original) return this.coverThumbUrl(original);
@@ -559,10 +491,6 @@ export class PeopleComponent implements OnDestroy {
   // ── Helpers ─────────────────────────────────────────────────────────
 
   private showToast(text: string, tone: Tone): void {
-    this.toast.set({ text, tone });
-    setTimeout(() => {
-      const cur = this.toast();
-      if (cur && cur.text === text) this.toast.set(null);
-    }, TOAST_TTL_MS);
+    this.toastCtl.show(text, tone);
   }
 }
