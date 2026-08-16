@@ -16,9 +16,9 @@ import { mkdtemp, mkdir, writeFile, rm, stat, utimes } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { withTestDb } from '../db/test-db.test-helpers.ts';
 
-const TEST_DB = `maple_test_cache_gc_mirror_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_cache_gc_mirror_${process.pid}`);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;
