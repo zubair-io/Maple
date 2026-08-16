@@ -9,9 +9,9 @@ import { MongoClient, type Db } from 'mongodb';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
+import { withTestDb } from '../../db/test-db.test-helpers.ts';
 
-const TEST_DB = `maple_test_mirrorscan_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_mirrorscan_${process.pid}`);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;

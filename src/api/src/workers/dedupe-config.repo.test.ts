@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { MongoClient } from 'mongodb';
 import { clampBatchSize, DEFAULT_BATCH_SIZE } from './dedupe-config.repo.ts';
+import { withTestDb } from '../db/test-db.test-helpers.ts';
 
 describe('clampBatchSize', () => {
   it('keeps an in-range value, rounding floats', () => {
@@ -23,8 +24,7 @@ describe('clampBatchSize', () => {
   });
 });
 
-const TEST_DB = `maple_test_dedupecfg_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_dedupecfg_${process.pid}`);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;

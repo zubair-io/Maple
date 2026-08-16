@@ -9,6 +9,7 @@ import { PREVIEW_LONG_EDGE_PX, PREVIEW_CACHE_SUFFIX } from '../../indexer/previe
 import { cachePathForAsset } from '../../fs/xmp.ts';
 import * as imgdecodePoolModule from '../../thumbs/imgdecode-pool.ts';
 import { checkAvifOutput } from '../../thumbs/avif-checks.ts';
+import { withTestDb } from '../../db/test-db.test-helpers.ts';
 
 /** `sharp(p).metadata()` with failure context. #2032's root cause was a
  * sibling file's leaked `generatePreview` module mock writing literal
@@ -47,8 +48,7 @@ async function readbackMetadata(p: string): Promise<sharp.Metadata> {
  * failure shows whether `generatePreview` ever reached the render boundary. */
 let mockRenderCalls = 0;
 
-const TEST_DB = `maple_test_preview_stage_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_preview_stage_${process.pid}`);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 /**

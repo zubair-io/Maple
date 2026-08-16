@@ -15,9 +15,9 @@ import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
 import type { MongoClient } from 'mongodb';
 import { ObjectId, type Db } from 'mongodb';
 import { tryConnect } from '../discover/_test-helpers.ts';
+import { withTestDb } from '../../db/test-db.test-helpers.ts';
 
-const TEST_DB = `maple_test_exif_merge_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_exif_merge_${process.pid}`);
 
 let mongo: MongoClient | null = null;
 let mongoReachable = false;

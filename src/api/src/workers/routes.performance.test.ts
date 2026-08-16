@@ -11,27 +11,33 @@
  */
 
 import { afterAll, beforeAll, describe, it, expect, beforeEach } from 'bun:test';
+import type { Db } from 'mongodb';
 import { Elysia } from 'elysia';
 import { workerRoutes } from './routes.ts';
 import { ffiPool, _resetFfiPoolForTests } from '../ffi/ffi-pool.ts';
-import { closeDb, getDb, isDbConnected } from '../db/client.ts';
+import { closeDb, getDb } from '../db/client.ts';
 import { MAX_FFI_WORKERS, MIN_FFI_WORKERS } from '../ffi/ffi-pool-config.repo.ts';
+import { withTestDb } from '../db/test-db.test-helpers.ts';
 
 // getDb() blocks on a ~5s server-selection timeout when MongoDB is unreachable
 // (CI without a DB). Give the DB-touching route tests room to reach that path
 // and skip-pass, rather than tripping the default 5s per-test timeout.
 const DB_TIMEOUT_MS = 15000;
 
-const TEST_DB = `maple_test_perf_route_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+withTestDb(`maple_test_perf_route_${process.pid}`);
 
 // Force the singleton to reconnect under TEST_DB even when an earlier suite
 // left it connected, and drop + close on the way out (#2835).
+// Captured here, not re-resolved in afterAll: withTestDb restores
+// MAPLE_MONGO_DB before this suite's teardown runs.
+let suiteDb: Db | null = null;
+
 beforeAll(async () => {
   await closeDb();
+  suiteDb = await getDb().catch(() => null);
 });
 afterAll(async () => {
-  if (isDbConnected()) await (await getDb()).dropDatabase();
+  if (suiteDb) await suiteDb.dropDatabase();
   await closeDb();
 });
 
