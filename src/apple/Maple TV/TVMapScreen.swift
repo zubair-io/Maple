@@ -68,11 +68,11 @@ struct TVMapScreen: View {
   @State private var viewModel: MapViewModel
   @State private var searchPresentation: TVMapSearchPresentation?
   /// Written by the `.continuous` listener on the ZStack below, read ONLY by
-  /// `TVMapHeatmapOverlay`. Because it's `@Observable` and this body never
-  /// reads `region`, the per-frame camera updates invalidate the heat overlay
-  /// without rebuilding this screen — see the type's doc for why the listener
-  /// can't live on the overlay itself.
-  @State private var cameraTracker = TVMapCameraTracker()
+  /// `TVMapHeatmapOverlay`. Because `MapCameraTracker` is `@Observable` and
+  /// this body never reads `region`, the per-frame camera updates invalidate
+  /// the heat overlay without rebuilding this screen — see that type's doc
+  /// for why the listener can't live on the overlay itself.
+  @State private var cameraTracker = MapCameraTracker()
   @Namespace private var focusNamespace
 
   init(session: TVCloudSession, libraryID: String) {

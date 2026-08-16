@@ -13,10 +13,20 @@
 // heatmap density overlay in sync with the live camera — SwiftUI's `Map`
 // has no way to host a real `MKOverlay`/`MKOverlayRenderer` (see that
 // file's header comment), and `MapProxy` is the supported alternative.
-// `currentRegion` mirrors what `.onMapCameraChange` already reports to
-// `vm.regionChanged`; storing it in `@State` forces this view's body (and
-// so the heatmap `Canvas`) to redraw continuously during a pan/zoom, not
-// just after the VM's debounced fetch lands.
+//
+// The live camera feeds the heatmap through `cameraTracker`
+// (`MapCameraTracker`, MapleCloudKit — shared with tvOS's identical fix,
+// #2869), not `@State` on this view: `MapHeatmapLayerView`'s inputs
+// (`points`, `zoomLevel`) are otherwise constant mid-pan (`points` only
+// changes on a refetch, `zoomLevel` is a rounded `Int` that holds steady
+// across a whole gesture), so without a per-frame signal SwiftUI skips
+// re-evaluating the heat layer's body and the blobs sit glued to the screen
+// while the tiles slide underneath. Putting that per-frame value in
+// `@State` here instead would fix the heatmap but re-evaluate this view's
+// entire body — including `annotationContent` for every pin — at the
+// camera's update frequency; `@Observable` on `MapCameraTracker` contains
+// the invalidation to `MapHeatmapCameraLayer`, the only subtree that reads
+// it, because this body never reads `cameraTracker.region`/`.zoomLevel`.
 
 import SwiftUI
 import MapKit
@@ -36,20 +46,14 @@ struct MapView: View {
 
   @State private var cameraPosition: MapCameraPosition = .automatic
   @State private var selectedAnnotationID: String?
-  @State private var currentRegion: MKCoordinateRegion?
+  /// Written by the `.continuous` listener below, read ONLY by
+  /// `MapHeatmapCameraLayer`. See this file's header and
+  /// `MapCameraTracker`'s doc comment for why `@Observable` (not `@State`
+  /// here) is what keeps a pan/zoom from re-evaluating this whole view.
+  @State private var cameraTracker = MapCameraTracker()
 
   private var items: [MapAnnotationItem] {
     MapAnnotationItem.items(from: vm.cells)
-  }
-
-  /// Same zoom convention `MapViewModel.fetch` uses to build the
-  /// `/api/map/clusters` `zoom` param — single source of truth so the
-  /// heatmap's crossfade lines up with the data the map is actually
-  /// showing. `0` (fully opaque, matching a whole-world view) before the
-  /// first camera report — harmless, since `vm.cells` is empty then too.
-  private var currentZoomLevel: Int {
-    guard let currentRegion else { return 0 }
-    return MapViewport.zoomLevel(for: MapViewVM.viewportRegion(from: currentRegion))
   }
 
   var body: some View {
@@ -66,16 +70,19 @@ struct MapView: View {
         // `.continuous` so `MapViewModel.regionChanged` sees every pan/zoom
         // tick — its own 300ms debounce is what actually bounds the
         // request rate, matching the design doc's "debounced on region
-        // change". Also drives `currentRegion`, which keeps the heatmap
-        // layer below tracking the live camera rather than only the
-        // debounced fetch.
+        // change". Also writes `cameraTracker.region`, which keeps the
+        // heatmap layer below tracking the live camera rather than only the
+        // debounced fetch. This listener has to stay HERE, on the `Map`
+        // itself — `.onMapCameraChange` never fires on a sibling, and
+        // `MapHeatmapCameraLayer` below is a sibling of the `Map` inside
+        // this `ZStack` (see `MapCameraTracker`'s doc comment).
         .onMapCameraChange(frequency: .continuous) { context in
           vm.regionChanged(MapViewVM.viewportRegion(from: context.region))
-          currentRegion = context.region
+          cameraTracker.region = context.region
         }
         .accessibilityIdentifier("map-view")
 
-        MapHeatmapLayerView(points: vm.heatmapPoints, zoomLevel: currentZoomLevel, proxy: proxy)
+        MapHeatmapCameraLayer(points: vm.heatmapPoints, tracker: cameraTracker, proxy: proxy)
 
         if vm.isEmpty {
           statePane(icon: "mappin.slash",
