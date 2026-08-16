@@ -22,9 +22,10 @@ import * as os from 'node:os';
 import { Elysia } from 'elysia';
 import { ObjectId, type Db } from 'mongodb';
 import { metadataSnapshotsRoutes } from './metadata-snapshots.ts';
+import { withTestDb } from '../db/test-db.test-helpers.ts';
 
 // Isolate db-client singleton to a unique test DB (matches xmp-batch.test.ts convention).
-process.env.MAPLE_MONGO_DB = `maple_test_meta_snap_${process.pid}`;
+withTestDb(`maple_test_meta_snap_${process.pid}`);
 
 let db: Db | null = null;
 let mongoReachable = false;

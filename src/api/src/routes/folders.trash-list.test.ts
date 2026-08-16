@@ -17,9 +17,9 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test'
 import { Elysia } from 'elysia';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
+import { withTestDb } from '../db/test-db.test-helpers.ts';
 
-const TEST_DB = `maple_test_trash_list_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_trash_list_${process.pid}`);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;

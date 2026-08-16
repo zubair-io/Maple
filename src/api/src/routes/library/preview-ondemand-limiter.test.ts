@@ -27,9 +27,9 @@ import { tmpdir } from 'node:os';
 import { mkdtemp } from 'node:fs/promises';
 import { join } from 'node:path';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { withTestDb } from '../../db/test-db.test-helpers.ts';
 
-const TEST_DB = `maple_test_preview_ondemand_route_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_preview_ondemand_route_${process.pid}`);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';

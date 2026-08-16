@@ -25,9 +25,9 @@ import * as path from 'node:path';
 import { tryConnect } from '../workers/discover/_test-helpers.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 import { Elysia } from 'elysia';
+import { withTestDb } from '../db/test-db.test-helpers.ts';
 
-const TEST_DB = `maple_test_folders_scan_relink_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_folders_scan_relink_${process.pid}`);
 
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
