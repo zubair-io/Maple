@@ -15,9 +15,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { ImportRunner, groupFiles } from './worker.ts';
 import type { ImportFileEntry } from '../db/schema.ts';
+import { withTestDb } from '../db/test-db.test-helpers.ts';
 
-const TEST_DB = `maple_test_import_worker_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_import_worker_${process.pid}`);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;
