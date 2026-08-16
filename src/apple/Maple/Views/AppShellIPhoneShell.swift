@@ -57,6 +57,19 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
     let cloudTimelineThumbCache: CloudThumbCache?
     let allSourcesTimelineVM: AllSourcesTimelineViewModel?
     let allSourcesTimelineThumbCache: CloudThumbCache?
+    /// Non-nil while the sidebar's MAP row (#2830, `.map` selection) is
+    /// current — forwarded straight through to `AppShellCenterColumn`, same
+    /// three values `AppShellMacLayout` gets from the Mac/iPad sidebar's MAP
+    /// row. #2886: this is now the ONLY iPhone call site for these — the
+    /// Map tab's independent `AppShellCenterColumn` call site (#2878) is
+    /// gone, since Map lives in the side navigation, not the tab bar.
+    let mapVM: MapViewModel?
+    let mapThumbClient: CloudThumbClient?
+    let mapThumbCache: CloudThumbCache?
+    /// Why `.map` has no `mapVM` yet (#2848) — forwarded straight through
+    /// to `AppShellCenterColumn`'s `MapEmptyState`. `nil` whenever `mapVM`
+    /// is set or `.map` isn't selected; see `AppShell.mapUnavailableReason`.
+    let mapUnavailableReason: MapUnavailableReason?
     let isSearchActive: Bool
     let searchVM: SearchViewModel?
     let searchThumbClient: CloudThumbClient?
@@ -72,6 +85,9 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
 
     // Center-column callbacks — all forward into AppShell action methods.
     let onSelectCloudAsset: (SearchAsset, URL) -> Void
+    /// Map pin/cluster tap (#2830) → AppShell activates search filtered by
+    /// the resolved target (a place name, or the has-GPS scope fallback).
+    let onSelectMapPlace: (MapPlaceSearchTarget) -> Void
     /// Dismiss the cloud search UI.
     let onCloseSearch: () -> Void
     let onSelectLocalAsset: (ImageRef) -> Void
@@ -116,6 +132,10 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
             cloudTimelineThumbCache: cloudTimelineThumbCache,
             allSourcesTimelineVM: allSourcesTimelineVM,
             allSourcesTimelineThumbCache: allSourcesTimelineThumbCache,
+            mapVM: mapVM,
+            mapThumbClient: mapThumbClient,
+            mapThumbCache: mapThumbCache,
+            mapUnavailableReason: mapUnavailableReason,
             isSearchActive: isSearchActive,
             searchVM: searchVM,
             searchThumbClient: searchThumbClient,
@@ -125,6 +145,7 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
             sessions: $sessions,
             previewTransitionNamespace: previewTransitionNamespace,
             onSelectCloudAsset: onSelectCloudAsset,
+            onSelectMapPlace: onSelectMapPlace,
             onCloseSearch: onCloseSearch,
             onSelectLocalAsset: onSelectLocalAsset,
             onGrantPhotosAccess: onGrantPhotosAccess,

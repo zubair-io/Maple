@@ -8,14 +8,21 @@
 // concept, so there's no reason to gate it to whichever library happens to
 // be open. Triggered by the sidebar's MAP row (`LibrarySidebar.onSelectMap`).
 //
-// Not reusing `resolveSearchServerURL()` / `activateSearch()` directly:
-// both are scoped to (or gated on) a specific `.cloudLibrary` selection —
-// `resolveSearchServerURL()` is also `#if os(iOS)`-only (the iPhone Search
-// tab's own file). Map flips `librarySelection` to `.map` itself, so by
-// the time a pin is tapped there is no `.cloudLibrary` selection left to
-// read; this file resolves + activates its own account-wide session
+// `openMap()` doesn't reuse `resolveSearchServerURL()` / `activateSearch()`
+// directly: both are scoped to (or gated on) a specific `.cloudLibrary`
+// selection — `resolveSearchServerURL()` is also `#if os(iOS)`-only (the
+// iPhone Search tab's own file). Map flips `librarySelection` to `.map`
+// itself, so by the time a pin is tapped there is no `.cloudLibrary`
+// selection left to read; this file resolves its own account-wide server
 // instead, mirroring `makePhoneSearchSession()`'s shape (`libraryID: nil`)
 // without the `#if os(iOS)` gate or the `.cloudLibrary`-only guard.
+//
+// `selectMapPlace(_:)` DOES reuse `activateSearch(server:libraryID:params:)`
+// (#2886) — the explicit-server/preset-params overload in
+// AppShell+CloudActions.swift exists precisely so this file's account-wide,
+// `.map`-scoped tap can share the same session-building path as
+// `.cloudLibrary` search, instead of hand-building its own
+// `SearchViewModel`/`CloudSearchClient`/`CloudThumbClient`/`CloudThumbCache`.
 //
 // Mirrors `AppShell+AllSourcesTimeline.swift`'s open-then-async-resolve
 // shape: select immediately (so the row highlights and any prior session
@@ -112,30 +119,22 @@ extension AppShell {
     /// the info pane's face-chip tap handler). `.hasLocationScope` covers
     /// the "cell missing placeLabel" fallback (design doc's error-states
     /// section) — landing on "everything with a location" beats a no-op
-    /// tap. Builds its own account-wide (no libraryID) search session off
-    /// the map's own server rather than `activateSearch()`, which requires
-    /// a `.cloudLibrary` selection Map has already replaced with `.map`.
+    /// tap.
     ///
     /// Seeds the new session from `mapVM.filter` — the SAME filter the map
     /// itself queried `/api/map/clusters` with — before layering the tap's
     /// place/scope on top, so a pin tap narrows the active filter (date
     /// range, camera, …) rather than silently discarding it back to
-    /// "everything, everywhere."
+    /// "everything, everywhere" — `MapPlaceSearchTarget.searchParams(seededFrom:)`
+    /// (MapleCloudKit) is the pure, unit-tested composition of that chain.
+    /// Delegates the actual session-building (client/thumb-cache setup,
+    /// `isSearchActive` flip) to `activateSearch(server:libraryID:params:)`
+    /// (#2886) — this function's only job is resolving the map's own
+    /// account-wide (no libraryID) server and seeding the params.
     func selectMapPlace(_ target: MapPlaceSearchTarget) {
         guard let mapVM else { return }
-        let serverID = mapVM.server
-        let httpClient = makeAuthenticatedHTTPClient(server: serverID)
-        let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: serverID)
-        let vm = SearchViewModel(
-            server: serverID,
-            libraryID: nil, // account-wide, same scope as the map itself
-            searchClient: CloudSearchClient(server: effectiveServer, httpClient: httpClient))
-        vm.params = mapVM.filter
-        target.apply(to: &vm.params)
-        searchVM = vm
-        searchThumbClient = CloudThumbClient(server: effectiveServer, httpClient: httpClient)
-        searchThumbCache = CloudThumbCache()
-        isSearchActive = true
-        Task { await vm.submit() }
+        let params = target.searchParams(seededFrom: mapVM.filter)
+        activateSearch(server: mapVM.server, libraryID: nil, params: params)
+        Task { await searchVM?.submit() }
     }
 }

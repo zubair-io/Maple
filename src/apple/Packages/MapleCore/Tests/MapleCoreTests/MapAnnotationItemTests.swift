@@ -126,4 +126,46 @@ final class MapAnnotationItemTests: XCTestCase {
     XCTAssertEqual(params.placeQuery, "Nairobi")
     XCTAssertNil(params.scope)
   }
+
+  // MARK: - MapPlaceSearchTarget.searchParams(seededFrom:) — the pure
+  // composition `AppShell+Map.swift`'s `selectMapPlace` hands straight to
+  // `activateSearch(server:libraryID:params:)` (#2886). Before #2886,
+  // `selectMapPlace` hand-built its own `SearchViewModel` / clients; this
+  // is the part of that duplicated logic that's actually testable outside
+  // the app target — the shared-path refactor's behavioural contract.
+
+  func test_searchParamsSeededFrom_placeQueryTarget_appliesPlaceAndPreservesFilter() {
+    var filter = SearchParams(libraryID: nil)
+    filter.camera = "Hasselblad"
+    filter.rating = 4
+    filter.from = "2026-01-01"
+
+    let params = MapPlaceSearchTarget.placeQuery("Kyoto").searchParams(seededFrom: filter)
+
+    XCTAssertEqual(params.placeQuery, "Kyoto")
+    XCTAssertNil(params.libraryID, "map search is account-wide, same scope as the map itself")
+    XCTAssertEqual(params.camera, "Hasselblad", "the map's active filter must be narrowed, not discarded")
+    XCTAssertEqual(params.rating, 4)
+    XCTAssertEqual(params.from, "2026-01-01")
+  }
+
+  func test_searchParamsSeededFrom_hasLocationScopeTarget_appliesScopeAndPreservesFilter() {
+    var filter = SearchParams(libraryID: nil)
+    filter.lens = "70-200mm"
+    filter.flag = .pick
+
+    let params = MapPlaceSearchTarget.hasLocationScope.searchParams(seededFrom: filter)
+
+    XCTAssertEqual(params.scope, "places")
+    XCTAssertNil(params.libraryID)
+    XCTAssertEqual(params.lens, "70-200mm")
+    XCTAssertEqual(params.flag, .pick)
+  }
+
+  func test_searchParamsSeededFrom_doesNotMutateTheSeedFilter() {
+    let filter = SearchParams(libraryID: nil)
+    _ = MapPlaceSearchTarget.placeQuery("Lisbon").searchParams(seededFrom: filter)
+
+    XCTAssertEqual(filter.placeQuery, "", "seededFrom takes filter by value — the caller's mapVM.filter must be untouched")
+  }
 }

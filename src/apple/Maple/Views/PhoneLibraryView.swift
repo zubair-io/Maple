@@ -38,6 +38,16 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
     let cloudTimelineThumbCache: CloudThumbCache?
     let allSourcesTimelineVM: AllSourcesTimelineViewModel?
     let allSourcesTimelineThumbCache: CloudThumbCache?
+    /// Non-nil while the sidebar's MAP row (#2830, `.map` selection) is
+    /// current (#2886) — forwarded straight through to `AppShellIPhoneShell`
+    /// → `AppShellCenterColumn`, same three values `AppShellMacLayout` gets
+    /// from the Mac/iPad sidebar's MAP row.
+    let mapVM: MapViewModel?
+    let mapThumbClient: CloudThumbClient?
+    let mapThumbCache: CloudThumbCache?
+    /// Why `.map` has no `mapVM` yet (#2848) — forwarded straight through
+    /// to `AppShellCenterColumn`'s `MapEmptyState`.
+    let mapUnavailableReason: MapUnavailableReason?
     let isSearchActive: Bool
     let searchVM: SearchViewModel?
     let searchThumbClient: CloudThumbClient?
@@ -57,6 +67,9 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
     /// Preferred over `browseVM.currentSource`, which is nil for those taps —
     /// Preview needs a source or it falls back to downloading the RAW (#2376).
     var cloudPreviewSource: (any ImageSource)? = nil
+    /// Map pin/cluster tap (#2830) → AppShell activates search filtered by
+    /// the resolved target (a place name, or the has-GPS scope fallback).
+    let onSelectMapPlace: (MapPlaceSearchTarget) -> Void
     let onCloseSearch: () -> Void
     let onSelectLocalAsset: (ImageRef) -> Void
     let onGrantPhotosAccess: () -> Void
@@ -94,6 +107,10 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
             cloudTimelineThumbCache: cloudTimelineThumbCache,
             allSourcesTimelineVM: allSourcesTimelineVM,
             allSourcesTimelineThumbCache: allSourcesTimelineThumbCache,
+            mapVM: mapVM,
+            mapThumbClient: mapThumbClient,
+            mapThumbCache: mapThumbCache,
+            mapUnavailableReason: mapUnavailableReason,
             isSearchActive: isSearchActive,
             searchVM: searchVM,
             searchThumbClient: searchThumbClient,
@@ -104,6 +121,7 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
             previewTransitionNamespace: previewTransition,
             toolbarContent: toolbarContent,
             onSelectCloudAsset: onSelectCloudAsset,
+            onSelectMapPlace: onSelectMapPlace,
             onCloseSearch: onCloseSearch,
             onSelectLocalAsset: onSelectLocalAsset,
             onGrantPhotosAccess: onGrantPhotosAccess,

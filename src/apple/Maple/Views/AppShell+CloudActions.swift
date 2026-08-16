@@ -319,22 +319,45 @@ extension AppShell {
         else { activateSearch() }
     }
 
-    /// Stand up a search session for the currently-selected cloud library.
-    /// Reuses the same AuthenticatedHTTPClient for the search + thumb
-    /// clients (one 401-refresh coalescer) for the VM's lifetime. No-op for
-    /// non-cloud selections — the toolbar button is disabled there anyway.
+    /// Stand up a search session for `serverID`, scoped to `libraryID` (nil
+    /// = account-wide — the scope Map uses, since it has no per-library
+    /// concept), seeded with `params` (defaults to a blank `SearchParams()`
+    /// for that library). Reuses the same `AuthenticatedHTTPClient` for the
+    /// search + thumb clients (one 401-refresh coalescer) for the VM's
+    /// lifetime.
+    ///
+    /// The one shared path both cloud-library search (`activateSearch()`)
+    /// and the Map pin/cluster tap (`AppShell+Map.swift`'s
+    /// `selectMapPlace`) build their session through (#2886) — before this,
+    /// `selectMapPlace` hand-built its own `SearchViewModel` /
+    /// `CloudSearchClient` / `CloudThumbClient` / `CloudThumbCache` because
+    /// the no-args `activateSearch()` below is gated on a `.cloudLibrary`
+    /// selection, which Map replaces with `.map`. Taking the server and
+    /// library scope as explicit arguments (rather than deriving them from
+    /// `librarySelection`) removes that gate for callers that already know
+    /// their own scope.
     @MainActor
-    func activateSearch() {
-        guard case .cloudLibrary(let serverID, let folderID) = librarySelection else { return }
+    func activateSearch(server serverID: URL, libraryID: String?, params: SearchParams? = nil) {
         let httpClient = makeAuthenticatedHTTPClient(server: serverID)
         let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: serverID)
-        searchVM = SearchViewModel(
+        let vm = SearchViewModel(
             server: serverID,
-            libraryID: folderID,
+            libraryID: libraryID,
             searchClient: CloudSearchClient(server: effectiveServer, httpClient: httpClient))
+        vm.params = params ?? vm.params
+        searchVM = vm
         searchThumbClient = CloudThumbClient(server: effectiveServer, httpClient: httpClient)
         searchThumbCache = CloudThumbCache()
         isSearchActive = true
+    }
+
+    /// Stand up a search session for the currently-selected cloud library.
+    /// No-op for non-cloud selections — the toolbar button is disabled there
+    /// anyway.
+    @MainActor
+    func activateSearch() {
+        guard case .cloudLibrary(let serverID, let folderID) = librarySelection else { return }
+        activateSearch(server: serverID, libraryID: folderID)
     }
 
     /// Open the cloud search overlay pre-filled with `query` and run it (#2518).
