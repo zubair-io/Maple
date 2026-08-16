@@ -18,6 +18,7 @@
 // child filter row component's UI events.
 
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { AuthService } from '../auth/auth.service';
 import { LibraryStateService } from './library-state.service';
 import { SidebarEntry } from '../models/folder';
 import type { ApiFolder } from '../api/bun-api-backend.service';
@@ -32,6 +33,7 @@ export type TimelineColor = '' | ColorLabelValue;
 @Injectable({ providedIn: 'root' })
 export class TimelineStateService {
   private readonly state = inject(LibraryStateService);
+  private readonly auth = inject(AuthService);
   private readonly api = inject(SERVER_LIBRARY_IO, { optional: true });
 
   constructor() {
@@ -106,6 +108,11 @@ export class TimelineStateService {
    * library roots do — `absPath` is a legacy field kept for other consumers).
    */
   readonly pathPrefix = computed<string | null>(() => {
+    // A member without file access (#2893) has no sidebar to select from —
+    // their timeline is always the unscoped "everything" view. '/' anchors
+    // every absolute path, so the view's per-month folder grouping still
+    // works (it buckets by top-level segment).
+    if (!this.auth.canBrowseFiles) return '/';
     const addr = this.selectedFolderAddress();
     if (!addr) return null;
     const owning = this.owningLibrary();
@@ -131,12 +138,8 @@ export class TimelineStateService {
    * `2026` can't accidentally match a same-named folder in another library.
    */
   readonly params = computed<Omit<SearchParams, 'page' | 'limit' | 'sort'> | null>(() => {
-    const addr = this.selectedFolderAddress();
-    if (!addr) return null;
-    const owning = this.owningLibrary();
-    if (!owning) return null;
-
-    const rel = addr.relPath.replace(/^\/+/, '').replace(/\/+$/, '');
+    const scope = this.scope();
+    if (!scope) return null;
 
     const q = this.state.searchQuery().trim();
     const minR = this.minRating();
@@ -146,8 +149,7 @@ export class TimelineStateService {
     const to = this.to();
     const hidden = this.hiddenFilter();
     return {
-      libraryId: owning.id,
-      pathPrefix: rel.length > 0 ? rel : undefined,
+      ...scope,
       hasCapturedAt: true,
       q: q.length > 0 ? q : undefined,
       rating: minR > 0 ? minR : undefined,
@@ -157,6 +159,26 @@ export class TimelineStateService {
       to: to || undefined,
       hidden: hidden === 'none' ? undefined : hidden,
     };
+  });
+
+  /**
+   * Path scope for the timeline query. Normally the selected sidebar folder
+   * (`libraryId` + relative `pathPrefix`); null when nothing is selected —
+   * the Timeline view shows its "pick a folder" empty state.
+   *
+   * A member without file access (#2893) has no sidebar tree to select from,
+   * so their timeline runs UNSCOPED — every indexed library at once. That's
+   * the whole surface such a user gets, so "everything" is the only sensible
+   * scope.
+   */
+  private readonly scope = computed<Partial<SearchParams> | null>(() => {
+    if (!this.auth.canBrowseFiles) return {};
+    const addr = this.selectedFolderAddress();
+    if (!addr) return null;
+    const owning = this.owningLibrary();
+    if (!owning) return null;
+    const rel = addr.relPath.replace(/^\/+/, '').replace(/\/+$/, '');
+    return { libraryId: owning.id, pathPrefix: rel.length > 0 ? rel : undefined };
   });
 
   // ── Filter mutations ──────────────────────────────────────────────────────

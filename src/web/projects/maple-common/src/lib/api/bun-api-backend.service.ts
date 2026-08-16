@@ -27,6 +27,16 @@ import type {
 export type { ApiFolder, ApiHistogram } from '../workspace/server-library-io';
 
 /** A backup/mirror location for a library (mirrors the server `MirrorLocation`). */
+/** One row of the owner-only user roster (#2893). */
+export interface ApiUser {
+  id: string;
+  email: string;
+  role: 'owner' | 'member';
+  file_access: boolean;
+  created_at: string;
+  last_seen_at: string | null;
+}
+
 export interface MirrorLocation {
   path: string;
   enabled: boolean;
@@ -477,6 +487,20 @@ export class BunApiBackendService {
 
   registerFolder(folderPath: string): Observable<ApiFolder> {
     return this.http.post<ApiFolder>(`${this.base}/folders`, { path: folderPath });
+  }
+
+  // --- User roster + permissions (#2893, owner-only endpoints) --------------
+
+  listUsers(): Observable<ApiUser[]> {
+    return this.http.get<ApiUser[]>(`${this.base}/users`);
+  }
+
+  /** Grant/revoke a member's file-access permission. Takes effect as the
+   * member's access token refreshes (≤15 min). */
+  setUserFileAccess(id: string, fileAccess: boolean): Observable<ApiUser> {
+    return this.http.patch<ApiUser>(`${this.base}/users/${encodeURIComponent(id)}`, {
+      file_access: fileAccess,
+    });
   }
 
   // --- Network settings (LAN address override) ------------------------------

@@ -18,6 +18,7 @@ import * as nodePath from 'node:path';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { closeDb } from '../db/client.ts';
 import { foldersRoutes } from './folders.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 const TEST_DB = `maple_folders_move_test_${process.pid}`;
@@ -77,7 +78,7 @@ describe('POST /api/folders/:id/move', () => {
   });
 
   function call(source: string, target: string, id?: string): Promise<Response> {
-    const app = new Elysia().use(foldersRoutes);
+    const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
     const url = `http://localhost/api/folders/${id ?? folderId!.toHexString()}/move`;
     return app.handle(
       new Request(url, {
@@ -160,7 +161,7 @@ describe('POST /api/folders/:id/move', () => {
 
   it('returns 400 when a path header is missing', async () => {
     if (!mongo || !db || !folderId) return;
-    const app = new Elysia().use(foldersRoutes);
+    const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
     const url = `http://localhost/api/folders/${folderId.toHexString()}/move`;
     const res = await app.handle(
       new Request(url, {

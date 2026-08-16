@@ -3,13 +3,14 @@
     <div class="titles">
       <h1>Users</h1>
       <p>
-        Who can sign in to this Maple instance. Owners can change every
-        setting and invite new members; members can browse and edit photos.
+        Who can sign in to this Maple instance. Owners can change every setting and invite new
+        members. Members with file access can browse folders and move files; without it they keep
+        photo backup, timeline, and search.
       </p>
     </div>
     <div class="actions">
       <button type="button" class="btn-primary" (click)="openInvite()">
-        <maple-settings-icon name="plus" [size]="13" [color]="'#fff'"/>
+        <maple-settings-icon name="plus" [size]="13" [color]="'#fff'" />
         Invite user
       </button>
     </div>
@@ -17,10 +18,7 @@
 
   <div class="users-body">
     @if (showInviteForm()) {
-      <form
-        class="invite-form"
-        (submit)="createInvite(); $event.preventDefault()"
-      >
+      <form class="invite-form" (submit)="createInvite(); $event.preventDefault()">
         <input
           type="email"
           [(ngModel)]="email"
@@ -29,9 +27,7 @@
           autocomplete="off"
           required
         />
-        <button type="submit" class="btn-primary" [disabled]="busy() || !email">
-          Send invite
-        </button>
+        <button type="submit" class="btn-primary" [disabled]="busy() || !email">Send invite</button>
       </form>
     }
 
@@ -39,13 +35,13 @@
       <section class="fresh-invite">
         <div class="subhead">New invite for {{ fi.email }}</div>
         <div class="fresh-row">
-          <img class="qr" [src]="qrSrc(fi)" alt="Invite QR" width="120" height="120"/>
+          <img class="qr" [src]="qrSrc(fi)" alt="Invite QR" width="120" height="120" />
           <div class="fresh-meta">
             <div>
               <span class="meta-label">Code</span>
               <code class="meta-code">{{ fi.code }}</code>
               <button type="button" class="copy-btn" title="Copy code" (click)="copyCode(fi.code)">
-                <maple-settings-icon name="copy" [size]="12"/>
+                <maple-settings-icon name="copy" [size]="12" />
               </button>
             </div>
             <div>
@@ -60,25 +56,47 @@
 
     <section>
       <div class="subhead">Members</div>
-      <div class="card-list">
-        @if (currentUser(); as u) {
+      <div class="card-list" data-testid="member-list">
+        @for (u of users(); track u.id) {
           <div class="member-row">
             <div class="who">
               <div class="avatar" [style.background]="avatarColor(u.email)">
                 {{ u.email[0].toUpperCase() }}
               </div>
               <span class="mono email">{{ u.email }}</span>
-              <span class="you-chip">YOU</span>
+              @if (u.id === currentUser()?.id) {
+                <span class="you-chip">YOU</span>
+              }
             </div>
             <span class="role-chip" [class.owner]="u.role === 'owner'">
               {{ u.role.toUpperCase() }}
             </span>
-            <span class="dim mono">—</span>
-            <span class="dim mono">now</span>
+            <span class="file-access-cell">
+              @if (u.role === 'owner') {
+                <span class="dim">always</span>
+              } @else {
+                <label class="check">
+                  <input
+                    type="checkbox"
+                    [checked]="u.file_access"
+                    [disabled]="togglingId() === u.id"
+                    (change)="setFileAccess(u, $any($event.target).checked)"
+                  />
+                  File access
+                </label>
+              }
+            </span>
+            <span class="dim mono">{{ lastSeenLabel(u) }}</span>
             <span></span>
           </div>
+        } @empty {
+          <p class="empty">No users loaded.</p>
         }
       </div>
+      <p class="section-hint">
+        Revoking file access takes effect as the member's session refreshes — within about 15
+        minutes.
+      </p>
     </section>
 
     <section>
@@ -94,8 +112,13 @@
               <span class="mono email">{{ inv.email }}</span>
               <span class="invite-code">
                 <code class="mono">{{ inv.code }}</code>
-                <button type="button" class="copy-btn" title="Copy code" (click)="copyCode(inv.code)">
-                  <maple-settings-icon name="copy" [size]="12"/>
+                <button
+                  type="button"
+                  class="copy-btn"
+                  title="Copy code"
+                  (click)="copyCode(inv.code)"
+                >
+                  <maple-settings-icon name="copy" [size]="12" />
                 </button>
               </span>
               <span class="role-chip">INVITE</span>
@@ -113,7 +136,9 @@
                     class="revoke-btn"
                     [disabled]="busy()"
                     (click)="rescind(inv.code)"
-                  >Revoke</button>
+                  >
+                    Revoke
+                  </button>
                 }
               </span>
             </div>

@@ -7,6 +7,7 @@ import { join, dirname } from 'node:path';
 import { closeDb } from '../db/client.ts';
 import { assetsRoutes } from './assets.ts';
 import { resolveThumbPath } from '../fs/xmp.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 // Shared DB name across all etag tests in this process so the
@@ -101,7 +102,7 @@ describe('GET /api/assets/:id/thumb — ETag', () => {
       console.log('[assets.thumb-etag.test] MongoDB unreachable — skipping');
       return;
     }
-    const app = new Elysia().use(assetsRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsRoutes);
     const res = await app.handle(
       new Request(`http://localhost/api/assets/${assetId!.toHexString()}/thumb`),
     );
@@ -111,7 +112,7 @@ describe('GET /api/assets/:id/thumb — ETag', () => {
 
   it('returns 304 when If-None-Match matches', async () => {
     if (!client) return;
-    const app = new Elysia().use(assetsRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsRoutes);
     const first = await app.handle(
       new Request(`http://localhost/api/assets/${assetId!.toHexString()}/thumb`),
     );
@@ -134,7 +135,7 @@ describe('GET /api/assets/:id/thumb — ETag', () => {
     // delete the thumb file. If the route still returns 304 on the
     // conditional request, it never touched the bytes.
     if (!client) return;
-    const app = new Elysia().use(assetsRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsRoutes);
     const first = await app.handle(
       new Request(`http://localhost/api/assets/${assetId!.toHexString()}/thumb`),
     );
@@ -170,7 +171,7 @@ describe('GET /api/assets/:id/thumb — ETag', () => {
     // the read. Either way, the absence of "200 with empty body" or a
     // 500 confirms the short-circuit path runs against the live stat.
     if (!client) return;
-    const app = new Elysia().use(assetsRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsRoutes);
     const first = await app.handle(
       new Request(`http://localhost/api/assets/${assetId!.toHexString()}/thumb`),
     );
@@ -200,7 +201,7 @@ describe('GET /api/assets/:id/thumb — ETag', () => {
     // Cache-Control the 200 would. Without this, URLSession's HTTP
     // cache downgrades its freshness on every revalidation.
     if (!client) return;
-    const app = new Elysia().use(assetsRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsRoutes);
     const first = await app.handle(
       new Request(`http://localhost/api/assets/${assetId!.toHexString()}/thumb`),
     );

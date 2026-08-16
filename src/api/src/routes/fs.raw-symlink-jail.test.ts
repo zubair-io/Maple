@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { closeDb } from '../db/client.ts';
 import { fsRoutes } from './fs.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
 /**
  * GET /api/fs/raw must never stream bytes from outside MAPLE_ROOTS.
@@ -56,7 +57,7 @@ describe('GET /api/fs/raw — symlink jail', () => {
     await closeDb();
   });
 
-  const app = () => new Elysia().use(fsRoutes);
+  const app = () => new Elysia().use(fakeAuth()).use(fsRoutes);
 
   it('serves a genuine in-root file', async () => {
     const res = await app().handle(
