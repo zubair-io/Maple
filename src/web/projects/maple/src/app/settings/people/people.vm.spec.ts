@@ -27,6 +27,7 @@ import {
   peopleRowHeight,
   peopleRowKey,
   peopleStats,
+  personNameError,
   pickSelectedFaces,
   selectAllKeys,
   sortPeople,
@@ -473,5 +474,24 @@ describe('withNaturalDims', () => {
     expect(withNaturalDims(cur, '/a.jpg', 0, 600)).toBe(cur);
     expect(withNaturalDims(cur, '/a.jpg', 800, 0)).toBe(cur);
     expect(withNaturalDims(cur, '/a.jpg', -1, -1)).toBe(cur);
+  });
+});
+
+describe('personNameError (#2877)', () => {
+  it('accepts an ordinary name', () => {
+    expect(personNameError('Priya Patel')).toBeNull();
+  });
+
+  it('rejects blank / whitespace-only names', () => {
+    expect(personNameError('')).toBe('Name must not be empty');
+    expect(personNameError('   ')).toBe('Name must not be empty');
+  });
+
+  // The search `people` filter param is comma-separated on the wire, so a
+  // comma in a name would split into names that resolve to nobody and the
+  // filter would silently return zero results.
+  it('rejects a name containing a comma', () => {
+    expect(personNameError('Doe, Jane')).toBe('Name must not contain a comma');
+    expect(personNameError('  Smith,Bob  ')).toBe('Name must not contain a comma');
   });
 });

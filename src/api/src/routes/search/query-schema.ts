@@ -52,7 +52,11 @@ export interface SearchQuery {
    * the Meilisearch `people` filterable attribute, and (#2864) filtered on
    * the Mongo path via `faces.person_id` — the route resolves names to
    * person ids (`personIdsForNames`) and hands them to `buildFilter`.
-   * OR within the field, AND against other filters (mirrors `subjects`). */
+   * OR within the field, AND against other filters (mirrors `subjects`).
+   *
+   * Comma-splitting is unambiguous because a person's name may not contain
+   * a comma — enforced at creation and rename (`people/person-name.ts`,
+   * #2877). */
   people?: string;
   /** `|`-separated place labels from the facets `places` bucket
    * ("Portland, OR|Kyoto, Japan"). Pipe-separated because the labels
