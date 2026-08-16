@@ -19,7 +19,6 @@ import { setupMongoHarness } from './people-repo.test-helpers.ts';
 import { EMBEDDING_DIM } from './cluster-embeddings.ts';
 
 const TEST_DB = `maple_test_recompute_heal_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
 
 const h = setupMongoHarness(TEST_DB);
 
