@@ -21,22 +21,20 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 
 import { panoRoutes } from './pano.ts';
+import { withTestDb, withTestEnv } from '../db/test-db.test-helpers.ts';
 
 // Standalone test DB — never touches the dev DB on :27017.
 const MONGO_URL = 'mongodb://localhost:27077';
 const TEST_DB = `maple_pano_resolve_test_${process.pid}`;
 
-// Set before any getDb() call. getDb() is lazy (reads env at connect-time), so
-// even though imports are hoisted these are in effect before any route handler
-// runs. In the full suite closeDb() in beforeAll resets a prior singleton —
-// and afterAll RESTORES these vars: leaving them pointing at :27077 makes
-// every later test file in the same process reconnect to a port that only
-// exists on dev machines (CI has no :27077 — the whole tail of the suite
-// times out "MongoDB unreachable").
-const PRIOR_MONGO_URI = process.env.MAPLE_MONGO_URI;
-const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
-process.env.MAPLE_MONGO_URI = MONGO_URL;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+// Both overrides are claimed in beforeAll and restored in afterAll. Leaving
+// the URI pointing at :27077 makes every later test file in the same process
+// reconnect to a port that only exists on dev machines (CI has no :27077 —
+// the whole tail of the suite times out "MongoDB unreachable"), and capturing
+// the prior value at module scope would capture pano.test.ts's own :27077
+// override and then restore THAT process-wide.
+withTestEnv('MAPLE_MONGO_URI', MONGO_URL);
+withTestDb(TEST_DB);
 
 const app = new Elysia().use(panoRoutes);
 
@@ -105,12 +103,8 @@ afterAll(async () => {
   await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   if (db) await db.dropDatabase().catch(() => {});
   await client?.close().catch(() => {});
-  // Reset the singleton AND the env so subsequent test files reconnect to
-  // the suite's own Mongo, not this file's throwaway :27077.
-  if (PRIOR_MONGO_URI === undefined) delete process.env.MAPLE_MONGO_URI;
-  else process.env.MAPLE_MONGO_URI = PRIOR_MONGO_URI;
-  if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
-  else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
+  // Reset the singleton so subsequent test files reconnect to the suite's own
+  // Mongo, not this file's throwaway :27077 (the env itself is already back).
   const { closeDb } = await import('../db/client.ts');
   await closeDb();
 });

@@ -14,9 +14,10 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { Elysia } from 'elysia';
 import { libraryRelocateRoutes } from './library-relocate.ts';
 import { geoSegmentsFromOverride } from './library-relocate-helper.ts';
+import { withTestDb } from '../db/test-db.test-helpers.ts';
 
 // Isolate the shared db-client singleton to a unique test DB.
-process.env.MAPLE_MONGO_DB = `maple_test_library_relocate_${process.pid}`;
+withTestDb(`maple_test_library_relocate_${process.pid}`);
 
 beforeAll(async () => {
   await (await import('../db/client.ts')).closeDb();
