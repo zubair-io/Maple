@@ -164,6 +164,14 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     /// through to BrowseGrid via PhoneLibraryView / AppShellIPhoneShell.
     var clipboard: AdjustmentClipboard? = nil
 
+    /// The only values a `Tab(..., value:)` below declares. #2886 review: a
+    /// device that persisted `"map"` in `@AppStorage` while the now-removed
+    /// Map tab (#2878) existed would otherwise restore to a selection no
+    /// `Tab` matches — `TabView` shows no selected tab, and the drawer
+    /// `mode:` below (which treats any non-"library" value as `.preview`)
+    /// would also misfire. `normalizeActiveTabIfNeeded()` resets that case.
+    private static var validTabs: Set<String> { ["library", "search", "settings"] }
+
     var body: some View {
         // The LIBRARY drawer wraps the whole tab view so it overlays the
         // footer tab bar AND the per-tab top bars at full device height
@@ -177,6 +185,12 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
             mainContent: { tabView },
             sidebarContent: sidebar
         )
+        .onAppear { normalizeActiveTabIfNeeded() }
+    }
+
+    private func normalizeActiveTabIfNeeded() {
+        guard !Self.validTabs.contains(activeTab) else { return }
+        activeTab = "library"
     }
 
     private var tabView: some View {
