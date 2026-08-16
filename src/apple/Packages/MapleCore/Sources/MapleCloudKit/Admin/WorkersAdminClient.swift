@@ -70,7 +70,79 @@ public actor WorkersAdminClient {
     return TriageMutationResult(affected: response.cleared)
   }
 
+  // MARK: - Runtime config (#2770)
+
+  /// Update a stage's concurrency / max attempts.
+  ///
+  /// For the `preview` stage this also resizes the on-demand preview
+  /// regeneration limiter in the API process — one setting, two effects, by
+  /// design (see preview-ondemand-limiter.ts).
+  @discardableResult
+  public func updateRuntime(stage: String, patch: StageRuntimePatch) async throws
+    -> StageWorkerConfig?
+  {
+    var request = URLRequest(url: server.appending(path: "/api/workers/\(stage)/config"))
+    request.httpMethod = "PATCH"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONEncoder().encode(patch)
+    let (data, resp) = try await httpClient.data(for: request)
+    if let error = ServerAdminError.from(data: data, response: resp) { throw error }
+    return try JSONDecoder().decode(StageRuntimeResponse.self, from: data).config
+  }
+
+  public func pruneWindowHours() async throws -> Int {
+    try await get(
+      server.appending(path: "/api/workers/missing-reaper/prune-window"), as: PruneWindow.self
+    ).hours
+  }
+
+  @discardableResult
+  public func setPruneWindowHours(_ hours: Int) async throws -> Int {
+    try await patchReturning(
+      path: "/api/workers/missing-reaper/prune-window", body: ["hours": hours],
+      as: PruneWindow.self
+    ).hours
+  }
+
+  public func performance() async throws -> WorkerPerformance {
+    try await get(server.appending(path: "/api/workers/performance"), as: WorkerPerformance.self)
+  }
+
+  @discardableResult
+  public func setFFIWorkers(_ count: Int) async throws -> WorkerPerformance {
+    try await patchReturning(
+      path: "/api/workers/performance", body: ["ffi_workers": count], as: WorkerPerformance.self)
+  }
+
+  public func migrations() async throws -> [MigrationInfo] {
+    try await get(
+      server.appending(path: "/api/workers/migration/migrations"), as: MigrationsResponse.self
+    ).migrations
+  }
+
+  public func updateMigration(id: String, command: MigrationCommand) async throws {
+    var request = URLRequest(
+      url: server.appending(path: "/api/workers/migration/migrations/\(id)"))
+    request.httpMethod = "PATCH"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONEncoder().encode(command)
+    let (data, resp) = try await httpClient.data(for: request)
+    if let error = ServerAdminError.from(data: data, response: resp) { throw error }
+  }
+
   // MARK: - Transport
+
+  private func patchReturning<T: Decodable>(
+    path: String, body: [String: Int], as type: T.Type
+  ) async throws -> T {
+    var request = URLRequest(url: server.appending(path: path))
+    request.httpMethod = "PATCH"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONSerialization.data(withJSONObject: body)
+    let (data, resp) = try await httpClient.data(for: request)
+    if let error = ServerAdminError.from(data: data, response: resp) { throw error }
+    return try JSONDecoder().decode(T.self, from: data)
+  }
 
   private func get<T: Decodable>(_ url: URL, as type: T.Type) async throws -> T {
     let (data, resp) = try await httpClient.data(for: URLRequest(url: url))
