@@ -10,7 +10,7 @@
 import { Elysia } from 'elysia';
 import { ObjectId } from 'mongodb';
 import { assetsCollection } from '../../db/client.ts';
-import { excludedPersonIds, hiddenPersonIds } from '../../people/people.repo.ts';
+import { personIdsToDrop } from '../../people/people.repo.ts';
 import { namesForPersonIds, personIdsForNames } from '../../people/people-search-filter.repo.ts';
 import {
   applyLiveFilter,
@@ -43,13 +43,9 @@ function canonicalHex(id: string): string {
 export const facetsRoute = new Elysia().get(
   '/facets',
   async ({ query, set }) => {
-    // Keep facet counts in agreement with the result list: excluded people
-    // (#2894) always drop out; hidden people drop out when the caller opts
-    // in.
-    const dropIds = [
-      ...(await excludedPersonIds()),
-      ...((query as SearchQuery).excludeHiddenPeople === 'true' ? await hiddenPersonIds() : []),
-    ];
+    // Keep facet counts in agreement with the result list — same id set as
+    // the list route (see `personIdsToDrop`).
+    const dropIds = await personIdsToDrop((query as SearchQuery).excludeHiddenPeople);
     // Names → person ids, same contract as the list route: facet counts must
     // agree with the result list when a person filter is active.
     const peopleIds = await personIdsForNames(peopleNames((query as SearchQuery).people));

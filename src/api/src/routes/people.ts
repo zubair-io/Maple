@@ -18,7 +18,7 @@
  */
 
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
+import type { ObjectId } from 'mongodb';
 import { backfillCoverAssets } from '../people/clustering-job.ts';
 import { clusterCoordinator } from '../people/cluster-coordinator.ts';
 import {
@@ -42,6 +42,7 @@ import { dismissMergeSuggestion } from '../people/people-merge-suggestions.repo.
 import { setPersonCover } from '../people/people-cover.repo.ts';
 import { personNameError } from '../people/person-name.ts';
 import { child as childLogger } from '../log.ts';
+import { safeObjectId } from '../db/safe-object-id.ts';
 
 const log = childLogger('people:routes');
 
@@ -79,15 +80,6 @@ const CoverBody = t.Object({
 const DismissMergeSuggestionBody = t.Object({
   other_id: t.String({ minLength: 1 }),
 });
-
-function safeObjectId(raw: string): ObjectId | null {
-  if (!raw || raw.length !== 24 || !/^[0-9a-f]{24}$/i.test(raw)) return null;
-  try {
-    return new ObjectId(raw);
-  } catch {
-    return null;
-  }
-}
 
 /** Wire shape for one row of the people list (and the Hidden list). Kept as
  * one mapper so `GET /people` and `GET /people/hidden` return byte-identical
