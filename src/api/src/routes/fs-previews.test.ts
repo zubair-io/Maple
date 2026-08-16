@@ -14,9 +14,9 @@ import { mkdtemp, rm, writeFile, realpath, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { MongoClient, ObjectId } from 'mongodb';
+import { withTestDb } from '../db/test-db.test-helpers.ts';
 
-const TEST_DB = `maple_test_fs_previews_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_fs_previews_${process.pid}`);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 import { fsPreviewsRoutes, libraryAddressFor } from './fs-previews.ts';
