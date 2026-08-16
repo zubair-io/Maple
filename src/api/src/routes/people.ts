@@ -35,9 +35,6 @@ import {
   listPeople,
   renamePerson,
   unhidePerson,
-  excludePerson,
-  unexcludePerson,
-  listExcludedPeople,
   type PersonWithCount,
 } from '../people/people.repo.ts';
 import { mergePeopleInto } from '../people/people-merge.repo.ts';

@@ -221,51 +221,12 @@ export async function listPeople(options: ListPeopleOptions = {}): Promise<Perso
   );
 }
 
-/**
- * List soft-hidden people (the Hidden page). Same projection/shape as
- * `listPeople` so the web reuses the `ApiPerson` type — face counts and
- * cover paths included.
- */
-export async function listHiddenPeople(
-  options: ListPeopleOptions = {},
-): Promise<PersonWithCount[]> {
-  return listPeopleByFilter({ merged_into: null, hidden: true, excluded: { $ne: true } }, options);
-}
-
-/**
- * List excluded people (#2894) — the recovery list. Same projection/shape
- * as `listPeople`. A person that is both hidden and excluded shows here
- * (exclusion is the stronger state), not on the Hidden page.
- */
-export async function listExcludedPeople(
-  options: ListPeopleOptions = {},
-): Promise<PersonWithCount[]> {
-  return listPeopleByFilter({ merged_into: null, excluded: true }, options);
-}
-
-/** Hex ids of every soft-hidden person, for search's `excludeHiddenPeople`
- * filter. Deliberately NOT scoped to `merged_into: null` — a face still
- * pointing at a merged-away hidden person should stay excluded too. Ids are
- * hex strings because `faces[].person_id` stores the person's hex id, not an
- * ObjectId. */
-export async function hiddenPersonIds(): Promise<string[]> {
-  const coll = await peopleCollection();
-  const rows = await coll.find({ hidden: true }, { projection: { _id: 1 } }).toArray();
-  return rows.map((row) => row._id.toHexString());
-}
-
-/** Hex ids of every EXCLUDED person (#2894), for search's always-on
- * exclusion filter. Same merged-row rationale as `hiddenPersonIds`. */
-export async function excludedPersonIds(): Promise<string[]> {
-  const coll = await peopleCollection();
-  const rows = await coll.find({ excluded: true }, { projection: { _id: 1 } }).toArray();
-  return rows.map((row) => row._id.toHexString());
-}
-
-/** Shared list body for `listPeople` / `listHiddenPeople`. The two differ
- * only in their person-level `hidden` predicate; everything downstream
- * (cover resolution, face counts, sort) is identical. */
-async function listPeopleByFilter(
+/** Shared list body for `listPeople` and the recovery lists in
+ * people-visibility.repo.ts (`listHiddenPeople` / `listExcludedPeople`).
+ * The callers differ only in their person-level visibility predicate;
+ * everything downstream (cover resolution, face counts, sort) is
+ * identical. Exported ONLY for that module. */
+export async function listPeopleByFilter(
   filter: Filter<PersonDoc>,
   options: ListPeopleOptions = {},
 ): Promise<PersonWithCount[]> {
@@ -555,53 +516,18 @@ export async function hideFace(assetId: ObjectId, faceIndex: number): Promise<vo
   }
 }
 
-/**
- * Soft-hide a person. Sets `hidden: true` on the row (idempotent).
- * Keeps it as a clustering seed so faces continue to group into it.
- */
-export async function hidePerson(id: ObjectId): Promise<void> {
-  await (
-    await peopleCollection()
-  ).updateOne({ _id: id }, { $set: { hidden: true, updated_at: nowIso() } });
-  markAssetsForMeiliReindexBestEffort([id]);
-  log.info({ id: id.toHexString() }, 'hid person');
-}
-
-/**
- * Exclude a person (#2894): their photos vanish from every non-file
- * listing API. Sets `excluded: true` (idempotent); the Meili reindex drops
- * their name tokens from the search blobs. Stays a clustering seed.
- */
-export async function excludePerson(id: ObjectId): Promise<void> {
-  await (
-    await peopleCollection()
-  ).updateOne({ _id: id }, { $set: { excluded: true, updated_at: nowIso() } });
-  markAssetsForMeiliReindexBestEffort([id]);
-  log.info({ id: id.toHexString() }, 'excluded person');
-}
-
-/**
- * Restore an excluded person — clears the `excluded` flag and reindexes
- * their name back into search.
- */
-export async function unexcludePerson(id: ObjectId): Promise<void> {
-  await (
-    await peopleCollection()
-  ).updateOne({ _id: id }, { $set: { excluded: false, updated_at: nowIso() } });
-  markAssetsForMeiliReindexBestEffort([id]);
-  log.info({ id: id.toHexString() }, 'unexcluded person');
-}
-
-/**
- * Restore a hidden person — clears the `hidden` flag.
- */
-export async function unhidePerson(id: ObjectId): Promise<void> {
-  await (
-    await peopleCollection()
-  ).updateOne({ _id: id }, { $set: { hidden: false, updated_at: nowIso() } });
-  markAssetsForMeiliReindexBestEffort([id]);
-  log.info({ id: id.toHexString() }, 'unhid person');
-}
+// Visibility toggles + id lists (hide #2124, exclude #2894) live in
+// people-visibility.repo.ts; re-exported here so importers are unchanged.
+export {
+  hiddenPersonIds,
+  excludedPersonIds,
+  hidePerson,
+  unhidePerson,
+  excludePerson,
+  unexcludePerson,
+  listHiddenPeople,
+  listExcludedPeople,
+} from './people-visibility.repo.ts';
 
 /**
  * Returns the asset's `faces[]` array. Helper used by the clustering job + tests.
