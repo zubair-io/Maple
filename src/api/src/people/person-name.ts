@@ -13,10 +13,21 @@
  * each of them.
  */
 
-/** Validation message for `name`, or `null` when it is acceptable. */
+/** Validation message for `name`, or `null` when it is acceptable. The
+ * routes use this to answer 400 before touching the repo. */
 export function personNameError(name: string): string | null {
   const trimmed = name.trim();
   if (trimmed.length === 0) return 'name must not be empty';
   if (trimmed.includes(',')) return 'name must not contain a comma';
   return null;
+}
+
+/** Trim + validate in one step, throwing on a bad name. The repo's
+ * invariant guard behind the routes' 400 — returns the trimmed name so
+ * callers don't trim twice. */
+export function assertValidPersonName(name: string): string {
+  const trimmed = name.trim();
+  const invalid = personNameError(trimmed);
+  if (invalid) throw new Error(invalid);
+  return trimmed;
 }

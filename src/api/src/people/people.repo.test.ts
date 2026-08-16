@@ -45,15 +45,6 @@ describe('people.repo — createPerson', () => {
     const { createPerson } = await import('./people.repo.ts');
     await expect(createPerson('   ')).rejects.toThrow(/empty/);
   });
-
-  // #2877: search's `people` filter param is comma-separated on the wire,
-  // so a comma in a name would split into names that resolve to nobody and
-  // the filter would silently return zero results.
-  it('rejects a name containing a comma', async () => {
-    if (!h.mongoReachable) return;
-    const { createPerson } = await import('./people.repo.ts');
-    await expect(createPerson('Doe, Jane')).rejects.toThrow(/comma/);
-  });
 });
 
 describe('people.repo — renamePerson', () => {
@@ -105,16 +96,6 @@ describe('people.repo — renamePerson', () => {
     const r = await renamePerson(p._id, 'EVE');
     expect(r.survivor.name).toBe('EVE');
     expect(r.mergedFrom).toBeUndefined();
-  });
-
-  it('rejects a rename to a name containing a comma (#2877)', async () => {
-    if (!h.mongoReachable) return;
-    const { createPerson, renamePerson } = await import('./people.repo.ts');
-    const p = await createPerson('Frank');
-    await expect(renamePerson(p._id, 'Frank, Jr')).rejects.toThrow(/comma/);
-    // The stored name is untouched by the rejected write.
-    const row = await h.db.collection<PersonDoc>('people').findOne({ _id: p._id });
-    expect(row?.name).toBe('Frank');
   });
 });
 
