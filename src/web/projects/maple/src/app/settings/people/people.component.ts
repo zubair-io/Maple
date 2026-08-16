@@ -72,6 +72,7 @@ import {
   peopleRowHeight,
   peopleRowKey,
   peopleStats,
+  personNameError,
   sortPeople,
   SMALL_CLUSTER_MIN_FACES,
   filterSmallClusters,
@@ -436,6 +437,14 @@ export class PeopleComponent implements OnDestroy {
     const next = this.draftName().trim();
     if (next.length === 0) {
       this.cancelEdit();
+      return;
+    }
+    // Reject a comma before the round trip (the server enforces the same
+    // rule) and keep the field open so the operator can fix the name
+    // rather than losing what they typed.
+    const invalid = personNameError(next);
+    if (invalid) {
+      this.showToast(invalid, 'error');
       return;
     }
     const previous = this.people().find((p) => p.id === personId);

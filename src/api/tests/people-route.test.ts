@@ -182,6 +182,24 @@ describe('POST /api/people', () => {
     const r = await post('/api/people', { name: '   ' });
     expect(r.status).toBe(400);
   });
+
+  // #2877: the search `people` filter param is comma-separated, so a comma
+  // in a name would split into names that resolve to nobody.
+  it('rejects a name containing a comma', async () => {
+    if (!mongoReachable) return;
+    const r = await post('/api/people', { name: 'Doe, Jane' });
+    expect(r.status).toBe(400);
+    expect((r.body as { error: string }).error).toMatch(/comma/);
+  });
+
+  it('rejects a rename to a name containing a comma', async () => {
+    if (!mongoReachable) return;
+    const created = await post('/api/people', { name: 'Comma Free' });
+    const id = (created.body as { id: string }).id;
+    const r = await put(`/api/people/${id}`, { name: 'Free, Comma' });
+    expect(r.status).toBe(400);
+    expect((r.body as { error: string }).error).toMatch(/comma/);
+  });
 });
 
 describe('PUT /api/people/:id', () => {
