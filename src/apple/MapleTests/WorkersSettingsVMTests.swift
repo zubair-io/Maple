@@ -72,6 +72,42 @@ final class WorkersSettingsVMTests: XCTestCase {
         XCTAssertEqual(WorkersSettingsVM.pauseActionLabel(.paused), "Resume")
     }
 
+    // MARK: - uncounted display (#2910)
+
+    func test_countsRenderAsUnknownBeforeTheyAreComputed() {
+        // The registry snapshot zeroes ready/blocked/dead rather than
+        // omitting them, so rendering it verbatim told the operator a stage
+        // with 27,080 dead jobs had none.
+        let s = stage(ready: 0, blocked: 0)
+        XCTAssertEqual(WorkersSettingsVM.pendingLabel(s, counted: false), "—")
+        XCTAssertEqual(WorkersSettingsVM.deadLabel(s, counted: false), "—")
+    }
+
+    func test_countsRenderNormallyOnceCounted() {
+        let s = stage(ready: 9, blocked: 3)
+        XCTAssertEqual(WorkersSettingsVM.pendingLabel(s, counted: true), "9 · 3 blkd")
+        XCTAssertEqual(WorkersSettingsVM.deadLabel(s, counted: true), "0")
+    }
+
+    func test_inFlightDropsTheCeilingWhenItIsAPlaceholder() {
+        // deriveBatchSize(0) makes the uncounted ceiling 0; "1 / 0" reads as
+        // a real limit of zero.
+        XCTAssertEqual(
+            WorkersSettingsVM.inFlightLabel(stage(inFlight: 1, batchSize: 0), counted: false), "1")
+        XCTAssertEqual(
+            WorkersSettingsVM.inFlightLabel(stage(inFlight: 1, batchSize: 5), counted: true), "1 / 5")
+    }
+
+    func test_countsPendingNotice_onlyWhileSomethingIsShownWithoutCounts() {
+        XCTAssertNil(
+            WorkersSettingsVM.countsPendingNotice(hasCountedData: false, hasPayload: false),
+            "the page already shows its own loading state")
+        XCTAssertNil(WorkersSettingsVM.countsPendingNotice(hasCountedData: true, hasPayload: true))
+        XCTAssertEqual(
+            WorkersSettingsVM.countsPendingNotice(hasCountedData: false, hasPayload: true),
+            "Queue counts haven't loaded yet — showing live status only.")
+    }
+
     // MARK: - connectionNotice
 
     func test_connectionNotice_silentBeforeAnythingIsDisplayed() {
