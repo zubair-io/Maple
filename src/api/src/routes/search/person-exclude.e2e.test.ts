@@ -15,14 +15,15 @@ import { ObjectId, type Db } from 'mongodb';
 import { listRoute } from './list.ts';
 import { peopleRoutes } from '../people.ts';
 import { closeDb, getDb, isDbConnected } from '../../db/client.ts';
+import { withTestDb } from '../../db/test-db.test-helpers.ts';
 
-// Sibling-suite convention (#2783): a per-file database, named at module
-// scope. The env var alone is NOT enough — `getDb()` caches its connection
-// process-wide (#2787), so whichever file connected first would otherwise
-// keep winning. `closeDb()` in beforeEach drops that singleton so the next
-// `getDb()` re-reads the env and pins THIS file's database, regardless of
-// file order.
-const TEST_DB = `maple_test_person_exclude_${process.pid}`;
+// Per-file database, claimed for the duration of this suite and restored
+// afterwards (#2900) — a module-scope assignment would rename the database
+// for every suite imported after this one. `closeDb()` in beforeEach retires
+// any singleton a prior suite left connected; `getDb()` re-reads the env on
+// every call and swaps connection when the (uri, dbName) key changes, so this
+// is belt-and-braces rather than load-bearing.
+withTestDb(`maple_test_person_exclude_${process.pid}`);
 
 let db: Db | null = null;
 let mongoReachable = false;
@@ -31,7 +32,6 @@ const personId = new ObjectId();
 const bystanderId = new ObjectId();
 
 beforeEach(async () => {
-  process.env.MAPLE_MONGO_DB = TEST_DB;
   await closeDb();
   try {
     db = await getDb();
