@@ -13,9 +13,9 @@ import {
   type MeilisearchClient,
   type MeilisearchAssetDoc,
 } from '../src/enrichment/meilisearch-client.ts';
+import { withTestDb } from '../src/db/test-db.test-helpers.ts';
 
-const TEST_DB = `maple_test_meili_backfill_mig_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_meili_backfill_mig_${process.pid}`);
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
