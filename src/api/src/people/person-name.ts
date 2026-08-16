@@ -26,8 +26,7 @@ export function personNameError(name: string): string | null {
  * invariant guard behind the routes' 400 — returns the trimmed name so
  * callers don't trim twice. */
 export function assertValidPersonName(name: string): string {
-  const trimmed = name.trim();
-  const invalid = personNameError(trimmed);
+  const invalid = personNameError(name);
   if (invalid) throw new Error(invalid);
-  return trimmed;
+  return name.trim();
 }
