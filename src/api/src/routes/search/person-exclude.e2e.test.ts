@@ -16,8 +16,13 @@ import { listRoute } from './list.ts';
 import { peopleRoutes } from '../people.ts';
 import { closeDb, getDb, isDbConnected } from '../../db/client.ts';
 
+// Sibling-suite convention (#2783): a per-file database, named at module
+// scope. The env var alone is NOT enough — `getDb()` caches its connection
+// process-wide (#2787), so whichever file connected first would otherwise
+// keep winning. `closeDb()` in beforeEach drops that singleton so the next
+// `getDb()` re-reads the env and pins THIS file's database, regardless of
+// file order.
 const TEST_DB = `maple_test_person_exclude_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
 
 let db: Db | null = null;
 let mongoReachable = false;
@@ -26,6 +31,8 @@ const personId = new ObjectId();
 const bystanderId = new ObjectId();
 
 beforeEach(async () => {
+  process.env.MAPLE_MONGO_DB = TEST_DB;
+  await closeDb();
   try {
     db = await getDb();
     mongoReachable = isDbConnected();
