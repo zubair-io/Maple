@@ -118,6 +118,15 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./settings/map/map-settings.component').then((m) => m.MapSettingsComponent),
   },
+  // #2892 — Sources: registered library roots + connection status. Owner-only
+  // visibility is handled by the settings nav, same convention as the other
+  // settings routes.
+  {
+    path: 'settings/sources',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./settings/sources/sources.component').then((m) => m.SourcesComponent),
+  },
   // #742 — Imports: copy a server-local folder into a registered library.
   {
     path: 'settings/imports',

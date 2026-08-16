@@ -10,6 +10,11 @@ export interface ApiFolder {
   last_scan: string | null;
   file_count: number;
   created_at: string;
+  /**
+   * Whether the root is currently reachable on the server (#2892). Absent on
+   * pre-upgrade servers — treat missing as connected.
+   */
+  connected?: boolean;
 }
 
 export interface ApiHistogram {
