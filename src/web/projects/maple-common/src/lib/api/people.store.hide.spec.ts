@@ -63,8 +63,12 @@ class ApiStub {
       suggestedMerge: null,
     }),
   );
+  excludedResult: ApiPerson[] = [];
+  listExcludedPeople = vi.fn(() => of(this.excludedResult));
   hidePerson = vi.fn((_id: string) => of({ ok: true as const }));
   unhidePerson = vi.fn((_id: string) => of({ ok: true as const }));
+  excludePerson = vi.fn((_id: string) => of({ ok: true as const }));
+  unexcludePerson = vi.fn((_id: string) => of({ ok: true as const }));
   dismissMergeSuggestion = vi.fn((_id: string, _otherId: string) => of({ ok: true as const }));
 }
 
@@ -230,5 +234,60 @@ describe('PeopleStore — hide / unhide', () => {
     expect(api.unhidePerson).toHaveBeenCalledWith('h1');
     expect(api.listPeople).toHaveBeenCalledTimes(2);
     expect(api.listHiddenPeople).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('PeopleStore — exclude / unexclude (#2894)', () => {
+  let store: PeopleStore;
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('excludePerson removes the row optimistically and refreshes the excluded list', async () => {
+    const { api } = makeBed();
+    store = TestBed.inject(PeopleStore);
+    store.ensureList();
+    store.ensureExcluded();
+
+    await store.excludePerson('p1');
+
+    expect(api.excludePerson).toHaveBeenCalledWith('p1');
+    expect(store.data()?.map((p) => p.id)).toEqual(['p2']);
+    // Same contract as hide: no main-list refetch on success…
+    expect(api.listPeople).toHaveBeenCalledTimes(1);
+    // …but the excluded (recovery) list refreshes.
+    expect(api.listExcludedPeople).toHaveBeenCalledTimes(2);
+  });
+
+  it('excludePerson restores the row locally when the server call fails', async () => {
+    const { api } = makeBed();
+    api.excludePerson = vi.fn(() => throwError(() => new Error('boom')));
+    store = TestBed.inject(PeopleStore);
+    store.ensureList();
+
+    await expect(store.excludePerson('p1')).rejects.toThrow('boom');
+    // `_restoreToList` appends — membership is the contract, not position.
+    expect(
+      store
+        .data()
+        ?.map((p) => p.id)
+        .sort(),
+    ).toEqual(['p1', 'p2']);
+  });
+
+  it('unexcludePerson invalidates the main, hidden, and excluded lists', async () => {
+    const { api } = makeBed();
+    store = TestBed.inject(PeopleStore);
+    store.ensureList();
+    store.ensureHidden();
+    store.ensureExcluded();
+
+    await store.unexcludePerson('x1');
+
+    expect(api.unexcludePerson).toHaveBeenCalledWith('x1');
+    expect(api.listPeople).toHaveBeenCalledTimes(2);
+    expect(api.listHiddenPeople).toHaveBeenCalledTimes(2);
+    expect(api.listExcludedPeople).toHaveBeenCalledTimes(2);
   });
 });

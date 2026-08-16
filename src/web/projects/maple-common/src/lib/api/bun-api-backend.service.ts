@@ -1138,6 +1138,14 @@ export class BunApiBackendService {
       .pipe(map((rows) => rows.map(normalisePerson)));
   }
 
+  /** Excluded people (#2894) — the recovery list. Same wire shape as
+   * `listPeople`, so it shares the `ApiPerson` normaliser. */
+  listExcludedPeople(): Observable<ApiPerson[]> {
+    return this.http
+      .get<ApiPersonRaw[]>(`${this.base}/people/excluded`)
+      .pipe(map((rows) => rows.map(normalisePerson)));
+  }
+
   getPerson(id: string, page?: { offset: number; limit: number }): Observable<ApiPersonDetail> {
     const params =
       page != null
@@ -1261,6 +1269,18 @@ export class BunApiBackendService {
   /** Restore a hidden person back into the normal list. */
   unhidePerson(id: string): Observable<{ ok: true }> {
     return this.http.post<{ ok: true }>(`${this.base}/people/${id}/unhide`, {});
+  }
+
+  /** Exclude a person (#2894) — their photos vanish from search, timeline,
+   * and every non-file listing, unconditionally. Server returns
+   * `{ ok: true }`. */
+  excludePerson(id: string): Observable<{ ok: true }> {
+    return this.http.post<{ ok: true }>(`${this.base}/people/${id}/exclude`, {});
+  }
+
+  /** Restore an excluded person. */
+  unexcludePerson(id: string): Observable<{ ok: true }> {
+    return this.http.post<{ ok: true }>(`${this.base}/people/${id}/unexclude`, {});
   }
 
   /** Permanently mark a merge suggestion "not a match" — clears it

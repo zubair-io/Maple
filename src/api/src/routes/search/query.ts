@@ -185,11 +185,12 @@ export { SearchQueryT } from './query-schema.ts';
  */
 export function buildFilter(
   q: SearchQuery,
-  /** Hex ids of soft-hidden people, supplied by the (async) caller — kept as
-   * a parameter so this stays a pure, directly-testable function with no DB
-   * access. Only consulted when `q.excludeHiddenPeople === 'true'`; callers
-   * skip the lookup entirely otherwise. */
-  hiddenPersonIds: string[] = [],
+  /** Hex ids of people whose photos must be dropped from the result set,
+   * supplied by the (async) caller — kept as a parameter so this stays a
+   * pure, directly-testable function with no DB access. Callers build it
+   * from `excludedPersonIds()` (always, #2894) plus `hiddenPersonIds()`
+   * when the request opts in via `excludeHiddenPeople=true`. */
+  excludedPersonIds: string[] = [],
   /** Hex person ids the `people` param's names resolved to, supplied by the
    * (async) caller — same pattern as `hiddenPersonIds`. `null` means "no
    * people filter requested"; `[]` means the names resolved to no live
@@ -472,13 +473,16 @@ export function buildFilter(
     // `photos` falls through with no filter added (the default set).
   }
 
-  // Drop assets showing a soft-hidden person. Excludes the asset if ANY of
-  // its faces belongs to a hidden person — hiding someone is a deliberate
-  // "don't show me this person" action, so a group shot they appear in is
-  // still a photo of them. Complements the always-on hidden-IMAGE filter
-  // above. A separate top-level key from `scope=people`'s `faces.0` presence
-  // check, so the two AND together rather than overwriting each other.
-  if (q.excludeHiddenPeople === 'true' && hiddenPersonIds.length > 0) {
+  // Drop assets showing any person in `excludedPersonIds`. Excludes the
+  // asset if ANY of its faces belongs to such a person — excluding/hiding
+  // someone is a deliberate "don't show me this person" action, so a group
+  // shot they appear in is still a photo of them. Complements the always-on
+  // hidden-IMAGE filter above. Whether hidden people participate is the
+  // CALLER's opt-in (`excludeHiddenPeople=true`); excluded people (#2894)
+  // are in the list unconditionally. A separate top-level key from
+  // `scope=people`'s `faces.0` presence check, so the two AND together
+  // rather than overwriting each other.
+  if (excludedPersonIds.length > 0) {
     // Merge rather than assign — the explicit person picker above may have
     // already put an `$elemMatch` on `faces`, and both operators are legal
     // side by side on one field path (they AND together).
@@ -487,7 +491,7 @@ export function buildFilter(
       | undefined;
     (filter as Record<string, unknown>).faces = {
       ...(existingFaces ?? {}),
-      $not: { $elemMatch: { person_id: { $in: hiddenPersonIds } } },
+      $not: { $elemMatch: { person_id: { $in: excludedPersonIds } } },
     };
   }
 

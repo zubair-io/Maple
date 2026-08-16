@@ -62,6 +62,9 @@ export interface LoadedCentroid {
    * deliberately does NOT filter on `hidden` (see the module header), this
    * field exists only for that second, narrower use. */
   hidden: boolean;
+  /** True for an excluded person (#2894) — same carried-for-suggestions-only
+   * rationale as `hidden`; clustering itself stays unfiltered. */
+  excluded: boolean;
 }
 
 /** An unassigned face ref WITHOUT its embedding. The embedding stays inside
@@ -152,6 +155,7 @@ export async function prepareClusteringPass(
       personIdHex: c.person_id_hex,
       centroid: c.centroid,
       hidden: c.hidden,
+      excluded: c.excluded,
     })),
     dismissedPairs,
   );
@@ -333,6 +337,7 @@ export async function loadCentroids(): Promise<LoadedCentroid[]> {
       centroid: l2Normalise(Float32Array.from(r.centroid)),
       face_count: r.centroid_face_count ?? 0,
       hidden: r.hidden === true,
+      excluded: r.excluded === true,
     });
   }
   return out;

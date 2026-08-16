@@ -19,7 +19,7 @@ import { assetsCollection } from '../../db/client.ts';
 import type { FileInfo } from '../../db/schema.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import { hiddenPersonIds } from '../../people/people.repo.ts';
+import { excludedPersonIds, hiddenPersonIds } from '../../people/people.repo.ts';
 import {
   applyLiveFilter,
   buildFilter,
@@ -245,9 +245,13 @@ export const mapClustersRoute = new Elysia().get(
     const zoom = clampInt(q.zoom, MIN_ZOOM, MAX_ZOOM, DEFAULT_ZOOM);
     const cellSizeDeg = effectiveCellSizeDeg(zoom, bbox);
 
-    // Opt-in hidden-people exclusion — same pattern as buckets.ts/facets.ts.
-    const hiddenIds = q.excludeHiddenPeople === 'true' ? await hiddenPersonIds() : [];
-    const filterOrError = buildFilter(q as SearchQuery, hiddenIds);
+    // Excluded people (#2894) always drop out; hidden-people exclusion is
+    // opt-in — same pattern as buckets.ts/facets.ts.
+    const dropIds = [
+      ...(await excludedPersonIds()),
+      ...(q.excludeHiddenPeople === 'true' ? await hiddenPersonIds() : []),
+    ];
+    const filterOrError = buildFilter(q as SearchQuery, dropIds);
     if ('error' in filterOrError) {
       set.status = 400;
       return { error: filterOrError.error };

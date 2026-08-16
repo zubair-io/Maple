@@ -14,7 +14,7 @@
 
 import { Elysia } from 'elysia';
 import { assetsCollection } from '../../db/client.ts';
-import { hiddenPersonIds } from '../../people/people.repo.ts';
+import { excludedPersonIds, hiddenPersonIds } from '../../people/people.repo.ts';
 import { personIdsForNames } from '../../people/people-search-filter.repo.ts';
 import {
   applyLiveFilter,
@@ -146,13 +146,16 @@ export const bucketsRoute = new Elysia().get(
       return cached.result;
     }
 
-    // Cache MISS only: the hidden-people lookup is this route's one extra
-    // round trip, so it stays behind the fast path — otherwise every
-    // `excludeHiddenPeople=true` request would hit the DB even on a hit.
-    const hiddenIds =
-      (query as SearchQuery).excludeHiddenPeople === 'true' ? await hiddenPersonIds() : [];
+    // Cache MISS only: the person-id lookups are this route's extra round
+    // trips, so they stay behind the fast path. Excluded people (#2894)
+    // always drop out — a fresh exclusion can lag buckets by up to the 30s
+    // cache TTL, same as any asset write. Hidden people stay opt-in.
+    const dropIds = [
+      ...(await excludedPersonIds()),
+      ...((query as SearchQuery).excludeHiddenPeople === 'true' ? await hiddenPersonIds() : []),
+    ];
     const peopleIds = await personIdsForNames(peopleNames((query as SearchQuery).people));
-    const filterOrError = buildFilter(query as SearchQuery, hiddenIds, peopleIds);
+    const filterOrError = buildFilter(query as SearchQuery, dropIds, peopleIds);
     if ('error' in filterOrError) {
       set.status = 400;
       return { error: filterOrError.error };

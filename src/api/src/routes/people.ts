@@ -28,10 +28,16 @@ import {
   getPerson,
   hideFace,
   hidePerson,
+  excludePerson,
+  unexcludePerson,
+  listExcludedPeople,
   listHiddenPeople,
   listPeople,
   renamePerson,
   unhidePerson,
+  excludePerson,
+  unexcludePerson,
+  listExcludedPeople,
   type PersonWithCount,
 } from '../people/people.repo.ts';
 import { mergePeopleInto } from '../people/people-merge.repo.ts';
@@ -147,6 +153,14 @@ export const peopleRoutes = new Elysia({ prefix: '/api/people' })
       );
     }
     const rows = await listHiddenPeople({ withCounts: true });
+    return rows.map(toPersonListRow);
+  })
+
+  // ── Excluded (#2894; the recovery list) ─────────────────────────────
+  // Registered BEFORE `/:id` so "excluded" isn't swallowed as a person id.
+  // Same wire shape as `GET /` so the web reuses `ApiPerson`.
+  .get('/excluded', async () => {
+    const rows = await listExcludedPeople({ withCounts: true });
     return rows.map(toPersonListRow);
   })
 
@@ -351,6 +365,30 @@ export const peopleRoutes = new Elysia({ prefix: '/api/people' })
       return { error: 'invalid person id' };
     }
     await unhidePerson(id);
+    return { ok: true };
+  })
+
+  // ── Exclude a person (#2894) — photos vanish from search/timeline/every
+  // non-file listing, unconditionally. Faces stay assigned; still a
+  // clustering seed. Reversible via /unexclude.
+  .post('/:id/exclude', async ({ params, set }) => {
+    const id = safeObjectId(params.id);
+    if (!id) {
+      set.status = 400;
+      return { error: 'invalid person id' };
+    }
+    await excludePerson(id);
+    return { ok: true };
+  })
+
+  // ── Restore an excluded person ──────────────────────────────────────
+  .post('/:id/unexclude', async ({ params, set }) => {
+    const id = safeObjectId(params.id);
+    if (!id) {
+      set.status = 400;
+      return { error: 'invalid person id' };
+    }
+    await unexcludePerson(id);
     return { ok: true };
   })
 

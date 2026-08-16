@@ -127,6 +127,14 @@
           <button type="button" class="btn-ghost danger" (click)="hideSelectedCluster()">
             Hide person
           </button>
+          <button
+            type="button"
+            class="btn-ghost danger"
+            title="Remove this person's photos from search, timeline, and all listings"
+            (click)="excludeSelectedCluster()"
+          >
+            Exclude
+          </button>
         </div>
       </div>
     </div>
@@ -452,6 +460,7 @@
             </button>
           }
           <a class="btn-ghost" routerLink="/settings/people/hidden">Hidden</a>
+          <a class="btn-ghost" routerLink="/settings/people/excluded">Excluded</a>
           <a class="btn-ghost" routerLink="/settings/workers">Worker settings</a>
           <button
             type="button"

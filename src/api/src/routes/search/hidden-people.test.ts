@@ -1,9 +1,12 @@
 /**
- * Pure unit tests for `buildFilter`'s `excludeHiddenPeople` handling (and the
+ * Pure unit tests for `buildFilter`'s excluded-person handling (and the
  * always-on hidden-IMAGE default it complements). No Mongo — `buildFilter` is
- * deliberately pure, taking the hidden-person ids as a parameter so the async
- * lookup stays in the route handlers. Mirrors the fixture-only pattern in
- * `project.test.ts` / `nl-date.test.ts`.
+ * deliberately pure, taking the person ids to drop as a parameter so the
+ * async lookups stay in the route handlers. Since #2894 the OPT-IN decision
+ * lives in the callers too: they always include `excludedPersonIds()` and add
+ * `hiddenPersonIds()` only when the request carries `excludeHiddenPeople=true`;
+ * `buildFilter` itself unconditionally applies whatever ids it is handed.
+ * Mirrors the fixture-only pattern in `project.test.ts` / `nl-date.test.ts`.
  */
 
 import { describe, it, expect } from 'bun:test';
@@ -33,27 +36,30 @@ describe('buildFilter — hidden images (always on by default)', () => {
   });
 });
 
-describe('buildFilter — excludeHiddenPeople', () => {
-  it('adds no faces constraint when the flag is absent', () => {
-    expect(filterFor({}, [HIDDEN_A]).faces).toBeUndefined();
+describe('buildFilter — excluded-person ids (#2894: applied unconditionally)', () => {
+  it('applies supplied ids regardless of any request flag — the caller owns the opt-in', () => {
+    // Excluded people reach every route's id list unconditionally, so
+    // `buildFilter` must not second-guess the flag.
+    expect(filterFor({}, [HIDDEN_A]).faces).toEqual({
+      $not: { $elemMatch: { person_id: { $in: [HIDDEN_A] } } },
+    });
+    expect(filterFor({ excludeHiddenPeople: 'false' }, [HIDDEN_A]).faces).toEqual({
+      $not: { $elemMatch: { person_id: { $in: [HIDDEN_A] } } },
+    });
   });
 
-  it('adds no faces constraint when the flag is set but nobody is hidden', () => {
+  it('adds no faces constraint when the id list is empty', () => {
     // Guards the wasted-`$not` case: an empty id list must not produce
     // `person_id: { $in: [] }`, which would match nothing and empty the feed.
     expect(filterFor({ excludeHiddenPeople: 'true' }, []).faces).toBeUndefined();
+    expect(filterFor({}, []).faces).toBeUndefined();
   });
 
-  it('excludes assets carrying a face of any hidden person', () => {
+  it('excludes assets carrying a face of any listed person', () => {
     const filter = filterFor({ excludeHiddenPeople: 'true' }, [HIDDEN_A, HIDDEN_B]);
     expect(filter.faces).toEqual({
       $not: { $elemMatch: { person_id: { $in: [HIDDEN_A, HIDDEN_B] } } },
     });
-  });
-
-  it('ignores any value other than the literal "true"', () => {
-    expect(filterFor({ excludeHiddenPeople: 'false' }, [HIDDEN_A]).faces).toBeUndefined();
-    expect(filterFor({ excludeHiddenPeople: '1' }, [HIDDEN_A]).faces).toBeUndefined();
   });
 
   it('ANDs with scope=people instead of overwriting its presence check', () => {
