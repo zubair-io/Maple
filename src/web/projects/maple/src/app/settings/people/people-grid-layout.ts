@@ -104,20 +104,21 @@ export function bindGridViewport(
   });
 }
 
-/** Toast signal + auto-dismiss show(), shared by both people pages. */
+/** Toast signal + auto-dismiss show(), shared by both people pages. Each
+ * show() restarts the dismiss timer, so back-to-back toasts (even with
+ * identical text) always get the full TTL (#2897 review). */
 export function createToast(): {
   toast: Signal<Toast | null>;
   show(text: string, tone: Tone): void;
 } {
   const toast = signal<Toast | null>(null);
+  let timer: ReturnType<typeof setTimeout> | undefined;
   return {
     toast,
     show(text: string, tone: Tone): void {
+      clearTimeout(timer);
       toast.set({ text, tone });
-      setTimeout(() => {
-        const cur = toast();
-        if (cur && cur.text === text) toast.set(null);
-      }, TOAST_TTL_MS);
+      timer = setTimeout(() => toast.set(null), TOAST_TTL_MS);
     },
   };
 }
