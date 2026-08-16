@@ -27,6 +27,7 @@ import {
   type SuggestedMergeInfo,
 } from './people-merge-suggestion-info.repo.ts';
 import { mergeInto } from './people-merge.repo.ts';
+import { personNameError } from './person-name.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('people:repo');
@@ -111,12 +112,15 @@ function nowIso(): string {
  * (case-insensitive) already exists, return them — the call is idempotent
  * for the operator's "type a name" UX.
  *
- * Throws on a blank name (defensive — the route validates first).
+ * Throws on an invalid name — blank, or containing a comma (defensive;
+ * the route validates first). See `person-name.ts` for why commas are
+ * rejected.
  */
 export async function createPerson(name: string): Promise<PersonWithId> {
   const trimmed = name.trim();
-  if (trimmed.length === 0) {
-    throw new Error('name must not be empty');
+  const invalid = personNameError(trimmed);
+  if (invalid) {
+    throw new Error(invalid);
   }
   const coll = await peopleCollection();
   const existing = await findByNameCI(coll, trimmed);
@@ -153,8 +157,9 @@ export async function createPerson(name: string): Promise<PersonWithId> {
  */
 export async function renamePerson(id: ObjectId, name: string): Promise<RenameResult> {
   const trimmed = name.trim();
-  if (trimmed.length === 0) {
-    throw new Error('name must not be empty');
+  const invalid = personNameError(trimmed);
+  if (invalid) {
+    throw new Error(invalid);
   }
   const coll = await peopleCollection();
   const subject = await coll.findOne({ _id: id });
