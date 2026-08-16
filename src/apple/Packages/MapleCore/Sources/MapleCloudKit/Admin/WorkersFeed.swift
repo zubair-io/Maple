@@ -61,10 +61,15 @@ public struct WorkersFeed: Sendable, Equatable {
 
   /// Apply a push frame.
   ///
-  /// A counted frame always wins. An uncounted one is accepted only when
-  /// nothing is displayed yet — that first cheap snapshot is what lets the
-  /// stage names and run states appear immediately instead of waiting up to
-  /// two seconds for the first counted tick.
+  /// A counted frame always wins. An uncounted one is accepted whenever no
+  /// counted data has arrived yet — not merely when nothing is displayed.
+  ///
+  /// That distinction was a bug (#2910): gating on `payload == nil` meant
+  /// the very first cheap snapshot stuck forever if counted ticks never
+  /// showed up, freezing the live fields (status, in-flight, throughput)
+  /// that the cheap frame is actually good for. Gating on `hasCountedData`
+  /// keeps those fresh while still guaranteeing an uncounted frame can
+  /// never overwrite real counts.
   @discardableResult
   public mutating func apply(_ frame: WorkersStatusFrame) -> Bool {
     if frame.counted {
@@ -72,7 +77,7 @@ public struct WorkersFeed: Sendable, Equatable {
       hasCountedData = true
       return true
     }
-    guard payload == nil else { return false }
+    guard !hasCountedData else { return false }
     payload = frame.status
     return true
   }

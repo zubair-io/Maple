@@ -70,17 +70,25 @@ public actor WorkerEventsClient {
 
   /// How long to wait for any frame before treating the socket as dead.
   ///
-  /// The server broadcasts on a ~2s cadence (`COUNT_INTERVAL_MS` in
-  /// workers/status-broadcast.ts), so silence this long is roughly seven
-  /// missed ticks — comfortably past jitter, well short of the user
-  /// noticing frozen numbers.
+  /// Nominally the server broadcasts on a ~2s cadence (`COUNT_INTERVAL_MS`
+  /// in workers/status-broadcast.ts), which is what the original 15s was
+  /// sized against. But a counted tick fans out `countDocuments` across
+  /// every stage, and `tickInFlight` suppresses overlapping passes — so on
+  /// a large library the real gap between counted frames is far longer than
+  /// the local test case suggested. At 15s this watchdog could tear the
+  /// socket down before a counted tick ever landed, reconnect, receive
+  /// another zeroed registry snapshot, and loop there indefinitely (#2910).
+  ///
+  /// 60s still catches a silently-dropped connection well before an
+  /// operator would trust the stale numbers, without racing the server's
+  /// own count pass.
   ///
   /// Without this, a device that loses connectivity *silently* — iOS
   /// dropping Wi-Fi with no TCP FIN, which is routine — leaves
   /// `receive()` suspended forever. The UI would keep claiming the feed is
   /// live while showing counts that stopped updating, which is worse than
   /// showing a disconnect, because nothing prompts a reconnect.
-  public static let readTimeout: Duration = .seconds(15)
+  public static let readTimeout: Duration = .seconds(60)
 
   /// Raised when `readTimeout` elapses with no frame. Surfaces as a normal
   /// connection drop, so the run loop reconnects on the usual backoff.
