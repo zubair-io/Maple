@@ -23,10 +23,9 @@ import { Elysia } from 'elysia';
 import { MongoClient, ObjectId } from 'mongodb';
 import { fmtAuth, tryConnect } from './_setup.ts';
 import type { AssetDoc } from '../../src/db/schema.ts';
+import { withTestDb } from '../../src/db/test-db.test-helpers.ts';
 
-const TEST_DB = `maple_test_search_list_perf_${process.pid}`;
-const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_search_list_perf_${process.pid}`);
 
 // "A few thousand is plenty" per #2128 — enough that the matching set
 // (everything shares one `fileinfo.library_id`, so the equality bound
@@ -155,8 +154,6 @@ afterAll(async () => {
     const { closeDb } = await import('../../src/db/client.ts');
     await closeDb();
   } catch {}
-  if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
-  else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
 });
 
 describe('GET /api/search — default-sort query plan (#2128)', () => {

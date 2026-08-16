@@ -20,6 +20,7 @@ import {
   type MeilisearchSearchOptions,
   type MeilisearchSearchResult,
 } from '../src/enrichment/meilisearch-client.ts';
+import { withTestDb } from '../src/db/test-db.test-helpers.ts';
 
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 const SECRET = process.env.MAPLE_JWT_SECRET!;
@@ -34,9 +35,7 @@ const BEARER =
     SECRET,
   ));
 
-const TEST_DB = `maple_test_search_meili_${process.pid}`;
-const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_search_meili_${process.pid}`);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 const PRIOR_MEILI_URL = process.env.MAPLE_MEILISEARCH_URL;
@@ -227,8 +226,6 @@ afterAll(async () => {
     const { closeDb } = await import('../src/db/client.ts');
     await closeDb();
   } catch {}
-  if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
-  else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
   if (PRIOR_MEILI_URL === undefined) delete process.env.MAPLE_MEILISEARCH_URL;
   else process.env.MAPLE_MEILISEARCH_URL = PRIOR_MEILI_URL;
 });

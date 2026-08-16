@@ -13,11 +13,11 @@ import {
   _resetServiceSearchRateLimitsForTests,
   serviceAssetSearchRoutes,
 } from '../src/routes/service-asset-search.ts';
+import { withTestDb } from '../src/db/test-db.test-helpers.ts';
 
 const TEST_DB = `maple_test_service_asset_search_${process.pid}`;
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-const PRIOR_DB = process.env.MAPLE_MONGO_DB;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+withTestDb(TEST_DB);
 
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
@@ -118,8 +118,6 @@ afterAll(async () => {
   }
   const { closeDb } = await import('../src/db/client.ts');
   await closeDb();
-  if (PRIOR_DB === undefined) delete process.env.MAPLE_MONGO_DB;
-  else process.env.MAPLE_MONGO_DB = PRIOR_DB;
 });
 
 describe('POST /api/search/assets', () => {

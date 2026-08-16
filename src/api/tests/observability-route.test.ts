@@ -16,9 +16,9 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach } from 'bun:test';
 import { Elysia } from 'elysia';
 import { MongoClient, type Db } from 'mongodb';
+import { withTestDb } from '../src/db/test-db.test-helpers.ts';
 
-const TEST_DB = `maple_test_observability_route_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_observability_route_${process.pid}`);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;

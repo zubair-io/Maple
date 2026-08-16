@@ -7,6 +7,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { MongoClient, ObjectId } from 'mongodb';
+import { withTestDb } from '../src/db/test-db.test-helpers.ts';
 
 // A claimable asset has >=1 LIVE fileinfo entry — the route's pending count and
 // buildClaimQuery both require it. A "missing"/parked asset's only location is
@@ -24,9 +25,7 @@ const missingFi = (ts: string) => [
   },
 ];
 
-const TEST_DB = `maple_test_workers_status_${process.pid}`;
-const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_workers_status_${process.pid}`);
 
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
@@ -60,8 +59,6 @@ afterAll(async () => {
     } catch {}
     await mongo.close();
   }
-  if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
-  else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
 });
 
 describe('ensureStageIndexes — dead partial index', () => {

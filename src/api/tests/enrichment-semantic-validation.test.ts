@@ -2,11 +2,12 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { Elysia } from 'elysia';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { signAccessToken } from '../src/auth/tokens.ts';
+import { withTestDb, withTestEnv } from '../src/db/test-db.test-helpers.ts';
 
-const TEST_DB = `maple_test_semantic_validation_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
-process.env.MAPLE_GEOCODE_WORKER_ENABLED = 'false';
-process.env.MAPLE_DESCRIBE_WORKER_ENABLED = 'false';
+const TEST_DB = withTestDb(`maple_test_semantic_validation_${process.pid}`);
+// Never restored, these left both workers disabled for every later suite.
+withTestEnv('MAPLE_GEOCODE_WORKER_ENABLED', 'false');
+withTestEnv('MAPLE_DESCRIBE_WORKER_ENABLED', 'false');
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 const realFetch = globalThis.fetch;

@@ -15,6 +15,7 @@ import {
   validateHttpUrl,
   type ObservabilityConfig,
 } from '../src/observability/observability-config.repo.ts';
+import { withTestDb } from '../src/db/test-db.test-helpers.ts';
 
 describe('resolveObservabilityConfig — defaults (no db row)', () => {
   it('returns the documented defaults', () => {
@@ -126,8 +127,7 @@ describe('validateHttpUrl', () => {
 });
 
 // ── Mongo-gated load/save round-trip ──────────────────────────────────────
-const TEST_DB = `maple_test_observability_repo_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_observability_repo_${process.pid}`);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;

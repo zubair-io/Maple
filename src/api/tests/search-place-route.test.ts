@@ -12,6 +12,7 @@ import { Elysia } from 'elysia';
 import { MongoClient, ObjectId } from 'mongodb';
 import { signAccessToken } from '../src/auth/tokens.ts';
 import { parseNominatimResponse } from '../src/enrichment/place-parser.ts';
+import { withTestDb } from '../src/db/test-db.test-helpers.ts';
 
 // JWT bootstrap MUST run before any module that touches `requireAuth`.
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
@@ -27,9 +28,7 @@ const BEARER =
     SECRET,
   ));
 
-const TEST_DB = `maple_test_search_place_${process.pid}`;
-const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_search_place_${process.pid}`);
 
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
@@ -313,8 +312,6 @@ afterAll(async () => {
     const { closeDb } = await import('../src/db/client.ts');
     await closeDb();
   } catch {}
-  if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
-  else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
 });
 
 describe('/api/search?placeQuery', () => {
