@@ -25,3 +25,16 @@ extension MapViewportRegion {
       longitudeDelta: region.span.longitudeDelta)
   }
 }
+
+extension MKCoordinateRegion {
+  /// The reverse of `MapViewportRegion.init(_:)` above — needed wherever a
+  /// framework-free `MapViewportRegion` constant (e.g.
+  /// `MapCameraPolicy.initial`, #2912) has to be handed to a SwiftUI `Map`.
+  public init(_ region: MapViewportRegion) {
+    self.init(
+      center: CLLocationCoordinate2D(latitude: region.centerLatitude,
+                                     longitude: region.centerLongitude),
+      span: MKCoordinateSpan(latitudeDelta: region.latitudeDelta,
+                             longitudeDelta: region.longitudeDelta))
+  }
+}
