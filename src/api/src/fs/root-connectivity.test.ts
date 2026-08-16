@@ -41,6 +41,22 @@ describe('rootConnected', () => {
     expect(await rootConnected(dir, 0)).toBe(true);
   });
 
+  it('does NOT extend the empty-root grace to a legacy doc with no file_count', async () => {
+    // `undefined` means the field predates denormalization, not "known
+    // empty" — an empty root under an unknown count is the unmounted-share
+    // signature and must read as disconnected.
+    expect(await rootConnected(dir, undefined)).toBe(false);
+    resetConnectivityCacheForTests();
+    await writeFile(nodePath.join(dir, 'a.dng'), 'x');
+    expect(await rootConnected(dir, undefined)).toBe(true);
+  });
+
+  it('reports a path that exists but is not a directory as disconnected', async () => {
+    const filePath = nodePath.join(dir, 'not-a-dir');
+    await writeFile(filePath, 'x');
+    expect(await rootConnected(filePath, 0)).toBe(false);
+  });
+
   it('caches results until reset', async () => {
     expect(await rootConnected(dir, 12)).toBe(false);
     // Root becomes non-empty, but the cached "disconnected" still serves…
