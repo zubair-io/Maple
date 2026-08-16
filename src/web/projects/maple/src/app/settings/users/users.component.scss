@@ -301,3 +301,29 @@
     padding-left: 0;
   }
 }
+
+// #2893 — per-member file-access toggle column.
+.file-access-cell {
+  font-size: 11.5px;
+
+  .check {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    color: var(--s-text-muted);
+
+    input {
+      accent-color: var(--s-accent, #c46f4f);
+      cursor: pointer;
+    }
+  }
+}
+
+.section-hint {
+  margin: 10px 0 0;
+  font-size: 11.5px;
+  color: var(--s-text-muted);
+  line-height: 1.5;
+  max-width: 540px;
+}

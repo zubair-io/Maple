@@ -3,6 +3,7 @@ import { Elysia } from 'elysia';
 import { ObjectId, type Db } from 'mongodb';
 import { assetsListRoutes } from './assets-list.ts';
 import { closeDb, getDb, isDbConnected } from '../db/client.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
 // Own per-pid database + explicit close — the repo-wide suite convention
 // (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
@@ -97,7 +98,7 @@ describe('GET /api/assets', () => {
   it('filters by has_xmp=1', async () => {
     if (!mongoReachable || !db) return;
     await seed(db);
-    const app = new Elysia().use(assetsListRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsListRoutes);
     const res = await app.handle(new Request('http://localhost/api/assets?has_xmp=1'));
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -110,7 +111,7 @@ describe('GET /api/assets', () => {
   it('filters by rating_gte=1', async () => {
     if (!mongoReachable || !db) return;
     await seed(db);
-    const app = new Elysia().use(assetsListRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsListRoutes);
     const res = await app.handle(new Request('http://localhost/api/assets?rating_gte=1'));
     const body = await res.json();
     expect(body.assets.length).toBe(2);
@@ -119,7 +120,7 @@ describe('GET /api/assets', () => {
   it('filters by captured_after=ISO', async () => {
     if (!mongoReachable || !db) return;
     await seed(db);
-    const app = new Elysia().use(assetsListRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsListRoutes);
     const after = new Date('2026-01-01T00:00:00Z').toISOString();
     const res = await app.handle(
       new Request(`http://localhost/api/assets?captured_after=${encodeURIComponent(after)}`),
@@ -130,7 +131,7 @@ describe('GET /api/assets', () => {
 
   it('returns 400 for invalid captured_after', async () => {
     if (!mongoReachable) return;
-    const app = new Elysia().use(assetsListRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsListRoutes);
     const res = await app.handle(
       new Request('http://localhost/api/assets?captured_after=notadate'),
     );
@@ -140,7 +141,7 @@ describe('GET /api/assets', () => {
   it('returns all assets when no filters are given', async () => {
     if (!mongoReachable || !db) return;
     await seed(db);
-    const app = new Elysia().use(assetsListRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsListRoutes);
     const res = await app.handle(new Request('http://localhost/api/assets'));
     const body = await res.json();
     expect(body.assets.length).toBe(3);
@@ -156,7 +157,7 @@ describe('GET /api/assets', () => {
         { 'fileinfo.filename': 'a.dng' },
         { $set: { deleted_at: new Date().toISOString() } },
       );
-    const app = new Elysia().use(assetsListRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsListRoutes);
     const res = await app.handle(new Request('http://localhost/api/assets'));
     const body = await res.json();
     const names = body.assets.map((a: { filename: string }) => a.filename);
@@ -167,7 +168,7 @@ describe('GET /api/assets', () => {
   it('returns 400 for non-integer rating_gte (L)', async () => {
     if (!mongoReachable || !db) return;
     await seed(db);
-    const app = new Elysia().use(assetsListRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsListRoutes);
     const res = await app.handle(new Request('http://localhost/api/assets?rating_gte=abc'));
     expect(res.status).toBe(400);
     const body = await res.json();
@@ -199,7 +200,7 @@ describe('GET /api/assets', () => {
       indexed_at: 'now',
       deleted_at: null,
     } as never);
-    const app = new Elysia().use(assetsListRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsListRoutes);
     const res = await app.handle(new Request('http://localhost/api/assets'));
     const body = await res.json();
     const g = body.assets.find((a: { filename: string }) => a.filename === 'g.dng');

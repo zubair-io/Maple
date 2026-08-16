@@ -41,6 +41,7 @@ import { isSafeFilename } from '../../backup/path-formatter.ts';
 import { tryGetRawFfi } from '../../ffi/raw_ffi.ts';
 import { extensionChanged } from '../../library/filename-template.ts';
 import { parseAssetIdOr400, relocateResultResponse } from './_shared.ts';
+import { requireFileAccessBeforeHandle } from '../../auth/middleware.ts';
 
 const RenameBodySchema = t.Object({
   new_filename: t.String(),
@@ -100,6 +101,7 @@ export const renameRoutes = new Elysia().post(
     return responseBody;
   },
   {
+    beforeHandle: requireFileAccessBeforeHandle,
     body: RenameBodySchema,
     detail: {
       summary: 'Rename a single asset (relocate within its current folder) + its XMP sidecar',

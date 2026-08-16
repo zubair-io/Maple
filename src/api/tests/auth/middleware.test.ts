@@ -19,14 +19,20 @@ describe('middleware', () => {
     expect(r.status).toBe(401);
   });
   it('accepts /me with valid bearer', async () => {
-    const t = await signAccessToken({ sub: 'u1', email: 'a@b.c', role: 'member' }, SECRET);
+    const t = await signAccessToken(
+      { sub: 'u1', email: 'a@b.c', role: 'member', file_access: true },
+      SECRET,
+    );
     const r = await app.handle(
       new Request('http://localhost/me', { headers: { authorization: `Bearer ${t}` } }),
     );
     expect(r.status).toBe(200);
   });
   it('rejects member from owner route', async () => {
-    const t = await signAccessToken({ sub: 'u1', email: 'a@b.c', role: 'member' }, SECRET);
+    const t = await signAccessToken(
+      { sub: 'u1', email: 'a@b.c', role: 'member', file_access: true },
+      SECRET,
+    );
     const r = await app.handle(
       new Request('http://localhost/owner-only', {
         method: 'POST',
@@ -36,7 +42,10 @@ describe('middleware', () => {
     expect(r.status).toBe(403);
   });
   it('allows owner on owner route', async () => {
-    const t = await signAccessToken({ sub: 'u1', email: 'a@b.c', role: 'owner' }, SECRET);
+    const t = await signAccessToken(
+      { sub: 'u1', email: 'a@b.c', role: 'owner', file_access: true },
+      SECRET,
+    );
     const r = await app.handle(
       new Request('http://localhost/owner-only', {
         method: 'POST',

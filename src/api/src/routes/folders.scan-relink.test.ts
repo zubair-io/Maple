@@ -23,6 +23,8 @@ import { ObjectId, type Db } from 'mongodb';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { tryConnect } from '../workers/discover/_test-helpers.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
+import { Elysia } from 'elysia';
 
 const TEST_DB = `maple_test_folders_scan_relink_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
@@ -62,6 +64,7 @@ describe('POST /api/folders/:id/scan — relink on open', () => {
     if (!mongoReachable) return;
 
     const { foldersRoutes } = await import('./folders.ts');
+    const authedApp = new Elysia().use(fakeAuth()).use(foldersRoutes);
     const { foldersCollection, assetsCollection } = await import('../db/client.ts');
     const { hashFileForId } = await import('../indexer/id.ts');
     const { blankStagesSkeleton } = await import('../workers/stages/manifest.ts');
@@ -119,7 +122,7 @@ describe('POST /api/folders/:id/scan — relink on open', () => {
     } as never);
 
     // Open the folder → POST /scan re-walks and relinks.
-    const res = await foldersRoutes.handle(
+    const res = await authedApp.handle(
       new Request(`http://localhost/api/folders/${folderId.toHexString()}/scan`, {
         method: 'POST',
       }),
@@ -158,6 +161,7 @@ describe('POST /api/folders/:id/scan — relink on open', () => {
     if (!mongoReachable) return;
 
     const { foldersRoutes } = await import('./folders.ts');
+    const authedApp = new Elysia().use(fakeAuth()).use(foldersRoutes);
     const { foldersCollection } = await import('../db/client.ts');
 
     const root = await mkdtemp(path.join(os.tmpdir(), 'scan-debounce-'));
@@ -171,7 +175,7 @@ describe('POST /api/folders/:id/scan — relink on open', () => {
     } as never);
     const folderId = folderResult.insertedId;
 
-    const first = await foldersRoutes.handle(
+    const first = await authedApp.handle(
       new Request(`http://localhost/api/folders/${folderId.toHexString()}/scan`, {
         method: 'POST',
       }),
@@ -181,7 +185,7 @@ describe('POST /api/folders/:id/scan — relink on open', () => {
     expect(firstBody.skipped).toBeUndefined();
     const firstScan = firstBody.last_scan;
 
-    const second = await foldersRoutes.handle(
+    const second = await authedApp.handle(
       new Request(`http://localhost/api/folders/${folderId.toHexString()}/scan`, {
         method: 'POST',
       }),
@@ -204,7 +208,8 @@ describe('POST /api/folders/:id/scan — relink on open', () => {
     if (!mongoReachable) return;
 
     const { foldersRoutes } = await import('./folders.ts');
-    const res = await foldersRoutes.handle(
+    const authedApp = new Elysia().use(fakeAuth()).use(foldersRoutes);
+    const res = await authedApp.handle(
       new Request(`http://localhost/api/folders/${new ObjectId().toHexString()}/scan`, {
         method: 'POST',
       }),

@@ -18,6 +18,7 @@ import { batchRenameRoutes } from './batch-rename.ts';
 import { closeDb } from '../../db/client.ts';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import { tryGetRawFfi } from '../../ffi/raw_ffi.ts';
+import { fakeAuth } from '../../../tests/helpers/test-auth.ts';
 
 // The two "end to end" tests below need a real rendered filename, which
 // requires the native `raw-core` engine — unavailable in this repo's CI
@@ -32,7 +33,7 @@ const TEST_DB = `maple_batch_rename_route_test_${process.pid}`;
 const ORIGINAL_MONGO_DB = process.env.MAPLE_MONGO_DB;
 const ORIGINAL_MONGO_URI = process.env.MAPLE_MONGO_URI;
 
-const app = new Elysia({ prefix: '/api/assets' }).use(batchRenameRoutes);
+const app = new Elysia({ prefix: '/api/assets' }).use(fakeAuth()).use(batchRenameRoutes);
 
 async function post(urlPath: string, body: unknown): Promise<Response> {
   return app.handle(

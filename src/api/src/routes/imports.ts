@@ -31,6 +31,7 @@ import {
   retryImport,
 } from '../imports/repo.ts';
 import { loadNearbyAssetCandidates } from '../imports/nearby.ts';
+import { requireFileAccess } from '../auth/middleware.ts';
 
 const KNOWN_STATUSES: ReadonlySet<ImportStatus> = new Set([
   'pending',
@@ -162,7 +163,9 @@ const DetailQuery = t.Object({
   summary: t.Optional(t.String()),
 });
 
+// Imports copy server files into a library — file-access-gated (#2893).
 export const importsRoutes = new Elysia({ prefix: '/api/imports' })
+  .use(requireFileAccess)
   .post(
     '/scan',
     async ({ body, set }) => {

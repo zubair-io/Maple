@@ -22,6 +22,7 @@ import {
 } from '../addressing/library-source';
 import { parseAddress, formatAddress, type MapleAddress } from '../addressing/maple-address';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
+import { AuthService } from '../auth/auth.service';
 import { XmpParserService } from '../xmp/xmp-parser.service';
 import { XmpStoreService } from '../xmp/xmp-store.service';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
@@ -100,6 +101,7 @@ export class LibraryFetch {
   private readonly api = inject(SERVER_LIBRARY_IO, { optional: true });
   private readonly librarySource: LibrarySource = inject(LIBRARY_SOURCE);
   private readonly prefs = inject(BrowsePreferencesService);
+  private readonly auth = inject(AuthService);
   private readonly folderCache = inject(FOLDER_LISTING_CACHE);
   private readonly sidecarSave = inject(SidecarSaveStateService);
   private readonly xmpRestore = inject(XmpAdjustmentRestoreService);
@@ -310,9 +312,22 @@ export class LibraryFetch {
     this.status.backendError.set(null);
     this.status.backendEmpty.set(false);
 
+    // Restricted member (#2893): no file browsing. Keep the folder metadata
+    // (path resolution for timeline thumbs) but never build the sidebar tree
+    // or land on a folder grid — timeline is the home surface.
+    const canBrowse = this.auth.canBrowseFiles;
     this.api.listFolders().subscribe({
       next: (folders) => {
         this.store.registeredFolders.set(folders);
+        // Restricted member (#2893): no file browsing. The folder metadata is
+        // kept (path resolution for timeline thumbs) but the sidebar tree is
+        // never built and timeline is the home surface — so the #2892
+        // connectivity filtering below is moot for them.
+        if (!canBrowse) {
+          if (this.prefs.viewMode() === 'folder') this.prefs.setViewMode('timeline');
+          this.status.backendLoading.set(false);
+          return;
+        }
         // Disconnected roots (unmounted share, unplugged drive) stay out of
         // the sidebar; Settings → Sources is where they surface (#2892).
         // `connected` is absent on pre-upgrade servers — treat as connected.

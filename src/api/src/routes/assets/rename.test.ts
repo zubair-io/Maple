@@ -16,6 +16,7 @@ import { renameRoutes } from './rename.ts';
 import { closeDb } from '../../db/client.ts';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import { setRawFfiForTests, tryGetRawFfi } from '../../ffi/raw_ffi.ts';
+import { fakeAuth } from '../../../tests/helpers/test-auth.ts';
 
 // Any test whose expected outcome depends on `validateNewFilename` actually
 // consulting the native engine (a real accept/reject, or reaching
@@ -33,7 +34,7 @@ const TEST_DB = `maple_rename_route_test_${process.pid}`;
 const ORIGINAL_MONGO_DB = process.env.MAPLE_MONGO_DB;
 const ORIGINAL_MONGO_URI = process.env.MAPLE_MONGO_URI;
 
-const app = new Elysia({ prefix: '/api/assets' }).use(renameRoutes);
+const app = new Elysia({ prefix: '/api/assets' }).use(fakeAuth()).use(renameRoutes);
 
 async function postRename(id: string, body: unknown): Promise<Response> {
   return app.handle(

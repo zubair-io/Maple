@@ -69,6 +69,7 @@ import { jobsRoutes } from './routes/jobs.ts';
 import { importsRoutes } from './routes/imports.ts';
 import { enrichmentRoutes } from './routes/enrichment.ts';
 import { cloudflareRoutes } from './routes/cloudflare.ts';
+import { usersRoutes } from './routes/users.ts';
 import { observabilityRoutes } from './routes/observability.ts';
 import { meilisearchBackfillRoutes } from './routes/admin-backfill-meilisearch.ts';
 import { adminMeilisearchStatusRoutes } from './routes/admin-meilisearch-status.ts';
@@ -158,6 +159,9 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // (mirrors authRoutes' /invites sub-tree above), so it sits outside
     // the authedApi gate the same way.
     .use(cloudflareRoutes)
+    // Owner-only user roster + per-user file-access permission (#2893) —
+    // self-gates with requireOwner, so it sits outside authedApi too.
+    .use(usersRoutes)
     // Service-key management self-gates with owner auth; service search
     // self-gates with a dedicated scoped API key rather than a user JWT.
     .use(serviceApiKeyAdminRoutes)

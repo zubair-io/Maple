@@ -16,6 +16,8 @@ import * as os from 'node:os';
 import * as fs from 'node:fs/promises';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { pendingEnrichment } from '../src/db/schema.ts';
+import { fakeAuth } from './helpers/test-auth.ts';
+import { Elysia } from 'elysia';
 
 const TEST_DB = `maple_test_fs_dir_asset_link_${process.pid}`;
 const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
@@ -130,7 +132,8 @@ describe('GET /api/fs/dir — asset id link', () => {
   it('sets `id` (hex) on entries whose abs_path matches an asset doc; leaves it unset otherwise', async () => {
     if (!mongoReachable) return;
     const { fsRoutes } = await import('../src/routes/fs.ts');
-    const res = await fsRoutes.handle(
+    const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
+    const res = await authedApp.handle(
       new Request(`http://localhost/api/fs/dir?path=${encodeURIComponent(realTmpRoot)}`),
     );
     expect(res.status).toBe(200);

@@ -10,21 +10,30 @@ const SECRET = 'test-secret-32-bytes-long-xxxxxx';
 
 describe('tokens', () => {
   it('signs and verifies an access token', async () => {
-    const jwt = await signAccessToken({ sub: 'u1', email: 'a@b.c', role: 'owner' }, SECRET);
+    const jwt = await signAccessToken(
+      { sub: 'u1', email: 'a@b.c', role: 'owner', file_access: true },
+      SECRET,
+    );
     const claims = await verifyAccessToken(jwt, SECRET);
     expect(claims.sub).toBe('u1');
     expect(claims.role).toBe('owner');
   });
 
   it('issues short-lived access tokens (≤15 min) by default (#860)', async () => {
-    const jwt = await signAccessToken({ sub: 'u1', email: 'a@b.c', role: 'owner' }, SECRET);
+    const jwt = await signAccessToken(
+      { sub: 'u1', email: 'a@b.c', role: 'owner', file_access: true },
+      SECRET,
+    );
     const { iat, exp } = await verifyAccessToken(jwt, SECRET);
     expect(exp - iat).toBeLessThanOrEqual(15 * 60);
     expect(exp - iat).toBeGreaterThan(0);
   });
 
   it('rejects a tampered access token', async () => {
-    const jwt = await signAccessToken({ sub: 'u1', email: 'a@b.c', role: 'owner' }, SECRET);
+    const jwt = await signAccessToken(
+      { sub: 'u1', email: 'a@b.c', role: 'owner', file_access: true },
+      SECRET,
+    );
     const [h, p, s] = jwt.split('.');
     // Flip the first signature char (a full 6-bit base64url position) to a
     // guaranteed-different one so the decoded bytes always change. The previous
@@ -40,14 +49,21 @@ describe('tokens', () => {
   });
 
   it('rejects a token signed with a different secret', async () => {
-    const jwt = await signAccessToken({ sub: 'u1', email: 'a@b.c', role: 'owner' }, SECRET);
+    const jwt = await signAccessToken(
+      { sub: 'u1', email: 'a@b.c', role: 'owner', file_access: true },
+      SECRET,
+    );
     await expect(verifyAccessToken(jwt, 'y'.repeat(32))).rejects.toThrow(/signature/i);
   });
 
   it('rejects an expired access token', async () => {
-    const jwt = await signAccessToken({ sub: 'u1', email: 'a@b.c', role: 'owner' }, SECRET, {
-      expiresInSeconds: -1,
-    });
+    const jwt = await signAccessToken(
+      { sub: 'u1', email: 'a@b.c', role: 'owner', file_access: true },
+      SECRET,
+      {
+        expiresInSeconds: -1,
+      },
+    );
     await expect(verifyAccessToken(jwt, SECRET)).rejects.toThrow(/expired/i);
   });
 

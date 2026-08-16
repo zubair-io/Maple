@@ -1,12 +1,10 @@
-import { describe, expect, it, beforeEach, afterEach } from "bun:test";
-import { Elysia } from "elysia";
-import { ObjectId } from "mongodb";
-import { changesRoutes } from "./changes.ts";
-import {
-  getChangeBus,
-  __resetChangeBusForTests,
-} from "../runtime/change-bus.ts";
-import type { AssetChangeWithId } from "../db/schema.ts";
+import { describe, expect, it, beforeEach, afterEach } from 'bun:test';
+import { Elysia } from 'elysia';
+import { ObjectId } from 'mongodb';
+import { changesRoutes } from './changes.ts';
+import { getChangeBus, __resetChangeBusForTests } from '../runtime/change-bus.ts';
+import type { AssetChangeWithId } from '../db/schema.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
 function evt(cursor: number): AssetChangeWithId {
   return {
@@ -14,7 +12,7 @@ function evt(cursor: number): AssetChangeWithId {
     cursor,
     asset_id: new ObjectId(),
     folder_id: new ObjectId(),
-    kind: "update",
+    kind: 'update',
     abs_path: `/p/${cursor}.dng`,
     at: new Date(),
   } as AssetChangeWithId;
@@ -28,7 +26,7 @@ function evtNoRelPath(cursor: number): AssetChangeWithId {
     cursor,
     asset_id: new ObjectId(),
     folder_id: new ObjectId(),
-    kind: "update",
+    kind: 'update',
     abs_path: `/p/legacy-${cursor}.dng`,
     at: new Date(),
     // intentionally no `relative_path`
@@ -49,24 +47,22 @@ afterEach(() => {
  */
 async function readWhile(
   reader: ReadableStreamDefaultReader<unknown>,
-  deadlineMs: number
+  deadlineMs: number,
 ): Promise<string> {
-  let out = "";
+  let out = '';
   const decoder = new TextDecoder();
   const deadline = Date.now() + deadlineMs;
   while (Date.now() < deadline) {
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
-    const timeoutPromise: Promise<
-      ReadableStreamReadResult<unknown> | "TIMEOUT"
-    > = new Promise((resolve) =>
-      setTimeout(() => resolve("TIMEOUT"), remaining)
+    const timeoutPromise: Promise<ReadableStreamReadResult<unknown> | 'TIMEOUT'> = new Promise(
+      (resolve) => setTimeout(() => resolve('TIMEOUT'), remaining),
     );
     const result = await Promise.race([reader.read(), timeoutPromise]);
-    if (result === "TIMEOUT") break;
+    if (result === 'TIMEOUT') break;
     if (result.done) break;
     const v = result.value;
-    if (typeof v === "string") {
+    if (typeof v === 'string') {
       out += v;
     } else if (v instanceof Uint8Array) {
       out += decoder.decode(v, { stream: true });
@@ -77,18 +73,16 @@ async function readWhile(
   return out;
 }
 
-describe("GET /api/changes/subscribe (SSE)", () => {
-  it("replays buffered events on connect", async () => {
+describe('GET /api/changes/subscribe (SSE)', () => {
+  it('replays buffered events on connect', async () => {
     const bus = getChangeBus();
     bus.publish(evt(1));
     bus.publish(evt(2));
     bus.publish(evt(3));
-    const app = new Elysia().use(changesRoutes);
-    const res = await app.handle(
-      new Request("http://localhost/api/changes/subscribe?since=0")
-    );
+    const app = new Elysia().use(fakeAuth()).use(changesRoutes);
+    const res = await app.handle(new Request('http://localhost/api/changes/subscribe?since=0'));
     expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toMatch(/text\/event-stream/);
+    expect(res.headers.get('content-type')).toMatch(/text\/event-stream/);
     const reader = res.body!.getReader();
     const text = await readWhile(reader, 250);
     expect(text).toContain('"cursor":1');
@@ -99,12 +93,10 @@ describe("GET /api/changes/subscribe (SSE)", () => {
     } catch {}
   });
 
-  it("streams events published after connect", async () => {
+  it('streams events published after connect', async () => {
     const bus = getChangeBus();
-    const app = new Elysia().use(changesRoutes);
-    const res = await app.handle(
-      new Request("http://localhost/api/changes/subscribe?since=0")
-    );
+    const app = new Elysia().use(fakeAuth()).use(changesRoutes);
+    const res = await app.handle(new Request('http://localhost/api/changes/subscribe?since=0'));
     const reader = res.body!.getReader();
     setTimeout(() => bus.publish(evt(42)), 30);
     const text = await readWhile(reader, 300);
@@ -114,27 +106,25 @@ describe("GET /api/changes/subscribe (SSE)", () => {
     } catch {}
   });
 
-  it("emits the stream-opened frame as a raw SSE comment (not data:)", async () => {
+  it('emits the stream-opened frame as a raw SSE comment (not data:)', async () => {
     // Regression: the keepalive/open frames used to go through `sse()`
     // which wraps strings as `data: <str>` — the Apple parser then
     // tried to JSON-decode them and dropped the event silently.
-    const app = new Elysia().use(changesRoutes);
-    const res = await app.handle(
-      new Request("http://localhost/api/changes/subscribe?since=0")
-    );
+    const app = new Elysia().use(fakeAuth()).use(changesRoutes);
+    const res = await app.handle(new Request('http://localhost/api/changes/subscribe?since=0'));
     const reader = res.body!.getReader();
     const text = await readWhile(reader, 100);
     // The open frame must begin with the SSE comment marker `:` on its
     // own line, NOT `data: :` (which is what the old `sse(": stream
     // opened")` path produced).
-    expect(text.startsWith(": stream opened")).toBe(true);
-    expect(text).not.toContain("data: : stream opened");
+    expect(text.startsWith(': stream opened')).toBe(true);
+    expect(text).not.toContain('data: : stream opened');
     try {
       await reader.cancel();
     } catch {}
   });
 
-  it("does not redeliver events that landed in the replay/subscribe seam", async () => {
+  it('does not redeliver events that landed in the replay/subscribe seam', async () => {
     // The handler subscribes BEFORE replaying, and filters live events
     // by `cursor > replayMax`. Simulate the seam by pre-loading the
     // buffer and publishing one more between the two operations — the
@@ -146,10 +136,8 @@ describe("GET /api/changes/subscribe (SSE)", () => {
     // verify the dedup logic by publishing a duplicate cursor after
     // the connection opens: the live subscription sees it, but the
     // dedupe (`cursor <= replayMax`) drops it.
-    const app = new Elysia().use(changesRoutes);
-    const res = await app.handle(
-      new Request("http://localhost/api/changes/subscribe?since=0")
-    );
+    const app = new Elysia().use(fakeAuth()).use(changesRoutes);
+    const res = await app.handle(new Request('http://localhost/api/changes/subscribe?since=0'));
     const reader = res.body!.getReader();
     // Re-publish cursor 2 (a duplicate from the client's POV); the
     // dedupe must swallow it. Then publish a fresh cursor 3 to prove
@@ -168,7 +156,7 @@ describe("GET /api/changes/subscribe (SSE)", () => {
     } catch {}
   });
 
-  it("re-validates buffer floor after subscribe and returns 409 if cursor became stale", async () => {
+  it('re-validates buffer floor after subscribe and returns 409 if cursor became stale', async () => {
     // Regression — the previous handler yielded the open frame before
     // the subscribe + snapshot, which let the buffer floor advance past
     // `since` during the suspension and silently swallow events. The
@@ -181,17 +169,15 @@ describe("GET /api/changes/subscribe (SSE)", () => {
     const bus = getChangeBus();
     // Capacity is 10_000; pump enough events to push the floor above 1.
     for (let i = 1; i <= 10_005; i++) bus.publish(evt(i));
-    const app = new Elysia().use(changesRoutes);
-    const res = await app.handle(
-      new Request("http://localhost/api/changes/subscribe?since=1")
-    );
+    const app = new Elysia().use(fakeAuth()).use(changesRoutes);
+    const res = await app.handle(new Request('http://localhost/api/changes/subscribe?since=1'));
     expect(res.status).toBe(409);
     const body = await res.json();
     expect(body.error).toMatch(/too old/i);
     expect(body.current).toBeGreaterThanOrEqual(10_005);
   });
 
-  it("emits relative_path: null (explicit) for legacy events lacking the field", async () => {
+  it('emits relative_path: null (explicit) for legacy events lacking the field', async () => {
     // Regression — Phase 6 wire format: explicit null is the contract.
     // Apple's decoder uses `decodeIfPresent` so it tolerates the key
     // being missing, but the SSE wire format guarantees the key is
@@ -200,38 +186,32 @@ describe("GET /api/changes/subscribe (SSE)", () => {
     // explicit-null shape protects against accidental drift.
     const bus = getChangeBus();
     bus.publish(evtNoRelPath(1));
-    const app = new Elysia().use(changesRoutes);
-    const res = await app.handle(
-      new Request("http://localhost/api/changes/subscribe?since=0")
-    );
+    const app = new Elysia().use(fakeAuth()).use(changesRoutes);
+    const res = await app.handle(new Request('http://localhost/api/changes/subscribe?since=0'));
     expect(res.status).toBe(200);
     const reader = res.body!.getReader();
     const text = await readWhile(reader, 250);
     // Find the `data: {...}` JSON line for the cursor=1 frame and parse it.
     const dataLine = text
-      .split("\n")
-      .find((l) => l.startsWith("data: ") && l.includes('"cursor":1'));
+      .split('\n')
+      .find((l) => l.startsWith('data: ') && l.includes('"cursor":1'));
     expect(dataLine).toBeDefined();
-    const payload = JSON.parse(dataLine!.slice("data: ".length));
-    expect(Object.prototype.hasOwnProperty.call(payload, "relative_path")).toBe(
-      true
-    );
+    const payload = JSON.parse(dataLine!.slice('data: '.length));
+    expect(Object.prototype.hasOwnProperty.call(payload, 'relative_path')).toBe(true);
     expect(payload.relative_path).toBeNull();
     try {
       await reader.cancel();
     } catch {}
   });
 
-  it("closes the connection when the per-client queue exceeds the cap", async () => {
+  it('closes the connection when the per-client queue exceeds the cap', async () => {
     // Force overflow by publishing > SSE_QUEUE_LIMIT events without
     // letting the reader drain them. The handler must drop the queue
     // and close the stream; the client will reconnect via the existing
     // 409 stale-cursor path.
     const bus = getChangeBus();
-    const app = new Elysia().use(changesRoutes);
-    const res = await app.handle(
-      new Request("http://localhost/api/changes/subscribe?since=0")
-    );
+    const app = new Elysia().use(fakeAuth()).use(changesRoutes);
+    const res = await app.handle(new Request('http://localhost/api/changes/subscribe?since=0'));
     const reader = res.body!.getReader();
     // Read once to flush the open frame so the generator enters the
     // wait loop and starts queueing.
@@ -246,7 +226,7 @@ describe("GET /api/changes/subscribe (SSE)", () => {
       const r = await Promise.race([
         reader.read(),
         new Promise<{ done: true; value: undefined }>((resolve) =>
-          setTimeout(() => resolve({ done: true, value: undefined }), 50)
+          setTimeout(() => resolve({ done: true, value: undefined }), 50),
         ),
       ]);
       if (r.done) {

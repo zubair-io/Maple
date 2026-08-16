@@ -27,6 +27,7 @@ import {
   parseWildcardSegments,
 } from './shared.ts';
 import { handleEvent } from '../../workers/discover/index.ts';
+import { requireFileAccessBeforeHandle } from '../../auth/middleware.ts';
 
 const log = childLogger('routes/library/folder');
 
@@ -194,16 +195,21 @@ async function buildFolderListing(slug: string, wildcard: string): Promise<Respo
   });
 }
 
+// Folder listings are filesystem browsing — file-access-gated (#2893). The
+// sibling image/thumb/preview byte routes stay open: search/timeline hand
+// out addresses, and reading pixels at a known address is not browsing.
 export const folderRoutes = new Elysia()
   // Library root (empty relPath). Separate route because `*` won't match a
   // bare `/folder/:slug`.
   .get('/folder/:slug', ({ params }) => buildFolderListing(params.slug, ''), {
+    beforeHandle: requireFileAccessBeforeHandle,
     params: t.Object({ slug: t.String({ minLength: 1 }) }),
   })
   .get(
     '/folder/:slug/*',
     ({ params }) => buildFolderListing(params.slug, (params as Record<string, string>)['*'] ?? ''),
     {
+      beforeHandle: requireFileAccessBeforeHandle,
       params: t.Object({
         slug: t.String({ minLength: 1 }),
         '*': t.Optional(t.String()),

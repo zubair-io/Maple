@@ -17,6 +17,7 @@ import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { closeDb } from '../src/db/client.ts';
 import { assetsRoutes } from '../src/routes/assets.ts';
 import { pendingEnrichment } from '../src/db/schema.ts';
+import { fakeAuth } from './helpers/test-auth.ts';
 
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 const TEST_DB = `maple_assets_detail_route_test_${process.pid}`;
@@ -77,14 +78,14 @@ afterAll(async () => {
 describe('GET /api/assets/:id', () => {
   it('returns 400 for a malformed id', async () => {
     if (!db) return;
-    const app = new Elysia().use(assetsRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsRoutes);
     const res = await app.handle(new Request('http://localhost/api/assets/not-an-objectid'));
     expect(res.status).toBe(400);
   });
 
   it('returns 404 when the id is well-formed but absent', async () => {
     if (!db) return;
-    const app = new Elysia().use(assetsRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsRoutes);
     const res = await app.handle(
       new Request(`http://localhost/api/assets/${new ObjectId().toHexString()}`),
     );
@@ -129,7 +130,7 @@ describe('GET /api/assets/:id', () => {
       deleted_at: null,
     } as never);
 
-    const app = new Elysia().use(assetsRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsRoutes);
     const res = await app.handle(new Request(`http://localhost/api/assets/${id.toHexString()}`));
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -177,7 +178,7 @@ describe('GET /api/assets/:id', () => {
       deleted_at: null,
     } as never);
 
-    const app = new Elysia().use(assetsRoutes);
+    const app = new Elysia().use(fakeAuth()).use(assetsRoutes);
     const res = await app.handle(new Request(`http://localhost/api/assets/${id.toHexString()}`));
     expect(res.status).toBe(200);
     const body = await res.json();

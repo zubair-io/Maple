@@ -16,6 +16,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
 import { Elysia } from 'elysia';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
 const TEST_DB = `maple_test_trash_list_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
@@ -228,7 +229,7 @@ describe('GET /api/folders/:id/trash — response correctness', () => {
     await seed(20, 5);
 
     const { foldersRoutes } = await import('./folders.ts');
-    const app = new Elysia().use(foldersRoutes);
+    const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
     const res = await app.handle(
       new Request(`http://localhost/api/folders/${folderId.toHexString()}/trash`),
     );

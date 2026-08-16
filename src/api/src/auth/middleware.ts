@@ -35,6 +35,11 @@ export const requireAuth = new Elysia({ name: 'requireAuth' }).derive(
               sub: 'image-capability',
               email: '',
               role: 'member' as const,
+              // Capability tokens only ever reach /api/thumb|preview (see
+              // verifyImageCapability), none of which are file-access-gated —
+              // but the synthesized identity carries the least privilege
+              // anyway.
+              file_access: false,
               iat: now,
               exp: now + 60,
             },
@@ -101,6 +106,25 @@ export function requireOwnerBeforeHandle({ auth, set }: OwnerContext) {
 export const requireOwner = new Elysia({ name: 'requireOwner' })
   .use(requireAuth)
   .onBeforeHandle({ as: 'scoped' }, requireOwnerBeforeHandle);
+
+/**
+ * Route `beforeHandle` that requires the per-user "file access" permission
+ * (#2893): filesystem browsing and file move/rename/trash. Members without
+ * it keep photo backup, timeline, and search. Same dual shape as
+ * `requireOwnerBeforeHandle`: attach `{ beforeHandle: … }` to a single route
+ * when file-gated handlers share a file with open ones (folders.ts), or
+ * `.use(requireFileAccess)` to gate a whole route module (fs.ts).
+ */
+export function requireFileAccessBeforeHandle({ auth, set }: OwnerContext) {
+  if (!auth || !auth.user.file_access) {
+    set.status = 403;
+    return { error: 'file access permission required' };
+  }
+}
+
+export const requireFileAccess = new Elysia({ name: 'requireFileAccess' })
+  .use(requireAuth)
+  .onBeforeHandle({ as: 'scoped' }, requireFileAccessBeforeHandle);
 
 interface StepUpContext {
   auth?: { user: AccessClaims };

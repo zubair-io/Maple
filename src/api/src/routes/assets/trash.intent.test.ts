@@ -21,6 +21,7 @@ import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { closeDb } from '../../db/client.ts';
 import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { trashRoutes } from './trash.ts';
+import { fakeAuth } from '../../../tests/helpers/test-auth.ts';
 
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 const TEST_DB = `maple_trash_intent_route_test_${process.pid}`;
@@ -122,7 +123,7 @@ describe('DELETE /api/assets/:id intent parameter', () => {
   }
 
   function call(id: ObjectId, intent?: string): Promise<Response> {
-    const app = new Elysia().group('/api/assets', (g) => g.use(trashRoutes));
+    const app = new Elysia().use(fakeAuth()).group('/api/assets', (g) => g.use(trashRoutes));
     const q = intent === undefined ? '' : `?intent=${intent}`;
     return app.handle(
       new Request(`http://localhost/api/assets/${id.toHexString()}${q}`, { method: 'DELETE' }),

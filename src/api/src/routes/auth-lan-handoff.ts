@@ -15,6 +15,7 @@ import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import { usersCollection } from '../db/client.ts';
 import { signAccessToken, REFRESH_TTL_SECONDS } from '../auth/tokens.ts';
+import { userFileAccess } from '../auth/permissions.ts';
 import { issueRefreshToken } from '../auth/refresh_store.ts';
 import { issueLanHandoffCode, redeemLanHandoffCode } from '../auth/lan_handoff_store.ts';
 import { requireAuth } from '../auth/middleware.ts';
@@ -83,7 +84,12 @@ export const lanHandoffRedeemRoutes = new Elysia().post(
       return { error: 'user gone' };
     }
     const access_token = await signAccessToken(
-      { sub: user._id.toHexString(), email: user.email, role: user.role },
+      {
+        sub: user._id.toHexString(),
+        email: user.email,
+        role: user.role,
+        file_access: userFileAccess(user),
+      },
       jwtSecret(),
     );
     const refresh = await issueRefreshToken(user._id, redeemed.deviceLabel, { secure: false });
@@ -97,7 +103,12 @@ export const lanHandoffRedeemRoutes = new Elysia().post(
     });
     return {
       access_token,
-      user: { id: user._id.toHexString(), email: user.email, role: user.role },
+      user: {
+        id: user._id.toHexString(),
+        email: user.email,
+        role: user.role,
+        file_access: userFileAccess(user),
+      },
     };
   },
   { body: t.Object({ code: t.String() }) },
