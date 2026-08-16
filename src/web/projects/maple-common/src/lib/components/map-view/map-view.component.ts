@@ -1,16 +1,21 @@
 // MapViewComponent — the `map` browse viewMode surface (Map T3 #2827, pins
-// added in Map T4 #2828).
+// added in Map T4 #2828, heatmap added in Map T5 #2829).
 //
 // Mounts a MapLibre map (via `MapLibreService`) into a plain `<div>` on
 // `ngAfterViewInit`; the SDK itself never appears in this file or its
 // template — see `MapLibreService`'s module doc. Once the map instance
-// exists, `MapClusterPinsService` (provided here, component-scoped, so its
-// state lives and dies with this one mount) attaches to it and owns the
-// clustered pins/count-bubbles layer — see that service's module doc. The
-// heatmap layer (#2829) is a later ticket; this component's other job is
-// showing an inline notice — never a blanked feature — when the configured
-// tile source is unreachable, or when the viewport has no located photos
-// (design doc § "Error / empty states").
+// exists, `MapHeatmapLayerService` attaches its density-overlay layer first,
+// then `MapClusterPinsService` (both provided here, component-scoped, so
+// their state lives and dies with this one mount) attaches and owns the
+// clustered pins/count-bubbles layer — see each service's module doc.
+// Heatmap-before-pins is a deliberate ordering, not just declaration order:
+// it keeps the heatmap layer underneath anything pins add to the map's own
+// layer stack, which is what "heatmap renders beneath the pins" actually
+// means for a canvas layer (today's DOM `Marker` pins already render above
+// the canvas regardless of order, per the SDK). This component's other job
+// is showing an inline notice — never a blanked feature — when the
+// configured tile source is unreachable, or when the viewport has no
+// located photos (design doc § "Error / empty states").
 
 import {
   AfterViewInit,
@@ -25,13 +30,14 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { MapClusterPinsService } from '../../map/map-cluster-pins.service';
+import { MapHeatmapLayerService } from '../../map/map-heatmap-layer.service';
 import { MapLibreService } from '../../map/maplibre-map.service';
 
 @Component({
   selector: 'app-map-view',
   standalone: true,
   imports: [RouterLink],
-  providers: [MapClusterPinsService],
+  providers: [MapClusterPinsService, MapHeatmapLayerService],
   templateUrl: './map-view.component.html',
   styleUrl: './map-view.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -39,6 +45,7 @@ import { MapLibreService } from '../../map/maplibre-map.service';
 export class MapViewComponent implements AfterViewInit, OnDestroy {
   private readonly mapService = inject(MapLibreService);
   private readonly pins = inject(MapClusterPinsService);
+  private readonly heatmap = inject(MapHeatmapLayerService);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly mapContainerRef = viewChild.required<ElementRef<HTMLElement>>('mapContainer');
@@ -62,7 +69,9 @@ export class MapViewComponent implements AfterViewInit, OnDestroy {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => {
         const handle = this.mapService.currentHandle();
-        if (handle) this.pins.attach(handle);
+        if (!handle) return;
+        this.heatmap.attach(handle);
+        this.pins.attach(handle);
       });
   }
 

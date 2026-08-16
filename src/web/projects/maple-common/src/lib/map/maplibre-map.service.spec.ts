@@ -46,6 +46,9 @@ class FakeMapHandle implements MapLibreMapHandle {
   addMarker(): { remove(): void } {
     return { remove: () => {} };
   }
+  // Map T5 (#2829) addition — unused by MapLibreService's own tests, which
+  // never touch layers, but required to satisfy the widened interface.
+  addHeatmapLayer(): void {}
 
   remove(): void {
     this.removed = true;
