@@ -7,6 +7,7 @@
 
 import { beforeAll, beforeEach, afterAll } from 'bun:test';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { withTestDb } from '../db/test-db.test-helpers.ts';
 import type { AssetDoc, AssetFaceDoc } from '../db/schema.ts';
 
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
@@ -52,6 +53,9 @@ export function setupMongoHarness(testDb: string): {
   let mongo: MongoClient | null = null;
   let mongoReachable = false;
   let db: Db | null = null;
+
+  // First, so `getDb()` inside the setup below already sees `testDb`.
+  withTestDb(testDb);
 
   beforeAll(async () => {
     mongo = await tryConnect();
