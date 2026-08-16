@@ -24,7 +24,7 @@ import { Elysia } from 'elysia';
 import type { ObjectId } from 'mongodb';
 import type { Filter, Sort } from 'mongodb';
 import { assetsCollection } from '../../db/client.ts';
-import { excludedPersonIds, hiddenPersonIds } from '../../people/people.repo.ts';
+import { personIdsToDrop } from '../../people/people.repo.ts';
 import { personIdsForNames } from '../../people/people-search-filter.repo.ts';
 import { loadLibraryRoots, loadLibraryIdToSlug } from '../../indexer/libraries.cache.ts';
 import type { AssetDoc } from '../../db/schema.ts';
@@ -53,12 +53,9 @@ export const listRoute = new Elysia().get(
     // the residual free-text drives the text/Meili path. Pure-date queries
     // ("2023") leave an empty residual and skip the text path entirely.
     const resolved = extractDatesFromQuery(query as SearchQuery);
-    // Excluded people (#2894) are dropped unconditionally; the hidden-people
-    // lookup stays opt-in (see `SearchQuery.excludeHiddenPeople`).
-    const dropIds = [
-      ...(await excludedPersonIds()),
-      ...(resolved.excludeHiddenPeople === 'true' ? await hiddenPersonIds() : []),
-    ];
+    // Excluded people (#2894) drop unconditionally; hidden people only when
+    // the request opted in (see `personIdsToDrop`).
+    const dropIds = await personIdsToDrop(resolved.excludeHiddenPeople);
     // The `people` param carries display names; the Mongo clause needs the
     // person ids faces are tagged with. Resolution is async, so it happens
     // here and `buildFilter` stays pure (same contract as `hiddenIds`).

@@ -5,12 +5,18 @@ import {
   type SuggestionCandidate,
 } from './people-merge-suggestions.ts';
 
-function unit(personIdHex: string, direction: number[], hidden = false): SuggestionCandidate {
+function unit(
+  personIdHex: string,
+  direction: number[],
+  hidden = false,
+  excluded = false,
+): SuggestionCandidate {
   const norm = Math.sqrt(direction.reduce((s, v) => s + v * v, 0));
   return {
     personIdHex,
     centroid: Float32Array.from(direction.map((v) => v / norm)),
     hidden,
+    excluded,
   };
 }
 
