@@ -12,6 +12,7 @@ import { SettingsIconComponent, type SettingsIconName } from './settings-icon.co
 export type SettingsSection =
   | 'account'
   | 'workers'
+  | 'sources'
   | 'imports'
   | 'people'
   | 'users'
@@ -39,6 +40,14 @@ const ITEMS: readonly NavItem[] = [
     link: '/settings/workers',
     ownerOnly: true,
     sub: 'Pipeline + enrichment',
+  },
+  {
+    id: 'sources',
+    label: 'Sources',
+    icon: 'open',
+    link: '/settings/sources',
+    ownerOnly: true,
+    sub: 'Library roots + connection',
   },
   {
     id: 'imports',

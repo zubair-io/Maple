@@ -1,0 +1,79 @@
+<maple-settings-shell section="sources">
+  <header class="page-header">
+    <div class="titles">
+      <h1>Sources</h1>
+      <p>
+        Every library root registered with this server — local folders, external drives, and mounted
+        network shares. A source that isn't currently reachable is hidden from the browse sidebar;
+        re-mount it (or plug the drive back in) and it reappears on its own.
+      </p>
+    </div>
+    <div class="header-actions">
+      <button
+        type="button"
+        class="btn-ghost"
+        [disabled]="checking()"
+        (click)="load(true)"
+        aria-label="Re-check source connectivity"
+      >
+        <maple-settings-icon name="retry" [size]="13" />
+        {{ checking() ? 'Checking…' : 'Check again' }}
+      </button>
+      <button type="button" class="btn-primary" (click)="state.openLibraryPicker()">
+        <maple-settings-icon name="plus" [size]="13" />
+        Add source
+      </button>
+    </div>
+  </header>
+
+  <div class="sources-body">
+    @if (loadState().kind === 'loading') {
+      <p class="muted">Loading sources…</p>
+    } @else if (loadState(); as ls) {
+      @if (ls.kind === 'error') {
+        <p class="error">Failed to load sources: {{ ls.message }}</p>
+      } @else if (folders().length === 0) {
+        <div class="empty">
+          <p>No sources yet.</p>
+          <p class="section-hint">
+            Add a folder on the server — or the mount point of a network share — to start building
+            your library.
+          </p>
+        </div>
+      } @else {
+        @if (disconnectedCount() > 0) {
+          <p class="section-hint warn" data-testid="disconnected-hint">
+            {{ disconnectedCount() }} source{{ disconnectedCount() === 1 ? ' is' : 's are' }}
+            currently unreachable and hidden from the sidebar. Nothing was removed — files and edits
+            reappear when the source is reachable again.
+          </p>
+        }
+        <ul class="source-list" data-testid="source-list">
+          @for (folder of folders(); track folder.id) {
+            <li class="source-row" [class.offline]="!isConnected(folder)">
+              <span
+                class="status-dot"
+                [class.ok]="isConnected(folder)"
+                [attr.aria-label]="isConnected(folder) ? 'Connected' : 'Not connected'"
+              ></span>
+              <div class="source-main">
+                <div class="source-label">{{ folder.label }}</div>
+                <div class="source-path mono">{{ folder.path }}</div>
+              </div>
+              <div class="source-meta">
+                <span class="status-text">{{
+                  isConnected(folder) ? 'Connected' : 'Not connected'
+                }}</span>
+                <span class="muted"
+                  >{{ fileCountLabel(folder) }} · {{ lastScanLabel(folder) }}</span
+                >
+              </div>
+            </li>
+          }
+        </ul>
+      }
+    }
+  </div>
+
+  <app-library-picker-modal />
+</maple-settings-shell>
