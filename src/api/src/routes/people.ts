@@ -211,12 +211,12 @@ export const peopleRoutes = new Elysia({ prefix: '/api/people' })
   .post(
     '/',
     async ({ body, set }) => {
-      const name = body.name.trim();
-      const invalid = personNameError(name);
+      const invalid = personNameError(body.name);
       if (invalid) {
         set.status = 400;
         return { error: invalid };
       }
+      const name = body.name.trim();
       const person = await createPerson(name);
       return {
         id: person._id.toHexString(),
@@ -237,12 +237,12 @@ export const peopleRoutes = new Elysia({ prefix: '/api/people' })
         set.status = 400;
         return { error: 'invalid person id' };
       }
-      const name = body.name.trim();
-      const invalid = personNameError(name);
+      const invalid = personNameError(body.name);
       if (invalid) {
         set.status = 400;
         return { error: invalid };
       }
+      const name = body.name.trim();
       try {
         const result = await renamePerson(id, name);
         return {
