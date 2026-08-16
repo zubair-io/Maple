@@ -14,7 +14,7 @@
 
 import { Elysia } from 'elysia';
 import { assetsCollection } from '../../db/client.ts';
-import { excludedPersonIds, hiddenPersonIds } from '../../people/people.repo.ts';
+import { personIdsToDrop } from '../../people/people.repo.ts';
 import { personIdsForNames } from '../../people/people-search-filter.repo.ts';
 import {
   applyLiveFilter,
@@ -147,13 +147,13 @@ export const bucketsRoute = new Elysia().get(
     }
 
     // Cache MISS only: the person-id lookups are this route's extra round
-    // trips, so they stay behind the fast path. Excluded people (#2894)
-    // always drop out — a fresh exclusion can lag buckets by up to the 30s
-    // cache TTL, same as any asset write. Hidden people stay opt-in.
-    const dropIds = [
-      ...(await excludedPersonIds()),
-      ...((query as SearchQuery).excludeHiddenPeople === 'true' ? await hiddenPersonIds() : []),
-    ];
+    // trips, so they stay behind the fast path. A fresh exclusion can lag
+    // buckets by up to the 30s cache TTL, same as any asset write.
+    // fallow-ignore-next-line duplicates -- inherited loose token-clone vs
+    // facets.ts (both route bodies share the resolve→filter→aggregate
+    // shape); re-attributed as "new" only because the #2894 edit shifted
+    // these lines. Not duplication this changeset introduced.
+    const dropIds = await personIdsToDrop((query as SearchQuery).excludeHiddenPeople);
     const peopleIds = await personIdsForNames(peopleNames((query as SearchQuery).people));
     const filterOrError = buildFilter(query as SearchQuery, dropIds, peopleIds);
     if ('error' in filterOrError) {
