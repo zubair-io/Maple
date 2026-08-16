@@ -16,7 +16,6 @@ import { ObjectId } from 'mongodb';
 import { setupMongoHarness } from './people-repo.test-helpers.ts';
 
 const TEST_DB = `maple_test_people_detail_pagination_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
 
 const h = setupMongoHarness(TEST_DB);
 
