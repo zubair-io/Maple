@@ -54,6 +54,9 @@ class FakeMapHandle implements MapLibreMapHandle {
     this.markers.push({ element, lngLat, marker });
     return marker;
   }
+  // Map T5 (#2829) addition — unused by these pins-only tests, but required
+  // to satisfy the widened interface.
+  addHeatmapLayer(): void {}
 
   fireMoveEnd(): void {
     this.moveEndHandler?.();
