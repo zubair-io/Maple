@@ -9,10 +9,9 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { Elysia } from 'elysia';
 import { MongoClient, ObjectId } from 'mongodb';
 import { baseSeeds, fmtAuth, seedFolders, tryConnect } from './_setup.ts';
+import { withTestDb } from '../../src/db/test-db.test-helpers.ts';
 
-const TEST_DB = `maple_test_search_facets_${process.pid}`;
-const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_search_facets_${process.pid}`);
 
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
@@ -48,8 +47,6 @@ afterAll(async () => {
     const { closeDb } = await import('../../src/db/client.ts');
     await closeDb();
   } catch {}
-  if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
-  else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
 });
 
 describe('/api/search/facets', () => {

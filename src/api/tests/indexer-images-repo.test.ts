@@ -12,10 +12,10 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import type { Place } from '../src/db/schema.ts';
+import { withTestDb } from '../src/db/test-db.test-helpers.ts';
 
 // Each bun process gets its own DB so concurrent test shards don't collide.
-const TEST_DB = `maple_test_indexer_repo_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_indexer_repo_${process.pid}`);
 
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 

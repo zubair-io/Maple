@@ -8,9 +8,9 @@ import {
 import { MeilisearchTaskError } from '../src/enrichment/meilisearch-transport.ts';
 import { signAccessToken } from '../src/auth/tokens.ts';
 import { _resetAdminMeilisearchStatusCacheForTests } from '../src/routes/admin-meilisearch-status.ts';
+import { withTestDb } from '../src/db/test-db.test-helpers.ts';
 
-const TEST_DB = `maple_test_meili_resilience_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_meili_resilience_${process.pid}`);
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 const URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 let mongo: MongoClient | null = null;

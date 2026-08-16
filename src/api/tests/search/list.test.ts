@@ -9,11 +9,10 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test'
 import { Elysia } from 'elysia';
 import { MongoClient, ObjectId } from 'mongodb';
 import { baseSeeds, fmtAuth, seedFolders, tryConnect } from './_setup.ts';
+import { withTestDb } from '../../src/db/test-db.test-helpers.ts';
 
 // Each test run uses a unique DB so concurrent dev work / CI shards don't collide.
-const TEST_DB = `maple_test_search_list_${process.pid}`;
-const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_search_list_${process.pid}`);
 
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
@@ -67,8 +66,6 @@ afterAll(async () => {
     await closeDb();
   } catch {}
   // Restore env so we don't leak the test DB name to other suites.
-  if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
-  else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
 });
 
 describe('/api/search', () => {
