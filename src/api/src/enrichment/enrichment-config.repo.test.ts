@@ -15,6 +15,7 @@ import {
   saveEnrichmentConfig,
 } from './enrichment-config.repo.ts';
 import { resolveEnrichmentConfig } from './enrichment-config.resolve.ts';
+import { withTestDb } from '../db/test-db.test-helpers.ts';
 
 describe('DESCRIBE_VISION_OLLAMA_TAG — pinned literal', () => {
   // Hyphen vs no-hyphen burned us once (PR #182 follow-up) for the qwen2.5
@@ -30,8 +31,7 @@ describe('DESCRIBE_VISION_OLLAMA_TAG — pinned literal', () => {
   });
 });
 
-const TEST_DB = `maple_test_enrichment_cfg_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_enrichment_cfg_${process.pid}`);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;

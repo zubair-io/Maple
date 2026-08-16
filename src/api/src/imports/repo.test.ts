@@ -9,9 +9,9 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import type { ImportFileEntry } from '../db/schema.ts';
+import { withTestDb } from '../db/test-db.test-helpers.ts';
 
-const TEST_DB = `maple_test_imports_repo_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_imports_repo_${process.pid}`);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;

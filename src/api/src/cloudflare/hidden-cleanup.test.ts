@@ -7,9 +7,9 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { cleanupR2ThumbForHiddenAsset, cleanupR2ThumbsForHiddenAssets } from './hidden-cleanup.ts';
+import { withTestDb } from '../db/test-db.test-helpers.ts';
 
-const TEST_DB = `maple_test_hidden_cleanup_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+const TEST_DB = withTestDb(`maple_test_hidden_cleanup_${process.pid}`);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;
