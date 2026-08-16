@@ -44,7 +44,18 @@ struct MapView: View {
   /// resolved target (a place name, or the has-GPS scope fallback).
   let onSelectPlace: (MapPlaceSearchTarget) -> Void
 
-  @State private var cameraPosition: MapCameraPosition = .automatic
+  /// The map's ONE starting camera, handed to `Map(initialPosition:)` below
+  /// and never re-driven — MapKit owns the camera exclusively from the
+  /// first frame on (#2912). MUST NOT be `.automatic`, and MUST NOT be
+  /// bound two-way via `Map(position:)`: `.automatic` asks MapKit to fit
+  /// the camera to `items`/`vm.cells` content, which combined with
+  /// fetch-on-camera-change below closed a runaway zoom-out loop (a fetch
+  /// changes the annotations, `.automatic` re-frames wider, the wider
+  /// camera fetches a wider bbox, forever). See `MapCameraPolicy`'s doc
+  /// comment (MapleCloudKit) for the full history and why the fixed value
+  /// lives there instead of inline.
+  private static let initialCameraPosition: MapCameraPosition =
+    .region(MKCoordinateRegion(MapCameraPolicy.initial))
   @State private var selectedAnnotationID: String?
   /// Written by the `.continuous` listener below, read ONLY by
   /// `MapHeatmapCameraLayer`. See this file's header and
@@ -59,7 +70,7 @@ struct MapView: View {
   var body: some View {
     MapReader { proxy in
       ZStack {
-        Map(position: $cameraPosition) {
+        Map(initialPosition: Self.initialCameraPosition) {
           ForEach(items) { item in
             Annotation(item.id, coordinate: CLLocationCoordinate2D(latitude: item.latitude, longitude: item.longitude)) {
               annotationContent(for: item)

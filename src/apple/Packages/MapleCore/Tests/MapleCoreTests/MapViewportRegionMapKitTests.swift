@@ -66,4 +66,35 @@ final class MapViewportRegionMapKitTests: XCTestCase {
     // Emphatically not the whole world.
     XCTAssertLessThan(box.east - box.west, 10)
   }
+
+  // MARK: - MKCoordinateRegion.init(_:) — the reverse bridge (#2912)
+
+  /// `MapCameraPolicy.initial` (framework-free) has to reach a SwiftUI
+  /// `Map(initialPosition:)` as a real `MKCoordinateRegion` — this is that
+  /// conversion, round-tripped against the `MapViewportRegion.init(_:)`
+  /// direction above.
+  func test_mkCoordinateRegionInit_carriesCenterAndSpanThrough() {
+    let viewport = MapViewportRegion(
+      centerLatitude: 20, centerLongitude: 0, latitudeDelta: 140, longitudeDelta: 360)
+
+    let region = MKCoordinateRegion(viewport)
+
+    XCTAssertEqual(region.center.latitude, 20, accuracy: 1e-9)
+    XCTAssertEqual(region.center.longitude, 0, accuracy: 1e-9)
+    XCTAssertEqual(region.span.latitudeDelta, 140, accuracy: 1e-9)
+    XCTAssertEqual(region.span.longitudeDelta, 360, accuracy: 1e-9)
+  }
+
+  func test_mkCoordinateRegionInit_roundTripsThroughMapViewportRegion() {
+    let original = MKCoordinateRegion(
+      center: CLLocationCoordinate2D(latitude: 21.31, longitude: -157.86),
+      span: MKCoordinateSpan(latitudeDelta: 1.5, longitudeDelta: 2.25))
+
+    let roundTripped = MKCoordinateRegion(MapViewportRegion(original))
+
+    XCTAssertEqual(roundTripped.center.latitude, original.center.latitude, accuracy: 1e-9)
+    XCTAssertEqual(roundTripped.center.longitude, original.center.longitude, accuracy: 1e-9)
+    XCTAssertEqual(roundTripped.span.latitudeDelta, original.span.latitudeDelta, accuracy: 1e-9)
+    XCTAssertEqual(roundTripped.span.longitudeDelta, original.span.longitudeDelta, accuracy: 1e-9)
+  }
 }
