@@ -51,10 +51,11 @@ struct AppShellCenterColumn: View {
     let allSourcesTimelineThumbCache: CloudThumbCache?
     /// Non-nil while the sidebar's MAP row (#2830, `.map` selection) is
     /// current — takes precedence over the Timeline/grid branches below,
-    /// same mutual-exclusion discipline as `allSourcesTimelineVM`. Defaults
-    /// to nil: Map is Mac/iPad-only (reachable from the sidebar, which the
-    /// iPhone tab shell doesn't have) — the iPhone `AppShellIPhoneShell`
-    /// call site omits all three.
+    /// same mutual-exclusion discipline as `allSourcesTimelineVM`. The
+    /// sidebar (`AppShellSidebar`/`LibrarySidebar`) is shared by the
+    /// Mac/iPad pane shell and the iPhone drawer alike (#2886), so both the
+    /// `AppShellMacLayout` and `AppShellIPhoneShell` call sites thread these
+    /// through; the default lets other call sites (e.g. Preview) omit them.
     var mapVM: MapViewModel? = nil
     var mapThumbClient: CloudThumbClient? = nil
     var mapThumbCache: CloudThumbCache? = nil
@@ -84,8 +85,8 @@ struct AppShellCenterColumn: View {
     let onSelectCloudAsset: (SearchAsset, URL) -> Void
     /// Map pin/cluster tap (#2830) → AppShell activates search filtered by
     /// the resolved target (a place name, or the has-GPS scope fallback).
-    /// Defaults to a no-op — unused on the iPhone shell, which never sets
-    /// `mapVM`.
+    /// Defaults to a no-op — unused wherever `mapVM` is never set (e.g.
+    /// Preview's fast-static call site).
     var onSelectMapPlace: (MapPlaceSearchTarget) -> Void = { _ in }
     /// Dismiss the cloud search UI.
     let onCloseSearch: () -> Void
