@@ -506,31 +506,31 @@
           </div>
         } @else {
           <!-- Virtual-scroll list: only the visible rows are in the DOM. Sorted
-             people are packed into fixed-height rows of `gridColumns()` cards;
-             the viewport windows the rows by the computed `rowHeight()`. The
+             people are packed into fixed-height rows of `grid.columns()` cards;
+             the viewport windows the rows by the computed `grid.rowHeight()`. The
              (mapleVisibleOnce) cover-lazy-load fires per card as rows mount. -->
           <cdk-virtual-scroll-viewport
             #peopleScrollContent
             class="people-viewport"
-            [itemSize]="rowHeight()"
+            [itemSize]="grid.rowHeight()"
             minBufferPx="600"
             maxBufferPx="1200"
           >
             <div
               *cdkVirtualFor="let row of peopleRows(); trackBy: trackRow"
               class="people-row"
-              [style.gap.px]="gridGap"
-              [style.margin-bottom.px]="gridGap"
+              [style.gap.px]="grid.gap"
+              [style.margin-bottom.px]="grid.gap"
             >
               @for (p of row; track p.id) {
                 <article
                   class="person-card"
                   [class.is-selected]="bulk.selectMode() && bulk.isPersonSelected(p.id)"
-                  [style.width.px]="cardWidth()"
+                  [style.width.px]="grid.cardWidth()"
                   (click)="
                     bulk.selectMode() ? bulk.togglePersonSelection(p.id) : selectPerson(p.id)
                   "
-                  (mapleVisibleOnce)="ensureCoverThumb(p)"
+                  (mapleVisibleOnce)="thumbs.ensureCover(p)"
                   tabindex="0"
                   role="button"
                   [attr.aria-pressed]="bulk.selectMode() ? bulk.isPersonSelected(p.id) : null"
@@ -567,7 +567,7 @@
                         <maple-settings-icon name="merge" [size]="11" color="#ffffff" />
                       </span>
                     }
-                    @if (coverThumbUrl(p); as url) {
+                    @if (thumbs.coverUrl(p); as url) {
                       @if (p.coverBbox; as bbox) {
                         <img
                           [src]="url"

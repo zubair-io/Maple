@@ -42,24 +42,24 @@
         <cdk-virtual-scroll-viewport
           #peopleScrollContent
           class="people-viewport"
-          [itemSize]="rowHeight()"
+          [itemSize]="grid.rowHeight()"
           minBufferPx="600"
           maxBufferPx="1200"
         >
           <div
             *cdkVirtualFor="let row of peopleRows(); trackBy: trackRow"
             class="people-row"
-            [style.gap.px]="gridGap"
-            [style.margin-bottom.px]="gridGap"
+            [style.gap.px]="grid.gap"
+            [style.margin-bottom.px]="grid.gap"
           >
             @for (p of row; track p.id) {
               <article
                 class="person-card"
-                [style.width.px]="cardWidth()"
-                (mapleVisibleOnce)="ensureCoverThumb(p)"
+                [style.width.px]="grid.cardWidth()"
+                (mapleVisibleOnce)="thumbs.ensureCover(p)"
               >
                 <div class="person-thumb">
-                  @if (coverThumbUrl(p); as url) {
+                  @if (thumbs.coverUrl(p); as url) {
                     @if (p.coverBbox; as bbox) {
                       <img
                         [src]="url"

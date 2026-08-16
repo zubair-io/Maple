@@ -27,6 +27,14 @@ import { Signal, signal, untracked } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { BunApiBackendService, FilesystemBrowseService, type LibrarySource } from '@maple-common';
 
+/** The cover fields this cache reads off a person row. Structural, so both
+ * `ApiPerson` and the detail shape satisfy it. */
+export interface PersonCover {
+  coverAddress?: string | null;
+  coverAbsPath: string | null;
+  coverAssetId: string | null;
+}
+
 export class ThumbBlobCache {
   /** Cache key (`absPath` when present, otherwise `apiId:<id>`) → `blob:`
    * URL of the fetched thumbnail JPEG. Exposed as a `Signal` so consumers
@@ -57,11 +65,7 @@ export class ThumbBlobCache {
    * Prefer `coverAddress` (slug:relPath) for cache coherence with /browse's
    * LibrarySource thumb path; fall back to `absPath` for legacy installs;
    * last resort `apiId:` when the cover asset doc was deleted. */
-  static coverKey(p: {
-    coverAddress?: string | null;
-    coverAbsPath: string | null;
-    coverAssetId: string | null;
-  }): string | null {
+  static coverKey(p: PersonCover): string | null {
     if (p.coverAddress) return p.coverAddress;
     if (p.coverAbsPath) return p.coverAbsPath;
     if (p.coverAssetId) return `apiId:${p.coverAssetId}`;
@@ -134,6 +138,18 @@ export class ThumbBlobCache {
   url(cacheKey: string | null): string | null {
     if (!cacheKey) return null;
     return this._blobs().get(cacheKey) ?? null;
+  }
+
+  /** Load a person's cover thumb — `coverKey` + `ensure` in one call, since
+   * every caller pairs them the same way (#2901). Templates call this from
+   * `(mapleVisibleOnce)` as cards mount. */
+  ensureCover(p: PersonCover): void {
+    this.ensure(ThumbBlobCache.coverKey(p), p.coverAddress ?? null, p.coverAbsPath, p.coverAssetId);
+  }
+
+  /** The person's cover blob URL, or `null` until it lands. */
+  coverUrl(p: PersonCover): string | null {
+    return this.url(ThumbBlobCache.coverKey(p));
   }
 
   /** Revoke every blob URL we own. Idempotent. */
