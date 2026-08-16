@@ -8,13 +8,13 @@ import { assetsRoutes } from './assets.ts';
 import { listChangesSince } from '../db/changes.repo.ts';
 import { closeDb, getDb, isDbConnected } from '../db/client.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
+import { withTestDb } from '../db/test-db.test-helpers.ts';
 
 // Own per-pid database + explicit close — the repo-wide suite convention
 // (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
 // happens to name (the real `maple` dev DB when it runs first) and leaks its
 // singleton connection into later suites (the #2783 flake class).
-const TEST_DB = `maple_test_assets_changes_integration_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+withTestDb(`maple_test_assets_changes_integration_${process.pid}`);
 
 let db: Db | null = null;
 let tmp: string | null = null;

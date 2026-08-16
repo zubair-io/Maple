@@ -23,9 +23,10 @@ import { Elysia } from 'elysia';
 import { libraryRelocateRoutes } from './library-relocate.ts';
 import { conflictCopyPath } from '../fs/xmp-conflict.ts';
 import type { getDb } from '../db/client.ts';
+import { withTestDb } from '../db/test-db.test-helpers.ts';
 
 // Unique test DB so a stray run never touches the real `maple` DB.
-process.env.MAPLE_MONGO_DB = `maple_test_library_relocate_video_e2e_${process.pid}`;
+withTestDb(`maple_test_library_relocate_video_e2e_${process.pid}`);
 
 const app = new Elysia().use(libraryRelocateRoutes);
 

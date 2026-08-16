@@ -26,7 +26,6 @@ import type { AssetFaceDoc, PersonDoc } from '../db/schema.ts';
 import { isRemovable, pullElementPredicate } from './admin-purge-subthreshold-faces.ts';
 
 const TEST_DB = `maple_test_purge_sub_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
 
 const h = setupMongoHarness(TEST_DB);
 

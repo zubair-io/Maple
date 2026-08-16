@@ -8,12 +8,13 @@ import { describe, test, expect, beforeAll, beforeEach, afterAll, afterEach } fr
 import type { NominatimClient } from '../enrichment/nominatim-client.ts';
 import { setGeocodeSearchClientForTests } from './geocode-search.ts';
 import type { NominatimSearchResult } from '../enrichment/nominatim-client.ts';
+import { withTestDb } from '../db/test-db.test-helpers.ts';
 
 // The handler reads enrichment config from Mongo (loadEnrichmentConfig).
 // Isolate the shared db-client singleton to a unique test DB and reset it
 // around this file so it neither connects to the real `maple` DB nor leaks the
 // connection into later test files (convention from folder.test.ts).
-process.env.MAPLE_MONGO_DB = `maple_test_geocode_search_${process.pid}`;
+withTestDb(`maple_test_geocode_search_${process.pid}`);
 beforeAll(async () => {
   await (await import('../db/client.ts')).closeDb();
 });

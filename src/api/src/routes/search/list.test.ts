@@ -30,13 +30,13 @@ import {
   type MeilisearchClient,
   type MeilisearchSearchOptions,
 } from '../../enrichment/meilisearch-client.ts';
+import { withTestDb } from '../../db/test-db.test-helpers.ts';
 
 // Own database + explicit close (the repo-wide suite convention): without
 // these this file connected the shared singleton to whatever MAPLE_MONGO_DB
 // happened to be set — the default `maple` dev DB when it ran first — and
 // leaked that connection into later suites (#2783).
-const TEST_DB = `maple_test_search_list_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+withTestDb(`maple_test_search_list_${process.pid}`);
 
 let db: Db | null = null;
 let mongoReachable = false;

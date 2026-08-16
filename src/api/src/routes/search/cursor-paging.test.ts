@@ -26,6 +26,7 @@ import { listRoute } from './list.ts';
 import { _resetCacheForTests } from './total-cache.ts';
 import { encodeCursor } from './cursor.ts';
 import { closeDb, getDb, isDbConnected } from '../../db/client.ts';
+import { withTestDb } from '../../db/test-db.test-helpers.ts';
 
 let db: Db | null = null;
 let mongoReachable = false;
@@ -82,8 +83,7 @@ const TOTAL_SEEDED = TIMESTAMPS.length + NO_EXIF_COUNT;
 // (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
 // happens to name (the real `maple` dev DB when it runs first) and leaks its
 // singleton connection into later suites (the #2783 flake class).
-const TEST_DB = `maple_test_cursor_paging_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+withTestDb(`maple_test_cursor_paging_${process.pid}`);
 
 beforeAll(async () => {
   try {
