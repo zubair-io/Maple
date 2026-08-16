@@ -206,7 +206,7 @@ export class PeopleComponent extends PeopleGridHost {
   /** Virtual-scroll viewport host. Signal query (not a static ViewChild)
    * because it lives in conditional template blocks — only present in the
    * populated list view, and re-appears on back-navigation. */
-  private readonly peopleScrollContent = viewChild<ElementRef<HTMLElement>>('peopleScrollContent');
+  private readonly peopleScrollContent = viewChild('peopleScrollContent', { read: ElementRef });
 
   /** Sorted people packed into fixed-width rows for the virtual viewport. */
   readonly peopleRows = computed(() => chunkPeopleRows(this.visiblePeople(), this.gridColumns()));
