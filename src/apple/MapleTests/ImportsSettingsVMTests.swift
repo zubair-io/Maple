@@ -9,11 +9,10 @@
 // MapleCloudKit directly in MapleCoreTests/ImportsTests.swift; these tests
 // only cover the copy and view-facing decisions built on top of them.
 //
-// NOTE per the task instructions for this ticket: this file is written but
-// NOT run in this session — `xcodebuild test -only-testing:MapleTests` is
-// hosted by an app bundle and collides with other agents running
-// concurrently (LaunchServices error -10699). Running it is left to the
-// human.
+// Worth knowing when running these locally: the MapleTests target is hosted
+// by an app bundle, so `xcodebuild test -only-testing:MapleTests` fails with
+// LaunchServices error -10699 while any copy of Maple is running. Quit the
+// app first.
 
 import Foundation
 import MapleCore
