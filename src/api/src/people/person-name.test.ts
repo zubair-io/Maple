@@ -7,15 +7,30 @@
  * Real Mongo for the repo cases, skip-pass when unreachable (same harness).
  */
 
-import { describe, it, expect } from 'bun:test';
+import { afterAll, beforeAll, describe, it, expect } from 'bun:test';
 import type { PersonDoc } from '../db/schema.ts';
 import { setupMongoHarness } from './people-repo.test-helpers.ts';
 import { personNameError } from './person-name.ts';
 
+// The repo's `getDb()` singleton reads MAPLE_MONGO_DB when this file's
+// `it` bodies dynamically import it. Set it inside a hook and restore it
+// afterwards: Bun runs every module body during the import phase, so a
+// module-scope assignment would leak this database name into whichever
+// suite happens to run next (#2783).
 const TEST_DB = `maple_test_person_name_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
+let prevMongoDb: string | undefined;
+
+beforeAll(() => {
+  prevMongoDb = process.env.MAPLE_MONGO_DB;
+  process.env.MAPLE_MONGO_DB = TEST_DB;
+});
 
 const h = setupMongoHarness(TEST_DB);
+
+afterAll(() => {
+  if (prevMongoDb === undefined) delete process.env.MAPLE_MONGO_DB;
+  else process.env.MAPLE_MONGO_DB = prevMongoDb;
+});
 
 describe('personNameError', () => {
   it('accepts an ordinary name', () => {
