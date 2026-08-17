@@ -7,18 +7,19 @@
  */
 
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId, type WithId } from 'mongodb';
 import { usersCollection, credentialsCollection, invitesCollection } from '../db/client.ts';
 import {
   buildRegistrationOptions,
-  verifyRegistration,
   consumeChallenge,
   buildDiscoverableAuthenticationOptions,
   verifyAuthentication,
+  consumeRegistrationCeremony,
 } from '../auth/webauthn.ts';
 import { redeemInvite, createInvite, listInvites, rescindInvite } from '../auth/invites.ts';
 import { signAccessToken, REFRESH_TTL_SECONDS } from '../auth/tokens.ts';
-import { userFileAccess } from '../auth/permissions.ts';
+import { toPublicAuthUser, userFileAccess } from '../auth/permissions.ts';
+import type { UserDoc } from '../db/schema.ts';
 import {
   issueRefreshToken,
   RefreshError,
@@ -33,6 +34,24 @@ function jwtSecret(): string {
   const s = process.env.MAPLE_JWT_SECRET;
   if (!s || s.length < 16) throw new Error('MAPLE_JWT_SECRET unset or too short');
   return s;
+}
+
+/** Find-or-create the dev-login user (owner role) and stamp last_seen_at.
+ * Null only on the vanishingly-unlikely re-read miss after insert. */
+async function upsertDevUser(email: string): Promise<WithId<UserDoc> | null> {
+  const u = await usersCollection();
+  const existing = await u.findOne({ email });
+  if (existing) {
+    await u.updateOne({ _id: existing._id }, { $set: { last_seen_at: new Date().toISOString() } });
+    return existing;
+  }
+  const ins = await u.insertOne({
+    email,
+    role: 'owner',
+    created_at: new Date().toISOString(),
+    last_seen_at: new Date().toISOString(),
+  });
+  return u.findOne({ _id: ins.insertedId });
 }
 
 async function isClaimed(): Promise<boolean> {
@@ -64,22 +83,10 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
         return { error: 'not found' };
       }
       const email = (body.email ?? 'dev@maple.local').toLowerCase();
-      const u = await usersCollection();
-      let user = await u.findOne({ email });
+      const user = await upsertDevUser(email);
       if (!user) {
-        const ins = await u.insertOne({
-          email,
-          role: 'owner',
-          created_at: new Date().toISOString(),
-          last_seen_at: new Date().toISOString(),
-        });
-        user = await u.findOne({ _id: ins.insertedId });
-        if (!user) {
-          set.status = 500;
-          return { error: 'failed to create dev user' };
-        }
-      } else {
-        await u.updateOne({ _id: user._id }, { $set: { last_seen_at: new Date().toISOString() } });
+        set.status = 500;
+        return { error: 'failed to create dev user' };
       }
       // Dev-login mints owners outside the WebAuthn claim flow — plant the
       // ownership sentinel so a later invited registration can't win it and
@@ -105,12 +112,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
       });
       return {
         access_token,
-        user: {
-          id: user._id.toHexString(),
-          email: user.email,
-          role: user.role,
-          file_access: userFileAccess(user),
-        },
+        user: toPublicAuthUser(user),
       };
     },
     { body: t.Object({ email: t.Optional(t.String({ format: 'email' })) }) },
@@ -163,23 +165,15 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
     '/register/verify',
     async ({ body, set, cookie }) => {
       const email = body.email.toLowerCase();
-      const clientChallenge = body.credential?.response?.clientDataJSON
-        ? JSON.parse(Buffer.from(body.credential.response.clientDataJSON, 'base64url').toString())
-            .challenge
-        : '';
-      const challengeRow = await consumeChallenge(clientChallenge);
-      if (challengeRow.purpose !== 'register' || challengeRow.email !== email) {
-        set.status = 400;
-        return { error: 'challenge mismatch' };
-      }
-      const verification = await verifyRegistration({
-        response: body.credential,
-        expectedChallenge: challengeRow.challenge,
+      const ceremony = await consumeRegistrationCeremony({
+        credential: body.credential,
+        expect: (row) => row.purpose === 'register' && row.email === email,
       });
-      if (!verification.verified || !verification.registrationInfo) {
+      if (!ceremony.ok) {
         set.status = 400;
-        return { error: 'verification failed' };
+        return { error: ceremony.error };
       }
+      const { challengeRow } = ceremony;
 
       // Atomically decide ownership (#865): exactly one concurrent first
       // registration wins the single owner slot. A lost claim means the server
@@ -216,7 +210,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
         });
         userId = userIns.insertedId;
 
-        const reg = verification.registrationInfo;
+        const reg = ceremony.registrationInfo;
         await c.insertOne({
           user_id: userId,
           credential_id: reg.credential.id,
@@ -378,12 +372,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
       });
       return {
         access_token,
-        user: {
-          id: user._id.toHexString(),
-          email: user.email,
-          role: user.role,
-          file_access: userFileAccess(user),
-        },
+        user: toPublicAuthUser(user),
       };
     },
     {

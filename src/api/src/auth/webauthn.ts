@@ -54,6 +54,43 @@ async function consumeChallenge(challenge: string) {
   return row;
 }
 
+/**
+ * One WebAuthn registration ceremony: parse the clientDataJSON challenge,
+ * consume the stored row, gate on the caller's expectation, then verify the
+ * attestation. Shared by `register/verify` (auth.ts) and
+ * `credentials/verify` (auth-account.ts) — the two flows differ only in
+ * what the consumed challenge row must prove (`expect`).
+ *
+ * Throws (like `consumeChallenge`) on a missing/expired challenge; returns
+ * `{ ok: false }` for the two 400-shaped failures the callers report.
+ */
+export async function consumeRegistrationCeremony(args: {
+  credential: any;
+  expect: (row: Awaited<ReturnType<typeof consumeChallenge>>) => boolean;
+}): Promise<
+  | {
+      ok: true;
+      challengeRow: Awaited<ReturnType<typeof consumeChallenge>>;
+      registrationInfo: NonNullable<VerifiedRegistrationResponse['registrationInfo']>;
+    }
+  | { ok: false; error: string }
+> {
+  const clientChallenge = args.credential?.response?.clientDataJSON
+    ? JSON.parse(Buffer.from(args.credential.response.clientDataJSON, 'base64url').toString())
+        .challenge
+    : '';
+  const challengeRow = await consumeChallenge(clientChallenge);
+  if (!args.expect(challengeRow)) return { ok: false, error: 'challenge mismatch' };
+  const verification = await verifyRegistration({
+    response: args.credential,
+    expectedChallenge: challengeRow.challenge,
+  });
+  if (!verification.verified || !verification.registrationInfo) {
+    return { ok: false, error: 'verification failed' };
+  }
+  return { ok: true, challengeRow, registrationInfo: verification.registrationInfo };
+}
+
 export async function buildRegistrationOptions(args: {
   email: string;
   inviteCode: string | null;
@@ -90,7 +127,7 @@ export async function buildRegistrationOptions(args: {
   return opts;
 }
 
-export async function verifyRegistration(args: {
+async function verifyRegistration(args: {
   response: any;
   expectedChallenge: string;
 }): Promise<VerifiedRegistrationResponse> {
