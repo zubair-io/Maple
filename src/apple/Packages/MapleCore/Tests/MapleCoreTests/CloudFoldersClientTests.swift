@@ -52,4 +52,29 @@ final class CloudFoldersClientTests: XCTestCase {
     XCTAssertTrue(folders[0].isConnected)
     XCTAssertFalse(folders[1].isConnected)
   }
+
+  func test_listFolders_freshBypassesConnectivityCache() async throws {
+    let server = URL(string: "https://example.test")!
+    // Capture each request URL so the assertion is about what actually
+    // went on the wire, not about client internals.
+    final class Box: @unchecked Sendable { var urls: [URL] = [] }
+    let box = Box()
+    let session = URLSession.stubbedSequence { req in
+      box.urls.append(req.url!)
+      let resp = HTTPURLResponse(
+        url: req.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+        headerFields: ["Content-Type": "application/json"])!
+      return (Data("[]".utf8), resp)
+    }
+    let client = CloudFoldersClient(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
+
+    _ = try await client.listFolders()
+    _ = try await client.listFolders(fresh: true)
+
+    XCTAssertEqual(box.urls.count, 2)
+    XCTAssertNil(box.urls[0].query, "default fetch must NOT send fresh")
+    XCTAssertEqual(box.urls[1].query, "fresh=1")
+  }
 }

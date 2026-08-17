@@ -57,7 +57,6 @@ struct SourcesSettingsView: View {
 
     @ViewBuilder
     private func foldersSection(_ folders: [CloudFolder]) -> some View {
-        let disconnected = folders.filter { !$0.isConnected }.count
         Section {
             if folders.isEmpty {
                 Text("No sources registered on this server yet.")
@@ -70,8 +69,8 @@ struct SourcesSettingsView: View {
         } header: {
             Text("Sources")
         } footer: {
-            if disconnected > 0 {
-                Text("\(disconnected) source\(disconnected == 1 ? " is" : "s are") currently unreachable and hidden from the sidebar. Nothing was removed — files and edits reappear when the source is reachable again.")
+            if let hint = SourcesSettingsVM.disconnectedHint(folders) {
+                Text(hint)
                     .accessibilityIdentifier("sources.disconnectedHint")
             }
         }
@@ -83,7 +82,7 @@ struct SourcesSettingsView: View {
             Circle()
                 .fill(folder.isConnected ? Color.green : Color.orange)
                 .frame(width: 8, height: 8)
-                .accessibilityLabel(folder.isConnected ? "Connected" : "Not connected")
+                .accessibilityLabel(SourcesSettingsVM.statusLabel(isConnected: folder.isConnected))
             VStack(alignment: .leading, spacing: 2) {
                 Text(folder.displayName)
                 Text(folder.path)
@@ -94,10 +93,10 @@ struct SourcesSettingsView: View {
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
-                Text(folder.isConnected ? "Connected" : "Not connected")
+                Text(SourcesSettingsVM.statusLabel(isConnected: folder.isConnected))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(folder.isConnected ? .secondary : Color.orange)
-                Text("\(folder.file_count) files")
+                Text(SourcesSettingsVM.fileCountLabel(folder))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
