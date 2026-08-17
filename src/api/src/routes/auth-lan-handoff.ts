@@ -15,7 +15,7 @@ import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import { usersCollection } from '../db/client.ts';
 import { signAccessToken, REFRESH_TTL_SECONDS } from '../auth/tokens.ts';
-import { userFileAccess } from '../auth/permissions.ts';
+import { toPublicAuthUser, userFileAccess } from '../auth/permissions.ts';
 import { issueRefreshToken } from '../auth/refresh_store.ts';
 import { issueLanHandoffCode, redeemLanHandoffCode } from '../auth/lan_handoff_store.ts';
 import { requireAuth } from '../auth/middleware.ts';
@@ -103,12 +103,7 @@ export const lanHandoffRedeemRoutes = new Elysia().post(
     });
     return {
       access_token,
-      user: {
-        id: user._id.toHexString(),
-        email: user.email,
-        role: user.role,
-        file_access: userFileAccess(user),
-      },
+      user: toPublicAuthUser(user),
     };
   },
   { body: t.Object({ code: t.String() }) },

@@ -13,10 +13,6 @@
  * mirroring auth-flow-e2e.test.ts. Real Mongo required (skips when
  * unreachable via the shared harness convention: collections just fail).
  */
-process.env.MAPLE_RP_ID = 'localhost';
-process.env.MAPLE_ORIGIN = 'http://localhost:3000';
-process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
-
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { ObjectId } from 'mongodb';
 import { buildApp } from '../../src/index.ts';
@@ -28,10 +24,17 @@ import {
   serverStateCollection,
 } from '../../src/db/client.ts';
 import { OWNER_CLAIM_ID, backfillOwnershipClaim } from '../../src/auth/server_claim.ts';
-import { withTestDb } from '../../src/db/test-db.test-helpers.ts';
+import { withTestDb, withTestEnv } from '../../src/db/test-db.test-helpers.ts';
 import { buildRegistrationResponse } from './helpers/soft-authn.ts';
 
-// Per-file database (#2900) — standalone runs must never touch the dev DB.
+// Suite-scoped env + per-file database (#2900/#2904 convention): claimed in
+// beforeAll, restored in afterAll — standalone runs must never touch the dev
+// DB, and the WebAuthn/JWT settings must not leak into sibling suites. The
+// auth stack reads these at request time, so `buildApp` at module scope is
+// fine.
+withTestEnv('MAPLE_RP_ID', 'localhost');
+withTestEnv('MAPLE_ORIGIN', 'http://localhost:3000');
+withTestEnv('MAPLE_JWT_SECRET', 'x'.repeat(32));
 withTestDb(`maple_test_owner_claim_${process.pid}`);
 
 const RP_ID = 'localhost';
