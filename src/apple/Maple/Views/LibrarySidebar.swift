@@ -496,7 +496,13 @@ struct LibrarySidebar: View {
                 let session = sessionFor(url)
                 CloudServerSection(
                     serverURL: url,
-                    folders: cloudFoldersByServer[url] ?? [],
+                    // Disconnected roots (unmounted share, unplugged drive)
+                    // stay out of the sidebar (#2898); the server-admin
+                    // Sources page is where they surface. Deliberately a
+                    // render-time filter: the unfiltered list keeps feeding
+                    // the all-sources timeline and the Imports picker, same
+                    // as the web sidebar's rule.
+                    folders: (cloudFoldersByServer[url] ?? []).filter(\.isConnected),
                     displayName: registry.displayName(for: url)
                                  ?? url.host
                                  ?? url.absoluteString,
