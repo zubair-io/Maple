@@ -35,6 +35,34 @@ describe('TrashApiService', () => {
       expect(outcome).toEqual({ kind: 'ok' });
     });
 
+    // #2841 — this is the direct regression test for the bug: the caller
+    // (`TrashService`) is responsible for resolving a grid `slug:relPath`
+    // address to a Mongo id BEFORE calling `deleteAsset`, but this method
+    // still URL-encodes whatever id it's handed as defense in depth — a
+    // real Mongo ObjectId hex string never needs escaping, but nothing here
+    // should silently mis-route if some future caller ever passed a `/`
+    // through unresolved.
+    it('URL-encodes an id containing a slash into a single path segment', () => {
+      svc.deleteAsset('507f1f77bcf86cd799439011', 'trash').subscribe();
+      // A real Mongo id never needs escaping — asserted here as the normal
+      // case this method is actually exercised with in production.
+      const plain = http.expectOne((r) => r.url === '/api/assets/507f1f77bcf86cd799439011');
+      expect(plain.request.method).toBe('DELETE');
+      plain.flush(null, { status: 204, statusText: 'No Content' });
+
+      // Simulates what would happen if a caller regressed and passed an
+      // unresolved subfolder address straight through — this method must
+      // still encode the `/` rather than let it fall through into the URL
+      // path and 404 against a route that doesn't match.
+      svc.deleteAsset('photos:2024/Trip/IMG_1.dng', 'trash').subscribe();
+      const encoded = http.expectOne(
+        (r) => r.url === '/api/assets/photos%3A2024%2FTrip%2FIMG_1.dng',
+      );
+      expect(encoded.request.method).toBe('DELETE');
+      expect(encoded.request.params.get('intent')).toBe('trash');
+      encoded.flush(null, { status: 204, statusText: 'No Content' });
+    });
+
     it('sends intent=purge on the query string', () => {
       svc.deleteAsset('asset-1', 'purge').subscribe();
       const call = http.expectOne((r) => r.url === '/api/assets/asset-1');
