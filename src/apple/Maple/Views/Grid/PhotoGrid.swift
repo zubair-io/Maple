@@ -111,6 +111,12 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
     /// element, same shape as `multiSelectChecked`/`dragPayload`. `nil`
     /// (the default) disables the context menu for every cell.
     var contextMenuItems: ((Element) -> AnyView?)? = nil
+    /// Bottom-aligned per-cell overlay (#2842 — Browse grid's inline-rename
+    /// filename caption). Called per visible element, same opt-in shape as
+    /// `contextMenuItems`/`dragPayload`; `nil` (the default) renders no
+    /// overlay — every surface besides `BrowseGrid`'s normal (non-merged)
+    /// grid leaves this unset.
+    var renameOverlay: ((Element) -> AnyView?)? = nil
     let onTap: (Element) -> Void
     let makeItem: (Element) -> PhotoGridItem
     let leading: () -> Leading
@@ -130,6 +136,7 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
         multiSelectChecked: ((Element) -> Bool?)? = nil,
         dragPayload: ((Element) -> DraggedAssetPayload?)? = nil,
         contextMenuItems: ((Element) -> AnyView?)? = nil,
+        renameOverlay: ((Element) -> AnyView?)? = nil,
         onTap: @escaping (Element) -> Void,
         makeItem: @escaping (Element) -> PhotoGridItem,
         @ViewBuilder leading: @escaping () -> Leading
@@ -144,6 +151,7 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
         self.multiSelectChecked = multiSelectChecked
         self.dragPayload = dragPayload
         self.contextMenuItems = contextMenuItems
+        self.renameOverlay = renameOverlay
         self.onTap = onTap
         self.makeItem = makeItem
         self.leading = leading
@@ -171,6 +179,9 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
                     onAppear: onAppearItem.map { cb in { cb(element) } },
                     contextMenuItems: contextMenuItems?(element)
                 )
+                .overlay(alignment: .bottom) {
+                    renameOverlay?(element)
+                }
                 // Tag each photo cell so ScrollViewReader.scrollTo can target it.
                 .id(element.id)
             }
@@ -192,6 +203,7 @@ extension PhotoGrid where Leading == EmptyView {
         multiSelectChecked: ((Element) -> Bool?)? = nil,
         dragPayload: ((Element) -> DraggedAssetPayload?)? = nil,
         contextMenuItems: ((Element) -> AnyView?)? = nil,
+        renameOverlay: ((Element) -> AnyView?)? = nil,
         onTap: @escaping (Element) -> Void,
         makeItem: @escaping (Element) -> PhotoGridItem
     ) {
@@ -206,6 +218,7 @@ extension PhotoGrid where Leading == EmptyView {
             multiSelectChecked: multiSelectChecked,
             dragPayload: dragPayload,
             contextMenuItems: contextMenuItems,
+            renameOverlay: renameOverlay,
             onTap: onTap,
             makeItem: makeItem,
             leading: { EmptyView() }

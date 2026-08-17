@@ -226,7 +226,7 @@ public final class BatchRenameViewModel: Identifiable {
         self.smbSource = smbSource
         self.cloudCatalog = cloudCatalog
         self.preview = assets.map {
-            BatchRenamePreviewItem(id: $0.id, oldFilename: Self.fullFilename($0))
+            BatchRenamePreviewItem(id: $0.id, oldFilename: $0.fullFilename)
         }
     }
 
@@ -258,7 +258,7 @@ public final class BatchRenameViewModel: Identifiable {
         switch routing {
         case .unsupported(let reason):
             preview = assets.map {
-                BatchRenamePreviewItem(id: $0.id, oldFilename: Self.fullFilename($0), error: reason)
+                BatchRenamePreviewItem(id: $0.id, oldFilename: $0.fullFilename, error: reason)
             }
         case .filesystem, .smb:
             // Populated (if needed at all) and fully AWAITED before
@@ -285,7 +285,7 @@ public final class BatchRenameViewModel: Identifiable {
         guard let cloudCatalog else {
             return assets.map {
                 BatchRenamePreviewItem(
-                    id: $0.id, oldFilename: Self.fullFilename($0),
+                    id: $0.id, oldFilename: $0.fullFilename,
                     error: "Not connected to the server.")
             }
         }
@@ -294,7 +294,7 @@ public final class BatchRenameViewModel: Identifiable {
         guard !presentIDs.isEmpty else {
             return assets.map {
                 BatchRenamePreviewItem(
-                    id: $0.id, oldFilename: Self.fullFilename($0),
+                    id: $0.id, oldFilename: $0.fullFilename,
                     error: "This photo hasn't finished indexing on the server yet.")
             }
         }
@@ -306,17 +306,17 @@ public final class BatchRenameViewModel: Identifiable {
             return zip(assets, ids).map { asset, stableID in
                 guard let stableID, let item = byID[stableID] else {
                     return BatchRenamePreviewItem(
-                        id: asset.id, oldFilename: Self.fullFilename(asset),
+                        id: asset.id, oldFilename: asset.fullFilename,
                         error: "This photo hasn't finished indexing on the server yet.")
                 }
                 return BatchRenamePreviewItem(
-                    id: asset.id, oldFilename: item.oldFilename ?? Self.fullFilename(asset),
+                    id: asset.id, oldFilename: item.oldFilename ?? asset.fullFilename,
                     newFilename: item.newFilename, error: item.error, duplicate: item.duplicate)
             }
         } catch {
             return assets.map {
                 BatchRenamePreviewItem(
-                    id: $0.id, oldFilename: Self.fullFilename($0),
+                    id: $0.id, oldFilename: $0.fullFilename,
                     error: error.localizedDescription)
             }
         }
@@ -324,18 +324,8 @@ public final class BatchRenameViewModel: Identifiable {
 
     // MARK: - Helpers
 
-    /// The full on-disk / catalog filename (stem + extension).
-    /// `AssetRef.displayName` is inconsistent about including the
-    /// extension — stripped for `primaryURL`-backed refs (Filesystem),
-    /// included as-is for bytes-backed refs (SMB/Cloud/PhotoKit) — so this
-    /// resolves the URL case explicitly rather than re-appending a guessed
-    /// extension. Matches the single-asset rename ticket's identical helper.
-    static func fullFilename(_ asset: AssetRef) -> String {
-        if let url = asset.primaryURL {
-            return url.lastPathComponent
-        }
-        return asset.displayName
-    }
+    /// `fullFilename` moved to `AssetRenameFilename.swift` — shared with
+    /// every other rename surface (Info panel, Browse grid).
 
     static func splitStemExt(_ filename: String) -> (stem: String, ext: String) {
         let ns = filename as NSString
