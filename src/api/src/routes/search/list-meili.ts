@@ -23,7 +23,13 @@ import { loadLibraryRoots, loadLibraryIdToSlug } from '../../indexer/libraries.c
 import { meilisearchClient } from '../../enrichment/meilisearch-client.ts';
 import { child as childLogger } from '../../log.ts';
 import { projectAsset, type SearchResult } from './project.ts';
-import { applyLiveFilter, peopleNames, type SearchQuery } from './query.ts';
+import {
+  applyLiveFilter,
+  peopleNames,
+  widenFromDate,
+  widenToDate,
+  type SearchQuery,
+} from './query.ts';
 
 const searchLog = childLogger('search');
 
@@ -59,6 +65,37 @@ function meiliPeople(resolved: SearchQuery): string[] | undefined {
 }
 
 /**
+ * The capture-date window in the form Meilisearch takes it: an inclusive
+ * lower bound and an EXCLUSIVE upper bound.
+ *
+ * Pushing this down is not an optimisation. Meilisearch returns one page of
+ * `limit` ids ranked by relevance; applying the window only to that page (as
+ * the Mongo re-fetch below does) hides every in-window match that ranked
+ * past it, and leaves `estimatedTotal` counting text matches from outside
+ * the window entirely — an empty grid under a large result count.
+ *
+ * `resolved.to` is inclusive and already widened to the end of its day, so
+ * the exclusive bound is one millisecond past it: at the millisecond
+ * resolution `capturedAt` is stored in, `< to + 1ms` selects the same set as
+ * `<= to`, which keeps this in step with the Mongo `$lte` predicate.
+ */
+function capturedWindow(resolved: SearchQuery): {
+  capturedFrom?: string;
+  capturedBefore?: string;
+} {
+  const from = resolved.from ? widenFromDate(resolved.from) : undefined;
+  const to = resolved.to ? widenToDate(resolved.to) : undefined;
+  const toMs = to === undefined ? Number.NaN : new Date(to).getTime();
+  // An unparseable bound is left to the Mongo predicate rather than guessed
+  // at — a malformed `capturedBefore` would narrow the candidate set.
+  const before = Number.isNaN(toMs) ? undefined : new Date(toMs + 1).toISOString();
+  return {
+    ...(from === undefined ? {} : { capturedFrom: from }),
+    ...(before === undefined ? {} : { capturedBefore: before }),
+  };
+}
+
+/**
  * One page of Meilisearch-ranked results, or `null` when the sidecar isn't
  * configured, this isn't a text query, or the query failed (logged; the
  * caller falls through to Mongo `$text`).
@@ -78,6 +115,7 @@ export async function meiliPage(input: MeiliPageInput): Promise<MeiliPage | null
     const hit = await meili.search(resolved.placeQuery!.trim(), {
       folderId: libraryId,
       people: meiliPeople(resolved),
+      ...capturedWindow(resolved),
       semantic: meili.semanticConfigured(),
       includeHidden: resolved.hidden === 'all',
       onlyHidden: resolved.hidden === 'only',
