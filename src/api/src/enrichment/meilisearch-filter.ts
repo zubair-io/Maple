@@ -29,11 +29,23 @@ function mediaFilter(mediaTypes: MeilisearchMediaType[] | undefined): string | n
     : `mediaType IN [${selected.map((value) => `"${value}"`).join(', ')}]`;
 }
 
+/** The only shape a capture-date bound may take. Every other input here is
+ * sanitised at the point of interpolation (`folderId` stripped to hex, person
+ * names quote-escaped); these two were left to caller discipline, and a
+ * caller that forwarded a raw wire string would have closed the literal early
+ * and appended clauses — lifting the `hidden` exclusion or `folderId` scope.
+ * Callers normalise; this makes the module's guarantee its own. */
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+/** A bound that isn't a canonical instant is dropped, never interpolated.
+ * Dropping only widens the Meilisearch candidate set — the caller's Mongo
+ * predicate still applies the window, so results stay correct. */
+function boundClause(op: string, bound: string | undefined): string[] {
+  return bound !== undefined && ISO_INSTANT.test(bound) ? [`capturedAt ${op} "${bound}"`] : [];
+}
+
 function capturedAtFilters(opts: MeilisearchSearchOptions): string[] {
-  return [
-    ...(opts.capturedFrom ? [`capturedAt >= "${opts.capturedFrom}"`] : []),
-    ...(opts.capturedBefore ? [`capturedAt < "${opts.capturedBefore}"`] : []),
-  ];
+  return [...boundClause('>=', opts.capturedFrom), ...boundClause('<', opts.capturedBefore)];
 }
 
 /** Hidden-mode clause: `onlyHidden` narrows to hidden docs (`hidden = true`,
