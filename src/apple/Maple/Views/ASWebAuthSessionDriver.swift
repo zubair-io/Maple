@@ -165,12 +165,16 @@ final class ASWebAuthSessionDriver: NSObject, ASWebAuthenticationPresentationCon
         let id: String
         let email: String
         let role: String
+        // #2899 — absent on pre-upgrade servers; AuthUser applies the
+        // granted-by-default rule.
+        let file_access: Bool?
       }
       let user: U
     }
     let r = try JSONDecoder().decode(Redeemed.self, from: data)
     let tokens = AuthTokens(access: r.access_token, refresh: r.refresh_token)
-    let user = AuthUser(id: r.user.id, email: r.user.email, role: r.user.role)
+    let user = AuthUser(
+      id: r.user.id, email: r.user.email, role: r.user.role, file_access: r.user.file_access)
     return .success(tokens, user)
   }
 

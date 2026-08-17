@@ -373,6 +373,17 @@ extension AppShell {
         case .smb(let share):
             connectSavedSMB(share)
         case .cloudLibrary(let serverID, let folderID, let libraryPath):
+            // Saved before the operator revoked file access (#2899)? The
+            // browse grid would just 403 — fall back to the cross-source
+            // Timeline instead. `sessionFor` restores from cache without a
+            // network round-trip, so this check is cold-start-safe.
+            let session = sessionFor(serverID)
+            if !session.isSignedIn { await session.bootstrapAndRestore() }
+            guard session.hasFileAccess else {
+                SourceSelectionStore.clear()
+                openAllSourcesTimeline()
+                return
+            }
             loadCloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath)
         }
     }
@@ -390,6 +401,13 @@ extension AppShell {
             let session = sessionFor(serverURL)
             if !session.isSignedIn { await session.bootstrapAndRestore() }
             guard session.isSignedIn else { continue }
+            // A member without file access (#2899) has no browse surface to
+            // land on — the cross-source Timeline is their home, matching
+            // the web app's restricted-member landing.
+            guard session.hasFileAccess else {
+                openAllSourcesTimeline()
+                return
+            }
             let libs = await loadCloudFoldersFor(serverURL)
             if let first = libs.first {
                 loadCloudLibrary(serverID: serverURL,

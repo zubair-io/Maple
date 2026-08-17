@@ -103,6 +103,27 @@ final class AuthSessionTests: XCTestCase {
     XCTAssertEqual(s.user, freshUser)
     XCTAssertTrue(s.hasCredentials)
     XCTAssertEqual(AuthUserCache.load(server: server), freshUser)
+    // Pre-#2899 wire shape (no `file_access` key) never restricts.
+    XCTAssertTrue(s.hasFileAccess)
+  }
+
+  func testBootstrap_fileAccessRevoked_flowsIntoHasFileAccess() async throws {
+    try saveTokensOrSkip(tokens)
+    let restricted = AuthUser(id: "u-r", email: "r@x", role: "member", file_access: false)
+    StubURLProtocol.responder = { _ in .http(status: 200, body: Self.meBody(user: restricted)) }
+    let s = makeSession()
+    await s.bootstrapAndRestore()
+    XCTAssertEqual(s.user?.file_access, false)
+    XCTAssertFalse(s.hasFileAccess)
+  }
+
+  func testHasFileAccess_ownerIgnoresRevokedFlag() {
+    // Mirrors the server rule: an owner always has file access, whatever
+    // a (mis)stored flag says.
+    let owner = AuthUser(id: "o", email: "o@x", role: "owner", file_access: false)
+    XCTAssertTrue(owner.hasFileAccess)
+    let member = AuthUser(id: "m", email: "m@x", role: "member", file_access: true)
+    XCTAssertTrue(member.hasFileAccess)
   }
 
   // MARK: - bootstrap transient failures (cached state preserved)
@@ -357,7 +378,11 @@ final class AuthSessionTests: XCTestCase {
   // MARK: - helpers
 
   private static func meBody(user: AuthUser) -> Data {
-    let json = #"{"user":{"id":"\#(user.id)","email":"\#(user.email)","role":"\#(user.role)"},"credentials":[]}"#
+    // `file_access` is emitted only when the fixture carries one, so the
+    // default fixtures keep exercising the pre-#2899 wire shape (absent
+    // key ⇒ granted).
+    let fileAccess = user.file_access.map { #","file_access":\#($0)"# } ?? ""
+    let json = #"{"user":{"id":"\#(user.id)","email":"\#(user.email)","role":"\#(user.role)"\#(fileAccess)},"credentials":[]}"#
     return Data(json.utf8)
   }
 }
