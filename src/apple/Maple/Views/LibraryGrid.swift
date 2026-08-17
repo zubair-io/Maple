@@ -23,11 +23,41 @@ struct LibraryGrid: View {
     let onPrimeSession: (AssetRef) -> Void
     /// Tap on a sub-folder tile — drills the grid into that folder.
     let onNavigateFolder: (URL) -> Void
+    /// Fired by the empty state's "Connect" button when `vm.photosAuthNeeded`
+    /// is true. Same closure `BrowseGrid` gets on Mac / iPad — without it the
+    /// panel renders disabled and the phone has no route to the system
+    /// permission prompt at all (#2924). `nil` in previews.
+    var onGrantPhotosAccess: (() -> Void)? = nil
 
     /// Local-only thumbnail provider.
     @State private var provider = ThumbnailProvider.local()
 
+    /// Mirrors `BrowseGrid.isEmpty` — the empty state takes over only when
+    /// the source yields neither images nor sub-folders.
+    private var isEmpty: Bool {
+        vm.assets.isEmpty && vm.subfolders.isEmpty
+    }
+
     var body: some View {
+        Group {
+            // Zero images and zero sub-folders — hand the surface to the
+            // shared overlay, which explains WHY it's empty (permission
+            // panel / spinner / load error / no source picked). Before
+            // #2924 this branch didn't exist and the phone rendered an
+            // empty ScrollView, i.e. nothing.
+            if isEmpty {
+                BrowseEmptyState(vm: vm, onGrantPhotosAccess: onGrantPhotosAccess)
+            } else {
+                grid
+            }
+        }
+        .accessibilityIdentifier("library-grid")
+        // Maple surface behind the grid (incl. behind the translucent bars) so the
+        // Library matches BrowseGrid / CloudSearchView — Copilot review on #1646.
+        .background(MapleTokens.bg.ignoresSafeArea())
+    }
+
+    private var grid: some View {
         ScrollView {
             PhotoGrid(
                 data: vm.assets,
@@ -58,10 +88,6 @@ struct LibraryGrid: View {
             )
             .padding(2)
         }
-        .accessibilityIdentifier("library-grid")
-        // Maple surface behind the grid (incl. behind the translucent bars) so the
-        // Library matches BrowseGrid / CloudSearchView — Copilot review on #1646.
-        .background(MapleTokens.bg.ignoresSafeArea())
     }
 
     // MARK: - Overlay derivation

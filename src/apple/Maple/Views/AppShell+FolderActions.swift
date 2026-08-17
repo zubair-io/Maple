@@ -393,8 +393,20 @@ extension AppShell {
     /// staring at "Pick a folder in the sidebar." Priority:
     /// 1. First registered cloud server's first library
     /// 2. Most-recent local folder from SavedFolderStore
-    /// PhotoKit is intentionally NOT auto-picked — it's permission-
-    /// gated and ambushy.
+    /// 3. The Photos library
+    ///
+    /// PhotoKit sits last because a user who already has a cloud library or
+    /// a saved folder has told us what they browse. It used to be excluded
+    /// outright as "permission-gated and ambushy", but that hasn't been
+    /// true since #2454 made selection and authorization separate steps:
+    /// `loadPhotos` only reads `authorizationStatus()` (which never
+    /// prompts) and hands an unauthorized library to the grid's permission
+    /// panel. The system dialog still fires from exactly one place — that
+    /// panel's Connect button.
+    ///
+    /// Landing here IS the point on a fresh install (#2924): with no cloud
+    /// server and no saved folder, the alternative was an empty grid whose
+    /// copy pointed at a sidebar the phone keeps behind a drawer.
     @MainActor
     func autoPickInitialSource() async {
         // Tracks whether any signed-in server denied file access (#2899):
@@ -424,9 +436,14 @@ extension AppShell {
             openSavedFolder(recent)
             return
         }
+        // Restricted members keep landing on the Timeline (#2899) — that
+        // decision is about a server account with no browse surface, and the
+        // Photos fallback below doesn't change it.
         if sawRestrictedServer {
             openAllSourcesTimeline()
+            return
         }
+        loadPhotos(filter: .all)
     }
 
     // MARK: - Sessions
