@@ -87,7 +87,7 @@ extension BatchRenameViewModel {
         var items: [BatchRenamePreviewItem] = []
         items.reserveCapacity(assets.count)
         for (index, asset) in assets.enumerated() {
-            let full = fullFilename(asset)
+            let full = asset.fullFilename
             let (stem, ext) = splitStemExt(full)
             do {
                 let rendered = try FilenameTemplateEngine.render(
