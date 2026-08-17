@@ -29,6 +29,10 @@ public final class AuthSession {
   public private(set) var hasCredentials: Bool
   public var isSignedIn: Bool { hasCredentials || user != nil }
   public var isOwner: Bool { user?.isOwner ?? false }
+  /// Per-user "file access" permission (#2899). Defaults to granted while
+  /// signed out or before `/me` lands — route-level 401/403s are the
+  /// enforcement; this only narrows UI for known-restricted members.
+  public var hasFileAccess: Bool { user?.hasFileAccess ?? true }
 
   private let client: AuthClient
 

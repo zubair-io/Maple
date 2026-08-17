@@ -496,13 +496,21 @@ struct LibrarySidebar: View {
                 let session = sessionFor(url)
                 CloudServerSection(
                     serverURL: url,
-                    // Disconnected roots (unmounted share, unplugged drive)
-                    // stay out of the sidebar (#2898); the server-admin
-                    // Sources page is where they surface. Deliberately a
-                    // render-time filter: the unfiltered list keeps feeding
-                    // the all-sources timeline and the Imports picker, same
-                    // as the web sidebar's rule.
-                    folders: (cloudFoldersByServer[url] ?? []).filter(\.isConnected),
+                    // Two independent render-time gates, same rules as the
+                    // web sidebar:
+                    //   - a member without the file-access permission (#2899)
+                    //     gets no folder tree at all for this server —
+                    //     browsing is 403'd server-side, and hiding the rows
+                    //     also removes every folder-mutation context menu;
+                    //   - disconnected roots (unmounted share, unplugged
+                    //     drive) stay out of the tree (#2898), surfacing on
+                    //     the server-admin Sources page instead.
+                    // Both are deliberately render-time filters: the
+                    // unfiltered list keeps feeding the all-sources timeline
+                    // and the Imports picker.
+                    folders: session.hasFileAccess
+                        ? (cloudFoldersByServer[url] ?? []).filter(\.isConnected)
+                        : [],
                     displayName: registry.displayName(for: url)
                                  ?? url.host
                                  ?? url.absoluteString,
