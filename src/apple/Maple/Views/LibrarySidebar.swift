@@ -197,12 +197,12 @@ struct LibrarySidebar: View {
                     separator
                     cloudServersSection
                     if hasVisibleCloudServers { separator }
-                    if showsFolders {
+                    if shouldRenderFoldersSection {
                         foldersSection
                         separator
                     }
                     photosSection
-                    if showsConnections {
+                    if shouldRenderConnectionsSection {
                         separator
                         connectionsSection
                     }
@@ -242,12 +242,19 @@ struct LibrarySidebar: View {
     }
 
     // MARK: - Section visibility (#2925)
+    //
+    // `shouldRender…`, deliberately not `shows…`: `showFolders` /
+    // `showConnections` already exist a few lines up as the section
+    // headers' expand/collapse state. A user can collapse a section that
+    // has content, and a section with no content isn't drawn at all —
+    // different questions, and near-identical names would invite reading
+    // one as the other.
 
-    private var showsFolders: Bool {
+    private var shouldRenderFoldersSection: Bool {
         LibrarySidebarVM.showsFoldersSection(savedFolderCount: savedFolders.count)
     }
 
-    private var showsConnections: Bool {
+    private var shouldRenderConnectionsSection: Bool {
         LibrarySidebarVM.showsConnectionsSection(savedShareCount: savedShares.count)
     }
 
