@@ -186,17 +186,26 @@ struct LibrarySidebar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ScrollView {
+                // Source sections with nothing connected are omitted
+                // entirely, separators included (#2925) — Settings →
+                // Sources is where they're registered and recovered.
+                // Photos is the deliberate exception; see
+                // `LibrarySidebarVM.showsPhotosSection`.
                 VStack(alignment: .leading, spacing: 0) {
                     timelineRow
                     mapRow
                     separator
                     cloudServersSection
-                    if !registry.servers.isEmpty { separator }
-                    foldersSection
-                    separator
+                    if hasVisibleCloudServers { separator }
+                    if showsFolders {
+                        foldersSection
+                        separator
+                    }
                     photosSection
-                    separator
-                    connectionsSection
+                    if showsConnections {
+                        separator
+                        connectionsSection
+                    }
                 }
                 .padding(.vertical, 4)
             }
@@ -232,44 +241,68 @@ struct LibrarySidebar: View {
         }
     }
 
+    // MARK: - Section visibility (#2925)
+
+    private var showsFolders: Bool {
+        LibrarySidebarVM.showsFoldersSection(savedFolderCount: savedFolders.count)
+    }
+
+    private var showsConnections: Bool {
+        LibrarySidebarVM.showsConnectionsSection(savedShareCount: savedShares.count)
+    }
+
+    /// Whether a given server's section renders. `cloudFoldersByServer[url]`
+    /// being absent means "not loaded yet", which the rule treats as visible
+    /// — so the `nil` here is meaningful and must not be flattened to `[]`.
+    private func showsCloudServer(_ url: URL, session: AuthSession) -> Bool {
+        LibrarySidebarVM.showsCloudServerSection(
+            isSignedIn: session.isSignedIn,
+            hasFileAccess: session.hasFileAccess,
+            connectedFolderCount: cloudFoldersByServer[url]?.filter(\.isConnected).count
+        )
+    }
+
+    /// Drives the separator below the cloud block. Counts servers, not
+    /// folders: with every server hidden the block renders nothing (or just
+    /// the add-a-server button, which brings its own spacing).
+    private var hasVisibleCloudServers: Bool {
+        registry.servers.contains { showsCloudServer($0, session: sessionFor($0)) }
+    }
+
     // MARK: - Sections
 
     private var foldersSection: some View {
         Section {
             if showFolders {
-                if savedFolders.isEmpty {
-                    emptyFolders
-                } else {
-                    ForEach(savedFolders) { folder in
-                        FolderTreeRow(
-                            url: URL(fileURLWithPath: folder.path),
-                            displayName: folder.displayName,
-                            rootBookmark: folder.bookmark,
-                            depth: 0,
-                            selectedPath: selectedPathBinding,
-                            refreshGeneration: folderRefreshGeneration,
-                            onPick: { url in
-                                if url.path == folder.path {
-                                    selection = .folder(path: folder.path)
-                                    onPickFolder(folder)
-                                } else {
-                                    selection = .folder(path: url.path)
-                                    onPickAncestor(url, folder.bookmark)
-                                }
-                            },
-                            onRemove: {
-                                onRemoveFolder(folder)
-                                refreshFolders()
-                            },
-                            onCreateFolder: onCreateFolder,
-                            onRenameFolder: onRenameFolder,
-                            onTrashFolder: onTrashFolder,
-                            onShowTrash: onShowLocalTrash,
-                            onDropAssets: onDropAssets,
-                            onDropURLs: onDropURLs,
-                            selectedAssetCount: selectedAssetCount
-                        )
-                    }
+                ForEach(savedFolders) { folder in
+                    FolderTreeRow(
+                        url: URL(fileURLWithPath: folder.path),
+                        displayName: folder.displayName,
+                        rootBookmark: folder.bookmark,
+                        depth: 0,
+                        selectedPath: selectedPathBinding,
+                        refreshGeneration: folderRefreshGeneration,
+                        onPick: { url in
+                            if url.path == folder.path {
+                                selection = .folder(path: folder.path)
+                                onPickFolder(folder)
+                            } else {
+                                selection = .folder(path: url.path)
+                                onPickAncestor(url, folder.bookmark)
+                            }
+                        },
+                        onRemove: {
+                            onRemoveFolder(folder)
+                            refreshFolders()
+                        },
+                        onCreateFolder: onCreateFolder,
+                        onRenameFolder: onRenameFolder,
+                        onTrashFolder: onTrashFolder,
+                        onShowTrash: onShowLocalTrash,
+                        onDropAssets: onDropAssets,
+                        onDropURLs: onDropURLs,
+                        selectedAssetCount: selectedAssetCount
+                    )
                 }
             }
         } header: {
@@ -284,20 +317,10 @@ struct LibrarySidebar: View {
         }
     }
 
-    private var emptyFolders: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("No local folders")
-                .font(MapleTokens.Typography.body)
-                .foregroundStyle(MapleTokens.textMuted)
-            Button("Add one", action: onAddFolder)
-                .buttonStyle(.plain)
-                .font(MapleTokens.Typography.body)
-                .foregroundStyle(MapleTokens.primary)
-                .underline()
-        }
-        .padding(.horizontal, MapleTokens.Spacing.rowHorizontal)
-        .padding(.vertical, MapleTokens.Spacing.rowVertical)
-    }
+    // `emptyFolders` — the "No local folders / Add one" placeholder — was
+    // removed with #2925. The section it lived in no longer renders when
+    // there are no folders, and Settings → Sources took over adding the
+    // first one.
 
     @ViewBuilder
     private var photosSection: some View {
@@ -494,60 +517,18 @@ struct LibrarySidebar: View {
                 // instances and the task's id would track a different object than
                 // the UI renders.
                 let session = sessionFor(url)
-                CloudServerSection(
-                    serverURL: url,
-                    // Two independent render-time gates, same rules as the
-                    // web sidebar:
-                    //   - a member without the file-access permission (#2899)
-                    //     gets no folder tree at all for this server —
-                    //     browsing is 403'd server-side, and hiding the rows
-                    //     also removes every folder-mutation context menu;
-                    //   - disconnected roots (unmounted share, unplugged
-                    //     drive) stay out of the tree (#2898), surfacing on
-                    //     the server-admin Sources page instead.
-                    // Both are deliberately render-time filters: the
-                    // unfiltered list keeps feeding the all-sources timeline
-                    // and the Imports picker.
-                    folders: session.hasFileAccess
-                        ? (cloudFoldersByServer[url] ?? []).filter(\.isConnected)
-                        : [],
-                    displayName: registry.displayName(for: url)
-                                 ?? url.host
-                                 ?? url.absoluteString,
-                    isExpanded: Binding(
-                        get: { cloudServersExpanded[url] ?? true },
-                        set: { cloudServersExpanded[url] = $0 }
-                    ),
-                    selection: $selection,
-                    onPickPath: onPickCloudLibrary,
-                    onListDir: onListCloudDir,
-                    cloudCurrentPath: pathFor(server: url),
-                    onSignOut: { onSignOutCloudServer(url) },
-                    onRemoveServer: { onRemoveCloudServer(url) },
-                    onRename: { newName in
-                        registry.setDisplayName(newName, for: url)
-                    },
-                    session: session,
-                    onSignIn: { onSignInCloudServer(url) },
-                    folderRefreshGeneration: folderRefreshGeneration,
-                    onCreateFolder: { libraryFolderID, libraryRootPath, parentAbsPath, name in
-                        onCreateCloudFolder(url, libraryFolderID, libraryRootPath, parentAbsPath, name)
-                    },
-                    onRenameFolder: { libraryFolderID, libraryRootPath, absPath, newName in
-                        onRenameCloudFolder(url, libraryFolderID, libraryRootPath, absPath, newName)
-                    },
-                    onTrashFolder: { libraryFolderID, libraryRootPath, absPath in
-                        onTrashCloudFolder(url, libraryFolderID, libraryRootPath, absPath)
-                    },
-                    onShowTrash: onShowCloudTrash.map { callback in
-                        { libraryFolderID, displayName in callback(url, libraryFolderID, displayName) }
-                    },
-                    onDropAssets: { libraryFolderID, libraryRootPath, absPath, ids, isCopy in
-                        onDropAssetsCloud(url, libraryFolderID, libraryRootPath, absPath, ids, isCopy)
-                    },
-                    onDropURLs: onDropURLs,
-                    selectedAssetCount: selectedAssetCount
-                )
+                Group {
+                    if showsCloudServer(url, session: session) {
+                        cloudServerSection(url: url, session: session)
+                    } else {
+                        // Signed in, folder list loaded, nothing reachable
+                        // (#2925) — the section would be a header over an
+                        // empty tree. The load task below still has to run
+                        // so a re-mounted share brings the section back,
+                        // hence a zero-height stand-in rather than nothing.
+                        Color.clear.frame(height: 0)
+                    }
+                }
                 // Keyed on the server's signed-in state so the load RE-RUNS when
                 // auth flips — most importantly false→true after the user signs
                 // in. The old identity-only `.task` ran once and cached whatever
@@ -591,6 +572,66 @@ struct LibrarySidebar: View {
             }
         }
         .padding(.horizontal, 4)
+    }
+
+    /// One registered server's tree. Extracted from the `ForEach` body so
+    /// the #2925 visibility branch above reads as a branch rather than as
+    /// forty lines of arguments wrapped in an `if`.
+    private func cloudServerSection(url: URL, session: AuthSession) -> some View {
+        CloudServerSection(
+            serverURL: url,
+            // Two independent render-time gates, same rules as the
+            // web sidebar:
+            //   - a member without the file-access permission (#2899)
+            //     gets no folder tree at all for this server —
+            //     browsing is 403'd server-side, and hiding the rows
+            //     also removes every folder-mutation context menu;
+            //   - disconnected roots (unmounted share, unplugged
+            //     drive) stay out of the tree (#2898), surfacing on
+            //     the server-admin Sources page instead.
+            // Both are deliberately render-time filters: the
+            // unfiltered list keeps feeding the all-sources timeline
+            // and the Imports picker.
+            folders: session.hasFileAccess
+                ? (cloudFoldersByServer[url] ?? []).filter(\.isConnected)
+                : [],
+            displayName: registry.displayName(for: url)
+                         ?? url.host
+                         ?? url.absoluteString,
+            isExpanded: Binding(
+                get: { cloudServersExpanded[url] ?? true },
+                set: { cloudServersExpanded[url] = $0 }
+            ),
+            selection: $selection,
+            onPickPath: onPickCloudLibrary,
+            onListDir: onListCloudDir,
+            cloudCurrentPath: pathFor(server: url),
+            onSignOut: { onSignOutCloudServer(url) },
+            onRemoveServer: { onRemoveCloudServer(url) },
+            onRename: { newName in
+                registry.setDisplayName(newName, for: url)
+            },
+            session: session,
+            onSignIn: { onSignInCloudServer(url) },
+            folderRefreshGeneration: folderRefreshGeneration,
+            onCreateFolder: { libraryFolderID, libraryRootPath, parentAbsPath, name in
+                onCreateCloudFolder(url, libraryFolderID, libraryRootPath, parentAbsPath, name)
+            },
+            onRenameFolder: { libraryFolderID, libraryRootPath, absPath, newName in
+                onRenameCloudFolder(url, libraryFolderID, libraryRootPath, absPath, newName)
+            },
+            onTrashFolder: { libraryFolderID, libraryRootPath, absPath in
+                onTrashCloudFolder(url, libraryFolderID, libraryRootPath, absPath)
+            },
+            onShowTrash: onShowCloudTrash.map { callback in
+                { libraryFolderID, displayName in callback(url, libraryFolderID, displayName) }
+            },
+            onDropAssets: { libraryFolderID, libraryRootPath, absPath, ids, isCopy in
+                onDropAssetsCloud(url, libraryFolderID, libraryRootPath, absPath, ids, isCopy)
+            },
+            onDropURLs: onDropURLs,
+            selectedAssetCount: selectedAssetCount
+        )
     }
 
     private var separator: some View {

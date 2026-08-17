@@ -326,6 +326,7 @@ enum SettingsTab: String {
     case general
     case backup
     case selfHosted
+    case sources
     case pano
     case observability
     case finder
@@ -356,6 +357,13 @@ struct SettingsView: View {
             SelfHostedSettingsTab(sessionFor: sessionFor)
                 .tabItem { Label("Cloud", systemImage: "cloud") }
                 .tag(SettingsTab.selfHosted)
+            // #2925: the sidebar hides source sections with nothing
+            // connected, which takes their "+" buttons with them. This tab
+            // is where sources are registered and removed instead.
+            LibrarySourcesSettingsView()
+                .tabItem { Label("Sources", systemImage: "externaldrive") }
+                .tag(SettingsTab.sources)
+                .accessibilityIdentifier("settings.tab.sources")
             PanoSettingsView()
                 .tabItem { Label("Pano", systemImage: "photo.stack") }
                 .tag(SettingsTab.pano)
