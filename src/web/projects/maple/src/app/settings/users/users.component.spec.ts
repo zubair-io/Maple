@@ -61,6 +61,7 @@ describe('UsersComponent', () => {
 
   let listUsers: ReturnType<typeof vi.fn>;
   let setUserFileAccess: ReturnType<typeof vi.fn>;
+  let setUserRole: ReturnType<typeof vi.fn>;
 
   async function setup(
     authOverrides: Partial<AuthService> = {},
@@ -70,6 +71,9 @@ describe('UsersComponent', () => {
     listUsers = vi.fn(() => of(ROSTER));
     setUserFileAccess = vi.fn((id: string, granted: boolean) =>
       of({ ...ROSTER.find((u) => u.id === id)!, file_access: granted }),
+    );
+    setUserRole = vi.fn((id: string, role: 'owner' | 'member') =>
+      of({ ...ROSTER.find((u) => u.id === id)!, role }),
     );
     await TestBed.configureTestingModule({
       imports: [UsersComponent],
@@ -87,7 +91,7 @@ describe('UsersComponent', () => {
         },
         {
           provide: BunApiBackendService,
-          useValue: { listUsers, setUserFileAccess, ...apiOverrides },
+          useValue: { listUsers, setUserFileAccess, setUserRole, ...apiOverrides },
         },
       ],
     }).compileComponents();
@@ -146,6 +150,31 @@ describe('UsersComponent', () => {
     const memberToggle = rows[1].querySelector<HTMLInputElement>('input[type="checkbox"]');
     expect(memberToggle?.checked).toBe(true);
     expect(rows[1].textContent).not.toContain('YOU');
+  });
+
+  it("changing another user's role PATCHes it; your own row has no select (#2921)", async () => {
+    await setup();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+
+    const rows = el().querySelectorAll('.member-row');
+    // Your own row: read-only chip, no select.
+    expect(rows[0].querySelector('.role-select')).toBeNull();
+    expect(rows[0].querySelector('.role-chip')).not.toBeNull();
+
+    const select = rows[1].querySelector<HTMLSelectElement>('.role-select')!;
+    expect(select.value).toBe('member');
+    select.value = 'owner';
+    select.dispatchEvent(new Event('change'));
+    await settle();
+    fixture.detectChanges();
+
+    expect(setUserRole).toHaveBeenCalledWith('u2', 'owner');
+    // Promoted row re-renders as owner: file-access column becomes "always".
+    const after = el().querySelectorAll('.member-row')[1];
+    expect(after.querySelector<HTMLSelectElement>('.role-select')!.value).toBe('owner');
+    expect(after.textContent).toContain('always');
   });
 
   it('toggling a member off PATCHes file_access=false and re-renders unchecked', async () => {

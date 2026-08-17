@@ -74,6 +74,20 @@ export class UsersComponent implements OnInit {
     }
   }
 
+  async setRole(user: ApiUser, role: 'owner' | 'member'): Promise<void> {
+    if (role === user.role) return;
+    this.togglingId.set(user.id);
+    this.error.set(null);
+    try {
+      const updated = await firstValueFrom(this.api.setUserRole(user.id, role));
+      this.users.update((list) => list.map((u) => (u.id === updated.id ? updated : u)));
+    } catch (e: unknown) {
+      this.error.set(errorMessage(e));
+    } finally {
+      this.togglingId.set(null);
+    }
+  }
+
   async setFileAccess(user: ApiUser, granted: boolean): Promise<void> {
     this.togglingId.set(user.id);
     this.error.set(null);

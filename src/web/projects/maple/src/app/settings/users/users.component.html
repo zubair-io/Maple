@@ -68,9 +68,25 @@
                 <span class="you-chip">YOU</span>
               }
             </div>
-            <span class="role-chip" [class.owner]="u.role === 'owner'">
-              {{ u.role.toUpperCase() }}
-            </span>
+            @if (u.id === currentUser()?.id) {
+              <!-- Your own role isn't self-service — a misclick here would
+                   drop your admin UI mid-session; another owner demotes you. -->
+              <span class="role-chip" [class.owner]="u.role === 'owner'">
+                {{ u.role.toUpperCase() }}
+              </span>
+            } @else {
+              <select
+                class="role-select"
+                [class.owner]="u.role === 'owner'"
+                [disabled]="togglingId() === u.id"
+                [value]="u.role"
+                (change)="setRole(u, $any($event.target).value)"
+                [attr.aria-label]="'Role for ' + u.email"
+              >
+                <option value="owner">OWNER</option>
+                <option value="member">MEMBER</option>
+              </select>
+            }
             <span class="file-access-cell">
               @if (u.role === 'owner') {
                 <span class="dim">always</span>
