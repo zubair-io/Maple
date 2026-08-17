@@ -397,16 +397,20 @@ extension AppShell {
     /// gated and ambushy.
     @MainActor
     func autoPickInitialSource() async {
+        // Tracks whether any signed-in server denied file access (#2899):
+        // such a member has no browse surface anywhere, so once every other
+        // fallback is exhausted the cross-source Timeline is their home,
+        // matching the web app's restricted-member landing.
+        var sawRestrictedServer = false
         for serverURL in CloudServerRegistry.shared.servers {
             let session = sessionFor(serverURL)
             if !session.isSignedIn { await session.bootstrapAndRestore() }
             guard session.isSignedIn else { continue }
-            // A member without file access (#2899) has no browse surface to
-            // land on — the cross-source Timeline is their home, matching
-            // the web app's restricted-member landing.
+            // Restricted on THIS server — keep checking the others; the
+            // same account can be full-access on a different server.
             guard session.hasFileAccess else {
-                openAllSourcesTimeline()
-                return
+                sawRestrictedServer = true
+                continue
             }
             let libs = await loadCloudFoldersFor(serverURL)
             if let first = libs.first {
@@ -419,6 +423,9 @@ extension AppShell {
         if let recent = SavedFolderStore.mostRecent() {
             openSavedFolder(recent)
             return
+        }
+        if sawRestrictedServer {
+            openAllSourcesTimeline()
         }
     }
 
