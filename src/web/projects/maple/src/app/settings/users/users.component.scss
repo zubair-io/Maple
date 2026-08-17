@@ -327,3 +327,29 @@
   line-height: 1.5;
   max-width: 540px;
 }
+
+// #2921 — per-row role select (other users' rows; your own row keeps the
+// read-only chip). Styled to sit where the role chip sits.
+.role-select {
+  font-family: var(--s-mono);
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 0.5px solid var(--s-border);
+  background: var(--s-surface2);
+  color: var(--s-text-mid);
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  justify-self: start;
+  cursor: pointer;
+
+  &.owner {
+    color: var(--s-warn, #d99a3d);
+    border-color: var(--s-warn, #d99a3d);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+}
