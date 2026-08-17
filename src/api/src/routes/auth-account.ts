@@ -10,14 +10,14 @@ import { ObjectId } from 'mongodb';
 import { usersCollection, credentialsCollection } from '../db/client.ts';
 import {
   buildRegistrationOptions,
-  verifyRegistration,
   consumeChallenge,
   buildAuthenticationOptions,
   verifyAuthentication,
+  consumeRegistrationCeremony,
 } from '../auth/webauthn.ts';
 import { signStepUpToken, STEP_UP_TTL_SECONDS } from '../auth/tokens.ts';
 import { requireAuth, stepUpBeforeHandle } from '../auth/middleware.ts';
-import { userFileAccess } from '../auth/permissions.ts';
+import { toPublicAuthUser } from '../auth/permissions.ts';
 
 function jwtSecret(): string {
   const s = process.env.MAPLE_JWT_SECRET;
@@ -46,14 +46,7 @@ export const accountRoutes = new Elysia({ prefix: '/api/auth' })
       )
       .toArray();
     return {
-      user: user
-        ? {
-            id: user._id.toHexString(),
-            email: user.email,
-            role: user.role,
-            file_access: userFileAccess(user),
-          }
-        : null,
+      user: user ? toPublicAuthUser(user) : null,
       credentials: creds.map((c) => ({
         id: c._id.toHexString(),
         device_label: c.device_label,
@@ -142,28 +135,16 @@ export const accountRoutes = new Elysia({ prefix: '/api/auth' })
     '/credentials/verify',
     async ({ auth, body, set }) => {
       const userId = new ObjectId(auth.user.sub);
-      const clientChallenge = body.credential?.response?.clientDataJSON
-        ? JSON.parse(Buffer.from(body.credential.response.clientDataJSON, 'base64url').toString())
-            .challenge
-        : '';
-      const challengeRow = await consumeChallenge(clientChallenge);
-      if (
-        challengeRow.purpose !== 'add_credential' ||
-        !challengeRow.user_id ||
-        !challengeRow.user_id.equals(userId)
-      ) {
-        set.status = 400;
-        return { error: 'challenge mismatch' };
-      }
-      const verification = await verifyRegistration({
-        response: body.credential,
-        expectedChallenge: challengeRow.challenge,
+      const ceremony = await consumeRegistrationCeremony({
+        credential: body.credential,
+        expect: (row) =>
+          row.purpose === 'add_credential' && row.user_id != null && row.user_id.equals(userId),
       });
-      if (!verification.verified || !verification.registrationInfo) {
+      if (!ceremony.ok) {
         set.status = 400;
-        return { error: 'verification failed' };
+        return { error: ceremony.error };
       }
-      const reg = verification.registrationInfo;
+      const reg = ceremony.registrationInfo;
       const c = await credentialsCollection();
       const ins = await c.insertOne({
         user_id: userId,
