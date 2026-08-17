@@ -44,6 +44,7 @@ import { Elysia } from 'elysia';
 import { swagger } from '@elysiajs/swagger';
 import { child as childLogger } from './log.ts';
 import { ensureJwtSecret } from './auth/jwt-bootstrap.ts';
+import { backfillOwnershipClaim } from './auth/server_claim.ts';
 import { requestContext } from './middleware/request-context.ts';
 import { healthRoutes } from './routes/health.ts';
 import { networkPublicRoutes } from './routes/network.ts';
@@ -271,6 +272,10 @@ async function start(): Promise<void> {
 
     try {
       await ensureIndexes();
+      // #2920 — plant the ownership sentinel on installs whose owner
+      // predates it (or came from dev-login), so an invited registration
+      // can never win the claim. Self-gating: one point-read per boot.
+      await backfillOwnershipClaim();
       log.info('DB ready');
     } catch (err) {
       log.error(
