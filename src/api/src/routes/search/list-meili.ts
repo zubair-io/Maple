@@ -65,6 +65,29 @@ function meiliPeople(resolved: SearchQuery): string[] | undefined {
 }
 
 /**
+ * A wire date bound as a canonical ISO instant, shifted by `offsetMs`, or
+ * `undefined` when it isn't a parseable date.
+ *
+ * Normalising is load-bearing, not cosmetic. `from`/`to` arrive as
+ * `t.Optional(t.String())` with no date validation, `widenFromDate` /
+ * `widenToDate` return a non-`YYYY-MM-DD` string unmodified, and
+ * `meilisearch-filter.ts` interpolates these bounds straight into the filter
+ * expression (`capturedAt >= "${capturedFrom}"`) — it escapes `folderId` and
+ * person names but trusts the caller for these. A bound carrying a double
+ * quote would therefore close the literal early and append attacker-chosen
+ * clauses, enough to lift the `hidden` exclusion or the `folderId` scope. A
+ * canonical instant cannot carry a quote.
+ *
+ * An unparseable bound is dropped rather than guessed at. The Mongo
+ * predicate still applies it, so results stay correct either way.
+ */
+function isoInstant(bound: string | undefined, offsetMs: number): string | undefined {
+  if (bound === undefined) return undefined;
+  const ms = new Date(bound).getTime();
+  return Number.isNaN(ms) ? undefined : new Date(ms + offsetMs).toISOString();
+}
+
+/**
  * The capture-date window in the form Meilisearch takes it: an inclusive
  * lower bound and an EXCLUSIVE upper bound.
  *
@@ -83,12 +106,8 @@ function capturedWindow(resolved: SearchQuery): {
   capturedFrom?: string;
   capturedBefore?: string;
 } {
-  const from = resolved.from ? widenFromDate(resolved.from) : undefined;
-  const to = resolved.to ? widenToDate(resolved.to) : undefined;
-  const toMs = to === undefined ? Number.NaN : new Date(to).getTime();
-  // An unparseable bound is left to the Mongo predicate rather than guessed
-  // at — a malformed `capturedBefore` would narrow the candidate set.
-  const before = Number.isNaN(toMs) ? undefined : new Date(toMs + 1).toISOString();
+  const from = isoInstant(resolved.from ? widenFromDate(resolved.from) : undefined, 0);
+  const before = isoInstant(resolved.to ? widenToDate(resolved.to) : undefined, 1);
   return {
     ...(from === undefined ? {} : { capturedFrom: from }),
     ...(before === undefined ? {} : { capturedBefore: before }),
