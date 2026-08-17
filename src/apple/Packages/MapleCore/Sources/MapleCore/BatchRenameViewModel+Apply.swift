@@ -44,7 +44,7 @@ extension BatchRenameViewModel {
         case .unsupported(let reason):
             applyResults = assets.map {
                 BatchRenameApplyResult(
-                    id: $0.id, oldFilename: Self.fullFilename($0), outcome: .failed(reason))
+                    id: $0.id, oldFilename: $0.fullFilename, outcome: .failed(reason))
             }
         case .filesystem:
             applyResults = await applyFilesystem()
@@ -105,7 +105,7 @@ extension BatchRenameViewModel {
         guard let smbSource else {
             return assets.map {
                 BatchRenameApplyResult(
-                    id: $0.id, oldFilename: Self.fullFilename($0),
+                    id: $0.id, oldFilename: $0.fullFilename,
                     outcome: .failed("SMB share is not connected."))
             }
         }
@@ -157,7 +157,7 @@ extension BatchRenameViewModel {
         guard let cloudCatalog else {
             return assets.map {
                 BatchRenameApplyResult(
-                    id: $0.id, oldFilename: Self.fullFilename($0),
+                    id: $0.id, oldFilename: $0.fullFilename,
                     outcome: .failed("Not connected to the server."))
             }
         }
@@ -166,7 +166,7 @@ extension BatchRenameViewModel {
         guard !presentIDs.isEmpty else {
             return assets.map {
                 BatchRenameApplyResult(
-                    id: $0.id, oldFilename: Self.fullFilename($0),
+                    id: $0.id, oldFilename: $0.fullFilename,
                     outcome: .failed("This photo hasn't finished indexing on the server yet."))
             }
         }
@@ -176,7 +176,7 @@ extension BatchRenameViewModel {
                 sequencePadWidth: sequencePadWidth, collision: collision.apiValue)
             let byID = indexByIDTolerantOfDuplicates(response.results, id: \.id)
             return zip(assets, ids).map { asset, stableID in
-                let old = Self.fullFilename(asset)
+                let old = asset.fullFilename
                 guard let stableID else {
                     return BatchRenameApplyResult(
                         id: asset.id, oldFilename: old,
@@ -205,7 +205,7 @@ extension BatchRenameViewModel {
         } catch {
             return assets.map {
                 BatchRenameApplyResult(
-                    id: $0.id, oldFilename: Self.fullFilename($0),
+                    id: $0.id, oldFilename: $0.fullFilename,
                     outcome: .failed(error.localizedDescription))
             }
         }
