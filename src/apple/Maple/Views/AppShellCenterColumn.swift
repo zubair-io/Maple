@@ -256,7 +256,12 @@ struct AppShellCenterColumn: View {
                         transitionNamespace: previewTransitionNamespace,
                         onOpenEditor: onOpenEditor,
                         onPrimeSession: onPrimeSession,
-                        onNavigateFolder: onNavigateFolder
+                        onNavigateFolder: onNavigateFolder,
+                        // #2924: the phone branch used to drop this on the
+                        // floor, leaving the Photos permission panel with a
+                        // dead Connect button (and, before the empty state
+                        // itself landed, no panel at all).
+                        onGrantPhotosAccess: onGrantPhotosAccess
                     )
                 } else {
                     BrowseGrid(
