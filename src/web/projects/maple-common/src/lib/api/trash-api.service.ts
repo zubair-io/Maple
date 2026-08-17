@@ -101,16 +101,18 @@ export class TrashApiService {
    * detect a collision-safe rename (`pickFreeRestoredPath`) rather than
    * silently reporting success either way. */
   restoreAsset(assetId: AssetId, expectedFilename: string): Observable<RestoreAssetResult> {
-    return this.http.post<RestoreAssetWire>(`${this.base}/assets/${assetId}/restore`, {}).pipe(
-      map((wire) => ({
-        assetId: wire.asset_id,
-        absPath: wire.abs_path,
-        filename: wire.filename,
-        size: wire.size,
-        mtime: wire.mtime,
-        renamedTo: wire.filename !== expectedFilename ? wire.filename : null,
-      })),
-    );
+    return this.http
+      .post<RestoreAssetWire>(`${this.base}/assets/${encodeURIComponent(assetId)}/restore`, {})
+      .pipe(
+        map((wire) => ({
+          assetId: wire.asset_id,
+          absPath: wire.abs_path,
+          filename: wire.filename,
+          size: wire.size,
+          mtime: wire.mtime,
+          renamedTo: wire.filename !== expectedFilename ? wire.filename : null,
+        })),
+      );
   }
 
   /** Recursively restore every trashed asset whose `original_path` was
@@ -130,21 +132,34 @@ export class TrashApiService {
    * contract — see file header) so no call site in this UI can silently
    * fall into the wrong branch by forgetting to pass it.
    *
+   * `assetId` MUST be a real Mongo id — the server's `parseAssetId` does
+   * `new ObjectId(id)` and 400s on anything else (#2841). The grid's
+   * `Asset.id` is a `slug:relPath` address, not a Mongo id; resolving that
+   * address is the caller's job (`TrashService.trashAssets` does it via
+   * `BunApiBackendService.getAssetDetailsByAddress` before ever reaching
+   * this method) — this service stays a thin, capability-agnostic HTTP
+   * wrapper and doesn't resolve addresses itself. The id is URL-encoded
+   * regardless, since a `slug:relPath` address slipping through unresolved
+   * would otherwise also break route matching for any relPath containing a
+   * `/`.
+   *
    * A state-mismatch 409 (the caller's listing was stale — see file
    * header) resolves to `{ kind: 'conflict', state }` instead of throwing,
    * so every caller handles it as a first-class per-item outcome rather
    * than a generic HTTP failure. Any other error (network, 404, 500)
    * still propagates through the returned observable's error channel. */
   deleteAsset(assetId: AssetId, intent: 'trash' | 'purge'): Observable<TrashDeleteOutcome> {
-    return this.http.delete<void>(`${this.base}/assets/${assetId}`, { params: { intent } }).pipe(
-      map((): TrashDeleteOutcome => ({ kind: 'ok' })),
-      catchError((err: unknown) => {
-        if (err instanceof HttpErrorResponse && err.status === 409) {
-          const state = (err.error as { state?: 'trashed' | 'live' } | null)?.state ?? null;
-          return of<TrashDeleteOutcome>({ kind: 'conflict', state });
-        }
-        return throwError(() => err);
-      }),
-    );
+    return this.http
+      .delete<void>(`${this.base}/assets/${encodeURIComponent(assetId)}`, { params: { intent } })
+      .pipe(
+        map((): TrashDeleteOutcome => ({ kind: 'ok' })),
+        catchError((err: unknown) => {
+          if (err instanceof HttpErrorResponse && err.status === 409) {
+            const state = (err.error as { state?: 'trashed' | 'live' } | null)?.state ?? null;
+            return of<TrashDeleteOutcome>({ kind: 'conflict', state });
+          }
+          return throwError(() => err);
+        }),
+      );
   }
 }
