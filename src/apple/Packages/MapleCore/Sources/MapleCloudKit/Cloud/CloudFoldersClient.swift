@@ -13,9 +13,14 @@ public actor CloudFoldersClient {
     self.httpClient = httpClient
   }
 
-  public func listFolders() async throws -> [CloudFolder] {
-    let url = server.appending(path: "/api/folders")
-    let req = URLRequest(url: url)
+  /// `fresh` bypasses the server's 30s per-root connectivity cache
+  /// (#2898) — used by the server-admin Sources page's "Check again"
+  /// action, where serving a cached answer would make the button a no-op.
+  public func listFolders(fresh: Bool = false) async throws -> [CloudFolder] {
+    var c = URLComponents(url: server.appending(path: "/api/folders"),
+                          resolvingAgainstBaseURL: false)!
+    if fresh { c.queryItems = [URLQueryItem(name: "fresh", value: "1")] }
+    let req = URLRequest(url: c.url!)
     let (data, resp) = try await httpClient.data(for: req)
     try Self.checkOK(resp, data: data)
     do {

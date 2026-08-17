@@ -8,6 +8,7 @@ import Foundation
 
 enum ServerAdminSection: String, CaseIterable, Identifiable, Hashable {
     case workers
+    case sources
     case network
     case cloudflare
     case enrichment
@@ -18,6 +19,7 @@ enum ServerAdminSection: String, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .workers: return "Workers"
+        case .sources: return "Sources"
         case .network: return "Network"
         case .cloudflare: return "Cloudflare"
         case .enrichment: return "Enrichment"
@@ -28,6 +30,7 @@ enum ServerAdminSection: String, CaseIterable, Identifiable, Hashable {
     var icon: String {
         switch self {
         case .workers: return "gauge.with.dots.needle.bottom.50percent"
+        case .sources: return "externaldrive.connected.to.line.below"
         case .network: return "wifi"
         case .cloudflare: return "globe"
         case .enrichment: return "sparkle"
@@ -48,7 +51,7 @@ enum ServerAdminSection: String, CaseIterable, Identifiable, Hashable {
         // Every page matches the web's ownerOnly nav flag. Only Cloudflare
         // and the enrichment PUT are actually enforced server-side; the
         // rest are gated here for parity with the web, not for safety.
-        case .workers, .network, .cloudflare, .enrichment, .imports: return true
+        case .workers, .sources, .network, .cloudflare, .enrichment, .imports: return true
         }
     }
 

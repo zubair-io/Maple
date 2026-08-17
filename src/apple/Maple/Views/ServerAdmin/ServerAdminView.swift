@@ -149,6 +149,9 @@ struct ServerAdminView: View {
             case .imports:
                 ImportsSettingsView(
                     client: ImportsClient(server: server, httpClient: httpClient))
+            case .sources:
+                SourcesSettingsView(
+                    client: CloudFoldersClient(server: server, httpClient: httpClient))
             }
         } else {
             // One `.task` tick, before the client exists.
