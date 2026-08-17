@@ -52,17 +52,21 @@ final class LibrarySidebarVMTests: XCTestCase {
         )
     }
 
-    /// A member without the file-access permission (#2899) gets an empty
-    /// tree, but the section still carries the server's identity and its
-    /// sign-out / rename actions — "not allowed to browse" is a different
-    /// state from "nothing connected", and only the latter hides.
-    func testRestrictedMemberKeepsTheirServerSection() {
-        XCTAssertTrue(
+    /// A member without the file-access permission (#2899) is served an
+    /// empty tree and 403'd server-side if they try anyway, so the section
+    /// is a header over content they cannot reach — it hides.
+    ///
+    /// The second assertion is the one with teeth: the roots ARE connected,
+    /// so a rule that only counted reachable folders would leave this
+    /// member staring at a server they can't open. Permission is checked
+    /// before the count for exactly that reason.
+    func testRestrictedMemberDoesNotSeeTheServerAtAll() {
+        XCTAssertFalse(
             LibrarySidebarVM.showsCloudServerSection(
                 isSignedIn: true, hasFileAccess: false, connectedFolderCount: 0
             )
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             LibrarySidebarVM.showsCloudServerSection(
                 isSignedIn: true, hasFileAccess: false, connectedFolderCount: 3
             )

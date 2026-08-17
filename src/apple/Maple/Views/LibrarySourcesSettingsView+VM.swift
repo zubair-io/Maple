@@ -38,8 +38,9 @@ enum LibrarySourcesVM {
     /// vanished from the tree learns why in the place they went looking.
     static let pageFooter =
         "The sidebar lists only sources you can browse right now. A folder on an "
-        + "unplugged drive, an unmounted share, or a server you're signed out of "
-        + "stays registered here and returns to the sidebar once it's reachable."
+        + "unplugged drive, an unmounted share, or a server where your account "
+        + "doesn't have file access stays registered here and returns to the "
+        + "sidebar once you can browse it."
 
     /// Empty-section copy. Each section states what the source kind is FOR
     /// rather than just "None" — this page is the first-run add surface, so
