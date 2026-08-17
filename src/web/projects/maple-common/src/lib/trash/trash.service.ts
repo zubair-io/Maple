@@ -14,6 +14,8 @@
 // static bundle.
 
 import { Injectable, inject, signal } from '@angular/core';
+import { Observable, map, of, switchMap } from 'rxjs';
+import { BunApiBackendService } from '../api/bun-api-backend.service';
 import { TrashApiService } from '../api/trash-api.service';
 import { LibraryStateService } from '../state/library-state.service';
 import type { AssetId } from '../models/asset';
@@ -35,6 +37,16 @@ const COUNT_PAGE_SIZE = 100;
 @Injectable({ providedIn: 'root' })
 export class TrashService implements TrashCapability {
   private readonly api = inject(TrashApiService);
+  // Only used by `resolveMongoId` below, to turn a grid selection's
+  // `slug:relPath` address into the Mongo id `TrashApiService.deleteAsset`
+  // requires (#2841). Same precedent as `BatchRenameService`: injected
+  // directly rather than routed through `TrashApiService`, because
+  // `TrashService` (unlike `TrashApiService`) is already wired up only from
+  // Self Hosted's composition root (`provideSelfHostedWorkspace()` — see
+  // file header), so this can't leak `BunApiBackendService`'s
+  // `/assets/by-address` route into Hosted's bundle the way adding it to
+  // the always-eager `TrashApiService` could.
+  private readonly bunApi = inject(BunApiBackendService);
   private readonly state = inject(LibraryStateService);
 
   readonly available = signal(true);
@@ -109,6 +121,22 @@ export class TrashService implements TrashCapability {
   private readonly _resultSummary = signal<TrashAssetsSummary | null>(null);
   readonly resultSummary = this._resultSummary.asReadonly();
 
+  /** Resolve a grid selection id to the Mongo id `TrashApiService.deleteAsset`
+   * requires. The grid's `Asset.id` is a `slug:relPath` address (no Mongo id
+   * — `dir-fast` never carries one, see `BunApiBackendService
+   * .getAssetDetailsByAddress`'s doc); `runTrashQueue` below is the only
+   * caller of `deleteAsset` that ever sees one — the Trash panel's own
+   * restore/purge flows (`TrashPanelComponent`) already pass genuine Mongo
+   * ids straight from the server's trash listing, so those never route
+   * through here. Same address detection `BunApiBackendService
+   * .withResolvedAssetId` uses: a `:` only ever appears in the
+   * `slug:relPath` form, never in a Mongo ObjectId hex string. */
+  private resolveMongoId(assetId: AssetId): Observable<string> {
+    return assetId.includes(':')
+      ? this.bunApi.getAssetDetailsByAddress(assetId).pipe(map(({ id }) => id))
+      : of(assetId);
+  }
+
   trashAssets(assetIds: AssetId[], sourceFolderId: string): void {
     if (this._busy() || assetIds.length === 0) return;
     this._busy.set(true);
@@ -136,7 +164,9 @@ export class TrashService implements TrashCapability {
         // recorded as `alreadyTrashed` rather than lumped in with a real
         // network/server error.
         const outcome = await new Promise<TrashDeleteOutcome>((resolve, reject) => {
-          this.api.deleteAsset(assetId, 'trash').subscribe({ next: resolve, error: reject });
+          this.resolveMongoId(assetId)
+            .pipe(switchMap((mongoId) => this.api.deleteAsset(mongoId, 'trash')))
+            .subscribe({ next: resolve, error: reject });
         });
         if (outcome.kind === 'ok') {
           trashed += 1;
