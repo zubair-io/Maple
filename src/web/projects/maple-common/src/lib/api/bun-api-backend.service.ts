@@ -503,6 +503,13 @@ export class BunApiBackendService {
     });
   }
 
+  /** Change a user's role (#2921). The server enforces the last-owner
+   * guard (409 when the change would leave zero owners). Takes effect as
+   * the user's access token refreshes (≤15 min). */
+  setUserRole(id: string, role: 'owner' | 'member'): Observable<ApiUser> {
+    return this.http.patch<ApiUser>(`${this.base}/users/${encodeURIComponent(id)}`, { role });
+  }
+
   // --- Network settings (LAN address override) ------------------------------
 
   /** Current effective LAN-address config + provenance. Powers the
