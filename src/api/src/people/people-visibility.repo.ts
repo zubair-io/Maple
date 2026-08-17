@@ -77,10 +77,13 @@ async function excludedPersonIds(): Promise<string[]> {
  * (search list, buckets, facets, map clusters) can't drift.
  */
 export async function personIdsToDrop(excludeHiddenPeople: string | undefined): Promise<string[]> {
-  return [
-    ...(await excludedPersonIds()),
-    ...(excludeHiddenPeople === 'true' ? await hiddenPersonIds() : []),
-  ];
+  // The two lookups are independent and this sits on the search fast paths
+  // (#2916) — fetch them concurrently.
+  const [excluded, hidden] = await Promise.all([
+    excludedPersonIds(),
+    excludeHiddenPeople === 'true' ? hiddenPersonIds() : Promise.resolve([]),
+  ]);
+  return [...excluded, ...hidden];
 }
 
 /** Set one visibility flag + `updated_at`, then queue the Meili name-token
