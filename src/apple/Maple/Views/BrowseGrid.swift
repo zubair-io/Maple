@@ -93,6 +93,15 @@ struct BrowseGrid: View {
     /// to the cloud timeline. Empty string when no cloud infra is wired.
     var mergedHost: String = ""
 
+    /// Rename affordance (#2842). Read here (rather than only inside
+    /// `GridCellRenameCaption`, which reads its own copy via inherited
+    /// environment) because the context-menu closure below needs it too —
+    /// `.contextMenu` content is built from a plain closure capture, not a
+    /// `View` with its own `@Environment` access. `nil` in previews / flows
+    /// that never inject the action (matches every other environment-action
+    /// consumer in this file).
+    @Environment(\.assetRename) private var assetRename
+
     /// Local fallback when no parent binding is supplied (e.g. previews).
     /// Real toolbar wiring lives on `AppShell`.
     @State private var localDisplayMode: GridDisplayMode = .fill
@@ -327,9 +336,12 @@ struct BrowseGrid: View {
                 #else
                 let showReveal = false
                 #endif
-                guard onTrashAssets != nil || showReveal else { return nil }
+                guard onTrashAssets != nil || showReveal || assetRename != nil else { return nil }
                 return AnyView(
                     Group {
+                        if let assetRename {
+                            renameMenuItem(for: asset, renameCtx: assetRename)
+                        }
                         if let onTrashAssets {
                             trashMenuItem(for: asset, onTrashAssets: onTrashAssets)
                         }
@@ -341,6 +353,7 @@ struct BrowseGrid: View {
                     }
                 )
             },
+            renameOverlay: { asset in AnyView(GridCellRenameCaption(asset: asset)) },
             onTap: { asset in
                 if vm.isSelecting {
                     // Multi-select mode: tap toggles check.
