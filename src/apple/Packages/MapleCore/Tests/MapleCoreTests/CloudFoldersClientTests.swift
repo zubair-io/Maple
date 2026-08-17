@@ -24,5 +24,32 @@ final class CloudFoldersClientTests: XCTestCase {
     XCTAssertEqual(folders[0].id, "f1")
     XCTAssertEqual(folders[0].displayName, "2024")
     XCTAssertEqual(folders[1].displayName, "2023")
+    // Pre-#2898 payload carries no `connected` key — treated as connected,
+    // so pre-upgrade servers never hide anything.
+    XCTAssertNil(folders[0].connected)
+    XCTAssertTrue(folders[0].isConnected)
+  }
+
+  func test_listFolders_decodesConnectivity() async throws {
+    let server = URL(string: "https://example.test")!
+    let json = """
+    [
+      {"id":"f1","path":"/photos/2024","label":"2024",
+       "last_scan":null,"file_count":42,"created_at":"2026-01-01T00:00:00Z",
+       "connected":true},
+      {"id":"f2","path":"/mnt/nas-archive","label":"NAS",
+       "last_scan":null,"file_count":9000,"created_at":"2025-12-01T00:00:00Z",
+       "connected":false}
+    ]
+    """
+    let session = URLSession.stubbed(response: json)
+    let client = CloudFoldersClient(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
+
+    let folders = try await client.listFolders()
+
+    XCTAssertTrue(folders[0].isConnected)
+    XCTAssertFalse(folders[1].isConnected)
   }
 }
