@@ -148,6 +148,79 @@ describe('users routes (#2893)', () => {
     expect(r.status).toBe(400);
   });
 
+  it('promotes a member to owner and back via PATCH role (#2921)', async () => {
+    if (!mongo) return;
+    const auth = { authorization: await bearer('owner', ownerId) };
+    const promote = await app.handle(
+      req(`/${memberId.toHexString()}`, {
+        method: 'PATCH',
+        headers: { ...auth, 'content-type': 'application/json' },
+        body: JSON.stringify({ role: 'owner' }),
+      }),
+    );
+    expect(promote.status).toBe(200);
+    expect(((await promote.json()) as { role: string }).role).toBe('owner');
+
+    // Two owners now — demoting one is allowed.
+    const demote = await app.handle(
+      req(`/${memberId.toHexString()}`, {
+        method: 'PATCH',
+        headers: { ...auth, 'content-type': 'application/json' },
+        body: JSON.stringify({ role: 'member' }),
+      }),
+    );
+    expect(demote.status).toBe(200);
+    expect(((await demote.json()) as { role: string }).role).toBe('member');
+    const stored = await db!.collection('users').findOne({ _id: memberId });
+    expect(stored!.role).toBe('member');
+  });
+
+  it('409s demoting the only owner (#2921 last-owner guard)', async () => {
+    if (!mongo) return;
+    const r = await app.handle(
+      req(`/${ownerId.toHexString()}`, {
+        method: 'PATCH',
+        headers: {
+          authorization: await bearer('owner', ownerId),
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ role: 'member' }),
+      }),
+    );
+    expect(r.status).toBe(409);
+    expect(((await r.json()) as { error: string }).error).toContain('only owner');
+  });
+
+  it('rejects toggling file_access on someone becoming an owner', async () => {
+    if (!mongo) return;
+    const r = await app.handle(
+      req(`/${memberId.toHexString()}`, {
+        method: 'PATCH',
+        headers: {
+          authorization: await bearer('owner', ownerId),
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ role: 'owner', file_access: false }),
+      }),
+    );
+    expect(r.status).toBe(400);
+  });
+
+  it('400s an empty patch', async () => {
+    if (!mongo) return;
+    const r = await app.handle(
+      req(`/${memberId.toHexString()}`, {
+        method: 'PATCH',
+        headers: {
+          authorization: await bearer('owner', ownerId),
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      }),
+    );
+    expect(r.status).toBe(400);
+  });
+
   it('404s an unknown user id', async () => {
     if (!mongo) return;
     const r = await app.handle(
