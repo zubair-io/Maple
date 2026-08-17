@@ -21,11 +21,22 @@ public struct AuthUser: Codable, Equatable, Sendable {
   public let id: String
   public let email: String
   public let role: String
+  /// Per-user "file access" permission (#2899) — wire format from the API
+  /// (`/api/auth/me` + login payloads). Absent on pre-upgrade servers; use
+  /// `hasFileAccess`, which applies the granted-by-default rule.
+  public let file_access: Bool?
   public var isOwner: Bool { role == "owner" }
 
-  public init(id: String, email: String, role: String) {
+  /// May this user browse the server filesystem / move files? Owners
+  /// always can; members can unless the operator explicitly revoked it —
+  /// mirroring the server's `userFileAccess` rule, so a pre-upgrade
+  /// server (no field) never restricts anyone.
+  public var hasFileAccess: Bool { isOwner || file_access != false }
+
+  public init(id: String, email: String, role: String, file_access: Bool? = nil) {
     self.id = id
     self.email = email
     self.role = role
+    self.file_access = file_access
   }
 }
