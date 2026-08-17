@@ -73,6 +73,19 @@ struct PhoneSettingsView: View {
             }
 
             Section("Files") {
+                // #2925: the sidebar hides source sections with nothing
+                // connected, which takes their "+" buttons with them. This
+                // page is where sources are registered and removed instead
+                // — and the phone keeps the sidebar behind a drawer, so it
+                // matters more here than anywhere.
+                NavigationLink {
+                    LibrarySourcesSettingsView()
+                        .navigationTitle("Sources")
+                        .navigationBarTitleDisplayMode(.inline)
+                } label: {
+                    SettingsMenuRow(icon: "externaldrive", label: "Sources")
+                }
+                .accessibilityIdentifier("settings.tab.sources")
                 NavigationLink {
                     FileProviderSettingsViewIOS()
                         .navigationTitle("Files")
