@@ -528,8 +528,10 @@ struct LibrarySidebar: View {
                     if showsCloudServer(url, session: session) {
                         cloudServerSection(url: url, session: session)
                     } else {
-                        // Signed in, folder list loaded, nothing reachable
-                        // (#2925) — the section would be a header over an
+                        // Nothing this member can browse on this server
+                        // (#2925): either they lack the file-access
+                        // permission (#2899), or every root is unreachable.
+                        // Either way the section would be a header over an
                         // empty tree. The load task below still has to run
                         // so a re-mounted share brings the section back,
                         // hence a zero-height stand-in rather than nothing.
