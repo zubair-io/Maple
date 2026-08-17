@@ -179,6 +179,57 @@ describe('GET /api/search — capture-date window reaches Meilisearch', () => {
     expect(calls[0]?.capturedBefore).toBe('2025-09-01T00:00:00.000Z');
   });
 
+  /**
+   * `meilisearch-filter.ts` interpolates the date bounds straight into the
+   * filter expression (`capturedAt >= "${capturedFrom}"`) — it escapes
+   * `folderId` and person names but trusts the caller for these. That held
+   * while `service-asset-search.ts` was the only caller, because it
+   * canonicalises via `parseUtcDate(...)!.toISOString()`.
+   *
+   * `from`/`to` on the wire are `t.Optional(t.String())` with no date
+   * validation, and `widenFromDate`/`widenToDate` return a non-`YYYY-MM-DD`
+   * string unmodified. So a bound carrying a double quote would close the
+   * literal early and append attacker-chosen clauses — enough to lift the
+   * `hidden` exclusion or the `folderId` scope. Both bounds are normalised
+   * to a canonical ISO instant, which cannot carry a quote.
+   */
+  it('never forwards an unparseable date bound to Meilisearch', async () => {
+    if (!mongoReachable || !db) return;
+    await seed(db);
+    const { client, calls } = fakeMeiliClient();
+    setMeilisearchClientForTests(client);
+
+    const app = new Elysia().use(listRoute);
+    const injected = '2024-01-01" OR hidden = true OR capturedAt >= "1900-01-01';
+    const res = await app.handle(
+      new Request(
+        `http://localhost/?placeQuery=greyson&from=${encodeURIComponent(injected)}` +
+          `&to=${encodeURIComponent(injected)}`,
+      ),
+    );
+    expect(res.status).toBe(200);
+    await res.json();
+    expect(calls[0]?.capturedFrom).toBeUndefined();
+    expect(calls[0]?.capturedBefore).toBeUndefined();
+  });
+
+  it('normalises a valid bare date bound to a canonical ISO instant', async () => {
+    if (!mongoReachable || !db) return;
+    await seed(db);
+    const { client, calls } = fakeMeiliClient();
+    setMeilisearchClientForTests(client);
+
+    const app = new Elysia().use(listRoute);
+    const res = await app.handle(
+      new Request('http://localhost/?placeQuery=greyson&from=2025-06-01&to=2025-08-31'),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(calls[0]?.capturedFrom).toBe('2025-06-01T00:00:00.000Z');
+    expect(calls[0]?.capturedBefore).toBe('2025-09-01T00:00:00.000Z');
+    expect(body.results.map((r: { filename: string }) => r.filename)).toEqual(['in-window.dng']);
+  });
+
   it('reports a total that reflects the window, not the whole text match', async () => {
     if (!mongoReachable || !db) return;
     await seed(db);
