@@ -81,6 +81,10 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
       } else {
         await u.updateOne({ _id: user._id }, { $set: { last_seen_at: new Date().toISOString() } });
       }
+      // Dev-login mints owners outside the WebAuthn claim flow — plant the
+      // ownership sentinel so a later invited registration can't win it and
+      // escalate (#2920). Idempotent; losing a race here is fine.
+      await tryClaimOwnership();
       const access_token = await signAccessToken(
         {
           sub: user._id.toHexString(),
@@ -180,7 +184,14 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
       // Atomically decide ownership (#865): exactly one concurrent first
       // registration wins the single owner slot. A lost claim means the server
       // is already claimed → this registration must be an invited member.
-      const wonOwnership = await tryClaimOwnership();
+      //
+      // The claim attempt is additionally gated on the server having NO users
+      // (#2920): installs whose owner predates the sentinel — or was created
+      // via dev-login, which never claimed — would otherwise hand the free
+      // sentinel to the next INVITED registrant, escalating them to owner.
+      // Under concurrency this stays safe: racing first-registrations all see
+      // zero users and the sentinel insert still elects exactly one winner.
+      const wonOwnership = !(await isClaimed()) && (await tryClaimOwnership());
       const role: 'owner' | 'member' = wonOwnership ? 'owner' : 'member';
       if (!wonOwnership && !challengeRow.invite_code) {
         set.status = 403;
