@@ -1,4 +1,4 @@
-import { serverStateCollection } from '../db/client.ts';
+import { serverStateCollection, usersCollection } from '../db/client.ts';
 
 /**
  * Atomic server-ownership claim (#865).
@@ -41,4 +41,24 @@ export async function tryClaimOwnership(): Promise<boolean> {
 export async function releaseOwnershipClaim(): Promise<void> {
   const c = await serverStateCollection();
   await c.deleteOne({ _id: OWNER_CLAIM_ID });
+}
+
+/**
+ * Boot-time backfill (#2920): plant the ownership sentinel on installs
+ * whose owner predates it — owners created before #865, or via dev-login
+ * (which never claimed). Without this, `isClaimed()` (any-user-exists,
+ * which gates "invite required") and `tryClaimOwnership()` (the sentinel)
+ * disagree, and the NEXT invited registration wins the free sentinel and
+ * escalates to owner.
+ *
+ * Self-gating and cheap: one `_id` point-read on `server_state`
+ * short-circuits every boot after the first.
+ */
+export async function backfillOwnershipClaim(): Promise<void> {
+  const c = await serverStateCollection();
+  if ((await c.findOne({ _id: OWNER_CLAIM_ID })) != null) return;
+  const users = await usersCollection();
+  const anyUser = (await users.countDocuments({}, { limit: 1 })) > 0;
+  if (!anyUser) return; // genuinely fresh install — first registration claims
+  await tryClaimOwnership(); // idempotent; a concurrent claim losing is fine
 }
