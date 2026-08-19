@@ -10,7 +10,7 @@
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
 import type { Db } from 'mongodb';
-import { getDb } from '../../db/client.ts';
+import { closeDb, getDb } from '../../db/client.ts';
 import { withTestDb } from '../../db/test-db.test-helpers.ts';
 import {
   saveGeneratedSearches,
@@ -19,7 +19,8 @@ import {
   type GeneratedSearchInput,
 } from './repo.ts';
 
-withTestDb('maple_generated_search_repo_test');
+// Own database + explicit close (the repo-wide suite convention, #2783).
+withTestDb(`maple_test_generated_search_repo_${process.pid}`);
 
 let db: Db;
 
@@ -31,11 +32,15 @@ afterAll(async () => {
   // Capture-and-drop the handle taken in beforeAll: by teardown `getDb()`
   // answers with the default database again (see test-db.test-helpers).
   await db.dropDatabase();
+  await closeDb();
 });
 
-beforeEach(async () => {
+/** Scoped per describe rather than at the root: a root-level hook is not
+ * confined to this file, so shared-collection cleanup there disrupts other
+ * suites in the same process. */
+async function reset(): Promise<void> {
   await db.collection('generated_searches').deleteMany({});
-});
+}
 
 const LIB = '507f1f77bcf86cd799439011';
 const OTHER_LIB = '507f1f77bcf86cd799439012';
@@ -58,6 +63,8 @@ function input(over: Partial<GeneratedSearchInput> = {}): GeneratedSearchInput {
 }
 
 describe('generated_searches repo', () => {
+  beforeEach(reset);
+
   it('round-trips a saved collection', async () => {
     await saveGeneratedSearches([input()]);
     const [doc] = await listGeneratedSearches(LIB, '2026-08-17');
@@ -107,6 +114,8 @@ describe('generated_searches repo', () => {
 });
 
 describe('generated_searches pruning', () => {
+  beforeEach(reset);
+
   it('drops collections past the retention window and keeps the rest', async () => {
     await saveGeneratedSearches([
       input({ generated_at: '2026-06-01T06:00:00.000Z', theme: 'ancient' }),
