@@ -83,6 +83,16 @@ export type RelocateAssetResult =
    * correctly. Enforced here as defense in depth regardless of whether the
    * caller (e.g. the HTTP route) already validated. */
   | { kind: 'invalid'; error: string }
+  /** `collision: 'replace'` resolved to a destination already occupied by a
+   * DIFFERENT live, indexed asset (#2843). Refused rather than published —
+   * `replace` is only safe when the destination is untracked (an ordinary
+   * file the indexer hasn't (yet) catalogued, or nothing at all); replacing
+   * a tracked asset's bytes out from under its own Mongo row is silent data
+   * loss (stale sidecar unlinked, occupant's row left pointing at someone
+   * else's pixels). 409-shaped so the caller's collision prompt (Skip /
+   * Replace / Keep Both) can re-ask with the occupant identified, rather
+   * than the client having to guess why a normally-200 request failed. */
+  | { kind: 'occupied'; occupiedByAssetId: string }
   | { kind: 'error'; error: string };
 
 /** Canonical live fileinfo entry. Prefers a non-deleted entry that is NOT
@@ -97,6 +107,78 @@ export function activeFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): FileInfo | nu
   const list = asset.fileinfo ?? [];
   const live = list.filter((entry) => !entry.deleted_at);
   return live.find((entry) => !entry.missing_since) ?? live[0] ?? null;
+}
+
+/** Id (as a hex string) of the live, indexed asset — other than `excludeId`
+ * — that already occupies `(library_id, path, filename)`, or `null` if the
+ * destination is unoccupied by any tracked asset (an ordinary untracked
+ * file, or nothing at all — both are `copyVerifiedIntoPlace`'s legitimate
+ * `'replace'` case).
+ *
+ * "Live" here means BOTH: the fileinfo entry itself is not tagged
+ * `deleted_at` (mirrors the `$elemMatch` shape `repointToNewLocation` /
+ * `workers/migration/move-backup-asset.ts` / `db/assets.repo.ts`'s
+ * `findDetailByAddress` all use for "the entry that currently names this
+ * path"), AND the asset's own top-level `deleted_at` is unset — a trashed
+ * asset's fileinfo entry stays entry-level-live but is repointed at the
+ * trash location (see `workers/live-location-count.test.ts`), so in the
+ * ordinary case it can never collide with a real destination path; the
+ * top-level check is defense in depth against exactly that path somehow
+ * coinciding, matching the issue's "live (deleted_at: null) asset" framing. */
+async function findLiveOccupant(
+  c: Awaited<ReturnType<typeof assetsCollection>>,
+  libraryId: ObjectId,
+  destPath: string,
+  destFilename: string,
+  excludeId: ObjectId,
+): Promise<string | null> {
+  const occupant = await c.findOne(
+    {
+      _id: { $ne: excludeId },
+      deleted_at: null,
+      fileinfo: {
+        $elemMatch: {
+          library_id: libraryId,
+          path: destPath,
+          filename: destFilename,
+          deleted_at: null,
+        },
+      },
+    },
+    { projection: { _id: 1 } },
+  );
+  return occupant ? occupant._id.toHexString() : null;
+}
+
+/** #2843: the `'occupied'` result to short-circuit `relocateAsset` with, or
+ * `null` when the relocate may proceed as normal — either the collision
+ * policy isn't `'replace'` (the only policy that overwrites the
+ * destination; see the call site's comment), or `'replace'`'s destination
+ * turned out free/untracked (the legitimate case). Split out of
+ * `relocateAsset` itself to keep that function's branching flat — this
+ * whole check is one self-contained early-exit. */
+async function occupiedResultIfReplaceBlocked(
+  c: Awaited<ReturnType<typeof assetsCollection>>,
+  input: RelocateAssetInput,
+  primary: FileInfo,
+  libRoot: string,
+  destAbsPath: string,
+): Promise<Extract<RelocateAssetResult, { kind: 'occupied' }> | null> {
+  if (input.collision !== 'replace') return null;
+  const destSplit = splitRelPath(libRoot, destAbsPath);
+  const occupiedByAssetId = await findLiveOccupant(
+    c,
+    primary.library_id,
+    destSplit.relPath,
+    destSplit.filename,
+    input.id,
+  );
+  if (!occupiedByAssetId) return null;
+  log.warn(
+    { id: input.id.toHexString(), occupiedByAssetId, destAbsPath },
+    'relocateAsset: replace refused — destination occupied by a different live asset',
+  );
+  return { kind: 'occupied', occupiedByAssetId };
 }
 
 /** Split an absolute path back into the `(path, filename)` shape
@@ -146,6 +228,16 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
   if (sourceAbsPath === destAbsPath) {
     return { kind: 'skipped', reason: 'already at destination' };
   }
+
+  // #2843: `'replace'` is the one collision policy that overwrites whatever
+  // sits at the destination — `fs/relocate.ts`'s `copyVerifiedIntoPlace` is
+  // deliberately DB-unaware and will happily publish over ANY file there,
+  // and (when the incoming asset has no sidecar) unlink whatever `.xmp` sits
+  // alongside it. `'auto-suffix'` / `'keep-both'` never reach an occupied
+  // path (they suffix around it) and `'skip'` is a no-op, so this check is
+  // scoped to `'replace'` alone — see `occupiedResultIfReplaceBlocked`.
+  const occupied = await occupiedResultIfReplaceBlocked(c, input, primary, libRoot, destAbsPath);
+  if (occupied) return occupied;
 
   // The DB repoint below is a MOVE-only concern: a copy leaves the source
   // asset exactly where it is (same path, same caches, same search rows),

@@ -61,6 +61,14 @@ export function relocateResultResponse(
       return { status: 404, body: { error: 'Asset not found' } };
     case 'invalid':
       return { status: 400, body: { error: result.error } };
+    case 'occupied':
+      return {
+        status: 409,
+        body: {
+          error: 'destination is occupied by another asset',
+          occupied_by_asset_id: result.occupiedByAssetId,
+        },
+      };
     case 'error':
       return { status: 500, body: { error: result.error } };
   }
