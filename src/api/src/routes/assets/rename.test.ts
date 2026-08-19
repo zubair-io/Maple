@@ -201,6 +201,86 @@ async function seedAssetOnDisk(d: Db, filename = 'IMG_1.dng'): Promise<ObjectId>
   return id;
 }
 
+/** Seed TWO asset docs in the SAME folder, sharing one library id, so a
+ * same-folder rename (destination collision) is reachable. */
+async function seedTwoAssetsOnDiskSameLibrary(
+  d: Db,
+  a: { filename: string; content: string },
+  b: { filename: string; content: string },
+): Promise<{ idA: ObjectId; idB: ObjectId }> {
+  const libraryId = new ObjectId();
+  const idA = new ObjectId();
+  const idB = new ObjectId();
+  await fs.mkdir(path.join(root, 'a'), { recursive: true });
+  for (const [id, entry] of [
+    [idA, a],
+    [idB, b],
+  ] as const) {
+    await fs.writeFile(path.join(root, 'a', entry.filename), entry.content);
+    await d.collection('assets').insertOne({
+      _id: id,
+      fileinfo: [{ path: 'a', filename: entry.filename, library_id: libraryId, deleted_at: null }],
+      size: entry.content.length,
+      mtime: 1_700_000_000_000,
+      rating: 0,
+      flag: 0,
+      color_label: '',
+      indexed_at: '2026-01-01T00:00:00Z',
+      has_xmp: false,
+      deleted_at: null,
+    } as never);
+  }
+  setLibraryRootsForTests(new Map([[libraryId.toHexString(), root]]));
+  return { idA, idB };
+}
+
+describe('POST /api/assets/:id/rename — replace collision guard (#2843)', () => {
+  maybeTest(
+    'renaming onto a filename occupied by another live indexed asset is refused with 409',
+    async () => {
+      if (!db) return;
+      const { idA: incomingId, idB: occupantId } = await seedTwoAssetsOnDiskSameLibrary(
+        db,
+        { filename: 'incoming.dng', content: 'incoming-pixels' },
+        { filename: 'occupant.dng', content: 'occupant-pixels' },
+      );
+
+      const res = await postRename(incomingId.toHexString(), {
+        new_filename: 'occupant.dng',
+        collision: 'replace',
+      });
+
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body.occupied_by_asset_id).toBe(occupantId.toHexString());
+      expect(await fs.readFile(path.join(root, 'a', 'incoming.dng'), 'utf8')).toBe(
+        'incoming-pixels',
+      );
+      expect(await fs.readFile(path.join(root, 'a', 'occupant.dng'), 'utf8')).toBe(
+        'occupant-pixels',
+      );
+    },
+  );
+
+  maybeTest(
+    'renaming onto a filename occupied only by an untracked file still succeeds (200)',
+    async () => {
+      if (!db) return;
+      const id = await seedAssetOnDisk(db);
+      await fs.writeFile(path.join(root, 'a', 'untracked.dng'), 'stale-untracked-bytes');
+
+      const res = await postRename(id.toHexString(), {
+        new_filename: 'untracked.dng',
+        collision: 'replace',
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.new_filename).toBe('untracked.dng');
+    },
+  );
+});
+
 describe('POST /api/assets/:id/rename — end to end', () => {
   maybeTest('renames the asset in place (same folder), returns the new address', async () => {
     if (!db) return;

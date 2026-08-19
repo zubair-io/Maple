@@ -197,6 +197,95 @@ async function seedAssetOnDisk(d: Db): Promise<ObjectId> {
   return id;
 }
 
+/** Seed TWO asset docs sharing one library id — the occupied-destination
+ * end-to-end test needs the incoming asset's own library to still resolve
+ * to `root` after the occupant is seeded (`seedAssetOnDisk`'s single-asset
+ * helper always mints a fresh library id and overwrites the roots map). */
+async function seedTwoAssetsOnDiskSameLibrary(
+  d: Db,
+  a: { relPath: string; filename: string; content: string },
+  b: { relPath: string; filename: string; content: string },
+): Promise<{ idA: ObjectId; idB: ObjectId }> {
+  const libraryId = new ObjectId();
+  const idA = new ObjectId();
+  const idB = new ObjectId();
+  for (const [id, entry] of [
+    [idA, a],
+    [idB, b],
+  ] as const) {
+    await fs.mkdir(path.join(root, entry.relPath), { recursive: true });
+    await fs.writeFile(path.join(root, entry.relPath, entry.filename), entry.content);
+    await d.collection('assets').insertOne({
+      _id: id,
+      fileinfo: [
+        { path: entry.relPath, filename: entry.filename, library_id: libraryId, deleted_at: null },
+      ],
+      size: entry.content.length,
+      mtime: 1_700_000_000_000,
+      rating: 0,
+      flag: 0,
+      color_label: '',
+      indexed_at: '2026-01-01T00:00:00Z',
+      has_xmp: false,
+      deleted_at: null,
+    } as never);
+  }
+  setLibraryRootsForTests(new Map([[libraryId.toHexString(), root]]));
+  return { idA, idB };
+}
+
+describe('POST /api/assets/:id/relocate — replace collision guard (#2843)', () => {
+  test('replace onto a path occupied by another live indexed asset is refused with 409', async () => {
+    if (!db) return;
+    const { idA: incomingId, idB: occupantId } = await seedTwoAssetsOnDiskSameLibrary(
+      db,
+      { relPath: 'a', filename: 'incoming.dng', content: 'incoming-pixels' },
+      { relPath: 'b', filename: 'occupant.dng', content: 'occupant-pixels' },
+    );
+
+    const res = await postRelocate(incomingId.toHexString(), {
+      mode: 'move',
+      collision: 'replace',
+      destination_path: 'b',
+      destination_filename: 'occupant.dng',
+    });
+
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.occupied_by_asset_id).toBe(occupantId.toHexString());
+
+    // Neither file moved.
+    expect(await fs.readFile(path.join(root, 'a', 'incoming.dng'), 'utf8')).toBe('incoming-pixels');
+    expect(await fs.readFile(path.join(root, 'b', 'occupant.dng'), 'utf8')).toBe('occupant-pixels');
+    // Neither row moved.
+    const incomingRow = (await db.collection('assets').findOne({ _id: incomingId })) as unknown as {
+      fileinfo: Array<{ path: string; filename: string }>;
+    };
+    expect(incomingRow.fileinfo[0]!.path).toBe('a');
+    const occupantRow = (await db.collection('assets').findOne({ _id: occupantId })) as unknown as {
+      fileinfo: Array<{ path: string; filename: string }>;
+    };
+    expect(occupantRow.fileinfo[0]!.path).toBe('b');
+  });
+
+  test('replace onto a path occupied only by an untracked file still succeeds (200)', async () => {
+    if (!db) return;
+    const id = await seedAssetOnDisk(db);
+    await fs.writeFile(path.join(root, 'a', 'untracked.dng'), 'stale-untracked-bytes');
+
+    const res = await postRelocate(id.toHexString(), {
+      mode: 'move',
+      collision: 'replace',
+      destination_path: 'a',
+      destination_filename: 'untracked.dng',
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.new_filename).toBe('untracked.dng');
+  });
+});
+
 describe('POST /api/assets/:id/relocate — end to end', () => {
   test('moves the asset, returns the new path, and repoints the DB', async () => {
     if (!db) return;
