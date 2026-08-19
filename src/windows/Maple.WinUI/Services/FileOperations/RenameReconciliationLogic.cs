@@ -20,6 +20,13 @@
 // never merge two different photos that merely share a file size. Two RAWs
 // from the same camera at the same resolution collide on size constantly;
 // size alone is treated as necessary, never sufficient.
+//
+// The match relation mirrors the API (src/api/src/workers/discover/
+// rename-reconcile.ts) and Apple (ExternalRenameMatcher.swift +
+// ExternalRenameFingerprint+Live.swift, #2656) exactly (#2845): size AND
+// capture time AND serial-agreement-or-mutual-absence, with capture time
+// MANDATORY — a fingerprint whose capture time couldn't be read never
+// matches, on either side, regardless of what else lines up.
 
 using System;
 using System.Collections.Generic;
@@ -32,8 +39,13 @@ namespace Maple.WinUI.Services.FileOperations
         /// <summary>The cheap, non-checksum signature this heuristic matches
         /// on: RAWs are large, so a full hash is off the table for a
         /// per-scan comparison. Size is mandatory but never sufficient by
-        /// itself (see this file's header) — at least one of capture time
-        /// or camera serial must also agree.</summary>
+        /// itself (see this file's header) — capture time must ALSO agree
+        /// (mandatory on both sides; a missing/unreadable capture time
+        /// never matches), and camera serial must agree-or-be-mutually-
+        /// absent. <see cref="CaptureTimeUtc"/> and <see
+        /// cref="CameraSerial"/> are nullable only because a real read can
+        /// fail — the caller is expected to pass <c>null</c> when EXIF
+        /// couldn't be read, never a placeholder value.</summary>
         public readonly record struct Fingerprint(long FileSizeBytes, DateTime? CaptureTimeUtc, string? CameraSerial);
 
         /// <summary>One resolved rename: <paramref name="MissingFileName"/>
@@ -136,10 +148,20 @@ namespace Maple.WinUI.Services.FileOperations
             return resolved;
         }
 
-        /// <summary>Size is mandatory but never sufficient alone — at least
-        /// one of capture time or camera serial must also agree, and only
-        /// when both sides actually carry that field (a field neither side
-        /// could read never counts as a match).</summary>
+        /// <summary>Size is mandatory but never sufficient alone. Capture
+        /// time must ALSO agree, and is itself mandatory on both sides — a
+        /// fingerprint whose capture time is <c>null</c> (unreadable EXIF)
+        /// never matches anything, matching the API's
+        /// <c>missingFingerprint</c>/<c>newFileFingerprint</c> (which
+        /// exclude such a file from fingerprinting entirely) and Apple's
+        /// <c>ExternalRenameFingerprint.live</c> (which returns
+        /// <c>nil</c> rather than a size-only fingerprint). Camera serial
+        /// is the third component: it must agree, OR be absent on BOTH
+        /// sides — a serial present on only one side is a disagreement,
+        /// not a pass, mirroring the API's fingerprint-bucket key (which
+        /// folds a missing serial to <c>''</c> rather than treating it as a
+        /// wildcard) and Apple's <c>Hashable</c> struct equality (where
+        /// <c>nil != "SN1"</c>).</summary>
         private static bool Matches(Fingerprint known, Fingerprint candidate)
         {
             if (known.FileSizeBytes != candidate.FileSizeBytes)
@@ -148,10 +170,10 @@ namespace Maple.WinUI.Services.FileOperations
             var captureMatches = known.CaptureTimeUtc is { } kt
                 && candidate.CaptureTimeUtc is { } ct
                 && kt == ct;
-            var serialMatches = known.CameraSerial is { } ks
-                && candidate.CameraSerial is { } cs
-                && string.Equals(ks, cs, StringComparison.Ordinal);
-            return captureMatches || serialMatches;
+            if (!captureMatches)
+                return false;
+
+            return string.Equals(known.CameraSerial, candidate.CameraSerial, StringComparison.Ordinal);
         }
     }
 }
