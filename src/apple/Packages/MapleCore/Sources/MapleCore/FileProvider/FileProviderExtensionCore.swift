@@ -1380,17 +1380,26 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                 // server WRITE a fresh conflict copy rather than just
                 // report one, so there's nothing to clean up after the
                 // fact. Check first: identical bytes already on the
-                // canonical mean this write already landed, so drop the
-                // stale precondition (nil = unconditional overwrite,
-                // harmless when the bytes match) instead of racing it
-                // into a spurious "conflict from <device>" file.
-                let precondition: Date?
+                // canonical mean this write already landed.
+                //
+                // In that case SKIP the write rather than reissuing it
+                // without a precondition. An unconditional put here would
+                // be a TOCTOU: another client can land an edit between the
+                // byte comparison and the put, and the put would silently
+                // destroy it. That is the same unconditional-overwrite
+                // hazard #2532 and #2784 exist to close, and no redelivery
+                // convenience is worth reintroducing it. Skipping is also
+                // strictly more correct than writing: the server already
+                // holds exactly these bytes, so there is nothing to apply.
+                // The item is returned unchanged because this call, by
+                // definition, changed nothing.
                 if conflictBasename == nil, priorMtime != nil,
                    await Self.isRedundantSidecarWrite(catalog: catalog, assetID: assetID, bytes: xmpBytes) {
-                    precondition = nil
-                } else {
-                    precondition = conflictBasename == nil ? priorMtime : nil
+                    self.log.notice("modifyItem redelivery: sidecar bytes already on server, skipping write")
+                    completionHandler(item, [], false, nil)
+                    return
                 }
+                let precondition: Date? = conflictBasename == nil ? priorMtime : nil
                 let result = try await catalog.putXMP(
                     assetID: assetID,
                     data: xmpBytes,
