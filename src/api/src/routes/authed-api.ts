@@ -26,6 +26,7 @@ import { fsRoutes } from './fs.ts';
 import { fsThumbsRoutes } from './fs-thumbs.ts';
 import { fsPreviewsRoutes } from './fs-previews.ts';
 import { searchRoutes } from './search.ts';
+import { generatedSearchesRoutes } from './generated-searches.ts';
 import { mapRoutes } from './map/index.ts';
 import { jobsRoutes } from './jobs.ts';
 import { importsRoutes } from './imports.ts';
@@ -90,6 +91,7 @@ export const authedApi = new Elysia({ name: 'authedApi' })
   .use(fsThumbsRoutes)
   .use(fsPreviewsRoutes)
   .use(searchRoutes)
+  .use(generatedSearchesRoutes)
   .use(mapRoutes)
   .use(jobsRoutes)
   .use(importsRoutes)
