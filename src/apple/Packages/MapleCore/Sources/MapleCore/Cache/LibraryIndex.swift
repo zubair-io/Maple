@@ -73,13 +73,53 @@ public struct LibraryIndex: Codable, Sendable {
     }
 }
 
+// MARK: - Date coding
+
+extension JSONEncoder {
+    static var libraryIndexEncoder: JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        return encoder
+    }
+}
+
+extension JSONDecoder {
+    static var libraryIndexDecoder: JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }
+}
+
 // MARK: - LibraryIndexStore
 
 /// Actor that manages reading/writing the folder-level LibraryIndex JSON.
+///
+/// Deliberately holds NO in-memory snapshot between calls (#2844): an
+/// earlier version cached the decoded index on first `load()` and reused it
+/// forever, on the (false) assumption that this instance is the only writer
+/// of `index.json`. It isn't — `LocalFileOperations` constructs a fresh
+/// `LibraryIndexStore` on most mutation paths (see
+/// `LocalFileOperations+CacheAndIndex.swift`'s `refreshLibraryIndexAfterMove`),
+/// so two independent instances routinely exist over the same folder. A
+/// cached snapshot in one goes stale the instant the OTHER writes, and the
+/// stale instance's next `save()` (a full-object overwrite from that cache)
+/// silently discards the other's write — the "last save wins, forgets the
+/// interleaved writer" bug from #2844. Every method below re-reads
+/// `index.json` fresh and folds its own change into THAT read before
+/// writing, so an independent instance's write in between is always picked
+/// up rather than clobbered. This doesn't make two instances' writes
+/// atomic against each other (a genuinely simultaneous read-modify-write
+/// from both could still race), but it eliminates the actual bug: every
+/// call site in this codebase is sequential — one save completes, and only
+/// later does the debounced watcher tick's reconcile pass read and save
+/// again — so "read fresh right before writing" is sufficient for every
+/// real interleaving here. The index is one small JSON file per folder, so
+/// re-reading it on every call costs nothing worth caching against.
 public actor LibraryIndexStore {
     private let folderURL: URL
     private let indexURL: URL
-    private var index: LibraryIndex?
 
     public init(folderURL: URL) {
         self.folderURL = folderURL
@@ -90,33 +130,28 @@ public actor LibraryIndexStore {
 
     // MARK: - Load
 
+    /// Reads `index.json` fresh from disk every time — see the type's doc
+    /// comment for why this store never trusts an in-memory snapshot across
+    /// calls.
     public func load() throws -> LibraryIndex? {
-        if let cached = index { return cached }
         guard FileManager.default.fileExists(atPath: indexURL.path) else { return nil }
         let data = try Data(contentsOf: indexURL)
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let loaded = try decoder.decode(LibraryIndex.self, from: data)
-        index = loaded
-        return loaded
+        return try JSONDecoder.libraryIndexDecoder.decode(LibraryIndex.self, from: data)
     }
 
     // MARK: - Update entry
 
     public func updateEntry(name: String, culling: CullingState, mtime: Date? = nil) throws {
-        if index == nil { _ = try? load() }
         // A folder with no `index.json` yet (never browsed/culled before,
         // or its whole entry set was just relocated away) has no index to
-        // load — without this, `index` stays nil and the write below
-        // silently no-ops (both `index?.entries[...] =` and `save()`'s
-        // `guard var idx = index else { return }` are no-ops on nil).
-        if index == nil { index = LibraryIndex(folderURL: folderURL) }
-        var entry = index?.entries[name] ?? LibraryIndex.LibraryEntry(name: name)
+        // load — fall back to a fresh one rather than no-op the write.
+        var idx = (try? load()) ?? LibraryIndex(folderURL: folderURL)
+        var entry = idx.entries[name] ?? LibraryIndex.LibraryEntry(name: name)
         entry.stars = culling.stars
         entry.flag = culling.flag.rawValue
         if let mtime { entry.mtime = mtime }
-        index?.entries[name] = entry
-        try save()
+        idx.entries[name] = entry
+        try save(idx)
     }
 
     // MARK: - Update fingerprints, batched (#2656)
@@ -156,10 +191,9 @@ public actor LibraryIndexStore {
     /// like `updateEntry`. A no-op (no `save()` at all) for an empty array.
     public func updateFingerprints(_ updates: [FingerprintUpdate]) throws {
         guard !updates.isEmpty else { return }
-        if index == nil { _ = try? load() }
-        if index == nil { index = LibraryIndex(folderURL: folderURL) }
+        var idx = (try? load()) ?? LibraryIndex(folderURL: folderURL)
         for update in updates {
-            var entry = index?.entries[update.name] ?? LibraryIndex.LibraryEntry(name: update.name)
+            var entry = idx.entries[update.name] ?? LibraryIndex.LibraryEntry(name: update.name)
             entry.size = update.size
             entry.mtime = update.mtime
             entry.dateTimeOriginal = update.dateTimeOriginal
@@ -168,9 +202,9 @@ public actor LibraryIndexStore {
             // or not) at `update.size`/`update.mtime` — see
             // `fingerprintAttempted`'s doc comment.
             entry.fingerprintAttempted = true
-            index?.entries[update.name] = entry
+            idx.entries[update.name] = entry
         }
-        try save()
+        try save(idx)
     }
 
     // MARK: - Remove entry
@@ -180,16 +214,15 @@ public actor LibraryIndexStore {
     /// aren't repointed, only removed/re-added). A no-op when there's no
     /// index on disk yet or the name was never present.
     public func removeEntry(named name: String) throws {
-        if index == nil { _ = try? load() }
-        guard index != nil else { return }
-        index?.entries.removeValue(forKey: name)
-        try save()
+        guard var idx = try load() else { return }
+        idx.entries.removeValue(forKey: name)
+        try save(idx)
     }
 
     // MARK: - Rebuild
 
     public func rebuild(from assets: [URL]) throws {
-        var idx = LibraryIndex(folderURL: URL(fileURLWithPath: index?.folderURL ?? ""))
+        var idx = LibraryIndex(folderURL: folderURL)
         let fm = FileManager.default
         for url in assets {
             let name = url.lastPathComponent
@@ -200,20 +233,15 @@ public actor LibraryIndexStore {
                 name: name, mtime: mtime, size: size
             )
         }
-        index = idx
-        try save()
+        try save(idx)
     }
 
     // MARK: - Save
 
-    private func save() throws {
-        guard var idx = index else { return }
+    private func save(_ idx: LibraryIndex) throws {
+        var idx = idx
         idx.lastUpdated = Date()
-        index = idx
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(idx)
+        let data = try JSONEncoder.libraryIndexEncoder.encode(idx)
         try data.write(to: indexURL, options: .atomic)
     }
 }
