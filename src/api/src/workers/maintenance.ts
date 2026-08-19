@@ -13,6 +13,11 @@
  *                      default but idles until an operator enables a specific
  *                      migration via /settings/workers (each migration has its
  *                      own toggle; the worker-level pause is the standard one).
+ *   - generated-search — invents themed photo collections daily via Ollama for
+ *                      the widget / Maple TV / settings surfaces. Starts
+ *                      PAUSED: it needs Ollama configured, and a paused start
+ *                      keeps a fresh install from filling those surfaces with
+ *                      junk before an operator has looked at it.
  *   - deduplicate    — collapses assets with >1 live on-disk location, moving
  *                      the surplus copies into `_duplicates/`. Starts PAUSED;
  *                      operator-gated via /api/workers/deduplicate/{pause,resume}.
@@ -31,6 +36,7 @@ import { startMirrorScan, type MirrorScanHandle } from './mirror/scan.ts';
 import { startMirrorCopyWorker, type MirrorCopyHandle } from './mirror/copy.ts';
 import { installMirrorQueueSink } from './mirror/sink.ts';
 import { startDerivativeAudit, type DerivativeAuditHandle } from './derivative-audit/scan.ts';
+import { startGeneratedSearch, type GeneratedSearchHandle } from './generated-search/run.ts';
 import { loadMirrorConfig } from '../fs/mirror-config.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -50,6 +56,7 @@ let mirrorScan: MirrorScanHandle | null = null;
 let mirrorCopy: MirrorCopyHandle | null = null;
 let mirrorConfigReload: ReturnType<typeof setInterval> | null = null;
 let derivativeAudit: DerivativeAuditHandle | null = null;
+let generatedSearch: GeneratedSearchHandle | null = null;
 
 /** Start every maintenance job. Idempotent — a second call is a no-op while a
  * prior set is still running. */
@@ -58,6 +65,7 @@ export function startMaintenanceJobs(): void {
   if (!missingReaper) missingReaper = startMissingReaper();
   if (!migration) migration = startMigration();
   if (!deduplicate) deduplicate = startDeDuplicate({});
+  if (!generatedSearch) generatedSearch = startGeneratedSearch();
   // Mirror reconcile: detector (scan → enqueue) + copy worker (drain queue).
   // Both no-op cheaply when no library has a mirror configured. The sink
   // routes inline replication failures (this process's mirrored writes — e.g.
@@ -104,6 +112,8 @@ export function stopMaintenanceJobs(): void {
   mirrorCopy = null;
   derivativeAudit?.stop();
   derivativeAudit = null;
+  generatedSearch?.stop();
+  generatedSearch = null;
   if (mirrorConfigReload) {
     clearInterval(mirrorConfigReload);
     mirrorConfigReload = null;
