@@ -88,11 +88,17 @@ public actor FilesystemSource {
     /// Owned per-folder `LibraryIndex` store (#2656 review — B4). Created
     /// fresh in `open()`/`restore()`, reset to `nil` in `close()`, and
     /// passed into every `ExternalRenameReconciler.reconcile` call for this
-    /// folder's lifetime — sharing ONE actor instance means every
-    /// fingerprint read/write for this folder is serialized through it,
-    /// instead of racing independent `LibraryIndexStore` instances that each
-    /// re-read `index.json` from disk and can silently drop each other's
-    /// writes (last `save()` wins).
+    /// folder's lifetime — sharing ONE actor instance serializes every
+    /// fingerprint read/write for this folder's reconcile passes through it.
+    /// This is no longer load-bearing for correctness against OTHER,
+    /// independently-constructed `LibraryIndexStore` instances (e.g. an
+    /// ordinary in-app rename's own store) — `LibraryIndexStore` re-reads
+    /// `index.json` fresh on every call rather than trusting a cached
+    /// snapshot (#2844), so independent instances can no longer clobber each
+    /// other's writes. Keeping one shared instance here is still worthwhile:
+    /// it narrows the residual TOCTOU window between this folder's own
+    /// reconcile-pass reads/writes to zero, and avoids constructing (and
+    /// `mkdir`-ing `.maple/`) a fresh actor on every scan.
     private var libraryIndexStore: LibraryIndexStore?
 
     /// Bumped at the top of every `_index()` call (#2656 review — B3).

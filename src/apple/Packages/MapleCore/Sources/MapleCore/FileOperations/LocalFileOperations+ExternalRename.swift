@@ -26,9 +26,13 @@ extension LocalFileOperations {
     /// `refreshLibraryIndexAfterMove` instead of letting it construct a
     /// fresh `LibraryIndexStore` — `ExternalRenameReconciler` passes the
     /// SAME actor instance it used to read the folder's fingerprint cache,
-    /// so every read/write for this folder during one reconcile pass is
-    /// serialized through one actor rather than racing independent
-    /// instances over the same `index.json` (#2656 review).
+    /// so every read/write for this folder during one reconcile pass
+    /// serializes through one actor instead of paying for a fresh one per
+    /// call (#2656 review). `LibraryIndexStore` itself no longer depends on
+    /// this sharing for correctness (#2844) — every instance re-reads
+    /// `index.json` fresh rather than trusting a cached snapshot, so a
+    /// caller that omits this parameter still can't silently clobber
+    /// another writer's save.
     @discardableResult
     public static func applyExternalRename(
         oldPrimaryPath: String, newPrimaryPath: String, libraryIndexStore: LibraryIndexStore? = nil

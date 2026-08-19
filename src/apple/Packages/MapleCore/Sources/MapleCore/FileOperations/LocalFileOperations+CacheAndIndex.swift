@@ -58,13 +58,18 @@ extension LocalFileOperations {
     /// `externalStore`, when provided, is used for BOTH the old and new
     /// folder instead of constructing fresh `LibraryIndexStore` actors
     /// (#2656): a caller that already owns a persistent store for this
-    /// folder — `FilesystemSource` does, for the folder it has open — must
+    /// folder — `FilesystemSource` does, for the folder it has open — can
     /// route every read/write for that folder through the SAME actor
-    /// instance, or two independent instances racing the same `index.json`
-    /// can silently drop each other's writes (last `save()` wins). Callers
-    /// only ever pass this when old and new share a folder (same-folder
-    /// external rename is the only caller that does); a cross-folder
-    /// `relocate()` still gets fresh, per-folder instances as before.
+    /// instance rather than paying for a fresh one per call. This is a
+    /// performance nicety, not a correctness requirement (#2844):
+    /// `LibraryIndexStore` re-reads `index.json` fresh on every call rather
+    /// than trusting a cached snapshot, so an ordinary relocate that omits
+    /// `externalStore` and constructs its own fresh instance here still
+    /// can't silently clobber a write made by some other store over the
+    /// same folder. Callers only ever pass this when old and new share a
+    /// folder (same-folder external rename is the only caller that does); a
+    /// cross-folder `relocate()` still gets fresh, per-folder instances as
+    /// before.
     static func refreshLibraryIndexAfterMove(_ plan: RelocatePlan, using externalStore: LibraryIndexStore? = nil) async {
         let oldURL = URL(fileURLWithPath: plan.sourcePrimaryPath)
         let newURL = URL(fileURLWithPath: plan.finalPrimaryPath)
