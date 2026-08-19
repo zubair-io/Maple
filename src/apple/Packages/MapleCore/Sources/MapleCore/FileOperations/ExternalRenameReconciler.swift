@@ -17,13 +17,15 @@
 // this reconciles.
 //
 // `store` is caller-owned (#2656 review): `FilesystemSource` holds ONE
-// `LibraryIndexStore` for the folder it has open and passes it in here —
-// every read and write this module (and the `applyExternalRename` calls it
-// makes) performs for that folder goes through that SAME actor instance, so
-// calls serialize through it rather than racing independent instances over
-// the same `index.json` (an independent instance re-reads from disk at
-// construction, so two of them used across a suspension point can each miss
-// the other's write and the later `save()` silently discards it).
+// `LibraryIndexStore` for the folder it has open and passes it in here, so
+// every read/write this module (and the `applyExternalRename` calls it
+// makes) performs for that folder serializes through that SAME actor
+// instance rather than paying for a fresh one per call. Correctness no
+// longer depends on this sharing (#2844): `LibraryIndexStore` re-reads
+// `index.json` fresh on every `load()`/mutation rather than trusting a
+// cached snapshot, so even an independent instance racing this one over the
+// same file picks up the other's writes instead of silently discarding them
+// on its own next `save()`.
 
 import Foundation
 import OSLog
@@ -143,6 +145,27 @@ public enum ExternalRenameReconciler {
 
     // MARK: - Fingerprint cache refresh
 
+    /// `existing.mtime` came from `index.json` via `LibraryIndexStore.load()`
+    /// — an ISO8601-encoded `Date`, which formats to WHOLE seconds only —
+    /// while `mtime` is a fresh `FileManager` `.modificationDate` `stat`,
+    /// which routinely carries sub-second precision on APFS. Comparing
+    /// those with plain `Date` equality made an utterly unchanged file look
+    /// "changed" on every scan whose `LibraryIndexStore` had to re-read
+    /// `index.json` from disk rather than reuse an in-memory `Date` it
+    /// still held from writing that same entry a moment earlier — which,
+    /// since #2844, is EVERY scan (`LibraryIndexStore` no longer caches
+    /// across calls; see its doc comment for why trusting a cache was the
+    /// actual bug). Rounding both sides to the nearest second before
+    /// comparing tolerates that lossy round trip; sub-second staleness
+    /// isn't a distinction this cache needs to make anyway.
+    private static func sameToTheNearestSecond(_ a: Date?, _ b: Date?) -> Bool {
+        switch (a, b) {
+        case (nil, nil): return true
+        case let (a?, b?): return a.timeIntervalSince1970.rounded() == b.timeIntervalSince1970.rounded()
+        default: return false
+        }
+    }
+
     /// Skips the (EXIF-reading) provider call entirely when a file's size
     /// and mtime match what's already cached AND a `dateTimeOriginal` is
     /// already on file — mirrors `MapleIdCacheStore.lookup`'s
@@ -178,7 +201,7 @@ public enum ExternalRenameReconciler {
             let mtime = attrs[.modificationDate] as? Date
 
             if let existing = existingEntries[name],
-               existing.size == size, existing.mtime == mtime,
+               existing.size == size, sameToTheNearestSecond(existing.mtime, mtime),
                existing.dateTimeOriginal != nil || existing.fingerprintAttempted == true {
                 continue
             }
