@@ -39,8 +39,18 @@ namespace Maple.WinUI.Tests
             Assert.Equal("Wedding_001.CR3", reconciliation.NewFileName);
         }
 
+        // NOTE (#2845): this test used to be named
+        // `CaptureTimeAloneIsEnough_SerialNotRequired` and asserted a
+        // single result under the OLD (wrong) OR contract — "capture time
+        // agreeing was sufficient on its own, serial wasn't required at
+        // all." That framing was misleading even though the assertion
+        // happens to still hold under the corrected AND contract: capture
+        // time is mandatory and matches here, and the serial component is
+        // satisfied by MUTUAL ABSENCE (both null), not by "serial doesn't
+        // matter." Renamed + recommented to state the real rule; the
+        // outcome (single match) is unchanged.
         [Fact]
-        public void CaptureTimeAloneIsEnough_SerialNotRequired()
+        public void CaptureTimeMatches_AndSerialMutuallyAbsent_Reconciles()
         {
             var missing = new Dictionary<string, Fingerprint>
             {
@@ -56,8 +66,20 @@ namespace Maple.WinUI.Tests
             Assert.Single(result);
         }
 
+        // NOTE (#2845): this test used to be named
+        // `SerialAloneIsEnough_CaptureTimeNotRequired` and asserted a
+        // SINGLE result — i.e. that a matching serial with NO capture time
+        // on either side was enough to reconcile. That pinned the bug this
+        // ticket fixes: capture time is mandatory on both the API
+        // (rename-reconcile.ts's `missingFingerprint`/`newFileFingerprint`
+        // return `null` — excluding the file from fingerprinting entirely —
+        // whenever `capturedAt` can't be read) and Apple
+        // (`ExternalRenameFingerprint.live` returns `nil` rather than a
+        // size-only fingerprint under the same condition). A fingerprint
+        // with no capture time on either side must now decline, not
+        // reconcile on serial alone — flipped to `Assert.Empty` to match.
         [Fact]
-        public void SerialAloneIsEnough_CaptureTimeNotRequired()
+        public void SerialMatches_ButCaptureTimeMissingOnBothSides_Declines()
         {
             var missing = new Dictionary<string, Fingerprint>
             {
@@ -70,7 +92,77 @@ namespace Maple.WinUI.Tests
 
             var result = RenameReconciliationLogic.ReconcileFingerprints(missing, unknown);
 
-            Assert.Single(result);
+            Assert.Empty(result);
+        }
+
+        [Fact]
+        public void CaptureTimeUnreadableOnOneSide_ExcludesTheCandidateEntirely_Declines()
+        {
+            // Capture time present + matching on the known side but
+            // unreadable (null) on the candidate side — the candidate must
+            // never fall back to matching on size + serial alone.
+            var missing = new Dictionary<string, Fingerprint>
+            {
+                ["a.dng"] = new Fingerprint(500, CaptureA, "SN1"),
+            };
+            var unknown = new Dictionary<string, Fingerprint>
+            {
+                ["b.dng"] = new Fingerprint(500, null, "SN1"),
+            };
+
+            var result = RenameReconciliationLogic.ReconcileFingerprints(missing, unknown);
+
+            Assert.Empty(result);
+        }
+
+        [Fact]
+        public void SerialPresentOnOneSideOnly_IsADisagreement_NotAWildcard_Declines()
+        {
+            // Same size, same capture time, but the serial is present on
+            // only one side — per the API's fingerprint-bucket key (a
+            // missing serial folds to '', not a wildcard) and Apple's
+            // Hashable struct equality (nil != "SN1"), this is a
+            // disagreement, not a mutual-absence pass, and must decline.
+            var missing = new Dictionary<string, Fingerprint>
+            {
+                ["a.dng"] = new Fingerprint(500, CaptureA, CameraSerial: "SN1"),
+            };
+            var unknown = new Dictionary<string, Fingerprint>
+            {
+                ["b.dng"] = new Fingerprint(500, CaptureA, CameraSerial: null),
+            };
+
+            var result = RenameReconciliationLogic.ReconcileFingerprints(missing, unknown);
+
+            Assert.Empty(result);
+        }
+
+        // NOTE: "both serials absent but capture times equal must match" is
+        // already covered above by CaptureTimeMatches_AndSerialMutuallyAbsent_Reconciles
+        // (the renamed former CaptureTimeAloneIsEnough_SerialNotRequired) —
+        // verified against Apple's testCameraSerialIsNotRequiredToMatch,
+        // which is the source of truth that mutual absence IS a pass, not
+        // a decline.
+
+        [Fact]
+        public void TwoDifferentPhotos_SharingOnlyASize_NeverMerge()
+        {
+            // The false-positive shape #2845 was filed over: two DIFFERENT
+            // photos from the same camera body (same serial — the normal
+            // case) that happen to share a file size. Different capture
+            // times must decline this, not merge on size + serial alone.
+            var missing = new Dictionary<string, Fingerprint>
+            {
+                ["beach.dng"] = new Fingerprint(2_000_000, CaptureA, "SN1"),
+            };
+            var unknown = new Dictionary<string, Fingerprint>
+            {
+                ["mountain.dng"] = new Fingerprint(2_000_000, CaptureB, "SN1"),
+            };
+
+            var result = RenameReconciliationLogic.ReconcileFingerprints(missing, unknown);
+
+            Assert.Empty(result);
         }
 
         [Fact]
