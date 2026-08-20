@@ -78,7 +78,20 @@ export class SearchBarComponent {
     this.inputRef?.nativeElement.focus();
   }
 
+  /**
+   * Why a chip the user never set is on screen. Only the derived one needs
+   * explaining — the rest are the user's own choices, already visible in the
+   * panel they set them in (#2956).
+   */
+  protected chipTitle(chip: ActiveFilterChip): string | null {
+    return chip.inferredFrom === undefined
+      ? null
+      : `Date filter from your search text “${chip.inferredFrom}”`;
+  }
+
   protected chipIcon(chip: ActiveFilterChip): 'event' | 'person' | 'place' {
-    return chip.kind === 'date' ? 'event' : chip.kind;
+    // An inferred window is still a date, and reads as one — the calendar
+    // glyph is right; the `chip-inferred` styling is what sets it apart.
+    return chip.kind === 'date' || chip.kind === 'inferred-date' ? 'event' : chip.kind;
   }
 }

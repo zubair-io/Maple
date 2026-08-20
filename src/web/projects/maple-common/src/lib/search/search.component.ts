@@ -46,6 +46,7 @@ import {
 } from '@angular/core';
 import { Subscription } from 'rxjs';
 import {
+  AppliedDateFilter,
   SearchFacets,
   SearchParams,
   SearchResult,
@@ -64,6 +65,7 @@ import {
   EMPTY_FILTERS,
   SearchFilters,
   activeFilterChips,
+  inferredDateChip,
   activeFilterCount,
   filtersToParams,
   hasActiveFilters,
@@ -133,6 +135,8 @@ export class SearchComponent implements OnInit, AfterViewInit {
   protected readonly panelOpen = signal<boolean>(false);
   /** Facets for the panel rows + tag picker + live "Show N" count. */
   protected readonly facets = signal<SearchFacets | null>(null);
+  /** Date window the server applied, so an inferred one is never invisible. */
+  protected readonly appliedDates = signal<AppliedDateFilter | undefined>(undefined);
   /** Result-id → blob URL, patched as thumbnails resolve. */
   protected readonly thumbUrls = signal<ReadonlyMap<string, string>>(new Map());
   /** Fragment of a trailing `@token` the user dismissed — keeps the picker
@@ -157,7 +161,14 @@ export class SearchComponent implements OnInit, AfterViewInit {
   protected readonly filtersActive = computed(() => hasActiveFilters(this.filters()));
   protected readonly activeCount = computed(() => activeFilterCount(this.filters()));
 
-  protected readonly allChips = computed(() => activeFilterChips(this.filters()));
+  protected readonly allChips = computed(() => {
+    const inferred = inferredDateChip(this.appliedDates());
+    // Appended, not prepended: the user's own filters stay in their
+    // established order and the derived one reads as an addition to them.
+    return inferred === null
+      ? activeFilterChips(this.filters())
+      : [...activeFilterChips(this.filters()), inferred];
+  });
   protected readonly visibleChips = computed(() => this.allChips().slice(0, MAX_INLINE_CHIPS));
   protected readonly overflowCount = computed(
     () => this.allChips().length - this.visibleChips().length,
@@ -216,6 +227,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
         this.total.set(0);
         this.page.set(0);
         this.nextCursor.set(null);
+        this.appliedDates.set(undefined);
         this.isStale.set(false);
         return;
       }
@@ -228,6 +240,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
           next: (res) => {
             this.results.set(res.results);
             this.nextCursor.set(res.nextCursor ?? null);
+            this.appliedDates.set(res.dateFilter);
             this.total.set(seekExhausted(res) ? res.results.length : res.total);
             this.isStale.set(false);
             this.queueThumbs(res.results);
