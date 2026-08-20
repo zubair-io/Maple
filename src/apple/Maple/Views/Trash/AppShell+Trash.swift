@@ -195,7 +195,7 @@ extension AppShell {
         case .cloud(let server, let libraryFolderID, _):
             let remote = makeCloudTrashClient(server: server)
             let response = try? await remote.listTrash(folderID: libraryFolderID)
-            return (response?.items ?? []).map(TrashBrowserRow.init(cloud:))
+            return (response?.items ?? []).compactMap(TrashBrowserRow.init(cloud:))
         }
     }
 
@@ -325,7 +325,7 @@ extension AppShell {
 
     // MARK: - 30-day `.maple/trash` auto-purge
 
-    private static let trashSweepDebounceKey = "app.justmaple.aperture.trashSweep.lastRun"
+    private nonisolated static let trashSweepDebounceKey = "app.justmaple.aperture.trashSweep.lastRun"
     private static let trashSweepInterval: TimeInterval = 24 * 60 * 60
 
     /// Debounced to at most once per 24h (a `UserDefaults` timestamp, same
