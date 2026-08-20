@@ -15,6 +15,7 @@ import {
   ViewChild,
   AfterViewInit,
   computed,
+  effect,
   input,
   linkedSignal,
   output,
@@ -51,6 +52,20 @@ export class FolderRenameDialogComponent implements AfterViewInit {
   readonly isValid = computed(() => this.validationMessage() === null);
 
   @ViewChild('nameInput') private nameInputRef?: ElementRef<HTMLInputElement>;
+
+  constructor() {
+    // A rejected rename (collision or otherwise) re-selects the input so
+    // the user can immediately retype and retry — the dialog stays open
+    // and mounted (the caller never emits `closed` on error), but without
+    // this the focus/selection from the initial mount is long gone by the
+    // time the server responds.
+    effect(() => {
+      if (this.serverError() === null) return;
+      const el = this.nameInputRef?.nativeElement;
+      el?.focus();
+      el?.select();
+    });
+  }
 
   ngAfterViewInit(): void {
     queueMicrotask(() => {
