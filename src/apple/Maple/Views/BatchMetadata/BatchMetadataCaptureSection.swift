@@ -207,24 +207,31 @@ struct BatchMetadataCaptureSection: View {
         geocodeError = nil
         geocodeResults = []
         #if os(iOS)
+        // Supersede any in-flight search: cancel it AND drop it from
+        // `activeGeocodeRequest` on every path out of here, so its late
+        // completion can never pass the identity guard below and clobber
+        // this search's state.
         activeGeocodeRequest?.cancel()
+        activeGeocodeRequest = nil
         guard let request = MKGeocodingRequest(addressString: q) else {
             isGeocoding = false
             geocodeError = "Couldn't search for that address."
             return
         }
         activeGeocodeRequest = request
-        Task {
+        Task { @MainActor in
             // Stale-guarded by request identity (docs/best-practices.md §
             // "Generation counters for async state"): a newer search replaces
             // `activeGeocodeRequest`, so this one's writes are dropped.
             do {
                 let items = try await request.mapItems
                 guard activeGeocodeRequest === request else { return }
+                activeGeocodeRequest = nil
                 geocodeResults = items.map(GeocodeCandidate.init(mapItem:))
                 isGeocoding = false
             } catch {
                 guard activeGeocodeRequest === request else { return }
+                activeGeocodeRequest = nil
                 geocodeError = error.localizedDescription
                 isGeocoding = false
             }
@@ -233,6 +240,11 @@ struct BatchMetadataCaptureSection: View {
         geocoder.cancelGeocode()
         geocoder.geocodeAddressString(q) { placemarks, error in
             Task { @MainActor in
+                // A superseding search cancels this one — drop the stale
+                // callback instead of clobbering the new search's spinner
+                // and error state (the macOS twin of the identity guard on
+                // the iOS branch above).
+                if let clError = error as? CLError, clError.code == .geocodeCanceled { return }
                 isGeocoding = false
                 if let err = error {
                     geocodeError = err.localizedDescription
@@ -322,7 +334,10 @@ private struct GeocodeCandidate: Hashable, Identifiable {
     let label: String
     let latitude: Double
     let longitude: Double
-    /// Meters; nil when the source didn't report a measured altitude.
+    /// Meters; nil when the source didn't report a measured altitude. A
+    /// positive `verticalAccuracy` on the source location means the altitude
+    /// is measured; zero/negative means invalid — distinct from a genuine
+    /// 0 m sea-level reading, which is valid and must be applied.
     let altitude: Double?
     let city: String?
     let state: String?
@@ -334,33 +349,22 @@ private struct GeocodeCandidate: Hashable, Identifiable {
 extension GeocodeCandidate {
     init(mapItem item: MKMapItem) {
         let reps = item.addressRepresentations
-        let city = reps?.cityName
         let coordinate = item.location.coordinate
         let labelParts = [item.name, item.address?.fullAddress].compactMap { $0 }
-        // MKAddressRepresentations has no discrete administrative-area field;
-        // `cityWithContext` is "<city>, <region>" whenever the platform
-        // considers the region disambiguating. Strip the city prefix to
-        // recover it — best-effort: when the context form is just the city,
-        // state stays nil and the field is left for the user.
-        let state: String? = {
-            guard let city, let ctx = reps?.cityWithContext,
-                  ctx.hasPrefix("\(city), ") else { return nil }
-            let suffix = String(ctx.dropFirst(city.count + 2))
-                .trimmingCharacters(in: .whitespaces)
-            return suffix.isEmpty ? nil : suffix
-        }()
         self.init(
             label: labelParts.isEmpty
                 ? String(format: "%.4f, %.4f", coordinate.latitude, coordinate.longitude)
                 : labelParts.joined(separator: ", "),
             latitude: coordinate.latitude,
             longitude: coordinate.longitude,
-            // Positive verticalAccuracy means the altitude is measured; zero/
-            // negative means invalid — distinct from a genuine 0 m sea-level
-            // reading, which is valid and must be applied.
             altitude: item.location.verticalAccuracy > 0 ? item.location.altitude : nil,
-            city: city,
-            state: state,
+            city: reps?.cityName,
+            // MKAddressRepresentations exposes no discrete administrative-
+            // area field (its `cityWithContext` appends state OR country,
+            // locale-formatted — parsing it risks burning a country name
+            // into the XMP State field across a whole batch). Leave state
+            // for the user rather than guess; `applyCandidate` skips nil.
+            state: nil,
             country: reps?.regionName,
             countryCode: reps?.region?.identifier
         )
@@ -376,9 +380,6 @@ extension GeocodeCandidate {
             label: [p.name, p.locality, p.country].compactMap { $0 }.joined(separator: ", "),
             latitude: loc.coordinate.latitude,
             longitude: loc.coordinate.longitude,
-            // Positive verticalAccuracy means the altitude is measured; zero/
-            // negative means invalid — distinct from a genuine 0 m sea-level
-            // reading, which is valid and must be applied.
             altitude: loc.verticalAccuracy > 0 ? loc.altitude : nil,
             city: p.locality,
             state: p.administrativeArea,
