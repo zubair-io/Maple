@@ -57,6 +57,59 @@ final class SMBFileOperationsFolderTests: XCTestCase {
         XCTAssertEqual(b, "b")
     }
 
+    // MARK: - Folder trash writes a marker per contained photo (#2945)
+
+    func testDeleteFolderWritesAMarkerForEveryContainedPhoto() async throws {
+        let t = FakeSMBTransport()
+        await t.seed("a", at: "/2024/Paris/IMG_1.dng")
+        await t.seed("b", at: "/2024/Paris/IMG_2.dng")
+
+        _ = try await SMBFileOperations.deleteFolder("/2024", transport: t)
+
+        let items = await SMBFileOperations.listMapleTrash(transport: t)
+        XCTAssertEqual(items.count, 2)
+        XCTAssertTrue(items.allSatisfy { $0.trashedDate != nil })
+    }
+
+    /// Restoring a folder-trashed photo is per-`TrashedItem` (there is no
+    /// folder-level restore) and must clean up its marker the same way a
+    /// single-file trash/restore round-trip already does.
+    func testRestoringAFolderTrashedPhotoCleansUpItsMarker() async throws {
+        let t = FakeSMBTransport()
+        await t.seed("a", at: "/2024/Paris/IMG_1.dng")
+        _ = try await SMBFileOperations.deleteFolder("/2024", transport: t)
+
+        let restored = try await SMBFileOperations.restoreFromMapleTrash(
+            "/.maple/trash/2024/Paris/IMG_1.dng", transport: t)
+
+        XCTAssertEqual(restored.primaryPath, "/2024/Paris/IMG_1.dng")
+        let items = await SMBFileOperations.listMapleTrash(transport: t)
+        XCTAssertEqual(items.count, 0)
+    }
+
+    /// The whole point of #2945: a folder-trashed photo must be reachable
+    /// by the SAME 30-day sweep a single-file trash already is — before
+    /// this fix `deleteFolder` wrote no marker at all, so
+    /// `sweepExpiredMapleTrash` silently skipped it forever.
+    func testSweepExpiredMapleTrashPurgesFolderTrashedPhotosPastTheRetentionWindow() async throws {
+        let t = FakeSMBTransport()
+        await t.seed("a", at: "/2024/Paris/IMG_1.dng")
+        await t.seed("b", at: "/2024/Paris/IMG_2.dng")
+        _ = try await SMBFileOperations.deleteFolder("/2024", transport: t)
+
+        for path in ["/.maple/trash/2024/Paris/IMG_1.dng", "/.maple/trash/2024/Paris/IMG_2.dng"] {
+            await SMBFileOperations.removeTrashedMarker(forItemAt: path, transport: t)
+            await SMBFileOperations.writeTrashedMarker(
+                forItemAt: path, date: Date().addingTimeInterval(-40 * 86_400), transport: t)
+        }
+
+        let purged = await SMBFileOperations.sweepExpiredMapleTrash(olderThanDays: 30, transport: t)
+
+        XCTAssertEqual(purged, 2)
+        let remaining = await SMBFileOperations.listMapleTrash(transport: t)
+        XCTAssertEqual(remaining.count, 0)
+    }
+
     func testTrashAssetIntoMapleTrashPreservesRelativeStructure() async throws {
         let t = FakeSMBTransport()
         await t.seed("pixels", at: "/2024/Paris/IMG_1.dng")

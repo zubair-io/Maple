@@ -104,6 +104,82 @@ final class LocalFileOperationsFolderTests: XCTestCase {
         XCTAssertEqual(trashed.lastPathComponent, "Album.1")
     }
 
+    // MARK: - Folder trash writes a marker per contained photo (#2945)
+
+    func testTrashFolderToMapleFolderWritesAMarkerForEveryContainedPhoto() throws {
+        let folder = try LocalFileOperations.createFolder(named: "2024", in: root)
+        FileOperationsTestSupport.write("a", to: folder.appendingPathComponent("Paris/IMG_1.dng"))
+        FileOperationsTestSupport.write("b", to: folder.appendingPathComponent("Paris/IMG_2.dng"))
+
+        let trashed = try LocalFileOperations.trashFolderToMapleFolder(folder, libraryRoot: root)
+
+        XCTAssertNotNil(LocalFileOperations.trashedDate(
+            forItemAt: trashed.appendingPathComponent("Paris/IMG_1.dng")))
+        XCTAssertNotNil(LocalFileOperations.trashedDate(
+            forItemAt: trashed.appendingPathComponent("Paris/IMG_2.dng")))
+    }
+
+    /// Markers must never surface as items of their own in the trash
+    /// listing — `listMapleTrash` already skips anything shaped like a
+    /// marker directory name; this locks that in for the folder-trash path
+    /// specifically, where a naive walk could otherwise double-count.
+    func testListMapleTrashAfterFolderDeleteFindsOnlyThePhotosNotTheirMarkers() throws {
+        let folder = try LocalFileOperations.createFolder(named: "2024", in: root)
+        FileOperationsTestSupport.write("a", to: folder.appendingPathComponent("Paris/IMG_1.dng"))
+        FileOperationsTestSupport.write("b", to: folder.appendingPathComponent("Paris/IMG_2.dng"))
+        _ = try LocalFileOperations.trashFolderToMapleFolder(folder, libraryRoot: root)
+
+        let items = LocalFileOperations.listMapleTrash(libraryRoot: root)
+
+        XCTAssertEqual(items.count, 2)
+        XCTAssertTrue(items.allSatisfy { $0.trashedDate != nil })
+        XCTAssertEqual(Set(items.map(\.displayName)), ["IMG_1.dng", "IMG_2.dng"])
+    }
+
+    /// Restoring a folder-trashed photo (the only restore primitive that
+    /// exists — restore operates per-`TrashedItem`, there is no folder-level
+    /// restore) must clean up its marker exactly the way a single-file
+    /// trash/restore round-trip already does.
+    func testRestoringAFolderTrashedPhotoCleansUpItsMarker() async throws {
+        let folder = try LocalFileOperations.createFolder(named: "2024", in: root)
+        FileOperationsTestSupport.write("a", to: folder.appendingPathComponent("Paris/IMG_1.dng"))
+        let trashed = try LocalFileOperations.trashFolderToMapleFolder(folder, libraryRoot: root)
+        let trashedPhoto = trashed.appendingPathComponent("Paris/IMG_1.dng")
+
+        _ = try await LocalFileOperations.restoreFromMapleTrash(trashedPhoto, libraryRoot: root)
+
+        XCTAssertTrue(FileOperationsTestSupport.exists(root.appendingPathComponent("2024/Paris/IMG_1.dng")))
+        XCTAssertEqual(LocalFileOperations.listMapleTrash(libraryRoot: root).count, 0)
+    }
+
+    /// The whole point of #2945: a folder-trashed photo must actually be
+    /// reachable by the SAME 30-day sweep a single-file trash already is —
+    /// before this fix, `deleteFolder` wrote no marker at all, so
+    /// `sweepExpiredMapleTrash` (which only ever acts on dated entries)
+    /// silently skipped it forever.
+    func testSweepExpiredMapleTrashPurgesFolderTrashedPhotosPastTheRetentionWindow() throws {
+        let folder = try LocalFileOperations.createFolder(named: "2024", in: root)
+        FileOperationsTestSupport.write("a", to: folder.appendingPathComponent("Paris/IMG_1.dng"))
+        FileOperationsTestSupport.write("b", to: folder.appendingPathComponent("Paris/IMG_2.dng"))
+        let trashed = try LocalFileOperations.trashFolderToMapleFolder(folder, libraryRoot: root)
+
+        // Back-date both markers past the retention window, the same way
+        // the single-file sweep tests simulate age (no separate fake-clock
+        // exists in this module — `sweepExpiredMapleTrash`'s own `now:`
+        // parameter is the injection point).
+        for name in ["IMG_1.dng", "IMG_2.dng"] {
+            let itemURL = trashed.appendingPathComponent("Paris/\(name)")
+            LocalFileOperations.removeTrashedMarker(forItemAt: itemURL)
+            LocalFileOperations.writeTrashedMarker(
+                forItemAt: itemURL, date: Date().addingTimeInterval(-40 * 86_400))
+        }
+
+        let purged = LocalFileOperations.sweepExpiredMapleTrash(libraryRoot: root, olderThanDays: 30)
+
+        XCTAssertEqual(purged, 2)
+        XCTAssertEqual(LocalFileOperations.listMapleTrash(libraryRoot: root).count, 0)
+    }
+
     // MARK: - Name validation (#2645 review — traversal via an unvalidated
     // New Folder / Rename name). `appendingPathComponent` splits on an
     // embedded `/`, so an unvalidated name could create a directory outside

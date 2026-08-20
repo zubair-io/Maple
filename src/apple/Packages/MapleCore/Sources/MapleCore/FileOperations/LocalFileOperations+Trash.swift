@@ -237,6 +237,32 @@ extension LocalFileOperations {
         try? FileManager.default.createDirectory(at: markerURL, withIntermediateDirectories: true)
     }
 
+    /// Writes a `TrashMarker` beside every non-`.xmp` primary found
+    /// (recursively) under `folderURL` — issue #2945: a folder-level trash
+    /// (`trashFolderToMapleFolder`) is a single directory move with no
+    /// per-item relocate call, so nothing else in that path ever calls
+    /// `writeTrashedMarker`. One marker PER CONTAINED PHOTO — not one for
+    /// the folder root — is the deliberate choice here: `listMapleTrash`
+    /// and `sweepExpiredMapleTrash`/`sweepOrphanedMarkers` already walk the
+    /// trash tree file-by-file (never folder-by-folder, see their own doc
+    /// comments), so a per-photo marker is exactly what that existing code
+    /// already knows how to find, purge, and clean up on restore — zero
+    /// special-casing for "this primary's trashed date lives on some
+    /// ancestor directory instead of beside it." A single folder-root
+    /// marker would need all three of those to learn that new concept.
+    static func writeTrashedMarkers(forSubtreeAt folderURL: URL, date: Date = Date()) {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: folderURL, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
+        ) else { return }
+        for case let url as URL in enumerator {
+            guard let isDir = try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory, isDir == false
+            else { continue }
+            guard url.pathExtension.lowercased() != "xmp" else { continue }
+            writeTrashedMarker(forItemAt: url, date: date)
+        }
+    }
+
     static func removeTrashedMarker(forItemAt primaryURL: URL) {
         let dir = primaryURL.deletingLastPathComponent()
         guard let contents = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else { return }
