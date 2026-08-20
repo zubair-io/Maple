@@ -180,4 +180,48 @@ describe('POST /api/folders/:id/upload → asset_changes emit', () => {
     expect(asset!.fileinfo![0].path).toBe('vacation/2024');
     expect(asset!.fileinfo![0].filename).toBe('uploaded2.dng');
   });
+
+  // #2535 — a non-media upload (no AssetDoc) used to emit NO change-feed
+  // row at all, so `WorkingSetEnumerator.enumerateChanges` on the Apple
+  // client had nothing to see, let alone drop. It must now emit a
+  // `create` row with `asset_id: null`, resolvable by the client via
+  // `(folder_id, relative_path)` instead.
+  it('emits an asset_changes row with asset_id=null for a non-media upload', async () => {
+    if (!mongo || !db || !folderId) {
+      console.log('[folders.upload.test] MongoDB unreachable — skipping');
+      return;
+    }
+    const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
+    const fileBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]); // not a real PDF, extension is what matters
+    const target = 'invoice.pdf';
+    const url = `http://localhost/api/folders/${folderId.toHexString()}/upload`;
+    const res = await app.handle(
+      new Request(url, {
+        method: 'POST',
+        headers: {
+          'X-Maple-Target-Path': target,
+          'Content-Type': 'application/octet-stream',
+        },
+        body: fileBytes,
+      }),
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { abs_path: string; asset_id?: string };
+    expect(body.asset_id).toBeUndefined();
+    const expectedAbsPath = nodePath.join(folderPath!, target);
+    expect(body.abs_path).toBe(expectedAbsPath);
+
+    // No AssetDoc for a non-media file.
+    const assetCount = await db.collection('assets').countDocuments({});
+    expect(assetCount).toBe(0);
+
+    const changes = await db.collection('asset_changes').find({}).toArray();
+    expect(changes.length).toBe(1);
+    const change = changes[0]!;
+    expect(change.kind).toBe('create');
+    expect(change.asset_id).toBeNull();
+    expect((change.folder_id as ObjectId).toHexString()).toBe(folderId.toHexString());
+    expect(change.abs_path).toBe(expectedAbsPath);
+    expect(change.relative_path).toBe(target);
+  });
 });

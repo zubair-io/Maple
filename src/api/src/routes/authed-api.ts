@@ -19,6 +19,7 @@ import { Elysia } from 'elysia';
 import { requireAuth } from '../auth/middleware.ts';
 import { foldersRoutes } from './folders.ts';
 import { foldersTrashRoutes } from './folders-trash.ts';
+import { foldersFileOpsRoutes } from './folders-file-ops.ts';
 import { assetsRoutes } from './assets.ts';
 import { xmpPathRoutes } from './xmp.ts';
 import { previewPathRoutes } from './preview.ts';
@@ -77,6 +78,10 @@ export const authedApi = new Elysia({ name: 'authedApi' })
   // `/api/folders` prefix, kept out of folders.ts to stay under the
   // file-size budget.
   .use(foldersTrashRoutes)
+  // Path-addressed delete/relocate for non-asset files (#2535) —
+  // separate module, same `/api/folders` prefix, kept out of folders.ts
+  // to stay under the file-size budget.
+  .use(foldersFileOpsRoutes)
   // M1 unified library addressing routes (slug:relPath).
   // Mounted before assetsRoutes so /api/folder|image|thumb|preview
   // are not shadowed by other prefixes.
