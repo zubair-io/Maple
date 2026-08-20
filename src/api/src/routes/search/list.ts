@@ -33,6 +33,8 @@ import {
   applyLiveFilter,
   buildFilter,
   clampInt,
+  appliedDateFilter,
+  dateTextConsumedBy,
   extractDatesFromQuery,
   peopleNames,
   SEARCH_SCOPES,
@@ -52,7 +54,13 @@ export const listRoute = new Elysia().get(
     // of placeQuery into structured from/to, and strip the matched span so
     // the residual free-text drives the text/Meili path. Pure-date queries
     // ("2023") leave an empty residual and skip the text path entirely.
-    const resolved = extractDatesFromQuery(query as SearchQuery);
+    // One `now` for both calls: the extraction and its provenance must not
+    // disagree across a midnight boundary.
+    const now = new Date();
+    const resolved = extractDatesFromQuery(query as SearchQuery, now);
+    // What the client shows so an inferred window is never invisible (#2956).
+    const dateFilter = appliedDateFilter(resolved, dateTextConsumedBy(query as SearchQuery, now));
+    const withDates = dateFilter === undefined ? {} : { dateFilter };
     // Excluded people (#2894) drop unconditionally; hidden people only when
     // the request opted in (see `personIdsToDrop`).
     const dropIds = await personIdsToDrop(resolved.excludeHiddenPeople);
@@ -105,6 +113,7 @@ export const listRoute = new Elysia().get(
         cursorPaging: false,
         nextCursor: null,
         notImplemented: true as const,
+        ...withDates,
       };
     }
 
@@ -138,6 +147,7 @@ export const listRoute = new Elysia().get(
         results: meili.results,
         cursorPaging: false,
         nextCursor: null,
+        ...withDates,
       };
     }
 
@@ -176,7 +186,7 @@ export const listRoute = new Elysia().get(
             cursorFromDoc(docs[docs.length - 1] as AssetDoc & { _id: ObjectId }, paging.direction),
           )
         : null;
-    return { total, page, limit, results, cursorPaging, nextCursor };
+    return { total, page, limit, results, cursorPaging, nextCursor, ...withDates };
   },
   { query: SearchQueryT },
 );
