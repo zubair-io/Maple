@@ -157,10 +157,14 @@ public final class MapleItem: NSObject, NSFileProviderItem {
     /// `.file(folderID:relativePath:)` rather than an asset id.
     /// `relativePath` is the file relative to its library root.
     ///
-    /// v1 capabilities are read-only (`.allowsReading`): the bytes
-    /// download on demand, but in-place edit / rename / reparent / delete
-    /// are deferred — those need a path-addressed mutate endpoint (the
-    /// asset-id delete/trash machinery doesn't cover docless files).
+    /// #2535: bytes download on demand (`.allowsReading`), and the file
+    /// can be trashed (`.allowsDeleting`, routed to
+    /// `RemoteCatalog.deleteFile`) or renamed/moved within its own
+    /// library (`.allowsRenaming`/`.allowsReparenting`, routed to
+    /// `RemoteCatalog.relocateFile` — see `FileProviderExtensionCore
+    /// .modifyItem`'s `.file` branch). No `.allowsWriting`: in-place
+    /// content edit isn't wired — the path-addressed write path only
+    /// covers whole-file create/delete/relocate, not a partial overwrite.
     public init(file: FileChild, folderID: String, relativePath: String,
                 parentIdentifier: NSFileProviderItemIdentifier) {
         self.identifier = .file(folderID: folderID, relativePath: relativePath)
@@ -169,7 +173,7 @@ public final class MapleItem: NSObject, NSFileProviderItem {
         self.size = NSNumber(value: file.size)
         self.modified = file.mtime
         self.utType = file.ext.isEmpty ? .data : (UTType(filenameExtension: file.ext) ?? .data)
-        self.writeCapabilities = [.allowsReading]
+        self.writeCapabilities = [.allowsReading, .allowsDeleting, .allowsRenaming, .allowsReparenting]
         self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
         self.parentItemIdentifier = parentIdentifier
         self.filename = file.name
