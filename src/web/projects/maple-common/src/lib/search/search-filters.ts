@@ -8,7 +8,7 @@
 // either side clears the other so the active-chip list never shows two
 // date chips.
 
-import type { SearchParams } from '../api/search.service';
+import type { AppliedDateFilter, SearchParams } from '../api/search.service';
 
 export type DatePreset = 'today' | 'last7' | 'last30' | 'thisYear';
 
@@ -51,8 +51,40 @@ export function activeFilterCount(f: SearchFilters): number {
 }
 
 export interface ActiveFilterChip {
-  readonly kind: 'date' | 'person' | 'place';
+  readonly kind: 'date' | 'person' | 'place' | 'inferred-date';
   readonly label: string;
+  /** For `inferred-date`: the search text the window was derived from, shown
+   * as attribution so the user can see WHY it is there. */
+  readonly inferredFrom?: string;
+  /** Chips the user can clear. An inferred window has no off switch yet —
+   * suppressing the parse needs an API parameter that does not exist — and an
+   * X that silently did nothing would be worse than none. Absent means true. */
+  readonly removable?: boolean;
+}
+
+/** ISO instant → the bare `YYYY-MM-DD` the rest of the filter UI displays. */
+function isoDay(instant: string): string {
+  return instant.slice(0, 10);
+}
+
+/**
+ * A chip for a date window the SERVER inferred from the query text, or null
+ * when there is none — or when the user set it themselves, in which case the
+ * ordinary date chip already represents it.
+ */
+export function inferredDateChip(applied: AppliedDateFilter | undefined): ActiveFilterChip | null {
+  if (!applied?.inferredFrom) return null;
+  const { from, to, inferredFrom } = applied;
+  const label =
+    from && to
+      ? `${isoDay(from)} – ${isoDay(to)}`
+      : from
+        ? `From ${isoDay(from)}`
+        : to
+          ? `Until ${isoDay(to)}`
+          : null;
+  if (label === null) return null;
+  return { kind: 'inferred-date', label, inferredFrom, removable: false };
 }
 
 /** The bar's inline chip list, date first (mirrors the design's ordering:
@@ -86,6 +118,11 @@ export function removeChip(f: SearchFilters, chip: ActiveFilterChip): SearchFilt
       return { ...f, people: f.people.filter((p) => p !== chip.label) };
     case 'place':
       return { ...f, places: f.places.filter((p) => p !== chip.label) };
+    case 'inferred-date':
+      // Not user-set, so there is nothing in `SearchFilters` to clear. The
+      // chip renders without an X; this arm exists to keep the switch
+      // exhaustive.
+      return f;
   }
 }
 
