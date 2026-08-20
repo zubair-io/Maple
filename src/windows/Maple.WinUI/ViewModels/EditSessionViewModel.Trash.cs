@@ -83,9 +83,22 @@ namespace Maple.WinUI.ViewModels
         // --- Restore (.maple/trash only — Recycle Bin items restore via Explorer) ---
 
         /// <summary>Every item currently sitting in `.maple/trash` across
-        /// every open library root.</summary>
-        public IReadOnlyList<TrashListItem> ListMapleTrash() =>
-            MapleTrashListing.ListTrashItems(LibraryFolders);
+        /// every open library root. Off the UI thread (#2948):
+        /// ListTrashItems does a RecurseSubdirectories enumerate plus a
+        /// per-file stat across every library root, synchronously — a dead
+        /// or sleeping SMB root stalls that walk for the OS timeout and
+        /// would otherwise freeze the window from inside an `async void`
+        /// handler with nothing to observe it. LibraryFolders is snapshotted
+        /// on the calling (UI) thread first — it's an ObservableCollection
+        /// the UI thread can mutate (add/remove a library folder) while this
+        /// runs, and Task.Run's background enumeration must not race that.
+        /// Mirrors InitializeLibrary's pattern (EditSessionViewModel.
+        /// Library.cs).</summary>
+        public Task<IReadOnlyList<TrashListItem>> ListMapleTrashAsync()
+        {
+            var roots = LibraryFolders.ToList();
+            return Task.Run(() => MapleTrashListing.ListTrashItems(roots));
+        }
 
         /// <summary>Restores every item in <paramref name="items"/>,
         /// sequentially, reporting per-item outcomes — the same
