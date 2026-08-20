@@ -169,3 +169,12 @@
     display: none;
   }
 }
+
+/* A window the SERVER inferred from the query text, not one the user set.
+   Dashed rather than a different hue: it must read as provisional and
+   explainable, without competing with the user's own chips for attention
+   or inventing a colour the token set does not have (#2956). */
+.chip-inferred {
+  border-style: dashed;
+  opacity: 0.85;
+}
