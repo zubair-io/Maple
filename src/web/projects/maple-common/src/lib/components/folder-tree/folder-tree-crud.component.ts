@@ -186,8 +186,22 @@ export class FolderTreeCrudComponent {
     this.errorMessage.set(null);
     this.busy.set(true);
     this.crud.move(libraryId, addr.relPath, targetAddr.relPath).subscribe({
-      next: () => {
+      next: (outcome) => {
         this.busy.set(false);
+        if (outcome.kind === 'collision') {
+          // The dialog stays mounted with the name the user just typed
+          // still in its input (`FolderRenameDialogComponent`'s `name` is a
+          // `linkedSignal` off `currentName`, not reset by this) — an
+          // actionable "pick another name" prompt, not a dead-end error,
+          // per the design doc's collision-prompt precedent
+          // (`DragMoveCollisionDialogComponent`) for the sibling asset-move
+          // path. There's no Skip/Replace/Keep Both here: a folder rename
+          // has no "replace the other folder" or "keep both" semantics the
+          // way a file relocate does, so a clear retry is the actionable
+          // shape for this collision.
+          this.errorMessage.set(`"${name}" is already taken in this folder — choose another name.`);
+          return;
+        }
         this.mutated.emit({
           kind: 'renamed',
           oldId: node.id,

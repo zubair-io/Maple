@@ -10,6 +10,7 @@ import { FolderAccessService } from '../../folder-access/folder-access.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { DropResolution, MapleFolderHandle } from '../../folder-access/folder-access.types';
 import { Asset, AssetId } from '../../models/asset';
+import { viewRouteCommands } from '../../addressing/route-address';
 
 describe('DropZoneComponent drop routing', () => {
   let fixture: ComponentFixture<DropZoneComponent>;
@@ -116,7 +117,9 @@ describe('DropZoneComponent drop routing', () => {
 
     expect(state.openFolder).not.toHaveBeenCalled();
     expect(state.selectAsset).toHaveBeenCalledWith('l:a.dng');
-    expect(router.navigate).toHaveBeenCalled();
+    // #2949 — a single-file drop opens Full Image (`/view`), not the Editor
+    // (`/edit`): the design doc's drop-to-import destination.
+    expect(router.navigate).toHaveBeenCalledWith(viewRouteCommands('l:a.dng'));
   });
 
   it('selects every matched asset for a multi-file mount', async () => {
@@ -155,6 +158,9 @@ describe('DropZoneComponent drop routing', () => {
       kind: 'copied',
       message: expect.stringContaining('copied instead'),
     });
+    // #2949 — a single-file copy-import drop also opens Full Image
+    // (`/view`), not the Editor (`/edit`), same as the FS Access path above.
+    expect(router.navigate).toHaveBeenCalledWith(viewRouteCommands('imported:a.dng'));
   });
 
   it('does nothing when the user cancels the confirmation picker', async () => {

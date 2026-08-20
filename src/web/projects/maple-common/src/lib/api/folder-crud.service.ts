@@ -21,13 +21,23 @@
 // with no special-casing here.
 
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { Observable, catchError, map, of, throwError } from 'rxjs';
 import { API_BASE_URL } from './api-base-url.token';
 
 export interface FolderMoveResult {
   abs_path: string;
 }
+
+/** `move()`'s per-call outcome. A 409 means `/:id/move`'s own "refuse to
+ * clobber an existing destination" check rejected the rename — the target
+ * name is already taken in this folder, not a network/server failure — so
+ * it resolves to `{ kind: 'collision' }` instead of throwing, the same
+ * "expected outcome, not a generic HTTP failure" contract
+ * `TrashApiService.deleteAsset`'s 409 handling already uses. Any other
+ * error (network, 404, 500) still propagates through the observable's
+ * error channel. */
+export type FolderMoveOutcome = { kind: 'ok'; result: FolderMoveResult } | { kind: 'collision' };
 
 /** One asset's outcome within a recursive folder trash batch. */
 export interface FolderTrashBatchItem {
@@ -52,7 +62,12 @@ export class FolderCrudService {
   private readonly base = inject(API_BASE_URL);
 
   /** Create `targetRelPath` (relative to the library root) — idempotent,
-   * `mkdir -p` semantics. */
+   * `mkdir -p` semantics: the server (`routes/folders.ts`'s `/:id/mkdir`)
+   * never 409s on an existing directory, it just succeeds again (verified
+   * by `folders.mkdir.test.ts`'s "is idempotent when the directory already
+   * exists" case) — so there's no collision outcome to type here the way
+   * `move()` below has. A target that exists as a non-directory still
+   * surfaces as a generic 500 through the plain error channel. */
   mkdir(folderId: string, targetRelPath: string): Observable<FolderMoveResult> {
     return this.http.post<FolderMoveResult>(`${this.base}/folders/${folderId}/mkdir`, null, {
       headers: { 'X-Maple-Target-Path': encodeURIComponent(targetRelPath) },
@@ -66,13 +81,23 @@ export class FolderCrudService {
     folderId: string,
     sourceRelPath: string,
     targetRelPath: string,
-  ): Observable<FolderMoveResult> {
-    return this.http.post<FolderMoveResult>(`${this.base}/folders/${folderId}/move`, null, {
-      headers: {
-        'X-Maple-Source-Path': encodeURIComponent(sourceRelPath),
-        'X-Maple-Target-Path': encodeURIComponent(targetRelPath),
-      },
-    });
+  ): Observable<FolderMoveOutcome> {
+    return this.http
+      .post<FolderMoveResult>(`${this.base}/folders/${folderId}/move`, null, {
+        headers: {
+          'X-Maple-Source-Path': encodeURIComponent(sourceRelPath),
+          'X-Maple-Target-Path': encodeURIComponent(targetRelPath),
+        },
+      })
+      .pipe(
+        map((result): FolderMoveOutcome => ({ kind: 'ok', result })),
+        catchError((err: unknown) => {
+          if (err instanceof HttpErrorResponse && err.status === 409) {
+            return of<FolderMoveOutcome>({ kind: 'collision' });
+          }
+          return throwError(() => err);
+        }),
+      );
   }
 
   /** Recursively trash every live asset under `targetRelPath`. Depends on
