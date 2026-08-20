@@ -39,6 +39,14 @@ const SLIDER_HARD_BUDGET_MS = 50;
 const THREADED_SESSION_OPEN_HARD_BUDGET_MS = 10_000;
 const COLD_PREVIEW_P95_BUDGET_MS = 1_000;
 const WARM_PREVIEW_MEDIAN_BUDGET_MS = 35;
+// The first warm open on a fresh page pays one-time costs the warm path does
+// not have in steady state — measured at 45-63 ms across ten runs against a
+// 28-32 ms steady state, enough to push the 5-sample median over budget about
+// one run in four (#2850). Discard it the same way the slider ticks below
+// discard WARMUP_TICKS, so the budget measures the warm path rather than the
+// page's first paint.
+const WARMUP_OPENS = 1;
+const MEASURED_OPENS = 5;
 
 test.use({
   launchOptions: {
@@ -124,13 +132,15 @@ test('Hosted cold embedded preview and warm .maple preview meet the open budgets
   const warmPage = await page.context().newPage();
   const warmPicker = await installProductionFolderPicker(warmPage, manifest.populatedFolder);
   const warmSamples: number[] = [];
-  for (let iteration = 0; iteration < 5; iteration += 1) {
+  for (let iteration = 0; iteration < WARMUP_OPENS + MEASURED_OPENS; iteration += 1) {
     await openFolder(warmPage, WARM_DNG);
     warmPicker.clear();
     const warmPreview = await inPagePreviewPhases(
       warmPage.getByRole('button', { name: WARM_DNG, exact: true }),
     );
-    warmSamples.push(warmPreview.fastMs + warmPreview.refineMs);
+    if (iteration >= WARMUP_OPENS) {
+      warmSamples.push(warmPreview.fastMs + warmPreview.refineMs);
+    }
     expect(
       warmPicker.operations.some(
         ({ kind, path }) => kind === 'read' && path === '.maple/previews/test_0017.dng.avif',
@@ -143,6 +153,7 @@ test('Hosted cold embedded preview and warm .maple preview meet the open budgets
     ).toBe(false);
   }
   await warmPage.close();
+  expect(warmSamples).toHaveLength(MEASURED_OPENS);
   const sortedWarm = [...warmSamples].sort((a, b) => a - b);
   const warmMedianMs = percentile(sortedWarm, 0.5);
   expect(warmMedianMs).toBeLessThanOrEqual(WARM_PREVIEW_MEDIAN_BUDGET_MS);
