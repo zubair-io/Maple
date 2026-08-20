@@ -184,6 +184,17 @@ public enum SMBFileOperations {
         let oldURL = URL(fileURLWithPath: oldPrimaryPath)
         try? await transport.removeItem(atPath: MapleSidecarPaths.thumbURL(for: oldURL).path)
         try? await transport.removeItem(atPath: MapleSidecarPaths.previewURL(for: oldURL).path)
+        // #2946: the two removes above only clear the on-SHARE, cross-layer
+        // thumb/preview entries. `RenderedPreviewCache` is a SEPARATE,
+        // per-device cold-open cache (docs/caching.md § 3) keyed on a hash
+        // of the asset's URL — `EditSession` uses it for every source,
+        // `smb://`-backed ones included — that a bare share-side
+        // `removeItem` never touches. `LocalFileOperations
+        // .invalidateDerivedCaches` already calls this for the same reason
+        // (#2659: "an actual unbounded leak" without it); this engine had
+        // never mirrored it, so a moved/trashed SMB photo left a stale
+        // rendered JPEG (memory AND disk) at the old URL hash forever.
+        await RenderedPreviewCache.shared.invalidate(assetURL: oldURL)
     }
 
     /// Undo a plan that will never be finalized — removes the staged
