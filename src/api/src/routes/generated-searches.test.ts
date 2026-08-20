@@ -15,7 +15,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
 import { Elysia } from 'elysia';
 import { ObjectId, type Db } from 'mongodb';
-import { closeDb, getDb } from '../db/client.ts';
+import { getDb } from '../db/client.ts';
 import { withTestDb } from '../db/test-db.test-helpers.ts';
 import { generatedSearchesRoutes } from './generated-searches.ts';
 
@@ -31,8 +31,11 @@ beforeAll(async () => {
   db = await getDb();
 });
 afterAll(async () => {
+  // Drop the handle captured in beforeAll. Deliberately NOT closeDb(): that
+  // closes the shared client, and because withTestDb registers root-level
+  // beforeAll hooks, by teardown the singleton points at another suite's
+  // database — closing it here times out that suite's hooks.
   await db.dropDatabase();
-  await closeDb();
 });
 
 /** Scoped per describe — a root-level hook is not confined to this file. */
@@ -73,7 +76,13 @@ async function seedAsset(id: string, personId?: ObjectId) {
   await db.collection('assets').insertOne({
     maple_id: id,
     fileinfo: [
-      { library_id: LIB, path: `/p/${id}.jpg`, filename: `${id}.jpg`, deleted_at: null, missing_since: null },
+      {
+        library_id: LIB,
+        path: `/p/${id}.jpg`,
+        filename: `${id}.jpg`,
+        deleted_at: null,
+        missing_since: null,
+      },
     ],
     deleted_at: null,
     size: 1,
