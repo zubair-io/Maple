@@ -32,12 +32,12 @@ const COLL = 'app_settings';
 const DOC_ID = 'generated_search';
 const log = childLogger('generated-search:config');
 
-export const DEFAULT_COLLECTIONS_PER_DAY = 4;
-export const DEFAULT_MIN_RESULTS = 8;
-export const DEFAULT_MAX_ROUNDS = 3;
-export const DEFAULT_RETENTION_DAYS = 30;
-export const DEFAULT_PAUSED = true;
-export const DEFAULT_DRY_RUN = false;
+const DEFAULT_COLLECTIONS_PER_DAY = 4;
+const DEFAULT_MIN_RESULTS = 8;
+const DEFAULT_MAX_ROUNDS = 3;
+const DEFAULT_RETENTION_DAYS = 30;
+const DEFAULT_PAUSED = true;
+const DEFAULT_DRY_RUN = false;
 
 const LIMITS = {
   collections_per_day: { min: 1, max: 12, fallback: DEFAULT_COLLECTIONS_PER_DAY },
@@ -46,7 +46,7 @@ const LIMITS = {
   retention_days: { min: 1, max: 365, fallback: DEFAULT_RETENTION_DAYS },
 } as const;
 
-export type NumericKnob = keyof typeof LIMITS;
+type NumericKnob = keyof typeof LIMITS;
 
 export interface GeneratedSearchConfig {
   collections_per_day: number;
@@ -65,7 +65,7 @@ interface ConfigDoc extends Partial<GeneratedSearchConfig> {
 
 /** Clamp a knob into its safe range. A non-finite value falls back to the
  * default rather than throwing — an operator typo must not wedge the worker. */
-export function clampKnob(knob: NumericKnob, value: number): number {
+function clampKnob(knob: NumericKnob, value: number): number {
   const { min, max, fallback } = LIMITS[knob];
   if (!Number.isFinite(value)) return fallback;
   return Math.min(max, Math.max(min, Math.round(value)));
@@ -75,34 +75,48 @@ function readNumber(knob: NumericKnob, raw: unknown): number {
   return typeof raw === 'number' ? clampKnob(knob, raw) : LIMITS[knob].fallback;
 }
 
+function readBool(raw: unknown, fallback: boolean): boolean {
+  return typeof raw === 'boolean' ? raw : fallback;
+}
+
+/** Every field's default, in one place — the fallback both the happy path and
+ * the read-failure path return. */
+function defaults(): GeneratedSearchConfig {
+  return {
+    collections_per_day: DEFAULT_COLLECTIONS_PER_DAY,
+    min_results: DEFAULT_MIN_RESULTS,
+    max_rounds: DEFAULT_MAX_ROUNDS,
+    retention_days: DEFAULT_RETENTION_DAYS,
+    model: '',
+    paused: DEFAULT_PAUSED,
+    dry_run: DEFAULT_DRY_RUN,
+  };
+}
+
+/** Project a stored document onto the config shape, per-field. */
+function fromDoc(doc: ConfigDoc | null): GeneratedSearchConfig {
+  return {
+    collections_per_day: readNumber('collections_per_day', doc?.collections_per_day),
+    min_results: readNumber('min_results', doc?.min_results),
+    max_rounds: readNumber('max_rounds', doc?.max_rounds),
+    retention_days: readNumber('retention_days', doc?.retention_days),
+    model: typeof doc?.model === 'string' ? doc.model : '',
+    paused: readBool(doc?.paused, DEFAULT_PAUSED),
+    dry_run: readBool(doc?.dry_run, DEFAULT_DRY_RUN),
+  };
+}
+
 /** Resolve the effective config. Missing doc / missing fields → defaults. */
 export async function loadGeneratedSearchConfig(): Promise<GeneratedSearchConfig> {
   try {
     const db = await getDb();
-    const doc = await db.collection<ConfigDoc>(COLL).findOne({ _id: DOC_ID });
-    return {
-      collections_per_day: readNumber('collections_per_day', doc?.collections_per_day),
-      min_results: readNumber('min_results', doc?.min_results),
-      max_rounds: readNumber('max_rounds', doc?.max_rounds),
-      retention_days: readNumber('retention_days', doc?.retention_days),
-      model: typeof doc?.model === 'string' ? doc.model : '',
-      paused: typeof doc?.paused === 'boolean' ? doc.paused : DEFAULT_PAUSED,
-      dry_run: typeof doc?.dry_run === 'boolean' ? doc.dry_run : DEFAULT_DRY_RUN,
-    };
+    return fromDoc(await db.collection<ConfigDoc>(COLL).findOne({ _id: DOC_ID }));
   } catch (err) {
     log.warn(
       { err: err instanceof Error ? err.message : err },
       'could not load generated-search config — using defaults',
     );
-    return {
-      collections_per_day: DEFAULT_COLLECTIONS_PER_DAY,
-      min_results: DEFAULT_MIN_RESULTS,
-      max_rounds: DEFAULT_MAX_ROUNDS,
-      retention_days: DEFAULT_RETENTION_DAYS,
-      model: '',
-      paused: DEFAULT_PAUSED,
-      dry_run: DEFAULT_DRY_RUN,
-    };
+    return defaults();
   }
 }
 
