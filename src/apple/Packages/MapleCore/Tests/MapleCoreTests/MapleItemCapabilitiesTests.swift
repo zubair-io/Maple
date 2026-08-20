@@ -49,4 +49,28 @@ final class MapleItemCapabilitiesTests: XCTestCase {
         XCTAssertFalse(item.capabilities.contains(.allowsTrashing),
                         "there is no OS trash-of-trash concept; .allowsDeleting here means permanent purge, matching Apple's own deleteItem doc comment — see #2549")
     }
+
+    /// #2535: a non-indexed `.file` item used to be read-only
+    /// (`[.allowsReading]`) with no path-addressed write endpoint to back
+    /// anything else. Now that `RemoteCatalog.deleteFile`/`.relocateFile`
+    /// exist, it can be trashed and renamed/moved — but NOT written
+    /// in-place (`.allowsWriting` stays out; the write path only covers
+    /// whole-file create/delete/relocate, not a partial content
+    /// overwrite). Pins the capability set the same way the two tests
+    /// above pin the image/trashed sets.
+    func testNonIndexedFileCapabilitiesAllowDeleteAndRenameButNotInPlaceWrite() throws {
+        let file = FileChild(
+            name: "notes.pdf",
+            path: "/lib/docs/notes.pdf",
+            mtime: Date(timeIntervalSince1970: 1_700_000_000),
+            size: 1024,
+            ext: "pdf"
+        )
+        let item = MapleItem(file: file, folderID: "f1", relativePath: "docs/notes.pdf",
+                             parentIdentifier: NSFileProviderItemIdentifier("folder/f1:"))
+        XCTAssertEqual(item.capabilities,
+                       [.allowsReading, .allowsDeleting, .allowsRenaming, .allowsReparenting])
+        XCTAssertFalse(item.capabilities.contains(.allowsWriting),
+                        "in-place content edit isn't wired — only whole-file create/delete/relocate")
+    }
 }
