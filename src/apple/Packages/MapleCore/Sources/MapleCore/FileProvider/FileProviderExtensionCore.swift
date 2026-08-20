@@ -44,8 +44,41 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
     /// already there. See #2532.
     static let createGuardMtimeSentinel = Date(timeIntervalSince1970: 0)
 
-    public required init(domain: NSFileProviderDomain) {
+    /// Test-only seam (#2552). The production `init(domain:)` below is a
+    /// `convenience` initializer that resolves every collaborator the
+    /// normal way (config lookup, `URLSession`, `RemoteCatalog`, etc.)
+    /// and then delegates here — this is the sole place that actually
+    /// assigns the stored properties. Tests construct a core directly
+    /// through this initializer with a `RemoteCatalog` wired to
+    /// `StubURLProtocol` (and any other collaborator they need to
+    /// control), bypassing `FileProviderConfig`/`TokenStore`/live
+    /// networking entirely. `internal` (not `private`) so
+    /// `@testable import MapleCore` can reach it; production behavior is
+    /// unchanged because `init(domain:)` still builds the exact same
+    /// values it always did and hands them through this initializer
+    /// before doing its post-`super.init()` change-feed wiring.
+    init(domain: NSFileProviderDomain,
+         dormant: Bool,
+         catalog: RemoteCatalog?,
+         rootCache: LibraryRootCache?,
+         deviceName: String,
+         metaStore: FileProviderMetaStore?,
+         workingSet: WorkingSet,
+         cursorStore: ChangeCursorStore,
+         workingSetListCache: WorkingSetListCache?) {
         self.domain = domain
+        self.dormant = dormant
+        self.catalog = catalog
+        self.rootCache = rootCache
+        self.deviceName = deviceName
+        self.metaStore = metaStore
+        self.workingSet = workingSet
+        self.cursorStore = cursorStore
+        self.workingSetListCache = workingSetListCache
+        super.init()
+    }
+
+    public required convenience init(domain: NSFileProviderDomain) {
         let config = FileProviderConfig()
         let resolvedDeviceName = ProcessInfo.processInfo.hostName
         let resolvedMetaStore: FileProviderMetaStore? = {
@@ -56,15 +89,15 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             }
         }()
         guard let cfg = config.load(domain: domain.identifier.rawValue) else {
-            self.dormant = true
-            self.catalog = nil
-            self.rootCache = nil
-            self.deviceName = resolvedDeviceName
-            self.metaStore = resolvedMetaStore
-            self.workingSet = WorkingSet(capacity: WorkingSet.defaultCapacity)
-            self.cursorStore = ChangeCursorStore()
-            self.workingSetListCache = nil
-            super.init()
+            self.init(domain: domain,
+                      dormant: true,
+                      catalog: nil,
+                      rootCache: nil,
+                      deviceName: resolvedDeviceName,
+                      metaStore: resolvedMetaStore,
+                      workingSet: WorkingSet(capacity: WorkingSet.defaultCapacity),
+                      cursorStore: ChangeCursorStore(),
+                      workingSetListCache: nil)
             log.notice("init dormant — no config for domain \(domain.identifier.rawValue, privacy: .public)")
             return
         }
@@ -80,8 +113,6 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         let catalog = RemoteCatalog(http: http, server: cfg.serverURL)
         let resolvedWorkingSet = WorkingSet(capacity: WorkingSet.defaultCapacity)
         let resolvedCursorStore = ChangeCursorStore()
-        self.dormant = false
-        self.catalog = catalog
         // LibraryRootCache primes from App Group `UserDefaults` so the
         // first `roots()` call after a cold extension launch returns
         // synchronously. The drift handler is wired up at construction
@@ -100,14 +131,17 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             driftHandler: driftHandler,
             fetcher: { [catalog] in try await catalog.listFolders() }
         )
-        self.rootCache = rootCache
-        self.deviceName = resolvedDeviceName
-        self.metaStore = resolvedMetaStore
-        self.workingSet = resolvedWorkingSet
-        self.cursorStore = resolvedCursorStore
-        self.workingSetListCache = WorkingSetListCache(catalog: catalog)
-        super.init()
-        // Wire up the SSE client after super.init so we can capture self.
+        self.init(domain: domain,
+                  dormant: false,
+                  catalog: catalog,
+                  rootCache: rootCache,
+                  deviceName: resolvedDeviceName,
+                  metaStore: resolvedMetaStore,
+                  workingSet: resolvedWorkingSet,
+                  cursorStore: resolvedCursorStore,
+                  workingSetListCache: WorkingSetListCache(catalog: catalog))
+        // Wire up the SSE client after self.init (which itself calls
+        // super.init()) so we can capture self.
         // Tokens are read on every reconnect — they're refreshed by the
         // host app and we don't want to hold a stale snapshot.
         self.changeFeed = ChangeFeedClient(

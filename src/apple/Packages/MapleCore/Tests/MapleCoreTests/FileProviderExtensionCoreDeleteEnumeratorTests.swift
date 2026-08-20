@@ -1,0 +1,153 @@
+// src/apple/Packages/MapleCore/Tests/MapleCoreTests/FileProviderExtensionCoreDeleteEnumeratorTests.swift
+import FileProvider
+import XCTest
+@testable import MapleCore
+
+/// Direct `deleteItem` and `enumerator(for:)` dispatch coverage for
+/// #2552. Neither entry point had ever been driven through a real
+/// `FileProviderExtensionCore` instance before this file.
+final class FileProviderExtensionCoreDeleteEnumeratorTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        StubURLProtocol.register()
+        StubURLProtocol.reset()
+    }
+
+    override func tearDown() {
+        StubURLProtocol.reset()
+        super.tearDown()
+    }
+
+    private let validAssetID = "650a1b2c3d4e5f6071829304"
+
+    private func runDeleteItem(
+        core: FileProviderExtensionCore,
+        identifier: NSFileProviderItemIdentifier
+    ) -> Error? {
+        let done = expectation(description: "deleteItem completed")
+        var resultError: Error?
+        _ = core.deleteItem(
+            identifier: identifier,
+            baseVersion: NSFileProviderItemVersion(
+                contentVersion: Data("v1".utf8), metadataVersion: Data("v1".utf8)
+            ),
+            options: [],
+            request: NSFileProviderRequest(),
+            completionHandler: { error in
+                resultError = error
+                done.fulfill()
+            }
+        )
+        wait(for: [done], timeout: 5)
+        return resultError
+    }
+
+    // MARK: - deleteItem dispatch
+
+    func testDeleteSidecarCallsDeleteXMPAndSucceeds() {
+        let log = FPCoreTestSupport.RequestLog()
+        let catalog = FPCoreTestSupport.makeCatalog { req in
+            log.record(req)
+            return (204, Data(), [:])
+        }
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, test: self)
+        let identifier = NSFileProviderItemIdentifier(
+            FileProviderIdentifier.sidecar(assetID: validAssetID, conflictBasename: nil).rawValue
+        )
+
+        let error = runDeleteItem(core: core, identifier: identifier)
+
+        XCTAssertNil(error)
+        XCTAssertEqual(log.requests.count, 1)
+        XCTAssertEqual(log.requests.first?.method, "DELETE")
+        XCTAssertEqual(log.requests.first?.path, "/api/assets/\(validAssetID)/xmp")
+    }
+
+    func testDeleteAssetCallsDeleteAssetAndSucceeds() {
+        let log = FPCoreTestSupport.RequestLog()
+        let catalog = FPCoreTestSupport.makeCatalog { req in
+            log.record(req)
+            return (204, Data(), [:])
+        }
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, test: self)
+        let identifier = NSFileProviderItemIdentifier(FileProviderIdentifier.asset(validAssetID).rawValue)
+
+        let error = runDeleteItem(core: core, identifier: identifier)
+
+        XCTAssertNil(error)
+        XCTAssertEqual(log.requests.count, 1)
+        XCTAssertEqual(log.requests.first?.method, "DELETE")
+        XCTAssertEqual(log.requests.first?.path, "/api/assets/\(validAssetID)")
+    }
+
+    /// Synthetic/read-only kinds must reject with featureUnsupported and
+    /// must NEVER touch the network — deletes for these have no server
+    /// endpoint at all.
+    func testDeleteUnsupportedKindsRejectWithoutAnyNetworkCall() {
+        let log = FPCoreTestSupport.RequestLog()
+        let catalog = FPCoreTestSupport.makeCatalog { req in
+            log.record(req)
+            return (500, Data(), [:])
+        }
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, test: self)
+
+        let unsupported: [NSFileProviderItemIdentifier] = [
+            NSFileProviderItemIdentifier(FileProviderIdentifier.folder(folderID: "f1", relativePath: "").rawValue),
+            NSFileProviderItemIdentifier(FileProviderIdentifier.trash(folderID: "f1").rawValue),
+            NSFileProviderItemIdentifier(FileProviderIdentifier.mapleDir(folderID: "f1", parentRelativePath: "").rawValue),
+            NSFileProviderItemIdentifier(FileProviderIdentifier.mapleThumbsDir(folderID: "f1", parentRelativePath: "").rawValue),
+            NSFileProviderItemIdentifier(FileProviderIdentifier.thumb(assetID: validAssetID).rawValue),
+            NSFileProviderItemIdentifier(FileProviderIdentifier.file(folderID: "f1", relativePath: "notes.txt").rawValue),
+        ]
+        for identifier in unsupported {
+            let error = runDeleteItem(core: core, identifier: identifier)
+            let ns = error as NSError?
+            XCTAssertEqual(ns?.domain, NSCocoaErrorDomain, "for \(identifier.rawValue)")
+            XCTAssertEqual(ns?.code, NSFeatureUnsupportedError, "for \(identifier.rawValue)")
+        }
+        XCTAssertEqual(log.requests.count, 0, "none of these kinds should ever reach the network")
+    }
+
+    // MARK: - enumerator(for:) dispatch
+
+    func testFolderIdentifierReturnsDeferredFolderEnumerator() throws {
+        let catalog = FPCoreTestSupport.makeCatalog { _ in (200, Data(), [:]) }
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, test: self)
+        let identifier = NSFileProviderItemIdentifier(
+            FileProviderIdentifier.folder(folderID: "f1", relativePath: "").rawValue
+        )
+        let enumerator = try core.enumerator(for: identifier, request: NSFileProviderRequest())
+        XCTAssertTrue(enumerator is DeferredFolderEnumerator)
+    }
+
+    func testTrashContainerReturnsEmptyEnumerator() throws {
+        let catalog = FPCoreTestSupport.makeCatalog { _ in (200, Data(), [:]) }
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, test: self)
+        let enumerator = try core.enumerator(for: .trashContainer, request: NSFileProviderRequest())
+        XCTAssertTrue(enumerator is EmptyEnumerator)
+    }
+
+    /// Leaf identifiers are not containers — the OS must never be handed
+    /// an enumerator for one.
+    func testLeafIdentifiersThrowNoSuchItem() {
+        let catalog = FPCoreTestSupport.makeCatalog { _ in (200, Data(), [:]) }
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, test: self)
+
+        let leaves: [NSFileProviderItemIdentifier] = [
+            NSFileProviderItemIdentifier(FileProviderIdentifier.asset(validAssetID).rawValue),
+            NSFileProviderItemIdentifier(FileProviderIdentifier.file(folderID: "f1", relativePath: "notes.txt").rawValue),
+            NSFileProviderItemIdentifier(FileProviderIdentifier.sidecar(assetID: validAssetID, conflictBasename: nil).rawValue),
+            NSFileProviderItemIdentifier(FileProviderIdentifier.thumb(assetID: validAssetID).rawValue),
+        ]
+        for identifier in leaves {
+            XCTAssertThrowsError(
+                try core.enumerator(for: identifier, request: NSFileProviderRequest()),
+                "expected noSuchItem for \(identifier.rawValue)"
+            ) { error in
+                let ns = error as NSError
+                XCTAssertEqual(ns.domain, NSFileProviderErrorDomain, "for \(identifier.rawValue)")
+                XCTAssertEqual(ns.code, NSFileProviderError.noSuchItem.rawValue, "for \(identifier.rawValue)")
+            }
+        }
+    }
+}
