@@ -289,11 +289,11 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
         return .resolved(updates: updates, deletes: deletes)
     }
 
-    /// Resolves a single change-feed row. Delete rows and rows without
-    /// an `assetID` resolve synchronously; create/update rows do the
-    /// per-asset metadata GET (`RemoteCatalog.getAsset`), permit-gated
-    /// by `semaphore`, reproducing the three outcomes the old sequential
-    /// loop produced inline:
+    /// Resolves a single change-feed row. Delete rows resolve
+    /// synchronously; create/update rows do the per-asset metadata GET
+    /// (`RemoteCatalog.getAsset`), permit-gated by `semaphore`,
+    /// reproducing the three outcomes the old sequential loop produced
+    /// inline:
     ///   - GET succeeds → real `MapleItem`, real folder parent (resolved
     ///     against the pre-fetched `roots`, never a fresh actor hop).
     ///   - GET 404s     → the change-feed row raced a server-side
@@ -311,6 +311,13 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
     ///     `MapleItem`'s stub initializer — that identifier is
     ///     permanently `noSuchItem`).
     ///
+    /// A row with no `assetID` (#2535) is a non-indexed `FileChild` —
+    /// video, PDF, extensionless, anything `RemoteCatalog.listDir` didn't
+    /// index — routed to `resolveFileChange` instead of dropped. Every
+    /// `FileChild`-backed file used to be silently discarded here
+    /// (`guard let assetID = ch.assetID else { return .skip }`), which is
+    /// why those files never live-updated in Finder.
+    ///
     /// Deliberately does NOT touch `workingSet` — see `resolveChanges`'s
     /// doc comment for why those mutations are applied by the caller,
     /// serially, in feed order, instead of from here.
@@ -321,7 +328,9 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
         semaphore: BoundedAsyncSemaphore,
         log: Logger
     ) async -> ChangeOutcome {
-        guard let assetID = ch.assetID else { return .skip }
+        guard let assetID = ch.assetID else {
+            return await Self.resolveFileChange(ch, catalog: catalog, semaphore: semaphore, log: log)
+        }
         let ident = NSFileProviderItemIdentifier(
             FileProviderIdentifier.asset(assetID).rawValue
         )
@@ -363,6 +372,70 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                                  folderID: ch.folderID,
                                  relativePath: ch.relativePath)
             return .update(stub)
+        }
+    }
+
+    /// Resolves a change-feed row for a non-indexed `FileChild` (#2535) —
+    /// `ch.assetID` is nil, so identity is `(folderID, relativePath)`
+    /// instead of a Mongo id (see `FileProviderIdentifier.file`'s doc
+    /// comment). Both must be present and `relativePath` non-empty; either
+    /// missing means the server couldn't reconcile the row to a path (see
+    /// `AssetChange.relativePath`'s doc comment) and there is no other way
+    /// to identify the file — skip rather than guess.
+    ///
+    /// Mirrors `resolveChange`'s asset branch shape (semaphore-gated stat,
+    /// 404 → delete, network failure → `.networkUnreachable`, other error
+    /// → stub) but calls `RemoteCatalog.statFile` instead of `getAsset` and
+    /// builds the item via `MapleItem`'s existing `file:` initializer.
+    private static func resolveFileChange(
+        _ ch: AssetChange,
+        catalog: RemoteCatalog,
+        semaphore: BoundedAsyncSemaphore,
+        log: Logger
+    ) async -> ChangeOutcome {
+        guard let folderID = ch.folderID,
+              let relativePath = ch.relativePath, !relativePath.isEmpty else {
+            return .skip
+        }
+        let ident = NSFileProviderItemIdentifier(
+            FileProviderIdentifier.file(folderID: folderID, relativePath: relativePath).rawValue
+        )
+        if ch.kind == .delete {
+            return .delete(ident)
+        }
+
+        let parentRel = (relativePath as NSString).deletingLastPathComponent
+        let parentRaw = FileProviderIdentifier.folder(folderID: folderID, relativePath: parentRel).rawValue
+        let parentID = NSFileProviderItemIdentifier(parentRaw)
+
+        var acquired = false
+        defer {
+            if acquired {
+                Task.detached { await semaphore.release() }
+            }
+        }
+        do {
+            try await semaphore.acquire()
+            acquired = true
+            guard let meta = try await catalog.statFile(folderID: folderID, relativePath: relativePath) else {
+                // Genuine 404: the change-feed row raced a server-side
+                // delete/move. Report it as a delete rather than handing
+                // the OS an item whose content will 404 forever.
+                return .delete(ident)
+            }
+            return .update(MapleItem(file: meta, folderID: folderID,
+                                     relativePath: relativePath, parentIdentifier: parentID))
+        } catch {
+            if Self.isNetworkUnreachable(error) {
+                log.notice("network unreachable resolving file \(relativePath, privacy: .private) during enumerateChanges")
+                return .networkUnreachable
+            }
+            log.notice("statFile failed for \(relativePath, privacy: .private) during enumerateChanges, falling back to stub: \(error.localizedDescription, privacy: .public)")
+            let filename = (relativePath as NSString).lastPathComponent
+            let ext = (filename as NSString).pathExtension.lowercased()
+            let stub = FileChild(name: filename, path: "", mtime: ch.at, size: 0, ext: ext)
+            return .update(MapleItem(file: stub, folderID: folderID,
+                                     relativePath: relativePath, parentIdentifier: parentID))
         }
     }
 
