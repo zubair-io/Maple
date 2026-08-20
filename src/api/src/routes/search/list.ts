@@ -33,14 +33,13 @@ import {
   applyLiveFilter,
   buildFilter,
   clampInt,
-  appliedDateFilter,
-  dateTextConsumedBy,
   extractDatesFromQuery,
   peopleNames,
   SEARCH_SCOPES,
   SearchQueryT,
   type SearchQuery,
 } from './query.ts';
+import { appliedDateFilter, dateTextConsumedBy } from './date-provenance.ts';
 import { pickSort, SORT_OPTIONS } from './sort.ts';
 import { cursorFromDoc, encodeCursor } from './cursor.ts';
 import { meiliPage, usesPlaceText } from './list-meili.ts';
