@@ -2,12 +2,23 @@
  * Conservative natural-language date parser for the smart search box.
  *
  * Scope is a deliberately small, closed set of forms the product owner
- * asked for — bare year, `Month [D][, YYYY]`, seasons, and a tiny holiday
- * table. We do NOT pull in `chrono-node`: it over-matches (e.g. "5" out of
- * "ISO 5", a lone weekday out of a brand name) and the resulting false
- * date-strips would silently drop real query words. A hand-rolled parser
- * with explicit anchored patterns is auditable and only fires on tokens
- * that unambiguously read as a date.
+ * asked for — bare year, `Month [D][, YYYY]`, and QUALIFIED seasons and
+ * holidays (`last winter`, `summer 2024`, `christmas 2023`). We do NOT pull
+ * in `chrono-node`: it over-matches (e.g. "5" out of "ISO 5", a lone weekday
+ * out of a brand name) and the resulting false date-strips would silently
+ * drop real query words. A hand-rolled parser with explicit anchored
+ * patterns is auditable and only fires on tokens that unambiguously read as
+ * a date.
+ *
+ * That last hazard is not hypothetical, and it is why a BARE season or
+ * holiday word no longer parses at all. `winter` matched, became a Dec–Feb
+ * window, and was stripped — leaving the query with NO search text, so
+ * `usesPlaceText()` went false, Meilisearch was never queried, and search
+ * silently became "everything captured last winter, newest first" with no
+ * relevance ranking (#2952). Those words describe how a photo LOOKS and
+ * belong to the text query, where semantic search can answer them across
+ * every year. A month or a year carries no such meaning, so both stay
+ * temporal.
  *
  * Every branch returns a bare `YYYY-MM-DD` `from`/`to` pair (inclusive)
  * which flows into the existing `widenFromDate`/`widenToDate` day-widening
@@ -118,9 +129,11 @@ export function parseNlDateRange(text: string, now: Date = new Date()): NlDateRa
     const esc = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const re = new RegExp(`\\b${esc}(?:\\s+(\\d{4}))?\\b`, 'i');
     const m = re.exec(lower);
-    if (m) {
+    // A BARE holiday name is a description, not a date — see the season note
+    // below. Only an explicit year makes it temporal (#2952).
+    if (m && m[1]) {
       const [month, day] = HOLIDAYS[key];
-      const year = m[1] ? Number.parseInt(m[1], 10) : mostRecentYearFor(month, day, now);
+      const year = Number.parseInt(m[1], 10);
       return { from: ymd(year, month, day), to: ymd(year, month, day), matched: m[0] };
     }
   }
@@ -130,7 +143,16 @@ export function parseNlDateRange(text: string, now: Date = new Date()): NlDateRa
     const re = new RegExp(`\\b(last\\s+|this\\s+)?${name}(?:\\s+(\\d{4}))?\\b`, 'i');
     const m = re.exec(lower);
     if (!m) continue;
-    const isLast = (m[1] ?? '').trim().toLowerCase() === 'last';
+    const qualifier = (m[1] ?? '').trim().toLowerCase();
+    // A bare season word describes how a photo LOOKS, and belongs to the text
+    // query so semantic search can answer it across every year. Consuming it
+    // here removed it from the query entirely: `winter` alone left NO search
+    // text, so `usesPlaceText()` went false, Meilisearch was never called, and
+    // the route degraded to "everything captured last winter, newest first"
+    // with no relevance ranking (#2952). Temporal intent still wins when the
+    // user actually states it — `last winter`, `this summer`, `winter 2024`.
+    if (!m[2] && qualifier === '') continue;
+    const isLast = qualifier === 'last';
     let year = m[2] ? Number.parseInt(m[2], 10) : nowYear;
     // Winter wraps Dec→Feb; anchor it on the year of its January/February
     // tail so "winter 2024" means Dec 2023 – Feb 2024 (the common reading).
