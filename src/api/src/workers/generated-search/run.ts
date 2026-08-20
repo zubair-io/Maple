@@ -42,7 +42,70 @@ function dayKey(now: Date): string {
  * One pass over every library. Exported for tests and for an operator-
  * triggered run; the interval wrapper below simply calls it.
  */
-export async function runGeneratedSearchOnce(now: Date = new Date()): Promise<GeneratedSearchSummary> {
+/** One library's pass: digest, propose/measure/title, persist. Returns how
+ * many collections were saved. */
+async function runForLibrary(
+  libraryId: string,
+  ctx: {
+    client: { generateJson: (prompt: string, schema: unknown) => Promise<unknown> };
+    config: Awaited<ReturnType<typeof loadGeneratedSearchConfig>>;
+    model: string;
+    generatedFor: string;
+    generatedAt: string;
+    now: Date;
+  },
+): Promise<number> {
+  const digest = await buildDigest(libraryId, ctx.now);
+  const collections = await runProposalLoop({
+    generateJson: (prompt, schema) => ctx.client.generateJson(prompt, schema),
+    runSearch: runGeneratedSearch,
+    digest,
+    validationContext: { allowedPeople: digest.people, coverageYears: digest.coverageYears },
+    libraryId,
+    generatedFor: ctx.generatedFor,
+    generatedAt: ctx.generatedAt,
+    model: ctx.model,
+    count: ctx.config.collections_per_day,
+    minResults: ctx.config.min_results,
+    maxRounds: ctx.config.max_rounds,
+  });
+
+  if (ctx.config.dry_run) {
+    // Everything ran; nothing is written. Lets an operator evaluate a prompt
+    // change against the real library before enabling the job.
+    log.info(
+      {
+        libraryId,
+        would_save: collections.map((c) => ({
+          theme: c.theme,
+          title: c.title,
+          count: c.result_count,
+        })),
+      },
+      'dry run — not persisting',
+    );
+    return 0;
+  }
+
+  await saveGeneratedSearches(collections);
+  if (collections.length < ctx.config.collections_per_day) {
+    // A partial day is legitimate, but the operator should be able to see it
+    // happened rather than wonder why the widget has two cards.
+    log.info(
+      { libraryId, saved: collections.length, wanted: ctx.config.collections_per_day },
+      'run produced fewer collections than requested',
+    );
+  }
+  return collections.length;
+}
+
+/**
+ * One pass over every library. Exported for tests and for an operator-
+ * triggered run; the interval wrapper below simply calls it.
+ */
+export async function runGeneratedSearchOnce(
+  now: Date = new Date(),
+): Promise<GeneratedSearchSummary> {
   const config = await loadGeneratedSearchConfig();
   if (config.paused) {
     return { libraries: 0, saved: 0, pruned: 0, skipped: true };
@@ -54,53 +117,20 @@ export async function runGeneratedSearchOnce(now: Date = new Date()): Promise<Ge
   // is not necessarily the vision model that captions photos.
   const enrichment = resolveEnrichmentConfig(await loadEnrichmentConfig());
   const model = config.model.length > 0 ? config.model : enrichment.describe_model;
-  const client = createOllamaJsonClient(enrichment.describe_provider_url, model);
+  const ctx = {
+    client: createOllamaJsonClient(enrichment.describe_provider_url, model),
+    config,
+    model,
+    generatedFor: dayKey(now),
+    generatedAt: now.toISOString(),
+    now,
+  };
 
-  const generatedFor = dayKey(now);
-  const generatedAt = now.toISOString();
   const libraries = [...(await loadLibraryRoots()).keys()];
-
   let saved = 0;
   for (const libraryId of libraries) {
     try {
-      const digest = await buildDigest(libraryId, now);
-      const collections = await runProposalLoop({
-        generateJson: (prompt, schema) => client.generateJson(prompt, schema),
-        runSearch: runGeneratedSearch,
-        digest,
-        validationContext: {
-          allowedPeople: digest.people,
-          coverageYears: digest.coverageYears,
-        },
-        libraryId,
-        generatedFor,
-        generatedAt,
-        model,
-        count: config.collections_per_day,
-        minResults: config.min_results,
-        maxRounds: config.max_rounds,
-      });
-
-      if (config.dry_run) {
-        // Everything ran; nothing is written. Lets an operator evaluate a
-        // prompt change against the real library before enabling the job.
-        log.info(
-          { libraryId, would_save: collections.map((c) => ({ theme: c.theme, title: c.title, count: c.result_count })) },
-          'dry run — not persisting',
-        );
-        continue;
-      }
-
-      await saveGeneratedSearches(collections);
-      saved += collections.length;
-      if (collections.length < config.collections_per_day) {
-        // A partial day is legitimate, but the operator should be able to see
-        // it happened rather than wonder why the widget has two cards.
-        log.info(
-          { libraryId, saved: collections.length, wanted: config.collections_per_day },
-          'run produced fewer collections than requested',
-        );
-      }
+      saved += await runForLibrary(libraryId, ctx);
     } catch (err) {
       // One library's failure must not abort the others.
       log.warn(

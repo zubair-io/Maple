@@ -12,7 +12,7 @@
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
 import { ObjectId, type Db } from 'mongodb';
-import { closeDb, getDb } from '../../db/client.ts';
+import { getDb } from '../../db/client.ts';
 import { withTestDb } from '../../db/test-db.test-helpers.ts';
 import { buildDigest } from './build-digest.ts';
 
@@ -27,8 +27,11 @@ beforeAll(async () => {
   db = await getDb();
 });
 afterAll(async () => {
+  // Drop the handle captured in beforeAll. Deliberately NOT closeDb(): that
+  // closes the shared client, and because withTestDb registers root-level
+  // beforeAll hooks, by teardown the singleton points at another suite's
+  // database — closing it here times out that suite's hooks.
   await db.dropDatabase();
-  await closeDb();
 });
 /**
  * Clear only this suite's fixtures. Deliberately NOT a root-level
@@ -146,8 +149,16 @@ describe('buildDigest — recent themes', () => {
 
   it('lists themes from recent runs so the model does not repeat them', async () => {
     await db.collection('generated_searches').insertMany([
-      { library_id: LIB.toHexString(), theme: 'autumn colours', generated_at: '2026-08-16T06:00:00.000Z' },
-      { library_id: LIB.toHexString(), theme: 'dogs at the lake', generated_at: '2026-08-15T06:00:00.000Z' },
+      {
+        library_id: LIB.toHexString(),
+        theme: 'autumn colours',
+        generated_at: '2026-08-16T06:00:00.000Z',
+      },
+      {
+        library_id: LIB.toHexString(),
+        theme: 'dogs at the lake',
+        generated_at: '2026-08-15T06:00:00.000Z',
+      },
     ] as never);
     const digest = await buildDigest(LIB.toHexString(), NOW);
     expect([...digest.recentThemes].sort()).toEqual(['autumn colours', 'dogs at the lake']);

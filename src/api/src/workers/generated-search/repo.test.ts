@@ -10,7 +10,7 @@
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
 import type { Db } from 'mongodb';
-import { closeDb, getDb } from '../../db/client.ts';
+import { getDb } from '../../db/client.ts';
 import { withTestDb } from '../../db/test-db.test-helpers.ts';
 import {
   saveGeneratedSearches,
@@ -31,8 +31,11 @@ beforeAll(async () => {
 afterAll(async () => {
   // Capture-and-drop the handle taken in beforeAll: by teardown `getDb()`
   // answers with the default database again (see test-db.test-helpers).
+  // Drop the handle captured in beforeAll. Deliberately NOT closeDb(): that
+  // closes the shared client, and because withTestDb registers root-level
+  // beforeAll hooks, by teardown the singleton points at another suite's
+  // database — closing it here times out that suite's hooks.
   await db.dropDatabase();
-  await closeDb();
 });
 
 /** Scoped per describe rather than at the root: a root-level hook is not

@@ -65,7 +65,17 @@ describe('validateProposal — shape', () => {
     // Every field null would execute as "the entire library" — which always
     // clears the result floor and is never a collection.
     const result = validateProposal(
-      { theme: 'everything', query: { placeQuery: null, from: null, to: null, month: null, people: null, sceneType: null } },
+      {
+        theme: 'everything',
+        query: {
+          placeQuery: null,
+          from: null,
+          to: null,
+          month: null,
+          people: null,
+          sceneType: null,
+        },
+      },
       CTX,
     );
     expect(result.ok).toBe(false);
@@ -89,7 +99,13 @@ describe('validateProposal — server-controlled keys', () => {
       },
     });
     const keys = Object.keys(value.query);
-    for (const forbidden of ['rating', 'hidden', 'excludeHiddenPeople', 'isScreenshot', 'libraryId']) {
+    for (const forbidden of [
+      'rating',
+      'hidden',
+      'excludeHiddenPeople',
+      'isScreenshot',
+      'libraryId',
+    ]) {
       expect(keys).not.toContain(forbidden);
     }
   });
@@ -106,7 +122,10 @@ describe('validateProposal — people', () => {
     // The digest withholds hidden people, so a name outside the roster is
     // either a hallucination or a hidden person the model guessed. Both must
     // fail closed rather than silently querying for them.
-    const result = validateProposal({ theme: 't', query: { ...GOOD.query, people: 'Mallory' } }, CTX);
+    const result = validateProposal(
+      { theme: 't', query: { ...GOOD.query, people: 'Mallory' } },
+      CTX,
+    );
     expect(result.ok).toBe(false);
   });
 
@@ -139,7 +158,9 @@ describe('validateProposal — dates', () => {
 
   it('accepts a recurring month and drops an out-of-range one', () => {
     expect(accepted({ theme: 't', query: { ...GOOD.query, month: 8 } }).query.month).toBe('8');
-    expect(validateProposal({ theme: 't', query: { ...GOOD.query, month: 13 } }, CTX).ok).toBe(false);
+    expect(validateProposal({ theme: 't', query: { ...GOOD.query, month: 13 } }, CTX).ok).toBe(
+      false,
+    );
   });
 });
 
