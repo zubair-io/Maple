@@ -4,7 +4,12 @@
     <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
   </svg>
   @for (chip of chips(); track chip.kind + ':' + chip.label) {
-    <span class="chip" data-testid="search-active-chip">
+    <span
+      class="chip"
+      [class.chip-inferred]="chip.kind === 'inferred-date'"
+      [attr.title]="chipTitle(chip)"
+      data-testid="search-active-chip"
+    >
       <svg class="chip-icon" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
         @switch (chipIcon(chip)) {
           @case ('event') {
@@ -30,22 +35,24 @@
         }
       </svg>
       <span class="chip-label">{{ chip.label }}</span>
-      <button
-        type="button"
-        class="chip-remove"
-        [attr.aria-label]="'Remove filter ' + chip.label"
-        [attr.data-testid]="'search-chip-remove-' + chip.label"
-        (click)="chipRemove.emit(chip)"
-      >
-        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-          <path
-            d="M2.5 2.5l5 5M7.5 2.5l-5 5"
-            stroke="currentColor"
-            stroke-width="1.4"
-            stroke-linecap="round"
-          />
-        </svg>
-      </button>
+      @if (chip.removable !== false) {
+        <button
+          type="button"
+          class="chip-remove"
+          [attr.aria-label]="'Remove filter ' + chip.label"
+          [attr.data-testid]="'search-chip-remove-' + chip.label"
+          (click)="chipRemove.emit(chip)"
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+            <path
+              d="M2.5 2.5l5 5M7.5 2.5l-5 5"
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linecap="round"
+            />
+          </svg>
+        </button>
+      }
     </span>
   }
   @if (overflowCount() > 0) {

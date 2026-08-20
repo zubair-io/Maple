@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   EMPTY_FILTERS,
   activeFilterChips,
+  inferredDateChip,
   activeFilterCount,
   dateChipLabel,
   filtersToParams,
@@ -99,5 +100,59 @@ describe('search-filters — wire params', () => {
 
   it('emits nothing for empty filters', () => {
     expect(filtersToParams(EMPTY_FILTERS, NOW)).toEqual({});
+  });
+});
+
+/**
+ * #2956 — a date window inferred from the user's own search text was applied
+ * but never shown. The Filters panel stayed empty while the query was
+ * clamped, which is why "I did not have a date selected" was both a
+ * reasonable thing to say and completely correct.
+ */
+describe('inferredDateChip', () => {
+  it('builds a chip from a window the server inferred from the query', () => {
+    expect(
+      inferredDateChip({
+        from: '2024-01-01T00:00:00.000Z',
+        to: '2024-12-31T23:59:59.999Z',
+        inferredFrom: '2024',
+      }),
+    ).toEqual({
+      kind: 'inferred-date',
+      label: '2024-01-01 – 2024-12-31',
+      inferredFrom: '2024',
+      removable: false,
+    });
+  });
+
+  it('is null when the window was set explicitly by the user', () => {
+    // No `inferredFrom` means the user chose it in the panel, where it is
+    // already represented by the ordinary date chip.
+    expect(inferredDateChip({ from: '2024-01-01T00:00:00.000Z' })).toBeNull();
+  });
+
+  it('is null when there is no window at all', () => {
+    expect(inferredDateChip(undefined)).toBeNull();
+  });
+
+  it('handles an open-ended lower bound', () => {
+    expect(
+      inferredDateChip({ from: '2024-06-01T00:00:00.000Z', inferredFrom: 'june 2024' })?.label,
+    ).toBe('From 2024-06-01');
+  });
+
+  it('handles an open-ended upper bound', () => {
+    expect(
+      inferredDateChip({ to: '2024-06-30T23:59:59.999Z', inferredFrom: 'june 2024' })?.label,
+    ).toBe('Until 2024-06-30');
+  });
+
+  /** It cannot be cleared like a user-set filter: suppressing the parse needs
+   * an API parameter that does not exist yet, so offering an X that silently
+   * did nothing would be worse than offering none. */
+  it('is never removable', () => {
+    expect(
+      inferredDateChip({ from: '2024-01-01T00:00:00.000Z', inferredFrom: '2024' })?.removable,
+    ).toBe(false);
   });
 });

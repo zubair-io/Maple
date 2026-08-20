@@ -19,6 +19,14 @@ export type SearchSceneType = '' | 'indoor' | 'outdoor' | 'aerial' | 'macro' | '
  * returns `{ results: [], notImplemented: true }`. */
 export type SearchScopeParam = 'photos' | 'places' | 'people' | 'albums';
 
+/** Capture-date window the server reports as applied. */
+export interface AppliedDateFilter {
+  from?: string;
+  to?: string;
+  /** The search text the window was derived from; absent when explicit. */
+  inferredFrom?: string;
+}
+
 /** Query params for /api/search and /api/search/facets. All optional. */
 export interface SearchParams {
   /** Filename/path substring match (case-insensitive regex on
@@ -162,6 +170,14 @@ export interface SearchResponse {
    * underlying field today (currently only `albums`). The grid is empty
    * by definition; UIs surface "Coming soon" instead of "No matches". */
   notImplemented?: boolean;
+
+  /**
+   * The capture-date window actually applied, when there is one. Present with
+   * `inferredFrom` when the server derived it from the query text rather than
+   * from an explicit `from`/`to` — the case the UI has to attribute, because
+   * the user never chose it and nothing in the panel reflects it (#2956).
+   */
+  dateFilter?: AppliedDateFilter;
 }
 
 /**
