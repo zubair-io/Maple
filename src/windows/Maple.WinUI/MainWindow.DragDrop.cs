@@ -27,6 +27,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.ApplicationModel.DataTransfer.DragDrop;
+using Maple.WinUI.Services;
 using Maple.WinUI.Services.FileOperations;
 using Maple.WinUI.ViewModels;
 
@@ -63,6 +64,60 @@ namespace Maple.WinUI
         /// PhotoGrid drag no matter what stale field state happens to be
         /// sitting around.</summary>
         private const string InternalDragFormatId = "Maple.WinUI.PhotoGridDrag";
+
+        // --- Modal-flow re-entrancy guard (#2948) ---
+
+        /// <summary>Shared re-entrancy guard for every flow below that shows
+        /// a modal ContentDialog sequence and isn't already covered by a
+        /// narrower gate of its own: RunDragMoveAsync (reachable from
+        /// OnFolderDrop below AND MainWindow.MoveToFolder.cs's
+        /// OnMoveToFolder), MainWindow.BatchRename.cs's OnBatchRename, and
+        /// MainWindow.Pano.cs's OnStitchPano. None of the four had ANY
+        /// re-entrancy guard before #2948, unlike Delete/Restore (
+        /// MainWindow.Trash.cs's _deleteGate, MainWindow.TrashRestore.cs's
+        /// _restoreGate — same hazard, #2743): two overlapping invocations
+        /// of an `async void` handler that shows a ContentDialog throw
+        /// inside the second ShowAsync(), since WinUI only allows one
+        /// ContentDialog open at a time and an `async void` entry point has
+        /// nothing to observe that throw — it crashes the app.
+        ///
+        /// One shared gate (rather than four separate ones, mirroring
+        /// Delete/Restore) is deliberate: these four don't just need
+        /// guarding against re-entering THEMSELVES, they need guarding
+        /// against EACH OTHER too — a drag-drop landing while Batch
+        /// Rename's dialog is still open hits the identical
+        /// second-ShowAsync crash, because a ContentDialog from one flow
+        /// blocks a ContentDialog from any other regardless of which flow
+        /// opened it first. Delete/Restore deliberately stay on their own
+        /// separate gates rather than folding into this one: they already
+        /// have real per-flow protection today, so merging them in would
+        /// newly forbid e.g. restoring while a delete confirmation is up —
+        /// an untested behavior change outside this ticket's scope. These
+        /// four had no protection at all, so giving them one shared gate
+        /// only prevents crashes; it doesn't take away anything that used
+        /// to work.</summary>
+        private readonly SingleFlightGate _modalFlowGate = new();
+
+        /// <summary>Runs <paramref name="body"/> only if _modalFlowGate is
+        /// free, silently dropping a re-entrant call otherwise — see that
+        /// field's comment. Every `async void` entry point it covers calls
+        /// this instead of awaiting its own body directly, the same
+        /// try/finally shape MainWindow.Trash.cs's OnDeleteSelectedPhotos
+        /// and MainWindow.TrashRestore.cs's OnRestoreFromMapleTrash already
+        /// use per-flow.</summary>
+        private async Task RunModalFlowGuardedAsync(Func<Task> body)
+        {
+            if (!_modalFlowGate.TryEnter())
+                return;
+            try
+            {
+                await body();
+            }
+            finally
+            {
+                _modalFlowGate.Exit();
+            }
+        }
 
         // --- Drag source: PhotoGrid (CanDragItems="True" in MainWindow.xaml) ---
 
@@ -193,7 +248,8 @@ namespace Maple.WinUI
                 return;
 
             var copy = e.Modifiers.HasFlag(DragDropModifiers.Control);
-            await RunDragMoveAsync(payload, node.Path, copy ? RelocateMode.Copy : RelocateMode.Move);
+            var mode = copy ? RelocateMode.Copy : RelocateMode.Move;
+            await RunModalFlowGuardedAsync(() => RunDragMoveAsync(payload, node.Path, mode));
         }
 
         /// <summary>Resolves the FolderNode a drag/drop event is targeting

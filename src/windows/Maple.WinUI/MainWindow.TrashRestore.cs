@@ -47,7 +47,7 @@ namespace Maple.WinUI
 
         private async Task RunRestoreFromMapleTrashAsync()
         {
-            var items = ViewModel.ListMapleTrash();
+            var items = await ViewModel.ListMapleTrashAsync();
             if (items.Count == 0)
             {
                 await ShowMessageAsync("Restore from Maple Trash",
