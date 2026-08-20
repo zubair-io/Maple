@@ -97,6 +97,17 @@ export interface MeilisearchSearchOptions {
    * `capturedFrom`. Exclusive so a caller's inclusive end-date can be
    * expressed as the following midnight without end-of-month special cases. */
   capturedBefore?: string;
+  /** Closed-union `vision.scene_type`, exact match. */
+  sceneType?: string;
+  /** Open-vocab `vision.activity`, exact match. */
+  activity?: string;
+  /** Open-vocab `vision.subjects` — OR within the field, matching the Mongo
+   * `$in` semantics. */
+  subjects?: string[];
+  /** Screenshot filter. `true` narrows to screenshots, `false` to
+   * photographs (admitting documents indexed before the field existed),
+   * omitted leaves it unconstrained. */
+  isScreenshot?: boolean;
   /** Hidden assets are excluded unless explicitly requested. */
   includeHidden?: boolean;
   /** Hidden assets only (`hidden = true`); keeps `hidden=only` pages dense
