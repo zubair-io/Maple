@@ -199,6 +199,23 @@ extension SMBFileOperations {
         try? await transport.createDirectory(atPath: markerPath)
     }
 
+    /// Writes a `TrashMarker` beside every non-`.xmp` primary found
+    /// (recursively) under `folderPath` — the SMB counterpart of
+    /// `LocalFileOperations.writeTrashedMarkers` (issue #2945); see that
+    /// doc comment for why the marker is per-contained-photo rather than
+    /// per-folder-root. A single recursive listing, then a marker write
+    /// per non-directory, non-marker entry found.
+    static func writeTrashedMarkers(forSubtreeAt folderPath: String, date: Date = Date(), transport: SMBFileTransport) async {
+        guard let entries = try? await transport.contentsOfDirectory(atPath: folderPath, recursive: true) else { return }
+        for attrs in entries {
+            guard (attrs[.isDirectoryKey] as? Bool) != true, let name = attrs[.nameKey] as? String,
+                  !name.lowercased().hasSuffix(".xmp")
+            else { continue }
+            let path = (attrs[.pathKey] as? String) ?? posixJoin(folderPath, name)
+            await writeTrashedMarker(forItemAt: path, date: date, transport: transport)
+        }
+    }
+
     static func removeTrashedMarker(forItemAt path: String, transport: SMBFileTransport) async {
         let dir = (path as NSString).deletingLastPathComponent
         guard let entries = try? await transport.contentsOfDirectory(atPath: dir, recursive: false) else { return }
