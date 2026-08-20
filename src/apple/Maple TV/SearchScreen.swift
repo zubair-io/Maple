@@ -249,6 +249,37 @@ struct SearchScreen: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 
+  /// Says so when the SERVER read a date out of the query text.
+  ///
+  /// This screen has no filter panel and no chips, so an inferred window is
+  /// otherwise invisible here — and "No results" is exactly where someone
+  /// needs to know their search was narrowed to a range they never asked
+  /// for (#2956).
+  @ViewBuilder private var inferredDateNotice: some View {
+    if let applied = viewModel.appliedDates, let from = applied.inferredFrom {
+      Text(Self.inferredDateText(applied: applied, from: from))
+        .font(.system(size: 22))
+        .foregroundStyle(MapleTVTheme.textMuted)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: 720)
+    }
+  }
+
+  /// Wire instants are full ISO-8601; the day is all this line needs.
+  static func inferredDateText(applied: AppliedDateFilter, from: String) -> String {
+    let day: (String?) -> String? = { $0.map { String($0.prefix(10)) } }
+    switch (day(applied.from), day(applied.to)) {
+    case let (start?, end?):
+      return "Showing \(start) to \(end) — date read from “\(from)”"
+    case let (start?, nil):
+      return "Showing from \(start) — date read from “\(from)”"
+    case let (nil, end?):
+      return "Showing up to \(end) — date read from “\(from)”"
+    default:
+      return "Date read from “\(from)”"
+    }
+  }
+
   private var emptyView: some View {
     VStack(spacing: 16) {
       Image(systemName: "photo.on.rectangle.angled")
@@ -260,6 +291,7 @@ struct SearchScreen: View {
         .foregroundStyle(MapleTVTheme.textPrimary)
         .multilineTextAlignment(.center)
         .frame(maxWidth: 560)
+      inferredDateNotice
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .accessibilityElement(children: .combine)
