@@ -75,7 +75,7 @@ const ROOT_REQUEST: FolderCrudRequest = {
 function setup(crudOverrides: CrudStubOverrides = {}, request?: FolderCrudRequest) {
   const crud = {
     mkdir: vi.fn(() => of({ abs_path: '/x' })),
-    move: vi.fn(() => of({ abs_path: '/x' })),
+    move: vi.fn(() => of({ kind: 'ok' as const, result: { abs_path: '/x' } })),
     trashFolder: vi.fn(() => of({ total: 1, succeeded: 1, failed: 0, items: [] })),
     ...crudOverrides,
   };
@@ -202,6 +202,35 @@ describe('FolderTreeCrudComponent (#2643 / #2705 review)', () => {
     expect(host.mutations).toEqual([
       { kind: 'renamed', oldId: 'lib1:2026', newId: 'lib1:2027', parentId: 'lib1:' },
     ]);
+  });
+
+  it('Rename: a 409 collision surfaces an actionable "name taken" message and keeps the dialog open with the typed name (#2949)', () => {
+    const { fixture, crud } = setup({
+      move: vi.fn(() => of({ kind: 'collision' as const })),
+    });
+    const host = fixture.componentInstance;
+    clickMenuItem(fixture, 'Rename');
+
+    const input = fixture.nativeElement.querySelector('.frn-input') as HTMLInputElement;
+    input.value = '2027';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    (fixture.nativeElement.querySelector('.frn-btn-primary') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(crud.move).toHaveBeenCalledWith(LIBRARY.id, '2026', '2027');
+    // Not a dropped/abandoned operation — no mutation emitted, dialog stays
+    // mounted (not `closed`), and the user's typed name is still there to
+    // retry with a different one.
+    expect(host.mutations).toEqual([]);
+    expect(host.closedCount).toBe(0);
+    expect(fixture.nativeElement.querySelector('.frn-card')).not.toBeNull();
+    expect((fixture.nativeElement.querySelector('.frn-input') as HTMLInputElement).value).toBe(
+      '2027',
+    );
+    expect(fixture.nativeElement.querySelector('.frn-error')?.textContent).toContain(
+      'already taken',
+    );
   });
 
   it('Rename: submitting the unchanged name dismisses without calling the API', () => {
