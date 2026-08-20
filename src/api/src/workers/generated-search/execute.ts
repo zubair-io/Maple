@@ -18,7 +18,16 @@
  * spread through — every field is copied by name.
  */
 
-import type { SearchQuery } from '../../routes/search/query.ts';
+import type { Filter } from 'mongodb';
+import type { AssetDoc } from '../../db/schema.ts';
+import { personIdsToDrop } from '../../people/people.repo.ts';
+import { personIdsForNames } from '../../people/people-search-filter.repo.ts';
+import {
+  buildFilter,
+  extractDatesFromQuery,
+  peopleNames,
+  type SearchQuery,
+} from '../../routes/search/query.ts';
 import type { GeneratedQuery } from './validate.ts';
 
 /**
@@ -46,4 +55,32 @@ export function toSearchQuery(stored: GeneratedQuery, libraryId: string): Search
   if (stored.sceneType !== undefined) query.sceneType = stored.sceneType;
 
   return query;
+}
+
+/**
+ * Resolve a live query all the way to a Mongo filter, the way
+ * `GET /api/search` does: pull natural-language dates out of `placeQuery`,
+ * resolve the person ids to drop and the person names to match, then
+ * `buildFilter`.
+ *
+ * Takes an already-forced `SearchQuery` rather than a stored `GeneratedQuery`,
+ * so the forcing in `toSearchQuery` happens exactly once at each call site
+ * instead of being re-applied here and relying on it being idempotent.
+ *
+ * Shared by the worker (measuring a candidate) and the read API (rendering a
+ * saved one). Keeping it in one function is what stops the two from drifting
+ * — a collection measured at 40 photos must not render with four.
+ */
+export async function resolveLiveFilter(
+  query: SearchQuery,
+): Promise<{ resolved: SearchQuery; filter: Filter<AssetDoc> } | { error: string }> {
+  const resolved = extractDatesFromQuery(query);
+  const [dropIds, peopleIds] = await Promise.all([
+    personIdsToDrop(resolved.excludeHiddenPeople),
+    personIdsForNames(peopleNames(resolved.people)),
+  ]);
+
+  const filterOrError = buildFilter(resolved, dropIds, peopleIds);
+  if ('error' in filterOrError) return { error: filterOrError.error };
+  return { resolved, filter: filterOrError };
 }

@@ -70,6 +70,55 @@ function asText(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+/** `from`/`to`: bare `YYYY-MM-DD`, inside credible coverage. */
+function readDate(
+  key: 'from' | 'to',
+  raw: unknown,
+  ctx: ValidationContext,
+): { value?: string } | { reason: string } {
+  const value = asText(raw);
+  if (value === undefined) return {};
+  if (!BARE_DATE.test(value)) return { reason: `${key} is not YYYY-MM-DD: ${value}` };
+  const year = Number(value.slice(0, 4));
+  if (!ctx.coverageYears.includes(year)) {
+    return { reason: `${key} year ${year} is outside library coverage` };
+  }
+  return { value };
+}
+
+/** Recurring month-of-year, 1-12. */
+function readMonth(raw: unknown): { value?: string } | { reason: string } {
+  if (raw === undefined || raw === null) return {};
+  const month = Number(raw);
+  if (!Number.isInteger(month) || month < 1 || month > 12) {
+    return { reason: `month out of range: ${String(raw)}` };
+  }
+  return { value: String(month) };
+}
+
+/** Person names, every one of which must be on the roster the model was
+ * shown. Fails closed: an unknown name is either a hallucination or a hidden
+ * person the model guessed, and neither may reach a query. */
+function readPeople(raw: unknown, ctx: ValidationContext): { value?: string } | { reason: string } {
+  const people = asText(raw);
+  if (people === undefined) return {};
+  const names = people
+    .split(',')
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0);
+  const unknown = names.filter((name) => !ctx.allowedPeople.includes(name));
+  if (unknown.length > 0) return { reason: `unknown people: ${unknown.join(', ')}` };
+  return names.length > 0 ? { value: names.join(',') } : {};
+}
+
+/** Closed enum, shared with the describe stage's vision schema. */
+function readSceneType(raw: unknown): { value?: string } | { reason: string } {
+  const sceneType = asText(raw);
+  if (sceneType === undefined) return {};
+  if (!ALLOWED_SCENE_TYPE.has(sceneType)) return { reason: `unknown sceneType: ${sceneType}` };
+  return { value: sceneType };
+}
+
 export function validateProposal(raw: unknown, ctx: ValidationContext): ValidationResult {
   if (typeof raw !== 'object' || raw === null) return reject('not an object');
   const proposal = raw as Record<string, unknown>;
@@ -81,45 +130,21 @@ export function validateProposal(raw: unknown, ctx: ValidationContext): Validati
   if (typeof rawQuery !== 'object' || rawQuery === null) return reject('missing query');
   const source = rawQuery as Record<string, unknown>;
 
+  // Whitelist construction: the query is rebuilt field by field, so a key the
+  // model invents cannot survive by accident.
+  const fields: Record<string, { value?: string } | { reason: string }> = {
+    placeQuery: { value: asText(source.placeQuery) },
+    from: readDate('from', source.from, ctx),
+    to: readDate('to', source.to, ctx),
+    month: readMonth(source.month),
+    people: readPeople(source.people, ctx),
+    sceneType: readSceneType(source.sceneType),
+  };
+
   const query: GeneratedQuery = {};
-
-  const placeQuery = asText(source.placeQuery);
-  if (placeQuery !== undefined) query.placeQuery = placeQuery;
-
-  for (const key of ['from', 'to'] as const) {
-    const value = asText(source[key]);
-    if (value === undefined) continue;
-    if (!BARE_DATE.test(value)) return reject(`${key} is not YYYY-MM-DD: ${value}`);
-    const year = Number(value.slice(0, 4));
-    if (!ctx.coverageYears.includes(year)) {
-      return reject(`${key} year ${year} is outside library coverage`);
-    }
-    query[key] = value;
-  }
-
-  if (source.month !== undefined && source.month !== null) {
-    const month = Number(source.month);
-    if (!Number.isInteger(month) || month < 1 || month > 12) {
-      return reject(`month out of range: ${String(source.month)}`);
-    }
-    query.month = String(month);
-  }
-
-  const people = asText(source.people);
-  if (people !== undefined) {
-    const names = people
-      .split(',')
-      .map((name) => name.trim())
-      .filter((name) => name.length > 0);
-    const unknown = names.filter((name) => !ctx.allowedPeople.includes(name));
-    if (unknown.length > 0) return reject(`unknown people: ${unknown.join(', ')}`);
-    if (names.length > 0) query.people = names.join(',');
-  }
-
-  const sceneType = asText(source.sceneType);
-  if (sceneType !== undefined) {
-    if (!ALLOWED_SCENE_TYPE.has(sceneType)) return reject(`unknown sceneType: ${sceneType}`);
-    query.sceneType = sceneType;
+  for (const [key, outcome] of Object.entries(fields)) {
+    if ('reason' in outcome) return reject(outcome.reason);
+    if (outcome.value !== undefined) query[key as keyof GeneratedQuery] = outcome.value;
   }
 
   // An all-null query executes as "the entire library" — it would clear the

@@ -94,13 +94,89 @@ function readProposals(
       accepted.push({ theme: result.value.theme, query: result.value.query });
       continue;
     }
-    const named = typeof raw === 'object' && raw !== null ? (raw as { theme?: unknown }).theme : undefined;
+    const named =
+      typeof raw === 'object' && raw !== null ? (raw as { theme?: unknown }).theme : undefined;
     misses.push({
       theme: typeof named === 'string' ? named : 'unnamed',
       reason: result.reason,
     });
   }
   return { accepted, misses };
+}
+
+/**
+ * Phases 2 and 3 for one candidate: run its query, apply the floor, and title
+ * it from the captions that came back. Returns undefined when the candidate
+ * does not survive — the caller simply moves on.
+ */
+async function measureAndTitle(
+  deps: LoopDeps,
+  candidate: Candidate,
+  round: number,
+): Promise<GeneratedSearchInput | undefined> {
+  const outcome = await deps
+    .runSearch(toSearchQuery(candidate.query, deps.libraryId))
+    .catch((err: unknown) => {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err), theme: candidate.theme },
+        'candidate search failed',
+      );
+      return undefined;
+    });
+  if (outcome === undefined) return undefined;
+
+  if (outcome.count < deps.minResults) {
+    log.info(
+      { theme: candidate.theme, count: outcome.count, floor: deps.minResults },
+      'candidate under result floor',
+    );
+    return undefined;
+  }
+
+  const titled = await deps
+    .generateJson(buildTitlePrompt(candidate.theme, outcome.captions), TITLE_SCHEMA)
+    .catch(() => undefined);
+  const title = readTitle(titled);
+  if (title === undefined) {
+    // A collection with no title is not shippable, so it is dropped rather
+    // than given a placeholder name.
+    log.warn({ theme: candidate.theme }, 'titling failed; dropping candidate');
+    return undefined;
+  }
+
+  return {
+    library_id: deps.libraryId,
+    generated_for: deps.generatedFor,
+    generated_at: deps.generatedAt,
+    model: deps.model,
+    attempts: round,
+    theme: candidate.theme,
+    title: title.title,
+    subtitle: title.subtitle,
+    query: candidate.query,
+    result_count: outcome.count,
+    cover_asset_id: outcome.coverAssetId,
+  };
+}
+
+/** Phase 1 for one round, tolerating a call that fails outright. */
+async function proposeRound(deps: LoopDeps, wanted: number, round: number): Promise<Candidate[]> {
+  const payload = await deps
+    .generateJson(buildProposalPrompt(deps.digest, wanted), proposalSchema(wanted))
+    .catch((err: unknown) => {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err), round },
+        'proposal call failed',
+      );
+      return undefined;
+    });
+  if (payload === undefined) return [];
+
+  const { accepted, misses } = readProposals(payload, deps.validationContext);
+  for (const miss of misses) {
+    log.info({ round, theme: miss.theme, reason: miss.reason }, 'proposal rejected');
+  }
+  return accepted;
 }
 
 export async function runProposalLoop(deps: LoopDeps): Promise<GeneratedSearchInput[]> {
@@ -111,67 +187,17 @@ export async function runProposalLoop(deps: LoopDeps): Promise<GeneratedSearchIn
     const wanted = deps.count - saved.length;
     if (wanted <= 0) break;
 
-    const payload = await deps
-      .generateJson(buildProposalPrompt(deps.digest, wanted), proposalSchema(wanted))
-      .catch((err: unknown) => {
-        log.warn({ err: err instanceof Error ? err.message : String(err), round }, 'proposal call failed');
-        return undefined;
-      });
-    if (payload === undefined) continue;
-
-    const { accepted, misses } = readProposals(payload, deps.validationContext);
-    for (const miss of misses) {
-      log.info({ round, theme: miss.theme, reason: miss.reason }, 'proposal rejected');
-    }
-
-    for (const candidate of accepted) {
+    for (const candidate of await proposeRound(deps, wanted, round)) {
       if (saved.length >= deps.count) break;
       // Dedupe against themes already kept — a retry round re-proposing a
       // theme that already succeeded would spend a slot on a duplicate.
       if (usedThemes.has(candidate.theme)) continue;
 
-      const outcome = await deps
-        .runSearch(toSearchQuery(candidate.query, deps.libraryId))
-        .catch((err: unknown) => {
-          log.warn(
-            { err: err instanceof Error ? err.message : String(err), theme: candidate.theme },
-            'candidate search failed',
-          );
-          return undefined;
-        });
-      if (outcome === undefined) continue;
-
-      if (outcome.count < deps.minResults) {
-        log.info(
-          { theme: candidate.theme, count: outcome.count, floor: deps.minResults },
-          'candidate under result floor',
-        );
-        continue;
-      }
-
-      const titled = await deps
-        .generateJson(buildTitlePrompt(candidate.theme, outcome.captions), TITLE_SCHEMA)
-        .catch(() => undefined);
-      const title = readTitle(titled);
-      if (title === undefined) {
-        log.warn({ theme: candidate.theme }, 'titling failed; dropping candidate');
-        continue;
-      }
+      const collection = await measureAndTitle(deps, candidate, round);
+      if (collection === undefined) continue;
 
       usedThemes.add(candidate.theme);
-      saved.push({
-        library_id: deps.libraryId,
-        generated_for: deps.generatedFor,
-        generated_at: deps.generatedAt,
-        model: deps.model,
-        attempts: round,
-        theme: candidate.theme,
-        title: title.title,
-        subtitle: title.subtitle,
-        query: candidate.query,
-        result_count: outcome.count,
-        cover_asset_id: outcome.coverAssetId,
-      });
+      saved.push(collection);
     }
   }
 
