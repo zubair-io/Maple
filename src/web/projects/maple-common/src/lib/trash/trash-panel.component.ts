@@ -36,6 +36,8 @@ import { TrashListComponent } from './trash-list.component';
 import { TrashToolbarComponent } from './trash-toolbar.component';
 import { TrashDeleteConfirmDialogComponent } from './trash-delete-confirm-dialog.component';
 import { errorMessage } from '../util/errors';
+import { LibraryStateService } from '../state/library-state.service';
+import { formatAddress, parentAddress } from '../addressing/maple-address';
 import type { AssetId } from '../models/asset';
 import type { TrashDeleteOutcome, TrashItem } from './trash.types';
 
@@ -52,6 +54,7 @@ type ConfirmTarget = { kind: 'item'; item: TrashItem } | { kind: 'all' };
 export class TrashPanelComponent implements OnInit {
   private readonly api = inject(TrashApiService);
   private readonly trash = inject(TrashService);
+  private readonly libraryState = inject(LibraryStateService);
 
   readonly libraryId = input.required<string>();
   readonly libraryLabel = input.required<string>();
@@ -140,6 +143,40 @@ export class TrashPanelComponent implements OnInit {
 
   // ── Restore ──────────────────────────────────────────────────────────────
 
+  /** Re-pull the currently OPEN folder's listing if (and only if) a restore
+   * just landed an asset back into it — same "refresh, don't mutate"
+   * pattern `DragMoveService._finish()` uses for relocate. `restoreAsset`
+   * puts each item back at its recorded `originalRelativePath` (a
+   * collision-safe restore only renames the filename, never the folder —
+   * see `TrashApiService.restoreAsset`'s doc), so the destination folder is
+   * that path's parent.
+   *
+   * A restore can land in a folder other than the one currently open (a
+   * "Restore All" from the library root, or an item trashed from a
+   * different folder than the user is now browsing) — refreshing an
+   * off-screen folder would be a wasted round trip, so this only fires when
+   * the affected folder is the one actually visible.
+   *
+   * `libraryId()` is the registered library's Mongo id (`libraryIdForRootNode`
+   * — see `trash-node.ts`), NOT the `slug` that `selectedSourceId`/folder-tree
+   * ids use. Resolve the real slug via `registeredFolders()` before building
+   * `slug:relPath` addresses to compare — comparing against the raw Mongo id
+   * would never match. */
+  private refreshVisibleFolderAfterRestore(originalRelativePaths: string[]): void {
+    const openId = this.libraryState.selectedSourceId();
+    if (!openId) return;
+    const slug = this.libraryState.registeredFolders().find((f) => f.id === this.libraryId())?.slug;
+    if (!slug) return;
+    const affected = new Set(
+      originalRelativePaths.map((relPath) =>
+        formatAddress(parentAddress({ slug, relPath }) ?? { slug, relPath: '' }),
+      ),
+    );
+    if (affected.has(openId)) {
+      this.libraryState.refreshFolderListing(openId);
+    }
+  }
+
   onRestoreItem(item: TrashItem): void {
     if (this.busyKey() !== null) return;
     this.busyKey.set(item.assetId);
@@ -153,6 +190,7 @@ export class TrashPanelComponent implements OnInit {
             : `Restored "${item.filename}".`,
         );
         this.trash.notifyLibraryMutated(this.libraryId());
+        this.refreshVisibleFolderAfterRestore([item.originalRelativePath]);
       },
       error: (err: unknown) => {
         this.busyKey.set(null);
@@ -168,6 +206,9 @@ export class TrashPanelComponent implements OnInit {
       next: (summary) => {
         this.busyKey.set(null);
         const succeededIds = new Set(summary.items.filter((i) => i.ok).map((i) => i.assetId));
+        const succeededPaths = this.items()
+          .filter((i) => succeededIds.has(i.assetId))
+          .map((i) => i.originalRelativePath);
         this.items.set(this.items().filter((i) => !succeededIds.has(i.assetId)));
         this.toast.set(
           summary.failed > 0
@@ -175,6 +216,7 @@ export class TrashPanelComponent implements OnInit {
             : `Restored ${summary.succeeded} item(s).`,
         );
         this.trash.notifyLibraryMutated(this.libraryId());
+        this.refreshVisibleFolderAfterRestore(succeededPaths);
       },
       error: (err: unknown) => {
         this.busyKey.set(null);
