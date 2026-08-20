@@ -212,9 +212,19 @@ final class ASWebAuthSessionDriver: NSObject, ASWebAuthenticationPresentationCon
     #if os(macOS)
     return NSApplication.shared.keyWindow ?? ASPresentationAnchor()
     #else
-    return UIApplication.shared.connectedScenes
-      .compactMap { ($0 as? UIWindowScene)?.keyWindow }
-      .first ?? ASPresentationAnchor()
+    // The scene-less `UIWindow()` initializer is deprecated as of iOS 26 —
+    // every anchor must be scene-bound. A window scene is guaranteed here:
+    // the system only asks for a presentation anchor while the session is
+    // being presented, which requires a foregrounded scene.
+    let windowScenes = UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }
+    if let keyWindow = windowScenes.compactMap(\.keyWindow).first {
+      return keyWindow
+    }
+    guard let scene = windowScenes.first else {
+      preconditionFailure("presentationAnchor requested with no connected window scene")
+    }
+    return scene.windows.first ?? ASPresentationAnchor(windowScene: scene)
     #endif
   }
 }

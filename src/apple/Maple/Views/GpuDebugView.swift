@@ -207,7 +207,10 @@ struct MetalPresentView: UIViewRepresentable {
         required init?(coder: NSCoder) { fatalError("not used") }
         override func layoutSubviews() {
             super.layoutSubviews()
-            let scale = window?.screen.scale ?? UIScreen.main.scale
+            // `displayScale` is the trait equivalent of the deprecated
+            // `UIScreen.main.scale`; it's 0 while traits are unspecified
+            // (no window yet), so clamp to a sane floor.
+            let scale = window?.screen.scale ?? max(traitCollection.displayScale, 1)
             controller.layer.frame = bounds
             controller.layer.contentsScale = scale
             controller.layoutAndPresent(
