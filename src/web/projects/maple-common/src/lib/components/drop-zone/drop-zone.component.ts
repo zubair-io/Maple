@@ -15,7 +15,7 @@ import { AssetId } from '../../models/asset';
 import { Router } from '@angular/router';
 import { FolderAccessService } from '../../folder-access/folder-access.service';
 import { KnownFolder, MapleFolderHandle } from '../../folder-access/folder-access.types';
-import { editRouteCommands } from '../../addressing/route-address';
+import { viewRouteCommands } from '../../addressing/route-address';
 
 /** Result of resolving a drop to a mounted folder — the branch of
  * `DropResolution` this component acts on once reference-mounting succeeded. */
@@ -227,7 +227,7 @@ export class DropZoneComponent {
     if (filePaths.length === 0 || ids.length === 0) return;
     if (ids.length === 1) {
       this.state.selectAsset(ids[0]);
-      void this.router.navigate(editRouteCommands(ids[0]));
+      void this.router.navigate(viewRouteCommands(ids[0]));
     } else {
       this.state.selectMany(ids);
     }
@@ -308,7 +308,7 @@ export class DropZoneComponent {
       this.state.selectedSourceId.set('f-imported');
       this.state.selectAsset(ids[0]);
       this.imported.emit(ids);
-      if (ids.length === 1) void this.router.navigate(editRouteCommands(ids[0]));
+      if (ids.length === 1) void this.router.navigate(viewRouteCommands(ids[0]));
     }
   }
 }
