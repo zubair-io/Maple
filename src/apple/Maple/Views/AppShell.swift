@@ -1043,16 +1043,17 @@ struct AppShell: View {
     @MainActor
     private func persistPreviewOnBackground(_ session: EditSession) {
         #if os(iOS)
-        let app = UIApplication.shared
-        // The expiration handler is `@MainActor @Sendable`, which can't
-        // capture a mutable local — share the identifier through a
-        // MainActor-isolated (hence Sendable) box instead, keeping `end()`
-        // idempotent across the completion/expiration race described above.
         let bgTask = BackgroundTaskHandle()
-        bgTask.id = app.beginBackgroundTask(withName: "app.justmaple.aperture.preview-persist") {
-            bgTask.end(app)
+        bgTask.id = UIApplication.shared.beginBackgroundTask(withName: "app.justmaple.aperture.preview-persist") {
+            bgTask.end()
         }
-        guard bgTask.id != .invalid else { return }
+        // Deliberately NO early return when the assertion is denied
+        // (`bgTask.id == .invalid` — Low Power Mode, near-suspension): the
+        // persist is a pure cache and may be cut short, but the release
+        // MUST still run — the scenePhase handler excluded this session
+        // from the bulk release precisely because this path owns it
+        // (#2037/#2947); bailing out here left the active editor's buffers
+        // resident in a backgrounded app. `end()` is a no-op for `.invalid`.
         Task { @MainActor in
             await session.persistDisplayPreviewOnExit()
             // #2037 — now that the exit persist has read whatever GPU frame
@@ -1061,7 +1062,7 @@ struct AppShell: View {
             // AFTER the persist — see `releaseTransientMemoryForAllSessions`'s
             // `excluding` doc for why running it concurrently would race.
             await session.releaseTransientMemory()
-            bgTask.end(app)
+            bgTask.end()
         }
         #else
         Task { await session.persistDisplayPreviewOnExit() }
@@ -1516,9 +1517,9 @@ struct AppShell: View {
 private final class BackgroundTaskHandle {
     var id: UIBackgroundTaskIdentifier = .invalid
 
-    func end(_ app: UIApplication) {
+    func end() {
         guard id != .invalid else { return }
-        app.endBackgroundTask(id)
+        UIApplication.shared.endBackgroundTask(id)
         id = .invalid
     }
 }
