@@ -2,16 +2,17 @@
  * Conservative natural-language date parser for the smart search box.
  *
  * Scope is a deliberately small, closed set of forms the product owner
- * asked for — bare year, `Month [D][, YYYY]`, and QUALIFIED seasons and
- * holidays (`last winter`, `summer 2024`, `christmas 2023`). We do NOT pull
+ * asked for — bare year, `Month [D][, YYYY]`, and QUALIFIED seasons
+ * (`last winter`, `summer 2024`). Holiday names are not a form at all; see
+ * the note where their table used to be. We do NOT pull
  * in `chrono-node`: it over-matches (e.g. "5" out of "ISO 5", a lone weekday
  * out of a brand name) and the resulting false date-strips would silently
  * drop real query words. A hand-rolled parser with explicit anchored
  * patterns is auditable and only fires on tokens that unambiguously read as
  * a date.
  *
- * That last hazard is not hypothetical, and it is why a BARE season or
- * holiday word no longer parses at all. `winter` matched, became a Dec–Feb
+ * That last hazard is not hypothetical, and it is why a bare season word
+ * and every holiday name no longer parse at all. `winter` matched, became a Dec–Feb
  * window, and was stripped — leaving the query with NO search text, so
  * `usesPlaceText()` went false, Meilisearch was never queried, and search
  * silently became "everything captured last winter, newest first" with no
