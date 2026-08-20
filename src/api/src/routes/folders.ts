@@ -781,9 +781,19 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
           } catch {}
         }
 
-        // Non-media: bytes are stored + synced, but we create no AssetDoc and
-        // emit no asset change-feed event. Respond without an `asset_id`.
+        // Non-media: bytes are stored + synced, but we create no AssetDoc.
+        // Emit a path-addressed change (`asset_id: null`) so File Provider
+        // clients see the new file without waiting for a re-enumeration —
+        // `WorkingSetEnumerator.enumerateChanges` (#2535) resolves these via
+        // `(folder_id, relative_path)` instead of an asset id.
         if (!isMedia) {
+          await recordAndPublishAssetChange({
+            kind: 'create',
+            asset_id: null,
+            folder_id: folderId,
+            abs_path: absPath,
+            relative_path: target,
+          }).catch(() => {});
           set.status = 201;
           return {
             abs_path: absPath,
