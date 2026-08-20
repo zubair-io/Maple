@@ -115,6 +115,95 @@ function capturedWindow(resolved: SearchQuery): {
 }
 
 /**
+ * Filters that `buildFilter` turns into a Mongo predicate and that the
+ * Meilisearch query has no way to express — the index carries no
+ * corresponding filterable attribute.
+ *
+ * They cannot simply be applied after the fact. Meili returns one page of
+ * `limit` relevance-ranked ids; intersecting that page in Mongo can only
+ * REMOVE rows, never reach a match ranked past it, and leaves `total`
+ * counting documents the filter would have excluded (#2928, #2932). So when
+ * one is present the branch declines outright and the route falls through to
+ * the Mongo `$text` path, which applies every filter in a single query and
+ * counts correctly.
+ *
+ * That costs relevance ranking on those queries and is still the right
+ * trade: the alternative is a confidently wrong answer.
+ */
+const MONGO_ONLY_FILTERS = [
+  'q',
+  'camera',
+  'lens',
+  'isoMin',
+  'isoMax',
+  'apertureMin',
+  'apertureMax',
+  'focalMin',
+  'focalMax',
+  'month',
+  'rating',
+  'flag',
+  'color',
+  'ext',
+  'pathPrefix',
+  'hasCapturedAt',
+  'place',
+  'excludeHiddenPeople',
+] as const;
+
+function isSet(value: unknown): boolean {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+/**
+ * Which of the caller's filters force the Mongo path, empty when the whole
+ * query is expressible in Meilisearch.
+ *
+ * Exported for the coverage test that walks the wire schema: a param added
+ * to `SearchQueryT` without being classified here would silently resume
+ * post-filtering a single page.
+ */
+export function unpushableFilters(resolved: SearchQuery): string[] {
+  const named = MONGO_ONLY_FILTERS.filter((key) => isSet(resolved[key]));
+  // `photos` and absent are no-ops in `buildFilter`; `places`/`people` add a
+  // presence clause with no Meili counterpart. Anything else is rejected
+  // upstream — treat it as unpushable rather than assume it is inert.
+  const scope = resolved.scope?.trim() ?? '';
+  return scope === '' || scope === 'photos' ? named : [...named, 'scope'];
+}
+
+/** Comma-separated wire list → trimmed values, matching `buildFilter`. */
+function commaList(value: string | undefined): string[] {
+  return (value ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+/** Tri-state screenshot filter; any other value leaves it unconstrained,
+ * exactly as `buildFilter` does. */
+function screenshotFlag(value: string | undefined): boolean | undefined {
+  return value === 'true' ? true : value === 'false' ? false : undefined;
+}
+
+/** The vision + screenshot filters, all already filterable on the index. */
+function visionFilters(resolved: SearchQuery): {
+  sceneType?: string;
+  activity?: string;
+  subjects?: string[];
+  isScreenshot?: boolean;
+} {
+  const subjects = commaList(resolved.subjects);
+  const isScreenshot = screenshotFlag(resolved.isScreenshot);
+  return {
+    ...(isSet(resolved.sceneType) ? { sceneType: resolved.sceneType!.trim() } : {}),
+    ...(isSet(resolved.activity) ? { activity: resolved.activity!.trim() } : {}),
+    ...(subjects.length === 0 ? {} : { subjects }),
+    ...(isScreenshot === undefined ? {} : { isScreenshot }),
+  };
+}
+
+/**
  * One page of Meilisearch-ranked results, or `null` when the sidecar isn't
  * configured, this isn't a text query, or the query failed (logged; the
  * caller falls through to Mongo `$text`).
@@ -123,6 +212,16 @@ export async function meiliPage(input: MeiliPageInput): Promise<MeiliPage | null
   const { coll, filter, resolved, libraryId, skip, limit } = input;
   const meili = meilisearchClient();
   if (!usesPlaceText(resolved) || !meili.isConfigured()) return null;
+
+  // Correctness outranks ranking: see MONGO_ONLY_FILTERS.
+  const unpushable = unpushableFilters(resolved);
+  if (unpushable.length > 0) {
+    searchLog.debug(
+      { unpushable, placeQuery: resolved.placeQuery },
+      'meilisearch declined; filters have no index counterpart, using mongo $text',
+    );
+    return null;
+  }
 
   try {
     // Thread the caller's hidden mode into the Meili candidate set. Meili
@@ -135,6 +234,7 @@ export async function meiliPage(input: MeiliPageInput): Promise<MeiliPage | null
       folderId: libraryId,
       people: meiliPeople(resolved),
       ...capturedWindow(resolved),
+      ...visionFilters(resolved),
       semantic: meili.semanticConfigured(),
       includeHidden: resolved.hidden === 'all',
       onlyHidden: resolved.hidden === 'only',

@@ -13,12 +13,42 @@ function folderFilter(folderId: string | undefined): string | null {
   return safe.length === 0 ? null : `folderId = "${safe}"`;
 }
 
+/** A value as a Meili string literal. Backslash first, then the quote —
+ * reversing the order would re-escape the backslashes this adds. Every
+ * caller below routes user-supplied text through here; that is what keeps
+ * the module header's "an attacker can't inject filter clauses" promise
+ * true for open-vocabulary fields as well as closed ones. */
+function quoted(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
 function peopleFilter(people: string[] | undefined): string | null {
   const names = (people ?? [])
     .map((person) => person.trim())
     .filter(Boolean)
-    .map((person) => `"${person.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
+    .map(quoted);
   return names.length === 0 ? null : `people IN [${names.join(', ')}]`;
+}
+
+function equalsFilter(field: string, value: string | undefined): string | null {
+  const trimmed = value?.trim() ?? '';
+  return trimmed.length === 0 ? null : `${field} = ${quoted(trimmed)}`;
+}
+
+function subjectsFilter(subjects: string[] | undefined): string | null {
+  const values = (subjects ?? [])
+    .map((subject) => subject.trim())
+    .filter(Boolean)
+    .map(quoted);
+  return values.length === 0 ? null : `visionSubjects IN [${values.join(', ')}]`;
+}
+
+/** Mirrors the Mongo predicate, which is `$ne: true` rather than `= false`:
+ * rows indexed before `is_screenshot` was written must still count as
+ * photographs, so the negative case has to admit a missing field. */
+function screenshotFilter(isScreenshot: boolean | undefined): string | null {
+  if (isScreenshot === undefined) return null;
+  return isScreenshot ? 'isScreenshot = true' : '(isScreenshot IS NULL OR isScreenshot = false)';
 }
 
 function mediaFilter(mediaTypes: MeilisearchMediaType[] | undefined): string | null {
@@ -63,6 +93,10 @@ export function buildFilter(opts: MeilisearchSearchOptions): string {
     folderFilter(opts.folderId),
     peopleFilter(opts.people),
     mediaFilter(opts.mediaTypes),
+    equalsFilter('visionSceneType', opts.sceneType),
+    equalsFilter('visionActivity', opts.activity),
+    subjectsFilter(opts.subjects),
+    screenshotFilter(opts.isScreenshot),
     ...capturedAtFilters(opts),
   ].filter((clause): clause is string => clause !== null);
   return clauses.join(' AND ');
