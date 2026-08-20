@@ -21,22 +21,50 @@ import UIKit
 /// synchronous untimed XPC round-trip to `containermanagerd`.
 private let backgroundExecutionUnwindGrace: Duration = .seconds(1)
 
+/// Minimal UIKit background-task assertion: an identifier box with an
+/// idempotent `end()`. The one shared holder of `beginBackgroundTask` in the
+/// app target (#2950) — `BackgroundExecutionLease` below layers
+/// cancel-on-expire semantics on top of it, and `AppShell`'s
+/// preview-persist-on-background uses it directly (best-effort: its
+/// expiration handler just releases the assertion).
+///
+/// `@MainActor` (hence Sendable) so the `@Sendable` expiration handler and a
+/// completion path can share it without capturing a mutable local.
+@MainActor
+final class BackgroundTaskAssertion {
+    private var identifier: UIBackgroundTaskIdentifier = .invalid
+
+    /// Acquire the assertion. False means iOS declined to grant background
+    /// time at all; what that means is the caller's call — refusing to
+    /// proceed (`BackgroundExecution`) and proceeding unprotected
+    /// (`AppShell.persistPreviewOnBackground`) are both in use.
+    func begin(name: String, onExpiration: @escaping @MainActor @Sendable () -> Void) -> Bool {
+        identifier = UIApplication.shared.beginBackgroundTask(
+            withName: name,
+            expirationHandler: onExpiration
+        )
+        return identifier != .invalid
+    }
+
+    /// Idempotent, so whichever of the completion path or the OS expiration
+    /// handler fires first releases the assertion exactly once.
+    func end() {
+        guard identifier != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(identifier)
+        identifier = .invalid
+    }
+}
+
 @MainActor
 private final class BackgroundExecutionLease {
-    private var identifier: UIBackgroundTaskIdentifier = .invalid
+    private let assertion = BackgroundTaskAssertion()
     private var operation: Task<AuthTokens, Error>?
     private var expired = false
 
     /// Acquire the assertion. False means iOS declined to grant background
     /// time at all, which the caller must not treat as "proceed unprotected."
     func begin(name: String) -> Bool {
-        identifier = UIApplication.shared.beginBackgroundTask(
-            withName: name,
-            expirationHandler: { [weak self] in
-                Task { @MainActor in self?.expire() }
-            }
-        )
-        return identifier != .invalid
+        assertion.begin(name: name) { [weak self] in self?.expire() }
     }
 
     /// Hand the lease the task to cancel if the assertion expires.
@@ -51,12 +79,11 @@ private final class BackgroundExecutionLease {
         operation = task
     }
 
-    /// Idempotent, so whichever of the completion path or the OS expiration
-    /// handler fires first releases the assertion exactly once.
+    /// Idempotent via the assertion's own guard, so whichever of the
+    /// completion path or the OS expiration handler fires first releases the
+    /// assertion exactly once.
     func end() {
-        guard identifier != .invalid else { return }
-        UIApplication.shared.endBackgroundTask(identifier)
-        identifier = .invalid
+        assertion.end()
         operation = nil
     }
 
