@@ -15,6 +15,7 @@
 //     "Copy Selected Here" context-menu item, which needs no modifier key
 //     at all.
 import Foundation
+import SwiftUI
 #if os(macOS)
 import AppKit
 #endif
@@ -26,5 +27,26 @@ enum MapleDragModifier {
         #else
         return false
         #endif
+    }
+}
+
+extension View {
+    /// OS file/folder URL drop target (#2649). Wraps
+    /// `dropDestination(for: URL.self)` with the closure explicitly typed to
+    /// pin the Bool-returning overload: iOS 26 added a Void `DropSession`
+    /// variant that otherwise wins overload resolution for single-expression
+    /// closures and silently discards the handled flag (it's also
+    /// unavailable before macOS 26 — this repo targets 14). Route every URL
+    /// drop target through here so a new call site can't silently bind the
+    /// wrong overload (#2950).
+    func urlDropDestination(
+        isTargeted: @escaping (Bool) -> Void = { _ in },
+        perform handler: @escaping ([URL]) -> Bool
+    ) -> some View {
+        dropDestination(
+            for: URL.self,
+            action: { (urls: [URL], _: CGPoint) -> Bool in handler(urls) },
+            isTargeted: isTargeted
+        )
     }
 }

@@ -787,11 +787,11 @@ struct AppShell: View {
         // OS file/folder drop-to-mount (#2649), macOS + iPad only — iPhone
         // renders `phoneTabShell` instead of this view. Routing lives in
         // `AppShell+FolderDrop.swift`; this modifier is the only wiring.
-        .dropDestination(for: URL.self) { urls, _ in
-            handleWindowDrop(urls)
-        } isTargeted: { targeted in
+        .urlDropDestination(isTargeted: { targeted in
             isWindowDropTargeted = targeted
-        }
+        }, perform: { urls in
+            handleWindowDrop(urls)
+        })
         .overlay {
             if isWindowDropTargeted {
                 MapleTokens.primary.opacity(0.12)
@@ -1043,17 +1043,17 @@ struct AppShell: View {
     @MainActor
     private func persistPreviewOnBackground(_ session: EditSession) {
         #if os(iOS)
-        let bgTask = BackgroundTaskHandle()
-        bgTask.id = UIApplication.shared.beginBackgroundTask(withName: "app.justmaple.aperture.preview-persist") {
-            bgTask.end()
-        }
-        // Deliberately NO early return when the assertion is denied
-        // (`bgTask.id == .invalid` — Low Power Mode, near-suspension): the
+        let bgTask = BackgroundTaskAssertion()
+        // Deliberately proceeding even when the assertion is denied
+        // (`begin` returns false — Low Power Mode, near-suspension): the
         // persist is a pure cache and may be cut short, but the release
         // MUST still run — the scenePhase handler excluded this session
         // from the bulk release precisely because this path owns it
         // (#2037/#2947); bailing out here left the active editor's buffers
-        // resident in a backgrounded app. `end()` is a no-op for `.invalid`.
+        // resident in a backgrounded app. `end()` no-ops without one.
+        _ = bgTask.begin(name: "app.justmaple.aperture.preview-persist") {
+            bgTask.end()
+        }
         Task { @MainActor in
             await session.persistDisplayPreviewOnExit()
             // #2037 — now that the exit persist has read whatever GPU frame
@@ -1505,25 +1505,6 @@ struct AppShell: View {
         browseVM.exitSelectMode()
     }
 }
-
-#if os(iOS)
-/// Shared mutable holder for `persistPreviewOnBackground`'s UIKit
-/// background-task identifier. `beginBackgroundTask`'s expiration handler is
-/// `@MainActor @Sendable`, so it can't capture a mutable local `var` — both
-/// the completion path and the expiration handler instead share this
-/// MainActor-isolated (hence Sendable) box, and `end` stays idempotent:
-/// whichever fires first releases the assertion exactly once.
-@MainActor
-private final class BackgroundTaskHandle {
-    var id: UIBackgroundTaskIdentifier = .invalid
-
-    func end() {
-        guard id != .invalid else { return }
-        UIApplication.shared.endBackgroundTask(id)
-        id = .invalid
-    }
-}
-#endif
 
 // MARK: - Previews
 //
