@@ -44,11 +44,6 @@ import {
   saveDeDuplicateConfig,
   type DeDuplicateConfig,
 } from './dedupe-config.repo.ts';
-import {
-  loadGeneratedSearchConfig,
-  saveGeneratedSearchConfig,
-  type GeneratedSearchConfig,
-} from './generated-search/config.repo.ts';
 import { MIGRATIONS, getMigration } from './migration/index.ts';
 import {
   loadAllMigrationStates,
@@ -183,38 +178,6 @@ export function workerRoutes(): Elysia {
       .get('/deduplicate/config', async () => {
         return await loadDeDuplicateConfig();
       })
-
-      // Generated-search knobs. DB-backed so an operator can retune the daily
-      // run from Settings -> Workers without a restart; the worker re-reads on
-      // its next pass. It starts PAUSED (it needs Ollama configured), so
-      // `paused: false` here is what actually enables the feature.
-      .get('/generated-search/config', async () => {
-        return await loadGeneratedSearchConfig();
-      })
-
-      .patch(
-        '/generated-search/config',
-        async ({ body, set }) => {
-          try {
-            const config = await saveGeneratedSearchConfig(body as Partial<GeneratedSearchConfig>);
-            return { ok: true, config };
-          } catch (err) {
-            set.status = 500;
-            return { error: err instanceof Error ? err.message : String(err) };
-          }
-        },
-        {
-          body: t.Object({
-            collections_per_day: t.Optional(t.Number({ minimum: 1, maximum: 12 })),
-            min_results: t.Optional(t.Number({ minimum: 1, maximum: 1000 })),
-            max_rounds: t.Optional(t.Number({ minimum: 1, maximum: 10 })),
-            retention_days: t.Optional(t.Number({ minimum: 1, maximum: 365 })),
-            model: t.Optional(t.String()),
-            paused: t.Optional(t.Boolean()),
-            dry_run: t.Optional(t.Boolean()),
-          }),
-        },
-      )
 
       .patch(
         '/deduplicate/config',
