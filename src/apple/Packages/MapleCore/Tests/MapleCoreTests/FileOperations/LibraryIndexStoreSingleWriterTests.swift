@@ -153,4 +153,57 @@ final class LibraryIndexStoreSingleWriterTests: XCTestCase {
         let refs = try await source.images()
         XCTAssertEqual(refs.map(\.displayName), ["IMG_2"])
     }
+
+    // MARK: - (3) A genuine read error must abort the write, not clobber it
+
+    /// `updateEntry`/`updateFingerprints` used to fall back to `try? load()`
+    /// — which silently turns ANY read failure into `nil`, indistinguishable
+    /// from "no index on disk yet." A malformed `index.json` (truncated
+    /// write, disk corruption, a future format neither of these methods
+    /// understands) would then be treated as "start fresh," and the
+    /// mutator's `save()` would overwrite it with a brand-new, empty index —
+    /// permanently destroying every entry's stars/flags/fingerprints that
+    /// were sitting in the unreadable file. A genuine read error must
+    /// propagate and abort the write instead.
+    func testUpdateEntryPropagatesAGenuineReadErrorInsteadOfClobberingTheFile() async throws {
+        let mapleDir = root.appendingPathComponent(".maple")
+        try FileManager.default.createDirectory(at: mapleDir, withIntermediateDirectories: true)
+        let indexURL = mapleDir.appendingPathComponent("index.json")
+        let malformed = "{ this is not valid JSON at all"
+        try malformed.write(to: indexURL, atomically: true, encoding: .utf8)
+
+        let store = LibraryIndexStore(folderURL: root)
+        do {
+            try await store.updateEntry(name: "IMG_1.dng", culling: CullingState(stars: 5, flag: .pick))
+            XCTFail("a malformed index.json must throw, not be silently treated as missing")
+        } catch {
+            // Expected — the read error must propagate.
+        }
+
+        let onDisk = try String(contentsOf: indexURL, encoding: .utf8)
+        XCTAssertEqual(onDisk, malformed, "a failed update must leave the on-disk file byte-for-byte unchanged")
+    }
+
+    /// Same guard, for the OTHER mutator that had the same `try?` pattern.
+    func testUpdateFingerprintsPropagatesAGenuineReadErrorInsteadOfClobberingTheFile() async throws {
+        let mapleDir = root.appendingPathComponent(".maple")
+        try FileManager.default.createDirectory(at: mapleDir, withIntermediateDirectories: true)
+        let indexURL = mapleDir.appendingPathComponent("index.json")
+        let malformed = "{ this is not valid JSON at all"
+        try malformed.write(to: indexURL, atomically: true, encoding: .utf8)
+
+        let store = LibraryIndexStore(folderURL: root)
+        do {
+            try await store.updateFingerprints([
+                LibraryIndexStore.FingerprintUpdate(
+                    name: "IMG_1.dng", size: 6, mtime: nil, dateTimeOriginal: "2026:01:01 00:00:00", cameraSerial: nil),
+            ])
+            XCTFail("a malformed index.json must throw, not be silently treated as missing")
+        } catch {
+            // Expected — the read error must propagate.
+        }
+
+        let onDisk = try String(contentsOf: indexURL, encoding: .utf8)
+        XCTAssertEqual(onDisk, malformed, "a failed update must leave the on-disk file byte-for-byte unchanged")
+    }
 }
