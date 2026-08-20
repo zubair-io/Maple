@@ -23,7 +23,7 @@ struct SearchActiveFilterChips: View {
   private typealias Chip = SearchActiveFilterChipsVM.Chip
 
   var body: some View {
-    let all = SearchActiveFilterChipsVM.chips(params: vm.params)
+    let all = SearchActiveFilterChipsVM.chips(params: vm.params, applied: vm.appliedDates)
     if all.isEmpty {
       EmptyView()
     } else {
@@ -51,20 +51,38 @@ struct SearchActiveFilterChips: View {
         .font(MapleTokens.Typography.chipLabel)
         .foregroundStyle(MapleTokens.textMain)
         .lineLimit(1)
-      Button {
-        remove(chip)
-      } label: {
-        Image(systemName: "xmark")
-          .font(.system(size: 9, weight: .bold))
-          .foregroundStyle(MapleTokens.textMuted)
+      // No clear button on a window the user did not set: suppressing the
+      // parse needs an API parameter that does not exist yet, so an X that
+      // silently did nothing would be worse than none (#2956).
+      if SearchActiveFilterChipsVM.explanation(for: chip) == nil {
+        Button {
+          remove(chip)
+        } label: {
+          Image(systemName: "xmark")
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(MapleTokens.textMuted)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Remove filter \(chip.label)")
       }
-      .buttonStyle(.plain)
-      .accessibilityLabel("Remove filter \(chip.label)")
     }
     .padding(.horizontal, 10)
     .padding(.vertical, 5)
     .background(MapleTokens.surfaceAlt, in: Capsule())
-    .overlay(Capsule().stroke(MapleTokens.border, lineWidth: 0.5))
+    .overlay(
+      Capsule().strokeBorder(
+        MapleTokens.border,
+        style: StrokeStyle(
+          lineWidth: 0.5,
+          // Dashed marks it as provisional and explainable without competing
+          // with the user's own chips or inventing a colour the token set
+          // does not have.
+          dash: SearchActiveFilterChipsVM.explanation(for: chip) == nil ? [] : [3, 2]
+        )
+      )
+    )
+    .help(SearchActiveFilterChipsVM.explanation(for: chip) ?? "")
+    .accessibilityHint(SearchActiveFilterChipsVM.explanation(for: chip) ?? "")
   }
 
   private func overflowChip(_ count: Int) -> some View {
@@ -91,6 +109,10 @@ struct SearchActiveFilterChips: View {
       vm.params.people = vm.params.people.filter { $0 != name }
     case .place(let label):
       vm.params.place = vm.params.place.filter { $0 != label }
+    case .inferredDate:
+      // Not user-set, so there is nothing in `params` to clear. The chip
+      // renders without an X; this arm keeps the switch exhaustive.
+      return
     }
     Task { await vm.submit() }
   }

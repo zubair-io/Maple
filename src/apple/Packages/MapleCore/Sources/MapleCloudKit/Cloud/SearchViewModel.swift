@@ -28,6 +28,10 @@ public final class SearchViewModel {
   /// relevance-ranked `placeQuery`, or a server predating the field.
   /// `loadMore()` falls back to `page + 1` then, so both modes coexist.
   public private(set) var nextCursor: String?
+  /// The capture-date window the server applied, so a window it inferred from
+  /// the query text can be shown rather than silently narrowing the results
+  /// while the filter panel shows nothing (#2956).
+  public private(set) var appliedDates: AppliedDateFilter?
 
   /// Mutable search parameters. Filter controls bind to fields here, then
   /// call `submit()`; the text box calls `queryChanged()` (debounced).
@@ -168,6 +172,7 @@ public final class SearchViewModel {
       pageCache[pageKey] = resp
       results = resp.results
       nextCursor = resp.nextCursor
+      appliedDates = resp.dateFilter
       // An exhausted seek chain means the rows we hold ARE the result set —
       // see `SearchResponse.seekExhausted`. Believing a stale cached `total`
       // instead would keep `canLoadMore` true and drop `loadMore()` back to

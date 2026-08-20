@@ -183,6 +183,26 @@ public struct SearchAssetPHLink: Codable, Equatable, Sendable {
   }
 }
 
+/// The capture-date window the server actually applied.
+///
+/// `inferredFrom` carries the search text the window was derived from, and is
+/// present only when the server read it out of the query rather than taking an
+/// explicit `from`/`to`. That is the case the UI has to attribute: the user
+/// never chose it and nothing in the filter panel reflects it, which is how a
+/// search could be silently clamped to three months while the panel showed no
+/// date at all (#2956).
+public struct AppliedDateFilter: Codable, Sendable, Equatable {
+  public let from: String?
+  public let to: String?
+  public let inferredFrom: String?
+
+  public init(from: String? = nil, to: String? = nil, inferredFrom: String? = nil) {
+    self.from = from
+    self.to = to
+    self.inferredFrom = inferredFrom
+  }
+}
+
 public struct SearchResponse: Codable, Sendable {
   public let total: Int
   public let page: Int
@@ -201,6 +221,9 @@ public struct SearchResponse: Codable, Sendable {
   /// Opaque seek cursor for the next page, or nil when there is none. See
   /// `cursorPaging` for what nil means in each mode.
   public let nextCursor: String?
+  /// The capture-date window in effect, when there is one. Optional so
+  /// responses from a server predating the field still decode.
+  public let dateFilter: AppliedDateFilter?
 
   /// True when a seek-paginated result set has been walked to its end.
   ///
@@ -216,13 +239,15 @@ public struct SearchResponse: Codable, Sendable {
               limit: Int,
               results: [SearchAsset],
               cursorPaging: Bool? = nil,
-              nextCursor: String? = nil) {
+              nextCursor: String? = nil,
+              dateFilter: AppliedDateFilter? = nil) {
     self.total = total
     self.page = page
     self.limit = limit
     self.results = results
     self.cursorPaging = cursorPaging
     self.nextCursor = nextCursor
+    self.dateFilter = dateFilter
   }
 }
 

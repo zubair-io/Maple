@@ -113,6 +113,73 @@ final class SearchFilterVMTests: XCTestCase {
         XCTAssertEqual(SearchActiveFilterChipsVM.chips(params: SearchParams(), now: now), [])
     }
 
+    // MARK: - Inferred date window (#2956)
+    //
+    // A window the SERVER read out of the query text applied to the results
+    // but appeared nowhere: chips came from `SearchParams` alone, so the
+    // panel could show no date while the search was clamped to one. That is
+    // the "I did not have a date selected" report from #2928.
+
+    func testInferredChipAppearsAfterTheUsersOwnFilters() {
+        var params = SearchParams()
+        params.people = ["Priya Patel"]
+        let applied = AppliedDateFilter(
+            from: "2024-01-01T00:00:00.000Z",
+            to: "2024-12-31T23:59:59.999Z",
+            inferredFrom: "2024"
+        )
+        let chips = SearchActiveFilterChipsVM.chips(params: params, applied: applied, now: now)
+        XCTAssertEqual(chips.count, 2)
+        XCTAssertEqual(chips.first, .person("Priya Patel"))
+        XCTAssertEqual(chips.last?.id, "inferred-date")
+    }
+
+    /// The wire form is a full ISO instant. `SearchDateFormat` parses
+    /// `yyyy-MM-dd` and echoes anything else back untouched, so without
+    /// trimming the chip would read "2024-01-01T00:00:00.000Z".
+    func testInferredChipLabelIsFormattedNotRawIsoInstant() {
+        let applied = AppliedDateFilter(
+            from: "2024-01-01T00:00:00.000Z",
+            to: "2024-12-31T23:59:59.999Z",
+            inferredFrom: "2024"
+        )
+        let label = SearchActiveFilterChipsVM.inferredChip(applied, now: now).first?.label
+        XCTAssertNotNil(label)
+        XCTAssertFalse(label!.contains("T00:00"), "raw ISO instant leaked into the chip label")
+    }
+
+    /// An explicit window is already represented by the ordinary date chip;
+    /// showing a second one for it would be a duplicate, not an explanation.
+    func testNoInferredChipWhenTheWindowWasExplicit() {
+        let applied = AppliedDateFilter(from: "2024-01-01T00:00:00.000Z", to: nil, inferredFrom: nil)
+        XCTAssertEqual(SearchActiveFilterChipsVM.inferredChip(applied, now: now), [])
+    }
+
+    func testNoInferredChipWhenNoWindowApplied() {
+        XCTAssertEqual(SearchActiveFilterChipsVM.inferredChip(nil, now: now), [])
+    }
+
+    /// The chip has to say WHY it is there — it is the only thing on screen
+    /// attributing the filter to the user's own words.
+    func testExplanationNamesTheSearchTextItCameFrom() {
+        let applied = AppliedDateFilter(
+            from: "2024-01-01T00:00:00.000Z",
+            to: "2024-12-31T23:59:59.999Z",
+            inferredFrom: "2024"
+        )
+        let chip = SearchActiveFilterChipsVM.inferredChip(applied, now: now).first
+        XCTAssertNotNil(chip)
+        XCTAssertTrue(SearchActiveFilterChipsVM.explanation(for: chip!)?.contains("2024") == true)
+    }
+
+    /// Only the derived chip is explained; the rest are the user's own
+    /// choices and need no justification. This is also what the view keys
+    /// off to decide whether to draw a clear button.
+    func testUserSetChipsHaveNoExplanation() {
+        XCTAssertNil(SearchActiveFilterChipsVM.explanation(for: .person("Priya Patel")))
+        XCTAssertNil(SearchActiveFilterChipsVM.explanation(for: .date(label: "Last 7 days")))
+    }
+
     // MARK: - SearchActiveFilterChipsVM.dateLabel
 
     func testDateLabelPrefersPresetName() {
