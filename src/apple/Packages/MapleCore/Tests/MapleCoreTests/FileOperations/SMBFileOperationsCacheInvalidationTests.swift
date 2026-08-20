@@ -7,6 +7,7 @@
 // them at the exact cross-layer paths `MapleSidecarPaths` defines.
 
 import XCTest
+import CoreImage
 @testable import MapleCore
 
 final class SMBFileOperationsCacheInvalidationTests: XCTestCase {
@@ -81,5 +82,43 @@ final class SMBFileOperationsCacheInvalidationTests: XCTestCase {
 
         let thumbStillThere = await t.fileExists(at: thumbPath(dir: "/Source", basename: "IMG_1.dng"))
         XCTAssertFalse(thumbStillThere)
+    }
+
+    // MARK: - `RenderedPreviewCache` invalidation (#2946)
+    //
+    // `RenderedPreviewCache` is a SEPARATE, per-device cache from the
+    // on-share thumb/preview entries above — it is never seeded by this
+    // fake transport, so these tests seed it directly the same way
+    // `invalidateDerivedCaches` itself keys it: `URL(fileURLWithPath:)`
+    // wrapping the OLD share-relative primary path.
+
+    func testRelocateClearsTheLocalRenderedPreviewCacheEntryForTheOldURL() async throws {
+        let t = FakeSMBTransport()
+        await t.seed("pixels", at: "/Source/IMG_1.dng")
+        let oldURL = URL(fileURLWithPath: "/Source/IMG_1.dng")
+        let image = CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 4, height: 4))
+        await RenderedPreviewCache.shared.storePreview(image, for: oldURL, screenWidth: 100)
+        let seeded = await RenderedPreviewCache.shared.preview(for: oldURL, screenWidth: 100)
+        XCTAssertNotNil(seeded, "precondition: the entry exists before the relocate")
+
+        _ = try await SMBFileOperations.relocate("/Source/IMG_1.dng", to: "/Album", mode: .move, transport: t)
+
+        let afterRelocate = await RenderedPreviewCache.shared.preview(for: oldURL, screenWidth: 100)
+        XCTAssertNil(afterRelocate, "the old URL's local rendered-preview entry must be gone after a move")
+    }
+
+    func testTrashClearsTheLocalRenderedPreviewCacheEntryForTheOldURL() async throws {
+        let t = FakeSMBTransport()
+        await t.seed("pixels", at: "/Source/IMG_1.dng")
+        let oldURL = URL(fileURLWithPath: "/Source/IMG_1.dng")
+        let image = CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 4, height: 4))
+        await RenderedPreviewCache.shared.storePreview(image, for: oldURL, screenWidth: 100)
+        let seeded = await RenderedPreviewCache.shared.preview(for: oldURL, screenWidth: 100)
+        XCTAssertNotNil(seeded, "precondition: the entry exists before the trash")
+
+        _ = try await SMBFileOperations.trash("/Source/IMG_1.dng", transport: t)
+
+        let afterTrash = await RenderedPreviewCache.shared.preview(for: oldURL, screenWidth: 100)
+        XCTAssertNil(afterTrash, "the old URL's local rendered-preview entry must be gone after a trash")
     }
 }
