@@ -144,8 +144,14 @@ public actor LibraryIndexStore {
     public func updateEntry(name: String, culling: CullingState, mtime: Date? = nil) throws {
         // A folder with no `index.json` yet (never browsed/culled before,
         // or its whole entry set was just relocated away) has no index to
-        // load — fall back to a fresh one rather than no-op the write.
-        var idx = (try? load()) ?? LibraryIndex(folderURL: folderURL)
+        // load — fall back to a fresh one rather than no-op the write. Note
+        // this is a genuine `try`, not `try?`: `load()` already returns
+        // `nil` (no throw) for a legitimately missing file, so a caught
+        // throw here means a REAL read error (malformed JSON, a locked
+        // file, a transient APFS failure) — swallowing that into `nil`
+        // would silently overwrite the folder's stars/flags/fingerprints
+        // with a brand-new empty index instead of surfacing the failure.
+        var idx = (try load()) ?? LibraryIndex(folderURL: folderURL)
         var entry = idx.entries[name] ?? LibraryIndex.LibraryEntry(name: name)
         entry.stars = culling.stars
         entry.flag = culling.flag.rawValue
@@ -191,7 +197,10 @@ public actor LibraryIndexStore {
     /// like `updateEntry`. A no-op (no `save()` at all) for an empty array.
     public func updateFingerprints(_ updates: [FingerprintUpdate]) throws {
         guard !updates.isEmpty else { return }
-        var idx = (try? load()) ?? LibraryIndex(folderURL: folderURL)
+        // Genuine `try`, not `try?` — see `updateEntry`'s doc comment: a
+        // real read error must abort this write, not be swallowed into a
+        // fresh empty index that clobbers everything already on disk.
+        var idx = (try load()) ?? LibraryIndex(folderURL: folderURL)
         for update in updates {
             var entry = idx.entries[update.name] ?? LibraryIndex.LibraryEntry(name: update.name)
             entry.size = update.size
