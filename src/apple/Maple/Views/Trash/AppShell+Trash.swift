@@ -19,6 +19,9 @@
 
 import SwiftUI
 import MapleCore
+import OSLog
+
+private let trashBrowserLog = Logger(subsystem: "app.justmaple.aperture", category: "TrashBrowser")
 
 @MainActor
 extension AppShell {
@@ -194,8 +197,16 @@ extension AppShell {
             return ((try? await source.listTrash()) ?? []).map(TrashBrowserRow.init(local:))
         case .cloud(let server, let libraryFolderID, _):
             let remote = makeCloudTrashClient(server: server)
-            let response = try? await remote.listTrash(folderID: libraryFolderID)
-            return (response?.items ?? []).compactMap(TrashBrowserRow.init(cloud:))
+            let items = ((try? await remote.listTrash(folderID: libraryFolderID))?.items) ?? []
+            let rows = items.compactMap(TrashBrowserRow.init(cloud:))
+            // Mirror `MapleEnumerator`'s trash listing: nil-assetID rows are
+            // non-actionable here (restore/purge are asset-ID endpoints), so
+            // they're filtered — but log the drop, or an "empty trash that
+            // isn't" support report is undiagnosable from device logs.
+            if rows.count != items.count {
+                trashBrowserLog.error("trash browser: skipped \(items.count - rows.count, privacy: .public) cloud row(s) with no asset id")
+            }
+            return rows
         }
     }
 
