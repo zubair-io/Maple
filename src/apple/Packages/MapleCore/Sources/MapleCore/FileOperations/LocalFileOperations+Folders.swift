@@ -112,6 +112,11 @@ extension LocalFileOperations {
             suffix += 1
         }
         try FileManager.default.moveItem(at: folderURL, to: target)
+        // #2945: without this, every photo trashed via Delete Folder is
+        // permanently exempt from the 30-day auto-purge — see
+        // `writeTrashedMarkers`'s doc comment for why the marker is
+        // per-contained-photo rather than per-folder-root.
+        writeTrashedMarkers(forSubtreeAt: target)
         return target
     }
 }
