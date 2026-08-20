@@ -390,6 +390,66 @@ private struct RelocateErrorBody: Decodable {
     let error: String
 }
 
+/// 409 conflict body shared by `RemoteCatalog.deleteFile` and
+/// `.relocateFile` (`routes/folders-file-ops.ts`'s
+/// `findLiveIndexedAsset` guard) — the addressed path is actually a LIVE
+/// indexed asset, not a `FileChild`.
+private struct FileConflictBody: Decodable {
+    let error: String
+    let assetID: String
+
+    enum CodingKeys: String, CodingKey {
+        case error
+        case assetID = "asset_id"
+    }
+}
+
+/// Outcome of `RemoteCatalog.deleteFile` (#2535). Domain-neutral, matching
+/// `DeleteAssetResult`'s shape — `.indexedAsset` is the file-addressed
+/// route's own conflict signal (see `FileConflictBody`), distinct from
+/// `DeleteAssetResult.stateMismatch` (which is about trash-vs-purge, a
+/// concept non-asset files don't have).
+public enum DeleteFileResult: Equatable, Sendable {
+    case ok
+    case indexedAsset(assetID: String)
+}
+
+/// `POST /api/folders/<id>/file/relocate` success body — mirrors
+/// `RelocateAssetResponse`'s shape exactly (see that type's doc comment).
+public struct RelocateFileResponse: Decodable, Equatable, Sendable {
+    public let newAbsPath: String
+    public let newPath: String
+    public let newFilename: String
+    public let renamedOnCollision: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case newAbsPath = "new_abs_path"
+        case newPath = "new_path"
+        case newFilename = "new_filename"
+        case renamedOnCollision = "renamed_on_collision"
+    }
+}
+
+/// Outcome of `RemoteCatalog.relocateFile`. Domain-neutral, matching
+/// `RelocateAssetResult`'s shape — `.indexedAsset` replaces
+/// `RelocateAssetResult.notFound`/`.invalid`'s asset-specific cases with
+/// the file-addressed route's own conflict signal (see
+/// `FileConflictBody`); there is no `.invalid` case because a malformed
+/// destination throws (mapped via `mapHTTPError`) rather than returning a
+/// structured 400 body the way the asset route does.
+public enum RelocateFileResult: Equatable, Sendable {
+    case ok(RelocateFileResponse)
+    /// 200 with `skipped: true` — `collision: "skip"`/`"fail"` found an
+    /// existing file at the destination and left both untouched.
+    case skipped(reason: String)
+    case indexedAsset(assetID: String)
+}
+
+private struct RelocateFileSkippedBody: Decodable {
+    let skipped: Bool
+    let reason: String
+}
+
 /// One item of `POST /api/assets/batch-rename/preview`'s response
 /// (#2636/#2641) — a dry-run render of the template over one asset, with no
 /// filesystem or Mongo write. `duplicate` is `true` when a PRIOR item in the
@@ -1107,6 +1167,72 @@ public actor RemoteCatalog {
         if code == 404 { return nil }
         try Self.check2xx(resp, data: data, url: req.url)
         return try decoder.decode(FileChild.self, from: data)
+    }
+
+    /// DELETE /api/folders/<folderID>/file?path=<relativePath> — trash a
+    /// non-indexed file addressed by its library-relative path (#2535).
+    /// The asset-ID-keyed `deleteAsset` can't reach `.file` items — they
+    /// have no `AssetDoc`. 409 means the path is actually a LIVE indexed
+    /// asset (a race between this client's stale listing and the server
+    /// indexing it) — surfaced as `.indexedAsset` so the caller can retry
+    /// via `deleteAsset` instead of failing outright.
+    public func deleteFile(folderID: String, relativePath: String) async throws -> DeleteFileResult {
+        var comps = URLComponents(
+            url: server.appending(path: "/api/folders/\(folderID)/file"),
+            resolvingAgainstBaseURL: false)!
+        comps.queryItems = [.init(name: "path", value: relativePath)]
+        var req = URLRequest(url: comps.url!)
+        req.httpMethod = "DELETE"
+        let (data, resp) = try await http.data(for: req)
+        let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
+        if status == 409 {
+            let body = try? decoder.decode(FileConflictBody.self, from: data)
+            return .indexedAsset(assetID: body?.assetID ?? "")
+        }
+        try Self.check2xx(resp)
+        return .ok
+    }
+
+    /// POST /api/folders/<folderID>/file/relocate — move, rename, or copy
+    /// a non-indexed file addressed by its library-relative path (#2535).
+    /// Sibling to `relocateAsset`, but built directly on the server's
+    /// path-addressed route (`routes/folders-file-ops.ts`) since there is
+    /// no asset id — and no Mongo `fileinfo` entry — to key on. 409 means
+    /// the source path is actually a LIVE indexed asset; see
+    /// `deleteFile`'s doc comment for the same race.
+    public func relocateFile(
+        folderID: String,
+        sourceRelativePath: String,
+        mode: RelocateMode,
+        collision: CollisionPolicy,
+        destinationRelativePath: String,
+        destinationFilename: String? = nil
+    ) async throws -> RelocateFileResult {
+        var req = URLRequest(url: server.appending(path: "/api/folders/\(folderID)/file/relocate"))
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = [
+            "source_path": sourceRelativePath,
+            "mode": mode == .move ? "move" : "copy",
+            "collision": Self.wireCollision(collision),
+            "destination_path": destinationRelativePath,
+        ]
+        if let destinationFilename { body["destination_filename"] = destinationFilename }
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, resp) = try await http.data(for: req)
+        let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
+        switch status {
+        case 200:
+            if let skipped = try? decoder.decode(RelocateFileSkippedBody.self, from: data), skipped.skipped {
+                return .skipped(reason: skipped.reason)
+            }
+            return .ok(try decoder.decode(RelocateFileResponse.self, from: data))
+        case 409:
+            let body = try? decoder.decode(FileConflictBody.self, from: data)
+            return .indexedAsset(assetID: body?.assetID ?? "")
+        default:
+            throw Self.mapHTTPError(status: status)
+        }
     }
 
     /// Create a subdirectory under a library root. `targetRelativePath`
