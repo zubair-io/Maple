@@ -101,7 +101,13 @@ describe('proposalSchema', () => {
   it('offers no key for server-controlled fields', () => {
     // There must be nothing to set, not merely a validator that strips it.
     const json = JSON.stringify(proposalSchema(4));
-    for (const forbidden of ['rating', 'excludeHiddenPeople', 'isScreenshot', 'libraryId', 'hidden']) {
+    for (const forbidden of [
+      'rating',
+      'excludeHiddenPeople',
+      'isScreenshot',
+      'libraryId',
+      'hidden',
+    ]) {
       expect(json).not.toContain(forbidden);
     }
   });
@@ -129,9 +135,8 @@ describe('buildTitlePrompt', () => {
   });
 
   it('exposes only title and subtitle in its schema', () => {
-    expect(Object.keys((TITLE_SCHEMA as never as Record<string, Record<string, unknown>>).properties)).toEqual([
-      'title',
-      'subtitle',
-    ]);
+    expect(
+      Object.keys((TITLE_SCHEMA as never as Record<string, Record<string, unknown>>).properties),
+    ).toEqual(['title', 'subtitle']);
   });
 });

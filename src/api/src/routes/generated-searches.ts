@@ -19,19 +19,14 @@
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import { getDb } from '../db/client.ts';
-import { listGeneratedSearches, type GeneratedSearchDoc } from '../workers/generated-search/repo.ts';
-import { toSearchQuery } from '../workers/generated-search/execute.ts';
-import { assetsCollection } from '../db/client.ts';
-import { personIdsToDrop } from '../people/people.repo.ts';
-import { personIdsForNames } from '../people/people-search-filter.repo.ts';
-import { loadLibraryRoots, loadLibraryIdToSlug } from '../indexer/libraries.cache.ts';
 import {
-  applyLiveFilter,
-  buildFilter,
-  clampInt,
-  extractDatesFromQuery,
-  peopleNames,
-} from './search/query.ts';
+  listGeneratedSearches,
+  type GeneratedSearchDoc,
+} from '../workers/generated-search/repo.ts';
+import { toSearchQuery, resolveLiveFilter } from '../workers/generated-search/execute.ts';
+import { assetsCollection } from '../db/client.ts';
+import { loadLibraryRoots, loadLibraryIdToSlug } from '../indexer/libraries.cache.ts';
+import { applyLiveFilter, clampInt } from './search/query.ts';
 import { pickSort } from './search/sort.ts';
 import { meiliPage } from './search/list-meili.ts';
 import { projectAsset } from './search/project.ts';
@@ -81,23 +76,19 @@ export const generatedSearchesRoutes = new Elysia({ prefix: '/api/generated-sear
       // Re-derive the live query on every request. Forcing at execution time
       // rather than at write time is what keeps a stale doc from surfacing a
       // hidden person on an unattended screen.
-      const resolved = extractDatesFromQuery(toSearchQuery(doc.query, doc.library_id));
-      const [dropIds, peopleIds] = await Promise.all([
-        personIdsToDrop(resolved.excludeHiddenPeople),
-        personIdsForNames(peopleNames(resolved.people)),
-      ]);
-      const filterOrError = buildFilter(resolved, dropIds, peopleIds);
-      if ('error' in filterOrError) {
+      const prepared = await resolveLiveFilter(toSearchQuery(doc.query, doc.library_id));
+      if ('error' in prepared) {
         set.status = 400;
-        return { error: filterOrError.error };
+        return { error: prepared.error };
       }
+      const { resolved, filter } = prepared;
 
       const limit = clampInt(query.limit, 1, 500, 100);
       const coll = await assetsCollection();
 
       const meili = await meiliPage({
         coll,
-        filter: filterOrError,
+        filter,
         resolved,
         libraryId: doc.library_id,
         skip: 0,
@@ -107,7 +98,7 @@ export const generatedSearchesRoutes = new Elysia({ prefix: '/api/generated-sear
         return { total: meili.total, results: meili.results };
       }
 
-      const liveFilter = applyLiveFilter(filterOrError);
+      const liveFilter = applyLiveFilter(filter);
       const [libs, idToSlug, docs] = await Promise.all([
         loadLibraryRoots().catch(() => new Map<string, string>()),
         loadLibraryIdToSlug().catch(() => new Map<string, string>()),

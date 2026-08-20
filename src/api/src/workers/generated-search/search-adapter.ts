@@ -18,15 +18,8 @@
  */
 
 import { assetsCollection } from '../../db/client.ts';
-import { personIdsToDrop } from '../../people/people.repo.ts';
-import { personIdsForNames } from '../../people/people-search-filter.repo.ts';
-import {
-  applyLiveFilter,
-  buildFilter,
-  extractDatesFromQuery,
-  peopleNames,
-  type SearchQuery,
-} from '../../routes/search/query.ts';
+import { applyLiveFilter, type SearchQuery } from '../../routes/search/query.ts';
+import { resolveLiveFilter } from './execute.ts';
 import { meiliPage } from '../../routes/search/list-meili.ts';
 import { child as childLogger } from '../../log.ts';
 import type { SearchOutcome } from './loop.ts';
@@ -52,24 +45,19 @@ function captionsOf(rows: readonly { description?: string | null }[]): string[] 
 export async function runGeneratedSearch(query: SearchQuery): Promise<SearchOutcome> {
   const empty: SearchOutcome = { count: 0, captions: [], coverAssetId: null };
 
-  const resolved = extractDatesFromQuery(query);
-  const [dropIds, peopleIds] = await Promise.all([
-    personIdsToDrop(resolved.excludeHiddenPeople),
-    personIdsForNames(peopleNames(resolved.people)),
-  ]);
-
-  const filterOrError = buildFilter(resolved, dropIds, peopleIds);
-  if ('error' in filterOrError) {
-    log.warn({ error: filterOrError.error }, 'candidate query rejected by buildFilter');
+  const prepared = await resolveLiveFilter(query);
+  if ('error' in prepared) {
+    log.warn({ error: prepared.error }, 'candidate query rejected by buildFilter');
     return empty;
   }
+  const { resolved, filter } = prepared;
 
   const coll = await assetsCollection();
 
   // Meilisearch first when there is residual free text, mirroring the route.
   const meili = await meiliPage({
     coll,
-    filter: filterOrError,
+    filter,
     resolved,
     libraryId: query.libraryId,
     skip: 0,
@@ -83,7 +71,7 @@ export async function runGeneratedSearch(query: SearchQuery): Promise<SearchOutc
     };
   }
 
-  const liveFilter = applyLiveFilter(filterOrError);
+  const liveFilter = applyLiveFilter(filter);
   const [count, rows] = await Promise.all([
     coll.countDocuments(liveFilter),
     coll

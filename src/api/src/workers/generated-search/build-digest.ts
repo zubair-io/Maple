@@ -86,7 +86,10 @@ async function recentThemes(libraryId: string, now: Date): Promise<string[]> {
   const coll = (await getDb()).collection('generated_searches');
   const cutoffIso = new Date(now.getTime() - RECENT_THEME_DAYS * DAY_MS).toISOString();
   const rows = await coll
-    .find({ library_id: libraryId, generated_at: { $gte: cutoffIso } }, { projection: { theme: 1 } })
+    .find(
+      { library_id: libraryId, generated_at: { $gte: cutoffIso } },
+      { projection: { theme: 1 } },
+    )
     .toArray();
   return rows
     .map((row) => (row as { theme?: unknown }).theme)
