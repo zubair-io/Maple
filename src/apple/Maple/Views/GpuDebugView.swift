@@ -205,6 +205,13 @@ struct MetalPresentView: UIViewRepresentable {
             layer.addSublayer(controller.layer)
         }
         required init?(coder: NSCoder) { fatalError("not used") }
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            // A pre-attach layout pass falls back to an unresolved trait
+            // scale (below); force one more pass now that the window's real
+            // screen scale is known, so the surface never stays at 1x.
+            setNeedsLayout()
+        }
         override func layoutSubviews() {
             super.layoutSubviews()
             // `displayScale` is the trait equivalent of the deprecated
