@@ -63,18 +63,6 @@ const SEASONS: Record<string, [number, number]> = {
   winter: [12, 2],
 };
 
-/** Single-day holidays with a fixed (month, day). Multi-day or movable
- * feasts are intentionally omitted — they'd need their own ranges. */
-const HOLIDAYS: Record<string, [number, number]> = {
-  christmas: [12, 25],
-  xmas: [12, 25],
-  halloween: [10, 31],
-  'new years': [1, 1],
-  "new year's": [1, 1],
-  'valentines day': [2, 14],
-  "valentine's day": [2, 14],
-};
-
 export interface NlDateRange {
   /** Inclusive lower bound, bare `YYYY-MM-DD`. */
   from?: string;
@@ -122,21 +110,15 @@ export function parseNlDateRange(text: string, now: Date = new Date()): NlDateRa
   const nowYear = now.getUTCFullYear();
   const nowMonth = now.getUTCMonth() + 1;
 
-  // ── Holidays (optionally with a year) ─────────────────────────────────
-  // Longest key first so "valentine's day" wins over a bare "day" token.
-  const holidayKeys = Object.keys(HOLIDAYS).sort((a, b) => b.length - a.length);
-  for (const key of holidayKeys) {
-    const esc = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const re = new RegExp(`\\b${esc}(?:\\s+(\\d{4}))?\\b`, 'i');
-    const m = re.exec(lower);
-    // A BARE holiday name is a description, not a date — see the season note
-    // below. Only an explicit year makes it temporal (#2952).
-    if (m && m[1]) {
-      const [month, day] = HOLIDAYS[key];
-      const year = Number.parseInt(m[1], 10);
-      return { from: ymd(year, month, day), to: ymd(year, month, day), matched: m[0] };
-    }
-  }
+  // Holiday names are deliberately absent: `christmas`, `halloween` and the
+  // rest are THEMES, not dates. Measured against bge-m3, the query
+  // "christmas" scores christmas sweaters .516, a tree with presents .509 and
+  // carollers on a snowy street .506 — none of which contain the word — while
+  // an unrelated app screenshot scores .333. Turning the word into a Dec-25
+  // window threw all of that away and returned whatever happened to be shot
+  // that day. A year written alongside it (`christmas 2024`) still filters,
+  // via the bare-year rule below, which consumes only the digits and leaves
+  // the theme word to be ranked (#2952).
 
   // ── Seasons ("last summer", "summer 2024", "summer") ──────────────────
   for (const [name, [startM, endM]] of Object.entries(SEASONS)) {
