@@ -316,6 +316,47 @@ final class ExternalRenameReconcilerTests: XCTestCase {
             "an unchanged, already-attempted EXIF-less file must not be re-read on a later scan")
     }
 
+    // MARK: - Fractional-second mtime (#2844 review): truncation, not rounding
+
+    /// `index.json`'s ISO8601 mtime TRUNCATES the fractional part on write
+    /// (it does not round it), so a file with a real mtime of X.7s is
+    /// stored as X.0s. `.rounded()` on each side independently gets this
+    /// wrong: stored X.0s rounds to X, but a fresh stat of the SAME,
+    /// UNTOUCHED file (X.7s) rounds to X+1 — a guaranteed mismatch for any
+    /// fractional part ≥ .5s, defeating the freshness check for roughly
+    /// half of all real files. Pins a file's mtime to a fractional value
+    /// ≥ .5s explicitly (rather than relying on incidental write timing) so
+    /// this reproduces deterministically.
+    func testAFractionalMtimeAtOrAboveHalfASecondIsStillTreatedAsUnchanged() async throws {
+        let url = root.appendingPathComponent("IMG_1.dng")
+        FileOperationsTestSupport.write("pixels", to: url)
+
+        // Pin the mtime to a whole second plus .75s — comfortably ≥ .5s, the
+        // exact case that regresses under `.rounded()`.
+        let pinnedMtime = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down) + 0.75)
+        try FileManager.default.setAttributes([.modificationDate: pinnedMtime], ofItemAtPath: url.path)
+
+        let counter = CallCounter()
+        let countingNilProvider: @Sendable (URL) -> ExternalRenameFingerprint? = { _ in
+            counter.increment()
+            return nil
+        }
+
+        _ = await ExternalRenameReconciler.reconcile(
+            store: store, folderURL: root, currentFiles: [url], fingerprintProvider: countingNilProvider)
+        XCTAssertEqual(counter.current, 1, "sanity: the first scan must have attempted the file")
+
+        // A second scan of the SAME, untouched file (mtime still pinned at
+        // X.75s) must recognize it as unchanged and skip the provider —
+        // this is the assertion that fails under `.rounded()`.
+        _ = await ExternalRenameReconciler.reconcile(
+            store: store, folderURL: root, currentFiles: [url], fingerprintProvider: countingNilProvider)
+
+        XCTAssertEqual(
+            counter.current, 1,
+            "a file with a fractional mtime \u{2265} .5s must still be recognized as unchanged on a later scan")
+    }
+
     func testAnUnfingerprintableMissingEntryIsExcludedFromMatching() async throws {
         // The old entry was NEVER successfully fingerprinted (e.g. its EXIF
         // couldn't be read on the scan that saw it) — `dateTimeOriginal` is

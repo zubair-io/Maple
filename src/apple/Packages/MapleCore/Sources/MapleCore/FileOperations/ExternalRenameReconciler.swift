@@ -146,22 +146,30 @@ public enum ExternalRenameReconciler {
     // MARK: - Fingerprint cache refresh
 
     /// `existing.mtime` came from `index.json` via `LibraryIndexStore.load()`
-    /// — an ISO8601-encoded `Date`, which formats to WHOLE seconds only —
-    /// while `mtime` is a fresh `FileManager` `.modificationDate` `stat`,
-    /// which routinely carries sub-second precision on APFS. Comparing
-    /// those with plain `Date` equality made an utterly unchanged file look
-    /// "changed" on every scan whose `LibraryIndexStore` had to re-read
-    /// `index.json` from disk rather than reuse an in-memory `Date` it
-    /// still held from writing that same entry a moment earlier — which,
-    /// since #2844, is EVERY scan (`LibraryIndexStore` no longer caches
-    /// across calls; see its doc comment for why trusting a cache was the
-    /// actual bug). Rounding both sides to the nearest second before
-    /// comparing tolerates that lossy round trip; sub-second staleness
-    /// isn't a distinction this cache needs to make anyway.
-    private static func sameToTheNearestSecond(_ a: Date?, _ b: Date?) -> Bool {
+    /// — an ISO8601-encoded `Date`, which formats to WHOLE seconds only (it
+    /// TRUNCATES any fractional part, it does not round it) — while `mtime`
+    /// is a fresh `FileManager` `.modificationDate` `stat`, which routinely
+    /// carries sub-second precision on APFS. Comparing those with plain
+    /// `Date` equality made an utterly unchanged file look "changed" on
+    /// every scan whose `LibraryIndexStore` had to re-read `index.json`
+    /// from disk rather than reuse an in-memory `Date` it still held from
+    /// writing that same entry a moment earlier — which, since #2844, is
+    /// EVERY scan (`LibraryIndexStore` no longer caches across calls; see
+    /// its doc comment for why trusting a cache was the actual bug).
+    ///
+    /// A tolerance window fixes it; `.rounded()` on each side independently
+    /// does NOT — a file with a real mtime of X.7s round-trips through the
+    /// truncating encoder as stored = X.0s, which rounds DOWN to X, while a
+    /// fresh stat of X.7s rounds UP to X+1: a guaranteed mismatch for
+    /// roughly half of all totally unchanged files, defeating the very
+    /// check this exists for. Comparing the absolute difference against a
+    /// 1-second window instead tolerates the encoder's truncation
+    /// regardless of which side of a second boundary the fractional part
+    /// falls on.
+    private static func sameWithinOneSecond(_ a: Date?, _ b: Date?) -> Bool {
         switch (a, b) {
         case (nil, nil): return true
-        case let (a?, b?): return a.timeIntervalSince1970.rounded() == b.timeIntervalSince1970.rounded()
+        case let (a?, b?): return abs(a.timeIntervalSince1970 - b.timeIntervalSince1970) < 1.0
         default: return false
         }
     }
@@ -201,7 +209,7 @@ public enum ExternalRenameReconciler {
             let mtime = attrs[.modificationDate] as? Date
 
             if let existing = existingEntries[name],
-               existing.size == size, sameToTheNearestSecond(existing.mtime, mtime),
+               existing.size == size, sameWithinOneSecond(existing.mtime, mtime),
                existing.dateTimeOriginal != nil || existing.fingerprintAttempted == true {
                 continue
             }
