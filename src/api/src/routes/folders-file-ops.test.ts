@@ -165,6 +165,36 @@ describe('non-asset file delete/relocate routes', () => {
     expect(st.isFile()).toBe(true);
   });
 
+  it('refuses a dot-segment path that would smuggle past the indexed-asset guard', async () => {
+    if (!mongo || !db || !folderId || !folderPath || !app) return;
+    // Locks in that dot segments are rejected outright rather than resolved.
+    // If they were ever allowed through, `sub/../photo.jpg` would collapse
+    // back inside the root while `refuseIfIndexedAsset` split the RAW string
+    // and looked for a literal `dir: "sub/.."` row that can never match — the
+    // indexed-asset guard would silently miss, the file would be trashed, and
+    // its live asset row would be orphaned in Mongo. Today `realpathJailCheck`
+    // (library/address.ts) rejects `.`/`..` segments BEFORE calling realpath,
+    // so this passes; the test exists so that ordering can't regress unnoticed.
+    const target = 'photo.jpg';
+    const absPath = nodePath.join(folderPath, target);
+    await writeFile(absPath, 'jpeg-ish bytes');
+    await mkdir(nodePath.join(folderPath, 'sub'), { recursive: true });
+    await db.collection('assets').insertOne({
+      _id: new ObjectId(),
+      fileinfo: [{ path: '', filename: target, library_id: folderId, deleted_at: null }],
+      live_location_count: 1,
+      deleted_at: null,
+    } as never);
+
+    const smuggled = `sub/../${target}`;
+    const url = `http://localhost/api/folders/${folderId.toHexString()}/file?path=${encodeURIComponent(smuggled)}`;
+    const res = await app.handle(new Request(url, { method: 'DELETE' }));
+    expect(res.status).toBe(400);
+    // The live asset's file must still be on disk — never trashed behind the guard.
+    const st = await stat(absPath);
+    expect(st.isFile()).toBe(true);
+  });
+
   // -------------------------------------------------------------------
   // POST /:id/file/relocate — move/rename/copy
   // -------------------------------------------------------------------
