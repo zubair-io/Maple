@@ -42,11 +42,17 @@ async function tryConnect(): Promise<MongoClient | null> {
 }
 
 describe('non-asset file delete/relocate routes', () => {
+  const buildApp = () => new Elysia().use(fakeAuth()).use(foldersFileOpsRoutes);
+
   let mongo: MongoClient | null = null;
   let db: Db | null = null;
   let folderId: ObjectId | null = null;
   let folderPath: string | null = null;
-  let app: Elysia | null = null;
+  // Inferred from the construction below rather than annotated as a bare
+  // `Elysia`: composing `.use(...)` widens the instance's route generics,
+  // so the concrete value is not assignable to the default-generic type
+  // (`tsc --noEmit` TS2322). Same Elysia quirk `changes.poll.test.ts` hits.
+  let app: ReturnType<typeof buildApp> | null = null;
 
   beforeEach(async () => {
     mongo = await tryConnect();
@@ -66,7 +72,7 @@ describe('non-asset file delete/relocate routes', () => {
       file_count: 0,
       created_at: new Date().toISOString(),
     } as never);
-    app = new Elysia().use(fakeAuth()).use(foldersFileOpsRoutes);
+    app = buildApp();
   });
 
   afterEach(async () => {
