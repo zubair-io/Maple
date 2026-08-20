@@ -16,6 +16,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -26,7 +27,16 @@ namespace Maple.WinUI
 {
     public sealed partial class MainWindow
     {
-        private async void OnMoveToFolder(object sender, RoutedEventArgs e)
+        private async void OnMoveToFolder(object sender, RoutedEventArgs e) =>
+            // Gated end-to-end (#2948), not just the shared RunDragMoveAsync
+            // apply path at the bottom: this handler opens its OWN
+            // destination-folder ContentDialog before ever reaching
+            // RunDragMoveAsync, so a re-entrant call landing before that
+            // dialog closes would hit the same second-ShowAsync crash one
+            // step earlier. See MainWindow.DragDrop.cs's _modalFlowGate.
+            await RunModalFlowGuardedAsync(() => RunMoveToFolderAsync());
+
+        private async Task RunMoveToFolderAsync()
         {
             var selection = ViewModel.SelectedPhotos;
             var eligible = EditSessionViewModel.DragMoveEligible(selection);

@@ -366,8 +366,18 @@ namespace Maple.WinUI
         {
             var hidden = SidebarColDef.Width.Value > 0;
             SidebarColDef.Width = new GridLength(hidden ? 0 : Math.Max(_settings.LeftPanelWidth, 200));
+            // Keeps the in-memory _settings field (read elsewhere this
+            // session, e.g. SetMode above) in sync too — AppSettings.Update
+            // below only fixes what actually goes to disk.
             _settings.LeftPanelHidden = hidden;
-            _settings.Save();
+            // #2948: NOT `_settings.Save()`. _settings is loaded once at
+            // construction and never refreshed, so saving it directly would
+            // serialize that launch-time snapshot over the current file —
+            // including LibraryFolders as it looked at launch — discarding
+            // any folder added or renamed since. AppSettings.Update()
+            // re-loads immediately before writing, per that type's
+            // class-level invariant.
+            AppSettings.Update(s => s.LeftPanelHidden = hidden);
         }
 
         // --- Selection ---

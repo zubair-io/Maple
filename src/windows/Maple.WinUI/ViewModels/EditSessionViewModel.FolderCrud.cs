@@ -151,15 +151,30 @@ namespace Maple.WinUI.ViewModels
         /// fail is its own kind of silent-failure trap). False only for a
         /// library root with no real Recycle Bin available — see
         /// FolderTreeCrudLogic.RootTrashUnsupported's doc comment for why
-        /// there's no `.maple/trash` fallback a root could use
-        /// instead.</summary>
-        public (bool CanTrash, string? BlockedReason) CanTrashFolder(FolderNode node)
+        /// there's no `.maple/trash` fallback a root could use instead.
+        /// <see cref="IsOnLocalFixedDrive"/> is returned alongside so a
+        /// caller that also needs it for the confirmation copy (the
+        /// Recycle-Bin-vs-Maple's-Trash destination description) doesn't
+        /// have to make a second synchronous drive-type call of its
+        /// own.</summary>
+        public async Task<(bool CanTrash, string? BlockedReason, bool IsOnLocalFixedDrive)> CanTrashFolderAsync(
+            FolderNode node)
         {
             if (node.IsPlaceholder)
-                return (false, "That item can't be moved to Trash.");
-            var unsupported = FolderTreeCrudLogic.RootTrashUnsupported(
-                IsLibraryRoot(node.Path), LocalFileOperations.IsOnLocalFixedDrive(node.Path));
-            return unsupported ? (false, FolderTreeCrudLogic.RootTrashUnsupportedReason) : (true, null);
+                return (false, "That item can't be moved to Trash.", false);
+
+            // Off the UI thread (#2948): IsOnLocalFixedDrive ultimately
+            // calls `new DriveInfo(root).DriveType`, which stalls for the OS
+            // timeout on a disconnected or sleeping mapped drive — same
+            // hazard class, same fix, as MainWindow.Trash.cs's confirmation
+            // counts and MainWindow.TrashRestore.cs's ListMapleTrash. Mirrors
+            // InitializeLibrary's Task.Run pattern
+            // (EditSessionViewModel.Library.cs).
+            var isOnLocalFixedDrive = await Task.Run(() => LocalFileOperations.IsOnLocalFixedDrive(node.Path));
+            var unsupported = FolderTreeCrudLogic.RootTrashUnsupported(IsLibraryRoot(node.Path), isOnLocalFixedDrive);
+            return unsupported
+                ? (false, FolderTreeCrudLogic.RootTrashUnsupportedReason, isOnLocalFixedDrive)
+                : (true, null, isOnLocalFixedDrive);
         }
 
         /// <summary>Recursively trashes <paramref name="node"/> — Recycle
@@ -167,7 +182,7 @@ namespace Maple.WinUI.ViewModels
         /// (LocalFileOperations.DeleteFolderAsync, #2632).</summary>
         public async Task<(bool Ok, string? Error)> TrashFolderInTreeAsync(FolderNode node)
         {
-            var (canTrash, blockedReason) = CanTrashFolder(node);
+            var (canTrash, blockedReason, _) = await CanTrashFolderAsync(node);
             if (!canTrash)
                 return (false, blockedReason);
 

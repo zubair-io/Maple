@@ -60,6 +60,29 @@ namespace Maple.WinUI
             }
         }
 
+        /// <summary>Off the UI thread (#2948): TrashSelectionLogic.
+        /// PredictDestinationKind ultimately calls LocalFileOperations.
+        /// IsOnLocalFixedDrive -> `new DriveInfo(root).DriveType`, once per
+        /// eligible item — a disconnected or sleeping mapped drive stalls
+        /// each of those calls for the OS timeout, and this runs BEFORE the
+        /// confirmation dialog opens (its copy needs the real counts), so
+        /// doing it on the UI thread freezes the window for the whole
+        /// selection before the user even sees a dialog. Awaited, not
+        /// fire-and-forget, so the confirmation never opens with stale or
+        /// half-computed counts — same Task.Run-to-the-thread-pool pattern
+        /// InitializeLibrary documents (EditSessionViewModel.Library.cs).
+        /// The window itself stays interactive for the duration (moves,
+        /// resizes, repaints) since nothing blocks the dispatcher thread
+        /// while this awaits.</summary>
+        private static Task<(int RecycleBinCount, int MapleTrashCount)> ComputeTrashDestinationCountsAsync(
+            IReadOnlyList<PhotoItem> eligible) =>
+            Task.Run(() =>
+            {
+                var recycleBinCount = eligible.Count(p =>
+                    TrashSelectionLogic.PredictDestinationKind(p.FilePath) == TrashDestinationKind.RecycleBin);
+                return (recycleBinCount, eligible.Count - recycleBinCount);
+            });
+
         private async Task RunDeleteSelectedPhotosCoreAsync()
         {
             var selection = ViewModel.SelectedPhotos;
@@ -75,9 +98,7 @@ namespace Maple.WinUI
             }
             var skippedCloud = selection.Count - eligible.Count;
 
-            var recycleBinCount = eligible.Count(p =>
-                TrashSelectionLogic.PredictDestinationKind(p.FilePath) == TrashDestinationKind.RecycleBin);
-            var mapleTrashCount = eligible.Count - recycleBinCount;
+            var (recycleBinCount, mapleTrashCount) = await ComputeTrashDestinationCountsAsync(eligible);
 
             if (!await ConfirmDeleteAsync(eligible.Count, recycleBinCount, mapleTrashCount, skippedCloud))
                 return;

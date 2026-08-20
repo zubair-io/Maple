@@ -132,7 +132,7 @@ namespace Maple.WinUI
             // always failed after confirming, which is its own kind of
             // silent-failure trap; refuse up front with the reason
             // instead).
-            var (canTrash, blockedReason) = ViewModel.CanTrashFolder(node);
+            var (canTrash, blockedReason, isOnLocalFixedDrive) = await ViewModel.CanTrashFolderAsync(node);
             if (!canTrash)
             {
                 var reason = blockedReason ?? "This folder can't be moved to Trash.";
@@ -143,9 +143,10 @@ namespace Maple.WinUI
 
             // Named up front, before the confirmation shows — the design
             // doc's "must be visible in the UI rather than silently
-            // different" for the Recycle Bin vs .maple\trash split.
-            var destination = FolderTreeCrudLogic.TrashDestinationDescription(
-                LocalFileOperations.IsOnLocalFixedDrive(node.Path));
+            // different" for the Recycle Bin vs .maple\trash split. Reuses
+            // CanTrashFolderAsync's own drive-type result (#2948) rather
+            // than making a second synchronous DriveInfo call here.
+            var destination = FolderTreeCrudLogic.TrashDestinationDescription(isOnLocalFixedDrive);
 
             var dialog = new ContentDialog
             {

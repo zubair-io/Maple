@@ -36,7 +36,19 @@ namespace Maple.WinUI
             ("Extension", "{ext}"),
         };
 
-        private async void OnBatchRename(object sender, RoutedEventArgs e)
+        private async void OnBatchRename(object sender, RoutedEventArgs e) =>
+            // Gated end-to-end (#2948): this handler opens its OWN
+            // template-editor ContentDialog before ever reaching
+            // RunBatchRenameAsync's progress dialog, so a re-entrant call
+            // landing before that first dialog closes would hit the
+            // second-ShowAsync crash one step earlier. See
+            // MainWindow.DragDrop.cs's _modalFlowGate — shared with
+            // RunDragMoveAsync/OnMoveToFolder/OnStitchPano for the same
+            // reason (a ContentDialog from any one of these blocks a
+            // ContentDialog from any other).
+            await RunModalFlowGuardedAsync(() => RunOnBatchRenameAsync());
+
+        private async System.Threading.Tasks.Task RunOnBatchRenameAsync()
         {
             var selection = ViewModel.SelectedPhotos;
             var eligible = EditSessionViewModel.BatchRenameEligible(selection);

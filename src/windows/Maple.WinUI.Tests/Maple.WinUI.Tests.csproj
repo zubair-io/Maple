@@ -31,6 +31,14 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <!-- AppSettings.cs (linked below) references
+         System.Security.Cryptography.ProtectedData/DataProtectionScope for
+         its cloud-refresh-token DPAPI helpers — unused by this project's
+         own tests (#2948's AppSettings.Update coverage never calls them),
+         but the file still needs the reference to compile. Cross-platform
+         to build; DPAPI itself only actually works on Windows at runtime,
+         same as Maple.WinUI.csproj's own reference to this package. -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
 
   <!--
@@ -54,6 +62,15 @@
     review fix) is a plain bool-backed guard with zero dependencies of its
     own, linked individually the same way `DiagLog.cs` is.
 
+    `AppSettings.cs` (#2948) is plain System.IO/System.Text.Json plus the
+    DPAPI helpers noted on the PackageReference above — no WinUI dependency
+    of its own, linked the same way `DiagLog.cs`/`SingleFlightGate.cs` are.
+    Its own tests use real file I/O against the real
+    %LOCALAPPDATA%\Maple\settings.json (CLAUDE.md's "no mocks" reasoning
+    applies here too: the invariant under test IS about what actually lands
+    on disk), backing up and restoring whatever was there before/after each
+    test.
+
     NOT linked: `Services\ThumbnailService.cs` (#2659's
     `ThumbnailCacheRelocateLeakTests` needs its cache-path scheme, but the
     file itself is fine — the class it references transitively,
@@ -70,5 +87,6 @@
     <Compile Include="..\Maple.WinUI\Services\FileOperations\*.cs" LinkBase="FileOperations" />
     <Compile Include="..\Maple.WinUI\Services\DiagLog.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\SingleFlightGate.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\AppSettings.cs" LinkBase="Services" />
   </ItemGroup>
 </Project>

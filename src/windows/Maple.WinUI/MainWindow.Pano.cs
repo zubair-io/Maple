@@ -20,7 +20,17 @@ namespace Maple.WinUI
     /// </summary>
     public sealed partial class MainWindow
     {
-        private async void OnStitchPano(object sender, RoutedEventArgs e)
+        private async void OnStitchPano(object sender, RoutedEventArgs e) =>
+            // Gated end-to-end (#2948): this handler opens its own
+            // provisioning-check and options ContentDialogs before ever
+            // reaching RunPanoAsync's progress dialog, so a re-entrant call
+            // landing before those close would hit the second-ShowAsync
+            // crash earlier still. See MainWindow.DragDrop.cs's
+            // _modalFlowGate — shared with RunDragMoveAsync/
+            // OnMoveToFolder/OnBatchRename for the same reason.
+            await RunModalFlowGuardedAsync(() => RunOnStitchPanoAsync());
+
+        private async Task RunOnStitchPanoAsync()
         {
             // Pano ingest is RAW-only (the CLI's rawler decode rejects
             // JPEG/TIFF) — silently skip non-RAW members of the selection so
