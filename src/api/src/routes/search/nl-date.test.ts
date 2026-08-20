@@ -60,11 +60,14 @@ describe('parseNlDateRange — recognised forms', () => {
     expect(r?.to).toBe('2024-05-05');
   });
 
-  it('"Christmas 2024" → fixed holiday with year', () => {
+  // Holiday names are themes, not dates (#2952). Only the YEAR is consumed,
+  // so "christmas" survives to be ranked against christmas-looking photos
+  // from anywhere in 2024 — not just whatever was shot on Dec 25.
+  it('"Christmas 2024" → whole year, holiday word left to rank', () => {
     expect(parseNlDateRange('Christmas 2024', NOW)).toEqual({
-      from: '2024-12-25',
-      to: '2024-12-25',
-      matched: 'christmas 2024',
+      from: '2024-01-01',
+      to: '2024-12-31',
+      matched: '2024',
     });
   });
 
@@ -199,11 +202,11 @@ describe('parseNlDateRange — bare season and holiday words stay searchable', (
     });
   });
 
-  it('still parses a year-qualified holiday', () => {
+  it('consumes only the year from a year-qualified holiday', () => {
     expect(parseNlDateRange('christmas 2024', NOW)).toEqual({
-      from: '2024-12-25',
-      to: '2024-12-25',
-      matched: 'christmas 2024',
+      from: '2024-01-01',
+      to: '2024-12-31',
+      matched: '2024',
     });
   });
 
