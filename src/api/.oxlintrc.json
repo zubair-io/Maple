@@ -73,6 +73,7 @@
         "src/fs/root-connectivity.test.ts",
         "src/imports/scan.ts",
         "src/routes/folders.mkdir.test.ts",
+        "src/routes/folders-file-ops.test.ts",
         "src/routes/fs-thumbs.cache-hit.test.ts",
         "src/routes/fs-thumbs.etag.test.ts",
         "src/routes/fs.raw-symlink-jail.test.ts",
