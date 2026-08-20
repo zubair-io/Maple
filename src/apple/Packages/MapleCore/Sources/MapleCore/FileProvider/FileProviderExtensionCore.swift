@@ -1309,6 +1309,120 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             return progress
         }
 
+        // Non-indexed file rename / move (#2535). Same identifier-encodes-
+        // path shape as the `.folder` branch above: a rename or move
+        // changes this file's `.file(folderID:relativePath:)` identifier,
+        // so we push the relocate to the server, return a freshly-built
+        // item carrying the NEW identifier, and signal a re-enumeration of
+        // the affected parent(s). Only same-library moves are supported —
+        // the new parent's folderID must match this file's; anything else
+        // (cross-library move, or any changed field beyond
+        // filename/parent) falls through to featureUnsupported.
+        if case .file(let folderID, let sourceRelative) = parsed {
+            let renameOrMove: NSFileProviderItemFields = [.filename, .parentItemIdentifier]
+            guard !changedFields.intersection(renameOrMove).isEmpty,
+                  changedFields.isSubset(of: renameOrMove) else {
+                completionHandler(nil, [], false,
+                    NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
+                return Progress()
+            }
+            let newParentID = item.parentItemIdentifier
+            let newParentParsed: FileProviderIdentifier
+            do { newParentParsed = try FileProviderIdentifier(rawValue: newParentID.rawValue) }
+            catch {
+                completionHandler(nil, [], false,
+                    NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
+                return Progress()
+            }
+            guard case .folder(let newFolderID, let newParentRelative) = newParentParsed,
+                  newFolderID == folderID else {
+                completionHandler(nil, [], false,
+                    NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
+                return Progress()
+            }
+            let filename = item.filename
+            let progress = Progress(totalUnitCount: 1)
+            Task {
+                defer { progress.completedUnitCount = 1 }
+                do {
+                    self.log.notice("file move folderID=\(folderID, privacy: .public) source=\(sourceRelative, privacy: .private) target-dir=\(newParentRelative, privacy: .private)")
+                    // `.fail` (wire: "skip") — the user/Finder already
+                    // chose this exact destination name; an occupied
+                    // target should surface as a collision, not silently
+                    // auto-suffix to a name the user didn't ask for.
+                    // Mirrors `renameAsset`'s same collision choice.
+                    let result = try await catalog.relocateFile(
+                        folderID: folderID,
+                        sourceRelativePath: sourceRelative,
+                        mode: .move,
+                        collision: .fail,
+                        destinationRelativePath: newParentRelative,
+                        destinationFilename: filename
+                    )
+                    switch result {
+                    case .skipped:
+                        completionHandler(nil, [], false,
+                            NSError(domain: NSFileProviderErrorDomain,
+                                    code: NSFileProviderError.filenameCollision.rawValue))
+                        return
+                    case .indexedAsset(let assetID):
+                        // Raced: the discover sweep indexed this file as
+                        // an asset between the client's last listing and
+                        // this move. The item this client knew as `.file`
+                        // no longer exists in that shape — surface a
+                        // collision so Finder re-reads, rather than
+                        // silently moving bytes without repointing the
+                        // now-existing asset doc.
+                        self.log.notice("file move raced with indexing (assetID=\(assetID, privacy: .public)) — surfacing as collision")
+                        completionHandler(nil, [], false,
+                            NSError(domain: NSFileProviderErrorDomain,
+                                    code: NSFileProviderError.filenameCollision.rawValue))
+                        return
+                    case .ok(let resp):
+                        let newRelative = resp.newPath.isEmpty ? resp.newFilename : "\(resp.newPath)/\(resp.newFilename)"
+                        // Re-stat rather than trust `resp` for size/mtime:
+                        // `relocateFile`'s copy-then-verify-then-delete
+                        // primitive doesn't guarantee the copy preserves
+                        // the source mtime, and the relocate response
+                        // carries neither field (matching
+                        // `RelocateAssetResponse`'s shape).
+                        guard let meta = try await catalog.statFile(folderID: folderID, relativePath: newRelative) else {
+                            completionHandler(nil, [], false,
+                                NSError(domain: NSFileProviderErrorDomain,
+                                        code: NSFileProviderError.noSuchItem.rawValue))
+                            return
+                        }
+                        let newParentRaw = FileProviderIdentifier
+                            .folder(folderID: folderID, relativePath: resp.newPath)
+                            .rawValue
+                        let newParentIdent = NSFileProviderItemIdentifier(newParentRaw)
+                        let moved = MapleItem(file: meta, folderID: folderID,
+                                              relativePath: newRelative, parentIdentifier: newParentIdent)
+                        completionHandler(moved, [], false, nil)
+                        // Reload the affected parent(s) so the OS
+                        // re-enumerates under the new identifier. A leaf
+                        // file item has no enumerator of its own to
+                        // reload (unlike a moved folder), so only the
+                        // old/new parents matter here.
+                        var reloadTargets: [NSFileProviderItemIdentifier] = [newParentIdent]
+                        let oldParentRel = (sourceRelative as NSString).deletingLastPathComponent
+                        let oldParentIdent = NSFileProviderItemIdentifier(
+                            FileProviderIdentifier.folder(folderID: folderID, relativePath: oldParentRel).rawValue)
+                        if oldParentIdent != newParentIdent {
+                            reloadTargets.append(oldParentIdent)
+                        }
+                        for target in reloadTargets {
+                            await self.signalEnumeratorReload(parent: target)
+                        }
+                    }
+                } catch {
+                    self.log.error("file move failed: \(error.localizedDescription, privacy: .public)")
+                    completionHandler(nil, [], false, error)
+                }
+            }
+            return progress
+        }
+
         // Restore: the only `modifyItem` shape Phase 3 understands for assets
         // is reparent FROM a trash container TO a folder, with no other
         // changes. Anything else (rename + reparent in one shot, in-place
@@ -1534,10 +1648,29 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     // doc state; we just call DELETE. Idempotent.
                     try await catalog.deleteAsset(assetID: assetID)
                     completionHandler(nil)
-                case .folder, .trash, .mapleDir, .mapleThumbsDir, .thumb, .file:
-                    // Synthetic `.maple/` items + thumbs are read-only, and
-                    // non-indexed files are read-only in v1 (no path-addressed
-                    // delete/trash endpoint yet) — deletes are unsupported.
+                case .file(let folderID, let relativePath):
+                    // #2535: path-addressed trash for a non-indexed file.
+                    let result = try await catalog.deleteFile(folderID: folderID, relativePath: relativePath)
+                    switch result {
+                    case .ok:
+                        completionHandler(nil)
+                    case .indexedAsset(let assetID):
+                        // Raced: the discover sweep indexed this file as
+                        // an asset between the client's last listing and
+                        // this delete. Self-heal by retrying through the
+                        // asset-ID-keyed route rather than surfacing a
+                        // confusing conflict to Finder.
+                        guard !assetID.isEmpty else {
+                            completionHandler(NSError(domain: NSFileProviderErrorDomain,
+                                                      code: NSFileProviderError.filenameCollision.rawValue))
+                            return
+                        }
+                        try await catalog.deleteAsset(assetID: assetID)
+                        completionHandler(nil)
+                    }
+                case .folder, .trash, .mapleDir, .mapleThumbsDir, .thumb:
+                    // Synthetic `.maple/` items + thumbs are read-only —
+                    // deletes are unsupported.
                     completionHandler(NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
                 }
             } catch {
