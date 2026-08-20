@@ -73,10 +73,16 @@ final class PairAppleTVViewModel {
   /// (a stale mint is scoped to the label/server it was minted for).
   private var pendingMint: (server: URL, label: String, mint: DeviceSessionMint)?
 
+  /// `registry` defaults to `CloudServerRegistry.shared` when nil — the
+  /// default lives in the (MainActor-isolated) body rather than as a `=
+  /// .shared` default argument because default arguments evaluate in the
+  /// caller's isolation, and `.shared` is MainActor-isolated (a Swift 6
+  /// language-mode error).
   init(
-    registry: CloudServerRegistry = .shared,
+    registry: CloudServerRegistry? = nil,
     mintClientFactory: @escaping @Sendable (URL) -> AuthClient = { AuthClient(server: $0) }
   ) {
+    let registry = registry ?? .shared
     self.registry = registry
     self.mintClientFactory = mintClientFactory
     let servers = Self.signedInServers(registry: registry)
