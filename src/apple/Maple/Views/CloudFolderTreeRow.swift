@@ -184,11 +184,7 @@ struct CloudFolderTreeRow: View {
         return true
       }, isTargeted: { targeted in isDropTargeted = targeted })
       // Second, same-view drop target for OS file/folder drops (#2649).
-      // The closure is explicitly typed to pin the Bool-returning overload:
-      // iOS 26 added a Void `DropSession` variant that otherwise wins
-      // overload resolution here and silently discards the handled flag
-      // (it's also unavailable before macOS 26 — this repo targets 14).
-      .dropDestination(for: URL.self, action: { (urls: [URL], _: CGPoint) -> Bool in onDropURLs(urls) })
+      .urlDropDestination(perform: onDropURLs)
       .contextMenu {
         if selectedAssetCount > 0 {
           Button {
