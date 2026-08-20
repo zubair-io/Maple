@@ -55,6 +55,7 @@ import { photosRoutes } from './photos.ts';
 import { displayRoutes } from './display.ts';
 import { renderConfigRoutes } from './render-config.ts';
 import { workerRoutes } from '../workers/routes.ts';
+import { generatedSearchConfigRoutes } from '../workers/generated-search/routes.ts';
 import { libraryRoutes } from './library/index.ts';
 
 export const authedApi = new Elysia({ name: 'authedApi' })
@@ -113,4 +114,5 @@ export const authedApi = new Elysia({ name: 'authedApi' })
   .use(changesRoutes)
   .use(mirrorRoutes)
   .use(derivativeAuditRoutes)
-  .use(workerRoutes());
+  .use(workerRoutes())
+  .use(generatedSearchConfigRoutes);
