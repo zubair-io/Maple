@@ -22,6 +22,12 @@
  * (`workers/discover/types.ts`) so a client can never relocate/trash
  * something inside the server's own `.maple/` cache or trash directory.
  *
+ * Each route handler below is a thin sequence of independent decisions
+ * (shape validation, jail/existence checks, the live-indexed-asset
+ * guard, destination resolution, outcome→response mapping) — each split
+ * into its own named helper so the handler body reads as that sequence
+ * rather than one large branching function.
+ *
  * Kept in a separate module rather than added to `routes/folders.ts`
  * (already at the file-size hard limit) — mounted alongside it onto the
  * shared `/api/folders` prefix (see `routes/authed-api.ts`), the same
@@ -48,6 +54,11 @@ import { child as childLogger } from '../log.ts';
 
 const log = childLogger('routes:folders-file-ops');
 
+/** A `{status, error}` shape shared by every early-return validation
+ * step below — routes forward it straight into `set.status` +
+ * `{ error }`. */
+type RouteError = { ok: false; status: number; error: string };
+
 /** Split an already-validated POSIX relative path into its parent dir and
  * filename, matching `FileInfo.path`/`FileInfo.filename`'s storage shape.
  * `relPath` is never backslash-bearing here — `validateRelPathShape` /
@@ -71,10 +82,7 @@ function relPathFromAbs(root: string, absPath: string): { dir: string; filename:
 
 async function resolveFolder(
   paramsId: string,
-): Promise<
-  | { ok: true; folderId: ObjectId; folderPath: string }
-  | { ok: false; status: number; error: string }
-> {
+): Promise<{ ok: true; folderId: ObjectId; folderPath: string } | RouteError> {
   let folderId: ObjectId;
   try {
     folderId = new ObjectId(paramsId);
@@ -114,6 +122,72 @@ async function findLiveIndexedAsset(
   return hit ? (hit._id as ObjectId).toHexString() : null;
 }
 
+/** Decides whether `relPath` names a path already claimed by a LIVE
+ * indexed asset, and if so refuses with the 409 the client should retry
+ * against — `suggestedRoute` names that asset-ID-keyed route (e.g.
+ * `"DELETE /api/assets/:id"`). Wraps `findLiveIndexedAsset` so both route
+ * handlers below share one decision instead of duplicating the response
+ * shape. */
+async function refuseIfIndexedAsset(
+  folderId: ObjectId,
+  relPath: string,
+  suggestedRoute: string,
+): Promise<
+  { ok: true } | { ok: false; status: number; body: { error: string; asset_id: string } }
+> {
+  const { dir, filename } = splitRelPath(relPath);
+  const indexedAssetId = await findLiveIndexedAsset(folderId, dir, filename);
+  if (!indexedAssetId) return { ok: true };
+  return {
+    ok: false,
+    status: 409,
+    body: {
+      error: `path is an indexed asset — use ${suggestedRoute} instead`,
+      asset_id: indexedAssetId,
+    },
+  };
+}
+
+/** Decides whether any of `relPaths` reaches into the server's own
+ * `.maple/` cache/trash directory — a client must never be able to
+ * relocate or trash something living there. Pure / no I/O: string-joins
+ * each candidate against `folderPath` and defers to
+ * `isInsideMapleCache`'s path-segment check. */
+function refuseMapleCachePaths(folderPath: string, relPaths: string[]): { ok: true } | RouteError {
+  const inside = relPaths.some((p) => isInsideMapleCache(folderPath, nodePath.join(folderPath, p)));
+  if (inside) {
+    return { ok: false, status: 400, error: 'path is inside the .maple cache — refusing' };
+  }
+  return { ok: true };
+}
+
+/** Decides whether `relPath` is a real, jailed, regular file under
+ * `folderPath` — the "this path names something I can act on" check
+ * both the trash route's target and the relocate route's source need.
+ * Symlink-safe via `realpathJailCheck`; a directory or a dangling
+ * symlink is refused, not silently accepted. */
+async function resolveExistingFile(
+  folderPath: string,
+  relPath: string,
+): Promise<{ ok: true } | RouteError> {
+  const jailed = await realpathJailCheck(folderPath, relPath);
+  if (!jailed.ok) return jailed;
+  let st: Awaited<ReturnType<typeof stat>>;
+  try {
+    st = await stat(jailed.real);
+  } catch {
+    return { ok: false, status: 404, error: 'file not found' };
+  }
+  if (!st.isFile()) {
+    return { ok: false, status: 400, error: 'not a regular file' };
+  }
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// POST /:id/file/relocate — request shape + destination resolution
+// ---------------------------------------------------------------------------
+
 const RelocateFileBodySchema = t.Object({
   source_path: t.String(),
   mode: t.Union([t.Literal('move'), t.Literal('copy')]),
@@ -126,6 +200,166 @@ const RelocateFileBodySchema = t.Object({
   destination_path: t.String(),
   destination_filename: t.Optional(t.String()),
 });
+
+type RelocateFileBody = typeof RelocateFileBodySchema.static;
+
+/** Decides whether a relocate request's `source_path` / `destination_path`
+ * / `destination_filename` are well-formed — pure shape validation, no
+ * I/O, no jail/existence check (that's `resolveExistingFile` /
+ * `resolveRelocateDestination`). Mirrors `routes/assets/relocate.ts`'s
+ * `validateDestinationShape`, extended with the source-side checks this
+ * route also needs (asset relocate has no `source_path` — it's keyed by
+ * asset id instead). */
+function validateRelocateShape(body: RelocateFileBody): { ok: true } | RouteError {
+  const sourceShape = validateRelPathShape(body.source_path);
+  if (!sourceShape.ok) return sourceShape;
+  if (body.source_path === '') {
+    return { ok: false, status: 400, error: 'source_path must not be empty' };
+  }
+  const destShape = validateRelPathShape(body.destination_path);
+  if (!destShape.ok) return destShape;
+  if (body.destination_filename !== undefined && !isSafeFilename(body.destination_filename)) {
+    return {
+      ok: false,
+      status: 400,
+      error: 'destination_filename is not a valid single-segment filename',
+    };
+  }
+  return { ok: true };
+}
+
+/** Resolves the relocate destination to an absolute path: a symlink-safe
+ * jail check on `destinationPath` (tolerant of the leaf not existing yet
+ * — the destination commonly doesn't), then joins the final filename
+ * (`destinationFilename`, defaulting to the source's own). Same helper
+ * (`resolveRelPathUnderRoot`) `library/relocate-asset.ts` uses for the
+ * asset-ID-keyed relocate route's destination. */
+async function resolveRelocateDestination(
+  folderPath: string,
+  destinationPath: string,
+  destinationFilename: string | undefined,
+  sourceFilename: string,
+): Promise<{ ok: true; destAbsPath: string } | RouteError> {
+  let destDir: string;
+  try {
+    destDir = await resolveRelPathUnderRoot(folderPath, destinationPath);
+  } catch (err) {
+    return {
+      ok: false,
+      status: (err as { status?: number } | null)?.status ?? 400,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+  const destFilename = destinationFilename ?? sourceFilename;
+  return { ok: true, destAbsPath: nodePath.join(destDir, destFilename) };
+}
+
+// ---------------------------------------------------------------------------
+// Outcome -> HTTP response mapping (+ the change-feed emit each outcome
+// needs — see each function's doc comment for why the emit lives here
+// rather than back in the route handler).
+// ---------------------------------------------------------------------------
+
+/** Maps a `moveToTrash` result to the route's `(status, body)`, emitting
+ * the `delete` change-feed row on success so File Provider clients pick
+ * the trash up without waiting for a re-enumeration. Best-effort: an emit
+ * failure is logged, never surfaced — matches every other change-feed
+ * call site in this codebase (`recordAndPublishAssetChange`'s own
+ * best-effort contract). */
+async function respondToTrashOutcome(
+  moved: Awaited<ReturnType<typeof moveToTrash>>,
+  ctx: { folderId: ObjectId; absPath: string; relativePath: string },
+): Promise<{ status: number; body?: { error: string } }> {
+  if (moved.kind === 'error') {
+    return { status: 500, body: { error: `trash failed: ${moved.error}` } };
+  }
+  await recordAndPublishAssetChange({
+    kind: 'delete',
+    asset_id: null,
+    folder_id: ctx.folderId,
+    abs_path: ctx.absPath,
+    relative_path: ctx.relativePath,
+  }).catch((err) => {
+    log.warn(
+      {
+        folderId: ctx.folderId.toHexString(),
+        rawPath: ctx.relativePath,
+        err: err instanceof Error ? err.message : err,
+      },
+      'change-feed emit failed after file trash (best-effort, ignoring)',
+    );
+  });
+  return { status: 204 };
+}
+
+/** Maps a `relocateFile` outcome to the route's `(status, body)`. The
+ * `relocated` case also emits the change-feed rows the move/copy needs:
+ * unlike an indexed asset (a stable Mongo `_id` survives a rename), a
+ * path-addressed file's identity IS its `(folderID, relativePath)` pair
+ * — see `FileProviderIdentifier.file`'s doc comment — so a MOVE retires
+ * the OLD identity (`delete`) and mints a new one (`create`), never a
+ * same-identifier update. A COPY only ever creates (the source stays
+ * live). */
+async function respondToRelocateOutcome(
+  outcome: Awaited<ReturnType<typeof relocateFile>>,
+  ctx: {
+    folderId: ObjectId;
+    folderPath: string;
+    mode: RelocateMode;
+    sourceAbsPath: string;
+    sourceRelativePath: string;
+  },
+): Promise<{ status: number; body: unknown }> {
+  switch (outcome.kind) {
+    case 'skipped':
+      return { status: 200, body: { skipped: true, reason: outcome.reason } };
+    case 'error':
+      return { status: 500, body: { error: outcome.error } };
+    case 'relocated': {
+      const { dir: newPath, filename: newFilename } = relPathFromAbs(
+        ctx.folderPath,
+        outcome.newAbsPath,
+      );
+      const newRelativePath = newPath === '' ? newFilename : `${newPath}/${newFilename}`;
+
+      if (ctx.mode === 'move') {
+        await recordAndPublishAssetChange({
+          kind: 'delete',
+          asset_id: null,
+          folder_id: ctx.folderId,
+          abs_path: ctx.sourceAbsPath,
+          relative_path: ctx.sourceRelativePath,
+        }).catch(() => {});
+      }
+      await recordAndPublishAssetChange({
+        kind: 'create',
+        asset_id: null,
+        folder_id: ctx.folderId,
+        abs_path: outcome.newAbsPath,
+        relative_path: newRelativePath,
+      }).catch((err) => {
+        log.warn(
+          {
+            folderId: ctx.folderId.toHexString(),
+            newRelativePath,
+            err: err instanceof Error ? err.message : err,
+          },
+          'change-feed emit failed after file relocate (best-effort, ignoring)',
+        );
+      });
+
+      return {
+        status: 200,
+        body: {
+          new_abs_path: outcome.newAbsPath,
+          new_path: newPath,
+          new_filename: newFilename,
+          renamed_on_collision: outcome.renamedOnCollision,
+        },
+      };
+    }
+  }
+}
 
 // Both routes mutate the filesystem — file-access-gated (#2893), same as
 // every other write route in `routes/folders.ts` / `routes/folders-trash.ts`.
@@ -148,37 +382,23 @@ export const foldersFileOpsRoutes = new Elysia({ prefix: '/api/folders' })
       set.status = 400;
       return { error: 'missing path query param' };
     }
-    if (isInsideMapleCache(folderPath, nodePath.join(folderPath, rawPath))) {
-      set.status = 400;
-      return { error: 'path is inside the .maple cache — refusing' };
+
+    const cacheCheck = refuseMapleCachePaths(folderPath, [rawPath]);
+    if (!cacheCheck.ok) {
+      set.status = cacheCheck.status;
+      return { error: cacheCheck.error };
     }
 
-    const jailed = await realpathJailCheck(folderPath, rawPath);
-    if (!jailed.ok) {
-      set.status = jailed.status;
-      return { error: jailed.error };
+    const fileCheck = await resolveExistingFile(folderPath, rawPath);
+    if (!fileCheck.ok) {
+      set.status = fileCheck.status;
+      return { error: fileCheck.error };
     }
 
-    let st: Awaited<ReturnType<typeof stat>>;
-    try {
-      st = await stat(jailed.real);
-    } catch {
-      set.status = 404;
-      return { error: 'file not found' };
-    }
-    if (!st.isFile()) {
-      set.status = 400;
-      return { error: 'not a regular file' };
-    }
-
-    const { dir: relDir, filename } = splitRelPath(rawPath);
-    const indexedAssetId = await findLiveIndexedAsset(folderId, relDir, filename);
-    if (indexedAssetId) {
-      set.status = 409;
-      return {
-        error: 'path is an indexed asset — use DELETE /api/assets/:id instead',
-        asset_id: indexedAssetId,
-      };
+    const assetGuard = await refuseIfIndexedAsset(folderId, rawPath, 'DELETE /api/assets/:id');
+    if (!assetGuard.ok) {
+      set.status = assetGuard.status;
+      return assetGuard.body;
     }
 
     // Same literal-join convention `POST /:id/upload` uses when calling
@@ -188,30 +408,13 @@ export const foldersFileOpsRoutes = new Elysia({ prefix: '/api/folders' })
     // on macOS).
     const absPath = nodePath.join(folderPath, rawPath);
     const moved = await moveToTrash(absPath, folderPath);
-    if (moved.kind === 'error') {
-      set.status = 500;
-      return { error: `trash failed: ${moved.error}` };
-    }
-
-    await recordAndPublishAssetChange({
-      kind: 'delete',
-      asset_id: null,
-      folder_id: folderId,
-      abs_path: absPath,
-      relative_path: rawPath,
-    }).catch((err) => {
-      log.warn(
-        {
-          folderId: folderId.toHexString(),
-          rawPath,
-          err: err instanceof Error ? err.message : err,
-        },
-        'change-feed emit failed after file trash (best-effort, ignoring)',
-      );
+    const response = await respondToTrashOutcome(moved, {
+      folderId,
+      absPath,
+      relativePath: rawPath,
     });
-
-    set.status = 204;
-    return;
+    set.status = response.status;
+    return response.body;
   })
 
   // Move, rename, or copy a non-asset file addressed by its
@@ -230,141 +433,70 @@ export const foldersFileOpsRoutes = new Elysia({ prefix: '/api/folders' })
       }
       const { folderId, folderPath } = resolved;
 
-      const sourceShape = validateRelPathShape(body.source_path);
-      if (!sourceShape.ok) {
-        set.status = sourceShape.status;
-        return { error: sourceShape.error };
+      const shapeCheck = validateRelocateShape(body);
+      if (!shapeCheck.ok) {
+        set.status = shapeCheck.status;
+        return { error: shapeCheck.error };
       }
-      if (body.source_path === '') {
-        set.status = 400;
-        return { error: 'source_path must not be empty' };
-      }
-      const destShape = validateRelPathShape(body.destination_path);
-      if (!destShape.ok) {
-        set.status = destShape.status;
-        return { error: destShape.error };
-      }
-      if (body.destination_filename !== undefined && !isSafeFilename(body.destination_filename)) {
-        set.status = 400;
-        return { error: 'destination_filename is not a valid single-segment filename' };
-      }
-      if (
-        isInsideMapleCache(folderPath, nodePath.join(folderPath, body.source_path)) ||
-        isInsideMapleCache(folderPath, nodePath.join(folderPath, body.destination_path))
-      ) {
-        set.status = 400;
-        return { error: 'path is inside the .maple cache — refusing' };
+
+      const cacheCheck = refuseMapleCachePaths(folderPath, [
+        body.source_path,
+        body.destination_path,
+      ]);
+      if (!cacheCheck.ok) {
+        set.status = cacheCheck.status;
+        return { error: cacheCheck.error };
       }
 
       // Confirm the source exists and stays inside the jail (symlink-safe
       // — same check the read-side `GET /:id/file` uses).
-      const sourceJailed = await realpathJailCheck(folderPath, body.source_path);
-      if (!sourceJailed.ok) {
-        set.status = sourceJailed.status;
-        return { error: sourceJailed.error };
-      }
-      let srcStat: Awaited<ReturnType<typeof stat>>;
-      try {
-        srcStat = await stat(sourceJailed.real);
-      } catch {
-        set.status = 404;
-        return { error: 'file not found' };
-      }
-      if (!srcStat.isFile()) {
-        set.status = 400;
-        return { error: 'source is not a regular file' };
+      const sourceCheck = await resolveExistingFile(folderPath, body.source_path);
+      if (!sourceCheck.ok) {
+        set.status = sourceCheck.status;
+        return { error: sourceCheck.error };
       }
 
-      const { dir: sourceRelDir, filename: sourceFilename } = splitRelPath(body.source_path);
-      const indexedAssetId = await findLiveIndexedAsset(folderId, sourceRelDir, sourceFilename);
-      if (indexedAssetId) {
-        set.status = 409;
-        return {
-          error: 'path is an indexed asset — use POST /api/assets/:id/relocate instead',
-          asset_id: indexedAssetId,
-        };
+      const assetGuard = await refuseIfIndexedAsset(
+        folderId,
+        body.source_path,
+        'POST /api/assets/:id/relocate',
+      );
+      if (!assetGuard.ok) {
+        set.status = assetGuard.status;
+        return assetGuard.body;
       }
 
-      // Destination directory: symlink-safe jail, tolerant of the
-      // destination not existing yet — same helper `library/relocate-asset
-      // .ts` uses for the asset-ID-keyed relocate route.
-      let destDir: string;
-      try {
-        destDir = await resolveRelPathUnderRoot(folderPath, body.destination_path);
-      } catch (err) {
-        set.status = (err as { status?: number } | null)?.status ?? 400;
-        return { error: err instanceof Error ? err.message : String(err) };
+      const { filename: sourceFilename } = splitRelPath(body.source_path);
+      const destCheck = await resolveRelocateDestination(
+        folderPath,
+        body.destination_path,
+        body.destination_filename,
+        sourceFilename,
+      );
+      if (!destCheck.ok) {
+        set.status = destCheck.status;
+        return { error: destCheck.error };
       }
 
       const sourceAbsPath = nodePath.join(folderPath, body.source_path);
-      const destFilename = body.destination_filename ?? sourceFilename;
-      const destAbsPath = nodePath.join(destDir, destFilename);
-
+      const mode = body.mode as RelocateMode;
       const outcome = await relocateFile({
         sourceAbsPath,
-        destAbsPath,
-        mode: body.mode as RelocateMode,
+        destAbsPath: destCheck.destAbsPath,
+        mode,
         collision: body.collision as CollisionPolicy,
         callerTag: 'folders/file/relocate',
       });
 
-      switch (outcome.kind) {
-        case 'skipped':
-          set.status = 200;
-          return { skipped: true, reason: outcome.reason };
-        case 'error':
-          set.status = 500;
-          return { error: outcome.error };
-        case 'relocated': {
-          const { dir: newPath, filename: newFilename } = relPathFromAbs(
-            folderPath,
-            outcome.newAbsPath,
-          );
-          const newRelativePath = newPath === '' ? newFilename : `${newPath}/${newFilename}`;
-
-          // Emit change-feed rows so File Provider clients pick this up
-          // without waiting for a re-enumeration. Unlike an indexed asset
-          // (a stable Mongo `_id` survives a rename), a path-addressed
-          // file's identity IS its `(folderID, relativePath)` pair — see
-          // `FileProviderIdentifier.file`'s doc comment — so a move
-          // retires the OLD identity and mints a new one: delete + create,
-          // never a same-identifier update. A copy only ever creates (the
-          // source stays live).
-          if (body.mode === 'move') {
-            await recordAndPublishAssetChange({
-              kind: 'delete',
-              asset_id: null,
-              folder_id: folderId,
-              abs_path: sourceAbsPath,
-              relative_path: body.source_path,
-            }).catch(() => {});
-          }
-          await recordAndPublishAssetChange({
-            kind: 'create',
-            asset_id: null,
-            folder_id: folderId,
-            abs_path: outcome.newAbsPath,
-            relative_path: newRelativePath,
-          }).catch((err) => {
-            log.warn(
-              {
-                folderId: folderId.toHexString(),
-                newRelativePath,
-                err: err instanceof Error ? err.message : err,
-              },
-              'change-feed emit failed after file relocate (best-effort, ignoring)',
-            );
-          });
-
-          set.status = 200;
-          return {
-            new_abs_path: outcome.newAbsPath,
-            new_path: newPath,
-            new_filename: newFilename,
-            renamed_on_collision: outcome.renamedOnCollision,
-          };
-        }
-      }
+      const response = await respondToRelocateOutcome(outcome, {
+        folderId,
+        folderPath,
+        mode,
+        sourceAbsPath,
+        sourceRelativePath: body.source_path,
+      });
+      set.status = response.status;
+      return response.body;
     },
     { body: RelocateFileBodySchema },
   );
