@@ -204,7 +204,10 @@ struct GpuLiveCanvasView: UIViewRepresentable {
         required init?(coder: NSCoder) { fatalError("not used") }
         override func layoutSubviews() {
             super.layoutSubviews()
-            let scale = window?.screen.scale ?? UIScreen.main.scale
+            // `displayScale` is the trait equivalent of the deprecated
+            // `UIScreen.main.scale`; it's 0 while traits are unspecified
+            // (no window yet), so clamp to a sane floor.
+            let scale = window?.screen.scale ?? max(traitCollection.displayScale, 1)
             // The canvas layer is a SUBLAYER, so its geometry changes implicitly
             // animate (~0.25s). When the frame grows on a zoom commit the layer
             // would animate from `(0,0, oldSize)` outward — the image visibly

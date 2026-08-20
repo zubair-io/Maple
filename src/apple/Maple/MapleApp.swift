@@ -291,7 +291,7 @@ struct MapleApp: App {
         let respond = {
             Task { await ThumbnailLoader.shared.handleMemoryPressure() }
             Task { await RenderedPreviewCache.shared.handleMemoryPressure() }
-            Task { await MemoryPressureSignal.shared.signalPressure() }
+            Task { @MainActor in MemoryPressureSignal.shared.signalPressure() }
         }
         #if os(macOS)
         let src = DispatchSource.makeMemoryPressureSource(

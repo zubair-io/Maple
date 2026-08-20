@@ -842,7 +842,9 @@ private struct SMBShareRow: View {
             return true
         }, isTargeted: { targeted in isDropTargeted = targeted })
         // Second, same-view drop target for OS file/folder drops (#2649).
-        .dropDestination(for: URL.self, action: { urls, _ in onDropURLs(urls) })
+        // Explicitly typed to pin the Bool-returning overload — see
+        // `CloudFolderTreeRow`'s identical modifier for why.
+        .dropDestination(for: URL.self, action: { (urls: [URL], _: CGPoint) -> Bool in onDropURLs(urls) })
         .contextMenu {
             if selectedAssetCount > 0 {
                 Button {
@@ -1029,7 +1031,9 @@ private struct FolderTreeRow: View {
             // — a distinct type from `DraggedAssetPayload` above, so this is
             // an ADDITIONAL registered type on this same drop target, not a
             // competing nested one; see `LibrarySidebar.onDropURLs`.
-            .dropDestination(for: URL.self, action: { urls, _ in onDropURLs(urls) })
+            // Explicitly typed to pin the Bool-returning overload — see
+            // `CloudFolderTreeRow`'s identical modifier for why.
+            .dropDestination(for: URL.self, action: { (urls: [URL], _: CGPoint) -> Bool in onDropURLs(urls) })
             .contextMenu {
                 if selectedAssetCount > 0 {
                     Button {

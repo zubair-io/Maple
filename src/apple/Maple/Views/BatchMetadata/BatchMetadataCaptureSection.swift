@@ -2,14 +2,21 @@
 // Covers GPS location (address search + manual lat/lon), capture date/time,
 // and time zone.
 //
-// CLGeocoder is used for forward geocode (Apple standalone, no server).
-// GPS fields on touchedMetadata are populated when the user picks a result.
+// Forward geocode is Apple-standalone (no server): MapKit's
+// MKGeocodingRequest on iOS (CLGeocoder is deprecated as of iOS 26, our iOS
+// deployment target), CLGeocoder on macOS (deployment target 14.0, where it
+// is not yet deprecated) — normalized into `GeocodeCandidate` so the picker
+// and apply path stay shared. GPS fields on touchedMetadata are populated
+// when the user picks a result.
 //
 // Ticket #1629 / epic #1575.
 
 import SwiftUI
 import CoreLocation
 import MapleCore
+#if os(iOS)
+import MapKit
+#endif
 
 // MARK: - BatchMetadataCaptureSection
 
@@ -18,10 +25,14 @@ struct BatchMetadataCaptureSection: View {
 
     // Address search state
     @State private var addressQuery: String = ""
-    @State private var geocodeResults: [CLPlacemark] = []
+    @State private var geocodeResults: [GeocodeCandidate] = []
     @State private var isGeocoding: Bool = false
     @State private var geocodeError: String? = nil
+    #if os(iOS)
+    @State private var activeGeocodeRequest: MKGeocodingRequest? = nil
+    #else
     @State private var geocoder = CLGeocoder()
+    #endif
 
     // Manual lat/lon/alt text field buffers (parse to Double on change)
     @State private var latText: String = ""
@@ -73,13 +84,13 @@ struct BatchMetadataCaptureSection: View {
 
             // Geocode results picker (shown only when results are available)
             if !geocodeResults.isEmpty {
-                Picker("Result", selection: Binding<CLPlacemark?>(
+                Picker("Result", selection: Binding<GeocodeCandidate?>(
                     get: { nil },
-                    set: { if let p = $0 { applyPlacemark(p) } }
+                    set: { if let c = $0 { applyCandidate(c) } }
                 )) {
-                    Text("Select result…").tag(Optional<CLPlacemark>(nil))
-                    ForEach(geocodeResults, id: \.description) { p in
-                        Text(placemarkLabel(p)).tag(Optional(p))
+                    Text("Select result…").tag(Optional<GeocodeCandidate>(nil))
+                    ForEach(geocodeResults) { c in
+                        Text(c.label).tag(Optional(c))
                     }
                 }
                 .pickerStyle(.menu)
@@ -195,6 +206,30 @@ struct BatchMetadataCaptureSection: View {
         isGeocoding = true
         geocodeError = nil
         geocodeResults = []
+        #if os(iOS)
+        activeGeocodeRequest?.cancel()
+        guard let request = MKGeocodingRequest(addressString: q) else {
+            isGeocoding = false
+            geocodeError = "Couldn't search for that address."
+            return
+        }
+        activeGeocodeRequest = request
+        Task {
+            // Stale-guarded by request identity (docs/best-practices.md §
+            // "Generation counters for async state"): a newer search replaces
+            // `activeGeocodeRequest`, so this one's writes are dropped.
+            do {
+                let items = try await request.mapItems
+                guard activeGeocodeRequest === request else { return }
+                geocodeResults = items.map(GeocodeCandidate.init(mapItem:))
+                isGeocoding = false
+            } catch {
+                guard activeGeocodeRequest === request else { return }
+                geocodeError = error.localizedDescription
+                isGeocoding = false
+            }
+        }
+        #else
         geocoder.cancelGeocode()
         geocoder.geocodeAddressString(q) { placemarks, error in
             Task { @MainActor in
@@ -202,34 +237,27 @@ struct BatchMetadataCaptureSection: View {
                 if let err = error {
                     geocodeError = err.localizedDescription
                 } else {
-                    geocodeResults = placemarks ?? []
+                    geocodeResults = (placemarks ?? []).compactMap(GeocodeCandidate.init(placemark:))
                 }
             }
         }
+        #endif
     }
 
-    private func applyPlacemark(_ p: CLPlacemark) {
-        guard let loc = p.location else { return }
-        let lat = loc.coordinate.latitude
-        let lon = loc.coordinate.longitude
-        vm.touchedMetadata.gpsLatitude  = lat
-        vm.touchedMetadata.gpsLongitude = lon
-        latText = String(format: "%.6f", lat)
-        lonText = String(format: "%.6f", lon)
-        // Apply altitude only when CoreLocation reports it as valid: a positive
-        // verticalAccuracy means the altitude is measured. (A zero/negative
-        // verticalAccuracy means altitude is invalid — don't confuse that with
-        // a genuine 0 m sea-level reading, which is valid and must be applied.)
-        if loc.verticalAccuracy > 0 {
-            let alt = loc.altitude
+    private func applyCandidate(_ c: GeocodeCandidate) {
+        vm.touchedMetadata.gpsLatitude  = c.latitude
+        vm.touchedMetadata.gpsLongitude = c.longitude
+        latText = String(format: "%.6f", c.latitude)
+        lonText = String(format: "%.6f", c.longitude)
+        if let alt = c.altitude {
             vm.touchedMetadata.gpsAltitude = alt
             altText = String(format: "%.1f", alt)
         }
-        // Populate place-text fields from placemark when available
-        if let city    = p.locality             { vm.touchedMetadata.city        = city    }
-        if let state   = p.administrativeArea   { vm.touchedMetadata.state       = state   }
-        if let country = p.country              { vm.touchedMetadata.country     = country }
-        if let code    = p.isoCountryCode       { vm.touchedMetadata.countryCode = code    }
+        // Populate place-text fields from the candidate when available
+        if let city    = c.city        { vm.touchedMetadata.city        = city    }
+        if let state   = c.state       { vm.touchedMetadata.state       = state   }
+        if let country = c.country     { vm.touchedMetadata.country     = country }
+        if let code    = c.countryCode { vm.touchedMetadata.countryCode = code    }
         geocodeResults = []
         addressQuery   = ""
     }
@@ -253,12 +281,6 @@ struct BatchMetadataCaptureSection: View {
             || vm.commonMetadata.gpsAltitude != nil
             || vm.mixedFields.contains(.gpsLatitude) || vm.mixedFields.contains(.gpsLongitude)
             || vm.mixedFields.contains(.gpsAltitude)
-    }
-
-    private func placemarkLabel(_ p: CLPlacemark) -> String {
-        [p.name, p.locality, p.country]
-            .compactMap { $0 }
-            .joined(separator: ", ")
     }
 
     private var latPlaceholder: String {
@@ -286,6 +308,86 @@ struct BatchMetadataCaptureSection: View {
             vm.commonMetadata.timeZone ?? ""
     }
 }
+
+// MARK: - GeocodeCandidate
+
+/// One forward-geocode result, normalized across the platform fork in
+/// `runGeocode()` — iOS resolves through MapKit's `MKGeocodingRequest`
+/// (CLGeocoder is deprecated as of iOS 26, our iOS deployment target);
+/// macOS (deployment target 14.0, where CLGeocoder is not yet deprecated)
+/// stays on CLGeocoder until its target reaches 26. The picker and apply
+/// path only ever see this type, so the UI stays shared.
+private struct GeocodeCandidate: Hashable, Identifiable {
+    let id = UUID()
+    let label: String
+    let latitude: Double
+    let longitude: Double
+    /// Meters; nil when the source didn't report a measured altitude.
+    let altitude: Double?
+    let city: String?
+    let state: String?
+    let country: String?
+    let countryCode: String?
+}
+
+#if os(iOS)
+extension GeocodeCandidate {
+    init(mapItem item: MKMapItem) {
+        let reps = item.addressRepresentations
+        let city = reps?.cityName
+        let coordinate = item.location.coordinate
+        let labelParts = [item.name, item.address?.fullAddress].compactMap { $0 }
+        // MKAddressRepresentations has no discrete administrative-area field;
+        // `cityWithContext` is "<city>, <region>" whenever the platform
+        // considers the region disambiguating. Strip the city prefix to
+        // recover it — best-effort: when the context form is just the city,
+        // state stays nil and the field is left for the user.
+        let state: String? = {
+            guard let city, let ctx = reps?.cityWithContext,
+                  ctx.hasPrefix("\(city), ") else { return nil }
+            let suffix = String(ctx.dropFirst(city.count + 2))
+                .trimmingCharacters(in: .whitespaces)
+            return suffix.isEmpty ? nil : suffix
+        }()
+        self.init(
+            label: labelParts.isEmpty
+                ? String(format: "%.4f, %.4f", coordinate.latitude, coordinate.longitude)
+                : labelParts.joined(separator: ", "),
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            // Positive verticalAccuracy means the altitude is measured; zero/
+            // negative means invalid — distinct from a genuine 0 m sea-level
+            // reading, which is valid and must be applied.
+            altitude: item.location.verticalAccuracy > 0 ? item.location.altitude : nil,
+            city: city,
+            state: state,
+            country: reps?.regionName,
+            countryCode: reps?.region?.identifier
+        )
+    }
+}
+#else
+extension GeocodeCandidate {
+    /// Fails when the placemark has no resolved location (same guard the
+    /// pre-fork `applyPlacemark` had).
+    init?(placemark p: CLPlacemark) {
+        guard let loc = p.location else { return nil }
+        self.init(
+            label: [p.name, p.locality, p.country].compactMap { $0 }.joined(separator: ", "),
+            latitude: loc.coordinate.latitude,
+            longitude: loc.coordinate.longitude,
+            // Positive verticalAccuracy means the altitude is measured; zero/
+            // negative means invalid — distinct from a genuine 0 m sea-level
+            // reading, which is valid and must be applied.
+            altitude: loc.verticalAccuracy > 0 ? loc.altitude : nil,
+            city: p.locality,
+            state: p.administrativeArea,
+            country: p.country,
+            countryCode: p.isoCountryCode
+        )
+    }
+}
+#endif
 
 // MARK: - Preview
 

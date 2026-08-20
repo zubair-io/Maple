@@ -18,8 +18,14 @@ struct TrashBrowserRow: Identifiable, Equatable {
         self.size = item.size
     }
 
-    init(cloud item: TrashItem) {
-        self.id = item.assetID
+    /// Fails when the trashed row is not an indexed image (`assetID == nil`,
+    /// #2546) — every Cloud action this row backs (`restoreAsset` /
+    /// `deleteAsset`) addresses the server by asset ID, so a nil-assetID row
+    /// is non-actionable here. Call sites `compactMap`, mirroring
+    /// `MapleItem.init?(trashed:)`'s handling of the same rows.
+    init?(cloud item: TrashItem) {
+        guard let assetID = item.assetID, !assetID.isEmpty else { return nil }
+        self.id = assetID
         self.displayName = item.filename
         self.trashedDate = item.deletedAt
         self.size = item.size

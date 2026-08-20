@@ -1044,18 +1044,15 @@ struct AppShell: View {
     private func persistPreviewOnBackground(_ session: EditSession) {
         #if os(iOS)
         let app = UIApplication.shared
-        var bgTask: UIBackgroundTaskIdentifier = .invalid
-        let end = {
-            if bgTask != .invalid {
-                app.endBackgroundTask(bgTask)
-                bgTask = .invalid
-            }
+        // The expiration handler is `@MainActor @Sendable`, which can't
+        // capture a mutable local — share the identifier through a
+        // MainActor-isolated (hence Sendable) box instead, keeping `end()`
+        // idempotent across the completion/expiration race described above.
+        let bgTask = BackgroundTaskHandle()
+        bgTask.id = app.beginBackgroundTask(withName: "app.justmaple.aperture.preview-persist") {
+            bgTask.end(app)
         }
-        bgTask = app.beginBackgroundTask(
-            withName: "app.justmaple.aperture.preview-persist",
-            expirationHandler: end
-        )
-        guard bgTask != .invalid else { return }
+        guard bgTask.id != .invalid else { return }
         Task { @MainActor in
             await session.persistDisplayPreviewOnExit()
             // #2037 — now that the exit persist has read whatever GPU frame
@@ -1064,7 +1061,7 @@ struct AppShell: View {
             // AFTER the persist — see `releaseTransientMemoryForAllSessions`'s
             // `excluding` doc for why running it concurrently would race.
             await session.releaseTransientMemory()
-            end()
+            bgTask.end(app)
         }
         #else
         Task { await session.persistDisplayPreviewOnExit() }
@@ -1507,6 +1504,25 @@ struct AppShell: View {
         browseVM.exitSelectMode()
     }
 }
+
+#if os(iOS)
+/// Shared mutable holder for `persistPreviewOnBackground`'s UIKit
+/// background-task identifier. `beginBackgroundTask`'s expiration handler is
+/// `@MainActor @Sendable`, so it can't capture a mutable local `var` — both
+/// the completion path and the expiration handler instead share this
+/// MainActor-isolated (hence Sendable) box, and `end` stays idempotent:
+/// whichever fires first releases the assertion exactly once.
+@MainActor
+private final class BackgroundTaskHandle {
+    var id: UIBackgroundTaskIdentifier = .invalid
+
+    func end(_ app: UIApplication) {
+        guard id != .invalid else { return }
+        app.endBackgroundTask(id)
+        id = .invalid
+    }
+}
+#endif
 
 // MARK: - Previews
 //
