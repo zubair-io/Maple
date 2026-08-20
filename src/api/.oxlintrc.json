@@ -127,6 +127,7 @@
         "src/library/asset-trash.test.ts",
         "src/library/cache-invalidation-on-move.test.ts",
         "src/library/folder-trash.test.ts",
+        "src/library/relocate-asset.collision.test.ts",
         "src/library/relocate-asset.test.ts",
         "src/library/batch-rename.test.ts",
         "src/people/clustering-quality-harness.ts",
