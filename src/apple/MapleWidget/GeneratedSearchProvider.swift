@@ -109,12 +109,18 @@ struct GeneratedSearchProvider: TimelineProvider {
 
       var entries: [GeneratedSearchEntry] = []
       let start = Date()
-      for (index, asset) in assets.prefix(entriesPerTimeline).enumerated() {
-        // A thumb failure loses one photo, not the whole tile.
-        let data = try? await context.thumbs.thumb(absPath: asset.abs_path)
+      for asset in assets.prefix(entriesPerTimeline) {
+        // A failed thumb is SKIPPED, not appended as a placeholder. If every
+        // fetch fails (server briefly unreachable), appending placeholders
+        // would make the timeline look populated and take the 4-hour refresh
+        // — returning [] instead gets the 30-minute retry the empty path
+        // already schedules.
+        guard let data = try? await context.thumbs.thumb(absPath: asset.abs_path) else {
+          continue
+        }
         entries.append(
           GeneratedSearchEntry(
-            date: start.addingTimeInterval(Double(index) * entryInterval),
+            date: start.addingTimeInterval(Double(entries.count) * entryInterval),
             title: collection.title,
             subtitle: collection.subtitle,
             imageData: data,
