@@ -7,6 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B1D0000100000000000000B1 /* MapleWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D0002100000000000000B1 /* MapleWidgetBundle.swift */; };
+		B1D0000200000000000000B1 /* GeneratedSearchProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D0002200000000000000B1 /* GeneratedSearchProvider.swift */; };
+		B1D0000300000000000000B1 /* GeneratedSearchWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D0002300000000000000B1 /* GeneratedSearchWidget.swift */; };
+		B1D0000400000000000000B1 /* WidgetSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D0002400000000000000B1 /* WidgetSession.swift */; };
+		B1D0000500000000000000B1 /* PlatformImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D0002500000000000000B1 /* PlatformImage.swift */; };
+		B1D0001100000000000000B1 /* MapleCloudKit in Frameworks */ = {isa = PBXBuildFile; productRef = B1D0001000000000000000B1 /* MapleCloudKit */; };
+		B1D0001200000000000000B1 /* MapleWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B1D0003000000000000000B1 /* MapleWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		0718A582AE0357D1850C8A3F /* FileProviderExtensionIOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3A022FD8D059C9A3053CC6A /* FileProviderExtensionIOS.swift */; };
 		0E43AF9C39E0B84EEA3D136E /* MapleCore in Frameworks */ = {isa = PBXBuildFile; productRef = F06000F4EB1B951071886262 /* MapleCore */; };
 		5DD5171E450EC883D7DBD9AF /* MaplePreviewProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 368C4388B923E485F1FB55F8 /* MaplePreviewProvider.swift */; };
@@ -34,6 +41,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		B1D0006000000000000000B1 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A1F0001A00000000000000A1 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B1D0005000000000000000B1;
+			remoteInfo = MapleWidget;
+		};
 		6C0BF6B7E85D714F2FFABA55 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = A1F0001A00000000000000A1 /* Project object */;
@@ -80,6 +94,7 @@
 			files = (
 				C0D28215847FC19B22E663BC /* MapleFileProvider.appex in Embed Foundation Extensions */,
 				CD96B6E04439562F54AD13B8 /* MapleQuickLook.appex in Embed Foundation Extensions */,
+				B1D0001200000000000000B1 /* MapleWidget.appex in Embed Foundation Extensions */,
 				D681B5B31AAF3A2CEA529EAE /* MapleFileProviderIOS.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
@@ -97,6 +112,14 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		B1D0002100000000000000B1 /* MapleWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapleWidgetBundle.swift; sourceTree = "<group>"; };
+		B1D0002200000000000000B1 /* GeneratedSearchProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneratedSearchProvider.swift; sourceTree = "<group>"; };
+		B1D0002300000000000000B1 /* GeneratedSearchWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneratedSearchWidget.swift; sourceTree = "<group>"; };
+		B1D0002400000000000000B1 /* WidgetSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSession.swift; sourceTree = "<group>"; };
+		B1D0002500000000000000B1 /* PlatformImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformImage.swift; sourceTree = "<group>"; };
+		B1D0003000000000000000B1 /* MapleWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MapleWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		B1D0003100000000000000B1 /* MapleWidget.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = MapleWidget.entitlements; sourceTree = "<group>"; };
+		B1D0003200000000000000B1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		0D23B0EDD7DF1B168C777B68 /* QuickLookUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLookUI.framework; path = System/Library/Frameworks/QuickLookUI.framework; sourceTree = SDKROOT; };
 		368C4388B923E485F1FB55F8 /* MaplePreviewProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MaplePreviewProvider.swift; sourceTree = "<group>"; };
 		385F03E7203135D6A8D4C07C /* QuickLook.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLook.framework; path = System/Library/Frameworks/QuickLook.framework; sourceTree = SDKROOT; };
@@ -152,6 +175,14 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		B1D0004200000000000000B1 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B1D0001100000000000000B1 /* MapleCloudKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		1DFD3B39545196D0B3A59374 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -226,6 +257,20 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		B1D0004000000000000000B1 /* MapleWidget */ = {
+			isa = PBXGroup;
+			children = (
+				B1D0002100000000000000B1 /* MapleWidgetBundle.swift */,
+				B1D0002200000000000000B1 /* GeneratedSearchProvider.swift */,
+				B1D0002300000000000000B1 /* GeneratedSearchWidget.swift */,
+				B1D0002400000000000000B1 /* WidgetSession.swift */,
+				B1D0002500000000000000B1 /* PlatformImage.swift */,
+				B1D0003100000000000000B1 /* MapleWidget.entitlements */,
+				B1D0003200000000000000B1 /* Info.plist */,
+			);
+			path = MapleWidget;
+			sourceTree = "<group>";
+		};
 		1FA097CDA4E5254F25DD49BA /* MapleFileProviderIOS */ = {
 			isa = PBXGroup;
 			children = (
@@ -272,6 +317,7 @@
 				E3FF1B052F9D8CE600FD7E5E /* Recovered References */,
 				B119715AB39081A63317BE96 /* MapleFileProvider */,
 				698028BF3FB094189B51F71F /* MapleQuickLook */,
+				B1D0004000000000000000B1 /* MapleWidget */,
 				1FA097CDA4E5254F25DD49BA /* MapleFileProviderIOS */,
 				E3DD94D02FB50E55009392B4 /* LaunchScreen.storyboard */,
 				A1F0002300000000000000A1 /* film-luts */,
@@ -307,6 +353,7 @@
 				E3DD94832FB50E55009392B4 /* MapleBackupAgent */,
 				EC6472D425AC44A1388478EF /* MapleFileProvider.appex */,
 				443236A672080511BD1FC170 /* MapleQuickLook.appex */,
+				B1D0003000000000000000B1 /* MapleWidget.appex */,
 				521B6F9B85049DBA00FD7C56 /* MapleFileProviderIOS.appex */,
 				E31E79A1300C6A7D00617367 /* Maple TV.app */,
 			);
@@ -336,6 +383,26 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		B1D0005000000000000000B1 /* MapleWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B1D0005300000000000000B1 /* Build configuration list for PBXNativeTarget "MapleWidget" */;
+			buildPhases = (
+				B1D0004100000000000000B1 /* Sources */,
+				B1D0004200000000000000B1 /* Frameworks */,
+				B1D0004300000000000000B1 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MapleWidget;
+			packageProductDependencies = (
+				B1D0001000000000000000B1 /* MapleCloudKit */,
+			);
+			productName = MapleWidget;
+			productReference = B1D0003000000000000000B1 /* MapleWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		246E80A8F95722377C731777 /* MapleFileProviderIOS */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 7360BCA2598FCC1F859CA515 /* Build configuration list for PBXNativeTarget "MapleFileProviderIOS" */;
@@ -393,6 +460,7 @@
 				6E7046EBC2924B60E9A53BDF /* PBXTargetDependency */,
 				A94BA048F0AF3949586FB40E /* PBXTargetDependency */,
 				F036300CB260BA8DAC101057 /* PBXTargetDependency */,
+				B1D0006100000000000000B1 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				A1F0000900000000000000A1 /* Maple */,
@@ -568,6 +636,7 @@
 				E3DD94822FB50E55009392B4 /* MapleBackupAgent */,
 				FBF9A9CA395B79B5F88F2B88 /* MapleFileProvider */,
 				2B0A1BC438B6D017026535AE /* MapleQuickLook */,
+				B1D0005000000000000000B1 /* MapleWidget */,
 				246E80A8F95722377C731777 /* MapleFileProviderIOS */,
 				E31E79A0300C6A7D00617367 /* Maple TV */,
 			);
@@ -575,6 +644,13 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		B1D0004300000000000000B1 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		3984EC185A536E638BEBF2C5 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -670,6 +746,18 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		B1D0004100000000000000B1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B1D0000100000000000000B1 /* MapleWidgetBundle.swift in Sources */,
+				B1D0000200000000000000B1 /* GeneratedSearchProvider.swift in Sources */,
+				B1D0000300000000000000B1 /* GeneratedSearchWidget.swift in Sources */,
+				B1D0000400000000000000B1 /* WidgetSession.swift in Sources */,
+				B1D0000500000000000000B1 /* PlatformImage.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		3B418762BFF03D85B89BB1AE /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -733,6 +821,12 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		B1D0006100000000000000B1 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = MapleWidget;
+			target = B1D0005000000000000000B1 /* MapleWidget */;
+			targetProxy = B1D0006000000000000000B1 /* PBXContainerItemProxy */;
+		};
 		6E7046EBC2924B60E9A53BDF /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			name = MapleFileProvider;
@@ -771,6 +865,62 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		B1D0005200000000000000B1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = MapleWidget/MapleWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = QREP66JW5U;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MapleWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Maple;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture.Widget;
+				PRODUCT_NAME = MapleWidget;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		B1D0005100000000000000B1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = MapleWidget/MapleWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = QREP66JW5U;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MapleWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Maple;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture.Widget;
+				PRODUCT_NAME = MapleWidget;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
 		05E3343BCA7A720B4BFAC48E /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1438,6 +1588,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		B1D0005300000000000000B1 /* Build configuration list for PBXNativeTarget "MapleWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B1D0005100000000000000B1 /* Debug */,
+				B1D0005200000000000000B1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		7360BCA2598FCC1F859CA515 /* Build configuration list for PBXNativeTarget "MapleFileProviderIOS" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -1533,6 +1692,11 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		B1D0001000000000000000B1 /* MapleCloudKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1F0001C00000000000000A1 /* XCLocalSwiftPackageReference "Packages/MapleCore" */;
+			productName = MapleCloudKit;
+		};
 		07D7B596343161F1A66BD85A /* MapleCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = A1F0001C00000000000000A1 /* XCLocalSwiftPackageReference "Packages/MapleCore" */;
