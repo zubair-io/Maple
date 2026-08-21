@@ -52,6 +52,81 @@ afterAll(async () => {
 });
 
 describe('discover producer — dedup', () => {
+  it('revives a reaped row when its content is rediscovered, and re-arms meili (#2977)', async () => {
+    if (!mongoReachable) return;
+
+    const { handleEvent } = await import('./index.ts');
+    const { assetsCollection, foldersCollection } = await import('../../db/client.ts');
+    const { MEILI_REARM_SET } = await import('../../people/people-search-reindex.ts');
+
+    const root = await mkdtemp(path.join(os.tmpdir(), 'discover-revive-'));
+    const file = path.join(root, 'BACK.dng');
+    const bytes = Buffer.alloc(70 * 1024, 0xcd);
+    await writeFile(file, bytes);
+
+    const foldersColl = await foldersCollection();
+    const folderResult = await foldersColl.insertOne({
+      path: root,
+      label: 'revive-test',
+      last_scan: null,
+      file_count: 0,
+      created_at: new Date().toISOString(),
+    } as never);
+    const folderId = folderResult.insertedId;
+    const coll = await assetsCollection();
+    const { hashFileForId } = await import('../../indexer/id.ts');
+    const { maple_id, sha1_head } = await hashFileForId(file);
+    await coll.deleteMany({ maple_id });
+
+    // A reaped row for this content: soft-deleted, location tagged missing,
+    // meili stage previously completed (then tombstoned at reap time).
+    await coll.insertOne({
+      maple_id,
+      sha1_head,
+      fileinfo: [
+        {
+          path: '',
+          filename: 'BACK.dng',
+          library_id: folderId,
+          deleted_at: null,
+          missing_since: '2026-08-01T00:00:00.000Z',
+          missing_reason: 'enoent',
+        },
+      ],
+      deleted_at: '2026-08-10T00:00:00.000Z',
+      deleted_reason: 'reaped',
+      live_location_count: 0,
+      rating: 0,
+      flag: 0,
+      color_label: '',
+      size: bytes.length,
+      mtime: 0,
+      indexed_at: '2026-08-01T00:00:00.000Z',
+      stages: { meili: { version: 4, attempts: 1, last_error: null, dead: false } },
+    } as never);
+
+    await handleEvent({ kind: 'created', absPath: file }, folderId, root);
+
+    const row = (await coll.findOne({ maple_id })) as never as {
+      deleted_at?: string | null;
+      deleted_reason?: string | null;
+      fileinfo: Array<{ missing_since?: string | null }>;
+      stages: Record<string, { version?: number }>;
+      live_location_count?: number;
+    };
+    expect(row.deleted_at).toBeNull();
+    expect(row.deleted_reason ?? null).toBeNull();
+    expect(row.fileinfo[0]!.missing_since ?? null).toBeNull();
+    // Meili re-armed so the tombstoned search doc is restored.
+    const rearmVersion = (MEILI_REARM_SET as Record<string, unknown>)['stages.meili.version'];
+    expect(row.stages.meili.version).toBe(rearmVersion as number);
+    expect(row.live_location_count).toBe(1);
+
+    await coll.deleteMany({ maple_id });
+    await foldersColl.deleteOne({ _id: folderId });
+    await rm(root, { recursive: true, force: true });
+  });
+
   it('dedups two files with identical content into one row with two fileinfo entries', async () => {
     if (!mongoReachable) return;
 
