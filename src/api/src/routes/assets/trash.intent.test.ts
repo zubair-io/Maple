@@ -14,7 +14,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { mkdtemp, rm, mkdir, writeFile, stat } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, writeFile, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
@@ -162,6 +162,48 @@ describe('DELETE /api/assets/:id intent parameter', () => {
     const s = await stat(absPath);
     expect(s.size).toBe(6);
     expect(await db!.collection('assets').findOne({ _id: id })).not.toBeNull();
+  });
+
+  it('intent=purge on a REAPED asset deletes the row without unlinking its stored path (#2977)', async () => {
+    if (skip()) return;
+    // A reaped row's fileinfo points at the ORIGINAL library location (no
+    // .maple/trash copy exists) — and the photo quietly returned there.
+    // An explicit purge must delete the DB row only, never the file.
+    const id = new ObjectId();
+    const absDir = nodePath.join(folderPath!, 'sub');
+    await mkdir(absDir, { recursive: true });
+    const absPath = nodePath.join(absDir, 'BACK.dng');
+    await writeFile(absPath, 'returned-pixels');
+    await writeFile(nodePath.join(absDir, 'BACK.xmp'), '<xmp/>');
+    await db!.collection('assets').insertOne({
+      _id: id,
+      fileinfo: [
+        {
+          path: 'sub',
+          filename: 'BACK.dng',
+          library_id: folderId,
+          deleted_at: null,
+          missing_since: '2026-08-01T00:00:00.000Z',
+        },
+      ],
+      folder_id: folderId,
+      size: 6,
+      mtime: 1_700_000_000_000,
+      rating: 0,
+      flag: 0,
+      color_label: '',
+      indexed_at: '2026-01-01T00:00:00Z',
+      deleted_at: '2026-08-10T00:00:00.000Z',
+      deleted_reason: 'reaped',
+      stages: {},
+    } as never);
+
+    const res = await call(id, 'purge');
+    expect(res.status).toBe(204);
+    expect(await db!.collection('assets').countDocuments({ _id: id })).toBe(0);
+    // The returned photo + sidecar are untouched.
+    expect(await readFile(absPath, 'utf8')).toBe('returned-pixels');
+    expect(await readFile(nodePath.join(absDir, 'BACK.xmp'), 'utf8')).toBe('<xmp/>');
   });
 
   it('intent=purge on a trashed asset purges it (204)', async () => {

@@ -424,6 +424,16 @@ export async function restoreAssetById(
   if (!info) return { kind: 'not-found' };
   if (!info.deleted_at) return { kind: 'not-trashed' };
 
+  // A reaped row (#2977) has no trashed file copy — the original vanished
+  // from disk outside Maple. There is nothing to move back; the row revives
+  // automatically if the content reappears (discover dedup).
+  if (info.deleted_reason === 'reaped') {
+    return {
+      kind: 'error',
+      error: 'File was removed from disk — there is no trashed copy to restore',
+    };
+  }
+
   // The ONE entry this call acts on — same rationale as `trashAssetById`.
   const entrySpec = resolveEntrySpec(info.fileinfo, opts.entry);
   if (!entrySpec) return { kind: 'no-location' };
