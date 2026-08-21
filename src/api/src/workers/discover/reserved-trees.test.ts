@@ -57,12 +57,12 @@ describe('isInsideDuplicatesDir', () => {
 describe('refusesReservedTreeEvent', () => {
   it('refuses any kind whose absPath is inside a reserved tree', () => {
     for (const kind of ['created', 'modified', 'removed', 'renamed'] as const) {
-      expect(
-        refusesReservedTreeEvent({ kind, absPath: `${ROOT}/.maple/thumbs/x.jpg` }, ROOT),
-      ).toBe(true);
-      expect(
-        refusesReservedTreeEvent({ kind, absPath: `${ROOT}/_duplicates/x.jpg` }, ROOT),
-      ).toBe(true);
+      expect(refusesReservedTreeEvent({ kind, absPath: `${ROOT}/.maple/thumbs/x.jpg` }, ROOT)).toBe(
+        true,
+      );
+      expect(refusesReservedTreeEvent({ kind, absPath: `${ROOT}/_duplicates/x.jpg` }, ROOT)).toBe(
+        true,
+      );
     }
   });
 
