@@ -18,7 +18,8 @@
  *      it once aged past the prune window, or — when the `$pull` would empty
  *      the row — soft-deletes the record (emitting a `delete` change event).
  *      A reaped record keeps its fileinfo + derived data: trash-gc purges it
- *      after the 30-day retention, and discover revives it on a content-hash
+ *      after the trash retention window (default 30 days), and discover
+ *      revives it on a content-hash
  *      re-discover in the meantime.
  *
  * Safety properties, all load-bearing:
@@ -189,7 +190,7 @@ export async function runMissingReaperOnce(
         {
           'fileinfo.missing_since': { $type: 'string' },
           // Rows already soft-deleted (user trash OR a prior reap) are out of
-          // scope: user-trashed rows belong to the 30-day trash retention
+          // scope: user-trashed rows belong to the trash retention window
           // (reaping them early would race it), and reaped rows are done.
           deleted_at: { $not: { $type: 'string' } },
         },
@@ -454,7 +455,7 @@ export function startMissingReaper(opts: StartMissingReaperOptions = {}): Missin
       paused = false;
       await persistPaused(false);
       log.warn(
-        'missing-reaper RESUMED — aged-out missing rows are now eligible for soft delete (30-day Trash retention)',
+        'missing-reaper RESUMED — aged-out missing rows are now eligible for soft delete (recoverable until the trash retention window expires)',
       );
     },
   });
@@ -483,7 +484,7 @@ export function startMissingReaper(opts: StartMissingReaperOptions = {}): Missin
       if (summary.breakerTripped) {
         stageRegistry.recordError(
           MISSING_REAPER_NAME,
-          `circuit breaker: reaped ${summary.reaped} of ${summary.scanned} scanned rows in one pass — review the Trash view; reaped rows are recoverable until the 30-day trash purge`,
+          `circuit breaker: reaped ${summary.reaped} of ${summary.scanned} scanned rows in one pass — review the Trash view; reaped rows are recoverable until the trash retention window expires`,
         );
       } else {
         stageRegistry.clearError(MISSING_REAPER_NAME);
