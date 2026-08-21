@@ -150,10 +150,15 @@ A **maintenance job** (`workers/generated-search/`), wired into
 `workers/stages/` stage. Stages are strictly per-asset; this is library-wide
 periodic work.
 
-Config lives in `worker_config` (interval, collections-per-day, result floor,
-retry budget, model), surfaced on `/settings/workers` — not environment
-variables. Starts paused until Ollama is configured, following `geocode`'s
-`pausedOnFirstBoot` precedent.
+Config lives in `app_settings` under `_id: "generated_search"` (collections
+per day, result floor, retry budget, retention, model, dry-run), surfaced on
+`/settings/workers` — not environment variables. `worker_config` was the
+original plan, but that collection is stage-shaped (concurrency /
+maxAttempts / target-version fields the runtime machinery reads); a
+maintenance job's knobs follow the `dedupe-config.repo.ts` precedent
+instead: one `app_settings` document, one GET/PATCH route pair. Starts
+paused until Ollama is configured, following `geocode`'s `pausedOnFirstBoot`
+precedent.
 
 ## Read API
 
@@ -165,11 +170,18 @@ and cannot drift between surfaces.
 
 ## Ollama integration
 
-Reuse the describe provider (`enrichment/describe-providers/ollama.ts`), never a
-hand-rolled fetch. Under a `format` schema constraint, a thinking model's grammar
-blocks its `</think>` terminator and Ollama returns the entire JSON in `thinking`
-with an empty `response`. This is **per-model**: observed on `ornith:35b`, not on
-`gemma4:12b`. The provider already carries the fallback (#2172).
+A dedicated text-generation adapter (`generated-search/ollama-adapter.ts`).
+The original plan was to reuse the describe provider
+(`enrichment/describe-providers/ollama.ts`), but its interface is
+image-shaped — `describe()` takes JPEG frames and `requireFrames` rejects an
+empty list — so a text-only caller cannot use it without refactoring the
+provider itself, which is out of scope here. The adapter re-implements the
+one behaviour that matters from #2172: under a `format` schema constraint, a
+thinking model's grammar blocks its `</think>` terminator and Ollama returns
+the entire JSON in `thinking` with an empty `response`. This is
+**per-model**: observed on `ornith:35b`, not on `gemma4:12b`. The Ollama
+endpoint and default model still come from the describe stage's enrichment
+config, so an operator configures Ollama once.
 
 Two further prompt constraints learned from probing:
 
