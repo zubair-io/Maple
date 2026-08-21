@@ -83,7 +83,9 @@ describe('Meilisearch client — search()', () => {
     });
     await client.search('Park');
     const body = calls[0]!.body as Record<string, unknown>;
-    expect(body.filter).toBe('deletedAt IS NULL AND (hidden NOT EXISTS OR hidden IS NULL OR hidden = false)');
+    expect(body.filter).toBe(
+      'deletedAt IS NULL AND (hidden NOT EXISTS OR hidden IS NULL OR hidden = false)',
+    );
   });
 
   it('search() throws on transport error so the route can fall back', async () => {
