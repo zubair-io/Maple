@@ -1,0 +1,63 @@
+<div class="knobs">
+  <label>
+    Collections per day
+    <input
+      type="number"
+      min="1"
+      max="12"
+      [value]="draft().collections_per_day"
+      (change)="patch('collections_per_day', numberFrom($event))"
+    />
+  </label>
+  <label>
+    Minimum photos
+    <input
+      type="number"
+      min="1"
+      max="1000"
+      [value]="draft().min_results"
+      (change)="patch('min_results', numberFrom($event))"
+    />
+  </label>
+  <label>
+    Retry rounds
+    <input
+      type="number"
+      min="1"
+      max="10"
+      [value]="draft().max_rounds"
+      (change)="patch('max_rounds', numberFrom($event))"
+    />
+  </label>
+  <label>
+    Keep for (days)
+    <input
+      type="number"
+      min="1"
+      max="365"
+      [value]="draft().retention_days"
+      (change)="patch('retention_days', numberFrom($event))"
+    />
+  </label>
+  <label class="wide">
+    Model
+    <input
+      type="text"
+      placeholder="inherit from describe stage"
+      [value]="draft().model"
+      (change)="patch('model', textFrom($event))"
+    />
+  </label>
+  <label class="toggle wide">
+    <input
+      type="checkbox"
+      [checked]="draft().dry_run"
+      (change)="patch('dry_run', checkedFrom($event))"
+    />
+    <span>Dry run — log what it would save, write nothing</span>
+  </label>
+</div>
+
+<button type="button" class="primary" [disabled]="saving()" (click)="save.emit()">
+  {{ saving() ? 'Saving…' : 'Save' }}
+</button>
