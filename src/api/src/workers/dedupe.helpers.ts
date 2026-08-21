@@ -6,10 +6,11 @@
  *
  * The keeper ranking encodes the operator's spec for "which copy to move":
  *   1. a copy in a folder whose path contains "unsorted"
- *   2. a copy whose filename is a numbered copy — `name.<number>.ext`
- *   3. a copy whose directory path is all numbers
- *   4. otherwise keep the LAST copy in the fileinfo list
- * (1) is the strongest move signal, then (2), then (3); (4) is the tiebreaker.
+ *   2. a copy in a folder named "Misc" (any case)
+ *   3. a copy whose filename is a numbered copy — `name.<number>.ext`
+ *   4. a copy whose directory path is all numbers
+ *   5. otherwise keep the LAST copy in the fileinfo list
+ * (1) is the strongest move signal, then (2), (3), (4); (5) is the tiebreaker.
  *
  * This ranking only applies when NO copy is pinned by a `.keep` marker file. A
  * `.keep` file in a folder protects every copy living there: the worker keeps
@@ -73,13 +74,21 @@ export function isUnsortedPath(p: string): boolean {
   return p.toLowerCase().includes('unsorted');
 }
 
-/** Rule 2: filename is a numbered copy — a `.<digits>.<ext>` tail, e.g.
+/** Rule 2: some directory segment of the POSIX path IS "misc"
+ * (case-insensitive). Segment equality, not a substring match — a
+ * `Miscellaneous`-style name is not flagged, only a folder literally named
+ * `misc` / `Misc` / `MISC`. */
+export function isMiscPath(p: string): boolean {
+  return p.split('/').some((seg) => seg.toLowerCase() === 'misc');
+}
+
+/** Rule 3: filename is a numbered copy — a `.<digits>.<ext>` tail, e.g.
  * `IMG_001.2.dng`. A plain `IMG_001.dng` does NOT match. */
 export function isNumberedCopy(filename: string): boolean {
   return /\.\d+\.[^.]+$/.test(filename);
 }
 
-/** Rule 3: the directory path is non-empty and every segment is all-digits,
+/** Rule 4: the directory path is non-empty and every segment is all-digits,
  * e.g. `2024/01/05` or `12345`. Root (`""`) does not count. */
 export function isAllNumericPath(p: string): boolean {
   if (p === '') return false;
@@ -89,12 +98,13 @@ export function isAllNumericPath(p: string): boolean {
 /**
  * "Removal score" for one duplicate location — higher means more disposable.
  * Weighted so a single higher-priority match outranks any combination of
- * lower-priority ones (4 > 2 + 1): unsorted (+4) ≫ numbered copy (+2) >
- * all-numeric path (+1).
+ * lower-priority ones (8 > 4 + 2 + 1, 4 > 2 + 1): unsorted (+8) ≫ misc folder
+ * (+4) ≫ numbered copy (+2) > all-numeric path (+1).
  */
 export function removalScore(entry: Pick<FileInfo, 'path' | 'filename'>): number {
   let score = 0;
-  if (isUnsortedPath(entry.path)) score += 4;
+  if (isUnsortedPath(entry.path)) score += 8;
+  if (isMiscPath(entry.path)) score += 4;
   if (isNumberedCopy(entry.filename)) score += 2;
   if (isAllNumericPath(entry.path)) score += 1;
   return score;
@@ -103,7 +113,7 @@ export function removalScore(entry: Pick<FileInfo, 'path' | 'filename'>): number
 /**
  * Choose the single live entry to KEEP from a set of ≥2 byte-identical
  * duplicates. Keeps the LEAST disposable (lowest `removalScore`); on a tie the
- * LATER entry wins, implementing rule 4 "keep the last on list".
+ * LATER entry wins, implementing rule 5 "keep the last on list".
  * `liveEntries` must be in original `fileinfo` array order.
  */
 export function selectKeeper(liveEntries: FileInfo[]): FileInfo {
