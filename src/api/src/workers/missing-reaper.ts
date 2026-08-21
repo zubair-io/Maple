@@ -1,7 +1,9 @@
 /**
  * Missing-file reaper — reconciles per-LOCATION `missing_since` tags: recovers
  * a location whose file reappeared, prunes one whose file is confirmed gone,
- * and hard-deletes the asset record once no location remains.
+ * and soft-deletes the asset record once no location remains (`deleted_at` +
+ * `deleted_reason: 'reaped'`, #2977 — recoverable until the trash-gc purge,
+ * self-reviving if the content is rediscovered).
  *
  * Lifecycle (per `fileinfo[]` entry, not per asset):
  *   1. TAG (automatic). The discover `removed` handler stamps
@@ -13,14 +15,17 @@
  *      reads + stage claims the moment its LAST live entry is tagged.
  *   2. REAP. This worker scans rows with any tagged entry each tick, re-stats
  *      each tagged location, and either recovers it (clear the tag), `$pull`s
- *      it once aged past the prune window, or — when the `$pull` empties the
- *      row — hard-deletes the record (emitting a `delete` change event).
+ *      it once aged past the prune window, or — when the `$pull` would empty
+ *      the row — soft-deletes the record (emitting a `delete` change event).
+ *      A reaped record keeps its fileinfo + derived data: trash-gc purges it
+ *      after the 30-day retention, and discover revives it on a content-hash
+ *      re-discover in the meantime.
  *
  * Safety properties, all load-bearing:
  *
  *   - Controlled like every other worker. Its paused state lives in
  *     `worker_config.paused`; pause/resume persist it, so a pause STICKS across
- *     restarts. But "paused" suspends ONLY the irreversible record delete —
+ *     restarts. But "paused" suspends ONLY the record soft-delete —
  *     recovery and sibling-prune of SURVIVING rows keep running every tick, so
  *     a moved/re-copied file reconciles even while paused. On boot it stays
  *     paused only until the stored state is read, so a config-store blip can't
@@ -39,13 +44,14 @@
  *     SKIPPED this pass (never pruned/deleted). A whole offline share must not
  *     be mistaken for a pile of deleted files.
  *
- *   - Name-mismatch veto. Before the irreversible record delete, each gone
+ *   - Name-mismatch veto. Before the record soft-delete, each gone
  *     location's parent dir is listed; a case/Unicode near-match means the file
  *     is on disk under a different name (a stored-path bug), so the row is
  *     SKIPPED for inspection rather than deleted.
  *
- *   - Circuit breaker. A pass that would hard-delete a large fraction of what
- *     it scanned aborts WITHOUT deleting — a systemic mis-detection guard.
+ *   - Circuit breaker. A pass that soft-deletes a large fraction of what it
+ *     scanned proceeds (reaps are recoverable) but surfaces a persistent
+ *     worker error — a systemic mis-detection tripwire for the operator.
  *
  * Per-entry classification each pass:
  *   - A `deleted_at` tagged entry (content replaced in place — an orphan) is
@@ -57,7 +63,7 @@
  *   - A row keeps any LIVE or not-yet-aged entry → it SURVIVES (recover + prune
  *     its dead siblings; re-arm dead original-file stages so they reprocess).
  *   - Only when every entry is gone-and-aged (and no veto) is the record
- *     hard-deleted.
+ *     soft-deleted (reaped).
  *
  * Registered into the in-process `stageRegistry` so the existing
  * `/api/workers/missing-reaper/{status,pause,resume}` surface controls it,
@@ -86,7 +92,7 @@ import {
   statKind,
   type MissingReaperSummary,
 } from './missing-reaper.helpers.ts';
-import { hardDeleteRow, reconcileSurvivor } from './missing-reaper.reconcile.ts';
+import { reapRow, reconcileSurvivor } from './missing-reaper.reconcile.ts';
 import { makePausedPoller } from './paused-poller.ts';
 
 const log = childLogger('missing-reaper');
@@ -105,14 +111,14 @@ export interface RunMissingReaperOptions {
   /** Max tagged rows to examine in one pass. */
   batchSize?: number;
   /**
-   * Hard-delete an all-gone row only if its `missing_since` is strictly before
-   * this ISO timestamp — i.e. it has been missing for at least the prune
-   * window. The interval loop passes `now - pruneWindowHours`. Recovery/prune
-   * of rows whose file is still present is NOT gated by this.
+   * Soft-delete (reap) an all-gone row only if its `missing_since` is strictly
+   * before this ISO timestamp — i.e. it has been missing for at least the
+   * prune window. The interval loop passes `now - pruneWindowHours`.
+   * Recovery/prune of rows whose file is still present is NOT gated by this.
    */
   deleteBeforeIso: string;
   /**
-   * When false, eligible deletes are skipped (counted `skippedPaused`) but
+   * When false, eligible reaps are skipped (counted `skippedPaused`) but
    * recovery/prune still runs — so a re-found file reconciles even while the
    * reaper is "paused". The loop passes `!paused`. Defaults to true.
    */
@@ -137,7 +143,7 @@ export async function runMissingReaperOnce(
   // assets skipped. Empty matters (#2171): an unmounted bind/network mount is
   // a present-but-empty dir under which every child stats ENOENT — and
   // `nearMatchOnDisk` reads an ENOENT parent as 'clear' — so a bare stat of
-  // the root would let a whole unmounted volume age into hard-deletes.
+  // the root would let a whole unmounted volume age into reaps.
   const rootStatus = new Map<string, 'present' | 'offline'>();
   const checkRoot = async (libIdHex: string): Promise<'present' | 'offline'> => {
     const cached = rootStatus.get(libIdHex);
@@ -159,13 +165,13 @@ export async function runMissingReaperOnce(
     skippedNameMismatch: 0,
     skippedCooldown: 0,
     skippedPaused: 0,
-    aborted: false,
+    breakerTripped: false,
     errors: 0,
   };
 
   // Every row with a tagged entry is examined each pass (no boot gate) —
-  // recovery is prompt. The age window + pause only gate the irreversible
-  // record delete below. `$type: "string"` lets the planner use the
+  // recovery is prompt. The age window + pause only gate the record
+  // soft-delete below. `$type: "string"` lets the planner use the
   // `fileinfo.missing_since_1` partial multikey index instead of a COLLSCAN.
   //
   // Fetched in PAGES rather than a single `limit(batchSize)` batch (#2171):
@@ -180,7 +186,13 @@ export async function runMissingReaperOnce(
   const fetchPage = (offset: number) =>
     coll
       .find(
-        { 'fileinfo.missing_since': { $type: 'string' } },
+        {
+          'fileinfo.missing_since': { $type: 'string' },
+          // Rows already soft-deleted (user trash OR a prior reap) are out of
+          // scope: user-trashed rows belong to the 30-day trash retention
+          // (reaping them early would race it), and reaped rows are done.
+          deleted_at: { $not: { $type: 'string' } },
+        },
         {
           projection: {
             _id: 1,
@@ -264,7 +276,7 @@ export async function runMissingReaperOnce(
 
         if (survivors.length > 0) {
           // The row keeps at least one location → reconcile in place (runs even
-          // while paused; nothing here is irreversible). Nothing to do at all
+          // while paused; nothing here removes the record). Nothing to do at all
           // when every tagged entry is still in cooldown and none recovered.
           if (recover.length === 0 && prune.length === 0) {
             if (!hasLiveEntry(doc.fileinfo)) summary.skippedCooldown++;
@@ -274,7 +286,7 @@ export async function runMissingReaperOnce(
           continue;
         }
 
-        // No survivor — the prune empties the row → RECORD DELETE (irreversible).
+        // No survivor — the prune would empty the row → REAP (soft-delete).
         // Near-match veto on the absent (non-orphan) entries first.
         let veto: 'name-mismatch' | 'unreadable' | null = null;
         for (const fi of absentForVeto) {
@@ -330,27 +342,27 @@ export async function runMissingReaperOnce(
     page = await fetchPage(offset);
   }
 
-  // Circuit breaker: a pass that wants to hard-delete a large fraction of what
-  // it scanned is far more likely a systemic mis-detection than that many real
-  // deletions. Abort without deleting and surface it loudly.
+  // Circuit breaker: a pass that soft-deletes a large fraction of what it
+  // scanned is more likely a systemic mis-detection than that many real
+  // deletions. Since #2977 the reap is a recoverable soft delete, so the
+  // pass PROCEEDS — but the trip is logged loudly and surfaced as a worker
+  // error (see tick()) until a clean pass follows.
   if (toDelete.length > BREAKER_MIN && toDelete.length > summary.scanned * BREAKER_FRACTION) {
-    summary.aborted = true;
+    summary.breakerTripped = true;
     log.error(
-      { wouldDelete: toDelete.length, scanned: summary.scanned },
-      'missing-reaper: circuit breaker tripped — too many hard-deletes in one pass; aborting WITHOUT deleting',
+      { wouldReap: toDelete.length, scanned: summary.scanned },
+      'missing-reaper: circuit breaker tripped — unusually large reap fraction; proceeding (soft-delete is recoverable) but flagging for operator review',
     );
-    return summary;
   }
 
   for (const doc of toDelete) {
     try {
-      await hardDeleteRow(coll, doc, libs);
-      summary.reaped++;
+      if (await reapRow(coll, doc)) summary.reaped++;
     } catch (err) {
       summary.errors++;
       log.warn(
         { _id: String(doc._id), err: err instanceof Error ? err.message : err },
-        'missing-reaper: hard-delete failed',
+        'missing-reaper: reap (soft-delete) failed',
       );
     }
   }
@@ -441,7 +453,9 @@ export function startMissingReaper(opts: StartMissingReaperOptions = {}): Missin
     resume: async () => {
       paused = false;
       await persistPaused(false);
-      log.warn('missing-reaper RESUMED — aged-out missing rows are now eligible for hard delete');
+      log.warn(
+        'missing-reaper RESUMED — aged-out missing rows are now eligible for soft delete (30-day Trash retention)',
+      );
     },
   });
 
@@ -453,7 +467,7 @@ export function startMissingReaper(opts: StartMissingReaperOptions = {}): Missin
 
   const tick = async (): Promise<void> => {
     // Runs even when paused — recovery/prune (re-found files) must keep working;
-    // only the hard-delete is gated by `allowDelete: !paused` below.
+    // only the reap (soft-delete) is gated by `allowDelete: !paused` below.
     if (stopped || running) return;
     running = true;
     try {
@@ -466,7 +480,14 @@ export function startMissingReaper(opts: StartMissingReaperOptions = {}): Missin
         allowDelete: !paused,
       });
       for (let i = 0; i < summary.reaped; i++) throughput.record(new Date());
-      stageRegistry.clearError(MISSING_REAPER_NAME);
+      if (summary.breakerTripped) {
+        stageRegistry.recordError(
+          MISSING_REAPER_NAME,
+          `circuit breaker: reaped ${summary.reaped} of ${summary.scanned} scanned rows in one pass — review the Trash view; reaped rows are recoverable until the 30-day trash purge`,
+        );
+      } else {
+        stageRegistry.clearError(MISSING_REAPER_NAME);
+      }
     } catch (err) {
       stageRegistry.recordError(
         MISSING_REAPER_NAME,
