@@ -195,6 +195,72 @@ describe('folder .hidden marker — un-hide pass', () => {
   });
 });
 
+describe('folder .hidden marker — deduplicated assets (multi-location)', () => {
+  it('keeps a dup hidden when its other live location is still under a marked dir (no flapping)', async () => {
+    if (!reachable) return;
+    const frontier = await import('./frontier.repo.ts');
+    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
+    const root = makeRoot();
+    mkdirSync(join(root, 'hidden-src'));
+    writeFileSync(join(root, 'hidden-src', '.hidden'), '');
+    writeFileSync(join(root, 'hidden-src', 'dup.dng'), 'x');
+    mkdirSync(join(root, 'visible-dup'));
+    writeFileSync(join(root, 'visible-dup', 'dup.dng'), 'x');
+    const folderId = new ObjectId();
+    setLibraryRootsForTests(new Map([[folderId.toHexString(), root]]));
+    const coll = await assetsCollection();
+    const { insertedId } = await coll.insertOne({
+      maple_id: 'dup',
+      fileinfo: [
+        { library_id: folderId, path: 'hidden-src', filename: 'dup.dng' },
+        { library_id: folderId, path: 'visible-dup', filename: 'dup.dng' },
+      ],
+      deleted_at: null,
+      hidden: true,
+      hidden_reason: 'folder',
+    } as never);
+
+    // Visit ONLY the unmarked dir — the marker in hidden-src must still
+    // keep the asset hidden, else every sweep generation flip-flops it.
+    await frontier.enqueueDirs(folderId, [join(root, 'visible-dup')], 1, false);
+    await visit(folderId, root);
+
+    const doc = await loadAsset(insertedId);
+    expect(doc.hidden).toBe(true);
+    expect(doc.hidden_reason).toBe('folder');
+    setLibraryRootsForTests(null);
+    rmSync(root, { recursive: true, force: true });
+  });
+});
+
+describe('folder .hidden marker — entry liveness', () => {
+  it('does not hide an asset whose only entry in the marked dir is missing/dead', async () => {
+    if (!reachable) return;
+    const frontier = await import('./frontier.repo.ts');
+    const root = makeRoot();
+    writeFileSync(join(root, '.hidden'), '');
+    const folderId = new ObjectId();
+    const missingId = await insertAsset(folderId, '', 'gone.dng', {});
+    await (
+      await assetsCollection()
+    ).updateOne(
+      { _id: missingId },
+      { $set: { 'fileinfo.0.missing_since': '2026-01-01T00:00:00Z' } },
+    );
+    const deadId = await insertAsset(folderId, '', 'dead.dng', {});
+    await (
+      await assetsCollection()
+    ).updateOne({ _id: deadId }, { $set: { 'fileinfo.0.deleted_at': '2026-01-01T00:00:00Z' } });
+
+    await frontier.seedRoot(folderId, root, 1);
+    await visit(folderId, root);
+
+    expect((await loadAsset(missingId)).hidden).not.toBe(true);
+    expect((await loadAsset(deadId)).hidden).not.toBe(true);
+    rmSync(root, { recursive: true, force: true });
+  });
+});
+
 describe('folder .hidden marker — subtree propagation', () => {
   it('enqueues child dirs of a marked dir with hidden_ancestor, and hides their assets on visit', async () => {
     if (!reachable) return;
