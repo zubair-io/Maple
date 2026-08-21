@@ -6,7 +6,9 @@
  * concern, not part of the walk/pair/destination-precedence logic.
  */
 
+import path from 'node:path';
 import { readExif } from '../indexer/exif.ts';
+import { parseFilenameCapturedAt } from '../backup/filename-date.ts';
 
 /** Max concurrent EXIF reads while resolving capture times for a scan.
  * `readExif` is async I/O + parsing (the indexer's own `exif` stage runs it
@@ -35,13 +37,20 @@ export async function mapWithConcurrency<T, R>(
 }
 
 /**
- * Resolve the timestamp used to bucket/place a file: its EXIF capture time
- * (`DateTimeOriginal`, or `CreateDate` — via `indexer/exif.ts`'s `readExif`,
- * the same reader the indexer's `exif` stage uses) when present and
- * parseable, otherwise `fallbackMs` (the file's own mtime). A read failure
- * (corrupt file, unsupported format, permission error) also falls back to
- * mtime — EXIF is a nicety for placement, not a requirement; it must never
- * fail the import.
+ * Resolve the timestamp used to bucket/place a file, in priority order:
+ *
+ *   1. EXIF capture time (`DateTimeOriginal`, or `CreateDate` — via
+ *      `indexer/exif.ts`'s `readExif`, the same reader the indexer's `exif`
+ *      stage uses) when present and parseable.
+ *   2. A capture time encoded in the filename by a recognized camera/export
+ *      naming convention (`backup/filename-date.ts`'s
+ *      `parseFilenameCapturedAt` — e.g. OneDrive's
+ *      `YYYYMMDD_HHMMSSmmm_iOS.jpg`, whose EXIF is often stripped, #2970).
+ *   3. `fallbackMs` (the file's own mtime).
+ *
+ * A read failure (corrupt file, unsupported format, permission error) falls
+ * through the same chain — capture time is a nicety for placement, not a
+ * requirement; it must never fail the import.
  */
 export async function resolveCapturedAtMs(absPath: string, fallbackMs: number): Promise<number> {
   try {
@@ -52,9 +61,10 @@ export async function resolveCapturedAtMs(absPath: string, fallbackMs: number): 
       if (Number.isFinite(ms)) return ms;
     }
   } catch {
-    // Fall through to the mtime fallback below.
+    // Fall through to the filename/mtime fallbacks below.
   }
-  return fallbackMs;
+  const fromFilename = parseFilenameCapturedAt(path.basename(absPath));
+  return fromFilename ? fromFilename.getTime() : fallbackMs;
 }
 
 /** Resolve capture times for a batch of `{ src, mtime }` items (bounded
