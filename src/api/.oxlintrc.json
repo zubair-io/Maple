@@ -196,6 +196,7 @@
         "src/workers/discover/discover.fileinfo.test.ts",
         "src/workers/discover/discover.idempotency.test.ts",
         "src/workers/discover/discover.skeleton.test.ts",
+        "src/workers/discover/folder-hidden.test.ts",
         "src/workers/discover/rename-reconcile.ts",
         "src/workers/discover/rename-reconcile.test.ts",
         "src/workers/discover/sweeper.test.ts",
