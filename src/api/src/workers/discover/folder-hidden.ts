@@ -105,17 +105,30 @@ export async function reconcileFolderHidden(
       if (!(await otherLiveEntryStillCovered(doc, folderId, rel, memo))) free.push(doc._id);
     }
     if (free.length === 0) return 0;
-    await coll.updateMany({ _id: { $in: free } }, {
-      $set: {
-        hidden: false,
-        hidden_reason: null,
-        // Re-arm cf-thumb-sync: its `{ skip: 'hidden' }` marked itself done,
-        // so without a reset an un-hidden asset would never re-mirror to R2
-        // (same rationale as the un-hide path in sidecar-metadata-index).
-        ...invalidationSets(['meili', 'cf-thumb-sync'], 'discover'),
+    // The write filter repeats the cursor's predicates (not just `_id`): a
+    // concurrent writer — most plausibly the sidecar projection landing a
+    // manual override — may have changed the doc between the read and this
+    // write, and the guard turns the stale un-hide into a no-op instead of
+    // stomping the newer state.
+    const res = await coll.updateMany(
+      {
+        _id: { $in: free },
+        deleted_at: null,
+        hidden_reason: 'folder',
+        'metadata_override.hidden': { $ne: true },
       },
-    } as never);
-    return free.length;
+      {
+        $set: {
+          hidden: false,
+          hidden_reason: null,
+          // Re-arm cf-thumb-sync: its `{ skip: 'hidden' }` marked itself done,
+          // so without a reset an un-hidden asset would never re-mirror to R2
+          // (same rationale as the un-hide path in sidecar-metadata-index).
+          ...invalidationSets(['meili', 'cf-thumb-sync'], 'discover'),
+        },
+      } as never,
+    );
+    return res.modifiedCount;
   });
   if (unhidden > 0) {
     log.info({ dir: dirPath, count: unhidden }, 'folder .hidden marker removed: un-hid assets');
@@ -145,18 +158,35 @@ async function hideBatch(
   batch: CandidateDoc[],
   cleanupHidden: CleanupHidden,
 ): Promise<number> {
-  await coll.updateMany({ _id: { $in: batch.map((a) => a._id) } }, {
-    $set: {
-      hidden: true,
-      hidden_reason: 'folder',
-      // The hidden flag is a Meilisearch filter — re-project the document.
-      ...invalidationSets(['meili'], 'discover'),
+  // The write filter repeats the cursor's predicates (not just `_id`) so a
+  // doc changed between the read and this write — a concurrent manual
+  // un-hide landing via the sidecar projection, say — is left alone rather
+  // than stomped back to hidden (which, with the marker still present,
+  // would then stick until the sidecar stage next re-ran).
+  const res = await coll.updateMany(
+    {
+      _id: { $in: batch.map((a) => a._id) },
+      deleted_at: null,
+      hidden: { $ne: true },
+      'metadata_override.hidden': { $ne: false },
     },
-  } as never);
+    {
+      $set: {
+        hidden: true,
+        hidden_reason: 'folder',
+        // The hidden flag is a Meilisearch filter — re-project the document.
+        ...invalidationSets(['meili'], 'discover'),
+      },
+    } as never,
+  );
   // Newly hidden: any thumbnail already mirrored to R2 must come down
   // (best-effort/non-throwing, see cloudflare/hidden-cleanup.ts).
+  // Deliberately the whole batch, not only the modified docs: for a doc the
+  // guard skipped, the concurrent un-hide re-armed cf-thumb-sync, so an
+  // extra R2 delete self-heals via re-mirror (and 404s are treated as
+  // success by deleteThumbFromR2).
   await cleanupHidden(batch);
-  return batch.length;
+  return res.modifiedCount;
 }
 
 /** Per-reconcile stat memoization — dup candidates in one directory tend to
