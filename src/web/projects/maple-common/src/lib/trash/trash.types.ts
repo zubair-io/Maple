@@ -16,6 +16,12 @@ export interface TrashItem {
   size: number;
   mtime: string;
   deletedAt: string;
+  /** Why this row is in Trash: `'user'` — user-initiated trash with a file
+   * copy in `.maple/trash` (restorable); `'reaped'` — the missing-file
+   * reaper soft-deleted it because the file vanished from disk (#2977):
+   * no copy exists, so restore/delete actions don't apply and the row
+   * self-revives if the content reappears. */
+  reason: 'user' | 'reaped';
 }
 
 /** One page of `GET /api/folders/:id/trash`. */

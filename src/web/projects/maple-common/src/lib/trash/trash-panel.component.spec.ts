@@ -16,6 +16,7 @@ const ITEM_A: TrashItem = {
   size: 1024,
   mtime: '2026-01-01T00:00:00Z',
   deletedAt: '2026-01-02T00:00:00Z',
+  reason: 'user',
 };
 
 const ITEM_B: TrashItem = {

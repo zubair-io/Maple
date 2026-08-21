@@ -50,6 +50,18 @@
   gap: 6px;
 }
 
+// Reaped rows (#2977): informational badge in place of the action buttons —
+// there is no trashed copy to restore or delete.
+.tir-reaped-badge {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 0.5px solid var(--color-border);
+  font-size: 10.5px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
 .tir-btn {
   height: 26px;
   padding: 0 10px;

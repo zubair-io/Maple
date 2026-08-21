@@ -52,6 +52,8 @@ interface TrashItemWire {
   size: number;
   mtime: string;
   deleted_at: string;
+  /** Absent on servers predating #2977 — mapped to 'user'. */
+  reason?: 'user' | 'reaped';
 }
 
 interface TrashPageWire {
@@ -76,6 +78,7 @@ function toTrashItem(wire: TrashItemWire): TrashItem {
     size: wire.size,
     mtime: wire.mtime,
     deletedAt: wire.deleted_at,
+    reason: wire.reason ?? 'user',
   };
 }
 
