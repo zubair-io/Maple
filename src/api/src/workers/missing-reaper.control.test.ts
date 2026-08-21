@@ -138,7 +138,11 @@ describe('orphan (content-replaced) reaping', () => {
     const summary = await runMissingReaperOnce({ deleteBeforeIso: DELETE_BEFORE });
 
     expect(summary.reaped).toBe(1);
-    expect(await db!.collection('assets').countDocuments({ _id: ins.insertedId })).toBe(0);
+    // Soft-deleted (#2977), not removed — recoverable until trash-gc purges it.
+    const row = await db!.collection('assets').findOne({ _id: ins.insertedId });
+    expect(row).not.toBeNull();
+    expect(typeof row!.deleted_at).toBe('string');
+    expect((row as { deleted_reason?: string }).deleted_reason).toBe('reaped');
     rmSync(dir, { recursive: true, force: true });
   });
 
