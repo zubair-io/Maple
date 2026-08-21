@@ -24,6 +24,7 @@ import { libraryRootAvailable, statKind } from '../missing-reaper.helpers.ts';
 import { buildFileinfoEntry } from './types.ts';
 import { refusesReservedTreeEvent } from './reserved-trees.ts';
 import { MEILI_REARM_SET } from '../../people/people-search-reindex.ts';
+import { appendOrRefreshLocation } from './dedup-location.ts';
 
 const log = child('discover');
 
@@ -366,89 +367,14 @@ export async function handleEvent(
 
   if (existing) {
     // Same content — record the new location if it's not already on the
-    // row, refresh timestamps. We DO NOT touch any user-edited fields
-    // (rating, flag, color_label, sidecar mirror, …) on a dedup hit.
-    //
-    // Reviving a soft-deleted row (user trash or reaped, #2977): its search
-    // doc was tombstoned, so the meili stage must re-run or the asset stays
-    // invisible in search until the next full backfill.
-    const reviveSet =
-      typeof (existing as { deleted_at?: string | null }).deleted_at === 'string'
-        ? MEILI_REARM_SET
-        : {};
-    const list = (existing.fileinfo ?? []) as Array<{
-      path: string;
-      filename: string;
-      library_id: ObjectId;
-      deleted_at?: string | null;
-    }>;
-    const dupIdx = list.findIndex(
-      (e) =>
-        e.library_id.equals(fileinfoEntry.library_id) &&
-        e.path === fileinfoEntry.path &&
-        e.filename === fileinfoEntry.filename,
-    );
-    if (dupIdx === -1) {
-      // Conditional $push: only append if no entry already matches
-      // (library_id, path, filename). A concurrent worker may have seen
-      // dupIdx === -1 against the same stale read and raced ahead of us;
-      // the $not/$elemMatch filter makes us a no-op in that case. We
-      // ignore modifiedCount === 0 silently — the winning worker has
-      // already done the work.
-      await coll.updateOne(
-        {
-          _id: existing._id,
-          fileinfo: {
-            $not: {
-              $elemMatch: {
-                library_id: fileinfoEntry.library_id,
-                path: fileinfoEntry.path,
-                filename: fileinfoEntry.filename,
-              },
-            },
-          },
-        },
-        {
-          $push: { fileinfo: fileinfoEntry as never },
-          $set: { ...dedupSet, ...reviveSet },
-        },
-      );
-      // Recompute live count after appending a new live fileinfo entry.
-      await updateLiveLocationCount(coll, existing._id);
+    // row, refresh timestamps, revive a soft-deleted row (#2977). We DO NOT
+    // touch any user-edited fields (rating, flag, color_label, sidecar
+    // mirror, …) on a dedup hit. See dedup-location.ts for the two write
+    // shapes (conditional $push vs known-location refresh).
+    const dedup = await appendOrRefreshLocation(coll, existing, fileinfoEntry, dedupSet, keep);
+    if (dedup === 'append') {
       log.info({ absPath, maple_id: hashed.maple_id, dedup: 'append' }, 'deduped — new location');
     } else {
-      // Already-known location: clear any per-entry deleted_at on a
-      // re-discover, refresh top-level timestamps. Use arrayFilters
-      // (not a positional index) — a concurrent $push from another
-      // worker can shift indices between our findOne and updateOne.
-      await coll.updateOne(
-        { _id: existing._id },
-        {
-          $set: {
-            ...dedupSet,
-            ...reviveSet,
-            'fileinfo.$[entry].deleted_at': null,
-            // Re-discovering a live file at this location un-parks it: clear
-            // any per-entry `missing_since` the reaper would otherwise act on.
-            'fileinfo.$[entry].missing_since': null,
-            'fileinfo.$[entry].missing_reason': null,
-            // Refresh the keep flag — a `.keep` marker may have been added or
-            // removed since this location was first indexed.
-            'fileinfo.$[entry].keep': keep,
-          },
-        },
-        {
-          arrayFilters: [
-            {
-              'entry.library_id': fileinfoEntry.library_id,
-              'entry.path': fileinfoEntry.path,
-              'entry.filename': fileinfoEntry.filename,
-            },
-          ],
-        },
-      );
-      // Recompute live count: clearing deleted_at/missing_since may revive an entry.
-      await updateLiveLocationCount(coll, existing._id);
       log.debug({ absPath, maple_id: hashed.maple_id, dedup: 'noop' }, 'idempotent re-discover');
     }
     await recordAndPublishAssetChange({
@@ -496,70 +422,10 @@ export async function handleEvent(
         { projection: { _id: 1, fileinfo: 1, deleted_at: 1 } },
       );
       if (winner) {
-        // Same revive rule as the main dedup branch (#2977).
-        const reviveSet =
-          typeof (winner as { deleted_at?: string | null }).deleted_at === 'string'
-            ? MEILI_REARM_SET
-            : {};
-        const list = (winner.fileinfo ?? []) as Array<{
-          path: string;
-          filename: string;
-          library_id: ObjectId;
-        }>;
-        const dupIdx = list.findIndex(
-          (e) =>
-            e.library_id.equals(fileinfoEntry.library_id) &&
-            e.path === fileinfoEntry.path &&
-            e.filename === fileinfoEntry.filename,
-        );
-        if (dupIdx === -1) {
-          // Same conditional $push pattern as the main dedup-append
-          // branch — silent fallthrough on modifiedCount === 0.
-          await coll.updateOne(
-            {
-              _id: winner._id,
-              fileinfo: {
-                $not: {
-                  $elemMatch: {
-                    library_id: fileinfoEntry.library_id,
-                    path: fileinfoEntry.path,
-                    filename: fileinfoEntry.filename,
-                  },
-                },
-              },
-            },
-            {
-              $push: { fileinfo: fileinfoEntry as never },
-              $set: { ...dedupSet, ...reviveSet },
-            },
-          );
-          // Recompute live count after race-loser append of a new live entry.
-          await updateLiveLocationCount(coll, winner._id);
-        } else {
-          await coll.updateOne(
-            { _id: winner._id },
-            {
-              $set: {
-                ...dedupSet,
-                ...reviveSet,
-                'fileinfo.$[entry].deleted_at': null,
-                'fileinfo.$[entry].missing_since': null,
-                'fileinfo.$[entry].missing_reason': null,
-              },
-            },
-            {
-              arrayFilters: [
-                {
-                  'entry.library_id': fileinfoEntry.library_id,
-                  'entry.path': fileinfoEntry.path,
-                  'entry.filename': fileinfoEntry.filename,
-                },
-              ],
-            },
-          );
-          // Recompute live count: race-loser re-discover may have un-tombstoned an entry.
-          await updateLiveLocationCount(coll, winner._id);
-        }
+        // Same append-or-refresh + revive rule as the main dedup branch
+        // (#2977); `keep` intentionally omitted — the race-loser path never
+        // rewrote the keep flag.
+        await appendOrRefreshLocation(coll, winner, fileinfoEntry, dedupSet);
         await recordAndPublishAssetChange({
           kind: kind === 'created' ? 'create' : 'update',
           asset_id: winner._id,
