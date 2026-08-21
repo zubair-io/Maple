@@ -31,6 +31,7 @@
 //   ⌘\ sidebar toggle      — NavigationSplitView column visibility
 
 import SwiftUI
+import WidgetKit
 import MapleCore
 import OSLog
 #if os(iOS)
@@ -1137,6 +1138,12 @@ struct AppShell: View {
                     // credentials path in loadCloudLibrary).
                     let session = sessionFor(url)
                     await session.signOut()
+                    // The widget's own sign-out callback is deliberately a
+                    // no-op (an unattended 401 must not log the app out), so
+                    // the EXPLICIT sign-out is where its timeline gets
+                    // dropped — otherwise WidgetKit keeps the previous
+                    // account's photo on screen for up to the 4-hour policy.
+                    WidgetCenter.shared.reloadAllTimelines()
                 }
             },
             onSignInCloudServer: { url in
@@ -1157,6 +1164,8 @@ struct AppShell: View {
                     let session = sessionFor(url)
                     await session.signOut()
                     CloudServerRegistry.shared.remove(url)
+                    // Same reasoning as onSignOutCloudServer above.
+                    WidgetCenter.shared.reloadAllTimelines()
                     if let domainID = FileProviderDomainController.domainIdentifier(for: url) {
                         // disable() clears local config + tokens even if it
                         // throws, so the polling stops regardless; log a throw

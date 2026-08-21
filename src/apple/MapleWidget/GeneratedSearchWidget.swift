@@ -68,11 +68,13 @@ struct GeneratedSearchWidgetView: View {
     )
   }
 
-  /// Opens the app at this collection. Falls back to the app's root when the
-  /// entry has no collection (the empty state).
+  /// Opens the app. Deliberately NOT a per-collection deep link:
+  /// `DeepLinkParser` handles only the `image` and `source` hosts, and the
+  /// app has no generated-search surface to route to — advertising
+  /// `maple://generated-search/<id>` would promise navigation that cannot
+  /// happen. A real destination needs an in-app collection view first.
   private var deepLink: URL? {
-    guard let id = entry.collectionID else { return URL(string: "maple://") }
-    return URL(string: "maple://generated-search/\(id)")
+    URL(string: "maple://")
   }
 }
 

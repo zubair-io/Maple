@@ -20,6 +20,17 @@
     <string>$(MARKETING_VERSION)</string>
     <key>CFBundleVersion</key>
     <string>$(CURRENT_PROJECT_VERSION)</string>
+    <!--
+      Same ATS exception as the app and MapleFileProvider: ATS is evaluated
+      in the extension's own network process, so without this a self-hosted
+      server reached over plain HTTP on the LAN is blocked before either API
+      request runs and the widget stays empty forever.
+    -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
     <key>NSExtension</key>
     <dict>
         <!--
