@@ -353,4 +353,50 @@ describe('discover producer — events', () => {
     await foldersColl.deleteOne({ _id: folderId });
     await rm(tempDir, { recursive: true, force: true });
   });
+
+  it('refuses events whose absPath is inside the `_duplicates/` quarantine (defense-in-depth)', async () => {
+    // The sweeper never descends into `_duplicates/`, but handleEvent is also
+    // fed by the imports hand-off, browse-triggered indexing, the pano
+    // on-demand path, and the folder walkers. If any of them hands over a
+    // quarantined path, content-dedup would re-attach the copy to the very
+    // asset it was split from and the next dedupe pass would nest it under
+    // `_duplicates/_duplicates/…`. The handler must refuse instead.
+    if (!mongoReachable) return;
+    const { handleEvent } = await import('./index.ts');
+    const { assetsCollection, foldersCollection } = await import('../../db/client.ts');
+
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'discover-dup-quarantine-'));
+    const quarantineDir = path.join(tempDir, '_duplicates', 'photos');
+    await mkdir(quarantineDir, { recursive: true });
+    const quarantined = path.join(quarantineDir, 'copy.jpg');
+    await writeFile(quarantined, Buffer.alloc(50, 0xcd));
+
+    const foldersColl = await foldersCollection();
+    const folderResult = await foldersColl.insertOne({
+      path: tempDir,
+      label: path.basename(tempDir),
+      last_scan: null,
+      file_count: 0,
+      created_at: new Date().toISOString(),
+    } as never);
+    const folderId = folderResult.insertedId;
+
+    // Every event kind must be refused.
+    await handleEvent({ kind: 'created', absPath: quarantined }, folderId, tempDir);
+    await handleEvent({ kind: 'modified', absPath: quarantined }, folderId, tempDir);
+    await handleEvent({ kind: 'removed', absPath: quarantined }, folderId, tempDir);
+    await handleEvent(
+      { kind: 'renamed', absPath: path.join(tempDir, 'oops.jpg'), fromPath: quarantined },
+      folderId,
+      tempDir,
+    );
+
+    const coll = await assetsCollection();
+    const rows = await coll.find({ 'fileinfo.library_id': folderId }).toArray();
+    expect(rows).toEqual([]);
+
+    await coll.deleteMany({ 'fileinfo.library_id': folderId });
+    await foldersColl.deleteOne({ _id: folderId });
+    await rm(tempDir, { recursive: true, force: true });
+  });
 });
