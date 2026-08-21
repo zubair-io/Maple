@@ -330,6 +330,9 @@ export async function handleEvent(
   const dedupSet = {
     indexed_at: now,
     deleted_at: null,
+    // Clear the reap discriminator too (#2977) — a rediscovered content
+    // match revives a reaper-soft-deleted row.
+    deleted_reason: null,
     mtime: hashed.mtime,
     size: hashed.size,
   };
@@ -338,7 +341,7 @@ export async function handleEvent(
   // doc body stays small even on libraries with many assets.
   let existing = await coll.findOne(
     { maple_id: hashed.maple_id },
-    { projection: { _id: 1, fileinfo: 1 } },
+    { projection: { _id: 1, fileinfo: 1, deleted_at: 1 } },
   );
   if (!existing) {
     // Fallback dedup by `sha1_head`. The exif stage upgrades `maple_id`
@@ -357,7 +360,7 @@ export async function handleEvent(
     // the same content from the pipeline's point of view.
     existing = await coll.findOne(
       { sha1_head: hashed.sha1_head },
-      { projection: { _id: 1, fileinfo: 1 } },
+      { projection: { _id: 1, fileinfo: 1, deleted_at: 1 } },
     );
   }
 
@@ -365,6 +368,14 @@ export async function handleEvent(
     // Same content — record the new location if it's not already on the
     // row, refresh timestamps. We DO NOT touch any user-edited fields
     // (rating, flag, color_label, sidecar mirror, …) on a dedup hit.
+    //
+    // Reviving a soft-deleted row (user trash or reaped, #2977): its search
+    // doc was tombstoned, so the meili stage must re-run or the asset stays
+    // invisible in search until the next full backfill.
+    const reviveSet =
+      typeof (existing as { deleted_at?: string | null }).deleted_at === 'string'
+        ? MEILI_REARM_SET
+        : {};
     const list = (existing.fileinfo ?? []) as Array<{
       path: string;
       filename: string;
@@ -399,7 +410,7 @@ export async function handleEvent(
         },
         {
           $push: { fileinfo: fileinfoEntry as never },
-          $set: dedupSet,
+          $set: { ...dedupSet, ...reviveSet },
         },
       );
       // Recompute live count after appending a new live fileinfo entry.
@@ -415,6 +426,7 @@ export async function handleEvent(
         {
           $set: {
             ...dedupSet,
+            ...reviveSet,
             'fileinfo.$[entry].deleted_at': null,
             // Re-discovering a live file at this location un-parks it: clear
             // any per-entry `missing_since` the reaper would otherwise act on.
@@ -481,9 +493,14 @@ export async function handleEvent(
     if (code === 11000) {
       const winner = await coll.findOne(
         { maple_id: hashed.maple_id },
-        { projection: { _id: 1, fileinfo: 1 } },
+        { projection: { _id: 1, fileinfo: 1, deleted_at: 1 } },
       );
       if (winner) {
+        // Same revive rule as the main dedup branch (#2977).
+        const reviveSet =
+          typeof (winner as { deleted_at?: string | null }).deleted_at === 'string'
+            ? MEILI_REARM_SET
+            : {};
         const list = (winner.fileinfo ?? []) as Array<{
           path: string;
           filename: string;
@@ -513,7 +530,7 @@ export async function handleEvent(
             },
             {
               $push: { fileinfo: fileinfoEntry as never },
-              $set: dedupSet,
+              $set: { ...dedupSet, ...reviveSet },
             },
           );
           // Recompute live count after race-loser append of a new live entry.
@@ -524,6 +541,7 @@ export async function handleEvent(
             {
               $set: {
                 ...dedupSet,
+                ...reviveSet,
                 'fileinfo.$[entry].deleted_at': null,
                 'fileinfo.$[entry].missing_since': null,
                 'fileinfo.$[entry].missing_reason': null,
