@@ -19,6 +19,7 @@ const DIGEST: PromptDigest = {
   coverageYears: [2016, 2017, 2018],
   onThisMonthByYear: [{ year: 2017, count: 315 }],
   recentThemes: [],
+  semanticSearch: true,
 };
 
 /** A phase-1 payload with `n` proposals, themed `t0`, `t1`, … */

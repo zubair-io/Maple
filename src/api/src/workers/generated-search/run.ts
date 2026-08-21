@@ -108,7 +108,10 @@ export async function runGeneratedSearchOnce(
 ): Promise<GeneratedSearchSummary> {
   const config = await loadGeneratedSearchConfig();
   if (config.paused) {
-    return { libraries: 0, saved: 0, pruned: 0, skipped: true };
+    // Paused stops the LLM run, not retention. A worker paused for months
+    // must not let generated_searches outlive its window unbounded.
+    const pruned = await pruneGeneratedSearches(config.retention_days, now);
+    return { libraries: 0, saved: 0, pruned, skipped: true };
   }
 
   // The model and Ollama endpoint come from the describe stage's enrichment

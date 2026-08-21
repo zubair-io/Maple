@@ -99,14 +99,17 @@ export const generatedSearchesRoutes = new Elysia({ prefix: '/api/generated-sear
       }
 
       const liveFilter = applyLiveFilter(filter);
-      const [libs, idToSlug, docs] = await Promise.all([
+      // Count rides in the same Promise.all as the page — sequencing it after
+      // added a full extra round-trip per request at up to limit=500.
+      const [libs, idToSlug, docs, total] = await Promise.all([
         loadLibraryRoots().catch(() => new Map<string, string>()),
         loadLibraryIdToSlug().catch(() => new Map<string, string>()),
         coll.find(liveFilter).sort(pickSort('captured_desc')).limit(limit).toArray(),
+        coll.countDocuments(liveFilter),
       ]);
 
       return {
-        total: await coll.countDocuments(liveFilter),
+        total,
         results: (docs as AssetDoc[]).map((d) => projectAsset(d as never, libs, idToSlug)),
       };
     },
