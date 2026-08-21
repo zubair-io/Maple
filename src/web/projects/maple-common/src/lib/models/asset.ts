@@ -43,7 +43,7 @@ export interface Asset {
   flag: Flag;
   colorLabel: ColorLabel;
   hidden?: boolean;
-  hidden_reason?: 'manual' | 'nudity' | 'nudity-burst' | 'folder';
+  hidden_reason?: 'manual' | 'nudity' | 'nudity-burst' | 'folder' | null;
   hidden_ack?: boolean;
 
   // Placeholder visual (gradient swatch until raw-wasm in P4).
