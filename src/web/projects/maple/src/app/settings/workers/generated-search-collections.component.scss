@@ -11,18 +11,19 @@ h4 {
   flex-direction: column;
   gap: 0.25rem;
 
-  a {
+  li {
     display: flex;
+    flex-wrap: wrap;
     align-items: baseline;
     gap: 0.5rem;
     padding: 0.5rem 0.6rem;
     border-radius: 6px;
-    text-decoration: none;
-    color: inherit;
+  }
 
-    &:hover {
-      background: rgb(255 255 255 / 6%);
-    }
+  .query {
+    flex-basis: 100%;
+    opacity: 0.55;
+    font-size: 0.75rem;
   }
 
   .title {
