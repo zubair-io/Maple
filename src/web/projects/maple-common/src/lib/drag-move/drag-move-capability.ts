@@ -57,12 +57,19 @@ export interface DragMoveCapability {
    * Start relocating `assetIds` (currently living under `sourceFolderId`)
    * into `targetNode`, in `mode`. No-op while a previous drop's queue is
    * still in flight, or when `dropDisabledReason` rejects the target.
+   *
+   * `folderIds` (#2976) additionally moves whole grid sub-folders
+   * (`slug:relPath` addresses under `sourceFolderId`) into `targetNode`,
+   * via `POST /folders/:id/move`. Move-mode only — a folder "copy" would
+   * be a recursive tree copy the server has no primitive for, so copy-mode
+   * callers must not pass folders.
    */
   beginMove(
     assetIds: AssetId[],
     sourceFolderId: string,
     targetNode: SidebarEntry,
     mode: DragMoveMode,
+    folderIds?: string[],
   ): void;
   /** Resolve the pending `collisionPrompt` and continue the queue. */
   resolveCollision(policy: DragMoveCollisionPolicy): void;

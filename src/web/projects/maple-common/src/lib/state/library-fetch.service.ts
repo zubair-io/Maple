@@ -579,29 +579,29 @@ export class LibraryFetch {
     const id = sourceId ?? this.store.sourceIdForRelPath(relPath) ?? `unknown:${relPath}`;
     // Set the selection synchronously so the file-list breadcrumb + grid
     // empty-state reflect the click immediately, before the HTTP response.
+    // Landing on a DIFFERENT folder drops the previous folder's asset/folder
+    // selection and range anchors — nothing is selected in a freshly opened
+    // folder unless the caller asked for a specific asset below (#2976
+    // removed the old select-the-first-photo fallback).
+    if (this.selection.selectedSourceId() !== id) {
+      this.selection.resetForSourceChange();
+    }
     this.selection.selectedSourceId.set(id);
     this.status.backendLoading.set(true);
     this.status.backendError.set(null);
     this.status.backendEmpty.set(false);
 
-    // Select an asset only on the first paint that actually has a target —
-    // a cached paint should land the cursor instantly, and the later network
-    // revalidation must not clobber a selection the user made in between.
+    // Select the requested asset only on the first paint that actually has
+    // the target — a cached paint should land the cursor instantly, and the
+    // later network revalidation must not clobber a selection the user made
+    // in between.
     let selected = false;
     const trySelect = (): void => {
-      if (selected) return;
-      if (selectAssetId) {
-        const target = this.store.assets().find((a) => a.id === selectAssetId);
-        if (target) {
-          this.selection.selectAsset(target.id);
-          selected = true;
-        }
-      } else {
-        const firstAsset = this.store.assets().find((a) => a.folderId === id);
-        if (firstAsset) {
-          this.selection.selectAsset(firstAsset.id);
-          selected = true;
-        }
+      if (selected || !selectAssetId) return;
+      const target = this.store.assets().find((a) => a.id === selectAssetId);
+      if (target) {
+        this.selection.selectAsset(target.id);
+        selected = true;
       }
     };
 
