@@ -16,7 +16,9 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { Observable, map, of, switchMap } from 'rxjs';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
+import { FolderCrudService } from '../api/folder-crud.service';
 import { TrashApiService } from '../api/trash-api.service';
+import { parseAddress } from '../addressing/maple-address';
 import { LibraryStateService } from '../state/library-state.service';
 import type { AssetId } from '../models/asset';
 import { errorMessage } from '../util/errors';
@@ -47,6 +49,7 @@ export class TrashService implements TrashCapability {
   // `/assets/by-address` route into Hosted's bundle the way adding it to
   // the always-eager `TrashApiService` could.
   private readonly bunApi = inject(BunApiBackendService);
+  private readonly folderCrud = inject(FolderCrudService);
   private readonly state = inject(LibraryStateService);
 
   readonly available = signal(true);
@@ -137,20 +140,30 @@ export class TrashService implements TrashCapability {
       : of(assetId);
   }
 
-  trashAssets(assetIds: AssetId[], sourceFolderId: string): void {
-    if (this._busy() || assetIds.length === 0) return;
+  trashAssets(assetIds: AssetId[], sourceFolderId: string, folderIds: string[] = []): void {
+    if (this._busy() || (assetIds.length === 0 && folderIds.length === 0)) return;
     this._busy.set(true);
     this._resultSummary.set(null);
     const assetsById = new Map(
       this.state.assetsInSelectedFolder().map((asset) => [asset.id, asset]),
     );
-    void this.runTrashQueue(assetIds, assetsById, sourceFolderId);
+    void this.runTrashQueue(assetIds, assetsById, sourceFolderId, folderIds);
+  }
+
+  /** Same registered-library lookup `folder-tree-crud.component.ts`'s
+   * `resolveLibraryId` uses — `/folders/:id/*` routes address the library
+   * by its Mongo id, not the slug the grid's addresses carry. */
+  private resolveLibraryId(nodeId: string): string | null {
+    const { slug } = parseAddress(nodeId);
+    const folder = this.state.registeredFolders().find((f) => f.slug === slug || f.id === slug);
+    return folder?.id ?? null;
   }
 
   private async runTrashQueue(
     assetIds: AssetId[],
     assetsById: Map<AssetId, { id: AssetId; filename: string }>,
     sourceFolderId: string,
+    folderIds: string[] = [],
   ): Promise<void> {
     const failed: TrashItemFailure[] = [];
     let trashed = 0;
@@ -182,12 +195,67 @@ export class TrashService implements TrashCapability {
         failed.push({ assetId, filename, reason: errorMessage(err) });
       }
     }
+    // Selected grid sub-folders (#2976) — recursive trash via
+    // `POST /folders/:id/trash-folder`, one call per folder. The server
+    // returns a per-asset `FolderBatchSummary`; a folder whose subtree
+    // partially failed is reported as a failure (with the server's counts)
+    // rather than double-counted as both trashed and failed.
+    for (const folderId of folderIds) {
+      const relPath = parseAddress(folderId).relPath;
+      const name = relPath.split('/').pop() ?? relPath;
+      const libraryId = this.resolveLibraryId(folderId);
+      if (!libraryId) {
+        failed.push({
+          assetId: folderId,
+          filename: name,
+          reason: 'Could not resolve this library — try reloading.',
+        });
+        continue;
+      }
+      try {
+        const summary = await new Promise<{ total: number; failed: number }>((resolve, reject) => {
+          this.folderCrud.trashFolder(libraryId, relPath).subscribe({
+            next: resolve,
+            error: reject,
+          });
+        });
+        if (summary.failed > 0) {
+          failed.push({
+            assetId: folderId,
+            filename: name,
+            reason: `${summary.failed} of ${summary.total} item(s) in "${name}" could not be moved to Trash.`,
+          });
+        } else {
+          trashed += 1;
+        }
+      } catch (err) {
+        failed.push({ assetId: folderId, filename: name, reason: errorMessage(err) });
+      }
+    }
     this._busy.set(false);
-    this._resultSummary.set({ total: assetIds.length, trashed, failed });
+    this._resultSummary.set({ total: assetIds.length + folderIds.length, trashed, failed });
+    // Drop everything that actually left the folder from the selection so
+    // the toolbar count doesn't keep counting items the refreshed listing
+    // no longer shows. Real failures stay selected (the item is still
+    // there); `alreadyTrashed` conflicts are pruned too — the goal state
+    // was already reached, the item is gone either way.
+    const stillPresent = new Set(failed.filter((f) => !f.alreadyTrashed).map((f) => f.assetId));
+    this.state.selectedAssetIds.update((prev) => {
+      const next = new Set(prev);
+      for (const id of assetIds) if (!stillPresent.has(id)) next.delete(id);
+      return next;
+    });
+    this.state.selectedFolderIds.update((prev) => {
+      const next = new Set(prev);
+      for (const id of folderIds) if (!stillPresent.has(id)) next.delete(id);
+      return next;
+    });
     // Re-pull the source folder's listing regardless of outcome — covers
     // both the assets that trashed successfully AND the `alreadyTrashed`
     // conflicts, whose local view was already stale by definition.
     this.state.refreshFolderListing(sourceFolderId);
+    // Trashed folders disappear from the sidebar tree too, not just the grid.
+    if (folderIds.length > 0) this.state.loadFolderTree();
     // `currentRegisteredFolder()` reads off `selectedSourceId`, not the
     // `sourceFolderId` this batch trashed — correct in practice since a
     // grid multi-select trash always operates on whatever folder is
