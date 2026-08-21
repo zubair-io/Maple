@@ -159,6 +159,88 @@ export class TrashService implements TrashCapability {
     return folder?.id ?? null;
   }
 
+  /** Trash one live asset. Returns `null` on success, or the per-item
+   * failure to report.
+   *
+   * `intent: 'trash'` (#2749) — this queue only ever means "send a live
+   * asset to Trash." A 409 here means the asset was ALREADY trashed by
+   * something else since the grid's listing was fetched; that's the goal
+   * already achieved, not a failure, so it's recorded as `alreadyTrashed`
+   * rather than lumped in with a real network/server error. */
+  private async trashOneAsset(
+    assetId: AssetId,
+    filename: string,
+  ): Promise<TrashItemFailure | null> {
+    try {
+      const outcome = await new Promise<TrashDeleteOutcome>((resolve, reject) => {
+        this.resolveMongoId(assetId)
+          .pipe(switchMap((mongoId) => this.api.deleteAsset(mongoId, 'trash')))
+          .subscribe({ next: resolve, error: reject });
+      });
+      if (outcome.kind === 'ok') return null;
+      return {
+        assetId,
+        filename,
+        reason: 'Already in Trash — trashed by something else in the meantime.',
+        alreadyTrashed: true,
+      };
+    } catch (err) {
+      return { assetId, filename, reason: errorMessage(err) };
+    }
+  }
+
+  /** Trash one grid sub-folder (#2976) — recursive, via
+   * `POST /folders/:id/trash-folder`. Returns `null` on full success, or
+   * the per-item failure. The server returns a per-asset
+   * `FolderBatchSummary`; a folder whose subtree partially failed is
+   * reported as a failure (with the server's counts) rather than
+   * double-counted as both trashed and failed. */
+  private async trashOneFolder(folderId: string): Promise<TrashItemFailure | null> {
+    const relPath = parseAddress(folderId).relPath;
+    const name = relPath.split('/').pop() ?? relPath;
+    const libraryId = this.resolveLibraryId(folderId);
+    if (!libraryId) {
+      return {
+        assetId: folderId,
+        filename: name,
+        reason: 'Could not resolve this library — try reloading.',
+      };
+    }
+    try {
+      const summary = await new Promise<{ total: number; failed: number }>((resolve, reject) => {
+        this.folderCrud.trashFolder(libraryId, relPath).subscribe({ next: resolve, error: reject });
+      });
+      if (summary.failed === 0) return null;
+      return {
+        assetId: folderId,
+        filename: name,
+        reason: `${summary.failed} of ${summary.total} item(s) in "${name}" could not be moved to Trash.`,
+      };
+    } catch (err) {
+      return { assetId: folderId, filename: name, reason: errorMessage(err) };
+    }
+  }
+
+  /** Drop everything that actually left the folder from the selection so
+   * the toolbar count doesn't keep counting items the refreshed listing no
+   * longer shows. Real failures stay selected (the item is still there);
+   * `alreadyTrashed` conflicts are pruned too — the goal state was already
+   * reached, the item is gone either way. */
+  private pruneTrashedFromSelection(
+    assetIds: AssetId[],
+    folderIds: string[],
+    failed: TrashItemFailure[],
+  ): void {
+    const stillPresent = new Set(failed.filter((f) => !f.alreadyTrashed).map((f) => f.assetId));
+    const prune = (prev: ReadonlySet<string>, ids: string[]): Set<string> => {
+      const next = new Set(prev);
+      for (const id of ids) if (!stillPresent.has(id)) next.delete(id);
+      return next;
+    };
+    this.state.selectedAssetIds.update((prev) => prune(prev, assetIds));
+    this.state.selectedFolderIds.update((prev) => prune(prev, folderIds));
+  }
+
   private async runTrashQueue(
     assetIds: AssetId[],
     assetsById: Map<AssetId, { id: AssetId; filename: string }>,
@@ -166,90 +248,19 @@ export class TrashService implements TrashCapability {
     folderIds: string[] = [],
   ): Promise<void> {
     const failed: TrashItemFailure[] = [];
-    let trashed = 0;
     for (const assetId of assetIds) {
       const filename = assetsById.get(assetId)?.filename ?? assetId;
-      try {
-        // `intent: 'trash'` (#2749) — this queue only ever means "send a
-        // live asset to Trash." A 409 here means the asset was ALREADY
-        // trashed by something else since the grid's listing was fetched;
-        // that's the goal already achieved, not a failure, so it's
-        // recorded as `alreadyTrashed` rather than lumped in with a real
-        // network/server error.
-        const outcome = await new Promise<TrashDeleteOutcome>((resolve, reject) => {
-          this.resolveMongoId(assetId)
-            .pipe(switchMap((mongoId) => this.api.deleteAsset(mongoId, 'trash')))
-            .subscribe({ next: resolve, error: reject });
-        });
-        if (outcome.kind === 'ok') {
-          trashed += 1;
-        } else {
-          failed.push({
-            assetId,
-            filename,
-            reason: 'Already in Trash — trashed by something else in the meantime.',
-            alreadyTrashed: true,
-          });
-        }
-      } catch (err) {
-        failed.push({ assetId, filename, reason: errorMessage(err) });
-      }
+      const failure = await this.trashOneAsset(assetId, filename);
+      if (failure) failed.push(failure);
     }
-    // Selected grid sub-folders (#2976) — recursive trash via
-    // `POST /folders/:id/trash-folder`, one call per folder. The server
-    // returns a per-asset `FolderBatchSummary`; a folder whose subtree
-    // partially failed is reported as a failure (with the server's counts)
-    // rather than double-counted as both trashed and failed.
     for (const folderId of folderIds) {
-      const relPath = parseAddress(folderId).relPath;
-      const name = relPath.split('/').pop() ?? relPath;
-      const libraryId = this.resolveLibraryId(folderId);
-      if (!libraryId) {
-        failed.push({
-          assetId: folderId,
-          filename: name,
-          reason: 'Could not resolve this library — try reloading.',
-        });
-        continue;
-      }
-      try {
-        const summary = await new Promise<{ total: number; failed: number }>((resolve, reject) => {
-          this.folderCrud.trashFolder(libraryId, relPath).subscribe({
-            next: resolve,
-            error: reject,
-          });
-        });
-        if (summary.failed > 0) {
-          failed.push({
-            assetId: folderId,
-            filename: name,
-            reason: `${summary.failed} of ${summary.total} item(s) in "${name}" could not be moved to Trash.`,
-          });
-        } else {
-          trashed += 1;
-        }
-      } catch (err) {
-        failed.push({ assetId: folderId, filename: name, reason: errorMessage(err) });
-      }
+      const failure = await this.trashOneFolder(folderId);
+      if (failure) failed.push(failure);
     }
+    const total = assetIds.length + folderIds.length;
     this._busy.set(false);
-    this._resultSummary.set({ total: assetIds.length + folderIds.length, trashed, failed });
-    // Drop everything that actually left the folder from the selection so
-    // the toolbar count doesn't keep counting items the refreshed listing
-    // no longer shows. Real failures stay selected (the item is still
-    // there); `alreadyTrashed` conflicts are pruned too — the goal state
-    // was already reached, the item is gone either way.
-    const stillPresent = new Set(failed.filter((f) => !f.alreadyTrashed).map((f) => f.assetId));
-    this.state.selectedAssetIds.update((prev) => {
-      const next = new Set(prev);
-      for (const id of assetIds) if (!stillPresent.has(id)) next.delete(id);
-      return next;
-    });
-    this.state.selectedFolderIds.update((prev) => {
-      const next = new Set(prev);
-      for (const id of folderIds) if (!stillPresent.has(id)) next.delete(id);
-      return next;
-    });
+    this._resultSummary.set({ total, trashed: total - failed.length, failed });
+    this.pruneTrashedFromSelection(assetIds, folderIds, failed);
     // Re-pull the source folder's listing regardless of outcome — covers
     // both the assets that trashed successfully AND the `alreadyTrashed`
     // conflicts, whose local view was already stale by definition.

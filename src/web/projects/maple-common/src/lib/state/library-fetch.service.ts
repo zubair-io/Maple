@@ -151,7 +151,13 @@ export class LibraryFetch {
    * 3. For each RAW, try to read a .xmp sidecar (culling overrides cache).
    * 4. Populate assets signal + sidebarTree.
    * 5. Store FolderEntry handles for lazy byte reads.
+   *
+   * Complexity is pre-existing and out of scope for #2976 (which touched
+   * only `openSelfHostedSubfolder` in this file) — the Hosted open flow
+   * predates it unchanged; same inherited-finding reasoning as
+   * browse-shell.component.ts's onKeydown suppression (PR #2293).
    */
+  // fallow-ignore-next-line complexity
   async openFolder(folder: MapleFolderHandle): Promise<void> {
     // Detach the previous workspace before doing any asynchronous I/O. If the
     // new handle has lost permission (or enumeration otherwise fails), keeping
@@ -1264,6 +1270,10 @@ export class LibraryFetch {
     }, 500);
   }
 
+  // Complexity is pre-existing and out of scope for #2976 (which touched
+  // only `openSelfHostedSubfolder` in this file) — same inherited-finding
+  // reasoning as browse-shell.component.ts's onKeydown suppression (#2293).
+  // fallow-ignore-next-line complexity
   private async _writeIndex(): Promise<void> {
     const folder = this.store.currentFolder();
     if (!folder?.write || !this.store.folderIndex) return;
