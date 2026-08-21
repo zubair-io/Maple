@@ -156,13 +156,14 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
    * Grid click semantics (#2404 — matches Apple's single-tap-opens model):
    * a plain click selects and navigates to `/view/…`; Cmd/Ctrl-click and
    * Shift-click each mutate the selection (toggle / range-extend) and never
-   * navigate; while Select mode is on, every click toggles membership and
-   * never navigates. Double-click-to-open no longer exists — a plain click
-   * already navigates, so a second click lands on a torn-down component.
+   * navigate; while Select mode is on, a click toggles membership (Shift
+   * still range-extends — #2976) and never navigates. Double-click-to-open
+   * no longer exists — a plain click already navigates, so a second click
+   * lands on a torn-down component.
    */
   onThumbClick(asset: Asset, e: MouseEvent): void {
     if (this.state.isSelecting()) {
-      this.state.selectAsset(asset.id, true, false);
+      this.state.selectAsset(asset.id, !e.shiftKey, e.shiftKey);
       return;
     }
 
@@ -177,7 +178,24 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
     void this.router.navigate(viewRouteCommands(asset.id));
   }
 
-  onFolderTileClick(folder: GridFolderItem): void {
+  /**
+   * Folder tiles share the photo tiles' selection gestures (#2976):
+   * Cmd/Ctrl-click toggles, Shift-click range-extends across the folder
+   * block, and Select mode makes every click a toggle — none of those
+   * navigate. Only a plain click outside Select mode drills in.
+   */
+  onFolderTileClick(folder: GridFolderItem, e: MouseEvent): void {
+    if (this.state.isSelecting()) {
+      this.state.selectFolder(folder.id, !e.shiftKey, e.shiftKey);
+      return;
+    }
+    const additive = e.metaKey || e.ctrlKey;
+    const range = e.shiftKey;
+    if (additive || range) {
+      this.state.selectFolder(folder.id, additive, range);
+      return;
+    }
+
     // Single click drills into the folder — same path the sidebar uses, so
     // selection state, sidebar expansion, and grid contents stay in sync.
     // After M2, folder.id is slug:relPath; derive relPath from it for the first

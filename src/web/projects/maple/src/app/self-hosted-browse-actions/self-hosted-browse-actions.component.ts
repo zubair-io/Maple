@@ -27,20 +27,25 @@ export class SelfHostedBrowseActionsComponent {
   protected readonly canBatchRename = computed(
     () => this.batchRenameEnabled && this.state.selectedCount() >= 1,
   );
+  // Move to… / Move to Trash operate on folders as well as photos (#2976) —
+  // gate and count on the combined total, unlike the photo-only actions above.
   protected readonly canMoveTo = computed(
-    () => this.dragMove.available() && this.state.selectedCount() >= 1,
+    () => this.dragMove.available() && this.state.selectedTotalCount() >= 1,
   );
   protected readonly canTrashSelected = computed(
-    () => this.trash.available() && !this.trash.busy() && this.state.selectedCount() >= 1,
+    () => this.trash.available() && !this.trash.busy() && this.state.selectedTotalCount() >= 1,
   );
 
-  /** Sends the current grid selection to Trash — reversible (the Trash
-   * panel restores it), so unlike permanent delete this needs no
-   * confirmation, matching the Finder/Explorer convention the design doc
-   * calls out for "Delete → Trash → Restore". */
+  /** Sends the current grid selection — photos AND folders (#2976) — to
+   * Trash. Reversible (the Trash panel restores both kinds), so unlike
+   * permanent delete this needs no confirmation, matching the
+   * Finder/Explorer convention the design doc calls out for
+   * "Delete → Trash → Restore". */
   trashSelected(): void {
     const sourceId = this.state.selectedSourceId();
     if (!sourceId) return;
-    this.trash.trashAssets([...this.state.selectedAssetIds()], sourceId);
+    this.trash.trashAssets([...this.state.selectedAssetIds()], sourceId, [
+      ...this.state.selectedFolderIds(),
+    ]);
   }
 }

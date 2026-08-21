@@ -17,6 +17,7 @@
 @if (controller.moveToVisible()) {
   <app-move-to-dialog
     [assetIds]="controller.moveToAssetIds()"
+    [folderIds]="controller.moveToFolderIds()"
     [sourceFolderId]="controller.moveToSourceFolderId()"
     (dismiss)="controller.dismissMoveTo()"
   />

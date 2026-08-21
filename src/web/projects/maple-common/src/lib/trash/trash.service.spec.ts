@@ -1,3 +1,4 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { of, throwError } from 'rxjs';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -5,6 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TrashService } from './trash.service';
 import { TrashApiService } from '../api/trash-api.service';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
+import { FolderCrudService } from '../api/folder-crud.service';
 import { LibraryStateService } from '../state/library-state.service';
 import type { Asset } from '../models/asset';
 import type { ApiFolder } from '../workspace/server-library-io';
@@ -74,8 +76,12 @@ describe('TrashService', () => {
   let restoreAssetSpy: ReturnType<typeof vi.fn>;
   let restoreFolderSpy: ReturnType<typeof vi.fn>;
   let deleteAssetSpy: ReturnType<typeof vi.fn>;
+  let trashFolderSpy: ReturnType<typeof vi.fn>;
   let getAssetDetailsByAddressSpy: ReturnType<typeof vi.fn>;
   let refreshFolderListingSpy: ReturnType<typeof vi.fn>;
+  let loadFolderTreeSpy: ReturnType<typeof vi.fn>;
+  let selectedAssetIds: ReturnType<typeof signal<Set<string>>>;
+  let selectedFolderIds: ReturnType<typeof signal<Set<string>>>;
   let service: TrashService;
 
   function setup() {
@@ -83,7 +89,11 @@ describe('TrashService', () => {
     restoreAssetSpy = vi.fn();
     restoreFolderSpy = vi.fn();
     deleteAssetSpy = vi.fn();
+    trashFolderSpy = vi.fn();
     refreshFolderListingSpy = vi.fn();
+    loadFolderTreeSpy = vi.fn();
+    selectedAssetIds = signal(new Set<string>());
+    selectedFolderIds = signal(new Set<string>());
     // #2841 — resolves a grid selection's `slug:relPath` address to the
     // Mongo id `TrashApiService.deleteAsset` requires, mirroring what
     // `BunApiBackendService.getAssetDetailsByAddress` returns for real.
@@ -104,7 +114,12 @@ describe('TrashService', () => {
       assetsInSelectedFolder: () => [ASSET_A, ASSET_B, ASSET_C_SUBFOLDER],
       refreshFolderListing: refreshFolderListingSpy,
       currentRegisteredFolder: () => LIBRARY,
+      registeredFolders: () => [LIBRARY],
+      loadFolderTree: loadFolderTreeSpy,
+      selectedAssetIds,
+      selectedFolderIds,
     };
+    const fakeFolderCrud = { trashFolder: trashFolderSpy };
 
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
@@ -112,6 +127,7 @@ describe('TrashService', () => {
         TrashService,
         { provide: TrashApiService, useValue: fakeApi },
         { provide: BunApiBackendService, useValue: fakeBunApi },
+        { provide: FolderCrudService, useValue: fakeFolderCrud },
         { provide: LibraryStateService, useValue: fakeState },
       ],
     });
@@ -274,6 +290,66 @@ describe('TrashService', () => {
       await vi.waitFor(() => expect(service.busy()).toBe(false));
       service.dismissSummary();
       expect(service.resultSummary()).toBeNull();
+    });
+
+    it('prunes trashed assets from the selection, keeping real failures selected', async () => {
+      selectedAssetIds.set(new Set([ASSET_A.id, ASSET_B.id]));
+      deleteAssetSpy.mockImplementation((id: string) =>
+        id === MONGO_ID_BY_ADDRESS[ASSET_A.id]
+          ? throwError(() => new Error('locked'))
+          : of({ kind: 'ok' }),
+      );
+      service.trashAssets([ASSET_A.id, ASSET_B.id], LIBRARY_ID);
+      await vi.waitFor(() => expect(service.busy()).toBe(false));
+      expect(selectedAssetIds()).toEqual(new Set([ASSET_A.id]));
+    });
+
+    // ── Folder trash (#2976) ─────────────────────────────────────────────
+
+    it('trashes selected grid folders via POST /folders/:id/trash-folder and refreshes the tree', async () => {
+      selectedFolderIds.set(new Set(['photos:2024/Trip']));
+      trashFolderSpy.mockReturnValue(of({ total: 3, succeeded: 3, failed: 0, items: [] }));
+      service.trashAssets([], LIBRARY_ID, ['photos:2024/Trip']);
+      await vi.waitFor(() => expect(service.busy()).toBe(false));
+
+      expect(trashFolderSpy).toHaveBeenCalledWith(LIBRARY_ID, '2024/Trip');
+      expect(service.resultSummary()).toEqual({ total: 1, trashed: 1, failed: [] });
+      expect(loadFolderTreeSpy).toHaveBeenCalled();
+      expect(refreshFolderListingSpy).toHaveBeenCalledWith(LIBRARY_ID);
+      // The trashed folder is gone — no longer selected.
+      expect(selectedFolderIds()).toEqual(new Set());
+    });
+
+    it('reports a folder whose subtree partially failed as a failure and keeps it selected', async () => {
+      selectedFolderIds.set(new Set(['photos:2024/Trip']));
+      trashFolderSpy.mockReturnValue(of({ total: 3, succeeded: 2, failed: 1, items: [] }));
+      service.trashAssets([], LIBRARY_ID, ['photos:2024/Trip']);
+      await vi.waitFor(() => expect(service.busy()).toBe(false));
+
+      const summary = service.resultSummary();
+      expect(summary?.trashed).toBe(0);
+      expect(summary?.failed).toHaveLength(1);
+      expect(summary?.failed[0].assetId).toBe('photos:2024/Trip');
+      expect(summary?.failed[0].reason).toMatch(/1 of 3/);
+      expect(selectedFolderIds()).toEqual(new Set(['photos:2024/Trip']));
+    });
+
+    it('a mixed batch trashes assets and folders in one summary', async () => {
+      deleteAssetSpy.mockReturnValue(of({ kind: 'ok' }));
+      trashFolderSpy.mockReturnValue(of({ total: 1, succeeded: 1, failed: 0, items: [] }));
+      service.trashAssets([ASSET_A.id], LIBRARY_ID, ['photos:2024/Trip']);
+      await vi.waitFor(() => expect(service.busy()).toBe(false));
+
+      expect(deleteAssetSpy).toHaveBeenCalledTimes(1);
+      expect(trashFolderSpy).toHaveBeenCalledTimes(1);
+      expect(service.resultSummary()).toEqual({ total: 2, trashed: 2, failed: [] });
+    });
+
+    it('a folders-only batch is not a no-op', async () => {
+      trashFolderSpy.mockReturnValue(of({ total: 1, succeeded: 1, failed: 0, items: [] }));
+      service.trashAssets([], LIBRARY_ID, ['photos:2024/Trip']);
+      await vi.waitFor(() => expect(service.busy()).toBe(false));
+      expect(trashFolderSpy).toHaveBeenCalledTimes(1);
     });
   });
 });

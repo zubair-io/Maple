@@ -92,6 +92,7 @@ export class LibraryStateService {
   readonly selectedSourceId = this.selection.selectedSourceId;
   readonly selectedAssetIds = this.selection.selectedAssetIds;
   readonly focusedAssetId = this.selection.focusedAssetId;
+  readonly selectedFolderIds = this.selection.selectedFolderIds;
   readonly selectedSourceLabel = this.selection.selectedSourceLabel;
 
   // ── Thumbnail size (grid density) ─────────────────────────────────────────
@@ -301,6 +302,8 @@ export class LibraryStateService {
   readonly foldersInSelectedFolder = this.selection.foldersInSelectedFolder;
   readonly focusedAsset = this.selection.focusedAsset;
   readonly selectedCount = this.selection.selectedCount;
+  readonly selectedFolderCount = this.selection.selectedFolderCount;
+  readonly selectedTotalCount = this.selection.selectedTotalCount;
 
   // ── Culling mutations (+ trigger debounced index write) ────────────────────
   setRating(id: AssetId, rating: number): void {
@@ -376,6 +379,10 @@ export class LibraryStateService {
   // ── Selection ──────────────────────────────────────────────────────────────
   selectAsset(id: AssetId, additive = false, range = false): void {
     this.selection.selectAsset(id, additive, range);
+  }
+
+  selectFolder(id: string, additive = false, range = false): void {
+    this.selection.selectFolder(id, additive, range);
   }
 
   selectMany(ids: AssetId[]): void {

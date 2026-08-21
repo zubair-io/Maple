@@ -19,6 +19,15 @@ export class LibrarySelection {
   readonly selectedAssetIds = signal<Set<AssetId>>(new Set());
   readonly focusedAssetId = signal<AssetId | null>(null);
 
+  // Grid folder-tile selection (#2976) — folders and photos are selected
+  // through the same gestures but tracked in separate sets because every
+  // downstream consumer cares about the split: photo actions (metadata,
+  // pano, rename) read `selectedAssetIds` only, while Move to… / Move to
+  // Trash operate on both. `focusedFolderId` is the folder range-select
+  // anchor, the folder-side mirror of `focusedAssetId`.
+  readonly selectedFolderIds = signal<Set<string>>(new Set());
+  readonly focusedFolderId = signal<string | null>(null);
+
   // ── In-grid search query (filename substring filter) ──────────────────────
   // Ephemeral — does NOT persist. Lives next to the rest of the selection
   // signals because the toolbar input narrows the visible asset/folder set
@@ -113,6 +122,11 @@ export class LibrarySelection {
   });
 
   readonly selectedCount = computed(() => this.selectedAssetIds().size);
+  readonly selectedFolderCount = computed(() => this.selectedFolderIds().size);
+  /** Photos + folders — what the toolbar's "N selected" and the Move to… /
+   * Move to Trash buttons count; photo-only actions keep reading
+   * `selectedCount`. */
+  readonly selectedTotalCount = computed(() => this.selectedCount() + this.selectedFolderCount());
 
   // ── Selection mutations ───────────────────────────────────────────────────
 
@@ -135,13 +149,58 @@ export class LibrarySelection {
         this.selectedAssetIds.set(new Set([id]));
       }
     } else {
+      // Plain click replaces the ENTIRE selection, folders included —
+      // additive/range gestures extend one kind while leaving the other
+      // alone, so a mixed photos+folders selection stays possible.
       this.selectedAssetIds.set(new Set([id]));
+      this.selectedFolderIds.set(new Set());
     }
     this.focusedAssetId.set(id);
   }
 
+  /** Folder-tile counterpart of `selectAsset` (#2976): same
+   * plain/additive/range contract, ranged over `foldersInSelectedFolder()`
+   * (folders render as one contiguous Finder-style block at the top of the
+   * grid, so a folder range never needs to span photos). */
+  selectFolder(id: string, additive = false, range = false): void {
+    if (additive) {
+      this.selectedFolderIds.update((prev) => {
+        const next = new Set(prev);
+        next.has(id) ? next.delete(id) : next.add(id);
+        return next;
+      });
+    } else if (range) {
+      const list = this.foldersInSelectedFolder();
+      const focused = this.focusedFolderId();
+      const endIdx = list.findIndex((f) => f.id === id);
+      const startIdx = focused ? list.findIndex((f) => f.id === focused) : -1;
+      if (startIdx !== -1 && endIdx !== -1) {
+        const [lo, hi] = [Math.min(startIdx, endIdx), Math.max(startIdx, endIdx)];
+        this.selectedFolderIds.set(new Set(list.slice(lo, hi + 1).map((f) => f.id)));
+      } else {
+        this.selectedFolderIds.set(new Set([id]));
+      }
+    } else {
+      this.selectedFolderIds.set(new Set([id]));
+      this.selectedAssetIds.set(new Set());
+    }
+    this.focusedFolderId.set(id);
+  }
+
   clearSelection(): void {
     this.selectedAssetIds.set(new Set());
+    this.selectedFolderIds.set(new Set());
+  }
+
+  /** Navigating to a different folder invalidates everything the selection
+   * pointed at — the sets AND the range anchors (a stale anchor from the
+   * previous folder would make the next shift-click fall back to
+   * single-select, which is correct but only by accident; clear it so the
+   * behavior is deliberate). */
+  resetForSourceChange(): void {
+    this.clearSelection();
+    this.focusedAssetId.set(null);
+    this.focusedFolderId.set(null);
   }
 
   /** Select several assets at once (#2650 — "Browse with selection" after a

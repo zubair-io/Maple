@@ -53,6 +53,9 @@ import { MoveToTreePickerComponent } from './move-to-tree-picker.component';
 })
 export class MoveToDialogComponent {
   readonly assetIds = input.required<AssetId[]>();
+  /** Grid sub-folders to move alongside the assets (#2976) — `slug:relPath`
+   * addresses under `sourceFolderId`. Same queue, same summary banner. */
+  readonly folderIds = input<string[]>([]);
   readonly sourceFolderId = input.required<string>();
 
   readonly dismiss = output<void>();
@@ -78,7 +81,13 @@ export class MoveToDialogComponent {
   onConfirm(): void {
     const target = this.selectedNode();
     if (!target) return;
-    this.dragMove.beginMove(this.assetIds(), this.sourceFolderId(), target, 'move');
+    this.dragMove.beginMove(
+      this.assetIds(),
+      this.sourceFolderId(),
+      target,
+      'move',
+      this.folderIds(),
+    );
     this.dismiss.emit();
   }
 
