@@ -342,3 +342,43 @@ describe('trashAssetById / restoreAssetById — cross-library derivation (#2695 
     expect(restoredEntry?.path).toBe('sub');
   });
 });
+
+describe('reaped rows (#2977)', () => {
+  test('restore of a reaped asset fails cleanly without touching disk', async () => {
+    if (!client) return;
+    // A reaped row: soft-deleted by the missing-reaper, no trashed copy.
+    // The file quietly RETURNED to the stored path — restore must still
+    // refuse (revive is discover's job) and must not move/unlink anything.
+    const abs = await write('sub/back.dng', 'returned-bytes');
+    const id = new ObjectId();
+    await db!.collection('assets').insertOne({
+      _id: id,
+      fileinfo: [
+        {
+          path: 'sub',
+          filename: 'back.dng',
+          library_id: folderId,
+          deleted_at: null,
+          missing_since: '2026-08-01T00:00:00.000Z',
+        },
+      ],
+      deleted_at: '2026-08-10T00:00:00.000Z',
+      deleted_reason: 'reaped',
+      size: 1,
+      mtime: 0,
+      rating: 0,
+      flag: 0,
+      color_label: '',
+      indexed_at: '2026-08-01T00:00:00.000Z',
+    } as never);
+
+    const outcome = await restoreAssetById(id);
+    expect(outcome.kind).toBe('error');
+    expect((outcome as { error?: string }).error).toContain('removed from disk');
+    // Row untouched, file untouched.
+    const row = await fetchAssetRow(db!, id);
+    expect(row.deleted_at).toBe('2026-08-10T00:00:00.000Z');
+    expect(await read('sub/back.dng')).toBe('returned-bytes');
+    void abs;
+  });
+});
