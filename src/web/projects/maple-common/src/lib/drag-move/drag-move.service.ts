@@ -26,10 +26,11 @@
 
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { BunApiBackendService, type ApiCollisionPolicy } from '../api/bun-api-backend.service';
+import { FolderCrudService } from '../api/folder-crud.service';
 import { LibraryStateService } from '../state/library-state.service';
 import type { AssetId } from '../models/asset';
 import type { SidebarEntry } from '../models/folder';
-import { parseAddress } from '../addressing/maple-address';
+import { childAddress, parseAddress } from '../addressing/maple-address';
 import { errorMessage } from '../util/errors';
 import type {
   DragMoveCapability,
@@ -38,14 +39,18 @@ import type {
 } from './drag-move-capability';
 import type { DragMoveItemFailure, DragMoveMode, DragMoveSummary } from './drag-move.types';
 
-interface QueueItem {
-  assetId: AssetId;
-  filename: string;
-}
+// One entry in the relocate queue (#2976 added folders): an asset goes
+// through `POST /assets/:id/relocate`, a folder through
+// `POST /folders/:id/move`. Both are addressed as `slug:relPath`, both
+// report into the same partial-failure summary.
+type QueueItem =
+  | { kind: 'asset'; assetId: AssetId; filename: string }
+  | { kind: 'folder'; folderId: string; name: string; sourceRelPath: string };
 
 @Injectable({ providedIn: 'root' })
 export class DragMoveService implements DragMoveCapability {
   private readonly api = inject(BunApiBackendService);
+  private readonly folderCrud = inject(FolderCrudService);
   private readonly state = inject(LibraryStateService);
 
   readonly available = computed(() => this.state.backend === 'self-hosted');
@@ -99,6 +104,7 @@ export class DragMoveService implements DragMoveCapability {
     sourceFolderId: string,
     targetNode: SidebarEntry,
     mode: DragMoveMode,
+    folderIds: string[] = [],
   ): void {
     if (this.busy()) return;
     if (this.dropDisabledReason(targetNode, sourceFolderId)) return;
@@ -111,9 +117,30 @@ export class DragMoveService implements DragMoveCapability {
       .filter(
         (a): a is NonNullable<typeof a> => !!a && a.id.includes(':') && !a.id.startsWith('fs:'),
       );
-    if (assets.length === 0) return;
 
-    this.queue = assets.map((a) => ({ assetId: a.id, filename: a.filename }));
+    // Grid sub-folders (#2976). Move-mode only — the capability doc rules
+    // folders out of copy (no recursive-copy server primitive), and the one
+    // folder-passing caller (the "Move to…" dialog) is move-only anyway.
+    const folders =
+      mode === 'move'
+        ? folderIds
+            .map((id) => this.state.gridFolders().find((f) => f.id === id))
+            .filter(
+              (f): f is NonNullable<typeof f> =>
+                !!f && f.id.includes(':') && !f.id.startsWith('fs:'),
+            )
+        : [];
+    if (assets.length === 0 && folders.length === 0) return;
+
+    this.queue = [
+      ...assets.map<QueueItem>((a) => ({ kind: 'asset', assetId: a.id, filename: a.filename })),
+      ...folders.map<QueueItem>((f) => ({
+        kind: 'folder',
+        folderId: f.id,
+        name: f.name,
+        sourceRelPath: parseAddress(f.id).relPath,
+      })),
+    ];
     this.mode = mode;
     this.destinationRelPath = parseAddress(targetNode.id).relPath;
     this.destinationLabel = targetNode.label;
@@ -152,6 +179,10 @@ export class DragMoveService implements DragMoveCapability {
       this._finish();
       return;
     }
+    if (item.kind === 'folder') {
+      this._processFolderHead(item);
+      return;
+    }
     this.api.relocateAsset(item.assetId, this.mode, collision, this.destinationRelPath).subscribe({
       next: (outcome) => {
         if (outcome.kind === 'skipped') {
@@ -177,6 +208,54 @@ export class DragMoveService implements DragMoveCapability {
         this.queue.shift();
         this._processHead('skip');
       },
+    });
+  }
+
+  /** Move one grid sub-folder via `POST /folders/:id/move` (#2976). Unlike
+   * the asset path there is no collision PROMPT: a directory has no
+   * Replace ("merge or clobber?" is ambiguous) or Keep Both semantics —
+   * same reasoning `folder-tree-crud.component.ts`'s rename collision
+   * handling documents — so a 409 records a per-item failure and the queue
+   * moves on. */
+  private _processFolderHead(item: Extract<QueueItem, { kind: 'folder' }>): void {
+    const fail = (reason: string): void => {
+      this.failed.push({ assetId: item.folderId, filename: item.name, reason });
+      this.queue.shift();
+      this._processHead('skip');
+    };
+
+    // Destination inside the folder being moved (itself or a descendant) —
+    // the rename syscall would fail anyway; fail fast with a clear reason.
+    const dest = this.destinationRelPath;
+    if (dest === item.sourceRelPath || dest.startsWith(`${item.sourceRelPath}/`)) {
+      fail("Can't move a folder into itself.");
+      return;
+    }
+
+    // Same registered-library lookup `folder-tree-crud.component.ts`'s
+    // `resolveLibraryId` uses — `/folders/:id/*` routes address the library
+    // by its Mongo id, not its slug.
+    const addr = parseAddress(item.folderId);
+    const library = this.state
+      .registeredFolders()
+      .find((f) => f.slug === addr.slug || f.id === addr.slug);
+    if (!library) {
+      fail('Could not resolve this library — try reloading.');
+      return;
+    }
+
+    const targetRelPath = childAddress(parseAddress(this.destinationFolderId), item.name).relPath;
+    this.folderCrud.move(library.id, item.sourceRelPath, targetRelPath).subscribe({
+      next: (outcome) => {
+        if (outcome.kind === 'collision') {
+          fail(`"${item.name}" already exists in the destination.`);
+          return;
+        }
+        this.moved++;
+        this.queue.shift();
+        this._processHead('skip');
+      },
+      error: (err: unknown) => fail(errorMessage(err)),
     });
   }
 

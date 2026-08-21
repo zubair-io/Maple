@@ -24,6 +24,7 @@ export class SelfHostedBrowseController {
   readonly batchRenameSelections = signal<BatchRenameSelection[]>([]);
   readonly moveToVisible = signal(false);
   readonly moveToAssetIds = signal<AssetId[]>([]);
+  readonly moveToFolderIds = signal<string[]>([]);
   readonly moveToSourceFolderId = signal<string>('');
 
   constructor() {
@@ -132,10 +133,17 @@ export class SelfHostedBrowseController {
   // ── Move to… (#2644 keyboard-reachable drag-move equivalent) ───────────
 
   openMoveTo(): void {
-    const assets = this.selectedAssetsOrNull();
+    const assets = this.selectedAssetsOrNull() ?? [];
+    // Selected grid folders (#2976) ride along in the same move queue,
+    // resolved against the live folder list the same way assets are.
+    const selectedFolders = this.state.selectedFolderIds();
+    const folders = this.state
+      .foldersInSelectedFolder()
+      .filter((folder) => selectedFolders.has(folder.id));
     const sourceId = this.state.selectedSourceId();
-    if (!assets || !sourceId) return;
+    if ((assets.length === 0 && folders.length === 0) || !sourceId) return;
     this.moveToAssetIds.set(assets.map((asset) => asset.id));
+    this.moveToFolderIds.set(folders.map((folder) => folder.id));
     this.moveToSourceFolderId.set(sourceId);
     this.moveToVisible.set(true);
   }
@@ -148,6 +156,7 @@ export class SelfHostedBrowseController {
   dismissMoveTo(): void {
     this.moveToVisible.set(false);
     this.moveToAssetIds.set([]);
+    this.moveToFolderIds.set([]);
     this.moveToSourceFolderId.set('');
   }
 }

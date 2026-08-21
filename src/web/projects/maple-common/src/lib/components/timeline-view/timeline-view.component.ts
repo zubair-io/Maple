@@ -498,13 +498,14 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
    * onThumbClick so Folder and Timeline mode behave identically: a plain
    * click selects and navigates to `/view/…`; Cmd/Ctrl-click and
    * Shift-click each mutate the selection and never navigate; while Select
-   * mode is on, every click toggles membership and never navigates.
+   * mode is on, a click toggles membership (Shift still range-extends —
+   * #2976) and never navigates.
    */
   onPhotoClick(p: PhotoVm, e: MouseEvent): void {
     this._hydrate(p);
 
     if (this.state.isSelecting()) {
-      this.state.selectAsset(p.id, true, false);
+      this.state.selectAsset(p.id, !e.shiftKey, e.shiftKey);
       return;
     }
 

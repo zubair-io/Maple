@@ -4,9 +4,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { DragMoveService } from './drag-move.service';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
+import { FolderCrudService } from '../api/folder-crud.service';
 import { LibraryStateService } from '../state/library-state.service';
 import type { Asset } from '../models/asset';
-import type { SidebarEntry } from '../models/folder';
+import type { GridFolderItem, SidebarEntry } from '../models/folder';
 
 const SOURCE_FOLDER_ID = 'library:2026';
 
@@ -39,6 +40,24 @@ const TARGET_NODE: SidebarEntry = {
   count: null,
 };
 
+// Grid sub-folders under SOURCE_FOLDER_ID (#2976 folder move).
+const FOLDER_TRIPS: GridFolderItem = {
+  id: 'library:2026/Trips',
+  name: 'Trips',
+  parentSourceId: SOURCE_FOLDER_ID,
+  aspectRatio: 1,
+};
+
+const REGISTERED_LIBRARY = {
+  id: 'lib-mongo-id',
+  path: '/photos',
+  slug: 'library',
+  label: 'Library',
+  last_scan: null,
+  file_count: 0,
+  created_at: '',
+};
+
 const NON_FOLDER_NODE: SidebarEntry = {
   kind: 'smart',
   id: 'smart:picks',
@@ -48,6 +67,7 @@ const NON_FOLDER_NODE: SidebarEntry = {
 
 describe('DragMoveService', () => {
   let relocateAssetSpy: ReturnType<typeof vi.fn>;
+  let folderMoveSpy: ReturnType<typeof vi.fn>;
   let refreshFolderListingSpy: ReturnType<typeof vi.fn>;
   let loadFolderTreeSpy: ReturnType<typeof vi.fn>;
   let clearSelectionSpy: ReturnType<typeof vi.fn>;
@@ -55,14 +75,18 @@ describe('DragMoveService', () => {
 
   function setup(opts: { backend?: 'self-hosted' | 'hosted' } = {}) {
     relocateAssetSpy = vi.fn();
+    folderMoveSpy = vi.fn();
     refreshFolderListingSpy = vi.fn();
     loadFolderTreeSpy = vi.fn();
     clearSelectionSpy = vi.fn();
 
     const fakeApi = { relocateAsset: relocateAssetSpy };
+    const fakeFolderCrud = { move: folderMoveSpy };
     const fakeState = {
       backend: opts.backend ?? 'self-hosted',
       assets: () => [ASSET_A, ASSET_B],
+      gridFolders: () => [FOLDER_TRIPS],
+      registeredFolders: () => [REGISTERED_LIBRARY],
       refreshFolderListing: refreshFolderListingSpy,
       loadFolderTree: loadFolderTreeSpy,
       clearSelection: clearSelectionSpy,
@@ -73,6 +97,7 @@ describe('DragMoveService', () => {
       providers: [
         DragMoveService,
         { provide: BunApiBackendService, useValue: fakeApi },
+        { provide: FolderCrudService, useValue: fakeFolderCrud },
         { provide: LibraryStateService, useValue: fakeState },
       ],
     });
@@ -277,6 +302,84 @@ describe('DragMoveService', () => {
     service.beginMove([ASSET_B.id], SOURCE_FOLDER_ID, TARGET_NODE, 'move');
     // Still the FIRST asset's collision prompt — the second call was a no-op.
     expect(service.collisionPrompt()).toEqual({ filename: ASSET_A.filename });
+  });
+
+  // ── Folder move (#2976) ──────────────────────────────────────────────────
+
+  it('moves a selected grid folder via POST /folders/:id/move into a child of the target', () => {
+    folderMoveSpy.mockReturnValue(
+      of({ kind: 'ok', result: { abs_path: '/photos/2026/France/Trips' } }),
+    );
+    service.beginMove([], SOURCE_FOLDER_ID, TARGET_NODE, 'move', [FOLDER_TRIPS.id]);
+
+    expect(folderMoveSpy).toHaveBeenCalledWith('lib-mongo-id', '2026/Trips', '2026/France/Trips');
+    expect(service.resultSummary()).toEqual({
+      mode: 'move',
+      targetLabel: 'France',
+      total: 1,
+      moved: 1,
+      skipped: 0,
+      failed: [],
+    });
+    expect(clearSelectionSpy).toHaveBeenCalled();
+    expect(loadFolderTreeSpy).toHaveBeenCalled();
+  });
+
+  it('a folder-move 409 collision is a per-item failure, not a Skip/Replace prompt', () => {
+    folderMoveSpy.mockReturnValue(of({ kind: 'collision' }));
+    service.beginMove([], SOURCE_FOLDER_ID, TARGET_NODE, 'move', [FOLDER_TRIPS.id]);
+
+    expect(service.collisionPrompt()).toBeNull();
+    const summary = service.resultSummary();
+    expect(summary?.moved).toBe(0);
+    expect(summary?.failed).toEqual([
+      {
+        assetId: FOLDER_TRIPS.id,
+        filename: 'Trips',
+        reason: '"Trips" already exists in the destination.',
+      },
+    ]);
+  });
+
+  it('refuses to move a folder into itself or its own descendant', () => {
+    const insideTrips: SidebarEntry = {
+      kind: 'folder',
+      id: 'library:2026/Trips/Japan',
+      label: 'Japan',
+      count: null,
+    };
+    service.beginMove([], SOURCE_FOLDER_ID, insideTrips, 'move', [FOLDER_TRIPS.id]);
+
+    expect(folderMoveSpy).not.toHaveBeenCalled();
+    expect(service.resultSummary()?.failed).toEqual([
+      { assetId: FOLDER_TRIPS.id, filename: 'Trips', reason: "Can't move a folder into itself." },
+    ]);
+  });
+
+  it('copy mode ignores folders — no recursive-copy server primitive', () => {
+    service.beginMove([], SOURCE_FOLDER_ID, TARGET_NODE, 'copy', [FOLDER_TRIPS.id]);
+
+    expect(folderMoveSpy).not.toHaveBeenCalled();
+    expect(service.busy()).toBe(false);
+    expect(service.resultSummary()).toBeNull();
+  });
+
+  it('a mixed drop relocates the assets and moves the folders in one queue', () => {
+    relocateAssetSpy.mockReturnValue(
+      of({
+        kind: 'relocated',
+        newAbsPath: '/x',
+        newPath: 'France',
+        newFilename: 'IMG_0001.CR3',
+        renamedOnCollision: false,
+      }),
+    );
+    folderMoveSpy.mockReturnValue(of({ kind: 'ok', result: { abs_path: '/x/Trips' } }));
+    service.beginMove([ASSET_A.id], SOURCE_FOLDER_ID, TARGET_NODE, 'move', [FOLDER_TRIPS.id]);
+
+    expect(relocateAssetSpy).toHaveBeenCalledTimes(1);
+    expect(folderMoveSpy).toHaveBeenCalledTimes(1);
+    expect(service.resultSummary()).toMatchObject({ total: 2, moved: 2, failed: [] });
   });
 
   it('dismissSummary clears the completed-drop summary banner', () => {

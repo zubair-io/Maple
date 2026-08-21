@@ -50,8 +50,11 @@ export interface TrashCapability {
   /** Send `assetIds` (currently viewed under `sourceFolderId`) to Trash —
    * the grid's "Move to Trash" toolbar action calls this today; a Delete-
    * key shortcut (#2752, not yet implemented) will call the same method
-   * once it lands. No-op while a previous batch is still in flight. */
-  trashAssets(assetIds: AssetId[], sourceFolderId: string): void;
+   * once it lands. `folderIds` (#2976) additionally sends whole grid
+   * sub-folders to Trash via `POST /folders/:id/trash-folder` (recursive,
+   * reversible via the Trash panel's folder restore), reported in the same
+   * summary. No-op while a previous batch is still in flight. */
+  trashAssets(assetIds: AssetId[], sourceFolderId: string, folderIds?: string[]): void;
   /** Dismiss the completed-batch summary banner. */
   dismissSummary(): void;
 }

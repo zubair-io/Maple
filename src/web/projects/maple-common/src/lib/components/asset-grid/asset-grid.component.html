@@ -101,8 +101,8 @@
   <div class="w-px h-5 bg-border"></div>
 
   <span class="font-mono text-[10px] text-text-muted tabular-nums whitespace-nowrap">
-    @if (state.selectedCount() > 0) {
-      {{ state.selectedCount() }} selected
+    @if (state.selectedTotalCount() > 0) {
+      {{ state.selectedTotalCount() }} selected
     } @else {
       @let folderCount = state.foldersInSelectedFolder().length;
       @let photoCount = state.assetsInSelectedFolder().length;
@@ -155,7 +155,8 @@
           } @else {
             <maple-folder-tile
               [folder]="item.folder"
-              (folderClick)="onFolderTileClick(item.folder)"
+              [selected]="state.selectedFolderIds().has(item.folder.id)"
+              (folderClick)="onFolderTileClick(item.folder, $event)"
             />
           }
         </div>
