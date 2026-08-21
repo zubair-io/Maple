@@ -43,7 +43,7 @@ describe('frontier.repo', () => {
     expect(a?.dir_path).toBe('/srv/photos/Library');
     expect(b).toBeNull(); // already claimed (lease held)
 
-    await repo.enqueueDirs(folder, ['/srv/photos/Library/2024'], 1);
+    await repo.enqueueDirs(folder, ['/srv/photos/Library/2024'], 1, false);
     expect(await repo.remainingForGen(folder, 1)).toBe(2); // root (claimed) + child
 
     await repo.completeDir(a!._id);
