@@ -95,6 +95,39 @@ export interface FfiPoolStats {
   queued: number;
 }
 
+/** Operator knobs for the daily generated-search run
+ * (GET/PATCH /api/workers/generated-search/config). Mirrors
+ * `GeneratedSearchConfig` in src/api/src/workers/generated-search/config.repo.ts.
+ *
+ * The worker ships PAUSED — it needs Ollama configured, and a paused start
+ * keeps a fresh install from publishing LLM-invented collections to a widget
+ * before an operator has looked at them. Clearing `paused` is what turns the
+ * feature on. */
+export interface GeneratedSearchConfig {
+  collections_per_day: number;
+  min_results: number;
+  max_rounds: number;
+  retention_days: number;
+  /** Empty string means "inherit the describe stage's model". */
+  model: string;
+  paused: boolean;
+  /** Run the whole loop and log what it WOULD save, writing nothing. */
+  dry_run: boolean;
+}
+
+/** One collection card from GET /api/generated-searches. `query` rides along
+ * so the settings page can deep-link into /search with the same filters. */
+export interface GeneratedSearchCard {
+  id: string;
+  theme: string;
+  title: string;
+  subtitle: string | null;
+  query: Record<string, string>;
+  result_count: number;
+  cover_asset_id: string | null;
+  generated_for: string;
+}
+
 /** Effective performance config + clamp bounds + live pool state. */
 export interface PerformanceConfig {
   /** Effective RAW decode-worker count, clamped to [min, max]. */
@@ -259,6 +292,31 @@ export class WorkersApiService {
     return this.http.patch<{ ok: boolean; state: MigrationState }>(
       `${this.base}/workers/migration/migrations/${encodeURIComponent(id)}`,
       { reset: true },
+    );
+  }
+
+  /** Current generated-search knobs. */
+  getGeneratedSearchConfig(): Observable<GeneratedSearchConfig> {
+    return this.http.get<GeneratedSearchConfig>(`${this.base}/workers/generated-search/config`);
+  }
+
+  /** Partial edit; the server clamps out-of-range values rather than
+   * rejecting them, and answers with the stored result. */
+  patchGeneratedSearchConfig(
+    patch: Partial<GeneratedSearchConfig>,
+  ): Observable<{ ok: boolean; config: GeneratedSearchConfig }> {
+    return this.http.patch<{ ok: boolean; config: GeneratedSearchConfig }>(
+      `${this.base}/workers/generated-search/config`,
+      patch,
+    );
+  }
+
+  /** The most recent day's collections for a library. Omitting `date` asks
+   * for the latest day that produced anything, so a late or empty run shows
+   * yesterday's set rather than an empty panel. */
+  getGeneratedSearches(libraryId: string): Observable<{ results: GeneratedSearchCard[] }> {
+    return this.http.get<{ results: GeneratedSearchCard[] }>(
+      `${this.base}/generated-searches?libraryId=${encodeURIComponent(libraryId)}`,
     );
   }
 }
