@@ -1,16 +1,14 @@
 /**
  * Discover producer — event handler.
  *
- * Owns the per-event logic that the chokidar watcher fires into:
+ * Owns the per-event logic every discovery producer funnels into (sweep,
+ * imports hand-off, browse indexing, pano on-demand, folder walkers):
  *   - removed → soft-delete the matching row
  *   - renamed → rewrite `fileinfo[N]` in place
  *   - created/modified → hash the file, dedup by `maple_id`, insert-or-append
  *
- * Lifted out of `index.ts` to keep the entry-point thin; the watcher wiring
- * in `startDiscover` calls `handleEvent` once per debounced event.
- *
- * Exported so integration tests can simulate events without waiting for the
- * watcher's polling interval. See `discover.test.ts`.
+ * Lifted out of `index.ts` to keep the entry-point thin. Exported so
+ * integration tests can drive events directly. See `discover.test.ts`.
  */
 import * as path from 'node:path';
 import { ObjectId } from 'mongodb';
@@ -23,19 +21,17 @@ import { hashFileForId } from '../../indexer/id.ts';
 import { liveFileInfoElemMatch, updateLiveLocationCount } from '../../indexer/images.repo.ts';
 import { directoryHasKeepFile } from '../../fs/duplicates.ts';
 import { libraryRootAvailable, statKind } from '../missing-reaper.helpers.ts';
-import { buildFileinfoEntry, isInsideDuplicatesDir, isInsideMapleCache } from './types.ts';
+import { buildFileinfoEntry } from './types.ts';
+import { refusesReservedTreeEvent } from './reserved-trees.ts';
 import { MEILI_REARM_SET } from '../../people/people-search-reindex.ts';
 
 const log = child('discover');
 
 /**
- * Exported for integration tests — allows tests to simulate events without
- * waiting for chokidar's polling interval (60s/300s in production config).
- *
  * `libraryRoot` is the absolute filesystem path of the library that owns
  * `folderId`. The supervisor caches this from the folders collection at
  * boot (see `startDiscover`) so handleEvent doesn't pay a Mongo round-trip
- * per FS event. Tests that drive `handleEvent` directly must pass it.
+ * per event. Tests that drive `handleEvent` directly must pass it.
  */
 export async function handleEvent(
   event: WatchEvent,
@@ -44,36 +40,9 @@ export async function handleEvent(
 ): Promise<void> {
   const { kind, absPath, fromPath } = event;
 
-  // Defense-in-depth: refuse any event whose absPath lives inside our own
-  // derivative cache. The sweeper filters `.maple/` at directory-walk time,
-  // so this branch should never fire in practice — but if a future event
-  // source (re-introduced watcher, manual enqueue, etc.) forgets to filter,
-  // refusing here keeps the bug local instead of letting it poison the
-  // assets collection. See the issue/PR that introduced this guard for the
-  // recursive `.maple/.maple/…` failure mode it prevents.
-  if (isInsideMapleCache(libraryRoot, absPath)) {
-    log.warn({ libraryRoot, absPath, kind }, 'event inside .maple cache — refusing');
-    return;
-  }
-  if (kind === 'renamed' && fromPath && isInsideMapleCache(libraryRoot, fromPath)) {
-    log.warn({ libraryRoot, fromPath, kind }, 'rename from .maple cache — refusing');
-    return;
-  }
-
-  // Same chokepoint guard for the DeDuplicate quarantine: indexing a
-  // `_duplicates/` copy re-attaches it to the asset it was split from and the
-  // next dedupe pass nests it under `_duplicates/_duplicates/…` (see
-  // `isInsideDuplicatesDir`). The sweeper already skips the tree; this catches
-  // every other producer (imports hand-off, browse indexing, pano on-demand,
-  // folder walkers).
-  if (isInsideDuplicatesDir(libraryRoot, absPath)) {
-    log.warn({ libraryRoot, absPath, kind }, 'event inside _duplicates quarantine — refusing');
-    return;
-  }
-  if (kind === 'renamed' && fromPath && isInsideDuplicatesDir(libraryRoot, fromPath)) {
-    log.warn({ libraryRoot, fromPath, kind }, 'rename from _duplicates quarantine — refusing');
-    return;
-  }
+  // Reserved trees (`.maple/` cache, `_duplicates/` quarantine) must never be
+  // indexed, whatever the producer — see `reserved-trees.ts` for why.
+  if (refusesReservedTreeEvent(event, libraryRoot)) return;
 
   const coll = await assetsCollection();
 

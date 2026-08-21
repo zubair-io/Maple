@@ -8,7 +8,6 @@
  */
 import * as path from 'node:path';
 import type { ObjectId } from 'mongodb';
-import { DUPLICATES_DIR_NAME } from '../../fs/duplicates.ts';
 
 export interface DiscoverOptions {
   /** Absolute paths to watch. One path per registered folder root. */
@@ -108,39 +107,6 @@ export const SUPPORTED_EXTS = new Set([
 export function toPosixRelDir(relDir: string): string {
   if (relDir === '' || relDir === '.') return '';
   return relDir.split(path.sep).join('/');
-}
-
-/**
- * Reject absPaths that live inside our own derivative cache. The sweeper
- * filters `.maple/` at directory-walk time (see `sweeper.ts`), so under
- * normal operation handleEvent never sees one of these paths. The check
- * here is defense-in-depth: a future event producer that forgets to
- * filter cannot poison the assets collection with phantom rows whose
- * thumb/preview outputs would land one `.maple/` deeper than themselves
- * and re-feed the indexer next sweep — the recursion that produced
- * `.maple/previews/.maple/previews/.maple/thumbs/…/<hash>.jpg`.
- */
-export function isInsideMapleCache(libraryRoot: string, absPath: string): boolean {
-  const rel = path.relative(libraryRoot, absPath);
-  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return false;
-  return rel.split(path.sep).includes('.maple');
-}
-
-/**
- * Reject absPaths that live inside the DeDuplicate quarantine
- * (`_duplicates/` — see `fs/duplicates.ts`). The sweeper filters it at
- * directory-walk time, but handleEvent is also fed by the imports hand-off,
- * browse-triggered indexing, the pano on-demand path, and the folder
- * walkers. Indexing a quarantined copy re-attaches it (content-dedup) to
- * the very asset it was split from, and the next dedupe pass then nests it
- * under `_duplicates/_duplicates/…` — so refuse at the chokepoint, same as
- * the `.maple` guard above. Segment match at any depth, mirroring the
- * sweeper's skip.
- */
-export function isInsideDuplicatesDir(libraryRoot: string, absPath: string): boolean {
-  const rel = path.relative(libraryRoot, absPath);
-  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return false;
-  return rel.split(path.sep).includes(DUPLICATES_DIR_NAME);
 }
 
 /**
