@@ -4,6 +4,10 @@
  *   1. Unlink the file at `abs_path` (already in .maple/trash/...).
  *   2. Unlink every paired sidecar.
  *   3. Delete the asset doc from Mongo.
+ * EXCEPT reaped rows (`deleted_reason: 'reaped'`, #2977): those have no
+ * trashed copy — steps 1–2 are skipped entirely and the purge is a pure
+ * DB delete, so a file that quietly returned to the original location can
+ * never be unlinked by this sweep.
  *
  * Idempotent. Best-effort on per-file failures: a failed unlink is logged
  * and the asset doc is still deleted so subsequent runs don't keep
@@ -51,7 +55,7 @@ export async function runTrashGcOnce(opts: TrashGcOptions = {}): Promise<TrashGc
   // written (`deleted_at: null` on every fresh skeleton row).
   const cursor = coll.find(
     { deleted_at: { $type: 'string', $lt: cutoffIso, $ne: null } },
-    { projection: { _id: 1, fileinfo: 1 } },
+    { projection: { _id: 1, fileinfo: 1, deleted_reason: 1 } },
   );
   let libs: ReadonlyMap<string, string>;
   try {
@@ -64,6 +68,15 @@ export async function runTrashGcOnce(opts: TrashGcOptions = {}): Promise<TrashGc
   let errors = 0;
   for await (const doc of cursor) {
     scanned++;
+    // A reaped row (#2977) has NO trashed file copy — its fileinfo paths
+    // point at ORIGINAL library locations, where a file may have quietly
+    // returned without a revive having run yet. Never touch disk for these:
+    // purge is a pure DB delete. (Orphaned previews are cache-gc's job.)
+    if ((doc as { deleted_reason?: string | null }).deleted_reason === 'reaped') {
+      await coll.deleteOne({ _id: doc._id });
+      purged++;
+      continue;
+    }
     const absPath = assetAbsPath(doc, libs);
     if (!absPath) {
       log.warn({ _id: doc._id?.toHexString?.() }, 'purge skip — asset has no resolvable location');

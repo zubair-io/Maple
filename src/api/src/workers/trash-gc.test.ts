@@ -194,4 +194,85 @@ describe('trash-gc sweeper query plan', () => {
     const names = remaining.map((r) => r.fileinfo?.[0]?.filename).sort();
     expect(names).toEqual(['live.jpg', 'new.jpg']);
   });
+
+  it('purges a reaped row past retention WITHOUT touching the file at its stored path (#2977)', async () => {
+    if (!mongoReachable) return;
+
+    const dir = mkdtempSync(join(tmpdir(), 'maple-trash-gc-reaped-'));
+    const oldIso = new Date(Date.now() - 31 * 86_400_000).toISOString();
+
+    // The photo quietly RETURNED to its original location after the reap
+    // (no revive ran yet). The purge must be a pure DB delete — a reaped
+    // row has no trashed copy, and its fileinfo paths point at ORIGINAL
+    // library locations that may hold a real photo again.
+    const backPath = join(dir, 'back.jpg');
+    const sidecarPath = join(dir, 'back.xmp');
+    writeFileSync(backPath, 'real-photo-bytes');
+    writeFileSync(sidecarPath, '<xmp/>');
+
+    const { foldersCollection } = await import('../db/client.ts');
+    const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
+    invalidateLibraryRoots();
+    const foldersColl = await foldersCollection();
+    const libraryId = await foldersColl
+      .insertOne({
+        path: dir,
+        label: 'trash-gc-reaped-test',
+        last_scan: null,
+        file_count: 0,
+        created_at: '2026-05-11T00:00:00Z',
+      } as never)
+      .then((r) => r.insertedId);
+    await db!.collection('assets').insertOne({
+      size: 1,
+      mtime: 0,
+      rating: 0,
+      flag: 0,
+      color_label: '',
+      indexed_at: '2026-05-11T00:00:00Z',
+      fileinfo: [
+        {
+          path: '',
+          filename: 'back.jpg',
+          library_id: libraryId,
+          deleted_at: null,
+          missing_since: oldIso,
+        },
+      ],
+      deleted_at: oldIso,
+      deleted_reason: 'reaped',
+    } as never);
+
+    const { runTrashGcOnce } = await import('./trash-gc.ts');
+    const summary = await runTrashGcOnce({ retentionDays: 30 });
+    expect(summary.purged).toBe(1);
+    expect(summary.errors).toBe(0);
+    expect(await db!.collection('assets').countDocuments({})).toBe(0);
+
+    // The returned photo and its sidecar are untouched.
+    const { existsSync } = await import('node:fs');
+    expect(existsSync(backPath)).toBe(true);
+    expect(existsSync(sidecarPath)).toBe(true);
+  });
+
+  it('leaves a reaped row inside the retention window untouched', async () => {
+    if (!mongoReachable) return;
+    const freshIso = new Date(Date.now() - 1 * 86_400_000).toISOString();
+    await db!.collection('assets').insertOne({
+      size: 1,
+      mtime: 0,
+      rating: 0,
+      flag: 0,
+      color_label: '',
+      indexed_at: '2026-05-11T00:00:00Z',
+      fileinfo: [],
+      deleted_at: freshIso,
+      deleted_reason: 'reaped',
+    } as never);
+
+    const { runTrashGcOnce } = await import('./trash-gc.ts');
+    const summary = await runTrashGcOnce({ retentionDays: 30 });
+    expect(summary.purged).toBe(0);
+    expect(await db!.collection('assets').countDocuments({})).toBe(1);
+  });
 });
