@@ -256,8 +256,8 @@ struct SearchScreen: View {
   /// needs to know their search was narrowed to a range they never asked
   /// for (#2956).
   @ViewBuilder private var inferredDateNotice: some View {
-    if let applied = viewModel.appliedDates, let from = applied.inferredFrom {
-      Text(Self.inferredDateText(applied: applied, from: from))
+    if let applied = viewModel.appliedDates, let inferredFrom = applied.inferredFrom {
+      Text(Self.inferredDateText(applied: applied, inferredFrom: inferredFrom))
         .font(.system(size: 22))
         .foregroundStyle(MapleTVTheme.textMuted)
         .multilineTextAlignment(.center)
@@ -266,17 +266,19 @@ struct SearchScreen: View {
   }
 
   /// Wire instants are full ISO-8601; the day is all this line needs.
-  static func inferredDateText(applied: AppliedDateFilter, from: String) -> String {
+  /// `inferredFrom` is the consumed QUERY TEXT, not a start date — it sits
+  /// next to `applied.from`, which is one, so the name has to say which.
+  static func inferredDateText(applied: AppliedDateFilter, inferredFrom: String) -> String {
     let day: (String?) -> String? = { $0.map { String($0.prefix(10)) } }
     switch (day(applied.from), day(applied.to)) {
     case let (start?, end?):
-      return "Showing \(start) to \(end) — date read from “\(from)”"
+      return "Showing \(start) to \(end) — date read from “\(inferredFrom)”"
     case let (start?, nil):
-      return "Showing from \(start) — date read from “\(from)”"
+      return "Showing from \(start) — date read from “\(inferredFrom)”"
     case let (nil, end?):
-      return "Showing up to \(end) — date read from “\(from)”"
+      return "Showing up to \(end) — date read from “\(inferredFrom)”"
     default:
-      return "Date read from “\(from)”"
+      return "Date read from “\(inferredFrom)”"
     }
   }
 

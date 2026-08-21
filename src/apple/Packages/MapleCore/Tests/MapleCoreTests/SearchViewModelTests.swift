@@ -196,6 +196,63 @@ final class SearchViewModelTests: XCTestCase {
   /// Build a SearchViewModel backed by a stub that immediately throws `error`
   /// for every request. When `preSeedResults` is non-empty the VM's results
   /// are set BEFORE submit() is called, simulating a prior successful load.
+  // MARK: - Inferred-date attribution across the cache fast path (#2960)
+
+  /// `submit()` short-circuits on a cached page. That path set results,
+  /// cursor, total and facets but not `appliedDates`, so the previous
+  /// query's window stayed on screen — the chip asserting a date filter the
+  /// current query does not carry, which is the exact false state it exists
+  /// to prevent.
+  @MainActor func test_cachedPage_refreshesAppliedDates() async {
+    let server = URL(string: "https://stub.test")!
+    let cfg = URLSessionConfiguration.ephemeral
+    cfg.protocolClasses = [StubURLProtocol.self]
+    StubURLProtocol.reset()
+    StubURLProtocol.responder = { request in
+      if (request.url?.path ?? "") == "/api/search/facets" {
+        return .http(status: 200, body: Data(Self.minimalFacetsJSON.utf8))
+      }
+      // Only the dated query carries a window.
+      let dated = (request.url?.query ?? "").contains("2024")
+      let body = dated
+        // `page` and `limit` are non-optional on `SearchResponse`; omitting
+        // them makes decoding throw and the VM take its error path, which
+        // looks exactly like "the field was never set".
+        ? #"{"results":[],"total":0,"page":0,"limit":100,"dateFilter":{"from":"2024-01-01T00:00:00.000Z","to":"2024-12-31T23:59:59.999Z","inferredFrom":"2024"}}"#
+        : #"{"results":[],"total":0,"page":0,"limit":100}"#
+      return .http(status: 200, body: Data(body.utf8))
+    }
+    defer { StubURLProtocol.reset() }
+
+    let session = URLSession(configuration: cfg)
+    let client = CloudSearchClient(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
+    let vm = SearchViewModel(server: server, libraryID: "lib-test", searchClient: client)
+
+    // 1. Undated query over the network — caches it, no window.
+    vm.params.placeQuery = "beach"
+    await vm.submit()
+    XCTAssertNil(vm.appliedDates)
+
+    // 2. Dated query — window applied and attributed.
+    vm.params.placeQuery = "2024"
+    await vm.submit()
+    XCTAssertEqual(vm.appliedDates?.inferredFrom, "2024")
+
+    // 3. Back to the undated query, now served from cache. Before the fix
+    //    this still reported the 2024 window.
+    vm.params.placeQuery = "beach"
+    await vm.submit()
+    XCTAssertNil(vm.appliedDates, "cached page left the previous query's date attribution on screen")
+  }
+
+  private static let minimalFacetsJSON = """
+  {"total":0,"cameras":[],"lenses":[],"extensions":[],"scene_types":[],\
+  "activities":[],"subjects":[],"is_screenshot":{"true":0,"false":0,"unknown":0},\
+  "people":[],"places":[]}
+  """
+
   private func makeVM(
     throwing error: Error,
     preSeedResults: [SearchAsset] = []

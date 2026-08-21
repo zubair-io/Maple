@@ -39,7 +39,7 @@ import {
   SearchQueryT,
   type SearchQuery,
 } from './query.ts';
-import { appliedDateFilter, dateTextConsumedBy } from './date-provenance.ts';
+import { appliedDateFilter } from './date-provenance.ts';
 import { pickSort, SORT_OPTIONS } from './sort.ts';
 import { cursorFromDoc, encodeCursor } from './cursor.ts';
 import { meiliPage, usesPlaceText } from './list-meili.ts';
@@ -58,7 +58,7 @@ export const listRoute = new Elysia().get(
     const now = new Date();
     const resolved = extractDatesFromQuery(query as SearchQuery, now);
     // What the client shows so an inferred window is never invisible (#2956).
-    const dateFilter = appliedDateFilter(resolved, dateTextConsumedBy(query as SearchQuery, now));
+    const dateFilter = appliedDateFilter(resolved, query as SearchQuery, now);
     const withDates = dateFilter === undefined ? {} : { dateFilter };
     // Excluded people (#2894) drop unconditionally; hidden people only when
     // the request opted in (see `personIdsToDrop`).
