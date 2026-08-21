@@ -14,6 +14,7 @@ describe('provideAuthBootstrap lan_handoff redemption', () => {
   let redeemLanHandoff: ReturnType<typeof vi.fn>;
   let refresh: ReturnType<typeof vi.fn>;
   let loadMe: ReturnType<typeof vi.fn>;
+  let resumeNativeHandoff: ReturnType<typeof vi.fn>;
 
   // provideAppInitializer() registers the bootstrap function as a multi
   // APP_INITIALIZER provider. Running it here (instead of `ApplicationRef`'s
@@ -31,10 +32,14 @@ describe('provideAuthBootstrap lan_handoff redemption', () => {
     redeemLanHandoff = vi.fn();
     refresh = vi.fn().mockResolvedValue('rejected');
     loadMe = vi.fn();
+    resumeNativeHandoff = vi.fn();
     TestBed.configureTestingModule({
       providers: [
         provideAuthBootstrap(),
-        { provide: AuthService, useValue: { redeemLanHandoff, refresh, loadMe } },
+        {
+          provide: AuthService,
+          useValue: { redeemLanHandoff, refresh, loadMe, resumeNativeHandoff },
+        },
       ],
     });
   });
@@ -86,6 +91,32 @@ describe('provideAuthBootstrap lan_handoff redemption', () => {
 
     expect(window.location.search).toBe('');
     expect(refresh).toHaveBeenCalled();
+  });
+
+  // #2963 — a native app opened this URL to collect an auth code. If the
+  // refresh cookie above already signed us in, no passkey ceremony will run,
+  // so the handoff has to happen here or the app waits forever while the
+  // browser just shows the library.
+  it('hands an already-live session to a waiting native app, after hydration', async () => {
+    refresh.mockResolvedValue('refreshed');
+    window.history.replaceState({}, '', '/?native_callback=maple-app');
+
+    await boot();
+
+    expect(resumeNativeHandoff).toHaveBeenCalled();
+    expect(resumeNativeHandoff.mock.invocationCallOrder[0]).toBeGreaterThan(
+      loadMe.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('still attempts the native handoff when a lan_handoff redemption short-circuits', async () => {
+    redeemLanHandoff.mockResolvedValue(true);
+    window.history.replaceState({}, '', '/?native_callback=maple-app&lan_handoff=CODE123');
+
+    await boot();
+
+    expect(refresh).not.toHaveBeenCalled();
+    expect(resumeNativeHandoff).toHaveBeenCalled();
   });
 
   it('does nothing lan_handoff-specific when the param is absent', async () => {
