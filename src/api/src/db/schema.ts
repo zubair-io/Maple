@@ -465,9 +465,11 @@ export interface AssetDoc {
    * `enrichment/burst-siblings.ts`); `'folder'` when a folder-level
    * `.hidden` marker file covers the asset's directory (see
    * `workers/discover/folder-hidden.ts` — removed again when the marker
-   * disappears). Absent when not hidden. A manual reason is never
-   * overwritten by a later AI pass. */
-  hidden_reason?: 'manual' | 'nudity' | 'nudity-burst' | 'folder';
+   * disappears). Absent or `null` when not hidden — un-hide paths (the
+   * sidecar override projection and the folder-marker removal pass) clear
+   * the field by writing `null`, so readers must treat both the same. A
+   * manual reason is never overwritten by a later AI pass. */
+  hidden_reason?: 'manual' | 'nudity' | 'nudity-burst' | 'folder' | null;
   /** Operator has reviewed an AI-driven hide (`hidden_reason` is
    * `'nudity'` or `'nudity-burst'`). `false` immediately after an
    * automatic hide; flips to `true` via `POST /api/assets/:id/hidden-ack`
