@@ -9,20 +9,17 @@
 // Presentational: the parent owns the fetch and hands the results down.
 
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
-import { RouterLink } from '@angular/router';
 import type { GeneratedSearchCard } from '@maple-common';
 
 @Component({
   selector: 'maple-generated-search-collections',
   standalone: true,
-  imports: [RouterLink],
   templateUrl: './generated-search-collections.component.html',
   styleUrl: './generated-search-collections.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class GeneratedSearchCollectionsComponent {
   readonly cards = input.required<readonly GeneratedSearchCard[]>();
-  readonly libraryId = input<string | null>(null);
   /** What the run was asked for, so a short day can be explained. */
   readonly requested = input<number | null>(null);
 
@@ -36,9 +33,19 @@ export class GeneratedSearchCollectionsComponent {
     return requested !== null && count > 0 && count < requested;
   });
 
-  protected readonly searchLink = ['/search'];
-
-  protected searchParams(card: GeneratedSearchCard): Record<string, string> {
-    return { ...card.query, libraryId: this.libraryId() ?? '' };
+  /** Human-readable summary of the query a collection was built from.
+   *
+   * NOT a link to /search. That route (`SearchPageComponent`) reads only `q`
+   * and `autoFocus` from the URL — the filter-hydrating advanced page was
+   * removed from main — so a deep-link would run a DIFFERENT search and show
+   * photos the collection does not contain. Showing the query as text is
+   * honest about what the collection asked for; wiring a real link needs
+   * /search to hydrate filters first (tracked separately).
+   */
+  protected queryLine(card: GeneratedSearchCard): string {
+    const parts = Object.entries(card.query)
+      .filter(([, value]) => value !== null && value !== '')
+      .map(([key, value]) => `${key}: ${value}`);
+    return parts.join(' · ');
   }
 }

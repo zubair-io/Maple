@@ -183,6 +183,18 @@ describe('WorkersComponent', () => {
     // shape drains the request at teardown (no assertions run on it here).
     for (const r of http.match('/api/derivative-audit/status'))
       r.flush({ config: { enabled: true }, progress: {} });
+    // Generated Searches panel reads its config on init (it needs the paused
+    // state for the collapsed summary row); drain it for the same reason.
+    for (const r of http.match('/api/workers/generated-search/config'))
+      r.flush({
+        collections_per_day: 4,
+        min_results: 8,
+        max_rounds: 3,
+        retention_days: 30,
+        model: '',
+        paused: true,
+        dry_run: false,
+      });
     http.verify();
   });
 
