@@ -121,6 +121,71 @@ describe('AuthService native code handoff (#856)', () => {
   });
 });
 
+// An app (the Windows shell via the default browser, or the Apple shell)
+// opens the sign-in URL against a browser that ALREADY holds a valid session
+// cookie. No passkey ceremony runs, so `acceptTokens()` — the only other
+// caller of the handoff — never fires and the waiting app gets nothing.
+// `resumeNativeHandoff()` is the path that covers that case (#2963).
+describe('AuthService resumes the native handoff for an already-signed-in session (#2963)', () => {
+  const CHALLENGE = 'B'.repeat(43);
+  const STATE = 'state-resume-1';
+  const signedInUser: AuthUser = { id: 'u1', email: 'a@b.c', role: 'owner' };
+  let auth: AuthService;
+  let ctrl: HttpTestingController;
+  let navigated: string[];
+
+  function nativeUrl(): string {
+    return `/?native_callback=maple-app&code_challenge=${CHALLENGE}&state=${STATE}`;
+  }
+
+  function makeService(url: string): void {
+    window.history.replaceState({}, '', url);
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    auth = TestBed.inject(AuthService);
+    ctrl = TestBed.inject(HttpTestingController);
+    navigated = [];
+    (auth as unknown as { navigateTo: (u: string) => void }).navigateTo = (u) => navigated.push(u);
+  }
+
+  afterEach(() => {
+    ctrl.verify();
+    window.history.replaceState({}, '', '/');
+  });
+
+  it('mints a one-time code and redirects to the app when the session is already live', async () => {
+    makeService(nativeUrl());
+    auth.user.set(signedInUser);
+
+    const p = auth.resumeNativeHandoff();
+    const req = ctrl.expectOne('/api/auth/native-code');
+    expect(req.request.body).toEqual({ code_challenge: CHALLENGE, state: STATE });
+    req.flush({ code: 'CODE-RESUMED' });
+    await p;
+
+    expect(navigated).toEqual([`maple-app://auth-success?code=CODE-RESUMED&state=${STATE}`]);
+  });
+
+  it('does nothing while signed out — the sign-in ceremony owns that case', async () => {
+    makeService(nativeUrl());
+
+    await auth.resumeNativeHandoff();
+
+    // ctrl.verify() in afterEach asserts no request was made.
+    expect(navigated).toEqual([]);
+  });
+
+  it('does nothing in a normal browser tab, even when signed in', async () => {
+    makeService('/browse');
+    auth.user.set(signedInUser);
+
+    await auth.resumeNativeHandoff();
+
+    expect(navigated).toEqual([]);
+  });
+});
+
 describe('AuthService ignores an unknown native_callback scheme (#856)', () => {
   afterEach(() => window.history.replaceState({}, '', '/'));
 
