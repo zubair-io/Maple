@@ -48,6 +48,10 @@ describe('GeneratedSearchSettingsComponent', () => {
   async function flushConfig(config: GeneratedSearchConfig = paused): Promise<void> {
     http.expectOne(CONFIG_URL).flush(config);
     await fixture.whenStable();
+    // The panel resolves which library to read collections for; with no
+    // folders registered it stops there and never asks for collections.
+    for (const r of http.match('/api/folders')) r.flush([]);
+    await fixture.whenStable();
     fixture.detectChanges();
   }
 
@@ -105,6 +109,8 @@ describe('GeneratedSearchSettingsComponent', () => {
 
   it('surfaces a config load failure instead of rendering an empty panel', async () => {
     http.expectOne(CONFIG_URL).flush('nope', { status: 500, statusText: 'Server Error' });
+    await fixture.whenStable();
+    for (const r of http.match('/api/folders')) r.flush([]);
     await fixture.whenStable();
     fixture.detectChanges();
     expand();

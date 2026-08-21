@@ -14,13 +14,12 @@
   <ul class="cards">
     @for (card of cards(); track card.id) {
       <li>
-        <a [routerLink]="searchLink" [queryParams]="searchParams(card)">
-          <span class="title">{{ card.title }}</span>
-          @if (card.subtitle) {
-            <span class="subtitle">{{ card.subtitle }}</span>
-          }
-          <span class="count">{{ card.result_count }} photos</span>
-        </a>
+        <span class="title">{{ card.title }}</span>
+        @if (card.subtitle) {
+          <span class="subtitle">{{ card.subtitle }}</span>
+        }
+        <span class="count">{{ card.result_count }} photos</span>
+        <code class="query">{{ queryLine(card) }}</code>
       </li>
     }
   </ul>
