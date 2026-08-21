@@ -14,7 +14,38 @@ import Observation
 public final class CloudServerRegistry {
   /// Singleton — Apple uses this from the sidebar and from the
   /// AddMapleCloud onSignedIn callback.
-  public static let shared = CloudServerRegistry()
+  ///
+  /// Backed by the App Group suite, NOT `.standard`: extensions (the widget)
+  /// get their own defaults domain, so registry state written to `.standard`
+  /// is invisible to them and a widget can never resolve a server. Existing
+  /// installs wrote to `.standard` for years, so the first launch after this
+  /// change migrates every `cloud.*` key across once — without that, every
+  /// upgraded install would wake up signed out of its servers.
+  public static let shared = CloudServerRegistry(defaults: appGroupDefaults())
+
+  /// The App Group every Maple target joins (see the *.entitlements files).
+  public static let appGroupID = "group.app.justmaple.aperture"
+
+  /// The shared suite, with a one-time migration of `cloud.*` keys from
+  /// `.standard`. Falls back to `.standard` only if the suite cannot be
+  /// created (missing entitlement — e.g. unit tests without a host app).
+  public static func appGroupDefaults() -> UserDefaults {
+    guard let group = UserDefaults(suiteName: appGroupID) else { return .standard }
+    let migratedKey = "cloud.migratedToAppGroup"
+    if !group.bool(forKey: migratedKey) {
+      let standard = UserDefaults.standard
+      for (key, value) in standard.dictionaryRepresentation()
+      where key.hasPrefix("cloud.") {
+        // Only fill gaps: if the group already has a value (a fresh install
+        // that never touched .standard, or a re-run), leave it alone.
+        if group.object(forKey: key) == nil {
+          group.set(value, forKey: key)
+        }
+      }
+      group.set(true, forKey: migratedKey)
+    }
+    return group
+  }
 
   /// Currently-connected servers, in registration order.
   public private(set) var servers: [URL]
