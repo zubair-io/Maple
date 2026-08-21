@@ -1,0 +1,148 @@
+<maple-settings-row
+  [expanded]="expanded()"
+  (toggle)="toggleExpanded()"
+  testid="generated-search-row"
+>
+  <div class="wrow-summary" srow-summary>
+    <maple-settings-icon
+      [name]="expanded() ? 'chev-d' : 'chev-r'"
+      [size]="12"
+      [stroke]="2"
+      [color]="'#a8a29e'"
+    />
+    <span class="wrow-id">
+      <span class="mono">generated-search</span>
+    </span>
+    <span class="status-pill">
+      <span class="status-dot" [style.background]="enabled() ? '#4ade80' : '#a8a29e'"></span>
+      <span class="status-label" data-testid="gs-status">
+        {{ enabled() ? 'running' : 'paused' }}
+      </span>
+    </span>
+    <span class="wrow-readout" data-testid="gs-summary">{{ summaryLine() }}</span>
+  </div>
+
+  @if (expanded()) {
+    <div class="panel">
+      @if (loading()) {
+        <p class="muted">Loading…</p>
+      } @else {
+        @if (error(); as message) {
+          <p class="error" role="alert">{{ message }}</p>
+        }
+
+        <!-- Master switch first: everything below is inert while paused. -->
+        <div class="row">
+          <label class="toggle">
+            <input
+              type="checkbox"
+              [checked]="enabled()"
+              [disabled]="saving()"
+              (change)="toggleEnabled()"
+            />
+            <span>Run daily</span>
+          </label>
+          @if (saved()) {
+            <span class="saved">Saved</span>
+          }
+        </div>
+
+        @if (draft(); as d) {
+          <div class="knobs">
+            <label>
+              Collections per day
+              <input
+                type="number"
+                min="1"
+                max="12"
+                [value]="d.collections_per_day"
+                (change)="updateDraft('collections_per_day', numberFrom($event))"
+              />
+            </label>
+            <label>
+              Minimum photos
+              <input
+                type="number"
+                min="1"
+                max="1000"
+                [value]="d.min_results"
+                (change)="updateDraft('min_results', numberFrom($event))"
+              />
+            </label>
+            <label>
+              Retry rounds
+              <input
+                type="number"
+                min="1"
+                max="10"
+                [value]="d.max_rounds"
+                (change)="updateDraft('max_rounds', numberFrom($event))"
+              />
+            </label>
+            <label>
+              Keep for (days)
+              <input
+                type="number"
+                min="1"
+                max="365"
+                [value]="d.retention_days"
+                (change)="updateDraft('retention_days', numberFrom($event))"
+              />
+            </label>
+            <label class="wide">
+              Model
+              <input
+                type="text"
+                placeholder="inherit from describe stage"
+                [value]="d.model"
+                (change)="updateDraft('model', textFrom($event))"
+              />
+            </label>
+            <label class="toggle wide">
+              <input
+                type="checkbox"
+                [checked]="d.dry_run"
+                (change)="updateDraft('dry_run', checkedFrom($event))"
+              />
+              <span>Dry run — log what it would save, write nothing</span>
+            </label>
+          </div>
+
+          <button type="button" class="primary" [disabled]="saving()" (click)="save()">
+            {{ saving() ? 'Saving…' : 'Save' }}
+          </button>
+        }
+
+        <!-- The collections themselves. Reading these is the point: they are
+           LLM-invented and change daily, so each links into /search with its
+           own filters to check the theme actually found the right photos. -->
+        <h4>Today’s collections</h4>
+        @if (cards().length === 0) {
+          <p class="muted">
+            Nothing yet. Collections appear after the first run — enable the worker above.
+          </p>
+        } @else {
+          @if (producedFewer()) {
+            <p class="muted">
+              This run produced {{ cards().length }} of {{ config()?.collections_per_day }}.
+              Proposals that matched too few photos are discarded rather than padded.
+            </p>
+          }
+          <ul class="cards">
+            @for (card of cards(); track card.id) {
+              <li>
+                <a [routerLink]="searchLink" [queryParams]="searchParams(card)">
+                  <span class="title">{{ card.title }}</span>
+                  @if (card.subtitle) {
+                    <span class="subtitle">{{ card.subtitle }}</span>
+                  }
+                  <span class="count">{{ card.result_count }} photos</span>
+                </a>
+              </li>
+            }
+          </ul>
+        }
+      }
+    </div>
+  }
+</maple-settings-row>
