@@ -62,7 +62,7 @@ describe('Meilisearch client — search()', () => {
     expect(body.offset).toBe(0);
     expect(body.limit).toBe(50);
     expect(body.filter).toBe(
-      'deletedAt IS NULL AND (hidden IS NULL OR hidden = false) AND folderId = "0123456789abcdef01234567"',
+      'deletedAt IS NULL AND (hidden NOT EXISTS OR hidden IS NULL OR hidden = false) AND folderId = "0123456789abcdef01234567"',
     );
   });
 
@@ -83,7 +83,7 @@ describe('Meilisearch client — search()', () => {
     });
     await client.search('Park');
     const body = calls[0]!.body as Record<string, unknown>;
-    expect(body.filter).toBe('deletedAt IS NULL AND (hidden IS NULL OR hidden = false)');
+    expect(body.filter).toBe('deletedAt IS NULL AND (hidden NOT EXISTS OR hidden IS NULL OR hidden = false)');
   });
 
   it('search() throws on transport error so the route can fall back', async () => {
@@ -164,7 +164,7 @@ describe('Meilisearch client — search()', () => {
     });
     const body = calls[0]!.body as Record<string, unknown>;
     expect(body.filter).toBe(
-      'deletedAt IS NULL AND (hidden IS NULL OR hidden = false) AND folderId = "abc"',
+      'deletedAt IS NULL AND (hidden NOT EXISTS OR hidden IS NULL OR hidden = false) AND folderId = "abc"',
     );
   });
 
@@ -232,7 +232,7 @@ describe('Meilisearch client — search()', () => {
     const body = calls[0]!.body as Record<string, unknown>;
     // Quotes inside a name are escaped so the filter expression stays valid.
     expect(body.filter).toBe(
-      'deletedAt IS NULL AND (hidden IS NULL OR hidden = false) AND people IN ["Greyson", "Maya \\"Mae\\" Smith"]',
+      'deletedAt IS NULL AND (hidden NOT EXISTS OR hidden IS NULL OR hidden = false) AND people IN ["Greyson", "Maya \\"Mae\\" Smith"]',
     );
   });
 
