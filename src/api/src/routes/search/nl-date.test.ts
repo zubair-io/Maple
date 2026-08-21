@@ -164,8 +164,27 @@ describe('parseNlDateRange — bare season and holiday words stay searchable', (
     },
   );
 
-  it.each(['christmas', 'halloween'])('bare "%s" is not a date range', (holiday) => {
+  // Every token the removed HOLIDAYS table carried, including the spelling
+  // variants and a capitalised form. Two examples would not stop a future
+  // change from re-enabling bare parsing for `xmas` or `valentine's day`
+  // while `christmas` stayed correct.
+  it.each([
+    'christmas',
+    'Christmas',
+    'xmas',
+    'halloween',
+    'Halloween',
+    'new years',
+    "new year's",
+    'valentines day',
+    "valentine's day",
+    "Valentine's Day",
+  ])('bare "%s" is not a date range', (holiday) => {
     expect(parseNlDateRange(holiday, NOW)).toBeNull();
+  });
+
+  it('leaves a holiday word in place alongside other search terms', () => {
+    expect(parseNlDateRange('christmas sweaters', NOW)).toBeNull();
   });
 
   it('leaves a season word in place alongside other search terms', () => {
