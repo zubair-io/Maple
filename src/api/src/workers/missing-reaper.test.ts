@@ -133,7 +133,7 @@ const AGED = '2026-05-01T00:00:00.000Z'; // older than DELETE_BEFORE → delete-
 const FRESH = '2026-05-20T00:00:00.000Z'; // newer than DELETE_BEFORE → still in cooldown
 
 describe('runMissingReaperOnce', () => {
-  it('hard-deletes a row whose only location is gone and aged past the window', async () => {
+  it('soft-deletes a row whose only location is gone and aged past the window (#2977)', async () => {
     if (!mongoReachable) return;
     const dir = mkdtempSync(join(tmpdir(), 'maple-reaper-'));
     writeFileSync(join(dir, 'other.jpg'), 'x'); // root available; gone.jpg genuinely absent
@@ -149,7 +149,56 @@ describe('runMissingReaperOnce', () => {
 
     expect(summary.scanned).toBe(1);
     expect(summary.reaped).toBe(1);
-    expect(await db!.collection('assets').countDocuments({})).toBe(0);
+    // The record survives as a soft delete — recoverable until trash-gc purges it.
+    const doc = await db!.collection('assets').findOne({ maple_id: 'gone-1' });
+    expect(doc).not.toBeNull();
+    expect(typeof doc!.deleted_at).toBe('string');
+    expect((doc as { deleted_reason?: string }).deleted_reason).toBe('reaped');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('skips rows already soft-deleted (user-trashed rows belong to trash retention)', async () => {
+    if (!mongoReachable) return;
+    const dir = mkdtempSync(join(tmpdir(), 'maple-reaper-'));
+    writeFileSync(join(dir, 'other.jpg'), 'x'); // root available
+    const libraryId = await seedLibrary(dir);
+    await db!.collection('assets').insertOne({
+      ...ASSET_BASE,
+      maple_id: 'trashed-1',
+      deleted_at: '2026-05-02T00:00:00.000Z',
+      original_path: join(dir, 'gone.jpg'),
+      fileinfo: [fi('gone.jpg', libraryId, { missing: AGED })],
+    } as never);
+
+    const { runMissingReaperOnce } = await import('./missing-reaper.ts');
+    const summary = await runMissingReaperOnce({ deleteBeforeIso: DELETE_BEFORE });
+
+    // Not even scanned — soft-deleted rows are out of the candidate set.
+    expect(summary.scanned).toBe(0);
+    expect(summary.reaped).toBe(0);
+    const doc = await db!.collection('assets').findOne({ maple_id: 'trashed-1' });
+    expect(doc!.deleted_at).toBe('2026-05-02T00:00:00.000Z');
+    expect((doc as { deleted_reason?: string }).deleted_reason).toBeUndefined();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('a reaped row is not re-scanned by the next pass', async () => {
+    if (!mongoReachable) return;
+    const dir = mkdtempSync(join(tmpdir(), 'maple-reaper-'));
+    writeFileSync(join(dir, 'other.jpg'), 'x'); // root available
+    const libraryId = await seedLibrary(dir);
+    await db!.collection('assets').insertOne({
+      ...ASSET_BASE,
+      maple_id: 'once-1',
+      fileinfo: [fi('gone.jpg', libraryId, { missing: AGED })],
+    } as never);
+
+    const { runMissingReaperOnce } = await import('./missing-reaper.ts');
+    const first = await runMissingReaperOnce({ deleteBeforeIso: DELETE_BEFORE });
+    expect(first.reaped).toBe(1);
+    const second = await runMissingReaperOnce({ deleteBeforeIso: DELETE_BEFORE });
+    expect(second.scanned).toBe(0);
+    expect(second.reaped).toBe(0);
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -465,7 +514,7 @@ describe('runMissingReaperOnce', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('circuit breaker: aborts a pass that would mass-delete, deleting nothing', async () => {
+  it('circuit breaker: flags a mass-reap pass but proceeds (soft-deletes are recoverable)', async () => {
     if (!mongoReachable) return;
     const dir = mkdtempSync(join(tmpdir(), 'maple-reaper-'));
     writeFileSync(join(dir, 'other.jpg'), 'x'); // root available — every recorded file gone
@@ -480,9 +529,12 @@ describe('runMissingReaperOnce', () => {
     const { runMissingReaperOnce } = await import('./missing-reaper.ts');
     const summary = await runMissingReaperOnce({ deleteBeforeIso: DELETE_BEFORE });
 
-    expect(summary.aborted).toBe(true);
-    expect(summary.reaped).toBe(0);
-    expect(await db!.collection('assets').countDocuments({})).toBe(40); // nothing deleted
+    expect(summary.breakerTripped).toBe(true);
+    // Since #2977 the pass PROCEEDS — every row is soft-deleted (recoverable
+    // for the trash retention window), and the trip surfaces as a worker error.
+    expect(summary.reaped).toBe(40);
+    expect(await db!.collection('assets').countDocuments({ deleted_reason: 'reaped' })).toBe(40);
+    expect(await db!.collection('assets').countDocuments({})).toBe(40); // no record removed
     rmSync(dir, { recursive: true, force: true });
   });
 });

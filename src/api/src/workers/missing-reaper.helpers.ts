@@ -12,7 +12,8 @@ import type { FileInfo } from '../db/schema.ts';
 export interface MissingReaperSummary {
   /** Rows with a tagged entry examined this pass. */
   scanned: number;
-  /** Records hard-deleted (every location confirmed gone). */
+  /** Records soft-deleted (`deleted_reason: 'reaped'` — every location
+   * confirmed gone; recoverable until the trash-gc purge, #2977). */
   reaped: number;
   /** Surviving rows reconciled this pass (an entry recovered and/or a gone
    * sibling pruned). */
@@ -30,9 +31,11 @@ export interface MissingReaperSummary {
   /** All-gone, aged-out rows left because deletes are paused (recovery still
    * runs while paused — only the irreversible record delete is suspended). */
   skippedPaused: number;
-  /** True when the circuit breaker tripped and the pass aborted without
-   * executing any record deletes (a systemic mis-detection guard). */
-  aborted: boolean;
+  /** True when the circuit breaker tripped this pass. Since #2977 the pass
+   * PROCEEDS (soft-deletes are recoverable for the trash-gc retention
+   * window) but the trip is surfaced as a worker error on Settings →
+   * Workers until a clean pass follows. */
+  breakerTripped: boolean;
   /** Rows that raised an unexpected error during the pass. */
   errors: number;
 }
@@ -45,10 +48,11 @@ export interface MissingReaperSummary {
  */
 export const ORIGINAL_FILE_STAGES = ['exif', 'thumb', 'preview'] as const;
 
-/** Circuit breaker: abort a pass without deleting if it would hard-delete more
- * than BREAKER_MIN rows AND more than BREAKER_FRACTION of those scanned. Bounds
- * the blast radius of a systemic mis-detection (e.g. a root that stats present
- * but whose children all ENOENT). */
+/** Circuit breaker: flag a pass that soft-deletes more than BREAKER_MIN rows
+ * AND more than BREAKER_FRACTION of those scanned — likely a systemic
+ * mis-detection (e.g. a root that stats present but whose children all
+ * ENOENT). Since #2977 the pass proceeds (reaps are recoverable soft
+ * deletes) and the trip surfaces as a persistent worker error instead. */
 export const BREAKER_MIN = 25;
 export const BREAKER_FRACTION = 0.5;
 
