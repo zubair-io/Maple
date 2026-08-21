@@ -13,8 +13,8 @@
  * content-dedup re-attaches it to the very asset it was split from. The skip is
  * enforced by `DUPLICATES_DIR_NAME` consumers in `workers/discover/sweeper.ts`
  * and `routes/folders.ts`, plus the chokepoint guard in
- * `workers/discover/handle-event.ts` (`isInsideDuplicatesDir`) that refuses a
- * quarantined path from ANY event producer.
+ * `workers/discover/reserved-trees.ts` (`refusesReservedTreeEvent`) that
+ * refuses a quarantined path from ANY event producer.
  */
 
 // Mirror-aware drop-in: the move replicates to the library's backup root(s).
