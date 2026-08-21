@@ -8,6 +8,7 @@ import { ObjectId } from 'mongodb';
 import type { FileInfo } from '../db/schema.ts';
 import {
   isUnsortedPath,
+  isMiscPath,
   isNumberedCopy,
   isAllNumericPath,
   removalScore,
@@ -31,6 +32,15 @@ describe('classifiers', () => {
     expect(isUnsortedPath('photos/sorted/2024')).toBe(false);
   });
 
+  it('isMiscPath matches a "misc" segment in any case, not substrings', () => {
+    expect(isMiscPath('misc')).toBe(true);
+    expect(isMiscPath('Misc')).toBe(true);
+    expect(isMiscPath('photos/MISC/2024')).toBe(true);
+    expect(isMiscPath('')).toBe(false);
+    expect(isMiscPath('miscellaneous')).toBe(false); // segment match, not substring
+    expect(isMiscPath('photos/misc-old')).toBe(false);
+  });
+
   it('isNumberedCopy matches name.<digits>.<ext> only', () => {
     expect(isNumberedCopy('IMG_001.2.dng')).toBe(true);
     expect(isNumberedCopy('photo.10.jpg')).toBe(true);
@@ -47,13 +57,18 @@ describe('classifiers', () => {
     expect(isAllNumericPath('a/1')).toBe(false);
   });
 
-  it('removalScore weights unsorted > numbered > all-numeric and is additive', () => {
+  it('removalScore weights unsorted > misc > numbered > all-numeric and is additive', () => {
     expect(removalScore(fi('photos/2024', 'IMG.dng'))).toBe(0);
     expect(removalScore(fi('1234', 'IMG.dng'))).toBe(1); // all-numeric
     expect(removalScore(fi('photos', 'IMG.2.dng'))).toBe(2); // numbered copy
-    expect(removalScore(fi('unsorted', 'IMG.dng'))).toBe(4); // unsorted
-    // A single higher-priority match always outranks lower combinations (4 > 2+1).
+    expect(removalScore(fi('misc', 'IMG.dng'))).toBe(4); // misc folder
+    expect(removalScore(fi('unsorted', 'IMG.dng'))).toBe(8); // unsorted
+    // A single higher-priority match always outranks lower combinations
+    // (8 > 4+2+1, 4 > 2+1).
     expect(removalScore(fi('unsorted', 'IMG.dng'))).toBeGreaterThan(
+      removalScore(fi('misc/1234', 'IMG.2.dng')),
+    );
+    expect(removalScore(fi('misc', 'IMG.dng'))).toBeGreaterThan(
       removalScore(fi('1234', 'IMG.2.dng')),
     );
   });
@@ -81,6 +96,20 @@ describe('selectKeeper', () => {
     const named = fi('vacation', 'IMG.dng');
     const entries = [named, fi('100/200', 'IMG.dng')];
     expect(selectKeeper(entries)).toBe(named);
+  });
+
+  it('misc rule: moves the Misc copy, keeps the clean one', () => {
+    const clean = fi('photos/2024', 'IMG.dng');
+    const entries = [clean, fi('Misc', 'IMG.dng')];
+    expect(selectKeeper(entries)).toBe(clean);
+  });
+
+  it('priority order: unsorted is moved before a misc copy', () => {
+    // Both are dump-folder signals, but unsorted (8) outranks misc (4): the
+    // misc copy is the lesser evil and is KEPT.
+    const misc = fi('misc', 'IMG.dng');
+    const entries = [fi('unsorted', 'IMG.dng'), misc];
+    expect(selectKeeper(entries)).toBe(misc);
   });
 
   it('priority order: unsorted is moved before a numbered copy', () => {
