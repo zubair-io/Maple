@@ -22,6 +22,7 @@ import {
 } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import {
+  BunApiBackendService,
   WorkersApiService,
   errorMessage,
   type GeneratedSearchCard,
@@ -50,6 +51,7 @@ import { GeneratedSearchCollectionsComponent } from './generated-search-collecti
 })
 export class GeneratedSearchSettingsComponent implements OnInit {
   private readonly api = inject(WorkersApiService);
+  private readonly backend = inject(BunApiBackendService);
 
   protected readonly config = signal<GeneratedSearchConfig | null>(null);
   protected readonly cards = signal<GeneratedSearchCard[]>([]);
@@ -104,11 +106,23 @@ export class GeneratedSearchSettingsComponent implements OnInit {
         model: config.model,
         dry_run: config.dry_run,
       });
+      await this.resolveLibrary();
       await this.loadCards();
     } catch (err: unknown) {
       this.error.set(errorMessage(err));
     } finally {
       this.loading.set(false);
+    }
+  }
+
+  /** Resolve which library to read collections for. A failure is swallowed:
+   * the config half of the panel still works without it. */
+  private async resolveLibrary(): Promise<void> {
+    try {
+      const folders = await firstValueFrom(this.backend.listFolders());
+      this.libraryId.set(folders[0]?.id ?? null);
+    } catch {
+      this.libraryId.set(null);
     }
   }
 
@@ -126,18 +140,11 @@ export class GeneratedSearchSettingsComponent implements OnInit {
     }
   }
 
-  /** The library whose collections to show. Single-library installs are the
-   * norm; a picker is not worth building until a second library exists. */
-  private libraryId(): string | null {
-    return this.selectedLibraryId;
-  }
-  protected selectedLibraryId: string | null = null;
-
-  /** Called by the parent page, which already knows the selected library. */
-  setLibrary(id: string | null): void {
-    this.selectedLibraryId = id;
-    void this.loadCards();
-  }
+  /** The library whose collections to show, resolved from the registered
+   * folders. Single-library installs are the norm, so the first registered
+   * library is the right default; a picker is not worth building until a
+   * second one exists. */
+  protected readonly libraryId = signal<string | null>(null);
 
   protected async toggleEnabled(): Promise<void> {
     const config = this.config();
@@ -160,6 +167,17 @@ export class GeneratedSearchSettingsComponent implements OnInit {
       // stored — so adopt the response instead of the optimistic local value.
       const response = await firstValueFrom(this.api.patchGeneratedSearchConfig(patch));
       this.config.set(response.config);
+      // The draft has to adopt the stored values too. The server clamps, so
+      // leaving the draft alone would keep showing the pre-clamp number the
+      // operator typed and quietly disagree with what was actually saved.
+      this.draft.set({
+        collections_per_day: response.config.collections_per_day,
+        min_results: response.config.min_results,
+        max_rounds: response.config.max_rounds,
+        retention_days: response.config.retention_days,
+        model: response.config.model,
+        dry_run: response.config.dry_run,
+      });
       this.saved.set(true);
     } catch (err: unknown) {
       this.error.set(errorMessage(err));
