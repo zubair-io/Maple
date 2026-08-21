@@ -47,6 +47,13 @@ export interface PromptDigest {
   onThisMonthByYear: readonly { year: number; count: number }[];
   /** Themes from recent runs, to avoid repeats. */
   recentThemes: readonly string[];
+  /** Whether Meilisearch semantic (vector) search is configured. Decides how
+   * `placeQuery` guidance is phrased: with vectors, describing the scene
+   * works; without them the query is keyword matching against caption text,
+   * and abstract prose matches nothing. The design doc calls this branch out
+   * explicitly — an install without semantic must get the literal-noun
+   * instruction or the worker quietly produces few or no collections. */
+  semanticSearch: boolean;
 }
 
 function digestBlock(digest: PromptDigest): string {
@@ -77,6 +84,23 @@ function digestBlock(digest: PromptDigest): string {
   return lines.join('\n');
 }
 
+/** How to write `placeQuery`, by search mode. Both variants deliberately
+ * avoid concrete example phrases — models lift them verbatim as themes. */
+function placeQueryGuidance(semantic: boolean): string {
+  if (semantic) {
+    return `"placeQuery" is the main lever. Photo captions are matched by MEANING, not
+exact words, so describe what the photographs should SHOW - the subject, what
+they are doing, and where. Write it the way you would describe a picture to
+someone over the phone. A vivid description of a scene works; an abstract
+category does not.`;
+  }
+  return `"placeQuery" is the main lever. Photo captions are matched by KEYWORD - the
+exact words have to appear in a caption. Use a few concrete nouns naming
+things a caption would literally mention: objects, animals, food, weather,
+places. No sentences, no abstract ideas, no mood words - those appear in no
+caption and match nothing.`;
+}
+
 /** Phase 1: propose `count` themes and the queries that find them. */
 export function buildProposalPrompt(digest: PromptDigest, count: number): string {
   const assignments = Array.from(
@@ -97,11 +121,7 @@ Return ${count} collections as JSON matching the schema.
 "theme" is your own short handle for the idea, 2-4 words, lowercase. Decide it
 first, then build the query around it.
 
-"placeQuery" is the main lever. Photo captions are matched by MEANING, not by
-keyword, so describe what the photographs should SHOW - the subject, what they
-are doing, and where. Write it the way you would describe a picture to someone
-over the phone. A vivid description of a scene works; an abstract category does
-not.
+${placeQueryGuidance(digest.semanticSearch)}
 
 "people" must be names copied exactly from the list above, or null. A name that
 is not on that list matches nothing.

@@ -33,6 +33,7 @@ const DIGEST: PromptDigest = {
     { year: 2018, count: 242 },
   ],
   recentThemes: ['autumn colours', 'dogs at the lake'],
+  semanticSearch: true,
 };
 
 describe('buildProposalPrompt — grounding', () => {
@@ -63,12 +64,32 @@ describe('buildProposalPrompt — grounding', () => {
   });
 });
 
-describe('buildProposalPrompt — semantic mode', () => {
-  it('asks for natural-language scene descriptions', () => {
+describe('buildProposalPrompt — search mode', () => {
+  it('asks for scene descriptions when semantic search is on', () => {
     // Semantic search matches meaning, so the model should describe what the
     // photo SHOWS rather than guess literal caption keywords.
     const prompt = buildProposalPrompt(DIGEST, 4).toLowerCase();
-    expect(prompt).toContain('describe');
+    expect(prompt).toContain('meaning');
+    expect(prompt).not.toContain('keyword');
+  });
+
+  it('asks for literal caption words when the install is lexical', () => {
+    // With semantic off, placeQuery is keyword matching against caption
+    // text. Telling the model captions are "matched by meaning" would push
+    // it toward abstract prose that matches nothing — observed while
+    // probing: only concrete-noun queries landed in lexical mode.
+    const prompt = buildProposalPrompt({ ...DIGEST, semanticSearch: false }, 4).toLowerCase();
+    expect(prompt).toContain('keyword');
+    expect(prompt).not.toContain('by meaning');
+  });
+
+  it('keeps the contamination guard in both modes', () => {
+    for (const mode of [true, false]) {
+      const prompt = buildProposalPrompt({ ...DIGEST, semanticSearch: mode }, 4).toLowerCase();
+      for (const leaked of ['sprinkler', 'spooky', 'jack-o-lantern', 'birthday cake']) {
+        expect(prompt).not.toContain(leaked);
+      }
+    }
   });
 });
 
