@@ -358,7 +358,7 @@ describe('SweeperLoop', () => {
 
     // Seed a gen-3 frontier row directly (simulates a sweep that had already
     // advanced past gen 1 before the process restarted).
-    await frontier.enqueueDirs(folderId, [root], 3);
+    await frontier.enqueueDirs(folderId, [root], 3, false);
 
     const visited: string[] = [];
     const loop = new SweeperLoop({
