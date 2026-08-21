@@ -4,24 +4,33 @@
     <span class="tir-path">{{ item().originalRelativePath }}</span>
   </div>
   <span class="tir-size">{{ item().size / 1024 / 1024 | number: '1.1-1' }} MB</span>
-  <div class="tir-actions">
-    <button
-      type="button"
-      class="tir-btn"
-      [disabled]="busy()"
-      [attr.aria-label]="'Restore ' + item().filename"
-      (click)="restore.emit()"
+  @if (item().reason === 'reaped') {
+    <span
+      class="tir-reaped-badge"
+      title="The file disappeared from disk; the record is kept for 30 days and restores itself if the file returns."
     >
-      Restore
-    </button>
-    <button
-      type="button"
-      class="tir-btn tir-btn-destructive"
-      [disabled]="busy()"
-      [attr.aria-label]="'Delete ' + item().filename + ' permanently'"
-      (click)="deletePermanently.emit()"
-    >
-      Delete Permanently
-    </button>
-  </div>
+      Removed from disk
+    </span>
+  } @else {
+    <div class="tir-actions">
+      <button
+        type="button"
+        class="tir-btn"
+        [disabled]="busy()"
+        [attr.aria-label]="'Restore ' + item().filename"
+        (click)="restore.emit()"
+      >
+        Restore
+      </button>
+      <button
+        type="button"
+        class="tir-btn tir-btn-destructive"
+        [disabled]="busy()"
+        [attr.aria-label]="'Delete ' + item().filename + ' permanently'"
+        (click)="deletePermanently.emit()"
+      >
+        Delete Permanently
+      </button>
+    </div>
+  }
 </div>
