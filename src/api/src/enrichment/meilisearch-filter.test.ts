@@ -44,8 +44,22 @@ describe('buildFilter — vision + screenshot clauses', () => {
    */
   it('treats a missing isScreenshot as "not a screenshot"', () => {
     expect(buildFilter({ isScreenshot: false })).toContain(
-      '(isScreenshot IS NULL OR isScreenshot = false)',
+      '(isScreenshot NOT EXISTS OR isScreenshot IS NULL OR isScreenshot = false)',
     );
+  });
+
+  /**
+   * `IS NULL` matches a field PRESENT and null, not an absent one, and
+   * `isScreenshot` only entered the document at shape v5. Without the
+   * `NOT EXISTS` arm every pre-v5 document silently vanishes from
+   * "Photos only".
+   */
+  it('admits documents indexed before isScreenshot existed', () => {
+    expect(buildFilter({ isScreenshot: false })).toContain('isScreenshot NOT EXISTS');
+  });
+
+  it('admits documents indexed before the hidden field existed', () => {
+    expect(buildFilter({})).toContain('hidden NOT EXISTS');
   });
 
   it('leaves screenshot state unconstrained when the filter is absent', () => {
