@@ -64,6 +64,8 @@ final class TVCloudSession {
   /// rather than one per view.
   let thumbCache = CloudThumbCache()
   private let foldersClient: CloudFoldersClient
+  /// Daily generated collections for the Timeline's "Rediscover" shelf.
+  let generatedSearchClient: GeneratedSearchClient
 
   private(set) var selectedLibraryID: String?
 
@@ -107,6 +109,7 @@ final class TVCloudSession {
     self.videoClient = CloudVideoClient(server: server, httpClient: httpClient)
     self.mapClient = MapClustersClient(server: server, httpClient: httpClient)
     self.foldersClient = CloudFoldersClient(server: server, httpClient: httpClient)
+    self.generatedSearchClient = GeneratedSearchClient(server: server, httpClient: httpClient)
   }
 
   /// Fetches the server's registered folders (`GET /api/folders`) and
