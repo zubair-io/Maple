@@ -13,11 +13,18 @@ export type FrontierDir = WithId<DiscoverFrontierDoc>;
 
 /** Insert the root dir for a fresh generation (no-op if it already exists). */
 export async function seedRoot(folderId: ObjectId, rootPath: string, gen: number): Promise<void> {
-  await enqueueDirs(folderId, [rootPath], gen);
+  await enqueueDirs(folderId, [rootPath], gen, false);
 }
 
-/** Insert child directories for the current generation, ignoring duplicates. */
-export async function enqueueDirs(folderId: ObjectId, dirs: string[], gen: number): Promise<void> {
+/** Insert child directories for the current generation, ignoring duplicates.
+ * `hiddenAncestor` records that the enqueuing parent is folder-hidden (own
+ * `.hidden` marker or inherited), so the subtree inherits the hide (#2972). */
+export async function enqueueDirs(
+  folderId: ObjectId,
+  dirs: string[],
+  gen: number,
+  hiddenAncestor: boolean,
+): Promise<void> {
   if (dirs.length === 0) return;
   const coll = await discoverFrontierCollection();
   const now = Date.now();
@@ -27,6 +34,7 @@ export async function enqueueDirs(folderId: ObjectId, dirs: string[], gen: numbe
     sweep_gen: gen,
     claimed_at: null,
     enqueued_at: now,
+    hidden_ancestor: hiddenAncestor,
   }));
   // ordered:false so a duplicate-key on one dir doesn't drop the rest.
   await coll.insertMany(docs, { ordered: false }).catch((err: unknown) => {
