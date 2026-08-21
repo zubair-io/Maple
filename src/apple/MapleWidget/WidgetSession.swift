@@ -21,10 +21,6 @@ struct WidgetSession {
   let thumbs: CloudThumbClient
   let libraryID: String
 
-  /// The App Group container both the app and this extension can see.
-  /// Matches the `com.apple.security.application-groups` entitlement.
-  static let appGroup = "group.app.justmaple.aperture"
-
   /// Build a session from whatever the app last persisted, or nil when the
   /// widget has nothing to show yet.
   ///
@@ -33,12 +29,9 @@ struct WidgetSession {
   /// the network work afterwards is off-actor inside the clients' actors.
   @MainActor
   static func current() -> WidgetSession? {
-    guard let defaults = UserDefaults(suiteName: appGroup) else { return nil }
-
-    // Read the registry out of the SHARED suite, not `.standard`: an
-    // extension gets its own defaults domain, so the app's `.standard`
-    // entries are invisible here.
-    let registry = CloudServerRegistry(defaults: defaults)
+    // The same App Group suite (and migration) the app's own singleton uses
+    // — one factory, so app and extension can never read different domains.
+    let registry = CloudServerRegistry(defaults: CloudServerRegistry.appGroupDefaults())
     guard let server = registry.servers.first,
           let libraryID = registry.selectedLibraryID(for: server)
     else { return nil }
