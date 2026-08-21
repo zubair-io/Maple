@@ -44,6 +44,7 @@ import {
 import { DamagedPanelService } from './damaged-panel.service';
 import { MigrationPanelService } from './migration-panel.service';
 import { ImportsPanelService } from './imports-panel.service';
+import { ReaperPrunePanelService } from './reaper-prune-panel.service';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 import { SettingsRowComponent } from '../settings-row.component';
@@ -98,7 +99,12 @@ import {
   ],
   templateUrl: './workers.component.html',
   styleUrl: './workers.component.scss',
-  providers: [DamagedPanelService, MigrationPanelService, ImportsPanelService],
+  providers: [
+    DamagedPanelService,
+    MigrationPanelService,
+    ImportsPanelService,
+    ReaperPrunePanelService,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class WorkersComponent implements OnInit, OnDestroy {
@@ -106,6 +112,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
   protected readonly damaged = inject(DamagedPanelService);
   protected readonly migration = inject(MigrationPanelService);
   protected readonly imports = inject(ImportsPanelService);
+  protected readonly reaperPrune = inject(ReaperPrunePanelService);
   private readonly api = inject(WorkersApiService);
   private readonly events = inject(WorkerEventsService);
   private readonly enrichmentApi = inject(BunApiBackendService);
@@ -137,11 +144,6 @@ export class WorkersComponent implements OnInit, OnDestroy {
       { kind: 'idle' } | { kind: 'testing' } | { kind: 'ok' } | { kind: 'error'; message: string }
     >
   >({});
-  protected readonly reaperPruneWindow = signal<string>('');
-  protected readonly reaperPruneLoaded = signal<boolean>(false);
-  protected readonly reaperPruneSaveState = signal<SaveState>('idle');
-  protected readonly reaperPruneError = signal<string | null>(null);
-
   protected readonly stages = computed<StageStatus[]>(() => this.status()?.stages ?? []);
   protected readonly groupedStages = computed<
     readonly { group: StageGroup; rows: StageStatus[] }[]
@@ -158,49 +160,12 @@ export class WorkersComponent implements OnInit, OnDestroy {
     this.subscribeStatus();
     this.fetchStatusFallback();
     this.fetchEnrichmentConfig();
-    this.fetchReaperPruneWindow();
+    this.reaperPrune.fetch();
     this.fetchPerformanceConfig();
     // Migration panel state + light progress poll lives in its own service
     // (keeps this component under the file-size budget).
     this.migration.startPolling();
     this.imports.startPolling();
-  }
-
-  private fetchReaperPruneWindow(): void {
-    this.api.getReaperPruneWindow().subscribe({
-      next: ({ hours }) => {
-        this.reaperPruneWindow.set(String(hours));
-        this.reaperPruneLoaded.set(true);
-      },
-      error: (err: unknown) => this.reaperPruneError.set(errorMessage(err)),
-    });
-  }
-
-  protected setReaperPruneWindow(value: string): void {
-    this.reaperPruneWindow.set(value);
-  }
-
-  protected saveReaperPruneWindow(): void {
-    const hours = Number(this.reaperPruneWindow().trim());
-    if (!Number.isFinite(hours) || hours < 1) {
-      this.reaperPruneError.set('Enter a whole number of hours (≥ 1).');
-      return;
-    }
-    this.reaperPruneSaveState.set('saving');
-    this.reaperPruneError.set(null);
-    this.api.setReaperPruneWindow(Math.round(hours)).subscribe({
-      next: ({ hours: saved }) => {
-        this.reaperPruneWindow.set(String(saved));
-        this.reaperPruneSaveState.set('success');
-        setTimeout(() => {
-          if (this.reaperPruneSaveState() === 'success') this.reaperPruneSaveState.set('idle');
-        }, 1500);
-      },
-      error: (err: unknown) => {
-        this.reaperPruneSaveState.set('error');
-        this.reaperPruneError.set(errorMessage(err));
-      },
-    });
   }
 
   private fetchPerformanceConfig(): void {
@@ -357,6 +322,13 @@ export class WorkersComponent implements OnInit, OnDestroy {
         ...cur,
         [stage.name]: { kind: 'error', message: errorMessage(err) },
       }));
+    /** Every health check answers the same `{ ok, error? }` shape, so they
+     * share one observer rather than repeating it per provider. */
+    const observer = {
+      next: (res: { ok: boolean; error?: string | null }) =>
+        res.ok ? finishOk() : finishErr(new Error(res.error ?? 'Health check failed')),
+      error: finishErr,
+    };
 
     if (meta.enrichment === 'geocode') {
       const url = form.nominatim_url.trim();
@@ -364,11 +336,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
         finishErr(new Error('Enter a URL to test.'));
         return;
       }
-      this.enrichmentApi.testNominatim(url).subscribe({
-        next: (res) =>
-          res.ok ? finishOk() : finishErr(new Error(res.error ?? 'Health check failed')),
-        error: finishErr,
-      });
+      this.enrichmentApi.testNominatim(url).subscribe(observer);
     } else if (meta.enrichment === 'describe') {
       this.enrichmentApi
         .testDescribeProvider({
@@ -377,22 +345,16 @@ export class WorkersComponent implements OnInit, OnDestroy {
           model: FIXED_DESCRIBE_MODEL,
           api_key: null,
         })
-        .subscribe({
-          next: (res) =>
-            res.ok ? finishOk() : finishErr(new Error(res.error ?? 'Health check failed')),
-          error: finishErr,
-        });
+        .subscribe(observer);
     } else if (meta.enrichment === 'meili') {
       const url = form.meilisearch_url.trim();
       if (url.length === 0) {
         finishErr(new Error('Enter a URL to test.'));
         return;
       }
-      this.enrichmentApi.testMeilisearch(url, form.meilisearch_api_key.trim() || null).subscribe({
-        next: (res) =>
-          res.ok ? finishOk() : finishErr(new Error(res.error ?? 'Health check failed')),
-        error: finishErr,
-      });
+      this.enrichmentApi
+        .testMeilisearch(url, form.meilisearch_api_key.trim() || null)
+        .subscribe(observer);
     }
   }
 
