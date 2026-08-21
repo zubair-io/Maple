@@ -345,7 +345,7 @@ export interface ApiAssetDetail {
    * `null` for legacy rows indexed before #175. */
   is_screenshot: boolean | null;
   hidden?: boolean;
-  hidden_reason?: 'manual' | 'nudity' | 'nudity-burst' | 'folder';
+  hidden_reason?: 'manual' | 'nudity' | 'nudity-burst' | 'folder' | null;
   hidden_ack?: boolean;
   enrichment: ApiEnrichment;
 }
