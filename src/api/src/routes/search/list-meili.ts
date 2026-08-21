@@ -151,8 +151,17 @@ const MONGO_ONLY_FILTERS = [
   'excludeHiddenPeople',
 ] as const;
 
-function isSet(value: unknown): boolean {
-  return typeof value === 'string' && value.trim().length > 0;
+/**
+ * Params `buildFilter` reads as a boolean opt-in: they add a Mongo clause
+ * ONLY on the exact string `'true'`. Treating any non-empty value as active
+ * would send `hasCapturedAt=false` down the Mongo path for a filter that
+ * never existed — a needless loss of relevance ranking.
+ */
+const TRUE_ONLY_FLAGS: ReadonlySet<string> = new Set(['hasCapturedAt', 'excludeHiddenPeople']);
+
+function isSet(value: unknown, key?: string): boolean {
+  if (typeof value !== 'string') return false;
+  return key !== undefined && TRUE_ONLY_FLAGS.has(key) ? value === 'true' : value.trim().length > 0;
 }
 
 /**
@@ -164,7 +173,7 @@ function isSet(value: unknown): boolean {
  * post-filtering a single page.
  */
 export function unpushableFilters(resolved: SearchQuery): string[] {
-  const named = MONGO_ONLY_FILTERS.filter((key) => isSet(resolved[key]));
+  const named = MONGO_ONLY_FILTERS.filter((key) => isSet(resolved[key], key));
   // `photos` and absent are no-ops in `buildFilter`; `places`/`people` add a
   // presence clause with no Meili counterpart. Anything else is rejected
   // upstream — treat it as unpushable rather than assume it is inert.

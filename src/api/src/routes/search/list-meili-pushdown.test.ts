@@ -159,6 +159,19 @@ describe('unpushableFilters — which filters force the Mongo path', () => {
   });
 
   /**
+   * `buildFilter` adds a clause for these only on the exact string 'true'.
+   * Treating any non-empty value as active would push `hasCapturedAt=false`
+   * onto the Mongo path for a filter that never existed, losing relevance
+   * ranking for nothing.
+   */
+  it.each([
+    ['hasCapturedAt', { hasCapturedAt: 'false' }],
+    ['excludeHiddenPeople', { excludeHiddenPeople: 'false' }],
+  ])('does not treat %s=false as an active filter', (_key, extra) => {
+    expect(unpushableFilters({ placeQuery: 'greyson', ...extra })).toEqual([]);
+  });
+
+  /**
    * The guard is only as good as its coverage. A param added to the wire
    * contract without being classified would silently fall back into
    * post-filtering a page — the exact bug this closes. Failing here is the
@@ -167,7 +180,10 @@ describe('unpushableFilters — which filters force the Mongo path', () => {
   it('classifies every param in the wire schema', () => {
     const declared = Object.keys(SearchQueryT.properties);
     const unclassified = declared.filter((key) => {
-      const asFilter = unpushableFilters({ placeQuery: 'x', [key]: 'probe-value' });
+      // Probed with 'true': the boolean opt-in params (`hasCapturedAt`,
+      // `excludeHiddenPeople`) only add a Mongo clause on that exact value,
+      // so any other probe would look inert and hide a real classification.
+      const asFilter = unpushableFilters({ placeQuery: 'x', [key]: 'true' });
       const asEmpty = unpushableFilters({ placeQuery: 'x' });
       // Either the param forces a fallback, or it is knowingly inert here.
       return asFilter.length === asEmpty.length && !KNOWN_MEILI_SAFE.has(key);
