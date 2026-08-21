@@ -1,7 +1,8 @@
 /**
  * Missing-reaper row reconciliation — the writes a reap pass performs once a
- * row has been classified: recover/prune a surviving row, and hard-delete a
- * row whose every location is confirmed gone. Extracted from
+ * row has been classified: recover/prune a surviving row, and soft-delete
+ * (`deleted_at` + `deleted_reason: 'reaped'`, #2977) a row whose every
+ * location is confirmed gone. Extracted from
  * `missing-reaper.ts` to keep that file under the size budget; the pass logic
  * and all classification guards stay there.
  */
@@ -114,20 +115,40 @@ async function cleanRemovedLocationsCache(
   );
 }
 
-/** Hard-delete a row whose every location is gone, tombstone its search doc,
- * and publish a delete event. The row has no live entry, so route the change
- * event by its first (now-dead) fileinfo entry's library. */
-export async function hardDeleteRow(
+/** Soft-delete a row whose every location is gone (#2977): set
+ * `deleted_at` + `deleted_reason: 'reaped'` instead of removing the record,
+ * tombstone its search doc, and publish a delete event. The update is
+ * GUARDED — it applies only while the row still has no live entry and is
+ * not already soft-deleted, so a discover revive (or user trash) that lands
+ * between classification and this write turns the reap into a no-op
+ * (returns false). No disk I/O happens here: previews stay for a potential
+ * revive (cache-gc reclaims orphans after the trash-gc purge), and the row
+ * keeps its fileinfo for revive matching + Trash display. */
+export async function reapRow(
   coll: Awaited<ReturnType<typeof assetsCollection>>,
   doc: { _id: ObjectId; fileinfo?: FileInfo[]; maple_id?: string },
-  libs: ReadonlyMap<string, string>,
-): Promise<void> {
-  const folderId = doc.fileinfo?.[0]?.library_id ?? null;
-  await coll.deleteOne({ _id: doc._id });
-  await cleanRemovedLocationsCache(libs, doc.fileinfo ?? []);
-  // Tombstone the Meilisearch document. A reaped row was never soft-deleted,
-  // so without this the search index keeps surfacing an asset whose Mongo row
-  // and on-disk file are both gone until the next full backfill. Best-effort.
+): Promise<boolean> {
+  const res = await coll.updateOne(
+    {
+      _id: doc._id,
+      deleted_at: { $not: { $type: 'string' } },
+      fileinfo: {
+        $not: {
+          $elemMatch: {
+            deleted_at: { $not: { $type: 'string' } },
+            missing_since: { $not: { $type: 'string' } },
+          },
+        },
+      },
+    },
+    { $set: { deleted_at: new Date().toISOString(), deleted_reason: 'reaped' } },
+  );
+  if (res.modifiedCount === 0) return false;
+
+  // Tombstone the Meilisearch document — the row must leave search
+  // immediately, same as the old hard delete. Best-effort; discover's
+  // revive path re-arms the meili stage so the doc comes back if the
+  // content reappears.
   if (doc.maple_id) {
     try {
       await meilisearchClient().tombstone(doc.maple_id);
@@ -138,7 +159,8 @@ export async function hardDeleteRow(
   await recordAndPublishAssetChange({
     kind: 'delete',
     asset_id: doc._id,
-    folder_id: folderId,
+    folder_id: doc.fileinfo?.[0]?.library_id ?? null,
     abs_path: null,
   });
+  return true;
 }

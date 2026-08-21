@@ -702,12 +702,24 @@ export interface AssetDoc {
   metadata_override?: MetadataOverride | null;
   /**
    * Soft-delete marker. Set by the discover watcher when a file vanishes
-   * from disk (in which case `original_path` stays unset), AND by the
+   * from disk (in which case `original_path` stays unset), by the
    * File Provider DELETE handler when a user drags an asset to Trash
-   * (in which case `original_path` is also set). Trashed assets remain
+   * (in which case `original_path` is also set), AND by the missing-reaper
+   * when every location is confirmed gone past the prune window
+   * (`deleted_reason: 'reaped'`, #2977). Trashed assets remain
    * indexed but are filtered out of folder listings and search results.
    */
   deleted_at?: string | null;
+  /**
+   * Why `deleted_at` is set. `'reaped'` — the missing-reaper soft-deleted
+   * this row because every location was confirmed gone past the prune
+   * window (#2977); there is NO trashed file copy on disk, so restore
+   * does not apply and trash-gc purges the row without touching disk.
+   * null/absent — a user-initiated trash (`original_path` may be set).
+   * Cleared (with `deleted_at`) when discover revives the row on a
+   * content-hash re-discover.
+   */
+  deleted_reason?: 'reaped' | null;
   /**
    * Pre-trash absolute path. Only set when a File Provider user
    * trashed the asset (distinct from a watcher-driven `removed`).
