@@ -12,6 +12,7 @@
  */
 
 import { ObjectId } from 'mongodb';
+import { meilisearchClient } from '../../enrichment/meilisearch-client.ts';
 import { getDb } from '../../db/client.ts';
 import { AUTO_PERSON_NAME } from '../../people/auto-person-name.ts';
 import { credibleYears, type YearCount } from './digest.ts';
@@ -120,5 +121,8 @@ export async function buildDigest(libraryId: string, now: Date): Promise<PromptD
     coverageYears: [...credible].sort((a, b) => a - b),
     onThisMonthByYear: thisMonth.filter(({ year }) => credible.has(year)),
     recentThemes: themes,
+    // Read fresh each run, not cached: an operator can flip semantic search
+    // on from Settings and the next run's prompt should switch with it.
+    semanticSearch: meilisearchClient().semanticConfigured(),
   };
 }

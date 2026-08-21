@@ -53,10 +53,26 @@ interface SeedOptions {
   personId?: ObjectId;
 }
 
+/** Deterministic ObjectId per seed so assertions can name the expected
+ * cover. `cover_asset_id` stores the Mongo `_id` hex — the identity
+ * `/api/assets/:id/*` accepts — NOT `SearchResult.id`, which is the
+ * editor-facing `fs:<absPath>` form and useless against those routes. */
+function oidFor(id: string): ObjectId {
+  return new ObjectId(
+    id
+      .padEnd(24, '0')
+      .split('')
+      .map((c) => c.charCodeAt(0).toString(16).slice(-1))
+      .join('')
+      .slice(0, 24),
+  );
+}
+
 async function seedAsset(id: string, opts: SeedOptions = {}) {
   const year = opts.year ?? 2018;
   const month = opts.month ?? 8;
   await db.collection('assets').insertOne({
+    _id: oidFor(id),
     maple_id: id,
     fileinfo: [
       {
@@ -127,10 +143,10 @@ describe('runGeneratedSearch — evidence for titling', () => {
     expect(outcome.captions).toEqual(['A child runs across a wet lawn.']);
   });
 
-  it('names a cover asset from the matched set', async () => {
+  it('names a cover asset by its Mongo _id, the identity /api/assets accepts', async () => {
     await seedAsset('a');
     const outcome = await runGeneratedSearch(toSearchQuery({ month: '8' }, LIB_HEX));
-    expect(outcome.coverAssetId).toBe('a');
+    expect(outcome.coverAssetId).toBe(oidFor('a').toHexString());
   });
 });
 
@@ -155,7 +171,7 @@ describe('runGeneratedSearch — hidden people, end to end', () => {
     const outcome = await runGeneratedSearch(toSearchQuery({ month: '8' }, LIB_HEX));
 
     expect(outcome.count).toBe(1);
-    expect(outcome.coverAssetId).toBe('visible');
+    expect(outcome.coverAssetId).toBe(oidFor('visible').toHexString());
   });
 
   it('excludes assets showing an excluded person (#2894)', async () => {

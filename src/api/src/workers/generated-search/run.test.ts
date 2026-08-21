@@ -32,7 +32,10 @@ afterAll(async () => {
 });
 
 async function reset(): Promise<void> {
-  await db.collection('app_settings').deleteMany({ _id: 'generated_search' } as never);
+  await Promise.all([
+    db.collection('app_settings').deleteMany({ _id: 'generated_search' } as never),
+    db.collection('generated_searches').deleteMany({}),
+  ]);
 }
 
 describe('runGeneratedSearchOnce — pause gate', () => {
@@ -52,6 +55,23 @@ describe('runGeneratedSearchOnce — pause gate', () => {
   it('writes nothing to the collection while paused', async () => {
     await runGeneratedSearchOnce(new Date('2026-08-17T06:00:00.000Z'));
     expect(await db.collection('generated_searches').countDocuments()).toBe(0);
+  });
+
+  it('still prunes expired collections while paused', async () => {
+    // Retention is a promise about disk/DB growth, not about the LLM run.
+    // A worker paused for months must not let generated_searches grow (or
+    // linger) unbounded just because no new proposals are being made.
+    await db.collection('generated_searches').insertMany([
+      { library_id: 'x', theme: 'ancient', generated_at: '2026-01-01T00:00:00.000Z' },
+      { library_id: 'x', theme: 'fresh', generated_at: '2026-08-16T00:00:00.000Z' },
+    ] as never);
+
+    const summary = await runGeneratedSearchOnce(new Date('2026-08-17T06:00:00.000Z'));
+
+    expect(summary.skipped).toBe(true);
+    expect(summary.pruned).toBe(1);
+    const left = await db.collection('generated_searches').find({}).toArray();
+    expect(left.map((d) => d.theme)).toEqual(['fresh']);
   });
 
   it('is paused by default rather than requiring an explicit opt-out', async () => {

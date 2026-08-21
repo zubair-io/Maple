@@ -67,7 +67,10 @@ export async function runGeneratedSearch(query: SearchQuery): Promise<SearchOutc
     return {
       count: meili.total,
       captions: captionsOf(meili.results),
-      coverAssetId: meili.results[0]?.id ?? null,
+      // `_id`, not `.id`: SearchResult.id is the editor-facing
+      // `fs:<absPath>` form, useless against /api/assets/:id/*. The Mongo
+      // `_id` hex is the identity both branches can agree on.
+      coverAssetId: meili.results[0]?._id ?? null,
     };
   }
 
@@ -75,15 +78,15 @@ export async function runGeneratedSearch(query: SearchQuery): Promise<SearchOutc
   const [count, rows] = await Promise.all([
     coll.countDocuments(liveFilter),
     coll
-      .find(liveFilter, { projection: { maple_id: 1, description: 1 } })
+      .find(liveFilter, { projection: { _id: 1, description: 1 } })
       .limit(CAPTION_SAMPLE)
       .toArray(),
   ]);
 
-  const cover = rows[0] as { maple_id?: unknown } | undefined;
+  const cover = rows[0] as { _id?: { toHexString(): string } } | undefined;
   return {
     count,
     captions: captionsOf(rows as { description?: string | null }[]),
-    coverAssetId: typeof cover?.maple_id === 'string' ? cover.maple_id : null,
+    coverAssetId: cover?._id?.toHexString() ?? null,
   };
 }
