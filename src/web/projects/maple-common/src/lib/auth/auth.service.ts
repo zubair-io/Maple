@@ -478,6 +478,25 @@ export class AuthService {
     return this._nativeCallbackScheme !== null;
   }
 
+  /// Hand a session that is ALREADY established to a native app waiting on the
+  /// `native_callback` redirect (#2963).
+  ///
+  /// The other caller of the handoff is `acceptTokens()`, which only runs after
+  /// a fresh ceremony. When the browser still holds a valid refresh cookie from
+  /// an earlier sign-in there is no ceremony to hook: the page hydrates, the
+  /// router lands on the library, and the app that opened this URL never gets
+  /// its code. That is the whole bug — the Windows shell opens the sign-in URL
+  /// in the user's DEFAULT browser, which is exactly where a live session lives.
+  /// (The Apple shell's `ASWebAuthenticationSession` is ephemeral, so it
+  /// normally forces a fresh ceremony and takes the `acceptTokens` path.)
+  ///
+  /// No-op in a normal browser tab, and no-op while signed out — the sign-in
+  /// ceremony owns that case.
+  async resumeNativeHandoff(): Promise<void> {
+    if (!this.isNativeShell || !this.isSignedIn) return;
+    await this.postNativeAuthSuccess();
+  }
+
   /// After a successful ceremony inside the Apple shell, hand the app a
   /// short-lived one-time CODE (never tokens). The shell redeems the code with
   /// its private PKCE verifier at `/api/auth/native-code/redeem`. The redirect

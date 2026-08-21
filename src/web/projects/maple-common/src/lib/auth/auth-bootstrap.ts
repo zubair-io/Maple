@@ -22,6 +22,13 @@ import { AuthService } from './auth.service';
  * history/bookmarks and a page refresh afterward falls through to the normal
  * cookie-based refresh below.
  *
+ * Finally, once the session is hydrated (or known absent), this completes a
+ * pending NATIVE handoff: an app that opened this URL with
+ * `?native_callback=maple-app&code_challenge=…&state=…` is waiting for a
+ * one-time code. A fresh passkey ceremony hands that code over on its own, but
+ * an already-signed-in browser never runs one — without this step the app waits
+ * forever while the browser just shows the library (#2963).
+ *
  * This intentionally BLOCKS bootstrap: `provideAppInitializer` awaits the
  * returned promise, so the app finishes booting only once the redeem (or
  * refresh, and on success `/me`) resolves. That's deliberate — we want the
@@ -36,16 +43,20 @@ export function provideAuthBootstrap(): EnvironmentProviders {
     const auth = inject(AuthService);
     try {
       const handoffCode = new URLSearchParams(window.location.search).get('lan_handoff');
+      const redeemed = handoffCode ? await auth.redeemLanHandoff(handoffCode) : false;
       if (handoffCode) {
-        const redeemed = await auth.redeemLanHandoff(handoffCode);
         const url = new URL(window.location.href);
         url.searchParams.delete('lan_handoff');
         window.history.replaceState(null, '', url.toString());
-        if (redeemed) return;
       }
-      if ((await auth.refresh()) === 'refreshed') {
+      if (!redeemed && (await auth.refresh()) === 'refreshed') {
         await auth.loadMe();
       }
+      // The session is now as hydrated as it is going to get. If a native app
+      // opened this URL to collect an auth code, hand it over — see
+      // AuthService.resumeNativeHandoff. Awaited (not fire-and-forget) so the
+      // redirect goes out before the router paints the library behind it.
+      await auth.resumeNativeHandoff();
     } catch {
       /* never block boot on auth hydration */
     }
