@@ -1,0 +1,27 @@
+<h4>Today’s collections</h4>
+
+@if (cards().length === 0) {
+  <p class="muted">
+    Nothing yet. Collections appear after the first run — enable the worker above.
+  </p>
+} @else {
+  @if (producedFewer()) {
+    <p class="muted">
+      This run produced {{ cards().length }} of {{ requested() }}. Proposals that matched too few
+      photos are discarded rather than padded.
+    </p>
+  }
+  <ul class="cards">
+    @for (card of cards(); track card.id) {
+      <li>
+        <a [routerLink]="searchLink" [queryParams]="searchParams(card)">
+          <span class="title">{{ card.title }}</span>
+          @if (card.subtitle) {
+            <span class="subtitle">{{ card.subtitle }}</span>
+          }
+          <span class="count">{{ card.result_count }} photos</span>
+        </a>
+      </li>
+    }
+  </ul>
+}

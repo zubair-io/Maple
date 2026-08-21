@@ -173,8 +173,8 @@
                       type="number"
                       min="1"
                       max="8760"
-                      [value]="reaperPruneWindow()"
-                      (input)="setReaperPruneWindow($any($event.target).value)"
+                      [value]="reaperPrune.window()"
+                      (input)="reaperPrune.set($any($event.target).value)"
                       data-testid="reaper-prune-window"
                     />
                     <span class="num-suffix">hours</span>
@@ -187,19 +187,19 @@
                 </div>
                 <div class="row-footer">
                   <span class="footer-spacer"></span>
-                  @if (reaperPruneError(); as msg) {
+                  @if (reaperPrune.error(); as msg) {
                     <span class="save-error">{{ msg }}</span>
-                  } @else if (reaperPruneSaveState() === 'success') {
+                  } @else if (reaperPrune.saveState() === 'success') {
                     <span class="save-ok">Saved.</span>
                   }
                   <button
                     type="button"
                     class="btn-primary"
-                    [disabled]="reaperPruneSaveState() === 'saving' || !reaperPruneLoaded()"
-                    (click)="saveReaperPruneWindow()"
+                    [disabled]="reaperPrune.saveState() === 'saving' || !reaperPrune.loaded()"
+                    (click)="reaperPrune.save()"
                     data-testid="reaper-prune-save"
                   >
-                    {{ reaperPruneSaveState() === 'saving' ? 'Saving…' : 'Save' }}
+                    {{ reaperPrune.saveState() === 'saving' ? 'Saving…' : 'Save' }}
                   </button>
                 </div>
               </div>
