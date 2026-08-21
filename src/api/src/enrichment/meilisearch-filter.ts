@@ -46,9 +46,22 @@ function subjectsFilter(subjects: string[] | undefined): string | null {
 /** Mirrors the Mongo predicate, which is `$ne: true` rather than `= false`:
  * rows indexed before `is_screenshot` was written must still count as
  * photographs, so the negative case has to admit a missing field. */
+/**
+ * `IS NULL` matches a field that is PRESENT and null; it does not match one
+ * that is absent. `isScreenshot` only entered the document at shape v5, so
+ * every document indexed before that carries no key at all and an `IS NULL`
+ * test alone would silently drop all of them from "Photos only".
+ * `NOT EXISTS` is the arm that covers them.
+ *
+ * The Mongo predicate this mirrors is `$ne: true`, which admits both shapes
+ * for exactly the same reason.
+ */
+const NOT_A_SCREENSHOT =
+  '(isScreenshot NOT EXISTS OR isScreenshot IS NULL OR isScreenshot = false)';
+
 function screenshotFilter(isScreenshot: boolean | undefined): string | null {
   if (isScreenshot === undefined) return null;
-  return isScreenshot ? 'isScreenshot = true' : '(isScreenshot IS NULL OR isScreenshot = false)';
+  return isScreenshot ? 'isScreenshot = true' : NOT_A_SCREENSHOT;
 }
 
 function mediaFilter(mediaTypes: MeilisearchMediaType[] | undefined): string | null {
@@ -83,7 +96,14 @@ function capturedAtFilters(opts: MeilisearchSearchOptions): string[] {
  * default exclusion, default excludes hidden docs. */
 function hiddenFilter(opts: MeilisearchSearchOptions): string | null {
   if (opts.onlyHidden === true) return 'hidden = true';
-  return opts.includeHidden === true ? null : '(hidden IS NULL OR hidden = false)';
+  // Same absent-field trap as `NOT_A_SCREENSHOT`: `hidden` arrived at shape
+  // v3, so older documents carry no key and an `IS NULL` test alone drops
+  // them from every default search. Widening is safe — `list-meili.ts`
+  // re-applies the real hidden predicate in Mongo, so this only decides
+  // which candidates are offered, never what ships.
+  return opts.includeHidden === true
+    ? null
+    : '(hidden NOT EXISTS OR hidden IS NULL OR hidden = false)';
 }
 
 export function buildFilter(opts: MeilisearchSearchOptions): string {
