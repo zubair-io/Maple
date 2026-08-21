@@ -122,13 +122,13 @@ export class AuthService {
     });
   }
 
-  /// Custom URL scheme to redirect to after auth success when the page
-  /// was loaded inside an `ASWebAuthenticationSession` from the Apple
-  /// app. Read once at service construction; preserved across in-app
-  /// navigations (the session captures the redirect by scheme, not by
-  /// the path the user navigates through).
+  /// Custom URL scheme to redirect to after auth success, when a native shell
+  /// (Apple, via an `ASWebAuthenticationSession`; Windows, via the user's
+  /// default browser) opened this page to collect a code. Read once at service
+  /// construction; preserved across in-app navigations — the redirect is
+  /// captured by scheme, not by the path the user navigates through.
   ///
-  /// `null` in a normal browser tab.
+  /// `null` in a plain browser tab nobody handed a callback to.
   private readonly _nativeCallbackScheme: string | null = (() => {
     try {
       const cb = new URLSearchParams(window.location.search).get('native_callback');
@@ -470,10 +470,12 @@ export class AuthService {
     void this.postNativeAuthSuccess();
   }
 
-  /// Returns true when the page is running inside an
-  /// `ASWebAuthenticationSession` started by the Maple Apple shell.
-  /// Detected via the `?native_callback=<scheme>` query parameter the
-  /// Apple side adds to the initial URL.
+  /// Returns true when a native app opened this page to collect an auth code,
+  /// detected via the `?native_callback=<scheme>` query parameter that app put
+  /// on the initial URL. Two shells do this and the difference matters:
+  /// the Apple shell hosts the page in an `ASWebAuthenticationSession`, while
+  /// the Windows shell hands the URL to the user's DEFAULT browser — so a live
+  /// session is normal here, not the exception (see `resumeNativeHandoff`).
   get isNativeShell(): boolean {
     return this._nativeCallbackScheme !== null;
   }
