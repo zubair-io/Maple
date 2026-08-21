@@ -120,7 +120,7 @@ export interface AssetDetailDto {
    * has run (or the asset carries no audio track). */
   transcript: TranscriptDto | null;
   hidden?: boolean;
-  hidden_reason?: 'manual' | 'nudity' | 'nudity-burst';
+  hidden_reason?: 'manual' | 'nudity' | 'nudity-burst' | 'folder';
   hidden_ack?: boolean;
   enrichment: Enrichment;
 }
@@ -161,7 +161,7 @@ export interface AssetListItemDto {
   rating: number;
   has_xmp: boolean;
   hidden?: boolean;
-  hidden_reason?: 'manual' | 'nudity' | 'nudity-burst';
+  hidden_reason?: 'manual' | 'nudity' | 'nudity-burst' | 'folder';
   hidden_ack?: boolean;
 }
 
