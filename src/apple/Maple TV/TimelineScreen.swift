@@ -18,6 +18,20 @@ struct TimelineScreen: View {
   let libraryName: String
 
   @State private var viewModel: TVTimelineViewModel
+  /// The "Rediscover" shelf above the grid. Independent of the feed below —
+  /// if it fails to load it simply renders nothing, leaving the Timeline
+  /// fully usable.
+  @State private var collectionsViewModel: TVGeneratedSearchViewModel
+  /// Assets of the collection the viewer is currently showing, if any.
+  /// Wrapped because `fullScreenCover(item:)` needs an `Identifiable`, and a
+  /// bare array is not one.
+  @State private var openCollection: OpenCollection?
+
+  /// A collection's photos, presented full-screen.
+  private struct OpenCollection: Identifiable {
+    let id: String
+    let assets: [SearchAsset]
+  }
   /// Presents `PhotoViewerScreen` (current feed + selected index) via
   /// `.fullScreenCover(item:)` when non-nil. Set by a cell's `onSelect`.
   @State private var selectedAsset: SearchAsset?
@@ -35,6 +49,10 @@ struct TimelineScreen: View {
       libraryID: libraryID,
       searchClient: session.searchClient
     ))
+    _collectionsViewModel = State(initialValue: TVGeneratedSearchViewModel(
+      libraryID: libraryID,
+      client: session.generatedSearchClient
+    ))
   }
 
   /// Fixed-width columns matching `TimelineCell.size` — a wall of uniform
@@ -51,6 +69,20 @@ struct TimelineScreen: View {
       MapleTVTheme.background.ignoresSafeArea()
       VStack(alignment: .leading, spacing: 0) {
         TimelineTopBar(title: headerTitle, subtitle: headerSubtitle)
+        GeneratedSearchShelf(
+          collections: collectionsViewModel.collections,
+          covers: collectionsViewModel.covers,
+          session: session
+        ) { collection in
+          Task {
+            let assets = await collectionsViewModel.assets(for: collection)
+            // Don't open an empty viewer — a collection whose photos failed
+            // to load should do nothing rather than show a blank screen.
+            if !assets.isEmpty {
+              openCollection = OpenCollection(id: collection.id, assets: assets)
+            }
+          }
+        }
         content
       }
     }
@@ -60,6 +92,15 @@ struct TimelineScreen: View {
     // `@State` viewModel scoped to the new library) rather than re-running
     // `load()` against a viewModel still bound to the old `libraryID`.
     .task { await viewModel.load() }
+    .task { await collectionsViewModel.load() }
+    .fullScreenCover(item: $openCollection) { open in
+      PhotoViewerScreen(
+        assets: open.assets,
+        startIndex: 0,
+        session: session,
+        onDismiss: { _ in openCollection = nil }
+      )
+    }
     .fullScreenCover(item: $selectedAsset) { asset in
       let resultSet = viewModel.assets
       let startIndex = resultSet.firstIndex(where: { $0.id == asset.id }) ?? 0
