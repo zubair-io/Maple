@@ -23,7 +23,7 @@ import { hashFileForId } from '../../indexer/id.ts';
 import { liveFileInfoElemMatch, updateLiveLocationCount } from '../../indexer/images.repo.ts';
 import { directoryHasKeepFile } from '../../fs/duplicates.ts';
 import { libraryRootAvailable, statKind } from '../missing-reaper.helpers.ts';
-import { buildFileinfoEntry, isInsideMapleCache } from './types.ts';
+import { buildFileinfoEntry, isInsideDuplicatesDir, isInsideMapleCache } from './types.ts';
 import { MEILI_REARM_SET } from '../../people/people-search-reindex.ts';
 
 const log = child('discover');
@@ -57,6 +57,21 @@ export async function handleEvent(
   }
   if (kind === 'renamed' && fromPath && isInsideMapleCache(libraryRoot, fromPath)) {
     log.warn({ libraryRoot, fromPath, kind }, 'rename from .maple cache — refusing');
+    return;
+  }
+
+  // Same chokepoint guard for the DeDuplicate quarantine: indexing a
+  // `_duplicates/` copy re-attaches it to the asset it was split from and the
+  // next dedupe pass nests it under `_duplicates/_duplicates/…` (see
+  // `isInsideDuplicatesDir`). The sweeper already skips the tree; this catches
+  // every other producer (imports hand-off, browse indexing, pano on-demand,
+  // folder walkers).
+  if (isInsideDuplicatesDir(libraryRoot, absPath)) {
+    log.warn({ libraryRoot, absPath, kind }, 'event inside _duplicates quarantine — refusing');
+    return;
+  }
+  if (kind === 'renamed' && fromPath && isInsideDuplicatesDir(libraryRoot, fromPath)) {
+    log.warn({ libraryRoot, fromPath, kind }, 'rename from _duplicates quarantine — refusing');
     return;
   }
 
