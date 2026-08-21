@@ -58,15 +58,15 @@ describe('parseFilenameCapturedAt', () => {
     expect(parseFilenameCapturedAt('20101011_035847220.jpg')).toBeNull();
   });
 
-  test('returns null for an OneDrive-shaped name with an impossible calendar date', () => {
+  test('returns null for a OneDrive-shaped name with an impossible calendar date', () => {
     expect(parseFilenameCapturedAt('20100230_035847220_iOS.jpg')).toBeNull();
   });
 
-  test('returns null for an OneDrive-shaped name with an out-of-range time', () => {
+  test('returns null for a OneDrive-shaped name with an out-of-range time', () => {
     expect(parseFilenameCapturedAt('20101011_255847220_iOS.jpg')).toBeNull();
   });
 
-  test('returns null for an OneDrive-shaped name with an implausible year', () => {
+  test('returns null for a OneDrive-shaped name with an implausible year', () => {
     expect(parseFilenameCapturedAt('00000000_000000000_iOS.jpg')).toBeNull();
   });
 });
