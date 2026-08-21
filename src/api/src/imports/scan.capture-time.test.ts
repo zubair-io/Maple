@@ -96,6 +96,33 @@ describe('EXIF capture time', () => {
     const f = files.find((ff) => ff.dest.endsWith('NO_EXIF.dng'))!;
     expect(f.dest).toBe(`2015/misc/${exifFolderName}/NO_EXIF.dng`);
   });
+
+  test('falls back to the filename-encoded date when EXIF is absent (OneDrive convention)', async () => {
+    // No parseable EXIF, but the OneDrive camera-roll name encodes the true
+    // capture time — bucketing must prefer it over the (much later) mtime.
+    const abs = path.join(exifRoot, '20101011_035847220_iOS.jpg');
+    await fs.writeFile(abs, 'not a real JPEG');
+    const when = new Date('2024-11-01T00:00:00Z');
+    await fs.utimes(abs, when, when);
+
+    const files = await buildImportFiles(exifRoot, {});
+    const f = files.find((ff) => ff.dest.endsWith('20101011_035847220_iOS.jpg'))!;
+    expect(f.dest).toBe(`2010/misc/${exifFolderName}/20101011_035847220_iOS.jpg`);
+  });
+
+  test('EXIF capture time wins over a filename-encoded date', async () => {
+    // EXIF says June 2019; the filename claims January 2010 — EXIF is
+    // authoritative when both are present.
+    await putJpegWithExifDate(
+      '20100102_121212000_iOS.jpg',
+      '2019:06:15 10:30:00',
+      '2024-11-01T00:00:00Z',
+    );
+
+    const files = await buildImportFiles(exifRoot, {});
+    const f = files.find((ff) => ff.dest.endsWith('20100102_121212000_iOS.jpg'))!;
+    expect(f.dest).toBe(`2019/misc/${exifFolderName}/20100102_121212000_iOS.jpg`);
+  });
 });
 
 describe('scanFolder: defaultDest and nearbyMatchCount preview', () => {
