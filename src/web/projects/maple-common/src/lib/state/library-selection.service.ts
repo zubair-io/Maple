@@ -130,24 +130,34 @@ export class LibrarySelection {
 
   // ── Selection mutations ───────────────────────────────────────────────────
 
+  /** Toggle `id`'s membership in a selection set (Cmd/Ctrl-click). */
+  private static toggled(prev: ReadonlySet<string>, id: string): Set<string> {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  }
+
+  /** Anchor-to-target contiguous slice of `list` for a Shift-click, falling
+   * back to just the clicked id when either end isn't in the list. */
+  private static ranged(
+    list: readonly { id: string }[],
+    anchor: string | null,
+    id: string,
+  ): Set<string> {
+    const endIdx = list.findIndex((item) => item.id === id);
+    const startIdx = anchor ? list.findIndex((item) => item.id === anchor) : -1;
+    if (startIdx === -1 || endIdx === -1) return new Set([id]);
+    const [lo, hi] = [Math.min(startIdx, endIdx), Math.max(startIdx, endIdx)];
+    return new Set(list.slice(lo, hi + 1).map((item) => item.id));
+  }
+
   selectAsset(id: AssetId, additive = false, range = false): void {
     if (additive) {
-      this.selectedAssetIds.update((prev) => {
-        const next = new Set(prev);
-        next.has(id) ? next.delete(id) : next.add(id);
-        return next;
-      });
+      this.selectedAssetIds.update((prev) => LibrarySelection.toggled(prev, id));
     } else if (range) {
-      const list = this.assetsInSelectedFolder();
-      const focused = this.focusedAssetId();
-      const endIdx = list.findIndex((a) => a.id === id);
-      const startIdx = focused ? list.findIndex((a) => a.id === focused) : -1;
-      if (startIdx !== -1 && endIdx !== -1) {
-        const [lo, hi] = [Math.min(startIdx, endIdx), Math.max(startIdx, endIdx)];
-        this.selectedAssetIds.set(new Set(list.slice(lo, hi + 1).map((a) => a.id)));
-      } else {
-        this.selectedAssetIds.set(new Set([id]));
-      }
+      this.selectedAssetIds.set(
+        LibrarySelection.ranged(this.assetsInSelectedFolder(), this.focusedAssetId(), id),
+      );
     } else {
       // Plain click replaces the ENTIRE selection, folders included —
       // additive/range gestures extend one kind while leaving the other
@@ -164,22 +174,11 @@ export class LibrarySelection {
    * grid, so a folder range never needs to span photos). */
   selectFolder(id: string, additive = false, range = false): void {
     if (additive) {
-      this.selectedFolderIds.update((prev) => {
-        const next = new Set(prev);
-        next.has(id) ? next.delete(id) : next.add(id);
-        return next;
-      });
+      this.selectedFolderIds.update((prev) => LibrarySelection.toggled(prev, id));
     } else if (range) {
-      const list = this.foldersInSelectedFolder();
-      const focused = this.focusedFolderId();
-      const endIdx = list.findIndex((f) => f.id === id);
-      const startIdx = focused ? list.findIndex((f) => f.id === focused) : -1;
-      if (startIdx !== -1 && endIdx !== -1) {
-        const [lo, hi] = [Math.min(startIdx, endIdx), Math.max(startIdx, endIdx)];
-        this.selectedFolderIds.set(new Set(list.slice(lo, hi + 1).map((f) => f.id)));
-      } else {
-        this.selectedFolderIds.set(new Set([id]));
-      }
+      this.selectedFolderIds.set(
+        LibrarySelection.ranged(this.foldersInSelectedFolder(), this.focusedFolderId(), id),
+      );
     } else {
       this.selectedFolderIds.set(new Set([id]));
       this.selectedAssetIds.set(new Set());
