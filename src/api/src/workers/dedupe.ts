@@ -19,11 +19,8 @@
  * re-confirmed on disk each pass, so adding/removing a `.keep` takes effect
  * without re-indexing. The ranking below applies only to UN-pinned sets.
  *
- * Which copy is KEPT (the spec's ranking — see `selectKeeper` / `dedupe.helpers.ts`):
- *   1. prefer to move a copy under an `unsorted` folder
- *   2. then a `name.N.ext` numbered copy
- *   3. then an all-numeric directory path
- *   4. otherwise keep the LAST copy in the list
+ * Which copy is KEPT: see the ranking spec in `dedupe.helpers.ts` (the
+ * `selectKeeper` / `removalScore` docs are the single source of truth).
  *
  * Derived data:
  *   - XMP sidecars travel into `_duplicates` alongside the moved file (edits
