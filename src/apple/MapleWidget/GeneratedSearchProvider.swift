@@ -93,7 +93,7 @@ struct GeneratedSearchProvider: TimelineProvider {
   /// then build one timeline's worth of entries. Returns `[]` on any failure
   /// — the caller decides what to render.
   private static func buildEntries() async -> [GeneratedSearchEntry] {
-    guard let context = WidgetSession.current() else { return [] }
+    guard let context = await WidgetSession.current() else { return [] }
 
     do {
       let collections = try await context.generatedSearch.collections(
