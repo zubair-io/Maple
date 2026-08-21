@@ -98,6 +98,33 @@ describe('GET /api/search — applied date window is reported', () => {
     expect(body.dateFilter).toBeUndefined();
   });
 
+  /**
+   * `extractDatesFromQuery` intersects the parse with explicit params,
+   * tightest-bound-wins. When the explicit bounds win BOTH ends, the window
+   * on screen is the user's own — attributing it to their search text tells
+   * them something untrue about their own query (#2960).
+   */
+  it('does not attribute a window an explicit param owns outright', async () => {
+    if (!mongoReachable) return;
+    const body = await search('placeQuery=2024&from=2024-03-01&to=2024-04-30');
+    expect(body.dateFilter).toEqual({
+      from: '2024-03-01T00:00:00.000Z',
+      to: '2024-04-30T23:59:59.999Z',
+    });
+  });
+
+  it('still attributes when the query text set one of the bounds', async () => {
+    if (!mongoReachable) return;
+    // The explicit `from` tightens the lower bound; the upper is still the
+    // parse's own, so the text did contribute and is named.
+    const body = await search('placeQuery=2024&from=2024-03-01');
+    expect(body.dateFilter).toEqual({
+      from: '2024-03-01T00:00:00.000Z',
+      to: '2024-12-31T23:59:59.999Z',
+      inferredFrom: '2024',
+    });
+  });
+
   // Which WORDS the parser treats as dates is #2952's concern and is covered
   // by its own tests. This file only asserts that whatever window ends up
   // applied is reported, and attributed when it came from the query text.

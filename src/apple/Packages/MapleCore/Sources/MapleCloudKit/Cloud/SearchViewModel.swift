@@ -151,6 +151,11 @@ public final class SearchViewModel {
       loadError = nil
       results = cachedPage.results
       nextCursor = cachedPage.nextCursor
+      // Must be refreshed here too, not only on the network path: leaving the
+      // previous query's value behind makes the chip claim a date filter this
+      // query does not carry — the false filter state the chip exists to
+      // prevent (#2960).
+      appliedDates = cachedPage.dateFilter
       total = cachedPage.seekExhausted ? cachedPage.results.count : cachedPage.total
       facets = cachedFacets
       return
