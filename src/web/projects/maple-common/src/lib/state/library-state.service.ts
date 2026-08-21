@@ -302,7 +302,9 @@ export class LibraryStateService {
   readonly foldersInSelectedFolder = this.selection.foldersInSelectedFolder;
   readonly focusedAsset = this.selection.focusedAsset;
   readonly selectedCount = this.selection.selectedCount;
-  readonly selectedFolderCount = this.selection.selectedFolderCount;
+  // (No selectedFolderCount re-export — every consumer wants either the
+  // combined selectedTotalCount or the id set itself; inject
+  // `LibrarySelection` if a folder-only count is ever needed.)
   readonly selectedTotalCount = this.selection.selectedTotalCount;
 
   // ── Culling mutations (+ trigger debounced index write) ────────────────────
