@@ -251,4 +251,55 @@ describe('GET /api/folders/:id/trash — response correctness', () => {
       expect(prev.deleted_at >= cur.deleted_at).toBe(true);
     }
   });
+
+  it('lists reaped rows alongside user-trashed rows, tagged reason "reaped" (#2977)', async () => {
+    if (!mongoReachable) return;
+    await seed(2, 1); // one user-trashed row
+
+    // One reaped row: no original_path, fileinfo points at the (gone)
+    // original library location, doc-level deleted_at + reason.
+    await db!.collection('assets').insertOne({
+      size: 1,
+      mtime: 0,
+      rating: 0,
+      flag: 0,
+      color_label: '',
+      indexed_at: '2026-05-11T00:00:00Z',
+      fileinfo: [
+        {
+          path: 'sub',
+          filename: 'gone.dng',
+          library_id: folderId,
+          deleted_at: null,
+          missing_since: '2026-08-01T00:00:00.000Z',
+        },
+      ],
+      deleted_at: new Date().toISOString(),
+      deleted_reason: 'reaped',
+    } as never);
+
+    const { foldersRoutes } = await import('./folders.ts');
+    const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
+    const res = await app.handle(
+      new Request(`http://localhost/api/folders/${folderId.toHexString()}/trash`),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      items: Array<{
+        filename: string;
+        original_relative_path: string;
+        trash_relative_path: string;
+        reason: string;
+      }>;
+    };
+    expect(body.items.length).toBe(2);
+    const reaped = body.items.find((i) => i.filename === 'gone.dng');
+    expect(reaped).toBeDefined();
+    expect(reaped!.reason).toBe('reaped');
+    expect(reaped!.original_relative_path).toBe('sub/gone.dng');
+    expect(reaped!.trash_relative_path).toBe('sub/gone.dng');
+    const user = body.items.find((i) => i.filename === 'trash-0.jpg');
+    expect(user).toBeDefined();
+    expect(user!.reason).toBe('user');
+  });
 });

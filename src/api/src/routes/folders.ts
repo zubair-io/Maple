@@ -1222,22 +1222,38 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
         size: number;
         mtime: string;
         deleted_at: string;
+        /** 'user' — user-initiated trash (restorable copy in .maple/trash);
+         * 'reaped' — the missing-reaper soft-deleted it, no copy exists
+         * (#2977). Additive field; older clients ignore it. */
+        reason: 'user' | 'reaped';
       }> = [];
       for (const d of pageDocs) {
         const doc = d as unknown as AssetWithId & {
           mtime: number | string;
           deleted_at: string;
+          deleted_reason?: string | null;
           original_path: string;
         };
         const primary = (doc.fileinfo ?? []).find((e) => !e.deleted_at) ?? doc.fileinfo?.[0];
         if (!primary) continue;
+        const isReaped = doc.deleted_reason === 'reaped';
+        // A reaped row has no original_path and no trash copy — both wire
+        // paths carry the stored (now-vanished) library-relative location.
+        const storedRel =
+          primary.path === '' ? primary.filename : `${primary.path}/${primary.filename}`;
         const orig = doc.original_path;
-        const originalRel = orig.startsWith(rootPrefix) ? orig.slice(rootPrefix.length) : orig;
-        const absPath = assetAbsPath(doc, libs);
-        if (!absPath) continue;
-        const trashRel = absPath.startsWith(rootPrefix)
-          ? absPath.slice(rootPrefix.length)
-          : absPath;
+        const originalRel = isReaped
+          ? storedRel
+          : orig.startsWith(rootPrefix)
+            ? orig.slice(rootPrefix.length)
+            : orig;
+        const absPath = isReaped ? null : assetAbsPath(doc, libs);
+        if (!isReaped && !absPath) continue;
+        const trashRel = isReaped
+          ? storedRel
+          : absPath!.startsWith(rootPrefix)
+            ? absPath!.slice(rootPrefix.length)
+            : absPath!;
         // `doc.mtime` is stored as `fs.stat().mtimeMs` (a number) by the
         // discover watcher, but may legacy-back as an ISO string from
         // earlier rows. Always emit ISO-8601 over the wire so the Swift
@@ -1252,6 +1268,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
           size: doc.size,
           mtime: mtimeIso,
           deleted_at: doc.deleted_at,
+          reason: isReaped ? 'reaped' : 'user',
         });
       }
       return {
@@ -1296,7 +1313,9 @@ export function buildTrashListFilter(
   // odd shapes.
   const trashPredicate = {
     deleted_at: { $type: 'string' as const, $ne: null },
-    original_path: { $ne: null },
+    // User trash always has original_path; reaped rows (#2977) never do —
+    // they surface by their discriminator instead.
+    $or: [{ original_path: { $ne: null } }, { deleted_reason: 'reaped' as const }],
   };
 
   const filter: Record<string, unknown> = {
