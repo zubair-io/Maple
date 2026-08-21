@@ -99,6 +99,20 @@ async function purgeTrashedAsset(
   info: NonNullable<Awaited<ReturnType<typeof findCoreInfoById>>>,
   set: { status?: number | string },
 ): Promise<{ error: string } | undefined> {
+  // A reaped row (#2977) has NO trashed copy — its fileinfo paths point at
+  // ORIGINAL library locations, where a file may have quietly returned.
+  // An explicit purge of one is a pure DB delete: never unlink anything.
+  if (info.deleted_reason === 'reaped') {
+    await hardDelete(id);
+    set.status = 204;
+    await recordAndPublishAssetChange({
+      kind: 'delete',
+      asset_id: id,
+      folder_id: info.folder_id,
+      abs_path: null,
+    }).catch(() => {});
+    return;
+  }
   const libs = await loadLibraryRoots();
   const absPathResolved = assetAbsPath(info, libs);
   if (!absPathResolved) {

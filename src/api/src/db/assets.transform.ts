@@ -189,6 +189,9 @@ export interface AssetCoreInfo {
   /** Used by trash / Meilisearch tombstone paths. */
   maple_id: string | null;
   deleted_at: string | null;
+  /** `'reaped'` when the missing-reaper soft-deleted the row (#2977) — no
+   * trashed file copy exists, so restore/purge must not touch disk. */
+  deleted_reason: 'reaped' | null;
   original_path: string | null;
   /** Carried for the trash route's Meilisearch re-index branch. */
   place: Place | null;
@@ -302,6 +305,7 @@ export function toCoreInfo(
     mtime: doc.mtime,
     maple_id: typeof mapleId === 'string' && mapleId.length > 0 ? mapleId : null,
     deleted_at: doc.deleted_at ?? null,
+    deleted_reason: rawDoc.deleted_reason === 'reaped' ? 'reaped' : null,
     original_path:
       typeof originalPath === 'string' && originalPath.length > 0 ? originalPath : null,
     place: doc.place ?? null,
