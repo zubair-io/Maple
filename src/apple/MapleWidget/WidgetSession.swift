@@ -27,6 +27,11 @@ struct WidgetSession {
 
   /// Build a session from whatever the app last persisted, or nil when the
   /// widget has nothing to show yet.
+  ///
+  /// Main-actor isolated because `CloudServerRegistry` is: it is UI-facing
+  /// state in the app. Callers hop once per refresh, which costs nothing —
+  /// the network work afterwards is off-actor inside the clients' actors.
+  @MainActor
   static func current() -> WidgetSession? {
     guard let defaults = UserDefaults(suiteName: appGroup) else { return nil }
 
