@@ -23,6 +23,8 @@ import {
   type NewFileCandidate,
 } from './rename-reconcile.ts';
 import type { AssetDoc, FileInfo } from '../../db/schema.ts';
+import { FOLDER_HIDDEN_MARKER, reconcileFolderHidden } from './folder-hidden.ts';
+import type { CleanupHidden } from './folder-hidden.ts';
 
 const log = child('discover');
 
@@ -33,6 +35,9 @@ export interface ReconcileDeps {
    * listing (the network-share failure mode the stat-confirm in the removed pass
    * guards against). Defaults to `fs.readdir(dir, { withFileTypes: true })`. */
   readDir?: (dirPath: string) => Promise<Dirent[]>;
+  /** R2-cleanup seam for the folder-hidden pass — injectable for tests only;
+   * production omits it and gets the real bulk cleanup. */
+  cleanupHidden?: CleanupHidden;
 }
 
 function isSupported(name: string): boolean {
@@ -55,7 +60,12 @@ export async function visitDirectory(
     return;
   }
 
-  const { subdirs, filesOnDisk } = partitionEntries(entries, dir.dir_path);
+  const { subdirs, filesOnDisk, hasHiddenMarker } = partitionEntries(entries, dir.dir_path);
+  // Effective folder-hidden state: own `.hidden` marker, or inherited from an
+  // ancestor via the frontier flag. Reconciled after the created/removed
+  // events below so a file discovered in a marked dir is hidden in the same
+  // visit that created its asset.
+  const folderHidden = dir.hidden_ancestor === true || hasHiddenMarker;
 
   // Recorded files not seen in the listing → candidate removals. A missing
   // entry is NOT trusted on its own: a `fs.readdir` can succeed yet return an
@@ -86,7 +96,9 @@ export async function visitDirectory(
 
   await emitUnreconciledEvents(newCandidates, missingCandidates, reconciled, root, deps);
 
-  await frontier.enqueueDirs(folderId, subdirs, dir.sweep_gen);
+  await reconcileFolderHidden(folderId, root, dir.dir_path, folderHidden, deps.cleanupHidden);
+
+  await frontier.enqueueDirs(folderId, subdirs, dir.sweep_gen, folderHidden);
   await frontier.completeDir(dir._id);
 }
 
@@ -94,13 +106,16 @@ export async function visitDirectory(
  * supported image/video files present on disk (filename → absPath). Skips
  * the DeDuplicate quarantine, every dotdir/dotfile (in particular `.maple/`
  * — see the inline comment below), and anything whose extension isn't in
- * `SUPPORTED_EXTS`. */
+ * `SUPPORTED_EXTS`. Also reports whether the folder-level `.hidden` marker
+ * is present (#2972) — an exact-name match, so per-photo `<photo>.hidden`
+ * sibling markers don't trigger it. */
 function partitionEntries(
   entries: readonly Dirent[],
   dirPath: string,
-): { subdirs: string[]; filesOnDisk: Map<string, string> } {
+): { subdirs: string[]; filesOnDisk: Map<string, string>; hasHiddenMarker: boolean } {
   const subdirs: string[] = [];
   const filesOnDisk = new Map<string, string>(); // filename -> absPath (images only)
+  const hasHiddenMarker = entries.some((e) => e.isFile() && e.name === FOLDER_HIDDEN_MARKER);
 
   for (const ent of entries) {
     const abs = path.join(dirPath, ent.name);
@@ -127,7 +142,7 @@ function partitionEntries(
       filesOnDisk.set(ent.name, abs);
     }
   }
-  return { subdirs, filesOnDisk };
+  return { subdirs, filesOnDisk, hasHiddenMarker };
 }
 
 type RecordedAsset = Pick<WithId<AssetDoc>, '_id' | 'size' | 'exif'> & {

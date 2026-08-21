@@ -462,9 +462,12 @@ export interface AssetDoc {
    * hid it (an XMP override is present); `'nudity'` when the describe
    * stage's own vision verdict set it; `'nudity-burst'` when it was
    * propagated from a sibling asset in the same burst (see
-   * `enrichment/burst-siblings.ts`). Absent when not hidden. A manual
-   * reason is never overwritten by a later AI pass. */
-  hidden_reason?: 'manual' | 'nudity' | 'nudity-burst';
+   * `enrichment/burst-siblings.ts`); `'folder'` when a folder-level
+   * `.hidden` marker file covers the asset's directory (see
+   * `workers/discover/folder-hidden.ts` — removed again when the marker
+   * disappears). Absent when not hidden. A manual reason is never
+   * overwritten by a later AI pass. */
+  hidden_reason?: 'manual' | 'nudity' | 'nudity-burst' | 'folder';
   /** Operator has reviewed an AI-driven hide (`hidden_reason` is
    * `'nudity'` or `'nudity-burst'`). `false` immediately after an
    * automatic hide; flips to `true` via `POST /api/assets/:id/hidden-ack`
@@ -1273,6 +1276,10 @@ export interface DiscoverFrontierDoc {
   sweep_gen: number;
   claimed_at: number | null; // ms epoch lease; null = free
   enqueued_at: number;
+  /** An ancestor directory carries a folder-level `.hidden` marker, so this
+   * dir's photos are folder-hidden even without a marker of its own (#2972).
+   * Set at enqueue time from the parent's effective state; absent = false. */
+  hidden_ancestor?: boolean;
 }
 
 // ---------------------------------------------------------------------------
