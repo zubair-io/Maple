@@ -352,6 +352,18 @@ jobs:
             exit 1
           fi
 
+  maple-ui-contracts:
+    name: maple-ui-contracts (component-contract docs are complete)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run contract linter self-test
+        run: bash tools/check-maple-ui-contracts.test.sh
+
+      - name: Check component-contract docs
+        run: bash tools/check-maple-ui-contracts.sh
+
   fallow-audit-web:
     name: fallow-audit-web (dead code / complexity / dupes, changed files)
     runs-on: ubuntu-latest
