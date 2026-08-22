@@ -26,6 +26,8 @@ public struct GeneratedSearchCard: Codable, Equatable, Sendable, Identifiable {
   public let theme: String
   public let title: String
   public let subtitle: String?
+  /// Decoded defensively (see init) — an older server that omits `query`
+  /// must not fail the whole card decode; the link is just unseeded then.
   public let query: [String: String]
   public let result_count: Int
   public let cover_asset_id: String?
@@ -49,6 +51,18 @@ public struct GeneratedSearchCard: Codable, Equatable, Sendable, Identifiable {
     self.result_count = result_count
     self.cover_asset_id = cover_asset_id
     self.generated_for = generated_for
+  }
+
+  public init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    id = try c.decode(String.self, forKey: .id)
+    theme = try c.decode(String.self, forKey: .theme)
+    title = try c.decode(String.self, forKey: .title)
+    subtitle = try c.decodeIfPresent(String.self, forKey: .subtitle)
+    query = (try? c.decodeIfPresent([String: String].self, forKey: .query)) ?? [:]
+    result_count = try c.decode(Int.self, forKey: .result_count)
+    cover_asset_id = try c.decodeIfPresent(String.self, forKey: .cover_asset_id)
+    generated_for = try c.decode(String.self, forKey: .generated_for)
   }
 }
 

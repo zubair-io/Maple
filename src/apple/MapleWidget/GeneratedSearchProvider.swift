@@ -149,14 +149,19 @@ struct GeneratedSearchProvider: TimelineProvider {
   /// same whitelisted params the app-side handler reads. An attended
   /// search is the one place executing the stored query client-side is
   /// fine; ambient display still goes through the server's assets route.
+  /// The exact keys the app-side handler reads — anything else a stored
+  /// query might grow later stays out of the URL by construction.
+  private static let linkKeys = ["placeQuery", "from", "to", "month", "sceneType", "people"]
+
   private static func searchLink(for collection: GeneratedSearchCard, libraryID: String) -> URL? {
     var components = URLComponents()
     components.scheme = "maple"
     components.host = "search"
     components.queryItems =
-      collection.query
-        .filter { !$0.value.isEmpty }
-        .map { URLQueryItem(name: $0.key, value: $0.value) }
+      linkKeys.compactMap { key in
+        guard let value = collection.query[key], !value.isEmpty else { return nil }
+        return URLQueryItem(name: key, value: value)
+      }
       + [URLQueryItem(name: "libraryId", value: libraryID)]
     return components.url
   }
