@@ -74,3 +74,18 @@ final class GeneratedSearchClientTests: XCTestCase {
     XCTAssertEqual(decoded.results[0].filename, "a.dng")
   }
 }
+
+extension GeneratedSearchClientTests {
+  /// Version skew: an older server that omits `query` must not fail the
+  /// whole card decode — the link is just unseeded.
+  func test_decode_missingQuery_defaultsToEmpty() throws {
+    let json = """
+    {"results":[
+      {"id":"x","theme":"t","title":"T","subtitle":null,
+       "result_count":9,"cover_asset_id":null,"generated_for":"2026-08-17"}
+    ]}
+    """
+    let decoded = try JSONDecoder().decode(GeneratedSearchListResponse.self, from: Data(json.utf8))
+    XCTAssertEqual(decoded.results[0].query, [:])
+  }
+}
