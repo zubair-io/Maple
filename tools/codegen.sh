@@ -9,7 +9,12 @@
 #                                            (the ts-tables target is #2683 —
 #                                            see the Outputs list below)
 #   - ui-tokens  (raw_core::ui_tokens::{COLOR_TOKENS, MOTION_TOKENS})
-#                                            → Swift + TS + SCSS (ticket #606)
+#                                            → Swift + TS + SCSS + WinUI XAML
+#                                            (ticket #606; XAML target closes
+#                                            the Windows drift gap, milestone
+#                                            #22 — motion is intentionally not
+#                                            emitted to XAML, see codegen/src/
+#                                            ui_tokens.rs::emit_xaml)
 #   - color-matrices (raw_core::color::{matrices,oklab}) → WGSL + TS
 #                                            (epic #925 P2 / #990; TS #1944)
 #   - agx-coeffs     (src/scripts/derive_agx_lut.py) → WGSL
@@ -28,6 +33,11 @@
 #   - src/apple/Packages/MapleCore/Sources/MapleCore/Generated/UITokens.swift
 #   - src/web/projects/maple-common/src/lib/generated/ui-tokens.ts
 #   - src/web/projects/maple-common/src/lib/generated/_ui-tokens.scss
+#   - src/windows/Maple.WinUI/Themes/Tokens.xaml
+#                                            (colors + radius + spacing only —
+#                                            the 4 hand-written <Style>
+#                                            resources live alongside it, in
+#                                            the NOT-generated Themes/Styles.xaml)
 #   - src/raw-pipeline/raw-gpu/src/generated/color_matrices.wgsl
 #   - src/web/projects/maple-common/src/lib/generated/color-matrices.generated.ts
 #   - src/raw-pipeline/raw-gpu/src/generated/agx_coeffs.wgsl
@@ -65,10 +75,12 @@ TS_TABLES_OUT="src/web/projects/maple-common/src/lib/generated/adjustment-tables
 UI_SWIFT_OUT="src/apple/Packages/MapleCore/Sources/MapleCore/Generated/UITokens.swift"
 UI_TS_OUT="src/web/projects/maple-common/src/lib/generated/ui-tokens.ts"
 UI_SCSS_OUT="src/web/projects/maple-common/src/lib/generated/_ui-tokens.scss"
+UI_XAML_OUT="src/windows/Maple.WinUI/Themes/Tokens.xaml"
 
 "$BIN" --schema ui-tokens --target swift --out "$UI_SWIFT_OUT"
 "$BIN" --schema ui-tokens --target ts    --out "$UI_TS_OUT"
 "$BIN" --schema ui-tokens --target scss  --out "$UI_SCSS_OUT"
+"$BIN" --schema ui-tokens --target xaml  --out "$UI_XAML_OUT"
 
 # --- Color matrices → WGSL (epic #925 P2 / #990) --------------------------
 # The GPU scene-linear kernels (raw-gpu) bake the Oklab + Rec.2020/sRGB
@@ -120,6 +132,7 @@ echo "  - $TS_TABLES_OUT"
 echo "  - $UI_SWIFT_OUT"
 echo "  - $UI_TS_OUT"
 echo "  - $UI_SCSS_OUT"
+echo "  - $UI_XAML_OUT"
 echo "  - $GPU_WGSL_OUT"
 echo "  - $COLOR_MATRICES_TS_OUT"
 echo "  - $AGX_WGSL_OUT"
