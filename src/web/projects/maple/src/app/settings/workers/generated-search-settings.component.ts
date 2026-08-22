@@ -148,18 +148,24 @@ export class GeneratedSearchSettingsComponent implements OnInit {
    * second one exists. */
   protected readonly libraryId = signal<string | null>(null);
 
+  /** How long to let a kicked pass run before refreshing the list. A field
+   * (not a constant) so the spec can zero it instead of waiting wall-clock. */
+  protected refreshDelayMs = 4000;
+
   /** Kick a pass immediately — the scheduled tick can be up to a day away,
    * and this is the answer to "I just enabled it, why is nothing happening?".
-   * The server refuses a second click while one is in flight. A pass takes
-   * minutes (LLM calls), so this waits briefly then refreshes the list; a
-   * still-running pass simply shows up on the next panel load. */
+   * A pass takes minutes (LLM calls), so this waits briefly then refreshes
+   * the list; a still-running pass simply shows up on the next panel load.
+   *
+   * `started: false` (already-running) takes the SAME wait-and-refresh path:
+   * a pass is in flight either way, so "Running…" stays honest and the
+   * button stays disabled instead of inviting repeated POSTs. */
   protected async runNow(): Promise<void> {
     this.running.set(true);
     this.error.set(null);
     try {
-      const result = await firstValueFrom(this.api.runGeneratedSearchNow());
-      if (!result.started) return;
-      await new Promise((resolve) => setTimeout(resolve, 4000));
+      await firstValueFrom(this.api.runGeneratedSearchNow());
+      await new Promise((resolve) => setTimeout(resolve, this.refreshDelayMs));
       await this.loadCards();
     } catch (err: unknown) {
       this.error.set(errorMessage(err));
