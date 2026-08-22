@@ -16,20 +16,26 @@ struct GeneratedSearchWidgetView: View {
   let entry: GeneratedSearchEntry
 
   var body: some View {
-    ZStack(alignment: .bottomLeading) {
-      photo
-      caption
-    }
-    .containerBackground(for: .widget) { Color.black }
-    .widgetURL(deepLink)
+    caption
+      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+      // The photo lives in the container BACKGROUND, not the content:
+      // backgrounds render edge-to-edge (and under the system margins),
+      // where content-layer images get proposed the inset content size and
+      // letterbox against the black container — the exact bars this fixes.
+      .containerBackground(for: .widget) { photo }
+      .widgetURL(deepLink)
   }
 
   @ViewBuilder
   private var photo: some View {
     if let data = entry.imageData, let image = PlatformImage(data: data) {
-      Image(platformImage: image)
-        .resizable()
-        .aspectRatio(contentMode: .fill)
+      GeometryReader { proxy in
+        Image(platformImage: image)
+          .resizable()
+          .scaledToFill()
+          .frame(width: proxy.size.width, height: proxy.size.height)
+          .clipped()
+      }
     } else {
       // No photo yet: sign-in pending, first run before the worker has
       // produced anything, or an unreachable server. A calm gradient reads
