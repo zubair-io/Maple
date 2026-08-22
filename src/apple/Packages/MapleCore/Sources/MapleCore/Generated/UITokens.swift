@@ -89,4 +89,36 @@ public enum MapleUITokens {
         /// Library filter chip change cross-fade.
         public static let filterFade: MotionSpec = MotionSpec(ms: 120, ease: "linear")
     }
+
+    // MARK: - Radius
+
+    /// Chips, keyboard-hint pills, mention pills.
+    public static let radiusXs: CGFloat = 4
+    /// Icon buttons and hover targets.
+    public static let radiusSm: CGFloat = 6
+    /// Buttons, inputs, cards, toasts, widget containers — the workhorse default.
+    public static let radiusMd: CGFloat = 8
+    /// Composer, dialogs, floating panels.
+    public static let radiusLg: CGFloat = 12
+    /// Large feature cards.
+    public static let radiusXl: CGFloat = 16
+    /// Hero panels and large marketing-scale surfaces.
+    public static let radiusXxl: CGFloat = 24
+    /// Fully round — avatars, badges, filter chips.
+    public static let radiusFull: CGFloat = 9999
+
+    // MARK: - Spacing
+
+    /// Icon padding.
+    public static let spacingXs: CGFloat = 4
+    /// Inline padding.
+    public static let spacingSm: CGFloat = 8
+    /// Buttons.
+    public static let spacingMd: CGFloat = 16
+    /// Card padding.
+    public static let spacingLg: CGFloat = 24
+    /// Section breaks.
+    public static let spacingXl: CGFloat = 32
+    /// Page-level spacing.
+    public static let spacingXxl: CGFloat = 48
 }

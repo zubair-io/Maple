@@ -137,3 +137,58 @@ $maple-motion: (
     'ease': linear,
   ),
 );
+
+// -------------------------------------------------------------------------
+// Radius
+// -------------------------------------------------------------------------
+
+// Chips, keyboard-hint pills, mention pills.
+$maple-radius-xs: 4px;
+// Icon buttons and hover targets.
+$maple-radius-sm: 6px;
+// Buttons, inputs, cards, toasts, widget containers — the workhorse default.
+$maple-radius-md: 8px;
+// Composer, dialogs, floating panels.
+$maple-radius-lg: 12px;
+// Large feature cards.
+$maple-radius-xl: 16px;
+// Hero panels and large marketing-scale surfaces.
+$maple-radius-xxl: 24px;
+// Fully round — avatars, badges, filter chips.
+$maple-radius-full: 9999px;
+
+$maple-radii: (
+  'xs': 4px,
+  'sm': 6px,
+  'md': 8px,
+  'lg': 12px,
+  'xl': 16px,
+  'xxl': 24px,
+  'full': 9999px,
+);
+
+// -------------------------------------------------------------------------
+// Spacing
+// -------------------------------------------------------------------------
+
+// Icon padding.
+$maple-spacing-xs: 4px;
+// Inline padding.
+$maple-spacing-sm: 8px;
+// Buttons.
+$maple-spacing-md: 16px;
+// Card padding.
+$maple-spacing-lg: 24px;
+// Section breaks.
+$maple-spacing-xl: 32px;
+// Page-level spacing.
+$maple-spacing-xxl: 48px;
+
+$maple-spacing: (
+  'xs': 4px,
+  'sm': 8px,
+  'md': 16px,
+  'lg': 24px,
+  'xl': 32px,
+  'xxl': 48px,
+);
