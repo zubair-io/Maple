@@ -19,11 +19,17 @@ import {
   saveGeneratedSearchConfig,
   type GeneratedSearchConfig,
 } from './config.repo.ts';
+import { startRunNow } from './run-now.ts';
 
 export const generatedSearchConfigRoutes = new Elysia({ prefix: '/api/workers' })
   .get('/generated-search/config', async () => {
     return await loadGeneratedSearchConfig();
   })
+
+  // Kick one pass now, returning immediately. Bypasses the pause gate (see
+  // run-now.ts — that is the point of the button); refuses a second click
+  // while a run is in flight.
+  .post('/generated-search/run', () => startRunNow())
 
   .patch(
     '/generated-search/config',

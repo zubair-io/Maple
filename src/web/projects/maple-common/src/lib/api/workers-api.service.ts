@@ -311,6 +311,15 @@ export class WorkersApiService {
     );
   }
 
+  /** Kick one generated-search pass now. Returns immediately; refuses with
+   * `started: false` while a pass is already in flight. */
+  runGeneratedSearchNow(): Observable<{ started: boolean; reason?: string }> {
+    return this.http.post<{ started: boolean; reason?: string }>(
+      `${this.base}/workers/generated-search/run`,
+      null,
+    );
+  }
+
   /** The most recent day's collections for a library. Omitting `date` asks
    * for the latest day that produced anything, so a late or empty run shows
    * yesterday's set rather than an empty panel. */
