@@ -106,6 +106,11 @@ export class SearchComponent implements OnInit, AfterViewInit {
   /** Initial query the host seeds from the route (`/search?q=…`). Read once
    * in `ngOnInit` — after that this component owns the query. */
   readonly initialQuery = input<string>('');
+  /** Structured filters to seed alongside `initialQuery` — the generated-
+   * collection deep link (`/search?from=…&sceneType=…`). Seeded once on
+   * init into the ordinary `filters` state, so every seeded value renders
+   * as a removable chip rather than as invisible query narrowing. */
+  readonly initialFilters = input<Partial<SearchFilters> | null>(null);
 
   /** Emitted when the user taps a photo result — hosts route to the
    * preview/editor surface. */
@@ -297,6 +302,10 @@ export class SearchComponent implements OnInit, AfterViewInit {
   ngOnInit(): void {
     const seed = this.initialQuery().trim();
     if (seed) this.query.set(seed);
+    const seededFilters = this.initialFilters();
+    if (seededFilters !== null) {
+      this.filters.set({ ...EMPTY_FILTERS, ...seededFilters });
+    }
   }
 
   ngAfterViewInit(): void {
