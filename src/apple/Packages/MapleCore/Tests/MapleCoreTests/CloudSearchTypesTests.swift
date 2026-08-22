@@ -99,3 +99,4 @@ final class CloudSearchTypesTests: XCTestCase {
     XCTAssertEqual(asset.place?.rollups?.country_code, "jp")
   }
 }
+
