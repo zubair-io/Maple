@@ -36,32 +36,20 @@ enum FileProviderPageCursor {
 }
 
 /// File Provider only accepts Cocoa and NSFileProvider error domains from an
-/// enumerator. Preserve already-supported errors and translate transport/API
-/// failures to a supported domain while retaining the original error and its
-/// server-provided description for Console diagnostics.
+/// enumerator. HTTP failures already arrive here in a supported domain —
+/// `RemoteCatalog.mapHTTPError` wraps every non-2xx — so this only passes
+/// those through and translates the rest (transport-level `URLError`s,
+/// decode failures) to `.serverUnreachable`, retaining the original error
+/// and its description for Console diagnostics.
 private func enumerationError(_ error: Error) -> NSError {
     let original = error as NSError
     if original.domain == NSCocoaErrorDomain || original.domain == NSFileProviderErrorDomain {
         return original
     }
 
-    let code: NSFileProviderError.Code
-    if let http = error as? RemoteCatalogHTTPError {
-        switch http.statusCode {
-        case 401, 403:
-            code = .notAuthenticated
-        case 404:
-            code = .noSuchItem
-        default:
-            code = .serverUnreachable
-        }
-    } else {
-        code = .serverUnreachable
-    }
-
     return NSError(
         domain: NSFileProviderErrorDomain,
-        code: code.rawValue,
+        code: NSFileProviderError.serverUnreachable.rawValue,
         userInfo: [
             NSLocalizedDescriptionKey: error.localizedDescription,
             NSUnderlyingErrorKey: original,
