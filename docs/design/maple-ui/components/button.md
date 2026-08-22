@@ -1,12 +1,16 @@
 # Button
 
+**Tier:** Atom
+
 ## Purpose
+
 The primary interactive control for committing an action — the most-used atom in the system, and
 the one the current per-platform audit found most inconsistently implemented (see the design
 spec's audit section: Web's `<maple-button>` exists but is used nowhere outside its own Storybook
 story; Apple and Windows have no reusable button at all).
 
 ## Variants
+
 - **Primary** — filled `color.primary`, `color.text_main`-on-primary label. One per view region;
   the single visually loudest action.
 - **Secondary** — `color.border` outline, `color.surface` fill, `color.text_main` label.
@@ -18,6 +22,7 @@ story; Apple and Windows have no reusable button at all).
   screen needs it before this gap is closed).
 
 ## States
+
 - **Default** — as styled per variant above.
 - **Hover** — background steps to `color.surface_hover` (secondary/ghost) or a darkened primary
   (primary/destructive); the unified guide specifies primary-hover as "darken + lift 2px" over
@@ -34,6 +39,7 @@ story; Apple and Windows have no reusable button at all).
   Never a separate greyed-out fill color — opacity is the only disabled signal.
 
 ## Tokens used
+
 - Color: `color.primary`, `color.surface`, `color.surface_hover`, `color.border`, `color.text_main`,
   `color.text_muted` (label-on-disabled), `color.error_bg`/`color.error_text` (destructive, pending
   the follow-up noted above).
@@ -42,6 +48,7 @@ story; Apple and Windows have no reusable button at all).
 - Motion: 200ms hover-lift, 100ms color transition — not yet tokenized, see States above.
 
 ## Props
+
 - `variant`: `primary | secondary | ghost | destructive` (default `secondary`).
 - `label`: string — the visible and accessible text.
 - `icon`: optional leading icon (see the Icon atom contract).
@@ -50,6 +57,7 @@ story; Apple and Windows have no reusable button at all).
   `@Output() pressed` in Angular, `Click` event in WinUI).
 
 ## Accessibility
+
 - Minimum 44×44pt (Apple) / 44×44px (Web, matching the guide's stated mobile touch-target minimum)
   hit target, even when the visible box is smaller (padding, not just visual size, must satisfy
   this).
