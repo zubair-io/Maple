@@ -8,6 +8,7 @@
  */
 
 import { Elysia } from 'elysia';
+import { SEARCH_COUNT_TIMEOUT_MS, SEARCH_TIMEOUT_BODY, isMaxTimeExpired } from './query-timeout.ts';
 import { ObjectId } from 'mongodb';
 import { assetsCollection } from '../../db/client.ts';
 import { personIdsToDrop } from '../../people/people.repo.ts';
@@ -58,6 +59,18 @@ export const facetsRoute = new Elysia().get(
     const coll = await assetsCollection();
     const finalFilter = applyLiveFilter(filter);
 
+    // A too-broad $text filter must fail THIS response with a sentence, not
+    // hold 12 concurrent Mongo operations until the origin starves (#2988) —
+    // facets fan the same filter the list endpoint bounds. The `.catch`
+    // sentinel (null) keeps Promise.all's tuple type for the destructure.
+    const facetRows = await Promise.all(facetQueries()).catch((err: unknown) => {
+      if (isMaxTimeExpired(err)) return null;
+      throw err;
+    });
+    if (facetRows === null) {
+      set.status = 503;
+      return SEARCH_TIMEOUT_BODY;
+    }
     const [
       total,
       cameraAgg,
@@ -71,196 +84,234 @@ export const facetsRoute = new Elysia().get(
       screenshotAgg,
       peopleAgg,
       placesAgg,
-    ] = await Promise.all([
-      coll.countDocuments(finalFilter),
-      coll
-        .aggregate([
-          { $match: finalFilter },
-          {
-            $group: {
-              _id: {
-                make: '$exif.camera_make',
-                model: '$exif.camera_model',
+    ] = facetRows;
+    // eslint-disable-next-line no-inner-declarations -- hoisted so the
+    // destructure above can precede the 200-line query list for readability.
+    function facetQueries() {
+      return [
+        coll.countDocuments(finalFilter, { maxTimeMS: SEARCH_COUNT_TIMEOUT_MS }),
+        coll
+          .aggregate(
+            [
+              { $match: finalFilter },
+              {
+                $group: {
+                  _id: {
+                    make: '$exif.camera_make',
+                    model: '$exif.camera_model',
+                  },
+                  count: { $sum: 1 },
+                },
               },
-              count: { $sum: 1 },
-            },
-          },
-          { $sort: { count: -1 } },
-          { $limit: 50 },
-        ])
-        .toArray(),
-      coll
-        .aggregate([
-          { $match: finalFilter },
-          { $group: { _id: '$exif.lens', count: { $sum: 1 } } },
-          { $sort: { count: -1 } },
-          { $limit: 50 },
-        ])
-        .toArray(),
-      // Extensions: derive in Mongo via $split + $arrayElemAt — simpler
-      // than $regexFindAll and works on every supported server version.
-      // Post drop-abs-path-2026-05-21 the filename lives on
-      // `fileinfo[0].filename`; pull it out before splitting on `.`.
-      coll
-        .aggregate([
-          { $match: finalFilter },
-          {
-            $project: {
-              ext: {
-                $toLower: {
-                  $arrayElemAt: [
-                    {
-                      $split: [{ $arrayElemAt: ['$fileinfo.filename', 0] }, '.'],
+              { $sort: { count: -1 } },
+              { $limit: 50 },
+            ],
+            { maxTimeMS: SEARCH_COUNT_TIMEOUT_MS },
+          )
+          .toArray(),
+        coll
+          .aggregate(
+            [
+              { $match: finalFilter },
+              { $group: { _id: '$exif.lens', count: { $sum: 1 } } },
+              { $sort: { count: -1 } },
+              { $limit: 50 },
+            ],
+            { maxTimeMS: SEARCH_COUNT_TIMEOUT_MS },
+          )
+          .toArray(),
+        // Extensions: derive in Mongo via $split + $arrayElemAt — simpler
+        // than $regexFindAll and works on every supported server version.
+        // Post drop-abs-path-2026-05-21 the filename lives on
+        // `fileinfo[0].filename`; pull it out before splitting on `.`.
+        coll
+          .aggregate(
+            [
+              { $match: finalFilter },
+              {
+                $project: {
+                  ext: {
+                    $toLower: {
+                      $arrayElemAt: [
+                        {
+                          $split: [{ $arrayElemAt: ['$fileinfo.filename', 0] }, '.'],
+                        },
+                        -1,
+                      ],
                     },
-                    -1,
+                  },
+                },
+              },
+              { $match: { ext: { $nin: [null, ''] } } },
+              { $group: { _id: '$ext', count: { $sum: 1 } } },
+              { $sort: { count: -1 } },
+              { $limit: 50 },
+            ],
+            { maxTimeMS: SEARCH_COUNT_TIMEOUT_MS },
+          )
+          .toArray(),
+        coll
+          .aggregate(
+            [
+              { $match: finalFilter },
+              {
+                $group: {
+                  _id: null,
+                  min: { $min: '$exif.iso' },
+                  max: { $max: '$exif.iso' },
+                },
+              },
+            ],
+            { maxTimeMS: SEARCH_COUNT_TIMEOUT_MS },
+          )
+          .toArray(),
+        coll
+          .aggregate(
+            [
+              { $match: finalFilter },
+              {
+                $group: {
+                  _id: null,
+                  from: { $min: '$exif.captured_at' },
+                  to: { $max: '$exif.captured_at' },
+                },
+              },
+            ],
+            { maxTimeMS: SEARCH_COUNT_TIMEOUT_MS },
+          )
+          .toArray(),
+        // Vision scene_type — scalar field, group directly.
+        coll
+          .aggregate(
+            [
+              { $match: finalFilter },
+              { $match: { 'vision.scene_type': { $nin: [null, ''] } } },
+              { $group: { _id: '$vision.scene_type', count: { $sum: 1 } } },
+              { $sort: { count: -1 } },
+              { $limit: 20 },
+            ],
+            { maxTimeMS: SEARCH_COUNT_TIMEOUT_MS },
+          )
+          .toArray(),
+        // Vision activity — scalar nullable field.
+        coll
+          .aggregate(
+            [
+              { $match: finalFilter },
+              { $match: { 'vision.activity': { $nin: [null, ''] } } },
+              { $group: { _id: '$vision.activity', count: { $sum: 1 } } },
+              { $sort: { count: -1 } },
+              { $limit: 50 },
+            ],
+            { maxTimeMS: SEARCH_COUNT_TIMEOUT_MS },
+          )
+          .toArray(),
+        // Vision subjects — array field; $unwind before $group so each
+        // element gets its own bucket.
+        coll
+          .aggregate(
+            [
+              { $match: finalFilter },
+              { $unwind: '$vision.subjects' },
+              { $match: { 'vision.subjects': { $nin: [null, ''] } } },
+              { $group: { _id: '$vision.subjects', count: { $sum: 1 } } },
+              { $sort: { count: -1 } },
+              { $limit: 50 },
+            ],
+            { maxTimeMS: SEARCH_COUNT_TIMEOUT_MS },
+          )
+          .toArray(),
+        // Screenshot tri-state: true / false / unknown (field absent on
+        // legacy rows). Group on a $cond so the bucket key normalises.
+        coll
+          .aggregate(
+            [
+              { $match: finalFilter },
+              {
+                $project: {
+                  bucket: {
+                    $cond: [
+                      { $eq: ['$is_screenshot', true] },
+                      'true',
+                      {
+                        $cond: [{ $eq: ['$is_screenshot', false] }, 'false', 'unknown'],
+                      },
+                    ],
+                  },
+                },
+              },
+              { $group: { _id: '$bucket', count: { $sum: 1 } } },
+            ],
+            { maxTimeMS: SEARCH_COUNT_TIMEOUT_MS },
+          )
+          .toArray(),
+        // People (#2864) — assets per assigned person. Group on the DISTINCT
+        // person ids per asset (not per face) so a group shot with the same
+        // person detected twice counts once; the id → name join happens in JS
+        // below (`namesForPersonIds`), where hidden and merged-away persons
+        // drop out. A hidden FACE can't contribute — hiding a face nulls its
+        // `person_id`, and the `$ne: null` match drops unassigned faces.
+        coll
+          .aggregate(
+            [
+              { $match: finalFilter },
+              {
+                $project: {
+                  person_ids: {
+                    $setUnion: [
+                      {
+                        $map: {
+                          input: { $ifNull: ['$faces', []] },
+                          as: 'f',
+                          in: '$$f.person_id',
+                        },
+                      },
+                      [],
+                    ],
+                  },
+                },
+              },
+              { $unwind: '$person_ids' },
+              { $match: { person_ids: { $nin: [null, ''] } } },
+              { $group: { _id: '$person_ids', count: { $sum: 1 } } },
+              { $sort: { count: -1 } },
+              { $limit: 100 },
+            ],
+            { maxTimeMS: SEARCH_COUNT_TIMEOUT_MS },
+          )
+          .toArray(),
+        // Places (#2864) — assets per geocode rollup tuple. The tuple → label
+        // rule lives in `placeLabel` and must stay the inverse of
+        // `placeLabelClause` in `query.ts`.
+        coll
+          .aggregate(
+            [
+              { $match: finalFilter },
+              {
+                $match: {
+                  $or: [
+                    { 'place.rollups.locality': { $nin: [null, ''] } },
+                    { 'place.rollups.region': { $nin: [null, ''] } },
                   ],
                 },
               },
-            },
-          },
-          { $match: { ext: { $nin: [null, ''] } } },
-          { $group: { _id: '$ext', count: { $sum: 1 } } },
-          { $sort: { count: -1 } },
-          { $limit: 50 },
-        ])
-        .toArray(),
-      coll
-        .aggregate([
-          { $match: finalFilter },
-          {
-            $group: {
-              _id: null,
-              min: { $min: '$exif.iso' },
-              max: { $max: '$exif.iso' },
-            },
-          },
-        ])
-        .toArray(),
-      coll
-        .aggregate([
-          { $match: finalFilter },
-          {
-            $group: {
-              _id: null,
-              from: { $min: '$exif.captured_at' },
-              to: { $max: '$exif.captured_at' },
-            },
-          },
-        ])
-        .toArray(),
-      // Vision scene_type — scalar field, group directly.
-      coll
-        .aggregate([
-          { $match: finalFilter },
-          { $match: { 'vision.scene_type': { $nin: [null, ''] } } },
-          { $group: { _id: '$vision.scene_type', count: { $sum: 1 } } },
-          { $sort: { count: -1 } },
-          { $limit: 20 },
-        ])
-        .toArray(),
-      // Vision activity — scalar nullable field.
-      coll
-        .aggregate([
-          { $match: finalFilter },
-          { $match: { 'vision.activity': { $nin: [null, ''] } } },
-          { $group: { _id: '$vision.activity', count: { $sum: 1 } } },
-          { $sort: { count: -1 } },
-          { $limit: 50 },
-        ])
-        .toArray(),
-      // Vision subjects — array field; $unwind before $group so each
-      // element gets its own bucket.
-      coll
-        .aggregate([
-          { $match: finalFilter },
-          { $unwind: '$vision.subjects' },
-          { $match: { 'vision.subjects': { $nin: [null, ''] } } },
-          { $group: { _id: '$vision.subjects', count: { $sum: 1 } } },
-          { $sort: { count: -1 } },
-          { $limit: 50 },
-        ])
-        .toArray(),
-      // Screenshot tri-state: true / false / unknown (field absent on
-      // legacy rows). Group on a $cond so the bucket key normalises.
-      coll
-        .aggregate([
-          { $match: finalFilter },
-          {
-            $project: {
-              bucket: {
-                $cond: [
-                  { $eq: ['$is_screenshot', true] },
-                  'true',
-                  {
-                    $cond: [{ $eq: ['$is_screenshot', false] }, 'false', 'unknown'],
+              {
+                $group: {
+                  _id: {
+                    locality: '$place.rollups.locality',
+                    region: '$place.rollups.region',
                   },
-                ],
+                  count: { $sum: 1 },
+                },
               },
-            },
-          },
-          { $group: { _id: '$bucket', count: { $sum: 1 } } },
-        ])
-        .toArray(),
-      // People (#2864) — assets per assigned person. Group on the DISTINCT
-      // person ids per asset (not per face) so a group shot with the same
-      // person detected twice counts once; the id → name join happens in JS
-      // below (`namesForPersonIds`), where hidden and merged-away persons
-      // drop out. A hidden FACE can't contribute — hiding a face nulls its
-      // `person_id`, and the `$ne: null` match drops unassigned faces.
-      coll
-        .aggregate([
-          { $match: finalFilter },
-          {
-            $project: {
-              person_ids: {
-                $setUnion: [
-                  {
-                    $map: {
-                      input: { $ifNull: ['$faces', []] },
-                      as: 'f',
-                      in: '$$f.person_id',
-                    },
-                  },
-                  [],
-                ],
-              },
-            },
-          },
-          { $unwind: '$person_ids' },
-          { $match: { person_ids: { $nin: [null, ''] } } },
-          { $group: { _id: '$person_ids', count: { $sum: 1 } } },
-          { $sort: { count: -1 } },
-          { $limit: 100 },
-        ])
-        .toArray(),
-      // Places (#2864) — assets per geocode rollup tuple. The tuple → label
-      // rule lives in `placeLabel` and must stay the inverse of
-      // `placeLabelClause` in `query.ts`.
-      coll
-        .aggregate([
-          { $match: finalFilter },
-          {
-            $match: {
-              $or: [
-                { 'place.rollups.locality': { $nin: [null, ''] } },
-                { 'place.rollups.region': { $nin: [null, ''] } },
-              ],
-            },
-          },
-          {
-            $group: {
-              _id: {
-                locality: '$place.rollups.locality',
-                region: '$place.rollups.region',
-              },
-              count: { $sum: 1 },
-            },
-          },
-          { $sort: { count: -1 } },
-          { $limit: 100 },
-        ])
-        .toArray(),
-    ]);
+              { $sort: { count: -1 } },
+              { $limit: 100 },
+            ],
+            { maxTimeMS: SEARCH_COUNT_TIMEOUT_MS },
+          )
+          .toArray(),
+      ] as const;
+    }
 
     const cameras = cameraAgg.map((r) => ({
       make: r._id.make ?? null,

@@ -13,6 +13,7 @@
  */
 
 import { Elysia } from 'elysia';
+import { SEARCH_COUNT_TIMEOUT_MS, SEARCH_TIMEOUT_BODY, isMaxTimeExpired } from './query-timeout.ts';
 import { assetsCollection } from '../../db/client.ts';
 import { personIdsToDrop } from '../../people/people.repo.ts';
 import { personIdsForNames } from '../../people/people-search-filter.repo.ts';
@@ -190,27 +191,40 @@ export const bucketsRoute = new Elysia().get(
       ],
     } as unknown as typeof finalFilter;
 
-    const [timed, untimed_count] = await Promise.all([
+    // Same 503-on-timeout contract as list + facets (#2988); the sentinel
+    // preserves the tuple type for the destructure.
+    const bucketRows = await Promise.all([
       coll
         .aggregate<{
           _id: { year: number; month: number };
           count: number;
-        }>([
-          { $match: timedFilter },
-          {
-            $group: {
-              _id: {
-                year: '$exif.captured_year',
-                month: '$exif.captured_month',
+        }>(
+          [
+            { $match: timedFilter },
+            {
+              $group: {
+                _id: {
+                  year: '$exif.captured_year',
+                  month: '$exif.captured_month',
+                },
+                count: { $sum: 1 },
               },
-              count: { $sum: 1 },
             },
-          },
-          { $sort: { '_id.year': -1, '_id.month': -1 } },
-        ])
+            { $sort: { '_id.year': -1, '_id.month': -1 } },
+          ],
+          { maxTimeMS: SEARCH_COUNT_TIMEOUT_MS },
+        )
         .toArray(),
-      coll.countDocuments(untimedFilter),
-    ]);
+      coll.countDocuments(untimedFilter, { maxTimeMS: SEARCH_COUNT_TIMEOUT_MS }),
+    ] as const).catch((err: unknown) => {
+      if (isMaxTimeExpired(err)) return null;
+      throw err;
+    });
+    if (bucketRows === null) {
+      set.status = 503;
+      return SEARCH_TIMEOUT_BODY;
+    }
+    const [timed, untimed_count] = bucketRows;
 
     const buckets = timed.map((t) => ({
       year: t._id.year,
