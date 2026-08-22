@@ -203,10 +203,30 @@ public actor CloudSearchClient {
 
   private static func checkOK(_ resp: URLResponse, data: Data) throws {
     guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-      let body = String(data: data, encoding: .utf8) ?? ""
+      let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
       throw NSError(domain: "CloudSearchClient",
-                    code: (resp as? HTTPURLResponse)?.statusCode ?? -1,
-                    userInfo: [NSLocalizedDescriptionKey: body])
+                    code: status,
+                    userInfo: [NSLocalizedDescriptionKey: cloudErrorMessage(status: status, data: data)])
     }
   }
 }
+
+/// Human-readable message for a non-2xx response. A gateway or proxy answers
+/// with an HTML error page (Cloudflare 502s especially); rendering that soup
+/// in an error banner is worse than useless, so anything that looks like
+/// HTML — or is very long — collapses to a status-line summary.
+func cloudErrorMessage(status: Int, data: Data) -> String {
+  let body = (String(data: data, encoding: .utf8) ?? "")
+    .trimmingCharacters(in: .whitespacesAndNewlines)
+  let looksLikeHTML = body.hasPrefix("<") || body.lowercased().contains("<html")
+  if looksLikeHTML || body.count > 300 || body.isEmpty {
+    switch status {
+    case 502, 503, 504:
+      return "Server temporarily unavailable (\(status)). Try again in a moment."
+    default:
+      return "Server error (\(status))."
+    }
+  }
+  return body
+}
+

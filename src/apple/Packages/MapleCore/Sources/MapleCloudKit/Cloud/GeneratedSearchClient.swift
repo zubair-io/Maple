@@ -141,11 +141,11 @@ public actor GeneratedSearchClient {
 
   private static func checkOK(_ resp: URLResponse, data: Data) throws {
     guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-      let body = String(data: data, encoding: .utf8) ?? ""
+      let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
       throw NSError(
         domain: "GeneratedSearchClient",
-        code: (resp as? HTTPURLResponse)?.statusCode ?? -1,
-        userInfo: [NSLocalizedDescriptionKey: body]
+        code: status,
+        userInfo: [NSLocalizedDescriptionKey: cloudErrorMessage(status: status, data: data)]
       )
     }
   }
