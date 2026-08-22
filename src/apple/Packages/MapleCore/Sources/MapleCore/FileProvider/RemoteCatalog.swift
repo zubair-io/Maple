@@ -466,6 +466,32 @@ public struct InvalidAssetIDError: Error, Equatable, Sendable {
     public init(assetID: String) { self.assetID = assetID }
 }
 
+/// A non-success response from the Maple API. Unlike the previous generic
+/// `URLError(.badServerResponse)`, this preserves the HTTP status and the
+/// server's JSON error text so File Provider failures remain diagnosable.
+public struct RemoteCatalogHTTPError: Error, Equatable, Sendable, LocalizedError, CustomNSError {
+    public let statusCode: Int
+    public let message: String?
+    public let url: URL?
+
+    public init(statusCode: Int, message: String?, url: URL?) {
+        self.statusCode = statusCode
+        self.message = message
+        self.url = url
+    }
+
+    public var errorDescription: String? {
+        let detail = message.map { ": \($0)" } ?? ""
+        return "Maple server returned HTTP \(statusCode)\(detail)"
+    }
+
+    public static var errorDomain: String { "app.justmaple.aperture.RemoteCatalogHTTP" }
+    public var errorCode: Int { statusCode }
+    public var errorUserInfo: [String: Any] {
+        [NSLocalizedDescriptionKey: errorDescription ?? "Maple server request failed"]
+    }
+}
+
 public actor RemoteCatalog {
     internal let http: AuthenticatedHTTPClient
     /// The address used to build every request URL below. Starts as the
@@ -630,7 +656,7 @@ public actor RemoteCatalog {
            let value = cached.payload as? T {
             return value
         }
-        try Self.check2xx(resp)
+        try Self.check2xx(resp, data: data, url: url)
         let value = try decoder.decode(T.self, from: data)
         if let etag = httpResp?.value(forHTTPHeaderField: "ETag") {
             etagCacheSet(key, ETagEntry(etag: etag, payload: value))
@@ -691,9 +717,23 @@ public actor RemoteCatalog {
         try fm.moveItem(at: tmpURL, to: localURL)
     }
 
-    internal static func check2xx(_ resp: URLResponse) throws {
+    internal static func check2xx(_ resp: URLResponse,
+                                  data: Data? = nil,
+                                  url: URL? = nil) throws {
         let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
-        guard (200..<300).contains(code) else { throw Self.mapHTTPError(status: code) }
+        guard (200..<300).contains(code) else {
+            struct ErrorBody: Decodable {
+                let error: String?
+                let message: String?
+            }
+            let body = data.flatMap { try? JSONDecoder().decode(ErrorBody.self, from: $0) }
+            let fallback = data.flatMap { String(data: $0.prefix(512), encoding: .utf8) }
+            let underlying = RemoteCatalogHTTPError(
+                statusCode: code,
+                message: body?.message ?? body?.error ?? fallback,
+                url: url ?? resp.url)
+            throw Self.mapHTTPError(status: code, underlying: underlying)
+        }
     }
 
     /// Maps an HTTP status code from the residual "anything else failed"
@@ -731,27 +771,42 @@ public actor RemoteCatalog {
     ///   RFCs regardless of what THIS server currently sends, so a
     ///   future quota check gets the correct Finder UX for free instead
     ///   of another silent "server response" error.
-    /// - anything else -> `URLError(.badServerResponse)` — genuinely
-    ///   transport-shaped (5xx other than 507, unexpected redirects);
-    ///   there's no better FileProvider-domain code for it, and the
-    ///   OS's default transient-error retry handling is the right
-    ///   response.
-    internal static func mapHTTPError(status: Int) -> Error {
+    /// - anything else -> `.serverUnreachable` — a supported File Provider
+    ///   error that keeps Finder's transient-error retry handling while the
+    ///   underlying HTTP error retains the status and server response text.
+    internal static func mapHTTPError(status: Int,
+                                      underlying: RemoteCatalogHTTPError? = nil) -> Error {
+        let userInfo: [String: Any]
+        if let underlying {
+            userInfo = [
+                NSLocalizedDescriptionKey: underlying.localizedDescription,
+                NSUnderlyingErrorKey: underlying as NSError,
+            ]
+        } else {
+            userInfo = [:]
+        }
+
         switch status {
-        case 401:
+        case 401, 403:
             return NSError(domain: NSFileProviderErrorDomain,
-                            code: NSFileProviderError.notAuthenticated.rawValue)
+                            code: NSFileProviderError.notAuthenticated.rawValue,
+                            userInfo: userInfo)
         case 404:
             return NSError(domain: NSFileProviderErrorDomain,
-                            code: NSFileProviderError.noSuchItem.rawValue)
+                            code: NSFileProviderError.noSuchItem.rawValue,
+                            userInfo: userInfo)
         case 409:
             return NSError(domain: NSFileProviderErrorDomain,
-                            code: NSFileProviderError.filenameCollision.rawValue)
+                            code: NSFileProviderError.filenameCollision.rawValue,
+                            userInfo: userInfo)
         case 413, 507:
             return NSError(domain: NSFileProviderErrorDomain,
-                            code: NSFileProviderError.insufficientQuota.rawValue)
+                            code: NSFileProviderError.insufficientQuota.rawValue,
+                            userInfo: userInfo)
         default:
-            return URLError(.badServerResponse)
+            return NSError(domain: NSFileProviderErrorDomain,
+                            code: NSFileProviderError.serverUnreachable.rawValue,
+                            userInfo: userInfo)
         }
     }
 
