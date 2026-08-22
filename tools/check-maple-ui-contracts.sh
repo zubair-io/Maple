@@ -20,6 +20,12 @@ fail=0
 
 while IFS= read -r file; do
   count=$((count + 1))
+
+  if ! grep -q '^\*\*Tier:\*\*' "$file"; then
+    echo "FAIL: $file: missing '**Tier:**' line" >&2
+    fail=1
+  fi
+
   for section in "${REQUIRED_SECTIONS[@]}"; do
     if ! grep -qF "## $section" "$file"; then
       echo "FAIL: $file: missing section '## $section'" >&2
