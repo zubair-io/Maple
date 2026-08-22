@@ -33,7 +33,7 @@ use std::path::PathBuf;
 use clap::{Parser, ValueEnum};
 use raw_core::film_catalog::FILM_CATALOG;
 use raw_core::types::ADJUSTMENT_SCHEMA;
-use raw_core::ui_tokens::{COLOR_TOKENS, MOTION_TOKENS};
+use raw_core::ui_tokens::{COLOR_TOKENS, MOTION_TOKENS, RADIUS_TOKENS, SPACING_TOKENS};
 
 use adjustment::{emit_swift, emit_ts};
 use adjustment_tables::emit_ts_tables;
@@ -102,9 +102,15 @@ fn main() {
             eprintln!("codegen: --schema adjustment supports only swift / ts / ts-tables targets");
             std::process::exit(2);
         }
-        (Schema::UiTokens, Target::Swift) => ui_tokens::emit_swift(COLOR_TOKENS, MOTION_TOKENS),
-        (Schema::UiTokens, Target::Ts) => ui_tokens::emit_ts(COLOR_TOKENS, MOTION_TOKENS),
-        (Schema::UiTokens, Target::Scss) => ui_tokens::emit_scss(COLOR_TOKENS, MOTION_TOKENS),
+        (Schema::UiTokens, Target::Swift) => {
+            ui_tokens::emit_swift(COLOR_TOKENS, MOTION_TOKENS, RADIUS_TOKENS, SPACING_TOKENS)
+        }
+        (Schema::UiTokens, Target::Ts) => {
+            ui_tokens::emit_ts(COLOR_TOKENS, MOTION_TOKENS, RADIUS_TOKENS, SPACING_TOKENS)
+        }
+        (Schema::UiTokens, Target::Scss) => {
+            ui_tokens::emit_scss(COLOR_TOKENS, MOTION_TOKENS, RADIUS_TOKENS, SPACING_TOKENS)
+        }
         (Schema::UiTokens, Target::TsTables | Target::Wgsl) => {
             eprintln!("codegen: --schema ui-tokens has no ts-tables / WGSL target");
             std::process::exit(2);
