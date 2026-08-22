@@ -228,6 +228,106 @@ pub const MOTION_TOKENS: &[MotionToken] = &[
     },
 ];
 
+// -------------------------------------------------------------------------
+// Radii
+// -------------------------------------------------------------------------
+
+/// A corner-radius token, in pixels.
+pub struct RadiusToken {
+    /// snake_case key. Mapped to camelCase in Swift/TS, kebab-case in SCSS,
+    /// PascalCase in WinUI XAML resource keys.
+    pub name: &'static str,
+    pub px: f64,
+    pub doc: &'static str,
+}
+
+/// Radius scale from the unified design-system guide
+/// (docs/superpowers/specs/2026-08-22-maple-ui-design-system-design.md).
+/// `full` is emitted as a large fixed value (the standard CSS "pill" trick)
+/// since a percentage-based radius has no single numeric equivalent that's
+/// meaningful across all three platforms.
+pub const RADIUS_TOKENS: &[RadiusToken] = &[
+    RadiusToken {
+        name: "xs",
+        px: 4.0,
+        doc: "Chips, keyboard-hint pills, mention pills.",
+    },
+    RadiusToken {
+        name: "sm",
+        px: 6.0,
+        doc: "Icon buttons and hover targets.",
+    },
+    RadiusToken {
+        name: "md",
+        px: 8.0,
+        doc: "Buttons, inputs, cards, toasts, widget containers — the workhorse default.",
+    },
+    RadiusToken {
+        name: "lg",
+        px: 12.0,
+        doc: "Composer, dialogs, floating panels.",
+    },
+    RadiusToken {
+        name: "xl",
+        px: 16.0,
+        doc: "Large feature cards.",
+    },
+    RadiusToken {
+        name: "xxl",
+        px: 24.0,
+        doc: "Hero panels and large marketing-scale surfaces.",
+    },
+    RadiusToken {
+        name: "full",
+        px: 9999.0,
+        doc: "Fully round — avatars, badges, filter chips.",
+    },
+];
+
+// -------------------------------------------------------------------------
+// Spacing
+// -------------------------------------------------------------------------
+
+/// A spacing-scale token, in pixels. The 4px grid from the unified guide.
+pub struct SpacingToken {
+    pub name: &'static str,
+    pub px: u32,
+    pub doc: &'static str,
+}
+
+pub const SPACING_TOKENS: &[SpacingToken] = &[
+    SpacingToken {
+        name: "xs",
+        px: 4,
+        doc: "Icon padding.",
+    },
+    SpacingToken {
+        name: "sm",
+        px: 8,
+        doc: "Inline padding.",
+    },
+    SpacingToken {
+        name: "md",
+        px: 16,
+        doc: "Buttons.",
+    },
+    SpacingToken {
+        name: "lg",
+        px: 24,
+        doc: "Card padding.",
+    },
+    SpacingToken {
+        name: "xl",
+        px: 32,
+        doc: "Section breaks.",
+    },
+    SpacingToken {
+        name: "xxl",
+        px: 48,
+        doc: "Page-level spacing.",
+    },
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -272,5 +372,58 @@ mod tests {
         assert!(COLOR_TOKENS.iter().any(|t| t.name == "warn"));
         assert!(MOTION_TOKENS.iter().any(|t| t.name == "drawer"));
         assert!(MOTION_TOKENS.iter().any(|t| t.name == "filter_fade"));
+    }
+
+    #[test]
+    fn radius_tokens_are_non_empty_and_unique() {
+        assert!(!RADIUS_TOKENS.is_empty());
+        let mut names: Vec<&str> = RADIUS_TOKENS.iter().map(|t| t.name).collect();
+        names.sort_unstable();
+        let before = names.len();
+        names.dedup();
+        assert_eq!(before, names.len(), "duplicate radius-token name");
+    }
+
+    #[test]
+    fn spacing_tokens_are_non_empty_and_unique() {
+        assert!(!SPACING_TOKENS.is_empty());
+        let mut names: Vec<&str> = SPACING_TOKENS.iter().map(|t| t.name).collect();
+        names.sort_unstable();
+        let before = names.len();
+        names.dedup();
+        assert_eq!(before, names.len(), "duplicate spacing-token name");
+    }
+
+    #[test]
+    fn radius_and_spacing_values_are_monotonic_by_declared_tier() {
+        // xs < sm < md < lg < xl < xxl for both scales; `full` is the
+        // deliberate outlier (a large fixed value standing in for a
+        // percentage-based "fully round" radius — see its own doc comment).
+        let tiers = ["xs", "sm", "md", "lg", "xl", "xxl"];
+        let mut last = 0.0_f64;
+        for name in tiers {
+            let px = RADIUS_TOKENS.iter().find(|t| t.name == name).unwrap().px;
+            assert!(px > last, "radius `{name}` ({px}) should exceed the previous tier");
+            last = px;
+        }
+        let full = RADIUS_TOKENS.iter().find(|t| t.name == "full").unwrap().px;
+        assert!(full > last, "radius `full` should exceed every numeric tier");
+
+        let mut last = 0;
+        for name in tiers {
+            let px = SPACING_TOKENS.iter().find(|t| t.name == name).unwrap().px;
+            assert!(px > last, "spacing `{name}` ({px}) should exceed the previous tier");
+            last = px;
+        }
+    }
+
+    #[test]
+    fn known_radius_and_spacing_values_match_the_unified_guide() {
+        // Spot-check the values the unified-style-guide design spec called
+        // out explicitly (docs/superpowers/specs/2026-08-22-maple-ui-design-system-design.md).
+        assert_eq!(RADIUS_TOKENS.iter().find(|t| t.name == "md").unwrap().px, 8.0);
+        assert_eq!(RADIUS_TOKENS.iter().find(|t| t.name == "xs").unwrap().px, 4.0);
+        assert_eq!(SPACING_TOKENS.iter().find(|t| t.name == "md").unwrap().px, 16);
+        assert_eq!(SPACING_TOKENS.iter().find(|t| t.name == "xxl").unwrap().px, 48);
     }
 }
