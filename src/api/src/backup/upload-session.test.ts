@@ -54,6 +54,36 @@ describe('uploadSessions', () => {
     expect(reset).toBe(false);
   });
 
+  test('openOrResume rewinds a full-but-open session instead of returning an impossible offset', async () => {
+    const { session: first } = await uploadSessions.openOrResume({
+      libraryId,
+      deviceId,
+      phassetLocalId: 'full-but-open',
+      totalBytes: 1024,
+      chunkSize: 256,
+      targetRelPath: '2024/Tokyo/03-15/FULL.heic',
+    });
+    await uploadSessions.recordChunk({
+      sessionId: first._id,
+      bytesReceived: 1024,
+    });
+
+    const resumed = await uploadSessions.openOrResume({
+      libraryId,
+      deviceId,
+      phassetLocalId: 'full-but-open',
+      totalBytes: 1024,
+      chunkSize: 256,
+      targetRelPath: '2024/Tokyo/03-15/FULL.heic',
+    });
+
+    expect(resumed.session._id.equals(first._id)).toBe(true);
+    expect(resumed.session.state).toBe('open');
+    expect(resumed.session.received_bytes).toBe(0);
+    expect(resumed.reset).toBe(true);
+    expect(resumed.alreadyComplete).toBe(false);
+  });
+
   test('openOrResume short-circuits same-content retry of a completed session', async () => {
     // Original ingest succeeded; session is in state "completed". Then a
     // downstream step (sidecar / rendered / live) failed and the device is
@@ -166,8 +196,14 @@ describe('uploadSessions', () => {
       chunkSize: 256,
       targetRelPath: '2024/Tokyo/03-15/IMG.heic',
     });
-    await uploadSessions.recordChunk({ sessionId: session._id, bytesReceived: 256 });
-    await uploadSessions.complete({ sessionId: session._id, mapleId: 'abc123' });
+    await uploadSessions.recordChunk({
+      sessionId: session._id,
+      bytesReceived: 256,
+    });
+    await uploadSessions.complete({
+      sessionId: session._id,
+      mapleId: 'abc123',
+    });
     const final = await uploadSessions.findById(session._id);
     expect(final?.state).toBe('completed');
     expect(final?.maple_id).toBe('abc123');
