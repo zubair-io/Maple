@@ -123,20 +123,32 @@ export async function browseRoots(): Promise<string[]> {
  * Resolve registered paths before comparing so symlinked mounts use the same
  * canonical form as the requested directory. A failed DB/cache lookup falls
  * back to the configured roots; it must never widen access to `/` on error.
+ *
+ * The resolved paths are memoized per libraries-cache instance (WeakMap key):
+ * Finder enumerates this endpoint constantly, and the `realpath()` syscalls
+ * per registered library cannot change until the libraries cache invalidates,
+ * which hands out a fresh Map instance and naturally misses the memo.
  */
+const registeredRootsMemo = new WeakMap<ReadonlyMap<string, string>, Promise<string[]>>();
+
 async function fileProviderBrowseRoots(): Promise<string[]> {
   const configured = await browseRoots();
   try {
     const libraries = await loadLibraryRoots();
-    const registered = await Promise.all(
-      Array.from(libraries.values(), async (root) => {
-        try {
-          return await realpath(root);
-        } catch {
-          return path.resolve(root);
-        }
-      }),
-    );
+    const memoized = registeredRootsMemo.get(libraries);
+    const resolving =
+      memoized ??
+      Promise.all(
+        Array.from(libraries.values(), async (root) => {
+          try {
+            return await realpath(root);
+          } catch {
+            return path.resolve(root);
+          }
+        }),
+      );
+    if (!memoized) registeredRootsMemo.set(libraries, resolving);
+    const registered = await resolving;
     return Array.from(new Set([...configured, ...registered]));
   } catch (err) {
     log.warn(
