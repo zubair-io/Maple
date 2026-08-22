@@ -46,6 +46,7 @@ import { child as childLogger } from './log.ts';
 import { ensureJwtSecret } from './auth/jwt-bootstrap.ts';
 import { backfillOwnershipClaim } from './auth/server_claim.ts';
 import { requestContext } from './middleware/request-context.ts';
+import { bodyLimit } from './middleware/body-limit.ts';
 import { healthRoutes } from './routes/health.ts';
 import { networkPublicRoutes } from './routes/network.ts';
 import { eventsRoutes } from './routes/events.ts';
@@ -108,6 +109,11 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // Lives in `middleware/security-headers.ts`; it also owns the #2382
     // streamed-file exemption.
     .use(securityHeaders)
+    // Per-route request-body ceilings: the server-wide Bun cap is huge so
+    // the streaming upload routes can take multi-GB videos (#2993), and
+    // this guard 413s oversized bodies on every other route BEFORE the
+    // parser buffers them into memory. See `middleware/body-limit.ts`.
+    .use(bodyLimit)
 
     // Error handler is registered by `requestContext` above (it owns the
     // envelope shape + request-id plumbing). See `middleware/request-context.ts`.
