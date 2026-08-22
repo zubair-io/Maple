@@ -88,3 +88,39 @@ export const MAPLE_UI_MOTION = {
 } as const;
 
 export type MapleUIMotionKey = keyof typeof MAPLE_UI_MOTION;
+
+export const MAPLE_UI_RADIUS = {
+  /** Chips, keyboard-hint pills, mention pills. */
+  xs: 4,
+  /** Icon buttons and hover targets. */
+  sm: 6,
+  /** Buttons, inputs, cards, toasts, widget containers — the workhorse default. */
+  md: 8,
+  /** Composer, dialogs, floating panels. */
+  lg: 12,
+  /** Large feature cards. */
+  xl: 16,
+  /** Hero panels and large marketing-scale surfaces. */
+  xxl: 24,
+  /** Fully round — avatars, badges, filter chips. */
+  full: 9999,
+} as const;
+
+export type MapleUIRadiusKey = keyof typeof MAPLE_UI_RADIUS;
+
+export const MAPLE_UI_SPACING = {
+  /** Icon padding. */
+  xs: 4,
+  /** Inline padding. */
+  sm: 8,
+  /** Buttons. */
+  md: 16,
+  /** Card padding. */
+  lg: 24,
+  /** Section breaks. */
+  xl: 32,
+  /** Page-level spacing. */
+  xxl: 48,
+} as const;
+
+export type MapleUISpacingKey = keyof typeof MAPLE_UI_SPACING;
