@@ -20,6 +20,7 @@
 
 import SwiftUI
 import MapleCore
+import MapleCloudKit
 import OSLog
 
 private let deepLinkLog = Logger(subsystem: "app.justmaple.aperture", category: "deeplink")
@@ -36,7 +37,50 @@ extension AppShell {
             navigateToImage(id: id)
         case .source(let id):
             navigateToSource(id: id)
+        case .search(let query):
+            navigateToSearch(rawQuery: query)
         }
+    }
+
+    /// `maple://search?…` handler — the generated-collection widget tap.
+    ///
+    /// Builds `SearchParams` from a WHITELISTED subset of the raw pairs
+    /// (junk keys/values degrade to an unseeded search, mirroring the web
+    /// page's `parseDeepLinkFilters`) and opens the cloud search overlay.
+    /// The server is the first registered one — the same resolution the
+    /// widget itself uses to fetch, so the tap lands where the photo came
+    /// from. Silent fallback per spec §2: no registered server, no-op.
+    @MainActor
+    private func navigateToSearch(rawQuery: [String: String]) {
+        guard let server = CloudServerRegistry.shared.servers.first else {
+            deepLinkLog.info("search deep link with no registered server — ignoring")
+            return
+        }
+        dismissAnyActiveSheet()
+
+        var params = SearchParams()
+        params.placeQuery = rawQuery["placeQuery"] ?? ""
+        params.from = rawQuery["from"].flatMap(Self.bareDate)
+        params.to = rawQuery["to"].flatMap(Self.bareDate)
+        if let month = rawQuery["month"].flatMap(Int.init), (1...12).contains(month) {
+            params.month = month
+        }
+        if let scene = rawQuery["sceneType"].flatMap(SearchSceneType.init(rawValue:)) {
+            params.sceneType = scene
+        }
+        if let people = rawQuery["people"] {
+            params.people = people.split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+        }
+
+        let libraryID = rawQuery["libraryId"]
+            ?? CloudServerRegistry.shared.selectedLibraryID(for: server)
+        activateSearch(server: server, libraryID: libraryID, params: params)
+    }
+
+    private static func bareDate(_ raw: String) -> String? {
+        raw.wholeMatch(of: /\d{4}-\d{2}-\d{2}/) != nil ? raw : nil
     }
 
     /// `maple://image/{id}` handler.

@@ -125,6 +125,9 @@ public struct SearchParams: Sendable, Equatable, Hashable {
   public var focalMax: Double?
   /// `captured_at >=` — bare `YYYY-MM-DD` is widened server-side.
   public var from: String?
+  /// Recurring month-of-year (1–12) on `exif.captured_month` — matches that
+  /// month in EVERY year; composes with `from`/`to` (#2715).
+  public var month: Int?
   /// `captured_at <=` — bare `YYYY-MM-DD` is widened server-side.
   public var to: String?
   /// Minimum star rating (`>= n`).
@@ -252,6 +255,7 @@ public struct SearchParams: Sendable, Equatable, Hashable {
     add("focalMin", focalMin.map { Self.format($0) })
     add("focalMax", focalMax.map { Self.format($0) })
     add("from", from)
+    if let month { add("month", String(month)) }
     add("to", to)
     add("rating", rating.map(String.init))
     add("flag", flag?.rawValue)

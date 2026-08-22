@@ -7,9 +7,10 @@
 // the Xcode test-plan plumbing required by the app target's xctest
 // bundle.
 //
-// Two destinations land everything in v0.1:
+// Destinations:
 //   • `maple://image/{id}` → `.image(id:)`
 //   • `maple://source/{id}` → `.source(id:)`
+//   • `maple://search?…` → `.search(query:)` (widget → seeded search)
 //
 // Spec: docs/design/responsive-program/deep-links.md §3.
 // Closes #624.
@@ -19,6 +20,12 @@ import Foundation
 public enum DeepLinkDestination: Equatable, Sendable {
     case image(id: String)
     case source(id: String)
+    /// `maple://search?placeQuery=…&from=…` — open the cloud search UI
+    /// seeded with these raw query pairs (the generated-collection widget
+    /// tap). Values are carried verbatim; whitelisting and validation
+    /// happen where `SearchParams` is built, so junk in a URL degrades to
+    /// an unseeded search rather than a parse failure here.
+    case search(query: [String: String])
 }
 
 public enum DeepLinkParser {
@@ -27,6 +34,16 @@ public enum DeepLinkParser {
     /// silent no-op upstream, never a thrown error.
     public static func parse(_ url: URL) -> DeepLinkDestination? {
         guard url.scheme == "maple" else { return nil }
+        // Matched before the path-length guard below: a search link carries
+        // its payload in the query string and has no path at all.
+        if url.host == "search" {
+            let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            var query: [String: String] = [:]
+            for item in items {
+                if let value = item.value, !value.isEmpty { query[item.name] = value }
+            }
+            return .search(query: query)
+        }
         // SwiftUI delivers `maple://host/path` with `host` carrying
         // the destination kind and the path carrying the id.
         // `url.path` always starts with a leading "/", which we drop.
