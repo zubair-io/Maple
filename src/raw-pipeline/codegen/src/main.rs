@@ -8,9 +8,11 @@
 //!   `AdjustmentModel.swift` so per-field doc-comments can live next to
 //!   each `let` (per #326, sharpen converges to 40 / 1.0 / 25 / 0). Emitter
 //!   lives in `adjustment.rs` next to this file.
-//! - `ui-tokens` (`raw_core::ui_tokens::{COLOR_TOKENS, MOTION_TOKENS}`,
-//!   ticket #606) — design-system colors + motion specs. Emitter lives in
-//!   `ui_tokens.rs` next to this file.
+//! - `ui-tokens` (`raw_core::ui_tokens::{COLOR_TOKENS, MOTION_TOKENS,
+//!   RADIUS_TOKENS, SPACING_TOKENS}`, ticket #606) — design-system colors,
+//!   motion specs, radius, and spacing. Swift/TS/SCSS emitters live in
+//!   `ui_tokens.rs`; the WinUI/XAML emitter lives in `ui_tokens_xaml.rs`,
+//!   both next to this file.
 //! - `film-catalog` (`raw_core::film_catalog::FILM_CATALOG`, epic #2683
 //!   Task 6) — the FilmCategory enum/union, the FilmLookEntry shape, and
 //!   the full catalog. Emitter lives in `film_catalog.rs` next to this
@@ -26,6 +28,7 @@ mod adjustment_tables;
 mod color_matrices;
 mod film_catalog;
 mod ui_tokens;
+mod ui_tokens_xaml;
 
 use std::fs;
 use std::path::PathBuf;
@@ -65,8 +68,9 @@ enum Schema {
     /// `raw_core::types::ADJUSTMENT_SCHEMA` — slider ranges, field-name enums,
     /// TS interface + default factory.
     Adjustment,
-    /// `raw_core::ui_tokens::{COLOR_TOKENS, MOTION_TOKENS}` — design-system
-    /// color hex strings + motion duration/easing pairs. Ticket #606.
+    /// `raw_core::ui_tokens::{COLOR_TOKENS, MOTION_TOKENS, RADIUS_TOKENS,
+    /// SPACING_TOKENS}` — design-system color hex strings, motion
+    /// duration/easing pairs, radius, and spacing. Ticket #606.
     UiTokens,
     /// Oklab + Rec.2020/sRGB color matrices (forward + inverse). WGSL target:
     /// the full nine-matrix set the GPU scene-linear kernels bake in (epic
@@ -116,7 +120,7 @@ fn main() {
             ui_tokens::emit_scss(COLOR_TOKENS, MOTION_TOKENS, RADIUS_TOKENS, SPACING_TOKENS)
         }
         (Schema::UiTokens, Target::Xaml) => {
-            ui_tokens::emit_xaml(COLOR_TOKENS, RADIUS_TOKENS, SPACING_TOKENS)
+            ui_tokens_xaml::emit_xaml(COLOR_TOKENS, RADIUS_TOKENS, SPACING_TOKENS)
         }
         (Schema::UiTokens, Target::TsTables | Target::Wgsl) => {
             eprintln!("codegen: --schema ui-tokens has no ts-tables / WGSL target");

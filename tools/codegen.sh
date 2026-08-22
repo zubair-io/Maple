@@ -8,13 +8,14 @@
 #   - adjustment (raw_core::types::ADJUSTMENT_SCHEMA) → Swift + TS + TS tables
 #                                            (the ts-tables target is #2683 —
 #                                            see the Outputs list below)
-#   - ui-tokens  (raw_core::ui_tokens::{COLOR_TOKENS, MOTION_TOKENS})
+#   - ui-tokens  (raw_core::ui_tokens::{COLOR_TOKENS, MOTION_TOKENS,
+#                                            RADIUS_TOKENS, SPACING_TOKENS})
 #                                            → Swift + TS + SCSS + WinUI XAML
 #                                            (ticket #606; XAML target closes
 #                                            the Windows drift gap, milestone
 #                                            #22 — motion is intentionally not
 #                                            emitted to XAML, see codegen/src/
-#                                            ui_tokens.rs::emit_xaml)
+#                                            ui_tokens_xaml.rs::emit_xaml)
 #   - color-matrices (raw_core::color::{matrices,oklab}) → WGSL + TS
 #                                            (epic #925 P2 / #990; TS #1944)
 #   - agx-coeffs     (src/scripts/derive_agx_lut.py) → WGSL
