@@ -19,14 +19,21 @@ enum FileProviderPageCursor {
     /// Decodes the OS-supplied starting page into a server cursor.
     /// Returns nil for the OS's own "start from the top" sentinels — a
     /// plain empty `Data` (what tests pass), or either of
-    /// `NSFileProviderInitialPageSortedByDate`/`ByName` (opaque system
-    /// bytes that don't happen to decode as one of our own cursor
-    /// strings). `"0"` is also treated as "no cursor" — the same
-    /// placeholder this file's sync anchors (`NSFileProviderSyncAnchor(
+    /// `NSFileProviderPage.initialPageSortedByDate`/`ByName`. The
+    /// sentinels are NOT opaque bytes: they are the literal UTF-8
+    /// strings "FPPageSortedByDate"/"FPPageSortedByName", so they must
+    /// be rejected explicitly or they pass the UTF-8 check and reach
+    /// the server as a `next_cursor`, 400-ing every enumeration
+    /// (#2989 — Finder root listing died with "malformed cursor:
+    /// FPPageSortedByName"). `"0"` is also treated as "no cursor" — the
+    /// same placeholder this file's sync anchors (`NSFileProviderSyncAnchor(
     /// Data("0".utf8))`) use for "nothing yet," kept consistent here in
     /// case a caller round-trips one through the wrong slot.
     static func decode(_ page: NSFileProviderPage) -> String? {
-        guard let s = String(data: page.rawValue, encoding: .utf8), !s.isEmpty, s != "0" else { return nil }
+        let raw = page.rawValue
+        guard raw != NSFileProviderPage.initialPageSortedByDate as Data,
+              raw != NSFileProviderPage.initialPageSortedByName as Data,
+              let s = String(data: raw, encoding: .utf8), !s.isEmpty, s != "0" else { return nil }
         return s
     }
 
