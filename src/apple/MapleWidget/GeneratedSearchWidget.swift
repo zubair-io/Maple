@@ -68,13 +68,11 @@ struct GeneratedSearchWidgetView: View {
     )
   }
 
-  /// Opens the app. Deliberately NOT a per-collection deep link:
-  /// `DeepLinkParser` handles only the `image` and `source` hosts, and the
-  /// app has no generated-search surface to route to — advertising
-  /// `maple://generated-search/<id>` would promise navigation that cannot
-  /// happen. A real destination needs an in-app collection view first.
+  /// Opens the app's search UI seeded with this collection's query — the
+  /// `search` host now exists in `DeepLinkParser` and routes through
+  /// `AppShell.navigateToSearch`. The empty state opens the app plainly.
   private var deepLink: URL? {
-    URL(string: "maple://")
+    entry.deepLink ?? URL(string: "maple://")
   }
 }
 

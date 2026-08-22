@@ -13,14 +13,20 @@
 
 import Foundation
 
-/// One collection card. `query` is deliberately NOT modelled: a client must
-/// not execute it itself (see the file note), and leaving it un-modelled
-/// makes that impossible rather than merely discouraged.
+/// One collection card.
+///
+/// `query` is the stored search as raw string pairs — modelled for LINK
+/// construction only (the widget's `maple://search?…` tap opens the app's
+/// search UI seeded with it, an attended surface). Executing it from a
+/// widget for DISPLAY is still wrong: the server applies the hidden-people
+/// and screenshot exclusions when it runs the stored query, so ambient
+/// rendering must keep going through `assets(collectionID:)`.
 public struct GeneratedSearchCard: Codable, Equatable, Sendable, Identifiable {
   public let id: String
   public let theme: String
   public let title: String
   public let subtitle: String?
+  public let query: [String: String]
   public let result_count: Int
   public let cover_asset_id: String?
   public let generated_for: String
@@ -30,6 +36,7 @@ public struct GeneratedSearchCard: Codable, Equatable, Sendable, Identifiable {
     theme: String,
     title: String,
     subtitle: String? = nil,
+    query: [String: String] = [:],
     result_count: Int,
     cover_asset_id: String? = nil,
     generated_for: String
@@ -38,6 +45,7 @@ public struct GeneratedSearchCard: Codable, Equatable, Sendable, Identifiable {
     self.theme = theme
     self.title = title
     self.subtitle = subtitle
+    self.query = query
     self.result_count = result_count
     self.cover_asset_id = cover_asset_id
     self.generated_for = generated_for
