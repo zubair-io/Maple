@@ -6,7 +6,7 @@
 ## Context
 
 Maple ships on three platforms — Apple (SwiftUI), Web (Angular), Windows (WinUI) — from one Rust
-color/motion core. Design tokens are (mostly) single-sourced, but the UI *components* built on top
+color/motion core. Design tokens are (mostly) single-sourced, but the UI _components_ built on top
 of them are not: each platform, and often each screen within a platform, hand-rolls its own
 buttons, rows, and chrome.
 
@@ -37,12 +37,12 @@ iconography — across both products, while explicitly preserving Maple's near-b
 editor surroundings for color-accuracy work (its own principle 5: "Precision on canvas"). Maple's
 current accent (`#c4493a`) is already close to that guide's Canvas Dark accent (`#c1493a`);
 typography (Lato UI / Merriweather reading) is already adopted on Apple and Web. The guide is a
-*reference for shared values*, not a mandate to re-skin Maple into the notes app's cream/paper
+_reference for shared values_, not a mandate to re-skin Maple into the notes app's cream/paper
 theme.
 
 The user's actual goal is broader than tokens: a real, enforced **atomic design system** —
 atoms → molecules → organisms → templates — implemented natively on each platform against one
-shared contract, so a new screen is built *from* the system instead of improvising alongside it.
+shared contract, so a new screen is built _from_ the system instead of improvising alongside it.
 And it needs to be shareable: Maple is one of a family of apps (SugarMaple, MapleRecorder,
 MapleBricks — all SwiftUI; Just Maple — Angular/web), several of which are real, current consumers
 of a shared Apple or Web component library, not hypothetical future ones.
@@ -69,11 +69,11 @@ of a shared Apple or Web component library, not hypothetical future ones.
   be informed by what real screens (Browse/Editor, Settings) actually need.
 - Actually integrating Maple UI into Just Maple, SugarMaple, MapleRecorder, or MapleBricks. Those
   are separate repositories outside this session. This sub-project makes the Apple and Web packages
-  *ready* to be consumed (clean boundaries, no Maple-app coupling); the follow-up repo split and the
+  _ready_ to be consumed (clean boundaries, no Maple-app coupling); the follow-up repo split and the
   other repos' adoption are tracked separately.
 - A Windows publishing/extraction story. No second WinUI app exists yet — Windows gets the same
   internal class-library discipline as the other platforms, not a repo split.
-- Automated cross-platform *visual* parity testing (screenshot-diffing a SwiftUI view against an
+- Automated cross-platform _visual_ parity testing (screenshot-diffing a SwiftUI view against an
   Angular one). The existing color-pipeline and XCUITest visual harnesses test canvas/image
   rendering, not chrome; a chrome parity harness is a plausible future follow-up, not in scope here.
 - Migrating every existing screen. Only Browse/Editor (primary pilot) and Settings (secondary) are
@@ -104,7 +104,7 @@ committed files for whatever targets exist).
 
 Accent color: keep Maple's current `#c4493a` as-is. It's already close enough to the guide's
 Canvas Dark accent (`#c1493a`) that changing it is a cosmetic nit with no product upside, and the
-guide itself describes Maple's *existing* editor as the source for that register — it isn't asking
+guide itself describes Maple's _existing_ editor as the source for that register — it isn't asking
 for a change.
 
 ### 2. Component contract format
@@ -133,11 +133,11 @@ prove to drift from implementation in practice.
 
 ### 3. Per-platform package shape
 
-| Platform | Known consumers today | Package shape | Extraction plan |
-|---|---|---|---|
-| **Apple** | Maple, SugarMaple, MapleRecorder, MapleBricks (all SwiftUI) | New local SPM package `src/apple/Packages/MapleUI/`, zero dependencies on `MapleCore` or any Maple-specific type | Split into its own git repo as soon as the atom tier is stable enough for a sibling app to start consuming it (tagged releases via SPM's normal git-dependency support). Not done in this sub-project — the package must exist and be proven internally first — but tracked as a near-term follow-up, not indefinitely deferred. |
-| **Web** | Maple, Just Maple (both Angular) | Existing `maple-common` library project; new/refactored atom components must avoid importing app-specific services/models, matching what already (mostly) holds for its non-atom code | Already structurally extractable via the workspace's library-project boundaries (ng-packagr). No new machinery needed in this sub-project. |
-| **Windows** | Maple only | Internal WinUI class-library boundary (styles + `UserControl`s grouped under one `MapleUI` namespace/folder, not scattered through `MainWindow.xaml`) | None — no second consumer exists. Revisit if/when a second WinUI app appears. |
+| Platform    | Known consumers today                                       | Package shape                                                                                                                                                                         | Extraction plan                                                                                                                                                                                                                                                                                                                  |
+| ----------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Apple**   | Maple, SugarMaple, MapleRecorder, MapleBricks (all SwiftUI) | New local SPM package `src/apple/Packages/MapleUI/`, zero dependencies on `MapleCore` or any Maple-specific type                                                                      | Split into its own git repo as soon as the atom tier is stable enough for a sibling app to start consuming it (tagged releases via SPM's normal git-dependency support). Not done in this sub-project — the package must exist and be proven internally first — but tracked as a near-term follow-up, not indefinitely deferred. |
+| **Web**     | Maple, Just Maple (both Angular)                            | Existing `maple-common` library project; new/refactored atom components must avoid importing app-specific services/models, matching what already (mostly) holds for its non-atom code | Already structurally extractable via the workspace's library-project boundaries (ng-packagr). No new machinery needed in this sub-project.                                                                                                                                                                                       |
+| **Windows** | Maple only                                                  | Internal WinUI class-library boundary (styles + `UserControl`s grouped under one `MapleUI` namespace/folder, not scattered through `MainWindow.xaml`)                                 | None — no second consumer exists. Revisit if/when a second WinUI app appears.                                                                                                                                                                                                                                                    |
 
 Naming: the system and each platform's package are called **Maple UI** (Swift target `MapleUI`,
 Angular library import path kept under `maple-common` for now since it's not being physically
@@ -154,7 +154,7 @@ Without this, Maple UI risks repeating `maple-button`'s fate. Two mechanisms, on
   migrate — turning it on repo-wide on day one would fail on every untouched screen.
 - **Apple**: no direct lint equivalent for SwiftUI view bodies exists in this repo's toolchain.
   Instead, a `docs/best-practices.md` § Swift addition naming Maple UI as the required source for
-  buttons/badges/rows/etc. in any *new or touched* view, enforced at code review — paired with
+  buttons/badges/rows/etc. in any _new or touched_ view, enforced at code review — paired with
   deleting `DesignTokens.swift`'s two ad-hoc views (`StarView`, `FlagBadge`) once their Maple UI
   equivalents ship, so the old pattern can't be copy-pasted forward.
 - **Windows**: same code-review-based rule, plus deleting `MainWindow.xaml`'s locally-scoped
