@@ -118,3 +118,48 @@ describe('GeneratedSearchSettingsComponent', () => {
     expect(fixture.nativeElement.querySelector('[role="alert"]')).toBeTruthy();
   });
 });
+
+describe('GeneratedSearchSettingsComponent — Run now', () => {
+  let fixture: ComponentFixture<GeneratedSearchSettingsComponent>;
+  let http: HttpTestingController;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [GeneratedSearchSettingsComponent],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        { provide: API_BASE_URL, useValue: '/api' },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(GeneratedSearchSettingsComponent);
+    http = TestBed.inject(HttpTestingController);
+    fixture.detectChanges();
+  });
+
+  afterEach(() => http.verify());
+
+  it('POSTs the run endpoint and disables the button while in flight', async () => {
+    http.expectOne(CONFIG_URL).flush(paused);
+    await fixture.whenStable();
+    for (const r of http.match('/api/folders')) r.flush([]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const button: HTMLButtonElement = fixture.nativeElement.querySelector(
+      '[data-testid="gs-run-now"]',
+    );
+    button.click();
+    fixture.detectChanges();
+    expect(button.disabled).toBe(true);
+
+    const req = http.expectOne('/api/workers/generated-search/run');
+    expect(req.request.method).toBe('POST');
+    // A refused second-click shape must not surface as an error.
+    req.flush({ started: false, reason: 'already-running' });
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[role="alert"]')).toBeNull();
+  });
+});
