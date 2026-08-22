@@ -705,7 +705,7 @@ public actor RemoteCatalog {
         let (tmpURL, resp) = try await http.refreshIfNeededAndRetry(request: req) { injected in
             try await session.download(for: injected)
         }
-        try Self.check2xx(resp)
+        try Self.check2xx(resp, url: req.url)
         // download() returns a tmp URL inside NSTemporaryDirectory; move it
         // into place. The destination's parent directory must exist — the
         // File Provider extension hands us a tmp dir from
@@ -858,7 +858,7 @@ public actor RemoteCatalog {
            let bytes = cached.payload as? Data {
             return bytes
         }
-        try Self.check2xx(resp)
+        try Self.check2xx(resp, data: data, url: req.url)
         if let etag = httpResp?.value(forHTTPHeaderField: "ETag") {
             etagCacheSet(key, ETagEntry(etag: etag, payload: data))
         }
@@ -903,7 +903,7 @@ public actor RemoteCatalog {
         if httpResp?.statusCode == 304 {
             return .notModified
         }
-        try Self.check2xx(resp)
+        try Self.check2xx(resp, data: data, url: req.url)
         let newETag = httpResp?.value(forHTTPHeaderField: "ETag")
         return .ok(data: data, etag: newETag)
     }
@@ -923,7 +923,7 @@ public actor RemoteCatalog {
         }
         let req = URLRequest(url: comps.url!)
         let (data, resp) = try await http.data(for: req)
-        try Self.check2xx(resp)
+        try Self.check2xx(resp, data: data, url: req.url)
         return data
     }
 
@@ -1002,8 +1002,8 @@ public actor RemoteCatalog {
         }
         var req = URLRequest(url: comps.url!)
         req.httpMethod = "DELETE"
-        let (_, resp) = try await http.data(for: req)
-        try Self.check2xx(resp)
+        let (data, resp) = try await http.data(for: req)
+        try Self.check2xx(resp, data: data, url: req.url)
     }
 
     private static func parseLastModified(_ resp: HTTPURLResponse?) -> Date? {
@@ -1080,7 +1080,7 @@ public actor RemoteCatalog {
         let (tmpURL, resp) = try await http.refreshIfNeededAndRetry(request: req) { injected in
             try await session.download(for: injected)
         }
-        try Self.check2xx(resp)
+        try Self.check2xx(resp, url: req.url)
         let fm = FileManager.default
         if fm.fileExists(atPath: localURL.path) {
             try fm.removeItem(at: localURL)
@@ -1105,7 +1105,7 @@ public actor RemoteCatalog {
         let (data, resp) = try await http.data(for: req)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
         if code == 404 { return nil }
-        try Self.check2xx(resp)
+        try Self.check2xx(resp, data: data, url: req.url)
         return try decoder.decode(FileChild.self, from: data)
     }
 
@@ -1189,7 +1189,7 @@ public actor RemoteCatalog {
             let body = try? decoder.decode(DeleteAssetConflictBody.self, from: data)
             return .stateMismatch(state: body?.state ?? "unknown")
         }
-        try Self.check2xx(resp)
+        try Self.check2xx(resp, data: data, url: req.url)
         return .ok
     }
 
@@ -1301,7 +1301,7 @@ public actor RemoteCatalog {
         if let targetFolderID { body["target_folder_id"] = targetFolderID }
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, resp) = try await http.data(for: req)
-        try Self.check2xx(resp)
+        try Self.check2xx(resp, data: data, url: req.url)
         return try decoder.decode(RestoreResponse.self, from: data)
     }
 
@@ -1323,7 +1323,7 @@ public actor RemoteCatalog {
             "sequence_pad_width": sequencePadWidth,
         ])
         let (data, resp) = try await http.data(for: req)
-        try Self.check2xx(resp)
+        try Self.check2xx(resp, data: data, url: req.url)
         return try decoder.decode(CloudBatchRenamePreviewResponse.self, from: data).items
     }
 
@@ -1348,7 +1348,7 @@ public actor RemoteCatalog {
             "collision": collision,
         ])
         let (data, resp) = try await http.data(for: req)
-        try Self.check2xx(resp)
+        try Self.check2xx(resp, data: data, url: req.url)
         return try decoder.decode(CloudBatchRenameResponse.self, from: data)
     }
 
@@ -1365,7 +1365,7 @@ public actor RemoteCatalog {
         req.httpMethod = "POST"
         req.setValue(try Self.encodeTargetPath(relativePath), forHTTPHeaderField: "X-Maple-Target-Path")
         let (data, resp) = try await http.data(for: req)
-        try Self.check2xx(resp)
+        try Self.check2xx(resp, data: data, url: req.url)
         return try decoder.decode(FolderTrashSummary.self, from: data)
     }
 
@@ -1392,7 +1392,7 @@ public actor RemoteCatalog {
         if !qi.isEmpty { comps.queryItems = qi }
         let req = URLRequest(url: comps.url!)
         let (data, resp) = try await http.data(for: req)
-        try Self.check2xx(resp)
+        try Self.check2xx(resp, data: data, url: req.url)
         return try decoder.decode(TrashListResponse.self, from: data)
     }
 }
