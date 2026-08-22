@@ -12,7 +12,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveTlsConfig, listenOptions } from './tls-config.ts';
+import { resolveTlsConfig, listenOptions, MAX_REQUEST_BODY_BYTES } from './tls-config.ts';
 
 let dir: string;
 
@@ -105,7 +105,19 @@ describe('listenOptions', () => {
   // The "TLS configured" branch is the same object-literal shape `resolveTlsConfig`
   // already proves valid above; `network.scheme.test.ts` covers the derived
   // `TLS_ENABLED` flag that the rest of the app (the /local-address route) reads.
-  it('passes the bare port through when TLS is unconfigured', () => {
-    expect(listenOptions(4321)).toBe(4321);
+  // #2993: a bare-number return here let Bun.serve apply its 128MB default
+  // body cap, so any File Provider upload over 128MB (every real-world
+  // video) died with 413 + connection reset — surfaced in Files as a bogus
+  // "not enough quota" error. The options object must always carry an
+  // explicit maxRequestBodySize.
+  it('carries the port and an explicit request-body cap when TLS is unconfigured', () => {
+    expect(listenOptions(4321)).toEqual({
+      port: 4321,
+      maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
+    });
+  });
+
+  it('sets the body cap well above the Bun 128MB default', () => {
+    expect(MAX_REQUEST_BODY_BYTES).toBeGreaterThan(128 * 1024 * 1024);
   });
 });
