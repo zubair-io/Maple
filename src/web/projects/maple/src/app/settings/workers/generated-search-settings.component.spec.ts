@@ -147,6 +147,8 @@ describe('GeneratedSearchSettingsComponent — Run now', () => {
     await fixture.whenStable();
     fixture.detectChanges();
 
+    // Zero the post-kick wait so the spec doesn't sleep wall-clock.
+    (fixture.componentInstance as unknown as { refreshDelayMs: number }).refreshDelayMs = 0;
     const button: HTMLButtonElement = fixture.nativeElement.querySelector(
       '[data-testid="gs-run-now"]',
     );
@@ -156,8 +158,12 @@ describe('GeneratedSearchSettingsComponent — Run now', () => {
 
     const req = http.expectOne('/api/workers/generated-search/run');
     expect(req.request.method).toBe('POST');
-    // A refused second-click shape must not surface as an error.
+    // already-running takes the same refresh path as started: a pass is in
+    // flight either way, so the list still reloads and no error surfaces.
     req.flush({ started: false, reason: 'already-running' });
+    await new Promise((r) => setTimeout(r, 0));
+    for (const r of http.match((rq) => rq.url.includes('/api/generated-searches')))
+      r.flush({ results: [] });
     await fixture.whenStable();
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('[role="alert"]')).toBeNull();
