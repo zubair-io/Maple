@@ -195,13 +195,18 @@ export const uploadSessions = {
       // `409 expected_offset == total` forever. Rewind the session in place;
       // route callers see `reset: true`, remove the stale `.part`, and accept
       // the current offset-0 request as a clean restart.
+      // findOneAndUpdate keeps the rewind atomic: if the state flips away
+      // from `open` between the read above and this write (a concurrent
+      // `complete()` landing), the guard misses and we re-enter with the
+      // fresh row instead of reporting a rewind that never happened.
       if (existing.received_bytes >= existing.total_bytes) {
-        await coll.updateOne(
+        const rewound = await coll.findOneAndUpdate(
           { _id: existing._id, state: 'open' },
           { $set: { received_bytes: 0, updated_at: new Date() } },
+          { returnDocument: 'after' },
         );
-        const refreshed = (await coll.findOne({ _id: existing._id }))!;
-        return { session: refreshed, reset: true, alreadyComplete: false };
+        if (rewound) return { session: rewound, reset: true, alreadyComplete: false };
+        return uploadSessions.openOrResume(args);
       }
 
       // No reset needed. If the caller is now offering a cloud id we didn't

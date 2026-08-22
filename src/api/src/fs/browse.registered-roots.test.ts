@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -6,8 +6,15 @@ import { ObjectId } from 'mongodb';
 import { listDirContents } from './browse.ts';
 import { setLibraryRootsForTests } from '../indexer/libraries.cache.ts';
 
-const priorRoots = process.env.MAPLE_ROOTS;
+// Captured per-test (not at module scope): bun imports every test file's
+// module body before running tests, so a module-scope snapshot could restore
+// a value another suite had already changed by the time this one runs.
+let priorRoots: string | undefined;
 const temporaryRoots: string[] = [];
+
+beforeEach(() => {
+  priorRoots = process.env.MAPLE_ROOTS;
+});
 
 afterEach(async () => {
   setLibraryRootsForTests(null);
