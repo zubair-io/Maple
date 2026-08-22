@@ -15,6 +15,16 @@
       </span>
     </span>
     <span class="wrow-readout" data-testid="gs-summary">{{ summaryLine() }}</span>
+    <span class="wrow-spacer"></span>
+    <button
+      type="button"
+      class="btn-ghost"
+      data-testid="gs-run-now"
+      [disabled]="running()"
+      (click)="runNow()"
+    >
+      {{ running() ? 'Running…' : 'Run now' }}
+    </button>
   </div>
 
   @if (expanded()) {
