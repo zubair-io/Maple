@@ -45,6 +45,11 @@ import { cursorFromDoc, encodeCursor } from './cursor.ts';
 import { meiliPage, usesPlaceText } from './list-meili.ts';
 import { resolvePaging } from './list-paging.ts';
 import { getCachedTotal } from './total-cache.ts';
+import {
+  SEARCH_FIND_TIMEOUT_MS,
+  SEARCH_TIMEOUT_BODY,
+  pageAndTotalOrTimeout,
+} from './query-timeout.ts';
 
 export const listRoute = new Elysia().get(
   '/',
@@ -154,7 +159,11 @@ export const listRoute = new Elysia().get(
       ? ({ score: { $meta: 'textScore' }, 'exif.captured_at': -1, _id: 1 } as unknown as Sort)
       : pickSort(sort);
 
-    const find = coll.find(pagedFilter);
+    // Bounded (#2988): with the Meili sidecar absent, `$text`'s OR
+    // semantics can match most of the library and the textScore sort blocks
+    // over the whole match set. The bound only trips runaway plans; healthy
+    // indexed finds answer in tens of milliseconds.
+    const find = coll.find(pagedFilter, { maxTimeMS: SEARCH_FIND_TIMEOUT_MS });
     if (usingPlaceText) find.project({ score: { $meta: 'textScore' } });
 
     // `total` is cached — see `total-cache.ts`. Keyed on the raw query (not
@@ -164,10 +173,17 @@ export const listRoute = new Elysia().get(
     // user scrolls. Runs concurrently with the find below.
     const totalPromise = getCachedTotal(coll, query as SearchQuery, finalFilter, !usingPlaceText);
 
-    const [docs, total] = await Promise.all([
+    // A too-broad query answers 503 with a sentence, instead of holding its
+    // connection until the front proxy 502s the whole origin (#2988).
+    const outcome = await pageAndTotalOrTimeout(
       find.sort(sortSpec).skip(paging.skip).limit(limit).toArray(),
       totalPromise,
-    ]);
+    );
+    if (outcome.timedOut) {
+      set.status = 503;
+      return SEARCH_TIMEOUT_BODY;
+    }
+    const { docs, total } = outcome;
 
     const [libs, idToSlug] = await Promise.all([
       loadLibraryRoots().catch(() => new Map<string, string>()),
