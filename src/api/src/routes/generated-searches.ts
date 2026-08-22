@@ -27,7 +27,12 @@ import { toSearchQuery, resolveLiveFilter } from '../workers/generated-search/ex
 import { assetsCollection } from '../db/client.ts';
 import { loadLibraryRoots, loadLibraryIdToSlug } from '../indexer/libraries.cache.ts';
 import { applyLiveFilter, clampInt } from './search/query.ts';
-import { SEARCH_COUNT_TIMEOUT_MS, SEARCH_FIND_TIMEOUT_MS } from './search/query-timeout.ts';
+import {
+  SEARCH_COUNT_TIMEOUT_MS,
+  SEARCH_FIND_TIMEOUT_MS,
+  SEARCH_TIMEOUT_BODY,
+  pageAndTotalOrTimeout,
+} from './search/query-timeout.ts';
 import { pickSort } from './search/sort.ts';
 import { meiliPage } from './search/list-meili.ts';
 import { projectAsset } from './search/project.ts';
@@ -100,23 +105,29 @@ export const generatedSearchesRoutes = new Elysia({ prefix: '/api/generated-sear
       }
 
       const liveFilter = applyLiveFilter(filter);
-      // Count rides in the same Promise.all as the page — sequencing it after
-      // added a full extra round-trip per request at up to limit=500. Both
-      // legs are time-bounded (#2988), same as /api/search.
-      const [libs, idToSlug, docs, total] = await Promise.all([
-        loadLibraryRoots().catch(() => new Map<string, string>()),
-        loadLibraryIdToSlug().catch(() => new Map<string, string>()),
+      // Both legs are time-bounded and share one fate (#2988) — without the
+      // helper a MaxTimeMSExpired bubbled to the generic handler as a 500
+      // instead of the 503 contract /api/search keeps.
+      const outcome = await pageAndTotalOrTimeout(
         coll
           .find(liveFilter, { maxTimeMS: SEARCH_FIND_TIMEOUT_MS })
           .sort(pickSort('captured_desc'))
           .limit(limit)
           .toArray(),
         coll.countDocuments(liveFilter, { maxTimeMS: SEARCH_COUNT_TIMEOUT_MS }),
+      );
+      if (outcome.timedOut) {
+        set.status = 503;
+        return SEARCH_TIMEOUT_BODY;
+      }
+      const [libs, idToSlug] = await Promise.all([
+        loadLibraryRoots().catch(() => new Map<string, string>()),
+        loadLibraryIdToSlug().catch(() => new Map<string, string>()),
       ]);
 
       return {
-        total,
-        results: (docs as AssetDoc[]).map((d) => projectAsset(d as never, libs, idToSlug)),
+        total: outcome.total,
+        results: (outcome.docs as AssetDoc[]).map((d) => projectAsset(d as never, libs, idToSlug)),
       };
     },
     { query: t.Object({ limit: t.Optional(t.String()) }) },
