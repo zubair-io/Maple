@@ -18,11 +18,18 @@ struct GeneratedSearchWidgetView: View {
   var body: some View {
     caption
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-      // The photo lives in the container BACKGROUND, not the content:
+      // The photo AND the caption's scrim live in the container BACKGROUND:
       // backgrounds render edge-to-edge (and under the system margins),
-      // where content-layer images get proposed the inset content size and
-      // letterbox against the black container — the exact bars this fixes.
-      .containerBackground(for: .widget) { photo }
+      // where content-layer views get the inset content size — the photo
+      // used to letterbox and the scrim floated as an inset box for the
+      // same reason. Only the caption TEXT stays in the content layer,
+      // where the margins are exactly what it wants.
+      .containerBackground(for: .widget) {
+        ZStack(alignment: .bottom) {
+          photo
+          scrim
+        }
+      }
       .widgetURL(deepLink)
   }
 
@@ -61,17 +68,19 @@ struct GeneratedSearchWidgetView: View {
       }
     }
     .foregroundStyle(.white)
-    .padding(family == .systemSmall ? 10 : 14)
+    .padding(.bottom, family == .systemSmall ? 4 : 6)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(
-      // Scrim, not a flat bar: keeps the photo visible while guaranteeing
-      // legible text over a blown-out sky.
-      LinearGradient(
-        colors: [.black.opacity(0.0), .black.opacity(0.75)],
-        startPoint: .top,
-        endPoint: .bottom
-      )
+  }
+
+  /// Bottom-anchored legibility gradient, rendered in the background layer so
+  /// it bleeds to the tile's edges instead of floating as an inset box.
+  private var scrim: some View {
+    LinearGradient(
+      colors: [.black.opacity(0.0), .black.opacity(0.7)],
+      startPoint: .top,
+      endPoint: .bottom
     )
+    .frame(height: family == .systemSmall ? 70 : 96)
   }
 
   /// Opens the app's search UI seeded with this collection's query — the
