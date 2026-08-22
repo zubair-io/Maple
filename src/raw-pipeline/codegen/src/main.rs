@@ -54,6 +54,10 @@ enum Target {
     /// WGSL output. Only valid for `--schema color-matrices` (epic #925 P2 /
     /// #990) — emits the GPU scene-linear kernels' baked color matrices.
     Wgsl,
+    /// WinUI XAML `ResourceDictionary` output. Only valid for `--schema
+    /// ui-tokens`; closes the Windows codegen gap tracked under milestone
+    /// #22 — `Themes/Tokens.xaml` was previously hand-mirrored.
+    Xaml,
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum, PartialEq, Eq)]
@@ -98,7 +102,7 @@ fn main() {
         (Schema::Adjustment, Target::Swift) => emit_swift(ADJUSTMENT_SCHEMA),
         (Schema::Adjustment, Target::Ts) => emit_ts(ADJUSTMENT_SCHEMA),
         (Schema::Adjustment, Target::TsTables) => emit_ts_tables(ADJUSTMENT_SCHEMA),
-        (Schema::Adjustment, Target::Scss | Target::Wgsl) => {
+        (Schema::Adjustment, Target::Scss | Target::Wgsl | Target::Xaml) => {
             eprintln!("codegen: --schema adjustment supports only swift / ts / ts-tables targets");
             std::process::exit(2);
         }
@@ -111,19 +115,22 @@ fn main() {
         (Schema::UiTokens, Target::Scss) => {
             ui_tokens::emit_scss(COLOR_TOKENS, MOTION_TOKENS, RADIUS_TOKENS, SPACING_TOKENS)
         }
+        (Schema::UiTokens, Target::Xaml) => {
+            ui_tokens::emit_xaml(COLOR_TOKENS, RADIUS_TOKENS, SPACING_TOKENS)
+        }
         (Schema::UiTokens, Target::TsTables | Target::Wgsl) => {
             eprintln!("codegen: --schema ui-tokens has no ts-tables / WGSL target");
             std::process::exit(2);
         }
         (Schema::ColorMatrices, Target::Wgsl) => color_matrices::emit_wgsl(),
         (Schema::ColorMatrices, Target::Ts) => color_matrices::emit_ts(),
-        (Schema::ColorMatrices, Target::Swift | Target::Scss | Target::TsTables) => {
+        (Schema::ColorMatrices, Target::Swift | Target::Scss | Target::TsTables | Target::Xaml) => {
             eprintln!("codegen: --schema color-matrices supports only the wgsl / ts targets");
             std::process::exit(2);
         }
         (Schema::FilmCatalog, Target::Swift) => film_catalog::emit_swift(FILM_CATALOG),
         (Schema::FilmCatalog, Target::Ts) => film_catalog::emit_ts(FILM_CATALOG),
-        (Schema::FilmCatalog, Target::TsTables | Target::Scss | Target::Wgsl) => {
+        (Schema::FilmCatalog, Target::TsTables | Target::Scss | Target::Wgsl | Target::Xaml) => {
             eprintln!("codegen: --schema film-catalog supports only the swift / ts targets");
             std::process::exit(2);
         }
