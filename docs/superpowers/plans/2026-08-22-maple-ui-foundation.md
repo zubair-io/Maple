@@ -1,6 +1,6 @@
 # Maple UI Foundation: Tokens, Codegen, Contracts — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> _This plan was written for execution via the superpowers subagent-driven-development workflow (or executing-plans); steps use checkbox (`- [ ]`) syntax for tracking._
 
 **Goal:** Single-source radius and spacing design tokens alongside the existing color/motion
 tokens, close the Windows codegen gap by adding a WinUI XAML emit target, and author the Maple UI
@@ -559,6 +559,12 @@ git commit -m "feat(codegen): emit radius and spacing tokens to Swift/TS/SCSS"
 ---
 
 ### Task 3: Add a WinUI XAML emit target, close the Windows drift gap
+
+> **Deviation (as executed):** Steps 6-8 were superseded by a controller ruling before dispatch.
+> The 4 hand-written `<Style>` resources were moved verbatim into a new hand-authored
+> `Themes/Styles.xaml` (merged in `App.xaml` after `Tokens.xaml`, which its brushes depend on),
+> and `Tokens.xaml` became fully codegen-owned. Step 8's "re-append styles into the generated
+> file" instruction is obsolete — never hand-edit `Tokens.xaml`.
 
 **Files:**
 

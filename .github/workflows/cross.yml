@@ -18,6 +18,7 @@
 #   * fallow-audit-api      — same, over src/api (Bun/Elysia backend). Per #1829.
 #   * gitleaks              — installed direct from GitHub releases; scans only
 #                             the commits this PR/push introduces (#839).
+#   * maple-ui-contracts    — component-contract docs have all required sections filled.
 #
 # Per-subsystem workflows (rust / swift / web / api) land **with** the first
 # refactor commit of each subsystem, not preemptively — see #114.
