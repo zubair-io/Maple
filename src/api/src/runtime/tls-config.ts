@@ -89,15 +89,28 @@ const TLS_CONFIG = resolveTlsConfig();
  * `routes/network.ts` so the advertised LAN scheme matches reality. */
 export const TLS_ENABLED = TLS_CONFIG !== null;
 
-/** `Elysia#listen()` options for `port`: a bare port when TLS is unconfigured,
- * or Bun.serve's `{ port, tls }` shape when it is. Lives here (not index.ts)
- * so the pass-through logic sits next to the config singleton it reads. */
-export function listenOptions(
-  port: number,
-): number | { port: number; tls: { cert: Buffer; key: Buffer } } {
-  if (TLS_CONFIG === null) return port;
+/** Request-body ceiling passed to Bun.serve. Bun's default is 128MB, which
+ * silently killed every File Provider upload larger than that (any real
+ * video, or a 100MP DNG) with a 413 + connection reset — surfaced in the
+ * Files app as a bogus "not enough quota" error (#2993). The upload routes
+ * stream bodies to disk and the backup ingest endpoints are chunked, so a
+ * large cap costs no memory; 64GiB comfortably clears any single media file
+ * while still bounding a runaway request. */
+export const MAX_REQUEST_BODY_BYTES = 64 * 1024 * 1024 * 1024;
+
+/** `Elysia#listen()` options: always the Bun.serve options-object shape so
+ * `maxRequestBodySize` is explicit (a bare port number would reinstate Bun's
+ * 128MB default), plus `tls` when configured. Lives here (not index.ts) so
+ * the pass-through logic sits next to the config singleton it reads. */
+export function listenOptions(port: number): {
+  port: number;
+  maxRequestBodySize: number;
+  tls?: { cert: Buffer; key: Buffer };
+} {
+  if (TLS_CONFIG === null) return { port, maxRequestBodySize: MAX_REQUEST_BODY_BYTES };
   return {
     port,
+    maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
     tls: {
       cert: readFileSync(TLS_CONFIG.certPath),
       key: readFileSync(TLS_CONFIG.keyPath),
