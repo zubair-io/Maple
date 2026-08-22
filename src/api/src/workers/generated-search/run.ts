@@ -105,9 +105,13 @@ async function runForLibrary(
  */
 export async function runGeneratedSearchOnce(
   now: Date = new Date(),
+  opts: { force?: boolean } = {},
 ): Promise<GeneratedSearchSummary> {
   const config = await loadGeneratedSearchConfig();
-  if (config.paused) {
+  // `force` is the operator's Run-now: it bypasses the pause gate so a
+  // just-enabled worker (or a dry run while still paused) fires immediately
+  // instead of waiting out the daily interval.
+  if (config.paused && !opts.force) {
     // Paused stops the LLM run, not retention. A worker paused for months
     // must not let generated_searches outlive its window unbounded.
     const pruned = await pruneGeneratedSearches(config.retention_days, now);
