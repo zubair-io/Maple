@@ -30,8 +30,10 @@ struct GeneratedSearchEntry: TimelineEntry {
   /// JPEG/AVIF bytes for the photo, already fetched. `nil` renders the
   /// placeholder treatment rather than a broken tile.
   let imageData: Data?
-  /// Deep-link target — the collection this photo came from.
-  let collectionID: String?
+  /// Ready-built deep link into the app's search UI, seeded with this
+  /// collection's stored query. Built by the provider (which knows the
+  /// library); nil renders the plain app-open link.
+  let deepLink: URL?
 
   static func empty(at date: Date = Date()) -> GeneratedSearchEntry {
     GeneratedSearchEntry(
@@ -39,7 +41,7 @@ struct GeneratedSearchEntry: TimelineEntry {
       title: "Maple",
       subtitle: nil,
       imageData: nil,
-      collectionID: nil
+      deepLink: nil
     )
   }
 }
@@ -133,7 +135,7 @@ struct GeneratedSearchProvider: TimelineProvider {
             title: collection.title,
             subtitle: collection.subtitle,
             imageData: data,
-            collectionID: collection.id
+            deepLink: Self.searchLink(for: collection, libraryID: libraryID)
           )
         )
       }
@@ -141,5 +143,21 @@ struct GeneratedSearchProvider: TimelineProvider {
     } catch {
       return []
     }
+  }
+
+  /// `maple://search?…` seeded with the collection's stored query — the
+  /// same whitelisted params the app-side handler reads. An attended
+  /// search is the one place executing the stored query client-side is
+  /// fine; ambient display still goes through the server's assets route.
+  private static func searchLink(for collection: GeneratedSearchCard, libraryID: String) -> URL? {
+    var components = URLComponents()
+    components.scheme = "maple"
+    components.host = "search"
+    components.queryItems =
+      collection.query
+        .filter { !$0.value.isEmpty }
+        .map { URLQueryItem(name: $0.key, value: $0.value) }
+      + [URLQueryItem(name: "libraryId", value: libraryID)]
+    return components.url
   }
 }
