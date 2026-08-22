@@ -35,6 +35,39 @@ enum FileProviderPageCursor {
     }
 }
 
+/// File Provider only accepts Cocoa and NSFileProvider error domains from an
+/// enumerator. Preserve already-supported errors and translate transport/API
+/// failures to a supported domain while retaining the original error and its
+/// server-provided description for Console diagnostics.
+private func enumerationError(_ error: Error) -> NSError {
+    let original = error as NSError
+    if original.domain == NSCocoaErrorDomain || original.domain == NSFileProviderErrorDomain {
+        return original
+    }
+
+    let code: NSFileProviderError.Code
+    if let http = error as? RemoteCatalogHTTPError {
+        switch http.statusCode {
+        case 401, 403:
+            code = .notAuthenticated
+        case 404:
+            code = .noSuchItem
+        default:
+            code = .serverUnreachable
+        }
+    } else {
+        code = .serverUnreachable
+    }
+
+    return NSError(
+        domain: NSFileProviderErrorDomain,
+        code: code.rawValue,
+        userInfo: [
+            NSLocalizedDescriptionKey: error.localizedDescription,
+            NSUnderlyingErrorKey: original,
+        ])
+}
+
 public final class RootEnumerator: NSObject, NSFileProviderEnumerator {
     private let catalog: RemoteCatalog
     private let rootCache: LibraryRootCache?
@@ -75,7 +108,7 @@ public final class RootEnumerator: NSObject, NSFileProviderEnumerator {
                 observer.finishEnumerating(upTo: nil)
             } catch {
                 log.error("root enumerate failed: \(String(describing: error), privacy: .public)")
-                observer.finishEnumeratingWithError(error)
+                observer.finishEnumeratingWithError(enumerationError(error))
             }
         }
     }
@@ -250,7 +283,7 @@ public final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
                 observer.finishEnumerating(upTo: contents.nextCursor.map(FileProviderPageCursor.encode))
             } catch {
                 log.error("folder enumerate failed: \(error.localizedDescription, privacy: .public)")
-                observer.finishEnumeratingWithError(error)
+                observer.finishEnumeratingWithError(enumerationError(error))
             }
         }
     }

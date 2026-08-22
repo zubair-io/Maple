@@ -304,6 +304,53 @@ final class UploadClientTests: XCTestCase {
         }
     }
 
+    func testUploadRepeatedFullOffset409StopsAfterOneRestart() async throws {
+        let total = 256
+        StubURLProtocol.stub = .sequence([
+            .status(409, json: #"{"expected_offset":256}"#),
+            .status(409, json: #"{"expected_offset":256}"#),
+        ])
+        let client = await makeClient()
+
+        do {
+            _ = try await client.upload(
+                phassetLocalId: "P1", filename: "IMG.heic",
+                captureDate: Date(timeIntervalSince1970: 1_700_000_000),
+                lat: nil, lon: nil, bytes: Data(count: total), mapleId: "client-id")
+            XCTFail("expected repeated full-offset conflict to stop")
+        } catch let error as UploadClient.UploadError {
+            guard case .badResponse(let reason) = error else {
+                return XCTFail("unexpected error: \(error)")
+            }
+            XCTAssertTrue(reason.contains("repeated ingest 409"))
+        }
+        XCTAssertEqual(StubURLProtocol.recordedRequests.count, 2)
+    }
+
+    func testUploadRenderedRepeatedFullOffset409StopsAfterOneRestart() async throws {
+        let total = 256
+        StubURLProtocol.stub = .sequence([
+            .status(409, json: #"{"expected_offset":256}"#),
+            .status(409, json: #"{"expected_offset":256}"#),
+        ])
+        let client = await makeClient()
+
+        do {
+            try await client.uploadRendered(
+                phassetLocalId: "P1",
+                targetRelPath: "2024/Tokyo/IMG.heic",
+                filenameExt: "jpeg",
+                bytes: Data(count: total))
+            XCTFail("expected repeated rendered full-offset conflict to stop")
+        } catch let error as UploadClient.UploadError {
+            guard case .badResponse(let reason) = error else {
+                return XCTFail("unexpected error: \(error)")
+            }
+            XCTAssertTrue(reason.contains("repeated rendered 409"))
+        }
+        XCTAssertEqual(StubURLProtocol.recordedRequests.count, 2)
+    }
+
     func testNetworkErrorPropagates() async throws {
         StubURLProtocol.stub = .networkError(.notConnectedToInternet)
         let client = await makeClient()

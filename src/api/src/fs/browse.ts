@@ -83,7 +83,10 @@ export const SYSTEM_DIRS = new Set<string>([
  * a grid full of thumbnails pays one `realpath()` syscall per configured root
  * per image to re-derive a value that cannot change between requests (#2219).
  */
-let browseRootsMemo: { env: string | undefined; roots: Promise<string[]> } | null = null;
+let browseRootsMemo: {
+  env: string | undefined;
+  roots: Promise<string[]>;
+} | null = null;
 
 export async function browseRoots(): Promise<string[]> {
   const env = process.env.MAPLE_ROOTS;
@@ -105,6 +108,43 @@ export async function browseRoots(): Promise<string[]> {
     if (browseRootsMemo?.roots === roots) browseRootsMemo = null;
   });
   return roots;
+}
+
+/**
+ * Roots accepted by the enriched `/api/fs/dir` listing.
+ *
+ * Unlike the server-filesystem picker (`/api/fs/list`), File Provider starts
+ * from rows returned by `/api/folders`. A registered library is already a
+ * jailed browse boundary (the slug-addressed web API uses the same boundary),
+ * so `/api/fs/dir` must accept it even when an operator later narrows
+ * `MAPLE_ROOTS`. Otherwise the server advertises a library that Finder can
+ * never enumerate.
+ *
+ * Resolve registered paths before comparing so symlinked mounts use the same
+ * canonical form as the requested directory. A failed DB/cache lookup falls
+ * back to the configured roots; it must never widen access to `/` on error.
+ */
+async function fileProviderBrowseRoots(): Promise<string[]> {
+  const configured = await browseRoots();
+  try {
+    const libraries = await loadLibraryRoots();
+    const registered = await Promise.all(
+      Array.from(libraries.values(), async (root) => {
+        try {
+          return await realpath(root);
+        } catch {
+          return path.resolve(root);
+        }
+      }),
+    );
+    return Array.from(new Set([...configured, ...registered]));
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : err },
+      'could not load registered roots for File Provider browse',
+    );
+    return configured;
+  }
 }
 
 async function resolveBrowseRoots(env: string | undefined): Promise<string[]> {
@@ -368,9 +408,13 @@ function buildMediaListItem(
   childReal: string,
   st: { size: number; mtime: Date },
   ext: string,
-): { name: string; path: string; size: number; mtime: string; ext: string } & Partial<
-  Record<'isVideo' | 'isStub' | 'isAudio', true>
-> {
+): {
+  name: string;
+  path: string;
+  size: number;
+  mtime: string;
+  ext: string;
+} & Partial<Record<'isVideo' | 'isStub' | 'isAudio', true>> {
   const kind = classifyMediaKind(ext);
   return {
     name,
@@ -524,8 +568,10 @@ export function decodeCursor(s: string): number {
  * - Hides dotfiles/dotdirs (including the `.maple/` cache dir).
  * - Filters images to IMAGE_EXTENSIONS — RAWs + the bitmap formats the thumb
  *   endpoint can render (case-insensitive).
- * - Enforces the same MAPLE_ROOTS jail as `listDir`, including a per-child
- *   realpath re-check so a symlink swap can't escape the jail.
+ * - Enforces the MAPLE_ROOTS + registered-library jail, including a per-child
+ *   realpath re-check so a symlink swap can't escape the jail. Registered
+ *   roots are included because this endpoint is the Apple File Provider's
+ *   listing path after `/api/folders` advertises those roots.
  * - Does NOT recurse.
  */
 export async function listDirContents(
@@ -546,7 +592,7 @@ export async function listDirContents(
     };
   }
 
-  const roots = await browseRoots();
+  const roots = await fileProviderBrowseRoots();
   if (!roots.some((r) => isUnderRoot(real, r))) {
     return {
       ok: false,
