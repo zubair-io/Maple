@@ -14,6 +14,7 @@ import {
   togglePerson,
   togglePlace,
   togglePreset,
+  parseDeepLinkFilters,
 } from './search-filters';
 
 const NOW = new Date('2026-08-15T12:00:00');
@@ -154,5 +155,47 @@ describe('inferredDateChip', () => {
     expect(
       inferredDateChip({ from: '2024-01-01T00:00:00.000Z', inferredFrom: '2024' })?.removable,
     ).toBe(false);
+  });
+});
+
+describe('parseDeepLinkFilters', () => {
+  const from = (params: Record<string, string>) => (key: string) => params[key] ?? null;
+
+  it('parses the full generated-collection param set', () => {
+    const f = parseDeepLinkFilters(
+      from({
+        from: '2017-03-01',
+        to: '2019-04-30',
+        month: '3',
+        sceneType: 'indoor',
+        people: 'Zoe, Greyson',
+      }),
+    );
+    expect(f).toEqual({
+      from: '2017-03-01',
+      to: '2019-04-30',
+      month: 3,
+      sceneType: 'indoor',
+      people: ['Zoe', 'Greyson'],
+    });
+  });
+
+  it('returns null when nothing valid is present, so plain /search?q= keeps defaults', () => {
+    expect(parseDeepLinkFilters(from({}))).toBeNull();
+    expect(parseDeepLinkFilters(from({ q: 'beach' }))).toBeNull();
+  });
+
+  it('drops junk values instead of narrowing invisibly', () => {
+    // A malformed param must degrade to "no filter" — an invalid month that
+    // still filtered would show results the chips do not explain.
+    const f = parseDeepLinkFilters(
+      from({ from: 'last summer', month: '13', sceneType: 'underwater', people: ' , ' }),
+    );
+    expect(f).toBeNull();
+  });
+
+  it('keeps the valid subset when only some params are junk', () => {
+    const f = parseDeepLinkFilters(from({ month: '8', sceneType: 'nope' }));
+    expect(f).toEqual({ month: 8 });
   });
 });
