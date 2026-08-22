@@ -22,6 +22,10 @@ import { applyLiveFilter, type SearchQuery } from '../../routes/search/query.ts'
 import { resolveLiveFilter } from './execute.ts';
 import { meiliPage } from '../../routes/search/list-meili.ts';
 import { child as childLogger } from '../../log.ts';
+import {
+  SEARCH_COUNT_TIMEOUT_MS,
+  SEARCH_FIND_TIMEOUT_MS,
+} from '../../routes/search/query-timeout.ts';
 import type { SearchOutcome } from './loop.ts';
 
 const log = childLogger('generated-search');
@@ -75,10 +79,15 @@ export async function runGeneratedSearch(query: SearchQuery): Promise<SearchOutc
   }
 
   const liveFilter = applyLiveFilter(filter);
+  // Bounded (#2988) like the search route: a runaway candidate query must
+  // fail this one measurement, not stall the process.
   const [count, rows] = await Promise.all([
-    coll.countDocuments(liveFilter),
+    coll.countDocuments(liveFilter, { maxTimeMS: SEARCH_COUNT_TIMEOUT_MS }),
     coll
-      .find(liveFilter, { projection: { _id: 1, description: 1 } })
+      .find(liveFilter, {
+        projection: { _id: 1, description: 1 },
+        maxTimeMS: SEARCH_FIND_TIMEOUT_MS,
+      })
       .limit(CAPTION_SAMPLE)
       .toArray(),
   ]);

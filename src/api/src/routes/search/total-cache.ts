@@ -16,6 +16,7 @@
 
 import type { Collection, Filter } from 'mongodb';
 import type { AssetDoc } from '../../db/schema.ts';
+import { SEARCH_COUNT_TIMEOUT_MS } from './query-timeout.ts';
 import type { SearchQuery } from './query.ts';
 
 const TOTAL_CACHE_TTL_MS = 30_000;
@@ -98,12 +99,16 @@ async function countTotal(
   filter: Filter<AssetDoc>,
   canHint: boolean,
 ): Promise<number> {
-  if (!canHint) return coll.countDocuments(filter);
+  // Bounded (#2988): the count is a documented O(N) scan; unbounded it can
+  // hold connections past the front proxy's patience on broad `$text`
+  // filters. A timeout propagates to the route's 503 mapping.
+  const opts = { maxTimeMS: SEARCH_COUNT_TIMEOUT_MS };
+  if (!canHint) return coll.countDocuments(filter, opts);
   try {
-    return await coll.countDocuments(filter, { hint: { 'fileinfo.library_id': 1 } });
+    return await coll.countDocuments(filter, { ...opts, hint: { 'fileinfo.library_id': 1 } });
   } catch (err) {
     if (err instanceof Error && (err as { code?: number }).code === 2) {
-      return coll.countDocuments(filter);
+      return coll.countDocuments(filter, opts);
     }
     throw err;
   }
