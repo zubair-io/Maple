@@ -7,7 +7,11 @@
   // UI lands in a later stacked PR) is not dead code, it's staged output.
   // Auditing them for unused-file/unused-export dead code is a category
   // error, so they're excluded here the same way _design-reference/** is.
-  "ignorePatterns": ["_design-reference/**", "projects/**/*.generated.ts", "projects/**/generated/**"],
+  "ignorePatterns": [
+    "_design-reference/**",
+    "projects/**/*.generated.ts",
+    "projects/**/generated/**"
+  ],
   "ignoreDependencies": ["@socketsecurity/bun-security-scanner", "fallow"],
   "ignoreUnresolvedImports": ["**/pkg/raw_wasm"]
 }
