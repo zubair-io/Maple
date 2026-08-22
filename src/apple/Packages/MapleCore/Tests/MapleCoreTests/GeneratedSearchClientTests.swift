@@ -31,12 +31,10 @@ final class GeneratedSearchClientTests: XCTestCase {
     XCTAssertEqual(card.cover_asset_id, "abc123")
   }
 
-  /// `query` is present on the wire but deliberately un-modelled: a client
-  /// must never execute it locally, because the server applies the
-  /// hidden-people and screenshot exclusions when it runs the query itself.
-  /// Synthesized Codable ignores unknown keys, so its presence must not break
-  /// the decode — this pins that.
-  func test_decode_ignoresTheServerSideQueryField() throws {
+  /// `query` is modelled for LINK construction (the widget's seeded-search
+  /// tap) — never for ambient execution; display still goes through
+  /// `assets(collectionID:)` so the server's exclusions apply.
+  func test_decode_carriesTheQueryForLinkBuilding() throws {
     let json = """
     {"results":[
       {"id":"x","theme":"t","title":"T","subtitle":null,
@@ -48,6 +46,10 @@ final class GeneratedSearchClientTests: XCTestCase {
     XCTAssertEqual(decoded.results[0].title, "T")
     XCTAssertNil(decoded.results[0].subtitle)
     XCTAssertNil(decoded.results[0].cover_asset_id)
+    XCTAssertEqual(
+      decoded.results[0].query,
+      ["placeQuery": "children on a beach", "month": "8", "people": "Zoe"]
+    )
   }
 
   func test_decode_emptyDayIsNotAnError() throws {
