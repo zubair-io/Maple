@@ -96,8 +96,17 @@ struct GeneratedSearchProvider: TimelineProvider {
     guard let context = await WidgetSession.current() else { return [] }
 
     do {
+      // Registry selection only exists on tvOS; everywhere else resolve the
+      // server's first library. Single-library installs are the norm.
+      let resolvedLibraryID: String?
+      if let selected = context.selectedLibraryID {
+        resolvedLibraryID = selected
+      } else {
+        resolvedLibraryID = try await context.folders.listFolders().first?.id
+      }
+      guard let libraryID = resolvedLibraryID else { return [] }
       let collections = try await context.generatedSearch.collections(
-        libraryID: context.libraryID
+        libraryID: libraryID
       )
       guard let collection = collections.randomElement() else { return [] }
 

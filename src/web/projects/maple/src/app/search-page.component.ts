@@ -23,7 +23,13 @@ import {
   inject,
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { SearchComponent, SearchResult, viewRouteCommands } from '@maple-common';
+import {
+  SearchComponent,
+  SearchResult,
+  parseDeepLinkFilters,
+  viewRouteCommands,
+  type SearchFilters,
+} from '@maple-common';
 
 @Component({
   selector: 'maple-search-page',
@@ -32,6 +38,7 @@ import { SearchComponent, SearchResult, viewRouteCommands } from '@maple-common'
   template: `
     <app-search
       [initialQuery]="initialQuery"
+      [initialFilters]="initialFilters"
       [autoFocus]="autoFocus"
       (photoTap)="onPhotoTap($event)"
       (queryChange)="onQueryChange($event)"
@@ -58,7 +65,19 @@ export class SearchPageComponent implements AfterViewInit {
   // The toolbar search + drawer search pill deep-link to `/search?q=<query>`.
   // Seed `<app-search>` with it so the bar shows the term and the search fires
   // on landing; without this the query is dropped at the route boundary.
-  protected readonly initialQuery = this.route.snapshot.queryParamMap.get('q') ?? '';
+  protected readonly initialQuery =
+    this.route.snapshot.queryParamMap.get('q') ??
+    // Generated-collection deep links carry the content search as
+    // `placeQuery` (the wire name); it seeds the same search box.
+    this.route.snapshot.queryParamMap.get('placeQuery') ??
+    '';
+
+  /** Structured filters off the URL — the generated-collection deep link.
+   * Parsing lives with the filter model (`parseDeepLinkFilters`); null when
+   * no valid filter param is present. */
+  protected readonly initialFilters: Partial<SearchFilters> | null = parseDeepLinkFilters((key) =>
+    this.route.snapshot.queryParamMap.get(key),
+  );
 
   ngAfterViewInit(): void {
     // Belt-and-suspenders: `autoFocus` input drives a queueMicrotask focus,

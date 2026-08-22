@@ -86,6 +86,10 @@ export interface SearchParams {
   hasCapturedAt?: boolean;
   /** Vision scene_type (closed union). */
   sceneType?: SearchSceneType;
+  /** Recurring month-of-year (1–12) on `exif.captured_month` — matches that
+   * month in EVERY year; composes with `from`/`to` rather than replacing
+   * them (#2715). */
+  month?: number;
   /** Vision activity (open vocab, exact match). */
   activity?: string;
   /** Multi-select subject tags. Sent as a comma-separated `subjects`
@@ -264,6 +268,7 @@ function paramsFrom(p: SearchParams): HttpParams {
     ['pathPrefix', p.pathPrefix],
     ['hasCapturedAt', boolStr(p.hasCapturedAt)],
     ['sceneType', p.sceneType],
+    ['month', p.month !== undefined ? String(p.month) : undefined],
     ['activity', p.activity],
     ['subjects', joined(p.subjects, ',')],
     ['isScreenshot', boolStr(p.isScreenshot)],

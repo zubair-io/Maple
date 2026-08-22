@@ -19,7 +19,13 @@ import MapleCloudKit
 struct WidgetSession {
   let generatedSearch: GeneratedSearchClient
   let thumbs: CloudThumbClient
-  let libraryID: String
+  let folders: CloudFoldersClient
+  /// The library the registry says is selected — which only the TV app ever
+  /// writes. On Mac/iOS this is nil for every install, so the provider falls
+  /// back to the server's first registered library via `folders`. Requiring
+  /// it here was why the widget rendered permanently empty (black) on those
+  /// platforms.
+  let selectedLibraryID: String?
 
   /// Build a session from whatever the app last persisted, or nil when the
   /// widget has nothing to show yet.
@@ -32,9 +38,7 @@ struct WidgetSession {
     // The same App Group suite (and migration) the app's own singleton uses
     // — one factory, so app and extension can never read different domains.
     let registry = CloudServerRegistry(defaults: CloudServerRegistry.appGroupDefaults())
-    guard let server = registry.servers.first,
-          let libraryID = registry.selectedLibraryID(for: server)
-    else { return nil }
+    guard let server = registry.servers.first else { return nil }
 
     // No `onTokensRefreshed` persistence problem to solve differently here:
     // TokenStore writes to the shared Keychain access group, so a rotation
@@ -57,7 +61,8 @@ struct WidgetSession {
     return WidgetSession(
       generatedSearch: GeneratedSearchClient(server: server, httpClient: httpClient),
       thumbs: CloudThumbClient(server: server, httpClient: httpClient),
-      libraryID: libraryID
+      folders: CloudFoldersClient(server: server, httpClient: httpClient),
+      selectedLibraryID: registry.selectedLibraryID(for: server)
     )
   }
 }

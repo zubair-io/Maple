@@ -92,6 +92,16 @@ export class SearchBarComponent {
   protected chipIcon(chip: ActiveFilterChip): 'event' | 'person' | 'place' {
     // An inferred window is still a date, and reads as one — the calendar
     // glyph is right; the `chip-inferred` styling is what sets it apart.
-    return chip.kind === 'date' || chip.kind === 'inferred-date' ? 'event' : chip.kind;
+    // `month` is a recurring date, so it also gets the calendar; `scene`
+    // has no glyph of its own and borrows the place pin.
+    switch (chip.kind) {
+      case 'person':
+        return 'person';
+      case 'place':
+      case 'scene':
+        return 'place';
+      default:
+        return 'event';
+    }
   }
 }

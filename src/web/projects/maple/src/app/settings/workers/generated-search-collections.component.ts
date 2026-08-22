@@ -9,11 +9,13 @@
 // Presentational: the parent owns the fetch and hands the results down.
 
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import type { GeneratedSearchCard } from '@maple-common';
 
 @Component({
   selector: 'maple-generated-search-collections',
   standalone: true,
+  imports: [RouterLink],
   templateUrl: './generated-search-collections.component.html',
   styleUrl: './generated-search-collections.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -33,19 +35,24 @@ export class GeneratedSearchCollectionsComponent {
     return requested !== null && count > 0 && count < requested;
   });
 
-  /** Human-readable summary of the query a collection was built from.
-   *
-   * NOT a link to /search. That route (`SearchPageComponent`) reads only `q`
-   * and `autoFocus` from the URL — the filter-hydrating advanced page was
-   * removed from main — so a deep-link would run a DIFFERENT search and show
-   * photos the collection does not contain. Showing the query as text is
-   * honest about what the collection asked for; wiring a real link needs
-   * /search to hydrate filters first (tracked separately).
-   */
+  /** Human-readable summary of the query a collection was built from. */
   protected queryLine(card: GeneratedSearchCard): string {
     const parts = Object.entries(card.query)
       .filter(([, value]) => value !== null && value !== '')
       .map(([key, value]) => `${key}: ${value}`);
     return parts.join(' · ');
+  }
+
+  protected readonly searchLink = ['/search'];
+
+  /** Deep-link params for a collection. The /search page now hydrates every
+   * one of these into visible, removable filter chips (placeQuery seeds the
+   * search box), so the link shows what the collection shows — the earlier
+   * version of this link was removed precisely because the page dropped the
+   * filters and ran a different search. */
+  protected searchParams(card: GeneratedSearchCard): Record<string, string> {
+    return Object.fromEntries(
+      Object.entries(card.query).filter(([, value]) => value !== null && value !== ''),
+    ) as Record<string, string>;
   }
 }
