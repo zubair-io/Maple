@@ -273,10 +273,13 @@ function parsePeopleCsv(raw: string | null): readonly string[] {
 
 /**
  * Structured filters off a `/search` deep link (the generated-collection
- * links). Whitelist parse: only the params a stored collection query can
- * carry, each validated, so junk in the URL degrades to "no filter" rather
- * than an invisible narrowing. Returns null when nothing valid is present,
- * so plain `/search?q=` navigation keeps the component's default state.
+ * links). Whitelist parse: only the STRUCTURED params a stored collection
+ * query can carry, each validated, so junk in the URL degrades to "no
+ * filter" rather than an invisible narrowing. `placeQuery` is deliberately
+ * NOT handled here — it is content-search text, not a filter, and the page
+ * seeds it into the search box alongside `q`. Returns null when nothing
+ * valid is present, so plain `/search?q=` navigation keeps the component's
+ * default state.
  */
 export function parseDeepLinkFilters(
   get: (key: string) => string | null,

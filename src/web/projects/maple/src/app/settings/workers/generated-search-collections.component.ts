@@ -38,7 +38,7 @@ export class GeneratedSearchCollectionsComponent {
   /** Human-readable summary of the query a collection was built from. */
   protected queryLine(card: GeneratedSearchCard): string {
     const parts = Object.entries(card.query)
-      .filter(([, value]) => value !== null && value !== '')
+      .filter(([, value]) => value !== '')
       .map(([key, value]) => `${key}: ${value}`);
     return parts.join(' · ');
   }
@@ -51,8 +51,12 @@ export class GeneratedSearchCollectionsComponent {
    * version of this link was removed precisely because the page dropped the
    * filters and ran a different search. */
   protected searchParams(card: GeneratedSearchCard): Record<string, string> {
-    return Object.fromEntries(
-      Object.entries(card.query).filter(([, value]) => value !== null && value !== ''),
-    ) as Record<string, string>;
+    // `card.query` is already Record<string, string> — the worker's
+    // validator stores only set fields — so this only drops empties.
+    const params: Record<string, string> = {};
+    for (const [key, value] of Object.entries(card.query)) {
+      if (value !== '') params[key] = value;
+    }
+    return params;
   }
 }
