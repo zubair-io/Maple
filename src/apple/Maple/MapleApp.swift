@@ -4,6 +4,7 @@
 // iPhone: TabView collapse in AppShell.
 
 import SwiftUI
+import WidgetKit
 import CoreText
 import MapleCore
 import MapleBackup
@@ -197,6 +198,17 @@ struct MapleApp: App {
                 .onChange(of: scenePhase) { _, newPhase in
                     if newPhase == .background {
                         BGTaskRegistration.schedule()
+                    }
+                    if newPhase == .active {
+                        // Deterministic widget refresh: WidgetKit's own
+                        // schedule is budgeted (and Low Power Mode all but
+                        // stops it), which strands the widget on its
+                        // placeholder after a transient fetch failure.
+                        // Opening the app is the user's natural "make it
+                        // update" gesture, so honour it. Reload requests are
+                        // coalesced by the system — this does not burn the
+                        // widget's own refresh budget.
+                        WidgetCenter.shared.reloadAllTimelines()
                     }
                     #if os(iOS)
                     if newPhase == .active {

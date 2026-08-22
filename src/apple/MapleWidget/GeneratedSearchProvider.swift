@@ -77,7 +77,6 @@ struct GeneratedSearchProvider: TimelineProvider {
   func getTimeline(in context: Context, completion: @escaping (Timeline<GeneratedSearchEntry>) -> Void) {
     Task {
       let entries = await Self.buildEntries()
-      let refreshAt = Date().addingTimeInterval(Self.refreshInterval)
       guard !entries.isEmpty else {
         // Nothing to show — not signed in, no collections yet, or the server
         // is unreachable. Retry sooner than a full cycle, but not so soon
@@ -85,6 +84,10 @@ struct GeneratedSearchProvider: TimelineProvider {
         completion(Timeline(entries: [.empty()], policy: .after(Date().addingTimeInterval(30 * 60))))
         return
       }
+      // Entries without a photo are the thumbs-failed degradation — retry
+      // soon; a full photo timeline sleeps until the next scheduled cycle.
+      let hasPhoto = entries.contains { $0.imageData != nil }
+      let refreshAt = Date().addingTimeInterval(hasPhoto ? Self.refreshInterval : 10 * 60)
       completion(Timeline(entries: entries, policy: .after(refreshAt)))
     }
   }
@@ -138,6 +141,21 @@ struct GeneratedSearchProvider: TimelineProvider {
             deepLink: Self.searchLink(for: collection, libraryID: libraryID)
           )
         )
+      }
+      // Collections exist but every thumb failed (server briefly
+      // unreachable, LPM cutting the fetch short): a titled gradient with a
+      // short retry beats a bare "Maple" placeholder parked for half an
+      // hour — the user can at least see WHICH collection is coming.
+      if entries.isEmpty {
+        return [
+          GeneratedSearchEntry(
+            date: Date(),
+            title: collection.title,
+            subtitle: collection.subtitle,
+            imageData: nil,
+            deepLink: Self.searchLink(for: collection, libraryID: libraryID)
+          )
+        ]
       }
       return entries
     } catch {
