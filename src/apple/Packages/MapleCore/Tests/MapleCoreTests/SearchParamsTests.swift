@@ -207,3 +207,13 @@ final class SearchParamsTests: XCTestCase {
     XCTAssertNil(dict(p.listQueryItems(page: 0, limit: 100))["scope"])
   }
 }
+
+extension SearchParamsTests {
+  /// Pins the `month` wire name (#2715) and the nil-omitted skip rule.
+  func test_month_serialisesAndOmitsWhenNil() {
+    var p = SearchParams(libraryID: "lib1")
+    XCTAssertNil(dict(p.listQueryItems(page: 0, limit: 100))["month"])
+    p.month = 8
+    XCTAssertEqual(dict(p.listQueryItems(page: 0, limit: 100))["month"], "8")
+  }
+}
