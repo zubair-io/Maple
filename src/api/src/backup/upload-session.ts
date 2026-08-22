@@ -186,6 +186,24 @@ export const uploadSessions = {
         const refreshed = (await coll.findOne({ _id: existing._id }))!;
         return { session: refreshed, reset: true, alreadyComplete: false };
       }
+
+      // `open` with every byte already received is not resumable: the next
+      // legal Content-Range cannot start at `total_bytes`. This state means a
+      // final-chunk attempt appended successfully but failed before
+      // `complete()` committed (process exit, disk move, or downstream DB
+      // write). Returning it unchanged makes the client receive
+      // `409 expected_offset == total` forever. Rewind the session in place;
+      // route callers see `reset: true`, remove the stale `.part`, and accept
+      // the current offset-0 request as a clean restart.
+      if (existing.received_bytes >= existing.total_bytes) {
+        await coll.updateOne(
+          { _id: existing._id, state: 'open' },
+          { $set: { received_bytes: 0, updated_at: new Date() } },
+        );
+        const refreshed = (await coll.findOne({ _id: existing._id }))!;
+        return { session: refreshed, reset: true, alreadyComplete: false };
+      }
+
       // No reset needed. If the caller is now offering a cloud id we didn't
       // have before, enrich the row in place — this is metadata-only and
       // doesn't invalidate progress (e.g. iCloud was enabled mid-upload).
@@ -235,7 +253,10 @@ export const uploadSessions = {
       if (!totalChanged && !pathChanged && existing.maple_id) {
         return { session: existing, reset: false, alreadyComplete: true };
       }
-      const unsetFields: Record<string, ''> = { maple_id: '', resolved_rel_path: '' };
+      const unsetFields: Record<string, ''> = {
+        maple_id: '',
+        resolved_rel_path: '',
+      };
       if (args.phassetCloudId === undefined && existing.phasset_cloud_id !== undefined) {
         unsetFields.phasset_cloud_id = '';
       }
@@ -265,7 +286,10 @@ export const uploadSessions = {
       // Reopen in place — inserting a new row would collide with the unique
       // resume-key index. The route treats reset:true as "clear stale tmp
       // bytes" so the next chunk starts at offset 0 cleanly.
-      const unsetFields: Record<string, ''> = { maple_id: '', resolved_rel_path: '' };
+      const unsetFields: Record<string, ''> = {
+        maple_id: '',
+        resolved_rel_path: '',
+      };
       if (args.phassetCloudId === undefined && existing.phasset_cloud_id !== undefined) {
         unsetFields.phasset_cloud_id = '';
       }
@@ -316,7 +340,10 @@ export const uploadSessions = {
     const coll = await uploadSessionsCollection();
     await coll.updateOne(
       { _id: args.sessionId },
-      { $inc: { received_bytes: args.bytesReceived }, $set: { updated_at: new Date() } },
+      {
+        $inc: { received_bytes: args.bytesReceived },
+        $set: { updated_at: new Date() },
+      },
     );
   },
 

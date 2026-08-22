@@ -192,6 +192,7 @@ public actor UploadClient {
             throw UploadError.emptyAsset
         }
         var offset: Int64 = 0
+        var fullOffsetRestarts = 0
         let ingestURL = baseURL
             .appendingPathComponent("api")
             .appendingPathComponent("libraries")
@@ -245,6 +246,13 @@ public actor UploadClient {
                 if let body = try? JSONDecoder().decode(Mismatch.self, from: data),
                    let newOffset = body.expected_offset {
                     if newOffset >= total {
+                        guard fullOffsetRestarts == 0 else {
+                            Self.logger.error(
+                                "ingest repeated 409 expected_offset>=total — aborting url=\(ingestURL, privacy: .public) phasset=\(phassetLocalId, privacy: .private) expected=\(newOffset) total=\(total)")
+                            throw UploadError.badResponse(
+                                reason: "repeated ingest 409 expected_offset=\(newOffset) total=\(total)")
+                        }
+                        fullOffsetRestarts += 1
                         Self.logger.notice(
                             "ingest 409 expected_offset>=total — restarting from 0 url=\(ingestURL, privacy: .public) phasset=\(phassetLocalId, privacy: .private) expected=\(newOffset) total=\(total)")
                         offset = 0
@@ -324,6 +332,7 @@ public actor UploadClient {
         let total = Int64(bytes.count)
         guard total > 0 else { return }
         var offset: Int64 = 0
+        var fullOffsetRestarts = 0
         let renderedURL = baseURL
             .appendingPathComponent("api")
             .appendingPathComponent("libraries")
@@ -370,6 +379,13 @@ public actor UploadClient {
                 if let body = try? JSONDecoder().decode(Mismatch.self, from: data),
                    let newOffset = body.expected_offset {
                     if newOffset >= total {
+                        guard fullOffsetRestarts == 0 else {
+                            Self.logger.error(
+                                "rendered repeated 409 expected_offset>=total — aborting url=\(renderedURL, privacy: .public) phasset=\(phassetLocalId, privacy: .private) expected=\(newOffset) total=\(total)")
+                            throw UploadError.badResponse(
+                                reason: "repeated rendered 409 expected_offset=\(newOffset) total=\(total)")
+                        }
+                        fullOffsetRestarts += 1
                         Self.logger.notice(
                             "rendered 409 expected_offset>=total — restarting from 0 url=\(renderedURL, privacy: .public) phasset=\(phassetLocalId, privacy: .private) expected=\(newOffset) total=\(total)")
                         offset = 0

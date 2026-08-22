@@ -5,7 +5,8 @@
 // which Finder can only present as an unclassified transport error.
 // `RemoteCatalog.mapHTTPError(status:)` now maps the well-known cases
 // (auth, not-found, collision, quota) to the matching
-// `NSFileProviderError` code.
+// `NSFileProviderError` code and all other statuses to the supported
+// `.serverUnreachable` fallback.
 
 import XCTest
 import FileProvider
@@ -46,16 +47,16 @@ final class RemoteCatalogErrorMappingTests: XCTestCase {
 
     func testMapHTTPErrorMapsKnownStatuses() {
         assertFileProviderError(RemoteCatalog.mapHTTPError(status: 401), code: .notAuthenticated)
+        assertFileProviderError(RemoteCatalog.mapHTTPError(status: 403), code: .notAuthenticated)
         assertFileProviderError(RemoteCatalog.mapHTTPError(status: 404), code: .noSuchItem)
         assertFileProviderError(RemoteCatalog.mapHTTPError(status: 409), code: .filenameCollision)
         assertFileProviderError(RemoteCatalog.mapHTTPError(status: 413), code: .insufficientQuota)
         assertFileProviderError(RemoteCatalog.mapHTTPError(status: 507), code: .insufficientQuota)
     }
 
-    func testMapHTTPErrorFallsBackToURLErrorForUnmappedStatuses() {
+    func testMapHTTPErrorFallsBackToSupportedFileProviderErrorForUnmappedStatuses() {
         let error = RemoteCatalog.mapHTTPError(status: 500)
-        XCTAssertTrue(error is URLError, "500 has no FileProvider-domain equivalent; must stay a transport error")
-        XCTAssertEqual((error as? URLError)?.code, .badServerResponse)
+        assertFileProviderError(error, code: .serverUnreachable)
     }
 
     // MARK: - Integration-level: a real call surfaces the mapped error
