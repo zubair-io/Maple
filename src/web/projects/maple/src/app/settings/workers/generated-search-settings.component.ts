@@ -59,6 +59,8 @@ export class GeneratedSearchSettingsComponent implements OnInit {
   protected readonly error = signal<string | null>(null);
   protected readonly saving = signal(false);
   protected readonly saved = signal(false);
+  /** True from clicking "Run now" until the refreshed collections land. */
+  protected readonly running = signal(false);
   protected readonly draft = signal<GeneratedSearchDraft | null>(null);
 
   /** Collapsed by default, matching the stage rows on this page. */
@@ -145,6 +147,26 @@ export class GeneratedSearchSettingsComponent implements OnInit {
    * library is the right default; a picker is not worth building until a
    * second one exists. */
   protected readonly libraryId = signal<string | null>(null);
+
+  /** Kick a pass immediately — the scheduled tick can be up to a day away,
+   * and this is the answer to "I just enabled it, why is nothing happening?".
+   * The server refuses a second click while one is in flight. A pass takes
+   * minutes (LLM calls), so this waits briefly then refreshes the list; a
+   * still-running pass simply shows up on the next panel load. */
+  protected async runNow(): Promise<void> {
+    this.running.set(true);
+    this.error.set(null);
+    try {
+      const result = await firstValueFrom(this.api.runGeneratedSearchNow());
+      if (!result.started) return;
+      await new Promise((resolve) => setTimeout(resolve, 4000));
+      await this.loadCards();
+    } catch (err: unknown) {
+      this.error.set(errorMessage(err));
+    } finally {
+      this.running.set(false);
+    }
+  }
 
   protected async toggleEnabled(): Promise<void> {
     const config = this.config();

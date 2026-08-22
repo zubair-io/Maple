@@ -18,12 +18,14 @@ import { ObjectId, type Db } from 'mongodb';
 import { getDb } from '../db/client.ts';
 import { withTestDb } from '../db/test-db.test-helpers.ts';
 import { generatedSearchesRoutes } from './generated-searches.ts';
+import { generatedSearchConfigRoutes } from '../workers/generated-search/routes.ts';
+import { _resetRunNowForTests, _awaitRunNowForTests } from '../workers/generated-search/run-now.ts';
 
 // Own database + explicit close (the repo-wide suite convention, #2783).
 withTestDb(`maple_test_generated_searches_route_${process.pid}`);
 
 let db: Db;
-const app = new Elysia().use(generatedSearchesRoutes);
+const app = new Elysia().use(generatedSearchesRoutes).use(generatedSearchConfigRoutes);
 const LIB = new ObjectId('507f1f77bcf86cd799439011');
 const LIB_HEX = LIB.toHexString();
 
@@ -153,5 +155,34 @@ describe('GET /api/generated-searches/:id/assets', () => {
 
     const { body } = await get(`/api/generated-searches/${id}/assets`);
     expect(body.total).toBe(1);
+  });
+});
+
+describe('POST /api/workers/generated-search/run', () => {
+  it('starts a pass and refuses a concurrent second one', async () => {
+    // Stubbed runner: a real pass hits DB + Ollama with timing that varies
+    // under the full suite. The route contract under test is only the
+    // immediate started/refused response and the in-flight guard.
+    let release: () => void = () => {};
+    _resetRunNowForTests(
+      () =>
+        new Promise((r) => {
+          release = () => r({ libraries: 0, saved: 0, pruned: 0, skipped: false });
+        }),
+    );
+
+    const first = await app.handle(
+      new Request('http://localhost/api/workers/generated-search/run', { method: 'POST' }),
+    );
+    expect((await first.json()).started).toBe(true);
+
+    const second = await app.handle(
+      new Request('http://localhost/api/workers/generated-search/run', { method: 'POST' }),
+    );
+    expect(await second.json()).toEqual({ started: false, reason: 'already-running' });
+
+    release();
+    await _awaitRunNowForTests();
+    _resetRunNowForTests();
   });
 });
