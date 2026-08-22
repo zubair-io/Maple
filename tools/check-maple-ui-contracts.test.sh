@@ -43,6 +43,8 @@ mkdir -p "$TMP/good"
 cat > "$TMP/good/button.md" <<'EOF'
 # Button
 
+**Tier:** Atom
+
 ## Purpose
 Primary interactive control for committing an action.
 
@@ -112,6 +114,32 @@ assert_fail_containing "$TMP/empty-section" "empty section" "section '## Props' 
 # Case 4: an empty directory fails.
 mkdir -p "$TMP/empty-dir"
 assert_fail_containing "$TMP/empty-dir" "empty directory" "no .md contract docs found"
+
+# Case 5: a doc with all six sections present and non-empty, but no
+# '**Tier:**' line, fails and names it.
+mkdir -p "$TMP/missing-tier"
+cat > "$TMP/missing-tier/button.md" <<'EOF'
+# Button
+
+## Purpose
+Primary interactive control for committing an action.
+
+## Variants
+Primary, secondary, ghost, destructive.
+
+## States
+Default, hover, pressed, focused, disabled.
+
+## Tokens used
+`radius_md`, `spacing_sm`, `color.primary`.
+
+## Props
+`variant`, `label`, `disabled`.
+
+## Accessibility
+Minimum 44x44pt touch target; label is the accessible name.
+EOF
+assert_fail_containing "$TMP/missing-tier" "missing tier line" "missing '**Tier:**' line"
 
 if [ "$fail" -ne 0 ]; then
   echo "SELF-TEST FAILED" >&2
