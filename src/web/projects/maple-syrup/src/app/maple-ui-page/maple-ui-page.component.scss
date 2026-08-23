@@ -1,6 +1,9 @@
 :host {
   display: block;
-  min-height: 100vh;
+  // Fixed height, not min-height: the global shell styles put
+  // `overflow: hidden` on html/body, so this host must be the scroll
+  // container — same pattern as landing.component.scss.
+  height: 100vh;
   background: var(--color-bg);
   color: var(--color-text-main);
   overflow: auto;
