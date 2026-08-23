@@ -1,0 +1,17 @@
+<mui-app-shell class="mui-page-tv-viewer">
+  <div slot="nav" class="nav-bar">
+    <mui-text variant="eyebrow" color="muted">{{ positionLabel() }}</mui-text>
+  </div>
+
+  <div class="viewer-body">
+    <mui-preview-surface
+      [items]="items"
+      [activeId]="activeId()"
+      (activeChanged)="onActiveChanged($event)"
+      style="display: block; width: 100%; height: 100%"
+    />
+    <div class="caption">
+      <mui-text variant="sheet-title" color="on-accent">{{ caption() }}</mui-text>
+    </div>
+  </div>
+</mui-app-shell>
