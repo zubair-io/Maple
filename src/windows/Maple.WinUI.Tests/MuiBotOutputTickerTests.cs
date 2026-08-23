@@ -38,6 +38,10 @@ namespace Maple.WinUI.Tests
             var completedCount = 0;
             ticker.Completed += () => completedCount++;
 
+            // Two ticks of 2 chars each reach the 4-char total; Completed
+            // fires on the tick that reaches it.
+            ticker.Tick(totalLength: 4);
+            Assert.Equal(0, completedCount);
             ticker.Tick(totalLength: 4);
             Assert.Equal(1, completedCount);
 
