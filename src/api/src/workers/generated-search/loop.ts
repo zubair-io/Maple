@@ -222,6 +222,35 @@ async function proposeRound(
   return accepted;
 }
 
+/** One round's propose → measure → keep pass. Appends survivors to `saved`
+ * and returns the round's floor misses — next round's feedback. */
+async function runRound(
+  deps: LoopDeps,
+  round: number,
+  saved: GeneratedSearchInput[],
+  usedThemes: Set<string>,
+  priorMisses: readonly ProposalMiss[],
+): Promise<ProposalMiss[]> {
+  const roundMisses: ProposalMiss[] = [];
+  const wanted = deps.count - saved.length;
+  for (const candidate of await proposeRound(deps, wanted, round, priorMisses)) {
+    if (saved.length >= deps.count) break;
+    // Dedupe against themes already kept — a retry round re-proposing a
+    // theme that already succeeded would spend a slot on a duplicate.
+    if (usedThemes.has(candidate.theme)) continue;
+
+    const outcome = await measureAndTitle(deps, candidate, round);
+    if (outcome.collection === undefined) {
+      if (outcome.floorMiss !== undefined) roundMisses.push(outcome.floorMiss);
+      continue;
+    }
+
+    usedThemes.add(candidate.theme);
+    saved.push(outcome.collection);
+  }
+  return roundMisses;
+}
+
 export async function runProposalLoop(deps: LoopDeps): Promise<GeneratedSearchInput[]> {
   const saved: GeneratedSearchInput[] = [];
   const usedThemes = new Set<string>();
@@ -230,29 +259,9 @@ export async function runProposalLoop(deps: LoopDeps): Promise<GeneratedSearchIn
   // has no way to know a range is empty; only running the query knows.
   let floorMisses: ProposalMiss[] = [];
 
-  for (let round = 1; round <= deps.maxRounds; round++) {
-    const wanted = deps.count - saved.length;
-    if (wanted <= 0) break;
-
-    const roundMisses: ProposalMiss[] = [];
-    for (const candidate of await proposeRound(deps, wanted, round, floorMisses)) {
-      if (saved.length >= deps.count) break;
-      // Dedupe against themes already kept — a retry round re-proposing a
-      // theme that already succeeded would spend a slot on a duplicate.
-      if (usedThemes.has(candidate.theme)) continue;
-
-      const outcome = await measureAndTitle(deps, candidate, round);
-      if (outcome.collection === undefined) {
-        if (outcome.floorMiss !== undefined) roundMisses.push(outcome.floorMiss);
-        continue;
-      }
-
-      usedThemes.add(candidate.theme);
-      saved.push(outcome.collection);
-    }
-    floorMisses = roundMisses;
+  for (let round = 1; round <= deps.maxRounds && saved.length < deps.count; round++) {
+    floorMisses = await runRound(deps, round, saved, usedThemes, floorMisses);
   }
-
   return saved;
 }
 
