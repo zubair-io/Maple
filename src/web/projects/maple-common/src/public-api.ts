@@ -363,3 +363,17 @@ export * from './lib/ui/badge/mui-badge.component';
 export * from './lib/ui/stat/mui-stat.component';
 export * from './lib/ui/divider/mui-divider.component';
 export * from './lib/ui/list/mui-list.component';
+
+// Maple UI design system (#3000), wave 2 — Form/Media/Feedback atoms.
+export * from './lib/ui/input/mui-input.component';
+export * from './lib/ui/checkbox/mui-checkbox.component';
+export * from './lib/ui/segmented-toggle/mui-segmented-toggle.component';
+export * from './lib/ui/image/mui-image.component';
+export * from './lib/ui/remote-image/mui-remote-image.component';
+export * from './lib/ui/avatar/mui-avatar.component';
+export * from './lib/ui/qr-code/mui-qr-code.component';
+export * from './lib/ui/canvas-surface/mui-canvas-surface.component';
+export * from './lib/ui/progress/mui-progress.component';
+export * from './lib/ui/spinner/mui-spinner.component';
+export * from './lib/ui/status-text/mui-status-text.component';
+export * from './lib/ui/toast/mui-toast.component';

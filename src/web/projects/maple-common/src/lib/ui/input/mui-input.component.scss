@@ -1,0 +1,125 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+}
+
+.mui-input {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-xs;
+}
+
+.field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: tok.$maple-spacing-xs;
+  background: var(--color-input-bg);
+  border: 1px solid var(--color-border);
+  border-radius: tok.$maple-radius-md;
+  padding: tok.$maple-spacing-sm tok.$maple-spacing-md;
+  transition:
+    border-color 200ms,
+    box-shadow 200ms;
+}
+
+.is-focused .field {
+  border-color: var(--color-primary);
+}
+
+.is-error .field {
+  border-color: var(--color-error-text);
+}
+
+.is-error.is-focused .field {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-error-text) 20%, transparent);
+}
+
+.is-disabled .field {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.control {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--color-text-main);
+  font: inherit;
+  font-size: 13px;
+
+  &::placeholder {
+    color: var(--color-text-muted);
+  }
+}
+
+.prefix {
+  color: var(--color-text-muted);
+  flex: 0 0 auto;
+}
+
+.clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+
+  &:hover {
+    color: var(--color-text-main);
+  }
+}
+
+.steppers {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  margin: -#{tok.$maple-spacing-sm} -#{tok.$maple-spacing-md};
+  margin-left: 0;
+  border-left: 1px solid var(--color-border);
+}
+
+.stepper {
+  flex: 1;
+  min-width: 24px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  line-height: 1;
+  font-size: 11px;
+
+  &:not(:first-child) {
+    border-top: 1px solid var(--color-border);
+  }
+
+  &:hover:not(:disabled) {
+    background: var(--color-surface-hover);
+    color: var(--color-text-main);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+}
+
+.helper {
+  font-size: 11px;
+  color: var(--color-error-text);
+}
+
+.size-sm .field {
+  padding: tok.$maple-spacing-xs tok.$maple-spacing-sm;
+}
+
+.size-sm .control {
+  font-size: 12px;
+}
