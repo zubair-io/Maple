@@ -1,7 +1,6 @@
-// AtomsGalleryView.swift — Atoms tab: specimen cards for the 10 wave-1
-// atoms (catalog §1.1 Actions, §1.2 Content), plus a "coming in a later
-// wave" placeholder for the 12 wave-2 atoms (Form controls, Media, Feedback)
-// not yet built.
+// AtomsGalleryView.swift — Atoms tab: specimen cards for all 22 atoms —
+// wave 1's 10 (catalog §1.1 Actions, §1.2 Content) plus wave 2's 12 (§1.3
+// Form controls, §1.4 Media, §1.5 Feedback).
 
 import SwiftUI
 
@@ -21,11 +20,18 @@ struct AtomsGalleryView: View {
                 statCard
                 dividerCard
                 listCard
-            }
-
-            VStack(alignment: .leading, spacing: MuiTokens.spacingSm) {
-                MuiText("Wave 2 — coming in a later wave", variant: .eyebrow, color: .muted)
-                GalleryPlaceholderSection(names: GalleryCatalog.unbuiltAtoms)
+                inputCard
+                checkboxCard
+                segmentedToggleCard
+                imageCard
+                remoteImageCard
+                avatarCard
+                qrCodeCard
+                canvasSurfaceCard
+                progressCard
+                spinnerCard
+                statusTextCard
+                toastCard
             }
         }
     }
@@ -122,6 +128,130 @@ struct AtomsGalleryView: View {
                 MuiListItem(text: "Cull"),
                 MuiListItem(text: "Export"),
             ], density: .compact)
+        }
+    }
+
+    private var inputCard: some View {
+        GallerySpecimenCard(name: "Input", purpose: "Single-line text field") {
+            VStack(spacing: MuiTokens.spacingSm) {
+                MuiInput(value: .constant(""), accessibilityLabel: "Search", placeholder: "Search…", prefixIcon: "magnifyingglass", showClear: true)
+                MuiInput(value: .constant("bad-value"), accessibilityLabel: "Email", error: "Enter a valid email")
+            }
+        }
+    }
+
+    private var checkboxCard: some View {
+        GallerySpecimenCard(name: "Checkbox", purpose: "Labeled boolean") {
+            VStack(alignment: .leading, spacing: MuiTokens.spacingSm) {
+                MuiCheckbox(state: .checked, label: "Checked") {}
+                MuiCheckbox(state: .unchecked, label: "Unchecked") {}
+                MuiCheckbox(state: .indeterminate, label: "Mixed") {}
+            }
+        }
+    }
+
+    private var segmentedToggleCard: some View {
+        GallerySpecimenCard(name: "Segmented Toggle", purpose: "2-3 exclusive options") {
+            MuiSegmentedToggle(
+                options: [
+                    MuiSegmentedOption(value: "grid", label: "Grid"),
+                    MuiSegmentedOption(value: "list", label: "List"),
+                ],
+                value: .constant("grid")
+            )
+        }
+    }
+
+    private var imageCard: some View {
+        GallerySpecimenCard(name: "Image", purpose: "Raster leaf") {
+            HStack(spacing: MuiTokens.spacingSm) {
+                MuiImage(url: nil, alt: "Broken placeholder", radius: .md)
+                    .frame(width: 56, height: 56)
+                MuiImage(url: nil, alt: "Broken placeholder", radius: .full)
+                    .frame(width: 56, height: 56)
+            }
+        }
+    }
+
+    private var remoteImageCard: some View {
+        // Showcase feeds a local/generated image via an injected loader —
+        // the gallery never talks to the network (component brief).
+        GallerySpecimenCard(name: "Remote Image", purpose: "Tiered thumb → preview → full load") {
+            MuiRemoteImage(
+                tiers: MuiRemoteImageTiers(thumb: URL(string: "demo://thumb"), full: URL(string: "demo://full")),
+                alt: "Generated demo image",
+                loader: { url in
+                    try await Task.sleep(nanoseconds: url.absoluteString.contains("thumb") ? 30_000_000 : 200_000_000)
+                    return Image(systemName: "mountain.2.fill")
+                }
+            )
+            .frame(width: 96, height: 72)
+        }
+    }
+
+    private var avatarCard: some View {
+        GallerySpecimenCard(name: "Avatar", purpose: "User image with initials fallback") {
+            HStack(spacing: MuiTokens.spacingSm) {
+                MuiAvatar(name: "Ada Lovelace", presence: .online)
+                MuiAvatar(name: "Grace Hopper", presence: .offline)
+                MuiAvatar(name: "Katherine Johnson")
+            }
+        }
+    }
+
+    private var qrCodeCard: some View {
+        GallerySpecimenCard(name: "QR Code", purpose: "Renders a payload as a QR image") {
+            MuiQrCode(value: "https://maple.app/pair/demo", size: .sm)
+        }
+    }
+
+    private var canvasSurfaceCard: some View {
+        GallerySpecimenCard(name: "Canvas Surface", purpose: "Hosts a GPU-rendered layer") {
+            MuiCanvasSurface(contentAspect: 3.0 / 2.0) { size in
+                Canvas { context, canvasSize in
+                    context.fill(Path(CGRect(origin: .zero, size: canvasSize)), with: .color(MuiTokens.primaryDim))
+                }
+                .frame(width: size.width, height: size.height)
+            }
+            .frame(width: 120, height: 90)
+        }
+    }
+
+    private var progressCard: some View {
+        GallerySpecimenCard(name: "Progress", purpose: "Determinate or indeterminate") {
+            VStack(spacing: MuiTokens.spacingSm) {
+                MuiProgress(shape: .bar, value: 60, label: "60%")
+                    .frame(width: 140)
+                MuiProgress(shape: .ring, size: .sm, value: 40)
+            }
+        }
+    }
+
+    private var spinnerCard: some View {
+        GallerySpecimenCard(name: "Spinner", purpose: "Small indeterminate indicator") {
+            HStack(spacing: MuiTokens.spacingSm) {
+                MuiSpinner(size: .sm)
+                MuiSpinner(size: .md)
+            }
+        }
+    }
+
+    private var statusTextCard: some View {
+        GallerySpecimenCard(name: "Status Text", purpose: "Persistence / sync state line") {
+            VStack(alignment: .leading, spacing: 4) {
+                MuiStatusText(state: .saving)
+                MuiStatusText(state: .saved)
+                MuiStatusText(state: .error)
+            }
+        }
+    }
+
+    private var toastCard: some View {
+        GallerySpecimenCard(name: "Toast", purpose: "Transient notification") {
+            VStack(alignment: .leading, spacing: MuiTokens.spacingSm) {
+                MuiToast(variant: .success, message: "Export finished", autoDismissMs: nil)
+                MuiToast(variant: .error, message: "Batch failed", actionLabel: "Retry", autoDismissMs: nil)
+            }
         }
     }
 }
