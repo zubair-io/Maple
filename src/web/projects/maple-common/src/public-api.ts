@@ -415,3 +415,5 @@ export * from './lib/ui/settings-shell/mui-settings-shell.component';
 export * from './lib/ui/overlay-shell/mui-overlay-shell.component';
 export * from './lib/ui/sheet-shell/mui-sheet-shell.component';
 export * from './lib/ui/drawer-shell/mui-drawer-shell.component';
+export * from './lib/ui/organisms-lane-a';
+export * from './lib/ui/organisms-lane-b';
