@@ -15,11 +15,26 @@ struct WorkersSettingsView: View {
     let client: WorkersAdminClient
     let events: WorkerEventsClient
     /// The generated-search worker's own section (config + Run now +
-    /// today's collections). Optional so previews and callers that only
-    /// care about the stage table need not construct three extra clients.
-    var generatedSearch: GeneratedSearchAdminClient?
-    var generatedSearchCollections: GeneratedSearchClient?
-    var foldersClient: CloudFoldersClient?
+    /// today's collections). Optional-with-default so previews and callers
+    /// that only care about the stage table need not construct three extra
+    /// clients; `let` because the view never mutates them.
+    let generatedSearch: GeneratedSearchAdminClient?
+    let generatedSearchCollections: GeneratedSearchClient?
+    let foldersClient: CloudFoldersClient?
+
+    init(
+        client: WorkersAdminClient,
+        events: WorkerEventsClient,
+        generatedSearch: GeneratedSearchAdminClient? = nil,
+        generatedSearchCollections: GeneratedSearchClient? = nil,
+        foldersClient: CloudFoldersClient? = nil
+    ) {
+        self.client = client
+        self.events = events
+        self.generatedSearch = generatedSearch
+        self.generatedSearchCollections = generatedSearchCollections
+        self.foldersClient = foldersClient
+    }
 
     @State private var feed = WorkersFeed()
     @State private var isLive = false
