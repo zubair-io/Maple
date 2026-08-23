@@ -145,7 +145,10 @@ struct ServerAdminView: View {
             case .workers:
                 WorkersSettingsView(
                     client: WorkersAdminClient(server: server, httpClient: httpClient),
-                    events: eventsClient)
+                    events: eventsClient,
+                    generatedSearch: GeneratedSearchAdminClient(server: server, httpClient: httpClient),
+                    generatedSearchCollections: GeneratedSearchClient(server: server, httpClient: httpClient),
+                    foldersClient: CloudFoldersClient(server: server, httpClient: httpClient))
             case .imports:
                 ImportsSettingsView(
                     client: ImportsClient(server: server, httpClient: httpClient))
