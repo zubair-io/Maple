@@ -10,16 +10,12 @@
 import Foundation
 
 enum GalleryCatalog {
-    /// Molecules — Level 1 (§2), remaining after wave A3a shipped §2.1-2.3
-    /// (Form & entry, Selection, Feedback & messaging — 19 molecules, see
-    /// `MoleculesL1GallerySection`). §2.4-2.7 (Overlays & menus, Structure,
-    /// Data plots, Media) are still unbuilt.
-    static let moleculesL1: [String] = [
-        "Popover", "Context Menu", "Suggestion Menu", "Command Menu",
-        "Collapsible", "Page Header", "Toolbar", "Bubble Menu", "Label-Value Grid", "Avatar Group",
-        "Histogram", "Waveform", "Parade", "Vectorscope", "Curve Plot", "Connection Graph", "Heatmap Layer",
-        "Map Annotation", "Preview Image", "Video Player", "Audio Player", "Drag Preview", "Code Block",
-    ]
+    // Molecules — Level 1 (§2) has no placeholder list anymore: wave A3a
+    // shipped §2.1-2.3 (Form & entry, Selection, Feedback & messaging — 19
+    // molecules, see `MoleculesL1GallerySection`) and wave A3b shipped
+    // §2.4-2.7 (Overlays & menus, Structure, Data plots, Media — 23
+    // molecules, see `MoleculesL1GallerySection2`). All 42 molecules
+    // cataloged at this tier are built.
 
     /// Molecules — Level 2 (§3).
     static let moleculesL2: [String] = [
