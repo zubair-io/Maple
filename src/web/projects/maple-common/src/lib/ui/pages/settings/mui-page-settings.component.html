@@ -1,0 +1,33 @@
+<mui-settings-shell class="mui-page-settings">
+  <div slot="nav" class="nav-list">
+    @for (section of navSections; track section.id) {
+      <mui-list-row
+        [icon]="section.icon"
+        [label]="section.label"
+        [active]="section.id === activeSectionId()"
+        (pressed)="activeSectionId.set(section.id)"
+      />
+    }
+  </div>
+
+  @switch (activeSectionId()) {
+    @case ('devices') {
+      <mui-device-list [devices]="deviceList()" (deviceRevoked)="onDeviceRevoked($event)" />
+    }
+    @case ('users') {
+      <mui-user-management
+        [users]="users()"
+        inviteLink="https://maple.local/invite/9f3ab2"
+        (userInvited)="onUserInvited($event)"
+        (userRevoked)="onUserRevoked($event)"
+      />
+    }
+    @default {
+      <mui-settings-section
+        title="General"
+        [rows]="settingsRows()"
+        (fieldChanged)="onSettingsFieldChanged($event)"
+      />
+    }
+  }
+</mui-settings-shell>

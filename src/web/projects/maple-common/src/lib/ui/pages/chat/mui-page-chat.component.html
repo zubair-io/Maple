@@ -1,0 +1,35 @@
+<mui-split-layout
+  [sidebarWidth]="200"
+  [sidebarMin]="160"
+  [sidebarMax]="260"
+  [detailWidth]="280"
+  class="mui-page-chat"
+>
+  <div slot="sidebar" class="channel-list">
+    @for (channel of channels; track channel.id) {
+      <mui-list-row
+        [label]="channel.label"
+        [active]="channel.id === activeChannelId()"
+        (pressed)="selectChannel(channel.id)"
+      />
+    }
+  </div>
+
+  <div class="chat-pane">
+    <mui-chat
+      [messages]="chatMessages()"
+      [mentionableUsers]="mentionableUsers"
+      (messageSent)="onMessageSent($event)"
+      style="display: block; height: 100%"
+    />
+  </div>
+
+  <div slot="detail" class="thread-pane">
+    <mui-thread-panel
+      [messages]="threadMessages()"
+      [draft]="threadDraft()"
+      (draftChange)="threadDraft.set($event)"
+      style="display: block; width: 100%"
+    />
+  </div>
+</mui-split-layout>

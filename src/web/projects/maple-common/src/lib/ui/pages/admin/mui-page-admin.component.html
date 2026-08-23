@@ -1,0 +1,61 @@
+<mui-settings-shell class="mui-page-admin">
+  <div slot="nav" class="nav-list">
+    @for (section of navSections; track section.id) {
+      <mui-list-row
+        [icon]="section.icon"
+        [label]="section.label"
+        [active]="section.id === activeSectionId()"
+        (pressed)="activeSectionId.set(section.id)"
+      />
+    }
+  </div>
+
+  @switch (activeSectionId()) {
+    @case ('setup') {
+      <mui-setup-wizard
+        [steps]="wizardSteps"
+        [stepIndex]="wizardIndex()"
+        (stepIndexChange)="onWizardStepChanged($event)"
+        [canGoNext]="wizardCanGoNext()"
+        (finished)="onWizardFinished()"
+      >
+        <ng-template muiWizardStep>
+          <mui-form-field
+            label="Library folder"
+            [value]="wizardLibraryPath()"
+            (valueChange)="wizardLibraryPath.set($event)"
+            placeholder="/Volumes/Photos"
+          />
+        </ng-template>
+      </mui-setup-wizard>
+    }
+    @case ('backup') {
+      <mui-backup-monitor
+        [destinationPath]="backupDestinationPath()"
+        (destinationPathChange)="backupDestinationPath.set($event)"
+        [schedule]="backupSchedule()"
+        (scheduleChange)="backupSchedule.set($event)"
+        [running]="backupRunning()"
+        [progress]="backupProgress()"
+        [lastResult]="backupLastResult()"
+        (configChanged)="onBackupConfigChanged($event)"
+        (backupStartRequested)="onBackupStartRequested()"
+      />
+    }
+    @case ('diagnostics') {
+      <mui-diagnostics
+        [checks]="diagnosticChecks()"
+        [output]="diagnosticOutput()"
+        [running]="diagnosticsRunning()"
+        (runRequested)="onDiagnosticsRun()"
+      />
+    }
+    @default {
+      <mui-pipeline-monitor
+        [stages]="pipelineStages()"
+        (stagePauseToggled)="onStagePauseToggled($event)"
+        (stageRetried)="onStageRetried($event)"
+      />
+    }
+  }
+</mui-settings-shell>

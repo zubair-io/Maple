@@ -1,0 +1,15 @@
+@use '../../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+  height: 100%;
+  min-height: 0;
+}
+
+.mui-page-admin {
+  height: 100%;
+}
+
+.nav-list {
+  padding: tok.$maple-spacing-sm 0;
+}

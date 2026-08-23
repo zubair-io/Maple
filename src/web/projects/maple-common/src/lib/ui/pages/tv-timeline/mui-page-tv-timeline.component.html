@@ -1,0 +1,26 @@
+<mui-tab-shell
+  [tabs]="tabs"
+  [activeId]="activeTabId()"
+  (activeIdChange)="activeTabId.set($event)"
+  class="mui-page-tv-timeline"
+>
+  <div class="tab-content">
+    @if (activeTabId() === 'collections') {
+      <mui-collection-grid
+        [items]="collectionItems()"
+        [selectedIds]="collectionSelectedIds()"
+        (selectedIdsChange)="collectionSelectedIds.set($event)"
+        [columns]="5"
+        [viewportHeight]="420"
+      />
+    } @else {
+      <mui-timeline
+        [groups]="timelineGroups()"
+        [filters]="filters"
+        [activeFilterId]="activeFilterId()"
+        (activeFilterIdChange)="activeFilterId.set($event)"
+        [columns]="5"
+      />
+    }
+  </div>
+</mui-tab-shell>

@@ -19,11 +19,12 @@
 <div
   style="
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
     gap: 16px;
     margin-bottom: 40px;
   "
 >
+  <!-- Browse -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -37,77 +38,26 @@
   >
     <div
       style="
-        height: 90px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        width: 480px;
+        height: 300px;
+        border-radius: 8px;
         overflow: hidden;
+        position: relative;
+        background: #1c1917;
       "
     >
-      <div style="display: flex; align-items: center; gap: 4px">
-        <div
-          style="
-            width: 26px;
-            height: 72px;
-            background: #f5f2eb;
-            border: 1px solid #e7e5e4;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: #78716c;
-            font-weight: 700;
-            text-align: center;
-            padding: 2px;
-            box-sizing: border-box;
-            line-height: 1.2;
-          "
-        >
-          SIDEBAR
-        </div>
-        <div
-          style="
-            width: 52px;
-            height: 72px;
-            background: #fff;
-            border: 1px solid #e7e5e4;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: #78716c;
-            font-weight: 700;
-            text-align: center;
-            padding: 2px;
-            box-sizing: border-box;
-            line-height: 1.2;
-          "
-        >
-          CENTER
-        </div>
-        <div
-          style="
-            width: 30px;
-            height: 72px;
-            background: #f5f2eb;
-            border: 1px solid #e7e5e4;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: #78716c;
-            font-weight: 700;
-            text-align: center;
-            padding: 2px;
-            box-sizing: border-box;
-            line-height: 1.2;
-          "
-        >
-          DETAIL
-        </div>
+      <div
+        style="
+          width: 1440px;
+          height: 900px;
+          position: absolute;
+          top: 0;
+          left: 0;
+          transform-origin: top left;
+          transform: scale(0.33333);
+        "
+      >
+        <mui-page-browse />
       </div>
     </div>
     <div>
@@ -120,6 +70,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Editor -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -133,17 +85,26 @@
   >
     <div
       style="
-        height: 90px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        width: 480px;
+        height: 300px;
+        border-radius: 8px;
         overflow: hidden;
+        position: relative;
+        background: #1c1917;
       "
     >
-      <div style="display: flex; gap: 4px; align-items: center">
-        <div style="width: 8px; height: 70px; background: #f5f2eb; border-radius: 2px"></div>
-        <div style="width: 80px; height: 70px; background: #1c1917; border-radius: 4px"></div>
-        <div style="width: 14px; height: 70px; background: #f5f2eb; border-radius: 2px"></div>
+      <div
+        style="
+          width: 1440px;
+          height: 900px;
+          position: absolute;
+          top: 0;
+          left: 0;
+          transform-origin: top left;
+          transform: scale(0.33333);
+        "
+      >
+        <mui-page-editor />
       </div>
     </div>
     <div>
@@ -156,6 +117,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Document -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -169,77 +132,26 @@
   >
     <div
       style="
-        height: 90px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        width: 480px;
+        height: 300px;
+        border-radius: 8px;
         overflow: hidden;
+        position: relative;
+        background: #1c1917;
       "
     >
-      <div style="display: flex; align-items: center; gap: 4px">
-        <div
-          style="
-            width: 26px;
-            height: 72px;
-            background: #f5f2eb;
-            border: 1px solid #e7e5e4;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: #78716c;
-            font-weight: 700;
-            text-align: center;
-            padding: 2px;
-            box-sizing: border-box;
-            line-height: 1.2;
-          "
-        >
-          SIDEBAR
-        </div>
-        <div
-          style="
-            width: 52px;
-            height: 72px;
-            background: #fff;
-            border: 1px solid #e7e5e4;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: #78716c;
-            font-weight: 700;
-            text-align: center;
-            padding: 2px;
-            box-sizing: border-box;
-            line-height: 1.2;
-          "
-        >
-          CENTER
-        </div>
-        <div
-          style="
-            width: 30px;
-            height: 72px;
-            background: #f5f2eb;
-            border: 1px solid #e7e5e4;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: #78716c;
-            font-weight: 700;
-            text-align: center;
-            padding: 2px;
-            box-sizing: border-box;
-            line-height: 1.2;
-          "
-        >
-          DETAIL
-        </div>
+      <div
+        style="
+          width: 1440px;
+          height: 900px;
+          position: absolute;
+          top: 0;
+          left: 0;
+          transform-origin: top left;
+          transform: scale(0.33333);
+        "
+      >
+        <mui-page-document />
       </div>
     </div>
     <div>
@@ -252,6 +164,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Preview -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -265,77 +179,26 @@
   >
     <div
       style="
-        height: 90px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        width: 480px;
+        height: 300px;
+        border-radius: 8px;
         overflow: hidden;
+        position: relative;
+        background: #1c1917;
       "
     >
-      <div style="display: flex; flex-direction: column; gap: 4px">
-        <div
-          style="
-            width: 108px;
-            height: 14px;
-            background: #292524;
-            border: 1px solid #e7e5e4;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: #fff;
-            font-weight: 700;
-            text-align: center;
-            padding: 2px;
-            box-sizing: border-box;
-            line-height: 1.2;
-          "
-        >
-          NAV
-        </div>
-        <div
-          style="
-            width: 108px;
-            height: 44px;
-            background: #fff;
-            border: 1px solid #e7e5e4;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: #78716c;
-            font-weight: 700;
-            text-align: center;
-            padding: 2px;
-            box-sizing: border-box;
-            line-height: 1.2;
-          "
-        >
-          CONTENT
-        </div>
-        <div
-          style="
-            width: 108px;
-            height: 14px;
-            background: #f5e6e4;
-            border: 1px solid #e7e5e4;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: #993629;
-            font-weight: 700;
-            text-align: center;
-            padding: 2px;
-            box-sizing: border-box;
-            line-height: 1.2;
-          "
-        >
-          OVERLAY
-        </div>
+      <div
+        style="
+          width: 1440px;
+          height: 900px;
+          position: absolute;
+          top: 0;
+          left: 0;
+          transform-origin: top left;
+          transform: scale(0.33333);
+        "
+      >
+        <mui-page-preview />
       </div>
     </div>
     <div>
@@ -348,6 +211,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Search -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -361,77 +226,26 @@
   >
     <div
       style="
-        height: 90px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        width: 480px;
+        height: 300px;
+        border-radius: 8px;
         overflow: hidden;
+        position: relative;
+        background: #1c1917;
       "
     >
-      <div style="display: flex; flex-direction: column; gap: 4px">
-        <div
-          style="
-            width: 108px;
-            height: 14px;
-            background: #292524;
-            border: 1px solid #e7e5e4;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: #fff;
-            font-weight: 700;
-            text-align: center;
-            padding: 2px;
-            box-sizing: border-box;
-            line-height: 1.2;
-          "
-        >
-          NAV
-        </div>
-        <div
-          style="
-            width: 108px;
-            height: 44px;
-            background: #fff;
-            border: 1px solid #e7e5e4;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: #78716c;
-            font-weight: 700;
-            text-align: center;
-            padding: 2px;
-            box-sizing: border-box;
-            line-height: 1.2;
-          "
-        >
-          CONTENT
-        </div>
-        <div
-          style="
-            width: 108px;
-            height: 14px;
-            background: #f5e6e4;
-            border: 1px solid #e7e5e4;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: #993629;
-            font-weight: 700;
-            text-align: center;
-            padding: 2px;
-            box-sizing: border-box;
-            line-height: 1.2;
-          "
-        >
-          OVERLAY
-        </div>
+      <div
+        style="
+          width: 1440px;
+          height: 900px;
+          position: absolute;
+          top: 0;
+          left: 0;
+          transform-origin: top left;
+          transform: scale(0.33333);
+        "
+      >
+        <mui-page-search />
       </div>
     </div>
     <div>
@@ -442,6 +256,8 @@
       <div style="font-size: 11px; color: #78716c; margin-top: 8px; line-height: 1.5">Search</div>
     </div>
   </div>
+
+  <!-- Board -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -455,26 +271,26 @@
   >
     <div
       style="
-        height: 90px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        width: 480px;
+        height: 300px;
+        border-radius: 8px;
         overflow: hidden;
+        position: relative;
+        background: #1c1917;
       "
     >
-      <div style="display: flex; gap: 6px">
-        <div style="width: 26px; display: flex; flex-direction: column; gap: 4px">
-          <div style="height: 16px; background: #f5f2eb; border-radius: 3px"></div>
-          <div style="height: 16px; background: #f5f2eb; border-radius: 3px"></div>
-        </div>
-        <div style="width: 26px; display: flex; flex-direction: column; gap: 4px">
-          <div style="height: 16px; background: #f5f2eb; border-radius: 3px"></div>
-          <div style="height: 16px; background: #f5f2eb; border-radius: 3px"></div>
-        </div>
-        <div style="width: 26px; display: flex; flex-direction: column; gap: 4px">
-          <div style="height: 16px; background: #f5f2eb; border-radius: 3px"></div>
-          <div style="height: 16px; background: #f5f2eb; border-radius: 3px"></div>
-        </div>
+      <div
+        style="
+          width: 1440px;
+          height: 900px;
+          position: absolute;
+          top: 0;
+          left: 0;
+          transform-origin: top left;
+          transform: scale(0.33333);
+        "
+      >
+        <mui-page-board />
       </div>
     </div>
     <div>
@@ -487,6 +303,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Chat -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -500,39 +318,26 @@
   >
     <div
       style="
-        height: 90px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        width: 480px;
+        height: 300px;
+        border-radius: 8px;
         overflow: hidden;
+        position: relative;
+        background: #1c1917;
       "
     >
-      <div style="display: flex; flex-direction: column; gap: 5px; width: 100px">
-        <div
-          style="
-            align-self: flex-start;
-            background: #f5f2eb;
-            border-radius: 8px;
-            padding: 4px 8px;
-            font-size: 8px;
-            width: 50%;
-          "
-        >
-          Hey!
-        </div>
-        <div
-          style="
-            align-self: flex-end;
-            background: #993629;
-            color: #fff;
-            border-radius: 8px;
-            padding: 4px 8px;
-            font-size: 8px;
-            width: 55%;
-          "
-        >
-          On it
-        </div>
+      <div
+        style="
+          width: 1440px;
+          height: 900px;
+          position: absolute;
+          top: 0;
+          left: 0;
+          transform-origin: top left;
+          transform: scale(0.33333);
+        "
+      >
+        <mui-page-chat />
       </div>
     </div>
     <div>
@@ -545,6 +350,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Notifications -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -558,77 +365,26 @@
   >
     <div
       style="
-        height: 90px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        width: 480px;
+        height: 300px;
+        border-radius: 8px;
         overflow: hidden;
+        position: relative;
+        background: #1c1917;
       "
     >
-      <div style="display: flex; flex-direction: column; gap: 4px">
-        <div
-          style="
-            width: 108px;
-            height: 14px;
-            background: #292524;
-            border: 1px solid #e7e5e4;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: #fff;
-            font-weight: 700;
-            text-align: center;
-            padding: 2px;
-            box-sizing: border-box;
-            line-height: 1.2;
-          "
-        >
-          NAV
-        </div>
-        <div
-          style="
-            width: 108px;
-            height: 44px;
-            background: #fff;
-            border: 1px solid #e7e5e4;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: #78716c;
-            font-weight: 700;
-            text-align: center;
-            padding: 2px;
-            box-sizing: border-box;
-            line-height: 1.2;
-          "
-        >
-          CONTENT
-        </div>
-        <div
-          style="
-            width: 108px;
-            height: 14px;
-            background: #f5e6e4;
-            border: 1px solid #e7e5e4;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: #993629;
-            font-weight: 700;
-            text-align: center;
-            padding: 2px;
-            box-sizing: border-box;
-            line-height: 1.2;
-          "
-        >
-          OVERLAY
-        </div>
+      <div
+        style="
+          width: 1440px;
+          height: 900px;
+          position: absolute;
+          top: 0;
+          left: 0;
+          transform-origin: top left;
+          transform: scale(0.33333);
+        "
+      >
+        <mui-page-notifications />
       </div>
     </div>
     <div>
@@ -641,6 +397,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Settings -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -654,56 +412,26 @@
   >
     <div
       style="
-        height: 90px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        width: 480px;
+        height: 300px;
+        border-radius: 8px;
         overflow: hidden;
+        position: relative;
+        background: #1c1917;
       "
     >
-      <div style="display: flex; align-items: center; gap: 4px">
-        <div
-          style="
-            width: 30px;
-            height: 72px;
-            background: #f5f2eb;
-            border: 1px solid #e7e5e4;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: #78716c;
-            font-weight: 700;
-            text-align: center;
-            padding: 2px;
-            box-sizing: border-box;
-            line-height: 1.2;
-          "
-        >
-          NAV
-        </div>
-        <div
-          style="
-            width: 76px;
-            height: 72px;
-            background: #fff;
-            border: 1px solid #e7e5e4;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: #78716c;
-            font-weight: 700;
-            text-align: center;
-            padding: 2px;
-            box-sizing: border-box;
-            line-height: 1.2;
-          "
-        >
-          PANE
-        </div>
+      <div
+        style="
+          width: 1440px;
+          height: 900px;
+          position: absolute;
+          top: 0;
+          left: 0;
+          transform-origin: top left;
+          transform: scale(0.33333);
+        "
+      >
+        <mui-page-settings />
       </div>
     </div>
     <div>
@@ -716,6 +444,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Admin -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -729,56 +459,26 @@
   >
     <div
       style="
-        height: 90px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        width: 480px;
+        height: 300px;
+        border-radius: 8px;
         overflow: hidden;
+        position: relative;
+        background: #1c1917;
       "
     >
-      <div style="display: flex; align-items: center; gap: 4px">
-        <div
-          style="
-            width: 30px;
-            height: 72px;
-            background: #f5f2eb;
-            border: 1px solid #e7e5e4;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: #78716c;
-            font-weight: 700;
-            text-align: center;
-            padding: 2px;
-            box-sizing: border-box;
-            line-height: 1.2;
-          "
-        >
-          NAV
-        </div>
-        <div
-          style="
-            width: 76px;
-            height: 72px;
-            background: #fff;
-            border: 1px solid #e7e5e4;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: #78716c;
-            font-weight: 700;
-            text-align: center;
-            padding: 2px;
-            box-sizing: border-box;
-            line-height: 1.2;
-          "
-        >
-          PANE
-        </div>
+      <div
+        style="
+          width: 1440px;
+          height: 900px;
+          position: absolute;
+          top: 0;
+          left: 0;
+          transform-origin: top left;
+          transform: scale(0.33333);
+        "
+      >
+        <mui-page-admin />
       </div>
     </div>
     <div>
@@ -791,6 +491,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Sign In -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -804,51 +506,26 @@
   >
     <div
       style="
-        height: 90px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        width: 480px;
+        height: 300px;
+        border-radius: 8px;
         overflow: hidden;
+        position: relative;
+        background: #1c1917;
       "
     >
       <div
         style="
-          width: 100px;
-          border: 1px solid #e7e5e4;
-          border-radius: 6px;
-          box-shadow: 0 8px 16px rgba(41, 37, 36, 0.12);
-          padding: 10px;
-          background: #fff;
+          width: 1440px;
+          height: 900px;
+          position: absolute;
+          top: 0;
+          left: 0;
+          transform-origin: top left;
+          transform: scale(0.33333);
         "
       >
-        <div
-          style="
-            height: 6px;
-            width: 60%;
-            background: #292524;
-            border-radius: 2px;
-            margin-bottom: 8px;
-          "
-        ></div>
-        <div style="height: 4px; background: #e7e5e4; border-radius: 2px; margin-bottom: 4px"></div>
-        <div
-          style="
-            height: 4px;
-            background: #e7e5e4;
-            border-radius: 2px;
-            width: 70%;
-            margin-bottom: 8px;
-          "
-        ></div>
-        <div
-          style="
-            height: 12px;
-            width: 36px;
-            background: #993629;
-            border-radius: 4px;
-            margin-left: auto;
-          "
-        ></div>
+        <mui-page-sign-in />
       </div>
     </div>
     <div>
@@ -861,6 +538,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Pairing -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -874,51 +553,26 @@
   >
     <div
       style="
-        height: 90px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        width: 480px;
+        height: 300px;
+        border-radius: 8px;
         overflow: hidden;
+        position: relative;
+        background: #1c1917;
       "
     >
       <div
         style="
-          width: 100px;
-          border: 1px solid #e7e5e4;
-          border-radius: 6px;
-          box-shadow: 0 8px 16px rgba(41, 37, 36, 0.12);
-          padding: 10px;
-          background: #fff;
+          width: 1440px;
+          height: 900px;
+          position: absolute;
+          top: 0;
+          left: 0;
+          transform-origin: top left;
+          transform: scale(0.33333);
         "
       >
-        <div
-          style="
-            height: 6px;
-            width: 60%;
-            background: #292524;
-            border-radius: 2px;
-            margin-bottom: 8px;
-          "
-        ></div>
-        <div style="height: 4px; background: #e7e5e4; border-radius: 2px; margin-bottom: 4px"></div>
-        <div
-          style="
-            height: 4px;
-            background: #e7e5e4;
-            border-radius: 2px;
-            width: 70%;
-            margin-bottom: 8px;
-          "
-        ></div>
-        <div
-          style="
-            height: 12px;
-            width: 36px;
-            background: #993629;
-            border-radius: 4px;
-            margin-left: auto;
-          "
-        ></div>
+        <mui-page-pairing />
       </div>
     </div>
     <div>
@@ -931,6 +585,8 @@
       </div>
     </div>
   </div>
+
+  <!-- TV Timeline -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -944,100 +600,26 @@
   >
     <div
       style="
-        height: 90px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        width: 480px;
+        height: 300px;
+        border-radius: 8px;
         overflow: hidden;
+        position: relative;
+        background: #1c1917;
       "
     >
-      <div style="display: flex; flex-direction: column; gap: 4px">
-        <div style="display: flex; align-items: center; gap: 2px">
-          <div
-            style="
-              width: 34px;
-              height: 14px;
-              background: #993629;
-              border: 1px solid #e7e5e4;
-              border-radius: 4px;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              font-size: 9px;
-              color: #fff;
-              font-weight: 700;
-              text-align: center;
-              padding: 2px;
-              box-sizing: border-box;
-              line-height: 1.2;
-            "
-          >
-            Tab
-          </div>
-          <div
-            style="
-              width: 34px;
-              height: 14px;
-              background: #f5f2eb;
-              border: 1px solid #e7e5e4;
-              border-radius: 4px;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              font-size: 9px;
-              color: #78716c;
-              font-weight: 700;
-              text-align: center;
-              padding: 2px;
-              box-sizing: border-box;
-              line-height: 1.2;
-            "
-          >
-            Tab
-          </div>
-          <div
-            style="
-              width: 34px;
-              height: 14px;
-              background: #f5f2eb;
-              border: 1px solid #e7e5e4;
-              border-radius: 4px;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              font-size: 9px;
-              color: #78716c;
-              font-weight: 700;
-              text-align: center;
-              padding: 2px;
-              box-sizing: border-box;
-              line-height: 1.2;
-            "
-          >
-            Tab
-          </div>
-        </div>
-        <div
-          style="
-            width: 108px;
-            height: 44px;
-            background: #fff;
-            border: 1px solid #e7e5e4;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: #78716c;
-            font-weight: 700;
-            text-align: center;
-            padding: 2px;
-            box-sizing: border-box;
-            line-height: 1.2;
-          "
-        >
-          CONTENT
-        </div>
+      <div
+        style="
+          width: 1440px;
+          height: 900px;
+          position: absolute;
+          top: 0;
+          left: 0;
+          transform-origin: top left;
+          transform: scale(0.33333);
+        "
+      >
+        <mui-page-tv-timeline />
       </div>
     </div>
     <div>
@@ -1050,6 +632,8 @@
       </div>
     </div>
   </div>
+
+  <!-- TV Viewer -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1063,77 +647,26 @@
   >
     <div
       style="
-        height: 90px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        width: 480px;
+        height: 300px;
+        border-radius: 8px;
         overflow: hidden;
+        position: relative;
+        background: #1c1917;
       "
     >
-      <div style="display: flex; flex-direction: column; gap: 4px">
-        <div
-          style="
-            width: 108px;
-            height: 14px;
-            background: #292524;
-            border: 1px solid #e7e5e4;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: #fff;
-            font-weight: 700;
-            text-align: center;
-            padding: 2px;
-            box-sizing: border-box;
-            line-height: 1.2;
-          "
-        >
-          NAV
-        </div>
-        <div
-          style="
-            width: 108px;
-            height: 44px;
-            background: #fff;
-            border: 1px solid #e7e5e4;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: #78716c;
-            font-weight: 700;
-            text-align: center;
-            padding: 2px;
-            box-sizing: border-box;
-            line-height: 1.2;
-          "
-        >
-          CONTENT
-        </div>
-        <div
-          style="
-            width: 108px;
-            height: 14px;
-            background: #f5e6e4;
-            border: 1px solid #e7e5e4;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: #993629;
-            font-weight: 700;
-            text-align: center;
-            padding: 2px;
-            box-sizing: border-box;
-            line-height: 1.2;
-          "
-        >
-          OVERLAY
-        </div>
+      <div
+        style="
+          width: 1440px;
+          height: 900px;
+          position: absolute;
+          top: 0;
+          left: 0;
+          transform-origin: top left;
+          transform: scale(0.33333);
+        "
+      >
+        <mui-page-tv-viewer />
       </div>
     </div>
     <div>
@@ -1146,6 +679,8 @@
       </div>
     </div>
   </div>
+
+  <!-- TV Map -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1159,100 +694,26 @@
   >
     <div
       style="
-        height: 90px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        width: 480px;
+        height: 300px;
+        border-radius: 8px;
         overflow: hidden;
+        position: relative;
+        background: #1c1917;
       "
     >
-      <div style="display: flex; flex-direction: column; gap: 4px">
-        <div style="display: flex; align-items: center; gap: 2px">
-          <div
-            style="
-              width: 34px;
-              height: 14px;
-              background: #993629;
-              border: 1px solid #e7e5e4;
-              border-radius: 4px;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              font-size: 9px;
-              color: #fff;
-              font-weight: 700;
-              text-align: center;
-              padding: 2px;
-              box-sizing: border-box;
-              line-height: 1.2;
-            "
-          >
-            Tab
-          </div>
-          <div
-            style="
-              width: 34px;
-              height: 14px;
-              background: #f5f2eb;
-              border: 1px solid #e7e5e4;
-              border-radius: 4px;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              font-size: 9px;
-              color: #78716c;
-              font-weight: 700;
-              text-align: center;
-              padding: 2px;
-              box-sizing: border-box;
-              line-height: 1.2;
-            "
-          >
-            Tab
-          </div>
-          <div
-            style="
-              width: 34px;
-              height: 14px;
-              background: #f5f2eb;
-              border: 1px solid #e7e5e4;
-              border-radius: 4px;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              font-size: 9px;
-              color: #78716c;
-              font-weight: 700;
-              text-align: center;
-              padding: 2px;
-              box-sizing: border-box;
-              line-height: 1.2;
-            "
-          >
-            Tab
-          </div>
-        </div>
-        <div
-          style="
-            width: 108px;
-            height: 44px;
-            background: #fff;
-            border: 1px solid #e7e5e4;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 9px;
-            color: #78716c;
-            font-weight: 700;
-            text-align: center;
-            padding: 2px;
-            box-sizing: border-box;
-            line-height: 1.2;
-          "
-        >
-          CONTENT
-        </div>
+      <div
+        style="
+          width: 1440px;
+          height: 900px;
+          position: absolute;
+          top: 0;
+          left: 0;
+          transform-origin: top left;
+          transform: scale(0.33333);
+        "
+      >
+        <mui-page-tv-map />
       </div>
     </div>
     <div>
