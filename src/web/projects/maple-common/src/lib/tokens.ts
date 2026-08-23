@@ -7,6 +7,17 @@
 
 import { MAPLE_UI_COLORS } from './generated/ui-tokens';
 
+// Raw generated token tables, re-exported for consumers that iterate the
+// full scale with keys (e.g. the hosted /maple-ui token gallery, #3000).
+// Most call sites should keep using the curated `MapleTokens`/`MapleMotion`
+// surfaces below and in motion.ts.
+export {
+  MAPLE_UI_COLORS,
+  MAPLE_UI_MOTION,
+  MAPLE_UI_RADIUS,
+  MAPLE_UI_SPACING,
+} from './generated/ui-tokens';
+
 export const MapleTokens = {
   // Surfaces
   bg: MAPLE_UI_COLORS.bg,

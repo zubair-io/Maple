@@ -61,6 +61,9 @@ src/raw-pipeline/raw-wasm/pkg/
 # raw-wasm synced into maple-common (rebuilt via scripts/sync-raw-wasm.sh)
 src/web/projects/maple-common/src/lib/raw-pipeline/pkg/
 
+# Maple UI contract docs synced into maple-syrup (rebuilt via scripts/sync-maple-ui-docs.mjs)
+src/web/projects/maple-syrup/public/maple-ui/
+
 # Swift / SPM
 .build/
 .swiftpm/

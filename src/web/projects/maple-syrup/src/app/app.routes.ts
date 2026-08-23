@@ -43,6 +43,15 @@ const baseRoutes: Routes = [
   // `web+maple://…` URL into `?url=…` (percent-encoded); the component
   // decodes it and redirects to the canonical Angular route.
   { path: 'protocol-handler', component: ProtocolHandlerComponent },
+  // #3000 — public Maple UI design-system gallery: live token tables plus
+  // the component contract docs synced into assets at build time. Hosted
+  // has no auth surface, so like every route here it's publicly reachable;
+  // it's intentionally unlinked from the landing page (direct URL only).
+  {
+    path: 'maple-ui',
+    loadComponent: () =>
+      import('./maple-ui-page/maple-ui-page.component').then((m) => m.MapleUiPageComponent),
+  },
 ];
 
 export const routes: Routes = [...baseRoutes, { path: '**', redirectTo: '' }];
