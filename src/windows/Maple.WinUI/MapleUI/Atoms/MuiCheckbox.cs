@@ -39,8 +39,9 @@ namespace Maple.UI.Atoms
 
         /// <summary>Convenience alias over the native IsChecked (bool?),
         /// matching checkbox.md's `checked: true | false | 'indeterminate'`
-        /// prop shape via null == indeterminate.</summary>
-        public bool? Checked
+        /// prop shape via null == indeterminate. Named CheckedState so it
+        /// cannot shadow the base CheckBox.Checked event.</summary>
+        public bool? CheckedState
         {
             get => IsChecked;
             set => IsChecked = value;
