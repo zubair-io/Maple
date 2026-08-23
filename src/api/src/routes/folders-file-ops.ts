@@ -45,7 +45,7 @@ import {
   validateRelPathShape,
 } from '../library/address.ts';
 import { isSafeFilename } from '../backup/path-formatter.ts';
-import { isInsideMapleCache } from '../workers/discover/types.ts';
+import { isInsideMapleCache } from '../workers/discover/reserved-trees.ts';
 import { moveToTrash } from '../fs/trash.ts';
 import { relocateFile, type CollisionPolicy, type RelocateMode } from '../fs/relocate.ts';
 import { stat } from '../fs/mirrored.ts';
@@ -329,7 +329,16 @@ async function respondToRelocateOutcome(
           folder_id: ctx.folderId,
           abs_path: ctx.sourceAbsPath,
           relative_path: ctx.sourceRelativePath,
-        }).catch(() => {});
+        }).catch((err) => {
+          log.warn(
+            {
+              folderId: ctx.folderId.toHexString(),
+              sourceRelativePath: ctx.sourceRelativePath,
+              err: err instanceof Error ? err.message : err,
+            },
+            'change-feed emit failed retiring the old path after a file move (best-effort, ignoring)',
+          );
+        });
       }
       await recordAndPublishAssetChange({
         kind: 'create',
