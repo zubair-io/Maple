@@ -53,8 +53,10 @@ public struct GeneratedSearchCard: Codable, Equatable, Sendable, Identifiable {
     self.generated_for = generated_for
   }
 
-  /// The exact keys the app's `maple://search` handler reads — anything a
-  /// stored query grows later stays out of the URL by construction.
+  /// The FILTER keys the app's `maple://search` handler reads from a stored
+  /// query — anything the query grows later stays out of the URL by
+  /// construction. `libraryId` (also read by the handler) is not a stored
+  /// filter; it is the required scope, appended separately below.
   private static let searchLinkKeys = ["placeQuery", "from", "to", "month", "sceneType", "people"]
 
   /// Deep link into the app's search UI seeded with this collection's
