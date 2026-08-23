@@ -405,3 +405,13 @@ export * from './lib/ui/chat-message/mui-chat-message.component';
 export * from './lib/ui/typing-indicator/mui-typing-indicator.component';
 export * from './lib/ui/todo-popover/mui-todo-popover.component';
 export * from './lib/ui/event-popover/mui-event-popover.component';
+
+// Templates (unified-component-catalog.md §5) — Wave 5 (#3000). Region-only
+// layout shells with no content of their own.
+export * from './lib/ui/app-shell/mui-app-shell.component';
+export * from './lib/ui/split-layout/mui-split-layout.component';
+export * from './lib/ui/tab-shell/mui-tab-shell.component';
+export * from './lib/ui/settings-shell/mui-settings-shell.component';
+export * from './lib/ui/overlay-shell/mui-overlay-shell.component';
+export * from './lib/ui/sheet-shell/mui-sheet-shell.component';
+export * from './lib/ui/drawer-shell/mui-drawer-shell.component';

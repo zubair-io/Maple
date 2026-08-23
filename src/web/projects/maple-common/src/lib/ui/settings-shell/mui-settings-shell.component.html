@@ -1,0 +1,10 @@
+<div class="mui-settings-shell">
+  <div class="nav" [style.--mui-settings-nav-width.px]="navWidth()">
+    <ng-content select="[slot=nav]" />
+  </div>
+  <div class="pane-wrap">
+    <div class="pane" [style.max-width.px]="paneMaxWidth()">
+      <ng-content />
+    </div>
+  </div>
+</div>

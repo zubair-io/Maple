@@ -1,0 +1,5 @@
+<div class="mui-app-shell" [class.side-nav]="navPlacement() === 'side'">
+  <div class="nav"><ng-content select="[slot=nav]" /></div>
+  <div class="content"><ng-content /></div>
+</div>
+<div class="overlay"><ng-content select="[slot=overlay]" /></div>

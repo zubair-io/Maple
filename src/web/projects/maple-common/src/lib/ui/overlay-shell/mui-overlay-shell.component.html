@@ -1,0 +1,18 @@
+@if (open()) {
+  <div class="mui-overlay-shell-scrim" [class.contained]="contained()" (click)="onScrimClick()">
+    <div
+      #panel
+      class="mui-overlay-shell"
+      [class]="'size-' + size()"
+      role="dialog"
+      aria-modal="true"
+      [attr.aria-label]="ariaLabel()"
+      tabindex="-1"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="header"><ng-content select="[slot=header]" /></div>
+      <div class="body"><ng-content /></div>
+      <div class="footer"><ng-content select="[slot=footer]" /></div>
+    </div>
+  </div>
+}
