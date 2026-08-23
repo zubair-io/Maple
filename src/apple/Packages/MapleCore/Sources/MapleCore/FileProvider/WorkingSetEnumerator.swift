@@ -460,7 +460,7 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
 ///     event path is the ONLY thing that ever called `invalidate()`.
 ///     `entries()` now self-expires past `ttl` regardless of whether
 ///     anything ever called `invalidate()`.
-actor WorkingSetListCache {
+public actor WorkingSetListCache {
     private let catalog: RemoteCatalog
     private var cached: [AssetListEntry]?
     private var cachedAt: Date?
