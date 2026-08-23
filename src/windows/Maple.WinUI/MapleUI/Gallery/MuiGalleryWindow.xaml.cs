@@ -13,12 +13,12 @@ namespace Maple.UI.Gallery
     /// <summary>
     /// Maple.UI Gallery window — a showcase for the Maple.UI control library
     /// (docs/unified-component-catalog.md), organized by the catalog's own
-    /// tiers. Tokens, Atoms, Molecules L1, Molecules L2, and Templates
-    /// render live specimens built from the actual Maple.UI controls; the
-    /// remaining tiers (nothing has been built for them yet, per the
-    /// catalog's design order) render as plain name lists pulled from the
-    /// catalog, so the gallery already has a home for each tier as later
-    /// waves land.
+    /// tiers. Tokens, Atoms, Molecules L1, Molecules L2, Organisms, and
+    /// Templates render live specimens built from the actual Maple.UI
+    /// controls; the remaining tier (Pages — nothing has been built for it
+    /// yet, per the catalog's design order) renders as a plain name list
+    /// pulled from the catalog, so the gallery already has a home for it
+    /// as a later wave lands.
     /// </summary>
     public sealed partial class MuiGalleryWindow : Window
     {
@@ -64,7 +64,7 @@ namespace Maple.UI.Gallery
             BuildAtomsPage();
             BuildMoleculesL1Page(MoleculesL1Panel);
             BuildMoleculesL2Page(MoleculesL2Panel);
-            BuildPlaceholderPage(OrganismsPanel, "Organisms", OrganismNames);
+            BuildOrganismsPage(OrganismsPanel);
             BuildTemplatesPage(TemplatesPanel);
             BuildPlaceholderPage(PagesPanel, "Pages", PageNames);
 
@@ -508,21 +508,8 @@ namespace Maple.UI.Gallery
         // docs/unified-component-catalog.md § 5 (all 7 templates) are no
         // longer here — they're built live in MuiGalleryWindow.Templates.cs.
 
-        // docs/unified-component-catalog.md § 4 (52 organisms).
-        private static readonly string[] OrganismNames =
-        {
-            "Collection Grid", "List View", "Timeline", "Kanban Board", "Filmstrip", "Search Results",
-            "Sidebar", "Tool Dock", "Search", "Filter Panel", "Inspector Panel", "Info Panel",
-            "Enrichment Panel", "Adjustments Panel", "Color Grading Panel", "HSL Panel",
-            "Tone Curve Panel", "Film Panel", "Presets Panel", "Scopes Panel", "Backlinks Panel",
-            "Version History Panel", "Thread Panel", "Export", "Batch Rename", "Batch Metadata",
-            "Move To", "Panorama Merge", "Selective Paste", "Library Picker", "Add Server",
-            "Pair Device", "Share", "Template Gallery", "Card Detail", "Result Report", "Image Canvas",
-            "Crop Overlay", "Crop Toolbar", "Control Surface", "Mobile Control Bar", "Rich Text Editor",
-            "Whiteboard Canvas", "Structured Data Editor", "Preview Surface", "Map Surface", "Chat",
-            "Notification Feed", "Settings Section", "Pipeline Monitor", "Setup Wizard",
-            "User Management", "Device List", "Backup Monitor", "Diagnostics",
-        };
+        // docs/unified-component-catalog.md § 4 (55 organisms) are no
+        // longer here — they're built live in MuiGalleryWindow.Organisms*.cs.
 
         // docs/unified-component-catalog.md § 6 (15 page types).
         private static readonly string[] PageNames =

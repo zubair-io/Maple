@@ -148,6 +148,21 @@
     that whole graph in just for one hash helper isn't worth it). That test
     reimplements `ThumbnailService.CachePathFor`'s hash formula inline
     instead, with a comment pointing at the source of truth to catch drift.
+
+    `MapleUI\Organisms\MuiCollectionGridSelection.cs`,
+    `MuiKanbanBoardLogic.cs`, and `MuiSidebarFlatten.cs` (Maple.UI
+    Windows-phase organisms wave N6, #3012 — collections/navigation/
+    inspector panels) are the same split for the Collection Grid/List
+    View, Kanban Board, and Sidebar organisms: each is plain C#
+    (System/System.Collections.Generic/System.Linq only, namespace
+    `Maple.UI`), so the click/Ctrl-click/Shift-click selection math, the
+    cross-column card-move-and-reorder logic, and the tree-to-flat-row
+    walk are all exercisable here without a live Window.
+    `MuiPointerModifierReader.cs` (the shared live-keyboard-state reader
+    those two selection organisms also use) is NOT linked — it depends on
+    `Microsoft.UI.Input`, so it's WinUI-dependent by design; the logic
+    worth testing is the selection math above, which already takes the
+    resulting modifier as a plain argument.
   -->
   <ItemGroup>
     <Compile Include="..\Maple.WinUI\Services\Xmp\*.cs" LinkBase="Xmp" />
@@ -188,5 +203,8 @@
     <Compile Include="..\Maple.WinUI\MapleUI\Templates\MuiTabShellMath.cs" LinkBase="MapleUI\Templates" />
     <Compile Include="..\Maple.WinUI\MapleUI\Templates\MuiOverlayShellMath.cs" LinkBase="MapleUI\Templates" />
     <Compile Include="..\Maple.WinUI\MapleUI\Templates\MuiSheetShellDragLogic.cs" LinkBase="MapleUI\Templates" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Organisms\MuiCollectionGridSelection.cs" LinkBase="MapleUI\Organisms" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Organisms\MuiKanbanBoardLogic.cs" LinkBase="MapleUI\Organisms" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Organisms\MuiSidebarFlatten.cs" LinkBase="MapleUI\Organisms" />
   </ItemGroup>
 </Project>
