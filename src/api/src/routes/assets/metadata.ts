@@ -24,6 +24,7 @@ import {
   findCoreInfoById,
   findDetailByAddress,
   findDetailById,
+  findDetailsByIds,
   parseAssetId,
 } from '../../db/assets.repo.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
@@ -125,6 +126,31 @@ export const metadataRoutes = new Elysia()
       return { error: 'Asset not indexed' };
     }
     return hit.address ? { ...dto, address: hit.address } : dto;
+  })
+
+  // Bulk asset metadata (#2995). The File Provider's change-feed
+  // resolution used to make one `GET /:id` round trip per change row —
+  // a 500-row page cost 500 requests and pinned the iPad extension at
+  // ~300 req/s while draining a backlog. One POST here resolves the
+  // whole page. Same per-asset DTO as `GET /:id`; ids that don't
+  // resolve are simply absent from `assets` (the caller treats absence
+  // as deleted, mirroring the single route's 404).
+  .post('/batch-meta', async ({ body, set }) => {
+    const ids = (body as { ids?: unknown } | null)?.ids;
+    if (!Array.isArray(ids)) {
+      set.status = 400;
+      return { error: 'Body must be { ids: string[] }' };
+    }
+    if (ids.length > 500) {
+      set.status = 400;
+      return { error: 'At most 500 ids per request' };
+    }
+    const parsed = ids.map((raw) => (typeof raw === 'string' ? parseAssetId(raw) : null));
+    if (parsed.some((p) => p === null)) {
+      set.status = 400;
+      return { error: 'Invalid asset id in ids' };
+    }
+    return { assets: await findDetailsByIds(parsed as ObjectId[]) };
   })
 
   // Single asset metadata
