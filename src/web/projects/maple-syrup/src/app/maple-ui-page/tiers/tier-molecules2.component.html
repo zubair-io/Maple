@@ -35,30 +35,27 @@
   >
     <div
       style="
-        height: 72px;
+        height: 96px;
         display: flex;
         align-items: center;
         justify-content: center;
+        gap: 8px;
         overflow: hidden;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div
-          style="
-            position: relative;
-            width: 76px;
-            height: 60px;
-            background: #f5f2eb;
-            border-radius: 6px;
-            border: 2px solid #993629;
-          "
-        >
-          <span class="material-symbols-rounded" style="font-size: 12px; color: #f59e0b">star</span>
-          <div style="position: absolute; bottom: 4px; left: 6px; font-size: 9px; color: #78716c">
-            DSC_003
-          </div>
-        </div>
-      </div>
+      <mui-media-cell
+        [src]="specimenPhoto"
+        alt="Ballet"
+        [filename]="mediaCellFilename"
+        [selected]="true"
+        [rating]="3"
+        flag="pick"
+        size="sm"
+      />
+      <mui-media-cell [src]="specimenPhoto" alt="Ballet" filename="DSC_0004.NEF" size="sm" />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Media Cell</div>
@@ -96,25 +93,19 @@
         align-items: center;
         justify-content: center;
         overflow: hidden;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="width: 150px; border: 1px solid #e7e5e4; border-radius: 8px; overflow: hidden">
-          <div style="height: 36px; background: #f5f2eb"></div>
-          <div style="padding: 8px">
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 12px;
-                color: #292524;
-                font-weight: 600;
-              "
-              >Ballet</span
-            >
-            <div style="font-size: 10px; color: #78716c">142 photos</div>
-          </div>
-        </div>
-      </div>
+      <mui-card
+        [src]="specimenPhoto"
+        alt="Ballet"
+        title="Ballet"
+        subtitle="142 photos"
+        badgeLabel="New"
+        style="width: 150px"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Card</div>
@@ -152,44 +143,23 @@
         align-items: center;
         justify-content: center;
         overflow: hidden;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div
-          style="
-            width: 180px;
-            border: 1px solid #e7e5e4;
-            border-radius: 8px;
-            padding: 14px;
-            box-shadow: 0 12px 28px rgba(41, 37, 36, 0.12);
-          "
-        >
-          <span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 12px;
-              color: #292524;
-              font-weight: 600;
-            "
-            >Delete page?</span
-          >
-          <div style="margin-top: 10px">
-            <div
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 12px;
-                font-weight: 600;
-                background: #993629;
-                color: #fff;
-                padding: 7px 14px;
-                border-radius: 8px;
-              "
-            >
-              Delete
-            </div>
-          </div>
-        </div>
-      </div>
+      <mui-button variant="destructive" size="sm" (pressed)="dialogOpen = true">
+        Delete page…
+      </mui-button>
+      <mui-dialog
+        [open]="dialogOpen"
+        title="Delete page?"
+        message="This can't be undone."
+        confirmLabel="Delete"
+        [destructive]="true"
+        (confirmed)="dialogOpen = false"
+        (dismissed)="dialogOpen = false"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Dialog</div>
@@ -220,28 +190,26 @@
   >
     <div
       style="
-        height: 72px;
+        height: 96px;
         display: flex;
         align-items: center;
         justify-content: center;
         overflow: hidden;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
+        width: 100%;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 8px">
-          <span class="material-symbols-rounded" style="font-size: 14px; color: #78716c"
-            >expand_more</span
-          ><span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 12px;
-              color: #292524;
-              font-weight: 600;
-            "
-            >Sync frequency</span
-          >
-        </div>
-      </div>
+      <mui-settings-row
+        label="Sync frequency"
+        icon="history"
+        [open]="true"
+        [showDivider]="false"
+        style="width: 100%"
+      >
+        <mui-text variant="body" color="muted">Every 15 minutes</mui-text>
+      </mui-settings-row>
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Settings Row</div>
@@ -274,29 +242,25 @@
   >
     <div
       style="
-        height: 72px;
+        height: 96px;
         display: flex;
         align-items: center;
         justify-content: center;
         overflow: hidden;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="width: 170px; border: 1px solid #e7e5e4; border-radius: 8px; padding: 8px">
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span class="material-symbols-rounded" style="font-size: 14px; color: #993629">mic</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 11px;
-                color: #78716c;
-                font-weight: 700;
-              "
-              >Recording</span
-            >
-          </div>
-        </div>
-      </div>
+      <mui-embed-shell
+        title="Voice memo"
+        statusIcon="camera"
+        statusLabel="Recording"
+        [showBack]="false"
+        style="width: 190px"
+      >
+        <mui-text variant="body" color="muted">Recording…</mui-text>
+      </mui-embed-shell>
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Embed Shell</div>
@@ -332,34 +296,13 @@
         align-items: center;
         justify-content: center;
         overflow: hidden;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
+        width: 100%;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 11px;
-              color: #57534e;
-              font-weight: 400;
-            "
-            >A dancer stretching outdoors.</span
-          >
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span class="material-symbols-rounded" style="font-size: 12px; color: #993629"
-              >auto_awesome</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #993629;
-                font-weight: 600;
-              "
-              >Regenerate</span
-            >
-          </div>
-        </div>
-      </div>
+      <mui-description-field [(value)]="descriptionValue" style="width: 200px" />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Description Field</div>
@@ -397,31 +340,17 @@
         align-items: center;
         justify-content: center;
         overflow: hidden;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
+        width: 100%;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 4px">
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #a8a29e;
-                font-weight: 400;
-              "
-              >0:04</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 11px;
-                color: #57534e;
-                font-weight: 400;
-              "
-              >So we beat on...</span
-            >
-          </div>
-        </div>
-      </div>
+      <mui-transcript-block
+        [baseTime]="transcriptBase"
+        [entries]="transcriptEntries"
+        style="width: 100%"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Transcript Block</div>
@@ -459,56 +388,13 @@
         align-items: center;
         justify-content: center;
         overflow: hidden;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
+        width: 100%;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 6px">
-          <div
-            style="
-              width: 24px;
-              height: 24px;
-              border-radius: 50%;
-              background: linear-gradient(135deg, #fdba74, #f87171);
-              color: #fff;
-              font-size: 9.600000000000001px;
-              font-weight: 700;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-            "
-          >
-            A
-          </div>
-          <div
-            style="
-              width: 24px;
-              height: 24px;
-              border-radius: 50%;
-              background: linear-gradient(135deg, #60a5fa, #3b82f6);
-              color: #fff;
-              font-size: 9.600000000000001px;
-              font-weight: 700;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-            "
-          >
-            B
-          </div>
-          <span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 11px;
-              font-weight: 600;
-              background: #f5f2eb;
-              color: #57534e;
-              padding: 3px 10px;
-              border-radius: 99px;
-            "
-            >+2</span
-          >
-        </div>
-      </div>
+      <mui-faces-row [people]="facesPeople" />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Faces Row</div>
@@ -546,23 +432,13 @@
         align-items: center;
         justify-content: center;
         overflow: hidden;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
+        width: 100%;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 6px">
-          <span class="material-symbols-rounded" style="font-size: 16px; color: #993629"
-            >location_on</span
-          ><span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 12px;
-              color: #292524;
-              font-weight: 600;
-            "
-            >Ridgewood, NJ</span
-          >
-        </div>
-      </div>
+      <mui-place-row place="Ridgewood, NJ" [overridden]="true" />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Place Row</div>
@@ -600,46 +476,13 @@
         align-items: center;
         justify-content: center;
         overflow: hidden;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
+        width: 100%;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 6px">
-          <span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 11px;
-              font-weight: 600;
-              background: #f5f2eb;
-              color: #57534e;
-              padding: 3px 10px;
-              border-radius: 99px;
-            "
-            >outdoor</span
-          ><span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 11px;
-              font-weight: 600;
-              background: #f5f2eb;
-              color: #57534e;
-              padding: 3px 10px;
-              border-radius: 99px;
-            "
-            >portrait</span
-          ><span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 11px;
-              font-weight: 600;
-              background: #f5f2eb;
-              color: #57534e;
-              padding: 3px 10px;
-              border-radius: 99px;
-            "
-            >dance</span
-          >
-        </div>
-      </div>
+      <mui-vision-row [labels]="visionLabels" />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Vision Row</div>
@@ -677,36 +520,13 @@
         align-items: center;
         justify-content: center;
         overflow: hidden;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
+        width: 100%;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 6px">
-          <span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 11px;
-              font-weight: 600;
-              background: #f5f2eb;
-              color: #57534e;
-              padding: 3px 10px;
-              border-radius: 99px;
-            "
-            >family</span
-          ><span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 11px;
-              font-weight: 600;
-              background: #f5f2eb;
-              color: #57534e;
-              padding: 3px 10px;
-              border-radius: 99px;
-            "
-            >2026</span
-          >
-          <div style="font-family: 'Lato', sans-serif; font-size: 11px; color: #a8a29e">+ add</div>
-        </div>
-      </div>
+      <mui-keyword-row [keywords]="keywordChips" />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Keyword Row</div>
@@ -742,31 +562,13 @@
         align-items: center;
         justify-content: center;
         overflow: hidden;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
+        width: 100%;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 8px">
-          <span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 11px;
-              color: #78716c;
-              font-weight: 400;
-            "
-            >IMG_003.NEF</span
-          ><span class="material-symbols-rounded" style="font-size: 12px; color: #78716c"
-            >arrow_forward</span
-          ><span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 11px;
-              color: #292524;
-              font-weight: 600;
-            "
-            >ballet-003.nef</span
-          >
-        </div>
-      </div>
+      <mui-preview-list [items]="previewItems" style="width: 100%" />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Preview List</div>
@@ -799,42 +601,20 @@
   >
     <div
       style="
-        height: 72px;
+        height: 96px;
         display: flex;
-        align-items: center;
+        flex-direction: column;
         justify-content: center;
+        gap: 8px;
         overflow: hidden;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
+        width: 100%;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 8px">
-          <div
-            style="
-              width: 22px;
-              height: 22px;
-              border-radius: 50%;
-              background: #993629;
-              color: #fff;
-              font-size: 11px;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              font-weight: 700;
-            "
-          >
-            2
-          </div>
-          <span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 12px;
-              color: #292524;
-              font-weight: 600;
-            "
-            >Review imports</span
-          >
-        </div>
-      </div>
+      <mui-progress-step [index]="2" label="Review imports" status="active" />
+      <mui-progress-step [index]="1" label="Import RAWs" status="done" />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Progress Step</div>
@@ -865,30 +645,20 @@
   >
     <div
       style="
-        height: 72px;
+        height: 96px;
         display: flex;
-        align-items: center;
+        flex-direction: column;
         justify-content: center;
+        gap: 8px;
         overflow: hidden;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
+        width: 100%;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 8px">
-          <span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 12px;
-              color: #292524;
-              font-weight: 400;
-            "
-            >Rewrite paragraph</span
-          ><span class="material-symbols-rounded" style="font-size: 16px; color: #28a745"
-            >check_circle</span
-          ><span class="material-symbols-rounded" style="font-size: 16px; color: #dc3545"
-            >cancel</span
-          >
-        </div>
-      </div>
+      <mui-suggestion-preview description="Rewrite paragraph" style="width: 100%" />
+      <mui-suggestion-preview description="Fix typo" resolved="accepted" style="width: 100%" />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Suggestion Preview</div>
@@ -926,36 +696,18 @@
         align-items: center;
         justify-content: center;
         overflow: hidden;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
+        width: 100%;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 8px">
-          <div
-            style="
-              width: 20px;
-              height: 20px;
-              border-radius: 50%;
-              background: #f5e6e4;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-            "
-          >
-            <span class="material-symbols-rounded" style="font-size: 12px; color: #993629"
-              >auto_awesome</span
-            >
-          </div>
-          <span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 11px;
-              color: #78716c;
-              font-weight: 400;
-            "
-            >Generating summary&hellip;</span
-          >
-        </div>
-      </div>
+      <mui-bot-output
+        text="Generating summary…"
+        [streaming]="true"
+        botName="Maple AI"
+        style="width: 100%"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Bot Output</div>
@@ -986,43 +738,18 @@
   >
     <div
       style="
-        height: 72px;
+        height: 96px;
         display: flex;
         align-items: center;
         justify-content: center;
         overflow: hidden;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
+        width: 100%;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 6px">
-          <span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 11px;
-              font-weight: 600;
-              background: #f5e6e4;
-              color: #993629;
-              padding: 3px 10px;
-              border-radius: 99px;
-            "
-            >GET</span
-          >
-          <div
-            style="
-              font-family: 'Lato', sans-serif;
-              width: 120px;
-              font-size: 12px;
-              color: #a8a29e;
-              background: #fff;
-              border: 1px solid #e7e5e4;
-              border-radius: 6px;
-              padding: 7px 10px;
-            "
-          >
-            /api/photos
-          </div>
-        </div>
-      </div>
+      <mui-endpoint-form url="/api/photos" style="width: 220px" />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Endpoint Form</div>
@@ -1055,41 +782,24 @@
   >
     <div
       style="
-        height: 72px;
+        height: 96px;
         display: flex;
         align-items: center;
         justify-content: center;
         overflow: hidden;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
+        width: 100%;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 11px;
-              font-weight: 600;
-              background: #d4edda;
-              color: #28a745;
-              padding: 3px 10px;
-              border-radius: 99px;
-            "
-            >200 OK</span
-          >
-          <div
-            style="
-              background: #1c1917;
-              color: #7fb98a;
-              font-family: 'JetBrains Mono', monospace;
-              font-size: 10px;
-              padding: 6px 10px;
-              border-radius: 6px;
-            "
-          >
-            &#123; "ok": true &#125;
-          </div>
-        </div>
-      </div>
+      <mui-response-viewer
+        [status]="200"
+        statusText="OK"
+        [body]="responseBody"
+        [headers]="responseHeaders"
+        style="width: 100%"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Response Viewer</div>
@@ -1127,16 +837,13 @@
         align-items: center;
         justify-content: center;
         overflow: hidden;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
+        width: 100%;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 4px">
-          <div style="width: 32px; height: 32px; background: #f5f2eb; border-radius: 4px"></div>
-          <div style="width: 32px; height: 32px; background: #f5f2eb; border-radius: 4px"></div>
-          <div style="width: 32px; height: 32px; background: #f5f2eb; border-radius: 4px"></div>
-          <div style="width: 32px; height: 32px; background: #f5f2eb; border-radius: 4px"></div>
-        </div>
-      </div>
+      <mui-filmstrip-row [items]="filmstripItems" [(activeId)]="filmstripRowActiveId" />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Filmstrip Row</div>
@@ -1169,20 +876,17 @@
   >
     <div
       style="
-        height: 110px;
+        height: 140px;
         display: flex;
         align-items: center;
         justify-content: center;
         overflow: hidden;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 4px">
-          <div style="width: 32px; height: 32px; background: #f5f2eb; border-radius: 4px"></div>
-          <div style="width: 32px; height: 32px; background: #f5f2eb; border-radius: 4px"></div>
-          <div style="width: 32px; height: 32px; background: #f5f2eb; border-radius: 4px"></div>
-        </div>
-      </div>
+      <mui-filmstrip-rail [items]="filmstripItems" [(activeId)]="filmstripRailActiveId" />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Filmstrip Rail</div>
@@ -1215,30 +919,18 @@
   >
     <div
       style="
-        height: 72px;
+        height: 130px;
         display: flex;
         align-items: center;
         justify-content: center;
         overflow: hidden;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
+        width: 100%;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div
-          style="
-            width: 56px;
-            height: 56px;
-            background: #1c1917;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-          "
-        >
-          <span class="material-symbols-rounded" style="font-size: 24px; color: #fff"
-            >qr_code_scanner</span
-          >
-        </div>
-      </div>
+      <mui-qr-scanner style="width: 100%" />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">QR Scanner</div>
@@ -1276,47 +968,13 @@
         align-items: center;
         justify-content: center;
         overflow: hidden;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
+        width: 100%;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 8px">
-          <div
-            style="
-              width: 26px;
-              height: 26px;
-              border-radius: 50%;
-              background: linear-gradient(135deg, #fdba74, #f87171);
-              color: #fff;
-              font-size: 10.4px;
-              font-weight: 700;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-            "
-          >
-            S
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 2px">
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 11px;
-                color: #292524;
-                font-weight: 700;
-              "
-              >Sam</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 12px;
-                color: #57534e;
-                font-weight: 400;
-              "
-              >Sounds good!</span
-            >
-          </div>
-        </div>
-      </div>
+      <mui-chat-message author="Sam" text="Sounds good!" [sentAt]="chatSentAt" />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Chat Message</div>
@@ -1352,37 +1010,13 @@
         align-items: center;
         justify-content: center;
         overflow: hidden;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
+        width: 100%;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 8px">
-          <div
-            style="
-              width: 22px;
-              height: 22px;
-              border-radius: 50%;
-              background: linear-gradient(135deg, #fdba74, #f87171);
-              color: #fff;
-              font-size: 8.8px;
-              font-weight: 700;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-            "
-          >
-            S
-          </div>
-          <span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 11px;
-              color: #a8a29e;
-              font-weight: 400;
-            "
-            >Sam is typing&hellip;</span
-          >
-        </div>
-      </div>
+      <mui-typing-indicator name="Sam" />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Typing Indicator</div>
@@ -1415,56 +1049,25 @@
   >
     <div
       style="
-        height: 72px;
+        height: 220px;
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         justify-content: center;
-        overflow: hidden;
+        overflow: visible;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
+        position: relative;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 8px">
-          <div style="display: flex; align-items: center; gap: 8px">
-            <div
-              style="width: 14px; height: 14px; border: 2px solid #993629; border-radius: 3px"
-            ></div>
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 12px;
-                color: #292524;
-                font-weight: 600;
-              "
-              >Ship feature</span
-            >
-          </div>
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 11px;
-                font-weight: 600;
-                background: #f5e6e4;
-                color: #993629;
-                padding: 3px 10px;
-                border-radius: 99px;
-              "
-              >High</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 11px;
-                font-weight: 600;
-                background: #f5f2eb;
-                color: #57534e;
-                padding: 3px 10px;
-                border-radius: 99px;
-              "
-              >Fri</span
-            >
-          </div>
-        </div>
-      </div>
+      <mui-todo-popover
+        [open]="true"
+        title="Ship feature"
+        priority="high"
+        dueLabel="Fri"
+        [priorities]="priorities"
+        placement="bottom"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Todo Popover</div>
@@ -1495,39 +1098,23 @@
   >
     <div
       style="
-        height: 72px;
+        height: 220px;
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         justify-content: center;
-        overflow: hidden;
+        overflow: visible;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
+        position: relative;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 8px">
-          <span class="material-symbols-rounded" style="font-size: 18px; color: #993629"
-            >event</span
-          >
-          <div style="display: flex; flex-direction: column; gap: 2px">
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 12px;
-                color: #292524;
-                font-weight: 600;
-              "
-              >Design review</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #a8a29e;
-                font-weight: 400;
-              "
-              >3:00 PM</span
-            >
-          </div>
-        </div>
-      </div>
+      <mui-event-popover
+        [open]="true"
+        title="Design review"
+        timeLabel="3:00 PM"
+        placement="bottom"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Event Popover</div>

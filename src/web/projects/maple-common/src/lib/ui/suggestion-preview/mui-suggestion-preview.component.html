@@ -1,0 +1,27 @@
+<div class="mui-suggestion-preview">
+  <mui-text variant="body" [truncate]="true">{{ description() }}</mui-text>
+  @if (resolved() === null) {
+    <div class="actions">
+      <mui-button
+        variant="ghost"
+        size="sm"
+        [iconOnly]="true"
+        iconLeading="check"
+        ariaLabel="Accept"
+        (pressed)="accepted.emit()"
+      />
+      <mui-button
+        variant="ghost"
+        size="sm"
+        [iconOnly]="true"
+        iconLeading="x"
+        ariaLabel="Reject"
+        (pressed)="rejected.emit()"
+      />
+    </div>
+  } @else {
+    <mui-text variant="chip-label" [color]="resolved() === 'accepted' ? 'success' : 'error'">
+      {{ resolved() === 'accepted' ? 'Accepted' : 'Rejected' }}
+    </mui-text>
+  }
+</div>

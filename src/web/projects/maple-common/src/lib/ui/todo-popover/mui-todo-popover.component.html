@@ -1,0 +1,12 @@
+<mui-popover [open]="open()" [placement]="placement()" (closeRequested)="closeRequested.emit()">
+  <div class="mui-todo-popover">
+    <mui-form-field
+      label="Task"
+      [(value)]="title"
+      placeholder="Ship feature"
+      (committed)="save()"
+    />
+    <mui-chip-row [chips]="priorities()" mode="select" [(selectedId)]="priority" />
+    <mui-form-field label="Due" [(value)]="dueLabel" placeholder="Fri" (committed)="save()" />
+  </div>
+</mui-popover>
