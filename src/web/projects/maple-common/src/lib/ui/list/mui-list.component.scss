@@ -1,0 +1,44 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+}
+
+.mui-list {
+  margin: 0;
+  padding-left: tok.$maple-spacing-md;
+  color: var(--color-text-main);
+  font-size: 13px;
+}
+
+.mui-list .mui-list {
+  margin-top: tok.$maple-spacing-xs;
+}
+
+li {
+  margin-bottom: tok.$maple-spacing-xs;
+}
+
+.density-compact li {
+  margin-bottom: 2px;
+}
+
+.marker-disc {
+  list-style-type: disc;
+}
+
+.marker-none {
+  list-style-type: none;
+  padding-left: 0;
+}
+
+.marker-dash {
+  list-style: none;
+  padding-left: tok.$maple-spacing-sm;
+}
+
+.marker-dash > li::before {
+  content: '\2013';
+  margin-right: tok.$maple-spacing-xs;
+  color: var(--color-text-muted);
+}
