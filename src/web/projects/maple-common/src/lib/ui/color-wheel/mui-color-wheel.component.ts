@@ -61,7 +61,7 @@ export class MuiColorWheelComponent extends PointerCaptureDragBase<MuiColorWheel
     const rad = (wrapHue(hue) * Math.PI) / 180;
     const x = radius * Math.cos(rad);
     const y = radius * Math.sin(rad);
-    return { left: (x + 1) * 50, top: (1 - (y + 1)) * 50 };
+    return { left: (x + 1) * 50, top: (1 - y) * 50 };
   });
 
   protected disabledInput(): boolean {

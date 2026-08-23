@@ -51,6 +51,25 @@ describe('MuiColorWheelComponent', () => {
     expect(fixture.componentInstance.value().hue).toBe(90);
   });
 
+  it('places the puck at geometrically correct box coordinates', () => {
+    // hue 0 (right edge, center row), full saturation -> left 100%, top 50%.
+    const { fixture } = render();
+    fixture.componentRef.setInput('value', { hue: 0, saturation: 100 });
+    fixture.detectChanges();
+    expect(fixture.componentInstance.puckPos()).toEqual({ left: 100, top: 50 });
+    // hue 90 (straight up) -> top 0%; hue 270 (straight down) -> top 100%.
+    fixture.componentRef.setInput('value', { hue: 90, saturation: 100 });
+    fixture.detectChanges();
+    expect(fixture.componentInstance.puckPos().top).toBeCloseTo(0, 5);
+    fixture.componentRef.setInput('value', { hue: 270, saturation: 100 });
+    fixture.detectChanges();
+    expect(fixture.componentInstance.puckPos().top).toBeCloseTo(100, 5);
+    // center (saturation 0) -> dead center.
+    fixture.componentRef.setInput('value', { hue: 0, saturation: 0 });
+    fixture.detectChanges();
+    expect(fixture.componentInstance.puckPos()).toEqual({ left: 50, top: 50 });
+  });
+
   it('arrow keys nudge hue (left/right) and saturation (up/down)', () => {
     const { fixture, wheel } = render();
     fixture.componentRef.setInput('value', { hue: 10, saturation: 50 });
