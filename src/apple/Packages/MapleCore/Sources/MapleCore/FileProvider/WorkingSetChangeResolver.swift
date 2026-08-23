@@ -37,6 +37,13 @@ enum WorkingSetChangeResolver {
     enum ChangesResolution {
         case resolved(updates: [NSFileProviderItem], deletes: [NSFileProviderItemIdentifier])
         case networkUnreachable
+        /// The batch call reached the server and got an HTTP error
+        /// (auth failure, 5xx). Falling back to per-asset GETs would
+        /// amplify load ~500× exactly when the server is unhealthy
+        /// (jules review, PR #3009) — instead the whole call fails with
+        /// the already-mapped FileProvider-domain error, the anchor
+        /// never advances, and the OS retries the batch later.
+        case aborted(any Error)
     }
 
     /// Upper bound on simultaneous per-asset metadata GETs
@@ -111,6 +118,16 @@ enum WorkingSetChangeResolver {
                 if Self.isNetworkUnreachable(error) {
                     log.notice("network unreachable resolving batch of \(upsertIDs.count) change(s)")
                     return .networkUnreachable
+                }
+                // An HTTP error from a server we DID reach (check2xx maps
+                // those into NSFileProviderErrorDomain — auth failures,
+                // 5xx) means the server is unhealthy: abort rather than
+                // fan out ~500 per-asset GETs at it. Only genuinely
+                // local failures (decode of a garbled 200, body encoding)
+                // take the per-asset fallback.
+                if (error as NSError).domain == NSFileProviderErrorDomain {
+                    log.notice("batch-meta HTTP error (\(error.localizedDescription, privacy: .public)); aborting batch instead of per-asset fan-out")
+                    return .aborted(error)
                 }
                 log.notice("batch-meta failed (\(error.localizedDescription, privacy: .public)); falling back to per-asset GETs")
             }
