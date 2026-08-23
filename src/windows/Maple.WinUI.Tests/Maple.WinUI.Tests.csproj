@@ -71,6 +71,12 @@
     on disk), backing up and restoring whatever was there before/after each
     test.
 
+    `MapleUI\Atoms\MuiTimestampFormatter.cs` (Maple.UI Windows-phase atoms) is
+    the Timestamp atom's date-math split into a plain C# static class with no
+    WinUI/WinRT dependency of its own (System/System.Globalization only), for
+    the same reason as the files above — it's the one part of that atom this
+    project can actually exercise without a live Window.
+
     NOT linked: `Services\ThumbnailService.cs` (#2659's
     `ThumbnailCacheRelocateLeakTests` needs its cache-path scheme, but the
     file itself is fine — the class it references transitively,
@@ -88,5 +94,6 @@
     <Compile Include="..\Maple.WinUI\Services\DiagLog.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\SingleFlightGate.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\AppSettings.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Atoms\MuiTimestampFormatter.cs" LinkBase="MapleUI" />
   </ItemGroup>
 </Project>
