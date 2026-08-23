@@ -10,12 +10,11 @@
 import Foundation
 
 enum GalleryCatalog {
-    /// Molecules — Level 1 (§2).
+    /// Molecules — Level 1 (§2), remaining after wave A3a shipped §2.1-2.3
+    /// (Form & entry, Selection, Feedback & messaging — 19 molecules, see
+    /// `MoleculesL1GallerySection`). §2.4-2.7 (Overlays & menus, Structure,
+    /// Data plots, Media) are still unbuilt.
     static let moleculesL1: [String] = [
-        "Form Field", "Inline Rename Field", "Search Bar", "Slider", "Living Slider",
-        "Drag Bar", "Color Wheel", "2-D Pad",
-        "Chip Row", "Tabs", "Tree Row", "List Row", "Rating & Flags",
-        "Banner", "Toast Container", "Empty State", "Value Chip", "Value HUD", "Frame-time HUD",
         "Popover", "Context Menu", "Suggestion Menu", "Command Menu",
         "Collapsible", "Page Header", "Toolbar", "Bubble Menu", "Label-Value Grid", "Avatar Group",
         "Histogram", "Waveform", "Parade", "Vectorscope", "Curve Plot", "Connection Graph", "Heatmap Layer",
