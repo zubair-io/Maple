@@ -98,6 +98,22 @@
     pointer<->x/y math, chip selection/draft-trim logic, and frame-budget
     classification are all exercisable here without a live Window.
 
+    `MapleUI\Molecules\MuiPopoverMath.cs`, `MuiMenuNavMath.cs`,
+    `MuiCommandMenuMath.cs`, `MuiToolbarMath.cs`, `MuiAvatarGroupMath.cs`,
+    `MuiPlotMath.cs`, `MuiVectorscopeMath.cs`, `MuiCurvePlotMath.cs`,
+    `MuiConnectionGraphMath.cs`, `MuiHeatmapMath.cs`, and
+    `MediaTransportState.cs` (Maple.UI Windows-phase molecules L1 wave N3b,
+    #3012 — overlays/menus, structure, data plots, media) are the same
+    split for all 23 of that wave's molecules: each is plain C#
+    (System/System.Collections.Generic/System.Linq only, namespace
+    `Maple.UI`), so the popover placement math, menu keyboard-nav wrap
+    math, command-palette filter/clamp, toolbar overflow split, avatar-
+    group visible/overflow split, histogram/parade bar-height and lane-
+    layout math, vectorscope BT.601 chroma projection, curve-plot drag/
+    hit-test/midpoint-quadratic smoothing, connection-graph static layout
+    scaling, heatmap cell sizing, and the play/pause/scrub/mm:ss transport
+    state machine are all exercisable here without a live Window.
+
     NOT linked: `Services\ThumbnailService.cs` (#2659's
     `ThumbnailCacheRelocateLeakTests` needs its cache-path scheme, but the
     file itself is fine — the class it references transitively,
@@ -126,5 +142,16 @@
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiPad2DMath.cs" LinkBase="MapleUI\Molecules" />
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiChipRowLogic.cs" LinkBase="MapleUI\Molecules" />
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiFrameTimeClassifier.cs" LinkBase="MapleUI\Molecules" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiPopoverMath.cs" LinkBase="MapleUI\Molecules" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiMenuNavMath.cs" LinkBase="MapleUI\Molecules" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiCommandMenuMath.cs" LinkBase="MapleUI\Molecules" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiToolbarMath.cs" LinkBase="MapleUI\Molecules" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiAvatarGroupMath.cs" LinkBase="MapleUI\Molecules" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiPlotMath.cs" LinkBase="MapleUI\Molecules" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiVectorscopeMath.cs" LinkBase="MapleUI\Molecules" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiCurvePlotMath.cs" LinkBase="MapleUI\Molecules" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiConnectionGraphMath.cs" LinkBase="MapleUI\Molecules" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiHeatmapMath.cs" LinkBase="MapleUI\Molecules" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MediaTransportState.cs" LinkBase="MapleUI\Molecules" />
   </ItemGroup>
 </Project>
