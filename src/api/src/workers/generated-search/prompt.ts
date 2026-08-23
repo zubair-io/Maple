@@ -101,8 +101,39 @@ places. No sentences, no abstract ideas, no mood words - those appear in no
 caption and match nothing.`;
 }
 
-/** Phase 1: propose `count` themes and the queries that find them. */
-export function buildProposalPrompt(digest: PromptDigest, count: number): string {
+/** A prior proposal the library measured and rejected, fed back so the next
+ * round is not a blind re-guess. The model cannot know whether photos exist
+ * in a window it invents — only running the query knows. */
+export interface ProposalMiss {
+  theme: string;
+  /** Photos the query actually matched. */
+  count: number;
+  /** Compact rendering of the query that missed, e.g.
+   * `"beach vacation", 2026-08-01 – 2026-08-31`. */
+  querySummary: string;
+}
+
+function missFeedback(misses: readonly ProposalMiss[], minResults: number): string {
+  if (misses.length === 0) return '';
+  const lines = misses
+    .map((m) => `- "${m.theme}" (${m.querySummary}) matched only ${m.count}`)
+    .join('\n');
+  return `
+
+THESE IDEAS DID NOT WORK — each matched too few photos (minimum ${minResults}):
+${lines}
+The library has no photos for those queries as written. Widen the date range,
+drop a field, or pick a different idea — and do not repeat these as-is.`;
+}
+
+/** Phase 1: propose `count` themes and the queries that find them.
+ * `misses` carries the previous round's measured failures. */
+export function buildProposalPrompt(
+  digest: PromptDigest,
+  count: number,
+  misses: readonly ProposalMiss[] = [],
+  minResults = 8,
+): string {
   const assignments = Array.from(
     { length: count },
     (_, i) => `${i + 1}. ${AXES[i % AXES.length]}`,
@@ -136,7 +167,7 @@ Leave a field null rather than guessing. Each field you add narrows the result
 further, and a collection with nothing in it is worse than a broad one.
 
 Build each collection on a different axis:
-${assignments}`;
+${assignments}${missFeedback(misses, minResults)}`;
 }
 
 /** Phase 3: name a collection from the captions it actually returned. */

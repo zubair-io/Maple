@@ -24,7 +24,13 @@
  */
 
 import { child as childLogger } from '../../log.ts';
-import { buildProposalPrompt, buildTitlePrompt, proposalSchema, TITLE_SCHEMA } from './prompt.ts';
+import {
+  buildProposalPrompt,
+  buildTitlePrompt,
+  proposalSchema,
+  TITLE_SCHEMA,
+  type ProposalMiss,
+} from './prompt.ts';
 import type { PromptDigest } from './prompt.ts';
 import { validateProposal, type ValidationContext, type GeneratedQuery } from './validate.ts';
 import { toSearchQuery } from './execute.ts';
@@ -67,6 +73,19 @@ interface Miss {
   reason: string;
 }
 
+/** Compact query rendering for the retry feedback. */
+function querySummary(query: GeneratedQuery): string {
+  const parts: string[] = [];
+  if (query.placeQuery !== undefined) parts.push(`"${query.placeQuery}"`);
+  if (query.from !== undefined || query.to !== undefined) {
+    parts.push(`${query.from ?? '…'} – ${query.to ?? '…'}`);
+  }
+  if (query.month !== undefined) parts.push(`month ${query.month}`);
+  if (query.sceneType !== undefined) parts.push(query.sceneType);
+  if (query.people !== undefined) parts.push(query.people);
+  return parts.join(', ');
+}
+
 /** A validated candidate: the model's theme plus the query it proposed. */
 interface Candidate {
   theme: string;
@@ -106,14 +125,19 @@ function readProposals(
 
 /**
  * Phases 2 and 3 for one candidate: run its query, apply the floor, and title
- * it from the captions that came back. Returns undefined when the candidate
- * does not survive — the caller simply moves on.
+ * it from the captions that came back. A floor miss is returned as data — it
+ * becomes the next round's feedback rather than a silent drop.
  */
+interface MeasureOutcome {
+  collection?: GeneratedSearchInput;
+  floorMiss?: ProposalMiss;
+}
+
 async function measureAndTitle(
   deps: LoopDeps,
   candidate: Candidate,
   round: number,
-): Promise<GeneratedSearchInput | undefined> {
+): Promise<MeasureOutcome> {
   const outcome = await deps
     .runSearch(toSearchQuery(candidate.query, deps.libraryId))
     .catch((err: unknown) => {
@@ -123,14 +147,23 @@ async function measureAndTitle(
       );
       return undefined;
     });
-  if (outcome === undefined) return undefined;
+  if (outcome === undefined) return {};
 
   if (outcome.count < deps.minResults) {
     log.info(
       { theme: candidate.theme, count: outcome.count, floor: deps.minResults },
       'candidate under result floor',
     );
-    return undefined;
+    // Returned as data, not silently dropped: this becomes the next round's
+    // feedback, so the model learns the range was empty instead of guessing
+    // another doomed window.
+    return {
+      floorMiss: {
+        theme: candidate.theme,
+        count: outcome.count,
+        querySummary: querySummary(candidate.query),
+      },
+    };
   }
 
   const titled = await deps
@@ -141,28 +174,38 @@ async function measureAndTitle(
     // A collection with no title is not shippable, so it is dropped rather
     // than given a placeholder name.
     log.warn({ theme: candidate.theme }, 'titling failed; dropping candidate');
-    return undefined;
+    return {};
   }
 
   return {
-    library_id: deps.libraryId,
-    generated_for: deps.generatedFor,
-    generated_at: deps.generatedAt,
-    model: deps.model,
-    attempts: round,
-    theme: candidate.theme,
-    title: title.title,
-    subtitle: title.subtitle,
-    query: candidate.query,
-    result_count: outcome.count,
-    cover_asset_id: outcome.coverAssetId,
+    collection: {
+      library_id: deps.libraryId,
+      generated_for: deps.generatedFor,
+      generated_at: deps.generatedAt,
+      model: deps.model,
+      attempts: round,
+      theme: candidate.theme,
+      title: title.title,
+      subtitle: title.subtitle,
+      query: candidate.query,
+      result_count: outcome.count,
+      cover_asset_id: outcome.coverAssetId,
+    },
   };
 }
 
 /** Phase 1 for one round, tolerating a call that fails outright. */
-async function proposeRound(deps: LoopDeps, wanted: number, round: number): Promise<Candidate[]> {
+async function proposeRound(
+  deps: LoopDeps,
+  wanted: number,
+  round: number,
+  priorMisses: readonly ProposalMiss[],
+): Promise<Candidate[]> {
   const payload = await deps
-    .generateJson(buildProposalPrompt(deps.digest, wanted), proposalSchema(wanted))
+    .generateJson(
+      buildProposalPrompt(deps.digest, wanted, priorMisses, deps.minResults),
+      proposalSchema(wanted),
+    )
     .catch((err: unknown) => {
       log.warn(
         { err: err instanceof Error ? err.message : String(err), round },
@@ -182,23 +225,32 @@ async function proposeRound(deps: LoopDeps, wanted: number, round: number): Prom
 export async function runProposalLoop(deps: LoopDeps): Promise<GeneratedSearchInput[]> {
   const saved: GeneratedSearchInput[] = [];
   const usedThemes = new Set<string>();
+  // Measured failures from the previous round. Without this the retry is a
+  // blind re-ask and the model can guess another doomed date window — it
+  // has no way to know a range is empty; only running the query knows.
+  let floorMisses: ProposalMiss[] = [];
 
   for (let round = 1; round <= deps.maxRounds; round++) {
     const wanted = deps.count - saved.length;
     if (wanted <= 0) break;
 
-    for (const candidate of await proposeRound(deps, wanted, round)) {
+    const roundMisses: ProposalMiss[] = [];
+    for (const candidate of await proposeRound(deps, wanted, round, floorMisses)) {
       if (saved.length >= deps.count) break;
       // Dedupe against themes already kept — a retry round re-proposing a
       // theme that already succeeded would spend a slot on a duplicate.
       if (usedThemes.has(candidate.theme)) continue;
 
-      const collection = await measureAndTitle(deps, candidate, round);
-      if (collection === undefined) continue;
+      const outcome = await measureAndTitle(deps, candidate, round);
+      if (outcome.collection === undefined) {
+        if (outcome.floorMiss !== undefined) roundMisses.push(outcome.floorMiss);
+        continue;
+      }
 
       usedThemes.add(candidate.theme);
-      saved.push(collection);
+      saved.push(outcome.collection);
     }
+    floorMisses = roundMisses;
   }
 
   return saved;
