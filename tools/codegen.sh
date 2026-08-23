@@ -32,6 +32,12 @@
 #                                            file above in #2683 to keep both
 #                                            well under the file-size budget)
 #   - src/apple/Packages/MapleCore/Sources/MapleCore/Generated/UITokens.swift
+#   - src/apple/Packages/MapleUI/Sources/MapleUI/Generated/UITokens.swift
+#                                            (Maple UI Apple phase — second
+#                                            emit of the same swift target
+#                                            into the dependency-free MapleUI
+#                                            package, which cannot import
+#                                            MapleCore)
 #   - src/web/projects/maple-common/src/lib/generated/ui-tokens.ts
 #   - src/web/projects/maple-common/src/lib/generated/_ui-tokens.scss
 #   - src/windows/Maple.WinUI/Themes/Tokens.xaml
@@ -74,11 +80,18 @@ TS_TABLES_OUT="src/web/projects/maple-common/src/lib/generated/adjustment-tables
 # --- UI tokens (#606) -----------------------------------------------------
 
 UI_SWIFT_OUT="src/apple/Packages/MapleCore/Sources/MapleCore/Generated/UITokens.swift"
+UI_MAPLEUI_SWIFT_OUT="src/apple/Packages/MapleUI/Sources/MapleUI/Generated/UITokens.swift"
 UI_TS_OUT="src/web/projects/maple-common/src/lib/generated/ui-tokens.ts"
 UI_SCSS_OUT="src/web/projects/maple-common/src/lib/generated/_ui-tokens.scss"
 UI_XAML_OUT="src/windows/Maple.WinUI/Themes/Tokens.xaml"
 
 "$BIN" --schema ui-tokens --target swift --out "$UI_SWIFT_OUT"
+# Second Swift emit (Maple UI design-system Apple phase, #3000 lineage):
+# MapleUI is a dependency-free local SPM package that cannot import
+# MapleCore, so it carries its own copy of the same generated constants
+# rather than depending on MapleCore's. Both files declare `MapleUITokens`
+# but live in separate modules, so there's no symbol collision.
+"$BIN" --schema ui-tokens --target swift --out "$UI_MAPLEUI_SWIFT_OUT"
 "$BIN" --schema ui-tokens --target ts    --out "$UI_TS_OUT"
 "$BIN" --schema ui-tokens --target scss  --out "$UI_SCSS_OUT"
 "$BIN" --schema ui-tokens --target xaml  --out "$UI_XAML_OUT"
@@ -131,6 +144,7 @@ echo "  - $SWIFT_OUT"
 echo "  - $TS_OUT"
 echo "  - $TS_TABLES_OUT"
 echo "  - $UI_SWIFT_OUT"
+echo "  - $UI_MAPLEUI_SWIFT_OUT"
 echo "  - $UI_TS_OUT"
 echo "  - $UI_SCSS_OUT"
 echo "  - $UI_XAML_OUT"
