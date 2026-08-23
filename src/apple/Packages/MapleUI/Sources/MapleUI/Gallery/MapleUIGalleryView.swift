@@ -54,7 +54,11 @@ public struct MapleUIGalleryView: View {
         case .atoms:
             AtomsGalleryView()
         case .moleculesL1:
-            unbuiltTier(names: GalleryCatalog.moleculesL1)
+            VStack(alignment: .leading, spacing: MuiTokens.spacingLg) {
+                MoleculesL1GallerySection()
+                MuiText("Coming in a later wave", variant: .eyebrow, color: .muted)
+                GalleryPlaceholderSection(names: GalleryCatalog.moleculesL1)
+            }
         case .moleculesL2:
             unbuiltTier(names: GalleryCatalog.moleculesL2)
         case .organisms:
