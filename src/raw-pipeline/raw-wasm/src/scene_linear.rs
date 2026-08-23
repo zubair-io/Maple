@@ -136,18 +136,44 @@ pub fn render_bytes_scene_linear(
         // slider-tick path.
         raw_core::pipeline::RenderQuality::Amaze
     };
-    let (w, h, fp16_rgba) =
-        raw_core::pipeline::render_scene_linear_from_raw_with_quality(&raw_img, &model, quality)
+    // #2661: a full-native-res develop of a sensor over the wasm32 memory
+    // budget traps the instance. Over the budget this entry develops through
+    // the sized chain at the clamp; `full_width`/`full_height` still carry
+    // the native dims, so caller fit/zoom math is unaffected.
+    match crate::cpu_budget::clamp_develop_long_edge(raw_img.width, raw_img.height, None) {
+        None => {
+            let (w, h, fp16_rgba) = raw_core::pipeline::render_scene_linear_from_raw_with_quality(
+                &raw_img, &model, quality,
+            )
             .map_err(|e| JsError::new(&e.to_string()))?;
-    Ok(MapleSceneLinearRender {
-        width: w,
-        height: h,
-        full_width: w,
-        full_height: h,
-        fp16_rgba,
-        as_shot_temperature,
-        as_shot_tint,
-    })
+            Ok(MapleSceneLinearRender {
+                width: w,
+                height: h,
+                full_width: w,
+                full_height: h,
+                fp16_rgba,
+                as_shot_temperature,
+                as_shot_tint,
+            })
+        }
+        Some(cap) => {
+            let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
+            let (w, h, fp16_rgba) =
+                raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality(
+                    &raw_img, &model, quality, cap,
+                )
+                .map_err(|e| JsError::new(&e.to_string()))?;
+            Ok(MapleSceneLinearRender {
+                width: w,
+                height: h,
+                full_width,
+                full_height,
+                fp16_rgba,
+                as_shot_temperature,
+                as_shot_tint,
+            })
+        }
+    }
 }
 
 /// Sized variant of [`render_bytes_scene_linear`] — the WASM mirror of the
@@ -197,12 +223,21 @@ pub fn render_bytes_scene_linear_sized(
         // slider-tick path.
         raw_core::pipeline::RenderQuality::Amaze
     };
+    // #2661: clamp the request so the develop fits the 4 GiB wasm32 heap —
+    // see `crate::cpu_budget`. A cap near the native long edge of a large
+    // sensor otherwise runs the full-res demosaic branch and traps.
+    let effective_long_edge = crate::cpu_budget::clamp_develop_long_edge(
+        raw_img.width,
+        raw_img.height,
+        Some(max_long_edge),
+    )
+    .unwrap_or(max_long_edge);
     let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
     let (w, h, fp16_rgba) = raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality(
         &raw_img,
         &model,
         quality,
-        max_long_edge,
+        effective_long_edge,
     )
     .map_err(|e| JsError::new(&e.to_string()))?;
     Ok(MapleSceneLinearRender {

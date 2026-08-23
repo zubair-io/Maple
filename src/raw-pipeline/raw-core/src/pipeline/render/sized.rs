@@ -4,6 +4,7 @@
 
 use super::{render_display_from_raw, RawInput};
 use crate::error::Result;
+use crate::film;
 use crate::image::RawImage;
 use crate::pipeline::RenderQuality;
 use crate::xmp::AdjustmentModel;
@@ -30,6 +31,34 @@ pub fn render_sized_from_raw_with_quality_and_source(
     max_long_edge: u32,
 ) -> Result<(u32, u32, Vec<u8>)> {
     render_display_from_raw(raw, model, quality, raw_source, Some(max_long_edge), None)
+}
+
+/// Sized + film-look variant — the intersection of
+/// [`render_sized_from_raw_with_quality_and_source`] and
+/// [`super::render_from_raw_with_quality_source_and_film`], both of which are
+/// thin pins over the same private `render_display_from_raw`. Exists for the
+/// web CPU fallback (`raw-wasm::render_bytes_with_film`), whose #2661 memory
+/// clamp turns an unsized film develop of a large sensor into a sized one —
+/// without this entry the fallback would have to choose between honoring the
+/// film look and fitting the 4 GiB wasm32 heap.
+///
+/// `film_lut: None` is a hard skip, matching its unsized sibling.
+pub fn render_sized_from_raw_with_quality_source_and_film(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    raw_source: Option<RawInput<'_>>,
+    max_long_edge: u32,
+    film_lut: Option<&film::FilmLut>,
+) -> Result<(u32, u32, Vec<u8>)> {
+    render_display_from_raw(
+        raw,
+        model,
+        quality,
+        raw_source,
+        Some(max_long_edge),
+        film_lut,
+    )
 }
 
 /// The oriented output dimensions a `RenderQuality::Full` render of `raw`

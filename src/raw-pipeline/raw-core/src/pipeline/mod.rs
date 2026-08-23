@@ -68,7 +68,8 @@ pub use render::{
     render_scene_linear_sized_from_raw_with_quality_f32,
     render_scene_linear_sized_from_raw_with_quality_f32_cancellable,
     render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_gain,
-    render_sized_from_raw_with_quality_and_source, ExportDepth, ExportPixels, RawInput,
+    render_sized_from_raw_with_quality_and_source,
+    render_sized_from_raw_with_quality_source_and_film, ExportDepth, ExportPixels, RawInput,
 };
 pub use scene_linear_chain::{
     apply_scene_linear_chain, apply_scene_linear_chain_f32,
