@@ -1,0 +1,25 @@
+@if (open()) {
+  <div
+    class="mui-drawer-shell-scrim"
+    [class.contained]="contained()"
+    (click)="onScrimClick()"
+  ></div>
+  <div
+    #panelEl
+    class="mui-drawer-shell"
+    [class.right]="edge() === 'right'"
+    [class.contained]="contained()"
+    [class.dragging]="dragDx() !== null"
+    [style.width.px]="width()"
+    [style.transform]="'translateX(' + (dragDx() ?? 0) + 'px)'"
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
+    (pointerdown)="onPointerDown($event)"
+    (pointermove)="onPointerMove($event)"
+    (pointerup)="onPointerUp($event)"
+    (pointercancel)="onPointerCancel($event)"
+  >
+    <ng-content />
+  </div>
+}

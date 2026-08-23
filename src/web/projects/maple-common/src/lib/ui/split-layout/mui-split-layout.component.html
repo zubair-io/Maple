@@ -1,0 +1,33 @@
+<div class="mui-split-layout">
+  @if (!sidebarCollapsed()) {
+    <div class="sidebar" [style.width.px]="sidebarWidth()">
+      <ng-content select="[slot=sidebar]" />
+    </div>
+    <div
+      class="handle"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize sidebar"
+      (pointerdown)="onSidebarHandlePointerDown($event)"
+      (pointermove)="onSidebarHandlePointerMove($event)"
+      (pointerup)="onSidebarHandlePointerUp($event)"
+      (pointercancel)="onSidebarHandlePointerUp($event)"
+    ></div>
+  }
+  <div class="center"><ng-content /></div>
+  @if (!detailCollapsed()) {
+    <div
+      class="handle"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize detail"
+      (pointerdown)="onDetailHandlePointerDown($event)"
+      (pointermove)="onDetailHandlePointerMove($event)"
+      (pointerup)="onDetailHandlePointerUp($event)"
+      (pointercancel)="onDetailHandlePointerUp($event)"
+    ></div>
+    <div class="detail" [style.width.px]="detailWidth()">
+      <ng-content select="[slot=detail]" />
+    </div>
+  }
+</div>

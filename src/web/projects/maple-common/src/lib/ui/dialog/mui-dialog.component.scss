@@ -12,6 +12,10 @@
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.5);
+  // Explicit (rather than relying on the inherited default) so a Dialog
+  // projected into mui-app-shell's `pointer-events: none` overlay region
+  // still receives clicks.
+  pointer-events: auto;
 }
 
 .mui-dialog {
