@@ -1,0 +1,19 @@
+<div class="mui-whiteboard-canvas">
+  <mui-toolbar
+    class="toolbar"
+    [entries]="toolbarEntries"
+    (itemSelected)="onToolbarAction($event)"
+  />
+  <div class="canvas-area">
+    <mui-canvas-surface [contentAspect]="null" (canvasReady)="onCanvasReady($event)" />
+  </div>
+  <div class="prompt-bar">
+    <mui-input
+      class="prompt-input"
+      [(value)]="prompt"
+      placeholder="Describe what to generate…"
+      (committed)="onPromptSubmit($event)"
+    />
+    <mui-button variant="primary" (pressed)="onPromptSubmit(prompt())">Generate</mui-button>
+  </div>
+</div>

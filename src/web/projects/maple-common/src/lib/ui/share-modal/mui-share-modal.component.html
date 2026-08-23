@@ -1,0 +1,46 @@
+<mui-overlay-shell [open]="open()" size="md" ariaLabel="Share" (dismissed)="onDismiss()">
+  <div slot="header" class="header">
+    <span class="title">Share</span>
+    <mui-button
+      variant="ghost"
+      size="sm"
+      [iconOnly]="true"
+      iconLeading="x"
+      ariaLabel="Close"
+      (pressed)="onDismiss()"
+    />
+  </div>
+
+  <div class="body-stack">
+    <mui-avatar-group [avatars]="avatarMembers()" [max]="6" size="md" />
+
+    <div class="invite-row">
+      <mui-form-field
+        label="Invite by email"
+        placeholder="name@example.com"
+        [value]="inviteValue()"
+        (valueChange)="inviteValue.set($event)"
+        (committed)="invite()"
+      />
+      <mui-button variant="primary" [disabled]="!canInvite()" (pressed)="invite()"
+        >Invite</mui-button
+      >
+    </div>
+
+    <div class="member-list">
+      @for (member of members(); track member.id) {
+        <mui-list-row icon="person-circle" [label]="member.name" [subtitle]="member.role">
+          <mui-button
+            trailing
+            variant="ghost"
+            size="sm"
+            [iconOnly]="true"
+            iconLeading="x"
+            [ariaLabel]="'Remove ' + member.name"
+            (pressed)="removeMember(member.id)"
+          />
+        </mui-list-row>
+      }
+    </div>
+  </div>
+</mui-overlay-shell>

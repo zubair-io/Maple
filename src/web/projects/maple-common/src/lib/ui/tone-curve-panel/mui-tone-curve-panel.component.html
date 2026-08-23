@@ -1,0 +1,34 @@
+<div class="mui-tone-curve-panel">
+  <mui-tabs [tabs]="channels()" [(activeId)]="activeChannelId" />
+  <mui-curve-plot
+    class="plot"
+    [points]="activePoints()"
+    (pointsChange)="onCurveChange($event)"
+    [width]="200"
+    [height]="140"
+  />
+  <div class="parametrics">
+    <mui-living-slider
+      label="Highlights"
+      [min]="-100"
+      [max]="100"
+      [bipolar]="true"
+      [(value)]="highlights"
+    />
+    <mui-living-slider
+      label="Lights"
+      [min]="-100"
+      [max]="100"
+      [bipolar]="true"
+      [(value)]="lights"
+    />
+    <mui-living-slider label="Darks" [min]="-100" [max]="100" [bipolar]="true" [(value)]="darks" />
+    <mui-living-slider
+      label="Shadows"
+      [min]="-100"
+      [max]="100"
+      [bipolar]="true"
+      [(value)]="shadows"
+    />
+  </div>
+</div>

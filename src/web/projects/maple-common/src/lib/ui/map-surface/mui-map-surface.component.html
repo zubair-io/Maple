@@ -1,0 +1,57 @@
+<div
+  class="mui-map-surface"
+  [style.width.px]="viewportWidth()"
+  [style.height.px]="viewportHeight()"
+>
+  <div
+    class="backdrop"
+    [style.backgroundPosition]="pan().x + 'px ' + pan().y + 'px'"
+    (pointerdown)="onPointerDown($event)"
+    (pointermove)="onPointerMove($event)"
+    (pointerup)="onPointerUp($event)"
+    (pointercancel)="onPointerUp($event)"
+  ></div>
+
+  @if (heatmapVisible()) {
+    <div class="heatmap-overlay">
+      <mui-heatmap-layer
+        [grid]="heatmapGrid()"
+        [width]="viewportWidth()"
+        [height]="viewportHeight()"
+      />
+    </div>
+  }
+
+  @if (annotations().length === 0) {
+    <div class="empty-overlay">
+      <mui-empty-state
+        icon="map-pin"
+        title="No locations yet"
+        message="Nothing has been placed on the map."
+      />
+    </div>
+  } @else {
+    @for (pin of clusters(); track pin.id) {
+      <button
+        type="button"
+        class="pin"
+        [style.left.px]="pin.screenX"
+        [style.top.px]="pin.screenY"
+        [attr.aria-label]="pin.count ? pin.count + ' photos' : (pin.label ?? 'Photo')"
+        (click)="selectPin(pin)"
+      >
+        <mui-map-annotation [src]="pin.thumbnailUrl" [label]="pin.label" [count]="pin.count" />
+      </button>
+    }
+  }
+
+  <mui-button
+    class="heatmap-toggle"
+    variant="secondary"
+    size="sm"
+    iconLeading="droplet"
+    (pressed)="toggleHeatmap()"
+  >
+    {{ heatmapVisible() ? 'Hide heatmap' : 'Show heatmap' }}
+  </mui-button>
+</div>

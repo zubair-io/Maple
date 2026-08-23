@@ -16,6 +16,7 @@ import { MuiIconComponent } from '../icon/mui-icon.component';
 import type { MapleIconName } from '../icon/mui-icon.component';
 import { MuiTextComponent } from '../text/mui-text.component';
 import { MuiTimestampComponent } from '../timestamp/mui-timestamp.component';
+import { handleActivationKeydown } from '../internal/activation-keydown';
 
 @Component({
   selector: 'mui-list-row',
@@ -45,8 +46,6 @@ export class MuiListRowComponent {
   }
 
   onKeydown(event: KeyboardEvent): void {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    this.onRowClick();
+    handleActivationKeydown(event, () => this.onRowClick());
   }
 }

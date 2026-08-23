@@ -1,0 +1,13 @@
+<div class="mui-inspector-panel">
+  <mui-page-header
+    [title]="title()"
+    [showBack]="showBack()"
+    [showMore]="showMore()"
+    (back)="back.emit()"
+    (more)="more.emit()"
+  />
+  <mui-tabs [tabs]="tabs()" [(activeId)]="activeTabId" />
+  <div class="body">
+    <ng-content />
+  </div>
+</div>

@@ -1,0 +1,33 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+}
+
+.mui-thread-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: tok.$maple-spacing-sm;
+}
+
+.messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-sm;
+}
+
+.composer {
+  display: flex;
+  align-items: center;
+  gap: tok.$maple-spacing-xs;
+  flex: 0 0 auto;
+}
+
+.composer mui-input {
+  flex: 1;
+  min-width: 0;
+}

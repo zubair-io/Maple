@@ -1,0 +1,42 @@
+<div
+  #editor
+  class="editor"
+  contenteditable="true"
+  (input)="onInput($event)"
+  (keyup)="onSelectionChange()"
+  (mouseup)="onSelectionChange()"
+  [attr.aria-label]="'Document body'"
+></div>
+
+<div class="rte-anchor" [style.left.px]="bubblePos().x" [style.top.px]="bubblePos().y">
+  <mui-bubble-menu
+    [open]="bubbleMenuOpen()"
+    placement="top"
+    [entries]="bubbleEntries"
+    (itemSelected)="onFormat($event)"
+    (closeRequested)="bubbleMenuOpen.set(false)"
+  />
+</div>
+
+<div class="rte-anchor" [style.left.px]="commandPos().x" [style.top.px]="commandPos().y">
+  <mui-command-menu
+    [open]="commandMenuOpen()"
+    placement="bottom"
+    [commands]="commands"
+    (select)="onCommandSelect($event)"
+    (closeRequested)="commandMenuOpen.set(false)"
+  />
+</div>
+
+@if (blocks().length > 0) {
+  <div class="rte-preview">
+    <div class="rte-preview-label">Structured preview</div>
+    @for (block of blocks(); track $index) {
+      @if (block.type === 'code') {
+        <mui-code-block [code]="block.content" language="text" />
+      } @else if (block.html.trim().length > 0) {
+        <div class="rte-preview-text" [innerHTML]="block.html"></div>
+      }
+    }
+  </div>
+}

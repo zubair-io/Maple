@@ -1,0 +1,23 @@
+<div class="mui-info-panel">
+  @if (loading()) {
+    <div class="loading">
+      <mui-spinner placement="centered" size="md" />
+    </div>
+  } @else {
+    <mui-inline-rename-field
+      [(value)]="filename"
+      ariaLabel="Filename"
+      (renamed)="renamed.emit($event)"
+    />
+    <mui-rating-flags [(rating)]="rating" [(flag)]="flag" />
+    @if (histogram(); as h) {
+      <mui-histogram [r]="h.r" [g]="h.g" [b]="h.b" />
+    }
+    <mui-label-value-grid [rows]="metadata()" />
+    <mui-keyword-row
+      [keywords]="keywords()"
+      (added)="keywordAdded.emit($event)"
+      (removed)="keywordRemoved.emit($event)"
+    />
+  }
+</div>
