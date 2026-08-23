@@ -62,7 +62,6 @@ namespace Maple.UI.Gallery
             BuildTokensPage();
             BuildAtomsPage();
             BuildMoleculesL1Page(MoleculesL1Panel);
-            BuildPlaceholderPage(MoleculesL1Panel, "Not yet built (§2.4-2.7)", MoleculesL1RemainingNames);
             BuildPlaceholderPage(MoleculesL2Panel, "Molecules — Level 2", MoleculesL2Names);
             BuildPlaceholderPage(OrganismsPanel, "Organisms", OrganismNames);
             BuildPlaceholderPage(TemplatesPanel, "Templates", TemplateNames);
@@ -500,17 +499,8 @@ namespace Maple.UI.Gallery
             }
         }
 
-        // docs/unified-component-catalog.md § 2.1-2.3 (the 19 built in wave N3a) are
-        // no longer here — they're built live in MuiGalleryWindow.MoleculesL1*.cs.
-        // The remaining §2.4-2.7 molecules (25 of the 44 L1 molecules) still have
-        // no control to show, so they stay a placeholder list for a later wave.
-        private static readonly string[] MoleculesL1RemainingNames =
-        {
-            "Popover", "Context Menu", "Suggestion Menu", "Command Menu", "Collapsible", "Page Header",
-            "Toolbar", "Bubble Menu", "Label-Value Grid", "Avatar Group", "Histogram", "Waveform",
-            "Parade", "Vectorscope", "Curve Plot", "Connection Graph", "Heatmap Layer", "Map Annotation",
-            "Preview Image", "Video Player", "Audio Player", "Drag Preview", "Code Block",
-        };
+        // docs/unified-component-catalog.md § 2.1-2.7 (all 44 Level-1 molecules)
+        // are no longer here — they're built live in MuiGalleryWindow.MoleculesL1*.cs.
 
         // docs/unified-component-catalog.md § 3.
         private static readonly string[] MoleculesL2Names =
