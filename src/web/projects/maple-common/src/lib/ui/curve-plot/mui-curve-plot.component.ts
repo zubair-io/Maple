@@ -10,13 +10,12 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
-  effect,
   input,
   model,
   signal,
   viewChild,
 } from '@angular/core';
-import { beginPlotDraw, resolveColor } from '../internal/plot-canvas';
+import { beginSizedPlotDraw, resolveColor, watchAndDraw } from '../internal/plot-canvas';
 
 export interface MuiCurvePoint {
   readonly x: number;
@@ -49,12 +48,7 @@ export class MuiCurvePlotComponent {
   private activePointerId: number | null = null;
 
   constructor() {
-    effect(() => {
-      this.points();
-      this.width();
-      this.height();
-      this.draw();
-    });
+    watchAndDraw([this.points, this.width, this.height], () => this.draw());
   }
 
   private toCanvasPoint(p: MuiCurvePoint): { x: number; y: number } {
@@ -137,11 +131,9 @@ export class MuiCurvePlotComponent {
   }
 
   private draw(): void {
-    const w = this.width();
-    const h = this.height();
-    const frame = beginPlotDraw(this.canvas(), w, h);
+    const frame = beginSizedPlotDraw(this.canvas(), this.width, this.height);
     if (!frame) return;
-    const { canvasEl, ctx } = frame;
+    const { canvasEl, ctx, w, h } = frame;
 
     ctx.strokeStyle = resolveColor(canvasEl, 'var(--color-border)');
     ctx.lineWidth = 1;

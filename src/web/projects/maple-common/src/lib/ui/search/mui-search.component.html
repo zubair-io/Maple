@@ -1,0 +1,40 @@
+<div class="mui-search">
+  <div class="query-row">
+    <mui-search-bar
+      [(value)]="query"
+      placeholder="Search everything"
+      actionLabel="Filters"
+      actionIcon="filter"
+      (committed)="committed.emit($event)"
+      (actionPressed)="showFilters.update((v) => !v)"
+    />
+    <mui-suggestion-menu
+      [open]="suggestionsOpen()"
+      [items]="suggestions()"
+      (select)="onSuggestionSelect($event)"
+    />
+  </div>
+  @if (activeChips().length > 0) {
+    <mui-chip-row [chips]="activeChips()" mode="removable" (removed)="chipRemoved.emit($event)" />
+  }
+  <div class="results-row">
+    @if (showFilters()) {
+      <mui-filter-panel
+        [groups]="filterGroups()"
+        (optionToggled)="filterOptionToggled.emit($event)"
+      />
+    }
+    <mui-search-results
+      class="results"
+      [items]="results()"
+      [loading]="resultsLoading()"
+      [query]="query()"
+      [totalCount]="totalCount()"
+      [page]="page()"
+      [pageCount]="pageCount()"
+      [(selectedIds)]="resultSelectedIds"
+      (opened)="opened.emit($event)"
+      (pageChanged)="pageChanged.emit($event)"
+    />
+  </div>
+</div>

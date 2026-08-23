@@ -1,0 +1,31 @@
+<div class="mui-chat">
+  <div class="messages">
+    @for (message of messages(); track message.id) {
+      <mui-chat-message
+        [author]="message.author"
+        [text]="message.text"
+        [sentAt]="message.sentAt"
+        [own]="message.own ?? false"
+      />
+    }
+    @if (othersTyping()) {
+      <mui-typing-indicator [name]="typingUserName()" />
+    }
+  </div>
+
+  <div class="composer" (keydown)="onComposerKeydown($event)">
+    <mui-input
+      [value]="composerValue()"
+      (valueChange)="composerValue.set($event)"
+      (committed)="onComposerCommitted($event)"
+      placeholder="Message… use @ to mention someone"
+      ariaLabel="Message"
+    />
+    <mui-suggestion-menu
+      [open]="suggestionsOpen()"
+      [items]="suggestionItems()"
+      placement="top"
+      (select)="onMentionSelect($event)"
+    />
+  </div>
+</div>

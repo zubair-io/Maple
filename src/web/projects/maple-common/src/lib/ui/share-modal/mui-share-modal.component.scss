@@ -1,0 +1,22 @@
+@use '../../generated/ui-tokens' as tok;
+@use '../internal/modal-form' as modal;
+
+@include modal.shell($body-gap: tok.$maple-spacing-lg);
+
+.invite-row {
+  display: flex;
+  align-items: flex-end;
+  gap: tok.$maple-spacing-sm;
+
+  mui-form-field {
+    flex: 1;
+  }
+}
+
+.member-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-top: 1px solid var(--color-border);
+  padding-top: tok.$maple-spacing-sm;
+}

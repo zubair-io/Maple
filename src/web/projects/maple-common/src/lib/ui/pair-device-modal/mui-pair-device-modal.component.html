@@ -1,0 +1,55 @@
+<mui-overlay-shell [open]="open()" size="md" ariaLabel="Pair Device" (dismissed)="onDismiss()">
+  <div slot="header" class="header">
+    <span class="title">Pair a Device</span>
+    <mui-button
+      variant="ghost"
+      size="sm"
+      [iconOnly]="true"
+      iconLeading="x"
+      ariaLabel="Close"
+      (pressed)="onDismiss()"
+    />
+  </div>
+
+  <div class="body-stack">
+    <div class="steps">
+      @for (row of steps(); track row.index) {
+        <mui-progress-step
+          [index]="row.index"
+          [label]="row.label"
+          [status]="row.status"
+          continueLabel="Next"
+          (continued)="advance()"
+        />
+      }
+    </div>
+
+    @if (step() === 0) {
+      <div class="panel show-code">
+        <mui-qr-code [value]="pairingCode()" size="lg" ariaLabel="Pairing code" />
+        <mui-text variant="body" color="muted">Scan this code on the other device.</mui-text>
+      </div>
+    } @else if (step() === 1) {
+      <div class="panel scan">
+        <mui-qr-scanner (scanned)="onScannerCode()" />
+        @if (scanning()) {
+          <mui-progress
+            shape="bar"
+            size="sm"
+            [value]="null"
+            label="Waiting for the other device…"
+          />
+        }
+      </div>
+    } @else {
+      <div class="panel connect">
+        @if (connected()) {
+          <mui-text variant="row-label" color="success">Device connected</mui-text>
+          <mui-button variant="primary" (pressed)="finish()">Done</mui-button>
+        } @else {
+          <mui-progress shape="ring" size="md" [value]="null" label="Connecting…" />
+        }
+      </div>
+    }
+  </div>
+</mui-overlay-shell>

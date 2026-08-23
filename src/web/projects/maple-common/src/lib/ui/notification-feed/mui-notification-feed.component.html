@@ -1,0 +1,39 @@
+<div class="mui-notification-feed">
+  <mui-chip-row
+    [chips]="filters()"
+    mode="select"
+    [selectedId]="activeFilter()"
+    (selectedIdChange)="onFilterChange($event)"
+  />
+
+  @if (filteredNotifications().length === 0) {
+    <mui-empty-state
+      icon="flag"
+      title="No notifications"
+      [message]="'Nothing under ' + activeFilterLabel() + '.'"
+    />
+  } @else {
+    <div class="list">
+      @for (notification of filteredNotifications(); track notification.id) {
+        <mui-list-row
+          [icon]="notification.read ? null : 'dot'"
+          [label]="notification.label"
+          [timestampValue]="notification.timestamp"
+          (pressed)="open(notification)"
+        >
+          @if (!notification.read) {
+            <button
+              trailing
+              type="button"
+              class="mark-read"
+              aria-label="Mark as read"
+              (click)="markRead(notification, $event)"
+            >
+              Mark read
+            </button>
+          }
+        </mui-list-row>
+      }
+    </div>
+  }
+</div>

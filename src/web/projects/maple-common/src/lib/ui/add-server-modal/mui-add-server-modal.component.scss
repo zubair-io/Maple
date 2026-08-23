@@ -1,0 +1,5 @@
+@use '../../generated/ui-tokens' as tok;
+@use '../internal/modal-form' as modal;
+
+@include modal.shell($body-gap: tok.$maple-spacing-md);
+@include modal.footer;

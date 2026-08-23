@@ -2,16 +2,11 @@
 // (unified-component-catalog.md §2.6; a plot primitive). Three
 // side-by-side per-channel waveforms. Like Histogram, the R/G/B colors are
 // literal channel identity, not theme tokens (mui-qr-code precedent).
+// Per-column samples are expected 0..1, one array per channel.
 
-import {
-  ChangeDetectionStrategy,
-  Component,
-  ElementRef,
-  effect,
-  input,
-  viewChild,
-} from '@angular/core';
-import { beginPlotDraw, clampUnit, drawVerticalBars, rgbChannels } from '../internal/plot-canvas';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { RgbChannelPlotBase, clampUnit, drawVerticalBars } from '../internal/plot-canvas';
+import type { RgbChannel } from '../internal/plot-canvas';
 
 const CHANNEL_COLOR = {
   r: 'rgba(220, 80, 80, 0.85)',
@@ -28,36 +23,17 @@ const GAP_PX = 4;
   styleUrl: './mui-parade.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class MuiParadeComponent {
-  /** Per-column samples, 0..1, one array per channel. */
-  readonly r = input.required<readonly number[]>();
-  readonly g = input.required<readonly number[]>();
-  readonly b = input.required<readonly number[]>();
-  readonly width = input<number>(240);
-  readonly height = input<number>(64);
+export class MuiParadeComponent extends RgbChannelPlotBase {
+  protected readonly channelColor = CHANNEL_COLOR;
 
-  readonly canvas = viewChild<ElementRef<HTMLCanvasElement>>('canvas');
-
-  constructor() {
-    effect(() => {
-      this.r();
-      this.g();
-      this.b();
-      this.width();
-      this.height();
-      this.draw();
-    });
-  }
-
-  private draw(): void {
-    const w = this.width();
-    const h = this.height();
-    const frame = beginPlotDraw(this.canvas(), w, h);
-    if (!frame) return;
-    const { ctx } = frame;
-
-    const channels = rgbChannels(this.r(), this.g(), this.b(), CHANNEL_COLOR);
-
+  /** Per-lane 0..1 clamp, gapped lanes — each channel gets its own
+   * side-by-side lane, unlike Histogram's shared/overlapping bars. */
+  protected drawChannels(
+    ctx: CanvasRenderingContext2D,
+    channels: readonly RgbChannel[],
+    w: number,
+    h: number,
+  ): void {
     const laneWidth = (w - GAP_PX * (channels.length - 1)) / channels.length;
     channels.forEach((channel, laneIndex) => {
       const laneX = laneIndex * (laneWidth + GAP_PX);

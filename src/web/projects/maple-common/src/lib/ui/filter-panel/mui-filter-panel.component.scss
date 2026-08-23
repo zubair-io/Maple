@@ -1,0 +1,11 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+}
+
+.mui-filter-panel {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-sm;
+}

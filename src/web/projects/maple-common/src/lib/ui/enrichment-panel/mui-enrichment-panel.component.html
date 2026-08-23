@@ -1,0 +1,29 @@
+<div class="mui-enrichment-panel">
+  <div class="description-group">
+    @if (descriptionStatus() !== 'idle') {
+      <mui-badge variant="signal" [value]="descriptionStatusLabel()" />
+    }
+    <mui-description-field
+      [(value)]="description"
+      [regenerating]="descriptionStatus() === 'generating'"
+      (regenerate)="descriptionRegenerate.emit()"
+      (committed)="descriptionCommitted.emit($event)"
+    />
+  </div>
+  <mui-faces-row
+    [people]="people()"
+    [(selectedId)]="selectedPersonId"
+    [redetecting]="peopleRedetecting()"
+    (redetect)="peopleRedetect.emit()"
+  />
+  <mui-place-row
+    [(place)]="place"
+    [overridden]="placeOverridden()"
+    (committed)="placeCommitted.emit($event)"
+    (cleared)="placeCleared.emit()"
+  />
+  @if (transcriptEntries().length > 0 && transcriptBase(); as base) {
+    <mui-transcript-block [baseTime]="base" [entries]="transcriptEntries()" />
+  }
+  <mui-vision-row [labels]="visionLabels()" />
+</div>

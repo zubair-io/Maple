@@ -1,0 +1,24 @@
+@if (loading()) {
+  <div class="state-wrap">
+    <mui-spinner placement="centered" />
+  </div>
+} @else if (error()) {
+  <mui-empty-state icon="x" title="Something went wrong" [message]="error()" />
+} @else if (items().length === 0) {
+  <mui-empty-state icon="search" [title]="emptyMessage()" />
+} @else {
+  <div class="viewport" [style.max-height.px]="viewportHeight()" (scroll)="onScroll($event)">
+    <div class="spacer" [style.height.px]="topSpacerPx()"></div>
+    @for (item of visibleItems(); track item.id) {
+      <mui-list-row
+        [icon]="item.icon ?? null"
+        [label]="item.label"
+        [subtitle]="item.subtitle ?? null"
+        [timestampValue]="item.timestampValue ?? null"
+        [active]="activeId() === item.id"
+        (pressed)="select(item.id)"
+      />
+    }
+    <div class="spacer" [style.height.px]="bottomSpacerPx()"></div>
+  </div>
+}

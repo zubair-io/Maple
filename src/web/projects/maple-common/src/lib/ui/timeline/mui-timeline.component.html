@@ -1,0 +1,30 @@
+@if (loading()) {
+  <div class="state-wrap">
+    <mui-spinner placement="centered" />
+  </div>
+} @else if (error()) {
+  <mui-empty-state icon="x" title="Something went wrong" [message]="error()" />
+} @else if (groups().length === 0 || allGroupsEmpty()) {
+  <mui-empty-state icon="history" title="No photos yet" />
+} @else {
+  @if (filters().length > 0) {
+    <mui-chip-row
+      class="filters"
+      mode="select"
+      [chips]="filters()"
+      [(selectedId)]="activeFilterId"
+    />
+  }
+  @for (group of groups(); track group.id) {
+    <mui-text variant="eyebrow" [block]="true" class="group-header">{{ group.label }}</mui-text>
+    <mui-collection-grid
+      class="group-grid"
+      [items]="group.items"
+      [columns]="columns()"
+      [viewportHeight]="groupViewportHeight(group)"
+      [selectedIds]="selectedIds()"
+      (selectedIdsChange)="selectedIds.set($event)"
+      (opened)="opened.emit($event)"
+    />
+  }
+}

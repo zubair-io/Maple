@@ -1,0 +1,49 @@
+<mui-overlay-shell [open]="open()" size="md" ariaLabel="Results" (dismissed)="onDismiss()">
+  <div slot="header" class="header">
+    <span class="title">Results</span>
+    <mui-button
+      variant="ghost"
+      size="sm"
+      [iconOnly]="true"
+      iconLeading="x"
+      ariaLabel="Close"
+      (pressed)="onDismiss()"
+    />
+  </div>
+
+  <div class="body-stack">
+    @if (results().length === 0) {
+      <mui-empty-state
+        icon="check"
+        title="No results yet"
+        message="Nothing has run in this batch."
+      />
+    } @else {
+      <span class="summary">{{ summary() }}</span>
+      <div class="result-list">
+        @for (result of results(); track result.id) {
+          <mui-list-row
+            [icon]="statusIcon[result.status]"
+            [label]="result.label"
+            [subtitle]="result.detail ?? null"
+          >
+            <mui-badge
+              trailing
+              [variant]="statusBadgeVariant[result.status]"
+              [value]="statusLabel[result.status]"
+            />
+          </mui-list-row>
+        }
+      </div>
+    }
+  </div>
+
+  <div slot="footer" class="footer">
+    @if (failedIds().length > 0) {
+      <mui-button variant="secondary" (pressed)="retryFailed()">
+        Retry {{ failedIds().length }} failed
+      </mui-button>
+    }
+    <mui-button variant="primary" (pressed)="onDismiss()">Done</mui-button>
+  </div>
+</mui-overlay-shell>

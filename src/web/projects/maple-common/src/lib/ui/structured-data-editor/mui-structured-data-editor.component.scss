@@ -1,0 +1,57 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-md;
+}
+
+.code-pane {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-sm;
+}
+
+// Matches mui-code-block's monospace/canvas look (font-mono, canvas
+// background, md radius) since that atom itself can't be edited.
+.code-editor {
+  min-height: 200px;
+  padding: tok.$maple-spacing-sm tok.$maple-spacing-md;
+  border: 1px solid var(--color-border);
+  border-radius: tok.$maple-radius-md;
+  background: var(--color-image-canvas);
+  color: var(--color-text-main);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+
+  &:focus-visible {
+    border-color: var(--color-border-hi);
+  }
+}
+
+.error-banner {
+  padding: tok.$maple-spacing-xs tok.$maple-spacing-sm;
+  border-radius: tok.$maple-radius-sm;
+  background: var(--color-error-bg);
+  color: var(--color-error-text);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.form-pane {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-sm;
+}
+
+.empty {
+  padding: tok.$maple-spacing-md;
+  border: 1px dashed var(--color-border);
+  border-radius: tok.$maple-radius-md;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  text-align: center;
+}

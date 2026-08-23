@@ -1,0 +1,39 @@
+<div class="mui-user-management">
+  <div class="invite">
+    <div class="invite-field">
+      <mui-form-field
+        label="Invite by email"
+        [(value)]="inviteValue"
+        placeholder="teammate@example.com"
+        (committed)="onInviteCommitted($event)"
+      />
+    </div>
+    @if (inviteLink()) {
+      <div class="invite-qr">
+        <mui-qr-code [value]="inviteLink()" size="sm" ariaLabel="Invite link QR code" />
+        <mui-text variant="body" color="muted">Scan to accept invite</mui-text>
+      </div>
+    }
+  </div>
+
+  <div class="users">
+    @for (user of users(); track user.id) {
+      <mui-list-row [label]="user.name" [subtitle]="user.email + ' · ' + user.role">
+        <mui-button trailing variant="ghost" size="sm" (pressed)="requestRevoke(user)">
+          Revoke
+        </mui-button>
+      </mui-list-row>
+    }
+  </div>
+
+  <mui-dialog
+    [open]="dialogOpen()"
+    title="Revoke access?"
+    [message]="dialogMessage()"
+    variant="confirm"
+    confirmLabel="Revoke"
+    [destructive]="true"
+    (confirmed)="confirmRevoke()"
+    (dismissed)="dismissRevoke()"
+  />
+</div>

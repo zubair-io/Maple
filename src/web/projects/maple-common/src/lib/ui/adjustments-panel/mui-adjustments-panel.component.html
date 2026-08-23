@@ -1,0 +1,28 @@
+<div class="mui-adjustments-panel">
+  <mui-tabs [tabs]="tabDefs()" [(activeId)]="activeTabId" />
+  <div class="groups">
+    @for (group of activeGroups(); track group.id) {
+      <mui-collapsible
+        [label]="group.label"
+        [open]="openGroupIds().includes(group.id)"
+        (openChange)="toggleGroup(group.id, $event)"
+      >
+        <div class="sliders">
+          @for (slider of group.sliders; track slider.id) {
+            <mui-living-slider
+              [label]="slider.label"
+              [value]="values()[slider.id] ?? 0"
+              (valueChange)="valueChanged.emit({ sliderId: slider.id, value: $event })"
+              [min]="slider.min"
+              [max]="slider.max"
+              [step]="slider.step ?? 1"
+              [unit]="slider.unit ?? ''"
+              [bipolar]="slider.bipolar ?? false"
+              [gradient]="sliderGradient(slider)"
+            />
+          }
+        </div>
+      </mui-collapsible>
+    }
+  </div>
+</div>

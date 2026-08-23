@@ -1,0 +1,41 @@
+<div class="mui-sidebar">
+  @if (toolbarEntries().length > 0) {
+    <mui-toolbar [entries]="toolbarEntries()" (itemSelected)="toolbarAction.emit($event)" />
+  }
+  @if (loading()) {
+    <div class="state-slot">
+      <mui-spinner size="md" placement="centered" />
+    </div>
+  } @else if (isEmpty()) {
+    <mui-empty-state icon="folder" title="No sources yet" />
+  } @else {
+    @for (entry of flatSections(); track entry.section.id) {
+      <mui-text variant="eyebrow" color="muted" [block]="true" class="section-label">
+        {{ entry.section.label }}
+      </mui-text>
+      @for (row of entry.rows; track row.node.id) {
+        <mui-tree-row
+          [label]="row.node.label"
+          [icon]="row.node.icon ?? 'folder'"
+          [depth]="row.depth"
+          [count]="row.node.count ?? null"
+          [expandable]="!!row.node.children?.length"
+          [expanded]="expandedIds().includes(row.node.id)"
+          (expandedChange)="onExpandedChange(row.node.id, $event)"
+          [active]="activeId() === row.node.id"
+          (pressed)="activeId.set(row.node.id)"
+          (contextmenu)="onContextMenu(row.node.id, $event)"
+        />
+      }
+    }
+  }
+  <mui-context-menu
+    class="context-menu-anchor"
+    [style.left.px]="contextMenuX()"
+    [style.top.px]="contextMenuY()"
+    [open]="contextMenuOpen()"
+    [entries]="contextMenuEntries()"
+    (select)="onContextSelect($event)"
+    (closeRequested)="contextMenuOpen.set(false)"
+  />
+</div>

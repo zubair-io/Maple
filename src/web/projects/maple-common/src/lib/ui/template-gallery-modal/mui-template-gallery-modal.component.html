@@ -1,0 +1,42 @@
+<mui-overlay-shell [open]="open()" size="lg" ariaLabel="Templates" (dismissed)="onDismiss()">
+  <div slot="header" class="header">
+    <span class="title">Templates</span>
+    <mui-button
+      variant="ghost"
+      size="sm"
+      [iconOnly]="true"
+      iconLeading="x"
+      ariaLabel="Close"
+      (pressed)="onDismiss()"
+    />
+  </div>
+
+  <div class="body-stack">
+    <mui-search-bar
+      [value]="search()"
+      (valueChange)="search.set($event)"
+      placeholder="Search templates"
+    />
+
+    @if (filteredTemplates().length === 0) {
+      <mui-empty-state
+        icon="search"
+        title="No templates found"
+        message="Try a different search term."
+      />
+    } @else {
+      <div class="grid">
+        @for (template of filteredTemplates(); track template.id) {
+          <mui-card
+            [src]="template.thumbnailUrl"
+            [alt]="template.name"
+            [title]="template.name"
+            [subtitle]="template.description ?? null"
+            [badgeLabel]="template.category ?? null"
+            (pressed)="apply(template)"
+          />
+        }
+      </div>
+    }
+  </div>
+</mui-overlay-shell>

@@ -16,7 +16,7 @@ import {
   signal,
 } from '@angular/core';
 import { MuiTextComponent } from '../text/mui-text.component';
-import { arrowKeyDelta, isPointerDragEnd, percentInRange } from '../internal/pointer-drag';
+import { arrowKeyDelta, endPointerDrag, percentInRange } from '../internal/pointer-drag';
 
 export interface MuiDragBarTick {
   readonly pct: number;
@@ -102,9 +102,7 @@ export class MuiDragBarComponent {
   }
 
   onPointerUp(event: PointerEvent): void {
-    if (!isPointerDragEnd(event, this.activePointerId)) return;
-    this.dragging.set(false);
-    this.activePointerId = null;
+    endPointerDrag(event, this.activePointerId, this.dragging, () => (this.activePointerId = null));
   }
 
   onKeydown(event: KeyboardEvent): void {

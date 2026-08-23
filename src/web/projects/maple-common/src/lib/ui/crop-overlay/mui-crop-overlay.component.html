@@ -1,0 +1,40 @@
+<div
+  class="mui-crop-overlay"
+  [style.width.px]="containerSize().width"
+  [style.height.px]="containerSize().height"
+>
+  <div
+    class="mask"
+    [style.left.px]="rectStyle().left"
+    [style.top.px]="rectStyle().top"
+    [style.width.px]="rectStyle().width"
+    [style.height.px]="rectStyle().height"
+  ></div>
+  <div
+    class="rect"
+    [style.left.px]="rectStyle().left"
+    [style.top.px]="rectStyle().top"
+    [style.width.px]="rectStyle().width"
+    [style.height.px]="rectStyle().height"
+  >
+    <div class="grid-line vertical" [style.left.px]="thirdLines().v1"></div>
+    <div class="grid-line vertical" [style.left.px]="thirdLines().v2"></div>
+    <div class="grid-line horizontal" [style.top.px]="thirdLines().h1"></div>
+    <div class="grid-line horizontal" [style.top.px]="thirdLines().h2"></div>
+  </div>
+  @for (handle of handleLayout(); track handle.id) {
+    <button
+      type="button"
+      class="handle"
+      [class]="'handle-' + handle.id"
+      [attr.aria-label]="'Resize crop — ' + handle.label"
+      [style.left.px]="handle.left"
+      [style.top.px]="handle.top"
+      (pointerdown)="onHandlePointerDown($event, handle.id)"
+      (pointermove)="onHandlePointerMove($event)"
+      (pointerup)="onHandlePointerUp($event)"
+      (pointercancel)="onHandlePointerUp($event)"
+      (keydown)="onHandleKeydown($event, handle.id)"
+    ></button>
+  }
+</div>

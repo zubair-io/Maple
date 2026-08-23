@@ -1,0 +1,30 @@
+<div class="mui-backup-monitor">
+  @if (lastResult(); as result) {
+    <mui-banner [variant]="result.variant" [message]="result.message" />
+  }
+
+  <div class="fields">
+    <mui-form-field
+      label="Destination"
+      [(value)]="destinationPath"
+      placeholder="s3://maple-backups/prod"
+      help="A NAS path or S3-compatible bucket URL."
+      (committed)="onFieldCommitted()"
+    />
+    <mui-form-field
+      label="Schedule"
+      [(value)]="schedule"
+      placeholder="Daily at 2:00 AM"
+      (committed)="onFieldCommitted()"
+    />
+  </div>
+
+  <div class="run">
+    @if (running()) {
+      <mui-progress shape="bar" size="md" [value]="progress()" label="Backup running…" />
+    }
+    <mui-button variant="primary" [disabled]="running()" (pressed)="backupStartRequested.emit()">
+      Run backup now
+    </mui-button>
+  </div>
+</div>

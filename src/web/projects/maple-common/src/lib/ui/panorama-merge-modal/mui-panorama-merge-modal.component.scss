@@ -1,0 +1,40 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: contents;
+}
+
+.mui-panorama-merge-modal-header {
+  padding: tok.$maple-spacing-md tok.$maple-spacing-lg;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.mui-panorama-merge-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-md;
+}
+
+.frames {
+  display: flex;
+  flex-wrap: wrap;
+  gap: tok.$maple-spacing-xs;
+}
+
+.frame {
+  width: 96px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-xs;
+}
+
+.mui-panorama-merge-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: tok.$maple-spacing-xs;
+  padding: tok.$maple-spacing-md tok.$maple-spacing-lg;
+  border-top: 1px solid var(--color-border);
+}
