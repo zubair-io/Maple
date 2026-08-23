@@ -78,7 +78,7 @@ namespace Maple.UI.Pages
             };
             _toolbar.ItemSelected += (_, id) =>
             {
-                _selectedIds = id == "select-all" ? CurrentVisibleIds() : Array.Empty<string>();
+                _selectedIds = id == "select-all" ? CurrentVisibleIds() : (IReadOnlyList<string>)Array.Empty<string>();
                 _grid.SelectedIds = _selectedIds;
             };
 
