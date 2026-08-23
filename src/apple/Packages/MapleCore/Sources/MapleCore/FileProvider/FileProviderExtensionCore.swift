@@ -1365,6 +1365,18 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                             NSError(domain: NSFileProviderErrorDomain,
                                     code: NSFileProviderError.filenameCollision.rawValue))
                         return
+                    case .invalid(let message):
+                        // The server rejected the destination shape (bad
+                        // name or path). Surface it as a Cocoa filename
+                        // error carrying the server's message so Finder
+                        // shows "the name ... can't be used" rather than
+                        // the generic failure `mapHTTPError` produces.
+                        self.log.notice("file move refused by server: \(message, privacy: .public)")
+                        completionHandler(nil, [], false,
+                            NSError(domain: NSCocoaErrorDomain,
+                                    code: NSFileWriteInvalidFileNameError,
+                                    userInfo: [NSLocalizedDescriptionKey: message]))
+                        return
                     case .indexedAsset(let assetID):
                         // Raced: the discover sweep indexed this file as
                         // an asset between the client's last listing and

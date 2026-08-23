@@ -443,6 +443,12 @@ public enum RelocateFileResult: Equatable, Sendable {
     /// existing file at the destination and left both untouched.
     case skipped(reason: String)
     case indexedAsset(assetID: String)
+    /// 400 — the server refused the request shape: a destination path or
+    /// filename it will not accept (empty, dot segments, a separator in
+    /// the filename). Carries the server's own message so the caller can
+    /// surface an actionable "invalid name" instead of a generic failure.
+    /// Mirrors `RelocateAssetResult.invalid`.
+    case invalid(String)
 }
 
 private struct RelocateFileSkippedBody: Decodable {
@@ -1227,6 +1233,9 @@ public actor RemoteCatalog {
                 return .skipped(reason: skipped.reason)
             }
             return .ok(try decoder.decode(RelocateFileResponse.self, from: data))
+        case 400:
+            let message = (try? decoder.decode(RelocateErrorBody.self, from: data))?.error ?? "Invalid destination"
+            return .invalid(message)
         case 409:
             let body = try? decoder.decode(FileConflictBody.self, from: data)
             return .indexedAsset(assetID: body?.assetID ?? "")
