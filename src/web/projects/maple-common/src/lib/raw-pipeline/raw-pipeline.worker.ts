@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
 import {
+  default_target_long_edge,
   render_bytes,
   render_bytes_with_film,
   render_bytes_scene_linear,
@@ -147,9 +148,24 @@ async function decodeViaGpuRoute(
       '[raw-pipeline.worker] GPU render failed; falling back to CPU render_bytes:',
       gpuErr,
     );
-    return filmLutBytes
-      ? render_bytes_with_film(bytes, req.ext, req.xmp ?? null, filmLutBytes)
-      : render_bytes(bytes, req.ext, req.xmp ?? null);
+    // #2661: render the SAME develop the failed GPU call would have produced.
+    // `render_bytes_gpu` self-caps an unsized request at the WASM-side default
+    // (#1080), so an UNSIZED CPU retry through `render_bytes` was not the same
+    // develop at all — it asked for the full sensor, which on a large sensor is
+    // a multi-GB develop. Retry through the sized entry at that same default.
+    // (The film branch stays unsized: `selectLegacyDecodeRoute` never routes a
+    // film-LUT request through `gpu`, so it is unreachable here — and the wasm
+    // entry memory-clamps itself regardless.)
+    if (filmLutBytes) {
+      return render_bytes_with_film(bytes, req.ext, req.xmp ?? null, filmLutBytes);
+    }
+    return render_bytes_sized(
+      bytes,
+      req.ext,
+      req.xmp ?? null,
+      req.qualityPreview ?? false,
+      req.maxLongEdge && req.maxLongEdge > 0 ? req.maxLongEdge : default_target_long_edge(),
+    );
   }
 }
 
