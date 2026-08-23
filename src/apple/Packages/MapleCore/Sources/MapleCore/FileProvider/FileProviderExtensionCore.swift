@@ -44,20 +44,36 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
     /// already there. See #2532.
     static let createGuardMtimeSentinel = Date(timeIntervalSince1970: 0)
 
-    /// Test-only seam (#2552). The production `init(domain:)` below is a
-    /// `convenience` initializer that resolves every collaborator the
-    /// normal way (config lookup, `URLSession`, `RemoteCatalog`, etc.)
-    /// and then delegates here — this is the sole place that actually
-    /// assigns the stored properties. Tests construct a core directly
-    /// through this initializer with a `RemoteCatalog` wired to
-    /// `StubURLProtocol` (and any other collaborator they need to
-    /// control), bypassing `FileProviderConfig`/`TokenStore`/live
-    /// networking entirely. `internal` (not `private`) so
-    /// `@testable import MapleCore` can reach it; production behavior is
-    /// unchanged because `init(domain:)` still builds the exact same
-    /// values it always did and hands them through this initializer
-    /// before doing its post-`super.init()` change-feed wiring.
-    init(domain: NSFileProviderDomain,
+    /// Dependency-injection seam (#2552). The production `init(domain:)`
+    /// below is a `convenience` initializer that resolves every
+    /// collaborator the normal way (config lookup, `URLSession`,
+    /// `RemoteCatalog`, etc.) and then delegates here — this is the sole
+    /// place that actually assigns the stored properties. Tests construct
+    /// a core directly through this initializer with a `RemoteCatalog`
+    /// wired to `StubURLProtocol` (and any other collaborator they need
+    /// to control), bypassing `FileProviderConfig`/`TokenStore`/live
+    /// networking entirely. Production behavior is unchanged because
+    /// `init(domain:)` still builds the exact same values it always did
+    /// and hands them through this initializer before doing its
+    /// post-`super.init()` change-feed wiring.
+    ///
+    /// **`public`, not `internal`, and that is load-bearing** — this is
+    /// the class's ONLY designated initializer. `FileProviderExtension`
+    /// in the `MapleFileProvider` target is an empty subclass (it exists
+    /// only because `NSExtensionPrincipalClass` must name a class in that
+    /// target's own module), and an empty subclass inherits the
+    /// superclass's `required convenience init(domain:)` ONLY if it can
+    /// inherit every designated initializer too. An `internal` seam is
+    /// invisible from that module, so inheritance silently stops and the
+    /// extension target fails to build with "'required' initializer
+    /// 'init(domain:)' must be provided by subclass" — a break the
+    /// `swift-build` CI gate cannot see, because it compiles the
+    /// MapleCore package alone and never the app/extension targets.
+    /// There is no way to keep this seam internal: a subclass cannot
+    /// write its own `init(domain:)` either, since a designated
+    /// initializer cannot delegate up into a superclass `convenience`
+    /// one. Do not narrow this back to `internal`.
+    public init(domain: NSFileProviderDomain,
          dormant: Bool,
          catalog: RemoteCatalog?,
          rootCache: LibraryRootCache?,
