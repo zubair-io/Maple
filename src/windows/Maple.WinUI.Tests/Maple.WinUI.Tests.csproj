@@ -114,6 +114,17 @@
     scaling, heatmap cell sizing, and the play/pause/scrub/mm:ss transport
     state machine are all exercisable here without a live Window.
 
+    `MapleUI\Molecules\MuiInlineEditLogic.cs` and
+    `MapleUI\MoleculesL2\MuiDialogLogic.cs`, `MuiKeywordRowLogic.cs`,
+    `MuiBotOutputTicker.cs`, `MuiFilmstripFollowLogic.cs` (Maple.UI
+    Windows-phase molecules L2 wave N4, #3012) are the same split for the
+    Inline Rename Field/Description Field/Place Row commit rule, the
+    Dialog confirm/cancel result, the Keyword Row add/remove-list
+    transform, the Bot Output progressive-reveal ticker, and the Filmstrip
+    Row/Rail active-follow scroll math: each is plain C# with zero WinUI/
+    WinRT dependency, namespace `Maple.UI` per the L1 molecules'
+    convention.
+
     NOT linked: `Services\ThumbnailService.cs` (#2659's
     `ThumbnailCacheRelocateLeakTests` needs its cache-path scheme, but the
     file itself is fine — the class it references transitively,
@@ -153,5 +164,10 @@
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiConnectionGraphMath.cs" LinkBase="MapleUI\Molecules" />
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiHeatmapMath.cs" LinkBase="MapleUI\Molecules" />
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MediaTransportState.cs" LinkBase="MapleUI\Molecules" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiInlineEditLogic.cs" LinkBase="MapleUI\Molecules" />
+    <Compile Include="..\Maple.WinUI\MapleUI\MoleculesL2\MuiDialogLogic.cs" LinkBase="MapleUI\MoleculesL2" />
+    <Compile Include="..\Maple.WinUI\MapleUI\MoleculesL2\MuiKeywordRowLogic.cs" LinkBase="MapleUI\MoleculesL2" />
+    <Compile Include="..\Maple.WinUI\MapleUI\MoleculesL2\MuiBotOutputTicker.cs" LinkBase="MapleUI\MoleculesL2" />
+    <Compile Include="..\Maple.WinUI\MapleUI\MoleculesL2\MuiFilmstripFollowLogic.cs" LinkBase="MapleUI\MoleculesL2" />
   </ItemGroup>
 </Project>
