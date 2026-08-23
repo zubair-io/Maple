@@ -139,6 +139,13 @@ public enum MuiTokens {
         public static let groupSwap = Animation.easeInOut(duration: MapleUITokens.Motion.groupSwap.seconds)
         public static let chromeHide = Animation.easeOut(duration: MapleUITokens.Motion.chromeHide.seconds)
         public static let filterFade = Animation.linear(duration: MapleUITokens.Motion.filterFade.seconds)
+        // Added for wave 2 (toast.md §States: enter uses sheet-present,
+        // exit uses sheet-dismiss). Both source pairs carry a cubic-bezier
+        // ease string in `MOTION_TOKENS`, unlike groupSwap/chromeHide/
+        // filterFade's plain named eases above — `.timingCurve` is
+        // SwiftUI's equivalent of a CSS cubic-bezier easing function.
+        public static let sheetPresent = Animation.timingCurve(0.32, 0.72, 0, 1, duration: MapleUITokens.Motion.sheetPresent.seconds)
+        public static let sheetDismiss = Animation.timingCurve(0.32, 0.72, 0, 1, duration: MapleUITokens.Motion.sheetDismiss.seconds)
     }
 
     // MARK: Type scale
