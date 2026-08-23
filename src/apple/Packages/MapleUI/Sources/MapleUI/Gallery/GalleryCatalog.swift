@@ -10,13 +10,6 @@
 import Foundation
 
 enum GalleryCatalog {
-    /// Atoms tier, §1.3–§1.5 — wave 2, not yet built in this package.
-    static let unbuiltAtoms: [String] = [
-        "Input", "Checkbox", "Segmented Toggle",
-        "Image", "Remote Image", "Avatar", "QR Code", "Canvas Surface",
-        "Progress", "Spinner", "Status Text", "Toast",
-    ]
-
     /// Molecules — Level 1 (§2).
     static let moleculesL1: [String] = [
         "Form Field", "Inline Rename Field", "Search Bar", "Slider", "Living Slider",
