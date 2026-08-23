@@ -1,0 +1,35 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: inline;
+}
+
+.mui-link {
+  display: inline-flex;
+  align-items: center;
+  gap: tok.$maple-spacing-xs;
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  border-radius: tok.$maple-radius-xs;
+
+  &:hover {
+    color: color-mix(in srgb, var(--color-primary) 85%, white);
+  }
+
+  &:visited {
+    color: var(--color-text-muted);
+  }
+
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
+    outline-offset: 2px;
+  }
+
+  &.disabled {
+    pointer-events: none;
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
