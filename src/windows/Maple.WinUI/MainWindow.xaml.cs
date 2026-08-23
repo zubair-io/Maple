@@ -609,6 +609,11 @@ namespace Maple.WinUI
                 case VirtualKey.R when ctrl: ViewModel.RevertToOriginal(); break;
                 case VirtualKey.E when ctrl: OnExportPhotos(this, new RoutedEventArgs()); break;
                 case VirtualKey.O when ctrl: OnOpenDirectory(this, new RoutedEventArgs()); break;
+                // Maple.UI control library showcase (dev/design tool, not a
+                // product surface) — smallest clean insertion into the
+                // existing key-handling switch, same shape as every other
+                // entry point here.
+                case VirtualKey.G when ctrl && shift: new Maple.UI.Gallery.MuiGalleryWindow().Activate(); break;
                 default: e.Handled = false; break;
             }
         }
