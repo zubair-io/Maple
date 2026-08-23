@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Asset, AssetId } from '../models/asset';
+import { PREVIEW_LONG_EDGE_PX } from '../raw-pipeline/image-utils';
 import { decodeHostedThumb } from './library-cache.hosted-thumb';
 
 class FakeImageData {
@@ -65,7 +66,15 @@ describe('decodeHostedThumb', () => {
     const asset = { id: ID, filename: 'photo.JPG' } as Asset;
 
     await expect(decodeHostedThumb(asset, d)).resolves.toBe(BITMAP);
-    expect(d.pipeline.decode).toHaveBeenCalledWith(expect.any(Uint8Array), 'jpg');
+    // Thumbnail-sized decode (#2661): the preview-tier cap + Preview demosaic
+    // keep a grid tile from triggering a full-sensor CPU develop.
+    expect(d.pipeline.decode).toHaveBeenCalledWith(
+      expect.any(Uint8Array),
+      'jpg',
+      undefined,
+      PREVIEW_LONG_EDGE_PX,
+      true,
+    );
     expect(d.preview.resolve).not.toHaveBeenCalled();
   });
 
@@ -75,7 +84,15 @@ describe('decodeHostedThumb', () => {
 
     await expect(decodeHostedThumb(asset, d)).resolves.toBe(BITMAP);
     expect(d.preview.resolve).toHaveBeenCalledOnce();
-    expect(d.pipeline.decode).toHaveBeenCalledWith(expect.any(Uint8Array), 'raf');
+    // The sensor-decode fallback is capped too (#2661) — a 100 MP RAW with no
+    // embedded preview must never develop full-res for a thumbnail.
+    expect(d.pipeline.decode).toHaveBeenCalledWith(
+      expect.any(Uint8Array),
+      'raf',
+      undefined,
+      PREVIEW_LONG_EDGE_PX,
+      true,
+    );
   });
 
   it('keeps X3F as a graceful miss when its embedded preview is unavailable', async () => {

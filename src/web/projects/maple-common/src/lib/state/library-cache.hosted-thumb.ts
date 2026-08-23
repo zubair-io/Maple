@@ -1,6 +1,6 @@
 import type { Asset, AssetId } from '../models/asset';
 import type { PreviewSourceIdentity } from '../maple-cache/maple-cache.service';
-import { imageDataToBitmap } from '../raw-pipeline/image-utils';
+import { imageDataToBitmap, PREVIEW_LONG_EDGE_PX } from '../raw-pipeline/image-utils';
 import type { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import type { HostedByteSnapshot } from './hosted-byte-snapshot-cache';
 import type { HostedPreviewResolver } from './hosted-preview-resolver.service';
@@ -39,5 +39,11 @@ export async function decodeHostedThumb(
   } catch {
     return null;
   }
-  return imageDataToBitmap(await deps.pipeline.decode(bytes, ext));
+  // Thumbnail-sized decode (#2661): cap at the preview tier and use the
+  // half-res Preview demosaic — the unsized call this replaces developed the
+  // FULL sensor on the CPU, which for a 100 MP asset was a multi-GB develop
+  // that OOM-aborted the wasm instance just to paint a grid tile.
+  return imageDataToBitmap(
+    await deps.pipeline.decode(bytes, ext, undefined, PREVIEW_LONG_EDGE_PX, true),
+  );
 }

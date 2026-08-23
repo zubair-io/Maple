@@ -157,7 +157,16 @@ fn export_core(
     color_space: &str,
     max_long_edge: u32,
 ) -> Result<MapleExport, String> {
-    export_core_with_film(raw, ext, xmp, format, quality, color_space, max_long_edge, &[])
+    export_core_with_film(
+        raw,
+        ext,
+        xmp,
+        format,
+        quality,
+        color_space,
+        max_long_edge,
+        &[],
+    )
 }
 
 /// The whole of [`export_bytes_with_film`] except the `JsError` conversion —
@@ -321,8 +330,29 @@ mod tests {
         Some(std::fs::read(&path).expect("read fixture"))
     }
 
+    /// The full-resolution display develop `render_bytes` runs for sensors
+    /// inside the wasm32 memory budget — the export parity reference. Called
+    /// on raw-core directly because `render_bytes` itself memory-clamps
+    /// sensors over [`crate::cpu_budget::FULL_DEVELOP_MAX_SENSOR_PX`]
+    /// (#2661) and the test fixture is one of them; these tests run natively
+    /// (64-bit heap), where a full-res reference render is affordable.
+    fn full_res_canvas_render(raw: &[u8]) -> (u32, u32, Vec<u8>) {
+        let raw_img = raw_core::decode::decode_bytes(raw, "dng").expect("decode");
+        raw_core::pipeline::render_from_raw_with_quality_and_source(
+            &raw_img,
+            &raw_core::xmp::AdjustmentModel::default(),
+            raw_core::pipeline::RenderQuality::Amaze,
+            Some(raw_core::pipeline::RawInput::Bytes {
+                bytes: raw,
+                ext: "dng",
+            }),
+        )
+        .expect("full-res canvas render")
+    }
+
     /// **The parity gate.** A lossless sRGB 8-bit export must be BYTE-IDENTICAL
-    /// to what `render_bytes` — the function that paints the canvas — produces.
+    /// to what the display develop — the chain that paints the canvas —
+    /// produces at the export's full native resolution.
     ///
     /// PNG is lossless, so decoding the exported file back to RGB recovers the
     /// exact samples the pipeline emitted. Any divergence between the export
@@ -333,9 +363,7 @@ mod tests {
     fn a_lossless_export_is_byte_identical_to_the_canvas_render() {
         let Some(raw) = fixture() else { return };
 
-        let canvas = crate::render_bytes(&raw, "dng", None).expect("render_bytes");
-        let (canvas_w, canvas_h) = (canvas.width(), canvas.height());
-        let canvas_rgb = canvas.rgb();
+        let (canvas_w, canvas_h, canvas_rgb) = full_res_canvas_render(&raw);
 
         let exported = export_core(&raw, "dng", None, "png", 100, "srgb", 0).expect("export");
         assert_eq!(
@@ -369,8 +397,7 @@ mod tests {
     fn a_jpeg_export_matches_the_canvas_within_compression_noise() {
         let Some(raw) = fixture() else { return };
 
-        let canvas = crate::render_bytes(&raw, "dng", None).expect("render_bytes");
-        let canvas_rgb = canvas.rgb();
+        let (_, _, canvas_rgb) = full_res_canvas_render(&raw);
 
         let exported = export_core(&raw, "dng", None, "jpeg", 95, "srgb", 0).expect("export");
         let decoded = image::load_from_memory(&exported.bytes)
