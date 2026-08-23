@@ -36,6 +36,7 @@
 		E3DD948B2FB50EB9009392B4 /* MapleCore in Frameworks */ = {isa = PBXBuildFile; productRef = E3DD948A2FB50EB9009392B4 /* MapleCore */; };
 		E3DD948E2FB51A67009392B4 /* MapleBackup in Frameworks */ = {isa = PBXBuildFile; productRef = E3DD948D2FB51A67009392B4 /* MapleBackup */; };
 		E3DD94902FB55723009392B4 /* MapleBackup in Frameworks */ = {isa = PBXBuildFile; productRef = E3DD948F2FB55723009392B4 /* MapleBackup */; };
+		E3DD94A02FB56001009392B4 /* MapleUI in Frameworks */ = {isa = PBXBuildFile; productRef = E3DD94A12FB56002009392B4 /* MapleUI */; };
 		E3DD94D12FB50E55009392B4 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = E3DD94D02FB50E55009392B4 /* LaunchScreen.storyboard */; platformFilter = ios; };
 		EBA6500530BFEA35449C6FE3 /* QuickLookUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0D23B0EDD7DF1B168C777B68 /* QuickLookUI.framework */; };
 /* End PBXBuildFile section */
@@ -209,6 +210,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E3DD94902FB55723009392B4 /* MapleBackup in Frameworks */,
+				E3DD94A02FB56001009392B4 /* MapleUI in Frameworks */,
 				A1F0000300000000000000A1 /* RawPipeline.xcframework in Frameworks */,
 				A1F0000100000000000000A1 /* MapleCore in Frameworks */,
 			);
@@ -449,6 +451,7 @@
 			packageProductDependencies = (
 				A1F0000200000000000000A1 /* MapleCore */,
 				E3DD948F2FB55723009392B4 /* MapleBackup */,
+				E3DD94A12FB56002009392B4 /* MapleUI */,
 			);
 			productName = "Maple Exposure";
 			productReference = A1F0000700000000000000A1 /* Maple Exposure.app */;
@@ -624,6 +627,7 @@
 			packageReferences = (
 				A1F0001C00000000000000A1 /* XCLocalSwiftPackageReference "Packages/MapleCore" */,
 				E3DD948C2FB51A67009392B4 /* XCLocalSwiftPackageReference "Packages/MapleBackup" */,
+				E3DD94A22FB56003009392B4 /* XCLocalSwiftPackageReference "Packages/MapleUI" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A1F0000F00000000000000A1 /* Products */;
@@ -1681,6 +1685,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/MapleBackup;
 		};
+		E3DD94A22FB56003009392B4 /* XCLocalSwiftPackageReference "Packages/MapleUI" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/MapleUI;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1727,6 +1735,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A1F0001C00000000000000A1 /* XCLocalSwiftPackageReference "Packages/MapleCore" */;
 			productName = MapleCore;
+		};
+		E3DD94A12FB56002009392B4 /* MapleUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E3DD94A22FB56003009392B4 /* XCLocalSwiftPackageReference "Packages/MapleUI" */;
+			productName = MapleUI;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
