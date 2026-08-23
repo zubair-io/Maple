@@ -21,6 +21,7 @@
 
 import SwiftUI
 import MapleCore
+import MapleUI
 
 struct PhoneSettingsView: View {
     /// Threaded down to `SelfHostedSettingsTab` so ServerAdmin (#2766)
@@ -102,6 +103,16 @@ struct PhoneSettingsView: View {
                         .navigationBarTitleDisplayMode(.inline)
                 } label: {
                     SettingsMenuRow(icon: "info.circle", label: "About")
+                }
+                // Maple UI design-system Apple phase — dev-facing catalog
+                // of shipped tokens/atoms; hung off "App" alongside About
+                // rather than a new section for one row.
+                NavigationLink {
+                    MapleUIGalleryView()
+                        .navigationTitle("Maple UI Gallery")
+                        .navigationBarTitleDisplayMode(.inline)
+                } label: {
+                    SettingsMenuRow(icon: "square.grid.2x2", label: "Maple UI Gallery")
                 }
             }
         }

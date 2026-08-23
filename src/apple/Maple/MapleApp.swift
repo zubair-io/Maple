@@ -8,6 +8,7 @@ import WidgetKit
 import CoreText
 import MapleCore
 import MapleBackup
+import MapleUI
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -342,6 +343,7 @@ enum SettingsTab: String {
     case pano
     case observability
     case finder
+    case mapleUIGallery
 }
 
 struct SettingsView: View {
@@ -392,6 +394,15 @@ struct SettingsView: View {
                 .tabItem { Label("Files", systemImage: "folder") }
                 .tag(SettingsTab.finder)
             #endif
+            // Maple UI design-system Apple phase — dev-facing catalog of
+            // shipped tokens/atoms, not a user-facing settings surface, but
+            // hung off Settings since that's the app's one place every
+            // build already has a navigable modal/tab shell to reuse.
+            NavigationStack {
+                MapleUIGalleryView()
+            }
+            .tabItem { Label("Maple UI", systemImage: "square.grid.2x2") }
+            .tag(SettingsTab.mapleUIGallery)
         }
         #if os(macOS)
         .frame(width: 540, height: 480)
