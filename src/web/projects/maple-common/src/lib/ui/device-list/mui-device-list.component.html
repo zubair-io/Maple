@@ -1,0 +1,33 @@
+<div class="mui-device-list">
+  @if (devices().length === 0) {
+    <mui-empty-state
+      icon="person-circle"
+      title="No paired devices"
+      message="Devices that sign in to this account will appear here."
+    />
+  } @else {
+    <div class="devices">
+      @for (device of devices(); track device.id) {
+        <mui-list-row
+          [label]="device.name + ' · ' + device.platform"
+          [timestampValue]="device.lastSeen"
+        >
+          <mui-button trailing variant="ghost" size="sm" (pressed)="requestRevoke(device)">
+            Revoke
+          </mui-button>
+        </mui-list-row>
+      }
+    </div>
+  }
+
+  <mui-dialog
+    [open]="dialogOpen()"
+    title="Revoke this device?"
+    [message]="dialogMessage()"
+    variant="confirm"
+    confirmLabel="Revoke"
+    [destructive]="true"
+    (confirmed)="confirmRevoke()"
+    (dismissed)="dismissRevoke()"
+  />
+</div>

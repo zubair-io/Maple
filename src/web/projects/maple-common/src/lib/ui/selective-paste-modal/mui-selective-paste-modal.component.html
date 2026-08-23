@@ -1,0 +1,34 @@
+<mui-overlay-shell
+  [open]="open()"
+  size="sm"
+  ariaLabel="Selective Paste"
+  (dismissed)="dismissed.emit()"
+>
+  <div slot="header" class="mui-selective-paste-modal-header">
+    <mui-text variant="sheet-title" [block]="true">Selective Paste</mui-text>
+  </div>
+
+  <div class="mui-selective-paste-modal-body">
+    @for (group of groups(); track group.id) {
+      <div class="group">
+        <mui-checkbox
+          [checked]="group.enabled"
+          [label]="group.label"
+          (checkedChange)="toggleGroup(group.id, $event)"
+        />
+        @if (group.description) {
+          <mui-text variant="body" color="muted" class="description">
+            {{ group.description }}
+          </mui-text>
+        }
+      </div>
+    }
+  </div>
+
+  <div slot="footer" class="mui-selective-paste-modal-footer">
+    <mui-button variant="ghost" (pressed)="dismissed.emit()">Cancel</mui-button>
+    <mui-button variant="primary" [disabled]="enabledCount() === 0" (pressed)="confirmPaste()">
+      Paste
+    </mui-button>
+  </div>
+</mui-overlay-shell>

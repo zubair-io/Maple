@@ -4,7 +4,7 @@
 // over `<audio>`, one over `<video>`. Not part of the public API surface
 // (see ../public-api.ts).
 
-import type { WritableSignal } from '@angular/core';
+import { Directive, signal, type WritableSignal } from '@angular/core';
 
 /** Formats elapsed/duration seconds as `m:ss` (never `h:mm:ss` — Maple's
  * transport clips are all sub-hour). Non-finite or negative input (not yet
@@ -56,4 +56,65 @@ export function computeSeekTime(event: MouseEvent, duration: number): number | n
   const ratio = rect.width > 0 ? (event.clientX - rect.left) / rect.width : 0;
   const clamped = Math.max(0, Math.min(1, ratio));
   return clamped * duration;
+}
+
+/** The full play/pause/scrub/mm:ss transport state + wiring shared by
+ * mui-audio-player and mui-video-player — every template-bound method both
+ * components expose (`playing()`, `togglePlay()`, `onPlay()`, `seek()`,
+ * etc.) lives here once. An `@Directive()` abstract base (Angular's
+ * supported pattern for sharing component behavior without a template —
+ * same shape as `DestructiveConfirmDialogBase`) rather than a third copy of
+ * free functions each subclass re-wires by hand: the two players' methods
+ * were already 100% identical modulo which native element they read, so
+ * inheritance removes the duplication outright instead of just relocating
+ * it into a matching set of one-line wrapper calls. Each subclass supplies
+ * `mediaEl()` — its own `viewChild`'s `nativeElement`, typed `<audio>` vs
+ * `<video>` — everything else (state, formatting, event handlers) is
+ * inherited unchanged. */
+@Directive()
+export abstract class MediaTransportBase {
+  readonly playing = signal(false);
+  readonly currentTime = signal(0);
+  readonly duration = signal(0);
+
+  readonly formatDuration = formatDuration;
+
+  /** The native `<audio>`/`<video>` element this transport controls. */
+  protected abstract mediaEl(): HTMLMediaElement | undefined;
+
+  progressPercent(): number {
+    return computeProgressPercent(this.currentTime(), this.duration());
+  }
+
+  togglePlay(): void {
+    toggleMediaPlayback(this.mediaEl());
+  }
+
+  onPlay(): void {
+    this.playing.set(true);
+  }
+
+  onPause(): void {
+    this.playing.set(false);
+  }
+
+  onEnded(): void {
+    this.playing.set(false);
+  }
+
+  onLoadedMetadata(): void {
+    handleLoadedMetadata(this.mediaEl(), this.duration);
+  }
+
+  onTimeUpdate(): void {
+    handleTimeUpdate(this.mediaEl(), this.currentTime);
+  }
+
+  seek(event: MouseEvent): void {
+    const el = this.mediaEl();
+    const next = computeSeekTime(event, this.duration());
+    if (!el || next === null) return;
+    el.currentTime = next;
+    this.currentTime.set(el.currentTime);
+  }
 }

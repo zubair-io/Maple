@@ -1,0 +1,45 @@
+<div class="mui-settings-section">
+  <mui-text variant="sheet-title" [block]="true" class="title">{{ title() }}</mui-text>
+
+  @if (banner(); as sectionBanner) {
+    <mui-banner
+      [variant]="sectionBanner.variant"
+      [message]="sectionBanner.message"
+      class="banner"
+    />
+  }
+
+  <div class="rows">
+    @for (row of displayRows(); track row.raw.id; let last = $last) {
+      @if (row.kind === 'navigate') {
+        <mui-list-row
+          [label]="row.label"
+          [subtitle]="row.subtitle"
+          [icon]="row.icon"
+          [disabled]="row.disabled"
+          (pressed)="onRowActivated(row.raw)"
+        >
+          <mui-icon trailing name="chevron-right" size="sm" />
+        </mui-list-row>
+      } @else {
+        <mui-settings-row
+          [label]="row.label"
+          [icon]="row.icon"
+          [description]="row.description"
+          [showDivider]="false"
+        >
+          <mui-form-field
+            [label]="row.label"
+            [value]="row.value"
+            [placeholder]="row.placeholder"
+            [help]="row.help"
+            (committed)="onFieldCommitted(row.raw, $event)"
+          />
+        </mui-settings-row>
+      }
+      @if (!last) {
+        <mui-divider />
+      }
+    }
+  </div>
+</div>

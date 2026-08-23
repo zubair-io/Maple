@@ -1,0 +1,45 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+  position: relative;
+}
+
+.state-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+}
+
+.viewport {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.grid {
+  display: grid;
+  gap: tok.$maple-spacing-sm;
+  align-content: start;
+}
+
+.spacer {
+  grid-column: 1 / -1;
+}
+
+.cell-wrap {
+  min-width: 0;
+
+  &:hover mui-media-cell {
+    cursor: pointer;
+  }
+}
+
+.drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  z-index: 100;
+}

@@ -1,0 +1,63 @@
+<mui-overlay-shell
+  [open]="open()"
+  size="md"
+  ariaLabel="Batch Metadata"
+  (dismissed)="dismissed.emit()"
+>
+  <div slot="header" class="mui-batch-metadata-modal-header">
+    <mui-text variant="sheet-title" [block]="true">Batch Metadata</mui-text>
+  </div>
+
+  <div class="mui-batch-metadata-modal-body">
+    <mui-text variant="body" color="muted">{{ itemCount() }} item(s) selected</mui-text>
+
+    <mui-form-field
+      label="Copyright"
+      [value]="copyright()"
+      (valueChange)="copyright.set($event)"
+      placeholder="© 2026 Studio"
+      [disabled]="applying()"
+    />
+
+    <div class="field">
+      <mui-text variant="tool-label" color="muted" [block]="true">Keywords</mui-text>
+      <mui-chip-row
+        [chips]="keywordChips()"
+        mode="editable"
+        addPlaceholder="Add keyword…"
+        (added)="onKeywordAdded($event)"
+        (removed)="onKeywordRemoved($event)"
+      />
+    </div>
+
+    <mui-form-field
+      label="Rating"
+      variant="numeric"
+      [value]="ratingText()"
+      (committed)="onRatingCommitted($event)"
+      help="0–5"
+      [disabled]="applying()"
+    />
+
+    @if (applying()) {
+      <mui-progress shape="bar" [value]="progress()" label="Applying…" />
+    }
+  </div>
+
+  <div slot="footer" class="mui-batch-metadata-modal-footer">
+    <mui-button variant="ghost" (pressed)="dismissed.emit()">Cancel</mui-button>
+    <mui-button variant="primary" [disabled]="applying()" (pressed)="requestApply()">
+      Apply
+    </mui-button>
+  </div>
+</mui-overlay-shell>
+
+<mui-dialog
+  [open]="confirmOpen()"
+  title="Apply metadata?"
+  [message]="confirmMessage()"
+  variant="confirm"
+  confirmLabel="Apply"
+  (confirmed)="onConfirmed()"
+  (dismissed)="onConfirmDismissed()"
+/>

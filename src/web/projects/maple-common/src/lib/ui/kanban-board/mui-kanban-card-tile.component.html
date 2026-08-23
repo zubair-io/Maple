@@ -1,0 +1,18 @@
+@if (card().src) {
+  <mui-card
+    [src]="card().src ?? ''"
+    [alt]="card().title"
+    [title]="card().title"
+    [subtitle]="card().subtitle ?? null"
+    [badgeLabel]="card().badgeLabel ?? null"
+  />
+} @else {
+  <div class="card-plain">
+    <mui-text variant="row-label" [truncate]="true">{{ card().title }}</mui-text>
+    @if (card().subtitle) {
+      <mui-text variant="body" color="muted" [truncate]="true">
+        {{ card().subtitle }}
+      </mui-text>
+    }
+  </div>
+}

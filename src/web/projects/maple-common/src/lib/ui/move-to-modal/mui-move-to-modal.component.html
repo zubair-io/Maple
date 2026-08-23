@@ -1,0 +1,36 @@
+<mui-overlay-shell [open]="open()" size="md" ariaLabel="Move To" (dismissed)="dismissed.emit()">
+  <div slot="header" class="mui-move-to-modal-header">
+    <mui-text variant="sheet-title" [block]="true">Move To</mui-text>
+  </div>
+
+  <div class="mui-move-to-modal-body">
+    <mui-search-bar
+      [value]="searchQuery()"
+      (valueChange)="searchQuery.set($event)"
+      placeholder="Search folders"
+    />
+
+    <div class="tree">
+      @for (node of visibleNodes(); track node.id) {
+        <mui-tree-row
+          [label]="node.name"
+          [depth]="node.depth"
+          [expandable]="node.hasChildren"
+          [expanded]="expandedIds().has(node.id)"
+          (expandedChange)="toggleExpand(node.id, $event)"
+          [active]="selectedId() === node.id"
+          (pressed)="select(node.id)"
+        />
+      } @empty {
+        <mui-text variant="body" color="muted">No folders match your search.</mui-text>
+      }
+    </div>
+  </div>
+
+  <div slot="footer" class="mui-move-to-modal-footer">
+    <mui-button variant="ghost" (pressed)="dismissed.emit()">Cancel</mui-button>
+    <mui-button variant="primary" [disabled]="selectedId() === null" (pressed)="confirmMove()">
+      Move
+    </mui-button>
+  </div>
+</mui-overlay-shell>
