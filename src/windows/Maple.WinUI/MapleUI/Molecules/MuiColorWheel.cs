@@ -98,7 +98,7 @@ namespace Maple.UI
                 Width = 12,
                 Height = 12,
                 StrokeThickness = 2,
-                Fill = new SolidColorBrush(Colors.Transparent),
+                Fill = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
                 IsHitTestVisible = false,
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Top,
