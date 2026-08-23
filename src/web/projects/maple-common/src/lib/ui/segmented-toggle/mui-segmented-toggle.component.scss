@@ -1,0 +1,67 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: inline-flex;
+}
+
+.track {
+  position: relative;
+  display: flex;
+  background: var(--color-surface);
+  border-radius: tok.$maple-radius-sm;
+  padding: 3px;
+  gap: 2px;
+}
+
+.is-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.indicator {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  bottom: 3px;
+  background: var(--color-surface-hover);
+  border-radius: tok.$maple-radius-xs;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.24);
+  transition: transform tok.$maple-motion-group-swap-ms tok.$maple-motion-group-swap-ease;
+}
+
+.segment {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  padding: tok.$maple-spacing-xs tok.$maple-spacing-md;
+  border-radius: tok.$maple-radius-xs;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 150ms;
+
+  // Minimum 44×44 hit target (segmented-toggle.md Accessibility) even when
+  // the visible segment is narrower — an invisible centered pad, same
+  // technique as Button.
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+  }
+
+  &.is-selected {
+    color: var(--color-text-main);
+  }
+
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
+    outline-offset: 2px;
+  }
+}

@@ -1,0 +1,18 @@
+<div class="mui-avatar" [class]="'size-' + size()">
+  @if (showImage()) {
+    <img class="photo" [src]="src()!" [alt]="name()" (error)="onError()" />
+  } @else {
+    <div
+      class="fallback"
+      [style.background]="fallbackColor().bg"
+      [style.color]="fallbackColor().fg"
+      role="img"
+      [attr.aria-label]="name()"
+    >
+      {{ initials() }}
+    </div>
+  }
+  @if (presence()) {
+    <span class="presence" [class]="'presence-' + presence()" [attr.aria-label]="presence()"></span>
+  }
+</div>

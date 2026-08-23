@@ -1,0 +1,59 @@
+<div
+  class="mui-input"
+  [class]="'variant-' + variant() + ' size-' + size()"
+  [class.is-focused]="focused()"
+  [class.is-filled]="isFilled()"
+  [class.is-error]="!!error()"
+  [class.is-disabled]="disabled()"
+>
+  <div class="field">
+    @if (variant() === 'search') {
+      <mui-icon name="search" size="sm" class="prefix" />
+    }
+    <input
+      type="text"
+      class="control"
+      [value]="value()"
+      [placeholder]="placeholder()"
+      [disabled]="disabled()"
+      [readOnly]="readOnly()"
+      [attr.aria-label]="ariaLabel()"
+      [attr.aria-invalid]="error() ? 'true' : null"
+      [attr.aria-describedby]="error() ? 'mui-input-error' : null"
+      (input)="onInput($any($event.target).value)"
+      (focus)="onFocus()"
+      (blur)="onBlur()"
+      (keydown)="onKeydown($event)"
+    />
+    @if (showClear()) {
+      <button type="button" class="clear" aria-label="Clear" (click)="clear()">
+        <mui-icon name="x" size="xs" />
+      </button>
+    }
+    @if (variant() === 'numeric') {
+      <div class="steppers">
+        <button
+          type="button"
+          class="stepper"
+          aria-label="Decrease"
+          [disabled]="disabled() || readOnly()"
+          (click)="stepBy(-1)"
+        >
+          &minus;
+        </button>
+        <button
+          type="button"
+          class="stepper"
+          aria-label="Increase"
+          [disabled]="disabled() || readOnly()"
+          (click)="stepBy(1)"
+        >
+          +
+        </button>
+      </div>
+    }
+  </div>
+  @if (error()) {
+    <div id="mui-input-error" class="helper" role="alert">{{ error() }}</div>
+  }
+</div>

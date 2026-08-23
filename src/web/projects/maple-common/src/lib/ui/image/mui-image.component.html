@@ -1,0 +1,18 @@
+<div class="mui-image" [class]="'radius-' + radius()" [style.aspect-ratio]="aspectRatio()">
+  @if (!broken()) {
+    <img
+      class="pixels"
+      [class]="'fit-' + fit()"
+      [class.is-loaded]="loaded()"
+      [src]="src()"
+      [alt]="alt()"
+      loading="lazy"
+      (error)="onError()"
+      (load)="onLoad()"
+    />
+  } @else {
+    <div class="placeholder" role="img" [attr.aria-label]="alt()">
+      <mui-icon name="photos" size="lg" />
+    </div>
+  }
+</div>
