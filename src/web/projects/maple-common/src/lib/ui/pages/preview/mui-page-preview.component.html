@@ -1,0 +1,14 @@
+<mui-app-shell class="mui-page-preview">
+  <div slot="nav">
+    <mui-page-header [title]="headerTitle()" [showBack]="false" />
+  </div>
+
+  <div class="preview-body">
+    <mui-preview-surface
+      [items]="items"
+      [activeId]="activeId()"
+      (activeChanged)="onActiveChanged($event)"
+      style="display: block; width: 100%; height: 100%"
+    />
+  </div>
+</mui-app-shell>

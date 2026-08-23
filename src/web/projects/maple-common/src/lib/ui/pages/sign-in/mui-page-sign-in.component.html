@@ -1,0 +1,28 @@
+<mui-app-shell class="mui-page-sign-in">
+  <div class="center-wrap">
+    <div class="sign-in-card">
+      <div class="card-title">Sign in to Maple</div>
+      @if (banner()) {
+        <mui-banner
+          [variant]="banner()!.variant"
+          [message]="banner()!.message"
+          [dismissible]="true"
+          (dismissed)="dismissBanner()"
+        />
+      }
+      <mui-form-field
+        label="Email"
+        [value]="email()"
+        (valueChange)="email.set($event)"
+        placeholder="you@example.com"
+      />
+      <mui-form-field
+        label="Password"
+        [value]="password()"
+        (valueChange)="password.set($event)"
+        placeholder="••••••••"
+      />
+      <mui-button variant="primary" (pressed)="onSubmit()">Sign in</mui-button>
+    </div>
+  </div>
+</mui-app-shell>

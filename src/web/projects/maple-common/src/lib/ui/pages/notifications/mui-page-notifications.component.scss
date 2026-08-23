@@ -1,0 +1,15 @@
+:host {
+  display: block;
+  height: 100%;
+  min-height: 0;
+}
+
+.mui-page-notifications {
+  height: 100%;
+}
+
+.feed-body {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+}

@@ -1,0 +1,36 @@
+@use '../../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+  height: 100%;
+  min-height: 0;
+}
+
+.mui-page-document {
+  height: 100%;
+}
+
+.sidebar-pane {
+  height: 100%;
+  background: var(--color-sidebar);
+}
+
+.editor-pane {
+  height: 100%;
+  overflow: auto;
+  padding: tok.$maple-spacing-lg;
+}
+
+.detail-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.detail-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: tok.$maple-spacing-md;
+}

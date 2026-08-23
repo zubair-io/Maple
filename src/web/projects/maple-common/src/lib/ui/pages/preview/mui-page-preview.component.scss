@@ -1,0 +1,15 @@
+:host {
+  display: block;
+  height: 100%;
+  min-height: 0;
+}
+
+.mui-page-preview {
+  height: 100%;
+}
+
+.preview-body {
+  height: 100%;
+  min-height: 0;
+  background: var(--color-image-canvas);
+}

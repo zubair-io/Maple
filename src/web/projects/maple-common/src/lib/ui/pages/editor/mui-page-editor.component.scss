@@ -1,0 +1,56 @@
+@use '../../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+  height: 100%;
+  min-height: 0;
+}
+
+.mui-page-editor {
+  height: 100%;
+}
+
+.tool-dock-pane {
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  padding-top: tok.$maple-spacing-md;
+  background: var(--color-sidebar);
+}
+
+.canvas-column {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.canvas-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--color-image-canvas);
+}
+
+.value-hud {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.control-surface-dock {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--color-border);
+}
+
+.filmstrip-dock {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--color-border);
+}
+
+.inspector-pane {
+  height: 100%;
+  overflow: auto;
+}

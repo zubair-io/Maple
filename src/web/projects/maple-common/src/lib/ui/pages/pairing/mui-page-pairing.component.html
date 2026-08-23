@@ -1,0 +1,17 @@
+<mui-app-shell class="mui-page-pairing">
+  <div slot="nav">
+    <mui-page-header [title]="headerTitle()" [showBack]="false" />
+  </div>
+
+  <div class="pairing-body">
+    <mui-pair-device-modal
+      [open]="true"
+      [step]="step()"
+      [pairingCode]="pairingCode"
+      [scanning]="step() === 1"
+      [connected]="step() === 2"
+      (stepChanged)="onStepChanged($event)"
+      (paired)="onPaired($event)"
+    />
+  </div>
+</mui-app-shell>
