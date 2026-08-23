@@ -1,0 +1,52 @@
+<div class="mui-pipeline-monitor">
+  @if (stages().length === 0) {
+    <mui-empty-state
+      icon="history"
+      title="Pipeline idle"
+      message="No stages are configured, or there are no assets queued to process."
+    />
+  } @else {
+    <div class="overall">
+      <mui-text variant="tool-label" color="muted">Overall progress</mui-text>
+      <mui-progress
+        shape="bar"
+        size="md"
+        [value]="overallProgress()"
+        [label]="overallProgress() + '%'"
+      />
+    </div>
+
+    <div class="stages">
+      @for (stage of stages(); track stage.id) {
+        <mui-list-row
+          [label]="stage.name"
+          [subtitle]="stage.processed + ' / ' + stage.total + ' processed'"
+        >
+          <div trailing class="trailing-group">
+            <mui-icon
+              [name]="statusIcon[stage.status]"
+              [color]="statusIconColor[stage.status]"
+              size="sm"
+              [decorative]="false"
+            />
+            <mui-badge
+              [variant]="statusBadgeVariant[stage.status]"
+              [value]="statusLabel[stage.status]"
+            />
+            <mui-progress shape="bar" size="sm" [value]="stageProgress(stage)" class="stage-bar" />
+            @if (canToggle(stage)) {
+              <mui-button variant="ghost" size="sm" (pressed)="stagePauseToggled.emit(stage.id)">
+                {{ toggleLabel(stage) }}
+              </mui-button>
+            }
+            @if (stage.status === 'error') {
+              <mui-button variant="secondary" size="sm" (pressed)="stageRetried.emit(stage.id)">
+                Retry
+              </mui-button>
+            }
+          </div>
+        </mui-list-row>
+      }
+    </div>
+  }
+</div>

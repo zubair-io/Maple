@@ -1,0 +1,34 @@
+<div class="mui-hsl-panel">
+  <mui-chip-row
+    [chips]="bands()"
+    mode="select"
+    [selectedId]="activeBandId()"
+    (selectedIdChange)="selectBand($event)"
+  />
+  <div class="sliders">
+    <mui-living-slider
+      label="Hue"
+      [value]="activeValue().hue"
+      (valueChange)="emitChange('hue', $event)"
+      [min]="-100"
+      [max]="100"
+      [bipolar]="true"
+    />
+    <mui-living-slider
+      label="Saturation"
+      [value]="activeValue().saturation"
+      (valueChange)="emitChange('saturation', $event)"
+      [min]="-100"
+      [max]="100"
+      [bipolar]="true"
+    />
+    <mui-living-slider
+      label="Luminance"
+      [value]="activeValue().luminance"
+      (valueChange)="emitChange('luminance', $event)"
+      [min]="-100"
+      [max]="100"
+      [bipolar]="true"
+    />
+  </div>
+</div>

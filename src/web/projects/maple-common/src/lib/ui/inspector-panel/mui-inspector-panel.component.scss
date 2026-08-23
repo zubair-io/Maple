@@ -1,0 +1,20 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+  height: 100%;
+}
+
+.mui-inspector-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: tok.$maple-spacing-sm;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: tok.$maple-spacing-md;
+}

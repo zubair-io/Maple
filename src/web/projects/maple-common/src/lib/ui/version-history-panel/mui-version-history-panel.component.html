@@ -1,0 +1,38 @@
+<div class="mui-version-history-panel">
+  @if (loading()) {
+    <mui-spinner placement="centered" />
+  } @else if (versions().length === 0) {
+    <mui-empty-state icon="history" title="No version history yet" />
+  } @else {
+    @for (version of versions(); track version.id) {
+      <mui-list-row
+        icon="history"
+        [label]="version.label"
+        [timestampValue]="version.timestampValue"
+      >
+        @if (version.current) {
+          <mui-text trailing variant="chip-label" color="muted">Current</mui-text>
+        } @else {
+          <mui-button
+            trailing
+            variant="ghost"
+            size="sm"
+            (pressed)="openConfirm(version.id, $event)"
+          >
+            Restore
+          </mui-button>
+        }
+      </mui-list-row>
+    }
+  }
+
+  <mui-dialog
+    [open]="pendingRestoreId() !== null"
+    title="Restore this version?"
+    message="Your current adjustments will be replaced."
+    variant="confirm"
+    confirmLabel="Restore"
+    (confirmed)="confirmRestore()"
+    (dismissed)="closeDialog()"
+  />
+</div>

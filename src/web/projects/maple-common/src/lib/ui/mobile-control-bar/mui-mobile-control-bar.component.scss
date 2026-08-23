@@ -1,0 +1,29 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+  width: 100%;
+}
+
+.mui-mobile-control-bar {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  box-sizing: border-box;
+  gap: tok.$maple-spacing-sm;
+  padding: tok.$maple-spacing-sm tok.$maple-spacing-md
+    calc(tok.$maple-spacing-sm + env(safe-area-inset-bottom, 0px)) tok.$maple-spacing-md;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+}
+
+.tool-row {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: tok.$maple-spacing-xs;
+}
+
+.tool-row > * {
+  flex: 1 1 0;
+}

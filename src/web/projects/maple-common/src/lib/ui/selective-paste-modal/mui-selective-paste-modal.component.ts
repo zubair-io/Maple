@@ -1,0 +1,50 @@
+// MuiSelectivePasteModal — Maple UI Organisms (unified-component-catalog.md
+// §4.4). Per-group apply toggles before pasting settings onto other photos,
+// built from Overlay Shell, Checkbox (repeated per group), Text, and
+// Button.
+
+import { ChangeDetectionStrategy, Component, computed, input, model, output } from '@angular/core';
+import { MuiButtonComponent } from '../button/mui-button.component';
+import { MuiCheckboxComponent } from '../checkbox/mui-checkbox.component';
+import { MuiOverlayShellComponent } from '../overlay-shell/mui-overlay-shell.component';
+import { MuiTextComponent } from '../text/mui-text.component';
+
+export interface MuiSelectivePasteGroup {
+  readonly id: string;
+  readonly label: string;
+  readonly description?: string;
+  readonly enabled: boolean;
+}
+
+@Component({
+  selector: 'mui-selective-paste-modal',
+  standalone: true,
+  imports: [MuiButtonComponent, MuiCheckboxComponent, MuiOverlayShellComponent, MuiTextComponent],
+  templateUrl: './mui-selective-paste-modal.component.html',
+  styleUrl: './mui-selective-paste-modal.component.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class MuiSelectivePasteModalComponent {
+  readonly open = input<boolean>(false);
+  readonly groups = model.required<readonly MuiSelectivePasteGroup[]>();
+
+  /** Fires with the ids of the groups left enabled when Paste is pressed. */
+  readonly pasteConfirmed = output<readonly string[]>();
+  readonly dismissed = output<void>();
+
+  readonly enabledCount = computed(() => this.groups().filter((group) => group.enabled).length);
+
+  toggleGroup(groupId: string, enabled: boolean): void {
+    this.groups.set(
+      this.groups().map((group) => (group.id === groupId ? { ...group, enabled } : group)),
+    );
+  }
+
+  confirmPaste(): void {
+    this.pasteConfirmed.emit(
+      this.groups()
+        .filter((group) => group.enabled)
+        .map((group) => group.id),
+    );
+  }
+}

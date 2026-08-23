@@ -4,7 +4,7 @@
 // (see ../public-api.ts) — these are implementation details the plots share,
 // not a component contract of their own.
 
-import type { ElementRef } from '@angular/core';
+import { Directive, type ElementRef, effect, input, viewChild } from '@angular/core';
 
 /** Resolves a `var(--token)` reference against the element's computed
  * style; passes any other string (already a literal color) through as-is. */
@@ -38,6 +38,38 @@ export function beginPlotDraw(
   if (!ctx) return null;
   ctx.clearRect(0, 0, width, height);
   return { canvasEl, ctx };
+}
+
+/** Registers a signal `effect()` that reads each of `deps` (establishing
+ * them as dependencies) and then calls `draw` — the shared "redraw whenever
+ * any input/size/color signal changes" constructor wiring every plot
+ * molecule's `draw()`-on-`effect()` pattern otherwise repeats verbatim
+ * (connection-graph, curve-plot, heatmap-layer, histogram, parade,
+ * waveform). Must be called synchronously from a constructor (or another
+ * injection context), same as a direct `effect()` call. */
+export function watchAndDraw(deps: readonly (() => unknown)[], draw: () => void): void {
+  effect(() => {
+    deps.forEach((dep) => dep());
+    draw();
+  });
+}
+
+/** {@link beginPlotDraw} convenience for the common case where the frame's
+ * pixel size comes from separate `width()`/`height()` signals: reads both
+ * once, begins the frame, and returns them alongside `canvasEl`/`ctx` so a
+ * `draw()` that needs `w`/`h` later doesn't re-read the signals — the
+ * shared `draw()` prologue every plot molecule sized by `width`/`height`
+ * (rather than a single `size`, like vectorscope) otherwise repeats
+ * verbatim. */
+export function beginSizedPlotDraw(
+  canvasRef: ElementRef<HTMLCanvasElement> | undefined,
+  width: () => number,
+  height: () => number,
+): (PlotFrame & { readonly w: number; readonly h: number }) | null {
+  const w = width();
+  const h = height();
+  const frame = beginPlotDraw(canvasRef, w, h);
+  return frame ? { ...frame, w, h } : null;
 }
 
 /** Clamps a sample to the `[0, 1]` plot-value range. */
@@ -94,5 +126,97 @@ export function drawVerticalBars(
       Math.max(1, colWidth - 0.5),
       barHeight,
     );
+  }
+}
+
+/** The full inputs/viewChild/redraw-wiring/draw-prologue shared by Histogram
+ * and Parade — both are "three RGB channel value arrays, rasterized as
+ * vertical bar lanes," differing only in how a channel's values map to bar
+ * heights and how lanes are laid out (see {@link drawVerticalBars}'s doc
+ * comment). An `@Directive()` abstract base (Angular's supported pattern
+ * for sharing component behavior without a template — same shape as
+ * `DestructiveConfirmDialogBase`/`MediaTransportBase`), not a fourth
+ * `watchAndDraw`/`beginSizedPlotDraw` call site: the field declarations,
+ * constructor, and `draw()` prologue were already byte-identical. Each
+ * subclass supplies its own literal `channelColor` (histogram vs. parade
+ * alpha) and `drawChannels` (the lane layout). */
+@Directive()
+export abstract class RgbChannelPlotBase {
+  readonly r = input.required<readonly number[]>();
+  readonly g = input.required<readonly number[]>();
+  readonly b = input.required<readonly number[]>();
+  readonly width = input<number>(240);
+  readonly height = input<number>(64);
+
+  readonly canvas = viewChild<ElementRef<HTMLCanvasElement>>('canvas');
+
+  protected abstract readonly channelColor: {
+    readonly r: string;
+    readonly g: string;
+    readonly b: string;
+  };
+
+  constructor() {
+    watchAndDraw([this.r, this.g, this.b, this.width, this.height], () => this.draw());
+  }
+
+  /** Lays out the three channels within the frame — histogram scales bars
+   * peak-relative with no lane gap; parade clamps 0..1 per lane with a gap
+   * between lanes. */
+  protected abstract drawChannels(
+    ctx: CanvasRenderingContext2D,
+    channels: readonly RgbChannel[],
+    w: number,
+    h: number,
+  ): void;
+
+  private draw(): void {
+    const frame = beginSizedPlotDraw(this.canvas(), this.width, this.height);
+    if (!frame) return;
+    const { ctx, w, h } = frame;
+    this.drawChannels(ctx, rgbChannels(this.r(), this.g(), this.b(), this.channelColor), w, h);
+  }
+}
+
+/** The `canvas` viewChild + redraw-wiring + `draw()`-prologue shared by
+ * every plot molecule sized by separate `width`/`height` signals
+ * (connection-graph, curve-plot, heatmap-layer, waveform — histogram/parade
+ * have their own, more specific `RgbChannelPlotBase`). `width`/`height`
+ * themselves stay on each subclass (their defaults genuinely differ per
+ * plot — 160×96 vs. 240×64 — so they can't live on a shared base with one
+ * fixed default), which means the redraw wiring can't auto-run from this
+ * base's own constructor the way `RgbChannelPlotBase`'s does: a base
+ * constructor runs before a subclass's own field initializers, so it can't
+ * yet read a subclass-declared `input()`. Each subclass instead calls
+ * {@link watchRedraw} itself, from its own constructor, once its own inputs
+ * are live — same "@Directive() abstract base sharing behavior without a
+ * template" pattern as `RgbChannelPlotBase`, just with construction-order
+ * pushed one step later. */
+@Directive()
+export abstract class SizedCanvasPlotBase {
+  readonly canvas = viewChild<ElementRef<HTMLCanvasElement>>('canvas');
+
+  protected abstract width(): number;
+  protected abstract height(): number;
+
+  /** Call once, from the subclass's own constructor, with every signal the
+   * redraw should depend on (typically the subclass's own value/size/color
+   * inputs). */
+  protected watchRedraw(deps: readonly (() => unknown)[]): void {
+    watchAndDraw(deps, () => this.draw());
+  }
+
+  /** The subclass's actual per-frame rendering, given the already-cleared
+   * frame + its current pixel size. Not called at all when there's nothing
+   * to draw into yet (e.g. before the first view-init pass). */
+  protected abstract renderFrame(frame: PlotFrame, w: number, h: number): void;
+
+  private draw(): void {
+    const frame = beginSizedPlotDraw(
+      this.canvas(),
+      () => this.width(),
+      () => this.height(),
+    );
+    if (frame) this.renderFrame(frame, frame.w, frame.h);
   }
 }

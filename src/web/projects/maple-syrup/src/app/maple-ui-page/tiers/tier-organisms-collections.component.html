@@ -12,8 +12,9 @@
     4 &middot; Organisms
   </div>
   <div style="width: 64px; height: 3px; background: #993629; margin-bottom: 16px"></div>
-  <div style="font-size: 14px; color: #a8a29e">Built from molecules. 34 organisms.</div>
+  <div style="font-size: 14px; color: #a8a29e">Built from molecules. 23 organisms shown here.</div>
 </div>
+
 <div
   style="
     font-size: 12px;
@@ -29,7 +30,7 @@
 <div
   style="
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 16px;
     margin-bottom: 40px;
   "
@@ -45,47 +46,15 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 90px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <div
-          style="
-            width: 220px;
-            height: 90px;
-            border: 1px solid #e7e5e4;
-            border-radius: 8px;
-            background: #fafaf9;
-            padding: 8px;
-            box-sizing: border-box;
-            overflow: hidden;
-          "
-        >
-          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px">
-            <div style="aspect-ratio: 1; background: #e7e5e4; border-radius: 3px"></div>
-            <div style="aspect-ratio: 1; background: #e7e5e4; border-radius: 3px"></div>
-            <div
-              style="
-                aspect-ratio: 1;
-                background: #f5e6e4;
-                border-radius: 3px;
-                outline: 2px solid #993629;
-              "
-            ></div>
-            <div style="aspect-ratio: 1; background: #e7e5e4; border-radius: 3px"></div>
-            <div style="aspect-ratio: 1; background: #e7e5e4; border-radius: 3px"></div>
-            <div style="aspect-ratio: 1; background: #e7e5e4; border-radius: 3px"></div>
-            <div style="aspect-ratio: 1; background: #e7e5e4; border-radius: 3px"></div>
-            <div style="aspect-ratio: 1; background: #e7e5e4; border-radius: 3px"></div>
-          </div>
-        </div>
-      </div>
+    <div style="overflow: hidden; background: #1c1917; border-radius: 8px; padding: 10px 14px">
+      <mui-collection-grid
+        [items]="collectionGridItems"
+        [(selectedIds)]="collectionGridSelected"
+        [columns]="4"
+        [cellHeight]="104"
+        [viewportHeight]="220"
+        style="display: block; width: 100%"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Collection Grid</div>
@@ -105,6 +74,7 @@
       </div>
     </div>
   </div>
+
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -116,84 +86,14 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 90px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <div
-          style="
-            width: 220px;
-            height: 90px;
-            border: 1px solid #e7e5e4;
-            border-radius: 8px;
-            background: #fafaf9;
-            padding: 8px;
-            box-sizing: border-box;
-            overflow: hidden;
-          "
-        >
-          <div style="display: flex; flex-direction: column; gap: 6px">
-            <div style="display: flex; align-items: center; gap: 6px">
-              <span class="material-symbols-rounded" style="font-size: 12px; color: #993629"
-                >description</span
-              ><span
-                style="
-                  font-family: 'Lato', sans-serif;
-                  font-size: 10px;
-                  color: #292524;
-                  font-weight: 400;
-                "
-                >Item 1</span
-              >
-            </div>
-            <div style="display: flex; align-items: center; gap: 6px">
-              <span class="material-symbols-rounded" style="font-size: 12px; color: #993629"
-                >description</span
-              ><span
-                style="
-                  font-family: 'Lato', sans-serif;
-                  font-size: 10px;
-                  color: #292524;
-                  font-weight: 400;
-                "
-                >Item 2</span
-              >
-            </div>
-            <div style="display: flex; align-items: center; gap: 6px">
-              <span class="material-symbols-rounded" style="font-size: 12px; color: #993629"
-                >description</span
-              ><span
-                style="
-                  font-family: 'Lato', sans-serif;
-                  font-size: 10px;
-                  color: #292524;
-                  font-weight: 400;
-                "
-                >Item 3</span
-              >
-            </div>
-            <div style="display: flex; align-items: center; gap: 6px">
-              <span class="material-symbols-rounded" style="font-size: 12px; color: #993629"
-                >description</span
-              ><span
-                style="
-                  font-family: 'Lato', sans-serif;
-                  font-size: 10px;
-                  color: #292524;
-                  font-weight: 400;
-                "
-                >Item 4</span
-              >
-            </div>
-          </div>
-        </div>
-      </div>
+    <div style="overflow: hidden; background: #1c1917; border-radius: 8px; padding: 10px 14px">
+      <mui-list-view
+        [items]="listViewItems"
+        [(activeId)]="listViewActiveId"
+        [rowHeight]="36"
+        [viewportHeight]="180"
+        style="display: block; width: 100%"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">List View</div>
@@ -211,6 +111,7 @@
       </div>
     </div>
   </div>
+
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -224,47 +125,21 @@
   >
     <div
       style="
-        height: 90px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
+        overflow: auto;
+        max-height: 220px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div
-          style="
-            width: 220px;
-            height: 90px;
-            border: 1px solid #e7e5e4;
-            border-radius: 8px;
-            background: #fafaf9;
-            padding: 8px;
-            box-sizing: border-box;
-            overflow: hidden;
-          "
-        >
-          <div style="display: flex; flex-direction: column; gap: 6px">
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #a8a29e;
-                font-weight: 700;
-              "
-              >MARCH 2026</span
-            >
-            <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px">
-              <div style="aspect-ratio: 1; background: #e7e5e4; border-radius: 3px"></div>
-              <div style="aspect-ratio: 1; background: #e7e5e4; border-radius: 3px"></div>
-              <div style="aspect-ratio: 1; background: #e7e5e4; border-radius: 3px"></div>
-              <div style="aspect-ratio: 1; background: #e7e5e4; border-radius: 3px"></div>
-              <div style="aspect-ratio: 1; background: #e7e5e4; border-radius: 3px"></div>
-              <div style="aspect-ratio: 1; background: #e7e5e4; border-radius: 3px"></div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <mui-timeline
+        [groups]="timelineGroups"
+        [filters]="timelineFilters"
+        [(activeFilterId)]="timelineActiveFilterId"
+        [(selectedIds)]="timelineSelected"
+        [columns]="6"
+        style="display: block; width: 100%"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Timeline</div>
@@ -284,6 +159,7 @@
       </div>
     </div>
   </div>
+
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -297,117 +173,14 @@
   >
     <div
       style="
-        height: 100px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
+        overflow: auto;
+        max-height: 220px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div
-          style="
-            width: 240px;
-            height: 100px;
-            border: 1px solid #e7e5e4;
-            border-radius: 8px;
-            background: #fafaf9;
-            padding: 8px;
-            box-sizing: border-box;
-            overflow: hidden;
-          "
-        >
-          <div style="display: flex; align-items: center; gap: 6px">
-            <div style="display: flex; flex-direction: column; gap: 4px">
-              <span
-                style="
-                  font-family: 'Lato', sans-serif;
-                  font-size: 9px;
-                  color: #78716c;
-                  font-weight: 700;
-                "
-                >To do</span
-              >
-              <div
-                style="
-                  width: 66px;
-                  height: 20px;
-                  background: #fff;
-                  border-radius: 4px;
-                  flex-shrink: 0;
-                "
-              ></div>
-              <div
-                style="
-                  width: 66px;
-                  height: 20px;
-                  background: #fff;
-                  border-radius: 4px;
-                  flex-shrink: 0;
-                "
-              ></div>
-            </div>
-            <div style="display: flex; flex-direction: column; gap: 4px">
-              <span
-                style="
-                  font-family: 'Lato', sans-serif;
-                  font-size: 9px;
-                  color: #78716c;
-                  font-weight: 700;
-                "
-                >Doing</span
-              >
-              <div
-                style="
-                  width: 66px;
-                  height: 20px;
-                  background: #fff;
-                  border-radius: 4px;
-                  flex-shrink: 0;
-                "
-              ></div>
-              <div
-                style="
-                  width: 66px;
-                  height: 20px;
-                  background: #fff;
-                  border-radius: 4px;
-                  flex-shrink: 0;
-                "
-              ></div>
-            </div>
-            <div style="display: flex; flex-direction: column; gap: 4px">
-              <span
-                style="
-                  font-family: 'Lato', sans-serif;
-                  font-size: 9px;
-                  color: #78716c;
-                  font-weight: 700;
-                "
-                >Done</span
-              >
-              <div
-                style="
-                  width: 66px;
-                  height: 20px;
-                  background: #fff;
-                  border-radius: 4px;
-                  flex-shrink: 0;
-                "
-              ></div>
-              <div
-                style="
-                  width: 66px;
-                  height: 20px;
-                  background: #fff;
-                  border-radius: 4px;
-                  flex-shrink: 0;
-                "
-              ></div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <mui-kanban-board [columns]="kanbanColumns" style="display: block; width: 100%" />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Kanban Board</div>
@@ -421,10 +194,11 @@
           letter-spacing: 0.05em;
         "
       >
-        Card, Text, Button
+        Card, Text
       </div>
     </div>
   </div>
+
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -436,95 +210,13 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 70px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <div
-          style="
-            width: 220px;
-            height: 60px;
-            border: 1px solid #e7e5e4;
-            border-radius: 8px;
-            background: #fafaf9;
-            padding: 8px;
-            box-sizing: border-box;
-            overflow: hidden;
-          "
-        >
-          <div style="display: flex; align-items: center; gap: 4px">
-            <div
-              style="
-                width: 24px;
-                height: 24px;
-                background: #e7e5e4;
-                border-radius: 4px;
-                flex-shrink: 0;
-              "
-            ></div>
-            <div
-              style="
-                width: 24px;
-                height: 24px;
-                background: #e7e5e4;
-                border-radius: 4px;
-                flex-shrink: 0;
-              "
-            ></div>
-            <div
-              style="
-                width: 24px;
-                height: 24px;
-                background: #e7e5e4;
-                border-radius: 4px;
-                flex-shrink: 0;
-              "
-            ></div>
-            <div
-              style="
-                width: 24px;
-                height: 24px;
-                background: #f5e6e4;
-                border-radius: 4px;
-                flex-shrink: 0;
-              "
-            ></div>
-            <div
-              style="
-                width: 24px;
-                height: 24px;
-                background: #e7e5e4;
-                border-radius: 4px;
-                flex-shrink: 0;
-              "
-            ></div>
-            <div
-              style="
-                width: 24px;
-                height: 24px;
-                background: #e7e5e4;
-                border-radius: 4px;
-                flex-shrink: 0;
-              "
-            ></div>
-            <div
-              style="
-                width: 24px;
-                height: 24px;
-                background: #e7e5e4;
-                border-radius: 4px;
-                flex-shrink: 0;
-              "
-            ></div>
-          </div>
-        </div>
-      </div>
+    <div style="overflow: hidden; background: #1c1917; border-radius: 8px; padding: 10px 14px">
+      <mui-filmstrip
+        [items]="filmstripItems"
+        [(activeId)]="filmstripActiveId"
+        orientation="horizontal"
+        style="display: block; width: 100%"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Filmstrip</div>
@@ -544,6 +236,7 @@
       </div>
     </div>
   </div>
+
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -557,49 +250,23 @@
   >
     <div
       style="
-        height: 90px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
+        overflow: auto;
+        max-height: 220px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div
-          style="
-            width: 220px;
-            height: 90px;
-            border: 1px solid #e7e5e4;
-            border-radius: 8px;
-            background: #fafaf9;
-            padding: 8px;
-            box-sizing: border-box;
-            overflow: hidden;
-          "
-        >
-          <div style="display: flex; flex-direction: column; gap: 6px">
-            <div style="display: flex; align-items: center; gap: 6px">
-              <span class="material-symbols-rounded" style="font-size: 12px; color: #78716c"
-                >search</span
-              ><span
-                style="
-                  font-family: 'Lato', sans-serif;
-                  font-size: 9px;
-                  color: #a8a29e;
-                  font-weight: 400;
-                "
-                >142 results</span
-              >
-            </div>
-            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px">
-              <div style="aspect-ratio: 1; background: #e7e5e4; border-radius: 3px"></div>
-              <div style="aspect-ratio: 1; background: #e7e5e4; border-radius: 3px"></div>
-              <div style="aspect-ratio: 1; background: #e7e5e4; border-radius: 3px"></div>
-              <div style="aspect-ratio: 1; background: #e7e5e4; border-radius: 3px"></div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <mui-search-results
+        [items]="searchResultItems"
+        [(selectedIds)]="searchResultSelected"
+        query="ballet"
+        [totalCount]="142"
+        [page]="2"
+        [pageCount]="5"
+        [columns]="4"
+        style="display: block; width: 100%"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Search Results</div>
@@ -620,6 +287,7 @@
     </div>
   </div>
 </div>
+
 <div
   style="
     font-size: 12px;
@@ -635,7 +303,7 @@
 <div
   style="
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 16px;
     margin-bottom: 40px;
   "
@@ -653,98 +321,21 @@
   >
     <div
       style="
-        height: 130px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
+        overflow: auto;
+        max-height: 220px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div
-          style="
-            width: 180px;
-            height: 130px;
-            border: 1px solid #e7e5e4;
-            border-radius: 8px;
-            background: #fafaf9;
-            padding: 8px;
-            box-sizing: border-box;
-            overflow: hidden;
-          "
-        >
-          <div style="display: flex; flex-direction: column; gap: 8px">
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #a8a29e;
-                font-weight: 700;
-              "
-              >MAPLE CLOUD</span
-            >
-            <div style="display: flex; align-items: center; gap: 6px">
-              <span class="material-symbols-rounded" style="font-size: 13px; color: #993629"
-                >folder</span
-              ><span
-                style="
-                  font-family: 'Lato', sans-serif;
-                  font-size: 10px;
-                  color: #292524;
-                  font-weight: 400;
-                "
-                >Notebooks</span
-              >
-            </div>
-            <div style="display: flex; align-items: center; gap: 6px">
-              <span style="width: 13px"></span
-              ><span
-                style="
-                  font-family: 'Lato', sans-serif;
-                  font-size: 9px;
-                  color: #57534e;
-                  font-weight: 400;
-                "
-                >Personal</span
-              >
-            </div>
-            <div style="display: flex; align-items: center; gap: 6px">
-              <span style="width: 13px"></span
-              ><span
-                style="
-                  font-family: 'Lato', sans-serif;
-                  font-size: 9px;
-                  color: #57534e;
-                  font-weight: 400;
-                "
-                >Work</span
-              >
-            </div>
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #a8a29e;
-                font-weight: 700;
-              "
-              >LOCAL</span
-            >
-            <div style="display: flex; align-items: center; gap: 6px">
-              <span class="material-symbols-rounded" style="font-size: 13px; color: #78716c"
-                >book_2</span
-              ><span
-                style="
-                  font-family: 'Lato', sans-serif;
-                  font-size: 10px;
-                  color: #292524;
-                  font-weight: 400;
-                "
-                >Journal</span
-              >
-            </div>
-          </div>
-        </div>
-      </div>
+      <mui-sidebar
+        [sections]="sidebarSections"
+        [(activeId)]="sidebarActiveId"
+        [(expandedIds)]="sidebarExpandedIds"
+        [toolbarEntries]="sidebarToolbarEntries"
+        [contextMenuEntries]="sidebarContextEntries"
+        style="display: block; width: 100%"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Sidebar</div>
@@ -764,6 +355,7 @@
       </div>
     </div>
   </div>
+
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -777,24 +369,21 @@
   >
     <div
       style="
-        height: 120px;
+        height: 130px;
         display: flex;
         align-items: center;
         justify-content: center;
         overflow: hidden;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 10px">
-          <span class="material-symbols-rounded" style="font-size: 18px; color: #993629">tune</span
-          ><span class="material-symbols-rounded" style="font-size: 18px; color: #78716c"
-            >palette</span
-          ><span class="material-symbols-rounded" style="font-size: 18px; color: #78716c">crop</span
-          ><span class="material-symbols-rounded" style="font-size: 18px; color: #78716c"
-            >draw</span
-          >
-        </div>
-      </div>
+      <mui-tool-dock
+        [entries]="toolDockEntries"
+        [(activeId)]="toolDockActiveId"
+        orientation="vertical"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Tool Dock</div>
@@ -812,6 +401,7 @@
       </div>
     </div>
   </div>
+
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -825,78 +415,26 @@
   >
     <div
       style="
-        height: 110px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
+        overflow: auto;
+        max-height: 320px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div
-          style="
-            width: 220px;
-            height: 110px;
-            border: 1px solid #e7e5e4;
-            border-radius: 8px;
-            background: #fafaf9;
-            padding: 8px;
-            box-sizing: border-box;
-            overflow: hidden;
-          "
-        >
-          <div style="display: flex; flex-direction: column; gap: 8px">
-            <div
-              style="
-                display: flex;
-                align-items: center;
-                gap: 6px;
-                background: #fff;
-                border: 1px solid #e7e5e4;
-                border-radius: 99px;
-                padding: 6px 10px;
-              "
-            >
-              <span class="material-symbols-rounded" style="font-size: 13px; color: #78716c"
-                >search</span
-              ><span style="font-size: 10px; color: #a8a29e">Search everything</span>
-            </div>
-            <div style="display: flex; align-items: center; gap: 5px">
-              <span
-                style="
-                  font-family: 'Lato', sans-serif;
-                  font-size: 9px;
-                  font-weight: 600;
-                  background: #f5f2eb;
-                  color: #57534e;
-                  padding: 2px 7px;
-                  border-radius: 99px;
-                  white-space: nowrap;
-                "
-                >People</span
-              ><span
-                style="
-                  font-family: 'Lato', sans-serif;
-                  font-size: 9px;
-                  font-weight: 600;
-                  background: #f5f2eb;
-                  color: #57534e;
-                  padding: 2px 7px;
-                  border-radius: 99px;
-                  white-space: nowrap;
-                "
-                >Places</span
-              >
-            </div>
-            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px">
-              <div style="aspect-ratio: 1; background: #e7e5e4; border-radius: 3px"></div>
-              <div style="aspect-ratio: 1; background: #e7e5e4; border-radius: 3px"></div>
-              <div style="aspect-ratio: 1; background: #e7e5e4; border-radius: 3px"></div>
-              <div style="aspect-ratio: 1; background: #e7e5e4; border-radius: 3px"></div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <mui-search
+        [(query)]="searchQuery"
+        [suggestions]="searchSuggestions"
+        [filterGroups]="filterGroups"
+        [activeChips]="filterActiveChips"
+        [(showFilters)]="searchShowFilters"
+        [results]="searchResults"
+        [totalCount]="42"
+        [page]="1"
+        [pageCount]="3"
+        [(resultSelectedIds)]="searchResultSelectedIds"
+        style="display: block; width: 100%"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Search</div>
@@ -916,6 +454,7 @@
       </div>
     </div>
   </div>
+
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -929,86 +468,18 @@
   >
     <div
       style="
-        height: 100px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
+        overflow: auto;
+        max-height: 220px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 8px">
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span class="material-symbols-rounded" style="font-size: 12px; color: #78716c"
-              >expand_more</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #292524;
-                font-weight: 600;
-              "
-              >People</span
-            >
-          </div>
-          <div style="display: flex; align-items: center; gap: 6px">
-            <div
-              style="
-                width: 18px;
-                height: 18px;
-                flex-shrink: 0;
-                border-radius: 50%;
-                background: linear-gradient(135deg, #fdba74, #f87171);
-                color: #fff;
-                font-size: 7.56px;
-                font-weight: 700;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-              "
-            >
-              J
-            </div>
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #292524;
-                font-weight: 400;
-              "
-              >Jane</span
-            >
-          </div>
-          <div style="display: flex; align-items: center; gap: 6px">
-            <div
-              style="
-                width: 18px;
-                height: 18px;
-                flex-shrink: 0;
-                border-radius: 50%;
-                background: linear-gradient(135deg, #60a5fa, #3b82f6);
-                color: #fff;
-                font-size: 7.56px;
-                font-weight: 700;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-              "
-            >
-              S
-            </div>
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #292524;
-                font-weight: 400;
-              "
-              >Sam</span
-            >
-          </div>
-        </div>
-      </div>
+      <mui-filter-panel
+        [groups]="filterGroups"
+        [activeChips]="filterActiveChips"
+        style="display: block; width: 100%"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Filter Panel</div>
@@ -1029,6 +500,7 @@
     </div>
   </div>
 </div>
+
 <div
   style="
     font-size: 12px;
@@ -1044,7 +516,7 @@
 <div
   style="
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 16px;
     margin-bottom: 40px;
   "
@@ -1060,73 +532,15 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 100px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <div
-          style="
-            width: 200px;
-            height: 100px;
-            border: 1px solid #e7e5e4;
-            border-radius: 8px;
-            background: #fafaf9;
-            padding: 8px;
-            box-sizing: border-box;
-            overflow: hidden;
-          "
-        >
-          <div style="display: flex; flex-direction: column; gap: 8px">
-            <div style="display: flex; align-items: center; gap: 8px">
-              <span style="flex: 1"
-                ><div style="display: flex; align-items: center; gap: 14px">
-                  <span
-                    style="
-                      font-family: 'Lato', sans-serif;
-                      font-size: 10px;
-                      color: #993629;
-                      font-weight: 600;
-                    "
-                    >Info</span
-                  ><span
-                    style="
-                      font-family: 'Lato', sans-serif;
-                      font-size: 10px;
-                      color: #78716c;
-                      font-weight: 600;
-                    "
-                    >Develop</span
-                  >
-                </div></span
-              >
-            </div>
-            <div style="height: 1px; background: #e7e5e4"></div>
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #78716c;
-                font-weight: 400;
-              "
-              >Camera</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #292524;
-                font-weight: 600;
-              "
-              >Sony A7IV</span
-            >
-          </div>
-        </div>
-      </div>
+    <div style="overflow: hidden; background: #1c1917; border-radius: 8px; padding: 10px 14px">
+      <mui-inspector-panel
+        title="Ballet Recital"
+        [tabs]="inspectorTabs"
+        [(activeTabId)]="inspectorActiveTabId"
+        style="display: block; width: 100%"
+      >
+        <div style="padding: 8px 4px; font-size: 10px; color: #a8a29e">Camera: Sony A7IV</div>
+      </mui-inspector-panel>
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Inspector Panel</div>
@@ -1146,6 +560,7 @@
       </div>
     </div>
   </div>
+
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1159,92 +574,22 @@
   >
     <div
       style="
-        height: 110px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
+        overflow: auto;
+        max-height: 260px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div
-          style="
-            width: 220px;
-            height: 110px;
-            border: 1px solid #e7e5e4;
-            border-radius: 8px;
-            background: #fafaf9;
-            padding: 8px;
-            box-sizing: border-box;
-            overflow: hidden;
-          "
-        >
-          <div style="display: flex; flex-direction: column; gap: 6px">
-            <div style="display: flex; align-items: flex-end; gap: 1px; height: 26px">
-              <div style="width: 3px; height: 8px; background: #993629"></div>
-              <div style="width: 3px; height: 15px; background: #993629"></div>
-              <div style="width: 3px; height: 22px; background: #993629"></div>
-              <div style="width: 3px; height: 29px; background: #993629"></div>
-              <div style="width: 3px; height: 14px; background: #993629"></div>
-              <div style="width: 3px; height: 21px; background: #993629"></div>
-              <div style="width: 3px; height: 28px; background: #993629"></div>
-              <div style="width: 3px; height: 13px; background: #993629"></div>
-              <div style="width: 3px; height: 20px; background: #993629"></div>
-              <div style="width: 3px; height: 27px; background: #993629"></div>
-              <div style="width: 3px; height: 12px; background: #993629"></div>
-              <div style="width: 3px; height: 19px; background: #993629"></div>
-              <div style="width: 3px; height: 26px; background: #993629"></div>
-              <div style="width: 3px; height: 11px; background: #993629"></div>
-              <div style="width: 3px; height: 18px; background: #993629"></div>
-              <div style="width: 3px; height: 25px; background: #993629"></div>
-              <div style="width: 3px; height: 10px; background: #993629"></div>
-              <div style="width: 3px; height: 17px; background: #993629"></div>
-              <div style="width: 3px; height: 24px; background: #993629"></div>
-              <div style="width: 3px; height: 9px; background: #993629"></div>
-              <div style="width: 3px; height: 16px; background: #993629"></div>
-              <div style="width: 3px; height: 23px; background: #993629"></div>
-              <div style="width: 3px; height: 8px; background: #993629"></div>
-              <div style="width: 3px; height: 15px; background: #993629"></div>
-            </div>
-            <div style="display: flex; align-items: center; gap: 5px">
-              <span
-                style="
-                  font-family: 'Lato', sans-serif;
-                  font-size: 9px;
-                  font-weight: 600;
-                  background: #f5f2eb;
-                  color: #57534e;
-                  padding: 2px 7px;
-                  border-radius: 99px;
-                  white-space: nowrap;
-                "
-                >family</span
-              ><span
-                style="
-                  font-family: 'Lato', sans-serif;
-                  font-size: 9px;
-                  font-weight: 600;
-                  background: #f5f2eb;
-                  color: #57534e;
-                  padding: 2px 7px;
-                  border-radius: 99px;
-                  white-space: nowrap;
-                "
-                >2026</span
-              >
-            </div>
-            <div style="display: flex; align-items: center; gap: 4px">
-              <span class="material-symbols-rounded" style="font-size: 12px; color: #f59e0b"
-                >star</span
-              ><span class="material-symbols-rounded" style="font-size: 12px; color: #f59e0b"
-                >star</span
-              ><span class="material-symbols-rounded" style="font-size: 12px; color: #e7e5e4"
-                >star</span
-              >
-            </div>
-          </div>
-        </div>
-      </div>
+      <mui-info-panel
+        [(filename)]="infoFilename"
+        [metadata]="infoMetadata"
+        [histogram]="infoHistogram"
+        [keywords]="infoKeywords"
+        [(rating)]="infoRating"
+        [(flag)]="infoFlag"
+        style="display: block; width: 100%"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Info Panel</div>
@@ -1262,6 +607,7 @@
       </div>
     </div>
   </div>
+
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1275,92 +621,23 @@
   >
     <div
       style="
-        height: 110px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
+        overflow: auto;
+        max-height: 260px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 8px">
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span class="material-symbols-rounded" style="font-size: 12px; color: #993629"
-              >auto_awesome</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #57534e;
-                font-weight: 400;
-              "
-              >A dancer stretching outdoors</span
-            >
-          </div>
-          <div style="display: flex; align-items: center; gap: 6px">
-            <div
-              style="
-                width: 18px;
-                height: 18px;
-                flex-shrink: 0;
-                border-radius: 50%;
-                background: linear-gradient(135deg, #fdba74, #f87171);
-                color: #fff;
-                font-size: 7.56px;
-                font-weight: 700;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-              "
-            >
-              A
-            </div>
-            <div
-              style="
-                width: 18px;
-                height: 18px;
-                flex-shrink: 0;
-                border-radius: 50%;
-                background: linear-gradient(135deg, #60a5fa, #3b82f6);
-                color: #fff;
-                font-size: 7.56px;
-                font-weight: 700;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-              "
-            >
-              B
-            </div>
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                font-weight: 600;
-                background: #f5f2eb;
-                color: #57534e;
-                padding: 2px 7px;
-                border-radius: 99px;
-                white-space: nowrap;
-              "
-              >+2</span
-            >
-          </div>
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span class="material-symbols-rounded" style="font-size: 12px; color: #993629"
-              >location_on</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #292524;
-                font-weight: 400;
-              "
-              >Ridgewood, NJ</span
-            >
-          </div>
-        </div>
-      </div>
+      <mui-enrichment-panel
+        [(description)]="enrichmentDescription"
+        descriptionStatus="done"
+        [people]="enrichmentPeople"
+        [(place)]="enrichmentPlace"
+        [transcriptBase]="enrichmentTranscriptBase"
+        [transcriptEntries]="enrichmentTranscriptEntries"
+        [visionLabels]="enrichmentVisionLabels"
+        style="display: block; width: 100%"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Enrichment Panel</div>
@@ -1380,6 +657,7 @@
       </div>
     </div>
   </div>
+
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1393,74 +671,19 @@
   >
     <div
       style="
-        height: 120px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
+        overflow: auto;
+        max-height: 260px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 8px">
-          <div style="display: flex; flex-direction: column; gap: 3px">
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #78716c;
-                font-weight: 700;
-              "
-              >Light</span
-            >
-            <div
-              style="
-                width: 170px;
-                height: 5px;
-                border-radius: 3px;
-                background: linear-gradient(90deg, #3b82f6, #f5f2eb, #f59e0b);
-              "
-            ></div>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 3px">
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #78716c;
-                font-weight: 700;
-              "
-              >Color</span
-            >
-            <div
-              style="
-                width: 170px;
-                height: 5px;
-                border-radius: 3px;
-                background: linear-gradient(90deg, #3b82f6, #f5f2eb, #f59e0b);
-              "
-            ></div>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 3px">
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #78716c;
-                font-weight: 700;
-              "
-              >Detail</span
-            >
-            <div
-              style="
-                width: 170px;
-                height: 5px;
-                border-radius: 3px;
-                background: linear-gradient(90deg, #3b82f6, #f5f2eb, #f59e0b);
-              "
-            ></div>
-          </div>
-        </div>
-      </div>
+      <mui-adjustments-panel
+        [tabs]="adjustmentTabs"
+        [values]="adjustmentValues"
+        [(activeTabId)]="adjustmentsActiveTabId"
+        style="display: block; width: 100%"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Adjustments Panel</div>
@@ -1478,6 +701,7 @@
       </div>
     </div>
   </div>
+
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1491,86 +715,24 @@
   >
     <div
       style="
-        height: 100px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
+        overflow: auto;
+        max-height: 260px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 6px">
-          <div
-            style="
-              width: 44px;
-              height: 44px;
-              border-radius: 50%;
-              background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red);
-              position: relative;
-            "
-          >
-            <div
-              style="
-                position: absolute;
-                left: 50%;
-                top: 50%;
-                width: 6px;
-                height: 6px;
-                border-radius: 50%;
-                background: #fff;
-                border: 1.5px solid #292524;
-                transform: translate(-50%, -50%);
-              "
-            ></div>
-          </div>
-          <div
-            style="
-              width: 44px;
-              height: 44px;
-              border-radius: 50%;
-              background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red);
-              position: relative;
-            "
-          >
-            <div
-              style="
-                position: absolute;
-                left: 50%;
-                top: 50%;
-                width: 6px;
-                height: 6px;
-                border-radius: 50%;
-                background: #fff;
-                border: 1.5px solid #292524;
-                transform: translate(-50%, -50%);
-              "
-            ></div>
-          </div>
-          <div
-            style="
-              width: 44px;
-              height: 44px;
-              border-radius: 50%;
-              background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red);
-              position: relative;
-            "
-          >
-            <div
-              style="
-                position: absolute;
-                left: 50%;
-                top: 50%;
-                width: 6px;
-                height: 6px;
-                border-radius: 50%;
-                background: #fff;
-                border: 1.5px solid #292524;
-                transform: translate(-50%, -50%);
-              "
-            ></div>
-          </div>
-        </div>
-      </div>
+      <mui-color-grading-panel
+        [(shadows)]="colorGradingShadows"
+        [(shadowsLuminance)]="colorGradingShadowsLuminance"
+        [(midtones)]="colorGradingMidtones"
+        [(midtonesLuminance)]="colorGradingMidtonesLuminance"
+        [(highlights)]="colorGradingHighlights"
+        [(highlightsLuminance)]="colorGradingHighlightsLuminance"
+        [(blending)]="colorGradingBlending"
+        [(balance)]="colorGradingBalance"
+        style="display: block; width: 100%"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Color Grading Panel</div>
@@ -1590,6 +752,7 @@
       </div>
     </div>
   </div>
+
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1601,85 +764,12 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 100px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 8px">
-          <div style="display: flex; align-items: center; gap: 4px">
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                font-weight: 600;
-                background: #f5f2eb;
-                color: #57534e;
-                padding: 2px 7px;
-                border-radius: 99px;
-                white-space: nowrap;
-              "
-              >Red</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                font-weight: 600;
-                background: #f5f2eb;
-                color: #57534e;
-                padding: 2px 7px;
-                border-radius: 99px;
-                white-space: nowrap;
-              "
-              >Orange</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                font-weight: 600;
-                background: #f5f2eb;
-                color: #57534e;
-                padding: 2px 7px;
-                border-radius: 99px;
-                white-space: nowrap;
-              "
-              >Yellow</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                font-weight: 600;
-                background: #f5f2eb;
-                color: #57534e;
-                padding: 2px 7px;
-                border-radius: 99px;
-                white-space: nowrap;
-              "
-              >Green</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                font-weight: 600;
-                background: #f5f2eb;
-                color: #57534e;
-                padding: 2px 7px;
-                border-radius: 99px;
-                white-space: nowrap;
-              "
-              >Blue</span
-            >
-          </div>
-          <div style="width: 170px; height: 5px; border-radius: 3px; background: #e7e5e4">
-            <div style="width: 60%; height: 5px; background: #993629; border-radius: 3px"></div>
-          </div>
-        </div>
-      </div>
+    <div style="overflow: hidden; background: #1c1917; border-radius: 8px; padding: 10px 14px">
+      <mui-hsl-panel
+        [values]="hslValues"
+        [(activeBandId)]="hslActiveBandId"
+        style="display: block; width: 100%"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">HSL Panel</div>
@@ -1699,6 +789,7 @@
       </div>
     </div>
   </div>
+
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1712,22 +803,22 @@
   >
     <div
       style="
-        height: 110px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
+        overflow: auto;
+        max-height: 260px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <svg width="120" height="100">
-          <rect width="120" height="100" fill="#fafaf9" stroke="#e7e5e4" />
-          <path d="M8,92 C40,70 80,20 112,8" stroke="#993629" stroke-width="2" fill="none" />
-          <circle cx="8" cy="92" r="3" fill="#993629" />
-          <circle cx="60" cy="45" r="3" fill="#993629" />
-          <circle cx="112" cy="8" r="3" fill="#993629" />
-        </svg>
-      </div>
+      <mui-tone-curve-panel
+        [points]="toneCurvePoints"
+        [(activeChannelId)]="toneCurveActiveChannelId"
+        [(highlights)]="toneCurveHighlights"
+        [(lights)]="toneCurveLights"
+        [(darks)]="toneCurveDarks"
+        [(shadows)]="toneCurveShadows"
+        style="display: block; width: 100%"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Tone Curve Panel</div>
@@ -1747,6 +838,7 @@
       </div>
     </div>
   </div>
+
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1760,77 +852,21 @@
   >
     <div
       style="
-        height: 100px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
+        overflow: auto;
+        max-height: 220px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 6px">
-          <div style="display: flex; flex-direction: column; gap: 3px">
-            <div
-              style="
-                width: 44px;
-                height: 32px;
-                background: #f5e6e4;
-                border-radius: 4px;
-                flex-shrink: 0;
-              "
-            ></div>
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 8px;
-                color: #78716c;
-                font-weight: 400;
-              "
-              >Look 1</span
-            >
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 3px">
-            <div
-              style="
-                width: 44px;
-                height: 32px;
-                background: #e7e5e4;
-                border-radius: 4px;
-                flex-shrink: 0;
-              "
-            ></div>
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 8px;
-                color: #78716c;
-                font-weight: 400;
-              "
-              >Look 2</span
-            >
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 3px">
-            <div
-              style="
-                width: 44px;
-                height: 32px;
-                background: #e7e5e4;
-                border-radius: 4px;
-                flex-shrink: 0;
-              "
-            ></div>
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 8px;
-                color: #78716c;
-                font-weight: 400;
-              "
-              >Look 3</span
-            >
-          </div>
-        </div>
-      </div>
+      <mui-film-panel
+        [categories]="filmCategories"
+        [looks]="filmLooks"
+        [(activeCategoryId)]="filmActiveCategoryId"
+        [(selectedLookId)]="filmSelectedLookId"
+        [(strength)]="filmStrength"
+        style="display: block; width: 100%"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Film Panel</div>
@@ -1848,6 +884,7 @@
       </div>
     </div>
   </div>
+
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1861,56 +898,14 @@
   >
     <div
       style="
-        height: 100px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
+        overflow: auto;
+        max-height: 220px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span class="material-symbols-rounded" style="font-size: 12px; color: #993629"
-              >bookmark</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #292524;
-                font-weight: 400;
-              "
-              >Moody</span
-            >
-          </div>
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span class="material-symbols-rounded" style="font-size: 12px; color: #993629"
-              >bookmark</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #292524;
-                font-weight: 400;
-              "
-              >Bright &amp; Airy</span
-            >
-          </div>
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span class="material-symbols-rounded" style="font-size: 12px; color: #993629"
-              >bookmark</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #292524;
-                font-weight: 400;
-              "
-              >Film Noir</span
-            >
-          </div>
-        </div>
-      </div>
+      <mui-presets-panel [presets]="presets" style="display: block; width: 100%" />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Presets Panel</div>
@@ -1930,6 +925,7 @@
       </div>
     </div>
   </div>
+
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1941,140 +937,13 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 110px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; width: 180px">
-          <div
-            style="
-              width: 85px;
-              height: 50px;
-              border: 1px solid #e7e5e4;
-              border-radius: 8px;
-              background: #fafaf9;
-              padding: 8px;
-              box-sizing: border-box;
-              overflow: hidden;
-            "
-          >
-            <div style="display: flex; align-items: flex-end; gap: 1px; height: 34px">
-              <div style="width: 3px; height: 8px; background: #993629"></div>
-              <div style="width: 3px; height: 15px; background: #993629"></div>
-              <div style="width: 3px; height: 22px; background: #993629"></div>
-              <div style="width: 3px; height: 29px; background: #993629"></div>
-              <div style="width: 3px; height: 14px; background: #993629"></div>
-              <div style="width: 3px; height: 21px; background: #993629"></div>
-              <div style="width: 3px; height: 28px; background: #993629"></div>
-              <div style="width: 3px; height: 13px; background: #993629"></div>
-              <div style="width: 3px; height: 20px; background: #993629"></div>
-              <div style="width: 3px; height: 27px; background: #993629"></div>
-              <div style="width: 3px; height: 12px; background: #993629"></div>
-              <div style="width: 3px; height: 19px; background: #993629"></div>
-              <div style="width: 3px; height: 26px; background: #993629"></div>
-              <div style="width: 3px; height: 11px; background: #993629"></div>
-              <div style="width: 3px; height: 18px; background: #993629"></div>
-              <div style="width: 3px; height: 25px; background: #993629"></div>
-              <div style="width: 3px; height: 10px; background: #993629"></div>
-              <div style="width: 3px; height: 17px; background: #993629"></div>
-            </div>
-          </div>
-          <div
-            style="
-              width: 85px;
-              height: 50px;
-              border: 1px solid #e7e5e4;
-              border-radius: 8px;
-              background: #fafaf9;
-              padding: 8px;
-              box-sizing: border-box;
-              overflow: hidden;
-            "
-          >
-            <div style="display: flex; align-items: flex-end; gap: 1px; height: 34px">
-              <div style="width: 3px; height: 8px; background: #3b82f6"></div>
-              <div style="width: 3px; height: 19px; background: #3b82f6"></div>
-              <div style="width: 3px; height: 8px; background: #3b82f6"></div>
-              <div style="width: 3px; height: 19px; background: #3b82f6"></div>
-              <div style="width: 3px; height: 8px; background: #3b82f6"></div>
-              <div style="width: 3px; height: 19px; background: #3b82f6"></div>
-              <div style="width: 3px; height: 8px; background: #3b82f6"></div>
-              <div style="width: 3px; height: 19px; background: #3b82f6"></div>
-              <div style="width: 3px; height: 8px; background: #3b82f6"></div>
-              <div style="width: 3px; height: 19px; background: #3b82f6"></div>
-              <div style="width: 3px; height: 8px; background: #3b82f6"></div>
-              <div style="width: 3px; height: 19px; background: #3b82f6"></div>
-              <div style="width: 3px; height: 8px; background: #3b82f6"></div>
-              <div style="width: 3px; height: 19px; background: #3b82f6"></div>
-              <div style="width: 3px; height: 8px; background: #3b82f6"></div>
-              <div style="width: 3px; height: 19px; background: #3b82f6"></div>
-              <div style="width: 3px; height: 8px; background: #3b82f6"></div>
-              <div style="width: 3px; height: 19px; background: #3b82f6"></div>
-            </div>
-          </div>
-          <div
-            style="
-              width: 85px;
-              height: 50px;
-              border: 1px solid #e7e5e4;
-              border-radius: 8px;
-              background: #fafaf9;
-              padding: 8px;
-              box-sizing: border-box;
-              overflow: hidden;
-            "
-          >
-            <div
-              style="
-                width: 34px;
-                height: 34px;
-                border-radius: 50%;
-                border: 1px solid #d6d3d1;
-                margin: 0 auto;
-              "
-            ></div>
-          </div>
-          <div
-            style="
-              width: 85px;
-              height: 50px;
-              border: 1px solid #e7e5e4;
-              border-radius: 8px;
-              background: #fafaf9;
-              padding: 8px;
-              box-sizing: border-box;
-              overflow: hidden;
-            "
-          >
-            <div style="display: flex; align-items: flex-end; gap: 1px; height: 34px">
-              <div style="width: 3px; height: 8px; background: #28a745"></div>
-              <div style="width: 3px; height: 17px; background: #28a745"></div>
-              <div style="width: 3px; height: 26px; background: #28a745"></div>
-              <div style="width: 3px; height: 13px; background: #28a745"></div>
-              <div style="width: 3px; height: 22px; background: #28a745"></div>
-              <div style="width: 3px; height: 9px; background: #28a745"></div>
-              <div style="width: 3px; height: 18px; background: #28a745"></div>
-              <div style="width: 3px; height: 27px; background: #28a745"></div>
-              <div style="width: 3px; height: 14px; background: #28a745"></div>
-              <div style="width: 3px; height: 23px; background: #28a745"></div>
-              <div style="width: 3px; height: 10px; background: #28a745"></div>
-              <div style="width: 3px; height: 19px; background: #28a745"></div>
-              <div style="width: 3px; height: 28px; background: #28a745"></div>
-              <div style="width: 3px; height: 15px; background: #28a745"></div>
-              <div style="width: 3px; height: 24px; background: #28a745"></div>
-              <div style="width: 3px; height: 11px; background: #28a745"></div>
-              <div style="width: 3px; height: 20px; background: #28a745"></div>
-              <div style="width: 3px; height: 29px; background: #28a745"></div>
-            </div>
-          </div>
-        </div>
-      </div>
+    <div style="overflow: hidden; background: #1c1917; border-radius: 8px; padding: 10px 14px">
+      <mui-scopes-panel
+        [sample]="scopesSample"
+        [width]="200"
+        [height]="44"
+        style="display: block; width: 100%"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Scopes Panel</div>
@@ -2092,6 +961,7 @@
       </div>
     </div>
   </div>
+
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -2103,58 +973,8 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 100px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span class="material-symbols-rounded" style="font-size: 12px; color: #993629"
-              >link</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #a8a29e;
-                font-weight: 700;
-              "
-              >Referenced in</span
-            >
-          </div>
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span class="material-symbols-rounded" style="font-size: 12px; color: #78716c"
-              >description</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #292524;
-                font-weight: 400;
-              "
-              >Q3 Planning</span
-            >
-          </div>
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span class="material-symbols-rounded" style="font-size: 12px; color: #78716c"
-              >description</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #292524;
-                font-weight: 400;
-              "
-              >Team Roadmap</span
-            >
-          </div>
-        </div>
-      </div>
+    <div style="overflow: hidden; background: #1c1917; border-radius: 8px; padding: 10px 14px">
+      <mui-backlinks-panel [links]="backlinks" style="display: block; width: 100%" />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Backlinks Panel</div>
@@ -2172,6 +992,7 @@
       </div>
     </div>
   </div>
+
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -2183,64 +1004,8 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 100px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <div style="display: flex; align-items: center; gap: 8px">
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #292524;
-                font-weight: 600;
-              "
-              >Today, 2:14 PM</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                font-weight: 600;
-                background: #f5e6e4;
-                color: #993629;
-                padding: 2px 7px;
-                border-radius: 99px;
-                white-space: nowrap;
-              "
-              >Current</span
-            >
-          </div>
-          <div style="display: flex; align-items: center; gap: 8px">
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #78716c;
-                font-weight: 400;
-              "
-              >Yesterday, 4:02 PM</span
-            >
-          </div>
-          <div style="display: flex; align-items: center; gap: 8px">
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #78716c;
-                font-weight: 400;
-              "
-              >Mar 3, 9:15 AM</span
-            >
-          </div>
-        </div>
-      </div>
+    <div style="overflow: hidden; background: #1c1917; border-radius: 8px; padding: 10px 14px">
+      <mui-version-history-panel [versions]="versions" style="display: block; width: 100%" />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Version History Panel</div>
@@ -2260,6 +1025,7 @@
       </div>
     </div>
   </div>
+
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -2273,73 +1039,18 @@
   >
     <div
       style="
-        height: 100px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
+        overflow: auto;
+        max-height: 220px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 10px 14px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 8px">
-          <div style="display: flex; align-items: center; gap: 8px">
-            <div
-              style="
-                width: 20px;
-                height: 20px;
-                flex-shrink: 0;
-                border-radius: 50%;
-                background: linear-gradient(135deg, #fdba74, #f87171);
-                color: #fff;
-                font-size: 8.4px;
-                font-weight: 700;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-              "
-            >
-              S
-            </div>
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #57534e;
-                font-weight: 400;
-              "
-              >Sounds good, ship it</span
-            >
-          </div>
-          <div style="display: flex; align-items: center; gap: 8px">
-            <div
-              style="
-                width: 20px;
-                height: 20px;
-                flex-shrink: 0;
-                border-radius: 50%;
-                background: linear-gradient(135deg, #60a5fa, #3b82f6);
-                color: #fff;
-                font-size: 8.4px;
-                font-weight: 700;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-              "
-            >
-              J
-            </div>
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #57534e;
-                font-weight: 400;
-              "
-              >Agreed 👍</span
-            >
-          </div>
-        </div>
-      </div>
+      <mui-thread-panel
+        [messages]="threadMessages"
+        [(draft)]="threadDraft"
+        style="display: block; width: 100%"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Thread Panel</div>

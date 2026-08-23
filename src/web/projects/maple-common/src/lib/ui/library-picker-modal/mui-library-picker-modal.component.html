@@ -1,0 +1,53 @@
+<mui-overlay-shell
+  [open]="open()"
+  size="lg"
+  ariaLabel="Library Picker"
+  (dismissed)="dismissed.emit()"
+>
+  <div slot="header" class="mui-library-picker-modal-header">
+    <mui-text variant="sheet-title" [block]="true">Library Picker</mui-text>
+    <mui-toolbar [entries]="toolbarEntries()" (itemSelected)="onToolbarSelected($event)" />
+  </div>
+
+  <div class="mui-library-picker-modal-body">
+    @if (error(); as message) {
+      <mui-banner
+        variant="error"
+        [message]="message"
+        actionLabel="Retry"
+        (actionPressed)="refreshRequested.emit()"
+      />
+    } @else if (loading()) {
+      <div class="loading">
+        <mui-spinner placement="centered" label="Loading folder…" />
+      </div>
+    } @else if (entries().length === 0) {
+      <mui-empty-state
+        icon="folder-open"
+        title="This folder is empty"
+        message="Nothing to show here yet."
+        actionLabel="Refresh"
+        (actionPressed)="refreshRequested.emit()"
+      />
+    } @else {
+      <div class="entries">
+        @for (entry of entries(); track entry.id) {
+          <mui-tree-row
+            [label]="entry.name"
+            [icon]="entry.kind === 'folder' ? 'folder' : 'photos'"
+            [count]="entry.itemCount ?? null"
+            [active]="selectedId() === entry.id"
+            (pressed)="onEntryPressed(entry)"
+          />
+        }
+      </div>
+    }
+  </div>
+
+  <div slot="footer" class="mui-library-picker-modal-footer">
+    <mui-button variant="ghost" (pressed)="dismissed.emit()">Cancel</mui-button>
+    <mui-button variant="primary" [disabled]="selectedId() === null" (pressed)="chosen.emit()">
+      Choose
+    </mui-button>
+  </div>
+</mui-overlay-shell>

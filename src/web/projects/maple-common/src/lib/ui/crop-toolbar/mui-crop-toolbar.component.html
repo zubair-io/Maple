@@ -1,0 +1,21 @@
+<div class="mui-crop-toolbar">
+  <mui-chip-row
+    class="presets"
+    [chips]="aspectChips"
+    mode="select"
+    [selectedId]="aspect()"
+    (selectedIdChange)="onAspectChange($event)"
+  />
+  <mui-drag-bar
+    class="straighten"
+    label="Straighten"
+    [value]="angle()"
+    (valueChange)="onAngleChange($event)"
+    [min]="-45"
+    [max]="45"
+    [step]="0.1"
+  />
+  <mui-button variant="ghost" [iconLeading]="'revert'" ariaLabel="Reset crop" (pressed)="onReset()">
+    Reset
+  </mui-button>
+</div>

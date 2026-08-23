@@ -1,0 +1,47 @@
+<div class="mui-color-grading-panel">
+  <div class="columns">
+    <div class="column">
+      <mui-text variant="tool-label" color="muted">Shadows</mui-text>
+      <mui-color-wheel [(value)]="shadows" [size]="72" ariaLabel="Shadows color wheel" />
+      <mui-living-slider
+        label="Luminance"
+        [(value)]="shadowsLuminance"
+        [min]="-100"
+        [max]="100"
+        [bipolar]="true"
+      />
+    </div>
+    <div class="column">
+      <mui-text variant="tool-label" color="muted">Midtones</mui-text>
+      <mui-color-wheel [(value)]="midtones" [size]="72" ariaLabel="Midtones color wheel" />
+      <mui-living-slider
+        label="Luminance"
+        [(value)]="midtonesLuminance"
+        [min]="-100"
+        [max]="100"
+        [bipolar]="true"
+      />
+    </div>
+    <div class="column">
+      <mui-text variant="tool-label" color="muted">Highlights</mui-text>
+      <mui-color-wheel [(value)]="highlights" [size]="72" ariaLabel="Highlights color wheel" />
+      <mui-living-slider
+        label="Luminance"
+        [(value)]="highlightsLuminance"
+        [min]="-100"
+        [max]="100"
+        [bipolar]="true"
+      />
+    </div>
+  </div>
+  <div class="global-sliders">
+    <mui-living-slider label="Blending" [(value)]="blending" [min]="0" [max]="100" />
+    <mui-living-slider
+      label="Balance"
+      [(value)]="balance"
+      [min]="-100"
+      [max]="100"
+      [bipolar]="true"
+    />
+  </div>
+</div>

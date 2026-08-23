@@ -6,15 +6,9 @@
 // red/green/blue bars ARE the channel identity, independent of the app's
 // accent color.
 
-import {
-  ChangeDetectionStrategy,
-  Component,
-  ElementRef,
-  effect,
-  input,
-  viewChild,
-} from '@angular/core';
-import { beginPlotDraw, drawVerticalBars, rgbChannels } from '../internal/plot-canvas';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { RgbChannelPlotBase, drawVerticalBars } from '../internal/plot-canvas';
+import type { RgbChannel } from '../internal/plot-canvas';
 
 const CHANNEL_COLOR = {
   r: 'rgba(220, 80, 80, 0.6)',
@@ -29,37 +23,17 @@ const CHANNEL_COLOR = {
   styleUrl: './mui-histogram.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class MuiHistogramComponent {
-  /** Per-bin counts, one entry per channel — any bin count works, the plot
-   * scales bar width to fit. */
-  readonly r = input.required<readonly number[]>();
-  readonly g = input.required<readonly number[]>();
-  readonly b = input.required<readonly number[]>();
-  readonly width = input<number>(240);
-  readonly height = input<number>(64);
+export class MuiHistogramComponent extends RgbChannelPlotBase {
+  protected readonly channelColor = CHANNEL_COLOR;
 
-  readonly canvas = viewChild<ElementRef<HTMLCanvasElement>>('canvas');
-
-  constructor() {
-    effect(() => {
-      this.r();
-      this.g();
-      this.b();
-      this.width();
-      this.height();
-      this.draw();
-    });
-  }
-
-  private draw(): void {
-    const w = this.width();
-    const h = this.height();
-    const frame = beginPlotDraw(this.canvas(), w, h);
-    if (!frame) return;
-    const { ctx } = frame;
-
-    const channels = rgbChannels(this.r(), this.g(), this.b(), CHANNEL_COLOR);
-
+  /** Peak-relative scaling, no lane gap — every bin's bar height is
+   * relative to the tallest bin across all three channels. */
+  protected drawChannels(
+    ctx: CanvasRenderingContext2D,
+    channels: readonly RgbChannel[],
+    w: number,
+    h: number,
+  ): void {
     let peak = 1;
     for (const { values } of channels) {
       for (const value of values) peak = Math.max(peak, value);

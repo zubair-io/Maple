@@ -1,0 +1,46 @@
+<mui-overlay-shell [open]="open()" size="lg" ariaLabel="Card Detail" (dismissed)="onDismiss()">
+  <div slot="header" class="header">
+    <span class="title">Card Detail</span>
+    <mui-button
+      variant="ghost"
+      size="sm"
+      [iconOnly]="true"
+      iconLeading="x"
+      ariaLabel="Close"
+      (pressed)="onDismiss()"
+    />
+  </div>
+
+  <div class="body-stack">
+    <mui-form-field
+      label="Title"
+      placeholder="Card title"
+      [value]="title()"
+      (valueChange)="title.set($event)"
+      [required]="true"
+    />
+
+    <div class="field-group">
+      <mui-text variant="chip-label" color="muted">Priority</mui-text>
+      <mui-chip-row [chips]="priorityOptions()" mode="select" [(selectedId)]="selectedPriority" />
+    </div>
+
+    <div class="field-group">
+      <mui-text variant="chip-label" color="muted">Notes</mui-text>
+      <div
+        #bodyEl
+        class="body-editor"
+        contenteditable="true"
+        role="textbox"
+        aria-multiline="true"
+        aria-label="Card notes"
+        (input)="onBodyInput($event)"
+      ></div>
+    </div>
+  </div>
+
+  <div slot="footer" class="footer">
+    <mui-button variant="ghost" (pressed)="onDismiss()">Cancel</mui-button>
+    <mui-button variant="primary" [disabled]="!canSave()" (pressed)="save()">Save</mui-button>
+  </div>
+</mui-overlay-shell>

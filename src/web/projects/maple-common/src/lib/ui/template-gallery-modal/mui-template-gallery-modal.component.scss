@@ -1,0 +1,10 @@
+@use '../../generated/ui-tokens' as tok;
+@use '../internal/modal-form' as modal;
+
+@include modal.shell($body-gap: tok.$maple-spacing-md);
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: tok.$maple-spacing-md;
+}

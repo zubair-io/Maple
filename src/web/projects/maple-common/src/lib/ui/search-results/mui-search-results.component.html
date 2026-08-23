@@ -1,0 +1,43 @@
+<div class="header">
+  <mui-text variant="tool-label" color="muted">{{ totalCount() }} results</mui-text>
+  @if (loading()) {
+    <mui-progress shape="bar" size="sm" [value]="null" />
+  }
+</div>
+
+@if (!loading() && items().length === 0) {
+  <mui-empty-state
+    icon="search"
+    title="No results"
+    [message]="'No results for &quot;' + query() + '&quot;.'"
+  />
+} @else {
+  <mui-collection-grid
+    [items]="items()"
+    [columns]="columns()"
+    [(selectedIds)]="selectedIds"
+    (opened)="opened.emit($event)"
+  />
+}
+
+@if (pageCount() > 1) {
+  <div class="pager">
+    <mui-button
+      variant="ghost"
+      size="sm"
+      [disabled]="page() <= 1"
+      (pressed)="pageChanged.emit(page() - 1)"
+    >
+      Previous
+    </mui-button>
+    <mui-text variant="chip-label">Page {{ page() }} of {{ pageCount() }}</mui-text>
+    <mui-button
+      variant="ghost"
+      size="sm"
+      [disabled]="page() >= pageCount()"
+      (pressed)="pageChanged.emit(page() + 1)"
+    >
+      Next
+    </mui-button>
+  </div>
+}

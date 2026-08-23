@@ -1,0 +1,53 @@
+<mui-overlay-shell [open]="open()" size="md" ariaLabel="Export" (dismissed)="dismissed.emit()">
+  <div slot="header" class="mui-export-modal-header">
+    <mui-text variant="sheet-title" [block]="true">Export</mui-text>
+  </div>
+
+  <div class="mui-export-modal-body">
+    <div class="field">
+      <mui-text variant="tool-label" color="muted" [block]="true">Format</mui-text>
+      <mui-segmented-toggle
+        [options]="formatOptions()"
+        [value]="format()"
+        (valueChange)="format.set($event)"
+        ariaLabel="Export format"
+        [disabled]="exporting()"
+      />
+    </div>
+
+    <mui-form-field
+      label="Quality"
+      variant="numeric"
+      [value]="qualityText()"
+      (committed)="onQualityCommitted($event)"
+      [disabled]="exporting()"
+      help="1–100"
+    />
+
+    <div class="field">
+      <mui-text variant="tool-label" color="muted" [block]="true">Color space</mui-text>
+      <mui-segmented-toggle
+        [options]="colorSpaceOptions()"
+        [value]="colorSpace()"
+        (valueChange)="colorSpace.set($event)"
+        ariaLabel="Export color space"
+        [disabled]="exporting()"
+      />
+    </div>
+
+    @if (exporting()) {
+      <mui-progress shape="bar" [value]="progress()" label="Exporting…" />
+    }
+
+    @if (resultBanner(); as banner) {
+      <mui-banner [variant]="banner.variant" [message]="banner.message" />
+    }
+  </div>
+
+  <div slot="footer" class="mui-export-modal-footer">
+    <mui-button variant="ghost" (pressed)="dismissed.emit()">Cancel</mui-button>
+    <mui-button variant="primary" [disabled]="exporting()" (pressed)="confirmExport()">
+      Export
+    </mui-button>
+  </div>
+</mui-overlay-shell>

@@ -19,16 +19,8 @@
 // scrolls (`overflow: auto`), so long content never pushes the actions off
 // screen.
 
-import {
-  ChangeDetectionStrategy,
-  Component,
-  ElementRef,
-  OnDestroy,
-  effect,
-  input,
-  output,
-  viewChild,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { OverlayFocusBase } from '../internal/overlay-focus';
 
 export type MuiOverlayShellSize = 'sm' | 'md' | 'lg' | 'full';
 
@@ -42,8 +34,7 @@ const FOCUSABLE_SELECTOR =
   styleUrl: './mui-overlay-shell.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class MuiOverlayShellComponent implements OnDestroy {
-  readonly open = input<boolean>(false);
+export class MuiOverlayShellComponent extends OverlayFocusBase {
   readonly size = input<MuiOverlayShellSize>('md');
   /** Accessible name for the `role="dialog"` panel — there's no built-in
    * title (that's Header's job), so the caller supplies one directly. */
@@ -54,35 +45,12 @@ export class MuiOverlayShellComponent implements OnDestroy {
    * `inline` input). */
   readonly contained = input<boolean>(false);
 
-  /** Fires on Escape, a scrim click, or the shell's own close affordance if
-   * the caller renders one in `[slot=header]`/`[slot=footer]` and wires it
-   * up. Doesn't fire on Body scroll or any click inside the panel. */
-  readonly dismissed = output<void>();
-
-  readonly panel = viewChild<ElementRef<HTMLElement>>('panel');
-
-  constructor() {
-    effect(() => {
-      if (this.open()) {
-        queueMicrotask(() => this.panel()?.nativeElement.focus());
-        document.addEventListener('keydown', this.onKeydown);
-      } else {
-        document.removeEventListener('keydown', this.onKeydown);
-      }
-    });
-  }
-
-  ngOnDestroy(): void {
-    document.removeEventListener('keydown', this.onKeydown);
-  }
-
-  private readonly onKeydown = (event: KeyboardEvent): void => {
-    if (event.key === 'Escape') {
-      this.dismissed.emit();
-      return;
-    }
+  /** Also traps Tab/Shift+Tab at the panel's first/last focusable element —
+   * the one thing mui-dialog's Escape-only base behavior doesn't do (see
+   * `OverlayFocusBase.handleNonEscapeKeydown`'s doc comment). */
+  protected override handleNonEscapeKeydown(event: KeyboardEvent): void {
     if (event.key === 'Tab') this.trapTab(event);
-  };
+  }
 
   private trapTab(event: KeyboardEvent): void {
     const panelEl = this.panel()?.nativeElement;
@@ -102,9 +70,5 @@ export class MuiOverlayShellComponent implements OnDestroy {
       event.preventDefault();
       first.focus();
     }
-  }
-
-  onScrimClick(): void {
-    this.dismissed.emit();
   }
 }

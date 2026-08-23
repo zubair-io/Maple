@@ -1,0 +1,27 @@
+@if (loading()) {
+  <div class="state-wrap">
+    <mui-spinner placement="centered" />
+  </div>
+} @else if (error()) {
+  <mui-empty-state icon="x" title="Something went wrong" [message]="error()" />
+} @else if (columns().length === 0) {
+  <mui-empty-state icon="folder" [title]="emptyMessage()" />
+} @else {
+  <div class="board">
+    @for (column of workingColumns(); track column.id) {
+      <div class="column" (dragover)="$event.preventDefault()" (drop)="onDrop(column.id, $event)">
+        <div class="column-header">
+          <mui-text variant="tool-label">{{ column.title }}</mui-text>
+          <mui-text variant="chip-label" color="muted">{{ column.cards.length }}</mui-text>
+        </div>
+        <div class="cards">
+          @for (card of column.cards; track card.id) {
+            <div class="card-wrap" draggable="true" (dragstart)="onDragStart(card.id, column.id)">
+              <mui-kanban-card-tile [card]="card" />
+            </div>
+          }
+        </div>
+      </div>
+    }
+  </div>
+}

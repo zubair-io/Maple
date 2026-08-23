@@ -1,0 +1,28 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+}
+
+.mui-search {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-sm;
+}
+
+// Anchors the suggestion popover, which absolutely-positions itself
+// relative to the nearest positioned ancestor.
+.query-row {
+  position: relative;
+}
+
+.results-row {
+  display: flex;
+  align-items: flex-start;
+  gap: tok.$maple-spacing-md;
+}
+
+.results {
+  flex: 1;
+  min-width: 0;
+}

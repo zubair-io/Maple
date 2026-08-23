@@ -1,0 +1,51 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+}
+
+.state-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+}
+
+.board {
+  display: flex;
+  align-items: flex-start;
+  gap: tok.$maple-spacing-md;
+  overflow-x: auto;
+}
+
+.column {
+  flex: 0 0 260px;
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-sm;
+  padding: tok.$maple-spacing-sm;
+  border-radius: tok.$maple-radius-md;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.column-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-sm;
+  min-height: 32px;
+}
+
+.card-wrap {
+  cursor: grab;
+
+  &:active {
+    cursor: grabbing;
+  }
+}

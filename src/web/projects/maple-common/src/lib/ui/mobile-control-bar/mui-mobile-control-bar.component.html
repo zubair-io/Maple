@@ -1,0 +1,22 @@
+<div class="mui-mobile-control-bar">
+  <div class="tool-row" role="tablist" aria-label="Tools">
+    @for (tool of tools(); track tool.id) {
+      <mui-action-button
+        [icon]="tool.icon"
+        [label]="tool.label"
+        orientation="stacked"
+        size="sm"
+        [selected]="isSelected(tool)"
+        (pressed)="onToolSelect(tool.id)"
+      />
+    }
+  </div>
+
+  <mui-control-surface
+    [tabs]="tabs()"
+    [(activeTab)]="activeTab"
+    (tabChanged)="tabChanged.emit($event)"
+    [sliders]="sliders()"
+    (sliderChanged)="sliderChanged.emit($event)"
+  />
+</div>

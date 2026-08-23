@@ -20,8 +20,8 @@ import {
 import { MuiTextComponent } from '../text/mui-text.component';
 import {
   arrowKeyDelta,
+  endPointerDrag,
   formatSignedValue,
-  isPointerDragEnd,
   percentInRange,
 } from '../internal/pointer-drag';
 
@@ -90,8 +90,7 @@ export class MuiLivingSliderComponent implements OnDestroy {
   }
 
   onPointerUp(event: PointerEvent): void {
-    if (!isPointerDragEnd(event, this.activePointerId)) return;
-    this.cleanup();
+    endPointerDrag(event, this.activePointerId, this.dragging, () => (this.activePointerId = null));
   }
 
   private cleanup(): void {

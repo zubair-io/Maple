@@ -1,0 +1,28 @@
+<div class="mui-preview-surface">
+  <mui-page-header [title]="title()" [showBack]="true" (back)="closed.emit()">
+    @if (items().length > 0) {
+      <mui-toolbar actions [entries]="toolbarEntries" (itemSelected)="toolbarAction.emit($event)" />
+    }
+  </mui-page-header>
+
+  <div class="stage">
+    @if (activeItem(); as item) {
+      @if (item.kind === 'video') {
+        <mui-video-player class="stage-media" [src]="item.src" />
+      } @else {
+        <mui-preview-image class="stage-media" [src]="item.src" [alt]="item.alt" fit="fit" />
+      }
+    } @else {
+      <div class="empty-state">No media to preview</div>
+    }
+  </div>
+
+  @if (items().length > 0) {
+    <mui-filmstrip-row
+      class="filmstrip"
+      [items]="items()"
+      [(activeId)]="activeId"
+      (activated)="onFilmstripActivated($event)"
+    />
+  }
+</div>

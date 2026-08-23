@@ -1,0 +1,17 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+}
+
+.mui-presets-panel {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-xs;
+}
+
+.header {
+  display: flex;
+  justify-content: flex-end;
+  padding-bottom: tok.$maple-spacing-xs;
+}

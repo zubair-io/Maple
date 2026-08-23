@@ -26,6 +26,12 @@ import {
   model,
   signal,
 } from '@angular/core';
+import {
+  beginSheetDrag,
+  isDistanceDismissed,
+  shouldIgnoreSheetPointerDown,
+  updateSheetDragOffset,
+} from '../ui/internal/sheet-drag';
 
 /** Pan-down threshold as a fraction of sheet height. Spec §4.2. */
 const DISMISS_FRACTION = 0.25;
@@ -77,26 +83,17 @@ export class BottomSheetComponent {
 
   protected onPointerDown(event: PointerEvent): void {
     // Only react to primary pointer; ignore mouse right-click etc.
-    if (event.button !== 0 && event.pointerType === 'mouse') return;
+    if (shouldIgnoreSheetPointerDown(event)) return;
     this.pointerId = event.pointerId;
     this.dragStartY = event.clientY;
     this.dragStartTimestamp = event.timeStamp;
     this.lastSampleY = event.clientY;
     this.lastSampleTimestamp = event.timeStamp;
-    this.isDragging.set(true);
-    this.dragOffsetPx.set(0);
-    // Capture on the listener-bound element (`.drag-area`), not the raw
-    // event target — `event.target` may be a nested node (e.g. the grab
-    // handle) and setPointerCapture on that node won't deliver subsequent
-    // move/up events to this handler reliably.
-    (event.currentTarget as Element).setPointerCapture?.(event.pointerId);
+    beginSheetDrag(event, this.isDragging, this.dragOffsetPx);
   }
 
   protected onPointerMove(event: PointerEvent): void {
-    if (this.pointerId !== event.pointerId) return;
-    const dy = event.clientY - this.dragStartY;
-    // Clamp upward drag: spec only handles pan-down.
-    this.dragOffsetPx.set(dy > 0 ? dy : 0);
+    if (!updateSheetDragOffset(event, this.pointerId, this.dragStartY, this.dragOffsetPx)) return;
     this.lastSampleY = event.clientY;
     this.lastSampleTimestamp = event.timeStamp;
   }
@@ -105,7 +102,7 @@ export class BottomSheetComponent {
     if (this.pointerId !== event.pointerId) return;
     const dy = Math.max(0, event.clientY - this.dragStartY);
     const sheetHeight = this.sheetEl?.nativeElement.getBoundingClientRect().height ?? 0;
-    const distanceTriggered = sheetHeight > 0 && dy >= sheetHeight * DISMISS_FRACTION;
+    const distanceTriggered = isDistanceDismissed(dy, sheetHeight, DISMISS_FRACTION);
 
     // Velocity over the last ~100ms — robust to a slow lead-in followed
     // by a flick. Fall back to overall drag if the sample is too short.

@@ -5,6 +5,7 @@ import { ChangeDetectionStrategy, Component, input, output } from '@angular/core
 import { MuiBadgeComponent } from '../badge/mui-badge.component';
 import { MuiImageComponent } from '../image/mui-image.component';
 import { MuiTextComponent } from '../text/mui-text.component';
+import { handleActivationKeydown } from '../internal/activation-keydown';
 
 @Component({
   selector: 'mui-card',
@@ -28,8 +29,6 @@ export class MuiCardComponent {
   }
 
   onKeydown(event: KeyboardEvent): void {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    this.pressed.emit();
+    handleActivationKeydown(event, () => this.pressed.emit());
   }
 }

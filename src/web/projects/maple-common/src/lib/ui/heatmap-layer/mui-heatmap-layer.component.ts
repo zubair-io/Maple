@@ -6,15 +6,9 @@
 // the grid it's given). Cell color reads the accent token, alpha-blended per
 // cell by that cell's normalized density.
 
-import {
-  ChangeDetectionStrategy,
-  Component,
-  ElementRef,
-  effect,
-  input,
-  viewChild,
-} from '@angular/core';
-import { beginPlotDraw, resolveColor } from '../internal/plot-canvas';
+import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { SizedCanvasPlotBase, resolveColor } from '../internal/plot-canvas';
+import type { PlotFrame } from '../internal/plot-canvas';
 
 @Component({
   selector: 'mui-heatmap-layer',
@@ -23,7 +17,7 @@ import { beginPlotDraw, resolveColor } from '../internal/plot-canvas';
   styleUrl: './mui-heatmap-layer.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class MuiHeatmapLayerComponent {
+export class MuiHeatmapLayerComponent extends SizedCanvasPlotBase {
   /** Rows of per-cell density, each 0..1. Every row must be the same
    * length; an empty grid draws nothing. */
   readonly grid = input.required<readonly (readonly number[])[]>();
@@ -31,25 +25,12 @@ export class MuiHeatmapLayerComponent {
   readonly height = input<number>(96);
   readonly color = input<string>('var(--color-primary)');
 
-  readonly canvas = viewChild<ElementRef<HTMLCanvasElement>>('canvas');
-
   constructor() {
-    effect(() => {
-      this.grid();
-      this.width();
-      this.height();
-      this.color();
-      this.draw();
-    });
+    super();
+    this.watchRedraw([this.grid, this.width, this.height, this.color]);
   }
 
-  private draw(): void {
-    const w = this.width();
-    const h = this.height();
-    const frame = beginPlotDraw(this.canvas(), w, h);
-    if (!frame) return;
-    const { canvasEl, ctx } = frame;
-
+  protected renderFrame({ canvasEl, ctx }: PlotFrame, w: number, h: number): void {
     const rows = this.grid();
     if (rows.length === 0 || rows[0].length === 0) return;
 

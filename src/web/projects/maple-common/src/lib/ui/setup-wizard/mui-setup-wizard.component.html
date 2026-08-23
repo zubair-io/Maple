@@ -1,0 +1,28 @@
+<div class="mui-setup-wizard">
+  <div class="indicator">
+    @for (label of steps(); track label + $index) {
+      <mui-progress-step
+        [index]="$index + 1"
+        [label]="label"
+        [status]="statusFor($index)"
+        [continueLabel]="$index === steps().length - 1 ? 'Finish' : 'Next'"
+        (continued)="attemptAdvance()"
+      />
+    }
+  </div>
+
+  <div class="step-body">
+    @if (activeTemplate(); as template) {
+      <ng-container [ngTemplateOutlet]="template" />
+    }
+  </div>
+
+  <div class="footer">
+    <mui-button variant="secondary" [disabled]="stepIndex() === 0" (pressed)="goBack()">
+      Back
+    </mui-button>
+    <mui-button variant="primary" [disabled]="!canGoNext()" (pressed)="attemptAdvance()">
+      {{ nextLabel() }}
+    </mui-button>
+  </div>
+</div>

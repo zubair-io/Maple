@@ -1,0 +1,28 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+}
+
+.mui-control-surface {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-md;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-md;
+}
+
+.summary {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.sliders {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-md;
+}

@@ -13,11 +13,12 @@
 <div
   style="
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 16px;
     margin-bottom: 40px;
   "
 >
+  <!-- Export -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -31,44 +32,30 @@
   >
     <div
       style="
-        height: 100px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 24px;
         display: flex;
         align-items: center;
         justify-content: center;
-        overflow: hidden;
+        min-height: 90px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 8px">
-          <div style="display: flex; align-items: center; gap: 8px">
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #78716c;
-                font-weight: 700;
-              "
-              >Format</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                font-weight: 600;
-                background: #f5e6e4;
-                color: #993629;
-                padding: 2px 7px;
-                border-radius: 99px;
-                white-space: nowrap;
-              "
-              >JPEG</span
-            >
-          </div>
-          <div style="width: 170px; height: 5px; background: #e7e5e4; border-radius: 3px">
-            <div style="width: 70%; height: 5px; background: #993629; border-radius: 3px"></div>
-          </div>
-        </div>
-      </div>
+      <mui-button variant="primary" (pressed)="exportOpen = true">Open Export</mui-button>
     </div>
+    <mui-export-modal
+      [open]="exportOpen"
+      [formatOptions]="exportFormatOptions"
+      [colorSpaceOptions]="exportColorSpaceOptions"
+      [(format)]="exportFormat"
+      [(quality)]="exportQuality"
+      [(colorSpace)]="exportColorSpace"
+      [exporting]="exportExporting"
+      [progress]="exportProgress"
+      [resultBanner]="exportResultBanner"
+      (exportRequested)="onExportRequested($event)"
+      (dismissed)="exportOpen = false"
+    />
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Export</div>
       <div style="font-size: 12px; color: #78716c; margin-top: 2px">
@@ -85,8 +72,13 @@
       >
         Form Field, Progress, Banner
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Last: {{ exportLastEvent }}
+      </div>
     </div>
   </div>
+
+  <!-- Batch Rename -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -100,53 +92,25 @@
   >
     <div
       style="
-        height: 100px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 24px;
         display: flex;
         align-items: center;
         justify-content: center;
-        overflow: hidden;
+        min-height: 90px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <div
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 10px;
-              color: #57534e;
-              background: #fff;
-              border: 1px solid #e7e5e4;
-              border-radius: 6px;
-              padding: 5px 8px;
-              width: 150px;
-            "
-          >
-            &#123;date&#125;_&#123;seq&#125;
-          </div>
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #78716c;
-                font-weight: 400;
-              "
-              >IMG_003</span
-            ><span class="material-symbols-rounded" style="font-size: 10px; color: #78716c"
-              >arrow_forward</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #292524;
-                font-weight: 600;
-              "
-              >2026-03-04_001</span
-            >
-          </div>
-        </div>
-      </div>
+      <mui-button variant="primary" (pressed)="batchRenameOpen = true"
+        >Open Batch Rename</mui-button
+      >
     </div>
+    <mui-batch-rename-modal
+      [open]="batchRenameOpen"
+      [items]="batchRenameItems"
+      (renameConfirmed)="onRenameConfirmed($event)"
+      (dismissed)="batchRenameOpen = false"
+    />
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Batch Rename</div>
       <div style="font-size: 12px; color: #78716c; margin-top: 2px">Template with live preview</div>
@@ -161,8 +125,13 @@
       >
         Form Field, Chip Row, Preview List, Progress
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Last: {{ batchRenameLastEvent }}
+      </div>
     </div>
   </div>
+
+  <!-- Batch Metadata -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -176,43 +145,25 @@
   >
     <div
       style="
-        height: 100px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 24px;
         display: flex;
         align-items: center;
         justify-content: center;
-        overflow: hidden;
+        min-height: 90px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #78716c;
-                font-weight: 700;
-              "
-              >Copyright</span
-            >
-          </div>
-          <div
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 10px;
-              color: #57534e;
-              background: #fff;
-              border: 1px solid #e7e5e4;
-              border-radius: 6px;
-              padding: 5px 8px;
-              width: 150px;
-            "
-          >
-            © 2026 Studio
-          </div>
-        </div>
-      </div>
+      <mui-button variant="primary" (pressed)="batchMetadataOpen = true"
+        >Open Batch Metadata</mui-button
+      >
     </div>
+    <mui-batch-metadata-modal
+      [open]="batchMetadataOpen"
+      [itemCount]="24"
+      (applyRequested)="onApplyRequested($event)"
+      (dismissed)="batchMetadataOpen = false"
+    />
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Batch Metadata</div>
       <div style="font-size: 12px; color: #78716c; margin-top: 2px">
@@ -229,8 +180,13 @@
       >
         Form Field, Dialog, Progress
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Last: {{ batchMetadataLastEvent }}
+      </div>
     </div>
   </div>
+
+  <!-- Move To -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -244,43 +200,24 @@
   >
     <div
       style="
-        height: 100px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 24px;
         display: flex;
         align-items: center;
         justify-content: center;
-        overflow: hidden;
+        min-height: 90px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span class="material-symbols-rounded" style="font-size: 13px; color: #993629"
-              >folder</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #292524;
-                font-weight: 400;
-              "
-              >2026 Client Work</span
-            >
-          </div>
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span style="width: 13px"></span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #57534e;
-                font-weight: 400;
-              "
-              >Ballet Session</span
-            >
-          </div>
-        </div>
-      </div>
+      <mui-button variant="primary" (pressed)="moveToOpen = true">Open Move To</mui-button>
     </div>
+    <mui-move-to-modal
+      [open]="moveToOpen"
+      [nodes]="moveToNodes"
+      [(selectedId)]="moveToSelectedId"
+      (moveConfirmed)="onMoveConfirmed($event)"
+      (dismissed)="moveToOpen = false"
+    />
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Move To</div>
       <div style="font-size: 12px; color: #78716c; margin-top: 2px">Tree destination picker</div>
@@ -295,8 +232,13 @@
       >
         Tree Row, Search Bar, Button
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Last: {{ moveToLastEvent }}
+      </div>
     </div>
   </div>
+
+  <!-- Panorama Merge -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -310,54 +252,27 @@
   >
     <div
       style="
-        height: 110px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 24px;
         display: flex;
         align-items: center;
         justify-content: center;
-        overflow: hidden;
+        min-height: 90px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 4px">
-          <div
-            style="
-              width: 30px;
-              height: 44px;
-              background: #e7e5e4;
-              border-radius: 4px;
-              flex-shrink: 0;
-            "
-          ></div>
-          <div
-            style="
-              width: 30px;
-              height: 44px;
-              background: #f5e6e4;
-              border-radius: 4px;
-              flex-shrink: 0;
-            "
-          ></div>
-          <div
-            style="
-              width: 30px;
-              height: 44px;
-              background: #e7e5e4;
-              border-radius: 4px;
-              flex-shrink: 0;
-            "
-          ></div>
-          <div
-            style="
-              width: 30px;
-              height: 44px;
-              background: #e7e5e4;
-              border-radius: 4px;
-              flex-shrink: 0;
-            "
-          ></div>
-        </div>
-      </div>
+      <mui-button variant="primary" (pressed)="panoramaMergeOpen = true"
+        >Open Panorama Merge</mui-button
+      >
     </div>
+    <mui-panorama-merge-modal
+      [open]="panoramaMergeOpen"
+      [frames]="panoramaFrames"
+      [stitching]="panoramaMergeStitching"
+      [progress]="panoramaMergeProgress"
+      (mergeRequested)="onMergeRequested($event)"
+      (dismissed)="panoramaMergeOpen = false"
+    />
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Panorama Merge</div>
       <div style="font-size: 12px; color: #78716c; margin-top: 2px">
@@ -374,8 +289,13 @@
       >
         Form Field, Progress, Media Cell
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Last: {{ panoramaMergeLastEvent }}
+      </div>
     </div>
   </div>
+
+  <!-- Selective Paste -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -389,78 +309,25 @@
   >
     <div
       style="
-        height: 100px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 24px;
         display: flex;
         align-items: center;
         justify-content: center;
-        overflow: hidden;
+        min-height: 90px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <div style="display: flex; align-items: center; gap: 6px">
-            <div
-              style="
-                width: 12px;
-                height: 12px;
-                border: 2px solid #993629;
-                border-radius: 3px;
-                background: #993629;
-              "
-            ></div>
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #292524;
-                font-weight: 400;
-              "
-              >Exposure</span
-            >
-          </div>
-          <div style="display: flex; align-items: center; gap: 6px">
-            <div
-              style="
-                width: 12px;
-                height: 12px;
-                border: 2px solid #993629;
-                border-radius: 3px;
-                background: #993629;
-              "
-            ></div>
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #292524;
-                font-weight: 400;
-              "
-              >Color</span
-            >
-          </div>
-          <div style="display: flex; align-items: center; gap: 6px">
-            <div
-              style="
-                width: 12px;
-                height: 12px;
-                border: 2px solid #993629;
-                border-radius: 3px;
-                background: #993629;
-              "
-            ></div>
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #292524;
-                font-weight: 400;
-              "
-              >Crop</span
-            >
-          </div>
-        </div>
-      </div>
+      <mui-button variant="primary" (pressed)="selectivePasteOpen = true"
+        >Open Selective Paste</mui-button
+      >
     </div>
+    <mui-selective-paste-modal
+      [open]="selectivePasteOpen"
+      [(groups)]="selectivePasteGroups"
+      (pasteConfirmed)="onPasteConfirmed($event)"
+      (dismissed)="selectivePasteOpen = false"
+    />
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Selective Paste</div>
       <div style="font-size: 12px; color: #78716c; margin-top: 2px">Per-group apply toggles</div>
@@ -475,8 +342,13 @@
       >
         Checkbox, Text, Button
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Last: {{ selectivePasteLastEvent }}
+      </div>
     </div>
   </div>
+
+  <!-- Library Picker -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -490,44 +362,29 @@
   >
     <div
       style="
-        height: 100px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 24px;
         display: flex;
         align-items: center;
         justify-content: center;
-        overflow: hidden;
+        min-height: 90px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span class="material-symbols-rounded" style="font-size: 13px; color: #993629">dns</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #292524;
-                font-weight: 400;
-              "
-              >home-server</span
-            >
-          </div>
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span style="width: 13px"></span
-            ><span class="material-symbols-rounded" style="font-size: 12px; color: #78716c"
-              >folder</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #292524;
-                font-weight: 400;
-              "
-              >Photos</span
-            >
-          </div>
-        </div>
-      </div>
+      <mui-button variant="primary" (pressed)="libraryPickerOpen = true"
+        >Open Library Picker</mui-button
+      >
     </div>
+    <mui-library-picker-modal
+      [open]="libraryPickerOpen"
+      [pathSegments]="libraryPickerPath"
+      [entries]="libraryPickerEntries"
+      [loading]="libraryPickerLoading"
+      [error]="libraryPickerError"
+      (entrySelected)="onLibraryEntrySelected($event)"
+      (folderOpened)="onLibraryFolderOpened($event)"
+      (dismissed)="libraryPickerOpen = false"
+    />
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Library Picker</div>
       <div style="font-size: 12px; color: #78716c; margin-top: 2px">Remote filesystem browser</div>
@@ -542,8 +399,13 @@
       >
         Tree Row, Toolbar, Empty State
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Last: {{ libraryPickerLastEvent }}
+      </div>
     </div>
   </div>
+
+  <!-- Add Server -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -557,44 +419,27 @@
   >
     <div
       style="
-        height: 100px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 24px;
         display: flex;
         align-items: center;
         justify-content: center;
-        overflow: hidden;
+        min-height: 90px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 8px">
-          <div
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 10px;
-              color: #a8a29e;
-              background: #fff;
-              border: 1px solid #e7e5e4;
-              border-radius: 6px;
-              padding: 6px 10px;
-              width: 150px;
-            "
-          >
-            server.local:8080
-          </div>
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span class="material-symbols-rounded" style="font-size: 14px; color: #993629">dns</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #78716c;
-                font-weight: 400;
-              "
-              >Connecting&hellip;</span
-            >
-          </div>
-        </div>
-      </div>
+      <mui-button variant="primary" (pressed)="addServerOpen = true">Open Add Server</mui-button>
     </div>
+    <mui-add-server-modal
+      [open]="addServerOpen"
+      [(host)]="addServerHost"
+      [(username)]="addServerUsername"
+      [(password)]="addServerPassword"
+      [connecting]="addServerConnecting"
+      [error]="addServerError"
+      (connectRequested)="onConnectRequested($event)"
+      (dismissed)="addServerOpen = false"
+    />
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Add Server</div>
       <div style="font-size: 12px; color: #78716c; margin-top: 2px">Sign-in and registration</div>
@@ -609,8 +454,13 @@
       >
         Form Field, Button, Banner
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Last: {{ addServerLastEvent }}
+      </div>
     </div>
   </div>
+
+  <!-- Pair Device -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -624,31 +474,27 @@
   >
     <div
       style="
-        height: 100px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 24px;
         display: flex;
         align-items: center;
         justify-content: center;
-        overflow: hidden;
+        min-height: 90px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div
-          style="
-            width: 56px;
-            height: 56px;
-            background: #1c1917;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-          "
-        >
-          <span class="material-symbols-rounded" style="font-size: 24px; color: #fff"
-            >qr_code_2</span
-          >
-        </div>
-      </div>
+      <mui-button variant="primary" (pressed)="pairDeviceOpen = true">Open Pair Device</mui-button>
     </div>
+    <mui-pair-device-modal
+      [open]="pairDeviceOpen"
+      [step]="pairDeviceStep"
+      [pairingCode]="pairDeviceCode"
+      [scanning]="pairDeviceStep === 1"
+      [connected]="pairDeviceStep === 2"
+      (stepChanged)="onPairStepChanged($event)"
+      (paired)="onPaired($event)"
+      (dismissed)="pairDeviceOpen = false"
+    />
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Pair Device</div>
       <div style="font-size: 12px; color: #78716c; margin-top: 2px">Multi-step pairing flow</div>
@@ -663,8 +509,13 @@
       >
         QR Code, QR Scanner, Progress, Progress Step
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Last: {{ pairDeviceLastEvent }}
+      </div>
     </div>
   </div>
+
+  <!-- Share -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -678,71 +529,24 @@
   >
     <div
       style="
-        height: 100px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 24px;
         display: flex;
         align-items: center;
         justify-content: center;
-        overflow: hidden;
+        min-height: 90px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 8px">
-          <div style="display: flex">
-            <div
-              style="
-                width: 24px;
-                height: 24px;
-                flex-shrink: 0;
-                border-radius: 50%;
-                background: linear-gradient(135deg, #fdba74, #f87171);
-                color: #fff;
-                font-size: 10.08px;
-                font-weight: 700;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-              "
-            >
-              J
-            </div>
-            <div style="margin-left: -6px">
-              <div
-                style="
-                  width: 24px;
-                  height: 24px;
-                  flex-shrink: 0;
-                  border-radius: 50%;
-                  background: linear-gradient(135deg, #60a5fa, #3b82f6);
-                  color: #fff;
-                  font-size: 10.08px;
-                  font-weight: 700;
-                  display: flex;
-                  align-items: center;
-                  justify-content: center;
-                "
-              >
-                S
-              </div>
-            </div>
-            <div style="margin-left: -6px">
-              <span
-                style="
-                  font-family: 'Lato', sans-serif;
-                  font-size: 9px;
-                  font-weight: 600;
-                  background: #f5f2eb;
-                  color: #57534e;
-                  padding: 2px 7px;
-                  border-radius: 99px;
-                  white-space: nowrap;
-                "
-                >+3</span
-              >
-            </div>
-          </div>
-        </div>
-      </div>
+      <mui-button variant="primary" (pressed)="shareOpen = true">Open Share</mui-button>
     </div>
+    <mui-share-modal
+      [open]="shareOpen"
+      [members]="shareMembers"
+      (memberInvited)="onMemberInvited($event)"
+      (memberRemoved)="onMemberRemoved($event)"
+      (dismissed)="shareOpen = false"
+    />
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Share</div>
       <div style="font-size: 12px; color: #78716c; margin-top: 2px">Manage members and access</div>
@@ -757,8 +561,11 @@
       >
         Avatar Group, Form Field, List Row
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">Last: {{ shareLastEvent }}</div>
     </div>
   </div>
+
+  <!-- Template Gallery -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -772,21 +579,25 @@
   >
     <div
       style="
-        height: 100px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 24px;
         display: flex;
         align-items: center;
         justify-content: center;
-        overflow: hidden;
+        min-height: 90px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px">
-          <div style="width: 50px; height: 36px; background: #e7e5e4; border-radius: 4px"></div>
-          <div style="width: 50px; height: 36px; background: #e7e5e4; border-radius: 4px"></div>
-          <div style="width: 50px; height: 36px; background: #e7e5e4; border-radius: 4px"></div>
-        </div>
-      </div>
+      <mui-button variant="primary" (pressed)="templateGalleryOpen = true"
+        >Open Template Gallery</mui-button
+      >
     </div>
+    <mui-template-gallery-modal
+      [open]="templateGalleryOpen"
+      [templates]="galleryTemplates"
+      (templateApplied)="onTemplateApplied($event)"
+      (dismissed)="templateGalleryOpen = false"
+    />
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Template Gallery</div>
       <div style="font-size: 12px; color: #78716c; margin-top: 2px">Browse and apply templates</div>
@@ -801,8 +612,13 @@
       >
         Card, Search Bar, Empty State
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Last: {{ templateGalleryLastEvent }}
+      </div>
     </div>
   </div>
+
+  <!-- Card Detail -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -816,54 +632,22 @@
   >
     <div
       style="
-        height: 100px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 24px;
         display: flex;
         align-items: center;
         justify-content: center;
-        overflow: hidden;
+        min-height: 90px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 12px;
-              color: #292524;
-              font-weight: 600;
-            "
-            >Ship v2.0</span
-          >
-          <div style="display: flex; align-items: center; gap: 5px">
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                font-weight: 600;
-                background: #f5e6e4;
-                color: #993629;
-                padding: 2px 7px;
-                border-radius: 99px;
-                white-space: nowrap;
-              "
-              >High</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                font-weight: 600;
-                background: #f5f2eb;
-                color: #57534e;
-                padding: 2px 7px;
-                border-radius: 99px;
-                white-space: nowrap;
-              "
-              >Fri</span
-            >
-          </div>
-        </div>
-      </div>
+      <mui-button variant="primary" (pressed)="cardDetailOpen = true">Open Card Detail</mui-button>
     </div>
+    <mui-card-detail-modal
+      [open]="cardDetailOpen"
+      (saved)="onCardSaved($event)"
+      (dismissed)="cardDetailOpen = false"
+    />
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Card Detail</div>
       <div style="font-size: 12px; color: #78716c; margin-top: 2px">Expanded board-card editor</div>
@@ -878,8 +662,13 @@
       >
         Form Field, Chip Row, Rich Text Editor
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Last: {{ cardDetailLastEvent }}
+      </div>
     </div>
   </div>
+
+  <!-- Result Report -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -893,44 +682,25 @@
   >
     <div
       style="
-        height: 100px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 24px;
         display: flex;
         align-items: center;
         justify-content: center;
-        overflow: hidden;
+        min-height: 90px;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <div style="display: flex; align-items: center; gap: 8px">
-            <span class="material-symbols-rounded" style="font-size: 13px; color: #28a745"
-              >check_circle</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #292524;
-                font-weight: 600;
-              "
-              >48 exported</span
-            >
-          </div>
-          <div style="display: flex; align-items: center; gap: 8px">
-            <span class="material-symbols-rounded" style="font-size: 13px; color: #dc3545"
-              >error</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #78716c;
-                font-weight: 400;
-              "
-              >2 failed</span
-            >
-          </div>
-        </div>
-      </div>
+      <mui-button variant="primary" (pressed)="resultReportOpen = true"
+        >Open Result Report</mui-button
+      >
     </div>
+    <mui-result-report-modal
+      [open]="resultReportOpen"
+      [results]="resultReportItems"
+      (retryFailedRequested)="onRetryFailed($event)"
+      (dismissed)="resultReportOpen = false"
+    />
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Result Report</div>
       <div style="font-size: 12px; color: #78716c; margin-top: 2px">Per-item batch outcome</div>
@@ -945,9 +715,13 @@
       >
         List Row, Badge, Empty State
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Last: {{ resultReportLastEvent }}
+      </div>
     </div>
   </div>
 </div>
+
 <div
   style="
     font-size: 12px;
@@ -963,11 +737,12 @@
 <div
   style="
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 16px;
     margin-bottom: 40px;
   "
 >
+  <!-- Image Canvas -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -979,32 +754,24 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 110px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <div
-          style="
-            width: 150px;
-            height: 100px;
-            background: #1c1917;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-          "
-        >
-          <span class="material-symbols-rounded" style="font-size: 28px; color: #57534e"
-            >image</span
-          >
-        </div>
-      </div>
+    <div style="background: #1c1917; border-radius: 8px; padding: 8px; height: 220px">
+      <mui-image-canvas
+        [src]="imageCanvasShowBefore ? specimenPhoto : specimenLandscape"
+        [beforeSrc]="specimenPhoto"
+        [showBefore]="imageCanvasShowBefore"
+        [cropMode]="imageCanvasCropMode"
+        [(cropRect)]="imageCanvasCropRect"
+        (transformChanged)="onImageTransformChanged()"
+        style="display: block; width: 100%; height: 100%"
+      />
+    </div>
+    <div style="display: flex; gap: 8px">
+      <mui-button size="sm" (pressed)="toggleImageCanvasCrop()">{{
+        imageCanvasCropMode ? 'Exit crop' : 'Crop mode'
+      }}</mui-button>
+      <mui-button size="sm" (pressed)="imageCanvasShowBefore = !imageCanvasShowBefore">{{
+        imageCanvasShowBefore ? 'Show after' : 'Show before'
+      }}</mui-button>
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Image Canvas</div>
@@ -1022,8 +789,13 @@
       >
         Canvas Surface, Preview Image, Crop Overlay
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Drag to pan, wheel to zoom. Last: {{ imageCanvasLastEvent }}
+      </div>
     </div>
   </div>
+
+  <!-- Crop Overlay -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1037,24 +809,31 @@
   >
     <div
       style="
-        height: 90px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 16px;
         display: flex;
         align-items: center;
         justify-content: center;
-        overflow: hidden;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div
-          style="
-            width: 100px;
-            height: 70px;
-            background:
-              repeating-linear-gradient(90deg, transparent 0 32px, #993629 32px 33px),
-              repeating-linear-gradient(0deg, transparent 0 22px, #993629 22px 23px);
-            border: 2px solid #993629;
-          "
-        ></div>
+      <div
+        [style.backgroundImage]="'url(' + specimenLandscape + ')'"
+        style="
+          position: relative;
+          width: 220px;
+          height: 150px;
+          background-size: cover;
+          background-position: center;
+          border-radius: 4px;
+          overflow: hidden;
+        "
+      >
+        <mui-crop-overlay
+          [containerSize]="cropOverlayContainerSize"
+          [(rect)]="cropOverlayRect"
+          (committed)="onCropOverlayCommitted($event)"
+        />
       </div>
     </div>
     <div>
@@ -1073,8 +852,13 @@
       >
         Drag Bar, Icon
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Drag handles, arrow keys nudge. Last: {{ cropOverlayLastEvent }}
+      </div>
     </div>
   </div>
+
+  <!-- Crop Toolbar -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1086,58 +870,12 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 100px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 6px">
-          <span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 9px;
-              font-weight: 600;
-              background: #f5f2eb;
-              color: #57534e;
-              padding: 2px 7px;
-              border-radius: 99px;
-              white-space: nowrap;
-            "
-            >1:1</span
-          ><span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 9px;
-              font-weight: 600;
-              background: #f5f2eb;
-              color: #57534e;
-              padding: 2px 7px;
-              border-radius: 99px;
-              white-space: nowrap;
-            "
-            >4:5</span
-          ><span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 9px;
-              font-weight: 600;
-              background: #f5f2eb;
-              color: #57534e;
-              padding: 2px 7px;
-              border-radius: 99px;
-              white-space: nowrap;
-            "
-            >16:9</span
-          ><span class="material-symbols-rounded" style="font-size: 14px; color: #78716c"
-            >straighten</span
-          >
-        </div>
-      </div>
+    <div style="background: #1c1917; border-radius: 8px; padding: 20px">
+      <mui-crop-toolbar
+        [(aspect)]="cropToolbarAspect"
+        [(angle)]="cropToolbarAngle"
+        (resetRequested)="onCropToolbarReset()"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Crop Toolbar</div>
@@ -1155,8 +893,13 @@
       >
         Chip Row, Drag Bar, Button
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Last: {{ cropToolbarLastEvent }}
+      </div>
     </div>
   </div>
+
+  <!-- Control Surface -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1168,42 +911,14 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 100px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 8px">
-          <div style="display: flex; align-items: center; gap: 8px">
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #78716c;
-                font-weight: 700;
-              "
-              >Exposure</span
-            ><span style="flex: 1"></span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #993629;
-                font-weight: 600;
-              "
-              >+0.3</span
-            >
-          </div>
-          <div style="width: 170px; height: 5px; border-radius: 3px; background: #e7e5e4">
-            <div style="width: 58%; height: 5px; background: #993629; border-radius: 3px"></div>
-          </div>
-        </div>
-      </div>
+    <div style="background: #1c1917; border-radius: 8px; padding: 20px">
+      <mui-control-surface
+        [tabs]="controlSurfaceTabs"
+        [(activeTab)]="controlSurfaceActiveTab"
+        [sliders]="controlSurfaceSliders"
+        (tabChanged)="onControlTabChanged($event)"
+        (sliderChanged)="onControlSliderChanged($event)"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Control Surface</div>
@@ -1219,8 +934,13 @@
       >
         Tabs, Living Slider, Chip Row, Value Chip
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Last: {{ controlSurfaceLastEvent }}
+      </div>
     </div>
   </div>
+
+  <!-- Mobile Control Bar -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1232,36 +952,16 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 100px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <div
-          style="
-            width: 150px;
-            border-radius: 10px;
-            background: #fff;
-            border: 1px solid #e7e5e4;
-            padding: 8px;
-          "
-        >
-          <div style="display: flex; align-items: center; gap: 10px">
-            <span class="material-symbols-rounded" style="font-size: 16px; color: #993629"
-              >tune</span
-            ><span class="material-symbols-rounded" style="font-size: 16px; color: #78716c"
-              >palette</span
-            ><span class="material-symbols-rounded" style="font-size: 16px; color: #78716c"
-              >crop</span
-            >
-          </div>
-        </div>
-      </div>
+    <div style="background: #1c1917; border-radius: 8px; padding: 16px">
+      <mui-mobile-control-bar
+        [tools]="mobileControlTools"
+        [(toolId)]="mobileControlToolId"
+        [tabs]="mobileControlTabs"
+        [(activeTab)]="mobileControlActiveTab"
+        [sliders]="mobileControlSliders"
+        (toolSelected)="onMobileToolSelected($event)"
+        (sliderChanged)="onMobileSliderChanged($event)"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Mobile Control Bar</div>
@@ -1277,8 +977,13 @@
       >
         Tool Dock, Control Surface, Tabs
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Last: {{ mobileControlLastEvent }}
+      </div>
     </div>
   </div>
+
+  <!-- Rich Text Editor -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1290,36 +995,11 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 100px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 13px;
-              color: #292524;
-              font-weight: 600;
-            "
-            >Meeting Notes</span
-          ><span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 10px;
-              color: #57534e;
-              font-weight: 400;
-            "
-            >Today we discussed the roadmap&hellip;</span
-          >
-        </div>
-      </div>
+    <div style="background: #1c1917; border-radius: 8px; padding: 16px; min-height: 130px">
+      <mui-rich-text-editor
+        [(value)]="richTextValue"
+        (commandExecuted)="onCommandExecuted($event)"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Rich Text Editor</div>
@@ -1337,8 +1017,13 @@
       >
         Bubble Menu, Command Menu, Suggestion Menu, Embed Shell, Code Block
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Select text for Bold/Italic/Link, type "/" for commands. Last: {{ richTextLastEvent }}
+      </div>
     </div>
   </div>
+
+  <!-- Whiteboard Canvas -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1350,31 +1035,14 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 90px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <svg width="120" height="80">
-          <rect width="120" height="80" fill="#fafaf9" stroke="#e7e5e4" />
-          <rect
-            x="14"
-            y="14"
-            width="36"
-            height="24"
-            rx="4"
-            fill="none"
-            stroke="#993629"
-            stroke-width="1.5"
-          />
-          <circle cx="88" cy="50" r="14" fill="none" stroke="#292524" stroke-width="1.5" />
-        </svg>
-      </div>
+    <div style="background: #1c1917; border-radius: 8px; padding: 8px; height: 220px">
+      <mui-whiteboard-canvas
+        [(tool)]="whiteboardTool"
+        [(strokes)]="whiteboardStrokes"
+        [(prompt)]="whiteboardPrompt"
+        (promptSubmitted)="onPromptSubmitted($event)"
+        style="display: block; width: 100%; height: 100%"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Whiteboard Canvas</div>
@@ -1392,8 +1060,13 @@
       >
         Canvas Surface, Toolbar, Command Menu
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Draw with pen/eraser. Last: {{ whiteboardLastEvent }}
+      </div>
     </div>
   </div>
+
+  <!-- Structured Data Editor -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1405,30 +1078,11 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 100px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <div
-          style="
-            background: #1c1917;
-            color: #7fb98a;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 10px;
-            padding: 10px 12px;
-            border-radius: 6px;
-            width: 160px;
-          "
-        >
-          &#123;<br />&nbsp;&nbsp;"ok": true<br />&#125;
-        </div>
-      </div>
+    <div style="background: #1c1917; border-radius: 8px; padding: 16px">
+      <mui-structured-data-editor
+        [(value)]="structuredDataValue"
+        (parseError)="onStructuredParseError($event)"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Structured Data Editor</div>
@@ -1444,8 +1098,13 @@
       >
         Code Block, Form Field, Tabs
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Parse error: {{ structuredDataError ?? 'none' }}
+      </div>
     </div>
   </div>
+
+  <!-- Preview Surface -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1457,72 +1116,14 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 110px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <div
-            style="
-              width: 150px;
-              height: 70px;
-              background: #1c1917;
-              border-radius: 6px;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-            "
-          >
-            <span class="material-symbols-rounded" style="font-size: 22px; color: #fff"
-              >play_circle</span
-            >
-          </div>
-          <div style="display: flex; align-items: center; gap: 4px">
-            <div
-              style="
-                width: 20px;
-                height: 20px;
-                background: #e7e5e4;
-                border-radius: 4px;
-                flex-shrink: 0;
-              "
-            ></div>
-            <div
-              style="
-                width: 20px;
-                height: 20px;
-                background: #e7e5e4;
-                border-radius: 4px;
-                flex-shrink: 0;
-              "
-            ></div>
-            <div
-              style="
-                width: 20px;
-                height: 20px;
-                background: #e7e5e4;
-                border-radius: 4px;
-                flex-shrink: 0;
-              "
-            ></div>
-            <div
-              style="
-                width: 20px;
-                height: 20px;
-                background: #e7e5e4;
-                border-radius: 4px;
-                flex-shrink: 0;
-              "
-            ></div>
-          </div>
-        </div>
-      </div>
+    <div style="background: #1c1917; border-radius: 8px; padding: 8px; height: 300px">
+      <mui-preview-surface
+        [items]="previewSurfaceItems"
+        [(activeId)]="previewSurfaceActiveId"
+        (activeChanged)="onPreviewActiveChanged($event)"
+        (toolbarAction)="onPreviewToolbarAction($event)"
+        style="display: block; width: 100%; height: 100%"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Preview Surface</div>
@@ -1538,9 +1139,13 @@
       >
         Page Header, Filmstrip, Preview Image, Video Player, Toolbar
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Last: {{ previewSurfaceLastEvent }}
+      </div>
     </div>
   </div>
 </div>
+
 <div
   style="
     font-size: 12px;
@@ -1556,11 +1161,12 @@
 <div
   style="
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 16px;
     margin-bottom: 40px;
   "
 >
+  <!-- Map Surface -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1574,30 +1180,22 @@
   >
     <div
       style="
-        height: 110px;
+        background: #1c1917;
+        border-radius: 8px;
+        padding: 8px;
         display: flex;
         align-items: center;
         justify-content: center;
-        overflow: hidden;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div
-          style="
-            width: 180px;
-            height: 100px;
-            border-radius: 6px;
-            background:
-              radial-gradient(circle at 30% 40%, rgba(153, 54, 41, 0.6), transparent 55%),
-              radial-gradient(circle at 70% 65%, rgba(245, 158, 11, 0.5), transparent 50%), #f5f2eb;
-            position: relative;
-          "
-        >
-          <span class="material-symbols-rounded" style="font-size: 20px; color: #993629"
-            >location_on</span
-          >
-        </div>
-      </div>
+      <mui-map-surface
+        [annotations]="mapAnnotations"
+        [(heatmapVisible)]="mapHeatmapVisible"
+        [viewportWidth]="260"
+        [viewportHeight]="180"
+        (annotationSelected)="onMapAnnotationSelected($event)"
+        (heatmapToggled)="onMapHeatmapToggled($event)"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Map Surface</div>
@@ -1615,9 +1213,13 @@
       >
         Map Annotation, Heatmap Layer, Empty State
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Drag to pan, toggle heatmap. Last: {{ mapLastEvent }}
+      </div>
     </div>
   </div>
 </div>
+
 <div
   style="
     font-size: 12px;
@@ -1633,11 +1235,12 @@
 <div
   style="
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 16px;
     margin-bottom: 40px;
   "
 >
+  <!-- Chat -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1649,63 +1252,15 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 100px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 8px">
-          <div style="display: flex; align-items: center; gap: 8px">
-            <div
-              style="
-                width: 20px;
-                height: 20px;
-                flex-shrink: 0;
-                border-radius: 50%;
-                background: linear-gradient(135deg, #fdba74, #f87171);
-                color: #fff;
-                font-size: 8.4px;
-                font-weight: 700;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-              "
-            >
-              S
-            </div>
-            <div
-              style="
-                background: #f5f2eb;
-                border-radius: 8px;
-                padding: 6px 10px;
-                font-size: 10px;
-                color: #292524;
-              "
-            >
-              Sounds good!
-            </div>
-          </div>
-          <div style="display: flex; align-items: center; gap: 8px">
-            <span style="width: 20px"></span>
-            <div
-              style="
-                background: #993629;
-                border-radius: 8px;
-                padding: 6px 10px;
-                font-size: 10px;
-                color: #fff;
-              "
-            >
-              On it 👍
-            </div>
-          </div>
-        </div>
-      </div>
+    <div style="background: #1c1917; border-radius: 8px; padding: 12px; height: 260px">
+      <mui-chat
+        [messages]="chatMessages"
+        [othersTyping]="chatOthersTyping"
+        typingUserName="Sam"
+        [mentionableUsers]="chatMentionableUsers"
+        (messageSent)="onMessageSent($event)"
+        style="display: block; height: 100%"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Chat</div>
@@ -1721,8 +1276,13 @@
       >
         Chat Message, Typing Indicator, Input, Suggestion Menu
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Type "@" to mention someone.
+      </div>
     </div>
   </div>
+
+  <!-- Notification Feed -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1734,75 +1294,12 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 100px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <div style="display: flex; align-items: center; gap: 6px">
-            <div
-              style="
-                width: 18px;
-                height: 18px;
-                flex-shrink: 0;
-                border-radius: 50%;
-                background: linear-gradient(135deg, #fdba74, #f87171);
-                color: #fff;
-                font-size: 7.56px;
-                font-weight: 700;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-              "
-            >
-              J
-            </div>
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #57534e;
-                font-weight: 400;
-              "
-              >Jane commented on your page</span
-            >
-          </div>
-          <div style="display: flex; align-items: center; gap: 6px">
-            <div
-              style="
-                width: 18px;
-                height: 18px;
-                flex-shrink: 0;
-                border-radius: 50%;
-                background: linear-gradient(135deg, #60a5fa, #3b82f6);
-                color: #fff;
-                font-size: 7.56px;
-                font-weight: 700;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-              "
-            >
-              S
-            </div>
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #57534e;
-                font-weight: 400;
-              "
-              >Sam shared a notebook</span
-            >
-          </div>
-        </div>
-      </div>
+    <div style="background: #1c1917; border-radius: 8px; padding: 16px">
+      <mui-notification-feed
+        [notifications]="notificationItems"
+        (notificationOpened)="onNotificationOpened($event)"
+        (markedRead)="onNotificationMarkedRead($event)"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Notification Feed</div>
@@ -1818,9 +1315,13 @@
       >
         List Row, Chip Row, Empty State
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Last: {{ notificationLastEvent }}
+      </div>
     </div>
   </div>
 </div>
+
 <div
   style="
     font-size: 12px;
@@ -1836,11 +1337,12 @@
 <div
   style="
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 16px;
     margin-bottom: 40px;
   "
 >
+  <!-- Settings Section -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1852,58 +1354,14 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 100px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span class="material-symbols-rounded" style="font-size: 12px; color: #a8a29e"
-              >chevron_right</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #292524;
-                font-weight: 400;
-              "
-              >Sync frequency</span
-            >
-          </div>
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span class="material-symbols-rounded" style="font-size: 12px; color: #a8a29e"
-              >chevron_right</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #292524;
-                font-weight: 400;
-              "
-              >Backup location</span
-            >
-          </div>
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span class="material-symbols-rounded" style="font-size: 12px; color: #a8a29e"
-              >chevron_right</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #292524;
-                font-weight: 400;
-              "
-              >Two-factor auth</span
-            >
-          </div>
-        </div>
-      </div>
+    <div style="background: #1c1917; border-radius: 8px; padding: 16px">
+      <mui-settings-section
+        title="General"
+        [rows]="settingsRows"
+        [banner]="settingsBanner"
+        (rowActivated)="onSettingsRowActivated($event)"
+        (fieldChanged)="onSettingsFieldChanged($event)"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Settings Section</div>
@@ -1921,8 +1379,13 @@
       >
         Settings Row, Form Field, Divider, Banner
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Last: {{ settingsLastEvent }}
+      </div>
     </div>
   </div>
+
+  <!-- Pipeline Monitor -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1934,45 +1397,12 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 100px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <div style="display: flex; align-items: center; gap: 8px">
-            <span class="material-symbols-rounded" style="font-size: 12px; color: #28a745"
-              >check_circle</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #292524;
-                font-weight: 600;
-              "
-              >Indexing</span
-            >
-          </div>
-          <div style="display: flex; align-items: center; gap: 8px">
-            <span class="material-symbols-rounded" style="font-size: 12px; color: #993629"
-              >progress_activity</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #292524;
-                font-weight: 600;
-              "
-              >Face detection</span
-            >
-          </div>
-        </div>
-      </div>
+    <div style="background: #1c1917; border-radius: 8px; padding: 16px">
+      <mui-pipeline-monitor
+        [stages]="pipelineStages"
+        (stagePauseToggled)="onStagePauseToggled($event)"
+        (stageRetried)="onStageRetried($event)"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Pipeline Monitor</div>
@@ -1990,8 +1420,13 @@
       >
         List Row, Progress, Badge, Empty State
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Last: {{ pipelineLastEvent }}
+      </div>
     </div>
   </div>
+
+  <!-- Setup Wizard -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -2003,67 +1438,30 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 100px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 6px">
-          <div
-            style="
-              width: 20px;
-              height: 20px;
-              border-radius: 50%;
-              background: #993629;
-              color: #fff;
-              font-size: 10px;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              font-weight: 700;
-            "
-          >
-            1
-          </div>
-          <div
-            style="
-              width: 20px;
-              height: 20px;
-              border-radius: 50%;
-              background: #e7e5e4;
-              color: #a8a29e;
-              font-size: 10px;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              font-weight: 700;
-            "
-          >
-            2
-          </div>
-          <div
-            style="
-              width: 20px;
-              height: 20px;
-              border-radius: 50%;
-              background: #e7e5e4;
-              color: #a8a29e;
-              font-size: 10px;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              font-weight: 700;
-            "
-          >
-            3
-          </div>
-        </div>
-      </div>
+    <div style="background: #1c1917; border-radius: 8px; padding: 16px">
+      <mui-setup-wizard
+        [steps]="wizardSteps"
+        [(stepIndex)]="wizardIndex"
+        [canGoNext]="wizardCanGoNext"
+        (stepChanged)="onWizardStepChanged($event)"
+        (finished)="onWizardFinished()"
+      >
+        <ng-template muiWizardStep>
+          <mui-form-field
+            label="Library folder"
+            [value]="wizardLibraryPath"
+            (valueChange)="wizardLibraryPath = $event"
+            placeholder="/Volumes/Photos"
+            help="Next unlocks once a path is entered."
+          />
+        </ng-template>
+        <ng-template muiWizardStep>
+          <mui-form-field label="Concurrent workers" value="4" variant="numeric" />
+        </ng-template>
+        <ng-template muiWizardStep>
+          <mui-form-field label="Backup destination" value="s3://maple-backups/prod" />
+        </ng-template>
+      </mui-setup-wizard>
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Setup Wizard</div>
@@ -2081,8 +1479,13 @@
       >
         Progress Step, Tabs, Form Field, Button
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Last: {{ wizardLastEvent }}
+      </div>
     </div>
   </div>
+
+  <!-- User Management -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -2094,75 +1497,13 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 100px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <div style="display: flex; align-items: center; gap: 6px">
-            <div
-              style="
-                width: 18px;
-                height: 18px;
-                flex-shrink: 0;
-                border-radius: 50%;
-                background: linear-gradient(135deg, #fdba74, #f87171);
-                color: #fff;
-                font-size: 7.56px;
-                font-weight: 700;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-              "
-            >
-              J
-            </div>
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #292524;
-                font-weight: 400;
-              "
-              >Jane &middot; Admin</span
-            >
-          </div>
-          <div style="display: flex; align-items: center; gap: 6px">
-            <div
-              style="
-                width: 18px;
-                height: 18px;
-                flex-shrink: 0;
-                border-radius: 50%;
-                background: linear-gradient(135deg, #60a5fa, #3b82f6);
-                color: #fff;
-                font-size: 7.56px;
-                font-weight: 700;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-              "
-            >
-              S
-            </div>
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 9px;
-                color: #292524;
-                font-weight: 400;
-              "
-              >Sam &middot; Editor</span
-            >
-          </div>
-        </div>
-      </div>
+    <div style="background: #1c1917; border-radius: 8px; padding: 16px; position: relative">
+      <mui-user-management
+        [users]="managedUsers"
+        inviteLink="https://maple.local/invite/9f3ab2"
+        (userInvited)="onUserInvited($event)"
+        (userRevoked)="onUserRevoked($event)"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">User Management</div>
@@ -2180,8 +1521,13 @@
       >
         List Row, QR Code, Dialog, Form Field
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Last: {{ userMgmtLastEvent }}
+      </div>
     </div>
   </div>
+
+  <!-- Device List -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -2193,45 +1539,8 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 100px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span class="material-symbols-rounded" style="font-size: 13px; color: #993629"
-              >laptop_mac</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #292524;
-                font-weight: 400;
-              "
-              >MacBook Pro</span
-            >
-          </div>
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span class="material-symbols-rounded" style="font-size: 13px; color: #78716c"
-              >phone_iphone</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #292524;
-                font-weight: 400;
-              "
-              >iPhone 15</span
-            >
-          </div>
-        </div>
-      </div>
+    <div style="background: #1c1917; border-radius: 8px; padding: 16px; position: relative">
+      <mui-device-list [devices]="pairedDevices" (deviceRevoked)="onDeviceRevoked($event)" />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Device List</div>
@@ -2247,8 +1556,13 @@
       >
         List Row, Dialog, Empty State
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Last: {{ deviceLastEvent }}
+      </div>
     </div>
   </div>
+
+  <!-- Backup Monitor -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -2260,35 +1574,14 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 100px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 8px">
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span class="material-symbols-rounded" style="font-size: 13px; color: #993629"
-              >backup</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #292524;
-                font-weight: 400;
-              "
-              >Last backup: 2h ago</span
-            >
-          </div>
-          <div style="width: 170px; height: 5px; background: #e7e5e4; border-radius: 3px">
-            <div style="width: 80%; height: 5px; background: #993629; border-radius: 3px"></div>
-          </div>
-        </div>
-      </div>
+    <div style="background: #1c1917; border-radius: 8px; padding: 16px">
+      <mui-backup-monitor
+        [running]="backupRunning"
+        [progress]="backupProgress"
+        [lastResult]="backupLastResult"
+        (configChanged)="onBackupConfigChanged($event)"
+        (backupStartRequested)="onBackupStartRequested()"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Backup Monitor</div>
@@ -2306,8 +1599,13 @@
       >
         Form Field, Progress, Banner
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">
+        Last: {{ backupLastEvent }}
+      </div>
     </div>
   </div>
+
+  <!-- Diagnostics -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -2319,44 +1617,13 @@
       gap: 14px;
     "
   >
-    <div
-      style="
-        height: 100px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      "
-    >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <div style="display: flex; align-items: center; gap: 6px">
-            <span class="material-symbols-rounded" style="font-size: 13px; color: #993629"
-              >troubleshoot</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 10px;
-                color: #292524;
-                font-weight: 400;
-              "
-              >4 checks passed</span
-            >
-          </div>
-          <div
-            style="
-              background: #1c1917;
-              color: #7fb98a;
-              font-family: 'JetBrains Mono', monospace;
-              font-size: 9px;
-              padding: 6px 8px;
-              border-radius: 4px;
-            "
-          >
-            OK: db connection
-          </div>
-        </div>
-      </div>
+    <div style="background: #1c1917; border-radius: 8px; padding: 16px">
+      <mui-diagnostics
+        [checks]="diagnosticChecks"
+        [output]="diagnosticOutput"
+        [running]="diagnosticsRunning"
+        (runRequested)="onDiagnosticsRun()"
+      />
     </div>
     <div>
       <div style="font-weight: 600; font-size: 14px; color: #292524">Diagnostics</div>
@@ -2374,6 +1641,7 @@
       >
         Button, Code Block, Badge
       </div>
+      <div style="font-size: 11px; color: #57534e; margin-top: 6px">Last: {{ diagLastEvent }}</div>
     </div>
   </div>
 </div>

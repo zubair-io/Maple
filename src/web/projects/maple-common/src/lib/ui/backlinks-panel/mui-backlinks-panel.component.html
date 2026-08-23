@@ -1,0 +1,18 @@
+<div class="mui-backlinks-panel">
+  @if (loading()) {
+    <div class="state-slot">
+      <mui-spinner size="md" placement="centered" />
+    </div>
+  } @else if (links().length === 0) {
+    <mui-empty-state icon="info" [title]="emptyMessage()" />
+  } @else {
+    @for (link of links(); track link.id) {
+      <mui-list-row
+        [icon]="link.icon ?? 'folder'"
+        [label]="link.label"
+        [subtitle]="link.subtitle ?? null"
+        (pressed)="pressed.emit(link.id)"
+      />
+    }
+  }
+</div>

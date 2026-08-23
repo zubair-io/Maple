@@ -1,0 +1,29 @@
+<mui-tabs [tabs]="tabs" [(activeId)]="viewMode" ariaLabel="Structured data view" />
+
+@if (viewMode() === 'code') {
+  <div class="code-pane">
+    @if (error(); as message) {
+      <div class="error-banner" role="alert">{{ message }}</div>
+    }
+    <textarea
+      class="code-editor"
+      spellcheck="false"
+      [value]="codeText()"
+      (input)="onCodeInput($event)"
+      aria-label="JSON source"
+    ></textarea>
+  </div>
+} @else {
+  <div class="form-pane">
+    @if (formEntries().length === 0) {
+      <div class="empty">No fields yet — add one from the Code tab.</div>
+    }
+    @for (entry of formEntries(); track entry[0]) {
+      <mui-form-field
+        [label]="entry[0]"
+        [value]="stringifyValue(entry[1])"
+        (committed)="onFieldCommit(entry[0], $event)"
+      />
+    }
+  </div>
+}

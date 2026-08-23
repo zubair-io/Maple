@@ -1,0 +1,53 @@
+<mui-overlay-shell [open]="open()" size="sm" ariaLabel="Add Server" (dismissed)="onDismiss()">
+  <div slot="header" class="header">
+    <span class="title">Add Server</span>
+    <mui-button
+      variant="ghost"
+      size="sm"
+      [iconOnly]="true"
+      iconLeading="x"
+      ariaLabel="Close"
+      (pressed)="onDismiss()"
+    />
+  </div>
+
+  <div class="body-stack">
+    @if (error()) {
+      <mui-banner variant="error" [message]="error()!" />
+    }
+    <mui-form-field
+      label="Server address"
+      placeholder="maple.example.com"
+      [value]="host()"
+      (valueChange)="host.set($event)"
+      [disabled]="connecting()"
+    />
+    <mui-form-field
+      label="Username"
+      placeholder="you@example.com"
+      [value]="username()"
+      (valueChange)="username.set($event)"
+      [disabled]="connecting()"
+    />
+    <mui-form-field
+      label="Password"
+      placeholder="••••••••"
+      [value]="password()"
+      (valueChange)="password.set($event)"
+      [disabled]="connecting()"
+      (committed)="onConnect()"
+    />
+  </div>
+
+  <div slot="footer" class="footer">
+    <mui-button variant="ghost" (pressed)="onDismiss()">Cancel</mui-button>
+    <mui-button
+      variant="primary"
+      [loading]="connecting()"
+      [disabled]="!canConnect()"
+      (pressed)="onConnect()"
+    >
+      Connect
+    </mui-button>
+  </div>
+</mui-overlay-shell>

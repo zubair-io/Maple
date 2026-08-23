@@ -14,9 +14,8 @@ import {
   computed,
   input,
   model,
-  signal,
 } from '@angular/core';
-import { isPointerDragEnd, isPointerDragMove } from '../internal/pointer-drag';
+import { PointerCaptureDragBase } from '../internal/pointer-drag';
 
 export interface MuiColorWheelValue {
   /** Degrees, `[0, 360)`. */
@@ -46,16 +45,13 @@ function clamp01(v: number): number {
   styleUrl: './mui-color-wheel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class MuiColorWheelComponent {
+export class MuiColorWheelComponent extends PointerCaptureDragBase<MuiColorWheelValue> {
   readonly value = model<MuiColorWheelValue>({ hue: 0, saturation: 0 });
   readonly size = input<number>(96);
   readonly ariaLabel = input<string>('Color wheel');
   readonly disabled = input<boolean>(false);
 
   @ViewChild('wheelEl') private wheelRef!: ElementRef<HTMLElement>;
-
-  readonly dragging = signal(false);
-  private activePointerId: number | null = null;
 
   /** Puck position as `{left%, top%}` — box coordinates, y grows down. */
   // fallow-ignore-next-line unused-class-member -- read from the templateUrl view (`puckPos().left/top`); fallow's member-usage scan doesn't follow external Angular templates.
@@ -68,7 +64,15 @@ export class MuiColorWheelComponent {
     return { left: (x + 1) * 50, top: (1 - (y + 1)) * 50 };
   });
 
-  private posFromEvent(event: PointerEvent): MuiColorWheelValue {
+  protected disabledInput(): boolean {
+    return this.disabled();
+  }
+
+  protected dragElement(): HTMLElement | undefined {
+    return this.wheelRef?.nativeElement;
+  }
+
+  protected valueFromEvent(event: PointerEvent): MuiColorWheelValue {
     const wheel = this.wheelRef.nativeElement;
     const rect = wheel.getBoundingClientRect();
     const cx = rect.left + rect.width / 2;
@@ -79,27 +83,6 @@ export class MuiColorWheelComponent {
     const radius = Math.min(1, Math.hypot(dx, dy));
     const hue = radius === 0 ? this.value().hue : wrapHue((Math.atan2(dy, dx) * 180) / Math.PI);
     return { hue: Math.round(hue) % 360, saturation: Math.round(radius * 100) };
-  }
-
-  onPointerDown(event: PointerEvent): void {
-    if (this.disabled() || event.button !== 0) return;
-    const wheel = this.wheelRef?.nativeElement;
-    if (!wheel) return;
-    this.dragging.set(true);
-    this.activePointerId = event.pointerId;
-    wheel.setPointerCapture(event.pointerId);
-    this.value.set(this.posFromEvent(event));
-  }
-
-  onPointerMove(event: PointerEvent): void {
-    if (!isPointerDragMove(this.dragging(), event, this.activePointerId)) return;
-    this.value.set(this.posFromEvent(event));
-  }
-
-  onPointerUp(event: PointerEvent): void {
-    if (!isPointerDragEnd(event, this.activePointerId)) return;
-    this.dragging.set(false);
-    this.activePointerId = null;
   }
 
   onKeydown(event: KeyboardEvent): void {

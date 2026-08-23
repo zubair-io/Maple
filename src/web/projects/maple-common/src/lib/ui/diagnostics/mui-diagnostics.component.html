@@ -1,0 +1,25 @@
+<div class="mui-diagnostics">
+  <div class="header">
+    <mui-text variant="row-label">Validation checks</mui-text>
+    <mui-button variant="primary" size="sm" [loading]="running()" (pressed)="runRequested.emit()">
+      Run checks
+    </mui-button>
+  </div>
+
+  <div class="checks">
+    @for (check of checks(); track check.id) {
+      <div class="check-row">
+        <mui-text variant="body">{{ check.label }}</mui-text>
+        <mui-badge
+          [variant]="statusBadgeVariant[check.status]"
+          [value]="statusLabel[check.status]"
+        />
+      </div>
+    }
+  </div>
+
+  <mui-code-block
+    [code]="output() || 'No output yet — run checks to see raw results.'"
+    language="text"
+  />
+</div>

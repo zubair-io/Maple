@@ -1,0 +1,34 @@
+<div class="mui-filter-panel">
+  @if (activeChips().length > 0) {
+    <mui-chip-row [chips]="activeChips()" mode="removable" (removed)="chipRemoved.emit($event)" />
+  }
+  @if (groups().length === 0) {
+    <mui-empty-state icon="filter" [title]="emptyMessage()" />
+  } @else {
+    @for (group of groups(); track group.id) {
+      <mui-collapsible
+        [label]="group.label"
+        [open]="openGroupIds().includes(group.id)"
+        (openChange)="toggleGroup(group.id, $event)"
+      >
+        @if (group.searchable) {
+          <mui-form-field
+            label="Filter"
+            variant="search"
+            [value]="groupSearchDrafts()[group.id] ?? ''"
+            (valueChange)="setGroupSearch(group.id, $event)"
+          />
+        }
+        @for (option of visibleOptions(group); track option.id) {
+          <mui-checkbox
+            [checked]="option.checked"
+            [label]="option.label"
+            (checkedChange)="
+              optionToggled.emit({ groupId: group.id, optionId: option.id, checked: $event })
+            "
+          />
+        }
+      </mui-collapsible>
+    }
+  }
+</div>
