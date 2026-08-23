@@ -117,6 +117,31 @@ describe('runProposalLoop — happy path', () => {
 });
 
 describe('runProposalLoop — thin results', () => {
+  it("feeds the previous round's misses back into the retry prompt", async () => {
+    // The model cannot know whether photos exist in a window it invents —
+    // "beach vacation, Aug 2026" is a blind guess. The loop is what knows,
+    // and a blind retry lets the model guess another doomed window. The
+    // retry prompt must carry the measured miss so the model can widen the
+    // dates or change the idea.
+    const prompts: string[] = [];
+    const deps = makeDeps({
+      rounds: [proposals('beach vacation'), proposals('lake days')],
+      counts: { 'beach vacation': 6 },
+    });
+    const inner = deps.generateJson;
+    deps.generateJson = async (prompt: string, schema: unknown) => {
+      prompts.push(prompt);
+      return inner(prompt, schema);
+    };
+
+    await runProposalLoop(deps);
+
+    const retryPrompt = prompts.find((p) => p.includes('DID NOT WORK'));
+    expect(retryPrompt).toBeDefined();
+    expect(retryPrompt).toContain('beach vacation');
+    expect(retryPrompt).toContain('6');
+  });
+
   it('drops a proposal under the floor and keeps the retry that clears it', async () => {
     const saved = await runProposalLoop(
       makeDeps({
