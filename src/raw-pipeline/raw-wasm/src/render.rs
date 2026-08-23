@@ -160,6 +160,14 @@ pub(crate) fn as_shot_wb(raw_img: &raw_core::image::RawImage) -> (f32, f32) {
 /// into the model, which would demote the exact sentinel into a
 /// float-rounded explicit target (#1892 — the pre-fix push used a crude
 /// log2(B/R) heuristic and shifted every fresh open).
+///
+/// Memory budget (#2661): a full-native-resolution CPU develop of a sensor
+/// over [`crate::cpu_budget::FULL_DEVELOP_MAX_SENSOR_PX`] cannot fit the
+/// 4 GiB wasm32 heap (9.2 GB measured peak on the 100 MP reference — the
+/// alloc abort is an unrecoverable trap that poisons the instance). Such
+/// sensors develop through the sized chain at the clamp instead; the
+/// buffer's real dims ride `width`/`height` and the native dims
+/// `full_width`/`full_height`, exactly like [`render_bytes_sized`].
 #[wasm_bindgen]
 pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleRender, JsError> {
     let raw_img =
@@ -172,25 +180,44 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
         None => xmp_mod::AdjustmentModel::default(),
     };
 
-    let (w, h, bytes) = raw_core::pipeline::render_from_raw_with_quality_and_source(
-        &raw_img,
-        &model,
-        // Export/display path: AMaZE by default (#940) — cost-equivalent to
-        // bilinear since the tiled kernel (#1887) and matches the Apple
-        // refine/export selection.
-        raw_core::pipeline::RenderQuality::Amaze,
-        Some(raw_core::pipeline::RawInput::Bytes { bytes: raw, ext }),
-    )
-    .map_err(|e| JsError::new(&e.to_string()))?;
-    Ok(MapleRender {
-        width: w,
-        height: h,
-        full_width: w,
-        full_height: h,
-        rgb: bytes,
-        as_shot_temperature,
-        as_shot_tint,
-    })
+    // Export/display path: AMaZE by default (#940) — cost-equivalent to
+    // bilinear since the tiled kernel (#1887) and matches the Apple
+    // refine/export selection.
+    let quality = raw_core::pipeline::RenderQuality::Amaze;
+    let source = Some(raw_core::pipeline::RawInput::Bytes { bytes: raw, ext });
+    match crate::cpu_budget::clamp_develop_long_edge(raw_img.width, raw_img.height, None) {
+        None => {
+            let (w, h, bytes) = raw_core::pipeline::render_from_raw_with_quality_and_source(
+                &raw_img, &model, quality, source,
+            )
+            .map_err(|e| JsError::new(&e.to_string()))?;
+            Ok(MapleRender {
+                width: w,
+                height: h,
+                full_width: w,
+                full_height: h,
+                rgb: bytes,
+                as_shot_temperature,
+                as_shot_tint,
+            })
+        }
+        Some(cap) => {
+            let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
+            let (w, h, bytes) = raw_core::pipeline::render_sized_from_raw_with_quality_and_source(
+                &raw_img, &model, quality, source, cap,
+            )
+            .map_err(|e| JsError::new(&e.to_string()))?;
+            Ok(MapleRender {
+                width: w,
+                height: h,
+                full_width,
+                full_height,
+                rgb: bytes,
+                as_shot_temperature,
+                as_shot_tint,
+            })
+        }
+    }
 }
 
 /// Sibling of [`render_bytes`] that also threads a baked film-look LUT through
@@ -229,23 +256,54 @@ pub fn render_bytes_with_film(
         )
     };
 
-    let (w, h, bytes) = raw_core::pipeline::render_from_raw_with_quality_source_and_film(
-        &raw_img,
-        &model,
-        raw_core::pipeline::RenderQuality::Amaze,
-        Some(raw_core::pipeline::RawInput::Bytes { bytes: raw, ext }),
-        film_lut.as_ref(),
-    )
-    .map_err(|e| JsError::new(&e.to_string()))?;
-    Ok(MapleRender {
-        width: w,
-        height: h,
-        full_width: w,
-        full_height: h,
-        rgb: bytes,
-        as_shot_temperature,
-        as_shot_tint,
-    })
+    // Same #2661 memory clamp as `render_bytes` — this entry serves the very
+    // same unsized CPU-fallback requests, just with a film LUT threaded
+    // through, so an unclamped large sensor would trap here identically.
+    let quality = raw_core::pipeline::RenderQuality::Amaze;
+    let source = Some(raw_core::pipeline::RawInput::Bytes { bytes: raw, ext });
+    match crate::cpu_budget::clamp_develop_long_edge(raw_img.width, raw_img.height, None) {
+        None => {
+            let (w, h, bytes) = raw_core::pipeline::render_from_raw_with_quality_source_and_film(
+                &raw_img,
+                &model,
+                quality,
+                source,
+                film_lut.as_ref(),
+            )
+            .map_err(|e| JsError::new(&e.to_string()))?;
+            Ok(MapleRender {
+                width: w,
+                height: h,
+                full_width: w,
+                full_height: h,
+                rgb: bytes,
+                as_shot_temperature,
+                as_shot_tint,
+            })
+        }
+        Some(cap) => {
+            let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
+            let (w, h, bytes) =
+                raw_core::pipeline::render_sized_from_raw_with_quality_source_and_film(
+                    &raw_img,
+                    &model,
+                    quality,
+                    source,
+                    cap,
+                    film_lut.as_ref(),
+                )
+                .map_err(|e| JsError::new(&e.to_string()))?;
+            Ok(MapleRender {
+                width: w,
+                height: h,
+                full_width,
+                full_height,
+                rgb: bytes,
+                as_shot_temperature,
+                as_shot_tint,
+            })
+        }
+    }
 }
 
 /// Sized variant of [`render_bytes`] — the display-encoded counterpart of the
@@ -297,13 +355,23 @@ pub fn render_bytes_sized(
         // Full-quality path: AMaZE by default (#940).
         raw_core::pipeline::RenderQuality::Amaze
     };
+    // #2661: clamp the request so the develop fits the 4 GiB wasm32 heap —
+    // a cap near the native long edge of a >32 MP sensor otherwise runs the
+    // full-res demosaic branch and aborts the instance (7.2 GB measured at
+    // cap 8192 on the 100 MP reference).
+    let effective_long_edge = crate::cpu_budget::clamp_develop_long_edge(
+        raw_img.width,
+        raw_img.height,
+        Some(max_long_edge),
+    )
+    .unwrap_or(max_long_edge);
     let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
     let (w, h, bytes) = raw_core::pipeline::render_sized_from_raw_with_quality_and_source(
         &raw_img,
         &model,
         quality,
         Some(raw_core::pipeline::RawInput::Bytes { bytes: raw, ext }),
-        max_long_edge,
+        effective_long_edge,
     )
     .map_err(|e| JsError::new(&e.to_string()))?;
     Ok(MapleRender {

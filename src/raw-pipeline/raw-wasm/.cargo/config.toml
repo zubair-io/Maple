@@ -19,8 +19,12 @@
 #   zero-initialized f32 buffers while demosaic + DCP + tone + dehaze +
 #   sharpen + NR run in sequence. With the default 2 GiB cap a ~22 MP RAW
 #   triggers `handle_alloc_error` → `abort_internal`, which lowers to an
-#   unreachable WASM trap. Raising to the wasm32 4 GiB maximum unblocks
-#   real-world RAWs (5760×3840 Canon R5, 11656×8742 Hasselblad L3D-100c).
+#   unreachable WASM trap. 4 GiB is the wasm32 hard ceiling — there is no
+#   further headroom — and even it does NOT fit a full-native-res develop of
+#   large sensors (#2661: 5.8 GB measured peak at 50 MP, 9.2 GB at 100 MP).
+#   `src/cpu_budget.rs` clamps every CPU render entry so a develop stays
+#   inside this ceiling; re-derive its constants with the
+#   `raw-core mem-probe` example when the stage set changes.
 rustflags = [
     "-C", "target-feature=+atomics,+bulk-memory,+mutable-globals",
     "-C", "link-arg=--max-memory=4294967296",
