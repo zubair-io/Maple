@@ -24,5 +24,12 @@
     "@compodoc/compodoc",
     "@angular/compiler"
   ],
-  "ignoreUnresolvedImports": ["**/pkg/raw_wasm", "tailwindcss"]
+  // Maple UI atoms (#3000) live two levels below `lib/` (`lib/ui/<name>/`)
+  // and `@use '../../generated/ui-tokens' as tok;` per the wave brief.
+  // fallow's Sass import resolver doesn't walk multi-segment `../../`
+  // traversals — the single-segment sibling import in tokens.scss/
+  // motion.scss already resolves fine — but the real Sass compiler (and the
+  // actual `ng build`/`ng test` runs) resolve it correctly, confirmed by a
+  // clean maple-syrup production build. False positive, not a real gap.
+  "ignoreUnresolvedImports": ["**/pkg/raw_wasm", "tailwindcss", "**/generated/ui-tokens"]
 }

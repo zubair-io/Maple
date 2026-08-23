@@ -1,0 +1,50 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: inline-block;
+}
+
+.mui-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.value {
+  color: var(--color-text-main);
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.label {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.delta {
+  display: inline-flex;
+  align-items: center;
+  gap: tok.$maple-spacing-xs;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.trend-up {
+  color: var(--color-success-text);
+}
+
+.trend-down {
+  color: var(--color-error-text);
+}
+
+.trend-flat {
+  color: var(--color-text-muted);
+}
+
+.size-lg .value {
+  font-size: 26px;
+}
+
+.size-sm .value {
+  font-size: 16px;
+}

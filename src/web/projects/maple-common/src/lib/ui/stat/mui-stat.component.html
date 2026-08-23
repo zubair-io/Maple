@@ -1,0 +1,12 @@
+<div class="mui-stat" [class]="'size-' + size()">
+  <div class="value">{{ value() }}</div>
+  <div class="label">{{ label() }}</div>
+  @if (delta() !== null) {
+    <div class="delta" [class]="'trend-' + (trend() ?? 'flat')">
+      @if (trend()) {
+        <span class="trend-glyph" aria-hidden="true">{{ trendGlyph() }}</span>
+      }
+      <span>{{ delta() }}</span>
+    </div>
+  }
+</div>

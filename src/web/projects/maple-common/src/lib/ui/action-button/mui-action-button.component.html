@@ -1,0 +1,12 @@
+<button
+  type="button"
+  class="mui-action-button"
+  [class]="'size-' + size() + ' orientation-' + orientation()"
+  [class.selected]="selected()"
+  [disabled]="disabled()"
+  [attr.aria-pressed]="selected() ? 'true' : 'false'"
+  (click)="onClick($event)"
+>
+  <mui-icon [name]="icon()" [size]="iconSize()" />
+  <span class="label">{{ label() }}</span>
+</button>
