@@ -20,27 +20,48 @@ namespace Maple.UI.Atoms
     public static class MuiTimestampFormatter
     {
         /// <summary>Formats <paramref name="value"/> relative to
-        /// <paramref name="now"/> per timestamp.md's four formats.</summary>
-        public static string Format(DateTimeOffset value, MuiTimestampFormat format, DateTimeOffset now) => format switch
+        /// <paramref name="now"/> per timestamp.md's four formats.
+        /// timestamp.md documents the absolute formats (Short/Long/
+        /// TimeOnly) as locale-formatted, so <paramref name="culture"/>
+        /// selects the locale for those three — pass <c>null</c> (the
+        /// default) to fall back to <see cref="CultureInfo.CurrentCulture"/>
+        /// at call time. The Relative format's wording ("2m ago", "just
+        /// now", …) is fixed English regardless of <paramref
+        /// name="culture"/> — timestamp.md doesn't call for translating it,
+        /// only the absolute forms — though a Relative call that falls
+        /// through its six-day ceiling into an absolute short date (see
+        /// <see cref="FormatRelative"/>) does still honor the requested
+        /// culture for that fallback date.</summary>
+        public static string Format(DateTimeOffset value, MuiTimestampFormat format, DateTimeOffset now, CultureInfo? culture = null)
         {
-            MuiTimestampFormat.Short => value.ToString("MMM d, yyyy", CultureInfo.InvariantCulture),
-            MuiTimestampFormat.Long => value.ToString("MMMM d, yyyy, h:mm tt", CultureInfo.InvariantCulture),
-            MuiTimestampFormat.TimeOnly => value.ToString("h:mm tt", CultureInfo.InvariantCulture),
-            _ => FormatRelative(value, now),
-        };
+            var effectiveCulture = culture ?? CultureInfo.CurrentCulture;
+            return format switch
+            {
+                MuiTimestampFormat.Short => value.ToString("MMM d, yyyy", effectiveCulture),
+                MuiTimestampFormat.Long => value.ToString("MMMM d, yyyy, h:mm tt", effectiveCulture),
+                MuiTimestampFormat.TimeOnly => value.ToString("h:mm tt", effectiveCulture),
+                _ => FormatRelative(value, now, effectiveCulture),
+            };
+        }
 
         /// <summary>Full absolute date+time — timestamp.md's "tooltip in
         /// every format" requirement, so the exact instant is always one
-        /// hover away regardless of which format is displayed.</summary>
-        public static string FormatAbsoluteTooltip(DateTimeOffset value) =>
-            value.ToString("MMMM d, yyyy, h:mm tt", CultureInfo.InvariantCulture);
+        /// hover away regardless of which format is displayed. Locale
+        /// follows <paramref name="culture"/>, defaulting to
+        /// <see cref="CultureInfo.CurrentCulture"/> when omitted, matching
+        /// <see cref="Format"/>'s absolute formats.</summary>
+        public static string FormatAbsoluteTooltip(DateTimeOffset value, CultureInfo? culture = null) =>
+            value.ToString("MMMM d, yyyy, h:mm tt", culture ?? CultureInfo.CurrentCulture);
 
         /// <summary>Relative ladder: "just now" (under a minute) -> "Nm ago"
         /// (under an hour) -> "Nh ago" (under a day) -> "Nd ago" (up to a
         /// six-day ceiling) -> an absolute short date beyond that — the
         /// ceiling exists so a two-year-old photo never renders as
-        /// "731d ago" (timestamp.md § Variants: Relative).</summary>
-        private static string FormatRelative(DateTimeOffset value, DateTimeOffset now)
+        /// "731d ago" (timestamp.md § Variants: Relative). The relative
+        /// strings themselves are not localized (see the culture remark on
+        /// <see cref="Format"/>); <paramref name="culture"/> only affects
+        /// the absolute-short-date fallback past the ceiling.</summary>
+        private static string FormatRelative(DateTimeOffset value, DateTimeOffset now, CultureInfo culture)
         {
             var delta = now - value;
             if (delta < TimeSpan.Zero)
@@ -55,7 +76,7 @@ namespace Maple.UI.Atoms
             if (delta < TimeSpan.FromDays(7))
                 return $"{(int)delta.TotalDays}d ago";
 
-            return Format(value, MuiTimestampFormat.Short, now);
+            return Format(value, MuiTimestampFormat.Short, now, culture);
         }
     }
 }
