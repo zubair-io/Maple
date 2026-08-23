@@ -59,7 +59,7 @@ public struct MapleUIGalleryView: View {
                 MoleculesL1GallerySection2()
             }
         case .moleculesL2:
-            unbuiltTier(names: GalleryCatalog.moleculesL2)
+            MoleculesL2GallerySection()
         case .organisms:
             unbuiltTier(names: GalleryCatalog.organisms)
         case .templates:
