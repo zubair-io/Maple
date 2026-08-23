@@ -24,5 +24,5 @@
     "@compodoc/compodoc",
     "@angular/compiler"
   ],
-  "ignoreUnresolvedImports": ["**/pkg/raw_wasm"]
+  "ignoreUnresolvedImports": ["**/pkg/raw_wasm", "tailwindcss"]
 }
