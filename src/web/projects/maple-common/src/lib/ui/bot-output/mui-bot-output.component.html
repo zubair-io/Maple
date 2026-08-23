@@ -1,0 +1,9 @@
+<div class="mui-bot-output">
+  <mui-avatar [name]="botName()" size="sm" />
+  <div class="content">
+    <mui-text variant="body" color="muted" [block]="true">{{ visibleText() }}</mui-text>
+    @if (isRevealing()) {
+      <mui-progress shape="ring" size="sm" [value]="null" label="Generating" />
+    }
+  </div>
+</div>

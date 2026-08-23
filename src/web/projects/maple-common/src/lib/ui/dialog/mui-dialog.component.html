@@ -1,0 +1,35 @@
+@if (open()) {
+  <div class="mui-dialog-scrim" (click)="onScrimClick()">
+    <div
+      #panel
+      class="mui-dialog"
+      role="dialog"
+      aria-modal="true"
+      [attr.aria-label]="title()"
+      tabindex="-1"
+      (click)="$event.stopPropagation()"
+    >
+      <mui-text variant="row-label" [block]="true">{{ title() }}</mui-text>
+      @if (message()) {
+        <mui-text variant="body" color="muted" [block]="true" class="message">
+          {{ message() }}
+        </mui-text>
+      }
+      @if (variant() === 'prompt') {
+        <mui-input
+          [value]="promptValue()"
+          (valueChange)="promptValue.set($event)"
+          [placeholder]="promptPlaceholder()"
+          [ariaLabel]="title()"
+          (committed)="promptValue.set($event)"
+        />
+      }
+      <div class="actions">
+        <mui-button variant="ghost" (pressed)="cancel()">{{ cancelLabel() }}</mui-button>
+        <mui-button [variant]="destructive() ? 'destructive' : 'primary'" (pressed)="confirm()">
+          {{ confirmLabel() }}
+        </mui-button>
+      </div>
+    </div>
+  </div>
+}

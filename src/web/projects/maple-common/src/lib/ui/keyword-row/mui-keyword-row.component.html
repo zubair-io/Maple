@@ -1,0 +1,13 @@
+<div class="mui-keyword-row">
+  @if (keywords().length > 0) {
+    <mui-chip-row [chips]="keywords()" mode="removable" (removed)="removed.emit($event)" />
+  }
+  <mui-input
+    class="add"
+    size="sm"
+    [value]="draft()"
+    (valueChange)="draft.set($event)"
+    [placeholder]="addPlaceholder()"
+    (committed)="onDraftCommit($event)"
+  />
+</div>

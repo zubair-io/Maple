@@ -1,0 +1,18 @@
+<div class="mui-settings-row">
+  <div class="row-header">
+    @if (icon()) {
+      <mui-icon [name]="icon()!" size="sm" class="leading-icon" />
+    }
+    <mui-collapsible [label]="label()" [(open)]="open" class="collapsible">
+      <div class="body">
+        @if (description()) {
+          <mui-text variant="body" color="muted" [block]="true">{{ description() }}</mui-text>
+        }
+        <ng-content />
+      </div>
+    </mui-collapsible>
+  </div>
+  @if (showDivider()) {
+    <mui-divider />
+  }
+</div>

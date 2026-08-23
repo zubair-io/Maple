@@ -1,0 +1,14 @@
+<div class="mui-chat-message" [class.is-own]="own()">
+  @if (!own()) {
+    <mui-avatar [name]="author()" size="sm" />
+  }
+  <div class="bubble">
+    <div class="meta">
+      @if (!own()) {
+        <mui-text variant="chip-label" class="author">{{ author() }}</mui-text>
+      }
+      <mui-timestamp [value]="sentAt()" format="relative" class="time" />
+    </div>
+    <mui-text variant="body">{{ text() }}</mui-text>
+  </div>
+</div>

@@ -1,0 +1,18 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+}
+
+.mui-response-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-sm;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: tok.$maple-spacing-sm;
+}

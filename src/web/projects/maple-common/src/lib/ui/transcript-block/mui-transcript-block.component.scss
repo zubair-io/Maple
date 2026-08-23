@@ -1,0 +1,35 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+}
+
+.mui-transcript-block {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-sm;
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  gap: tok.$maple-spacing-sm;
+}
+
+.time {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.line {
+  display: flex;
+  align-items: baseline;
+  gap: tok.$maple-spacing-xs;
+  min-width: 0;
+}
+
+.speaker {
+  flex: 0 0 auto;
+  font-weight: 700;
+}

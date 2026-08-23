@@ -1,0 +1,14 @@
+<div class="mui-card" role="button" tabindex="0" (click)="onClick()" (keydown)="onKeydown($event)">
+  <div class="media">
+    <mui-image [src]="src()" [alt]="alt()" fit="fill" radius="none" [aspectRatio]="16 / 9" />
+    @if (badgeLabel()) {
+      <mui-badge class="overlay" variant="count" [value]="badgeLabel()!" />
+    }
+  </div>
+  <div class="body">
+    <mui-text variant="row-label" [truncate]="true">{{ title() }}</mui-text>
+    @if (subtitle()) {
+      <mui-text variant="body" color="muted" [truncate]="true">{{ subtitle() }}</mui-text>
+    }
+  </div>
+</div>

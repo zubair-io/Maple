@@ -1,0 +1,10 @@
+<mui-popover [open]="open()" [placement]="placement()" (closeRequested)="closeRequested.emit()">
+  <div class="mui-event-popover">
+    <mui-form-field label="Title" [(value)]="title" placeholder="Design review" />
+    <mui-form-field label="Time" [(value)]="timeLabel" placeholder="3:00 PM" />
+    <div class="actions">
+      <mui-button variant="ghost" (pressed)="deleteEvent()">Delete</mui-button>
+      <mui-button variant="primary" (pressed)="save()">Save</mui-button>
+    </div>
+  </div>
+</mui-popover>

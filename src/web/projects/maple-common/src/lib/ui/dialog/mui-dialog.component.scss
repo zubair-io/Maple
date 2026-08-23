@@ -1,0 +1,39 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: contents;
+}
+
+.mui-dialog-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.mui-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-sm;
+  width: min(360px, calc(100vw - #{tok.$maple-spacing-lg} * 2));
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: tok.$maple-radius-md;
+  padding: tok.$maple-spacing-lg;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+  outline: none;
+}
+
+.message {
+  margin-top: -#{tok.$maple-spacing-xs};
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: tok.$maple-spacing-xs;
+  margin-top: tok.$maple-spacing-xs;
+}
