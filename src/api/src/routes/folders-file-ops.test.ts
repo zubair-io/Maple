@@ -21,11 +21,17 @@ import { closeDb } from '../db/client.ts';
 import { foldersFileOpsRoutes } from './folders-file-ops.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 const TEST_DB = `maple_folders_file_ops_test_${process.pid}`;
 
+/** Resolved per test rather than captured at module scope (#2900): Bun runs
+ * every module body during the import phase, so a module-scope read lands
+ * BEFORE any suite's `beforeEach` — and another suite that sets
+ * `MAPLE_MONGO_URI` for its own run would leave this one pointed at a stale
+ * value. */
+const mongoUri = () => process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+
 async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
+  const c = new MongoClient(mongoUri(), {
     serverSelectionTimeoutMS: 1_500,
     connectTimeoutMS: 1_500,
   });
@@ -57,7 +63,7 @@ describe('non-asset file delete/relocate routes', () => {
   beforeEach(async () => {
     mongo = await tryConnect();
     if (!mongo) return;
-    process.env.MAPLE_MONGO_URI = MONGO_URI;
+    process.env.MAPLE_MONGO_URI = mongoUri();
     process.env.MAPLE_MONGO_DB = TEST_DB;
     await closeDb();
     db = mongo.db(TEST_DB);
@@ -163,6 +169,36 @@ describe('non-asset file delete/relocate routes', () => {
     // File must be untouched.
     const st = await stat(absPath);
     expect(st.isFile()).toBe(true);
+  });
+
+  it('trashes a path whose only asset row was reaped as missing', async () => {
+    if (!mongo || !db || !folderId || !folderPath || !app) return;
+    // The reaper stamps `missing_since` when a file disappears from disk; the
+    // asset doc stays around (soft state, not a delete). A NEW non-asset file
+    // that later lands on that same path is genuinely a `FileChild` and must
+    // NOT be refused with a 409 pointing at the stale doc — "live" has to mean
+    // both not-soft-deleted AND not-reaped.
+    const target = 'reaped.jpg';
+    const absPath = nodePath.join(folderPath, target);
+    await writeFile(absPath, 'new bytes at an old path');
+    await db.collection('assets').insertOne({
+      _id: new ObjectId(),
+      fileinfo: [
+        {
+          path: '',
+          filename: target,
+          library_id: folderId,
+          deleted_at: null,
+          missing_since: new Date().toISOString(),
+        },
+      ],
+      live_location_count: 0,
+      deleted_at: null,
+    } as never);
+
+    const url = `http://localhost/api/folders/${folderId.toHexString()}/file?path=${encodeURIComponent(target)}`;
+    const res = await app.handle(new Request(url, { method: 'DELETE' }));
+    expect(res.status).toBe(204);
   });
 
   it('refuses a dot-segment path that would smuggle past the indexed-asset guard', async () => {
