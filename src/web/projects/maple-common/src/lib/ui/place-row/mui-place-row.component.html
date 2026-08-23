@@ -1,0 +1,24 @@
+<div class="mui-place-row">
+  @if (editing()) {
+    <mui-input
+      [value]="draft()"
+      (valueChange)="draft.set($event)"
+      ariaLabel="Place"
+      (keydown)="onKeydown($event)"
+      (focusout)="commit()"
+    />
+  } @else {
+    <button type="button" class="display" (click)="startEditing()">
+      <mui-text variant="row-label" [truncate]="true">{{ place() || 'Unknown location' }}</mui-text>
+    </button>
+    @if (overridden()) {
+      <mui-button
+        variant="ghost"
+        size="sm"
+        iconLeading="revert"
+        ariaLabel="Clear override"
+        (pressed)="clear()"
+      />
+    }
+  }
+</div>

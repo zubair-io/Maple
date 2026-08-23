@@ -1,0 +1,12 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+}
+
+.mui-faces-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: tok.$maple-spacing-sm;
+}

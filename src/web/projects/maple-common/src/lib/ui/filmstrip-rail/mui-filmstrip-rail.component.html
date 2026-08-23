@@ -1,0 +1,26 @@
+<div class="mui-filmstrip-rail" [class.is-collapsed]="collapsed()">
+  <button
+    type="button"
+    class="toggle"
+    [attr.aria-label]="collapsed() ? 'Expand filmstrip' : 'Collapse filmstrip'"
+    [attr.aria-expanded]="!collapsed()"
+    (click)="toggleCollapsed()"
+  >
+    <mui-icon [name]="collapsed() ? 'chevron-right' : 'chevron-down'" size="sm" />
+  </button>
+  @if (!collapsed()) {
+    <div class="cells" role="list">
+      @for (item of items(); track item.id) {
+        <mui-media-cell
+          class="cell"
+          role="listitem"
+          size="sm"
+          [src]="item.src"
+          [alt]="item.alt"
+          [selected]="activeId() === item.id"
+          (pressed)="select(item.id)"
+        />
+      }
+    </div>
+  }
+</div>

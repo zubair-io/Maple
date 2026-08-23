@@ -1,0 +1,32 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+}
+
+.mui-description-field {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-xs;
+}
+
+.display {
+  display: block;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: tok.$maple-radius-sm;
+  background: transparent;
+  padding: tok.$maple-spacing-xs tok.$maple-spacing-sm;
+  margin: -#{tok.$maple-spacing-xs} -#{tok.$maple-spacing-sm};
+  text-align: left;
+  cursor: text;
+
+  &:hover {
+    border-color: var(--color-border);
+    background: var(--color-surface-hover);
+  }
+}
+
+.regenerate {
+  align-self: flex-start;
+}
