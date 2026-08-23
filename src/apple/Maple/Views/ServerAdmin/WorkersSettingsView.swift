@@ -14,6 +14,12 @@ import MapleCore
 struct WorkersSettingsView: View {
     let client: WorkersAdminClient
     let events: WorkerEventsClient
+    /// The generated-search worker's own section (config + Run now +
+    /// today's collections). Optional so previews and callers that only
+    /// care about the stage table need not construct three extra clients.
+    var generatedSearch: GeneratedSearchAdminClient?
+    var generatedSearchCollections: GeneratedSearchClient?
+    var foldersClient: CloudFoldersClient?
 
     @State private var feed = WorkersFeed()
     @State private var isLive = false
@@ -76,6 +82,12 @@ struct WorkersSettingsView: View {
                         }
                         .listRowBackground(MapleTokens.surface)
                     }
+                }
+                if let generatedSearch, let generatedSearchCollections, let foldersClient {
+                    GeneratedSearchSection(
+                        admin: generatedSearch,
+                        collectionsClient: generatedSearchCollections,
+                        foldersClient: foldersClient)
                 }
             } else if let loadError {
                 Section {
