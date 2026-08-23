@@ -69,7 +69,7 @@ namespace Maple.UI.Gallery
 
             AddSpecimen(panel, "Search Results", "Paginated result grid with a loading page state.", Row(
                 TemplateFrame(new MuiSearchResults { Items = SampleGridItems(4), TotalCount = 42, Page = 1, PageCount = 4 }, 260, 220),
-                TemplateFrame(new MuiSearchResults { Items = Array.Empty<MuiCollectionGridItem>(), IsLoadingPage = true, TotalCount = 0, EmptyTitle = "Searching…" }, 220, 220)));
+                TemplateFrame(new MuiSearchResults { Items = Array.Empty<MuiCollectionGridItem>(), IsLoadingPage = true, TotalCount = 0 }, 220, 220)));
         }
 
         private static UIElement BuildFilmstripDemo(bool collapsed)

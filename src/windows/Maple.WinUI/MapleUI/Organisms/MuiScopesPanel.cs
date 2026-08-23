@@ -75,7 +75,7 @@ namespace Maple.UI
             Content = _root;
         }
 
-        private void Place(UIElement element, int row, int column)
+        private void Place(FrameworkElement element, int row, int column)
         {
             Grid.SetRow(element, row);
             Grid.SetColumn(element, column);
