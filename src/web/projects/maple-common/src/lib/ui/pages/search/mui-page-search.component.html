@@ -1,0 +1,19 @@
+<mui-app-shell class="mui-page-search">
+  <div class="search-body">
+    <mui-search
+      [query]="query()"
+      (queryChange)="query.set($event)"
+      [suggestions]="suggestions"
+      [filterGroups]="filterGroups"
+      [activeChips]="activeChips"
+      [showFilters]="showFilters()"
+      (showFiltersChange)="showFilters.set($event)"
+      [results]="results()"
+      [totalCount]="totalCount()"
+      [resultSelectedIds]="resultSelectedIds()"
+      (resultSelectedIdsChange)="resultSelectedIds.set($event)"
+      (suggestionSelected)="onSuggestionSelected($event)"
+      style="display: block; width: 100%; height: 100%"
+    />
+  </div>
+</mui-app-shell>

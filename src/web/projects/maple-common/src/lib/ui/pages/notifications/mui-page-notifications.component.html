@@ -1,0 +1,20 @@
+<mui-app-shell class="mui-page-notifications">
+  <div slot="nav" class="nav-bar">
+    <mui-page-header title="Notifications" [showBack]="false">
+      <div actions>
+        @if (unreadCount() > 0) {
+          <mui-badge variant="count" [value]="unreadCount()" label="unread" />
+        }
+      </div>
+    </mui-page-header>
+  </div>
+
+  <div class="feed-body">
+    <mui-notification-feed
+      [notifications]="notifications()"
+      [activeFilter]="activeFilter()"
+      (activeFilterChange)="activeFilter.set($event)"
+      (markedRead)="onMarkedRead($event)"
+    />
+  </div>
+</mui-app-shell>

@@ -417,3 +417,22 @@ export * from './lib/ui/sheet-shell/mui-sheet-shell.component';
 export * from './lib/ui/drawer-shell/mui-drawer-shell.component';
 export * from './lib/ui/organisms-lane-a';
 export * from './lib/ui/organisms-lane-b';
+
+// Pages (unified-component-catalog.md §6) — Wave W7 (#3000). Composition
+// components: a Template hosting several Organisms with coherent mock data
+// flowing between them.
+export * from './lib/ui/pages/browse/mui-page-browse.component';
+export * from './lib/ui/pages/editor/mui-page-editor.component';
+export * from './lib/ui/pages/document/mui-page-document.component';
+export * from './lib/ui/pages/preview/mui-page-preview.component';
+export * from './lib/ui/pages/search/mui-page-search.component';
+export * from './lib/ui/pages/board/mui-page-board.component';
+export * from './lib/ui/pages/chat/mui-page-chat.component';
+export * from './lib/ui/pages/notifications/mui-page-notifications.component';
+export * from './lib/ui/pages/settings/mui-page-settings.component';
+export * from './lib/ui/pages/admin/mui-page-admin.component';
+export * from './lib/ui/pages/sign-in/mui-page-sign-in.component';
+export * from './lib/ui/pages/pairing/mui-page-pairing.component';
+export * from './lib/ui/pages/tv-timeline/mui-page-tv-timeline.component';
+export * from './lib/ui/pages/tv-viewer/mui-page-tv-viewer.component';
+export * from './lib/ui/pages/tv-map/mui-page-tv-map.component';

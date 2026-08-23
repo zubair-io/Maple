@@ -1,0 +1,36 @@
+<mui-split-layout [showDetail]="false" class="mui-page-browse">
+  <div slot="sidebar" class="sidebar-pane">
+    <mui-sidebar
+      [sections]="sidebarSections"
+      [activeId]="sidebarActiveId()"
+      (activeIdChange)="sidebarActiveId.set($event)"
+      [expandedIds]="sidebarExpandedIds()"
+      (expandedIdsChange)="sidebarExpandedIds.set($event)"
+    />
+  </div>
+
+  <div class="center-pane">
+    <div class="view-toolbar">
+      <mui-toolbar [entries]="viewToolbarEntries" (itemSelected)="onViewSelected($event)" />
+    </div>
+    <div class="view-body">
+      @switch (activeView()) {
+        @case ('timeline') {
+          <mui-timeline [groups]="timelineGroups()" [columns]="6" />
+        }
+        @case ('map') {
+          <mui-map-surface [annotations]="mapAnnotations()" [viewportHeight]="420" />
+        }
+        @default {
+          <mui-collection-grid
+            [items]="visiblePhotos()"
+            [selectedIds]="gridSelectedIds()"
+            (selectedIdsChange)="gridSelectedIds.set($event)"
+            [columns]="4"
+            [viewportHeight]="420"
+          />
+        }
+      }
+    </div>
+  </div>
+</mui-split-layout>

@@ -1,0 +1,36 @@
+@use '../../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+  height: 100%;
+  min-height: 0;
+}
+
+.mui-page-sign-in {
+  height: 100%;
+}
+
+.center-wrap {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: tok.$maple-spacing-xl;
+}
+
+.sign-in-card {
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-md;
+  padding: tok.$maple-spacing-xl;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: tok.$maple-radius-lg;
+}
+
+.card-title {
+  font-weight: 600;
+  color: var(--color-text-main);
+}

@@ -1,0 +1,10 @@
+<mui-app-shell class="mui-page-board">
+  <div slot="nav" class="nav-bar">
+    <mui-text variant="sheet-title">Board</mui-text>
+    <mui-text variant="body" color="muted">{{ statusText() }}</mui-text>
+  </div>
+
+  <div class="board-body">
+    <mui-kanban-board [columns]="columns()" (moved)="onMoved($event)" />
+  </div>
+</mui-app-shell>

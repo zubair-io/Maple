@@ -1,0 +1,32 @@
+@use '../../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+  height: 100%;
+  min-height: 0;
+}
+
+.mui-page-tv-viewer {
+  height: 100%;
+}
+
+.nav-bar {
+  padding: tok.$maple-spacing-sm tok.$maple-spacing-lg;
+}
+
+.viewer-body {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  background: var(--color-image-canvas);
+}
+
+.caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: tok.$maple-spacing-lg;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.6));
+  pointer-events: none;
+}

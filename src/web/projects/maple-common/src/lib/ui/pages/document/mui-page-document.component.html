@@ -1,0 +1,30 @@
+<mui-split-layout [detailWidth]="280" class="mui-page-document">
+  <div slot="sidebar" class="sidebar-pane">
+    <mui-sidebar
+      [sections]="sidebarSections"
+      [activeId]="sidebarActiveId()"
+      (activeIdChange)="sidebarActiveId.set($event)"
+      [expandedIds]="sidebarExpandedIds()"
+      (expandedIdsChange)="sidebarExpandedIds.set($event)"
+    />
+  </div>
+
+  <div class="editor-pane">
+    <mui-rich-text-editor [value]="displayedValue()" (valueChange)="onEditorValueChanged($event)" />
+  </div>
+
+  <div slot="detail" class="detail-pane">
+    <mui-tabs
+      [tabs]="detailTabs"
+      [activeId]="detailActiveTab()"
+      (activeIdChange)="detailActiveTab.set($event)"
+    />
+    <div class="detail-body">
+      @if (detailActiveTab() === 'backlinks') {
+        <mui-backlinks-panel [links]="backlinks()" />
+      } @else {
+        <mui-version-history-panel [versions]="versions()" />
+      }
+    </div>
+  </div>
+</mui-split-layout>

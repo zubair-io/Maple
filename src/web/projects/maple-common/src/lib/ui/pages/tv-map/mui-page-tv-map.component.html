@@ -1,0 +1,20 @@
+<mui-tab-shell
+  [tabs]="tabs"
+  [activeId]="activeTabId()"
+  (activeIdChange)="activeTabId.set($event)"
+  class="mui-page-tv-map"
+>
+  <div class="tab-content">
+    <mui-map-surface
+      [annotations]="annotations"
+      [heatmapVisible]="heatmapVisible()"
+      (heatmapVisibleChange)="onHeatmapToggled($event)"
+      (heatmapToggled)="onHeatmapToggled($event)"
+      (annotationSelected)="onAnnotationSelected($event)"
+      [viewportHeight]="360"
+    />
+    <div class="caption">
+      <mui-text variant="body" color="muted">{{ caption() }}</mui-text>
+    </div>
+  </div>
+</mui-tab-shell>
