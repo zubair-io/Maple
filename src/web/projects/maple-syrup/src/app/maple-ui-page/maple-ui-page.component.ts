@@ -6,6 +6,7 @@ import { TierMolecules1FormComponent } from './tiers/tier-molecules1-form.compon
 import { TierMolecules1StructureComponent } from './tiers/tier-molecules1-structure.component';
 import { TierMolecules2Component } from './tiers/tier-molecules2.component';
 import { TierOrganismsCollectionsComponent } from './tiers/tier-organisms-collections.component';
+import { TierOrganismsEditingComponent } from './tiers/tier-organisms-editing.component';
 import { TierOrganismsModalsComponent } from './tiers/tier-organisms-modals.component';
 import { TierTemplatesComponent } from './tiers/tier-templates.component';
 import { TierPagesComponent } from './tiers/tier-pages.component';
@@ -53,6 +54,7 @@ export const CATALOG_TABS: readonly { readonly id: CatalogTab; readonly label: s
     TierMolecules2Component,
     TierOrganismsCollectionsComponent,
     TierOrganismsModalsComponent,
+    TierOrganismsEditingComponent,
     TierTemplatesComponent,
     TierPagesComponent,
   ],
