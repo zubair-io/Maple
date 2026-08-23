@@ -157,13 +157,14 @@ namespace Maple.UI.Pages
         private void RefreshPane()
         {
             _paneHost.Children.Clear();
-            _paneHost.Children.Add(_activeSectionId switch
+            UIElement section = _activeSectionId switch
             {
                 "setup" => _wizard,
                 "backup" => _backup,
                 "diagnostics" => _diagnostics,
                 _ => _pipeline,
-            });
+            };
+            _paneHost.Children.Add(section);
         }
     }
 }
