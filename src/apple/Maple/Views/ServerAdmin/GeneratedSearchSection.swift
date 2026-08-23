@@ -23,6 +23,7 @@ struct GeneratedSearchSection: View {
     @State private var config: GeneratedSearchAdminConfig?
     @State private var collections: [GeneratedSearchCard] = []
     @State private var loadError: String?
+    @State private var actionError: String?
     @State private var isBusy = false
     @State private var isRunning = false
 
@@ -49,6 +50,13 @@ struct GeneratedSearchSection: View {
                 }
                 .disabled(isBusy || isRunning)
                 .accessibilityIdentifier("generatedSearch.runNow")
+
+                if let actionError {
+                    Text(actionError)
+                        .foregroundStyle(.red)
+                        .font(.caption)
+                        .accessibilityIdentifier("generatedSearch.actionError")
+                }
 
                 if collections.isEmpty {
                     Text("No collections yet — they appear after the first run.")
@@ -116,14 +124,30 @@ struct GeneratedSearchSection: View {
     private func setPaused(_ paused: Bool) async {
         isBusy = true
         defer { isBusy = false }
-        // Adopt the server's stored config, not the optimistic local value.
-        config = try? await admin.save(GeneratedSearchAdminPatch(paused: paused))
+        do {
+            // Adopt the server's stored config, not the optimistic local value.
+            config = try await admin.save(GeneratedSearchAdminPatch(paused: paused))
+            actionError = nil
+        } catch {
+            // Keep the last known config — nulling it collapsed the whole
+            // section back to an indefinite Loading… with no way to retry.
+            actionError = error.localizedDescription
+        }
     }
 
     private func runNow() async {
         isRunning = true
         defer { isRunning = false }
-        guard (try? await admin.runNow()) != nil else { return }
+        do {
+            // `started: false` (already-running) means a pass IS in flight —
+            // it takes the same wait-and-refresh path so the indicator stays
+            // honest, mirroring the web panel's behaviour.
+            _ = try await admin.runNow()
+            actionError = nil
+        } catch {
+            actionError = error.localizedDescription
+            return
+        }
         // A pass takes minutes; a short wait catches fast runs, and a still-
         // running pass simply shows on the next visit to this page.
         try? await Task.sleep(for: .seconds(4))
