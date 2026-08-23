@@ -53,6 +53,28 @@ public struct GeneratedSearchCard: Codable, Equatable, Sendable, Identifiable {
     self.generated_for = generated_for
   }
 
+  /// The exact keys the app's `maple://search` handler reads — anything a
+  /// stored query grows later stays out of the URL by construction.
+  private static let searchLinkKeys = ["placeQuery", "from", "to", "month", "sceneType", "people"]
+
+  /// Deep link into the app's search UI seeded with this collection's
+  /// stored query. Shared by the widget tap and the native settings rows so
+  /// the two can never drift. An attended search is the one place executing
+  /// the stored query client-side is right; ambient display still goes
+  /// through `assets(collectionID:)`.
+  public func searchDeepLink(libraryID: String) -> URL? {
+    var components = URLComponents()
+    components.scheme = "maple"
+    components.host = "search"
+    components.queryItems =
+      Self.searchLinkKeys.compactMap { key in
+        guard let value = query[key], !value.isEmpty else { return nil }
+        return URLQueryItem(name: key, value: value)
+      }
+      + [URLQueryItem(name: "libraryId", value: libraryID)]
+    return components.url
+  }
+
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     id = try c.decode(String.self, forKey: .id)
