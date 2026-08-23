@@ -114,7 +114,19 @@ async function findLiveIndexedAsset(
   const hit = await assets.findOne(
     {
       fileinfo: {
-        $elemMatch: { library_id: folderId, path: relDir, filename, deleted_at: null },
+        // "Live" means BOTH not-soft-deleted and not-reaped: an entry the
+        // reaper stamped `missing_since` no longer has a file on disk, so a
+        // NEW file that later appears at the same path is genuinely a
+        // non-asset file and must not be refused with a 409 pointing at a
+        // stale doc. Same pair `liveFileInfoElemMatch` uses; spelled inline
+        // because this query pins `library_id`/`path`/`filename` too.
+        $elemMatch: {
+          library_id: folderId,
+          path: relDir,
+          filename,
+          deleted_at: { $in: [null] },
+          missing_since: { $in: [null] },
+        },
       },
     },
     { projection: { _id: 1 } },
