@@ -1,0 +1,27 @@
+@use '../../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+  height: 100%;
+  min-height: 0;
+}
+
+.mui-page-chat {
+  height: 100%;
+}
+
+.channel-list {
+  height: 100%;
+  padding: tok.$maple-spacing-sm;
+  background: var(--color-sidebar);
+}
+
+.chat-pane {
+  height: 100%;
+  min-height: 0;
+}
+
+.thread-pane {
+  height: 100%;
+  overflow: auto;
+}

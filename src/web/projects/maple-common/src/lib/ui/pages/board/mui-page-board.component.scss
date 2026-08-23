@@ -1,0 +1,26 @@
+@use '../../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+  height: 100%;
+  min-height: 0;
+}
+
+.mui-page-board {
+  height: 100%;
+}
+
+.nav-bar {
+  display: flex;
+  align-items: baseline;
+  gap: tok.$maple-spacing-md;
+  padding: tok.$maple-spacing-md tok.$maple-spacing-lg;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.board-body {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding: tok.$maple-spacing-md;
+}

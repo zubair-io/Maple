@@ -1,0 +1,60 @@
+<mui-split-layout
+  [sidebarWidth]="72"
+  [sidebarMin]="72"
+  [sidebarMax]="72"
+  [detailWidth]="320"
+  class="mui-page-editor"
+>
+  <div slot="sidebar" class="tool-dock-pane">
+    <mui-tool-dock
+      [entries]="toolDockEntries"
+      [activeId]="toolDockActiveId()"
+      (activeIdChange)="onToolSelected($event)"
+      orientation="vertical"
+    />
+  </div>
+
+  <div class="canvas-column">
+    <div class="canvas-stage">
+      <mui-image-canvas [src]="canvasSrc()" style="display: block; width: 100%; height: 100%" />
+      @if (hudVisible()) {
+        <mui-value-hud class="value-hud" [label]="hudLabel()" [value]="hudValue()" />
+      }
+    </div>
+    <div class="control-surface-dock">
+      <mui-control-surface
+        [tabs]="controlSurfaceTabs"
+        [activeTab]="controlSurfaceActiveTab()"
+        (activeTabChange)="controlSurfaceActiveTab.set($event)"
+        [sliders]="controlSurfaceSliders()"
+        (sliderChanged)="onControlSliderChanged($event)"
+      />
+    </div>
+    <div class="filmstrip-dock">
+      <mui-filmstrip
+        [items]="filmstripItems"
+        [activeId]="filmstripActiveId()"
+        (activeIdChange)="onFilmstripActivated($event)"
+        orientation="horizontal"
+      />
+    </div>
+  </div>
+
+  <div slot="detail" class="inspector-pane">
+    <mui-inspector-panel
+      title="Develop"
+      [tabs]="inspectorTabs"
+      [activeTabId]="inspectorActiveTabId()"
+      (activeTabIdChange)="inspectorActiveTabId.set($event)"
+      [showBack]="false"
+    >
+      <mui-adjustments-panel
+        [tabs]="adjustmentTabs"
+        [values]="adjustmentValues()"
+        [activeTabId]="adjustmentsActiveTabId()"
+        (activeTabIdChange)="adjustmentsActiveTabId.set($event)"
+        (valueChanged)="onAdjustmentValueChanged($event)"
+      />
+    </mui-inspector-panel>
+  </div>
+</mui-split-layout>
