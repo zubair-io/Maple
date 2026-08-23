@@ -61,7 +61,8 @@ namespace Maple.UI.Gallery
 
             BuildTokensPage();
             BuildAtomsPage();
-            BuildPlaceholderPage(MoleculesL1Panel, "Molecules — Level 1", MoleculesL1Names);
+            BuildMoleculesL1Page(MoleculesL1Panel);
+            BuildPlaceholderPage(MoleculesL1Panel, "Not yet built (§2.4-2.7)", MoleculesL1RemainingNames);
             BuildPlaceholderPage(MoleculesL2Panel, "Molecules — Level 2", MoleculesL2Names);
             BuildPlaceholderPage(OrganismsPanel, "Organisms", OrganismNames);
             BuildPlaceholderPage(TemplatesPanel, "Templates", TemplateNames);
@@ -499,12 +500,12 @@ namespace Maple.UI.Gallery
             }
         }
 
-        // docs/unified-component-catalog.md § 2 (68 molecules total across L1/L2).
-        private static readonly string[] MoleculesL1Names =
+        // docs/unified-component-catalog.md § 2.1-2.3 (the 19 built in wave N3a) are
+        // no longer here — they're built live in MuiGalleryWindow.MoleculesL1*.cs.
+        // The remaining §2.4-2.7 molecules (25 of the 44 L1 molecules) still have
+        // no control to show, so they stay a placeholder list for a later wave.
+        private static readonly string[] MoleculesL1RemainingNames =
         {
-            "Form Field", "Inline Rename Field", "Search Bar", "Slider", "Living Slider", "Drag Bar",
-            "Color Wheel", "2-D Pad", "Chip Row", "Tabs", "Tree Row", "List Row", "Rating & Flags",
-            "Banner", "Toast Container", "Empty State", "Value Chip", "Value HUD", "Frame-time HUD",
             "Popover", "Context Menu", "Suggestion Menu", "Command Menu", "Collapsible", "Page Header",
             "Toolbar", "Bubble Menu", "Label-Value Grid", "Avatar Group", "Histogram", "Waveform",
             "Parade", "Vectorscope", "Curve Plot", "Connection Graph", "Heatmap Layer", "Map Annotation",
