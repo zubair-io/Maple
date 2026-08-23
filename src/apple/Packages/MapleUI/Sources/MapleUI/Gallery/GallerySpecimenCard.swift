@@ -38,34 +38,3 @@ struct GallerySpecimenCard<Content: View>: View {
         .background(MuiTokens.surface, in: RoundedRectangle(cornerRadius: MuiTokens.radiusLg, style: .continuous))
     }
 }
-
-/// One row of an unbuilt-tier placeholder list.
-struct GalleryPlaceholderRow: View {
-    let name: String
-
-    var body: some View {
-        HStack {
-            MuiText(name, variant: .rowLabel, color: .muted)
-            Spacer()
-            MuiBadge(variant: .signal, value: "later wave")
-        }
-        .padding(.vertical, MuiTokens.spacingXs)
-    }
-}
-
-struct GalleryPlaceholderSection: View {
-    let names: [String]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(names.enumerated()), id: \.offset) { index, name in
-                GalleryPlaceholderRow(name: name)
-                if index < names.count - 1 {
-                    MuiDivider()
-                }
-            }
-        }
-        .padding(MuiTokens.spacingMd)
-        .background(MuiTokens.surface, in: RoundedRectangle(cornerRadius: MuiTokens.radiusLg, style: .continuous))
-    }
-}
