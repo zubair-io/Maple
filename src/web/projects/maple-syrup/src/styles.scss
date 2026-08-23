@@ -72,3 +72,16 @@ input[type='range'] {
   accent-color: var(--color-primary);
   cursor: pointer;
 }
+
+// ── Maple UI catalog page (#3000) ─────────────────────────────────────────────
+// Global because the catalog's specimen cards reference it from inline
+// `style="animation:…"` attributes, which Angular's scoped keyframes can't
+// serve. Inert unless a specimen uses it.
+@keyframes maple-ui-catspin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
