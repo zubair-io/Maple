@@ -221,7 +221,9 @@ namespace Maple.UI.Pages
             var rows = MuiEditorPageReducer.ValueChips(_values, SliderDefs)
                 .Select(c => new MuiLabelValueRow(c.Label, c.Value))
                 .ToList();
-            _infoGrid.Rows = rows.Count > 0 ? rows : new[] { new MuiLabelValueRow("Adjustments", "None yet") };
+            _infoGrid.Rows = rows.Count > 0
+                ? rows
+                : (IReadOnlyList<MuiLabelValueRow>)new[] { new MuiLabelValueRow("Adjustments", "None yet") };
         }
     }
 }
