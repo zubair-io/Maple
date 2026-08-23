@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices.WindowsRuntime;
+using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Maple.UI.Atoms;
 
 namespace Maple.UI.Gallery
@@ -296,6 +299,125 @@ namespace Maple.UI.Gallery
                     new("Export the sidecar"),
                 },
             }));
+
+            // ─────────────── Wave 2: Form / Media / Feedback ───────────────
+
+            AtomsPanel.Children.Add(SpecimenCard("Input", "Single-line text field, sizes, states, numeric variant.", Column(
+                new MuiInput { Placeholder = "Filename", Text = "DSC_0192" },
+                new MuiInput { Variant = MuiInputVariant.Search, Placeholder = "Search library" },
+                new MuiInput { Placeholder = "Read-only", Text = "app.justmaple.aperture", ReadOnly = true },
+                new MuiInput { Placeholder = "Client ID", Error = "This field is required", InputSize = MuiInputSize.Sm },
+                new MuiInput { Placeholder = "Disabled", IsEnabled = false },
+                new MuiInput { Variant = MuiInputVariant.Numeric, NumericValue = 50, Minimum = 0, Maximum = 100 })));
+
+            AtomsPanel.Children.Add(SpecimenCard("Checkbox", "Binary / tri-state selection.", Column(
+                new MuiCheckbox { Label = "Include sidecars", Checked = true },
+                new MuiCheckbox { Label = "Overwrite existing", Checked = false },
+                new MuiCheckbox { Label = "Some selected", Checked = null },
+                new MuiCheckbox { Label = "Disabled", IsEnabled = false })));
+
+            AtomsPanel.Children.Add(SpecimenCard("Segmented Toggle", "2-3 exclusive options, animated selection pill.", Row(
+                new MuiSegmentedToggle
+                {
+                    Width = 160,
+                    Options = new List<MuiSegmentedToggleOption> { new("Fit"), new("Fill") },
+                    SelectedIndex = 0,
+                },
+                new MuiSegmentedToggle
+                {
+                    Width = 220,
+                    Options = new List<MuiSegmentedToggleOption> { new("Grid"), new("Filmstrip"), new("Map") },
+                    SelectedIndex = 1,
+                })));
+
+            AtomsPanel.Children.Add(SpecimenCard("Image", "Raster leaf, fit modes, broken-state fallback.", Row(
+                new MuiImage { Width = 96, Height = 72, ImageCornerRadius = 8, Fit = MuiImageFit.Fill, Source = SolidBitmap(0x9C, 0x6A, 0xC4) },
+                new MuiImage { Width = 96, Height = 72, ImageCornerRadius = 8, Source = null })));
+
+            AtomsPanel.Children.Add(SpecimenCard("Remote Image", "Tiered thumb -> preview -> full load, retry affordance.", Row(
+                new MuiRemoteImage
+                {
+                    Width = 96,
+                    Height = 72,
+                    ImageCornerRadius = 8,
+                    Loader = new MuiRemoteImageLoader<ImageSource>((_, _) => new TaskCompletionSource<ImageSource>().Task),
+                },
+                new MuiRemoteImage
+                {
+                    Width = 96,
+                    Height = 72,
+                    ImageCornerRadius = 8,
+                    Loader = new MuiRemoteImageLoader<ImageSource>((_, _) =>
+                        Task.FromException<ImageSource>(new InvalidOperationException("network unavailable (gallery demo)"))),
+                })));
+
+            AtomsPanel.Children.Add(SpecimenCard("Avatar", "Initials fallback, deterministic palette, presence dot.", Row(
+                new MuiAvatar { Name = "Ada Lovelace", AvatarSize = MuiAvatarSize.Sm },
+                new MuiAvatar { Name = "Grace Hopper", AvatarSize = MuiAvatarSize.Md, Presence = MuiAvatarPresence.Online },
+                new MuiAvatar { Name = "Cher", AvatarSize = MuiAvatarSize.Lg, Presence = MuiAvatarPresence.Away })));
+
+            AtomsPanel.Children.Add(SpecimenCard("QR Code", "Deterministic placeholder pattern (no real QR dep this wave — see #3012).", Row(
+                new MuiQrPlaceholder { Payload = "maple-app://pair/abc123", PlaceholderSize = MuiQrPlaceholderSize.Sm },
+                new MuiQrPlaceholder { Payload = "maple-app://pair/xyz789", PlaceholderSize = MuiQrPlaceholderSize.Md })));
+
+            AtomsPanel.Children.Add(SpecimenCard("Canvas Surface", "Letterbox host for a GPU-rendered layer, loading state.", Row(
+                new MuiCanvasSurface { Width = 160, Height = 100, IsLoading = true },
+                new MuiCanvasSurface
+                {
+                    Width = 160,
+                    Height = 100,
+                    IsLoading = false,
+                    HostedContent = new TextBlock
+                    {
+                        Text = "hosted content",
+                        Foreground = R("MapleTextMuted"),
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center,
+                    },
+                })));
+
+            AtomsPanel.Children.Add(SpecimenCard("Progress", "Determinate / indeterminate, bar and ring shapes.", Row(
+                new MuiProgress { Width = 140, Value = 62, Label = "62%" },
+                new MuiProgress { Width = 140, IsIndeterminate = true },
+                new MuiProgress { ProgressShape = MuiProgressShape.Ring, Value = 40 },
+                new MuiProgress { ProgressShape = MuiProgressShape.Ring, IsIndeterminate = true })));
+
+            AtomsPanel.Children.Add(SpecimenCard("Spinner", "Small indeterminate indicator, delay-before-show.", Row(
+                new MuiSpinner { IsSpinning = true, SpinnerSize = MuiSpinnerSize.Sm, DelayMs = 0 },
+                new MuiSpinner { IsSpinning = true, SpinnerSize = MuiSpinnerSize.Md, DelayMs = 0 })));
+
+            AtomsPanel.Children.Add(SpecimenCard("Status Text", "Persistence / sync state line, icon pairing.", Column(
+                new MuiStatusText { State = MuiStatusTextState.Saving },
+                new MuiStatusText { State = MuiStatusTextState.Saved },
+                new MuiStatusText { State = MuiStatusTextState.Offline },
+                new MuiStatusText { State = MuiStatusTextState.Error })));
+
+            AtomsPanel.Children.Add(SpecimenCard("Toast", "Transient notification, variants, optional action.", Column(
+                new MuiToast { Variant = MuiToastVariant.Info, Message = "Sync will resume when you're back online." },
+                new MuiToast { Variant = MuiToastVariant.Success, Message = "Export complete.", ActionLabel = "Reveal" },
+                new MuiToast { Variant = MuiToastVariant.Warning, Message = "3 files were skipped (duplicates)." },
+                new MuiToast { Variant = MuiToastVariant.Error, Message = "Couldn't reach the server.", ActionLabel = "Retry" })));
+        }
+
+        /// <summary>A tiny flat-color bitmap for the Image specimen's
+        /// "loaded" state — this gallery ships no bundled sample photo, so a
+        /// synthesized swatch stands in. Same PixelBuffer-write approach
+        /// Controls/ColorWheelControl.cs's BuildDiscBitmap already uses.</summary>
+        private static WriteableBitmap SolidBitmap(byte r, byte g, byte b)
+        {
+            const int size = 8;
+            var bmp = new WriteableBitmap(size, size);
+            var pixels = new byte[size * size * 4];
+            for (var i = 0; i < pixels.Length; i += 4)
+            {
+                pixels[i] = b;
+                pixels[i + 1] = g;
+                pixels[i + 2] = r;
+                pixels[i + 3] = 255;
+            }
+            using (var stream = bmp.PixelBuffer.AsStream())
+                stream.Write(pixels, 0, pixels.Length);
+            return bmp;
         }
 
         private static StackPanel Row(params UIElement[] children)
