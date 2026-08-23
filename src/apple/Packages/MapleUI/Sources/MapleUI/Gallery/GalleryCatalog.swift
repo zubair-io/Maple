@@ -16,15 +16,9 @@ enum GalleryCatalog {
     // §2.4-2.7 (Overlays & menus, Structure, Data plots, Media — 23
     // molecules, see `MoleculesL1GallerySection2`). All 42 molecules
     // cataloged at this tier are built.
-
-    /// Molecules — Level 2 (§3).
-    static let moleculesL2: [String] = [
-        "Media Cell", "Card", "Dialog", "Settings Row", "Embed Shell", "Description Field",
-        "Transcript Block", "Faces Row", "Place Row", "Vision Row", "Keyword Row", "Preview List",
-        "Progress Step", "Suggestion Preview", "Bot Output", "Endpoint Form", "Response Viewer",
-        "Filmstrip Row", "Filmstrip Rail", "QR Scanner", "Chat Message", "Typing Indicator",
-        "Todo Popover", "Event Popover",
-    ]
+    //
+    // Molecules — Level 2 (§3) has no placeholder list anymore either: wave
+    // A4 shipped all 24 (see `MoleculesL2GallerySection`).
 
     /// Organisms (§4).
     static let organisms: [String] = [
