@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Microsoft.UI.Xaml.Controls;
+using Maple.UI;
 
 namespace Maple.UI.Gallery
 {
