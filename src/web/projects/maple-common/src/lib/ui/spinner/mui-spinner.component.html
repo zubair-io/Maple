@@ -1,0 +1,9 @@
+<div
+  class="mui-spinner"
+  [class]="'size-' + size() + ' placement-' + placement()"
+  [style.animation-delay.ms]="delayMs()"
+  role="status"
+  [attr.aria-label]="label()"
+>
+  <span class="ring" aria-hidden="true"></span>
+</div>

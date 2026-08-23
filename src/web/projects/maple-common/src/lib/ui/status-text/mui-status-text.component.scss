@@ -1,0 +1,16 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: inline-flex;
+}
+
+.mui-status-text {
+  display: inline-flex;
+  align-items: center;
+  gap: tok.$maple-spacing-xs;
+}
+
+.text {
+  font-size: 12px;
+  white-space: nowrap;
+}

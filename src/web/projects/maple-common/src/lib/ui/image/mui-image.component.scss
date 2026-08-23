@@ -1,0 +1,62 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+}
+
+.mui-image {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  background: var(--color-surface-alt);
+}
+
+.pixels {
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transition: opacity 200ms ease;
+
+  &.is-loaded {
+    opacity: 1;
+  }
+}
+
+.fit-fill {
+  object-fit: cover;
+}
+
+.fit-fit {
+  object-fit: contain;
+}
+
+.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: var(--color-text-muted);
+}
+
+.radius-none {
+  border-radius: 0;
+}
+
+.radius-sm {
+  border-radius: tok.$maple-radius-sm;
+}
+
+.radius-md {
+  border-radius: tok.$maple-radius-md;
+}
+
+.radius-lg {
+  border-radius: tok.$maple-radius-lg;
+}
+
+.radius-full {
+  border-radius: tok.$maple-radius-full;
+}

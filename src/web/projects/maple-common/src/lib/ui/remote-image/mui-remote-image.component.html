@@ -1,0 +1,21 @@
+<div class="mui-remote-image">
+  @if (displaySrc(); as src) {
+    <img
+      class="pixels"
+      [class]="'fit-' + fit() + ' tier-' + displayTier()"
+      [src]="src"
+      [alt]="alt()"
+    />
+  }
+  @if (status() === 'loading' && !displaySrc()) {
+    <div class="overlay loading" aria-hidden="true">
+      <span class="spinner"></span>
+    </div>
+  }
+  @if (status() === 'error') {
+    <div class="overlay error">
+      <span class="message">Couldn't load image</span>
+      <button type="button" class="retry" (click)="retry()">Retry</button>
+    </div>
+  }
+</div>

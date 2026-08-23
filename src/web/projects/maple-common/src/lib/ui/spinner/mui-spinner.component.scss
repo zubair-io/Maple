@@ -1,0 +1,47 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: inline-flex;
+}
+
+.mui-spinner {
+  display: inline-flex;
+  opacity: 0;
+  // Zero-duration, `forwards`-filled opacity step, delayed by `delayMs()` —
+  // the spinner simply doesn't exist visually until the threshold passes,
+  // so a load that resolves faster than the delay never flashes one at all.
+  animation: mui-spinner-appear 1ms linear forwards;
+}
+
+.placement-centered {
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+@keyframes mui-spinner-appear {
+  to {
+    opacity: 1;
+  }
+}
+
+.ring {
+  width: 20px;
+  height: 20px;
+  border-radius: tok.$maple-radius-full;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  animation: mui-spinner-spin 700ms linear infinite;
+}
+
+.size-sm .ring {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}
+
+@keyframes mui-spinner-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

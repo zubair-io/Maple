@@ -1,0 +1,26 @@
+<label class="mui-checkbox" [class.is-disabled]="disabled()">
+  <input
+    type="checkbox"
+    class="box"
+    [checked]="isChecked()"
+    [indeterminate]="isIndeterminate()"
+    [disabled]="disabled()"
+    [attr.aria-label]="label() ? null : ariaLabel()"
+    (change)="onChange($any($event.target).checked)"
+  />
+  <span
+    class="mark"
+    [class.is-checked]="isChecked()"
+    [class.is-indeterminate]="isIndeterminate()"
+    aria-hidden="true"
+  >
+    @if (isIndeterminate()) {
+      <span class="dash"></span>
+    } @else if (isChecked()) {
+      <span class="check"></span>
+    }
+  </span>
+  @if (label()) {
+    <span class="label">{{ label() }}</span>
+  }
+</label>
