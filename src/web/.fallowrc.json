@@ -12,6 +12,17 @@
     "projects/**/*.generated.ts",
     "projects/**/generated/**"
   ],
-  "ignoreDependencies": ["@socketsecurity/bun-security-scanner", "fallow"],
+  // The four entries after `fallow` are pre-existing package.json hygiene
+  // findings (never-imported deps / test-only placement) tracked in #3002 —
+  // suppressed so unrelated PRs that touch package.json don't gate on them.
+  // Remove each suppression in the PR that fixes it.
+  "ignoreDependencies": [
+    "@socketsecurity/bun-security-scanner",
+    "fallow",
+    "@opentelemetry/sdk-trace-base",
+    "@angular/animations",
+    "@compodoc/compodoc",
+    "@angular/compiler"
+  ],
   "ignoreUnresolvedImports": ["**/pkg/raw_wasm"]
 }
