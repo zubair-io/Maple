@@ -1,0 +1,25 @@
+:host {
+  display: block;
+}
+
+.mui-avatar-group {
+  display: flex;
+  align-items: center;
+}
+
+.slot {
+  display: flex;
+  border-radius: 999px;
+  // The overlap ring — a slice of the app background peeking around each
+  // avatar so overlapping circles read as separate discs, not one blob.
+  box-shadow: 0 0 0 2px var(--color-bg);
+}
+
+.stacked {
+  margin-left: -8px;
+}
+
+.overflow {
+  display: flex;
+  align-items: center;
+}

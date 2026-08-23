@@ -1,0 +1,13 @@
+<canvas
+  #canvas
+  class="mui-curve-plot-canvas"
+  tabindex="0"
+  [attr.width]="width()"
+  [attr.height]="height()"
+  role="img"
+  aria-label="Curve editor"
+  (pointerdown)="onPointerDown($event)"
+  (pointermove)="onPointerMove($event)"
+  (pointerup)="onPointerUp($event)"
+  (keydown)="onKeydown($event)"
+></canvas>

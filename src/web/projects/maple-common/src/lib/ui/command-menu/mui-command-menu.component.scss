@@ -1,0 +1,45 @@
+@use '../../generated/ui-tokens' as tok;
+@use '../internal/menu-item' as menu;
+
+:host {
+  display: contents;
+}
+
+.mui-command-menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 260px;
+  max-height: 280px;
+}
+
+.search-row {
+  padding: tok.$maple-spacing-sm;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: tok.$maple-spacing-xs;
+  overflow-y: auto;
+}
+
+.empty {
+  padding: tok.$maple-spacing-sm;
+}
+
+.item {
+  @include menu.menu-item-base;
+
+  &:hover,
+  &.active {
+    background: var(--color-bg-hover);
+  }
+}
+
+.shortcut {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}

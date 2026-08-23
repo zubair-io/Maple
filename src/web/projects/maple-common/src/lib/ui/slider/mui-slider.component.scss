@@ -1,0 +1,56 @@
+@use '../../generated/ui-tokens' as tok;
+@use '../internal/control-shell' as shell;
+
+:host {
+  display: block;
+}
+
+.mui-slider {
+  @include shell.labeled-control-column;
+}
+
+.row {
+  @include shell.control-row;
+}
+
+.readout {
+  @include shell.control-readout;
+}
+
+.track {
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: tok.$maple-radius-xs;
+  background: linear-gradient(
+    to right,
+    var(--color-primary) 0%,
+    var(--color-primary) var(--mui-slider-fill, 0%),
+    var(--color-border) var(--mui-slider-fill, 0%),
+    var(--color-border) 100%
+  );
+  outline-offset: 4px;
+
+  &::-webkit-slider-thumb {
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid var(--color-primary);
+    cursor: pointer;
+  }
+
+  &::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid var(--color-primary);
+    cursor: pointer;
+  }
+}
+
+.is-disabled {
+  @include shell.control-disabled-state;
+}

@@ -1,0 +1,18 @@
+@use '../../generated/ui-tokens' as tok;
+@use '../internal/draggable-surface' as drag;
+
+:host {
+  display: inline-block;
+}
+
+.mui-pad-2d {
+  position: relative;
+  border-radius: tok.$maple-radius-md;
+  border: 1px solid var(--color-border);
+
+  @include drag.drag-surface-interaction;
+}
+
+.puck {
+  @include drag.puck-dot;
+}

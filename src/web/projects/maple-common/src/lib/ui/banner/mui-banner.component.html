@@ -1,0 +1,22 @@
+<div class="mui-banner" [class]="'variant-' + variant()" role="status">
+  <mui-icon [name]="icon()" size="sm" class="banner-icon" />
+  <mui-text variant="body" class="message">{{ message() }}</mui-text>
+  @if (linkLabel() && linkHref()) {
+    <mui-link [href]="linkHref()!">{{ linkLabel() }}</mui-link>
+  }
+  @if (actionLabel()) {
+    <mui-button variant="ghost" size="sm" (pressed)="actionPressed.emit()">
+      {{ actionLabel() }}
+    </mui-button>
+  }
+  @if (dismissible()) {
+    <mui-button
+      variant="ghost"
+      size="sm"
+      [iconOnly]="true"
+      iconLeading="x"
+      ariaLabel="Dismiss"
+      (pressed)="dismissed.emit()"
+    />
+  }
+</div>
