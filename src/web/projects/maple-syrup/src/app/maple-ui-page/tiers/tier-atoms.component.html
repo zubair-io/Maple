@@ -395,29 +395,22 @@
       min-height: 150px;
     "
   >
-    <div style="height: 56px; display: flex; align-items: center; overflow: hidden">
+    <div style="min-height: 56px; display: flex; align-items: center; overflow: hidden">
       <div
         style="
           max-width: 100%;
           max-height: 100%;
           display: flex;
-          align-items: center;
+          flex-direction: column;
+          gap: 8px;
           justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
         "
       >
-        <div
-          style="
-            width: 160px;
-            font-size: 12px;
-            color: #a8a29e;
-            background: #fff;
-            border: 1px solid #e7e5e4;
-            border-radius: 6px;
-            padding: 8px 10px;
-          "
-        >
-          Search
-        </div>
+        <mui-input variant="search" placeholder="Search photos" size="sm" />
+        <mui-input value="Untitled roll" error="Name is required" size="sm" />
       </div>
     </div>
     <div>
@@ -437,32 +430,23 @@
       min-height: 150px;
     "
   >
-    <div style="height: 56px; display: flex; align-items: center; overflow: hidden">
+    <div style="min-height: 56px; display: flex; align-items: center; overflow: hidden">
       <div
         style="
           max-width: 100%;
           max-height: 100%;
           display: flex;
           align-items: center;
+          gap: 14px;
           justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
         "
       >
-        <div style="display: flex; align-items: center; gap: 8px">
-          <div
-            style="
-              width: 16px;
-              height: 16px;
-              background: #993629;
-              border-radius: 4px;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-            "
-          >
-            <span class="material-symbols-rounded" style="font-size: 12px; color: #fff">check</span>
-          </div>
-          <span style="font-size: 13px; color: #292524">Enabled</span>
-        </div>
+        <mui-checkbox [checked]="true" label="Enabled" />
+        <mui-checkbox [checked]="'indeterminate'" label="Some" />
+        <mui-checkbox [checked]="false" label="Off" />
       </div>
     </div>
     <div>
@@ -482,7 +466,7 @@
       min-height: 150px;
     "
   >
-    <div style="height: 56px; display: flex; align-items: center; overflow: hidden">
+    <div style="min-height: 56px; display: flex; align-items: center; overflow: hidden">
       <div
         style="
           max-width: 100%;
@@ -490,29 +474,12 @@
           display: flex;
           align-items: center;
           justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
         "
       >
-        <div
-          style="
-            display: flex;
-            background: #f5f2eb;
-            border-radius: 6px;
-            padding: 3px;
-            font-size: 12px;
-          "
-        >
-          <div
-            style="
-              background: #ffffff;
-              padding: 4px 12px;
-              border-radius: 4px;
-              box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
-            "
-          >
-            Grid
-          </div>
-          <div style="padding: 4px 12px; color: #78716c">List</div>
-        </div>
+        <mui-segmented-toggle [options]="viewModeOptions" [(value)]="viewMode" />
       </div>
     </div>
     <div>
@@ -532,30 +499,25 @@
       min-height: 150px;
     "
   >
-    <div style="height: 56px; display: flex; align-items: center; overflow: hidden">
+    <div style="min-height: 56px; display: flex; align-items: center; overflow: hidden">
       <div
         style="
           max-width: 100%;
           max-height: 100%;
           display: flex;
           align-items: center;
+          gap: 10px;
           justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
         "
       >
-        <div
-          style="
-            width: 56px;
-            height: 40px;
-            background: #f5f2eb;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-          "
-        >
-          <span class="material-symbols-rounded" style="font-size: 18px; color: #a8a29e"
-            >image</span
-          >
+        <div style="width: 48px; height: 48px">
+          <mui-image [src]="specimenPhoto" alt="Sample photo" radius="md" />
+        </div>
+        <div style="width: 48px; height: 48px">
+          <mui-image [src]="specimenPhotoBroken" alt="Missing photo" radius="md" />
         </div>
       </div>
     </div>
@@ -576,7 +538,7 @@
       min-height: 150px;
     "
   >
-    <div style="height: 56px; display: flex; align-items: center; overflow: hidden">
+    <div style="min-height: 56px; display: flex; align-items: center; overflow: hidden">
       <div
         style="
           max-width: 100%;
@@ -584,24 +546,13 @@
           display: flex;
           align-items: center;
           justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
         "
       >
-        <div
-          style="
-            width: 56px;
-            height: 40px;
-            background: #f5f2eb;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-          "
-        >
-          <span
-            class="material-symbols-rounded"
-            style="font-size: 18px; color: #a8a29e; animation: maple-ui-catspin 2s linear infinite"
-            >progress_activity</span
-          >
+        <div style="width: 56px; height: 56px">
+          <mui-remote-image [tiers]="remoteImageTiers" alt="Sample photo, tiered load" />
         </div>
       </div>
     </div>
@@ -624,32 +575,23 @@
       min-height: 150px;
     "
   >
-    <div style="height: 56px; display: flex; align-items: center; overflow: hidden">
+    <div style="min-height: 56px; display: flex; align-items: center; overflow: hidden">
       <div
         style="
           max-width: 100%;
           max-height: 100%;
           display: flex;
           align-items: center;
+          gap: 10px;
           justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
         "
       >
-        <div
-          style="
-            width: 36px;
-            height: 36px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #fdba74, #f87171);
-            color: #fff;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 13px;
-            font-weight: 600;
-          "
-        >
-          JD
-        </div>
+        <mui-avatar name="Jane Doe" [src]="specimenPhoto" size="lg" presence="online" />
+        <mui-avatar name="Priya Singh" size="md" />
+        <mui-avatar name="Chen Wei" size="sm" presence="offline" />
       </div>
     </div>
     <div>
@@ -671,7 +613,7 @@
       min-height: 150px;
     "
   >
-    <div style="height: 56px; display: flex; align-items: center; overflow: hidden">
+    <div style="min-height: 56px; display: flex; align-items: center; overflow: hidden">
       <div
         style="
           max-width: 100%;
@@ -679,19 +621,12 @@
           display: flex;
           align-items: center;
           justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
         "
       >
-        <div
-          style="
-            width: 40px;
-            height: 40px;
-            background:
-              repeating-linear-gradient(90deg, #292524 0 4px, #fff 4px 8px),
-              repeating-linear-gradient(0deg, #292524 0 4px, #fff 4px 8px);
-            background-blend-mode: multiply;
-            border-radius: 4px;
-          "
-        ></div>
+        <mui-qr-code value="https://justmaple.app/pair/abc123" size="sm" />
       </div>
     </div>
     <div>
@@ -713,31 +648,9 @@
       min-height: 150px;
     "
   >
-    <div style="height: 56px; display: flex; align-items: center; overflow: hidden">
-      <div
-        style="
-          max-width: 100%;
-          max-height: 100%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        "
-      >
-        <div
-          style="
-            width: 100%;
-            height: 44px;
-            background: #1c1917;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-          "
-        >
-          <span class="material-symbols-rounded" style="font-size: 18px; color: #78716c"
-            >image</span
-          >
-        </div>
+    <div style="min-height: 56px; display: flex; align-items: center; overflow: hidden">
+      <div style="width: 100%; height: 56px; border-radius: 8px; overflow: hidden">
+        <mui-canvas-surface [contentAspect]="16 / 9" (canvasReady)="onCanvasSurfaceReady($event)" />
       </div>
     </div>
     <div>
@@ -757,27 +670,22 @@
       min-height: 150px;
     "
   >
-    <div style="height: 56px; display: flex; align-items: center; overflow: hidden">
+    <div style="min-height: 56px; display: flex; align-items: center; overflow: hidden">
       <div
         style="
           max-width: 100%;
           max-height: 100%;
           display: flex;
           align-items: center;
+          gap: 16px;
           justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
         "
       >
-        <div
-          style="
-            width: 140px;
-            height: 8px;
-            background: #f5f2eb;
-            border-radius: 99px;
-            overflow: hidden;
-          "
-        >
-          <div style="width: 60%; height: 100%; background: #993629; border-radius: 99px"></div>
-        </div>
+        <div style="width: 100px"><mui-progress [value]="60" label="60%" /></div>
+        <mui-progress shape="ring" [value]="null" />
       </div>
     </div>
     <div>
@@ -799,21 +707,22 @@
       min-height: 150px;
     "
   >
-    <div style="height: 56px; display: flex; align-items: center; overflow: hidden">
+    <div style="min-height: 56px; display: flex; align-items: center; overflow: hidden">
       <div
         style="
           max-width: 100%;
           max-height: 100%;
           display: flex;
           align-items: center;
+          gap: 14px;
           justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
         "
       >
-        <span
-          class="material-symbols-rounded"
-          style="font-size: 24px; color: #78716c; animation: maple-ui-catspin 0.8s linear infinite"
-          >progress_activity</span
-        >
+        <mui-spinner size="sm" placement="inline" />
+        <mui-spinner size="md" placement="inline" />
       </div>
     </div>
     <div>
@@ -835,21 +744,24 @@
       min-height: 150px;
     "
   >
-    <div style="height: 56px; display: flex; align-items: center; overflow: hidden">
+    <div style="min-height: 56px; display: flex; align-items: center; overflow: hidden">
       <div
         style="
           max-width: 100%;
           max-height: 100%;
           display: flex;
-          align-items: center;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 6px;
           justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
         "
       >
-        <div style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #78716c">
-          <span class="material-symbols-rounded" style="font-size: 16px; color: #28a745"
-            >cloud_done</span
-          >Synced
-        </div>
+        <mui-status-text state="saving" />
+        <mui-status-text state="saved" />
+        <mui-status-text state="error" />
       </div>
     </div>
     <div>
@@ -871,7 +783,7 @@
       min-height: 150px;
     "
   >
-    <div style="height: 56px; display: flex; align-items: center; overflow: hidden">
+    <div style="min-height: 56px; display: flex; align-items: center; overflow: hidden">
       <div
         style="
           max-width: 100%;
@@ -879,24 +791,14 @@
           display: flex;
           align-items: center;
           justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
         "
       >
-        <div
-          style="
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            background: #292524;
-            color: #fff;
-            padding: 8px 12px;
-            border-radius: 8px;
-            font-size: 13px;
-          "
-        >
-          <span class="material-symbols-rounded" style="font-size: 16px; color: #fff"
-            >check_circle</span
-          >Saved
-        </div>
+        <!-- autoDismissMs=null: a self-dismissing showcase specimen would
+             vanish from the page, which is worse than a static one. -->
+        <mui-toast variant="success" message="Export finished" [autoDismissMs]="null" />
       </div>
     </div>
     <div>

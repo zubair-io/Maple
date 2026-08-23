@@ -1,0 +1,88 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: inline-flex;
+}
+
+.mui-checkbox {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: tok.$maple-spacing-xs;
+  cursor: pointer;
+
+  // Minimum 44×44 tap target even though the visible box is radius.xs-sized
+  // (checkbox.md Accessibility) — an invisible centered pad, not a bigger box.
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translateY(-50%);
+  }
+}
+
+.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+// The native input supplies the checkbox role, keyboard interaction, and
+// indeterminate state — kept in the accessibility tree and focusable, just
+// visually hidden in favor of `.mark` (checkbox.md's radius.xs visual box).
+.box {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+
+  &:focus-visible ~ .mark {
+    outline: 2px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
+    outline-offset: 2px;
+    border-color: var(--color-primary);
+  }
+}
+
+.mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border: 1px solid var(--color-border);
+  border-radius: tok.$maple-radius-xs;
+  background: transparent;
+  transition:
+    background-color 150ms,
+    border-color 150ms;
+}
+
+.mark.is-checked,
+.mark.is-indeterminate {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.check {
+  width: 9px;
+  height: 6px;
+  border-left: 2px solid var(--color-text-main);
+  border-bottom: 2px solid var(--color-text-main);
+  transform: rotate(-45deg) translate(1px, -1px);
+}
+
+.dash {
+  width: 9px;
+  height: 2px;
+  background: var(--color-text-main);
+}
+
+.label {
+  font-size: 13px;
+  color: var(--color-text-main);
+}

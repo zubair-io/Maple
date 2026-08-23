@@ -1,0 +1,72 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: inline-flex;
+}
+
+.mui-avatar {
+  position: relative;
+  flex: 0 0 auto;
+  border-radius: tok.$maple-radius-full;
+  overflow: visible;
+}
+
+.photo,
+.fallback {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: tok.$maple-radius-full;
+  object-fit: cover;
+}
+
+.fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+}
+
+.presence {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 30%;
+  height: 30%;
+  min-width: 8px;
+  min-height: 8px;
+  border-radius: tok.$maple-radius-full;
+  border: 2px solid var(--color-bg);
+}
+
+.presence-online {
+  background: var(--color-success-text);
+}
+
+.presence-offline {
+  background: var(--color-text-muted);
+}
+
+.size-xs {
+  width: 20px;
+  height: 20px;
+  font-size: 9px;
+}
+
+.size-sm {
+  width: 28px;
+  height: 28px;
+  font-size: 11px;
+}
+
+.size-md {
+  width: 36px;
+  height: 36px;
+  font-size: 13px;
+}
+
+.size-lg {
+  width: 48px;
+  height: 48px;
+  font-size: 16px;
+}
