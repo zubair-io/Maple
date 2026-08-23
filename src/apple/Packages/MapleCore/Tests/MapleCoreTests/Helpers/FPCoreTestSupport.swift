@@ -55,12 +55,17 @@ enum FPCoreTestSupport {
     /// one's method + path, so a test can assert on the exact set of
     /// calls made (e.g. "zero PUT requests").
     final class RequestLog {
-        private(set) var requests: [(method: String, path: String, body: Data)] = []
+        private(set) var requests: [(method: String, path: String, body: Data,
+                                      headers: [String: String])] = []
         func record(_ req: URLRequest) {
             requests.append((
                 method: req.httpMethod ?? "GET",
                 path: req.url?.path ?? "",
-                body: req.httpBodyStreamData() ?? req.httpBody ?? Data()
+                body: req.httpBodyStreamData() ?? req.httpBody ?? Data(),
+                // Recorded so a test can assert the PRECONDITION a write
+                // carries, not merely that a write happened — see
+                // `testNonRedundantWriteCarriesRealPrecondition`.
+                headers: req.allHTTPHeaderFields ?? [:]
             ))
         }
         func count(method: String) -> Int {

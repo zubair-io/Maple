@@ -133,6 +133,15 @@ final class FileProviderExtensionCoreModifyItemTests: XCTestCase {
         XCTAssertEqual(log.count(method: "PUT"), 1, "a genuine edit must still be written")
         let put = log.requests.first { $0.method == "PUT" }
         XCTAssertEqual(put?.body, newBytes)
+        // The point of the test: the write must carry the precondition, and it
+        // must carry the item's OWN prior mtime. Asserting only that a PUT
+        // happened would still pass if the precondition were dropped
+        // entirely — which is the regression this test exists to catch.
+        XCTAssertEqual(put?.headers["X-If-Mtime-Matches"],
+                        String(Int(versionMtime.timeIntervalSince1970)),
+                        "the write must be conditional on the mtime the item was read at")
+        XCTAssertNil(put?.headers["X-Maple-Require-Absent"],
+                      "an edit to an existing sidecar is not a create")
     }
 
     /// A prior mtime the server rejects as stale must still surface as
