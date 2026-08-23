@@ -122,7 +122,7 @@ function missFeedback(misses: readonly ProposalMiss[], minResults: number): stri
 
 THESE IDEAS DID NOT WORK — each matched too few photos (minimum ${minResults}):
 ${lines}
-The library has no photos for those queries as written. Widen the date range,
+The library has too few photos for those queries as written. Widen the date range,
 drop a field, or pick a different idea — and do not repeat these as-is.`;
 }
 
