@@ -1,0 +1,57 @@
+@use '../internal/control-shell' as shell;
+
+:host {
+  display: block;
+}
+
+.mui-drag-bar {
+  @include shell.labeled-control-column;
+}
+
+.row {
+  @include shell.control-row;
+}
+
+.readout {
+  @include shell.control-readout;
+}
+
+.bar {
+  position: relative;
+  height: 20px;
+  touch-action: none;
+  cursor: ew-resize;
+  outline-offset: 4px;
+
+  &.is-dragging,
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+  }
+}
+
+.tick {
+  position: absolute;
+  bottom: 3px;
+  width: 1px;
+  height: 6px;
+  background: var(--color-border);
+  transform: translateX(-50%);
+
+  &.emphasized {
+    height: 14px;
+    background: var(--color-primary);
+  }
+}
+
+.marker {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: var(--color-text-main);
+  transform: translateX(-50%);
+}
+
+.is-disabled {
+  @include shell.control-disabled-state;
+}

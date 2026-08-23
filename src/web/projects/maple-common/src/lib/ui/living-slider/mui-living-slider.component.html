@@ -1,0 +1,29 @@
+<div class="mui-living-slider" [class.is-disabled]="disabled()">
+  <div class="row">
+    <mui-text variant="tool-label" color="muted" class="label">{{ label() }}</mui-text>
+    <mui-text variant="value-chip" color="main" class="readout">{{ valueLabel() }}</mui-text>
+  </div>
+  <div
+    #trackEl
+    class="track"
+    role="slider"
+    tabindex="0"
+    [attr.aria-label]="label()"
+    [attr.aria-valuemin]="min()"
+    [attr.aria-valuemax]="max()"
+    [attr.aria-valuenow]="value()"
+    [attr.aria-disabled]="disabled() ? 'true' : null"
+    [style.background]="gradient()"
+    [class.is-dragging]="dragging()"
+    (pointerdown)="onPointerDown($event)"
+    (pointermove)="onPointerMove($event)"
+    (pointerup)="onPointerUp($event)"
+    (pointercancel)="onPointerUp($event)"
+    (keydown)="onKeydown($event)"
+  >
+    @if (bipolar()) {
+      <div class="zero-notch"></div>
+    }
+    <div class="thumb" [style.left.%]="thumbPct()"></div>
+  </div>
+</div>

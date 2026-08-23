@@ -1,0 +1,47 @@
+:host {
+  display: inline-flex;
+}
+
+.mui-map-annotation {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.pin-outer {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  background: var(--color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pin-inner {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  overflow: hidden;
+  transform: rotate(45deg);
+  background: var(--color-surface-alt);
+  color: var(--color-text-main);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.count-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  transform: rotate(45deg);
+}
+
+.caption {
+  max-width: 96px;
+  text-align: center;
+}

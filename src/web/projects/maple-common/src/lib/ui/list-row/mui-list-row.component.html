@@ -1,0 +1,28 @@
+<div
+  class="mui-list-row"
+  role="button"
+  [attr.tabindex]="disabled() ? -1 : 0"
+  [class.is-active]="active()"
+  [class.is-disabled]="disabled()"
+  [attr.aria-current]="active() ? 'true' : null"
+  [attr.aria-disabled]="disabled() ? 'true' : null"
+  (click)="onRowClick()"
+  (keydown)="onKeydown($event)"
+>
+  @if (icon()) {
+    <mui-icon [name]="icon()!" size="sm" class="leading" />
+  }
+  <div class="content">
+    <mui-text variant="row-label" [truncate]="true">{{ label() }}</mui-text>
+    @if (timestampValue() !== null) {
+      <mui-timestamp [value]="timestampValue()!" format="relative" class="subtitle" />
+    } @else if (subtitle()) {
+      <mui-text variant="body" color="muted" [truncate]="true" class="subtitle">
+        {{ subtitle() }}
+      </mui-text>
+    }
+  </div>
+  <div class="trailing">
+    <ng-content select="[trailing]" />
+  </div>
+</div>

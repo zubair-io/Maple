@@ -1,0 +1,15 @@
+<div class="mui-preview-image">
+  <mui-image
+    #img
+    [src]="src()"
+    [alt]="alt()"
+    [fit]="fit()"
+    [radius]="radius()"
+    [aspectRatio]="aspectRatio()"
+  />
+  @if (!img.loaded() && !img.broken()) {
+    <div class="overlay">
+      <mui-spinner placement="centered" />
+    </div>
+  }
+</div>

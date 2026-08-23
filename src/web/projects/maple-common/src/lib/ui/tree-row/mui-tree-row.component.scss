@@ -1,0 +1,59 @@
+@use '../../generated/ui-tokens' as tok;
+@use '../internal/row-interaction' as row;
+
+:host {
+  display: block;
+}
+
+.mui-tree-row {
+  display: flex;
+  align-items: center;
+  gap: tok.$maple-spacing-xs;
+  padding: tok.$maple-spacing-xs tok.$maple-spacing-md;
+  border-left: 2px solid transparent;
+  cursor: pointer;
+
+  @include row.row-hover-focus;
+
+  &.is-active {
+    @include row.row-active-base;
+  }
+
+  &.is-disabled {
+    opacity: 0.5;
+    pointer-events: none;
+  }
+}
+
+.chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: transform tok.$maple-motion-group-swap-ms tok.$maple-motion-group-swap-ease;
+
+  &.is-expanded {
+    transform: rotate(90deg);
+  }
+}
+
+.chevron-spacer {
+  width: 16px;
+  flex: 0 0 auto;
+}
+
+.row-icon {
+  color: var(--color-primary);
+  flex: 0 0 auto;
+}
+
+.row-label {
+  flex: 1;
+  min-width: 0;
+}

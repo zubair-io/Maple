@@ -20,6 +20,7 @@
     "@socketsecurity/bun-security-scanner",
     "fallow",
     "@opentelemetry/sdk-trace-base",
+    "@opentelemetry/core",
     "@angular/animations",
     "@compodoc/compodoc",
     "@angular/compiler"
@@ -31,5 +32,10 @@
   // motion.scss already resolves fine — but the real Sass compiler (and the
   // actual `ng build`/`ng test` runs) resolve it correctly, confirmed by a
   // clean maple-syrup production build. False positive, not a real gap.
-  "ignoreUnresolvedImports": ["**/pkg/raw_wasm", "tailwindcss", "**/generated/ui-tokens"]
+  "ignoreUnresolvedImports": [
+    "**/pkg/raw_wasm",
+    "tailwindcss",
+    "**/tailwindcss",
+    "**/generated/ui-tokens"
+  ]
 }

@@ -1,0 +1,38 @@
+<div class="mui-chip-row" role="list">
+  @for (chip of chips(); track chip.id) {
+    @if (mode() === 'select') {
+      <button
+        type="button"
+        class="chip"
+        role="listitem"
+        [class.is-selected]="selectedId() === chip.id"
+        [attr.aria-pressed]="selectedId() === chip.id"
+        (click)="selectChip(chip.id)"
+      >
+        <mui-badge [variant]="selectedId() === chip.id ? 'signal' : 'count'" [value]="chip.label" />
+      </button>
+    } @else {
+      <span class="chip" role="listitem">
+        <mui-badge variant="count" [value]="chip.label" />
+        <button
+          type="button"
+          class="remove"
+          [attr.aria-label]="'Remove ' + chip.label"
+          (click)="removeChip(chip.id, $event)"
+        >
+          <mui-icon name="x" size="xs" />
+        </button>
+      </span>
+    }
+  }
+  @if (mode() === 'editable') {
+    <mui-input
+      class="add"
+      size="sm"
+      [value]="draft()"
+      (valueChange)="draft.set($event)"
+      [placeholder]="addPlaceholder()"
+      (committed)="onDraftCommit($event)"
+    />
+  }
+</div>

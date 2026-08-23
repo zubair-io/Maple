@@ -1,0 +1,17 @@
+<div class="mui-collapsible">
+  <button type="button" class="header" [attr.aria-expanded]="open()" (click)="toggle()">
+    <mui-icon
+      name="chevron-right"
+      size="sm"
+      class="chevron"
+      [class.open]="open()"
+      [decorative]="true"
+    />
+    <mui-text variant="row-label">{{ label() }}</mui-text>
+  </button>
+  <div class="content-wrapper" [class.open]="open()">
+    <div class="content-inner">
+      <ng-content />
+    </div>
+  </div>
+</div>

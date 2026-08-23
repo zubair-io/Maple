@@ -1,0 +1,28 @@
+<div class="mui-tabs" role="tablist" [attr.aria-label]="ariaLabel()">
+  @for (tab of tabs(); track tab.id; let i = $index) {
+    <button
+      #tabBtn
+      type="button"
+      class="tab"
+      role="tab"
+      [id]="'mui-tab-' + tab.id"
+      [class.is-active]="activeId() === tab.id"
+      [attr.aria-selected]="activeId() === tab.id"
+      [attr.tabindex]="activeId() === tab.id ? 0 : -1"
+      (click)="select(tab.id)"
+      (keydown)="onKeydown($event, i)"
+    >
+      @if (tab.icon) {
+        <mui-icon [name]="tab.icon" size="sm" />
+      }
+      <mui-text variant="chip-label" [color]="activeId() === tab.id ? 'main' : 'muted'">
+        {{ tab.label }}
+      </mui-text>
+    </button>
+  }
+  <div
+    class="indicator"
+    [style.left.px]="indicatorLeft()"
+    [style.width.px]="indicatorWidth()"
+  ></div>
+</div>

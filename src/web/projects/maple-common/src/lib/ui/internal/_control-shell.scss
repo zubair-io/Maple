@@ -1,0 +1,30 @@
+// Shared shell styling for the Maple UI labeled scrub controls
+// (mui-drag-bar, mui-living-slider, mui-slider — unified-component-catalog.md
+// §2.1): a `label`/`readout` row stacked above the control itself, and the
+// disabled dimming they all share. Not part of the public API surface (see
+// ../public-api.ts).
+
+@use '../../generated/ui-tokens' as tok;
+
+@mixin labeled-control-column {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-xs;
+}
+
+@mixin control-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: tok.$maple-spacing-sm;
+}
+
+@mixin control-readout {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+@mixin control-disabled-state {
+  opacity: 0.45;
+  pointer-events: none;
+}

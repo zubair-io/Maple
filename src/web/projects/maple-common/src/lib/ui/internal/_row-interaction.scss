@@ -1,0 +1,23 @@
+// Shared row-interaction styling for the Maple UI list-row molecules
+// (mui-list-row, mui-tree-row — unified-component-catalog.md §2.x): the
+// hover/focus-visible treatment and the base "active" look every selectable
+// row shares. Each caller still owns its own `&.is-active` block so it can
+// layer extra behavior on top (mui-list-row composes active with hover via
+// `color-mix`; mui-tree-row doesn't need to). Not part of the public API
+// surface (see ../public-api.ts).
+
+@mixin row-hover-focus {
+  &:hover {
+    background: var(--color-surface-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+  }
+}
+
+@mixin row-active-base {
+  background: var(--color-surface-alt);
+  border-left-color: var(--color-primary);
+}

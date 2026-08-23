@@ -1,0 +1,25 @@
+<mui-popover [open]="open()" [placement]="placement()" (closeRequested)="closeRequested.emit()">
+  <div class="mui-context-menu" role="menu" (keydown)="onKeydown($event)">
+    @for (entry of entries(); track $index) {
+      @if (asItem(entry); as item) {
+        <button
+          type="button"
+          role="menuitem"
+          class="item"
+          [class.active]="activeIndex() === $index"
+          [class.destructive]="item.destructive"
+          [disabled]="item.disabled"
+          (click)="selectItem(item)"
+          (mouseenter)="activeIndex.set($index)"
+        >
+          @if (item.icon) {
+            <mui-icon [name]="item.icon" size="sm" />
+          }
+          <mui-text variant="body">{{ item.label }}</mui-text>
+        </button>
+      } @else {
+        <mui-divider />
+      }
+    }
+  </div>
+</mui-popover>

@@ -1,0 +1,24 @@
+// Shared menu-item styling for the Maple UI menu/overflow molecules
+// (mui-command-menu, mui-context-menu, mui-suggestion-menu, mui-toolbar's
+// overflow menu — unified-component-catalog.md §2.x): a full-width,
+// borderless, left-aligned button row. Each caller layers its own
+// hover/active/disabled selector on top, since that state varies (plain
+// menus have no disabled items; context-menu and toolbar do). Not part of
+// the public API surface (see ../public-api.ts).
+
+@use '../../generated/ui-tokens' as tok;
+
+@mixin menu-item-base {
+  display: flex;
+  align-items: center;
+  gap: tok.$maple-spacing-sm;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--color-text-main);
+  border-radius: tok.$maple-radius-sm;
+  padding: tok.$maple-spacing-xs tok.$maple-spacing-sm;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}

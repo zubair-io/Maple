@@ -1,0 +1,16 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: inline-block;
+}
+
+.mui-value-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: tok.$maple-spacing-sm;
+  background: var(--color-bg);
+  color: var(--color-text-main);
+  padding: tok.$maple-spacing-xs tok.$maple-spacing-sm;
+  border-radius: tok.$maple-radius-sm;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}

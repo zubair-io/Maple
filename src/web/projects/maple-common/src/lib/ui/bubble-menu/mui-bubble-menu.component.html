@@ -1,0 +1,20 @@
+<mui-popover [open]="open()" [placement]="placement()" (closeRequested)="closeRequested.emit()">
+  <div class="mui-bubble-menu" role="toolbar">
+    @for (entry of entries(); track $index) {
+      @if (asItem(entry); as item) {
+        <button
+          type="button"
+          class="item"
+          [class.active]="item.active"
+          [attr.aria-pressed]="item.active ?? false"
+          [attr.aria-label]="item.label"
+          (click)="itemSelected.emit(item.id)"
+        >
+          <mui-icon [name]="item.icon" size="sm" />
+        </button>
+      } @else {
+        <mui-divider orientation="vertical" />
+      }
+    }
+  </div>
+</mui-popover>

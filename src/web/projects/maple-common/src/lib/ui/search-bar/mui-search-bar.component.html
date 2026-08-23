@@ -1,0 +1,23 @@
+<div class="mui-search-bar">
+  <mui-input
+    variant="search"
+    class="field"
+    [value]="value()"
+    (valueChange)="value.set($event)"
+    [placeholder]="placeholder()"
+    [disabled]="disabled()"
+    [ariaLabel]="placeholder()"
+    (committed)="committed.emit($event)"
+  />
+  @if (actionLabel()) {
+    <mui-button
+      variant="ghost"
+      size="sm"
+      [iconLeading]="actionIcon()"
+      [disabled]="disabled()"
+      (pressed)="actionPressed.emit()"
+    >
+      {{ actionLabel() }}
+    </mui-button>
+  }
+</div>
