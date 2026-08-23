@@ -1,5 +1,6 @@
 import {
   chromium,
+  type Browser,
   type Locator,
   type Page,
   type Worker as PlaywrightWorker,
@@ -300,27 +301,34 @@ test('Hosted no-WebGPU fallback opens an over-budget RAW and refines at 1:1 with
   // `RuntimeError: unreachable` OOM trap. The wasm entries now memory-clamp
   // the develop, so the refine must complete and repaint instead.
   const startedAt = Date.now();
-  const stagedFolder = await mkdtemp(join(tmpdir(), 'maple-over-budget-e2e-'));
-  const browser = await chromium.launch({ channel: 'chrome', headless: true });
-  await copyFile(source, join(stagedFolder, OVER_BUDGET_RAW));
-  const context = await browser.newContext({ baseURL: testInfo.project.use.baseURL as string });
-  const page = await context.newPage();
   const errors: string[] = [];
-  page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(`console: ${message.text()}`);
-  });
-  page.on('pageerror', (error) => errors.push(`page: ${error.message}`));
-  page.on('requestfailed', (request) =>
-    errors.push(`request: ${request.method()} ${request.url()} ${request.failure()?.errorText}`),
-  );
-  page.on('response', (response) => {
-    if (response.status() >= 400) {
-      errors.push(`${response.status()} ${response.request().method()} ${response.url()}`);
-    }
-  });
-  const observedWorkers: PlaywrightWorker[] = [];
-  page.on('worker', (worker) => observedWorkers.push(worker));
+  // Declared before the try, assigned inside it: a throw from any single
+  // setup step (mkdtemp, launch, copyFile, newContext, newPage) must still
+  // reach the `finally`, or a failed launch leaks the staged temp dir and a
+  // failed newPage leaks a browser process into the rest of the CI run.
+  let stagedFolder: string | null = null;
+  let browser: Browser | null = null;
+  let page: Page | null = null;
   try {
+    stagedFolder = await mkdtemp(join(tmpdir(), 'maple-over-budget-e2e-'));
+    browser = await chromium.launch({ channel: 'chrome', headless: true });
+    await copyFile(source, join(stagedFolder, OVER_BUDGET_RAW));
+    const context = await browser.newContext({ baseURL: testInfo.project.use.baseURL as string });
+    page = await context.newPage();
+    page.on('console', (message) => {
+      if (message.type() === 'error') errors.push(`console: ${message.text()}`);
+    });
+    page.on('pageerror', (error) => errors.push(`page: ${error.message}`));
+    page.on('requestfailed', (request) =>
+      errors.push(`request: ${request.method()} ${request.url()} ${request.failure()?.errorText}`),
+    );
+    page.on('response', (response) => {
+      if (response.status() >= 400) {
+        errors.push(`${response.status()} ${response.request().method()} ${response.url()}`);
+      }
+    });
+    const observedWorkers: PlaywrightWorker[] = [];
+    page.on('worker', (worker) => observedWorkers.push(worker));
     await forceNoWebGpu(page);
     await installProductionFolderPicker(page, stagedFolder);
     await page.goto('/');
@@ -348,10 +356,14 @@ test('Hosted no-WebGPU fallback opens an over-budget RAW and refines at 1:1 with
     // open's viewport-sized fast phase records the first one — no GPU session
     // measures exist on this path).
     let worker: PlaywrightWorker | undefined;
+    // Captured non-null: `page` is declared outside the try so the `finally`
+    // can always reach it, and TypeScript cannot narrow it through an async
+    // closure boundary.
+    const livePage = page;
     await expect
       .poll(
         async () => {
-          const candidates = [...new Set([...observedWorkers, ...page.workers()])];
+          const candidates = [...new Set([...observedWorkers, ...livePage.workers()])];
           for (const candidate of candidates) {
             const caps = await sizedDevelopCaps(candidate).catch(() => []);
             if (caps.length > 0) {
@@ -398,7 +410,7 @@ test('Hosted no-WebGPU fallback opens an over-budget RAW and refines at 1:1 with
         contentType: 'application/json',
       })
       .catch(() => undefined);
-    const screenshot = await page.screenshot({ type: 'png' }).catch(() => null);
+    const screenshot = page ? await page.screenshot({ type: 'png' }).catch(() => null) : null;
     if (screenshot) {
       await testInfo
         .attach('over-budget-fallback-page.png', { body: screenshot, contentType: 'image/png' })
@@ -406,8 +418,8 @@ test('Hosted no-WebGPU fallback opens an over-budget RAW and refines at 1:1 with
     }
     throw failure;
   } finally {
-    await browser.close();
-    await rm(stagedFolder, { recursive: true, force: true });
+    if (browser) await browser.close();
+    if (stagedFolder) await rm(stagedFolder, { recursive: true, force: true });
   }
 });
 
