@@ -1,0 +1,47 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+  height: 100%;
+  min-height: 0;
+  container-type: inline-size;
+}
+
+.mui-settings-shell {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+.nav {
+  flex: 0 0 auto;
+  width: var(--mui-settings-nav-width);
+  overflow: auto;
+}
+
+.pane-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+}
+
+.pane {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: tok.$maple-spacing-lg;
+}
+
+// Phone-tier breakpoint: below 640px, stack nav above pane at full width —
+// there's no room for a fixed-width column beside the pane.
+@container (max-width: 640px) {
+  .mui-settings-shell {
+    flex-direction: column;
+  }
+
+  .nav {
+    width: 100%;
+  }
+}

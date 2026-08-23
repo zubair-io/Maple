@@ -1,0 +1,25 @@
+@if (open()) {
+  <div class="mui-sheet-shell-scrim" [class.contained]="contained()" (click)="onScrimClick()"></div>
+  <div
+    #sheetEl
+    class="mui-sheet-shell"
+    [class.contained]="contained()"
+    [class.dragging]="isDragging()"
+    [style.height.%]="heightFraction() * 100"
+    [style.transform]="'translateY(' + dragOffsetPx() + 'px)'"
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
+  >
+    <div
+      class="drag-area"
+      (pointerdown)="onPointerDown($event)"
+      (pointermove)="onPointerMove($event)"
+      (pointerup)="onPointerUp($event)"
+      (pointercancel)="onPointerCancel($event)"
+    >
+      <div class="grab-handle"></div>
+    </div>
+    <div class="body"><ng-content /></div>
+  </div>
+}

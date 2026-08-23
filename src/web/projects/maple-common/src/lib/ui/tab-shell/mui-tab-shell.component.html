@@ -1,0 +1,10 @@
+<div
+  class="mui-tab-shell"
+  [class.placement-auto]="placement() === 'auto'"
+  [class.placement-bottom]="placement() === 'bottom'"
+>
+  <div class="tab-bar">
+    <mui-tabs [tabs]="tabs()" [(activeId)]="activeId" [ariaLabel]="ariaLabel()" />
+  </div>
+  <div class="content"><ng-content /></div>
+</div>
