@@ -12,6 +12,11 @@
 // Pro Editor canvas-first design tokens (#1535). Imported once globally so
 // the :root { --pro-* } block is emitted exactly once, not per component.
 @use '../../maple-common/src/lib/pro-tokens';
+// Shared reset/scrollbar/input baseline, identical across both app
+// entrypoints (#3000 fallow dedup). The element box-sizing reset below is
+// NOT in this partial — it stays local because it's wrapped in `@layer
+// base` here but not in Hosted's styles.scss.
+@use '../../maple-common/src/lib/base-chrome';
 
 // ── Reset ────────────────────────────────────────────────────────────────────
 // Wrap the universal margin/padding reset in `@layer base` so Tailwind v4
@@ -26,53 +31,4 @@
     margin: 0;
     padding: 0;
   }
-}
-
-html,
-body {
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-}
-
-body {
-  background: var(--color-bg);
-  color: var(--color-text-main);
-  font-family: var(--font-sans);
-  font-size: 13px;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-// ── Webkit scrollbar global defaults ─────────────────────────────────────────
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--color-surface-hover);
-}
-
-// ── Input reset ───────────────────────────────────────────────────────────────
-input,
-button,
-select,
-textarea {
-  font-family: inherit;
-}
-button {
-  cursor: pointer;
-}
-
-// ── Range input theming ───────────────────────────────────────────────────────
-input[type='range'] {
-  accent-color: var(--color-primary);
-  cursor: pointer;
 }
