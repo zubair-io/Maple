@@ -1,0 +1,9 @@
+<span
+  class="mui-text"
+  [class]="'variant-' + variant() + ' color-' + color()"
+  [class.truncate]="truncate()"
+  [class.line-clamp]="!truncate() && lineClamp() !== null"
+  [class.block]="block()"
+  [style.-webkit-line-clamp]="!truncate() && lineClamp() !== null ? lineClamp() : null"
+  ><ng-content
+/></span>

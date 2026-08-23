@@ -1,0 +1,17 @@
+@if (variant() === 'rating') {
+  <span
+    class="mui-badge rating"
+    [class]="'size-' + size()"
+    [attr.aria-label]="label() ?? value() + ' rating'"
+  >
+    <mui-icon name="star-filled" size="xs" color="var(--color-star)" />
+    <span class="value">{{ value() }}</span>
+  </span>
+} @else {
+  <span
+    class="mui-badge pill"
+    [class]="'variant-' + variant() + ' size-' + size()"
+    [attr.aria-label]="label()"
+    >{{ value() }}</span
+  >
+}
