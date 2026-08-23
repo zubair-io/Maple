@@ -19,6 +19,9 @@ enum GalleryCatalog {
     //
     // Molecules — Level 2 (§3) has no placeholder list anymore either: wave
     // A4 shipped all 24 (see `MoleculesL2GallerySection`).
+    //
+    // Templates (§5) has no placeholder list anymore either: wave A5
+    // shipped all 7 (see `TemplatesGallerySection`).
 
     /// Organisms (§4).
     static let organisms: [String] = [
@@ -35,12 +38,6 @@ enum GalleryCatalog {
         "Chat", "Notification Feed",
         "Settings Section", "Pipeline Monitor", "Setup Wizard", "User Management", "Device List",
         "Backup Monitor", "Diagnostics",
-    ]
-
-    /// Templates (§5).
-    static let templates: [String] = [
-        "App Shell", "Split Layout", "Tab Shell", "Settings Shell",
-        "Overlay Shell", "Sheet Shell", "Drawer Shell",
     ]
 
     /// Pages (§6).

@@ -146,6 +146,11 @@ public enum MuiTokens {
         // SwiftUI's equivalent of a CSS cubic-bezier easing function.
         public static let sheetPresent = Animation.timingCurve(0.32, 0.72, 0, 1, duration: MapleUITokens.Motion.sheetPresent.seconds)
         public static let sheetDismiss = Animation.timingCurve(0.32, 0.72, 0, 1, duration: MapleUITokens.Motion.sheetDismiss.seconds)
+        // Added for wave A5 (Templates §5: Drawer Shell's open/close
+        // slide) — `MOTION_TOKENS.drawer` already existed in the generated
+        // file for wave 1 but had no Swift binding yet, same situation
+        // sheetPresent/sheetDismiss were in before wave 2.
+        public static let drawer = Animation.timingCurve(0.22, 1, 0.36, 1, duration: MapleUITokens.Motion.drawer.seconds)
     }
 
     // MARK: Type scale

@@ -63,7 +63,7 @@ public struct MapleUIGalleryView: View {
         case .organisms:
             unbuiltTier(names: GalleryCatalog.organisms)
         case .templates:
-            unbuiltTier(names: GalleryCatalog.templates)
+            TemplatesGallerySection()
         case .pages:
             unbuiltTier(names: GalleryCatalog.pages)
         }
