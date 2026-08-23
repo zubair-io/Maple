@@ -793,7 +793,16 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
             folder_id: folderId,
             abs_path: absPath,
             relative_path: target,
-          }).catch(() => {});
+          }).catch((err) => {
+            log.warn(
+              {
+                folderId: folderId.toHexString(),
+                relativePath: target,
+                err: err instanceof Error ? err.message : err,
+              },
+              'change-feed emit failed after non-media upload (best-effort, ignoring)',
+            );
+          });
           set.status = 201;
           return {
             abs_path: absPath,
