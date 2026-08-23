@@ -36,8 +36,14 @@ namespace Maple.UI.Gallery
             BuildOrganismsNavigationSpecimens(panel);
             BuildOrganismsInspectorsSpecimens(panel);
             BuildOrganismsInspectorsBSpecimens(panel);
-            // §4.4-4.8 (modals, editing, map, communication, configuration)
-            // land in this wave's second push — see the class doc comment.
+            BuildOrganismsModalsSpecimens(panel);
+            BuildOrganismsModalsBSpecimens(panel);
+            BuildOrganismsEditingSpecimens(panel);
+            BuildOrganismsEditingBSpecimens(panel);
+            BuildOrganismsMapSpecimens(panel);
+            BuildOrganismsCommsSpecimens(panel);
+            BuildOrganismsConfigurationSpecimens(panel);
+            BuildOrganismsConfigurationBSpecimens(panel);
         }
     }
 }
