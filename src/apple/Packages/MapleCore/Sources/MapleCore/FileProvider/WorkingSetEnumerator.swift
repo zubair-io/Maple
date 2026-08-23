@@ -135,6 +135,14 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                         NSError(domain: NSFileProviderErrorDomain,
                                 code: NSFileProviderError.serverUnreachable.rawValue)
                     )
+                case .aborted(let underlying):
+                    // Batch-meta got an HTTP error from a reached server
+                    // (already mapped into NSFileProviderErrorDomain by
+                    // check2xx — auth, 5xx). Fail the call without
+                    // advancing the anchor; the OS retries the batch
+                    // later instead of the resolver fanning out ~500
+                    // per-asset GETs at an unhealthy server.
+                    observer.finishEnumeratingWithError(underlying)
                 case .resolved(let updates, let deletes):
                     observer.didUpdate(updates)
                     observer.didDeleteItems(withIdentifiers: deletes)

@@ -169,6 +169,15 @@ final class WorkingSetEnumeratorChangesTests: XCTestCase {
                 """
                 return (body.data(using: .utf8)!, resp)
             }
+            // Batch-meta is "unsupported" here (404) so resolution takes
+            // the legacy per-asset path this test exercises — a batch
+            // 500 would (correctly) abort the whole call instead of
+            // stubbing (see WorkingSetEnumeratorBatchResolutionTests).
+            if req.url!.path.hasSuffix("/batch-meta") {
+                let resp = HTTPURLResponse(url: req.url!, statusCode: 404,
+                                           httpVersion: "HTTP/1.1", headerFields: nil)!
+                return (Data(), resp)
+            }
             // Simulate a transient server failure on the per-asset GET.
             let resp = HTTPURLResponse(url: req.url!, statusCode: 500,
                                        httpVersion: "HTTP/1.1", headerFields: nil)!

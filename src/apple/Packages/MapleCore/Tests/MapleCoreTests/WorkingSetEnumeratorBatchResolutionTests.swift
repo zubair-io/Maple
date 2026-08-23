@@ -192,6 +192,66 @@ final class WorkingSetEnumeratorBatchResolutionTests: XCTestCase {
                        "a page of pure deletes needs no metadata at all")
     }
 
+    func testBatchHTTPErrorAbortsInsteadOfPerAssetFanOut() async throws {
+        // Jules review on PR #3009: a 5xx (or 401/403) from the batch route
+        // means the server is unhealthy — falling back to ~500 per-asset
+        // GETs would amplify load exactly when it can least absorb it.
+        // The batch must abort the call (no anchor advance, OS retries
+        // later) and fire ZERO per-asset GETs.
+        let log = RequestLog()
+        let session = URLSession.stubbedSequence { req in
+            log.record(req)
+            if req.url!.path.hasSuffix("/batch-meta") {
+                let resp = HTTPURLResponse(url: req.url!, statusCode: 500,
+                                           httpVersion: "HTTP/1.1",
+                                           headerFields: ["Content-Type": "application/json"])!
+                return (#"{"error": "boom"}"#.data(using: .utf8)!, resp)
+            }
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 200,
+                                       httpVersion: "HTTP/1.1",
+                                       headerFields: ["Content-Type": "application/json"])!
+            if req.url!.path.contains("/api/changes") {
+                let rows = [(Int64(1), Self.ids[0], "update"), (Int64(2), Self.ids[1], "update")]
+                return (self.changesBody(rows: rows).data(using: .utf8)!, resp)
+            }
+            return (self.metaJSON(req.url!.lastPathComponent).data(using: .utf8)!, resp)
+        }
+
+        let observer = try await run(session)
+
+        let error = try XCTUnwrap(observer.error as NSError?)
+        XCTAssertEqual(error.domain, NSFileProviderErrorDomain)
+        XCTAssertTrue(observer.updates.isEmpty)
+        XCTAssertEqual(log.count { $0.hasPrefix("GET /api/assets/") }, 0,
+                       "an unhealthy server must not receive the per-asset fan-out")
+    }
+
+    func testBatchDecodeFailureFallsBackToPerAssetGets() async throws {
+        // A 200 with a garbled body (misbehaving proxy) is not a server-
+        // health signal — the per-asset path is the right recovery there.
+        let log = RequestLog()
+        let session = URLSession.stubbedSequence { req in
+            log.record(req)
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 200,
+                                       httpVersion: "HTTP/1.1",
+                                       headerFields: ["Content-Type": "application/json"])!
+            if req.url!.path.hasSuffix("/batch-meta") {
+                return ("not json".data(using: .utf8)!, resp)
+            }
+            if req.url!.path.contains("/api/changes") {
+                let rows = [(Int64(1), Self.ids[0], "update")]
+                return (self.changesBody(rows: rows).data(using: .utf8)!, resp)
+            }
+            return (self.metaJSON(req.url!.lastPathComponent).data(using: .utf8)!, resp)
+        }
+
+        let observer = try await run(session)
+
+        XCTAssertNil(observer.error)
+        XCTAssertEqual(observer.updates.count, 1)
+        XCTAssertEqual(log.count { $0.hasPrefix("GET /api/assets/") }, 1)
+    }
+
     func testFallsBackToPerAssetGetsWhenBatchUnsupported() async throws {
         let log = RequestLog()
         let session = URLSession.stubbedSequence { req in
