@@ -138,7 +138,7 @@ struct GeneratedSearchProvider: TimelineProvider {
             title: collection.title,
             subtitle: collection.subtitle,
             imageData: data,
-            deepLink: Self.searchLink(for: collection, libraryID: libraryID)
+            deepLink: collection.searchDeepLink(libraryID: libraryID)
           )
         )
       }
@@ -153,7 +153,7 @@ struct GeneratedSearchProvider: TimelineProvider {
             title: collection.title,
             subtitle: collection.subtitle,
             imageData: nil,
-            deepLink: Self.searchLink(for: collection, libraryID: libraryID)
+            deepLink: collection.searchDeepLink(libraryID: libraryID)
           )
         ]
       }
@@ -163,24 +163,4 @@ struct GeneratedSearchProvider: TimelineProvider {
     }
   }
 
-  /// `maple://search?…` seeded with the collection's stored query — the
-  /// same whitelisted params the app-side handler reads. An attended
-  /// search is the one place executing the stored query client-side is
-  /// fine; ambient display still goes through the server's assets route.
-  /// The exact keys the app-side handler reads — anything else a stored
-  /// query might grow later stays out of the URL by construction.
-  private static let linkKeys = ["placeQuery", "from", "to", "month", "sceneType", "people"]
-
-  private static func searchLink(for collection: GeneratedSearchCard, libraryID: String) -> URL? {
-    var components = URLComponents()
-    components.scheme = "maple"
-    components.host = "search"
-    components.queryItems =
-      linkKeys.compactMap { key in
-        guard let value = collection.query[key], !value.isEmpty else { return nil }
-        return URLQueryItem(name: key, value: value)
-      }
-      + [URLQueryItem(name: "libraryId", value: libraryID)]
-    return components.url
-  }
 }

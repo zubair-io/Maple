@@ -20,8 +20,11 @@ struct GeneratedSearchSection: View {
     let collectionsClient: GeneratedSearchClient
     let foldersClient: CloudFoldersClient
 
+    @Environment(\.openURL) private var openURL
     @State private var config: GeneratedSearchAdminConfig?
     @State private var collections: [GeneratedSearchCard] = []
+    /// Resolved alongside the collections; needed to build the tap links.
+    @State private var libraryID: String?
     @State private var loadError: String?
     @State private var actionError: String?
     @State private var isBusy = false
@@ -64,19 +67,33 @@ struct GeneratedSearchSection: View {
                         .font(.callout)
                 } else {
                     ForEach(collections) { collection in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(collection.title)
-                            HStack {
-                                if let subtitle = collection.subtitle {
-                                    Text(subtitle).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Text("\(collection.result_count) photos")
-                                    .foregroundStyle(.secondary)
-                                    .monospacedDigit()
+                        // Tappable like the web panel's rows: routes through
+                        // the same maple://search deep link as the widget
+                        // tap, so what opens is exactly what the collection
+                        // shows — and the search handler dismisses the
+                        // settings sheet itself.
+                        Button {
+                            if let libraryID,
+                               let url = collection.searchDeepLink(libraryID: libraryID) {
+                                openURL(url)
                             }
-                            .font(.caption)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(collection.title)
+                                HStack {
+                                    if let subtitle = collection.subtitle {
+                                        Text(subtitle).foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Text("\(collection.result_count) photos")
+                                        .foregroundStyle(.secondary)
+                                        .monospacedDigit()
+                                }
+                                .font(.caption)
+                            }
                         }
+                        .buttonStyle(.plain)
+                        .disabled(libraryID == nil)
                     }
                 }
             } else if let loadError {
@@ -117,8 +134,9 @@ struct GeneratedSearchSection: View {
         } else {
             resolved = try? await foldersClient.listFolders().first?.id
         }
-        guard let libraryID = resolved else { return }
-        collections = (try? await collectionsClient.collections(libraryID: libraryID)) ?? []
+        guard let resolvedID = resolved else { return }
+        libraryID = resolvedID
+        collections = (try? await collectionsClient.collections(libraryID: resolvedID)) ?? []
     }
 
     private func setPaused(_ paused: Bool) async {
