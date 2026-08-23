@@ -29,39 +29,48 @@ function titleOf(markdown, slug) {
   return heading ? heading.slice(2).trim() : slug;
 }
 
-async function main() {
+/** Reads every contract doc, returning `[fileName, markdown]` pairs. */
+async function readContracts() {
   assert(existsSync(docsRoot), `contract docs not found at ${docsRoot}`);
   const files = (await readdir(docsRoot)).filter((name) => name.endsWith('.md')).sort();
   assert(files.length > 0, `no contract docs in ${docsRoot}`);
+  return Promise.all(
+    files.map(async (name) => [name, await readFile(resolve(docsRoot, name), 'utf8')]),
+  );
+}
 
-  const manifest = [];
-  for (const name of files) {
-    const markdown = await readFile(resolve(docsRoot, name), 'utf8');
+function manifestFor(contracts) {
+  const entries = contracts.map(([name, markdown]) => {
     const slug = name.replace(/\.md$/, '');
-    manifest.push({ slug, title: titleOf(markdown, slug) });
-  }
-  const manifestJson = `${JSON.stringify(manifest, null, 2)}\n`;
+    return { slug, title: titleOf(markdown, slug) };
+  });
+  return `${JSON.stringify(entries, null, 2)}\n`;
+}
 
-  if (checkOnly) {
-    for (const name of files) {
-      const source = await readFile(resolve(docsRoot, name), 'utf8');
-      const copy = await readFile(resolve(outRoot, name), 'utf8');
-      assert(source === copy, `${name}: copy differs from docs source — run maple-ui:sync`);
-    }
-    const manifestCopy = await readFile(resolve(outRoot, 'manifest.json'), 'utf8');
-    assert(manifestCopy === manifestJson, 'manifest.json is stale — run maple-ui:sync');
-    console.log(`maple-ui docs check OK (${files.length} contracts)`);
-    return;
+async function checkCopies(contracts, manifestJson) {
+  for (const [name, markdown] of contracts) {
+    const copy = await readFile(resolve(outRoot, name), 'utf8');
+    assert(markdown === copy, `${name}: copy differs from docs source — run maple-ui:sync`);
   }
+  const manifestCopy = await readFile(resolve(outRoot, 'manifest.json'), 'utf8');
+  assert(manifestCopy === manifestJson, 'manifest.json is stale — run maple-ui:sync');
+  console.log(`maple-ui docs check OK (${contracts.length} contracts)`);
+}
 
+async function writeCopies(contracts, manifestJson) {
   await rm(outRoot, { recursive: true, force: true });
   await mkdir(outRoot, { recursive: true });
-  for (const name of files) {
-    const markdown = await readFile(resolve(docsRoot, name), 'utf8');
+  for (const [name, markdown] of contracts) {
     await writeFile(resolve(outRoot, name), markdown);
   }
   await writeFile(resolve(outRoot, 'manifest.json'), manifestJson);
-  console.log(`maple-ui docs synced (${files.length} contracts) -> ${outRoot}`);
+  console.log(`maple-ui docs synced (${contracts.length} contracts) -> ${outRoot}`);
+}
+
+async function main() {
+  const contracts = await readContracts();
+  const manifestJson = manifestFor(contracts);
+  await (checkOnly ? checkCopies(contracts, manifestJson) : writeCopies(contracts, manifestJson));
 }
 
 main().catch((error) => {
