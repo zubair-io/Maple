@@ -163,6 +163,20 @@
     `Microsoft.UI.Input`, so it's WinUI-dependent by design; the logic
     worth testing is the selection math above, which already takes the
     resulting modifier as a plain argument.
+
+    `MapleUI\Organisms\MuiBatchRenameLogic.cs`, `MuiImageCanvasMath.cs`,
+    `MuiCropOverlayMath.cs`, `MuiStructuredDataEditorLogic.cs`,
+    `MuiMapClusterMath.cs`, and `MuiSetupWizardLogic.cs` (Maple.UI
+    Windows-phase organisms wave N6 second push, #3012 — modals/editing/
+    map/communication/configuration) are the same split for the Batch
+    Rename modal, Image Canvas, Crop Overlay, Structured Data Editor, Map
+    Surface, and Setup Wizard organisms: each is plain C# (System/
+    System.Collections.Generic/System.Linq/System.Text.Json only,
+    namespace `Maple.UI`), so the `{name}/{ext}/{date}/{seq}` template
+    substitution, the zoom/pan/fit-zoom transform math, the 8-handle crop
+    resize math, the flat-JSON&lt;-&gt;form-field conversion, the
+    greedy pin-clustering math, and the validity-gated step logic are all
+    exercisable here without a live Window.
   -->
   <ItemGroup>
     <Compile Include="..\Maple.WinUI\Services\Xmp\*.cs" LinkBase="Xmp" />
@@ -206,5 +220,11 @@
     <Compile Include="..\Maple.WinUI\MapleUI\Organisms\MuiCollectionGridSelection.cs" LinkBase="MapleUI\Organisms" />
     <Compile Include="..\Maple.WinUI\MapleUI\Organisms\MuiKanbanBoardLogic.cs" LinkBase="MapleUI\Organisms" />
     <Compile Include="..\Maple.WinUI\MapleUI\Organisms\MuiSidebarFlatten.cs" LinkBase="MapleUI\Organisms" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Organisms\MuiBatchRenameLogic.cs" LinkBase="MapleUI\Organisms" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Organisms\MuiImageCanvasMath.cs" LinkBase="MapleUI\Organisms" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Organisms\MuiCropOverlayMath.cs" LinkBase="MapleUI\Organisms" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Organisms\MuiStructuredDataEditorLogic.cs" LinkBase="MapleUI\Organisms" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Organisms\MuiMapClusterMath.cs" LinkBase="MapleUI\Organisms" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Organisms\MuiSetupWizardLogic.cs" LinkBase="MapleUI\Organisms" />
   </ItemGroup>
 </Project>
