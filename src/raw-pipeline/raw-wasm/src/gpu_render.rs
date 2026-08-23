@@ -75,8 +75,12 @@ use wasm_bindgen::prelude::*;
 /// FULL sensor resolution: a 100 MP frame is ~5.7× this cap (browser validation
 /// error → black canvas) and ~2.8 GB of transient f32 inside wasm32's 4 GiB
 /// heap (wasm memory growth is permanent).
+///
+/// Defined in `cpu_budget` (an always-compiled module) since #2661: the CPU
+/// fallback for the same unsized requests shares it, so a GPU-adapter failure
+/// re-renders the SAME develop the GPU call would have produced.
 #[cfg(any(target_arch = "wasm32", test))]
-pub(crate) const DEFAULT_TARGET_LONG_EDGE: u32 = 2048;
+pub(crate) use crate::cpu_budget::DEFAULT_TARGET_LONG_EDGE;
 
 /// Normalize the JS-side `max_long_edge` request: `None` (the legacy no-arg
 /// call shape) and `0` (a degenerate viewport measurement) both fall back to

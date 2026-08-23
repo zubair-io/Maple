@@ -45,6 +45,11 @@ use wasm_bindgen::prelude::*;
 
 pub mod auto_adjustments;
 pub mod auto_tone;
+/// wasm32 CPU develop memory budget (#2661) — the clamp every CPU render
+/// entry applies so a large-sensor develop cannot exhaust the 4 GiB wasm32
+/// heap, plus the `DEFAULT_TARGET_LONG_EDGE` the GPU one-shot entry and its
+/// CPU fallback share.
+pub mod cpu_budget;
 /// Edited-image export — full-res render + in-wasm encode, drained in chunks
 /// so a 100 MP deliverable never lands on the JS heap in one piece (#943).
 pub mod export;

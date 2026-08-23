@@ -34,7 +34,10 @@ pub use auto_fit::{
 
 // Sized display render + `native_render_dims` (#1101) — size-budget split.
 mod sized;
-pub use sized::{native_render_dims, render_sized_from_raw_with_quality_and_source};
+pub use sized::{
+    native_render_dims, render_sized_from_raw_with_quality_and_source,
+    render_sized_from_raw_with_quality_source_and_film,
+};
 
 // The orientation + crop tail, shared by the display and export depths (#943).
 mod finish;
