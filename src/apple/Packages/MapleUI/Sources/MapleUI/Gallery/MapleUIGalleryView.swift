@@ -65,14 +65,7 @@ public struct MapleUIGalleryView: View {
         case .templates:
             TemplatesGallerySection()
         case .pages:
-            unbuiltTier(names: GalleryCatalog.pages)
-        }
-    }
-
-    private func unbuiltTier(names: [String]) -> some View {
-        VStack(alignment: .leading, spacing: MuiTokens.spacingSm) {
-            MuiText("Coming in a later wave", variant: .eyebrow, color: .muted)
-            GalleryPlaceholderSection(names: names)
+            PagesGallerySection()
         }
     }
 }
