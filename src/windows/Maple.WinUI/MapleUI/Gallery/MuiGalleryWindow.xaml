@@ -1,0 +1,65 @@
+<!--
+  Maple.UI Gallery — a standalone showcase window for the Maple.UI control
+  library. Opened from MainWindow via Ctrl+Shift+G (MainWindow.xaml.cs's
+  OnRootKeyDown). Page content (token swatches, atom specimens, and the
+  placeholder tier lists) is built in the code-behind rather than here, so
+  this file stays a small, low-risk shell: a tier tab strip plus seven
+  overlapping ScrollViewer pages toggled by Visibility.
+-->
+<Window
+    x:Class="Maple.UI.Gallery.MuiGalleryWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Title="Maple.UI Gallery">
+
+    <Grid Background="{StaticResource MapleBg}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel
+            x:Name="TabStrip"
+            Grid.Row="0"
+            Orientation="Horizontal"
+            Spacing="4"
+            Padding="16,12"
+            BorderThickness="0,0,0,1"
+            BorderBrush="{StaticResource MapleBorder}">
+            <Button x:Name="TabTokens" Content="Tokens" Tag="Tokens" Click="OnTabClick" />
+            <Button x:Name="TabAtoms" Content="Atoms" Tag="Atoms" Click="OnTabClick" />
+            <Button x:Name="TabMoleculesL1" Content="Molecules L1" Tag="MoleculesL1" Click="OnTabClick" />
+            <Button x:Name="TabMoleculesL2" Content="Molecules L2" Tag="MoleculesL2" Click="OnTabClick" />
+            <Button x:Name="TabOrganisms" Content="Organisms" Tag="Organisms" Click="OnTabClick" />
+            <Button x:Name="TabTemplates" Content="Templates" Tag="Templates" Click="OnTabClick" />
+            <Button x:Name="TabPages" Content="Pages" Tag="Pages" Click="OnTabClick" />
+        </StackPanel>
+
+        <Grid Grid.Row="1">
+            <ScrollViewer x:Name="TokensPage" Padding="24">
+                <StackPanel x:Name="TokensPanel" Spacing="24" />
+            </ScrollViewer>
+            <ScrollViewer x:Name="AtomsPage" Padding="24" Visibility="Collapsed">
+                <StackPanel x:Name="AtomsPanel" Spacing="20" />
+            </ScrollViewer>
+            <ScrollViewer x:Name="MoleculesL1Page" Padding="24" Visibility="Collapsed">
+                <StackPanel x:Name="MoleculesL1Panel" Spacing="8" />
+            </ScrollViewer>
+            <ScrollViewer x:Name="MoleculesL2Page" Padding="24" Visibility="Collapsed">
+                <StackPanel x:Name="MoleculesL2Panel" Spacing="8" />
+            </ScrollViewer>
+            <ScrollViewer x:Name="OrganismsPage" Padding="24" Visibility="Collapsed">
+                <StackPanel x:Name="OrganismsPanel" Spacing="8" />
+            </ScrollViewer>
+            <ScrollViewer x:Name="TemplatesPage" Padding="24" Visibility="Collapsed">
+                <StackPanel x:Name="TemplatesPanel" Spacing="8" />
+            </ScrollViewer>
+            <ScrollViewer x:Name="PagesPage" Padding="24" Visibility="Collapsed">
+                <StackPanel x:Name="PagesPanel" Spacing="8" />
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</Window>
