@@ -77,6 +77,16 @@
     the same reason as the files above — it's the one part of that atom this
     project can actually exercise without a live Window.
 
+    `MapleUI\Atoms\MuiRemoteImageLoader.cs`, `MuiAvatarPalette.cs`,
+    `MuiQrPlaceholderPattern.cs`, and `MuiToastAutoDismissTimer.cs` (Maple.UI
+    Windows-phase atoms wave 2, #3012) are the same split for the Remote
+    Image/Avatar/QR Code/Toast atoms: each is plain C# with zero WinUI/WinRT
+    dependency (System/System.Threading(.Tasks) only), so the tiered-load
+    state machine, the deterministic name-hash palette pick and initials
+    extraction, the deterministic placeholder block pattern, and the
+    injectable-tick auto-dismiss countdown are all exercisable here without a
+    live Window — the one part of each of those atoms CI can actually verify.
+
     NOT linked: `Services\ThumbnailService.cs` (#2659's
     `ThumbnailCacheRelocateLeakTests` needs its cache-path scheme, but the
     file itself is fine — the class it references transitively,
@@ -95,5 +105,9 @@
     <Compile Include="..\Maple.WinUI\Services\SingleFlightGate.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\AppSettings.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\MapleUI\Atoms\MuiTimestampFormatter.cs" LinkBase="MapleUI" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Atoms\MuiRemoteImageLoader.cs" LinkBase="MapleUI" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Atoms\MuiAvatarPalette.cs" LinkBase="MapleUI" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Atoms\MuiQrPlaceholderPattern.cs" LinkBase="MapleUI" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Atoms\MuiToastAutoDismissTimer.cs" LinkBase="MapleUI" />
   </ItemGroup>
 </Project>
