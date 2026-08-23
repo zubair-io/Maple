@@ -61,10 +61,7 @@ public struct MapleUIGalleryView: View {
         case .moleculesL2:
             MoleculesL2GallerySection()
         case .organisms:
-            VStack(alignment: .leading, spacing: MuiTokens.spacingLg) {
-                OrganismsGallerySection()
-                unbuiltTier(names: GalleryCatalog.organisms)
-            }
+            OrganismsGallerySection()
         case .templates:
             TemplatesGallerySection()
         case .pages:

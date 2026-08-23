@@ -1,21 +1,24 @@
-// OrganismsGallerySection.swift — Organisms tab: specimen cards for wave
-// A6a's 23 organisms (catalog §4.1-4.3: Collections, Navigation,
-// Inspectors & panels). Card bodies are split across
+// OrganismsGallerySection.swift — Organisms tab: specimen cards for every
+// organism cataloged across §4.1-4.8. Wave A6a shipped §4.1-4.3
+// (Collections, Navigation, Inspectors & panels — 23 organisms); wave A6b
+// adds §4.4-4.8 (Modals, Editing surfaces, Map, Communication,
+// Configuration — 32 organisms). Card bodies are split across
 // OrganismsCollectionsGallery.swift / OrganismsNavigationGallery.swift /
-// OrganismsPanelsGalleryA.swift / OrganismsPanelsGalleryB.swift (this
-// type's sibling structs) to keep any one file under the repo's ~400-line
-// soft budget — same split MoleculesL2GallerySection uses. §4.4-4.8
-// (Modals, Editing surfaces, Map, Communication, Configuration) remain a
-// "coming in a later wave" placeholder list below this section
-// (`MapleUIGalleryView`'s `unbuiltTier`) for wave A6b to extend without
-// rewriting these files.
+// OrganismsPanelsGalleryA.swift / OrganismsPanelsGalleryB.swift /
+// OrganismsModalsGalleryA.swift / OrganismsModalsGalleryB.swift /
+// OrganismsEditingSurfacesGalleryA.swift /
+// OrganismsEditingSurfacesGalleryB.swift /
+// OrganismsMapCommsConfigGalleryA.swift /
+// OrganismsMapCommsConfigGalleryB.swift (this type's sibling structs) to
+// keep any one file under the repo's ~400-line soft budget — same split
+// MoleculesL2GallerySection uses.
 
 import SwiftUI
 
 struct OrganismsGallerySection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: MuiTokens.spacingLg) {
-            MuiText("All 23 Organisms — §4.1-4.3", variant: .eyebrow, color: .muted)
+            MuiText("All 55 Organisms — §4.1-4.8", variant: .eyebrow, color: .muted)
 
             sectionHeader("4.1 Collections")
             OrganismsCollectionsGallery()
@@ -26,6 +29,18 @@ struct OrganismsGallerySection: View {
             sectionHeader("4.3 Inspectors & panels")
             OrganismsPanelsGalleryA()
             OrganismsPanelsGalleryB()
+
+            sectionHeader("4.4 Modals")
+            OrganismsModalsGalleryA()
+            OrganismsModalsGalleryB()
+
+            sectionHeader("4.5 Editing surfaces")
+            OrganismsEditingSurfacesGalleryA()
+            OrganismsEditingSurfacesGalleryB()
+
+            sectionHeader("4.6 Map / 4.7 Communication / 4.8 Configuration")
+            OrganismsMapCommsConfigGalleryA()
+            OrganismsMapCommsConfigGalleryB()
         }
     }
 
