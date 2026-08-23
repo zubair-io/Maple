@@ -1,0 +1,18 @@
+<div class="mui-slider" [class.is-disabled]="disabled()">
+  <div class="row">
+    <mui-text variant="tool-label" color="muted" class="label">{{ label() }}</mui-text>
+    <mui-text variant="value-chip" color="main" class="readout">{{ valueLabel() }}</mui-text>
+  </div>
+  <input
+    type="range"
+    class="track"
+    [min]="min()"
+    [max]="max()"
+    [step]="step()"
+    [value]="value()"
+    [disabled]="disabled()"
+    [attr.aria-label]="label()"
+    [style.--mui-slider-fill.%]="trackPct()"
+    (input)="onInput($any($event.target).value)"
+  />
+</div>

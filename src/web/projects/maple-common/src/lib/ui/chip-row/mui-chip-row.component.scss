@@ -1,0 +1,55 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+}
+
+.mui-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: tok.$maple-spacing-xs;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: tok.$maple-spacing-xs;
+  border: none;
+  background: transparent;
+  padding: 0;
+  border-radius: tok.$maple-radius-full;
+}
+
+button.chip {
+  cursor: pointer;
+
+  &:hover .mui-badge {
+    filter: brightness(1.1);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+}
+
+.remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0;
+  margin-left: -#{tok.$maple-spacing-xs};
+
+  &:hover {
+    color: var(--color-text-main);
+  }
+}
+
+.add {
+  width: 120px;
+}

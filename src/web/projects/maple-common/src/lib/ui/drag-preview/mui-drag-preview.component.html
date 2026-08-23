@@ -1,0 +1,10 @@
+<div class="mui-drag-preview">
+  <div class="card">
+    <mui-image [src]="src()" [alt]="alt()" fit="fill" radius="md" />
+  </div>
+  @if (count() > 1) {
+    <div class="count-badge">
+      <mui-badge variant="count" [value]="count()" [label]="count() + ' items'" size="sm" />
+    </div>
+  }
+</div>

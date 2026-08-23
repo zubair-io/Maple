@@ -1,0 +1,6 @@
+<div class="mui-label-value-grid">
+  @for (row of rows(); track row.label) {
+    <mui-text variant="chip-label" color="muted">{{ row.label }}</mui-text>
+    <mui-text variant="body">{{ row.value }}</mui-text>
+  }
+</div>

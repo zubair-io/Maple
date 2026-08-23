@@ -377,3 +377,5 @@ export * from './lib/ui/progress/mui-progress.component';
 export * from './lib/ui/spinner/mui-spinner.component';
 export * from './lib/ui/status-text/mui-status-text.component';
 export * from './lib/ui/toast/mui-toast.component';
+export * from './lib/ui/molecules1-lane-a';
+export * from './lib/ui/molecules1-lane-b';

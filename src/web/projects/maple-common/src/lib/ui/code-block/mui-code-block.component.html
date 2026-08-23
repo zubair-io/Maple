@@ -1,0 +1,29 @@
+<div class="mui-code-block">
+  @if (language()) {
+    <div class="header">
+      <span class="language">{{ language() }}</span>
+      <mui-button
+        variant="ghost"
+        size="sm"
+        [iconLeading]="copied() ? 'check' : 'copy'"
+        (pressed)="copy()"
+      >
+        {{ copied() ? 'Copied' : 'Copy' }}
+      </mui-button>
+    </div>
+  }
+  <div class="body">
+    <pre class="code"><code>{{ code() }}</code></pre>
+    @if (!language()) {
+      <mui-button
+        variant="ghost"
+        size="sm"
+        [iconOnly]="true"
+        [iconLeading]="copied() ? 'check' : 'copy'"
+        [ariaLabel]="copied() ? 'Copied' : 'Copy code'"
+        class="floating-copy"
+        (pressed)="copy()"
+      />
+    }
+  </div>
+</div>
