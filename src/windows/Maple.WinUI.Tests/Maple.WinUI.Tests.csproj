@@ -87,6 +87,17 @@
     injectable-tick auto-dismiss countdown are all exercisable here without a
     live Window — the one part of each of those atoms CI can actually verify.
 
+    `MapleUI\Molecules\MuiSliderMath.cs`, `MuiDragBarMath.cs`,
+    `MuiColorWheelMath.cs`, `MuiPad2DMath.cs`, `MuiChipRowLogic.cs`, and
+    `MuiFrameTimeClassifier.cs` (Maple.UI Windows-phase molecules L1 wave
+    N3a, #3012) are the same split for the Slider/Living Slider, Drag Bar,
+    Color Wheel, 2-D Pad, Chip Row, and Frame-time HUD molecules: each is
+    plain C# (System/System.Collections.Generic only, namespace `Maple.UI`
+    per the molecules' own convention rather than `Maple.UI.Atoms`), so the
+    value<->position/percent math, tick layout, pointer<->hue/saturation and
+    pointer<->x/y math, chip selection/draft-trim logic, and frame-budget
+    classification are all exercisable here without a live Window.
+
     NOT linked: `Services\ThumbnailService.cs` (#2659's
     `ThumbnailCacheRelocateLeakTests` needs its cache-path scheme, but the
     file itself is fine — the class it references transitively,
@@ -109,5 +120,11 @@
     <Compile Include="..\Maple.WinUI\MapleUI\Atoms\MuiAvatarPalette.cs" LinkBase="MapleUI" />
     <Compile Include="..\Maple.WinUI\MapleUI\Atoms\MuiQrPlaceholderPattern.cs" LinkBase="MapleUI" />
     <Compile Include="..\Maple.WinUI\MapleUI\Atoms\MuiToastAutoDismissTimer.cs" LinkBase="MapleUI" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiSliderMath.cs" LinkBase="MapleUI\Molecules" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiDragBarMath.cs" LinkBase="MapleUI\Molecules" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiColorWheelMath.cs" LinkBase="MapleUI\Molecules" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiPad2DMath.cs" LinkBase="MapleUI\Molecules" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiChipRowLogic.cs" LinkBase="MapleUI\Molecules" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiFrameTimeClassifier.cs" LinkBase="MapleUI\Molecules" />
   </ItemGroup>
 </Project>
