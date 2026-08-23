@@ -1,0 +1,50 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+}
+
+.mui-banner {
+  display: flex;
+  align-items: center;
+  gap: tok.$maple-spacing-sm;
+  padding: tok.$maple-spacing-sm tok.$maple-spacing-md;
+  border-radius: tok.$maple-radius-md;
+}
+
+.message {
+  flex: 1;
+  min-width: 0;
+}
+
+.variant-info {
+  background: color-mix(in srgb, var(--color-text-muted) 15%, transparent);
+
+  .banner-icon {
+    color: var(--color-text-muted);
+  }
+}
+
+.variant-success {
+  background: var(--color-success-bg);
+
+  .banner-icon {
+    color: var(--color-success-text);
+  }
+}
+
+.variant-warning {
+  background: color-mix(in srgb, var(--color-warn) 20%, transparent);
+
+  .banner-icon {
+    color: var(--color-warn);
+  }
+}
+
+.variant-error {
+  background: var(--color-error-bg);
+
+  .banner-icon {
+    color: var(--color-error-text);
+  }
+}

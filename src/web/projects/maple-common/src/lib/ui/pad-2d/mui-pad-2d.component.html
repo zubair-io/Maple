@@ -1,0 +1,21 @@
+<div
+  #padEl
+  class="mui-pad-2d"
+  [class.is-disabled]="disabled()"
+  [class.is-dragging]="dragging()"
+  [style.width.px]="size()"
+  [style.height.px]="size()"
+  [style.background]="gradient()"
+  role="slider"
+  tabindex="0"
+  [attr.aria-label]="ariaLabel()"
+  [attr.aria-valuetext]="'x ' + value().x.toFixed(2) + ', y ' + value().y.toFixed(2)"
+  [attr.aria-disabled]="disabled() ? 'true' : null"
+  (pointerdown)="onPointerDown($event)"
+  (pointermove)="onPointerMove($event)"
+  (pointerup)="onPointerUp($event)"
+  (pointercancel)="onPointerUp($event)"
+  (keydown)="onKeydown($event)"
+>
+  <div class="puck" [style.left.%]="puckPos().left" [style.top.%]="puckPos().top"></div>
+</div>

@@ -1,0 +1,22 @@
+// Shared transport-control styling for the Maple UI media molecules
+// (mui-audio-player, mui-video-player — unified-component-catalog.md §2.7).
+// Not part of the public API surface (see ../public-api.ts).
+
+@use '../../generated/ui-tokens' as tok;
+
+@mixin transport-button {
+  min-width: 28px;
+}
+
+@mixin scrubber-track {
+  flex: 1;
+  cursor: pointer;
+  padding: tok.$maple-spacing-xs 0;
+}
+
+@mixin time-readout {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}

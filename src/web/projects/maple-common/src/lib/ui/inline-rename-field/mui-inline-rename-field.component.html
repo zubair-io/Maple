@@ -1,0 +1,25 @@
+<div class="mui-inline-rename-field">
+  @if (editing()) {
+    <mui-input
+      [value]="draft()"
+      (valueChange)="onDraftChange($event)"
+      [ariaLabel]="ariaLabel()"
+      size="sm"
+      (keydown)="onKeydown($event)"
+      (focusout)="commit()"
+    />
+  } @else {
+    <button
+      type="button"
+      class="display"
+      [disabled]="disabled()"
+      [attr.aria-label]="'Rename ' + value()"
+      (click)="startEditing()"
+    >
+      <mui-text variant="row-label" [truncate]="true">{{ value() }}</mui-text>
+      @if (justCommitted()) {
+        <mui-icon name="check" size="xs" class="confirm" />
+      }
+    </button>
+  }
+</div>

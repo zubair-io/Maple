@@ -1,0 +1,24 @@
+@use '../../generated/ui-tokens' as tok;
+@use '../internal/media-transport' as transport;
+
+:host {
+  display: block;
+}
+
+.mui-audio-player {
+  display: flex;
+  align-items: center;
+  gap: tok.$maple-spacing-sm;
+}
+
+.transport {
+  @include transport.transport-button;
+}
+
+.scrubber {
+  @include transport.scrubber-track;
+}
+
+.time {
+  @include transport.time-readout;
+}

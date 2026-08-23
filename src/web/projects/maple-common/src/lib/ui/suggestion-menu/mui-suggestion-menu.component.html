@@ -1,0 +1,23 @@
+<mui-popover [open]="open()" [placement]="placement()" (closeRequested)="closeRequested.emit()">
+  <div class="mui-suggestion-menu" role="listbox" (keydown)="onKeydown($event)">
+    @for (item of items(); track item.id; let i = $index) {
+      <button
+        type="button"
+        role="option"
+        class="item"
+        [class.active]="activeIndex() === i"
+        [attr.aria-selected]="activeIndex() === i"
+        (click)="selectItem(item)"
+        (mouseenter)="activeIndex.set(i)"
+      >
+        @if (item.icon) {
+          <mui-icon [name]="item.icon" size="sm" />
+        }
+        <mui-text variant="body">{{ item.label }}</mui-text>
+        @if (item.meta) {
+          <mui-text variant="chip-label" color="muted" class="meta">{{ item.meta }}</mui-text>
+        }
+      </button>
+    }
+  </div>
+</mui-popover>

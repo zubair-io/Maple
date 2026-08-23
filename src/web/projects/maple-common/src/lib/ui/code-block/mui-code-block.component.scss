@@ -1,0 +1,48 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+}
+
+.mui-code-block {
+  border-radius: tok.$maple-radius-md;
+  background: var(--color-image-canvas);
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: tok.$maple-spacing-xs tok.$maple-spacing-sm;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.language {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.body {
+  position: relative;
+}
+
+.code {
+  margin: 0;
+  padding: tok.$maple-spacing-sm tok.$maple-spacing-md;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-warn);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.floating-copy {
+  position: absolute;
+  top: tok.$maple-spacing-xs;
+  right: tok.$maple-spacing-xs;
+}

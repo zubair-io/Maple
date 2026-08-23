@@ -1,0 +1,24 @@
+<div class="mui-map-annotation">
+  <div class="pin-outer">
+    <div class="pin-inner">
+      @if (src()) {
+        <mui-image [src]="src()!" [alt]="label() ?? 'Location photo'" fit="fill" radius="none" />
+      } @else {
+        <mui-icon name="map-pin" size="sm" [decorative]="!label()" />
+      }
+    </div>
+    @if (count() !== null && count()! > 0) {
+      <div class="count-badge">
+        <mui-badge
+          variant="count"
+          [value]="count()!"
+          [label]="count() + ' photos here'"
+          size="sm"
+        />
+      </div>
+    }
+  </div>
+  @if (label()) {
+    <mui-text variant="chip-label" color="muted" class="caption">{{ label() }}</mui-text>
+  }
+</div>

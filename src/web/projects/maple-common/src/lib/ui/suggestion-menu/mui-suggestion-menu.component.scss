@@ -1,0 +1,29 @@
+@use '../../generated/ui-tokens' as tok;
+@use '../internal/menu-item' as menu;
+
+:host {
+  display: contents;
+}
+
+.mui-suggestion-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: tok.$maple-spacing-xs;
+  min-width: 180px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.item {
+  @include menu.menu-item-base;
+
+  &:hover,
+  &.active {
+    background: var(--color-bg-hover);
+  }
+}
+
+.meta {
+  margin-left: auto;
+}

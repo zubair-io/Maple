@@ -1,0 +1,17 @@
+@use '../internal/draggable-surface' as drag;
+
+:host {
+  display: inline-block;
+}
+
+.mui-color-wheel {
+  position: relative;
+  border-radius: 50%;
+  background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red);
+
+  @include drag.drag-surface-interaction;
+}
+
+.puck {
+  @include drag.puck-dot;
+}

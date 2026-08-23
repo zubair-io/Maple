@@ -1,0 +1,44 @@
+<div class="mui-toolbar" role="toolbar">
+  @for (entry of split().visible; track $index) {
+    @if (asItem(entry); as item) {
+      <mui-action-button
+        [icon]="item.icon"
+        [label]="item.label"
+        size="sm"
+        [disabled]="item.disabled ?? false"
+        (pressed)="press(item)"
+      />
+    } @else {
+      <mui-divider orientation="vertical" />
+    }
+  }
+  @if (split().overflow.length > 0) {
+    <div class="overflow-anchor">
+      <mui-action-button
+        icon="ellipsis-horizontal"
+        label="More"
+        size="sm"
+        (pressed)="overflowOpen.set(!overflowOpen())"
+      />
+      <mui-popover
+        [open]="overflowOpen()"
+        placement="bottom"
+        (closeRequested)="overflowOpen.set(false)"
+      >
+        <div class="overflow-menu">
+          @for (item of split().overflow; track item.id) {
+            <button
+              type="button"
+              class="overflow-item"
+              [disabled]="item.disabled ?? false"
+              (click)="selectOverflow(item)"
+            >
+              <mui-icon [name]="item.icon" size="sm" />
+              <mui-text variant="body">{{ item.label }}</mui-text>
+            </button>
+          }
+        </div>
+      </mui-popover>
+    </div>
+  }
+</div>

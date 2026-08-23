@@ -1,0 +1,26 @@
+<div class="mui-page-header">
+  @if (showBack()) {
+    <mui-button
+      variant="ghost"
+      size="sm"
+      [iconOnly]="true"
+      iconLeading="back"
+      ariaLabel="Back"
+      (pressed)="back.emit()"
+    />
+  }
+  <mui-text variant="sheet-title" [truncate]="true" class="title">{{ title() }}</mui-text>
+  <div class="actions">
+    <ng-content select="[actions]" />
+    @if (showMore()) {
+      <mui-button
+        variant="ghost"
+        size="sm"
+        [iconOnly]="true"
+        iconLeading="ellipsis-horizontal"
+        ariaLabel="More"
+        (pressed)="more.emit()"
+      />
+    }
+  </div>
+</div>

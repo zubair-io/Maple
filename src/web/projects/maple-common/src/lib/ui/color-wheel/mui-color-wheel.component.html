@@ -1,0 +1,20 @@
+<div
+  #wheelEl
+  class="mui-color-wheel"
+  [class.is-disabled]="disabled()"
+  [class.is-dragging]="dragging()"
+  [style.width.px]="size()"
+  [style.height.px]="size()"
+  role="slider"
+  tabindex="0"
+  [attr.aria-label]="ariaLabel()"
+  [attr.aria-valuetext]="'hue ' + value().hue + ', saturation ' + value().saturation"
+  [attr.aria-disabled]="disabled() ? 'true' : null"
+  (pointerdown)="onPointerDown($event)"
+  (pointermove)="onPointerMove($event)"
+  (pointerup)="onPointerUp($event)"
+  (pointercancel)="onPointerUp($event)"
+  (keydown)="onKeydown($event)"
+>
+  <div class="puck" [style.left.%]="puckPos().left" [style.top.%]="puckPos().top"></div>
+</div>

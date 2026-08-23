@@ -1,0 +1,24 @@
+<div class="mui-audio-player">
+  <audio
+    #audio
+    [src]="src()"
+    (play)="onPlay()"
+    (pause)="onPause()"
+    (ended)="onEnded()"
+    (loadedmetadata)="onLoadedMetadata()"
+    (timeupdate)="onTimeUpdate()"
+  ></audio>
+  <mui-button
+    variant="ghost"
+    size="sm"
+    class="transport"
+    [ariaLabel]="playing() ? 'Pause' : 'Play'"
+    (pressed)="togglePlay()"
+  >
+    {{ playing() ? '❚❚' : '▶' }}
+  </mui-button>
+  <div class="scrubber" (click)="seek($event)">
+    <mui-progress shape="bar" size="sm" [value]="progressPercent()" />
+  </div>
+  <span class="time">{{ formatDuration(currentTime()) }} / {{ formatDuration(duration()) }}</span>
+</div>

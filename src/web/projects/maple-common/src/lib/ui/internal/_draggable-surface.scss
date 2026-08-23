@@ -1,0 +1,33 @@
+// Shared drag-surface styling for the Maple UI pointer-drag molecules
+// (mui-color-wheel, mui-pad-2d — unified-component-catalog.md §2.1): a
+// crosshair-cursor surface with a dragging/focus outline, a disabled state,
+// and a round puck marker. Not part of the public API surface (see
+// ../public-api.ts).
+
+@mixin drag-surface-interaction {
+  touch-action: none;
+  cursor: crosshair;
+  outline-offset: 4px;
+
+  &.is-dragging,
+  &:focus-visible {
+    outline: 2px solid var(--color-text-main);
+  }
+
+  &.is-disabled {
+    opacity: 0.45;
+    pointer-events: none;
+  }
+}
+
+@mixin puck-dot {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--color-text-main);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}

@@ -1,0 +1,19 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+}
+
+.mui-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-xs;
+}
+
+.label {
+  font-weight: 600;
+}
+
+.is-disabled {
+  opacity: 0.6;
+}

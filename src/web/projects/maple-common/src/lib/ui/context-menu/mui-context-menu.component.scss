@@ -1,0 +1,32 @@
+@use '../../generated/ui-tokens' as tok;
+@use '../internal/menu-item' as menu;
+
+:host {
+  display: contents;
+}
+
+.mui-context-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: tok.$maple-spacing-xs;
+  min-width: 160px;
+}
+
+.item {
+  @include menu.menu-item-base;
+
+  &:hover:not(:disabled),
+  &.active:not(:disabled) {
+    background: var(--color-bg-hover);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+}
+
+.destructive {
+  color: var(--color-error-text);
+}

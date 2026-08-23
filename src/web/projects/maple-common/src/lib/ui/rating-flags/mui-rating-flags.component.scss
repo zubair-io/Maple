@@ -1,0 +1,44 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: inline-block;
+}
+
+.mui-rating-flags {
+  display: flex;
+  align-items: center;
+  gap: tok.$maple-spacing-sm;
+
+  &.is-disabled {
+    opacity: 0.45;
+    pointer-events: none;
+  }
+}
+
+.stars {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  outline-offset: 2px;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+  }
+}
+
+.star,
+.flag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  padding: 2px;
+  cursor: pointer;
+  line-height: 0;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+}
