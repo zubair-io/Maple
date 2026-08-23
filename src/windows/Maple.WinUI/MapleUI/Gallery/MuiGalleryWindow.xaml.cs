@@ -121,7 +121,6 @@ namespace Maple.UI.Gallery
         private void BuildTokensPage()
         {
             TokensPanel.Children.Add(SectionHeading("Color"));
-            var swatchGrid = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16 };
             var wrap = new WrapPanelLike();
             foreach (var key in ColorTokenKeys)
                 wrap.Add(ColorSwatch(key));

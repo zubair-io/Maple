@@ -104,6 +104,16 @@ namespace Maple.UI.Atoms
         private bool _isPointerOver;
         private bool _isPressed;
 
+        // See the IsLoading/IsEnabled interplay comment at the tail of
+        // Rebuild() for why these exist: we force the platform IsEnabled
+        // off while loading (the only thing that blocks keyboard and
+        // UI-Automation invocation, not just pointer clicks), so we need
+        // somewhere to remember what the caller actually asked for and a
+        // way to tell "the caller toggled IsEnabled" apart from "Rebuild
+        // just forced it".
+        private bool _desiredEnabled = true;
+        private bool _suppressEnabledChanged;
+
         public MuiButton()
         {
             _content.Children.Add(_icon);
@@ -111,7 +121,13 @@ namespace Maple.UI.Atoms
             _content.Children.Add(_label);
             Content = _content;
 
-            IsEnabledChanged += (_, _) => Rebuild();
+            IsEnabledChanged += (_, _) =>
+            {
+                if (_suppressEnabledChanged)
+                    return;
+                _desiredEnabled = IsEnabled;
+                Rebuild();
+            };
             PointerEntered += (_, _) => { _isPointerOver = true; ApplyColors(); };
             PointerExited += (_, _) => { _isPointerOver = false; _isPressed = false; ApplyColors(); };
             PointerPressed += (_, _) => { _isPressed = true; ApplyColors(); };
@@ -182,12 +198,40 @@ namespace Maple.UI.Atoms
             _label.Visibility = string.IsNullOrEmpty(Label) ? Visibility.Collapsed : Visibility.Visible;
             _label.FontSize = FontSize;
 
+            // button.md § States, Loading: a loading button must be
+            // impossible to invoke a second time, not merely un-clickable.
+            // IsHitTestVisible (below) only stops pointer clicks — keyboard
+            // activation (Space/Enter) and UI-Automation's Invoke pattern
+            // both bypass hit-testing and call straight into the platform
+            // Button's own invoke path, so the only thing that reliably
+            // blocks all three input paths at once is the control's real
+            // IsEnabled. We force IsEnabled off for the duration of
+            // IsLoading and restore the caller's real value once loading
+            // ends: _desiredEnabled remembers what the caller last set
+            // IsEnabled to (updated from IsEnabledChanged, above), and
+            // _suppressEnabledChanged stops the forced write below from
+            // being mistaken for a fresh caller toggle — without it, the
+            // IsEnabledChanged handler would overwrite _desiredEnabled with
+            // `false` on our own write and permanently forget the
+            // pre-loading value.
+            var effectiveEnabled = _desiredEnabled && !IsLoading;
+            if (IsEnabled != effectiveEnabled)
+            {
+                _suppressEnabledChanged = true;
+                IsEnabled = effectiveEnabled;
+                _suppressEnabledChanged = false;
+            }
+
             // button.md § States, Disabled: "40-50% opacity ... Never a
             // separate greyed-out fill color — opacity is the only disabled
-            // signal." IsHitTestVisible off during a loading state so the
-            // action can't double-fire, without dimming it like Disabled.
-            Opacity = IsEnabled ? 1.0 : 0.45;
-            IsHitTestVisible = IsEnabled && !IsLoading;
+            // signal." A loading button isn't "disabled" in that sense —
+            // it's still on, just temporarily non-invocable — so it keeps
+            // full opacity even though IsEnabled is forced false underneath
+            // it while loading. The fade is keyed off _desiredEnabled (the
+            // caller's real intent), not the live IsEnabled value, which
+            // Loading may have overridden.
+            Opacity = _desiredEnabled ? 1.0 : 0.45;
+            IsHitTestVisible = effectiveEnabled;
 
             if (!string.IsNullOrEmpty(Label))
                 AutomationProperties.SetName(this, Label);
