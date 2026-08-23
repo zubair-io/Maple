@@ -21,7 +21,11 @@ const SERVER_ONLY_MARKERS = [
   'Merge to panorama',
   'Timeline view',
   'Add folder',
-  'Timeline',
+  // NOTE: the bare 'Timeline' marker was retired when the Maple UI design
+  // system (#3000) added a legitimate hosted Timeline organism
+  // (mui-timeline / mui-page-tv-timeline) — the specific markers
+  // 'Timeline view' + 'app-timeline-view' still guard the Self Hosted
+  // timeline surface leaking into the hosted bundle.
   'app-batch-metadata-panel',
   'app-pano-dialog',
   'app-timeline-view',

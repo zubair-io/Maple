@@ -35,6 +35,7 @@ describe('MuiQrCodeComponent', () => {
   it('renders the payload to the canvas with a quiet zone and high-contrast colors', async () => {
     mockedToCanvas.mockResolvedValue(undefined as never);
     const fixture = render();
+    await fixture.whenStable();
     await Promise.resolve();
     fixture.detectChanges();
 
@@ -65,6 +66,7 @@ describe('MuiQrCodeComponent', () => {
   it('surfaces a render error message when the encoder rejects', async () => {
     mockedToCanvas.mockRejectedValue(new Error('payload too long'));
     const fixture = render();
+    await fixture.whenStable();
     await Promise.resolve();
     await Promise.resolve();
     fixture.detectChanges();
