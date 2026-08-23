@@ -1,0 +1,96 @@
+<main class="maple-ui">
+  <header class="page-header">
+    <h1>Maple UI</h1>
+    <p class="subtitle">
+      The shared design system behind Maple's Apple, Web, and Windows apps. Tokens render live from
+      the generated single-source tables; each component card renders its actual contract document.
+    </p>
+  </header>
+
+  <section class="token-section">
+    <h2>Color tokens</h2>
+    <div class="swatch-grid">
+      @for (token of colorTokens; track token.key) {
+        <div class="swatch">
+          <div class="swatch-chip" [style.background]="token.value"></div>
+          <div class="swatch-meta">
+            <span class="token-name">{{ token.key }}</span>
+            <code class="token-value">{{ token.value }}</code>
+          </div>
+        </div>
+      }
+    </div>
+  </section>
+
+  <section class="token-section">
+    <h2>Radius scale</h2>
+    <div class="scale-row">
+      @for (token of radiusTokens; track token.key) {
+        <div class="scale-item">
+          <div class="radius-demo" [style.border-radius.px]="token.px > 100 ? 999 : token.px"></div>
+          <span class="token-name">radius.{{ token.key }}</span>
+          <code class="token-value">{{ token.px }}px</code>
+        </div>
+      }
+    </div>
+  </section>
+
+  <section class="token-section">
+    <h2>Spacing scale</h2>
+    <div class="scale-row">
+      @for (token of spacingTokens; track token.key) {
+        <div class="scale-item">
+          <div class="spacing-demo" [style.width.px]="token.px"></div>
+          <span class="token-name">spacing.{{ token.key }}</span>
+          <code class="token-value">{{ token.px }}px</code>
+        </div>
+      }
+    </div>
+  </section>
+
+  <section class="token-section">
+    <h2>Motion tokens</h2>
+    <table class="motion-table">
+      <thead>
+        <tr>
+          <th>Token</th>
+          <th>Duration</th>
+          <th>Easing</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (token of motionTokens; track token.key) {
+          <tr>
+            <td>
+              <span class="token-name">{{ token.key }}</span>
+            </td>
+            <td>{{ token.ms }}ms</td>
+            <td>
+              <code class="token-value">{{ token.ease }}</code>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </section>
+
+  <section class="contracts-section">
+    <h2>Components</h2>
+    @if (loading()) {
+      <p class="status-line">Loading component contracts…</p>
+    } @else if (loadFailed()) {
+      <p class="status-line">
+        The component contracts could not be loaded. Try reloading the page.
+      </p>
+    } @else {
+      <div class="contract-grid">
+        @for (contract of contracts(); track contract.slug) {
+          <article class="contract-card" [id]="contract.slug">
+            <h3>{{ contract.title }}</h3>
+            <div class="contract-body" [innerHTML]="contract.html"></div>
+          </article>
+        }
+      </div>
+    }
+  </section>
+</main>

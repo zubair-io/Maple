@@ -1,0 +1,196 @@
+:host {
+  display: block;
+  min-height: 100vh;
+  background: var(--color-bg);
+  color: var(--color-text-main);
+  overflow: auto;
+}
+
+.maple-ui {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 48px 24px 96px;
+}
+
+.page-header {
+  margin-bottom: 48px;
+
+  h1 {
+    font-size: 2rem;
+    font-weight: 600;
+    margin: 0 0 8px;
+  }
+
+  .subtitle {
+    color: var(--color-text-muted);
+    max-width: 640px;
+    line-height: 1.5;
+    margin: 0;
+  }
+}
+
+section {
+  margin-bottom: 48px;
+
+  h2 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--color-border);
+  }
+}
+
+.token-name {
+  font-weight: 600;
+  font-size: 0.8125rem;
+}
+
+.token-value {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+}
+
+.swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.swatch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.swatch-chip {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.swatch-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+
+  .token-value {
+    overflow-wrap: anywhere;
+  }
+}
+
+.scale-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: flex-end;
+}
+
+.scale-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.radius-demo {
+  width: 64px;
+  height: 64px;
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border-hi);
+}
+
+.spacing-demo {
+  height: 24px;
+  background: var(--color-primary);
+  border-radius: 2px;
+}
+
+.motion-table {
+  width: 100%;
+  border-collapse: collapse;
+
+  th,
+  td {
+    text-align: left;
+    padding: 8px 16px 8px 0;
+    border-bottom: 1px solid var(--color-border);
+    font-size: 0.875rem;
+  }
+
+  th {
+    color: var(--color-text-muted);
+    font-weight: 600;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+}
+
+.status-line {
+  color: var(--color-text-muted);
+}
+
+.contract-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.contract-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 24px;
+
+  > h3 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin: 0 0 12px;
+  }
+}
+
+.contract-body {
+  font-size: 0.875rem;
+  line-height: 1.6;
+
+  ::ng-deep {
+    h2 {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--color-text-muted);
+      border: none;
+      margin: 20px 0 8px;
+      padding: 0;
+    }
+
+    p,
+    ul {
+      margin: 0 0 12px;
+    }
+
+    ul {
+      padding-left: 20px;
+    }
+
+    li {
+      margin-bottom: 4px;
+    }
+
+    code {
+      background: var(--color-surface-alt);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-size: 0.8125rem;
+    }
+
+    strong {
+      color: var(--color-text-main);
+    }
+  }
+}

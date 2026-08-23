@@ -23,6 +23,7 @@ describe('Hosted routes', () => {
       'library',
       'library/loupe/:id',
       'protocol-handler',
+      'maple-ui',
       '**',
     ]);
   });
