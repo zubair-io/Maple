@@ -100,12 +100,15 @@ namespace Maple.UI
         private void Commit(string rawText)
         {
             if (!_editing) return;
-            var trimmed = (rawText ?? string.Empty).Trim();
             _editing = false;
             Rebuild();
-            if (trimmed.Length == 0 || trimmed == Value) return;
-            Value = trimmed;
-            Renamed?.Invoke(this, trimmed);
+            // A rename never commits blank — same allowEmpty:false policy
+            // MuiPlaceRow (L2) uses for its own override field, both
+            // routed through the shared MuiInlineEditLogic rule.
+            var next = MuiInlineEditLogic.ResolveCommit(rawText, Value, allowEmpty: false);
+            if (next is null) return;
+            Value = next;
+            Renamed?.Invoke(this, next);
         }
 
         private void Cancel()
