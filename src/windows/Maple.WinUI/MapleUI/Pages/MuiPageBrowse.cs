@@ -94,7 +94,11 @@ namespace Maple.UI.Pages
             Recompute();
         }
 
-        private IReadOnlyList<string> CurrentVisibleIds() => _grid.Items?.Select(i => i.Id).ToList() ?? Array.Empty<string>();
+        private IReadOnlyList<string> CurrentVisibleIds()
+        {
+            if (_grid.Items is null) return Array.Empty<string>();
+            return _grid.Items.Select(i => i.Id).ToList();
+        }
 
         private void Recompute()
         {
