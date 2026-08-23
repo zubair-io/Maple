@@ -1,0 +1,16 @@
+<div class="mui-endpoint-form">
+  <div class="methods" role="radiogroup" aria-label="HTTP method">
+    @for (m of methods(); track m) {
+      <button
+        type="button"
+        class="method"
+        [attr.aria-pressed]="method() === m"
+        (click)="selectMethod(m)"
+      >
+        <mui-badge [variant]="method() === m ? 'signal' : 'count'" [value]="m" />
+      </button>
+    }
+  </div>
+  <mui-form-field label="URL" [(value)]="url" placeholder="/api/photos" />
+  <mui-button variant="primary" [loading]="sending()" (pressed)="onSend()">Send</mui-button>
+</div>

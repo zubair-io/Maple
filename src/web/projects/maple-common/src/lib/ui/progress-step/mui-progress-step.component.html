@@ -1,0 +1,12 @@
+<div class="mui-progress-step" [class]="'status-' + status()">
+  <div class="row">
+    <span class="index">{{ status() === 'done' ? '✓' : index() }}</span>
+    <mui-text variant="row-label">{{ label() }}</mui-text>
+  </div>
+  <mui-progress shape="bar" size="sm" [value]="progressValue()" />
+  @if (status() === 'active') {
+    <mui-button size="sm" variant="primary" (pressed)="continued.emit()">
+      {{ continueLabel() }}
+    </mui-button>
+  }
+</div>

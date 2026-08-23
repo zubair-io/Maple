@@ -1,0 +1,7 @@
+<div class="mui-response-viewer">
+  <div class="header">
+    <mui-badge [variant]="statusVariant()" [value]="statusLabel()" />
+    <mui-tabs [tabs]="tabs" [(activeId)]="activeId" />
+  </div>
+  <mui-code-block [code]="activeContent()" />
+</div>

@@ -1,0 +1,46 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+}
+
+.mui-chat-message {
+  display: flex;
+  align-items: flex-start;
+  gap: tok.$maple-spacing-sm;
+
+  &.is-own {
+    flex-direction: row-reverse;
+
+    .bubble {
+      background: var(--color-primary-dim);
+      align-items: flex-end;
+      text-align: right;
+    }
+  }
+}
+
+.bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 320px;
+  background: var(--color-surface-alt);
+  border-radius: tok.$maple-radius-md;
+  padding: tok.$maple-spacing-xs tok.$maple-spacing-sm;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: tok.$maple-spacing-xs;
+}
+
+.author {
+  font-weight: 700;
+}
+
+.time {
+  color: var(--color-text-muted);
+  font-size: 10px;
+}

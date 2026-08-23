@@ -1,0 +1,15 @@
+<div class="mui-transcript-block" role="list">
+  @for (entry of entries(); track entry.id) {
+    <div class="row" role="listitem">
+      <mui-timestamp [value]="entryTime(entry)" format="time-only" class="time" />
+      <div class="line">
+        @if (entry.speaker) {
+          <mui-text variant="chip-label" color="muted" class="speaker">{{
+            entry.speaker
+          }}</mui-text>
+        }
+        <mui-text variant="body">{{ entry.text }}</mui-text>
+      </div>
+    </div>
+  }
+</div>

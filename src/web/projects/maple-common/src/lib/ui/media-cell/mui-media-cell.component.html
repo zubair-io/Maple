@@ -1,0 +1,29 @@
+<div
+  class="mui-media-cell"
+  [class]="'size-' + size()"
+  [class.is-selected]="selected()"
+  role="button"
+  tabindex="0"
+  [attr.aria-pressed]="selected()"
+  (click)="onCellClick()"
+  (keydown)="onKeydown($event)"
+>
+  <div class="thumb">
+    <mui-image [src]="src()" [alt]="alt()" fit="fill" radius="sm" [aspectRatio]="1" />
+    @if (badges().length > 0) {
+      <div class="badges">
+        @for (badge of badges(); track badge) {
+          <mui-badge variant="count" size="sm" [value]="badge" />
+        }
+      </div>
+    }
+  </div>
+  <div class="meta" (click)="$event.stopPropagation()" (keydown)="$event.stopPropagation()">
+    <mui-inline-rename-field
+      [(value)]="filename"
+      [ariaLabel]="'Rename ' + filename()"
+      (renamed)="renamed.emit($event)"
+    />
+    <mui-rating-flags [(rating)]="rating" [(flag)]="flag" />
+  </div>
+</div>

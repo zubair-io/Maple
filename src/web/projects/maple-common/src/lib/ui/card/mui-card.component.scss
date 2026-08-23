@@ -1,0 +1,43 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+}
+
+.mui-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: tok.$maple-radius-md;
+  background: var(--color-surface);
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+
+  &:hover {
+    border-color: var(--color-border-hi);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+}
+
+.media {
+  position: relative;
+}
+
+.overlay {
+  position: absolute;
+  top: tok.$maple-spacing-xs;
+  right: tok.$maple-spacing-xs;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: tok.$maple-spacing-sm;
+}

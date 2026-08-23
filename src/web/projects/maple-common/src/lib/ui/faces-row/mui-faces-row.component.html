@@ -1,0 +1,15 @@
+<div class="mui-faces-row">
+  <mui-text variant="tool-label" color="muted">{{ countLabel() }}</mui-text>
+  @if (people().length > 0) {
+    <mui-chip-row [chips]="people()" mode="select" [(selectedId)]="selectedId" />
+  }
+  <mui-button
+    variant="ghost"
+    size="sm"
+    iconLeading="history"
+    [loading]="redetecting()"
+    (pressed)="redetect.emit()"
+  >
+    Re-detect
+  </mui-button>
+</div>

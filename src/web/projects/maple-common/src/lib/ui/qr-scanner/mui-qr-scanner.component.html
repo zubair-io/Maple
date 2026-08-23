@@ -1,0 +1,29 @@
+<div class="mui-qr-scanner">
+  @if (cameraActive()) {
+    <mui-canvas-surface
+      class="viewfinder"
+      [contentAspect]="4 / 3"
+      (canvasReady)="onCanvasReady($event)"
+    />
+    <video #video class="hidden-video" muted playsinline></video>
+    <mui-button variant="ghost" size="sm" (pressed)="stopCamera()">Stop camera</mui-button>
+  } @else {
+    <mui-button variant="secondary" iconLeading="camera" (pressed)="startCamera()">
+      Use camera
+    </mui-button>
+    @if (cameraError()) {
+      <p class="error">{{ cameraError() }}</p>
+    }
+  }
+
+  <div class="paste">
+    <mui-input
+      [value]="pasteValue()"
+      (valueChange)="pasteValue.set($event)"
+      placeholder="Paste pairing code"
+      ariaLabel="Pairing code"
+      (committed)="submitPaste()"
+    />
+    <mui-button variant="primary" (pressed)="submitPaste()">Use code</mui-button>
+  </div>
+</div>

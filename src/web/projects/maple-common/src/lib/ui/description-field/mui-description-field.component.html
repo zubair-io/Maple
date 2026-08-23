@@ -1,0 +1,27 @@
+<div class="mui-description-field">
+  @if (editing()) {
+    <mui-input
+      [value]="draft()"
+      (valueChange)="draft.set($event)"
+      ariaLabel="Description"
+      (keydown)="onKeydown($event)"
+      (focusout)="commit()"
+    />
+  } @else {
+    <button type="button" class="display" (click)="startEditing()">
+      <mui-text variant="body" color="muted" [block]="true">
+        {{ value() || placeholder() }}
+      </mui-text>
+    </button>
+  }
+  <mui-button
+    class="regenerate"
+    variant="ghost"
+    size="sm"
+    iconLeading="smart-source-wand"
+    [loading]="regenerating()"
+    (pressed)="onRegenerateClick()"
+  >
+    Regenerate
+  </mui-button>
+</div>

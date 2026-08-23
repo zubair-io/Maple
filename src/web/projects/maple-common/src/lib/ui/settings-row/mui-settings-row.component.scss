@@ -1,0 +1,35 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+}
+
+.mui-settings-row {
+  display: flex;
+  flex-direction: column;
+  padding: tok.$maple-spacing-sm 0;
+}
+
+.row-header {
+  display: flex;
+  align-items: flex-start;
+  gap: tok.$maple-spacing-sm;
+}
+
+.leading-icon {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+.collapsible {
+  flex: 1;
+  min-width: 0;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-xs;
+  padding-top: tok.$maple-spacing-xs;
+}
