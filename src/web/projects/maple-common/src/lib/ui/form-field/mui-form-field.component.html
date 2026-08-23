@@ -1,0 +1,18 @@
+<div class="mui-form-field" [class.is-disabled]="disabled()">
+  <mui-text variant="tool-label" color="muted" [block]="true" class="label">
+    {{ label() }}{{ required() ? ' *' : '' }}
+  </mui-text>
+  <mui-input
+    [variant]="variant()"
+    [value]="value()"
+    (valueChange)="value.set($event)"
+    [placeholder]="placeholder()"
+    [error]="error()"
+    [disabled]="disabled()"
+    [ariaLabel]="label()"
+    (committed)="committed.emit($event)"
+  />
+  @if (help() && !error()) {
+    <mui-text variant="body" color="muted" [block]="true" class="help">{{ help() }}</mui-text>
+  }
+</div>

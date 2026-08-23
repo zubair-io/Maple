@@ -1,0 +1,58 @@
+@use '../../generated/ui-tokens' as tok;
+@use '../internal/row-interaction' as row;
+
+:host {
+  display: block;
+}
+
+.mui-list-row {
+  display: flex;
+  align-items: center;
+  gap: tok.$maple-spacing-sm;
+  min-height: 44px;
+  padding: tok.$maple-spacing-sm tok.$maple-spacing-md;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--color-text-main);
+  cursor: pointer;
+
+  @include row.row-hover-focus;
+
+  &.is-active {
+    @include row.row-active-base;
+
+    // Active composes with hover rather than being replaced by it.
+    &:hover {
+      background: color-mix(in srgb, var(--color-surface-alt) 80%, var(--color-surface-hover));
+    }
+  }
+
+  &.is-disabled {
+    opacity: 0.45;
+    pointer-events: none;
+  }
+}
+
+.leading {
+  flex: 0 0 auto;
+  color: var(--color-primary);
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.subtitle {
+  font-size: 11px;
+}
+
+.trailing {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: tok.$maple-spacing-xs;
+}

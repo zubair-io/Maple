@@ -1,0 +1,27 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: inline-block;
+}
+
+.mui-frame-time-hud {
+  background: var(--color-bg);
+  border-radius: tok.$maple-radius-sm;
+  padding: tok.$maple-spacing-xs tok.$maple-spacing-sm;
+}
+
+.readout {
+  font-family: ui-monospace, 'JetBrains Mono', monospace;
+}
+
+.status-good .readout {
+  color: var(--color-success-text);
+}
+
+.status-warn .readout {
+  color: var(--color-warn);
+}
+
+.status-bad .readout {
+  color: var(--color-error-text);
+}

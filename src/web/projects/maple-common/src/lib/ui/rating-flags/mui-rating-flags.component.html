@@ -1,0 +1,43 @@
+<div class="mui-rating-flags" [class.is-disabled]="disabled()">
+  <div
+    class="stars"
+    role="slider"
+    tabindex="0"
+    [attr.aria-label]="'Rating'"
+    aria-valuemin="0"
+    [attr.aria-valuemax]="max()"
+    [attr.aria-valuenow]="rating()"
+    (keydown)="onKeydown($event)"
+  >
+    @for (star of stars(); track star) {
+      <button
+        type="button"
+        class="star"
+        [attr.aria-label]="star + ' star' + (star > 1 ? 's' : '')"
+        (click)="setRating(star)"
+      >
+        <mui-icon
+          [name]="star <= rating() ? 'star-filled' : 'star'"
+          size="sm"
+          [color]="star <= rating() ? 'var(--color-star)' : 'var(--color-border)'"
+        />
+      </button>
+    }
+  </div>
+  @if (rating() > 0) {
+    <mui-badge
+      variant="rating"
+      [value]="rating()"
+      [label]="rating() + ' out of ' + max() + ' stars'"
+    />
+  }
+  <button
+    type="button"
+    class="flag"
+    [attr.aria-label]="'Flag: ' + flag()"
+    [attr.aria-pressed]="flag() !== 'none'"
+    (click)="cycleFlag()"
+  >
+    <mui-icon name="flag" size="sm" [color]="flagIconColor()" />
+  </button>
+</div>

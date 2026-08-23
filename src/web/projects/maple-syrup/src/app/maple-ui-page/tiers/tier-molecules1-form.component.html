@@ -34,6 +34,7 @@
     margin-bottom: 40px;
   "
 >
+  <!-- Form Field -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -54,41 +55,26 @@
         overflow: hidden;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 11px;
-              color: #78716c;
-              font-weight: 600;
-            "
-            >Filename</span
-          >
-          <div
-            style="
-              font-family: 'Lato', sans-serif;
-              width: 180px;
-              font-size: 12px;
-              color: #a8a29e;
-              background: #fff;
-              border: 1px solid #e7e5e4;
-              border-radius: 6px;
-              padding: 7px 10px;
-            "
-          >
-            test_0003.NEF
-          </div>
-          <span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 11px;
-              color: #a8a29e;
-              font-weight: 400;
-            "
-            >Cannot contain / or \</span
-          >
-        </div>
+      <div
+        style="
+          max-width: 100%;
+          max-height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
+          width: 100%;
+        "
+      >
+        <mui-form-field
+          label="Filename"
+          [(value)]="filenameValue"
+          [error]="filenameError"
+          help="Cannot contain / or \"
+          style="width: 180px"
+        />
       </div>
     </div>
     <div>
@@ -109,6 +95,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Inline Rename Field -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -129,26 +117,20 @@
         overflow: hidden;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 8px">
-          <div
-            style="
-              font-family: 'Lato', sans-serif;
-              width: 150px;
-              font-size: 12px;
-              color: #a8a29e;
-              background: #fff;
-              border: 1px solid #e7e5e4;
-              border-radius: 6px;
-              padding: 7px 10px;
-            "
-          >
-            test_0003
-          </div>
-          <span class="material-symbols-rounded" style="font-size: 16px; color: #28a745"
-            >check</span
-          >
-        </div>
+      <div
+        style="
+          max-width: 100%;
+          max-height: 100%;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
+        "
+      >
+        <mui-inline-rename-field [(value)]="renameValue" ariaLabel="Roll name" />
       </div>
     </div>
     <div>
@@ -167,6 +149,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Search Bar -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -187,29 +171,26 @@
         overflow: hidden;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 6px">
-          <div
-            style="
-              display: flex;
-              align-items: center;
-              gap: 8px;
-              background: #fff;
-              border: 1px solid #e7e5e4;
-              border-radius: 99px;
-              padding: 8px 14px;
-              width: 200px;
-            "
-          >
-            <span class="material-symbols-rounded" style="font-size: 16px; color: #78716c"
-              >search</span
-            ><span style="font-family: 'Lato', sans-serif; font-size: 12px; color: #a8a29e; flex: 1"
-              >Search photos</span
-            ><span class="material-symbols-rounded" style="font-size: 14px; color: #78716c"
-              >close</span
-            >
-          </div>
-        </div>
+      <div
+        style="
+          max-width: 100%;
+          max-height: 100%;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
+          width: 100%;
+        "
+      >
+        <mui-search-bar
+          [(value)]="searchValue"
+          placeholder="Search photos"
+          actionLabel="Filters"
+          style="width: 100%"
+        />
       </div>
     </div>
     <div>
@@ -228,6 +209,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Slider -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -248,55 +231,27 @@
         overflow: hidden;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 8px">
-          <div style="display: flex; align-items: center; gap: 8px">
-            <span style="flex: 1; font-family: 'Lato', sans-serif; font-size: 12px; color: #78716c"
-              >Exposure</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 12px;
-                color: #993629;
-                font-weight: 600;
-              "
-              >+0.3</span
-            >
-          </div>
-          <div
-            style="
-              width: 180px;
-              height: 4px;
-              background: #e7e5e4;
-              border-radius: 2px;
-              position: relative;
-            "
-          >
-            <div
-              style="
-                position: absolute;
-                left: 0;
-                top: 0;
-                width: 60%;
-                height: 4px;
-                background: #993629;
-                border-radius: 2px;
-              "
-            ></div>
-            <div
-              style="
-                position: absolute;
-                left: 58%;
-                top: -4px;
-                width: 12px;
-                height: 12px;
-                border-radius: 50%;
-                background: #fff;
-                border: 2px solid #993629;
-              "
-            ></div>
-          </div>
-        </div>
+      <div
+        style="
+          max-width: 100%;
+          max-height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
+        "
+      >
+        <mui-slider
+          label="Exposure"
+          [(value)]="sliderValue"
+          [min]="-2"
+          [max]="2"
+          [step]="0.1"
+          unit="EV"
+          style="width: 180px"
+        />
       </div>
     </div>
     <div>
@@ -317,6 +272,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Living Slider -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -337,44 +294,28 @@
         overflow: hidden;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 8px">
-          <div style="display: flex; align-items: center; gap: 8px">
-            <span style="flex: 1; font-family: 'Lato', sans-serif; font-size: 12px; color: #78716c"
-              >Temp</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 12px;
-                color: #993629;
-                font-weight: 600;
-              "
-              >6166K</span
-            >
-          </div>
-          <div
-            style="
-              width: 180px;
-              height: 6px;
-              border-radius: 3px;
-              background: linear-gradient(90deg, #3b82f6, #f5f2eb, #f59e0b);
-              position: relative;
-            "
-          >
-            <div
-              style="
-                position: absolute;
-                left: 46%;
-                top: -3px;
-                width: 12px;
-                height: 12px;
-                border-radius: 50%;
-                background: #fff;
-                box-shadow: 0 0 0 2px #993629;
-              "
-            ></div>
-          </div>
-        </div>
+      <div
+        style="
+          max-width: 100%;
+          max-height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
+        "
+      >
+        <mui-living-slider
+          label="Warmth"
+          [(value)]="warmthValue"
+          [min]="-2"
+          [max]="2"
+          [step]="0.1"
+          [bipolar]="true"
+          [gradient]="warmthGradient"
+          style="width: 180px"
+        />
       </div>
     </div>
     <div>
@@ -393,6 +334,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Drag Bar -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -413,30 +356,19 @@
         overflow: hidden;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="width: 180px; height: 20px; display: flex; align-items: center; gap: 3px">
-          <div style="width: 1px; height: 10px; background: #d6d3d1"></div>
-          <div style="width: 1px; height: 6px; background: #d6d3d1"></div>
-          <div style="width: 1px; height: 6px; background: #d6d3d1"></div>
-          <div style="width: 1px; height: 6px; background: #d6d3d1"></div>
-          <div style="width: 1px; height: 6px; background: #d6d3d1"></div>
-          <div style="width: 1px; height: 10px; background: #d6d3d1"></div>
-          <div style="width: 1px; height: 6px; background: #d6d3d1"></div>
-          <div style="width: 1px; height: 6px; background: #d6d3d1"></div>
-          <div style="width: 1px; height: 6px; background: #d6d3d1"></div>
-          <div style="width: 1px; height: 6px; background: #d6d3d1"></div>
-          <div style="width: 1px; height: 14px; background: #993629"></div>
-          <div style="width: 1px; height: 6px; background: #d6d3d1"></div>
-          <div style="width: 1px; height: 6px; background: #d6d3d1"></div>
-          <div style="width: 1px; height: 6px; background: #d6d3d1"></div>
-          <div style="width: 1px; height: 6px; background: #d6d3d1"></div>
-          <div style="width: 1px; height: 10px; background: #d6d3d1"></div>
-          <div style="width: 1px; height: 6px; background: #d6d3d1"></div>
-          <div style="width: 1px; height: 6px; background: #d6d3d1"></div>
-          <div style="width: 1px; height: 6px; background: #d6d3d1"></div>
-          <div style="width: 1px; height: 6px; background: #d6d3d1"></div>
-          <div style="width: 1px; height: 10px; background: #d6d3d1"></div>
-        </div>
+      <div
+        style="
+          max-width: 100%;
+          max-height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
+        "
+      >
+        <mui-drag-bar label="Straighten" [(value)]="straightenValue" style="width: 180px" />
       </div>
     </div>
     <div>
@@ -455,6 +387,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Color Wheel -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -475,29 +409,19 @@
         overflow: hidden;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div
-          style="
-            width: 72px;
-            height: 72px;
-            border-radius: 50%;
-            background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red);
-            position: relative;
-          "
-        >
-          <div
-            style="
-              position: absolute;
-              left: 60%;
-              top: 35%;
-              width: 10px;
-              height: 10px;
-              border-radius: 50%;
-              background: #fff;
-              border: 2px solid #292524;
-            "
-          ></div>
-        </div>
+      <div
+        style="
+          max-width: 100%;
+          max-height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
+        "
+      >
+        <mui-color-wheel [(value)]="colorWheelValue" [size]="64" ariaLabel="Shadows hue/sat" />
       </div>
     </div>
     <div>
@@ -518,6 +442,8 @@
       </div>
     </div>
   </div>
+
+  <!-- 2-D Pad -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -538,30 +464,19 @@
         overflow: hidden;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div
-          style="
-            width: 72px;
-            height: 72px;
-            border-radius: 8px;
-            background: linear-gradient(135deg, #3b82f6, #f5f2eb 50%, #f59e0b);
-            position: relative;
-            border: 1px solid #e7e5e4;
-          "
-        >
-          <div
-            style="
-              position: absolute;
-              left: 45%;
-              top: 40%;
-              width: 10px;
-              height: 10px;
-              border-radius: 50%;
-              background: #fff;
-              border: 2px solid #292524;
-            "
-          ></div>
-        </div>
+      <div
+        style="
+          max-width: 100%;
+          max-height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
+        "
+      >
+        <mui-pad-2d [(value)]="padValue" [size]="64" ariaLabel="White balance" />
       </div>
     </div>
     <div>
@@ -601,6 +516,7 @@
     margin-bottom: 40px;
   "
 >
+  <!-- Chip Row -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -621,43 +537,19 @@
         overflow: hidden;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 6px">
-          <span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 11px;
-              font-weight: 600;
-              background: #993629;
-              color: #fff;
-              padding: 3px 10px;
-              border-radius: 99px;
-            "
-            >All</span
-          ><span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 11px;
-              font-weight: 600;
-              background: #f5f2eb;
-              color: #57534e;
-              padding: 3px 10px;
-              border-radius: 99px;
-            "
-            >Photos</span
-          ><span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 11px;
-              font-weight: 600;
-              background: #f5f2eb;
-              color: #57534e;
-              padding: 3px 10px;
-              border-radius: 99px;
-            "
-            >Videos</span
-          >
-        </div>
+      <div
+        style="
+          max-width: 100%;
+          max-height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
+        "
+      >
+        <mui-chip-row [chips]="filterChips" mode="select" [(selectedId)]="filterSelected" />
       </div>
     </div>
     <div>
@@ -678,6 +570,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Tabs -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -698,41 +592,20 @@
         overflow: hidden;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 20px">
-          <div
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 13px;
-              font-weight: 600;
-              color: #993629;
-              border-bottom: 2px solid #993629;
-              padding-bottom: 6px;
-            "
-          >
-            Light
-          </div>
-          <div
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 13px;
-              color: #78716c;
-              padding-bottom: 6px;
-            "
-          >
-            Color
-          </div>
-          <div
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 13px;
-              color: #78716c;
-              padding-bottom: 6px;
-            "
-          >
-            Detail
-          </div>
-        </div>
+      <div
+        style="
+          max-width: 100%;
+          max-height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
+          width: 100%;
+        "
+      >
+        <mui-tabs [tabs]="toolTabs" [(activeId)]="activeTab" style="width: 100%" />
       </div>
     </div>
     <div>
@@ -753,6 +626,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Tree Row -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -773,33 +648,27 @@
         overflow: hidden;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 6px">
-          <span class="material-symbols-rounded" style="font-size: 16px; color: #78716c"
-            >expand_more</span
-          ><span class="material-symbols-rounded" style="font-size: 16px; color: #993629"
-            >folder</span
-          ><span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 13px;
-              color: #292524;
-              font-weight: 600;
-            "
-            >Notebooks</span
-          ><span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 11px;
-              font-weight: 600;
-              background: #f5f2eb;
-              color: #57534e;
-              padding: 3px 10px;
-              border-radius: 99px;
-            "
-            >12</span
-          >
-        </div>
+      <div
+        style="
+          max-width: 100%;
+          max-height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
+          width: 100%;
+        "
+      >
+        <mui-tree-row
+          label="Notebooks"
+          icon="folder"
+          [expandable]="true"
+          [(expanded)]="notebooksExpanded"
+          [count]="12"
+          style="width: 100%"
+        />
       </div>
     </div>
     <div>
@@ -820,6 +689,8 @@
       </div>
     </div>
   </div>
+
+  <!-- List Row -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -840,31 +711,25 @@
         overflow: hidden;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 10px">
-          <span class="material-symbols-rounded" style="font-size: 16px; color: #993629"
-            >description</span
-          >
-          <div style="display: flex; flex-direction: column; gap: 2px">
-            <span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 13px;
-                color: #292524;
-                font-weight: 600;
-              "
-              >Meeting notes</span
-            ><span
-              style="
-                font-family: 'Lato', sans-serif;
-                font-size: 11px;
-                color: #a8a29e;
-                font-weight: 400;
-              "
-              >Edited 2m ago</span
-            >
-          </div>
-        </div>
+      <div
+        style="
+          max-width: 100%;
+          max-height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
+          width: 100%;
+        "
+      >
+        <mui-list-row
+          label="Meeting notes"
+          icon="photos"
+          [timestampValue]="meetingNotesTimestamp"
+          style="width: 100%"
+        />
       </div>
     </div>
     <div>
@@ -885,6 +750,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Rating & Flags -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -905,18 +772,19 @@
         overflow: hidden;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; align-items: center; gap: 2px">
-          <span class="material-symbols-rounded" style="font-size: 16px; color: #f59e0b">star</span
-          ><span class="material-symbols-rounded" style="font-size: 16px; color: #f59e0b">star</span
-          ><span class="material-symbols-rounded" style="font-size: 16px; color: #f59e0b">star</span
-          ><span class="material-symbols-rounded" style="font-size: 16px; color: #e7e5e4">star</span
-          ><span class="material-symbols-rounded" style="font-size: 16px; color: #e7e5e4">star</span
-          ><span style="width: 12px"></span
-          ><span class="material-symbols-rounded" style="font-size: 16px; color: #993629"
-            >flag</span
-          >
-        </div>
+      <div
+        style="
+          max-width: 100%;
+          max-height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
+        "
+      >
+        <mui-rating-flags [(rating)]="ratingValue" [(flag)]="ratingFlag" />
       </div>
     </div>
     <div>
@@ -958,6 +826,7 @@
     margin-bottom: 40px;
   "
 >
+  <!-- Banner -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -978,23 +847,28 @@
         overflow: hidden;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div
-          style="
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            background: #e7f3ff;
-            padding: 10px 14px;
-            border-radius: 8px;
-            width: 220px;
-          "
-        >
-          <span class="material-symbols-rounded" style="font-size: 16px; color: #007bff">info</span
-          ><span style="font-family: 'Lato', sans-serif; font-size: 12px; color: #292524; flex: 1"
-            >Update available</span
-          >
-        </div>
+      <div
+        style="
+          max-width: 100%;
+          max-height: 100%;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
+          width: 100%;
+        "
+      >
+        <mui-banner variant="info" message="Update available" style="width: 220px" />
+        <mui-banner
+          variant="error"
+          message="Export failed"
+          actionLabel="Retry"
+          [dismissible]="true"
+          style="width: 220px"
+        />
       </div>
     </div>
     <div>
@@ -1013,6 +887,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Toast Container -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1031,43 +907,25 @@
         align-items: center;
         justify-content: center;
         overflow: hidden;
+        position: relative;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <div
-            style="
-              display: flex;
-              align-items: center;
-              gap: 8px;
-              background: #292524;
-              color: #fff;
-              padding: 8px 12px;
-              border-radius: 8px;
-              font-size: 11px;
-            "
-          >
-            <span class="material-symbols-rounded" style="font-size: 14px; color: #fff"
-              >check_circle</span
-            >Saved
-          </div>
-          <div
-            style="
-              display: flex;
-              align-items: center;
-              gap: 8px;
-              background: #292524;
-              color: #fff;
-              padding: 8px 12px;
-              border-radius: 8px;
-              font-size: 11px;
-              opacity: 0.6;
-            "
-          >
-            <span class="material-symbols-rounded" style="font-size: 14px; color: #fff">sync</span
-            >Syncing
-          </div>
-        </div>
+      <div
+        style="
+          max-width: 100%;
+          max-height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
+          width: 100%;
+          height: 100%;
+          position: relative;
+        "
+      >
+        <mui-toast-container [toasts]="toastEntries" [inline]="true" position="bottom-right" />
       </div>
     </div>
     <div>
@@ -1088,6 +946,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Empty State -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1108,23 +968,24 @@
         overflow: hidden;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <div style="text-align: center">
-            <span class="material-symbols-rounded" style="font-size: 28px; color: #d6d3d1"
-              >inbox</span
-            >
-          </div>
-          <span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 12px;
-              color: #292524;
-              font-weight: 600;
-            "
-            >No messages yet</span
-          >
-        </div>
+      <div
+        style="
+          max-width: 100%;
+          max-height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 4px 14px;
+          transform: scale(0.72);
+        "
+      >
+        <mui-empty-state
+          icon="photos"
+          title="No messages yet"
+          message="New messages will show up here."
+        />
       </div>
     </div>
     <div>
@@ -1145,6 +1006,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Value Chip -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1165,19 +1028,19 @@
         overflow: hidden;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div
-          style="
-            background: #292524;
-            color: #fff;
-            padding: 6px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 600;
-          "
-        >
-          Exposure &nbsp; +0.3
-        </div>
+      <div
+        style="
+          max-width: 100%;
+          max-height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
+        "
+      >
+        <mui-value-chip label="Exposure" [value]="'+0.3'" />
       </div>
     </div>
     <div>
@@ -1198,6 +1061,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Value HUD -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1218,29 +1083,19 @@
         overflow: hidden;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 10px;
-              color: #a8a29e;
-              font-weight: 700;
-            "
-            >EXPOSURE</span
-          ><span
-            style="
-              font-family: 'Lato', sans-serif;
-              font-size: 28px;
-              color: #292524;
-              font-weight: 600;
-            "
-            >+0.3</span
-          >
-          <div style="width: 120px; height: 3px; background: #e7e5e4; border-radius: 2px">
-            <div style="width: 60%; height: 3px; background: #993629; border-radius: 2px"></div>
-          </div>
-        </div>
+      <div
+        style="
+          max-width: 100%;
+          max-height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
+        "
+      >
+        <mui-value-hud label="Exposure" value="+0.3" [progressPct]="60" />
       </div>
     </div>
     <div>
@@ -1261,6 +1116,8 @@
       </div>
     </div>
   </div>
+
+  <!-- Frame-time HUD -->
   <div
     style="
       border: 1px solid #e7e5e4;
@@ -1281,20 +1138,22 @@
         overflow: hidden;
       "
     >
-      <div style="max-width: 100%; max-height: 100%">
-        <div
-          style="
-            font-family: 'Lato', sans-serif;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 11px;
-            background: #1c1917;
-            color: #7fb98a;
-            padding: 8px 12px;
-            border-radius: 6px;
-          "
-        >
-          16.2ms avg &middot; 60fps
-        </div>
+      <div
+        style="
+          max-width: 100%;
+          max-height: 100%;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          align-items: flex-start;
+          justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
+        "
+      >
+        <mui-frame-time-hud [frameMs]="16.2" [fps]="60" />
+        <mui-frame-time-hud [frameMs]="62" [fps]="16" />
       </div>
     </div>
     <div>

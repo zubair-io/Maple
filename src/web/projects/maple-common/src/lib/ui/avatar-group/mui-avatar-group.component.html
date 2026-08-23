@@ -1,0 +1,16 @@
+<div class="mui-avatar-group">
+  @for (avatar of visible(); track avatar.name; let i = $index) {
+    <div class="slot" [class.stacked]="i > 0">
+      <mui-avatar [name]="avatar.name" [src]="avatar.src ?? null" [size]="size()" />
+    </div>
+  }
+  @if (overflowCount() > 0) {
+    <div class="slot stacked overflow">
+      <mui-badge
+        variant="count"
+        [value]="'+' + overflowCount()"
+        [label]="overflowCount() + ' more'"
+      />
+    </div>
+  }
+</div>

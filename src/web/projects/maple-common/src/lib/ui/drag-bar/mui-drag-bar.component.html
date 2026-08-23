@@ -1,0 +1,30 @@
+<div class="mui-drag-bar" [class.is-disabled]="disabled()">
+  @if (label()) {
+    <div class="row">
+      <mui-text variant="tool-label" color="muted" class="label">{{ label() }}</mui-text>
+      <mui-text variant="value-chip" color="main" class="readout">{{ valueLabel() }}</mui-text>
+    </div>
+  }
+  <div
+    #barEl
+    class="bar"
+    role="slider"
+    tabindex="0"
+    [attr.aria-label]="label() ?? 'Scrub'"
+    [attr.aria-valuemin]="min()"
+    [attr.aria-valuemax]="max()"
+    [attr.aria-valuenow]="value()"
+    [attr.aria-disabled]="disabled() ? 'true' : null"
+    [class.is-dragging]="dragging()"
+    (pointerdown)="onPointerDown($event)"
+    (pointermove)="onPointerMove($event)"
+    (pointerup)="onPointerUp($event)"
+    (pointercancel)="onPointerUp($event)"
+    (keydown)="onKeydown($event)"
+  >
+    @for (tick of ticks; track tick.pct) {
+      <div class="tick" [class.emphasized]="tick.emphasized" [style.left.%]="tick.pct"></div>
+    }
+    <div class="marker" [style.left.%]="markerPct()"></div>
+  </div>
+</div>

@@ -1,0 +1,13 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+}
+
+.mui-label-value-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: tok.$maple-spacing-md;
+  row-gap: tok.$maple-spacing-xs;
+  align-items: baseline;
+}
