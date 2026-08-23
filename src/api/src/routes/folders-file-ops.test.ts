@@ -18,10 +18,17 @@ import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { closeDb } from '../db/client.ts';
+import { withTestDb } from '../db/test-db.test-helpers.ts';
 import { foldersFileOpsRoutes } from './folders-file-ops.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
-const TEST_DB = `maple_folders_file_ops_test_${process.pid}`;
+// Claimed through the shared helper rather than assigned directly: it captures
+// whatever `MAPLE_MONGO_DB` held and restores it in `afterAll`, so this suite's
+// override cannot leak into a sibling suite sharing the bun process (#2900).
+// `MAPLE_MONGO_URI` is deliberately NOT overridden — `db/client.ts` already
+// defaults to the same `mongodb://localhost:27017`, so writing it back would be
+// a no-op that leaks a value for no gain.
+const TEST_DB = withTestDb(`maple_folders_file_ops_test_${process.pid}`);
 
 /** Resolved per test rather than captured at module scope (#2900): Bun runs
  * every module body during the import phase, so a module-scope read lands
@@ -63,8 +70,6 @@ describe('non-asset file delete/relocate routes', () => {
   beforeEach(async () => {
     mongo = await tryConnect();
     if (!mongo) return;
-    process.env.MAPLE_MONGO_URI = mongoUri();
-    process.env.MAPLE_MONGO_DB = TEST_DB;
     await closeDb();
     db = mongo.db(TEST_DB);
     await db.dropDatabase();
