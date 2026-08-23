@@ -177,6 +177,23 @@
     resize math, the flat-JSON&lt;-&gt;form-field conversion, the
     greedy pin-clustering math, and the validity-gated step logic are all
     exercisable here without a live Window.
+
+    `MapleUI\Pages\MuiPageMockData.cs` and the 14 `Mui*PageReducer.cs`/
+    `MuiFilmstripNavReducer.cs` files (Maple.UI Windows Pages wave, #3012
+    — all 15 page compositions) are the same split one level up: each
+    page's real cross-organism decision (sidebar-folder + map-cluster +
+    timeline-recency filtering, the shared slider-value map and Value
+    Chip formatting, document snapshot/restore, wrap-around filmstrip
+    nav, facet-AND-query search filtering, the Kanban WIP-limit gate,
+    chat send/auto-reply, notification filter/mark-read, the invite-email
+    gate, wizard-finish/pipeline-pause gating, sign-in field validation,
+    the pairing step machine, and the two TV-page range/heatmap gates)
+    lives in its own plain C# file (System/System.Collections.Generic/
+    System.Linq only, namespace `Maple.UI`) rather than the WinUI-
+    dependent `MuiPage*.cs` control it backs, so it's exercisable here
+    without a live Window. The fictional asset/folder library those
+    reducers filter is `MuiPageMockData.cs`'s own `MuiPageMockLibrary`,
+    linked alongside them for the same reason.
   -->
   <ItemGroup>
     <Compile Include="..\Maple.WinUI\Services\Xmp\*.cs" LinkBase="Xmp" />
@@ -226,5 +243,20 @@
     <Compile Include="..\Maple.WinUI\MapleUI\Organisms\MuiStructuredDataEditorLogic.cs" LinkBase="MapleUI\Organisms" />
     <Compile Include="..\Maple.WinUI\MapleUI\Organisms\MuiMapClusterMath.cs" LinkBase="MapleUI\Organisms" />
     <Compile Include="..\Maple.WinUI\MapleUI\Organisms\MuiSetupWizardLogic.cs" LinkBase="MapleUI\Organisms" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Pages\MuiPageMockData.cs" LinkBase="MapleUI\Pages" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Pages\MuiBrowsePageReducer.cs" LinkBase="MapleUI\Pages" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Pages\MuiEditorPageReducer.cs" LinkBase="MapleUI\Pages" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Pages\MuiDocumentPageReducer.cs" LinkBase="MapleUI\Pages" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Pages\MuiFilmstripNavReducer.cs" LinkBase="MapleUI\Pages" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Pages\MuiSearchPageReducer.cs" LinkBase="MapleUI\Pages" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Pages\MuiBoardPageReducer.cs" LinkBase="MapleUI\Pages" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Pages\MuiChatPageReducer.cs" LinkBase="MapleUI\Pages" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Pages\MuiNotificationsPageReducer.cs" LinkBase="MapleUI\Pages" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Pages\MuiSettingsPageReducer.cs" LinkBase="MapleUI\Pages" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Pages\MuiAdminPageReducer.cs" LinkBase="MapleUI\Pages" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Pages\MuiSignInPageReducer.cs" LinkBase="MapleUI\Pages" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Pages\MuiPairingPageReducer.cs" LinkBase="MapleUI\Pages" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Pages\MuiTvTimelinePageReducer.cs" LinkBase="MapleUI\Pages" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Pages\MuiTvMapPageReducer.cs" LinkBase="MapleUI\Pages" />
   </ItemGroup>
 </Project>
