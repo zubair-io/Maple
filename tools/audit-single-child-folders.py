@@ -33,8 +33,12 @@ DEFAULT_ROOT = "/Volumes/Photos-1"
 def classify(directory: str) -> tuple[list[str], list[str], list[str], list[str]]:
     """Return ``(visible_dirs, visible_files, hidden_dirs, hidden_files)``.
 
-    Names only, not paths. Unreadable directories yield four empty lists so a
-    permissions problem on one folder cannot abort the whole audit.
+    Names only, not paths. A directory we cannot open at all yields four empty
+    lists so a permissions problem on one folder cannot abort the whole audit;
+    that shape is deliberately NOT a pass-through (``is_passthrough`` needs
+    exactly one visible subfolder), so an unreadable folder is skipped rather
+    than collapsed. An individual entry we cannot stat is counted as a file,
+    for the same reason.
     """
     visible_dirs: list[str] = []
     visible_files: list[str] = []
@@ -47,6 +51,15 @@ def classify(directory: str) -> tuple[list[str], list[str], list[str], list[str]
                 try:
                     is_dir = entry.is_dir(follow_symlinks=False)
                 except OSError:
+                    # An entry we could not stat might be anything, including a
+                    # folder full of photos. Dropping it would let a folder
+                    # holding one subfolder plus one unreadable entry read as a
+                    # pass-through -- and collapse-chains.py applies this
+                    # classification directly, with no move-time re-check of
+                    # its own. Bucket it as a file so the folder is disqualified
+                    # rather than silently collapsed. Same rule
+                    # cleanup-empty-folders.py applies to an unreadable subtree.
+                    (hidden_files if hidden else visible_files).append(entry.name)
                     continue
                 bucket = (
                     (hidden_dirs if hidden else visible_dirs)
