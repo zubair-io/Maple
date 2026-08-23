@@ -13,12 +13,9 @@ namespace Maple.UI.Gallery
     /// <summary>
     /// Maple.UI Gallery window — a showcase for the Maple.UI control library
     /// (docs/unified-component-catalog.md), organized by the catalog's own
-    /// tiers. Tokens, Atoms, Molecules L1, Molecules L2, Organisms, and
-    /// Templates render live specimens built from the actual Maple.UI
-    /// controls; the remaining tier (Pages — nothing has been built for it
-    /// yet, per the catalog's design order) renders as a plain name list
-    /// pulled from the catalog, so the gallery already has a home for it
-    /// as a later wave lands.
+    /// tiers. Every tier — Tokens, Atoms, Molecules L1, Molecules L2,
+    /// Organisms, Templates, and Pages (Windows Pages wave, #3012) —
+    /// renders live specimens built from the actual Maple.UI controls.
     /// </summary>
     public sealed partial class MuiGalleryWindow : Window
     {
@@ -66,7 +63,7 @@ namespace Maple.UI.Gallery
             BuildMoleculesL2Page(MoleculesL2Panel);
             BuildOrganismsPage(OrganismsPanel);
             BuildTemplatesPage(TemplatesPanel);
-            BuildPlaceholderPage(PagesPanel, "Pages", PageNames);
+            BuildPagesPage(PagesPanel);
 
             SelectTab("Tokens");
         }
@@ -466,39 +463,6 @@ namespace Maple.UI.Gallery
             };
         }
 
-        // ───────────────────── Placeholder tier pages ─────────────────────
-
-        private void BuildPlaceholderPage(StackPanel panel, string title, string[] names)
-        {
-            panel.Children.Add(new TextBlock
-            {
-                Text = title,
-                FontSize = 17,
-                FontWeight = Microsoft.UI.Text.FontWeights.Bold,
-                Foreground = R("MapleTextMain"),
-                Margin = new Thickness(0, 0, 0, 4),
-            });
-            panel.Children.Add(new TextBlock
-            {
-                Text = "Not built yet — names pulled from docs/unified-component-catalog.md.",
-                FontSize = 12,
-                Foreground = R("MapleTextMuted"),
-                Margin = new Thickness(0, 0, 0, 8),
-            });
-            foreach (var name in names)
-            {
-                panel.Children.Add(new Border
-                {
-                    Background = R("MapleSurface"),
-                    BorderBrush = R("MapleBorder"),
-                    BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(8),
-                    Padding = new Thickness(12, 8, 12, 8),
-                    Child = new TextBlock { Text = name, FontSize = 13, Foreground = R("MapleTextMain") },
-                });
-            }
-        }
-
         // docs/unified-component-catalog.md § 2.1-2.7 (all 44 Level-1 molecules)
         // are no longer here — they're built live in MuiGalleryWindow.MoleculesL1*.cs.
 
@@ -511,11 +475,7 @@ namespace Maple.UI.Gallery
         // docs/unified-component-catalog.md § 4 (55 organisms) are no
         // longer here — they're built live in MuiGalleryWindow.Organisms*.cs.
 
-        // docs/unified-component-catalog.md § 6 (15 page types).
-        private static readonly string[] PageNames =
-        {
-            "Browse", "Editor", "Document", "Preview", "Search", "Board", "Chat", "Notifications",
-            "Settings", "Admin", "Sign In", "Pairing", "TV Timeline", "TV Viewer", "TV Map",
-        };
+        // docs/unified-component-catalog.md § 6 (15 page types) are no
+        // longer here — they're built live in MuiGalleryWindow.Pages.cs.
     }
 }
