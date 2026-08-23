@@ -110,17 +110,22 @@ async function safeLoadLibraries(dbOverride?: Db): Promise<ReadonlyMap<string, s
  * can surface names instead of raw ObjectIds. One `$in` query over `people`;
  * empty map when the doc has no assigned faces (skips the query entirely).
  */
-async function loadPersonNames(
-  doc: AssetWithId,
+async function loadPersonNames(doc: AssetWithId, dbOverride?: Db): Promise<Map<string, string>> {
+  return loadPersonNamesForDocs([doc], dbOverride);
+}
+
+async function loadPersonNamesForDocs(
+  docs: AssetWithId[],
   dbOverride?: Db,
-): Promise<ReadonlyMap<string, string>> {
+): Promise<Map<string, string>> {
   // Keep only well-formed 24-char hex ids: one malformed `person_id` in the
   // `new ObjectId(id)` map would otherwise throw and drop the names for every
   // face on the asset. Canonicalise to lowercase hex so the map key matches
   // the `_id.toHexString()` key regardless of the stored id's case.
   const ids = Array.from(
     new Set(
-      (doc.faces ?? [])
+      docs
+        .flatMap((doc) => doc.faces ?? [])
         .map((f) => f.person_id)
         .filter((id): id is string => !!id && ObjectId.isValid(id))
         .map((id) => id.toLowerCase()),
@@ -157,6 +162,28 @@ export async function findDetailById(
     loadPersonNames(doc as AssetWithId, dbOverride),
   ]);
   return toDetailDto(doc as AssetWithId, libs, personNames);
+}
+
+/**
+ * Bulk variant of {@link findDetailById} for the File Provider's change-batch
+ * resolution (#2995): one `$in` query instead of one round trip per asset, and
+ * face person-ids resolved to names across all docs in a single `people` query.
+ * Unknown ids are simply absent from the result — the caller maps absence to
+ * "deleted", mirroring the single route's 404.
+ */
+export async function findDetailsByIds(
+  ids: ObjectId[],
+  dbOverride?: Db,
+): Promise<AssetDetailDto[]> {
+  if (ids.length === 0) return [];
+  const c = await coll(dbOverride);
+  const docs = await c.find({ _id: { $in: ids } }).toArray();
+  if (docs.length === 0) return [];
+  const [libs, personNames] = await Promise.all([
+    safeLoadLibraries(dbOverride),
+    loadPersonNamesForDocs(docs as AssetWithId[], dbOverride),
+  ]);
+  return docs.map((doc) => toDetailDto(doc as AssetWithId, libs, personNames));
 }
 
 /**

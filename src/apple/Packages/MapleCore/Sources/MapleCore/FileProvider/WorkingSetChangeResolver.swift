@@ -79,10 +79,58 @@ enum WorkingSetChangeResolver {
         workingSet: WorkingSet,
         log: Logger
     ) async -> ChangesResolution {
+        // #2995 — two amplification fixes over the original one-GET-per-row
+        // shape, which cost ~502 requests per 500-row page and pinned the
+        // iOS extension at ~300 req/s while draining a backlog:
+        //
+        //   1. Dedupe: the pipeline stages (thumb, xmp, describe, …) each
+        //      emit a row for the same asset, so a page usually names far
+        //      fewer identities than rows. Only the LAST row per identity
+        //      is resolved — the earlier rows describe states the final
+        //      one supersedes, so the applied end state is identical.
+        //   2. Batch: all surviving asset upserts resolve through ONE
+        //      `POST /api/assets/batch-meta` call instead of a GET each.
+        //      A server without the route (nil) falls back to the legacy
+        //      per-row path so old Self Hosted servers keep working.
+        let survivors = Self.dedupedByIdentity(changes)
+        let upsertIDs = survivors.compactMap { (_, ch) -> String? in
+            guard let id = ch.assetID, ch.kind != .delete else { return nil }
+            return id
+        }
+
+        var batchMeta: [String: AssetMetadata]? = nil
+        if !upsertIDs.isEmpty {
+            do {
+                if let metas = try await catalog.getAssetsBatch(assetIDs: upsertIDs) {
+                    batchMeta = Dictionary(metas.map { ($0.id, $0) },
+                                           uniquingKeysWith: { _, last in last })
+                } else {
+                    log.notice("batch-meta unsupported by server; falling back to per-asset GETs")
+                }
+            } catch {
+                if Self.isNetworkUnreachable(error) {
+                    log.notice("network unreachable resolving batch of \(upsertIDs.count) change(s)")
+                    return .networkUnreachable
+                }
+                log.notice("batch-meta failed (\(error.localizedDescription, privacy: .public)); falling back to per-asset GETs")
+            }
+        }
+
         let semaphore = BoundedAsyncSemaphore(value: maxConcurrentMetadataFetches)
         let indexed = await withTaskGroup(of: IndexedOutcome.self) { group in
-            for (index, ch) in changes.enumerated() {
+            for (index, ch) in survivors {
                 group.addTask {
+                    // Asset upserts resolved by the batch response never
+                    // touch the network again; everything else (file rows,
+                    // deletes, and the no-batch fallback) keeps the
+                    // original bounded per-row path.
+                    if let batchMeta, let assetID = ch.assetID, ch.kind != .delete {
+                        return IndexedOutcome(
+                            index: index,
+                            outcome: Self.outcomeFromBatch(assetID: assetID,
+                                                           meta: batchMeta[assetID],
+                                                           roots: roots))
+                    }
                     let outcome = await Self.resolveChange(
                         ch, catalog: catalog, roots: roots,
                         semaphore: semaphore, log: log
@@ -91,7 +139,7 @@ enum WorkingSetChangeResolver {
                 }
             }
             var results: [IndexedOutcome] = []
-            results.reserveCapacity(changes.count)
+            results.reserveCapacity(survivors.count)
             for await result in group {
                 results.append(result)
             }
@@ -126,6 +174,45 @@ enum WorkingSetChangeResolver {
             }
         }
         return .resolved(updates: updates, deletes: deletes)
+    }
+
+    /// Collapses a change-feed page to its LAST row per identity,
+    /// preserving each surviving row's original feed index (so the
+    /// caller's ordered mutation pass keeps feed-order semantics).
+    /// Identity is the asset id for indexed rows, `(folderID,
+    /// relativePath)` for `FileChild` rows, and per-row-unique for rows
+    /// with neither (they resolve to `.skip` individually, as before).
+    private static func dedupedByIdentity(_ changes: [AssetChange]) -> [(Int, AssetChange)] {
+        var lastIndexByIdentity: [String: Int] = [:]
+        for (index, ch) in changes.enumerated() {
+            let key: String
+            if let assetID = ch.assetID {
+                key = "a:\(assetID)"
+            } else if let folderID = ch.folderID, let rel = ch.relativePath, !rel.isEmpty {
+                key = "f:\(folderID):\(rel)"
+            } else {
+                key = "row:\(index)"
+            }
+            lastIndexByIdentity[key] = index
+        }
+        return lastIndexByIdentity.values.sorted().map { ($0, changes[$0]) }
+    }
+
+    /// Maps one asset upsert row's batch-resolution result to an outcome:
+    /// present → real item (same construction as the per-row GET path);
+    /// absent → the row raced a server-side delete, mirroring `getAsset`'s
+    /// nil-on-404.
+    private static func outcomeFromBatch(assetID: String,
+                                         meta: AssetMetadata?,
+                                         roots: [LibraryRoot]) -> ChangeOutcome {
+        let ident = NSFileProviderItemIdentifier(
+            FileProviderIdentifier.asset(assetID).rawValue
+        )
+        guard let meta else { return .delete(ident) }
+        let parent = WorkingSetEnumerator.resolveParent(folderID: meta.folderID,
+                                                        absPath: meta.absPath,
+                                                        roots: roots)
+        return .update(MapleItem(assetMetadata: meta, parent: parent))
     }
 
     /// Resolves a single change-feed row. Delete rows resolve

@@ -72,6 +72,30 @@ extension RemoteCatalog {
         return try decoder.decode(AssetMetadata.self, from: data)
     }
 
+    /// POST /api/assets/batch-meta — bulk form of `getAsset` (#2995).
+    /// Resolves a whole change-feed page's asset ids in one round trip
+    /// instead of one GET per row (the request storm that pinned the iOS
+    /// extension at ~300 req/s while draining a backlog).
+    ///
+    /// Returns nil when the server predates the route (HTTP 404) so the
+    /// caller can fall back to the legacy per-asset GET path — a new
+    /// extension must keep working against an old Self Hosted server.
+    /// Ids missing from the returned array raced a server-side delete
+    /// (the batch equivalent of `getAsset`'s nil-on-404).
+    public func getAssetsBatch(assetIDs: [String]) async throws -> [AssetMetadata]? {
+        for id in assetIDs { try Self.validateAssetID(id) }
+        var req = URLRequest(url: server.appending(path: "/api/assets/batch-meta"))
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["ids": assetIDs])
+        let (data, resp) = try await http.data(for: req)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
+        if code == 404 { return nil }
+        try Self.check2xx(resp, data: data, url: req.url)
+        struct Batch: Decodable { let assets: [AssetMetadata] }
+        return try JSONDecoder().decode(Batch.self, from: data).assets
+    }
+
     /// GET /api/assets — list endpoint with the three working-set
     /// filters (favourites, xmp-bearing, recent). Passing nil for a
     /// filter omits it; `limit` defaults to 1000 (max 20 000 server-side).
