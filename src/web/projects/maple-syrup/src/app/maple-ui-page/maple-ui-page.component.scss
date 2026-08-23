@@ -1,48 +1,105 @@
+// Light-themed catalog page implementing the Canvas.dc.html design — the
+// cream Just Maple register, deliberately distinct from the app's Canvas
+// Dark chrome. Specimen cards carry their styling inline (ported verbatim
+// from the design canvas); this file styles only the shell, the token
+// tables, and the contract cards.
+
 :host {
   display: block;
   // Fixed height, not min-height: the global shell styles put
   // `overflow: hidden` on html/body, so this host must be the scroll
   // container — same pattern as landing.component.scss.
   height: 100vh;
-  background: var(--color-bg);
-  color: var(--color-text-main);
+  background: #fdfbf7;
+  color: #292524;
   overflow: auto;
+  font-family: 'Lato', sans-serif;
 }
 
 .maple-ui {
-  max-width: 1080px;
+  max-width: 1680px;
   margin: 0 auto;
-  padding: 48px 24px 96px;
+  padding: 96px 40px 120px;
 }
 
 .page-header {
-  margin-bottom: 48px;
+  margin-bottom: 16px;
+
+  .eyebrow {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #993629;
+    margin-bottom: 20px;
+  }
 
   h1 {
-    font-size: 2rem;
     font-weight: 600;
-    margin: 0 0 8px;
+    font-size: 56px;
+    line-height: 1.1;
+    margin: 0 0 20px;
   }
 
   .subtitle {
-    color: var(--color-text-muted);
-    max-width: 640px;
-    line-height: 1.5;
-    margin: 0;
+    font-size: 17px;
+    color: #78716c;
+    max-width: 820px;
+    line-height: 1.6;
+    margin: 0 0 24px;
   }
 }
 
-section {
-  margin-bottom: 48px;
+.cat-tabs {
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+  border-top: 1px solid #e7e5e4;
+  padding-top: 20px;
+}
 
-  h2 {
-    font-size: 1.25rem;
-    font-weight: 600;
-    margin: 0 0 16px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--color-border);
+.cat-tab {
+  font-size: 14px;
+  font-weight: 600;
+  color: #78716c;
+  cursor: pointer;
+
+  &:hover,
+  &.active {
+    color: #993629;
   }
 }
+
+.tab-panel {
+  padding-top: 56px;
+}
+
+.tier-head {
+  margin: 0 0 40px;
+
+  .tier-kicker {
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #993629;
+    margin-bottom: 10px;
+  }
+
+  .tier-rule {
+    width: 64px;
+    height: 3px;
+    background: #993629;
+    margin-bottom: 16px;
+  }
+
+  .tier-desc {
+    font-size: 14px;
+    color: #a8a29e;
+  }
+}
+
+// ---- Tokens tab -----------------------------------------------------------
 
 .token-name {
   font-weight: 600;
@@ -50,8 +107,20 @@ section {
 }
 
 .token-value {
-  color: var(--color-text-muted);
+  color: #78716c;
   font-size: 0.75rem;
+}
+
+.token-section {
+  margin-bottom: 48px;
+
+  h2 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e7e5e4;
+  }
 }
 
 .swatch-grid {
@@ -70,7 +139,7 @@ section {
   width: 48px;
   height: 48px;
   border-radius: 8px;
-  border: 1px solid var(--color-border);
+  border: 1px solid #e7e5e4;
   flex-shrink: 0;
 }
 
@@ -102,13 +171,13 @@ section {
 .radius-demo {
   width: 64px;
   height: 64px;
-  background: var(--color-surface-alt);
-  border: 1px solid var(--color-border-hi);
+  background: #f5f2eb;
+  border: 1px solid #d6d3d1;
 }
 
 .spacing-demo {
   height: 24px;
-  background: var(--color-primary);
+  background: #993629;
   border-radius: 2px;
 }
 
@@ -120,12 +189,12 @@ section {
   td {
     text-align: left;
     padding: 8px 16px 8px 0;
-    border-bottom: 1px solid var(--color-border);
+    border-bottom: 1px solid #e7e5e4;
     font-size: 0.875rem;
   }
 
   th {
-    color: var(--color-text-muted);
+    color: #78716c;
     font-weight: 600;
     font-size: 0.75rem;
     text-transform: uppercase;
@@ -133,8 +202,28 @@ section {
   }
 }
 
+// ---- Contracts section (Atoms tab) ----------------------------------------
+
+.contracts-section {
+  margin-top: 64px;
+
+  h2 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0 0 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e7e5e4;
+  }
+
+  .contracts-intro {
+    color: #78716c;
+    font-size: 0.875rem;
+    margin: 0 0 24px;
+  }
+}
+
 .status-line {
-  color: var(--color-text-muted);
+  color: #78716c;
 }
 
 .contract-grid {
@@ -144,8 +233,8 @@ section {
 }
 
 .contract-card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: #ffffff;
+  border: 1px solid #e7e5e4;
   border-radius: 8px;
   padding: 24px;
 
@@ -166,7 +255,7 @@ section {
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      color: var(--color-text-muted);
+      color: #78716c;
       border: none;
       margin: 20px 0 8px;
       padding: 0;
@@ -186,14 +275,14 @@ section {
     }
 
     code {
-      background: var(--color-surface-alt);
+      background: #f5f2eb;
       border-radius: 4px;
       padding: 1px 5px;
       font-size: 0.8125rem;
     }
 
     strong {
-      color: var(--color-text-main);
+      color: #292524;
     }
   }
 }

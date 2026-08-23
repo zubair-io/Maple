@@ -64,6 +64,28 @@ describe('MapleUiPageComponent', () => {
     expect(host.textContent).not.toContain('## Purpose');
   });
 
+  it('switches tier panels through the catalog tabs', () => {
+    flushDocs();
+    const host = fixture.nativeElement as HTMLElement;
+    const panels = () =>
+      [...host.querySelectorAll<HTMLElement>('.tab-panel')].filter(
+        (panel) => panel.style.display !== 'none',
+      );
+
+    // Default tab is Atoms — one visible panel containing the atoms tier.
+    expect(panels().length).toBe(1);
+    expect(panels()[0].querySelector('app-tier-atoms')).not.toBeNull();
+
+    const organismsTab = [...host.querySelectorAll<HTMLElement>('.cat-tab')].find((tab) =>
+      tab.textContent?.includes('Organisms'),
+    );
+    organismsTab?.click();
+    fixture.detectChanges();
+
+    expect(panels().length).toBe(1);
+    expect(panels()[0].querySelector('app-tier-organisms-collections')).not.toBeNull();
+  });
+
   it('shows a load error instead of an empty page when the manifest fetch fails', () => {
     http
       .expectOne('maple-ui/manifest.json')
