@@ -74,7 +74,7 @@ namespace Maple.UI
 
         private readonly Grid _frame = new() { CornerRadius = new CornerRadius(6), BorderThickness = new Thickness(1) };
         private readonly Canvas _canvas = new();
-        private readonly Path _curvePath = new() { StrokeThickness = 2 };
+        private readonly Microsoft.UI.Xaml.Shapes.Path _curvePath = new() { StrokeThickness = 2 };
         private readonly List<Ellipse> _knotShapes = new();
 
         private int? _activeIndex;
