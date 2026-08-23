@@ -1,0 +1,29 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+}
+
+.mui-endpoint-form {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-sm;
+}
+
+.methods {
+  display: flex;
+  gap: tok.$maple-spacing-xs;
+}
+
+.method {
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  border-radius: tok.$maple-radius-full;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+}
