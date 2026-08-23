@@ -138,8 +138,10 @@ describe('runProposalLoop — thin results', () => {
 
     const retryPrompt = prompts.find((p) => p.includes('DID NOT WORK'));
     expect(retryPrompt).toBeDefined();
-    expect(retryPrompt).toContain('beach vacation');
-    expect(retryPrompt).toContain('6');
+    // "matched only 6" can only come from the feedback block — a bare '6'
+    // also matches years like 2016/2026 elsewhere in the prompt.
+    expect(retryPrompt).toContain('"beach vacation"');
+    expect(retryPrompt).toContain('matched only 6');
   });
 
   it('drops a proposal under the floor and keeps the retry that clears it', async () => {
