@@ -1,0 +1,128 @@
+// Tokens tab of the Unified Component Catalog. Ported from
+// maple-ui-page.component.scss as part of the shell split (#3000).
+
+.tier-head {
+  margin: 0 0 40px;
+
+  .tier-kicker {
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #993629;
+    margin-bottom: 10px;
+  }
+
+  .tier-rule {
+    width: 64px;
+    height: 3px;
+    background: #993629;
+    margin-bottom: 16px;
+  }
+
+  .tier-desc {
+    font-size: 14px;
+    color: #a8a29e;
+  }
+}
+
+.token-name {
+  font-weight: 600;
+  font-size: 0.8125rem;
+}
+
+.token-value {
+  color: #78716c;
+  font-size: 0.75rem;
+}
+
+.token-section {
+  margin-bottom: 48px;
+
+  h2 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e7e5e4;
+  }
+}
+
+.swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.swatch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.swatch-chip {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  border: 1px solid #e7e5e4;
+  flex-shrink: 0;
+}
+
+.swatch-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+
+  .token-value {
+    overflow-wrap: anywhere;
+  }
+}
+
+.scale-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: flex-end;
+}
+
+.scale-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.radius-demo {
+  width: 64px;
+  height: 64px;
+  background: #f5f2eb;
+  border: 1px solid #d6d3d1;
+}
+
+.spacing-demo {
+  height: 24px;
+  background: #993629;
+  border-radius: 2px;
+}
+
+.motion-table {
+  width: 100%;
+  border-collapse: collapse;
+
+  th,
+  td {
+    text-align: left;
+    padding: 8px 16px 8px 0;
+    border-bottom: 1px solid #e7e5e4;
+    font-size: 0.875rem;
+  }
+
+  th {
+    color: #78716c;
+    font-weight: 600;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+}

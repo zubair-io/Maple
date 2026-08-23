@@ -1,0 +1,21 @@
+<section class="contracts-section">
+  <h2>Atom contracts</h2>
+  <p class="contracts-intro">
+    The binding specification for each implemented atom &mdash; rendered from the same contract
+    documents CI lints.
+  </p>
+  @if (loading()) {
+    <p class="status-line">Loading component contracts&hellip;</p>
+  } @else if (loadFailed()) {
+    <p class="status-line">The component contracts could not be loaded. Try reloading the page.</p>
+  } @else {
+    <div class="contract-grid">
+      @for (contract of contracts(); track contract.slug) {
+        <article class="contract-card" [id]="contract.slug">
+          <h3>{{ contract.title }}</h3>
+          <div class="contract-body" [innerHTML]="contract.html"></div>
+        </article>
+      }
+    </div>
+  }
+</section>
