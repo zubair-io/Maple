@@ -1,0 +1,36 @@
+<ng-container
+  [ngTemplateOutlet]="listTpl"
+  [ngTemplateOutletContext]="{ $implicit: items(), level: 0 }"
+/>
+
+<ng-template #listTpl let-nodes let-level="level">
+  @if (ordered()) {
+    <ol class="mui-list" [class]="'marker-' + marker() + ' density-' + density()">
+      @for (item of nodes; track item.text) {
+        <li>
+          {{ item.text }}
+          @if (item.children && item.children.length > 0) {
+            <ng-container
+              [ngTemplateOutlet]="listTpl"
+              [ngTemplateOutletContext]="{ $implicit: item.children, level: level + 1 }"
+            />
+          }
+        </li>
+      }
+    </ol>
+  } @else {
+    <ul class="mui-list" [class]="'marker-' + marker() + ' density-' + density()">
+      @for (item of nodes; track item.text) {
+        <li>
+          {{ item.text }}
+          @if (item.children && item.children.length > 0) {
+            <ng-container
+              [ngTemplateOutlet]="listTpl"
+              [ngTemplateOutletContext]="{ $implicit: item.children, level: level + 1 }"
+            />
+          }
+        </li>
+      }
+    </ul>
+  }
+</ng-template>

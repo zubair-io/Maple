@@ -1,0 +1,23 @@
+<button
+  type="button"
+  class="mui-button"
+  [class]="'variant-' + variant() + ' size-' + size()"
+  [class.icon-only]="iconOnly()"
+  [class.is-loading]="loading()"
+  [disabled]="isDisabled()"
+  [attr.aria-busy]="loading() ? 'true' : null"
+  [attr.aria-label]="ariaLabel()"
+  (click)="onClick($event)"
+>
+  @if (loading()) {
+    <span class="spinner" aria-hidden="true"></span>
+  } @else if (iconLeading()) {
+    <mui-icon [name]="iconLeading()!" size="sm" />
+  }
+  @if (!iconOnly()) {
+    <span class="label"><ng-content /></span>
+  }
+  @if (iconTrailing() && !loading()) {
+    <mui-icon [name]="iconTrailing()!" size="sm" />
+  }
+</button>

@@ -1,0 +1,9 @@
+:host {
+  display: inline;
+}
+
+.mui-timestamp {
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}

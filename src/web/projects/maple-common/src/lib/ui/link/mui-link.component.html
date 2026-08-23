@@ -1,0 +1,13 @@
+<a
+  class="mui-link"
+  [class.disabled]="disabled()"
+  [attr.href]="disabled() ? null : href()"
+  [attr.target]="external() ? '_blank' : null"
+  [attr.rel]="external() ? 'noopener noreferrer' : null"
+  [attr.aria-disabled]="disabled() ? 'true' : null"
+>
+  <ng-content />
+  @if (external()) {
+    <mui-icon name="share-up-square" size="xs" />
+  }
+</a>

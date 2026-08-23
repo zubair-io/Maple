@@ -11,7 +11,6 @@ export * from './lib/models/folder';
 export * from './lib/models/adjustment-model';
 export * from './lib/data/mock-library';
 export * from './lib/icons/maple-icon.component';
-export * from './lib/button/maple-button.component';
 export * from './lib/collapsible/maple-collapsible.component';
 export * from './lib/state/library-state.service';
 export * from './lib/state/library-status.service';
@@ -352,3 +351,15 @@ export * from './lib/addressing/maple-id-fallback-hasher.service';
 export * from './lib/addressing/maple-id-cache';
 export * from './lib/addressing/exif-reader.service';
 export * from './lib/addressing/hosted-maple-id.service';
+
+// Maple UI design system (#3000), wave 1 — Actions + Content atoms.
+export * from './lib/ui/icon/mui-icon.component';
+export * from './lib/ui/button/mui-button.component';
+export * from './lib/ui/action-button/mui-action-button.component';
+export * from './lib/ui/link/mui-link.component';
+export * from './lib/ui/text/mui-text.component';
+export * from './lib/ui/timestamp/mui-timestamp.component';
+export * from './lib/ui/badge/mui-badge.component';
+export * from './lib/ui/stat/mui-stat.component';
+export * from './lib/ui/divider/mui-divider.component';
+export * from './lib/ui/list/mui-list.component';
