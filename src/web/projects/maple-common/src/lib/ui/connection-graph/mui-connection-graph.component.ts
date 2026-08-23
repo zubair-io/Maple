@@ -7,15 +7,9 @@
 // element's own inherited computed font, since Canvas 2D text can't consume
 // CSS custom properties directly.
 
-import {
-  ChangeDetectionStrategy,
-  Component,
-  ElementRef,
-  effect,
-  input,
-  viewChild,
-} from '@angular/core';
-import { beginPlotDraw, resolveColor } from '../internal/plot-canvas';
+import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { SizedCanvasPlotBase, resolveColor } from '../internal/plot-canvas';
+import type { PlotFrame } from '../internal/plot-canvas';
 
 export interface MuiConnectionGraphNode {
   readonly id: string;
@@ -43,33 +37,19 @@ interface NodePoint {
   styleUrl: './mui-connection-graph.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class MuiConnectionGraphComponent {
+export class MuiConnectionGraphComponent extends SizedCanvasPlotBase {
   readonly nodes = input.required<readonly MuiConnectionGraphNode[]>();
   readonly links = input.required<readonly MuiConnectionGraphLink[]>();
   readonly width = input<number>(160);
   readonly height = input<number>(96);
   readonly showLabels = input<boolean>(true);
 
-  readonly canvas = viewChild<ElementRef<HTMLCanvasElement>>('canvas');
-
   constructor() {
-    effect(() => {
-      this.nodes();
-      this.links();
-      this.width();
-      this.height();
-      this.showLabels();
-      this.draw();
-    });
+    super();
+    this.watchRedraw([this.nodes, this.links, this.width, this.height, this.showLabels]);
   }
 
-  private draw(): void {
-    const w = this.width();
-    const h = this.height();
-    const frame = beginPlotDraw(this.canvas(), w, h);
-    if (!frame) return;
-    const { canvasEl, ctx } = frame;
-
+  protected renderFrame({ canvasEl, ctx }: PlotFrame, w: number, h: number): void {
     const nodesById = new Map(this.nodes().map((node) => [node.id, node]));
     const toPx = (node: MuiConnectionGraphNode): NodePoint => ({ x: node.x * w, y: node.y * h });
 

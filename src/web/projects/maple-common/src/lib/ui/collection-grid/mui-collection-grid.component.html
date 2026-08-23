@@ -1,0 +1,47 @@
+@if (loading()) {
+  <div class="state-wrap">
+    <mui-spinner placement="centered" />
+  </div>
+} @else if (error()) {
+  <mui-empty-state icon="x" title="Something went wrong" [message]="error()" />
+} @else if (items().length === 0) {
+  <mui-empty-state icon="photos" [title]="emptyMessage()" />
+} @else {
+  <div class="viewport" [style.max-height.px]="viewportHeight()" (scroll)="onScroll($event)">
+    <div class="grid" [style.grid-template-columns]="gridTemplateColumns()">
+      <div class="spacer" [style.height.px]="topSpacerPx()"></div>
+      @for (item of visibleDisplayItems(); track item.id) {
+        <div
+          class="cell-wrap"
+          draggable="true"
+          (click)="onCellClick(item.id, $event)"
+          (dblclick)="onCellDblClick(item.id)"
+          (dragstart)="onDragStart(item.raw, $event)"
+          (drag)="onDrag($event)"
+          (dragend)="onDragEnd()"
+        >
+          <mui-media-cell
+            [src]="item.src"
+            [alt]="item.alt"
+            [filename]="item.filename"
+            [badges]="item.badges"
+            [rating]="item.rating"
+            [flag]="item.flag"
+            [selected]="item.selected"
+            (pressed)="onCellPressed(item.id)"
+          />
+        </div>
+      }
+      <div class="spacer" [style.height.px]="bottomSpacerPx()"></div>
+    </div>
+  </div>
+  @if (dragGhost(); as ghost) {
+    <mui-drag-preview
+      class="drag-ghost"
+      [src]="ghost.src"
+      [count]="ghost.count"
+      [style.left.px]="ghost.x"
+      [style.top.px]="ghost.y"
+    />
+  }
+}

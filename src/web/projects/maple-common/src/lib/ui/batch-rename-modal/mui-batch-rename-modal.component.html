@@ -1,0 +1,42 @@
+<mui-overlay-shell
+  [open]="open()"
+  size="lg"
+  ariaLabel="Batch Rename"
+  (dismissed)="dismissed.emit()"
+>
+  <div slot="header" class="mui-batch-rename-modal-header">
+    <mui-text variant="sheet-title" [block]="true">Batch Rename</mui-text>
+  </div>
+
+  <div class="mui-batch-rename-modal-body">
+    <mui-form-field
+      label="Template"
+      [value]="template()"
+      (valueChange)="template.set($event)"
+      help="Click a token to insert it, or type your own."
+      [disabled]="renaming()"
+    />
+
+    <mui-chip-row [chips]="tokens" mode="select" (selectedIdChange)="onTokenClicked($event)" />
+
+    <div class="preview">
+      <mui-text variant="tool-label" color="muted" [block]="true">Preview</mui-text>
+      <mui-preview-list [items]="previewItems()" />
+    </div>
+
+    @if (renaming()) {
+      <mui-progress shape="bar" [value]="progress()" label="Renaming…" />
+    }
+  </div>
+
+  <div slot="footer" class="mui-batch-rename-modal-footer">
+    <mui-button variant="ghost" (pressed)="dismissed.emit()">Cancel</mui-button>
+    <mui-button
+      variant="primary"
+      [disabled]="renaming() || items().length === 0"
+      (pressed)="confirmRename()"
+    >
+      Rename
+    </mui-button>
+  </div>
+</mui-overlay-shell>

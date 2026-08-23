@@ -1,0 +1,32 @@
+<div class="mui-thread-panel">
+  @if (loading()) {
+    <mui-spinner placement="centered" />
+  } @else {
+    <div class="messages">
+      @if (messages().length === 0) {
+        <mui-empty-state icon="info" title="No replies yet" message="Start the conversation." />
+      } @else {
+        @for (message of messages(); track message.id) {
+          <mui-chat-message
+            [author]="message.author"
+            [text]="message.text"
+            [sentAt]="message.sentAt"
+            [own]="message.own ?? false"
+          />
+        }
+      }
+    </div>
+  }
+  <div class="composer">
+    <mui-input [(value)]="draft" placeholder="Reply…" (committed)="send()" [disabled]="sending()" />
+    <mui-button
+      variant="primary"
+      size="sm"
+      [disabled]="sending() || draft().trim().length === 0"
+      [loading]="sending()"
+      (pressed)="send()"
+    >
+      Send
+    </mui-button>
+  </div>
+</div>

@@ -1,0 +1,16 @@
+<div class="mui-tool-dock" [class.is-horizontal]="orientation() === 'horizontal'" role="toolbar">
+  @for (entry of entries(); track $index) {
+    @if (asItem(entry); as item) {
+      <mui-action-button
+        [icon]="item.icon"
+        [label]="item.label"
+        [orientation]="itemOrientation()"
+        [selected]="activeId() === item.id"
+        [disabled]="item.disabled ?? false"
+        (pressed)="select(item.id, item.disabled)"
+      />
+    } @else {
+      <mui-divider [orientation]="dividerOrientation()" />
+    }
+  }
+</div>

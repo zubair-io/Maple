@@ -30,6 +30,12 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import {
+  beginSheetDrag,
+  isDistanceDismissed,
+  shouldIgnoreSheetPointerDown,
+  updateSheetDragOffset,
+} from '../internal/sheet-drag';
 
 /** Pan-down threshold as a fraction of sheet height, matching
  * BottomSheetComponent's spec-driven constant. */
@@ -78,26 +84,22 @@ export class MuiSheetShellComponent {
   }
 
   protected onPointerDown(event: PointerEvent): void {
-    if (event.button !== 0 && event.pointerType === 'mouse') return;
+    if (shouldIgnoreSheetPointerDown(event)) return;
     this.pointerId = event.pointerId;
     this.dragStartY = event.clientY;
-    this.isDragging.set(true);
-    this.dragOffsetPx.set(0);
-    (event.currentTarget as Element).setPointerCapture?.(event.pointerId);
+    beginSheetDrag(event, this.isDragging, this.dragOffsetPx);
   }
 
   protected onPointerMove(event: PointerEvent): void {
-    if (this.pointerId !== event.pointerId) return;
-    const dy = event.clientY - this.dragStartY;
     // Pan-down only, matching BottomSheetComponent — upward drag is a no-op.
-    this.dragOffsetPx.set(dy > 0 ? dy : 0);
+    updateSheetDragOffset(event, this.pointerId, this.dragStartY, this.dragOffsetPx);
   }
 
   protected onPointerUp(event: PointerEvent): void {
     if (this.pointerId !== event.pointerId) return;
     const dy = Math.max(0, event.clientY - this.dragStartY);
     const sheetHeight = this.sheetEl()?.nativeElement.getBoundingClientRect().height ?? 0;
-    const distanceTriggered = sheetHeight > 0 && dy >= sheetHeight * DISMISS_FRACTION;
+    const distanceTriggered = isDistanceDismissed(dy, sheetHeight, DISMISS_FRACTION);
 
     this.pointerId = null;
     this.isDragging.set(false);

@@ -1,0 +1,14 @@
+@if (orientation() === 'horizontal') {
+  <mui-filmstrip-row
+    [items]="items()"
+    [(activeId)]="activeId"
+    (activated)="activated.emit($event)"
+  />
+} @else {
+  <mui-filmstrip-rail
+    [items]="items()"
+    [(activeId)]="activeId"
+    [(collapsed)]="collapsed"
+    (activated)="activated.emit($event)"
+  />
+}

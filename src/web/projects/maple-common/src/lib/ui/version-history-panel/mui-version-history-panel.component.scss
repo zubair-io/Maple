@@ -1,0 +1,11 @@
+@use '../../generated/ui-tokens' as tok;
+
+:host {
+  display: block;
+}
+
+.mui-version-history-panel {
+  display: flex;
+  flex-direction: column;
+  gap: tok.$maple-spacing-xs;
+}

@@ -1,0 +1,30 @@
+<div class="mui-scopes-panel">
+  <div class="scope">
+    <mui-text variant="chip-label" color="muted" [block]="true">Histogram</mui-text>
+    <mui-histogram
+      [r]="sample().histogram.r"
+      [g]="sample().histogram.g"
+      [b]="sample().histogram.b"
+      [width]="width()"
+      [height]="height()"
+    />
+  </div>
+  <div class="scope">
+    <mui-text variant="chip-label" color="muted" [block]="true">Waveform</mui-text>
+    <mui-waveform [luma]="sample().waveformLuma" [width]="width()" [height]="height()" />
+  </div>
+  <div class="scope">
+    <mui-text variant="chip-label" color="muted" [block]="true">Parade</mui-text>
+    <mui-parade
+      [r]="sample().parade.r"
+      [g]="sample().parade.g"
+      [b]="sample().parade.b"
+      [width]="width()"
+      [height]="height()"
+    />
+  </div>
+  <div class="scope">
+    <mui-text variant="chip-label" color="muted" [block]="true">Vectorscope</mui-text>
+    <mui-vectorscope [samples]="sample().vectorscope" [size]="height()" />
+  </div>
+</div>

@@ -1,0 +1,55 @@
+<mui-overlay-shell
+  [open]="open()"
+  size="lg"
+  ariaLabel="Panorama Merge"
+  (dismissed)="dismissed.emit()"
+>
+  <div slot="header" class="mui-panorama-merge-modal-header">
+    <mui-text variant="sheet-title" [block]="true">Panorama Merge</mui-text>
+  </div>
+
+  <div class="mui-panorama-merge-modal-body">
+    <div class="frames">
+      @for (frame of frames(); track frame.id) {
+        <mui-media-cell class="frame" [src]="frame.src" [alt]="frame.alt" size="sm" />
+      }
+    </div>
+
+    <div class="field">
+      <mui-text variant="tool-label" color="muted" [block]="true">Projection</mui-text>
+      <mui-segmented-toggle
+        [options]="projectionOptions"
+        [value]="projection()"
+        (valueChange)="projection.set($event)"
+        ariaLabel="Projection type"
+        [disabled]="stitching()"
+      />
+    </div>
+
+    <div class="field">
+      <mui-text variant="tool-label" color="muted" [block]="true">Blend mode</mui-text>
+      <mui-segmented-toggle
+        [options]="blendModeOptions"
+        [value]="blendMode()"
+        (valueChange)="blendMode.set($event)"
+        ariaLabel="Blend mode"
+        [disabled]="stitching()"
+      />
+    </div>
+
+    @if (stitching()) {
+      <mui-progress shape="bar" [value]="progress()" label="Stitching…" />
+    }
+  </div>
+
+  <div slot="footer" class="mui-panorama-merge-modal-footer">
+    <mui-button variant="ghost" (pressed)="dismissed.emit()">Cancel</mui-button>
+    <mui-button
+      variant="primary"
+      [disabled]="stitching() || frames().length < 2"
+      (pressed)="confirmMerge()"
+    >
+      Merge
+    </mui-button>
+  </div>
+</mui-overlay-shell>

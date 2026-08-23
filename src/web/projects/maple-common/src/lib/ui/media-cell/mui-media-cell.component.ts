@@ -9,6 +9,7 @@ import { MuiImageComponent } from '../image/mui-image.component';
 import { MuiInlineRenameFieldComponent } from '../inline-rename-field/mui-inline-rename-field.component';
 import { MuiRatingFlagsComponent } from '../rating-flags/mui-rating-flags.component';
 import type { MuiRatingFlagState } from '../rating-flags/mui-rating-flags.component';
+import { handleActivationKeydown } from '../internal/activation-keydown';
 
 export type MuiMediaCellSize = 'sm' | 'md';
 
@@ -47,8 +48,6 @@ export class MuiMediaCellComponent {
   }
 
   onKeydown(event: KeyboardEvent): void {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    this.pressed.emit();
+    handleActivationKeydown(event, () => this.pressed.emit());
   }
 }
