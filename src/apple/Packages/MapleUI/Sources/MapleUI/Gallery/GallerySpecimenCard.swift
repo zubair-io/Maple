@@ -8,6 +8,10 @@ import SwiftUI
 struct GallerySpecimenCard<Content: View>: View {
     let name: String
     let purpose: String
+    /// "Built from" caption (unified-component-catalog.md's per-molecule
+    /// dependency column) — `nil` for atom specimens, which have no
+    /// composition to caption.
+    var builtFrom: String? = nil
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -23,6 +27,11 @@ struct GallerySpecimenCard<Content: View>: View {
                 Text(purpose)
                     .font(MuiTokens.TypeScale.font(.body))
                     .foregroundStyle(MuiTokens.textMuted)
+                if let builtFrom {
+                    Text("Built from \(builtFrom)")
+                        .font(MuiTokens.TypeScale.font(.toolLabel))
+                        .foregroundStyle(MuiTokens.textMuted)
+                }
             }
         }
         .padding(MuiTokens.spacingSm)
