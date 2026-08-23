@@ -125,6 +125,21 @@
     WinRT dependency, namespace `Maple.UI` per the L1 molecules'
     convention.
 
+    `MapleUI\Templates\MuiSplitLayoutMath.cs`, `MuiTabShellMath.cs`,
+    `MuiOverlayShellMath.cs`, and `MuiSheetShellDragLogic.cs` (Maple.UI
+    Windows-phase templates wave N5, #3012) are the same split for the
+    Split Layout/Tab Shell/Overlay Shell/Sheet Shell templates: each is
+    plain C# (System/System.Collections.Generic only, namespace `Maple.UI`)
+    covering the sidebar/detail clamp-and-collapse math, the tab-bar
+    top/bottom placement math, the overlay size-to-max-width mapping, and
+    the sheet's pan-down-clamp/dismiss-distance/detent math. The
+    `MuiTabShellPlacement` and `MuiOverlayShellSize` enums those last two
+    switch over are declared in the math files themselves rather than in
+    the WinUI-dependent control files — the same "WinUI-free enum lives
+    next to its WinUI-free logic" split `MuiDialogResultKind`/
+    `MuiDialogLogic.cs` already establishes above — so they link here
+    without pulling in WinUI.
+
     NOT linked: `Services\ThumbnailService.cs` (#2659's
     `ThumbnailCacheRelocateLeakTests` needs its cache-path scheme, but the
     file itself is fine — the class it references transitively,
@@ -169,5 +184,9 @@
     <Compile Include="..\Maple.WinUI\MapleUI\MoleculesL2\MuiKeywordRowLogic.cs" LinkBase="MapleUI\MoleculesL2" />
     <Compile Include="..\Maple.WinUI\MapleUI\MoleculesL2\MuiBotOutputTicker.cs" LinkBase="MapleUI\MoleculesL2" />
     <Compile Include="..\Maple.WinUI\MapleUI\MoleculesL2\MuiFilmstripFollowLogic.cs" LinkBase="MapleUI\MoleculesL2" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Templates\MuiSplitLayoutMath.cs" LinkBase="MapleUI\Templates" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Templates\MuiTabShellMath.cs" LinkBase="MapleUI\Templates" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Templates\MuiOverlayShellMath.cs" LinkBase="MapleUI\Templates" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Templates\MuiSheetShellDragLogic.cs" LinkBase="MapleUI\Templates" />
   </ItemGroup>
 </Project>

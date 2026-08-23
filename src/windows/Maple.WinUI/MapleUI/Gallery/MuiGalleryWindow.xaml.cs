@@ -13,11 +13,12 @@ namespace Maple.UI.Gallery
     /// <summary>
     /// Maple.UI Gallery window — a showcase for the Maple.UI control library
     /// (docs/unified-component-catalog.md), organized by the catalog's own
-    /// tiers. Tokens, Atoms, Molecules L1, and Molecules L2 render live
-    /// specimens built from the actual Maple.UI controls; the remaining
-    /// tiers (nothing has been built for them yet, per the catalog's
-    /// design order) render as plain name lists pulled from the catalog,
-    /// so the gallery already has a home for each tier as later waves land.
+    /// tiers. Tokens, Atoms, Molecules L1, Molecules L2, and Templates
+    /// render live specimens built from the actual Maple.UI controls; the
+    /// remaining tiers (nothing has been built for them yet, per the
+    /// catalog's design order) render as plain name lists pulled from the
+    /// catalog, so the gallery already has a home for each tier as later
+    /// waves land.
     /// </summary>
     public sealed partial class MuiGalleryWindow : Window
     {
@@ -64,7 +65,7 @@ namespace Maple.UI.Gallery
             BuildMoleculesL1Page(MoleculesL1Panel);
             BuildMoleculesL2Page(MoleculesL2Panel);
             BuildPlaceholderPage(OrganismsPanel, "Organisms", OrganismNames);
-            BuildPlaceholderPage(TemplatesPanel, "Templates", TemplateNames);
+            BuildTemplatesPage(TemplatesPanel);
             BuildPlaceholderPage(PagesPanel, "Pages", PageNames);
 
             SelectTab("Tokens");
@@ -504,6 +505,9 @@ namespace Maple.UI.Gallery
         // docs/unified-component-catalog.md § 3 (all 24 Level-2 molecules)
         // are no longer here — they're built live in MuiGalleryWindow.MoleculesL2*.cs.
 
+        // docs/unified-component-catalog.md § 5 (all 7 templates) are no
+        // longer here — they're built live in MuiGalleryWindow.Templates.cs.
+
         // docs/unified-component-catalog.md § 4 (52 organisms).
         private static readonly string[] OrganismNames =
         {
@@ -518,13 +522,6 @@ namespace Maple.UI.Gallery
             "Whiteboard Canvas", "Structured Data Editor", "Preview Surface", "Map Surface", "Chat",
             "Notification Feed", "Settings Section", "Pipeline Monitor", "Setup Wizard",
             "User Management", "Device List", "Backup Monitor", "Diagnostics",
-        };
-
-        // docs/unified-component-catalog.md § 5 (7 templates).
-        private static readonly string[] TemplateNames =
-        {
-            "App Shell", "Split Layout", "Tab Shell", "Settings Shell", "Overlay Shell", "Sheet Shell",
-            "Drawer Shell",
         };
 
         // docs/unified-component-catalog.md § 6 (15 page types).
