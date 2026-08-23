@@ -311,9 +311,9 @@ namespace Maple.UI.Gallery
                 new MuiInput { Variant = MuiInputVariant.Numeric, NumericValue = 50, Minimum = 0, Maximum = 100 })));
 
             AtomsPanel.Children.Add(SpecimenCard("Checkbox", "Binary / tri-state selection.", Column(
-                new MuiCheckbox { Label = "Include sidecars", Checked = true },
-                new MuiCheckbox { Label = "Overwrite existing", Checked = false },
-                new MuiCheckbox { Label = "Some selected", Checked = null },
+                new MuiCheckbox { Label = "Include sidecars", CheckedState = true },
+                new MuiCheckbox { Label = "Overwrite existing", CheckedState = false },
+                new MuiCheckbox { Label = "Some selected", CheckedState = null },
                 new MuiCheckbox { Label = "Disabled", IsEnabled = false })));
 
             AtomsPanel.Children.Add(SpecimenCard("Segmented Toggle", "2-3 exclusive options, animated selection pill.", Row(
