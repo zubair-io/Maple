@@ -23,13 +23,13 @@ enum GalleryCatalog {
     // Templates (§5) has no placeholder list anymore either: wave A5
     // shipped all 7 (see `TemplatesGallerySection`).
 
-    /// Organisms (§4).
+    // Organisms §4.1-4.3 (§4.1 Collections, §4.2 Navigation, §4.3
+    // Inspectors & panels — 23 organisms) has no placeholder list anymore
+    // either: wave A6a shipped all 23 (see `OrganismsGallerySection`).
+
+    /// Organisms (§4.4-4.8) — everything past Inspectors & panels, still
+    /// coming in wave A6b.
     static let organisms: [String] = [
-        "Collection Grid", "List View", "Timeline", "Kanban Board", "Filmstrip", "Search Results",
-        "Sidebar", "Tool Dock", "Search", "Filter Panel",
-        "Inspector Panel", "Info Panel", "Enrichment Panel", "Adjustments Panel", "Color Grading Panel",
-        "HSL Panel", "Tone Curve Panel", "Film Panel", "Presets Panel", "Scopes Panel",
-        "Backlinks Panel", "Version History Panel", "Thread Panel",
         "Export", "Batch Rename", "Batch Metadata", "Move To", "Panorama Merge", "Selective Paste",
         "Library Picker", "Add Server", "Pair Device", "Share", "Template Gallery", "Card Detail", "Result Report",
         "Image Canvas", "Crop Overlay", "Crop Toolbar", "Control Surface", "Mobile Control Bar",
