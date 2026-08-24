@@ -19,13 +19,17 @@ import { closeDb } from '../db/client.ts';
 import { assetsRoutes } from './assets.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 const TEST_DB = `maple_batch_meta_test_${process.pid}`;
-const ORIGINAL_MONGO_DB = process.env.MAPLE_MONGO_DB;
-const ORIGINAL_MONGO_URI = process.env.MAPLE_MONGO_URI;
+// Captured per-test (not at module scope): bun imports every test file's
+// module body before running tests, so a module-scope snapshot could
+// restore values another suite had already changed by the time this one
+// runs (jules review, PR #3009 — same fix as browse.registered-roots).
+let mongoUri = '';
+let originalMongoDb: string | undefined;
+let originalMongoUri: string | undefined;
 
 async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
+  const c = new MongoClient(mongoUri, {
     serverSelectionTimeoutMS: 1_500,
     connectTimeoutMS: 1_500,
   });
@@ -45,20 +49,23 @@ let client: MongoClient | null = null;
 let db: Db | null = null;
 
 beforeEach(async () => {
+  originalMongoDb = process.env.MAPLE_MONGO_DB;
+  originalMongoUri = process.env.MAPLE_MONGO_URI;
+  mongoUri = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
   client = await tryConnect();
   if (!client) return;
   await closeDb();
-  process.env.MAPLE_MONGO_URI = MONGO_URI;
+  process.env.MAPLE_MONGO_URI = mongoUri;
   process.env.MAPLE_MONGO_DB = TEST_DB;
   db = client.db(TEST_DB);
   await db.dropDatabase();
 });
 
 afterEach(async () => {
-  if (ORIGINAL_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
-  else process.env.MAPLE_MONGO_DB = ORIGINAL_MONGO_DB;
-  if (ORIGINAL_MONGO_URI === undefined) delete process.env.MAPLE_MONGO_URI;
-  else process.env.MAPLE_MONGO_URI = ORIGINAL_MONGO_URI;
+  if (originalMongoDb === undefined) delete process.env.MAPLE_MONGO_DB;
+  else process.env.MAPLE_MONGO_DB = originalMongoDb;
+  if (originalMongoUri === undefined) delete process.env.MAPLE_MONGO_URI;
+  else process.env.MAPLE_MONGO_URI = originalMongoUri;
   await closeDb();
   if (client) {
     await client.db(TEST_DB).dropDatabase();
