@@ -83,6 +83,71 @@ final class FileProviderExtensionCoreDeleteEnumeratorTests: XCTestCase {
     /// Synthetic/read-only kinds must reject with featureUnsupported and
     /// must NEVER touch the network — deletes for these have no server
     /// endpoint at all.
+    // #3010: Finder shows the delete action on folders (`.allowsDeleting`
+    // is advertised) but the extension answered featureUnsupported — every
+    // folder delete errored. Real subfolders now route through the
+    // server's recursive trash (`POST /api/folders/:id/trash-folder`,
+    // which trashes every asset and removes the emptied directory).
+    func testDeleteFolderRoutesThroughServerTrash() {
+        let folderID = "650a1b2c3d4e5f6071829305"
+        let log = FPCoreTestSupport.RequestLog()
+        let catalog = FPCoreTestSupport.makeCatalog { req in
+            log.record(req)
+            let body = #"{"total": 2, "succeeded": 2, "failed": 0, "items": []}"#
+            return (200, Data(body.utf8), ["Content-Type": "application/json"])
+        }
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, test: self)
+        let identifier = NSFileProviderItemIdentifier(
+            FileProviderIdentifier.folder(folderID: folderID, relativePath: "2024/Trip").rawValue
+        )
+
+        let error = runDeleteItem(core: core, identifier: identifier)
+
+        XCTAssertNil(error)
+        XCTAssertEqual(log.requests.count, 1)
+        XCTAssertEqual(log.requests.first?.method, "POST")
+        XCTAssertEqual(log.requests.first?.path, "/api/folders/\(folderID)/trash-folder")
+        XCTAssertEqual(log.requests.first?.headers["X-Maple-Target-Path"], "2024/Trip")
+    }
+
+    func testDeleteLibraryRootStaysUnsupportedWithoutAnyNetworkCall() {
+        // relativePath == "" is the library root itself. Trashing an
+        // entire registered library from Finder is not a supported
+        // gesture — libraries are managed in the app.
+        let folderID = "650a1b2c3d4e5f6071829306"
+        let log = FPCoreTestSupport.RequestLog()
+        let catalog = FPCoreTestSupport.makeCatalog { req in
+            log.record(req)
+            return (500, Data(), [:])
+        }
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, test: self)
+        let identifier = NSFileProviderItemIdentifier(
+            FileProviderIdentifier.folder(folderID: folderID, relativePath: "").rawValue
+        )
+
+        let error = runDeleteItem(core: core, identifier: identifier)
+
+        let ns = error as NSError?
+        XCTAssertEqual(ns?.domain, NSCocoaErrorDomain)
+        XCTAssertEqual(ns?.code, NSFeatureUnsupportedError)
+        XCTAssertEqual(log.requests.count, 0)
+    }
+
+    func testDeleteFolderSurfacesServerError() {
+        let folderID = "650a1b2c3d4e5f6071829307"
+        let catalog = FPCoreTestSupport.makeCatalog { _ in
+            (500, Data(#"{"error": "boom"}"#.utf8), ["Content-Type": "application/json"])
+        }
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, test: self)
+        let identifier = NSFileProviderItemIdentifier(
+            FileProviderIdentifier.folder(folderID: folderID, relativePath: "2024/Trip").rawValue
+        )
+
+        let error = runDeleteItem(core: core, identifier: identifier)
+
+        XCTAssertNotNil(error, "a failed server trash must not report success to the OS")
+    }
+
     func testDeleteUnsupportedKindsRejectWithoutAnyNetworkCall() {
         let log = FPCoreTestSupport.RequestLog()
         let catalog = FPCoreTestSupport.makeCatalog { req in
@@ -97,7 +162,11 @@ final class FileProviderExtensionCoreDeleteEnumeratorTests: XCTestCase {
             NSFileProviderItemIdentifier(FileProviderIdentifier.mapleDir(folderID: "f1", parentRelativePath: "").rawValue),
             NSFileProviderItemIdentifier(FileProviderIdentifier.mapleThumbsDir(folderID: "f1", parentRelativePath: "").rawValue),
             NSFileProviderItemIdentifier(FileProviderIdentifier.thumb(assetID: validAssetID).rawValue),
-            NSFileProviderItemIdentifier(FileProviderIdentifier.file(folderID: "f1", relativePath: "notes.txt").rawValue),
+            // `.file` deliberately NOT listed: #2535 made non-indexed file
+            // deletes real (path-addressed trash via `deleteFile`), but this
+            // list was never updated — a stale entry that failed silently
+            // for months because CI only compiles MapleCore, it never runs
+            // these tests. Found while auditing delete paths for #3010.
         ]
         for identifier in unsupported {
             let error = runDeleteItem(core: core, identifier: identifier)
