@@ -1680,7 +1680,34 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                         try await catalog.deleteAsset(assetID: assetID)
                         completionHandler(nil)
                     }
-                case .folder, .trash, .mapleDir, .mapleThumbsDir, .thumb:
+                case .folder(let folderID, let relativePath):
+                    // #3010: real subfolders route through the server's
+                    // recursive trash — every asset under the folder is
+                    // trashed (restorable) and the emptied directory is
+                    // removed, matching Finder's delete gesture. The
+                    // library ROOT itself (empty relativePath) stays
+                    // unsupported: deregistering a whole library is an
+                    // in-app operation, not a Finder gesture.
+                    guard !relativePath.isEmpty else {
+                        completionHandler(NSError(domain: NSCocoaErrorDomain,
+                                                  code: NSFeatureUnsupportedError))
+                        return
+                    }
+                    let summary = try await catalog.trashFolder(folderID: folderID,
+                                                                relativePath: relativePath)
+                    guard summary.failed == 0 else {
+                        // Partial failure: some assets could not be
+                        // trashed, so the directory was not fully
+                        // cleared. Surfacing an error makes the OS keep
+                        // the item and retry rather than believing the
+                        // folder is gone while server files remain.
+                        self.log.error("trash-folder partial failure: \(summary.failed, privacy: .public)/\(summary.total, privacy: .public) items")
+                        completionHandler(NSError(domain: NSFileProviderErrorDomain,
+                                                  code: NSFileProviderError.serverUnreachable.rawValue))
+                        return
+                    }
+                    completionHandler(nil)
+                case .trash, .mapleDir, .mapleThumbsDir, .thumb:
                     // Synthetic `.maple/` items + thumbs are read-only —
                     // deletes are unsupported.
                     completionHandler(NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
