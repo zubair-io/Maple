@@ -87,7 +87,9 @@ final class FileProviderExtensionCoreDeleteEnumeratorTests: XCTestCase {
     // is advertised) but the extension answered featureUnsupported — every
     // folder delete errored. Real subfolders now route through the
     // server's recursive trash (`POST /api/folders/:id/trash-folder`,
-    // which trashes every asset and removes the emptied directory).
+    // which trashes every asset and removes the emptied directory). The
+    // library root and the synthetic read-only kinds (`.maple/`, thumbs,
+    // Trash) still reject — see the tests below for those boundaries.
     func testDeleteFolderRoutesThroughServerTrash() {
         let folderID = "650a1b2c3d4e5f6071829305"
         let log = FPCoreTestSupport.RequestLog()
@@ -131,6 +133,29 @@ final class FileProviderExtensionCoreDeleteEnumeratorTests: XCTestCase {
         XCTAssertEqual(ns?.domain, NSCocoaErrorDomain)
         XCTAssertEqual(ns?.code, NSFeatureUnsupportedError)
         XCTAssertEqual(log.requests.count, 0)
+    }
+
+    func testDeleteFolderPartialFailureSurfacesError() {
+        // 200 with failed > 0: some assets could not be trashed, so the
+        // directory was not fully cleared. The OS must see an error (and
+        // keep the item for retry), never a success for a half-done trash.
+        let folderID = "650a1b2c3d4e5f6071829308"
+        let catalog = FPCoreTestSupport.makeCatalog { _ in
+            let body = #"{"total": 3, "succeeded": 2, "failed": 1, "items": []}"#
+            return (200, Data(body.utf8), ["Content-Type": "application/json"])
+        }
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, test: self)
+        let identifier = NSFileProviderItemIdentifier(
+            FileProviderIdentifier.folder(folderID: folderID, relativePath: "2024/Trip").rawValue
+        )
+
+        let error = runDeleteItem(core: core, identifier: identifier)
+
+        let ns = error as NSError?
+        XCTAssertEqual(ns?.domain, NSFileProviderErrorDomain)
+        XCTAssertEqual(ns?.code, NSFileProviderError.serverUnreachable.rawValue)
+        XCTAssertTrue(ns?.localizedDescription.contains("1 of 3") ?? false,
+                      "the error must say how much of the trash failed")
     }
 
     func testDeleteFolderSurfacesServerError() {
