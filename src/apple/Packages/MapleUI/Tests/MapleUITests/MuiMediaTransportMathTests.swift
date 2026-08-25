@@ -31,6 +31,14 @@ final class MuiMediaTransportMathTests: XCTestCase {
         XCTAssertEqual(MuiMediaTransportMath.progressPercent(currentTime: 10, duration: 0), 0)
     }
 
+    func testProgressPercentClampsNegativeCurrentTimeToZero() {
+        XCTAssertEqual(MuiMediaTransportMath.progressPercent(currentTime: -5, duration: 60), 0)
+    }
+
+    func testProgressPercentClampsCurrentTimePastDurationToHundred() {
+        XCTAssertEqual(MuiMediaTransportMath.progressPercent(currentTime: 90, duration: 60), 100)
+    }
+
     func testSeekTimeScalesRatioByDuration() {
         XCTAssertEqual(MuiMediaTransportMath.seekTime(ratio: 0.25, duration: 100), 25)
     }
