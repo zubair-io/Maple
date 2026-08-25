@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = resolve(webRoot, '../..');
 const docsRoot = resolve(repoRoot, 'docs/design/maple-ui/components');
-const outRoot = resolve(webRoot, 'projects/maple-syrup/public/maple-ui');
+const outRoot = resolve(webRoot, 'projects/maple-syrup/public/assets/maple-ui-docs');
 const checkOnly = process.argv.includes('--check');
 
 function assert(condition, message) {
@@ -48,6 +48,7 @@ function manifestFor(contracts) {
 }
 
 async function checkCopies(contracts, manifestJson) {
+  assert(existsSync(outRoot), `${outRoot} does not exist — run maple-ui:sync first`);
   for (const [name, markdown] of contracts) {
     const copy = await readFile(resolve(outRoot, name), 'utf8');
     assert(markdown === copy, `${name}: copy differs from docs source — run maple-ui:sync`);

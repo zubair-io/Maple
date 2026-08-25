@@ -1,5 +1,5 @@
 // MuiListRow — Maple UI Molecules-L1 (unified-component-catalog.md §2.2;
-// binding contract: projects/maple-syrup/public/maple-ui/list-row.md). Row
+// binding contract: docs/design/maple-ui/components/list-row.md). Row
 // with metadata and inline actions, built from Icon, Text, Timestamp,
 // Button. The base horizontal row primitive for settings rows, tree/folder
 // rows, and filterable list items.
