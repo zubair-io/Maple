@@ -108,7 +108,13 @@ public struct MuiAvatar: View {
             photoFailed = false
             return
         }
-        if let image = await MuiPlatformImage.load(from: url) {
+        let image = await MuiPlatformImage.load(from: url)
+        // A url change while this decode was in flight cancels the task
+        // backing this call (`.task(id: url)`) and starts a fresh one for
+        // the new url; skip applying this stale result so a cancelled
+        // decode can't stomp the new load's state (mirrors MuiImage.load).
+        guard !Task.isCancelled else { return }
+        if let image {
             resolvedImage = image
             photoFailed = false
         } else {
