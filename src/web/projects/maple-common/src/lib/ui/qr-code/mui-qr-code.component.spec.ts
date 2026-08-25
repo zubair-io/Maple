@@ -23,6 +23,20 @@ function render(): ComponentFixture<MuiQrCodeComponent> {
   return fixture;
 }
 
+// The component's render call happens inside a constructor `effect()`.
+// `TestBed.tick()` deterministically flushes pending effects (unlike
+// `fixture.whenStable()` + a bare microtask wait, which raced the effect
+// scheduler under zoneless on CI). Once the effect has run, `toCanvas` has
+// been invoked and its mocked promise is in hand — awaiting that same
+// promise instance guarantees the component's own `.then`/`.catch` handler
+// (registered before the test's `await`) has already run, since promise
+// reactions fire in the order they were attached.
+async function flushRender(fixture: ComponentFixture<MuiQrCodeComponent>): Promise<void> {
+  TestBed.tick();
+  await mockedToCanvas.mock.results[0]?.value?.catch(() => undefined);
+  fixture.detectChanges();
+}
+
 describe('MuiQrCodeComponent', () => {
   beforeEach(() => {
     mockedToCanvas.mockReset();
@@ -35,9 +49,7 @@ describe('MuiQrCodeComponent', () => {
   it('renders the payload to the canvas with a quiet zone and high-contrast colors', async () => {
     mockedToCanvas.mockResolvedValue(undefined as never);
     const fixture = render();
-    await fixture.whenStable();
-    await Promise.resolve();
-    fixture.detectChanges();
+    await flushRender(fixture);
 
     expect(mockedToCanvas).toHaveBeenCalledTimes(1);
     const [canvasArg, valueArg, opts] = mockedToCanvas.mock.calls[0] as unknown as [
@@ -59,17 +71,14 @@ describe('MuiQrCodeComponent', () => {
     const fixture = render();
     fixture.componentRef.setInput('size', 'lg');
     fixture.detectChanges();
-    await Promise.resolve();
+    TestBed.tick();
     expect(fixture.componentInstance.pixelSize()).toBe(192);
   });
 
   it('surfaces a render error message when the encoder rejects', async () => {
     mockedToCanvas.mockRejectedValue(new Error('payload too long'));
     const fixture = render();
-    await fixture.whenStable();
-    await Promise.resolve();
-    await Promise.resolve();
-    fixture.detectChanges();
+    await flushRender(fixture);
 
     expect(fixture.componentInstance.renderError()).toBe('payload too long');
     expect(fixture.nativeElement.querySelector('.error')?.textContent).toBe('payload too long');
@@ -78,8 +87,7 @@ describe('MuiQrCodeComponent', () => {
   it('exposes an accessible label derived from the payload by default', async () => {
     mockedToCanvas.mockResolvedValue(undefined as never);
     const fixture = render();
-    await Promise.resolve();
-    fixture.detectChanges();
+    await flushRender(fixture);
     const canvas = fixture.nativeElement.querySelector('canvas') as HTMLCanvasElement;
     expect(canvas.getAttribute('aria-label')).toBe('QR code for https://justmaple.app/pair/abc123');
   });

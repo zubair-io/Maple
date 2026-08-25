@@ -46,6 +46,11 @@
   font-size: 0.875rem;
   line-height: 1.6;
 
+  // The markdown body is rendered via [innerHTML] (contract.html), so it
+  // never passes through this component's template — Emulated view
+  // encapsulation's scoping attribute never lands on it. `::ng-deep` reaches
+  // it anyway — same rationale as map-view's `.map-pin` rule (see that
+  // file's header comment).
   ::ng-deep {
     h2 {
       font-size: 0.75rem;

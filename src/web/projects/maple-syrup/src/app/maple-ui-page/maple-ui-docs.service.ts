@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, forkJoin, map, switchMap } from 'rxjs';
 
-/** One entry in the synced `maple-ui/manifest.json`. */
+/** One entry in the synced `assets/maple-ui-docs/manifest.json`. */
 export interface MapleUiManifestEntry {
   readonly slug: string;
   readonly title: string;
@@ -23,13 +23,13 @@ export class MapleUiDocsService {
 
   contracts(): Observable<readonly MapleUiContract[]> {
     return this.http
-      .get<MapleUiManifestEntry[]>('maple-ui/manifest.json')
+      .get<MapleUiManifestEntry[]>('assets/maple-ui-docs/manifest.json')
       .pipe(
         switchMap((entries) =>
           forkJoin(
             entries.map((entry) =>
               this.http
-                .get(`maple-ui/${entry.slug}.md`, { responseType: 'text' })
+                .get(`assets/maple-ui-docs/${entry.slug}.md`, { responseType: 'text' })
                 .pipe(map((markdown) => ({ ...entry, markdown }))),
             ),
           ),

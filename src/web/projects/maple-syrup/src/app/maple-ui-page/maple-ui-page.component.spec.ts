@@ -32,14 +32,14 @@ describe('MapleUiPageComponent', () => {
   });
 
   function flushDocs(): void {
-    http.expectOne('maple-ui/manifest.json').flush(manifest);
+    http.expectOne('assets/maple-ui-docs/manifest.json').flush(manifest);
     fixture.detectChanges();
-    http.expectOne('maple-ui/badge.md').flush(badgeDoc);
-    http.expectOne('maple-ui/button.md').flush(buttonDoc);
+    http.expectOne('assets/maple-ui-docs/badge.md').flush(badgeDoc);
+    http.expectOne('assets/maple-ui-docs/button.md').flush(buttonDoc);
     fixture.detectChanges();
   }
 
-  it('renders every color, radius, and spacing token without any fetch', () => {
+  it('renders every color, radius, and spacing token', () => {
     flushDocs();
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     for (const key of Object.keys(MAPLE_UI_COLORS)) {
@@ -88,7 +88,7 @@ describe('MapleUiPageComponent', () => {
 
   it('shows a load error instead of an empty page when the manifest fetch fails', () => {
     http
-      .expectOne('maple-ui/manifest.json')
+      .expectOne('assets/maple-ui-docs/manifest.json')
       .flush('nope', { status: 500, statusText: 'Server Error' });
     fixture.detectChanges();
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
