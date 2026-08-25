@@ -54,10 +54,11 @@ public struct MuiActionButton: View {
         .opacity(disabled ? 0.45 : 1)
         .onHover { isHovering = $0 }
         .accessibilityLabel(label)
-        .accessibilityAddTraits(.isButton)
         // `selected` is a toggle/pressed state, not conveyed by background
-        // color alone (action-button.md §Accessibility).
-        .accessibilityValue(selected ? "Selected" : "")
+        // color alone (action-button.md §Accessibility) — mirrors the
+        // `[.isButton, .isSelected]` pattern used elsewhere in the package
+        // (e.g. MuiTabs, MuiListRow) rather than a synthesized value string.
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 
     @ViewBuilder
