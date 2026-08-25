@@ -62,7 +62,7 @@ src/raw-pipeline/raw-wasm/pkg/
 src/web/projects/maple-common/src/lib/raw-pipeline/pkg/
 
 # Maple UI contract docs synced into maple-syrup (rebuilt via scripts/sync-maple-ui-docs.mjs)
-src/web/projects/maple-syrup/public/maple-ui/
+src/web/projects/maple-syrup/public/assets/maple-ui-docs/
 
 # Swift / SPM
 .build/
