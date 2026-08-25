@@ -42,27 +42,41 @@ public final class MuiRemoteImageController: ObservableObject {
     @Published public private(set) var isLoading = true
     @Published public private(set) var isError = false
 
-    private let tiers: MuiRemoteImageTiers
     private let loader: @Sendable (URL) async throws -> Image
 
-    public init(tiers: MuiRemoteImageTiers, loader: @escaping @Sendable (URL) async throws -> Image) {
-        self.tiers = tiers
+    /// The tiers passed to the most recent `start(tiers:)` call — kept only
+    /// so `retry()` knows what to reload; never captured once at `init` (a
+    /// view whose `@StateObject` outlives a SwiftUI-reused identity must be
+    /// able to feed this controller a *different* set of tiers on every
+    /// call, see `MuiRemoteImage.body`'s `.task(id:)`).
+    private var lastTiers: MuiRemoteImageTiers?
+
+    public init(loader: @escaping @Sendable (URL) async throws -> Image) {
         self.loader = loader
     }
 
-    /// Runs the whole `thumb -> preview -> full` sequence, publishing each
-    /// tier as it resolves. A tier that fails is skipped, not fatal — only
-    /// every tier failing flips `isError`.
-    public func start() async {
+    /// Runs the whole `thumb -> preview -> full` sequence for `tiers`,
+    /// publishing each tier as it resolves. A tier that fails is skipped,
+    /// not fatal — only every tier failing flips `isError`. Always resets
+    /// state first, so calling this again with a new `tiers` value (a
+    /// reused view bound to a different image) restarts the state machine
+    /// cleanly instead of showing a stale image or tier.
+    public func start(tiers: MuiRemoteImageTiers) async {
+        lastTiers = tiers
+        image = nil
+        tier = nil
+        isLoading = true
         isError = false
         var loadedAny = false
         for (candidateTier, url) in tiers.ordered {
+            guard !Task.isCancelled else { return }
             guard let loaded = try? await loader(url) else { continue }
             image = loaded
             tier = candidateTier
             isLoading = false
             loadedAny = true
         }
+        guard !Task.isCancelled else { return }
         if !loadedAny {
             isError = true
             isLoading = false
@@ -72,11 +86,8 @@ public final class MuiRemoteImageController: ObservableObject {
     /// Re-runs the whole sequence from the top (remote-image.md §States,
     /// Error's Retry affordance).
     public func retry() async {
-        image = nil
-        tier = nil
-        isLoading = true
-        isError = false
-        await start()
+        guard let lastTiers else { return }
+        await start(tiers: lastTiers)
     }
 }
 
@@ -99,7 +110,7 @@ public struct MuiRemoteImage: View {
         self.tiers = tiers
         self.alt = alt
         self.fit = fit
-        self._controller = StateObject(wrappedValue: MuiRemoteImageController(tiers: tiers, loader: loader))
+        self._controller = StateObject(wrappedValue: MuiRemoteImageController(loader: loader))
     }
 
     public var body: some View {
@@ -123,7 +134,13 @@ public struct MuiRemoteImage: View {
             }
         }
         .clipped()
-        .task { await controller.start() }
+        // Bind the task's identity to the tier URLs, not just the view's
+        // own identity: SwiftUI reuses this view (List cells, record
+        // updates) with a fresh `tiers` value on the *same* `@StateObject`
+        // controller, and a plain `.task { }` would never notice the
+        // change (remote-image.md §States — this must not show the
+        // previous cell's photo).
+        .task(id: tiers.ordered.map(\.1)) { await controller.start(tiers: tiers) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(alt)
         .accessibilityAddTraits(.isImage)
