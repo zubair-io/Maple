@@ -32,6 +32,7 @@ public struct MuiImage: View {
     public let fit: MuiImageFit
     public let radius: MuiImageRadius
     public let aspectRatio: CGFloat?
+    public let onSettled: (() -> Void)?
 
     @State private var phase: Phase = .loading
     @State private var resolvedImage: Image?
@@ -40,18 +41,25 @@ public struct MuiImage: View {
         case loading, loaded, broken
     }
 
+    /// - Parameter onSettled: called once this load resolves to `.loaded`
+    ///   or `.broken` (including the synchronous "no url" case) — lets a
+    ///   composing view (e.g. `MuiPreviewImage`) observe this atom's own
+    ///   load lifecycle instead of running a second, duplicate decode of
+    ///   the same url just to know when it's done.
     public init(
         url: URL?,
         alt: String,
         fit: MuiImageFit = .fill,
         radius: MuiImageRadius = .md,
-        aspectRatio: CGFloat? = nil
+        aspectRatio: CGFloat? = nil,
+        onSettled: (() -> Void)? = nil
     ) {
         self.url = url
         self.alt = alt
         self.fit = fit
         self.radius = radius
         self.aspectRatio = aspectRatio
+        self.onSettled = onSettled
     }
 
     public var body: some View {
@@ -79,16 +87,25 @@ public struct MuiImage: View {
     private func load() async {
         guard let url else {
             phase = .broken
+            onSettled?()
             return
         }
         phase = .loading
-        if let image = await MuiPlatformImage.load(from: url) {
+        let image = await MuiPlatformImage.load(from: url)
+        // A url change while this decode was in flight cancels the task
+        // backing this call (`.task(id: url)`) and starts a fresh one for
+        // the new url; skip applying this stale result so a cancelled
+        // decode can't stomp the new load's `.loading` phase or fire
+        // `onSettled` (and drop `MuiPreviewImage`'s spinner) out of turn.
+        guard !Task.isCancelled else { return }
+        if let image {
             resolvedImage = image
             phase = .loaded
         } else {
             resolvedImage = nil
             phase = .broken
         }
+        onSettled?()
     }
 }
 

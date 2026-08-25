@@ -12,7 +12,7 @@ public struct MuiPreviewImage: View {
     public let radius: MuiImageRadius
     public let aspectRatio: CGFloat?
 
-    @State private var isLoading = true
+    @State private var isLoading: Bool
 
     public init(
         url: URL?,
@@ -26,27 +26,26 @@ public struct MuiPreviewImage: View {
         self.fit = fit
         self.radius = radius
         self.aspectRatio = aspectRatio
+        self._isLoading = State(initialValue: url != nil)
     }
 
     public var body: some View {
         ZStack {
-            MuiImage(url: url, alt: alt, fit: fit, radius: radius, aspectRatio: aspectRatio)
+            // MuiImage owns the one-and-only decode of `url`; this view
+            // never decodes it a second time — it just observes MuiImage's
+            // own load lifecycle via `onSettled` to know when to drop the
+            // spinner, matching the web reference's "reads mui-image's own
+            // signals" contract.
+            MuiImage(
+                url: url, alt: alt, fit: fit, radius: radius, aspectRatio: aspectRatio,
+                onSettled: { isLoading = false }
+            )
             if isLoading {
                 MuiSpinner(placement: .centered)
             }
         }
-        .task(id: url) {
-            guard let url else {
-                isLoading = false
-                return
-            }
-            isLoading = true
-            // MuiImage resolves its own loaded/broken state asynchronously
-            // off a background decode task; this mirrors that same window
-            // rather than duplicating the decode itself, matching the web
-            // reference's "reads mui-image's own signals" contract.
-            _ = await MuiPlatformImage.load(from: url)
-            isLoading = false
+        .onChange(of: url) { _, newURL in
+            isLoading = newURL != nil
         }
     }
 }

@@ -21,12 +21,15 @@ enum MuiWhiteboardCanvasMath {
 
     /// Whether `stroke` should be erased for an eraser currently at
     /// `point` — true once any of the stroke's own points falls within
-    /// `radius`.
+    /// `radius`. Compares squared distances against a squared radius
+    /// rather than taking a `squareRoot()` per point — same threshold,
+    /// no per-point sqrt on what can be a long stroke.
     static func strokeHit(_ stroke: MuiWhiteboardStroke, at point: CGPoint, radius: CGFloat = eraserHitRadius) -> Bool {
-        stroke.points.contains { strokePoint in
+        let radiusSquared = radius * radius
+        return stroke.points.contains { strokePoint in
             let dx = strokePoint.x - point.x
             let dy = strokePoint.y - point.y
-            return (dx * dx + dy * dy).squareRoot() <= radius
+            return (dx * dx + dy * dy) <= radiusSquared
         }
     }
 
