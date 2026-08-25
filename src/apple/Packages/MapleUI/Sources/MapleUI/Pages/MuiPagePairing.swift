@@ -12,12 +12,14 @@
 import SwiftUI
 
 public struct MuiPagePairing: View {
+    public let pairingCode: String
     public let paired: ((String) -> Void)?
 
     @State private var step = 0
     @State private var connected = false
 
-    public init(paired: ((String) -> Void)? = nil) {
+    public init(pairingCode: String = MuiPagePairing.defaultPairingCode, paired: ((String) -> Void)? = nil) {
+        self.pairingCode = pairingCode
         self.paired = paired
     }
 
@@ -31,7 +33,7 @@ public struct MuiPagePairing: View {
                     isPresented: true,
                     contained: true,
                     step: step,
-                    pairingCode: "MAPLE-7XQ2",
+                    pairingCode: pairingCode,
                     connected: connected,
                     stepChanged: { step = $0 },
                     paired: { code in
@@ -43,6 +45,10 @@ public struct MuiPagePairing: View {
         }
         .background(MuiTokens.bg)
     }
+
+    // MARK: - Default mock data
+
+    public static let defaultPairingCode = "MAPLE-7XQ2"
 }
 
 #Preview("MuiPagePairing") {
