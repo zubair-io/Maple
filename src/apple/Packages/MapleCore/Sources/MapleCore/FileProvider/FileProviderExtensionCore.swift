@@ -1702,8 +1702,11 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                         // the item and retry rather than believing the
                         // folder is gone while server files remain.
                         self.log.error("trash-folder partial failure: \(summary.failed, privacy: .public)/\(summary.total, privacy: .public) items")
-                        completionHandler(NSError(domain: NSFileProviderErrorDomain,
-                                                  code: NSFileProviderError.serverUnreachable.rawValue))
+                        completionHandler(NSError(
+                            domain: NSFileProviderErrorDomain,
+                            code: NSFileProviderError.serverUnreachable.rawValue,
+                            userInfo: [NSLocalizedDescriptionKey:
+                                "Could not move \(summary.failed) of \(summary.total) items to the Maple trash"]))
                         return
                     }
                     completionHandler(nil)
