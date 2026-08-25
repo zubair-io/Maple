@@ -70,7 +70,13 @@ public final class MuiRemoteImageController: ObservableObject {
         var loadedAny = false
         for (candidateTier, url) in tiers.ordered {
             guard !Task.isCancelled else { return }
-            guard let loaded = try? await loader(url) else { continue }
+            let loaded = try? await loader(url)
+            // Re-check after the await: `.task(id:)` cancels the old task on
+            // reuse, and a non-cooperatively-cancelled loader can still
+            // return a value — publishing it would overwrite the newer
+            // load's state with a stale tier.
+            guard !Task.isCancelled else { return }
+            guard let loaded else { continue }
             image = loaded
             tier = candidateTier
             isLoading = false
