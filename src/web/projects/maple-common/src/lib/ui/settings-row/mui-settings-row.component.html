@@ -45,7 +45,7 @@
       @if (icon()) {
         <mui-icon [name]="icon()!" size="sm" class="leading-icon" />
       }
-      <mui-collapsible [label]="label() ?? ''" [(open)]="open" class="collapsible">
+      <mui-collapsible [label]="label()" [(open)]="open" class="collapsible">
         <div class="body">
           <ng-container [ngTemplateOutlet]="bodyContent" />
         </div>

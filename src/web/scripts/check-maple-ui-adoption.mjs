@@ -24,6 +24,7 @@ const MIGRATED_DIRECTORIES = [
 ];
 
 const TEMPLATE_EXTENSIONS = new Set(['.html']);
+const STYLE_EXTENSIONS = new Set(['.scss']);
 
 // A raw <button ...> element — case-sensitive, matches the opening tag only
 // (mui-button, mui-list-row, etc. never start with "<button").
@@ -31,9 +32,19 @@ const RAW_BUTTON_PATTERN = /<button\b/;
 
 // The two legacy shared CSS classes this wave deleted (settings-chrome.scss's
 // `.btn-primary` / `.btn-ghost` mixin, plus every per-component duplicate).
-// Matches the class in either `class="btn-ghost ..."` / `class="... btn-ghost"`
-// position, or a bare SCSS/HTML class-selector token.
+// A plain word-boundary match (no anchor on `class="…"`) so it catches every
+// way a template can reference the class, not just a literal `class`
+// attribute: `class="btn-ghost …"`, `[ngClass]="{ 'btn-primary': cond }"`,
+// and `[class.btn-primary]="cond"` all contain `btn-primary`/`btn-ghost` as
+// a standalone word and all trip this pattern.
 const LEGACY_BTN_CLASS_PATTERN = /\bbtn-(primary|ghost)\b/;
+
+// The same two classes, but shaped to match a CSS *selector definition*
+// rather than a usage — `.btn-primary` / `.btn-ghost` with the leading dot,
+// as in `.btn-primary { … }`, `.btn-primary:hover { … }`, or `&.btn-ghost`.
+// This is what would let the legacy class silently come back to life in a
+// component's stylesheet even once every template consumer is migrated.
+const LEGACY_BTN_SELECTOR_PATTERN = /\.btn-(primary|ghost)\b/;
 
 /** Blanks out `<!-- ... -->` comment bodies (preserving line count/offsets)
  * so a rationale comment that has to *talk about* `<button>` or
@@ -43,7 +54,16 @@ function withoutHtmlComments(source) {
   return source.replace(/<!--[\s\S]*?-->/g, (comment) => comment.replace(/[^\n]/g, ' '));
 }
 
-async function findViolations(directory) {
+/** Same idea for SCSS's `/* … *\/` and `// …` comment forms, so a mixin's
+ * doc comment can reference the legacy class names by name (e.g. explaining
+ * what it replaced) without tripping the ratchet. */
+function withoutScssComments(source) {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, ' '))
+    .replace(/\/\/[^\n]*/g, (line) => line.replace(/[^\n]/g, ' '));
+}
+
+async function findTemplateViolations(directory) {
   const files = await walkFiles(directory, (path) => TEMPLATE_EXTENSIONS.has(extname(path)));
   const violations = [];
 
@@ -64,6 +84,34 @@ async function findViolations(directory) {
   }
 
   return violations;
+}
+
+async function findStyleViolations(directory) {
+  const files = await walkFiles(directory, (path) => STYLE_EXTENSIONS.has(extname(path)));
+  const violations = [];
+
+  for (const path of files) {
+    const source = await readFile(path, 'utf8');
+    const lines = withoutScssComments(source).split('\n');
+    lines.forEach((line, index) => {
+      if (LEGACY_BTN_SELECTOR_PATTERN.test(line)) {
+        violations.push(
+          `${path}:${index + 1}: legacy .btn-primary/.btn-ghost selector definition — delete ` +
+            `it, mui-button's \`variant\` input replaces it`,
+        );
+      }
+    });
+  }
+
+  return violations;
+}
+
+async function findViolations(directory) {
+  const [templateViolations, styleViolations] = await Promise.all([
+    findTemplateViolations(directory),
+    findStyleViolations(directory),
+  ]);
+  return [...templateViolations, ...styleViolations];
 }
 
 const allViolations = (await Promise.all(MIGRATED_DIRECTORIES.map(findViolations))).flat();
