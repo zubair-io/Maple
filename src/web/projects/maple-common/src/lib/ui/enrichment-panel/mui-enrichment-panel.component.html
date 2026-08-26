@@ -9,6 +9,7 @@
         [variant]="badgeVariant(status)"
         [value]="status.label"
         [label]="status.tooltip ?? null"
+        [attr.title]="status.tooltip ?? null"
       />
     }
   }
