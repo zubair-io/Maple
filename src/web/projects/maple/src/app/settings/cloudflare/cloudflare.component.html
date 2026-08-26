@@ -16,10 +16,11 @@
       <div class="banner-error">{{ loadError() }}</div>
     } @else {
       <form class="settings-form" (submit)="$event.preventDefault()">
-        <!-- Every field already saves via mui-input's (committed) output on
-             Enter — this handler only stops the browser's *native* form
-             submit (full page reload) that Enter would otherwise also
-             trigger, since mui-input doesn't call preventDefault itself. -->
+        <!-- Enter-to-save: each mui-input binds (committed)="save()" (the
+             pre-migration ngSubmit behavior), while this handler stops the
+             browser's *native* form submit (full page reload) that Enter
+             would otherwise also trigger, since mui-input doesn't call
+             preventDefault itself. -->
         <!-- Enable toggle -->
         <div class="field-row">
           <div class="field-label-group">
@@ -50,6 +51,7 @@
               placeholder="a1b2c3d4e5f6..."
               ariaLabel="Account ID"
               autocomplete="off"
+              (committed)="save()"
             />
           </div>
         </div>
@@ -66,6 +68,7 @@
               placeholder="maple-thumbs"
               ariaLabel="Bucket name"
               autocomplete="off"
+              (committed)="save()"
             />
           </div>
         </div>
@@ -84,6 +87,7 @@
               placeholder="AKIAEXAMPLE..."
               ariaLabel="Access key ID"
               autocomplete="off"
+              (committed)="save()"
             />
           </div>
         </div>
@@ -104,6 +108,7 @@
               [placeholder]="secretPlaceholder()"
               ariaLabel="Secret access key"
               autocomplete="off"
+              (committed)="save()"
             />
           </div>
         </div>
