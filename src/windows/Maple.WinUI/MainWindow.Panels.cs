@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
+using Maple.UI.Atoms;
 using Maple.WinUI.ViewModels;
 
 namespace Maple.WinUI
@@ -14,7 +15,7 @@ namespace Maple.WinUI
     public sealed partial class MainWindow
     {
         private readonly Button[] _starButtons = new Button[5];
-        private readonly Dictionary<string, Button> _railButtons = new();
+        private readonly Dictionary<string, MuiActionButton> _railButtons = new();
         private string? _activeGroup;
         private string _colorTab = "Basic";
         private string _effectsTab = "Basic";
@@ -47,13 +48,12 @@ namespace Maple.WinUI
         {
             foreach (var (title, icon, disabledNote) in RailGroups)
             {
-                var button = new Button
+                var button = new MuiActionButton
                 {
-                    Style = (Style)((FrameworkElement)Content).Resources["PillButton"],
-                    Width = 44,
-                    Height = 40,
-                    Content = Controls.MapleIconControl.Build(
-                        icon, 18, (SolidColorBrush)Application.Current.Resources["MapleTextMain"]),
+                    IconName = icon,
+                    Label = title,
+                    ButtonSize = MuiActionButtonSize.Sm,
+                    Orientation = MuiActionButtonOrientation.Stacked,
                     IsEnabled = disabledNote == null,
                 };
                 ToolTipService.SetToolTip(button, disabledNote ?? title);
@@ -61,17 +61,7 @@ namespace Maple.WinUI
                 var group = title;
                 button.Click += (_, _) => ToggleGroupPanel(group);
                 _railButtons[title] = button;
-
-                var label = new TextBlock
-                {
-                    Text = title,
-                    FontSize = 9,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    Foreground = (SolidColorBrush)Application.Current.Resources["MapleTextMuted"],
-                    Margin = new Thickness(0, -2, 0, 4),
-                };
                 EditRailStack.Children.Add(button);
-                EditRailStack.Children.Add(label);
             }
         }
 
@@ -162,11 +152,10 @@ namespace Maple.WinUI
 
         private void RefreshCurvePlot()
         {
-            var accent = (SolidColorBrush)Application.Current.Resources["MaplePrimaryDim"];
-            CurveTabLuma.Background = _curveChannel == "Luma" ? accent : null;
-            CurveTabRed.Background = _curveChannel == "Red" ? accent : null;
-            CurveTabGreen.Background = _curveChannel == "Green" ? accent : null;
-            CurveTabBlue.Background = _curveChannel == "Blue" ? accent : null;
+            CurveTabLuma.Selected = _curveChannel == "Luma";
+            CurveTabRed.Selected = _curveChannel == "Red";
+            CurveTabGreen.Selected = _curveChannel == "Green";
+            CurveTabBlue.Selected = _curveChannel == "Blue";
             var points = CurveChannelPoints();
             CurvePlot.SetChannelColor(CurveChannelColors[_curveChannel]);
             CurvePlot.SetPoints(points);
@@ -192,21 +181,16 @@ namespace Maple.WinUI
             RefreshRailArming(null);
         }
 
-        /// <summary>Armed pill: primary-dim fill + primary stroke on the glyph
-        /// (the web dock's iconColor behavior).</summary>
+        /// <summary>Armed pill: MuiActionButton's own Selected state drives
+        /// the primary-dim fill + primary stroke on the glyph (the web
+        /// dock's iconColor behavior) — same look the manual Background/icon
+        /// swap used to hand-roll here.</summary>
         private void RefreshRailArming(string? armedGroup)
         {
-            var primary = (SolidColorBrush)Application.Current.Resources["MaplePrimary"];
-            var normal = (SolidColorBrush)Application.Current.Resources["MapleTextMain"];
-            foreach (var (title, icon, _) in RailGroups)
+            foreach (var (title, _, _) in RailGroups)
             {
-                if (!_railButtons.TryGetValue(title, out var button))
-                    continue;
-                var armed = title == armedGroup;
-                button.Background = armed
-                    ? (SolidColorBrush)Application.Current.Resources["MaplePrimaryDim"]
-                    : null;
-                button.Content = Controls.MapleIconControl.Build(icon, 18, armed ? primary : normal);
+                if (_railButtons.TryGetValue(title, out var button))
+                    button.Selected = title == armedGroup;
             }
         }
 
@@ -220,10 +204,9 @@ namespace Maple.WinUI
         private void ShowColorTab(string tab)
         {
             _colorTab = tab;
-            var accent = (SolidColorBrush)Application.Current.Resources["MaplePrimaryDim"];
-            ColorTabBasic.Background = tab == "Basic" ? accent : null;
-            ColorTabHsl.Background = tab == "HSL" ? accent : null;
-            ColorTabBw.Background = tab == "B&W" ? accent : null;
+            ColorTabBasic.Selected = tab == "Basic";
+            ColorTabHsl.Selected = tab == "HSL";
+            ColorTabBw.Selected = tab == "B&W";
 
             PanelBwHeader.Visibility = tab == "B&W" ? Visibility.Visible : Visibility.Collapsed;
             PanelHslBands.Visibility = tab == "HSL" ? Visibility.Visible : Visibility.Collapsed;
@@ -245,9 +228,8 @@ namespace Maple.WinUI
         private void ShowEffectsTab(string tab)
         {
             _effectsTab = tab;
-            var accent = (SolidColorBrush)Application.Current.Resources["MaplePrimaryDim"];
-            EffectsTabBasic.Background = tab == "Basic" ? accent : null;
-            EffectsTabGrade.Background = tab == "Grade" ? accent : null;
+            EffectsTabBasic.Selected = tab == "Basic";
+            EffectsTabGrade.Selected = tab == "Grade";
 
             PanelBwHeader.Visibility = Visibility.Collapsed;
             PanelHslBands.ItemsSource = null;
