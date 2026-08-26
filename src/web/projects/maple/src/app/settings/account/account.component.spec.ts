@@ -119,7 +119,7 @@ describe('AccountComponent', () => {
     await setup({ addCredential });
     await initWithMock([]);
 
-    el().querySelector<HTMLButtonElement>('.btn-ghost')!.click();
+    el().querySelector<HTMLButtonElement>('[data-testid="add-device-btn"] button')!.click();
     await Promise.resolve();
     await Promise.resolve();
 
@@ -156,7 +156,7 @@ describe('AccountComponent', () => {
       },
     ]);
 
-    el().querySelector<HTMLButtonElement>('.delete-btn')!.click();
+    el().querySelector<HTMLButtonElement>('.delete-btn button')!.click();
     await Promise.resolve();
     await Promise.resolve();
 
@@ -173,7 +173,7 @@ describe('AccountComponent', () => {
     await setup({ signOut });
     await initWithMock([]);
 
-    el().querySelector<HTMLButtonElement>('.btn-ghost.danger')!.click();
+    el().querySelector<HTMLButtonElement>('[data-testid="sign-out-btn"] button')!.click();
     await Promise.resolve();
     await Promise.resolve();
 
@@ -186,7 +186,7 @@ describe('AccountComponent', () => {
     await initWithMock([]);
     expect(el().textContent).toContain('Off');
 
-    el().querySelector<HTMLButtonElement>('button.px-3')!.click();
+    el().querySelector<HTMLButtonElement>('[data-testid="show-hidden-toggle"] button')!.click();
     const req = http.expectOne('/api/display/config');
     expect(req.request.method).toBe('PUT');
     expect(req.request.body).toEqual({ show_hidden_images: true });
@@ -200,7 +200,7 @@ describe('AccountComponent', () => {
     await setup();
     await initWithMock([]);
 
-    el().querySelector<HTMLButtonElement>('button.px-3')!.click();
+    el().querySelector<HTMLButtonElement>('[data-testid="show-hidden-toggle"] button')!.click();
     http.expectOne('/api/display/config').flush({ ok: false });
     fixture.detectChanges();
 

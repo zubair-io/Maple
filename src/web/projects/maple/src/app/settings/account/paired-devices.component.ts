@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
-import { AuthService, type DeviceSession } from '@maple-common';
+import { AuthService, MuiButtonComponent, type DeviceSession } from '@maple-common';
 
 /**
  * Paired devices (Apple TVs) — lists platform-marked device sessions and
@@ -10,7 +10,7 @@ import { AuthService, type DeviceSession } from '@maple-common';
 @Component({
   selector: 'maple-paired-devices',
   standalone: true,
-  imports: [DatePipe],
+  imports: [DatePipe, MuiButtonComponent],
   templateUrl: './paired-devices.component.html',
   styleUrl: './paired-devices.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
