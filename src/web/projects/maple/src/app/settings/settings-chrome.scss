@@ -317,10 +317,15 @@
 // page stage rows (`workers.component.scss`) so every row lines up under one
 // column header. Worker-only cells (dead, throughput, pause) stay in the workers
 // stylesheet; these are the grid + the cells shared across stage rows.
+// The chevron is no longer a grid column — `mui-settings-row`'s customSummary
+// mode renders its own chevron ahead of the projected `[summary]` content
+// (its `.header` owns the disclosure affordance), so the grid itself now
+// starts at "stage". `.col-header` (the plain, unwrapped table header — not
+// inside a settings row) compensates with matching left padding so its
+// labels still land over the right columns.
 @mixin worker-row-grid {
   display: grid;
   grid-template-columns:
-    24px /* chevron */
     minmax(min-content, 1.6fr) /* stage */
     minmax(min-content, 1fr) /* status */
     minmax(min-content, 0.6fr) /* concur */

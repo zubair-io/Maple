@@ -41,19 +41,22 @@ describe('MirrorSettingsComponent', () => {
 
   /** Expand the collapsible row so its body renders. */
   const expand = (): void => {
-    (el().querySelector('.row-summary') as HTMLElement).click();
+    (el().querySelector('.header') as HTMLElement).click();
     fixture.detectChanges();
   };
 
-  it('shows status + reconcile action in the collapsed summary; body appears on expand', async () => {
+  it('shows status + reconcile action in the collapsed summary; body opens on expand', async () => {
     await init();
     // Summary is visible while collapsed: status pill + the reconcile action.
     expect(el().querySelector('[data-testid="mirror-status"]')).not.toBeNull();
     expect(el().querySelector('[data-testid="mirror-reconcile-now"]')).not.toBeNull();
-    // The body (stages) is hidden until expanded.
-    expect(el().querySelector('[data-testid="mirror-stages"]')).toBeNull();
+    // The body (stages) is collapsed until expanded — mui-settings-row keeps it
+    // mounted (a CSS grid-rows animation, not a `@if`) and toggles `.open` on
+    // its wrapper instead of adding/removing the DOM subtree.
+    expect(el().querySelector('.content-wrapper')?.className).not.toContain('open');
 
     expand();
+    expect(el().querySelector('.content-wrapper')?.className).toContain('open');
     const stages = el().querySelector('[data-testid="mirror-stages"]');
     expect(stages).not.toBeNull();
     expect(stages?.textContent).toContain('Scanning');
@@ -65,7 +68,7 @@ describe('MirrorSettingsComponent', () => {
     await init();
     expand();
 
-    el().querySelector<HTMLButtonElement>('[data-testid="mirror-reconcile-now"]')!.click();
+    el().querySelector<HTMLButtonElement>('[data-testid="mirror-reconcile-now"] button')!.click();
 
     http.expectOne('/api/mirror/reconcile').flush({ started: true, phase: 'scanning' });
     await tick();
@@ -140,7 +143,7 @@ describe('MirrorSettingsComponent', () => {
     await init();
     expand();
 
-    el().querySelector<HTMLButtonElement>('[data-testid="mirror-reconcile-now"]')!.click();
+    el().querySelector<HTMLButtonElement>('[data-testid="mirror-reconcile-now"] button')!.click();
     http.expectOne('/api/mirror/reconcile').flush({ started: true, phase: 'scanning' });
     await tick();
 
@@ -174,7 +177,7 @@ describe('MirrorSettingsComponent', () => {
     // Healthy: no benched-reads block at all.
     expect(el().querySelector('[data-testid="mirror-reads-benched"]')).toBeNull();
 
-    el().querySelector<HTMLButtonElement>('[data-testid="mirror-reconcile-now"]')!.click();
+    el().querySelector<HTMLButtonElement>('[data-testid="mirror-reconcile-now"] button')!.click();
     http.expectOne('/api/mirror/reconcile').flush({ started: true, phase: 'idle' });
     await tick();
     http.expectOne('/api/mirror/status').flush({

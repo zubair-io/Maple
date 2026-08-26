@@ -24,8 +24,9 @@
         <span class="chip-val">{{ summary().pending | number }}</span>
         <span class="chip-label">Pending</span>
       </span>
-      <button
-        type="button"
+      <mui-button
+        variant="ghost"
+        size="sm"
         class="chip chip-btn"
         [class.err]="damagedCount() > 0"
         data-testid="damaged-chip"
@@ -34,11 +35,11 @@
             ? 'Files that could not be read after every retry — click to inspect'
             : 'No damaged files'
         "
-        (click)="damaged.open()"
+        (pressed)="damaged.open()"
       >
         <span class="chip-val">{{ damagedCount() | number }}</span>
         <span class="chip-label">Damaged</span>
-      </button>
+      </mui-button>
     </div>
   </header>
 
@@ -51,7 +52,6 @@
   <div class="workers-body">
     <!-- Column header -->
     <div class="row-grid col-header">
-      <span></span>
       <span>Stage</span>
       <span>Status</span>
       <span class="r">Concur</span>
@@ -67,19 +67,15 @@
       @if (g.rows.length > 0) {
         <div class="group-label">{{ g.group }}</div>
         @for (s of g.rows; track s.name) {
-          <maple-settings-row
-            [expanded]="isExpanded(s)"
-            (toggle)="toggleExpanded(s)"
-            testid="worker-row"
+          <mui-settings-row
+            [customSummary]="true"
+            [label]="s.name"
+            [open]="isExpanded(s)"
+            (openChange)="toggleExpanded(s)"
+            [showDivider]="false"
+            data-testid="worker-row"
           >
-            <div class="row-grid" srow-summary>
-              <maple-settings-icon
-                [name]="isExpanded(s) ? 'chev-d' : 'chev-r'"
-                [size]="12"
-                [stroke]="2"
-                [color]="'#a8a29e'"
-              />
-
+            <div class="row-grid" summary>
               <span class="stage-id">
                 <maple-settings-icon
                   [name]="meta(s).icon"
@@ -133,29 +129,33 @@
                 }
               </span>
 
-              <button
-                type="button"
+              <mui-button
+                variant="ghost"
+                size="sm"
                 class="kebab-btn"
+                ariaLabel="Stage actions"
                 title="Stage actions"
-                (click)="$event.stopPropagation()"
+                (pressed)="$event.stopPropagation()"
               >
                 <maple-settings-icon name="kebab" [size]="14" [color]="'#a8a29e'" />
-              </button>
+              </mui-button>
 
-              <button
-                type="button"
+              <mui-button
+                variant="ghost"
+                size="sm"
                 class="pause-btn"
                 data-testid="pause-resume-btn"
                 [class.is-paused]="s.status === 'paused'"
+                [ariaLabel]="s.status === 'paused' ? 'Resume stage' : 'Pause stage'"
                 [title]="s.status === 'paused' ? 'Resume stage' : 'Pause stage'"
-                (click)="togglePause(s, $event)"
+                (pressed)="togglePause(s, $event)"
               >
                 <maple-settings-icon
                   [name]="s.status === 'paused' ? 'play' : 'pause'"
                   [size]="12"
                   [color]="s.status === 'paused' ? '#c4493a' : '#a8a29e'"
                 />
-              </button>
+              </mui-button>
             </div>
 
             <div class="desc-bar">
@@ -169,13 +169,14 @@
                 <div class="field">
                   <div class="field-label">Prune window</div>
                   <div class="num-input">
-                    <input
-                      type="number"
-                      min="1"
-                      max="8760"
+                    <mui-input
+                      variant="numeric"
+                      [min]="1"
+                      [max]="8760"
                       [value]="reaperPrune.window()"
-                      (input)="reaperPrune.set($any($event.target).value)"
+                      ariaLabel="Prune window"
                       data-testid="reaper-prune-window"
+                      (valueChange)="reaperPrune.set($event)"
                     />
                     <span class="num-suffix">hours</span>
                   </div>
@@ -192,15 +193,16 @@
                   } @else if (reaperPrune.saveState() === 'success') {
                     <span class="save-ok">Saved.</span>
                   }
-                  <button
-                    type="button"
-                    class="btn-primary"
-                    [disabled]="reaperPrune.saveState() === 'saving' || !reaperPrune.loaded()"
-                    (click)="reaperPrune.save()"
+                  <mui-button
+                    variant="primary"
+                    size="sm"
+                    [disabled]="!reaperPrune.loaded()"
+                    [loading]="reaperPrune.saveState() === 'saving'"
+                    (pressed)="reaperPrune.save()"
                     data-testid="reaper-prune-save"
                   >
-                    {{ reaperPrune.saveState() === 'saving' ? 'Saving…' : 'Save' }}
-                  </button>
+                    Save
+                  </mui-button>
                 </div>
               </div>
             }
@@ -214,16 +216,14 @@
                 @for (m of migration.list(); track m.id) {
                   <div class="migration-row" [attr.data-testid]="'migration-' + m.id">
                     <div class="migration-main">
-                      <label class="migration-toggle">
-                        <input
-                          type="checkbox"
-                          [checked]="m.enabled"
-                          [disabled]="migration.isBusy(m.id)"
-                          (change)="migration.toggle(m, $event)"
-                          [attr.data-testid]="'migration-toggle-' + m.id"
-                        />
-                        <span class="migration-title">{{ m.title }}</span>
-                      </label>
+                      <mui-checkbox
+                        class="migration-toggle"
+                        [label]="m.title"
+                        [checked]="m.enabled"
+                        [disabled]="migration.isBusy(m.id)"
+                        (checkedChange)="migration.toggle(m, $event)"
+                        [attr.data-testid]="'migration-toggle-' + m.id"
+                      />
                       <span class="migration-status" [class.is-error]="m.status === 'error'">
                         {{ m.status }}
                       </span>
@@ -244,15 +244,16 @@
                         </span>
                       }
                       @if (m.processed > 0 || m.status !== 'idle') {
-                        <button
-                          type="button"
+                        <mui-button
+                          variant="ghost"
+                          size="sm"
                           class="migration-reset"
                           [disabled]="migration.isBusy(m.id)"
-                          (click)="migration.reset(m)"
+                          (pressed)="migration.reset(m)"
                           [attr.data-testid]="'migration-reset-' + m.id"
                         >
                           Reset
-                        </button>
+                        </mui-button>
                       }
                     </div>
                     @if (m.last_error) {
@@ -272,15 +273,15 @@
                   <div class="field">
                     <div class="field-label">Parallel RAW decodes</div>
                     <div class="num-input">
-                      <input
-                        id="ffi-workers-input"
-                        type="number"
+                      <mui-input
+                        variant="numeric"
                         [min]="perf.min"
                         [max]="perf.max"
-                        step="1"
+                        [step]="1"
                         [value]="ffiWorkersDraft()"
-                        (input)="setFfiWorkersDraft($any($event.target).value)"
-                        aria-label="RAW decode workers"
+                        (valueChange)="setFfiWorkersDraft($event)"
+                        ariaLabel="RAW decode workers"
+                        data-testid="ffi-workers-input"
                       />
                       <span class="num-suffix">workers</span>
                     </div>
@@ -301,14 +302,15 @@
                     } @else if (perfSaveState() === 'success') {
                       <span class="save-ok" role="status">Applied</span>
                     }
-                    <button
-                      type="button"
-                      class="btn-primary perf-save"
-                      [disabled]="perfSaveState() === 'saving'"
-                      (click)="savePerformance()"
+                    <mui-button
+                      variant="primary"
+                      size="sm"
+                      class="perf-save"
+                      [loading]="perfSaveState() === 'saving'"
+                      (pressed)="savePerformance()"
                     >
-                      {{ perfSaveState() === 'saving' ? 'Saving…' : 'Apply' }}
-                    </button>
+                      Apply
+                    </mui-button>
                   </div>
                 </div>
               }
@@ -366,25 +368,21 @@
                       <div class="field field-wide">
                         <div class="field-label">Ollama URL</div>
                         <div class="text-input mono">
-                          <div class="text-input-wrap">
-                            <input
-                              type="text"
-                              placeholder="http://localhost:11434"
-                              [value]="enrichmentValue(s, 'describe_provider_url')"
-                              (input)="
-                                setEnrichment(s, 'describe_provider_url', $any($event.target).value)
-                              "
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            class="btn-ghost"
-                            [disabled]="testState(s).kind === 'testing'"
-                            (click)="testConnection(s)"
+                          <mui-input
+                            [value]="enrichmentValue(s, 'describe_provider_url')"
+                            (valueChange)="setEnrichment(s, 'describe_provider_url', $event)"
+                            placeholder="http://localhost:11434"
+                            ariaLabel="Ollama URL"
+                          />
+                          <mui-button
+                            variant="ghost"
+                            size="sm"
+                            [loading]="testState(s).kind === 'testing'"
+                            (pressed)="testConnection(s)"
                           >
                             <maple-settings-icon name="test" [size]="12" />
-                            {{ testState(s).kind === 'testing' ? 'Testing…' : 'Test connection' }}
-                          </button>
+                            Test connection
+                          </mui-button>
                         </div>
                         <div class="field-hint">
                           Empty uses the default
@@ -405,9 +403,11 @@
                       <div class="field">
                         <div class="field-label">Model</div>
                         <div class="text-input mono readonly">
-                          <div class="text-input-wrap">
-                            <input type="text" readonly [value]="fixedDescribeModel" />
-                          </div>
+                          <mui-input
+                            [value]="fixedDescribeModel"
+                            [readOnly]="true"
+                            ariaLabel="Model"
+                          />
                         </div>
                         <div class="field-hint">
                           Locked to <span class="mono">{{ fixedDescribeModel }}</span
@@ -425,23 +425,21 @@
                       <div class="field field-wide">
                         <div class="field-label">Nominatim URL</div>
                         <div class="text-input mono">
-                          <div class="text-input-wrap">
-                            <input
-                              type="text"
-                              placeholder="(empty disables)"
-                              [value]="enrichmentValue(s, 'nominatim_url')"
-                              (input)="setEnrichment(s, 'nominatim_url', $any($event.target).value)"
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            class="btn-ghost"
-                            [disabled]="testState(s).kind === 'testing'"
-                            (click)="testConnection(s)"
+                          <mui-input
+                            [value]="enrichmentValue(s, 'nominatim_url')"
+                            (valueChange)="setEnrichment(s, 'nominatim_url', $event)"
+                            placeholder="(empty disables)"
+                            ariaLabel="Nominatim URL"
+                          />
+                          <mui-button
+                            variant="ghost"
+                            size="sm"
+                            [loading]="testState(s).kind === 'testing'"
+                            (pressed)="testConnection(s)"
                           >
                             <maple-settings-icon name="test" [size]="12" />
-                            {{ testState(s).kind === 'testing' ? 'Testing…' : 'Test connection' }}
-                          </button>
+                            Test connection
+                          </mui-button>
                         </div>
                         <div class="field-hint">
                           Empty disables geocoding. When the worker is unpaused, the server
@@ -461,19 +459,14 @@
                       <div class="field">
                         <div class="field-label">Rate limit</div>
                         <div class="num-input">
-                          <input
-                            type="number"
-                            min="0.1"
-                            max="100"
-                            step="0.1"
+                          <mui-input
+                            variant="numeric"
+                            [min]="0.1"
+                            [max]="100"
+                            [step]="0.1"
                             [value]="enrichmentValue(s, 'nominatim_rate_limit_per_sec')"
-                            (input)="
-                              setEnrichment(
-                                s,
-                                'nominatim_rate_limit_per_sec',
-                                $any($event.target).value
-                              )
-                            "
+                            (valueChange)="setEnrichment(s, 'nominatim_rate_limit_per_sec', $event)"
+                            ariaLabel="Rate limit"
                           />
                           <span class="num-suffix">requests / second</span>
                         </div>
@@ -522,15 +515,11 @@
                       <div class="field field-wide">
                         <div class="field-label">Model directory</div>
                         <div class="text-input mono">
-                          <div class="text-input-wrap">
-                            <input
-                              type="text"
-                              [value]="enrichmentValue(s, 'face_model_dir')"
-                              (input)="
-                                setEnrichment(s, 'face_model_dir', $any($event.target).value)
-                              "
-                            />
-                          </div>
+                          <mui-input
+                            [value]="enrichmentValue(s, 'face_model_dir')"
+                            (valueChange)="setEnrichment(s, 'face_model_dir', $event)"
+                            ariaLabel="Model directory"
+                          />
                         </div>
                         <div class="field-hint">
                           Where the worker stages scrfd_10g.onnx and arcface_r100_glint360k.onnx.
@@ -540,16 +529,12 @@
                       <div class="field">
                         <div class="field-label">Detector download URL</div>
                         <div class="text-input mono">
-                          <div class="text-input-wrap">
-                            <input
-                              type="text"
-                              placeholder="https://example.com/scrfd_10g.onnx"
-                              [value]="enrichmentValue(s, 'face_detector_url')"
-                              (input)="
-                                setEnrichment(s, 'face_detector_url', $any($event.target).value)
-                              "
-                            />
-                          </div>
+                          <mui-input
+                            [value]="enrichmentValue(s, 'face_detector_url')"
+                            (valueChange)="setEnrichment(s, 'face_detector_url', $event)"
+                            placeholder="https://example.com/scrfd_10g.onnx"
+                            ariaLabel="Detector download URL"
+                          />
                         </div>
                         <div class="field-hint">
                           Used only when <span class="mono">scrfd_10g.onnx</span> isn't already in
@@ -559,31 +544,26 @@
                       <div class="field">
                         <div class="field-label">Detector sha256</div>
                         <div class="text-input mono">
-                          <div class="text-input-wrap">
-                            <input
-                              type="text"
-                              placeholder="optional sha256 (hex)"
-                              [value]="enrichmentValue(s, 'face_detector_sha256')"
-                              (input)="
-                                setEnrichment(s, 'face_detector_sha256', $any($event.target).value)
-                              "
-                            />
-                          </div>
+                          <mui-input
+                            [value]="enrichmentValue(s, 'face_detector_sha256')"
+                            (valueChange)="setEnrichment(s, 'face_detector_sha256', $event)"
+                            placeholder="optional sha256 (hex)"
+                            ariaLabel="Detector sha256"
+                          />
                         </div>
                       </div>
                       <div class="field">
                         <div class="field-label">Minimum face size</div>
                         <div class="num-input">
-                          <input
-                            type="number"
-                            min="0"
-                            max="0.99"
-                            step="0.01"
+                          <mui-input
+                            variant="numeric"
+                            [min]="0"
+                            [max]="0.99"
+                            [step]="0.01"
                             data-testid="face-min-size-input"
                             [value]="enrichmentValue(s, 'face_min_detection_size')"
-                            (input)="
-                              setEnrichment(s, 'face_min_detection_size', $any($event.target).value)
-                            "
+                            (valueChange)="setEnrichment(s, 'face_min_detection_size', $event)"
+                            ariaLabel="Minimum face size"
                           />
                           <span class="num-suffix">fraction of frame</span>
                         </div>
@@ -636,16 +616,12 @@
                       <div class="field">
                         <div class="field-label">Recognizer download URL</div>
                         <div class="text-input mono">
-                          <div class="text-input-wrap">
-                            <input
-                              type="text"
-                              placeholder="https://example.com/arcface_r100_glint360k.onnx"
-                              [value]="enrichmentValue(s, 'face_recognizer_url')"
-                              (input)="
-                                setEnrichment(s, 'face_recognizer_url', $any($event.target).value)
-                              "
-                            />
-                          </div>
+                          <mui-input
+                            [value]="enrichmentValue(s, 'face_recognizer_url')"
+                            (valueChange)="setEnrichment(s, 'face_recognizer_url', $event)"
+                            placeholder="https://example.com/arcface_r100_glint360k.onnx"
+                            ariaLabel="Recognizer download URL"
+                          />
                         </div>
                         <div class="field-hint">
                           Used only when <span class="mono">arcface_r100_glint360k.onnx</span> isn't
@@ -655,20 +631,12 @@
                       <div class="field">
                         <div class="field-label">Recognizer sha256</div>
                         <div class="text-input mono">
-                          <div class="text-input-wrap">
-                            <input
-                              type="text"
-                              placeholder="optional sha256 (hex)"
-                              [value]="enrichmentValue(s, 'face_recognizer_sha256')"
-                              (input)="
-                                setEnrichment(
-                                  s,
-                                  'face_recognizer_sha256',
-                                  $any($event.target).value
-                                )
-                              "
-                            />
-                          </div>
+                          <mui-input
+                            [value]="enrichmentValue(s, 'face_recognizer_sha256')"
+                            (valueChange)="setEnrichment(s, 'face_recognizer_sha256', $event)"
+                            placeholder="optional sha256 (hex)"
+                            ariaLabel="Recognizer sha256"
+                          />
                         </div>
                       </div>
                     </div>
@@ -679,25 +647,21 @@
                       <div class="field field-wide">
                         <div class="field-label">Meilisearch URL</div>
                         <div class="text-input mono">
-                          <div class="text-input-wrap">
-                            <input
-                              type="text"
-                              placeholder="(empty falls back to env / disables)"
-                              [value]="enrichmentValue(s, 'meilisearch_url')"
-                              (input)="
-                                setEnrichment(s, 'meilisearch_url', $any($event.target).value)
-                              "
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            class="btn-ghost"
-                            [disabled]="testState(s).kind === 'testing'"
-                            (click)="testConnection(s)"
+                          <mui-input
+                            [value]="enrichmentValue(s, 'meilisearch_url')"
+                            (valueChange)="setEnrichment(s, 'meilisearch_url', $event)"
+                            placeholder="(empty falls back to env / disables)"
+                            ariaLabel="Meilisearch URL"
+                          />
+                          <mui-button
+                            variant="ghost"
+                            size="sm"
+                            [loading]="testState(s).kind === 'testing'"
+                            (pressed)="testConnection(s)"
                           >
                             <maple-settings-icon name="test" [size]="12" />
-                            {{ testState(s).kind === 'testing' ? 'Testing…' : 'Test connection' }}
-                          </button>
+                            Test connection
+                          </mui-button>
                         </div>
                         <div class="field-hint">
                           Base URL of a Meilisearch sidecar for typo-tolerant search. Empty falls
@@ -718,21 +682,18 @@
                       <div class="field">
                         <div class="field-label">API key</div>
                         <div class="text-input mono">
-                          <div class="text-input-wrap">
-                            <input
-                              type="password"
-                              autocomplete="off"
-                              [placeholder]="
-                                enrichmentConfig()?.meilisearch_api_key_set
-                                  ? '•••••••• (saved — blank keeps it)'
-                                  : '(optional)'
-                              "
-                              [value]="enrichmentValue(s, 'meilisearch_api_key')"
-                              (input)="
-                                setEnrichment(s, 'meilisearch_api_key', $any($event.target).value)
-                              "
-                            />
-                          </div>
+                          <mui-input
+                            [masked]="true"
+                            autocomplete="off"
+                            [value]="enrichmentValue(s, 'meilisearch_api_key')"
+                            (valueChange)="setEnrichment(s, 'meilisearch_api_key', $event)"
+                            [placeholder]="
+                              enrichmentConfig()?.meilisearch_api_key_set
+                                ? '•••••••• (saved — blank keeps it)'
+                                : '(optional)'
+                            "
+                            ariaLabel="API key"
+                          />
                         </div>
                         <div class="field-hint">
                           Master or search key for the instance, sent as a bearer token and stored
@@ -742,22 +703,12 @@
                         </div>
                       </div>
                       <div class="field field-wide">
-                        <label class="field-label" for="meilisearch-semantic-enabled">
-                          <input
-                            id="meilisearch-semantic-enabled"
-                            type="checkbox"
-                            [checked]="enrichmentValue(s, 'meilisearch_semantic_enabled')"
-                            (change)="
-                              setEnrichment(
-                                s,
-                                'meilisearch_semantic_enabled',
-                                $any($event.target).checked
-                              )
-                            "
-                            data-testid="meilisearch-semantic-enabled"
-                          />
-                          <span>Enable hybrid semantic search</span>
-                        </label>
+                        <mui-checkbox
+                          label="Enable hybrid semantic search"
+                          [checked]="enrichmentValue(s, 'meilisearch_semantic_enabled')"
+                          (checkedChange)="setEnrichment(s, 'meilisearch_semantic_enabled', $event)"
+                          data-testid="meilisearch-semantic-enabled"
+                        />
                         <div class="field-hint">
                           Combines keyword relevance with vector similarity. Saving applies the
                           change immediately; existing assets still need the semantic-vector
@@ -765,22 +716,17 @@
                         </div>
                       </div>
                       <div class="field field-wide">
-                        <label class="field-label" for="meilisearch-embedder-url"
-                          >Ollama URL (from Describe)</label
-                        >
+                        <label class="field-label">Ollama URL (from Describe)</label>
                         <div class="text-input mono readonly">
-                          <div class="text-input-wrap">
-                            <input
-                              id="meilisearch-embedder-url"
-                              type="text"
-                              readonly
-                              [value]="
-                                enrichmentValue(s, 'describe_provider_url') ||
-                                'http://localhost:11434'
-                              "
-                              data-testid="meilisearch-embedder-url"
-                            />
-                          </div>
+                          <mui-input
+                            [readOnly]="true"
+                            [value]="
+                              enrichmentValue(s, 'describe_provider_url') ||
+                              'http://localhost:11434'
+                            "
+                            ariaLabel="Ollama URL (from Describe)"
+                            data-testid="meilisearch-embedder-url"
+                          />
                         </div>
                         <div class="field-hint">
                           Shared with the Describe worker. Change this endpoint under Describe;
@@ -788,26 +734,15 @@
                         </div>
                       </div>
                       <div class="field">
-                        <label class="field-label" for="meilisearch-embedder-model"
-                          >Embedding model</label
-                        >
+                        <label class="field-label">Embedding model</label>
                         <div class="text-input mono">
-                          <div class="text-input-wrap">
-                            <input
-                              id="meilisearch-embedder-model"
-                              type="text"
-                              placeholder="bge-m3"
-                              [value]="enrichmentValue(s, 'meilisearch_embedder_model')"
-                              (input)="
-                                setEnrichment(
-                                  s,
-                                  'meilisearch_embedder_model',
-                                  $any($event.target).value
-                                )
-                              "
-                              data-testid="meilisearch-embedder-model"
-                            />
-                          </div>
+                          <mui-input
+                            [value]="enrichmentValue(s, 'meilisearch_embedder_model')"
+                            (valueChange)="setEnrichment(s, 'meilisearch_embedder_model', $event)"
+                            placeholder="bge-m3"
+                            ariaLabel="Embedding model"
+                            data-testid="meilisearch-embedder-model"
+                          />
                         </div>
                         <div class="field-hint">
                           Ollama model used for both document and query vectors. Default:
@@ -815,24 +750,16 @@
                         </div>
                       </div>
                       <div class="field">
-                        <label class="field-label" for="meilisearch-semantic-ratio"
-                          >Semantic blend</label
-                        >
+                        <label class="field-label">Semantic blend</label>
                         <div class="num-input">
-                          <input
-                            id="meilisearch-semantic-ratio"
-                            type="number"
-                            min="0"
-                            max="1"
-                            step="0.05"
+                          <mui-input
+                            variant="numeric"
+                            [min]="0"
+                            [max]="1"
+                            [step]="0.05"
                             [value]="enrichmentValue(s, 'meilisearch_semantic_ratio')"
-                            (input)="
-                              setEnrichment(
-                                s,
-                                'meilisearch_semantic_ratio',
-                                $any($event.target).value
-                              )
-                            "
+                            (valueChange)="setEnrichment(s, 'meilisearch_semantic_ratio', $event)"
+                            ariaLabel="Semantic blend"
                             data-testid="meilisearch-semantic-ratio"
                           />
                         </div>
@@ -843,18 +770,15 @@
                       <div class="field">
                         <div class="field-label">Index task timeout</div>
                         <div class="num-input">
-                          <input
-                            type="number"
-                            min="30"
-                            max="3600"
+                          <mui-input
+                            variant="numeric"
+                            [min]="30"
+                            [max]="3600"
                             [value]="enrichmentValue(s, 'meilisearch_task_timeout_seconds')"
-                            (input)="
-                              setEnrichment(
-                                s,
-                                'meilisearch_task_timeout_seconds',
-                                $any($event.target).value
-                              )
+                            (valueChange)="
+                              setEnrichment(s, 'meilisearch_task_timeout_seconds', $event)
                             "
+                            ariaLabel="Index task timeout"
                           />
                           <span class="unit">sec</span>
                         </div>
@@ -866,18 +790,15 @@
                       <div class="field">
                         <div class="field-label">Service search requests / minute</div>
                         <div class="num-input">
-                          <input
-                            type="number"
-                            min="1"
-                            max="10000"
+                          <mui-input
+                            variant="numeric"
+                            [min]="1"
+                            [max]="10000"
                             [value]="enrichmentValue(s, 'service_search_rate_limit_per_minute')"
-                            (input)="
-                              setEnrichment(
-                                s,
-                                'service_search_rate_limit_per_minute',
-                                $any($event.target).value
-                              )
+                            (valueChange)="
+                              setEnrichment(s, 'service_search_rate_limit_per_minute', $event)
                             "
+                            ariaLabel="Service search requests / minute"
                           />
                         </div>
                         <div class="field-hint">
@@ -897,12 +818,13 @@
                 <div class="field">
                   <div class="field-label">Concurrency</div>
                   <div class="num-input">
-                    <input
-                      type="number"
-                      min="1"
-                      max="100"
+                    <mui-input
+                      variant="numeric"
+                      [min]="1"
+                      [max]="100"
                       [value]="runtimeValue(s, 'concurrency')"
-                      (input)="setRuntime(s, 'concurrency', $any($event.target).value)"
+                      (valueChange)="setRuntime(s, 'concurrency', $event)"
+                      ariaLabel="Concurrency"
                     />
                   </div>
                   <div class="field-hint">1 – 100</div>
@@ -910,12 +832,13 @@
                 <div class="field">
                   <div class="field-label">Max attempts</div>
                   <div class="num-input">
-                    <input
-                      type="number"
-                      min="1"
-                      max="20"
+                    <mui-input
+                      variant="numeric"
+                      [min]="1"
+                      [max]="20"
                       [value]="runtimeValue(s, 'maxAttempts')"
-                      (input)="setRuntime(s, 'maxAttempts', $any($event.target).value)"
+                      (valueChange)="setRuntime(s, 'maxAttempts', $event)"
+                      ariaLabel="Max attempts"
                     />
                   </div>
                   <div class="field-hint">1 – 20</div>
@@ -925,25 +848,25 @@
 
             <div class="row-footer">
               @if (s.dead > 0) {
-                <button
-                  type="button"
-                  class="btn-ghost danger"
+                <mui-button
+                  variant="destructive"
+                  size="sm"
                   data-testid="retry-dead-btn"
-                  (click)="retryDead(s, $event)"
+                  (pressed)="retryDead(s, $event)"
                 >
                   <maple-settings-icon name="retry" [size]="12" [color]="'#f87171'" />
                   Retry {{ s.dead | number }} dead
-                </button>
+                </mui-button>
               }
-              <button
-                type="button"
-                class="btn-ghost"
+              <mui-button
+                variant="ghost"
+                size="sm"
                 data-testid="open-logs-btn"
-                (click)="openLogs(s, $event)"
+                (pressed)="openLogs(s, $event)"
               >
                 <maple-settings-icon name="open" [size]="12" />
                 Open logs
-              </button>
+              </mui-button>
               <span class="footer-spacer"></span>
               @if (saveError(s); as msg) {
                 <span class="save-error">{{ msg }}</span>
@@ -951,28 +874,30 @@
                 <span class="save-disabled-hint">
                   {{ msg }}
                   @if (enrichmentConfigError()) {
-                    <button type="button" class="link-btn" (click)="retryEnrichmentConfig()">
+                    <mui-button variant="ghost" size="sm" (pressed)="retryEnrichmentConfig()">
                       Retry
-                    </button>
+                    </mui-button>
                   }
                 </span>
               } @else if (saveState(s) === 'success') {
                 <span class="save-ok">Saved.</span>
               }
-              <button type="button" class="btn-ghost" (click)="resetForm(s)">
+              <mui-button variant="ghost" size="sm" (pressed)="resetForm(s)">
                 Reset to defaults
-              </button>
-              <button
-                type="button"
-                class="btn-primary"
+              </mui-button>
+              <mui-button
+                variant="primary"
+                size="sm"
+                data-testid="save-changes-btn"
                 [disabled]="saveDisabled(s)"
+                [loading]="saveState(s) === 'saving'"
                 [title]="saveDisabledReason(s) ?? ''"
-                (click)="saveStage(s)"
+                (pressed)="saveStage(s)"
               >
-                {{ saveState(s) === 'saving' ? 'Saving…' : 'Save changes' }}
-              </button>
+                Save changes
+              </mui-button>
             </div>
-          </maple-settings-row>
+          </mui-settings-row>
         }
       }
     }
@@ -1002,18 +927,15 @@
       <p class="import-error">{{ e }}</p>
     }
     @for (j of imports.jobs(); track j.id) {
-      <maple-settings-row
-        [expanded]="imports.isExpanded(j.id)"
-        (toggle)="imports.toggle(j.id)"
-        testid="import-row"
+      <mui-settings-row
+        [customSummary]="true"
+        [label]="imports.basename(j.source_root)"
+        [open]="imports.isExpanded(j.id)"
+        (openChange)="imports.toggle(j.id)"
+        [showDivider]="false"
+        data-testid="import-row"
       >
-        <div class="row-grid import-summary" srow-summary>
-          <maple-settings-icon
-            [name]="imports.isExpanded(j.id) ? 'chev-d' : 'chev-r'"
-            [size]="12"
-            [stroke]="2"
-            [color]="'#a8a29e'"
-          />
+        <div class="row-grid import-summary" summary>
           <span class="stage-id">
             <maple-settings-icon name="copy" [size]="14" [color]="'#a8a29e'" />
             <span class="mono" [title]="j.source_root">{{ imports.basename(j.source_root) }}</span>
@@ -1042,16 +964,18 @@
               <maple-settings-icon name="chev-r" [size]="12" [color]="'#78706a'" />
               <span class="lib-name">{{ imports.libraryName(d) }}</span>
               @if (imports.retryable(j)) {
-                <button
-                  type="button"
-                  class="btn-ghost danger import-retry"
+                <mui-button
+                  variant="destructive"
+                  size="sm"
+                  class="import-retry"
                   data-testid="import-retry"
+                  [loading]="imports.retryingId() === j.id"
                   [disabled]="imports.retryingId() !== null"
-                  (click)="imports.retry(j.id)"
+                  (pressed)="imports.retry(j.id)"
                 >
                   <maple-settings-icon name="retry" [size]="12" [color]="'#f87171'" />
-                  {{ imports.retryingId() === j.id ? 'Retrying…' : 'Retry failed' }}
-                </button>
+                  Retry failed
+                </mui-button>
               }
             </div>
             @if (j.status === 'failed' && d.error; as importError) {
@@ -1083,7 +1007,7 @@
             }
           </div>
         }
-      </maple-settings-row>
+      </mui-settings-row>
     } @empty {
       <p class="import-empty">No imports yet.</p>
     }
@@ -1120,18 +1044,25 @@
         </div>
         <div class="log-actions">
           @if (!log.loading && log.items.length > 0) {
-            <button
-              type="button"
-              class="btn-ghost danger"
-              (click)="retryDead(log.stage, $event); closeLog()"
+            <mui-button
+              variant="destructive"
+              size="sm"
+              data-testid="retry-all-dead-btn"
+              (pressed)="retryDead(log.stage, $event); closeLog()"
             >
               <maple-settings-icon name="retry" [size]="12" [color]="'#f87171'" />
               Retry all dead
-            </button>
+            </mui-button>
           }
-          <button type="button" class="log-close" (click)="closeLog()" aria-label="Close">
+          <mui-button
+            variant="ghost"
+            size="sm"
+            class="log-close"
+            ariaLabel="Close"
+            (pressed)="closeLog()"
+          >
             <maple-settings-icon name="x" [size]="14" [color]="'#a8a29e'" />
-          </button>
+          </mui-button>
         </div>
       </div>
 
@@ -1194,20 +1125,26 @@
         </div>
         <div class="log-actions">
           @if (!log.loading && log.items.length > 0) {
-            <button
-              type="button"
-              class="btn-ghost danger"
+            <mui-button
+              variant="destructive"
+              size="sm"
               data-testid="clear-all-damaged-btn"
-              [disabled]="log.clearing"
-              (click)="damaged.clear()"
+              [loading]="log.clearing"
+              (pressed)="damaged.clear()"
             >
               <maple-settings-icon name="retry" [size]="12" [color]="'#f87171'" />
-              {{ log.clearing ? 'Clearing…' : 'Clear all & re-queue' }}
-            </button>
+              Clear all &amp; re-queue
+            </mui-button>
           }
-          <button type="button" class="log-close" (click)="damaged.close()" aria-label="Close">
+          <mui-button
+            variant="ghost"
+            size="sm"
+            class="log-close"
+            ariaLabel="Close"
+            (pressed)="damaged.close()"
+          >
             <maple-settings-icon name="x" [size]="14" [color]="'#a8a29e'" />
-          </button>
+          </mui-button>
         </div>
       </div>
 
@@ -1235,15 +1172,16 @@
                 @if (item.since) {
                   <span>{{ formatDate(item.since) }}</span>
                 }
-                <button
-                  type="button"
+                <mui-button
+                  variant="ghost"
+                  size="sm"
                   class="link-btn"
                   data-testid="clear-damaged-btn"
-                  [disabled]="log.clearing"
-                  (click)="damaged.clear(item.id)"
+                  [loading]="log.clearing"
+                  (pressed)="damaged.clear(item.id)"
                 >
-                  Clear & re-queue
-                </button>
+                  Clear &amp; re-queue
+                </mui-button>
               </div>
             </div>
           }

@@ -1,16 +1,56 @@
+<!-- The `<ng-content />` for the body must appear exactly once in this
+     template — Angular's projection distribution assigns the unselected
+     bucket to a single `<ng-content>` slot, and a second occurrence (even in
+     an inactive @else branch) silently discards it instead of falling
+     through. One `<ng-template>`, reused via `ngTemplateOutlet` from both
+     branches, keeps a single occurrence while still varying the header. -->
+<ng-template #bodyContent>
+  @if (description()) {
+    <mui-text variant="body" color="muted" [block]="true">{{ description() }}</mui-text>
+  }
+  <ng-content />
+</ng-template>
+
 <div class="mui-settings-row">
   <div class="row-header">
-    @if (icon()) {
-      <mui-icon [name]="icon()!" size="sm" class="leading-icon" />
-    }
-    <mui-collapsible [label]="label()" [(open)]="open" class="collapsible">
-      <div class="body">
-        @if (description()) {
-          <mui-text variant="body" color="muted" [block]="true">{{ description() }}</mui-text>
-        }
-        <ng-content />
+    @if (customSummary()) {
+      <div class="custom-summary">
+        <div
+          class="header"
+          role="button"
+          tabindex="0"
+          [attr.aria-expanded]="open()"
+          [attr.aria-label]="label()"
+          (click)="onSummaryClick($event)"
+          (keydown)="onSummaryKeydown($event)"
+        >
+          <mui-icon
+            name="chevron-right"
+            size="sm"
+            class="chevron"
+            [class.open]="open()"
+            [decorative]="true"
+          />
+          <div class="summary-content"><ng-content select="[summary]" /></div>
+        </div>
+        <div class="content-wrapper" [class.open]="open()">
+          <div class="content-inner">
+            <div class="body">
+              <ng-container [ngTemplateOutlet]="bodyContent" />
+            </div>
+          </div>
+        </div>
       </div>
-    </mui-collapsible>
+    } @else {
+      @if (icon()) {
+        <mui-icon [name]="icon()!" size="sm" class="leading-icon" />
+      }
+      <mui-collapsible [label]="label() ?? ''" [(open)]="open" class="collapsible">
+        <div class="body">
+          <ng-container [ngTemplateOutlet]="bodyContent" />
+        </div>
+      </mui-collapsible>
+    }
   </div>
   @if (showDivider()) {
     <mui-divider />

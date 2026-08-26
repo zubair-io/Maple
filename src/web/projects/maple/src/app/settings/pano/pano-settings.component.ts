@@ -24,9 +24,14 @@
 // response, same as the Observability settings page.
 
 import { ChangeDetectionStrategy, Component, OnInit, effect, inject, signal } from '@angular/core';
-import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
-import { PanoService, type PanoConfig } from '@maple-common';
+import {
+  PanoService,
+  type PanoConfig,
+  MuiButtonComponent,
+  MuiCheckboxComponent,
+  MuiInputComponent,
+} from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 
 type SaveState =
@@ -38,7 +43,7 @@ type SaveState =
 @Component({
   selector: 'maple-pano-settings',
   standalone: true,
-  imports: [FormsModule, SettingsShellComponent],
+  imports: [SettingsShellComponent, MuiButtonComponent, MuiCheckboxComponent, MuiInputComponent],
   templateUrl: './pano-settings.component.html',
   styleUrl: './pano-settings.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

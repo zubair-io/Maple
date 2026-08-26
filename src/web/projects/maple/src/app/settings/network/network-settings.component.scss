@@ -47,22 +47,6 @@
   color: var(--s-text-muted);
 }
 
-.finput {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 7px 9px;
-  border: 1px solid var(--s-border, #3a3a3a);
-  border-radius: 6px;
-  background: var(--s-surface-2, #1c1c1e);
-  color: var(--s-text);
-  font-size: 13px;
-
-  &:focus {
-    outline: none;
-    border-color: var(--s-accent, #4a8cff);
-  }
-}
-
 .fhint {
   font-size: 11px;
   color: var(--s-text-muted);
@@ -73,15 +57,6 @@
   flex-wrap: wrap;
   gap: 16px;
   margin-top: 14px;
-}
-
-.check {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--s-text);
-  cursor: pointer;
 }
 
 .form-actions {

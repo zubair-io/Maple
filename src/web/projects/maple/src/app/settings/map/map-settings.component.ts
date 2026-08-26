@@ -13,9 +13,8 @@
 // response, same pattern as the Pano / Observability settings pages.
 
 import { ChangeDetectionStrategy, Component, OnInit, effect, inject, signal } from '@angular/core';
-import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
-import { MapConfigService, type MapConfig } from '@maple-common';
+import { MapConfigService, MuiButtonComponent, MuiInputComponent, type MapConfig } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 
 type SaveState =
@@ -27,7 +26,7 @@ type SaveState =
 @Component({
   selector: 'maple-map-settings',
   standalone: true,
-  imports: [FormsModule, SettingsShellComponent],
+  imports: [SettingsShellComponent, MuiButtonComponent, MuiInputComponent],
   templateUrl: './map-settings.component.html',
   styleUrl: './map-settings.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
