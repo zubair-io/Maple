@@ -27,10 +27,16 @@
     <section>
       <div class="section-row">
         <div class="subhead">Passkeys</div>
-        <button type="button" class="btn-ghost" [disabled]="busy()" (click)="addDevice()">
+        <mui-button
+          variant="ghost"
+          size="sm"
+          data-testid="add-device-btn"
+          [loading]="busy()"
+          (pressed)="addDevice()"
+        >
           <maple-settings-icon name="plus" [size]="12" />
           Add device
-        </button>
+        </mui-button>
       </div>
       @if (credentials().length === 0) {
         <p class="empty">No passkeys registered.</p>
@@ -48,14 +54,15 @@
                   }
                 </div>
               </div>
-              <button
-                type="button"
+              <mui-button
+                variant="ghost"
+                size="sm"
                 class="delete-btn"
                 [disabled]="busy()"
-                (click)="deleteDevice(c.id)"
+                (pressed)="deleteDevice(c.id)"
               >
                 Delete
-              </button>
+              </mui-button>
             </div>
           }
         </div>
@@ -75,26 +82,29 @@
             Display hidden photos and AI safety net auto-hidden items while browsing the catalog.
           </div>
         </div>
-        <button
-          type="button"
-          class="px-3 py-1.5 rounded border text-[11px] font-medium transition-colors cursor-pointer"
-          [class.bg-primary]="showHidden()"
-          [class.text-white]="showHidden()"
-          [class.border-transparent]="showHidden()"
-          [class.bg-surface-hover]="!showHidden()"
-          [class.border-border]="!showHidden()"
-          [class.text-text-main]="!showHidden()"
-          (click)="toggleShowHidden()"
+        <mui-button
+          [variant]="showHidden() ? 'primary' : 'secondary'"
+          size="sm"
+          data-testid="show-hidden-toggle"
+          ariaLabel="Show Hidden Images"
+          (pressed)="toggleShowHidden()"
         >
           {{ showHidden() ? 'On' : 'Off' }}
-        </button>
+        </mui-button>
       </div>
     </section>
 
     <section>
       <div class="subhead">Session</div>
       <div class="session-actions">
-        <button type="button" class="btn-ghost danger" (click)="signOut()">Sign out</button>
+        <mui-button
+          variant="destructive"
+          size="sm"
+          data-testid="sign-out-btn"
+          (pressed)="signOut()"
+        >
+          Sign out
+        </mui-button>
       </div>
     </section>
 
