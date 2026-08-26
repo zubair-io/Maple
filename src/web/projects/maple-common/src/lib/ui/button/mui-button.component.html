@@ -7,6 +7,8 @@
   [disabled]="isDisabled()"
   [attr.aria-busy]="loading() ? 'true' : null"
   [attr.aria-label]="ariaLabel()"
+  [attr.aria-expanded]="ariaExpandedAttr()"
+  [attr.aria-pressed]="ariaPressedAttr()"
   (click)="onClick($event)"
 >
   @if (loading()) {
