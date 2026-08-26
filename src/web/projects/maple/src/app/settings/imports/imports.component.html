@@ -48,42 +48,47 @@
             <div class="picked-row">
               <maple-settings-icon name="check" [size]="14" />
               <code class="mono">{{ src }}</code>
-              <button type="button" class="btn-ghost" (click)="clearSource()">Change</button>
+              <mui-button variant="ghost" size="sm" (pressed)="clearSource()">Change</mui-button>
             </div>
             <div class="actions">
-              <button type="button" class="btn-primary" [disabled]="busy()" (click)="runScan()">
-                {{ busy() ? 'Scanning…' : 'Pick Folder Name(s)' }}
-              </button>
-              <button
-                type="button"
-                class="btn-ghost"
+              <mui-button variant="primary" size="sm" [loading]="busy()" (pressed)="runScan()">
+                Pick Folder Name(s)
+              </mui-button>
+              <mui-button
+                variant="ghost"
+                size="sm"
                 [disabled]="busy()"
                 title="Queue immediately — the worker scans and files everything under the default folder."
-                (click)="autoImport()"
+                (pressed)="autoImport()"
               >
                 Auto Import
-              </button>
+              </mui-button>
             </div>
           } @else {
             <div class="browser">
               <div class="browser-bar">
-                <button
-                  type="button"
-                  class="btn-ghost"
+                <mui-button
+                  variant="ghost"
+                  size="sm"
                   [disabled]="busy() || atRoot()"
-                  (click)="up()"
+                  (pressed)="up()"
                 >
                   <maple-settings-icon name="back" [size]="12" /> Up
-                </button>
+                </mui-button>
                 <code class="mono path">{{ currentPath() ?? '/' }}</code>
               </div>
 
               <div class="card-list">
                 @for (d of listing()?.dirs ?? []; track d.path) {
-                  <button type="button" class="row-btn" [disabled]="busy()" (click)="open(d.path)">
+                  <mui-button
+                    variant="ghost"
+                    class="row-btn"
+                    [disabled]="busy()"
+                    (pressed)="open(d.path)"
+                  >
                     <maple-settings-icon name="chev-r" [size]="14" />
                     <span class="name">{{ d.name }}</span>
-                  </button>
+                  </mui-button>
                 } @empty {
                   <p class="empty">No subfolders here.</p>
                 }
@@ -94,14 +99,15 @@
                   This folder is inside the target library — pick a source outside it.
                 </p>
               }
-              <button
-                type="button"
-                class="btn-primary use-here"
+              <mui-button
+                variant="primary"
+                size="sm"
+                class="use-here"
                 [disabled]="busy() || currentBlocked() || !currentPath()"
-                (click)="useFolder(currentPath()!)"
+                (pressed)="useFolder(currentPath()!)"
               >
                 Use this folder
-              </button>
+              </mui-button>
             </div>
           }
         </section>
@@ -132,13 +138,12 @@
             <div class="bucket-row">
               <span class="mono">{{ b.year }}</span>
               <div class="folder-cell">
-                <input
+                <mui-input
                   class="label-input"
-                  type="text"
-                  [ngModel]="labels()[b.key]"
-                  (ngModelChange)="setLabel(b.key, $event)"
+                  [value]="labels()[b.key]"
+                  (valueChange)="setLabel(b.key, $event)"
                   placeholder="(leave blank for the default)"
-                  [attr.aria-label]="'Folder name for ' + b.key"
+                  [ariaLabel]="'Folder name for ' + b.key"
                 />
                 <p class="dest-preview">
                   → <code class="mono">{{ effectiveDest(b) }}</code>
@@ -159,12 +164,17 @@
         </div>
 
         <div class="actions">
-          <button type="button" class="btn-ghost" [disabled]="busy()" (click)="backToPick()">
+          <mui-button variant="ghost" size="sm" [disabled]="busy()" (pressed)="backToPick()">
             Back
-          </button>
-          <button type="button" class="btn-primary" [disabled]="busy()" (click)="startImport()">
-            {{ busy() ? 'Starting…' : 'Import ' + s.totals.files + ' files' }}
-          </button>
+          </mui-button>
+          <mui-button
+            variant="primary"
+            size="sm"
+            [loading]="busy()"
+            (pressed)="startImport()"
+          >
+            Import {{ s.totals.files }} files
+          </mui-button>
         </div>
       </section>
     }
@@ -202,16 +212,16 @@
 
           <div class="actions">
             @if (!terminal()) {
-              <button
-                type="button"
-                class="btn-ghost"
-                [disabled]="a.cancel_requested"
-                (click)="cancel()"
+              <mui-button
+                variant="ghost"
+                size="sm"
+                [loading]="a.cancel_requested"
+                (pressed)="cancel()"
               >
-                {{ a.cancel_requested ? 'Cancelling…' : 'Cancel' }}
-              </button>
+                Cancel
+              </mui-button>
             } @else {
-              <button type="button" class="btn-primary" (click)="reset()">New import</button>
+              <mui-button variant="primary" size="sm" (pressed)="reset()">New import</mui-button>
             }
           </div>
         } @else {

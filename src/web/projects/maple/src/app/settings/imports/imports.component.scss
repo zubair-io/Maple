@@ -108,27 +108,32 @@
   overflow-y: auto;
 }
 
+// `.row-btn` is the class on the `<mui-button>` host now — the real button is
+// inside its own template, hence `::ng-deep` to reach it for the full-width
+// list-row treatment mui-button's own pill styling doesn't produce on its own.
 .row-btn {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  display: block;
   width: 100%;
-  text-align: left;
-  padding: 9px 12px;
-  background: none;
-  border: none;
-  border-bottom: 1px solid var(--s-border);
-  color: var(--s-text);
-  cursor: pointer;
-  font-size: 13px;
 
-  &:hover:not(:disabled) {
-    background: var(--s-surface-2, rgba(0, 0, 0, 0.04));
+  ::ng-deep button.mui-button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    text-align: left;
+    padding: 9px 12px;
+    background: none;
+    border: none;
+    border-radius: 0;
+    border-bottom: 1px solid var(--s-border);
+    color: var(--s-text);
+    font-size: 13px;
+
+    &:hover:not(:disabled) {
+      background: var(--s-surface-2, rgba(0, 0, 0, 0.04));
+    }
   }
-  &:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
+
   .name {
     font-weight: 500;
   }
@@ -207,12 +212,7 @@
   min-width: 0;
 }
 .label-input {
-  padding: 6px 8px;
-  font-size: 13px;
-  border: 1px solid var(--s-border);
-  border-radius: 6px;
-  background: var(--s-surface, #fff);
-  color: var(--s-text);
+  display: block;
   width: 100%;
 }
 .dest-preview {
