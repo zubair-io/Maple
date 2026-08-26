@@ -17,7 +17,7 @@ export type MuiButtonSize = 'sm' | 'md' | 'lg';
 /** `null` stays absent (the attribute shouldn't exist when the caller hasn't
  * opted in); otherwise renders the ARIA-spec "true"/"false" string form. */
 function boolAttr(value: boolean | null): string | null {
-  return value === null ? null : value ? 'true' : 'false';
+  return value == null ? null : value ? 'true' : 'false';
 }
 
 @Component({
