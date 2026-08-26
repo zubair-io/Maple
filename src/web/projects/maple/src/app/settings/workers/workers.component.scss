@@ -11,15 +11,7 @@
 
 // ── Workers page specific ──────────────────────────────────────────────
 
-.banner-error {
-  margin: 16px 36px 0;
-  padding: 10px 14px;
-  border-radius: 5px;
-  background: rgba(248, 113, 113, 0.1);
-  border: 0.5px solid rgba(248, 113, 113, 0.35);
-  color: var(--s-err);
-  font-size: 12.5px;
-}
+@include chrome.settings-banner-error-chrome(16px 36px 0);
 
 .workers-body {
   // Extra bottom padding so the last group (Import) clears the viewport edge and
@@ -182,20 +174,7 @@
   gap: 14px 24px;
 }
 
-.test-result {
-  margin-top: 6px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11.5px;
-
-  &.ok {
-    color: var(--s-ok);
-  }
-  &.err {
-    color: var(--s-err);
-  }
-}
+@include chrome.settings-test-result-chrome;
 
 .face-banner {
   grid-column: span 2;
@@ -241,23 +220,8 @@
   margin-top: 12px;
   border-top: 0.5px solid var(--s-border);
   padding-top: 14px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  @include chrome.settings-row-footer-tail-chrome;
 
-  .footer-spacer {
-    flex: 1;
-  }
-
-  .save-error {
-    font-size: 11.5px;
-    color: var(--s-err);
-  }
-  .save-ok {
-    font-size: 11.5px;
-    color: var(--s-ok);
-  }
   .save-disabled-hint {
     font-size: 11.5px;
     color: var(--s-text-muted);

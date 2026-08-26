@@ -1,0 +1,47 @@
+// Shared disclosure-header styling for the Maple UI collapsible molecules
+// (mui-collapsible, mui-settings-row's customSummary mode — #3020 dedup):
+// the plain-button header, its rotating chevron, and the grid-based
+// `content-wrapper`/`content-inner` open/close animation (grid-template-rows
+// 0fr → 1fr — avoids animating to/from `auto`, which isn't natively
+// animatable, or measuring `scrollHeight` in JS on every toggle). Not part
+// of the public API surface (see ../public-api.ts).
+
+@use '../../generated/ui-tokens' as tok;
+
+@mixin header {
+  display: flex;
+  align-items: center;
+  gap: tok.$maple-spacing-sm;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--color-text-main);
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+  text-align: left;
+}
+
+@mixin chevron {
+  display: inline-flex;
+  transition: transform tok.$maple-motion-group-swap-ms tok.$maple-motion-group-swap-ease;
+
+  &.open {
+    transform: rotate(90deg);
+  }
+}
+
+@mixin content-wrapper {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows tok.$maple-motion-group-swap-ms tok.$maple-motion-group-swap-ease;
+
+  &.open {
+    grid-template-rows: 1fr;
+  }
+}
+
+@mixin content-inner {
+  overflow: hidden;
+  min-height: 0;
+}
