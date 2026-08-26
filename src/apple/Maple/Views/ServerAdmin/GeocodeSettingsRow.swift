@@ -9,6 +9,7 @@
 
 import SwiftUI
 import MapleCore
+import MapleUI
 
 struct GeocodeSettingsRow: View {
     let client: EnrichmentConfigClient
@@ -16,8 +17,8 @@ struct GeocodeSettingsRow: View {
     let onSaved: (EnrichmentConfig) -> Void
 
     @State private var form: GeocodeSettingsForm
-    @State private var saveState: EnrichmentActionState = .idle
-    @State private var testState: EnrichmentActionState = .idle
+    @State private var saveState: ServerAdminActionState = .idle
+    @State private var testState: ServerAdminActionState = .idle
     @State private var saveConfirmationTask: Task<Void, Never>?
 
     init(
@@ -53,43 +54,19 @@ struct GeocodeSettingsRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Button {
-                Task { await test() }
-            } label: {
-                HStack {
-                    Text(testState == .running ? "Testing…" : "Test")
-                    if testState == .running {
-                        Spacer()
-                        ProgressView().controlSize(.small)
-                    }
-                }
-            }
-            .disabled(form.testURL() == nil || testState == .running)
-            .accessibilityIdentifier("enrichment.geocode.test")
-            if let reason = EnrichmentSettingsVM.geocodeTestDisabledReason(form) {
-                Text(reason)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("enrichment.geocode.testDisabledReason")
-            }
-            actionStateLabel(
-                testState, successText: "Connected.", identifier: "enrichment.geocode.testResult")
+            serverAdminActionButton(
+                "Test", state: testState, successText: "Connected.",
+                identifier: "enrichment.geocode.test",
+                disabledReason: EnrichmentSettingsVM.geocodeTestDisabledReason(form),
+                disabled: form.testURL() == nil,
+                action: { Task { await test() } }
+            )
 
-            Button {
-                Task { await save() }
-            } label: {
-                HStack {
-                    Text(saveState == .running ? "Saving…" : "Save")
-                    if saveState == .running {
-                        Spacer()
-                        ProgressView().controlSize(.small)
-                    }
-                }
-            }
-            .disabled(saveState == .running)
-            .accessibilityIdentifier("enrichment.geocode.save")
-            actionStateLabel(
-                saveState, successText: "Saved.", identifier: "enrichment.geocode.saveResult")
+            serverAdminActionButton(
+                "Save", variant: .primary, state: saveState, successText: "Saved.",
+                identifier: "enrichment.geocode.save",
+                action: { Task { await save() } }
+            )
         }
         .listRowBackground(MapleTokens.surface)
         .onDisappear { saveConfirmationTask?.cancel() }

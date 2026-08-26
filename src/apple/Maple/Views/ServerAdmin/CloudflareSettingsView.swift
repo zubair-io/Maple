@@ -8,6 +8,7 @@
 
 import SwiftUI
 import MapleCore
+import MapleUI
 
 struct CloudflareSettingsView: View {
     let client: CloudflareConfigClient
@@ -18,17 +19,10 @@ struct CloudflareSettingsView: View {
         case failed(String)
     }
 
-    private enum ActionState: Equatable {
-        case idle
-        case running
-        case succeeded
-        case failed(String)
-    }
-
     @State private var loadState: LoadState = .loading
     @State private var form = CloudflareSettingsForm()
-    @State private var saveState: ActionState = .idle
-    @State private var testState: ActionState = .idle
+    @State private var saveState: ServerAdminActionState = .idle
+    @State private var testState: ServerAdminActionState = .idle
     @State private var saveConfirmationTask: Task<Void, Never>?
 
     private var secretIsSet: Bool {
@@ -127,65 +121,21 @@ struct CloudflareSettingsView: View {
     @ViewBuilder
     private var actionsSection: some View {
         Section {
-            Button {
-                Task { await test() }
-            } label: {
-                HStack {
-                    Text(testState == .running ? "Testing…" : "Test")
-                    if testState == .running {
-                        Spacer()
-                        ProgressView().controlSize(.small)
-                    }
-                }
-            }
-            .disabled(!CloudflareSettingsVM.canTest(form) || testState == .running)
-            .accessibilityIdentifier("cloudflare.test")
+            serverAdminActionButton(
+                "Test", state: testState, successText: "Connected.",
+                identifier: "cloudflare.test",
+                disabledReason: CloudflareSettingsVM.testDisabledReason(form, secretIsSet: secretIsSet),
+                disabled: !CloudflareSettingsVM.canTest(form),
+                action: { Task { await test() } }
+            )
 
-            if let reason = CloudflareSettingsVM.testDisabledReason(form, secretIsSet: secretIsSet) {
-                Text(reason)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("cloudflare.testDisabledReason")
-            }
-            stateLabel(testState, successText: "Connected.", identifier: "cloudflare.testResult")
-
-            Button {
-                Task { await save() }
-            } label: {
-                HStack {
-                    Text(saveState == .running ? "Saving…" : "Save")
-                    if saveState == .running {
-                        Spacer()
-                        ProgressView().controlSize(.small)
-                    }
-                }
-            }
-            .disabled(saveState == .running)
-            .accessibilityIdentifier("cloudflare.save")
-
-            stateLabel(saveState, successText: "Saved.", identifier: "cloudflare.saveResult")
+            serverAdminActionButton(
+                "Save", variant: .primary, state: saveState, successText: "Saved.",
+                identifier: "cloudflare.save",
+                action: { Task { await save() } }
+            )
         }
         .listRowBackground(MapleTokens.surface)
-    }
-
-    @ViewBuilder
-    private func stateLabel(
-        _ state: ActionState, successText: String, identifier: String
-    ) -> some View {
-        switch state {
-        case .failed(let message):
-            Label(message, systemImage: "xmark.circle")
-                .font(.caption)
-                .foregroundStyle(.red)
-                .accessibilityIdentifier("\(identifier).error")
-        case .succeeded:
-            Label(successText, systemImage: "checkmark.circle")
-                .font(.caption)
-                .foregroundStyle(.green)
-                .accessibilityIdentifier("\(identifier).success")
-        case .idle, .running:
-            EmptyView()
-        }
     }
 
     @ViewBuilder

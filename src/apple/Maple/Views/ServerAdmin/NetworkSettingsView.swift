@@ -9,6 +9,7 @@
 
 import SwiftUI
 import MapleCore
+import MapleUI
 
 struct NetworkSettingsView: View {
     let client: NetworkConfigClient
@@ -21,9 +22,7 @@ struct NetworkSettingsView: View {
 
     @State private var loadState: LoadState = .loading
     @State private var form = NetworkSettingsForm()
-    @State private var isSaving = false
-    @State private var saveError: String?
-    @State private var didSave = false
+    @State private var saveState: ServerAdminActionState = .idle
     @State private var saveConfirmationTask: Task<Void, Never>?
 
     var body: some View {
@@ -127,31 +126,13 @@ struct NetworkSettingsView: View {
             Toggle("Advertise a LAN address to clients", isOn: $form.enabled)
                 .accessibilityIdentifier("network.enabled")
 
-            Button {
-                Task { await save() }
-            } label: {
-                HStack {
-                    Text(isSaving ? "Saving…" : "Save")
-                    if isSaving {
-                        Spacer()
-                        ProgressView().controlSize(.small)
-                    }
-                }
-            }
-            .disabled(isSaving)
-            .accessibilityIdentifier("network.save")
-
-            if let saveError {
-                Label(saveError, systemImage: "xmark.circle")
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .accessibilityIdentifier("network.saveError")
-            } else if didSave {
-                Label("Saved.", systemImage: "checkmark.circle")
-                    .font(.caption)
-                    .foregroundStyle(.green)
-                    .accessibilityIdentifier("network.saved")
-            }
+            serverAdminActionButton(
+                "Save", variant: .primary, state: saveState, successText: "Saved.",
+                identifier: "network.save",
+                successIdentifier: "network.saved",
+                failureIdentifier: "network.saveError",
+                action: { Task { await save() } }
+            )
         }
         .listRowBackground(MapleTokens.surface)
     }
@@ -172,15 +153,12 @@ struct NetworkSettingsView: View {
     }
 
     private func save() async {
-        saveError = nil
-        didSave = false
         let validation = form.validated()
         guard case .valid(let patch) = validation else {
-            if case .invalid(let message) = validation { saveError = message }
+            if case .invalid(let message) = validation { saveState = .failed(message) }
             return
         }
-        isSaving = true
-        defer { isSaving = false }
+        saveState = .running
         do {
             let config = try await client.save(patch)
             // Re-seed from the server's answer rather than trusting the
@@ -188,17 +166,17 @@ struct NetworkSettingsView: View {
             // only cleared.
             form = NetworkSettingsForm.seeded(from: config)
             loadState = .loaded(config)
-            didSave = true
+            saveState = .succeeded
             saveConfirmationTask?.cancel()
             // Explicitly @MainActor for the same reason as the Cloudflare
             // page — this mutates SwiftUI @State and shouldn't depend on
             // isolation inheritance to be correct.
             saveConfirmationTask = Task { @MainActor in
                 try? await Task.sleep(for: .seconds(2))
-                if !Task.isCancelled { didSave = false }
+                if !Task.isCancelled, saveState == .succeeded { saveState = .idle }
             }
         } catch {
-            saveError = error.localizedDescription
+            saveState = .failed(error.localizedDescription)
         }
     }
 }
