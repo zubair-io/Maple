@@ -11,7 +11,14 @@
       <div class="pano-header">
         <span class="pano-title">Merge to panorama</span>
         @if (phase() !== 'submitting' && phase() !== 'polling') {
-          <button type="button" class="pano-close" aria-label="Close" (click)="onClose()">✕</button>
+          <mui-button
+            variant="ghost"
+            size="sm"
+            [iconOnly]="true"
+            iconLeading="x"
+            ariaLabel="Close"
+            (pressed)="onClose()"
+          />
         }
       </div>
 
@@ -91,10 +98,8 @@
         </div>
 
         <div class="pano-footer">
-          <button type="button" class="pano-btn pano-btn-ghost" (click)="onCancel()">Cancel</button>
-          <button type="button" class="pano-btn pano-btn-primary" (click)="onSubmit()">
-            Stitch
-          </button>
+          <mui-button variant="ghost" (pressed)="onCancel()">Cancel</mui-button>
+          <mui-button variant="primary" (pressed)="onSubmit()">Stitch</mui-button>
         </div>
       }
 
@@ -125,9 +130,7 @@
           </p>
         </div>
         <div class="pano-footer">
-          <button type="button" class="pano-btn pano-btn-ghost" (click)="onCancel()">
-            Cancel job
-          </button>
+          <mui-button variant="ghost" (pressed)="onCancel()">Cancel job</mui-button>
         </div>
       }
 
@@ -137,11 +140,9 @@
           <p class="pano-summary">Panorama ready.</p>
         </div>
         <div class="pano-footer">
-          <button type="button" class="pano-btn pano-btn-ghost" (click)="onClose()">Close</button>
+          <mui-button variant="ghost" (pressed)="onClose()">Close</mui-button>
           @if (job()?.result?.outputAssetId) {
-            <button type="button" class="pano-btn pano-btn-primary" (click)="onViewResult()">
-              Open in editor
-            </button>
+            <mui-button variant="primary" (pressed)="onViewResult()">Open in editor</mui-button>
           }
         </div>
       }
@@ -160,7 +161,7 @@
           }
         </div>
         <div class="pano-footer">
-          <button type="button" class="pano-btn pano-btn-primary" (click)="onClose()">Close</button>
+          <mui-button variant="primary" (pressed)="onClose()">Close</mui-button>
         </div>
       }
     </div>

@@ -36,7 +36,11 @@ export abstract class OverlayFocusBase implements OnDestroy {
   constructor() {
     effect(() => {
       if (this.open()) {
-        queueMicrotask(() => this.panel()?.nativeElement.focus());
+        queueMicrotask(() => {
+          const target = this.focusTarget();
+          if (target) target.focus();
+          else this.panel()?.nativeElement.focus();
+        });
         document.addEventListener('keydown', this.onKeydown);
       } else {
         document.removeEventListener('keydown', this.onKeydown);
@@ -50,7 +54,7 @@ export abstract class OverlayFocusBase implements OnDestroy {
 
   private readonly onKeydown = (event: KeyboardEvent): void => {
     if (event.key === 'Escape') {
-      this.dismissed.emit();
+      this.requestDismiss();
       return;
     }
     this.handleNonEscapeKeydown(event);
@@ -60,7 +64,27 @@ export abstract class OverlayFocusBase implements OnDestroy {
    * containment. */
   protected handleNonEscapeKeydown(_event: KeyboardEvent): void {}
 
-  onScrimClick(): void {
+  /** Element to focus once the overlay opens, in place of the panel itself.
+   * `undefined` (the default) keeps the panel focus. mui-dialog overrides
+   * this to focus its Cancel button for a `destructive` confirm — the
+   * platform convention (matches the legacy `DestructiveConfirmDialogBase`
+   * this replaced, MW2 #3029) of defaulting focus to the safe action so an
+   * accidental Enter right after opening can't complete a destructive
+   * confirm. */
+  protected focusTarget(): { focus(): void } | undefined {
+    return undefined;
+  }
+
+  /** Emits `dismissed` for Escape and a scrim click alike. mui-dialog
+   * overrides this to add its `busy` guard (MW2 #3029) — a request in
+   * flight must ignore Escape/scrim-click the same way it ignores a Cancel
+   * click, matching the legacy `DestructiveConfirmDialogBase.guardedCancel`
+   * behavior it replaced. */
+  protected requestDismiss(): void {
     this.dismissed.emit();
+  }
+
+  onScrimClick(): void {
+    this.requestDismiss();
   }
 }

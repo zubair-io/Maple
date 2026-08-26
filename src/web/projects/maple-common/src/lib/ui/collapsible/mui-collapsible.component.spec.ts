@@ -1,7 +1,7 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import type { ComponentFixture } from '@angular/core/testing';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { MuiCollapsibleComponent } from './mui-collapsible.component';
 
@@ -71,5 +71,88 @@ describe('MuiCollapsibleComponent', () => {
   it('always projects its content, even while collapsed (height animates, not display)', () => {
     const fixture = render();
     expect(fixture.nativeElement.querySelector('.body').textContent).toBe('Body content');
+  });
+
+  it('pads its content region by default, and can opt out via padInner', () => {
+    const fixture = render();
+    expect(fixture.nativeElement.querySelector('.content-inner').className).toContain('pad-inner');
+  });
+});
+
+@Component({
+  standalone: true,
+  imports: [MuiCollapsibleComponent],
+  template: `
+    <mui-collapsible label="Tone" storageKey="pad-inner-test" [padInner]="false">
+      <p class="body">Body content</p>
+    </mui-collapsible>
+  `,
+})
+class NoPadHostComponent {}
+
+describe('MuiCollapsibleComponent — padInner opt-out', () => {
+  it('omits the padding class when padInner is false', () => {
+    TestBed.configureTestingModule({ imports: [NoPadHostComponent] });
+    const fixture = TestBed.createComponent(NoPadHostComponent);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.content-inner').className).not.toContain(
+      'pad-inner',
+    );
+  });
+});
+
+@Component({
+  standalone: true,
+  imports: [MuiCollapsibleComponent],
+  template: `<mui-collapsible label="Noise Reduction" storageKey="test-storage-key" />`,
+})
+class StorageHostComponent {}
+
+describe('MuiCollapsibleComponent — storageKey persistence', () => {
+  beforeEach(() => localStorage.removeItem('cm.coll.test-storage-key'));
+  afterEach(() => localStorage.removeItem('cm.coll.test-storage-key'));
+
+  it('defaults open (defaultOpen defaults to true) when nothing is stored yet', () => {
+    TestBed.configureTestingModule({ imports: [StorageHostComponent] });
+    const fixture = TestBed.createComponent(StorageHostComponent);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.header').getAttribute('aria-expanded')).toBe(
+      'true',
+    );
+  });
+
+  it('honors an explicit defaultOpen=false when nothing is stored yet', () => {
+    TestBed.configureTestingModule({
+      imports: [MuiCollapsibleComponent],
+    });
+    const fixture = TestBed.createComponent(MuiCollapsibleComponent);
+    fixture.componentRef.setInput('label', 'Sharpening');
+    fixture.componentRef.setInput('storageKey', 'test-storage-key');
+    fixture.componentRef.setInput('defaultOpen', false);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.header').getAttribute('aria-expanded')).toBe(
+      'false',
+    );
+  });
+
+  it('restores a previously persisted closed state and persists toggles', () => {
+    localStorage.setItem('cm.coll.test-storage-key', '0');
+    TestBed.configureTestingModule({ imports: [StorageHostComponent] });
+    const fixture = TestBed.createComponent(StorageHostComponent);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.header').getAttribute('aria-expanded')).toBe(
+      'false',
+    );
+
+    fixture.nativeElement.querySelector('.header').click();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.header').getAttribute('aria-expanded')).toBe(
+      'true',
+    );
+    expect(localStorage.getItem('cm.coll.test-storage-key')).toBe('1');
   });
 });

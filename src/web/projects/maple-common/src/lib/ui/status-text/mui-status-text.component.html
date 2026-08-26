@@ -1,4 +1,4 @@
-<span class="mui-status-text" [class]="'state-' + state()" role="status">
+<span class="mui-status-text" [class]="'state-' + state()" [attr.role]="role()">
   <mui-icon [name]="presentation().icon" size="xs" [color]="presentation().colorVar" />
   <span class="text" [style.color]="presentation().colorVar">{{ displayText() }}</span>
 </span>

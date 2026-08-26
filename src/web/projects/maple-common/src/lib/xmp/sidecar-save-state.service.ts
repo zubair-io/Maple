@@ -1,5 +1,6 @@
 import { Injectable, computed, signal } from '@angular/core';
 import type { AssetId } from '../models/asset';
+import type { MuiStatusTextState } from '../ui/status-text/mui-status-text.component';
 
 export type SidecarSavePhase = 'idle' | 'unsaved' | 'saving' | 'saved' | 'error';
 
@@ -7,6 +8,16 @@ interface AssetSaveState {
   revision: number;
   phase: SidecarSavePhase;
   error: string | null;
+}
+
+/** What `<mui-status-text>` should show for a given phase, or `null` to
+ * render nothing — `root-shell`/`hosted-root-shell`'s `maple-save-status`
+ * mount only ever surfaced unsaved/saving work and hard failures; a
+ * settled `idle`/`saved` phase was always silent (MW2, #3029: replaces
+ * `SaveStatusComponent`'s own `@if` branches). */
+export interface SidecarSaveStatusText {
+  readonly state: MuiStatusTextState;
+  readonly text: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -31,6 +42,17 @@ export class SidecarSaveStateService {
     return null;
   });
   readonly hasUnsavedChanges = computed(() => this._assets().size > 0);
+
+  readonly statusText = computed<SidecarSaveStatusText | null>(() => {
+    const phase = this.phase();
+    if (phase === 'unsaved' || phase === 'saving') {
+      return { state: 'saving', text: 'Saving edits…' };
+    }
+    if (phase === 'error') {
+      return { state: 'error', text: `Edits are not saved. ${this.error() ?? ''}`.trimEnd() };
+    }
+    return null;
+  });
 
   queued(assetId: AssetId): number {
     const revision = ++this._nextRevision;

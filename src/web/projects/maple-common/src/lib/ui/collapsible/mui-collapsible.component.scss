@@ -21,4 +21,8 @@
 
 .content-inner {
   @include disclosure.content-inner;
+
+  &.pad-inner {
+    padding: 2px 0 10px;
+  }
 }

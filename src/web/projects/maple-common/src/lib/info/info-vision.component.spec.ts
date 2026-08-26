@@ -58,7 +58,7 @@ describe('InfoVisionComponent', () => {
   it('renders nothing when there is neither vision nor ocr_text', () => {
     const el = render({ vision: null, vision_meta: null, ocr_text: null });
     expect(el.querySelector('.ocr-pre')).toBeNull();
-    expect(el.querySelector('maple-collapsible')).toBeNull();
+    expect(el.querySelector('mui-collapsible')).toBeNull();
   });
 
   it('does not render an empty OCR block for empty-string ocr_text', () => {

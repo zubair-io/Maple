@@ -2,13 +2,13 @@
 
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { LibraryStateService } from '../../state/library-state.service';
-import { MapleCollapsibleComponent } from '../../collapsible/maple-collapsible.component';
+import { MuiCollapsibleComponent } from '../../ui/collapsible/mui-collapsible.component';
 import { EditorSliderComponent } from './slider.component';
 
 @Component({
   selector: 'editor-tone-section',
   standalone: true,
-  imports: [MapleCollapsibleComponent, EditorSliderComponent],
+  imports: [MuiCollapsibleComponent, EditorSliderComponent],
   templateUrl: './tone-section.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

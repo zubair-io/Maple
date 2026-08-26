@@ -9,6 +9,12 @@
 // `check`/`clear-circle-fill` are the existing success/error glyphs, and
 // `x`/`dot` distinguish the quieter offline and idle states from the
 // attention-grabbing filled error glyph.
+//
+// `error` renders `role="alert"` (MW2, #3029): the migrated
+// `SaveStatusComponent` consumer used `role="alert"` (assertive) for a
+// failed sidecar write specifically — a save failure needs to interrupt,
+// not wait for the screen reader's next idle moment. Every other state
+// keeps `role="status"` (polite).
 
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { MuiIconComponent } from '../icon/mui-icon.component';
@@ -45,4 +51,5 @@ export class MuiStatusTextComponent {
 
   readonly presentation = computed(() => PRESENTATION[this.state()]);
   readonly displayText = computed(() => this.text() ?? this.presentation().text);
+  readonly role = computed(() => (this.state() === 'error' ? 'alert' : 'status'));
 }

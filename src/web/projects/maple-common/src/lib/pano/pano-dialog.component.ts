@@ -37,6 +37,7 @@ import {
 } from '../api/pano.service';
 import { LibraryStateService } from '../state/library-state.service';
 import { viewRouteCommands } from '../addressing/route-address';
+import { MuiButtonComponent } from '../ui/button/mui-button.component';
 
 type DialogPhase =
   | 'idle'
@@ -50,6 +51,7 @@ type DialogPhase =
 @Component({
   selector: 'app-pano-dialog',
   standalone: true,
+  imports: [MuiButtonComponent],
   templateUrl: './pano-dialog.component.html',
   styleUrl: './pano-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

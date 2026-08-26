@@ -49,10 +49,16 @@ describe('MuiStatusTextComponent', () => {
     expect(fixture.nativeElement.querySelector('.text').textContent).toBe('Saved 2m ago');
   });
 
-  it('exposes a status role for assistive tech', () => {
+  it('exposes a status role for assistive tech, except error which is an alert', () => {
     const fixture = make();
     expect(fixture.nativeElement.querySelector('.mui-status-text').getAttribute('role')).toBe(
       'status',
+    );
+
+    fixture.componentRef.setInput('state', 'error');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.mui-status-text').getAttribute('role')).toBe(
+      'alert',
     );
   });
 });

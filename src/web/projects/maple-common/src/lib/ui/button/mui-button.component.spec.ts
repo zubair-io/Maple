@@ -111,4 +111,10 @@ describe('MuiButtonComponent', () => {
     expect(btn.getAttribute('aria-label')).toBe('Close');
     expect(fixture.nativeElement.querySelector('mui-icon')).toBeTruthy();
   });
+
+  it('focus() forwards to the native button element', () => {
+    const fixture = render();
+    fixture.componentInstance.focus();
+    expect(document.activeElement).toBe(button(fixture));
+  });
 });

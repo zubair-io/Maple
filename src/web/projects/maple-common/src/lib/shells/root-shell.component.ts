@@ -10,12 +10,13 @@
 //
 // Plan: docs/superpowers/plans/2026-07-25-web-responsive-desktop.md Task 1.
 
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { UpdateToastComponent } from '../sw/update-toast.component';
 import { LanSwitchBannerComponent } from '../network/lan-switch-banner.component';
 import { GpuFallbackNoticeComponent } from '../components/gpu-fallback-notice/gpu-fallback-notice.component';
-import { SaveStatusComponent } from '../components/save-status/save-status.component';
+import { MuiStatusTextComponent } from '../ui/status-text/mui-status-text.component';
+import { SidecarSaveStateService } from '../xmp/sidecar-save-state.service';
 
 @Component({
   selector: 'app-root-shell',
@@ -25,7 +26,7 @@ import { SaveStatusComponent } from '../components/save-status/save-status.compo
     UpdateToastComponent,
     LanSwitchBannerComponent,
     GpuFallbackNoticeComponent,
-    SaveStatusComponent,
+    MuiStatusTextComponent,
   ],
   // The LAN-switch banner is a no-op on the Hosted build (see its
   // LIBRARY_BACKEND gate) — safe to always mount here. The GPU fallback
@@ -36,4 +37,11 @@ import { SaveStatusComponent } from '../components/save-status/save-status.compo
   styleUrl: './root-shell.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class RootShellComponent {}
+export class RootShellComponent {
+  // Replaces the deleted `maple-save-status` wrapper (MW2, #3029) — the
+  // phase→presentation mapping now lives on the service itself
+  // (`SidecarSaveStateService.statusText`) since both this shell and
+  // maple-syrup's `HostedRootShellComponent` render the exact same thing
+  // from it.
+  protected readonly saveState = inject(SidecarSaveStateService);
+}

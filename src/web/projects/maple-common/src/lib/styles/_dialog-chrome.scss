@@ -1,10 +1,15 @@
 // _dialog-chrome.scss — the chrome every modal dialog in maple-common shares.
 //
-// The pano stitch dialog, the batch-metadata panel/confirm dialogs and the
-// selective-paste dialog (#944) all draw the same 24×24 header close button
-// and the same ghost/primary footer button pair. They were four byte-identical
-// copies of the same rules under four class prefixes; these mixins are the one
-// definition, included under whatever prefix each component uses.
+// The batch-metadata panel/confirm dialogs and the selective-paste dialog
+// (#944) draw the same 24×24 header close button and the same ghost/primary
+// footer button pair; folder-new/rename/trash and batch-rename draw the
+// same backdrop/card/header/title chrome. They were byte-identical copies
+// of the same rules under different class prefixes; these mixins are the
+// one definition, included under whatever prefix each component uses.
+// (The pano stitch dialog, drag-move's collision dialog, and move-to…'s
+// dialog used `dialog-button`/`dialog-close-button` here too until MW2
+// (#3029) moved their buttons onto `<mui-button>` — they still use the
+// backdrop/card/header/title mixins below for their surrounding chrome.)
 //
 // Prefix-agnostic by design: `&-ghost` / `&-primary` resolve against the
 // include site, so `.psd-btn { @include dialog-button; }` emits

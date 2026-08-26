@@ -3,9 +3,9 @@
     <div
       #panel
       class="mui-dialog"
-      role="dialog"
+      [attr.role]="role()"
       aria-modal="true"
-      [attr.aria-label]="title()"
+      [attr.aria-label]="resolvedAriaLabel()"
       tabindex="-1"
       (click)="$event.stopPropagation()"
     >
@@ -13,6 +13,11 @@
       @if (message()) {
         <mui-text variant="body" color="muted" [block]="true" class="message">
           {{ message() }}
+        </mui-text>
+      }
+      @if (errorMessage()) {
+        <mui-text variant="body" color="error" [block]="true" class="error-message">
+          {{ errorMessage() }}
         </mui-text>
       }
       @if (variant() === 'prompt') {
@@ -25,8 +30,14 @@
         />
       }
       <div class="actions">
-        <mui-button variant="ghost" (pressed)="cancel()">{{ cancelLabel() }}</mui-button>
-        <mui-button [variant]="destructive() ? 'destructive' : 'primary'" (pressed)="confirm()">
+        <mui-button #cancelBtn variant="ghost" [disabled]="busy()" (pressed)="cancel()">
+          {{ cancelLabel() }}
+        </mui-button>
+        <mui-button
+          [variant]="destructive() ? 'destructive' : 'primary'"
+          [disabled]="busy()"
+          (pressed)="confirm()"
+        >
           {{ confirmLabel() }}
         </mui-button>
       </div>

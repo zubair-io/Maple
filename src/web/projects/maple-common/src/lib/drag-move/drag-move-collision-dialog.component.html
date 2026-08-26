@@ -18,11 +18,9 @@
     </div>
 
     <div class="dmc-footer">
-      <button #skipButton type="button" class="dmc-btn dmc-btn-ghost" (click)="onSkip()">
-        Skip
-      </button>
-      <button type="button" class="dmc-btn dmc-btn-ghost" (click)="onKeepBoth()">Keep Both</button>
-      <button type="button" class="dmc-btn dmc-btn-primary" (click)="onReplace()">Replace</button>
+      <mui-button #skipButton variant="ghost" (pressed)="onSkip()">Skip</mui-button>
+      <mui-button variant="ghost" (pressed)="onKeepBoth()">Keep Both</mui-button>
+      <mui-button variant="primary" (pressed)="onReplace()">Replace</mui-button>
     </div>
   </div>
 </div>

@@ -1,7 +1,6 @@
 // pano-dialog.component.scss — panorama stitch options dialog (#1231).
-// Close button and footer buttons come from the shared dialog-chrome mixins.
-
-@use '../styles/dialog-chrome' as chrome;
+// Close/footer buttons are `<mui-button>` (MW2 #3029) — no local button
+// chrome left to import the shared dialog-chrome mixins for.
 
 .pano-backdrop {
   position: fixed;
@@ -39,10 +38,6 @@
   font-weight: 600;
   color: var(--color-text-main);
   letter-spacing: -0.01em;
-}
-
-.pano-close {
-  @include chrome.dialog-close-button;
 }
 
 .pano-body {
@@ -116,10 +111,6 @@
   padding: 12px 16px;
   border-top: 0.5px solid var(--color-border);
   flex-shrink: 0;
-}
-
-.pano-btn {
-  @include chrome.dialog-button;
 }
 
 // Progress bar

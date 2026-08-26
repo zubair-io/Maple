@@ -275,7 +275,9 @@ describe('FolderTreeCrudComponent (#2643 / #2705 review)', () => {
     const dialog = fixture.nativeElement.querySelector('[role="alertdialog"]');
     expect(dialog?.textContent).toContain('"2026"');
 
-    (fixture.nativeElement.querySelector('.ftc-btn-destructive') as HTMLButtonElement).click();
+    (
+      fixture.nativeElement.querySelector('.actions .variant-destructive') as HTMLButtonElement
+    ).click();
     fixture.detectChanges();
 
     expect(crud.trashFolder).toHaveBeenCalledWith(LIBRARY.id, '2026');
