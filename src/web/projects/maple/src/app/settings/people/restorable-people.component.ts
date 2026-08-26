@@ -40,6 +40,7 @@ import {
   BunApiBackendService,
   FilesystemBrowseService,
   PeopleStore,
+  MuiButtonComponent,
 } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
@@ -74,6 +75,7 @@ import {
     SettingsShellComponent,
     SettingsIconComponent,
     MapleVisibleOnceDirective,
+    MuiButtonComponent,
   ],
   templateUrl: './restorable-people.component.html',
   styleUrl: './people.component.scss',

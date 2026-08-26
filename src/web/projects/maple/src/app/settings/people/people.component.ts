@@ -35,7 +35,6 @@ import {
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { DecimalPipe } from '@angular/common';
-import { FormsModule } from '@angular/forms';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import {
@@ -48,6 +47,8 @@ import {
   LIBRARY_SOURCE,
   type LibrarySource,
   PeopleStore,
+  MuiButtonComponent,
+  MuiCheckboxComponent,
 } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
@@ -87,12 +88,13 @@ import { PeopleFaceBulkController } from './people-face-bulk.controller';
   selector: 'maple-people',
   imports: [
     DecimalPipe,
-    FormsModule,
     RouterLink,
     ScrollingModule,
     SettingsShellComponent,
     SettingsIconComponent,
     MapleVisibleOnceDirective,
+    MuiButtonComponent,
+    MuiCheckboxComponent,
   ],
   templateUrl: './people.component.html',
   styleUrl: './people.component.scss',
