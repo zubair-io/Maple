@@ -14,6 +14,12 @@ import type { MapleIconName } from '../../icons/maple-icon.component';
 export type MuiButtonVariant = 'primary' | 'secondary' | 'ghost' | 'destructive';
 export type MuiButtonSize = 'sm' | 'md' | 'lg';
 
+/** `null` stays absent (the attribute shouldn't exist when the caller hasn't
+ * opted in); otherwise renders the ARIA-spec "true"/"false" string form. */
+function boolAttr(value: boolean | null): string | null {
+  return value === null ? null : value ? 'true' : 'false';
+}
+
 @Component({
   selector: 'mui-button',
   standalone: true,
@@ -34,10 +40,22 @@ export class MuiButtonComponent {
    * button with no accessible name" rule. */
   readonly iconOnly = input<boolean>(false);
   readonly ariaLabel = input<string | null>(null);
+  /** For a button that discloses/toggles a region it controls (e.g. "Compare
+   * faces" ↔ "Hide faces") — forwarded to the native button's
+   * `aria-expanded`. `[attr.aria-expanded]` written directly on `<mui-button>`
+   * lands on the custom-element host, not the interactive control inside it,
+   * so this exists to reach the real button (MW1, ticket #3020). */
+  readonly ariaExpanded = input<boolean | null>(null);
+  /** For a two-state toggle button (e.g. a face-selection tile) — forwarded
+   * to the native button's `aria-pressed`. Same host-vs-interactive-control
+   * reasoning as `ariaExpanded` above. */
+  readonly ariaPressed = input<boolean | null>(null);
 
   readonly pressed = output<MouseEvent>();
 
   readonly isDisabled = computed(() => this.disabled() || this.loading());
+  readonly ariaExpandedAttr = computed(() => boolAttr(this.ariaExpanded()));
+  readonly ariaPressedAttr = computed(() => boolAttr(this.ariaPressed()));
 
   onClick(event: MouseEvent): void {
     if (this.isDisabled()) return;
