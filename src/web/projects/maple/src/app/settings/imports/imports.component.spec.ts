@@ -137,7 +137,7 @@ describe('ImportsComponent', () => {
 
   it('clicking a subfolder browses into it, and Up returns to the parent', async () => {
     await initAndPickLibrary();
-    el().querySelector<HTMLButtonElement>('.row-btn')!.click();
+    el().querySelector<HTMLButtonElement>('.row-btn button')!.click();
 
     http
       .expectOne('/api/fs/dir-fast?path=/incoming')
@@ -146,7 +146,7 @@ describe('ImportsComponent', () => {
     fixture.detectChanges();
     expect(el().querySelector('.path')?.textContent).toBe('/incoming');
 
-    el().querySelector<HTMLButtonElement>('.browser-bar .btn-ghost')!.click();
+    el().querySelector<HTMLButtonElement>('.browser-bar mui-button button')!.click();
     http.expectOne('/api/fs/dir-fast?path=/').flush(ROOT_LISTING);
     await tick();
     fixture.detectChanges();
@@ -156,22 +156,24 @@ describe('ImportsComponent', () => {
   it('"Use this folder" is disabled inside the target library and picks the folder outside it', async () => {
     await initAndPickLibrary();
     // At '/', not inside '/photos/library' — usable.
-    const useBtn = el().querySelector<HTMLButtonElement>('.use-here')!;
+    const useBtn = el().querySelector<HTMLButtonElement>('.use-here button')!;
     expect(useBtn.disabled).toBe(false);
 
     useBtn.click();
     fixture.detectChanges();
 
     expect(el().querySelector('.picked-row code')?.textContent).toBe('/');
-    expect(el().querySelector('.btn-primary')?.textContent).toContain('Pick Folder Name(s)');
+    expect(
+      el().querySelector('.actions mui-button[variant="primary"]')?.textContent,
+    ).toContain('Pick Folder Name(s)');
   });
 
   it('runScan POSTs /api/imports/scan and transitions to the review step with buckets rendered', async () => {
     await initAndPickLibrary();
-    el().querySelector<HTMLButtonElement>('.use-here')!.click();
+    el().querySelector<HTMLButtonElement>('.use-here button')!.click();
     fixture.detectChanges();
 
-    el().querySelector<HTMLButtonElement>('.actions .btn-primary')!.click();
+    el().querySelector<HTMLButtonElement>('.actions mui-button[variant="primary"] button')!.click();
     const req = http.expectOne('/api/imports/scan');
     expect(req.request.method).toBe('POST');
     expect(req.request.body).toEqual({ source_root: '/', library_id: 'lib1' });
@@ -206,9 +208,9 @@ describe('ImportsComponent', () => {
 
   it('runScan with zero files shows an error and stays on the pick step', async () => {
     await initAndPickLibrary();
-    el().querySelector<HTMLButtonElement>('.use-here')!.click();
+    el().querySelector<HTMLButtonElement>('.use-here button')!.click();
     fixture.detectChanges();
-    el().querySelector<HTMLButtonElement>('.actions .btn-primary')!.click();
+    el().querySelector<HTMLButtonElement>('.actions mui-button[variant="primary"] button')!.click();
 
     http.expectOne('/api/imports/scan').flush({
       source_root: '/',
@@ -227,9 +229,9 @@ describe('ImportsComponent', () => {
   /** Drive all the way to the review step with one bucket. */
   async function toReviewStep(): Promise<void> {
     await initAndPickLibrary();
-    el().querySelector<HTMLButtonElement>('.use-here')!.click();
+    el().querySelector<HTMLButtonElement>('.use-here button')!.click();
     fixture.detectChanges();
-    el().querySelector<HTMLButtonElement>('.actions .btn-primary')!.click();
+    el().querySelector<HTMLButtonElement>('.actions mui-button[variant="primary"] button')!.click();
     http.expectOne('/api/imports/scan').flush({
       source_root: '/',
       buckets: [
@@ -257,7 +259,7 @@ describe('ImportsComponent', () => {
     await toReviewStep();
     expect(el().querySelector('.nearby-note')).toBeTruthy();
 
-    const labelInput = el().querySelector<HTMLInputElement>('.label-input')!;
+    const labelInput = el().querySelector<HTMLInputElement>('.label-input input')!;
     labelInput.value = 'summer-trip';
     labelInput.dispatchEvent(new Event('input'));
     fixture.detectChanges();
@@ -268,12 +270,12 @@ describe('ImportsComponent', () => {
 
   it('startImport POSTs the reviewed labels and returns to pick with the queued notice', async () => {
     await toReviewStep();
-    const labelInput = el().querySelector<HTMLInputElement>('.label-input')!;
+    const labelInput = el().querySelector<HTMLInputElement>('.label-input input')!;
     labelInput.value = 'summer-trip';
     labelInput.dispatchEvent(new Event('input'));
     fixture.detectChanges();
 
-    el().querySelector<HTMLButtonElement>('.actions .btn-primary')!.click();
+    el().querySelector<HTMLButtonElement>('.actions mui-button[variant="primary"] button')!.click();
     const req = http.expectOne('/api/imports');
     expect(req.request.method).toBe('POST');
     expect(req.request.body).toEqual({
@@ -291,7 +293,7 @@ describe('ImportsComponent', () => {
 
   it('Auto Import queues immediately (auto:true, no scan) and shows the "(auto)" notice', async () => {
     await initAndPickLibrary();
-    el().querySelector<HTMLButtonElement>('.use-here')!.click();
+    el().querySelector<HTMLButtonElement>('.use-here button')!.click();
     fixture.detectChanges();
 
     const autoBtn = Array.from(el().querySelectorAll<HTMLButtonElement>('.actions button')).find(
@@ -345,7 +347,7 @@ describe('ImportsComponent', () => {
     await tick();
     fixture.detectChanges();
 
-    el().querySelector<HTMLButtonElement>('.actions .btn-ghost')!.click();
+    el().querySelector<HTMLButtonElement>('.actions mui-button[variant="ghost"] button')!.click();
     const req = http.expectOne('/api/imports/imp1/cancel');
     expect(req.request.method).toBe('POST');
     req.flush({ ok: true });
@@ -355,9 +357,9 @@ describe('ImportsComponent', () => {
 
   it('shows the scan-error message and stays on the pick step when the scan request fails', async () => {
     await initAndPickLibrary();
-    el().querySelector<HTMLButtonElement>('.use-here')!.click();
+    el().querySelector<HTMLButtonElement>('.use-here button')!.click();
     fixture.detectChanges();
-    el().querySelector<HTMLButtonElement>('.actions .btn-primary')!.click();
+    el().querySelector<HTMLButtonElement>('.actions mui-button[variant="primary"] button')!.click();
 
     http
       .expectOne('/api/imports/scan')
