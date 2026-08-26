@@ -27,7 +27,7 @@
           <button
             type="button"
             class="chevron-toggle"
-            [attr.aria-expanded]="open()"
+            [attr.aria-expanded]="open() ? 'true' : 'false'"
             [attr.aria-label]="label()"
             [attr.aria-controls]="contentId"
             (click)="toggle()"
