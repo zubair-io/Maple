@@ -155,6 +155,7 @@ struct NetworkSettingsView: View {
         }
     }
 
+    @MainActor
     private func save() async {
         let validation = form.validated()
         guard case .valid(let patch) = validation else {

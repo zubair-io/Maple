@@ -165,6 +165,7 @@ struct CloudflareSettingsView: View {
 
     // MARK: - Actions
 
+    @MainActor
     private func load() async {
         loadState = .loading
         do {
@@ -176,6 +177,7 @@ struct CloudflareSettingsView: View {
         }
     }
 
+    @MainActor
     private func save() async {
         saveState = .running
         testState = .idle
@@ -202,6 +204,7 @@ struct CloudflareSettingsView: View {
         }
     }
 
+    @MainActor
     private func test() async {
         guard let credentials = form.testCredentials() else { return }
         testState = .running
