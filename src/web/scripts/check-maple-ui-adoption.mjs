@@ -14,9 +14,10 @@
 // they land, the same incremental-ratchet pattern as the rest of this repo's
 // ratchet scripts (see check_budget_ratchet.py, check-budget-headroom.sh).
 
-import { readdir, readFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { walkFiles } from './lib/walk-files.mjs';
 
 const MIGRATED_DIRECTORIES = [
   resolve(fileURLToPath(new URL('../projects/maple/src/app/settings', import.meta.url))),
@@ -34,25 +35,21 @@ const RAW_BUTTON_PATTERN = /<button\b/;
 // position, or a bare SCSS/HTML class-selector token.
 const LEGACY_BTN_CLASS_PATTERN = /\bbtn-(primary|ghost)\b/;
 
-async function collectFiles(directory) {
-  const entries = await readdir(directory, { withFileTypes: true });
-  const files = await Promise.all(
-    entries.map(async (entry) => {
-      const path = resolve(directory, entry.name);
-      if (entry.isDirectory()) return collectFiles(path);
-      return TEMPLATE_EXTENSIONS.has(extname(entry.name)) ? [path] : [];
-    }),
-  );
-  return files.flat();
+/** Blanks out `<!-- ... -->` comment bodies (preserving line count/offsets)
+ * so a rationale comment that has to *talk about* `<button>` or
+ * `btn-ghost` — e.g. a `fallow-ignore-file` note explaining what a diff did
+ * or didn't touch — doesn't itself trip the ratchet. */
+function withoutHtmlComments(source) {
+  return source.replace(/<!--[\s\S]*?-->/g, (comment) => comment.replace(/[^\n]/g, ' '));
 }
 
 async function findViolations(directory) {
-  const files = await collectFiles(directory);
+  const files = await walkFiles(directory, (path) => TEMPLATE_EXTENSIONS.has(extname(path)));
   const violations = [];
 
   for (const path of files) {
     const source = await readFile(path, 'utf8');
-    const lines = source.split('\n');
+    const lines = withoutHtmlComments(source).split('\n');
     lines.forEach((line, index) => {
       if (RAW_BUTTON_PATTERN.test(line)) {
         violations.push(`${path}:${index + 1}: raw <button> element — use mui-button instead`);

@@ -1,5 +1,50 @@
 @use '../settings-chrome' as chrome;
 
+// Shared internally by this file only (#3020 dedup) — the circular
+// avatar-with-cover-image chrome (detail header vs. the merge-suggestion
+// banner, which uses a smaller size) and the circular corner-badge chrome
+// (the face-grid selection check vs. the person-card duplicate-suggestion
+// badge, which anchors to the opposite corner and has no selected state).
+@mixin avatar-circle($size) {
+  width: $size;
+  height: $size;
+  border-radius: 50%;
+  background: var(--s-surface2);
+  border: 0.5px solid var(--s-border);
+  flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  img {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .cover-fill {
+    inset: 0;
+  }
+}
+
+@mixin corner-badge {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(13, 12, 11, 0.55);
+  border: 1.5px solid #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+}
+
 :host {
   @include chrome.settings-vars;
   @include chrome.settings-page-host;
@@ -37,16 +82,7 @@
 // Plain navigation links (Hidden / Excluded / Worker settings) in the header
 // actions row, styled to match the ghost buttons next to them.
 .nav-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 12px;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--s-text);
-  border: 0.5px solid var(--s-border-hi);
-  font-family: var(--s-font);
-  font-size: 12.5px;
+  @include chrome.settings-ghost-pill-chrome;
   text-decoration: none;
 
   &:hover {
@@ -272,30 +308,7 @@
 }
 
 .detail-avatar {
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  background: var(--s-surface2);
-  border: 0.5px solid var(--s-border);
-  flex-shrink: 0;
-  position: relative;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  img {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-  }
-  .cover-fill {
-    inset: 0;
-  }
+  @include avatar-circle(64px);
 }
 
 .detail-avatar-fallback {
@@ -383,16 +396,7 @@
 // The "Merge this person into" picker — a native <select> styled to match
 // the ghost buttons next to it (it replaces one when the picker opens).
 .merge-select {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 12px;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--s-text);
-  border: 0.5px solid var(--s-border-hi);
-  font-family: var(--s-font);
-  font-size: 12.5px;
+  @include chrome.settings-ghost-pill-chrome;
 
   &:disabled {
     opacity: 0.5;
@@ -413,30 +417,7 @@
 }
 
 .merge-suggestion-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: var(--s-surface2);
-  border: 0.5px solid var(--s-border);
-  flex-shrink: 0;
-  position: relative;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  img {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-  }
-  .cover-fill {
-    inset: 0;
-  }
+  @include avatar-circle(40px);
 }
 
 .merge-suggestion-avatar-fallback {
@@ -722,18 +703,9 @@
 }
 
 .select-check {
-  position: absolute;
+  @include corner-badge;
   top: 6px;
   left: 6px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: rgba(13, 12, 11, 0.55);
-  border: 1.5px solid #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  backdrop-filter: blur(4px);
 
   &.is-selected {
     background: var(--s-accent);
@@ -742,18 +714,9 @@
 }
 
 .merge-suggestion-badge {
-  position: absolute;
+  @include corner-badge;
   top: 6px;
   right: 6px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: rgba(13, 12, 11, 0.55);
-  border: 1.5px solid #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  backdrop-filter: blur(4px);
 }
 
 .low-confidence-bar {

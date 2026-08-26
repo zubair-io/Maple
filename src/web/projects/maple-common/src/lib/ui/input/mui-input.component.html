@@ -11,7 +11,7 @@
       <mui-icon name="search" size="sm" class="prefix" />
     }
     <input
-      [type]="masked() ? 'password' : 'text'"
+      [type]="controlType()"
       class="control"
       [value]="value()"
       [placeholder]="placeholder()"

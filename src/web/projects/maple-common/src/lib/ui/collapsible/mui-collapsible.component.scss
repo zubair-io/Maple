@@ -1,46 +1,24 @@
-@use '../../generated/ui-tokens' as tok;
+@use '../internal/disclosure-header' as disclosure;
 
 :host {
   display: block;
 }
 
 .header {
-  display: flex;
-  align-items: center;
-  gap: tok.$maple-spacing-sm;
-  width: 100%;
-  border: none;
-  background: transparent;
-  color: var(--color-text-main);
-  cursor: pointer;
-  padding: 0;
-  font-family: inherit;
-  text-align: left;
+  @include disclosure.header;
 }
 
 .chevron {
-  display: inline-flex;
-  transition: transform tok.$maple-motion-group-swap-ms tok.$maple-motion-group-swap-ease;
-
-  &.open {
-    transform: rotate(90deg);
-  }
+  @include disclosure.chevron;
 }
 
 // Animated height via a `grid-template-rows: 0fr → 1fr` transition — avoids
 // animating to/from `auto` (not natively animatable) or measuring
 // `scrollHeight` in JS on every toggle.
 .content-wrapper {
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows tok.$maple-motion-group-swap-ms tok.$maple-motion-group-swap-ease;
-
-  &.open {
-    grid-template-rows: 1fr;
-  }
+  @include disclosure.content-wrapper;
 }
 
 .content-inner {
-  overflow: hidden;
-  min-height: 0;
+  @include disclosure.content-inner;
 }

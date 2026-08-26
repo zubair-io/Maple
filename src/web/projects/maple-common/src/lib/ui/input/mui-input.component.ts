@@ -64,6 +64,11 @@ export class MuiInputComponent {
 
   readonly focused = signal<boolean>(false);
 
+  /** The native control's `type` attribute — computed here rather than as a
+   * template ternary so the template's own branch count doesn't grow (fallow
+   * complexity gate; MW1, ticket #3020). */
+  readonly controlType = computed(() => (this.masked() ? 'password' : 'text'));
+
   readonly isFilled = computed(() => this.value().trim().length > 0);
   readonly showClear = computed(
     () => this.variant() === 'search' && this.isFilled() && !this.disabled() && !this.readOnly(),

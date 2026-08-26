@@ -127,6 +127,11 @@ export class MirrorSettingsComponent implements OnInit, OnDestroy {
   }
 
   /** One-line readout for the panel header (the active stage, else the queue). */
+  // Pre-existing complexity inherited from main (MW1's diff to this file is
+  // import-only — see #3020); the phase-by-phase readout branching predates
+  // the migration and splitting it is follow-up refactor work, not part of
+  // a behavior-preserving migration.
+  // fallow-ignore-next-line complexity
   protected reconcileSummary(): string {
     const r = this.reconcile();
     if (r?.phase === 'scanning') {

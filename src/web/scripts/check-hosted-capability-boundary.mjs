@@ -1,6 +1,7 @@
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { walkFiles } from './lib/walk-files.mjs';
 
 const artifactRoot = resolve(
   process.env.MAPLE_HOSTED_ARTIFACT ??
@@ -84,19 +85,7 @@ const SELF_HOSTED_COMPOSITION = {
   ],
 };
 
-async function javascriptFiles(directory) {
-  const entries = await readdir(directory, { withFileTypes: true });
-  const files = await Promise.all(
-    entries.map(async (entry) => {
-      const path = resolve(directory, entry.name);
-      if (entry.isDirectory()) return javascriptFiles(path);
-      return path.endsWith('.js') ? [path] : [];
-    }),
-  );
-  return files.flat();
-}
-
-const scripts = await javascriptFiles(artifactRoot);
+const scripts = await walkFiles(artifactRoot, (path) => path.endsWith('.js'));
 const mainScripts = scripts.filter((path) => /^main-[A-Z0-9]+\.js$/.test(basename(path)));
 if (mainScripts.length !== 1) {
   throw new Error(`Expected one Hosted main bundle, found ${mainScripts.length}`);

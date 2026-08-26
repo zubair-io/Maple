@@ -9,11 +9,7 @@
 }
 
 .net-body {
-  padding: 24px 36px;
-  display: flex;
-  flex-direction: column;
-  gap: 28px;
-  max-width: 820px;
+  @include chrome.settings-body-wrap-chrome;
 }
 
 .section-hint {
@@ -29,100 +25,13 @@
   }
 }
 
-.form-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 14px 18px;
-}
+@include chrome.settings-form-grid-chrome(220px);
+@include chrome.settings-fhint-chrome;
+@include chrome.settings-check-row-chrome;
+@include chrome.settings-form-actions-row-chrome;
+@include chrome.settings-config-grid-chrome(200px);
+@include chrome.settings-test-status-chrome;
 
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.flabel {
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--s-text-muted);
-}
-
-.fhint {
-  font-size: 11px;
-  color: var(--s-text-muted);
-}
-
-.check-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  margin-top: 14px;
-}
-
-.form-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  margin-top: 16px;
-}
-
-.config-grid {
-  display: grid;
-  grid-template-columns: 200px 1fr;
-  row-gap: 10px;
-  column-gap: 16px;
-  margin: 0;
-
-  dt {
-    font-size: 12.5px;
-    color: var(--s-text-muted);
-  }
-  dd {
-    margin: 0;
-    font-size: 13px;
-    color: var(--s-text);
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 8px;
-
-    &.mono {
-      font-family: var(--s-mono);
-      font-size: 12.5px;
-    }
-  }
-
-  .muted {
-    color: var(--s-text-dim);
-    font-style: italic;
-  }
-  .prov {
-    font-size: 11px;
-    color: var(--s-text-dim);
-  }
-}
-
-.test-ok {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12.5px;
-  color: var(--s-ok);
-}
-.test-err {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12.5px;
-  color: var(--s-err);
-}
-
-.error {
-  color: var(--s-err);
-  font-size: 12.5px;
-  margin: 0;
-}
 .muted {
   color: var(--s-text-dim);
   font-style: italic;
@@ -136,14 +45,6 @@
     gap: 22px;
   }
   .config-grid {
-    grid-template-columns: 1fr;
-    row-gap: 4px;
-
-    dt {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      margin-top: 8px;
-    }
+    @include chrome.settings-config-grid-mobile-chrome;
   }
 }
