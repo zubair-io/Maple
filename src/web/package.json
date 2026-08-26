@@ -10,6 +10,7 @@
     "maple-ui:sync": "node scripts/sync-maple-ui-docs.mjs",
     "maple-ui:check": "node scripts/sync-maple-ui-docs.mjs --check",
     "check:hosted-capabilities": "node scripts/check-hosted-capability-boundary.mjs",
+    "maple-ui:adoption-check": "node scripts/check-maple-ui-adoption.mjs",
     "raw-wasm": "npm run build-raw-wasm && npm run sync-raw-wasm",
     "prestart": "npm run raw-wasm",
     "prestart:maple": "npm run raw-wasm",

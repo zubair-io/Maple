@@ -115,54 +115,6 @@
     margin-top: 4px;
   }
 
-  .btn-primary {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 14px;
-    border-radius: 6px;
-    background: var(--s-accent);
-    color: #fff;
-    border: none;
-    font-family: var(--s-font);
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    letter-spacing: 0.1px;
-
-    &:disabled {
-      background: var(--s-surface3);
-      color: var(--s-text-dim);
-      cursor: default;
-    }
-  }
-
-  .btn-ghost {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 7px 12px;
-    border-radius: 6px;
-    background: transparent;
-    color: var(--s-text);
-    border: 0.5px solid var(--s-border-hi);
-    font-family: var(--s-font);
-    font-size: 12.5px;
-    cursor: pointer;
-
-    &.danger {
-      color: var(--s-err);
-      border-color: rgba(248, 113, 113, 0.4);
-    }
-    &:hover:not(:disabled) {
-      background: rgba(255, 255, 255, 0.03);
-    }
-    &:disabled {
-      opacity: 0.5;
-      cursor: default;
-    }
-  }
-
   .chip {
     display: inline-flex;
     align-items: baseline;

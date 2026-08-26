@@ -140,7 +140,7 @@
               <div class="folder-cell">
                 <mui-input
                   class="label-input"
-                  [value]="labels()[b.key]"
+                  [value]="labels()[b.key] || ''"
                   (valueChange)="setLabel(b.key, $event)"
                   placeholder="(leave blank for the default)"
                   [ariaLabel]="'Folder name for ' + b.key"
@@ -167,12 +167,7 @@
           <mui-button variant="ghost" size="sm" [disabled]="busy()" (pressed)="backToPick()">
             Back
           </mui-button>
-          <mui-button
-            variant="primary"
-            size="sm"
-            [loading]="busy()"
-            (pressed)="startImport()"
-          >
+          <mui-button variant="primary" size="sm" [loading]="busy()" (pressed)="startImport()">
             Import {{ s.totals.files }} files
           </mui-button>
         </div>
