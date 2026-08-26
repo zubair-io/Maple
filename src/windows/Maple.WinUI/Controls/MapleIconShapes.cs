@@ -219,6 +219,34 @@ namespace Maple.WinUI.Controls
                 ["tool-color-nr"] = new[] { Dot(2.8, 8.4), Dot(4.4, 5.8), Dot(6, 10.6), Pt("M7.8 8.4H13.4") },
                 ["tool-crop"] = new[] { Pt("M4.6 2.6v8.8h8.8"), Pt("M2.6 4.6h8.8v8.8") },
                 ["tool-presets"] = new[] { Rt(5.2, 2.8, 8, 8, 2), Rt(2.8, 5.2, 8, 8, 2) },
+
+                // ── Folder-tree context menu (#2643 on web; Windows catch-up
+                //    for #3022) — path data copied verbatim from
+                //    maple-icon-registry.ts so the glyphs are pixel-identical
+                //    across platforms. ──────────────────────────────────────
+                ["folder-plus"] = new[]
+                {
+                    P("M2 5a1 1 0 011-1h3l1.5 1.5H13a1 1 0 011 1V12a1 1 0 01-1 1H3a1 1 0 01-1-1V5z"),
+                    P("M8 7v4M6 9h4"),
+                },
+                ["trash"] = new[]
+                {
+                    P("M3 5h10M6 5V3.5a1 1 0 011-1h2a1 1 0 011 1V5"),
+                    P("M4.5 5l.6 8a1 1 0 001 .9h3.8a1 1 0 001-.9l.6-8"),
+                    P("M6.5 7.5v4M9.5 7.5v4"),
+                },
+                // ── New for #3022 (Windows MainWindow chrome migration) —
+                //    not yet mirrored to web/Apple; tracked by #3024. ───────
+                ["cloud"] = new[]
+                {
+                    P("M4.6 12A2.6 2.6 0 014 6.9a3.6 3.6 0 017-1.3A2.8 2.8 0 0110.6 12H4.6z"),
+                },
+                ["calendar"] = new[]
+                {
+                    R(2.5, 3.5, 11, 10, 1.5),
+                    P("M5 2.5v2M11 2.5v2"),
+                    P("M2.5 6.5h11"),
+                },
             };
     }
 }

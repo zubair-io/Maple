@@ -5,6 +5,7 @@
     xmlns:vm="using:Maple.WinUI.ViewModels"
     xmlns:conv="using:Maple.WinUI.Converters"
     xmlns:controls="using:Maple.WinUI.Controls"
+    xmlns:mui="using:Maple.UI.Atoms"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
@@ -20,12 +21,12 @@
             <DataTemplate x:Key="SliderRowTemplate" x:DataType="vm:AdjustmentSliderViewModel">
                 <StackPanel Margin="0,2,0,6" DoubleTapped="OnSliderRowDoubleTapped">
                     <Grid>
-                        <TextBlock Text="{Binding Label}" Style="{StaticResource MapleRowLabel}" />
+                        <mui:MuiText Text="{Binding Label}" Variant="RowLabel" />
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6">
                             <Ellipse Width="6" Height="6" Fill="{StaticResource MaplePrimary}"
                                      Visibility="{Binding IsModified, Converter={StaticResource BoolVisible}}"
                                      VerticalAlignment="Center" />
-                            <TextBlock Text="{Binding FormattedValue}" Style="{StaticResource MapleValueChip}" />
+                            <mui:MuiText Text="{Binding FormattedValue}" Variant="ValueChip" />
                         </StackPanel>
                     </Grid>
                     <Slider Minimum="{Binding Minimum}" Maximum="{Binding Maximum}"
@@ -35,21 +36,6 @@
                             Margin="0,-4,0,0" IsThumbToolTipEnabled="False" />
                 </StackPanel>
             </DataTemplate>
-
-            <!-- Floating pill chrome shared by the Preview bar, Edit bar, rail and panel -->
-            <Style x:Key="FloatingPill" TargetType="Border">
-                <Setter Property="Background" Value="#F21C1917" />
-                <Setter Property="BorderBrush" Value="{StaticResource MapleBorder}" />
-                <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="CornerRadius" Value="10" />
-            </Style>
-            <Style x:Key="PillButton" TargetType="Button">
-                <Setter Property="Background" Value="Transparent" />
-                <Setter Property="BorderThickness" Value="0" />
-                <Setter Property="CornerRadius" Value="6" />
-                <Setter Property="Padding" Value="8,5" />
-                <Setter Property="Foreground" Value="{StaticResource MapleTextMain}" />
-            </Style>
         </Grid.Resources>
 
         <Grid.RowDefinitions>
@@ -65,9 +51,9 @@
              this shell. ===== -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Background="{StaticResource MapleSidebar}"
                     Padding="6,2" Spacing="2">
-            <Button Content="File" Style="{StaticResource PillButton}" FontSize="12" Padding="10,4"
+            <mui:MuiButton Label="File" Variant="Ghost" ButtonSize="Sm"
                     AutomationProperties.Name="File menu">
-                <Button.Flyout>
+                <mui:MuiButton.Flyout>
                     <MenuFlyout Placement="BottomEdgeAlignedLeft">
                         <MenuFlyoutItem Text="Open Folder…" Click="OnOpenDirectory"
                                         KeyboardAcceleratorTextOverride="Ctrl+O" />
@@ -84,11 +70,11 @@
                         <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Exit" Click="OnMenuExit" />
                     </MenuFlyout>
-                </Button.Flyout>
-            </Button>
-            <Button Content="Edit" Style="{StaticResource PillButton}" FontSize="12" Padding="10,4"
+                </mui:MuiButton.Flyout>
+            </mui:MuiButton>
+            <mui:MuiButton Label="Edit" Variant="Ghost" ButtonSize="Sm"
                     AutomationProperties.Name="Edit menu">
-                <Button.Flyout>
+                <mui:MuiButton.Flyout>
                     <MenuFlyout Placement="BottomEdgeAlignedLeft">
                         <MenuFlyoutItem Text="Undo" Click="OnMenuUndo"
                                         KeyboardAcceleratorTextOverride="Ctrl+Z" />
@@ -100,11 +86,11 @@
                         <MenuFlyoutItem Text="Revert to Original" Click="OnRevert"
                                         KeyboardAcceleratorTextOverride="Ctrl+R" />
                     </MenuFlyout>
-                </Button.Flyout>
-            </Button>
-            <Button Content="View" Style="{StaticResource PillButton}" FontSize="12" Padding="10,4"
+                </mui:MuiButton.Flyout>
+            </mui:MuiButton>
+            <mui:MuiButton Label="View" Variant="Ghost" ButtonSize="Sm"
                     AutomationProperties.Name="View menu">
-                <Button.Flyout>
+                <mui:MuiButton.Flyout>
                     <MenuFlyout Placement="BottomEdgeAlignedLeft">
                         <MenuFlyoutItem Text="Browse" Click="OnMenuModeBrowse"
                                         KeyboardAcceleratorTextOverride="Esc" />
@@ -124,11 +110,11 @@
                         <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Toggle Sidebar" Click="OnToggleSidebar" />
                     </MenuFlyout>
-                </Button.Flyout>
-            </Button>
-            <Button Content="Photo" Style="{StaticResource PillButton}" FontSize="12" Padding="10,4"
+                </mui:MuiButton.Flyout>
+            </mui:MuiButton>
+            <mui:MuiButton Label="Photo" Variant="Ghost" ButtonSize="Sm"
                     AutomationProperties.Name="Photo menu">
-                <Button.Flyout>
+                <mui:MuiButton.Flyout>
                     <MenuFlyout Placement="BottomEdgeAlignedLeft">
                         <MenuFlyoutSubItem Text="Rating">
                             <MenuFlyoutItem Text="None" Click="OnMenuRating" Tag="0"
@@ -166,8 +152,8 @@
                                         KeyboardAcceleratorTextOverride="Del" />
                         <MenuFlyoutItem Text="Stitch Panorama…" Click="OnStitchPano" />
                     </MenuFlyout>
-                </Button.Flyout>
-            </Button>
+                </mui:MuiButton.Flyout>
+            </mui:MuiButton>
         </StackPanel>
 
         <!-- ===== Main ===== -->
@@ -183,7 +169,7 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Spacing="14" Padding="10,12">
                         <StackPanel Spacing="2">
-                            <TextBlock Text="LIBRARY" Style="{StaticResource MapleEyebrow}" Margin="8,0,0,6" />
+                            <mui:MuiText Text="LIBRARY" Variant="Eyebrow" Margin="8,0,0,6" />
                             <ListView x:Name="LibraryList" SelectionMode="Single" SelectedIndex="0"
                                       SelectionChanged="OnSelectLibraryScope">
                                 <ListViewItem Tag="all">
@@ -222,7 +208,7 @@
 
                         <StackPanel Spacing="2">
                             <Grid Margin="8,0,4,6">
-                                <TextBlock Text="FOLDERS" Style="{StaticResource MapleEyebrow}" VerticalAlignment="Center" />
+                                <mui:MuiText Text="FOLDERS" Variant="Eyebrow" VerticalAlignment="Center" />
                                 <Button HorizontalAlignment="Right" Padding="4,2" Background="Transparent"
                                         BorderThickness="0" Click="OnOpenDirectory"
                                         AutomationProperties.Name="Add folder">
@@ -258,40 +244,51 @@
                                                      context-menu key automatically; no extra input wiring
                                                      needed. Handlers live in MainWindow.FolderContextMenu.cs. -->
                                                 <MenuFlyout>
+                                                    <!-- PathIcon.Data is the MapleIconShapes "folder-plus" path,
+                                                         inlined by hand: MenuFlyoutItem.Icon requires a real
+                                                         IconElement, which MuiIcon (a ContentControl) can't
+                                                         satisfy, and this MenuFlyout lives inside a per-row
+                                                         DataTemplate so a code-behind x:Name lookup can't reach
+                                                         a single instance either. Keep in sync with
+                                                         Controls/MapleIconShapes.cs's "folder-plus" entry. -->
                                                     <MenuFlyoutItem Text="New Folder…" Click="OnNewFolderInTree"
                                                                     AutomationProperties.Name="New folder">
                                                         <MenuFlyoutItem.Icon>
-                                                            <FontIcon Glyph="&#xE710;" />
+                                                            <PathIcon Data="M2 5a1 1 0 011-1h3l1.5 1.5H13a1 1 0 011 1V12a1 1 0 01-1 1H3a1 1 0 01-1-1V5z M8 7v4M6 9h4" />
                                                         </MenuFlyoutItem.Icon>
                                                     </MenuFlyoutItem>
+                                                    <!-- MapleIconShapes "edit". -->
                                                     <MenuFlyoutItem Text="Rename…" Click="OnRenameFolderInTree"
                                                                     AutomationProperties.Name="Rename folder">
                                                         <MenuFlyoutItem.Icon>
-                                                            <FontIcon Glyph="&#xE8AC;" />
+                                                            <PathIcon Data="M3 13l1-3 7-7 2 2-7 7-3 1zM10 4l2 2" />
                                                         </MenuFlyoutItem.Icon>
                                                     </MenuFlyoutItem>
+                                                    <!-- MapleIconShapes "trash". -->
                                                     <MenuFlyoutItem Text="Move to Trash" Click="OnTrashFolderInTree"
                                                                     AutomationProperties.Name="Move folder to Trash">
                                                         <MenuFlyoutItem.Icon>
-                                                            <FontIcon Glyph="&#xE74D;" />
+                                                            <PathIcon Data="M3 5h10M6 5V3.5a1 1 0 011-1h2a1 1 0 011 1V5 M4.5 5l.6 8a1 1 0 001 .9h3.8a1 1 0 001-.9l.6-8 M6.5 7.5v4M9.5 7.5v4" />
                                                         </MenuFlyoutItem.Icon>
                                                     </MenuFlyoutItem>
                                                     <MenuFlyoutSeparator />
                                                     <!-- Show in Explorer (#2658) — every row this tree renders is a
                                                          local or SMB/UNC path (Cloud lives in its own "MAPLE CLOUD"
                                                          ListView below, not this TreeView), so unlike the grid's
-                                                         per-selection gating this item is always shown. -->
+                                                         per-selection gating this item is always shown.
+                                                         MapleIconShapes "folder-open". -->
                                                     <MenuFlyoutItem Text="Show in Explorer" Click="OnRevealFolderInExplorer"
                                                                     AutomationProperties.Name="Show folder in Explorer">
                                                         <MenuFlyoutItem.Icon>
-                                                            <FontIcon Glyph="&#xE838;" />
+                                                            <PathIcon Data="M2 5a1 1 0 011-1h3l1.5 1.5H13a1 1 0 011 1v.5H2.5L2 12a1 1 0 001 1h10l1-5.5" />
                                                         </MenuFlyoutItem.Icon>
                                                     </MenuFlyoutItem>
                                                     <MenuFlyoutSeparator />
+                                                    <!-- MapleIconShapes "x". -->
                                                     <MenuFlyoutItem Text="Remove from Library" Click="OnRemoveFolder"
                                                                     AutomationProperties.Name="Remove folder from library">
                                                         <MenuFlyoutItem.Icon>
-                                                            <FontIcon Glyph="&#xE738;" />
+                                                            <PathIcon Data="M4 4l8 8M12 4l-8 8" />
                                                         </MenuFlyoutItem.Icon>
                                                     </MenuFlyoutItem>
                                                 </MenuFlyout>
@@ -310,12 +307,12 @@
 
                         <StackPanel Spacing="2">
                             <Grid Margin="8,0,4,6">
-                                <TextBlock Text="MAPLE CLOUD" Style="{StaticResource MapleEyebrow}" VerticalAlignment="Center" />
+                                <mui:MuiText Text="MAPLE CLOUD" Variant="Eyebrow" VerticalAlignment="Center" />
                                 <Button HorizontalAlignment="Right" Padding="4,2" Background="Transparent"
                                         BorderThickness="0" Click="OnConnectCloud"
                                         ToolTipService.ToolTip="Connect to a Self-Hosted server"
                                         AutomationProperties.Name="Connect Maple Cloud">
-                                    <FontIcon Glyph="&#xE753;" FontSize="11" Foreground="{StaticResource MapleTextMuted}" />
+                                    <mui:MuiIcon IconName="cloud" Size="Xs14" IconColor="{StaticResource MapleTextMuted}" />
                                 </Button>
                             </Grid>
                             <TextBlock Text="{Binding CloudStatus}" FontSize="10" Margin="8,0,4,4"
@@ -325,7 +322,7 @@
                                     Visibility="{Binding CloudConnected, Converter={StaticResource InverseBoolVisible}}"
                                     AutomationProperties.Name="Connect to Maple Cloud server">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <FontIcon Glyph="&#xE753;" FontSize="13" Foreground="{StaticResource MaplePrimary}" />
+                                    <mui:MuiIcon IconName="cloud" Size="Xs14" IconColor="{StaticResource MaplePrimary}" />
                                     <TextBlock Text="Connect to server…" FontSize="12" />
                                 </StackPanel>
                             </Button>
@@ -335,7 +332,7 @@
                                     <DataTemplate>
                                         <Grid>
                                             <StackPanel Orientation="Horizontal" Spacing="10">
-                                                <FontIcon Glyph="&#xE753;" FontSize="14" Foreground="{StaticResource MaplePrimary}" />
+                                                <mui:MuiIcon IconName="cloud" Size="Xs14" IconColor="{StaticResource MaplePrimary}" />
                                                 <TextBlock Text="{Binding DisplayName}" FontSize="12" VerticalAlignment="Center"
                                                            TextTrimming="CharacterEllipsis" />
                                             </StackPanel>
@@ -350,7 +347,7 @@
 
                         <StackPanel Spacing="2">
                             <Grid Margin="8,0,4,6">
-                                <TextBlock Text="TIMELINE" Style="{StaticResource MapleEyebrow}" VerticalAlignment="Center" />
+                                <mui:MuiText Text="TIMELINE" Variant="Eyebrow" VerticalAlignment="Center" />
                                 <Button HorizontalAlignment="Right" Padding="4,2" Background="Transparent"
                                         BorderThickness="0" Click="OnClearTimelineFilter"
                                         ToolTipService.ToolTip="Show all dates"
@@ -369,8 +366,7 @@
                                                       AutomationProperties.Name="{Binding Label}">
                                             <Grid>
                                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                                    <FontIcon Glyph="&#xE787;" FontSize="12"
-                                                              Foreground="{StaticResource MapleTextMuted}" />
+                                                    <mui:MuiIcon IconName="calendar" Size="Xs14" IconColor="{StaticResource MapleTextMuted}" />
                                                     <TextBlock Text="{Binding Label}" FontSize="12" VerticalAlignment="Center" />
                                                 </StackPanel>
                                                 <TextBlock Text="{Binding PhotoCount}" FontSize="11" Margin="12,0,0,0"
@@ -399,11 +395,9 @@
                             Padding="12,8">
                         <Grid>
                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                <Button Style="{StaticResource MapleToolButton}" Click="OnToggleSidebar"
-                                        AutomationProperties.Name="Toggle sources panel">
-                                    <controls:MapleIconControl IconName="sidebar" Size="14"
-                                                               IconBrush="{StaticResource MapleTextMain}" />
-                                </Button>
+                                <mui:MuiButton IconName="sidebar" Variant="Secondary" ButtonSize="Sm"
+                                        Click="OnToggleSidebar"
+                                        AutomationProperties.Name="Toggle sources panel" />
                                 <ComboBox x:Name="FormatFilterBox" SelectedIndex="0" Width="120" FontSize="12"
                                           SelectionChanged="OnFormatFilterChanged"
                                           AutomationProperties.Name="Format filter">
@@ -436,15 +430,10 @@
                                 <TextBox x:Name="SearchBox" Width="200" PlaceholderText="Search name, camera, lens…"
                                          Background="{StaticResource MapleInputBg}" FontSize="12"
                                          TextChanged="OnSearchChanged" AutomationProperties.Name="Search library" />
-                                <Button Style="{StaticResource MapleToolButton}" Click="OnExportPhotos"
+                                <mui:MuiButton IconName="export" Label="Export" Variant="Secondary" ButtonSize="Sm"
+                                        Click="OnExportPhotos"
                                         ToolTipService.ToolTip="Export JPEG (Ctrl+Shift+E)"
-                                        AutomationProperties.Name="Export photo">
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <controls:MapleIconControl IconName="export" Size="14"
-                                                                   IconBrush="{StaticResource MapleTextMain}" />
-                                        <TextBlock Text="Export" FontSize="12" FontWeight="SemiBold" />
-                                    </StackPanel>
-                                </Button>
+                                        AutomationProperties.Name="Export photo" />
                             </StackPanel>
                         </Grid>
                     </Border>
@@ -466,11 +455,13 @@
                              item and its separator on every open. -->
                         <GridView.ContextFlyout>
                             <MenuFlyout Opening="OnPhotoGridContextFlyoutOpening">
+                                <!-- MapleIconShapes "folder-open" — see the folder-tree
+                                     context menu's matching comment above. -->
                                 <MenuFlyoutItem x:Name="RevealInExplorerMenuItem" Text="Show in Explorer"
                                                 Click="OnRevealSelectedPhotosInExplorer"
                                                 AutomationProperties.Name="Show in Explorer">
                                     <MenuFlyoutItem.Icon>
-                                        <FontIcon Glyph="&#xE838;" />
+                                        <PathIcon Data="M2 5a1 1 0 011-1h3l1.5 1.5H13a1 1 0 011 1v.5H2.5L2 12a1 1 0 001 1h10l1-5.5" />
                                     </MenuFlyoutItem.Icon>
                                 </MenuFlyoutItem>
                                 <MenuFlyoutSeparator x:Name="RevealInExplorerSeparator" />
@@ -596,49 +587,39 @@
                         </StackPanel>
 
                         <!-- Preview top pill -->
-                        <Border x:Name="PreviewTopBar" Style="{StaticResource FloatingPill}"
+                        <Border x:Name="PreviewTopBar"
+                                Background="#F21C1917" BorderBrush="{StaticResource MapleBorder}"
+                                BorderThickness="1" CornerRadius="10"
                                 HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,14,0,0"
                                 Padding="10,6">
                             <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                                <Button Style="{StaticResource PillButton}" Click="OnViewerBack"
+                                <mui:MuiButton IconName="back" Variant="Ghost" ButtonSize="Sm" Click="OnViewerBack"
                                         ToolTipService.ToolTip="Back to Browse (Esc)"
-                                        AutomationProperties.Name="Back to browse">
-                                    <controls:MapleIconControl IconName="back" Size="14"
-                                                               IconBrush="{StaticResource MapleTextMain}" />
-                                </Button>
+                                        AutomationProperties.Name="Back to browse" />
                                 <TextBlock Text="{Binding SelectedPhoto.FileName}" FontSize="12" FontWeight="SemiBold"
                                            VerticalAlignment="Center" Foreground="{StaticResource MapleTextMain}" />
                                 <TextBlock Text="{Binding SelectedPhoto.Dimensions}" FontSize="11"
                                            VerticalAlignment="Center" Foreground="{StaticResource MapleTextMuted}" />
                                 <StackPanel x:Name="StarRow" Orientation="Horizontal" Spacing="0" VerticalAlignment="Center" />
-                                <Button x:Name="PickBtn" Style="{StaticResource PillButton}" Click="OnFlagPick"
-                                        ToolTipService.ToolTip="Pick (P)" AutomationProperties.Name="Flag as pick">
-                                    <controls:MapleIconControl IconName="check" Size="13">
-                                        <controls:MapleIconControl.IconBrush>
-                                            <SolidColorBrush Color="#4CAF50" />
-                                        </controls:MapleIconControl.IconBrush>
-                                    </controls:MapleIconControl>
-                                </Button>
-                                <Button x:Name="RejectBtn" Style="{StaticResource PillButton}" Click="OnFlagReject"
-                                        ToolTipService.ToolTip="Reject (X)" AutomationProperties.Name="Flag as reject">
-                                    <controls:MapleIconControl IconName="x" Size="13"
-                                                               IconBrush="{StaticResource MapleErrorText}" />
-                                </Button>
-                                <Button Style="{StaticResource PillButton}"
+                                <mui:MuiButton x:Name="PickBtn" IconName="check" Variant="Ghost" ButtonSize="Sm"
+                                        IconColor="#4CAF50" Click="OnFlagPick"
+                                        ToolTipService.ToolTip="Pick (P)" AutomationProperties.Name="Flag as pick" />
+                                <mui:MuiButton x:Name="RejectBtn" IconName="x" Variant="Ghost" ButtonSize="Sm"
+                                        IconColor="{StaticResource MapleErrorText}" Click="OnFlagReject"
+                                        ToolTipService.ToolTip="Reject (X)" AutomationProperties.Name="Flag as reject" />
+                                <mui:MuiButton IconName="info" Variant="Ghost" ButtonSize="Sm"
                                         ToolTipService.ToolTip="Info &amp; EXIF" AutomationProperties.Name="Photo info">
-                                    <controls:MapleIconControl IconName="info" Size="13"
-                                                               IconBrush="{StaticResource MapleTextMain}" />
-                                    <Button.Flyout>
+                                    <mui:MuiButton.Flyout>
                                         <Flyout Opening="OnInfoFlyoutOpening">
                                             <StackPanel Width="260" Spacing="10">
-                                                <TextBlock Text="CAMERA" Style="{StaticResource MapleEyebrow}" />
+                                                <mui:MuiText Text="CAMERA" Variant="Eyebrow" />
                                                 <StackPanel x:Name="ExifRows" Spacing="6" />
-                                                <TextBlock Text="FILE" Style="{StaticResource MapleEyebrow}" Margin="0,6,0,0" />
+                                                <mui:MuiText Text="FILE" Variant="Eyebrow" Margin="0,6,0,0" />
                                                 <StackPanel x:Name="FileRows" Spacing="6" />
                                             </StackPanel>
                                         </Flyout>
-                                    </Button.Flyout>
-                                </Button>
+                                    </mui:MuiButton.Flyout>
+                                </mui:MuiButton>
                                 <Button Style="{StaticResource AccentButtonStyle}" Padding="14,5" Click="OnEnterEdit"
                                         AutomationProperties.Name="Edit photo">
                                     <TextBlock Text="Edit" FontSize="12" FontWeight="SemiBold" />
@@ -647,16 +628,15 @@
                         </Border>
 
                         <!-- Edit top pill -->
-                        <Border x:Name="EditTopBar" Style="{StaticResource FloatingPill}" Visibility="Collapsed"
+                        <Border x:Name="EditTopBar" Visibility="Collapsed"
+                                Background="#F21C1917" BorderBrush="{StaticResource MapleBorder}"
+                                BorderThickness="1" CornerRadius="10"
                                 HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,14,0,0"
                                 Padding="10,6">
                             <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                                <Button Style="{StaticResource PillButton}" Click="OnExitEdit"
+                                <mui:MuiButton IconName="back" Variant="Ghost" ButtonSize="Sm" Click="OnExitEdit"
                                         ToolTipService.ToolTip="Back to Preview (Esc)"
-                                        AutomationProperties.Name="Back to preview">
-                                    <controls:MapleIconControl IconName="back" Size="14"
-                                                               IconBrush="{StaticResource MapleTextMain}" />
-                                </Button>
+                                        AutomationProperties.Name="Back to preview" />
                                 <TextBlock Text="{Binding SelectedPhoto.FileName}" FontSize="12" FontWeight="SemiBold"
                                            VerticalAlignment="Center" Foreground="{StaticResource MapleTextMain}" />
                                 <Border Width="96" Height="30" CornerRadius="4" Background="{StaticResource MapleImageCanvas}"
@@ -685,41 +665,36 @@
                                         </Button>
                                     </Grid>
                                 </Border>
-                                <Button Style="{StaticResource PillButton}" Click="OnApplyAuto"
-                                        AutomationProperties.Name="Auto adjust">
-                                    <TextBlock Text="AUTO" FontSize="11" FontWeight="SemiBold" />
-                                </Button>
-                                <Button Style="{StaticResource PillButton}" Click="OnResetAll"
+                                <mui:MuiButton Label="AUTO" Variant="Ghost" ButtonSize="Sm" Click="OnApplyAuto"
+                                        AutomationProperties.Name="Auto adjust" />
+                                <mui:MuiButton Label="RESET" Variant="Ghost" ButtonSize="Sm" Click="OnResetAll"
                                         ToolTipService.ToolTip="Reset all adjustments"
-                                        AutomationProperties.Name="Reset adjustments">
-                                    <TextBlock Text="RESET" FontSize="11" FontWeight="SemiBold" />
-                                </Button>
-                                <Button Style="{StaticResource PillButton}" Click="OnRevert"
+                                        AutomationProperties.Name="Reset adjustments" />
+                                <mui:MuiButton IconName="revert" Variant="Ghost" ButtonSize="Sm" Click="OnRevert"
                                         ToolTipService.ToolTip="Revert to sidecar state at open (Ctrl+R)"
-                                        AutomationProperties.Name="Revert edits">
-                                    <controls:MapleIconControl IconName="revert" Size="13"
-                                                               IconBrush="{StaticResource MapleTextMain}" />
-                                </Button>
+                                        AutomationProperties.Name="Revert edits" />
                                 <TextBlock x:Name="RenderStatsText" FontSize="10" VerticalAlignment="Center"
                                            Foreground="{StaticResource MapleTextMuted}" />
-                                <Button Style="{StaticResource PillButton}" Click="OnExportPhotos"
+                                <mui:MuiButton IconName="export" Variant="Ghost" ButtonSize="Sm"
+                                        IconColor="{StaticResource MaplePrimary}" Click="OnExportPhotos"
                                         ToolTipService.ToolTip="Export JPEG (Ctrl+Shift+E)"
-                                        AutomationProperties.Name="Export photo">
-                                    <controls:MapleIconControl IconName="export" Size="13"
-                                                               IconBrush="{StaticResource MaplePrimary}" />
-                                </Button>
+                                        AutomationProperties.Name="Export photo" />
                             </StackPanel>
                         </Border>
 
                         <!-- Edit tool rail -->
-                        <Border x:Name="EditRail" Style="{StaticResource FloatingPill}" Visibility="Collapsed"
+                        <Border x:Name="EditRail" Visibility="Collapsed"
+                                Background="#F21C1917" BorderBrush="{StaticResource MapleBorder}"
+                                BorderThickness="1" CornerRadius="10"
                                 HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0"
                                 Padding="6,10">
                             <StackPanel x:Name="EditRailStack" Spacing="4" />
                         </Border>
 
                         <!-- Floating group panel -->
-                        <Border x:Name="EditPanel" Style="{StaticResource FloatingPill}" Visibility="Collapsed"
+                        <Border x:Name="EditPanel" Visibility="Collapsed"
+                                Background="#F21C1917" BorderBrush="{StaticResource MapleBorder}"
+                                BorderThickness="1" CornerRadius="10"
                                 Width="300" MaxHeight="620"
                                 HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,86,0"
                                 Padding="14,10">
@@ -732,28 +707,27 @@
                                 <Grid Grid.Row="0" Margin="0,0,0,6">
                                     <TextBlock x:Name="EditPanelTitle" FontSize="11" FontWeight="Bold"
                                                CharacterSpacing="120" Foreground="{StaticResource MaplePrimary}" />
-                                    <Button Style="{StaticResource PillButton}" Padding="4,2" HorizontalAlignment="Right"
+                                    <mui:MuiButton IconName="revert" Variant="Ghost" ButtonSize="Sm"
+                                            IconColor="{StaticResource MapleTextMuted}"
+                                            HorizontalAlignment="Right"
                                             Click="OnResetGroup" ToolTipService.ToolTip="Reset this group"
-                                            AutomationProperties.Name="Reset group">
-                                        <controls:MapleIconControl IconName="revert" Size="12"
-                                                                   IconBrush="{StaticResource MapleTextMuted}" />
-                                    </Button>
+                                            AutomationProperties.Name="Reset group" />
                                 </Grid>
                                 <StackPanel x:Name="ColorTabRow" Grid.Row="1" Orientation="Horizontal" Spacing="4"
                                             Margin="0,0,0,6" Visibility="Collapsed">
-                                    <Button x:Name="ColorTabBasic" Style="{StaticResource PillButton}" FontSize="11"
-                                            Click="OnColorTab" AutomationProperties.Name="Color basic tab">Basic</Button>
-                                    <Button x:Name="ColorTabHsl" Style="{StaticResource PillButton}" FontSize="11"
-                                            Click="OnColorTab" AutomationProperties.Name="Color HSL tab">HSL</Button>
-                                    <Button x:Name="ColorTabBw" Style="{StaticResource PillButton}" FontSize="11"
-                                            Click="OnColorTab" AutomationProperties.Name="Color B&amp;W tab">B&amp;W</Button>
+                                    <mui:MuiActionButton x:Name="ColorTabBasic" Label="Basic" ButtonSize="Sm"
+                                            Click="OnColorTab" AutomationProperties.Name="Color basic tab" />
+                                    <mui:MuiActionButton x:Name="ColorTabHsl" Label="HSL" ButtonSize="Sm"
+                                            Click="OnColorTab" AutomationProperties.Name="Color HSL tab" />
+                                    <mui:MuiActionButton x:Name="ColorTabBw" Label="B&amp;W" ButtonSize="Sm"
+                                            Click="OnColorTab" AutomationProperties.Name="Color B&amp;W tab" />
                                 </StackPanel>
                                 <StackPanel x:Name="EffectsTabRow" Grid.Row="1" Orientation="Horizontal" Spacing="4"
                                             Margin="0,0,0,6" Visibility="Collapsed">
-                                    <Button x:Name="EffectsTabBasic" Style="{StaticResource PillButton}" FontSize="11"
-                                            Click="OnEffectsTab" AutomationProperties.Name="Effects basic tab">Basic</Button>
-                                    <Button x:Name="EffectsTabGrade" Style="{StaticResource PillButton}" FontSize="11"
-                                            Click="OnEffectsTab" AutomationProperties.Name="Effects grade tab">Grade</Button>
+                                    <mui:MuiActionButton x:Name="EffectsTabBasic" Label="Basic" ButtonSize="Sm"
+                                            Click="OnEffectsTab" AutomationProperties.Name="Effects basic tab" />
+                                    <mui:MuiActionButton x:Name="EffectsTabGrade" Label="Grade" ButtonSize="Sm"
+                                            Click="OnEffectsTab" AutomationProperties.Name="Effects grade tab" />
                                 </StackPanel>
                                 <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
                                     <StackPanel>
@@ -762,14 +736,14 @@
                                         <StackPanel x:Name="PanelCurveHost" Visibility="Collapsed" Spacing="6"
                                                     Margin="0,0,0,8">
                                             <StackPanel x:Name="CurveChannelRow" Orientation="Horizontal" Spacing="4">
-                                                <Button x:Name="CurveTabLuma" Style="{StaticResource PillButton}" FontSize="10"
-                                                        Click="OnCurveChannel" AutomationProperties.Name="Curve luma channel">Luma</Button>
-                                                <Button x:Name="CurveTabRed" Style="{StaticResource PillButton}" FontSize="10"
-                                                        Click="OnCurveChannel" AutomationProperties.Name="Curve red channel">R</Button>
-                                                <Button x:Name="CurveTabGreen" Style="{StaticResource PillButton}" FontSize="10"
-                                                        Click="OnCurveChannel" AutomationProperties.Name="Curve green channel">G</Button>
-                                                <Button x:Name="CurveTabBlue" Style="{StaticResource PillButton}" FontSize="10"
-                                                        Click="OnCurveChannel" AutomationProperties.Name="Curve blue channel">B</Button>
+                                                <mui:MuiActionButton x:Name="CurveTabLuma" Label="Luma" ButtonSize="Sm"
+                                                        Click="OnCurveChannel" AutomationProperties.Name="Curve luma channel" />
+                                                <mui:MuiActionButton x:Name="CurveTabRed" Label="R" ButtonSize="Sm"
+                                                        Click="OnCurveChannel" AutomationProperties.Name="Curve red channel" />
+                                                <mui:MuiActionButton x:Name="CurveTabGreen" Label="G" ButtonSize="Sm"
+                                                        Click="OnCurveChannel" AutomationProperties.Name="Curve green channel" />
+                                                <mui:MuiActionButton x:Name="CurveTabBlue" Label="B" ButtonSize="Sm"
+                                                        Click="OnCurveChannel" AutomationProperties.Name="Curve blue channel" />
                                             </StackPanel>
                                             <controls:ToneCurvePlotControl x:Name="CurvePlot" Height="270"
                                                                            AutomationProperties.Name="Tone curve plot" />
@@ -777,10 +751,10 @@
                                                 <TextBlock Text="Shadows" FontSize="9"
                                                            Foreground="{StaticResource MapleTextMuted}"
                                                            HorizontalAlignment="Left" VerticalAlignment="Center" />
-                                                <Button x:Name="CurveResetButton" Style="{StaticResource PillButton}"
-                                                        FontSize="9" Padding="6,2" HorizontalAlignment="Center"
+                                                <mui:MuiButton x:Name="CurveResetButton" Label="Reset curve" Variant="Ghost" ButtonSize="Sm"
+                                                        HorizontalAlignment="Center"
                                                         Click="OnCurveReset"
-                                                        AutomationProperties.Name="Reset curve">Reset curve</Button>
+                                                        AutomationProperties.Name="Reset curve" />
                                                 <TextBlock Text="Highlights" FontSize="9"
                                                            Foreground="{StaticResource MapleTextMuted}"
                                                            HorizontalAlignment="Right" VerticalAlignment="Center" />
@@ -841,9 +815,9 @@
                                                       SelectionChanged="OnCropAspectChanged" />
                                             <StackPanel>
                                                 <Grid>
-                                                    <TextBlock Text="Straighten" Style="{StaticResource MapleRowLabel}" />
-                                                    <TextBlock x:Name="CropAngleText" Text="0.0°"
-                                                               Style="{StaticResource MapleValueChip}"
+                                                    <mui:MuiText Text="Straighten" Variant="RowLabel" />
+                                                    <mui:MuiText x:Name="CropAngleText" Text="0.0°"
+                                                               Variant="ValueChip"
                                                                HorizontalAlignment="Right" />
                                                 </Grid>
                                                 <Slider x:Name="CropAngleSlider" Minimum="-45" Maximum="45"
@@ -853,12 +827,12 @@
                                                         AutomationProperties.Name="Straighten angle" />
                                             </StackPanel>
                                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                                <Button Style="{StaticResource PillButton}" FontSize="11"
+                                                <mui:MuiButton Label="Reset" Variant="Ghost" ButtonSize="Sm"
                                                         Click="OnCropReset"
-                                                        AutomationProperties.Name="Reset crop">Reset</Button>
-                                                <Button Style="{StaticResource PillButton}" FontSize="11"
+                                                        AutomationProperties.Name="Reset crop" />
+                                                <mui:MuiButton Label="Done" Variant="Ghost" ButtonSize="Sm"
                                                         Click="OnCropDone"
-                                                        AutomationProperties.Name="Crop done">Done</Button>
+                                                        AutomationProperties.Name="Crop done" />
                                             </StackPanel>
                                         </StackPanel>
                                         <TextBlock x:Name="PanelFootnote" FontSize="10" TextWrapping="Wrap"

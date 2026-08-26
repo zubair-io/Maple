@@ -54,6 +54,10 @@ namespace Maple.UI.Atoms
             DependencyProperty.Register(nameof(IsLoading), typeof(bool), typeof(MuiButton),
                 new PropertyMetadata(false, (d, _) => ((MuiButton)d).Rebuild()));
 
+        public static readonly DependencyProperty IconColorProperty =
+            DependencyProperty.Register(nameof(IconColor), typeof(Brush), typeof(MuiButton),
+                new PropertyMetadata(null, (d, _) => ((MuiButton)d).Rebuild()));
+
         public MuiButtonVariant Variant
         {
             get => (MuiButtonVariant)GetValue(VariantProperty);
@@ -84,6 +88,17 @@ namespace Maple.UI.Atoms
         {
             get => (bool)GetValue(IsLoadingProperty);
             set => SetValue(IsLoadingProperty, value);
+        }
+
+        /// <summary>Overrides the leading icon's color independent of the
+        /// variant-driven Foreground (e.g. a semantic green/red glyph on an
+        /// otherwise Ghost/Secondary button — the pick/reject flags in the
+        /// Preview pill). Null (the default) leaves the icon inheriting
+        /// Foreground, matching every existing MuiButton call site.</summary>
+        public Brush? IconColor
+        {
+            get => (Brush?)GetValue(IconColorProperty);
+            set => SetValue(IconColorProperty, value);
         }
 
         private readonly StackPanel _content = new()
@@ -189,6 +204,7 @@ namespace Maple.UI.Atoms
 
             var hasIcon = !string.IsNullOrEmpty(IconName);
             _icon.IconName = IconName ?? string.Empty;
+            _icon.IconColor = IconColor;
             _icon.Visibility = hasIcon && !IsLoading ? Visibility.Visible : Visibility.Collapsed;
 
             _spinner.IsActive = IsLoading;
