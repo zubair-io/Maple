@@ -1,8 +1,13 @@
 @if (state.backendLoading()) {
-  <app-loading-banner label="Loading folders…" />
+  <mui-banner variant="loading" message="Loading folders…" />
 }
 @if (state.backendError(); as error) {
-  <app-error-banner [message]="error" (retry)="state.loadFolderTree()" />
+  <mui-banner
+    variant="error"
+    [message]="error"
+    actionLabel="Retry"
+    (actionPressed)="state.loadFolderTree()"
+  />
 }
 @if (state.backendEmpty() && !state.backendLoading() && !state.backendError()) {
   <app-library-picker (pick)="state.addLibraryFolder($event)" />

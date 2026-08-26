@@ -42,11 +42,12 @@ import type { AssetId } from '../models/asset';
 import type { SidebarEntry } from '../models/folder';
 import { DRAG_MOVE_CAPABILITY } from './drag-move-capability';
 import { MoveToTreePickerComponent } from './move-to-tree-picker.component';
+import { MuiButtonComponent } from '../ui/button/mui-button.component';
 
 @Component({
   selector: 'app-move-to-dialog',
   standalone: true,
-  imports: [MoveToTreePickerComponent],
+  imports: [MoveToTreePickerComponent, MuiButtonComponent],
   templateUrl: './move-to-dialog.component.html',
   styleUrl: './move-to-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

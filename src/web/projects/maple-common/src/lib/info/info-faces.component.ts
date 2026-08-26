@@ -7,7 +7,7 @@
 
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { MapleCollapsibleComponent } from '../collapsible/maple-collapsible.component';
+import { MuiCollapsibleComponent } from '../ui/collapsible/mui-collapsible.component';
 import { MapleIconComponent } from '../icons/maple-icon.component';
 import {
   EnrichmentStageStatus,
@@ -20,7 +20,7 @@ import type { ApiAssetDetail } from '../api/bun-api-backend.service';
   selector: 'app-info-faces',
   standalone: true,
   imports: [
-    MapleCollapsibleComponent,
+    MuiCollapsibleComponent,
     MapleIconComponent,
     EnrichmentStatusBadgeComponent,
     RouterLink,

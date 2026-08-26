@@ -13,13 +13,13 @@
 // requeue already lives on the Description section directly above.
 
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
-import { MapleCollapsibleComponent } from '../collapsible/maple-collapsible.component';
+import { MuiCollapsibleComponent } from '../ui/collapsible/mui-collapsible.component';
 import type { ApiAssetDetail } from '../api/bun-api-backend.service';
 
 @Component({
   selector: 'app-info-vision',
   standalone: true,
-  imports: [MapleCollapsibleComponent],
+  imports: [MuiCollapsibleComponent],
   templateUrl: './info-vision.component.html',
   styleUrl: './info-vision.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

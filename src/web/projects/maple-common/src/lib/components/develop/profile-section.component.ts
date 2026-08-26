@@ -5,13 +5,13 @@
 
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { LibraryStateService } from '../../state/library-state.service';
-import { MapleCollapsibleComponent } from '../../collapsible/maple-collapsible.component';
+import { MuiCollapsibleComponent } from '../../ui/collapsible/mui-collapsible.component';
 import type { Profile } from '../../generated/adjustment-model.generated';
 
 @Component({
   selector: 'editor-profile-section',
   standalone: true,
-  imports: [MapleCollapsibleComponent],
+  imports: [MuiCollapsibleComponent],
   templateUrl: './profile-section.component.html',
   styleUrl: './profile-section.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

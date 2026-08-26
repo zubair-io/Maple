@@ -1,4 +1,4 @@
-<maple-collapsible label="Presence" storageKey="dev-presence" [padInner]="false">
+<mui-collapsible label="Presence" storageKey="dev-presence" [padInner]="false">
   @if (assetId()) {
     <editor-slider
       label="Vibrance"
@@ -36,4 +36,4 @@
       (valueChange)="patch('dehaze', $event)"
     />
   }
-</maple-collapsible>
+</mui-collapsible>

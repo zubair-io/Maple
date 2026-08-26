@@ -12,7 +12,7 @@
 
 import { ChangeDetectionStrategy, Component, input, output, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { MapleCollapsibleComponent } from '../collapsible/maple-collapsible.component';
+import { MuiCollapsibleComponent } from '../ui/collapsible/mui-collapsible.component';
 import {
   EnrichmentStageStatus,
   EnrichmentStatusBadgeComponent,
@@ -23,7 +23,7 @@ import type { ApiAssetDetail, ApiPlace } from '../api/bun-api-backend.service';
 @Component({
   selector: 'app-info-place',
   standalone: true,
-  imports: [MapleCollapsibleComponent, EnrichmentStatusBadgeComponent, RouterLink],
+  imports: [MuiCollapsibleComponent, EnrichmentStatusBadgeComponent, RouterLink],
   templateUrl: './info-place.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {

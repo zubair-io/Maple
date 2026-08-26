@@ -9,13 +9,13 @@
 // the orchestrator polls). Hidden entirely when there is no transcript.
 
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
-import { MapleCollapsibleComponent } from '../collapsible/maple-collapsible.component';
+import { MuiCollapsibleComponent } from '../ui/collapsible/mui-collapsible.component';
 import type { ApiAssetDetail } from '../api/bun-api-backend.service';
 
 @Component({
   selector: 'app-info-transcript',
   standalone: true,
-  imports: [MapleCollapsibleComponent],
+  imports: [MuiCollapsibleComponent],
   templateUrl: './info-transcript.component.html',
   styleUrl: './info-transcript.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

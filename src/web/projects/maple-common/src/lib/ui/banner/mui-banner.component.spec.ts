@@ -44,6 +44,23 @@ describe('MuiBannerComponent', () => {
     expect(actionPressed.length).toBe(1);
   });
 
+  it('the error variant renders role="alert"; every other variant renders role="status"', () => {
+    const fixture = render();
+    expect(fixture.nativeElement.querySelector('.mui-banner').getAttribute('role')).toBe('status');
+
+    fixture.componentRef.setInput('variant', 'error');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.mui-banner').getAttribute('role')).toBe('alert');
+  });
+
+  it('the loading variant renders a spinner instead of a static icon', () => {
+    const fixture = render();
+    fixture.componentRef.setInput('variant', 'loading');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('mui-spinner')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('mui-icon')).toBeNull();
+  });
+
   it('a dismissible banner shows a dismiss control that emits dismissed', () => {
     const fixture = render();
     fixture.componentRef.setInput('dismissible', true);

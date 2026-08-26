@@ -1,6 +1,6 @@
 @let d = detail();
 @if (d.vision) {
-  <maple-collapsible label="Vision" storageKey="info-vision">
+  <mui-collapsible label="Vision" storageKey="info-vision">
     <div class="space-y-2 px-4 py-[5px]">
       <!-- Screenshot badge + people count. `people_count` is absent on rows
            captioned before prompt v7, and absent is not the same as zero —
@@ -180,7 +180,7 @@
         </div>
       }
     </div>
-  </maple-collapsible>
+  </mui-collapsible>
 }
 
 <!-- Visible text — mirrored into ocr_text by the describe stage. Read off
@@ -192,12 +192,12 @@
      #158 carry OCR text (engine "tesseract") with no vision subdoc at all.
      Nesting this inside the vision gate hid their OCR entirely. -->
 @if (d.ocr_text && d.ocr_text.length > 0) {
-  <maple-collapsible label="Text" storageKey="info-ocr-text">
+  <mui-collapsible label="Text" storageKey="info-ocr-text">
     <div class="px-4 py-[5px]">
       <pre
         class="ocr-pre m-0 whitespace-pre-wrap break-words font-mono text-[10px] text-text-main"
         >{{ d.ocr_text }}</pre
       >
     </div>
-  </maple-collapsible>
+  </mui-collapsible>
 }

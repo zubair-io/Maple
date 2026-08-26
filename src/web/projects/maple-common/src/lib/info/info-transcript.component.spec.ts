@@ -64,7 +64,7 @@ describe('InfoTranscriptComponent', () => {
   it('renders nothing when there is no transcript', () => {
     const el = render(detailWith(null));
     expect(el.querySelector('.transcript-pre')).toBeNull();
-    expect(el.querySelector('maple-collapsible')).toBeNull();
+    expect(el.querySelector('mui-collapsible')).toBeNull();
   });
 
   it('renders nothing when the transcript text is empty', () => {

@@ -1,4 +1,4 @@
-<maple-collapsible label="White Balance" storageKey="dev-wb" [padInner]="false">
+<mui-collapsible label="White Balance" storageKey="dev-wb" [padInner]="false">
   @if (assetId()) {
     <editor-wb-presets [active]="adj().whiteBalancePreset" (selected)="onPreset($event)" />
     <editor-slider
@@ -17,4 +17,4 @@
       (valueChange)="patch('tint', $event)"
     />
   }
-</maple-collapsible>
+</mui-collapsible>

@@ -1,4 +1,5 @@
-// check-maple-ui-adoption.mjs — MW1 (ticket #3020) adoption ratchet.
+// check-maple-ui-adoption.mjs — MW1 (ticket #3020) adoption ratchet,
+// extended by MW2 (ticket #3029).
 //
 // The Settings surface (src/web/projects/maple/src/app/settings/) has been
 // fully migrated off hand-rolled <button> markup and the shared
@@ -9,10 +10,25 @@
 // re-enters any migrated directory, so a future change can't silently regress
 // back to hand-rolled markup.
 //
-// Scope is deliberately narrow — only the directories this wave (MW1)
-// actually migrated. Later waves (MW2+) add their own directories here as
-// they land, the same incremental-ratchet pattern as the rest of this repo's
-// ratchet scripts (see check_budget_ratchet.py, check-budget-headroom.sh).
+// Scope is deliberately narrow — only directories that are ENTIRELY clean
+// (every template in the subtree, not just the one file a wave touched).
+// MW2 (#3029) migrated `pano/pano-dialog.component` off its `pano-btn-*`
+// clone family and its header close button onto `<mui-button>`, and that
+// component is the only template under `lib/pano/` — the whole directory
+// is clean, so it's added here. MW2 also touched raw buttons inside
+// `drag-move/`, `trash/`, and `components/folder-tree/` (the
+// `dmc-btn-*`/`mtd-btn-*`/`tdc-btn-*` clone families, plus the two dialogs
+// that used to extend `DestructiveConfirmDialogBase`), but those
+// directories each still hold OTHER, unmigrated raw-`<button>` templates
+// outside this wave's scope (e.g.
+// `folder-tree/folder-new-folder-dialog.component.html`,
+// `trash/trash-toolbar.component.html`) — adding them here would
+// false-positive against files nobody has migrated yet, so they wait for
+// the wave that actually clears their siblings (MW3 info panel, MW4 browse
+// shell, or a later KTLO pass). Later waves add their own directories here
+// as they land, the same incremental-ratchet pattern as the rest of this
+// repo's ratchet scripts (see check_budget_ratchet.py,
+// check-budget-headroom.sh).
 
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
@@ -21,6 +37,7 @@ import { walkFiles } from './lib/walk-files.mjs';
 
 const MIGRATED_DIRECTORIES = [
   resolve(fileURLToPath(new URL('../projects/maple/src/app/settings', import.meta.url))),
+  resolve(fileURLToPath(new URL('../projects/maple-common/src/lib/pano', import.meta.url))),
 ];
 
 const TEMPLATE_EXTENSIONS = new Set(['.html']);

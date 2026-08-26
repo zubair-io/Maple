@@ -3,7 +3,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { ADJUSTMENT_RANGES } from '../../generated/adjustment-tables.generated';
 import { LibraryStateService } from '../../state/library-state.service';
-import { MapleCollapsibleComponent } from '../../collapsible/maple-collapsible.component';
+import { MuiCollapsibleComponent } from '../../ui/collapsible/mui-collapsible.component';
 import { EditorSliderComponent } from './slider.component';
 import { WbPresetPillsComponent, WbPresetSelection } from './wb-preset-pills.component';
 
@@ -31,7 +31,7 @@ function wbPresetPatch(
 @Component({
   selector: 'editor-white-balance-section',
   standalone: true,
-  imports: [MapleCollapsibleComponent, EditorSliderComponent, WbPresetPillsComponent],
+  imports: [MuiCollapsibleComponent, EditorSliderComponent, WbPresetPillsComponent],
   templateUrl: './white-balance-section.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
