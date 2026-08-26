@@ -122,6 +122,9 @@ struct SourcesSettingsView: View {
 
     // MARK: - Load
 
+    // Explicitly @MainActor: mutates @State (checkState/loadState) after
+    // awaits, matching the codebase convention for async view actions.
+    @MainActor
     private func load(fresh: Bool) async {
         if fresh {
             checkState = .running
