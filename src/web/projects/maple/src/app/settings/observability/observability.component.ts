@@ -21,7 +21,6 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { FormsModule } from '@angular/forms';
 import {
   type ObservabilityConfigPatch,
   type ObservabilityConfigResponse,
@@ -29,6 +28,9 @@ import {
   TypedStorage,
   STORAGE_KEYS,
   errorMessage,
+  MuiButtonComponent,
+  MuiCheckboxComponent,
+  MuiInputComponent,
 } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
@@ -54,7 +56,13 @@ type ConnState =
 @Component({
   selector: 'maple-observability-settings',
   standalone: true,
-  imports: [FormsModule, SettingsShellComponent, SettingsIconComponent],
+  imports: [
+    SettingsShellComponent,
+    SettingsIconComponent,
+    MuiButtonComponent,
+    MuiCheckboxComponent,
+    MuiInputComponent,
+  ],
   templateUrl: './observability.component.html',
   styleUrl: './observability.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
