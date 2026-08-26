@@ -15,25 +15,34 @@
   <div class="row-header">
     @if (customSummary()) {
       <div class="custom-summary">
-        <div
-          class="header"
-          role="button"
-          tabindex="0"
-          [attr.aria-expanded]="open()"
-          [attr.aria-label]="label()"
-          (click)="onSummaryClick($event)"
-          (keydown)="onSummaryKeydown($event)"
-        >
-          <mui-icon
-            name="chevron-right"
-            size="sm"
-            class="chevron"
-            [class.open]="open()"
-            [decorative]="true"
-          />
+        <!-- Not a `role="button"` wrapper — the projected [summary] slot
+             routinely contains real interactive controls (e.g. a "Run now"
+             button), and nesting interactive elements inside an ARIA
+             `role="button"` is invalid: assistive tech flattens the subtree
+             and the nested controls become unreachable. The click handler
+             here is pointer-only convenience (guarded so a click that lands
+             on a nested control activates that control, not the row); the
+             keyboard/AT path is exclusively the real `<button>` below. -->
+        <div class="header" (click)="onSummaryClick($event)">
+          <button
+            type="button"
+            class="chevron-toggle"
+            [attr.aria-expanded]="open()"
+            [attr.aria-label]="label()"
+            [attr.aria-controls]="contentId"
+            (click)="toggle()"
+          >
+            <mui-icon
+              name="chevron-right"
+              size="sm"
+              class="chevron"
+              [class.open]="open()"
+              [decorative]="true"
+            />
+          </button>
           <div class="summary-content"><ng-content select="[summary]" /></div>
         </div>
-        <div class="content-wrapper" [class.open]="open()">
+        <div class="content-wrapper" [class.open]="open()" [id]="contentId">
           <div class="content-inner">
             <div class="body">
               <ng-container [ngTemplateOutlet]="bodyContent" />

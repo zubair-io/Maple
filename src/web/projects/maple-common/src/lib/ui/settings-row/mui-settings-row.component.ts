@@ -54,30 +54,28 @@ export class MuiSettingsRowComponent {
    * to a projected `[summary]` slot the caller fully controls. */
   readonly customSummary = input<boolean>(false);
 
+  /** `aria-controls` target for the customSummary disclosure button, and the
+   * `id` of the content region it points at. A plain per-instance counter is
+   * enough — this only needs to be unique within one rendered page. */
+  private static nextContentId = 0;
+  protected readonly contentId = `mui-settings-row-body-${MuiSettingsRowComponent.nextContentId++}`;
+
   toggle(): void {
     this.open.update((value) => !value);
   }
 
-  /** The customSummary header is a `role="button"` div, not a real
-   * `<button>` — the projected summary itself often contains real buttons
-   * (e.g. a "Run now" action), and a `<button>` cannot legally nest another
-   * `<button>`. Click-to-toggle is therefore guarded the same way the
-   * `settings-row.component` it replaces was: a click that originated on a
-   * nested interactive element activates that element only, not the row's
-   * own toggle. */
+  /** The customSummary header's `.header` wrapper is a plain, non-semantic
+   * `<div>` — the projected summary itself often contains real interactive
+   * controls (e.g. a "Run now" button), and nesting interactive elements
+   * inside an ARIA `role="button"` is invalid (assistive tech flattens the
+   * subtree, making the nested controls unreachable). This click handler is
+   * therefore pointer-only convenience, guarded so a click that lands on a
+   * nested interactive element — including the real `<button>` disclosure
+   * toggle itself — activates that element only, not the row's own toggle;
+   * the keyboard/AT path is exclusively that `<button>`, which handles
+   * Enter/Space natively. */
   onSummaryClick(event: Event): void {
     if (this.isFromInteractive(event)) return;
-    this.toggle();
-  }
-
-  /** Enter/Space toggles only when the row itself is focused — never when
-   * the key event bubbled up from a projected interactive child, which
-   * would otherwise both toggle the row and (for Space) swallow the child's
-   * own activation. */
-  onSummaryKeydown(event: KeyboardEvent): void {
-    if (event.target !== event.currentTarget) return;
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
     this.toggle();
   }
 

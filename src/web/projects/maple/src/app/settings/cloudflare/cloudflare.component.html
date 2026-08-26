@@ -24,7 +24,9 @@
         <!-- Enable toggle -->
         <div class="field-row">
           <div class="field-label-group">
-            <label class="field-label">Upload thumbnails to Cloudflare</label>
+            <label class="field-label" for="cloudflare-enabled"
+              >Upload thumbnails to Cloudflare</label
+            >
             <span class="field-hint">
               When off, thumbnails are only ever served from this server; no data leaves your
               library.
@@ -32,6 +34,7 @@
           </div>
           <div class="field-control">
             <mui-checkbox
+              inputId="cloudflare-enabled"
               ariaLabel="Upload thumbnails to Cloudflare"
               [checked]="fEnabled()"
               (checkedChange)="fEnabled.set($event)"
@@ -42,11 +45,12 @@
         <!-- Account ID -->
         <div class="field-row">
           <div class="field-label-group">
-            <label class="field-label">Account ID</label>
+            <label class="field-label" for="cloudflare-account-id">Account ID</label>
             <span class="field-hint">Your Cloudflare account ID (Dashboard → R2 → Overview).</span>
           </div>
           <div class="field-control">
             <mui-input
+              inputId="cloudflare-account-id"
               [(value)]="fAccountId"
               placeholder="a1b2c3d4e5f6..."
               ariaLabel="Account ID"
@@ -59,11 +63,12 @@
         <!-- Bucket -->
         <div class="field-row">
           <div class="field-label-group">
-            <label class="field-label">Bucket name</label>
+            <label class="field-label" for="cloudflare-bucket">Bucket name</label>
             <span class="field-hint">The R2 bucket thumbnails are uploaded into.</span>
           </div>
           <div class="field-control">
             <mui-input
+              inputId="cloudflare-bucket"
               [(value)]="fBucket"
               placeholder="maple-thumbs"
               ariaLabel="Bucket name"
@@ -76,13 +81,14 @@
         <!-- Access key ID -->
         <div class="field-row">
           <div class="field-label-group">
-            <label class="field-label">Access key ID</label>
+            <label class="field-label" for="cloudflare-access-key-id">Access key ID</label>
             <span class="field-hint">
               An R2 API token's access key ID (Dashboard → R2 → Manage API tokens).
             </span>
           </div>
           <div class="field-control">
             <mui-input
+              inputId="cloudflare-access-key-id"
               [(value)]="fAccessKeyId"
               placeholder="AKIAEXAMPLE..."
               ariaLabel="Access key ID"
@@ -95,7 +101,7 @@
         <!-- Secret access key -->
         <div class="field-row">
           <div class="field-label-group">
-            <label class="field-label">Secret access key</label>
+            <label class="field-label" for="cloudflare-secret-access-key">Secret access key</label>
             <span class="field-hint">
               Write-only — never sent back to the browser. Leave blank to keep the currently saved
               key.
@@ -103,6 +109,7 @@
           </div>
           <div class="field-control">
             <mui-input
+              inputId="cloudflare-secret-access-key"
               [masked]="true"
               [(value)]="fSecretAccessKey"
               [placeholder]="secretPlaceholder()"

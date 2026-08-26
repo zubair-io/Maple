@@ -77,11 +77,14 @@ describe('MuiSettingsRowComponent (customSummary)', () => {
     expect(fixture.nativeElement.querySelector('mui-text')).toBeFalsy();
   });
 
-  it('expands the projected body on header click, same as the default mode', () => {
+  it('expands the projected body on a pointer click anywhere in the header', () => {
     const fixture = renderCustom();
     expect(fixture.nativeElement.querySelector('.content-wrapper').className).not.toContain('open');
 
-    (fixture.nativeElement.querySelector('.header') as HTMLButtonElement).click();
+    // Pointer convenience: clicking the header div (not on the chevron
+    // button itself, and not on any nested interactive control) still
+    // toggles the row.
+    (fixture.nativeElement.querySelector('.summary-content') as HTMLElement).click();
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.content-wrapper').className).toContain('open');
     expect(fixture.nativeElement.querySelector('.projected-body').textContent).toBe(
@@ -89,11 +92,30 @@ describe('MuiSettingsRowComponent (customSummary)', () => {
     );
   });
 
-  it('sets the header button aria-label from `label`', () => {
+  it('expands the projected body via the chevron button (keyboard/AT path)', () => {
     const fixture = renderCustom();
-    expect(fixture.nativeElement.querySelector('.header').getAttribute('aria-label')).toBe(
-      'Stage: thumb',
-    );
+    expect(fixture.nativeElement.querySelector('.content-wrapper').className).not.toContain('open');
+
+    (fixture.nativeElement.querySelector('.chevron-toggle') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.content-wrapper').className).toContain('open');
+  });
+
+  it('does not wrap the projected summary in an ARIA role="button" — only the chevron is a real button', () => {
+    const fixture = renderCustom();
+    expect(fixture.nativeElement.querySelector('.header').getAttribute('role')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.header').getAttribute('tabindex')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.chevron-toggle').tagName).toBe('BUTTON');
+  });
+
+  it('sets aria-expanded/aria-label/aria-controls on the chevron button from `label` and the content region', () => {
+    const fixture = renderCustom();
+    const toggle = fixture.nativeElement.querySelector('.chevron-toggle') as HTMLButtonElement;
+    expect(toggle.getAttribute('aria-label')).toBe('Stage: thumb');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    const contentId = toggle.getAttribute('aria-controls');
+    expect(contentId).toBeTruthy();
+    expect(fixture.nativeElement.querySelector('.content-wrapper').id).toBe(contentId);
   });
 });
 

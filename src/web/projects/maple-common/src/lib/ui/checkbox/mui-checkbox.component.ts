@@ -22,6 +22,12 @@ export class MuiCheckboxComponent {
   readonly label = input<string | null>(null);
   readonly ariaLabel = input<string | null>(null);
   readonly disabled = input<boolean>(false);
+  /** Forwarded to the native control's `id` attribute — lets a caller pair
+   * this checkbox with an external `<label for="...">` (e.g. a settings
+   * `field-label` rendered outside this component's own template) in
+   * addition to the internal `<label>` this component already wraps itself
+   * in. Omitted entirely when unset. */
+  readonly inputId = input<string | null>(null);
 
   readonly checkedChange = output<boolean>();
 

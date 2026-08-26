@@ -31,7 +31,7 @@
         <!-- Enable toggle -->
         <div class="field-row">
           <div class="field-label-group">
-            <label class="field-label">Panorama stitching</label>
+            <label class="field-label" for="pano-enabled">Panorama stitching</label>
             <span class="field-hint">
               When off, the "Merge to panorama…" action is hidden and POST /api/pano/stitch returns
               409.
@@ -39,6 +39,7 @@
           </div>
           <div class="field-control">
             <mui-checkbox
+              inputId="pano-enabled"
               ariaLabel="Panorama stitching"
               [checked]="fEnabled()"
               (checkedChange)="fEnabled.set($event)"
@@ -49,7 +50,7 @@
         <!-- maple-cli path -->
         <div class="field-row">
           <div class="field-label-group">
-            <label class="field-label">maple-cli binary path</label>
+            <label class="field-label" for="pano-cli-path">maple-cli binary path</label>
             <span class="field-hint">
               Absolute path to the compiled <code>maple-cli</code> binary on this server. Build
               with: <code>cargo build --release --bin maple-cli</code> (in
@@ -61,6 +62,7 @@
           </div>
           <div class="field-control">
             <mui-input
+              inputId="pano-cli-path"
               [(value)]="fCliPath"
               placeholder="/usr/local/bin/maple-cli"
               ariaLabel="maple-cli binary path"
@@ -72,7 +74,9 @@
         <!-- Models dir -->
         <div class="field-row">
           <div class="field-label-group">
-            <label class="field-label">Models directory (MAPLE_PANO_MODELS)</label>
+            <label class="field-label" for="pano-models-dir"
+              >Models directory (MAPLE_PANO_MODELS)</label
+            >
             <span class="field-hint">
               Directory containing the ALIKED + LightGlue ONNX model files. SHA-pinned versions are
               listed in <code>src/raw-pipeline/maple-pano/models.toml</code>. Leave blank to use the
@@ -84,6 +88,7 @@
           </div>
           <div class="field-control">
             <mui-input
+              inputId="pano-models-dir"
               [(value)]="fModelsDir"
               placeholder="~/.cache/maple-pano/models"
               ariaLabel="Models directory (MAPLE_PANO_MODELS)"
@@ -95,7 +100,9 @@
         <!-- ORT dylib path -->
         <div class="field-row">
           <div class="field-label-group">
-            <label class="field-label">ONNX Runtime dylib (ORT_DYLIB_PATH)</label>
+            <label class="field-label" for="pano-ort-dylib-path"
+              >ONNX Runtime dylib (ORT_DYLIB_PATH)</label
+            >
             <span class="field-hint">
               Path to <code>libonnxruntime.dylib</code> / <code>libonnxruntime.so</code> version ≥
               1.23. Required by the ALIKED and LightGlue models. The default location on macOS after
@@ -109,6 +116,7 @@
           </div>
           <div class="field-control">
             <mui-input
+              inputId="pano-ort-dylib-path"
               [(value)]="fOrtDylibPath"
               placeholder="/opt/homebrew/lib/libonnxruntime.dylib"
               ariaLabel="ONNX Runtime dylib (ORT_DYLIB_PATH)"

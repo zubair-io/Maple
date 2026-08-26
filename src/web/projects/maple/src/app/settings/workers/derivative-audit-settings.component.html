@@ -51,9 +51,10 @@
 
       <div class="audit-grid">
         <div class="field">
-          <label class="field-label">Max re-arms per pass</label>
+          <label class="field-label" for="audit-max-resets-input">Max re-arms per pass</label>
           <div class="num-input">
             <mui-input
+              inputId="audit-max-resets-input"
               variant="numeric"
               [min]="1"
               [max]="1000000"
@@ -67,9 +68,10 @@
         </div>
 
         <div class="field">
-          <label class="field-label">Scan interval</label>
+          <label class="field-label" for="audit-interval-hours-input">Scan interval</label>
           <div class="num-input">
             <mui-input
+              inputId="audit-interval-hours-input"
               variant="numeric"
               [min]="0.1"
               [max]="168"
@@ -85,9 +87,10 @@
         </div>
 
         <div class="field">
-          <label class="field-label">Concurrency</label>
+          <label class="field-label" for="audit-concurrency-input">Concurrency</label>
           <div class="num-input">
             <mui-input
+              inputId="audit-concurrency-input"
               variant="numeric"
               [min]="1"
               [max]="64"

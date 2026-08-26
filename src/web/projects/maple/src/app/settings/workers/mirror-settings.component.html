@@ -147,9 +147,12 @@
         <div class="block">
           <div class="subhead">{{ lib.label }}</div>
           <div class="field field-wide">
-            <label class="field-label">Backup location</label>
+            <label class="field-label" [attr.for]="'mirror-backup-location-' + lib.id"
+              >Backup location</label
+            >
             <div class="text-input mono">
               <mui-input
+                [inputId]="'mirror-backup-location-' + lib.id"
                 [value]="pathOf(lib.id)"
                 (valueChange)="setPath(lib.id, $event)"
                 placeholder="/mnt/backup/photos"

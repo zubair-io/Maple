@@ -61,6 +61,15 @@ describe('MuiCheckboxComponent', () => {
     expect(box(fixture).getAttribute('aria-label')).toBe('Select row');
   });
 
+  it("forwards `inputId` to the native control's id, and omits the attribute when unset", () => {
+    const fixture = render();
+    expect(box(fixture).getAttribute('id')).toBeNull();
+
+    fixture.componentRef.setInput('inputId', 'cloudflare-enabled');
+    fixture.detectChanges();
+    expect(box(fixture).getAttribute('id')).toBe('cloudflare-enabled');
+  });
+
   it('disables the native input when `disabled` is set', () => {
     const fixture = render();
     fixture.componentRef.setInput('disabled', true);

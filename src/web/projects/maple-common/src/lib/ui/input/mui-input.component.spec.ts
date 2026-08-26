@@ -116,6 +116,15 @@ describe('MuiInputComponent', () => {
     expect(control(fixture).type).toBe('password');
   });
 
+  it("forwards `inputId` to the native control's id, and omits the attribute when unset", () => {
+    const fixture = render();
+    expect(control(fixture).getAttribute('id')).toBeNull();
+
+    fixture.componentRef.setInput('inputId', 'account-id');
+    fixture.detectChanges();
+    expect(control(fixture).getAttribute('id')).toBe('account-id');
+  });
+
   it('forwards `autocomplete` to the native control', () => {
     const fixture = render();
     expect(control(fixture).getAttribute('autocomplete')).toBeNull();

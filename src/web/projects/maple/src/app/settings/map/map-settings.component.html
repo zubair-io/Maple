@@ -23,7 +23,7 @@
         <!-- Tile source URL -->
         <div class="field-row">
           <div class="field-label-group">
-            <label class="field-label">Tile source URL</label>
+            <label class="field-label" for="map-tile-url">Tile source URL</label>
             <span class="field-hint">
               A MapLibre raster tile template (with <code>{{ '{z}/{x}/{y}' }}</code> placeholders)
               or a MapLibre style JSON URL. Leave blank to reset to the built-in OpenStreetMap
@@ -35,6 +35,7 @@
           </div>
           <div class="field-control">
             <mui-input
+              inputId="map-tile-url"
               [(value)]="fTileUrl"
               placeholder="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
               ariaLabel="Tile source URL"
