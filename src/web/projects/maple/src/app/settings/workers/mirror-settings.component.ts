@@ -21,9 +21,12 @@ import {
   type ApiFolder,
   type MirrorReconcileProgress,
   errorMessage,
+  MuiButtonComponent,
+  MuiCheckboxComponent,
+  MuiInputComponent,
+  MuiSettingsRowComponent,
 } from '@maple-common';
 import { SettingsIconComponent } from '../settings-icon.component';
-import { SettingsRowComponent } from '../settings-row.component';
 
 interface MirrorForm {
   path: string;
@@ -35,7 +38,13 @@ type TestState = 'idle' | 'testing' | 'ok' | 'fail';
 @Component({
   selector: 'maple-mirror-settings',
   standalone: true,
-  imports: [SettingsIconComponent, SettingsRowComponent],
+  imports: [
+    SettingsIconComponent,
+    MuiSettingsRowComponent,
+    MuiButtonComponent,
+    MuiCheckboxComponent,
+    MuiInputComponent,
+  ],
   templateUrl: './mirror-settings.component.html',
   styleUrl: './mirror-settings.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

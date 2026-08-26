@@ -29,7 +29,6 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { DecimalPipe } from '@angular/common';
-import { FormsModule } from '@angular/forms';
 import { type Subscription } from 'rxjs';
 import {
   BunApiBackendService,
@@ -40,6 +39,10 @@ import {
   WorkersApiService,
   type StageStatus,
   type WorkersStatusResponse,
+  MuiButtonComponent,
+  MuiCheckboxComponent,
+  MuiInputComponent,
+  MuiSettingsRowComponent,
 } from '@maple-common';
 import { DamagedPanelService } from './damaged-panel.service';
 import { MigrationPanelService } from './migration-panel.service';
@@ -47,7 +50,6 @@ import { ImportsPanelService } from './imports-panel.service';
 import { ReaperPrunePanelService } from './reaper-prune-panel.service';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
-import { SettingsRowComponent } from '../settings-row.component';
 import { MirrorSettingsComponent } from './mirror-settings.component';
 import { DerivativeAuditSettingsComponent } from './derivative-audit-settings.component';
 import { GeneratedSearchSettingsComponent } from './generated-search-settings.component';
@@ -85,11 +87,13 @@ import {
   standalone: true,
   imports: [
     DecimalPipe,
-    FormsModule,
     RouterLink,
     SettingsShellComponent,
     SettingsIconComponent,
-    SettingsRowComponent,
+    MuiSettingsRowComponent,
+    MuiButtonComponent,
+    MuiCheckboxComponent,
+    MuiInputComponent,
     MirrorSettingsComponent,
     DerivativeAuditSettingsComponent,
     GeneratedSearchSettingsComponent,

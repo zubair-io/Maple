@@ -1,10 +1,12 @@
-<maple-settings-row
-  [expanded]="expanded()"
-  (toggle)="toggleExpanded()"
-  testid="generated-search-row"
+<mui-settings-row
+  [customSummary]="true"
+  label="Generated search"
+  [open]="expanded()"
+  (openChange)="toggleExpanded()"
+  [showDivider]="false"
+  data-testid="generated-search-row"
 >
-  <div class="wrow-summary" srow-summary>
-    <maple-settings-icon [name]="chevron()" [size]="12" [stroke]="2" [color]="'#a8a29e'" />
+  <div class="wrow-summary" summary data-testid="generated-search-row-summary">
     <span class="wrow-id">
       <span class="mono">generated-search</span>
     </span>
@@ -16,56 +18,51 @@
     </span>
     <span class="wrow-readout" data-testid="gs-summary">{{ summaryLine() }}</span>
     <span class="wrow-spacer"></span>
-    <button
-      type="button"
-      class="btn-ghost"
+    <mui-button
+      variant="ghost"
+      size="sm"
       data-testid="gs-run-now"
-      [disabled]="running()"
-      (click)="runNow()"
+      [loading]="running()"
+      (pressed)="runNow()"
     >
-      {{ running() ? 'Running…' : 'Run now' }}
-    </button>
+      Run now
+    </mui-button>
   </div>
 
-  @if (expanded()) {
-    <div class="panel">
-      @if (loading()) {
-        <p class="muted">Loading…</p>
-      } @else {
-        @if (error(); as message) {
-          <p class="error" role="alert">{{ message }}</p>
+  <div class="panel">
+    @if (loading()) {
+      <p class="muted">Loading…</p>
+    } @else {
+      @if (error(); as message) {
+        <p class="error" role="alert">{{ message }}</p>
+      }
+
+      <!-- Master switch first: everything below is inert while paused. -->
+      <div class="row">
+        <mui-checkbox
+          label="Run daily"
+          [checked]="enabled()"
+          [disabled]="saving()"
+          (checkedChange)="toggleEnabled()"
+        />
+        @if (saved()) {
+          <span class="saved">Saved</span>
         }
+      </div>
 
-        <!-- Master switch first: everything below is inert while paused. -->
-        <div class="row">
-          <label class="toggle">
-            <input
-              type="checkbox"
-              [checked]="enabled()"
-              [disabled]="saving()"
-              (change)="toggleEnabled()"
-            />
-            <span>Run daily</span>
-          </label>
-          @if (saved()) {
-            <span class="saved">Saved</span>
-          }
-        </div>
-
-        @if (draft(); as d) {
-          <maple-generated-search-knobs
-            [draft]="d"
-            [saving]="saving()"
-            (changed)="draft.set($event)"
-            (save)="save()"
-          />
-        }
-
-        <maple-generated-search-collections
-          [cards]="cards()"
-          [requested]="config()?.collections_per_day ?? null"
+      @if (draft(); as d) {
+        <maple-generated-search-knobs
+          [draft]="d"
+          [saving]="saving()"
+          (changed)="draft.set($event)"
+          (save)="save()"
         />
       }
-    </div>
-  }
-</maple-settings-row>
+
+      <maple-generated-search-collections
+        [cards]="cards()"
+        [requested]="config()?.collections_per_day ?? null"
+      />
+    }
+  </div>
+</mui-settings-row>
