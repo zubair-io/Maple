@@ -40,7 +40,7 @@ describe('FacePurgePanelComponent', () => {
   const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
   const el = (): HTMLElement => fixture.nativeElement as HTMLElement;
   const click = (testid: string): void =>
-    el().querySelector<HTMLButtonElement>(`[data-testid="${testid}"]`)!.click();
+    el().querySelector<HTMLButtonElement>(`[data-testid="${testid}"] button`)!.click();
 
   async function audit(): Promise<void> {
     click('face-purge-audit');
@@ -66,7 +66,7 @@ describe('FacePurgePanelComponent', () => {
     // No audit yet → no apply button rendered at all.
     expect(el().querySelector('[data-testid="face-purge-apply"]')).toBeNull();
     await audit();
-    const apply = el().querySelector<HTMLButtonElement>('[data-testid="face-purge-apply"]');
+    const apply = el().querySelector<HTMLButtonElement>('[data-testid="face-purge-apply"] button');
     expect(apply).not.toBeNull();
     expect(apply!.disabled).toBe(false);
   });
@@ -104,7 +104,7 @@ describe('FacePurgePanelComponent', () => {
   it('checking "also remove assigned" sends includeAssigned=true', async () => {
     await audit();
     const checkbox = el().querySelector<HTMLInputElement>(
-      '[data-testid="face-purge-include-assigned"]',
+      '[data-testid="face-purge-include-assigned"] input[type="checkbox"]',
     )!;
     checkbox.checked = true;
     checkbox.dispatchEvent(new Event('change'));

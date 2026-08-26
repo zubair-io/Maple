@@ -39,36 +39,6 @@
   font-family: var(--s-mono, monospace);
 }
 
-.purge-btn {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--s-text);
-  background: var(--s-accent-bg);
-  border: 0.5px solid var(--s-border);
-  border-radius: 5px;
-  padding: 5px 12px;
-  cursor: pointer;
-
-  &:hover:not(:disabled) {
-    background: var(--s-accent-bg2);
-  }
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-}
-
-.purge-btn-danger {
-  color: var(--s-warn);
-  border-color: rgba(251, 191, 36, 0.4);
-  background: rgba(251, 191, 36, 0.08);
-
-  &:hover:not(:disabled) {
-    background: rgba(251, 191, 36, 0.16);
-  }
-}
-
 .purge-report {
   display: flex;
   flex-direction: column;
@@ -115,14 +85,6 @@
 .purge-check {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--s-text-mid);
-  cursor: pointer;
-
-  input {
-    cursor: pointer;
-  }
 }
 
 .purge-check-hint {
