@@ -46,6 +46,8 @@ import {
   type ImportScanResult,
   type ImportSummary,
   errorMessage,
+  MuiButtonComponent,
+  MuiInputComponent,
 } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
@@ -67,7 +69,14 @@ function isInsideLibrary(source: string, lib: string): boolean {
 @Component({
   selector: 'maple-imports',
   standalone: true,
-  imports: [FormsModule, RouterLink, SettingsShellComponent, SettingsIconComponent],
+  imports: [
+    FormsModule,
+    RouterLink,
+    SettingsShellComponent,
+    SettingsIconComponent,
+    MuiButtonComponent,
+    MuiInputComponent,
+  ],
   templateUrl: './imports.component.html',
   styleUrl: './imports.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
