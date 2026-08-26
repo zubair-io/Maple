@@ -15,6 +15,10 @@ function render(): ComponentFixture<MuiEnrichmentPanelComponent> {
   fixture.componentRef.setInput('description', 'A hiker crossing a ridge at sunset.');
   fixture.componentRef.setInput('people', [{ id: 'p1', label: 'Jordan' }]);
   fixture.componentRef.setInput('visionLabels', [{ id: 'v1', label: 'Mountain' }]);
+  // Required (no built-in default — see the input's doc comment: a literal
+  // default here would bake a Self-Hosted-only route into every consumer,
+  // including this design system's own Hosted showcase).
+  fixture.componentRef.setInput('workersSettingsHref', '/test/workers');
   fixture.detectChanges();
   return fixture;
 }
@@ -119,13 +123,13 @@ describe('MuiEnrichmentPanelComponent', () => {
       expect(badge?.textContent).not.toContain('Done');
     });
 
-    it('renders a paused stage as a router-link badge to the workers settings page', () => {
+    it('renders a paused stage as a router-link badge to the caller-supplied workersSettingsHref', () => {
       const fixture = render();
       fixture.componentRef.setInput('faceStatus', PAUSED);
       fixture.detectChanges();
       const link = fixture.nativeElement.querySelector('.faces-group a.stage-badge--paused');
       expect(link?.textContent).toContain('Worker paused');
-      expect(link?.getAttribute('href')).toBe('/settings/workers');
+      expect(link?.getAttribute('href')).toBe('/test/workers');
     });
 
     it('renders no badge for a complete stage (empty label)', () => {
