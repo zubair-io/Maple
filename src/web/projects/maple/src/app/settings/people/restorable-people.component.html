@@ -20,10 +20,10 @@
   <div class="people-list-view">
     <header class="page-header">
       <div class="titles">
-        <button type="button" class="back-link" routerLink="/settings/people">
+        <mui-button variant="ghost" size="sm" class="back-link" routerLink="/settings/people">
           <maple-settings-icon name="back" [size]="13" color="#a8a29e" />
           <span>People</span>
-        </button>
+        </mui-button>
         <h1>{{ copy.title }}</h1>
         <p>{{ copy.description }}</p>
       </div>
@@ -90,15 +90,15 @@
                     <span class="person-faces"
                       >{{ p.faceCount | number }} face{{ p.faceCount === 1 ? '' : 's' }}</span
                     >
-                    <button
-                      type="button"
+                    <mui-button
+                      variant="ghost"
                       class="card-restore"
-                      [disabled]="isRestoring(p.id)"
+                      [loading]="isRestoring(p.id)"
                       [title]="'Restore ' + p.name"
-                      (click)="restore(p)"
+                      (pressed)="restore(p)"
                     >
-                      {{ isRestoring(p.id) ? 'Restoring…' : 'Restore' }}
-                    </button>
+                      Restore
+                    </mui-button>
                   </div>
                 </div>
               </article>

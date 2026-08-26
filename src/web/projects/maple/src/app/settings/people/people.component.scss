@@ -34,6 +34,26 @@
   }
 }
 
+// Plain navigation links (Hidden / Excluded / Worker settings) in the header
+// actions row, styled to match the ghost buttons next to them.
+.nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--s-text);
+  border: 0.5px solid var(--s-border-hi);
+  font-family: var(--s-font);
+  font-size: 12.5px;
+  text-decoration: none;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+}
+
 // ── List view ───────────────────────────────────────────────────────
 
 // List view fills the settings `.page` so the header stays fixed and the
@@ -72,13 +92,6 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  cursor: pointer;
-  user-select: none;
-
-  input {
-    cursor: pointer;
-    margin: 0;
-  }
 }
 
 .small-cluster-count {
@@ -211,13 +224,14 @@
   color: var(--s-text-muted);
 }
 
-.card-delete {
+// `.card-delete` is the class on the `<mui-button>` host now — the real
+// button is inside its own template, hence `::ng-deep` to reach it.
+.card-delete ::ng-deep button.mui-button {
   background: transparent;
   border: none;
   font-family: var(--s-font);
   font-size: 11px;
   color: var(--s-text-dim);
-  cursor: pointer;
   padding: 0;
 
   &:hover {
@@ -226,23 +240,18 @@
 }
 
 // Hidden page: "Restore" action on each card. Same chrome as `.card-delete`
-// but a positive (accent) hover instead of the destructive red.
-.card-restore {
+// but a positive (accent) hover instead of the destructive red. Class lives
+// on the `<mui-button>` host now — `::ng-deep` reaches the real button.
+.card-restore ::ng-deep button.mui-button {
   background: transparent;
   border: none;
   font-family: var(--s-font);
   font-size: 11px;
   color: var(--s-text-dim);
-  cursor: pointer;
   padding: 0;
 
   &:hover {
     color: var(--s-accent, var(--s-text));
-  }
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: default;
   }
 }
 
@@ -256,24 +265,25 @@
   gap: 16px;
 }
 
+// `.back-link` is the class on the `<mui-button>` host now.
 .back-link {
-  // Native `<button>` so keyboard activation (Enter + Space) is free; the
-  // resets below strip the default button chrome so it reads as a link.
-  background: transparent;
-  border: none;
-  padding: 0;
-  font-family: inherit;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--s-text-muted);
-  font-size: 12.5px;
   align-self: flex-start;
-  cursor: pointer;
-  text-decoration: none;
 
-  &:hover {
-    color: var(--s-text);
+  ::ng-deep button.mui-button {
+    background: transparent;
+    border: none;
+    padding: 0;
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--s-text-muted);
+    font-size: 12.5px;
+    text-decoration: none;
+
+    &:hover {
+      color: var(--s-text);
+    }
   }
 }
 
@@ -324,8 +334,8 @@
   gap: 4px;
 }
 
-.name-button,
-.name-input {
+// `.name-button` is the class on the `<mui-button>` host now.
+.name-button ::ng-deep button.mui-button {
   font-family: var(--s-font);
   font-size: 26px;
   font-weight: 600;
@@ -335,28 +345,32 @@
   border: none;
   padding: 0;
   text-align: left;
-}
-
-.name-button {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   cursor: text;
+}
 
-  &.is-auto-named {
-    color: var(--s-text-mid);
-  }
-  &:hover {
-    color: var(--s-accent);
-  }
+.name-button.is-auto-named ::ng-deep button.mui-button {
+  color: var(--s-text-mid);
+}
+.name-button:hover ::ng-deep button.mui-button {
+  color: var(--s-accent);
 }
 
 .name-input {
+  font-family: var(--s-font);
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+  color: var(--s-text);
+  background: var(--s-bg);
+  border: none;
   outline: 1.5px solid var(--s-accent);
   outline-offset: 2px;
   border-radius: 3px;
   padding: 0 4px;
-  background: var(--s-bg);
+  text-align: left;
   width: 100%;
   box-sizing: border-box;
 }
@@ -395,6 +409,25 @@
   flex-shrink: 0;
   margin-left: auto;
   flex-wrap: wrap;
+}
+
+// The "Merge this person into" picker — a native <select> styled to match
+// the ghost buttons next to it (it replaces one when the picker opens).
+.merge-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--s-text);
+  border: 0.5px solid var(--s-border-hi);
+  font-family: var(--s-font);
+  font-size: 12.5px;
+
+  &:disabled {
+    opacity: 0.5;
+  }
 }
 
 // ── Detail view: merge-suggestion banner ────────────────────────────
@@ -540,13 +573,13 @@
   }
 }
 
-.link-action {
+// `.link-action` is the class on the `<mui-button>` host now.
+.link-action ::ng-deep button.mui-button {
   background: transparent;
   border: none;
   font-family: var(--s-font);
   font-size: 12px;
   color: var(--s-text-muted);
-  cursor: pointer;
   padding: 0;
 
   &:hover {
@@ -587,24 +620,32 @@
   }
 }
 
+// `.face-select-btn` is the class on the `<mui-button>` host now — the real
+// button is inside its own template, hence `::ng-deep` to reach it for the
+// full-bleed cell-covering treatment mui-button's own pill styling doesn't
+// produce on its own.
 .face-select-btn {
-  // Full-bleed button that covers the cell and handles selection.
   display: block;
   width: 100%;
-  padding: 0;
-  font-family: inherit;
-  appearance: none;
-  -webkit-appearance: none;
-  text-align: left;
-  cursor: pointer;
-  background: transparent;
-  border: none;
 
-  // Visible keyboard focus — accent ring at 2px offset matches the rest
-  // of the Settings surfaces (see styles.scss global reset).
-  &:focus-visible {
-    outline: 1.5px solid var(--s-accent);
-    outline-offset: 1px;
+  ::ng-deep button.mui-button {
+    display: block;
+    width: 100%;
+    padding: 0;
+    font-family: inherit;
+    appearance: none;
+    -webkit-appearance: none;
+    text-align: left;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+
+    // Visible keyboard focus — accent ring at 2px offset matches the rest
+    // of the Settings surfaces (see styles.scss global reset).
+    &:focus-visible {
+      outline: 1.5px solid var(--s-accent);
+      outline-offset: 1px;
+    }
   }
 }
 
@@ -615,20 +656,16 @@
 // the cell has focus / the face is selected. Visibility is CSS-driven rather
 // than `@if`-gated so tabbing onto the button doesn't remove it before it can
 // receive focus.
+// `.face-open-btn` is the class on the `<mui-button>` host — position/size/
+// reveal (host-level layout) live here directly; the visual chrome (no
+// default button look, background, blur) needs `::ng-deep` to reach the real
+// button inside mui-button's own template.
 .face-open-btn {
   position: absolute;
   bottom: 6px;
   right: 6px;
   width: 26px;
   height: 26px;
-  border-radius: 5px;
-  background: rgba(13, 12, 11, 0.72);
-  border: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  backdrop-filter: blur(4px);
   z-index: 2;
 
   // Hidden by default. `visibility: hidden` (not `display: none`) keeps it in
@@ -638,27 +675,40 @@
   visibility: hidden;
   transition:
     opacity 120ms,
-    visibility 120ms,
-    background 120ms;
+    visibility 120ms;
 
   // Revealed when the cell is hovered, anything inside the cell is focused
-  // (covers keyboard tab-in onto THIS button), the button itself is focused,
-  // or the face is selected (`.is-revealed`).
+  // (covers keyboard tab-in onto THIS button), the button itself (or its
+  // real inner button — `:focus-within` catches that too) is focused, or the
+  // face is selected (`.is-revealed`).
   .face-cell:hover &,
   .face-cell:focus-within &,
-  &:focus,
+  &:focus-within,
   &.is-revealed {
     opacity: 1;
     visibility: visible;
   }
 
-  &:hover {
-    background: var(--s-accent);
-  }
+  ::ng-deep button.mui-button {
+    width: 100%;
+    height: 100%;
+    border-radius: 5px;
+    background: rgba(13, 12, 11, 0.72);
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+    transition: background 120ms;
 
-  &:focus-visible {
-    outline: 1.5px solid var(--s-accent);
-    outline-offset: 1px;
+    &:hover {
+      background: var(--s-accent);
+    }
+
+    &:focus-visible {
+      outline: 1.5px solid var(--s-accent);
+      outline-offset: 1px;
+    }
   }
 }
 
@@ -805,6 +855,11 @@
   background: var(--s-border);
 }
 
+// `.bulk-btn` is applied both to a `<label>` (the "Move to person…"
+// overlay-select trigger — unaffected by the mui migration) and to
+// `<mui-button class="bulk-btn">` (every other toolbar action). The direct
+// declarations style the label; the nested `::ng-deep` block reaches the
+// real button inside mui-button's own template for the matching pill chrome.
 .bulk-btn {
   position: relative; // anchor for the overlay <select>
   display: inline-flex;
@@ -822,11 +877,28 @@
   &:hover {
     background: var(--s-surface2);
   }
-  &:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
   &.mute {
+    color: var(--s-text-muted);
+  }
+
+  ::ng-deep button.mui-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 5px;
+    background: transparent;
+    border: none;
+    color: var(--s-text);
+    font-family: var(--s-font);
+    font-size: 12.5px;
+
+    &:hover:not(:disabled) {
+      background: var(--s-surface2);
+    }
+  }
+
+  &.mute ::ng-deep button.mui-button {
     color: var(--s-text-muted);
   }
 }
