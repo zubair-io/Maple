@@ -25,11 +25,12 @@ import {
   BunApiBackendService,
   WorkersApiService,
   errorMessage,
+  MuiButtonComponent,
+  MuiCheckboxComponent,
+  MuiSettingsRowComponent,
   type GeneratedSearchCard,
   type GeneratedSearchConfig,
 } from '@maple-common';
-import { SettingsRowComponent } from '../settings-row.component';
-import { SettingsIconComponent } from '../settings-icon.component';
 import {
   GeneratedSearchKnobsComponent,
   type GeneratedSearchDraft,
@@ -40,8 +41,9 @@ import { GeneratedSearchCollectionsComponent } from './generated-search-collecti
   selector: 'maple-generated-search-settings',
   standalone: true,
   imports: [
-    SettingsRowComponent,
-    SettingsIconComponent,
+    MuiSettingsRowComponent,
+    MuiButtonComponent,
+    MuiCheckboxComponent,
     GeneratedSearchKnobsComponent,
     GeneratedSearchCollectionsComponent,
   ],
@@ -76,7 +78,6 @@ export class GeneratedSearchSettingsComponent implements OnInit {
   /** Presentation ternaries live here rather than in the template: each one
    * is a branch the template complexity budget counts, and they read better
    * named. */
-  protected readonly chevron = computed(() => (this.expanded() ? 'chev-d' : 'chev-r'));
   protected readonly statusColor = computed(() => (this.enabled() ? '#4ade80' : '#a8a29e'));
   protected readonly statusLabel = computed(() => (this.enabled() ? 'running' : 'paused'));
 

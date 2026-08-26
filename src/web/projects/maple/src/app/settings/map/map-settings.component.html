@@ -19,7 +19,7 @@
         <!-- Tile source URL -->
         <div class="field-row">
           <div class="field-label-group">
-            <label class="field-label" for="map-tile-url">Tile source URL</label>
+            <label class="field-label">Tile source URL</label>
             <span class="field-hint">
               A MapLibre raster tile template (with <code>{{ '{z}/{x}/{y}' }}</code> placeholders)
               or a MapLibre style JSON URL. Leave blank to reset to the built-in OpenStreetMap
@@ -30,16 +30,11 @@
             }
           </div>
           <div class="field-control">
-            <input
-              id="map-tile-url"
-              type="text"
-              class="text-input"
+            <mui-input
+              [(value)]="fTileUrl"
               placeholder="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-              [ngModel]="fTileUrl()"
-              (ngModelChange)="fTileUrl.set($event)"
-              name="tileUrl"
-              autocomplete="off"
-              spellcheck="false"
+              ariaLabel="Tile source URL"
+              (committed)="save()"
             />
           </div>
         </div>
@@ -61,9 +56,13 @@
           @if (saveState().kind === 'saved') {
             <span class="save-ok">Saved.</span>
           }
-          <button type="submit" class="save-btn" [disabled]="saveState().kind === 'saving'">
-            {{ saveState().kind === 'saving' ? 'Saving…' : 'Save' }}
-          </button>
+          <mui-button
+            variant="primary"
+            [loading]="saveState().kind === 'saving'"
+            (pressed)="save()"
+          >
+            Save
+          </mui-button>
         </div>
       </form>
     }

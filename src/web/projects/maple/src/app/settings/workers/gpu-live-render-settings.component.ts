@@ -20,14 +20,15 @@ import {
   GpuLiveRenderGate,
   RenderConfigService,
   errorMessage,
+  MuiCheckboxComponent,
+  MuiSettingsRowComponent,
 } from '@maple-common';
-import { SettingsRowComponent } from '../settings-row.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 
 @Component({
   selector: 'maple-gpu-live-render-settings',
   standalone: true,
-  imports: [SettingsRowComponent, SettingsIconComponent],
+  imports: [MuiSettingsRowComponent, MuiCheckboxComponent, SettingsIconComponent],
   templateUrl: './gpu-live-render-settings.component.html',
   styleUrl: './gpu-live-render-settings.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

@@ -107,6 +107,24 @@ describe('MuiInputComponent', () => {
     expect(fixture.componentInstance.value()).toBe('0');
   });
 
+  it('renders type="password" when `masked` is set, and type="text" otherwise', () => {
+    const fixture = render();
+    expect(control(fixture).type).toBe('text');
+
+    fixture.componentRef.setInput('masked', true);
+    fixture.detectChanges();
+    expect(control(fixture).type).toBe('password');
+  });
+
+  it('forwards `autocomplete` to the native control', () => {
+    const fixture = render();
+    expect(control(fixture).getAttribute('autocomplete')).toBeNull();
+
+    fixture.componentRef.setInput('autocomplete', 'off');
+    fixture.detectChanges();
+    expect(control(fixture).getAttribute('autocomplete')).toBe('off');
+  });
+
   it('disables the control and blocks steppers when `disabled` is set', () => {
     const fixture = render();
     fixture.componentRef.setInput('variant', 'numeric');

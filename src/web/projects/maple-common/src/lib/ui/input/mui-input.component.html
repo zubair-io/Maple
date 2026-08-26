@@ -11,12 +11,13 @@
       <mui-icon name="search" size="sm" class="prefix" />
     }
     <input
-      type="text"
+      [type]="masked() ? 'password' : 'text'"
       class="control"
       [value]="value()"
       [placeholder]="placeholder()"
       [disabled]="disabled()"
       [readOnly]="readOnly()"
+      [attr.autocomplete]="autocomplete()"
       [attr.aria-label]="ariaLabel()"
       [attr.aria-invalid]="error() ? 'true' : null"
       [attr.aria-describedby]="error() ? 'mui-input-error' : null"

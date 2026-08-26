@@ -49,6 +49,12 @@
   letter-spacing: 0.1em;
   text-transform: uppercase;
   border-bottom: 0.5px solid var(--s-border);
+  // Rows no longer carry a chevron grid-column — mui-settings-row renders its
+  // own chevron (icon sm 16px + spacing-sm 8px gap) ahead of the row-grid.
+  // This bare header row has no chevron at all, so its own left padding
+  // (from `worker-row-grid`) needs the same 24px added to keep "Stage"
+  // lined up over the rows' first data column.
+  padding-left: calc(16px + 24px);
 
   .r {
     text-align: right;
@@ -103,25 +109,32 @@
     }
   }
 
+  // `.kebab-btn`/`.pause-btn` are now the class on the `<mui-button>` host,
+  // not a real `<button>` — the actual clickable element is inside mui-button's
+  // own template (a different component's DOM, so a plain descendant selector
+  // can't reach it under Angular's emulated encapsulation; `::ng-deep` steps
+  // around that for this one circular icon-button treatment mui-button's own
+  // sm/ghost styling doesn't produce on its own).
   .kebab-btn,
   .pause-btn {
-    width: 28px;
-    height: 28px;
-    border-radius: 5px;
-    border: none;
-    background: transparent;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    color: var(--s-text-muted);
-    padding: 0;
+    display: inline-flex;
 
-    &:hover {
-      background: rgba(255, 255, 255, 0.04);
+    ::ng-deep button.mui-button {
+      width: 28px;
+      height: 28px;
+      min-width: 0;
+      border-radius: 5px;
+      border: none;
+      background: transparent;
+      padding: 0;
+      color: var(--s-text-muted);
+
+      &:hover {
+        background: rgba(255, 255, 255, 0.04);
+      }
     }
   }
-  .pause-btn.is-paused {
+  .pause-btn.is-paused ::ng-deep button.mui-button {
     background: var(--s-accent-bg);
     &:hover {
       background: var(--s-accent-bg2);
@@ -252,7 +265,9 @@
     align-items: center;
     gap: 6px;
 
-    .link-btn {
+    // `.link-btn` is the class on the `<mui-button>` host now — the real
+    // button is inside its own template, hence `::ng-deep` to reach it.
+    .link-btn ::ng-deep button.mui-button {
       background: none;
       border: none;
       padding: 0;
@@ -326,16 +341,14 @@
   flex-shrink: 0;
 }
 
-.log-close {
+// `.log-close` is the class on the `<mui-button>` host now.
+.log-close ::ng-deep button.mui-button {
   width: 28px;
   height: 28px;
+  min-width: 0;
   border-radius: 5px;
   border: none;
   background: transparent;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
   padding: 0;
 
   &:hover {
@@ -420,13 +433,20 @@
   // Each row becomes a bordered card. The shared row component is the host
   // element here, so style it directly (its inner `.row` still drives the
   // expand background at all widths). Shared with the Mirror row via the mixin.
-  maple-settings-row {
+  mui-settings-row {
     @include chrome.settings-row-mobile-card;
+
+    // The chevron is redundant on a tap-anywhere card. It's mui-settings-row's
+    // own DOM (rendered by its customSummary header), not this component's —
+    // `::ng-deep` reaches across that boundary.
+    ::ng-deep .header > .chevron {
+      display: none;
+    }
   }
 
   // Re-flow the flat summary children into a card grid via named areas (the
-  // grid now lives on the projected `.row-grid`). The chevron + kebab are
-  // redundant on a tap-anywhere card, so hide them.
+  // grid now lives on the projected `.row-grid`). The kebab is likewise
+  // redundant on a tap-anywhere card, so hide it.
   .row-grid:not(.col-header) {
     height: auto;
     display: grid;
@@ -439,7 +459,6 @@
     gap: 12px 10px;
     padding: 14px;
 
-    > maple-settings-icon:first-child,
     .kebab-btn {
       display: none;
     }
@@ -586,13 +605,6 @@
   .migration-toggle {
     display: flex;
     align-items: center;
-    gap: 8px;
-    cursor: pointer;
-
-    .migration-title {
-      font-size: 13px;
-      color: var(--s-text);
-    }
   }
 
   .migration-status {
@@ -626,18 +638,6 @@
 
   .migration-reset {
     margin-left: auto;
-    background: none;
-    border: 0.5px solid var(--s-border);
-    border-radius: 4px;
-    padding: 2px 8px;
-    font-size: 11px;
-    color: var(--s-text-mid);
-    cursor: pointer;
-
-    &:disabled {
-      opacity: 0.5;
-      cursor: default;
-    }
   }
 }
 
@@ -658,7 +658,10 @@
   }
 }
 .import-summary .import-counts {
-  grid-column: 4 / -1;
+  // Was column 4 when the row-grid's first column was the chevron; that
+  // column moved out to mui-settings-row's own header (customSummary mode),
+  // so stage-id/status/counts each shift left by one.
+  grid-column: 3 / -1;
   font-family: var(--s-mono);
   font-size: 12.5px;
   color: var(--s-text-mid);
@@ -697,10 +700,6 @@
   }
   .import-retry {
     margin-left: auto;
-    &[disabled] {
-      opacity: 0.6;
-      cursor: default;
-    }
   }
 }
 .import-files {

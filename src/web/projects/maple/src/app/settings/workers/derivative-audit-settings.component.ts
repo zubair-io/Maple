@@ -20,8 +20,11 @@ import {
   type DerivativeAuditConfigDto,
   type DerivativeAuditSummaryDto,
   errorMessage,
+  MuiButtonComponent,
+  MuiCheckboxComponent,
+  MuiInputComponent,
+  MuiSettingsRowComponent,
 } from '@maple-common';
-import { SettingsRowComponent } from '../settings-row.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 
 interface AuditDraft {
@@ -34,7 +37,13 @@ interface AuditDraft {
 @Component({
   selector: 'maple-derivative-audit-settings',
   standalone: true,
-  imports: [SettingsRowComponent, SettingsIconComponent],
+  imports: [
+    MuiSettingsRowComponent,
+    MuiButtonComponent,
+    MuiCheckboxComponent,
+    MuiInputComponent,
+    SettingsIconComponent,
+  ],
   templateUrl: './derivative-audit-settings.component.html',
   styleUrl: './derivative-audit-settings.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -107,6 +116,11 @@ export class DerivativeAuditSettingsComponent implements OnInit, OnDestroy {
 
   protected draftValue<K extends keyof AuditDraft>(key: K): AuditDraft[K] | undefined {
     return this.draft()?.[key];
+  }
+
+  /** mui-input carries every variant's value as a string. */
+  protected numToStr(n: number | undefined): string {
+    return n === undefined ? '' : String(n);
   }
 
   protected setDraft<K extends keyof AuditDraft>(key: K, value: AuditDraft[K]): void {

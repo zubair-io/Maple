@@ -40,27 +40,36 @@ describe('MapSettingsComponent', () => {
     fixture.detectChanges();
   }
 
-  function input(sel: string): HTMLInputElement {
-    const el = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>(sel);
-    if (!el) throw new Error(`missing element ${sel}`);
+  function tileUrlInput(): HTMLInputElement {
+    const el = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
+      'mui-input input[aria-label="Tile source URL"]',
+    );
+    if (!el) throw new Error('missing tile url input');
     return el;
+  }
+
+  function clickSave(): void {
+    const btn = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+      'mui-button button',
+    );
+    if (!btn) throw new Error('missing save button');
+    btn.click();
   }
 
   it('seeds the form from the loaded config', async () => {
     await load();
-    expect(input('#map-tile-url').value).toBe('https://tile.openstreetmap.org/{z}/{x}/{y}.png');
+    expect(tileUrlInput().value).toBe('https://tile.openstreetmap.org/{z}/{x}/{y}.png');
   });
 
   it('saves an edited tile URL as a PUT patch and reflects the saved value', async () => {
     await load();
-    const url = input('#map-tile-url');
+    const url = tileUrlInput();
     url.value = 'https://tiles.example.com/{z}/{x}/{y}.png';
     url.dispatchEvent(new Event('input'));
     fixture.detectChanges();
     await fixture.whenStable();
 
-    const form = (fixture.nativeElement as HTMLElement).querySelector('form');
-    form?.dispatchEvent(new Event('submit'));
+    clickSave();
 
     const call = http.expectOne('/api/map/config');
     expect(call.request.method).toBe('PUT');
@@ -76,14 +85,13 @@ describe('MapSettingsComponent', () => {
 
   it('shows a clear error when the server rejects a malformed URL', async () => {
     await load();
-    const url = input('#map-tile-url');
+    const url = tileUrlInput();
     url.value = 'not a url';
     url.dispatchEvent(new Event('input'));
     fixture.detectChanges();
     await fixture.whenStable();
 
-    const form = (fixture.nativeElement as HTMLElement).querySelector('form');
-    form?.dispatchEvent(new Event('submit'));
+    clickSave();
 
     const call = http.expectOne('/api/map/config');
     call.flush(

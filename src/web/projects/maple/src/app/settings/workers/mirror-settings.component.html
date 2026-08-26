@@ -1,11 +1,12 @@
-<maple-settings-row [expanded]="expanded()" (toggle)="toggleExpanded()" testid="mirror-row">
-  <div class="wrow-summary" srow-summary>
-    <maple-settings-icon
-      [name]="expanded() ? 'chev-d' : 'chev-r'"
-      [size]="12"
-      [stroke]="2"
-      [color]="'#a8a29e'"
-    />
+<mui-settings-row
+  [customSummary]="true"
+  label="Backup"
+  [open]="expanded()"
+  (openChange)="toggleExpanded()"
+  [showDivider]="false"
+  data-testid="mirror-row"
+>
+  <div class="wrow-summary" summary>
     <span class="wrow-id">
       <maple-settings-icon name="copy" [size]="14" [color]="'#a8a29e'" />
       <span class="mono">backup</span>
@@ -18,26 +19,21 @@
     <span class="wrow-spacer"></span>
     @if (status(); as q) {
       @if (q.dead > 0) {
-        <button
-          type="button"
-          class="btn-ghost danger"
-          [disabled]="retrying()"
-          (click)="retryDead()"
-        >
+        <mui-button variant="destructive" size="sm" [loading]="retrying()" (pressed)="retryDead()">
           {{ retrying() ? 'Retrying…' : 'Retry ' + q.dead + ' failed' }}
-        </button>
+        </mui-button>
       }
     }
-    <button
-      type="button"
-      class="btn-primary"
+    <mui-button
+      variant="primary"
+      size="sm"
       data-testid="mirror-reconcile-now"
-      [disabled]="reconcileBusy()"
+      [loading]="reconcileBusy()"
       [title]="reconcileBusy() ? busyLabel() : 'Reconcile now (scan + copy)'"
-      (click)="reconcileNow()"
+      (pressed)="reconcileNow()"
     >
       {{ reconcileBusy() ? busyLabel() : 'Reconcile now' }}
-    </button>
+    </mui-button>
   </div>
 
   <div class="mirror-body" data-testid="mirror-settings">
@@ -146,25 +142,23 @@
         <div class="block">
           <div class="subhead">{{ lib.label }}</div>
           <div class="field field-wide">
-            <label class="field-label" [attr.for]="'mirror-' + lib.id">Backup location</label>
+            <label class="field-label">Backup location</label>
             <div class="text-input mono">
-              <div class="text-input-wrap">
-                <input
-                  [id]="'mirror-' + lib.id"
-                  type="text"
-                  placeholder="/mnt/backup/photos"
-                  [value]="pathOf(lib.id)"
-                  (input)="setPath(lib.id, $any($event.target).value)"
-                />
-              </div>
-              <button
-                type="button"
-                class="btn-ghost"
-                [disabled]="!pathOf(lib.id).trim() || testStateOf(lib.id) === 'testing'"
-                (click)="test(lib.id)"
+              <mui-input
+                [value]="pathOf(lib.id)"
+                (valueChange)="setPath(lib.id, $event)"
+                placeholder="/mnt/backup/photos"
+                [ariaLabel]="'Backup location for ' + lib.label"
+              />
+              <mui-button
+                variant="ghost"
+                size="sm"
+                [disabled]="!pathOf(lib.id).trim()"
+                [loading]="testStateOf(lib.id) === 'testing'"
+                (pressed)="test(lib.id)"
               >
-                {{ testStateOf(lib.id) === 'testing' ? 'Testing…' : 'Test' }}
-              </button>
+                Test
+              </mui-button>
             </div>
             <div class="field-hint">
               Library root: <span class="mono">{{ lib.path }}</span>
@@ -176,14 +170,11 @@
             }
           </div>
 
-          <label class="mirror-enable">
-            <input
-              type="checkbox"
-              [checked]="enabledOf(lib.id)"
-              (change)="setEnabled(lib.id, $any($event.target).checked)"
-            />
-            <span>Enabled (replicate writes to this mirror)</span>
-          </label>
+          <mui-checkbox
+            label="Enabled (replicate writes to this mirror)"
+            [checked]="enabledOf(lib.id)"
+            (checkedChange)="setEnabled(lib.id, $event)"
+          />
 
           <div class="row-footer">
             <span class="footer-spacer"></span>
@@ -192,17 +183,17 @@
             } @else if (saveStateOf(lib.id) === 'success') {
               <span class="save-ok">Saved.</span>
             }
-            <button
-              type="button"
-              class="btn-primary"
-              [disabled]="saveStateOf(lib.id) === 'saving'"
-              (click)="save(lib.id)"
+            <mui-button
+              variant="primary"
+              size="sm"
+              [loading]="saveStateOf(lib.id) === 'saving'"
+              (pressed)="save(lib.id)"
             >
-              {{ saveStateOf(lib.id) === 'saving' ? 'Saving…' : 'Save' }}
-            </button>
+              Save
+            </mui-button>
           </div>
         </div>
       }
     }
   </div>
-</maple-settings-row>
+</mui-settings-row>

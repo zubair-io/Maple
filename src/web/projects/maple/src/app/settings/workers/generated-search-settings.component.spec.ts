@@ -150,7 +150,7 @@ describe('GeneratedSearchSettingsComponent — Run now', () => {
     // Zero the post-kick wait so the spec doesn't sleep wall-clock.
     (fixture.componentInstance as unknown as { refreshDelayMs: number }).refreshDelayMs = 0;
     const button: HTMLButtonElement = fixture.nativeElement.querySelector(
-      '[data-testid="gs-run-now"]',
+      '[data-testid="gs-run-now"] button',
     );
     button.click();
     fixture.detectChanges();
