@@ -143,8 +143,21 @@ namespace Maple.UI.Atoms
             // rule as Button.
             Opacity = IsEnabled ? 1.0 : 0.45;
 
-            if (!string.IsNullOrEmpty(Label))
+            // Default the automation name to the label, but never clobber a
+            // name the consumer set explicitly (e.g. XAML's
+            // AutomationProperties.Name="Color HSL tab"): Rebuild re-runs on
+            // every Checked/Unchecked toggle, so an unconditional SetName
+            // would silently overwrite it on first interaction. We own the
+            // name only while it is empty or the value we last auto-set.
+            var currentName = AutomationProperties.GetName(this);
+            var ownsName = string.IsNullOrEmpty(currentName) || currentName == _autoName;
+            if (!string.IsNullOrEmpty(Label) && ownsName)
+            {
                 AutomationProperties.SetName(this, Label);
+                _autoName = Label;
+            }
         }
+
+        private string? _autoName;
     }
 }
