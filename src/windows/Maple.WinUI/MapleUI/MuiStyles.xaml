@@ -1,17 +1,17 @@
 <!--
   Maple.UI shared styles — the Windows control library's style sheet.
-  Distinct from ../Themes/Styles.xaml (the pre-existing app-chrome styles):
-  this dictionary holds only styles consumed by the MapleUI/Atoms/*.cs
-  controls. Merged into App.xaml AFTER Themes/Styles.xaml so these can
-  layer on top without fighting resource-lookup order.
+  This dictionary holds only styles consumed by the MapleUI/Atoms/*.cs
+  controls. Merged into App.xaml after Themes/Tokens.xaml (the old
+  hand-authored ../Themes/Styles.xaml — MapleEyebrow/MapleRowLabel/
+  MapleValueChip/MapleToolButton — was retired in #3022 once MainWindow.xaml
+  finished migrating onto these Mui atoms; it had zero remaining consumers).
 
   Colors are always {StaticResource Maple*} brushes from Themes/Tokens.xaml
   — never a literal hex value. Radius/padding/spacing are written as literal
-  numbers matching the MapleRadius*/MapleSpacing* token values (the same
-  precedent Themes/Styles.xaml's MapleToolButton style already sets — a
+  numbers matching the MapleRadius*/MapleSpacing* token values — a
   CornerRadius/Thickness property can't bind directly to the tokens'
   x:Double resources without a converter, so the pixel values are copied in
-  by hand instead).
+  by hand instead.
 
   KNOWN GAP: these Styles only set the base Background/Foreground/BorderBrush
   (the button.md/action-button.md "Default" state). Pointer-over/pressed
@@ -108,11 +108,11 @@
     <!-- ══════════ MuiText (text.md) — one Style per type-scale step ══════════ -->
     <!-- No Merriweather/Lato/JetBrains Mono asset is bundled anywhere in this
          app yet (grep across src/windows/Maple.WinUI turns up nothing but the
-         "Consolas" stand-in Themes/Styles.xaml's MapleValueChip already uses
-         for its one monospace role) — sans/serif roles below intentionally
+         "Consolas" stand-in this file's own ValueChip/Filename roles use for
+         their monospace numerals) — sans/serif roles below intentionally
          leave FontFamily unset (system default) rather than reference a font
          that isn't actually available; only the two monospace roles set
-         Consolas, mirroring that existing precedent. -->
+         Consolas. -->
     <Style x:Key="MuiTextSourceTitleStyle" TargetType="TextBlock">
         <Setter Property="Foreground" Value="{StaticResource MapleTextMain}" />
         <Setter Property="FontSize" Value="28" />
