@@ -73,6 +73,32 @@ describe('MuiButtonComponent', () => {
     expect(emitted).toBe(false);
   });
 
+  it('forwards ariaExpanded to the native button as aria-expanded, omitting it when unset', () => {
+    const fixture = render();
+    expect(button(fixture).getAttribute('aria-expanded')).toBeNull();
+
+    fixture.componentRef.setInput('ariaExpanded', true);
+    fixture.detectChanges();
+    expect(button(fixture).getAttribute('aria-expanded')).toBe('true');
+
+    fixture.componentRef.setInput('ariaExpanded', false);
+    fixture.detectChanges();
+    expect(button(fixture).getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('forwards ariaPressed to the native button as aria-pressed, omitting it when unset', () => {
+    const fixture = render();
+    expect(button(fixture).getAttribute('aria-pressed')).toBeNull();
+
+    fixture.componentRef.setInput('ariaPressed', true);
+    fixture.detectChanges();
+    expect(button(fixture).getAttribute('aria-pressed')).toBe('true');
+
+    fixture.componentRef.setInput('ariaPressed', false);
+    fixture.detectChanges();
+    expect(button(fixture).getAttribute('aria-pressed')).toBe('false');
+  });
+
   it('icon-only mode hides the label and requires the caller to supply an aria-label', () => {
     const fixture = render();
     fixture.componentRef.setInput('iconOnly', true);

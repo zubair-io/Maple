@@ -15,10 +15,10 @@
   @if (selected(); as detail) {
     <!-- ── Detail view ───────────────────────────────────────────────── -->
     <div class="detail-head">
-      <button type="button" class="back-link" (click)="closeDetail()">
+      <mui-button variant="ghost" size="sm" class="back-link" (pressed)="closeDetail()">
         <maple-settings-icon name="back" [size]="13" color="#a8a29e" />
         <span>People</span>
-      </button>
+      </mui-button>
 
       <div class="detail-identity">
         <div class="detail-avatar">
@@ -61,12 +61,12 @@
               }
             </datalist>
           } @else {
-            <button
-              type="button"
+            <mui-button
+              variant="ghost"
               class="name-button"
               [class.is-auto-named]="isSelectedAutoNamed()"
               [title]="'Click to rename ' + detail.name"
-              (click)="startEdit(detail)"
+              (pressed)="startEdit(detail)"
             >
               {{ detail.name }}
               <maple-settings-icon
@@ -74,7 +74,7 @@
                 [size]="14"
                 color="#78706a"
               />
-            </button>
+            </mui-button>
           }
           @if (isSelectedAutoNamed()) {
             <span class="unnamed-chip">UNNAMED</span>
@@ -98,7 +98,7 @@
         <div class="detail-actions">
           @if (bulk.mergePickerOpen()) {
             <select
-              class="btn-ghost"
+              class="merge-select"
               [disabled]="bulk.peopleBulkBusy() > 0 || bulk.detailMergeTargets().length === 0"
               aria-label="Merge this person into"
               (change)="
@@ -110,31 +110,31 @@
                 <option [value]="t.id">{{ t.name }}</option>
               }
             </select>
-            <button type="button" class="btn-ghost" (click)="bulk.cancelMergePicker()">
+            <mui-button variant="ghost" size="sm" (pressed)="bulk.cancelMergePicker()">
               Cancel
-            </button>
+            </mui-button>
           } @else {
-            <button
-              type="button"
-              class="btn-ghost"
+            <mui-button
+              variant="ghost"
+              size="sm"
               [disabled]="bulk.detailMergeTargets().length === 0"
-              (click)="bulk.openMergePicker()"
+              (pressed)="bulk.openMergePicker()"
             >
               <maple-settings-icon name="merge" [size]="12" />
               Merge into…
-            </button>
+            </mui-button>
           }
-          <button type="button" class="btn-ghost danger" (click)="hideSelectedCluster()">
+          <mui-button variant="destructive" size="sm" (pressed)="hideSelectedCluster()">
             Hide person
-          </button>
-          <button
-            type="button"
-            class="btn-ghost danger"
+          </mui-button>
+          <mui-button
+            variant="destructive"
+            size="sm"
             title="Remove this person's photos from search, timeline, and other listings — files on disk are untouched"
-            (click)="excludeSelectedCluster()"
+            (pressed)="excludeSelectedCluster()"
           >
             Exclude
-          </button>
+          </mui-button>
         </div>
       </div>
     </div>
@@ -166,34 +166,34 @@
           {{ suggestion.score * 100 | number: '1.0-0' }}% match
         </div>
         <div class="merge-suggestion-actions">
-          <button
-            type="button"
-            class="btn-primary"
+          <mui-button
+            variant="primary"
+            size="sm"
             [disabled]="bulk.peopleBulkBusy() > 0"
-            [attr.aria-label]="'Merge with ' + suggestion.name"
-            (click)="bulk.mergeSuggestionInto()"
+            [ariaLabel]="'Merge with ' + suggestion.name"
+            (pressed)="bulk.mergeSuggestionInto()"
           >
             Merge
-          </button>
-          <button
-            type="button"
-            class="btn-ghost"
+          </mui-button>
+          <mui-button
+            variant="ghost"
+            size="sm"
             [disabled]="bulk.peopleBulkBusy() > 0"
-            [attr.aria-label]="'Not the same person as ' + suggestion.name"
-            (click)="bulk.dismissSuggestion()"
+            [ariaLabel]="'Not the same person as ' + suggestion.name"
+            (pressed)="bulk.dismissSuggestion()"
           >
             Not the same person
-          </button>
-          <button
-            type="button"
-            class="btn-ghost"
+          </mui-button>
+          <mui-button
+            variant="ghost"
+            size="sm"
             [disabled]="detailCtl.suggestionFacesLoading()"
-            [attr.aria-expanded]="detailCtl.suggestionFaces() !== null"
-            [attr.aria-label]="'Compare faces of ' + suggestion.name"
-            (click)="detailCtl.toggleSuggestionFaces()"
+            [ariaExpanded]="detailCtl.suggestionFaces() !== null"
+            [ariaLabel]="'Compare faces of ' + suggestion.name"
+            (pressed)="detailCtl.toggleSuggestionFaces()"
           >
             {{ detailCtl.suggestionFaces() !== null ? 'Hide faces' : 'Compare faces' }}
-          </button>
+          </mui-button>
         </div>
       </div>
       @if (detailCtl.suggestionFaces(); as suggestionFaces) {
@@ -246,9 +246,14 @@
       </span>
 
       @if (visibleFaces().length > 0) {
-        <button type="button" class="link-action" (click)="faceBulk.selectAllVisible()">
+        <mui-button
+          variant="ghost"
+          size="sm"
+          class="link-action"
+          (pressed)="faceBulk.selectAllVisible()"
+        >
           Select all
-        </button>
+        </mui-button>
       }
     </div>
 
@@ -272,20 +277,20 @@
               (mouseenter)="hoveredFace.set(faceKey(f))"
               (mouseleave)="hoveredFace.set(null)"
             >
-              <button
-                type="button"
+              <mui-button
+                variant="ghost"
                 class="face-select-btn"
-                [attr.aria-pressed]="faceBulk.isFaceSelected(f)"
-                [attr.aria-label]="
+                [ariaPressed]="faceBulk.isFaceSelected(f)"
+                [ariaLabel]="
                   'Select face from ' +
                   f.absPath +
                   ' (' +
                   (f.confidence * 100 | number: '1.0-0') +
                   '% detector confidence)'
                 "
-                (focus)="hoveredFace.set(faceKey(f))"
-                (blur)="hoveredFace.set(null)"
-                (click)="faceBulk.toggleFaceSelection(f)"
+                (focusin)="hoveredFace.set(faceKey(f))"
+                (focusout)="hoveredFace.set(null)"
+                (pressed)="faceBulk.toggleFaceSelection(f)"
                 [title]="f.absPath"
               >
                 <span class="face-thumb">
@@ -317,21 +322,21 @@
                     <span class="low-confidence-bar"></span>
                   }
                 </span>
-              </button>
+              </mui-button>
               <!-- Open-in-editor affordance. Distinct from the select button so
                    clicking the image doesn't toggle selection. Always present in
                    the DOM (in normal tab order, so it's keyboard-reachable) and
                    revealed via CSS on hover / focus-within / selection. -->
-              <button
-                type="button"
+              <mui-button
+                variant="ghost"
                 class="face-open-btn"
                 [class.is-revealed]="faceBulk.isFaceSelected(f)"
-                aria-label="Open photo"
+                ariaLabel="Open photo"
                 title="Open in Preview"
-                (click)="detailCtl.openInPreview(f)"
+                (pressed)="detailCtl.openInPreview(f)"
               >
                 <maple-settings-icon name="open" [size]="12" color="#ffffff" />
-              </button>
+              </mui-button>
             </div>
           }
         </div>
@@ -351,16 +356,16 @@
             <div class="bulk-sep"></div>
 
             @if (detailCtl.canSetCover()) {
-              <button
-                type="button"
+              <mui-button
+                variant="ghost"
                 class="bulk-btn"
                 [disabled]="bulkBusy() > 0"
-                (click)="detailCtl.setSelectedAsCover()"
-                aria-label="Set as cover photo for this person"
+                (pressed)="detailCtl.setSelectedAsCover()"
+                ariaLabel="Set as cover photo for this person"
               >
                 <maple-settings-icon name="image" [size]="13" color="#f5f4f2" />
                 Set as cover
-              </button>
+              </mui-button>
             }
 
             <!-- Move-to-person dropdown — uses a native <select> for
@@ -385,29 +390,33 @@
               </select>
             </label>
 
-            <button
-              type="button"
+            <mui-button
+              variant="ghost"
               class="bulk-btn"
               [disabled]="bulkBusy() > 0"
-              (click)="faceBulk.bulkUnassign()"
+              (pressed)="faceBulk.bulkUnassign()"
             >
               <maple-settings-icon name="x" [size]="13" color="#f5f4f2" />
               Unassign
-            </button>
-            <button
-              type="button"
+            </mui-button>
+            <mui-button
+              variant="ghost"
               class="bulk-btn"
               [disabled]="bulkBusy() > 0"
-              (click)="faceBulk.bulkHide()"
+              (pressed)="faceBulk.bulkHide()"
             >
               <maple-settings-icon name="eye" [size]="13" color="#f5f4f2" />
               Hide
-            </button>
+            </mui-button>
             <div class="bulk-sep"></div>
-            <button type="button" class="bulk-btn mute" (click)="faceBulk.clearSelection()">
+            <mui-button
+              variant="ghost"
+              class="bulk-btn mute"
+              (pressed)="faceBulk.clearSelection()"
+            >
               <maple-settings-icon name="x" [size]="13" color="#a8a29e" />
               Cancel
-            </button>
+            </mui-button>
           </div>
         </div>
       }
@@ -418,10 +427,10 @@
     <!-- before `selected()` populates; rendering the list view briefly   -->
     <!-- would be a flash of wrong content.                                -->
     <div class="detail-head">
-      <button type="button" class="back-link" (click)="closeDetail()">
+      <mui-button variant="ghost" size="sm" class="back-link" (pressed)="closeDetail()">
         <maple-settings-icon name="back" [size]="13" color="#a8a29e" />
         <span>People</span>
-      </button>
+      </mui-button>
     </div>
     <div class="face-grid-wrap">
       <p class="empty-msg">Loading…</p>
@@ -441,36 +450,36 @@
         </div>
         <div class="actions">
           @if (bulk.selectMode()) {
-            <button
-              type="button"
-              class="btn-ghost"
-              (click)="bulk.exitSelectMode()"
-              aria-label="Exit selection mode"
+            <mui-button
+              variant="ghost"
+              size="sm"
+              (pressed)="bulk.exitSelectMode()"
+              ariaLabel="Exit selection mode"
             >
               Done
-            </button>
+            </mui-button>
           } @else {
-            <button
-              type="button"
-              class="btn-ghost"
-              (click)="bulk.enterSelectMode()"
-              aria-label="Select people for bulk actions"
+            <mui-button
+              variant="ghost"
+              size="sm"
+              (pressed)="bulk.enterSelectMode()"
+              ariaLabel="Select people for bulk actions"
             >
               Select
-            </button>
+            </mui-button>
           }
-          <a class="btn-ghost" routerLink="/settings/people/hidden">Hidden</a>
-          <a class="btn-ghost" routerLink="/settings/people/excluded">Excluded</a>
-          <a class="btn-ghost" routerLink="/settings/workers">Worker settings</a>
-          <button
-            type="button"
-            class="btn-primary"
-            [disabled]="clusteringBusy()"
-            (click)="runClustering()"
+          <a class="nav-link" routerLink="/settings/people/hidden">Hidden</a>
+          <a class="nav-link" routerLink="/settings/people/excluded">Excluded</a>
+          <a class="nav-link" routerLink="/settings/workers">Worker settings</a>
+          <mui-button
+            variant="primary"
+            size="sm"
+            [loading]="clusteringBusy()"
+            (pressed)="runClustering()"
           >
             <maple-settings-icon name="sparkle" [size]="13" color="#ffffff" />
-            {{ clusteringBusy() ? 'Clustering…' : 'Run clustering' }}
-          </button>
+            Run clustering
+          </mui-button>
         </div>
       </header>
 
@@ -481,17 +490,16 @@
               {{ peopleStats().named }} named · {{ peopleStats().unnamed }} unnamed ·
               {{ peopleStats().faces | number }} face{{ peopleStats().faces === 1 ? '' : 's' }}
             </span>
-            <label class="small-cluster-toggle">
-              <input
-                type="checkbox"
+            <span class="small-cluster-toggle">
+              <mui-checkbox
                 [checked]="hideSmallClusters()"
-                (change)="hideSmallClusters.set($any($event.target).checked)"
+                (checkedChange)="hideSmallClusters.set($event)"
+                [label]="'Hide clusters under ' + smallClusterMin + ' faces'"
               />
-              <span>Hide clusters under {{ smallClusterMin }} faces</span>
               @if (hideSmallClusters() && hiddenSmallCount() > 0) {
                 <span class="small-cluster-count">{{ hiddenSmallCount() | number }} hidden</span>
               }
-            </label>
+            </span>
           </div>
         }
 
@@ -611,14 +619,14 @@
                         >{{ p.faceCount }} face{{ p.faceCount === 1 ? '' : 's' }}</span
                       >
                       @if (!bulk.selectMode()) {
-                        <button
-                          type="button"
+                        <mui-button
+                          variant="ghost"
                           class="card-delete"
                           [title]="'Hide ' + p.name"
-                          (click)="$event.stopPropagation(); hidePerson(p)"
+                          (pressed)="$event.stopPropagation(); hidePerson(p)"
                         >
                           Hide
-                        </button>
+                        </mui-button>
                       }
                     </div>
                   </div>
@@ -653,21 +661,21 @@
               </select>
             </label>
 
-            <button
-              type="button"
+            <mui-button
+              variant="ghost"
               class="bulk-btn"
               [disabled]="bulk.peopleBulkBusy() > 0"
-              aria-label="Hide selected people"
-              (click)="bulk.hideSelectedPeople()"
+              ariaLabel="Hide selected people"
+              (pressed)="bulk.hideSelectedPeople()"
             >
               <maple-settings-icon name="eye" [size]="13" color="#f5f4f2" />
               Hide
-            </button>
+            </mui-button>
             <div class="bulk-sep"></div>
-            <button type="button" class="bulk-btn mute" (click)="bulk.exitSelectMode()">
+            <mui-button variant="ghost" class="bulk-btn mute" (pressed)="bulk.exitSelectMode()">
               <maple-settings-icon name="x" [size]="13" color="#a8a29e" />
               Cancel
-            </button>
+            </mui-button>
           </div>
         </div>
       }
