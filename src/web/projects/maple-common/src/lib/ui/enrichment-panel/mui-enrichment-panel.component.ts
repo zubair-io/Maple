@@ -118,8 +118,18 @@ export class MuiEnrichmentPanelComponent {
    * classification data doesn't fit this row's flat single-list shape). */
   readonly showVision = input<boolean>(true);
 
-  /** Deep link for a "paused" stage badge — the workers admin page. */
-  readonly workersSettingsHref = input<string>('/settings/workers');
+  /** Deep link for a "paused" stage badge — the workers admin page.
+   * Required, with no built-in default: the real route
+   * (`/settings/workers`) is a Self-Hosted-only capability, and a literal
+   * default baked into this shared mui-ui component would leak into the
+   * Hosted bundle the moment any Hosted surface (including this design
+   * system's own showcase) renders `<mui-enrichment-panel>` — the Hosted/
+   * Self-Hosted capability boundary (`check-hosted-capability-boundary.mjs`)
+   * gates on exactly that string appearing in a Hosted chunk. Callers pass
+   * their own href — Self Hosted's `InfoEnrichmentComponent` passes
+   * `WORKERS_SETTINGS_URL` from `enrichment.vm.ts`; the showcase passes a
+   * placeholder. */
+  readonly workersSettingsHref = input.required<string>();
 
   readonly selectedPersonId = model<string | null>(null);
 
