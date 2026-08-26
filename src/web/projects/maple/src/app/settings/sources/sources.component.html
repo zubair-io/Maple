@@ -9,20 +9,21 @@
       </p>
     </div>
     <div class="header-actions">
-      <button
-        type="button"
-        class="btn-ghost"
-        [disabled]="checking()"
-        (click)="load(true)"
-        aria-label="Re-check source connectivity"
+      <mui-button
+        variant="ghost"
+        size="sm"
+        data-testid="check-again-btn"
+        [loading]="checking()"
+        (pressed)="load(true)"
+        ariaLabel="Re-check source connectivity"
       >
         <maple-settings-icon name="retry" [size]="13" />
-        {{ checking() ? 'Checking…' : 'Check again' }}
-      </button>
-      <button type="button" class="btn-primary" (click)="state.openLibraryPicker()">
+        Check again
+      </mui-button>
+      <mui-button variant="primary" size="sm" (pressed)="state.openLibraryPicker()">
         <maple-settings-icon name="plus" [size]="13" />
         Add source
-      </button>
+      </mui-button>
     </div>
   </header>
 
