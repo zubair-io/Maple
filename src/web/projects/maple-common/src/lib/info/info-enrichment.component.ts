@@ -2,11 +2,18 @@
 //
 // Owns the GET /assets/:id detail fetch, the GET /workers/status pause
 // cache, the requeue POSTs, the manual-override PUTs, and the 30 s
-// post-requeue poll loop. Composes four dumb leaves:
-//   • <app-info-place>       — reverse-geocoded place + override + requeue
-//   • <app-info-description> — model caption + override + requeue
-//   • <app-info-vision>      — structured visual classification (read-only)
-//   • <app-info-faces>       — face count + person chips + requeue
+// post-requeue poll loop. Composes:
+//   • <mui-enrichment-panel>  — description, faces, place (Maple UI
+//     migration #3030, MW3 — see `mui-enrichment-panel.component.ts`'s
+//     `*StageStatus` inputs for the richer per-stage lifecycle this
+//     orchestrator threads through) + requeue/override/error/stale wiring.
+//   • <app-info-vision>       — structured visual classification, read-only,
+//     grouped multi-section chip display `mui-vision-row`'s flat single-row
+//     contract doesn't fit (kept as an app-level composition of mui atoms —
+//     see that file's header comment).
+//   • <app-info-transcript>   — plain-text speech-to-text block; kept as-is,
+//     `mui-transcript-block`'s per-line-timestamp shape doesn't match this
+//     API's single-blob transcript.
 //
 // This is the post-#634 replacement for the old `<maple-info-tab>`
 // enrichment surface — same behaviour, split into focused pieces, gated
@@ -32,6 +39,7 @@ import {
   runInInjectionContext,
   signal,
 } from '@angular/core';
+import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { LibraryStateService } from '../state/library-state.service';
 import {
@@ -40,29 +48,25 @@ import {
   ApiEnrichmentStage,
   ApiPlace,
 } from '../api/bun-api-backend.service';
-import { InfoPlaceComponent } from './info-place.component';
-import { InfoDescriptionComponent } from './info-description.component';
+import { MuiEnrichmentPanelComponent } from '../ui/enrichment-panel/mui-enrichment-panel.component';
 import { InfoVisionComponent } from './info-vision.component';
 import { InfoTranscriptComponent } from './info-transcript.component';
-import { InfoFacesComponent } from './info-faces.component';
 import {
   REFRESH_POLL_MS,
   REFRESH_TIMEOUT_MS,
+  buildManualPlaceOverride,
   detailChanged,
+  formatRollups,
   showPlaceSection,
   stageStatus,
+  taggedFaces,
+  untaggedFaceCount,
 } from './enrichment.vm';
 
 @Component({
   selector: 'app-info-enrichment',
   standalone: true,
-  imports: [
-    InfoPlaceComponent,
-    InfoDescriptionComponent,
-    InfoVisionComponent,
-    InfoTranscriptComponent,
-    InfoFacesComponent,
-  ],
+  imports: [MuiEnrichmentPanelComponent, InfoVisionComponent, InfoTranscriptComponent],
   templateUrl: './info-enrichment.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
@@ -74,6 +78,7 @@ export class InfoEnrichmentComponent implements OnDestroy {
   private readonly state = inject(LibraryStateService);
   private readonly api = inject(BunApiBackendService);
   private readonly injector = inject(Injector);
+  private readonly router = inject(Router);
 
   /** Last-fetched detail for the focused asset. Cleared on focus change. */
   readonly detail = signal<ApiAssetDetail | null>(null);
@@ -163,6 +168,14 @@ export class InfoEnrichmentComponent implements OnDestroy {
       this.detail.set(null);
       this.stopRefreshLoop();
       if (ref) this.fetchDetail(ref);
+    });
+    // mui-faces-row's `selectedId` is a "select this chip" model, not a
+    // navigation primitive — the app decides what selecting a face chip
+    // means, same as the retired `<app-info-faces>` routerLink-per-chip
+    // did: jump to that person's settings page.
+    effect(() => {
+      const id = this.selectedPersonId();
+      if (id) this.router.navigate(['/settings/people', id]);
     });
   }
 
@@ -345,5 +358,60 @@ export class InfoEnrichmentComponent implements OnDestroy {
       },
       error: () => this.setStageError(stage, 'Failed to requeue — try again.'),
     });
+  }
+
+  // ── mui-enrichment-panel wiring (Maple UI migration #3030, MW3) ────────
+  // `<mui-enrichment-panel>` speaks in mui-ui shapes (chip arrays, plain
+  // strings, `MuiEnrichmentStageStatus`) — these adapt the ApiAssetDetail
+  // payload without changing any of the HTTP/polling logic above.
+
+  protected readonly peopleChips = computed(() => {
+    const d = this.detail();
+    if (!d) return [];
+    // person_id doubles as both id and label — the API returns no display
+    // name for a tagged face, matching the retired `<app-info-faces>`.
+    return taggedFaces(d).map((f) => ({ id: f.person_id, label: f.person_id }));
+  });
+
+  protected readonly facesTotalCount = computed(() => this.detail()?.faces.length ?? null);
+
+  protected readonly facesUntaggedCount = computed(() => {
+    const d = this.detail();
+    return d ? untaggedFaceCount(d) : 0;
+  });
+
+  /** Single display string for `<mui-place-row>` — prefers the formatted
+   * locality/region rollup (the retired `<app-info-place>`'s bold primary
+   * line), falling back to the raw `display_name` when there's no rollup. */
+  protected readonly placeDisplay = computed(() => {
+    const place = this.detail()?.place;
+    if (!place) return '';
+    const rollup = formatRollups(place.rollups);
+    return rollup !== '(no rollup)' ? rollup : (place.display_name ?? '');
+  });
+
+  protected readonly placeOverridden = computed(() => this.detail()?.place?.source === 'manual');
+
+  protected readonly selectedPersonId = signal<string | null>(null);
+
+  /** `<mui-description-field>` allows committing an empty string (it's a
+   * valid "clear the caption" edit); the API's override endpoint expects
+   * `null` for that case. */
+  protected onDescriptionCommitted(text: string): void {
+    this.onDescriptionSave(text.length > 0 ? text : null);
+  }
+
+  /** `<mui-place-row>` only round-trips the display string — synthesizing
+   * the full `ApiPlace` override the endpoint expects is `enrichment.vm.ts`'s
+   * `buildManualPlaceOverride()`, same as the retired `<app-info-place>`
+   * did inline. */
+  protected onPlaceCommitted(text: string): void {
+    const d = this.detail();
+    if (!d) return;
+    this.onPlaceSave(buildManualPlaceOverride(text, d.place));
+  }
+
+  protected onFacesUntaggedClicked(): void {
+    this.router.navigate(['/settings/people']);
   }
 }

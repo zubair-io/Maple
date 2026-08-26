@@ -72,7 +72,14 @@
 
     @if (flagOpen()) {
       <div id="preview-flag-popover" class="flag-popover">
-        <app-rating-flags-row [asset]="state.focusedAsset()" />
+        <mui-rating-flags
+          variant="pills"
+          [rating]="flagPopoverRating()"
+          (ratingChange)="onFlagPopoverRatingChange($event)"
+          [flag]="flagPopoverFlag()"
+          (flagChange)="onFlagPopoverFlagChange($event)"
+          [disabled]="flagPopoverDisabled()"
+        />
       </div>
     }
   </div>

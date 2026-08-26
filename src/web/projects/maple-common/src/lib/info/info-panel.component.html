@@ -22,10 +22,23 @@
 
 <div class="sections">
   <app-info-filename-row [asset]="asset()" />
-  <app-rating-flags-row [asset]="asset()" />
-  <app-info-histogram [asset]="asset()" [allowServerFallback]="allowServerHistogramFallback()" />
-  <app-camera-location-grid [asset]="asset()" />
-  <app-keyword-chips-row [asset]="asset()" />
+  <mui-rating-flags
+    variant="pills"
+    [rating]="currentRating()"
+    (ratingChange)="onRatingChange($event)"
+    [flag]="currentFlagState()"
+    (flagChange)="onFlagChange($event)"
+    [disabled]="ratingFlagsDisabled()"
+  />
+  @if (histogramBins(); as bins) {
+    <mui-histogram [r]="bins.r" [g]="bins.g" [b]="bins.b" />
+  }
+  <mui-label-value-grid [rows]="metadataRows()" />
+  <mui-keyword-row
+    [keywords]="keywords()"
+    (added)="onKeywordAdded($event)"
+    (removed)="onKeywordRemoved($event)"
+  />
   @if (extension; as extensionComponent) {
     <ng-container *ngComponentOutlet="extensionComponent" />
   }
