@@ -85,18 +85,6 @@
     font-size: 11px;
     font-family: var(--s-mono);
   }
-  .copy-btn {
-    background: transparent;
-    border: none;
-    color: var(--s-text-muted);
-    cursor: pointer;
-    padding: 2px 4px;
-    margin-left: 6px;
-
-    &:hover {
-      color: var(--s-text);
-    }
-  }
 }
 
 .section-row {
@@ -182,35 +170,8 @@
       letter-spacing: 0.4px;
     }
   }
-  .copy-btn {
-    background: transparent;
-    border: none;
-    color: var(--s-text-dim);
-    cursor: pointer;
-    padding: 2px 4px;
-
-    &:hover {
-      color: var(--s-text);
-    }
-  }
   .actions-cell {
     text-align: right;
-  }
-  .revoke-btn {
-    background: transparent;
-    border: none;
-    color: var(--s-text-dim);
-    font-size: 12px;
-    cursor: pointer;
-    padding: 4px 6px;
-
-    &:hover {
-      color: var(--s-err);
-    }
-    &:disabled {
-      opacity: 0.5;
-      cursor: default;
-    }
   }
 }
 
@@ -297,27 +258,11 @@
     text-align: left !important;
     justify-self: start;
   }
-  .invite-row .actions-cell button {
-    padding-left: 0;
-  }
 }
 
 // #2893 — per-member file-access toggle column.
 .file-access-cell {
   font-size: 11.5px;
-
-  .check {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    cursor: pointer;
-    color: var(--s-text-muted);
-
-    input {
-      accent-color: var(--s-accent, #c46f4f);
-      cursor: pointer;
-    }
-  }
 }
 
 .section-hint {

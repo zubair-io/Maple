@@ -9,25 +9,36 @@
       </p>
     </div>
     <div class="actions">
-      <button type="button" class="btn-primary" (click)="openInvite()">
+      <mui-button
+        variant="primary"
+        size="sm"
+        data-testid="invite-user-btn"
+        (pressed)="openInvite()"
+      >
         <maple-settings-icon name="plus" [size]="13" [color]="'#fff'" />
         Invite user
-      </button>
+      </mui-button>
     </div>
   </header>
 
   <div class="users-body">
     @if (showInviteForm()) {
       <form class="invite-form" (submit)="createInvite(); $event.preventDefault()">
-        <input
-          type="email"
-          [(ngModel)]="email"
-          name="email"
+        <mui-input
+          [(value)]="email"
           placeholder="invitee@example.com"
           autocomplete="off"
-          required
+          ariaLabel="Invitee email"
         />
-        <button type="submit" class="btn-primary" [disabled]="busy() || !email">Send invite</button>
+        <mui-button
+          variant="primary"
+          size="sm"
+          [disabled]="!email"
+          [loading]="busy()"
+          (pressed)="createInvite()"
+        >
+          Send invite
+        </mui-button>
       </form>
     }
 
@@ -40,9 +51,16 @@
             <div>
               <span class="meta-label">Code</span>
               <code class="meta-code">{{ fi.code }}</code>
-              <button type="button" class="copy-btn" title="Copy code" (click)="copyCode(fi.code)">
+              <mui-button
+                variant="ghost"
+                size="sm"
+                class="copy-btn"
+                title="Copy code"
+                ariaLabel="Copy code"
+                (pressed)="copyCode(fi.code)"
+              >
                 <maple-settings-icon name="copy" [size]="12" />
-              </button>
+              </mui-button>
             </div>
             <div>
               <span class="meta-label">URL</span>
@@ -91,15 +109,13 @@
               @if (u.role === 'owner') {
                 <span class="dim">always</span>
               } @else {
-                <label class="check">
-                  <input
-                    type="checkbox"
-                    [checked]="u.file_access"
-                    [disabled]="togglingId() === u.id"
-                    (change)="setFileAccess(u, $any($event.target).checked)"
-                  />
-                  File access
-                </label>
+                <mui-checkbox
+                  class="check"
+                  label="File access"
+                  [checked]="u.file_access"
+                  [disabled]="togglingId() === u.id"
+                  (checkedChange)="setFileAccess(u, $event)"
+                />
               }
             </span>
             <span class="dim mono">{{ lastSeenLabel(u) }}</span>
@@ -128,14 +144,16 @@
               <span class="mono email">{{ inv.email }}</span>
               <span class="invite-code">
                 <code class="mono">{{ inv.code }}</code>
-                <button
-                  type="button"
+                <mui-button
+                  variant="ghost"
+                  size="sm"
                   class="copy-btn"
                   title="Copy code"
-                  (click)="copyCode(inv.code)"
+                  ariaLabel="Copy code"
+                  (pressed)="copyCode(inv.code)"
                 >
                   <maple-settings-icon name="copy" [size]="12" />
-                </button>
+                </mui-button>
               </span>
               <span class="role-chip">INVITE</span>
               <span class="dim mono">
@@ -147,14 +165,15 @@
               </span>
               <span class="actions-cell">
                 @if (!inv.consumed_at) {
-                  <button
-                    type="button"
+                  <mui-button
+                    variant="ghost"
+                    size="sm"
                     class="revoke-btn"
-                    [disabled]="busy()"
-                    (click)="rescind(inv.code)"
+                    [loading]="busy()"
+                    (pressed)="rescind(inv.code)"
                   >
                     Revoke
-                  </button>
+                  </mui-button>
                 }
               </span>
             </div>
