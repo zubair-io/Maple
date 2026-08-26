@@ -1,7 +1,13 @@
 import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { AuthService, type CreatedServiceApiKey, type ServiceApiKey } from '@maple-common';
+import {
+  AuthService,
+  MuiButtonComponent,
+  MuiInputComponent,
+  type CreatedServiceApiKey,
+  type ServiceApiKey,
+} from '@maple-common';
 import { SettingsIconComponent } from '../settings-icon.component';
 
 type ExpiryChoice = '30' | '90' | '365' | 'never';
@@ -10,7 +16,7 @@ type CopiedValue = 'endpoint' | 'key' | null;
 @Component({
   selector: 'maple-service-api-keys',
   standalone: true,
-  imports: [DatePipe, FormsModule, SettingsIconComponent],
+  imports: [DatePipe, FormsModule, SettingsIconComponent, MuiButtonComponent, MuiInputComponent],
   templateUrl: './service-api-keys.component.html',
   styleUrl: './service-api-keys.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

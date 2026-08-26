@@ -16,28 +16,21 @@
       <span class="field-label">Search endpoint</span>
       <code>{{ endpoint }}</code>
     </div>
-    <button
-      type="button"
-      class="btn-ghost"
-      [attr.aria-label]="'Copy SugarMaple search endpoint'"
-      (click)="copy(endpoint, 'endpoint')"
+    <mui-button
+      variant="ghost"
+      size="sm"
+      ariaLabel="Copy SugarMaple search endpoint"
+      (pressed)="copy(endpoint, 'endpoint')"
     >
       <maple-settings-icon [name]="copied() === 'endpoint' ? 'check' : 'copy'" [size]="12" />
       {{ copied() === 'endpoint' ? 'Copied' : 'Copy endpoint' }}
-    </button>
+    </mui-button>
   </div>
 
   <form class="create-form" (ngSubmit)="create()">
     <div class="field">
-      <label class="field-label" for="serviceKeyName">Key name</label>
-      <input
-        id="serviceKeyName"
-        type="text"
-        name="serviceKeyName"
-        maxlength="200"
-        autocomplete="off"
-        [(ngModel)]="name"
-      />
+      <label class="field-label">Key name</label>
+      <mui-input [(value)]="name" autocomplete="off" ariaLabel="Key name" />
     </div>
     <div class="field">
       <label class="field-label" for="serviceKeyExpiry">Expires</label>
@@ -48,10 +41,16 @@
         <option value="never">Never</option>
       </select>
     </div>
-    <button type="submit" class="btn-primary" [disabled]="busy() || !name.trim()">
+    <mui-button
+      variant="primary"
+      size="sm"
+      [disabled]="!name.trim()"
+      [loading]="busy()"
+      (pressed)="create()"
+    >
       <maple-settings-icon name="key" [size]="13" [color]="'#fff'" />
-      {{ busy() ? 'Waiting for passkey…' : 'Generate key' }}
-    </button>
+      Generate key
+    </mui-button>
   </form>
   <p class="form-hint">You will be asked to confirm with an owner passkey.</p>
 
@@ -62,15 +61,17 @@
           <strong>Copy this key now</strong>
           <span>It will not be shown again after you dismiss it.</span>
         </div>
-        <button type="button" class="dismiss-btn" (click)="dismissFreshKey()">Dismiss</button>
+        <mui-button variant="ghost" size="sm" class="dismiss-btn" (pressed)="dismissFreshKey()">
+          Dismiss
+        </mui-button>
       </div>
       <div class="secret-row">
         <code>{{ created.key }}</code>
-        <button
-          type="button"
-          class="btn-primary"
-          aria-label="Copy new SugarMaple API key"
-          (click)="copy(created.key, 'key')"
+        <mui-button
+          variant="primary"
+          size="sm"
+          ariaLabel="Copy new SugarMaple API key"
+          (pressed)="copy(created.key, 'key')"
         >
           <maple-settings-icon
             [name]="copied() === 'key' ? 'check' : 'copy'"
@@ -78,7 +79,7 @@
             [color]="'#fff'"
           />
           {{ copied() === 'key' ? 'Copied' : 'Copy key' }}
-        </button>
+        </mui-button>
       </div>
     </div>
   }
@@ -90,7 +91,9 @@
   <div class="key-list-heading">
     <span>Integration keys</span>
     @if (keys() === null && error()) {
-      <button type="button" class="retry-btn" (click)="reload()">Retry</button>
+      <mui-button variant="ghost" size="sm" class="retry-btn" (pressed)="reload()">
+        Retry
+      </mui-button>
     }
   </div>
 
@@ -129,15 +132,16 @@
               </div>
             </div>
             @if (keyStatus === 'Active') {
-              <button
-                type="button"
+              <mui-button
+                variant="destructive"
+                size="sm"
                 class="revoke-btn"
-                [attr.aria-label]="'Revoke ' + key.name"
-                [disabled]="busyId() === key.keyId"
-                (click)="revoke(key)"
+                [ariaLabel]="'Revoke ' + key.name"
+                [loading]="busyId() === key.keyId"
+                (pressed)="revoke(key)"
               >
-                {{ busyId() === key.keyId ? 'Revoking…' : 'Revoke' }}
-              </button>
+                Revoke
+              </mui-button>
             }
           </div>
         }

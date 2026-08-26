@@ -23,6 +23,8 @@ import { firstValueFrom } from 'rxjs';
 import {
   BunApiBackendService,
   errorMessage,
+  MuiButtonComponent,
+  MuiCheckboxComponent,
   type SubthresholdFaceAuditResponse,
   type SubthresholdFacePurgeResponse,
 } from '@maple-common';
@@ -32,6 +34,7 @@ type PanelState = 'idle' | 'auditing' | 'applying';
 @Component({
   selector: 'maple-face-purge-panel',
   standalone: true,
+  imports: [MuiButtonComponent, MuiCheckboxComponent],
   templateUrl: './face-purge-panel.component.html',
   styleUrl: './face-purge-panel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
