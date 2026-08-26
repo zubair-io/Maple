@@ -15,6 +15,7 @@ import {
   LibraryStateService,
   LibraryPickerModalComponent,
   errorMessage,
+  MuiButtonComponent,
 } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
@@ -24,7 +25,12 @@ type LoadState = { kind: 'loading' } | { kind: 'loaded' } | { kind: 'error'; mes
 @Component({
   selector: 'maple-sources-settings',
   standalone: true,
-  imports: [SettingsShellComponent, SettingsIconComponent, LibraryPickerModalComponent],
+  imports: [
+    SettingsShellComponent,
+    SettingsIconComponent,
+    LibraryPickerModalComponent,
+    MuiButtonComponent,
+  ],
   templateUrl: './sources.component.html',
   styleUrl: './sources.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

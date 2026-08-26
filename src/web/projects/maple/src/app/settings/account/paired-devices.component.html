@@ -20,15 +20,16 @@
                 {{ s.last_used_at | date: 'medium' }}
               </div>
             </div>
-            <button
-              type="button"
+            <mui-button
+              variant="ghost"
+              size="sm"
               class="delete-btn"
-              [attr.aria-label]="'Revoke ' + s.label"
-              [disabled]="busyId() === s.id"
-              (click)="revoke(s)"
+              [ariaLabel]="'Revoke ' + s.label"
+              [loading]="busyId() === s.id"
+              (pressed)="revoke(s)"
             >
-              {{ busyId() === s.id ? 'Revoking…' : 'Revoke' }}
-            </button>
+              Revoke
+            </mui-button>
           </div>
         }
       </div>
@@ -36,6 +37,6 @@
   } @else if (error() === null) {
     <p class="empty">Loading…</p>
   } @else {
-    <button type="button" class="btn-ghost" (click)="reload()">Retry</button>
+    <mui-button variant="ghost" size="sm" (pressed)="reload()">Retry</mui-button>
   }
 </section>

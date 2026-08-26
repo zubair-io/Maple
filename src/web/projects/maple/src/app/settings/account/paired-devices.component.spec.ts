@@ -54,7 +54,7 @@ describe('PairedDevicesComponent', () => {
     expect(el().textContent).toContain('Apple TV ·');
     expect(el().textContent).not.toContain('tvos');
     // Each revoke button names its device for screen readers.
-    expect(el().querySelector('.delete-btn')?.getAttribute('aria-label')).toBe(
+    expect(el().querySelector('.delete-btn button')?.getAttribute('aria-label')).toBe(
       "Revoke Zubair's Apple TV",
     );
   });
@@ -114,14 +114,14 @@ describe('PairedDevicesComponent', () => {
     });
     fixture.detectChanges();
 
-    el().querySelector<HTMLButtonElement>('.delete-btn')!.click();
+    el().querySelector<HTMLButtonElement>('.delete-btn button')!.click();
     await Promise.resolve();
     await Promise.resolve();
     fixture.detectChanges();
     expect(el().textContent).toContain('Revoke failed — try again.');
     expect(el().querySelectorAll('.card-row').length).toBe(1);
 
-    el().querySelector<HTMLButtonElement>('.delete-btn')!.click();
+    el().querySelector<HTMLButtonElement>('.delete-btn button')!.click();
     await Promise.resolve();
     await Promise.resolve();
     fixture.detectChanges();
@@ -140,7 +140,7 @@ describe('PairedDevicesComponent', () => {
     expect(el().textContent).toContain('Could not load paired devices.');
     expect(el().textContent).not.toContain('Loading');
 
-    el().querySelector<HTMLButtonElement>('.btn-ghost')!.click();
+    el().querySelector<HTMLButtonElement>('button')!.click();
     fixture.detectChanges();
 
     expect(el().querySelectorAll('.card-row').length).toBe(1);
