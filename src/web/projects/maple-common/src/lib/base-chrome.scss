@@ -57,3 +57,23 @@ input[type='range'] {
   accent-color: var(--color-primary);
   cursor: pointer;
 }
+
+// ── Save-status toast ─────────────────────────────────────────────────────────
+// Fixed bottom-right overlay chrome for the root shells' sidecar save-status
+// line (mui-status-text is an inline atom; this wrapper preserves the retired
+// maple-save-status component's "overlay, not layout" placement).
+.save-status-toast {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 1000;
+  pointer-events: none;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text-main);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 24%);
+  font-size: 12px;
+}

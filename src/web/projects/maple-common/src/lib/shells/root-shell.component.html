@@ -3,5 +3,7 @@
 <maple-lan-switch-banner />
 <maple-gpu-fallback-notice />
 @if (saveState.statusText(); as status) {
-  <mui-status-text [state]="status.state" [text]="status.text" />
+  <div class="save-status-toast">
+    <mui-status-text [state]="status.state" [text]="status.text" />
+  </div>
 }
