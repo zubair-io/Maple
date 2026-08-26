@@ -13,9 +13,16 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
-import { type ApiUser, AuthService, BunApiBackendService, errorMessage } from '@maple-common';
+import {
+  type ApiUser,
+  AuthService,
+  BunApiBackendService,
+  errorMessage,
+  MuiButtonComponent,
+  MuiCheckboxComponent,
+  MuiInputComponent,
+} from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 
@@ -36,7 +43,13 @@ interface FreshInvite {
 @Component({
   selector: 'maple-users',
   standalone: true,
-  imports: [FormsModule, SettingsShellComponent, SettingsIconComponent],
+  imports: [
+    SettingsShellComponent,
+    SettingsIconComponent,
+    MuiButtonComponent,
+    MuiCheckboxComponent,
+    MuiInputComponent,
+  ],
   templateUrl: './users.component.html',
   styleUrl: './users.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
