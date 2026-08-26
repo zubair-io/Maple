@@ -54,11 +54,37 @@ export interface MuiEnrichmentStageStatus {
   readonly tooltip?: string;
 }
 
-/** Empty-label statuses render no badge (`stageBadge`'s `@if (status.label)`
- * gate) — the shared default so every section can pass a non-null status to
- * the template unconditionally, keeping the "is there a badge to show"
- * branch in exactly one place. */
+/** Empty-label statuses render no badge — the shared default so every
+ * section can pass a non-null status into {@link toBadgeVm} unconditionally. */
 const NO_STAGE_BADGE: MuiEnrichmentStageStatus = { kind: 'complete', label: '' };
+
+/** Resolved shape of a stage's badge — a template `@if`/`@else if` pair
+ * (`kind === 'paused'` vs not) reads only `kind`/`label`/`variant`/
+ * `tooltip`, all already resolved here, so `<template>` itself carries
+ * none of this decision's branching, `?? null` fallbacks, or
+ * `status.kind === 'failed' ? … : …` ternary (see {@link toBadgeVm}). The
+ * three stages share this ONE shape and the ONE `<ng-template>` that reads
+ * it (`stageBadge` in the .html) — called three times via
+ * `ngTemplateOutlet`, so the branching it contains is written, and counted,
+ * exactly once regardless of how many stages render it. */
+type StageBadgeVm =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'paused'; readonly label: string }
+  | {
+      readonly kind: 'badge';
+      readonly label: string;
+      readonly variant: MuiBadgeVariant;
+      readonly tooltip: string | null;
+    };
+
+/** Same "one shared shape, one shared template" reasoning as
+ * {@link StageBadgeVm}, for the error/stale line under each stage's badge. */
+interface StageFeedbackVm {
+  /** Error text, or `null` when there's nothing to show. */
+  readonly error: string | null;
+  /** Only consulted when `error` is `null`. */
+  readonly stale: boolean;
+}
 
 @Component({
   selector: 'mui-enrichment-panel',
@@ -150,13 +176,12 @@ export class MuiEnrichmentPanelComponent {
 
   /** `descriptionStageStatus()` when the caller has it, else the simple
    * 4-state `descriptionStatus` re-expressed in the richer shape — folds
-   * the "which status source wins" branch into one computed instead of an
-   * `@if`/`@else if` pair in the template (kept out of `<template>`'s own
-   * complexity budget; see `stageBadge` below). `kind` here is only ever
-   * read for the paused-link check and the badge-variant ternary, so any
+   * the "which status source wins" branch into a computed instead of an
+   * `@if`/`@else if` pair in the template. `kind` here is only ever read
+   * for the paused-link check and the badge-variant choice, so any
    * non-`'paused'`/`'failed'` value is a safe stand-in for "not part of the
    * richer per-stage protocol". */
-  protected readonly effectiveDescriptionStatus = computed<MuiEnrichmentStageStatus>(() => {
+  private readonly effectiveDescriptionStatus = computed<MuiEnrichmentStageStatus>(() => {
     const stage = this.descriptionStageStatus();
     if (stage) return stage;
     const label = this.descriptionStatusLabel();
@@ -164,24 +189,52 @@ export class MuiEnrichmentPanelComponent {
     return { kind: this.descriptionStatus() === 'error' ? 'failed' : 'running', label };
   });
 
-  /** `faceStatus()`/`placeStatus()` are already `MuiEnrichmentStageStatus |
-   * null` — these just swap `null` for {@link NO_STAGE_BADGE} so the
-   * template can pass a non-null status to `stageBadge` unconditionally
-   * (same reasoning as `effectiveDescriptionStatus`; keeps the `?? …`
-   * fallback out of `<template>`'s own complexity count). */
-  protected readonly effectiveFaceStatus = computed(() => this.faceStatus() ?? NO_STAGE_BADGE);
-  protected readonly effectivePlaceStatus = computed(() => this.placeStatus() ?? NO_STAGE_BADGE);
-
-  /** Shared by every `stageBadge` outlet call — a template method call
-   * doesn't add a branch to `<template>`'s own complexity the way an
-   * inline ternary would. */
-  protected badgeVariant(status: MuiEnrichmentStageStatus): MuiBadgeVariant {
-    return status.kind === 'failed' ? 'signal' : 'count';
+  /** `MuiEnrichmentStageStatus` → the shared `stageBadge` `<ng-template>`'s
+   * {@link StageBadgeVm} — every field the template reads (label, badge
+   * variant, tooltip-or-null) is resolved here, so `<template>` itself
+   * carries none of this decision's branching or `?? null` fallbacks. */
+  private toBadgeVm(status: MuiEnrichmentStageStatus): StageBadgeVm {
+    if (!status.label) return { kind: 'none' };
+    if (status.kind === 'paused') return { kind: 'paused', label: status.label };
+    return {
+      kind: 'badge',
+      label: status.label,
+      variant: status.kind === 'failed' ? 'signal' : 'count',
+      tooltip: status.tooltip ?? null,
+    };
   }
+
+  /** Description stage's badge/feedback — the molecule stays inline in the
+   * template (each stage's molecule is a distinct component, not a
+   * data-driven choice), but everything the SHARED `stageBadge`/
+   * `stageFeedback` `<ng-template>`s need is resolved here. */
+  protected readonly descriptionBadge = computed(() =>
+    this.toBadgeVm(this.effectiveDescriptionStatus()),
+  );
+  protected readonly descriptionFeedback = computed<StageFeedbackVm>(() => ({
+    error: this.descriptionError(),
+    stale: this.descriptionStale(),
+  }));
+
+  protected readonly facesBadge = computed(() =>
+    this.toBadgeVm(this.faceStatus() ?? NO_STAGE_BADGE),
+  );
+  protected readonly facesFeedback = computed<StageFeedbackVm>(() => ({
+    error: this.faceError(),
+    stale: this.faceStale(),
+  }));
+
+  protected readonly placeBadge = computed(() =>
+    this.toBadgeVm(this.placeStatus() ?? NO_STAGE_BADGE),
+  );
+  protected readonly placeFeedback = computed<StageFeedbackVm>(() => ({
+    error: this.placeError(),
+    stale: this.placeStale(),
+  }));
 
   /** `transcriptBase()` gated on `transcriptEntries()` being non-empty, in
    * one computed rather than the template's `@if (a && b; as x)` — same
-   * "keep template complexity down" reasoning as `effectiveDescriptionStatus`. */
+   * "keep template complexity down" reasoning as `stageRows`. */
   protected readonly visibleTranscriptBase = computed<Date | number | null>(() =>
     this.transcriptEntries().length > 0 ? this.transcriptBase() : null,
   );
