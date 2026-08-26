@@ -8,101 +8,11 @@
   @include chrome.settings-page-host;
 }
 
-// The page's own content wrapper, projected into the shell's scrolling
-// `.page` — the padding box, not the scroller.
-.page {
-  padding: 24px 32px;
-  max-width: 680px;
-}
-
-.page-header {
-  margin-bottom: 28px;
-
-  h1 {
-    font-size: 17px;
-    font-weight: 600;
-    color: var(--color-text-main);
-    margin: 0 0 6px;
-    letter-spacing: -0.02em;
-  }
-
-  p {
-    font-size: 12px;
-    color: var(--color-text-muted);
-    margin: 0;
-    line-height: 1.55;
-  }
-}
-
-.banner-loading,
-.banner-error {
-  padding: 10px 14px;
-  border-radius: 6px;
-  font-size: 12px;
-}
-
-.banner-loading {
-  color: var(--color-text-muted);
-}
-
-.banner-error {
-  background: color-mix(in srgb, var(--color-error, #cc3333) 10%, transparent);
-  color: var(--color-error, #cc3333);
-  border: 0.5px solid color-mix(in srgb, var(--color-error, #cc3333) 30%, transparent);
-}
-
-.settings-form {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.field-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  align-items: start;
-  padding-bottom: 20px;
-  border-bottom: 0.5px solid var(--color-border);
-}
-
-.field-label-group {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.field-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--color-text-main);
-}
-
-.field-hint {
-  font-size: 11px;
-  color: var(--color-text-muted);
-  line-height: 1.5;
-
-  code {
-    font-family: ui-monospace, 'Cascadia Code', 'SF Mono', monospace;
-    font-size: 10px;
-    background: var(--color-surface-hover);
-    padding: 1px 4px;
-    border-radius: 3px;
-  }
-}
-
-.field-source {
-  font-size: 10px;
-  color: var(--color-text-muted);
-  font-style: italic;
-}
-
-.field-control {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
+// The page's own content wrapper, header, banner/field/form-actions chrome —
+// shared byte-for-byte with Map and (minus field-source) Cloudflare (#3020
+// dedup). See settings-chrome.scss's `settings-record-form-chrome`.
+@include chrome.settings-record-form-chrome;
+@include chrome.settings-field-source-chrome;
 
 // Strategy support info row
 .info-row {
@@ -130,23 +40,4 @@
   &.muted {
     color: var(--color-text-muted);
   }
-}
-
-// Form actions row
-.form-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  padding-top: 4px;
-}
-
-.save-error {
-  font-size: 12px;
-  color: var(--color-error, #cc3333);
-}
-
-.save-ok {
-  font-size: 12px;
-  color: var(--color-success, #33aa55);
 }

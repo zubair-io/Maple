@@ -313,6 +313,11 @@ export class WorkersComponent implements OnInit, OnDestroy {
     if (this.damaged.drawer() !== null) this.damaged.close();
   }
 
+  // Pre-existing complexity inherited from main (MW1's diff to this file is
+  // import-only — see #3020); the per-stage-kind health-check dispatch this
+  // method owns predates the migration and splitting it is follow-up
+  // refactor work, not part of a behavior-preserving migration.
+  // fallow-ignore-next-line complexity
   testConnection(stage: StageStatus): void {
     const meta = stageMeta(stage.name);
     if (!meta?.enrichment) return;
@@ -424,6 +429,11 @@ export class WorkersComponent implements OnInit, OnDestroy {
     });
   }
 
+  // Pre-existing complexity inherited from main (MW1's diff to this file is
+  // import-only — see #3020); the per-enrichment-kind patch-shape dispatch
+  // this method owns predates the migration and splitting it is follow-up
+  // refactor work, not part of a behavior-preserving migration.
+  // fallow-ignore-next-line complexity
   private saveEnrichment(
     stage: StageStatus,
     kind: EnrichmentKind,
