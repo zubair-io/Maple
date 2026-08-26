@@ -87,6 +87,7 @@
           size="sm"
           data-testid="show-hidden-toggle"
           ariaLabel="Show Hidden Images"
+          [ariaPressed]="showHidden()"
           (pressed)="toggleShowHidden()"
         >
           {{ showHidden() ? 'On' : 'Off' }}
