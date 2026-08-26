@@ -36,10 +36,13 @@ import { MuiTextComponent } from '../text/mui-text.component';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiSettingsRowComponent {
-  /** Required in the default (plain-text header) mode; unused when
-   * `customSummary` is set (the `[summary]` slot supplies the header instead) —
-   * still accepted there as the row's accessible name. */
-  readonly label = input<string | null>(null);
+  /** The row's accessible name. Required in every mode, including
+   * `customSummary` — the projected `[summary]` slot supplies the *visible*
+   * header content, but this is still the only text fed to the disclosure
+   * button's `aria-label`, so a `customSummary` consumer with no visible
+   * label text of its own (e.g. a status pill row) must still pass a
+   * non-empty string here. */
+  readonly label = input.required<string>();
   readonly icon = input<MapleIconName | null>(null);
   readonly description = input<string | null>(null);
   readonly open = model<boolean>(false);
