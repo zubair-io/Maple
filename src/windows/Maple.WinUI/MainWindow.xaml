@@ -244,51 +244,51 @@
                                                      context-menu key automatically; no extra input wiring
                                                      needed. Handlers live in MainWindow.FolderContextMenu.cs. -->
                                                 <MenuFlyout>
-                                                    <!-- PathIcon.Data is the MapleIconShapes "folder-plus" path,
-                                                         inlined by hand: MenuFlyoutItem.Icon requires a real
-                                                         IconElement, which MuiIcon (a ContentControl) can't
-                                                         satisfy, and this MenuFlyout lives inside a per-row
-                                                         DataTemplate so a code-behind x:Name lookup can't reach
-                                                         a single instance either. Keep in sync with
-                                                         Controls/MapleIconShapes.cs's "folder-plus" entry. -->
+                                                    <!-- MenuFlyoutItem.Icon requires a real IconElement, which
+                                                         MuiIcon (a ContentControl) can't satisfy — and this
+                                                         MenuFlyout lives inside a per-row DataTemplate, so a
+                                                         code-behind x:Name lookup can't reach a single instance
+                                                         either to swap in a Mui-built icon. PathIcon (a real
+                                                         IconElement) doesn't work as a substitute either: it
+                                                         fills its Data geometry, but the shared stroke-icon
+                                                         registry's paths (MapleIconShapes.cs) are open,
+                                                         zero-area line strokes meant to be drawn, not filled —
+                                                         a PathIcon of "M8 7v4M6 9h4" renders invisible. Kept as
+                                                         the original native Segoe Fluent Icons FontIcon glyphs. -->
                                                     <MenuFlyoutItem Text="New Folder…" Click="OnNewFolderInTree"
                                                                     AutomationProperties.Name="New folder">
                                                         <MenuFlyoutItem.Icon>
-                                                            <PathIcon Data="M2 5a1 1 0 011-1h3l1.5 1.5H13a1 1 0 011 1V12a1 1 0 01-1 1H3a1 1 0 01-1-1V5z M8 7v4M6 9h4" />
+                                                            <FontIcon Glyph="&#xE710;" />
                                                         </MenuFlyoutItem.Icon>
                                                     </MenuFlyoutItem>
-                                                    <!-- MapleIconShapes "edit". -->
                                                     <MenuFlyoutItem Text="Rename…" Click="OnRenameFolderInTree"
                                                                     AutomationProperties.Name="Rename folder">
                                                         <MenuFlyoutItem.Icon>
-                                                            <PathIcon Data="M3 13l1-3 7-7 2 2-7 7-3 1zM10 4l2 2" />
+                                                            <FontIcon Glyph="&#xE8AC;" />
                                                         </MenuFlyoutItem.Icon>
                                                     </MenuFlyoutItem>
-                                                    <!-- MapleIconShapes "trash". -->
                                                     <MenuFlyoutItem Text="Move to Trash" Click="OnTrashFolderInTree"
                                                                     AutomationProperties.Name="Move folder to Trash">
                                                         <MenuFlyoutItem.Icon>
-                                                            <PathIcon Data="M3 5h10M6 5V3.5a1 1 0 011-1h2a1 1 0 011 1V5 M4.5 5l.6 8a1 1 0 001 .9h3.8a1 1 0 001-.9l.6-8 M6.5 7.5v4M9.5 7.5v4" />
+                                                            <FontIcon Glyph="&#xE74D;" />
                                                         </MenuFlyoutItem.Icon>
                                                     </MenuFlyoutItem>
                                                     <MenuFlyoutSeparator />
                                                     <!-- Show in Explorer (#2658) — every row this tree renders is a
                                                          local or SMB/UNC path (Cloud lives in its own "MAPLE CLOUD"
                                                          ListView below, not this TreeView), so unlike the grid's
-                                                         per-selection gating this item is always shown.
-                                                         MapleIconShapes "folder-open". -->
+                                                         per-selection gating this item is always shown. -->
                                                     <MenuFlyoutItem Text="Show in Explorer" Click="OnRevealFolderInExplorer"
                                                                     AutomationProperties.Name="Show folder in Explorer">
                                                         <MenuFlyoutItem.Icon>
-                                                            <PathIcon Data="M2 5a1 1 0 011-1h3l1.5 1.5H13a1 1 0 011 1v.5H2.5L2 12a1 1 0 001 1h10l1-5.5" />
+                                                            <FontIcon Glyph="&#xE838;" />
                                                         </MenuFlyoutItem.Icon>
                                                     </MenuFlyoutItem>
                                                     <MenuFlyoutSeparator />
-                                                    <!-- MapleIconShapes "x". -->
                                                     <MenuFlyoutItem Text="Remove from Library" Click="OnRemoveFolder"
                                                                     AutomationProperties.Name="Remove folder from library">
                                                         <MenuFlyoutItem.Icon>
-                                                            <PathIcon Data="M4 4l8 8M12 4l-8 8" />
+                                                            <FontIcon Glyph="&#xE738;" />
                                                         </MenuFlyoutItem.Icon>
                                                     </MenuFlyoutItem>
                                                 </MenuFlyout>
@@ -455,13 +455,15 @@
                              item and its separator on every open. -->
                         <GridView.ContextFlyout>
                             <MenuFlyout Opening="OnPhotoGridContextFlyoutOpening">
-                                <!-- MapleIconShapes "folder-open" — see the folder-tree
-                                     context menu's matching comment above. -->
+                                <!-- MenuFlyoutItem.Icon requires a real IconElement (MuiIcon and
+                                     PathIcon-of-the-stroke-registry both fail here — see the
+                                     folder-tree context menu's matching comment above). Kept as
+                                     the original native FontIcon glyph. -->
                                 <MenuFlyoutItem x:Name="RevealInExplorerMenuItem" Text="Show in Explorer"
                                                 Click="OnRevealSelectedPhotosInExplorer"
                                                 AutomationProperties.Name="Show in Explorer">
                                     <MenuFlyoutItem.Icon>
-                                        <PathIcon Data="M2 5a1 1 0 011-1h3l1.5 1.5H13a1 1 0 011 1v.5H2.5L2 12a1 1 0 001 1h10l1-5.5" />
+                                        <FontIcon Glyph="&#xE838;" />
                                     </MenuFlyoutItem.Icon>
                                 </MenuFlyoutItem>
                                 <MenuFlyoutSeparator x:Name="RevealInExplorerSeparator" />
