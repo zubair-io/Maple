@@ -1,5 +1,9 @@
-<div class="mui-banner" [class]="'variant-' + variant()" role="status">
-  <mui-icon [name]="icon()" size="sm" class="banner-icon" />
+<div class="mui-banner" [class]="'variant-' + variant()" [attr.role]="role()">
+  @if (variant() === 'loading') {
+    <mui-spinner size="sm" placement="inline" class="banner-icon" />
+  } @else {
+    <mui-icon [name]="icon()!" size="sm" class="banner-icon" />
+  }
   <mui-text variant="body" class="message">{{ message() }}</mui-text>
   @if (linkLabel() && linkHref()) {
     <mui-link [href]="linkHref()!">{{ linkLabel() }}</mui-link>

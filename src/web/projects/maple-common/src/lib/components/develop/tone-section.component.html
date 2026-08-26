@@ -1,4 +1,4 @@
-<maple-collapsible label="Tone" storageKey="dev-tone" [padInner]="false">
+<mui-collapsible label="Tone" storageKey="dev-tone" [padInner]="false">
   @if (assetId()) {
     <editor-slider
       label="Exposure"
@@ -44,4 +44,4 @@
       (valueChange)="patch('blacks', $event)"
     />
   }
-</maple-collapsible>
+</mui-collapsible>

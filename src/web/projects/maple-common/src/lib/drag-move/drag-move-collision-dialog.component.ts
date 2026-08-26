@@ -19,16 +19,17 @@ import {
   AfterViewInit,
   ChangeDetectionStrategy,
   Component,
-  ElementRef,
   ViewChild,
   input,
   output,
 } from '@angular/core';
 import type { DragMoveCollisionPolicy } from './drag-move-capability';
+import { MuiButtonComponent } from '../ui/button/mui-button.component';
 
 @Component({
   selector: 'app-drag-move-collision-dialog',
   standalone: true,
+  imports: [MuiButtonComponent],
   templateUrl: './drag-move-collision-dialog.component.html',
   styleUrl: './drag-move-collision-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -38,13 +39,13 @@ export class DragMoveCollisionDialogComponent implements AfterViewInit {
 
   readonly resolve = output<DragMoveCollisionPolicy>();
 
-  @ViewChild('skipButton') private skipButtonRef?: ElementRef<HTMLButtonElement>;
+  @ViewChild('skipButton') private skipButtonRef?: MuiButtonComponent;
 
   ngAfterViewInit(): void {
     // Skip is the non-destructive default focus target — matches the trash
     // confirm dialog's "cancel focused first" convention for a prompt that
     // can otherwise overwrite a file (Replace).
-    queueMicrotask(() => this.skipButtonRef?.nativeElement.focus());
+    queueMicrotask(() => this.skipButtonRef?.focus());
   }
 
   onSkip(): void {
