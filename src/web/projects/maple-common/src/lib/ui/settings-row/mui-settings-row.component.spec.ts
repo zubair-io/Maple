@@ -79,9 +79,7 @@ describe('MuiSettingsRowComponent (customSummary)', () => {
 
   it('expands the projected body on header click, same as the default mode', () => {
     const fixture = renderCustom();
-    expect(fixture.nativeElement.querySelector('.content-wrapper').className).not.toContain(
-      'open',
-    );
+    expect(fixture.nativeElement.querySelector('.content-wrapper').className).not.toContain('open');
 
     (fixture.nativeElement.querySelector('.header') as HTMLButtonElement).click();
     fixture.detectChanges();
@@ -125,8 +123,6 @@ describe('MuiSettingsRowComponent (customSummary nested-button guard)', () => {
     fixture.detectChanges();
 
     expect(fixture.componentInstance.ran).toBe(true);
-    expect(fixture.nativeElement.querySelector('.content-wrapper').className).not.toContain(
-      'open',
-    );
+    expect(fixture.nativeElement.querySelector('.content-wrapper').className).not.toContain('open');
   });
 });

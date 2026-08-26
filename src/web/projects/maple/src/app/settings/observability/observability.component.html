@@ -80,11 +80,7 @@
 
         <div class="field">
           <span class="flabel">Service namespace</span>
-          <mui-input
-            [(value)]="fNamespace"
-            autocomplete="off"
-            ariaLabel="Service namespace"
-          />
+          <mui-input [(value)]="fNamespace" autocomplete="off" ariaLabel="Service namespace" />
         </div>
 
         <div class="field">
@@ -105,11 +101,7 @@
           [checked]="fEnabled()"
           (checkedChange)="fEnabled.set($event)"
         />
-        <mui-checkbox
-          label="Traces"
-          [checked]="fTraces()"
-          (checkedChange)="fTraces.set($event)"
-        />
+        <mui-checkbox label="Traces" [checked]="fTraces()" (checkedChange)="fTraces.set($event)" />
         <mui-checkbox label="Logs" [checked]="fLogs()" (checkedChange)="fLogs.set($event)" />
         <mui-checkbox
           label="Metrics"

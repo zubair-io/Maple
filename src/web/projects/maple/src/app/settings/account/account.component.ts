@@ -16,12 +16,7 @@ import {
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import {
-  AuthService,
-  errorMessage,
-  BunApiBackendService,
-  MuiButtonComponent,
-} from '@maple-common';
+import { AuthService, errorMessage, BunApiBackendService, MuiButtonComponent } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 import { PairedDevicesComponent } from './paired-devices.component';

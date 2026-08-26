@@ -14,7 +14,12 @@
 
 import { ChangeDetectionStrategy, Component, OnInit, effect, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
-import { MapConfigService, MuiButtonComponent, MuiInputComponent, type MapConfig } from '@maple-common';
+import {
+  MapConfigService,
+  MuiButtonComponent,
+  MuiInputComponent,
+  type MapConfig,
+} from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 
 type SaveState =

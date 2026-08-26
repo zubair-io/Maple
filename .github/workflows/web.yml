@@ -145,6 +145,12 @@ jobs:
         working-directory: src/web
         run: bun run check:hosted-capabilities
 
+      # MW1 (#3020) adoption ratchet — fails if a raw <button> or a
+      # btn-primary/btn-ghost class re-enters a migrated Settings directory.
+      - name: Maple UI adoption check
+        working-directory: src/web
+        run: bun run maple-ui:adoption-check
+
       - name: Install Google Chrome for production artifact tests
         working-directory: src/web
         run: bun x playwright install --with-deps chrome

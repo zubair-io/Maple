@@ -72,9 +72,8 @@ describe('DerivativeAuditSettingsComponent', () => {
     expandRow();
     expect(el.querySelector('.content-wrapper')?.className).toContain('open');
     expect(
-      (
-        el.querySelector('[data-testid="audit-enabled"] input[type="checkbox"]') as HTMLInputElement
-      ).checked,
+      (el.querySelector('[data-testid="audit-enabled"] input[type="checkbox"]') as HTMLInputElement)
+        .checked,
     ).toBe(true);
     expect(
       (el.querySelector('[data-testid="audit-max-resets"] input') as HTMLInputElement).value,
