@@ -141,7 +141,7 @@ describe('ObservabilityComponent', () => {
     // Local opt-out alone flips it inactive, even though the server config
     // and SDK are otherwise fully live — this is the precedence the ticket
     // calls out.
-    el().querySelector<HTMLButtonElement>('.switch')!.click();
+    el().querySelector<HTMLInputElement>('.toggle-row mui-checkbox input[type="checkbox"]')!.click();
     fixture.detectChanges();
     expect(el().textContent).toContain('Telemetry is inactive in this session.');
   });
@@ -159,10 +159,10 @@ describe('ObservabilityComponent', () => {
     await setup();
     fixture.detectChanges();
 
-    el().querySelector<HTMLButtonElement>('.switch')!.click();
+    el().querySelector<HTMLInputElement>('.toggle-row mui-checkbox input[type="checkbox"]')!.click();
     expect(TypedStorage.get<boolean>(STORAGE_KEYS.OBSERVABILITY_ENABLED)).toBe(false);
 
-    el().querySelector<HTMLButtonElement>('.switch')!.click();
+    el().querySelector<HTMLInputElement>('.toggle-row mui-checkbox input[type="checkbox"]')!.click();
     expect(TypedStorage.get<boolean>(STORAGE_KEYS.OBSERVABILITY_ENABLED)).toBe(true);
   });
 
@@ -195,7 +195,7 @@ describe('ObservabilityComponent', () => {
     initialized.set(true);
     fixture.detectChanges();
 
-    el().querySelector<HTMLButtonElement>('.test-row .btn-primary')!.click();
+    el().querySelector<HTMLButtonElement>('[data-testid="obs-send-test-event-btn"] button')!.click();
     fixture.detectChanges();
 
     expect(recordLog).toHaveBeenCalledOnce();
@@ -215,7 +215,7 @@ describe('ObservabilityComponent', () => {
     initialized.set(false); // inactive
     fixture.detectChanges();
 
-    el().querySelector<HTMLButtonElement>('.test-row .btn-primary')!.click();
+    el().querySelector<HTMLButtonElement>('[data-testid="obs-send-test-event-btn"] button')!.click();
     fixture.detectChanges();
 
     expect(recordLog).not.toHaveBeenCalled();
@@ -229,7 +229,7 @@ describe('ObservabilityComponent', () => {
     config.set(CFG);
     fixture.detectChanges();
 
-    el().querySelector<HTMLButtonElement>('.form-actions .btn-primary')!.click();
+    el().querySelector<HTMLButtonElement>('[data-testid="obs-save-btn"] button')!.click();
     await Promise.resolve();
     fixture.detectChanges();
 
@@ -250,12 +250,14 @@ describe('ObservabilityComponent', () => {
     config.set(CFG);
     fixture.detectChanges();
 
-    const keyInput = el().querySelector<HTMLInputElement>('input[type="password"]')!;
+    const keyInput = el().querySelector<HTMLInputElement>(
+      '[data-testid="obs-key-input"] input',
+    )!;
     keyInput.value = 'signoz-secret';
     keyInput.dispatchEvent(new Event('input'));
     fixture.detectChanges();
 
-    el().querySelector<HTMLButtonElement>('.form-actions .btn-primary')!.click();
+    el().querySelector<HTMLButtonElement>('[data-testid="obs-save-btn"] button')!.click();
     await Promise.resolve();
 
     expect(saveConfig.mock.calls[0][0]).toMatchObject({ ingestion_key: 'signoz-secret' });
@@ -270,12 +272,14 @@ describe('ObservabilityComponent', () => {
     // the only decimal input in the template, so this survives a field
     // reorder that would silently repoint a positional `[3]` at the wrong
     // control.
-    const ratioInput = el().querySelector<HTMLInputElement>('input[inputmode="decimal"]')!;
+    const ratioInput = el().querySelector<HTMLInputElement>(
+      '[data-testid="obs-ratio-input"] input',
+    )!;
     ratioInput.value = '2';
     ratioInput.dispatchEvent(new Event('input'));
     fixture.detectChanges();
 
-    el().querySelector<HTMLButtonElement>('.form-actions .btn-primary')!.click();
+    el().querySelector<HTMLButtonElement>('[data-testid="obs-save-btn"] button')!.click();
     fixture.detectChanges();
 
     expect(saveConfig).not.toHaveBeenCalled();
@@ -287,7 +291,7 @@ describe('ObservabilityComponent', () => {
     config.set(CFG);
     fixture.detectChanges();
 
-    el().querySelector<HTMLButtonElement>('.form-actions .btn-primary')!.click();
+    el().querySelector<HTMLButtonElement>('[data-testid="obs-save-btn"] button')!.click();
     await Promise.resolve();
     fixture.detectChanges();
 
@@ -299,12 +303,14 @@ describe('ObservabilityComponent', () => {
     config.set(CFG);
     fixture.detectChanges();
 
-    const endpointInput = el().querySelector<HTMLInputElement>('input[type="url"]')!;
+    const endpointInput = el().querySelector<HTMLInputElement>(
+      '[data-testid="obs-endpoint-input"] input',
+    )!;
     endpointInput.value = 'https://otel.example.com';
     endpointInput.dispatchEvent(new Event('input'));
     fixture.detectChanges();
 
-    el().querySelector<HTMLButtonElement>('.form-actions .btn-ghost')!.click();
+    el().querySelector<HTMLButtonElement>('[data-testid="obs-test-connection-btn"] button')!.click();
     await Promise.resolve();
     fixture.detectChanges();
 
@@ -319,12 +325,14 @@ describe('ObservabilityComponent', () => {
     config.set(CFG);
     fixture.detectChanges();
 
-    const endpointInput = el().querySelector<HTMLInputElement>('input[type="url"]')!;
+    const endpointInput = el().querySelector<HTMLInputElement>(
+      '[data-testid="obs-endpoint-input"] input',
+    )!;
     endpointInput.value = 'https://otel.example.com';
     endpointInput.dispatchEvent(new Event('input'));
     fixture.detectChanges();
 
-    el().querySelector<HTMLButtonElement>('.form-actions .btn-ghost')!.click();
+    el().querySelector<HTMLButtonElement>('[data-testid="obs-test-connection-btn"] button')!.click();
     await Promise.resolve();
     fixture.detectChanges();
 
