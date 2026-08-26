@@ -91,4 +91,24 @@ describe('MuiQrCodeComponent', () => {
     const canvas = fixture.nativeElement.querySelector('canvas') as HTMLCanvasElement;
     expect(canvas.getAttribute('aria-label')).toBe('QR code for https://justmaple.app/pair/abc123');
   });
+
+  // Regression for #3027: on CI the effect scheduler sometimes flushed the
+  // render effect BEFORE the first view render. With `viewChild.required`
+  // that read threw, the throw prevented the viewChild signal from being
+  // tracked, and the effect never re-ran — so `toCanvas` was never called
+  // no matter how much the test flushed afterwards. This drives the effect
+  // queue ahead of the test's own `detectChanges()` and asserts the render
+  // still lands exactly once with no error.
+  it('still renders when effects are flushed before the first detectChanges', async () => {
+    mockedToCanvas.mockResolvedValue(undefined as never);
+    TestBed.configureTestingModule({ imports: [MuiQrCodeComponent] });
+    const fixture = TestBed.createComponent(MuiQrCodeComponent);
+    fixture.componentRef.setInput('value', 'https://justmaple.app/pair/abc123');
+    TestBed.tick(); // flush effects before the test ever calls detectChanges
+
+    fixture.detectChanges();
+    await flushRender(fixture);
+    expect(mockedToCanvas).toHaveBeenCalledTimes(1);
+    expect(fixture.componentInstance.renderError()).toBeNull();
+  });
 });

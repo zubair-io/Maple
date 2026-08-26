@@ -53,7 +53,14 @@ export class MuiQrCodeComponent {
   readonly size = input<MuiQrCodeSize>('md');
   readonly ariaLabel = input<string | null>(null);
 
-  readonly canvas = viewChild.required<ElementRef<HTMLCanvasElement>>('canvas');
+  // Deliberately NOT viewChild.required: the render effect below can be
+  // scheduled before the first view render, and a required read would THROW
+  // at that point — killing the effect run before the viewChild signal is
+  // tracked as a dependency, so the effect never re-fires and the QR never
+  // renders (recurring CI-only failure, #3027). The optional read returns
+  // undefined pre-render, keeps the signal tracked, and the effect
+  // deterministically re-runs once the canvas resolves.
+  readonly canvas = viewChild<ElementRef<HTMLCanvasElement>>('canvas');
   readonly pixelSize = computed(() => SIZE_PX[this.size()]);
   readonly renderError = signal<string | null>(null);
 
@@ -61,7 +68,8 @@ export class MuiQrCodeComponent {
     effect(() => {
       const value = this.value();
       const width = this.pixelSize();
-      const canvasEl = this.canvas().nativeElement;
+      const canvasEl = this.canvas()?.nativeElement;
+      if (!canvasEl) return;
       toCanvas(canvasEl, value, {
         width,
         margin: QUIET_ZONE_MODULES,
