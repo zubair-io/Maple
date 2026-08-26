@@ -10,6 +10,7 @@
 
 import SwiftUI
 import MapleCore
+import MapleUI
 
 struct MeilisearchSettingsRow: View {
     let client: EnrichmentConfigClient
@@ -17,8 +18,8 @@ struct MeilisearchSettingsRow: View {
     let onSaved: (EnrichmentConfig) -> Void
 
     @State private var form: MeilisearchSettingsForm
-    @State private var saveState: EnrichmentActionState = .idle
-    @State private var testState: EnrichmentActionState = .idle
+    @State private var saveState: ServerAdminActionState = .idle
+    @State private var testState: ServerAdminActionState = .idle
     @State private var saveConfirmationTask: Task<Void, Never>?
 
     private var apiKeyIsSet: Bool { snapshot.meilisearchAPIKeySet }
@@ -105,43 +106,19 @@ struct MeilisearchSettingsRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Button {
-                Task { await test() }
-            } label: {
-                HStack {
-                    Text(testState == .running ? "Testing…" : "Test")
-                    if testState == .running {
-                        Spacer()
-                        ProgressView().controlSize(.small)
-                    }
-                }
-            }
-            .disabled(form.testCredentials() == nil || testState == .running)
-            .accessibilityIdentifier("enrichment.meilisearch.test")
-            if let reason = EnrichmentSettingsVM.meilisearchTestDisabledReason(form) {
-                Text(reason)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("enrichment.meilisearch.testDisabledReason")
-            }
-            actionStateLabel(
-                testState, successText: "Connected.", identifier: "enrichment.meilisearch.testResult")
+            serverAdminActionButton(
+                "Test", state: testState, successText: "Connected.",
+                identifier: "enrichment.meilisearch.test",
+                disabledReason: EnrichmentSettingsVM.meilisearchTestDisabledReason(form),
+                disabled: form.testCredentials() == nil,
+                action: { Task { await test() } }
+            )
 
-            Button {
-                Task { await save() }
-            } label: {
-                HStack {
-                    Text(saveState == .running ? "Saving…" : "Save")
-                    if saveState == .running {
-                        Spacer()
-                        ProgressView().controlSize(.small)
-                    }
-                }
-            }
-            .disabled(saveState == .running)
-            .accessibilityIdentifier("enrichment.meilisearch.save")
-            actionStateLabel(
-                saveState, successText: "Saved.", identifier: "enrichment.meilisearch.saveResult")
+            serverAdminActionButton(
+                "Save", variant: .primary, state: saveState, successText: "Saved.",
+                identifier: "enrichment.meilisearch.save",
+                action: { Task { await save() } }
+            )
         }
         .listRowBackground(MapleTokens.surface)
         .onDisappear { saveConfirmationTask?.cancel() }

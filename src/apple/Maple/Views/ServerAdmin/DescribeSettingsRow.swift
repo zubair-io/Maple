@@ -8,6 +8,7 @@
 
 import SwiftUI
 import MapleCore
+import MapleUI
 
 struct DescribeSettingsRow: View {
     let client: EnrichmentConfigClient
@@ -19,8 +20,8 @@ struct DescribeSettingsRow: View {
     // (a plain `let`, not `@State`) still refreshes on every re-render, so
     // `patch(echoing:)` at Save time always echoes the freshest base fields.
     @State private var form: DescribeSettingsForm
-    @State private var saveState: EnrichmentActionState = .idle
-    @State private var testState: EnrichmentActionState = .idle
+    @State private var saveState: ServerAdminActionState = .idle
+    @State private var testState: ServerAdminActionState = .idle
     @State private var saveConfirmationTask: Task<Void, Never>?
 
     init(
@@ -55,37 +56,17 @@ struct DescribeSettingsRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Button {
-                Task { await test() }
-            } label: {
-                HStack {
-                    Text(testState == .running ? "Testing…" : "Test")
-                    if testState == .running {
-                        Spacer()
-                        ProgressView().controlSize(.small)
-                    }
-                }
-            }
-            .disabled(testState == .running)
-            .accessibilityIdentifier("enrichment.describe.test")
-            actionStateLabel(
-                testState, successText: "Connected.", identifier: "enrichment.describe.testResult")
+            serverAdminActionButton(
+                "Test", state: testState, successText: "Connected.",
+                identifier: "enrichment.describe.test",
+                action: { Task { await test() } }
+            )
 
-            Button {
-                Task { await save() }
-            } label: {
-                HStack {
-                    Text(saveState == .running ? "Saving…" : "Save")
-                    if saveState == .running {
-                        Spacer()
-                        ProgressView().controlSize(.small)
-                    }
-                }
-            }
-            .disabled(saveState == .running)
-            .accessibilityIdentifier("enrichment.describe.save")
-            actionStateLabel(
-                saveState, successText: "Saved.", identifier: "enrichment.describe.saveResult")
+            serverAdminActionButton(
+                "Save", variant: .primary, state: saveState, successText: "Saved.",
+                identifier: "enrichment.describe.save",
+                action: { Task { await save() } }
+            )
         }
         .listRowBackground(MapleTokens.surface)
         .onDisappear { saveConfirmationTask?.cancel() }

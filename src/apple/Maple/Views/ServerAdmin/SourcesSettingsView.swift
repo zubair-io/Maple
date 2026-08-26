@@ -10,6 +10,7 @@
 
 import SwiftUI
 import MapleCore
+import MapleUI
 
 struct SourcesSettingsView: View {
     let client: CloudFoldersClient
@@ -21,7 +22,7 @@ struct SourcesSettingsView: View {
     }
 
     @State private var loadState: LoadState = .loading
-    @State private var isChecking = false
+    @State private var checkState: ServerAdminActionState = .idle
 
     var body: some View {
         Form {
@@ -107,18 +108,11 @@ struct SourcesSettingsView: View {
 
     private var checkAgainSection: some View {
         Section {
-            Button {
+            MuiButton(
+                label: "Check again", isLoading: checkState == .running, disabled: checkState == .running
+            ) {
                 Task { await load(fresh: true) }
-            } label: {
-                HStack {
-                    Text(isChecking ? "Checking…" : "Check again")
-                    if isChecking {
-                        Spacer()
-                        ProgressView().controlSize(.small)
-                    }
-                }
             }
-            .disabled(isChecking)
             .accessibilityIdentifier("sources.checkAgain")
         } footer: {
             Text("Re-probes every source, bypassing the server's short connectivity cache.")
@@ -130,11 +124,11 @@ struct SourcesSettingsView: View {
 
     private func load(fresh: Bool) async {
         if fresh {
-            isChecking = true
+            checkState = .running
         } else {
             loadState = .loading
         }
-        defer { isChecking = false }
+        defer { checkState = .idle }
         do {
             let folders = try await client.listFolders(fresh: fresh)
             loadState = .loaded(folders)

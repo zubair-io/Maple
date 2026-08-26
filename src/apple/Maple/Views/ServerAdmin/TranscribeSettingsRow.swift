@@ -6,6 +6,7 @@
 
 import SwiftUI
 import MapleCore
+import MapleUI
 
 struct TranscribeSettingsRow: View {
     let client: EnrichmentConfigClient
@@ -13,7 +14,7 @@ struct TranscribeSettingsRow: View {
     let onSaved: (EnrichmentConfig) -> Void
 
     @State private var form: TranscribeSettingsForm
-    @State private var saveState: EnrichmentActionState = .idle
+    @State private var saveState: ServerAdminActionState = .idle
     @State private var saveConfirmationTask: Task<Void, Never>?
 
     init(
@@ -35,21 +36,11 @@ struct TranscribeSettingsRow: View {
             }
             .accessibilityIdentifier("enrichment.transcribe.modelTier")
 
-            Button {
-                Task { await save() }
-            } label: {
-                HStack {
-                    Text(saveState == .running ? "Saving…" : "Save")
-                    if saveState == .running {
-                        Spacer()
-                        ProgressView().controlSize(.small)
-                    }
-                }
-            }
-            .disabled(saveState == .running)
-            .accessibilityIdentifier("enrichment.transcribe.save")
-            actionStateLabel(
-                saveState, successText: "Saved.", identifier: "enrichment.transcribe.saveResult")
+            serverAdminActionButton(
+                "Save", variant: .primary, state: saveState, successText: "Saved.",
+                identifier: "enrichment.transcribe.save",
+                action: { Task { await save() } }
+            )
         }
         .listRowBackground(MapleTokens.surface)
         .onDisappear { saveConfirmationTask?.cancel() }

@@ -22,39 +22,6 @@
 import SwiftUI
 import MapleCore
 
-/// Shared save/test action lifecycle for the four rows below. Not private
-/// to any one row file since all four need the identical states and label
-/// rendering — see `actionStateLabel(_:successText:identifier:)`.
-enum EnrichmentActionState: Equatable {
-    case idle
-    case running
-    case succeeded
-    case failed(String)
-}
-
-/// Renders the trailing status label for a save/test action — a red
-/// failure message, a green success confirmation, or nothing while idle or
-/// running (the button itself already shows a spinner for `.running`).
-/// Shared by all four enrichment rows so the four save buttons and three
-/// test buttons render identically.
-@ViewBuilder
-func actionStateLabel(_ state: EnrichmentActionState, successText: String, identifier: String) -> some View {
-    switch state {
-    case .failed(let message):
-        Label(message, systemImage: "xmark.circle")
-            .font(.caption)
-            .foregroundStyle(.red)
-            .accessibilityIdentifier("\(identifier).error")
-    case .succeeded:
-        Label(successText, systemImage: "checkmark.circle")
-            .font(.caption)
-            .foregroundStyle(.green)
-            .accessibilityIdentifier("\(identifier).success")
-    case .idle, .running:
-        EmptyView()
-    }
-}
-
 struct EnrichmentSettingsView: View {
     let client: EnrichmentConfigClient
 
