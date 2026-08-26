@@ -139,6 +139,9 @@ struct NetworkSettingsView: View {
 
     // MARK: - Actions
 
+    // Explicitly @MainActor: mutates @State (loadState/form) after awaits,
+    // matching the codebase convention for async view actions.
+    @MainActor
     private func load() async {
         loadState = .loading
         do {
