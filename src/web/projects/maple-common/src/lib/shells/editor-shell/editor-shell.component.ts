@@ -95,6 +95,7 @@ import { BottomSheetComponent } from '../bottom-sheet.component';
 import { ExportDialogComponent } from '../../export/export-dialog.component';
 import { editRouteCommands, viewRouteCommands } from '../../addressing/route-address';
 import { AdjustmentClipboardService } from '../../editor/copy-paste/adjustment-clipboard.service';
+import { basenameOf } from '../shell-helpers';
 import { applyRouteAddress as applyEditorRouteAddress } from './editor-shell-route';
 import { handleEditorKeydown } from './editor-shell-keyboard';
 import {
@@ -519,9 +520,7 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   // ── Asset name ────────────────────────────────────────────────────────
   readonly assetName = computed<string>(() => {
     const a = this.state.focusedAsset();
-    if (!a) return '';
-    const parts = a.filename.split('/');
-    return parts[parts.length - 1] ?? a.filename;
+    return a ? basenameOf(a.filename) : '';
   });
 
   // ── Navigation helpers (preserved) ────────────────────────────────────

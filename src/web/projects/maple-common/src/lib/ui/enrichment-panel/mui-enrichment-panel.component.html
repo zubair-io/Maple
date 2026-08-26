@@ -1,24 +1,22 @@
-<ng-template #stageBadge let-status="status">
-  @if (status.label) {
-    @if (status.kind === 'paused') {
-      <a [routerLink]="workersSettingsHref()" class="stage-badge stage-badge--paused"
-        >{{ status.label }} →</a
-      >
-    } @else {
-      <mui-badge
-        [variant]="badgeVariant(status)"
-        [value]="status.label"
-        [label]="status.tooltip ?? null"
-        [attr.title]="status.tooltip ?? null"
-      />
-    }
+<ng-template #stageBadge let-badge="badge">
+  @if (badge.kind === 'paused') {
+    <a [routerLink]="workersSettingsHref()" class="stage-badge stage-badge--paused"
+      >{{ badge.label }} →</a
+    >
+  } @else if (badge.kind === 'badge') {
+    <mui-badge
+      [variant]="badge.variant"
+      [value]="badge.label"
+      [label]="badge.tooltip"
+      [attr.title]="badge.tooltip"
+    />
   }
 </ng-template>
 
-<ng-template #stageFeedback let-error="error" let-stale="stale">
-  @if (error) {
-    <mui-text variant="body" color="error">{{ error }}</mui-text>
-  } @else if (stale) {
+<ng-template #stageFeedback let-feedback="feedback">
+  @if (feedback.error) {
+    <mui-text variant="body" color="error">{{ feedback.error }}</mui-text>
+  } @else if (feedback.stale) {
     <mui-text variant="body" color="muted"
       >Still pending — check <a [routerLink]="workersSettingsHref()">worker status</a>.</mui-text
     >
@@ -27,10 +25,6 @@
 
 <div class="mui-enrichment-panel">
   <div class="description-group">
-    <ng-container
-      [ngTemplateOutlet]="stageBadge"
-      [ngTemplateOutletContext]="{ status: effectiveDescriptionStatus() }"
-    />
     <mui-description-field
       [(value)]="description"
       [regenerating]="descriptionStatus() === 'generating'"
@@ -38,8 +32,12 @@
       (committed)="descriptionCommitted.emit($event)"
     />
     <ng-container
+      [ngTemplateOutlet]="stageBadge"
+      [ngTemplateOutletContext]="{ badge: descriptionBadge() }"
+    />
+    <ng-container
       [ngTemplateOutlet]="stageFeedback"
-      [ngTemplateOutletContext]="{ error: descriptionError(), stale: descriptionStale() }"
+      [ngTemplateOutletContext]="{ feedback: descriptionFeedback() }"
     />
   </div>
 
@@ -55,11 +53,11 @@
     />
     <ng-container
       [ngTemplateOutlet]="stageBadge"
-      [ngTemplateOutletContext]="{ status: effectiveFaceStatus() }"
+      [ngTemplateOutletContext]="{ badge: facesBadge() }"
     />
     <ng-container
       [ngTemplateOutlet]="stageFeedback"
-      [ngTemplateOutletContext]="{ error: faceError(), stale: faceStale() }"
+      [ngTemplateOutletContext]="{ feedback: facesFeedback() }"
     />
   </div>
 
@@ -73,14 +71,14 @@
       />
       <ng-container
         [ngTemplateOutlet]="stageBadge"
-        [ngTemplateOutletContext]="{ status: effectivePlaceStatus() }"
+        [ngTemplateOutletContext]="{ badge: placeBadge() }"
       />
       <mui-button variant="ghost" size="sm" iconLeading="history" (pressed)="placeRequeue.emit()">
         Re-geocode
       </mui-button>
       <ng-container
         [ngTemplateOutlet]="stageFeedback"
-        [ngTemplateOutletContext]="{ error: placeError(), stale: placeStale() }"
+        [ngTemplateOutletContext]="{ feedback: placeFeedback() }"
       />
     </div>
   }
