@@ -20,30 +20,25 @@
         <!-- Enable toggle -->
         <div class="field-row">
           <div class="field-label-group">
-            <label class="field-label" for="pano-enabled">Panorama stitching</label>
+            <label class="field-label">Panorama stitching</label>
             <span class="field-hint">
               When off, the "Merge to panorama…" action is hidden and POST /api/pano/stitch returns
               409.
             </span>
           </div>
           <div class="field-control">
-            <label class="toggle">
-              <input
-                id="pano-enabled"
-                type="checkbox"
-                [ngModel]="fEnabled()"
-                (ngModelChange)="fEnabled.set($event)"
-                name="enabled"
-              />
-              <span class="toggle-track"></span>
-            </label>
+            <mui-checkbox
+              ariaLabel="Panorama stitching"
+              [checked]="fEnabled()"
+              (checkedChange)="fEnabled.set($event)"
+            />
           </div>
         </div>
 
         <!-- maple-cli path -->
         <div class="field-row">
           <div class="field-label-group">
-            <label class="field-label" for="pano-cli-path">maple-cli binary path</label>
+            <label class="field-label">maple-cli binary path</label>
             <span class="field-hint">
               Absolute path to the compiled <code>maple-cli</code> binary on this server. Build
               with: <code>cargo build --release --bin maple-cli</code> (in
@@ -54,16 +49,11 @@
             }
           </div>
           <div class="field-control">
-            <input
-              id="pano-cli-path"
-              type="text"
-              class="text-input"
+            <mui-input
+              [(value)]="fCliPath"
               placeholder="/usr/local/bin/maple-cli"
-              [ngModel]="fCliPath()"
-              (ngModelChange)="fCliPath.set($event)"
-              name="cliPath"
-              autocomplete="off"
-              spellcheck="false"
+              ariaLabel="maple-cli binary path"
+              (committed)="save()"
             />
           </div>
         </div>
@@ -71,9 +61,7 @@
         <!-- Models dir -->
         <div class="field-row">
           <div class="field-label-group">
-            <label class="field-label" for="pano-models-dir"
-              >Models directory (MAPLE_PANO_MODELS)</label
-            >
+            <label class="field-label">Models directory (MAPLE_PANO_MODELS)</label>
             <span class="field-hint">
               Directory containing the ALIKED + LightGlue ONNX model files. SHA-pinned versions are
               listed in <code>src/raw-pipeline/maple-pano/models.toml</code>. Leave blank to use the
@@ -84,16 +72,11 @@
             }
           </div>
           <div class="field-control">
-            <input
-              id="pano-models-dir"
-              type="text"
-              class="text-input"
+            <mui-input
+              [(value)]="fModelsDir"
               placeholder="~/.cache/maple-pano/models"
-              [ngModel]="fModelsDir()"
-              (ngModelChange)="fModelsDir.set($event)"
-              name="modelsDir"
-              autocomplete="off"
-              spellcheck="false"
+              ariaLabel="Models directory (MAPLE_PANO_MODELS)"
+              (committed)="save()"
             />
           </div>
         </div>
@@ -101,9 +84,7 @@
         <!-- ORT dylib path -->
         <div class="field-row">
           <div class="field-label-group">
-            <label class="field-label" for="pano-ort-dylib"
-              >ONNX Runtime dylib (ORT_DYLIB_PATH)</label
-            >
+            <label class="field-label">ONNX Runtime dylib (ORT_DYLIB_PATH)</label>
             <span class="field-hint">
               Path to <code>libonnxruntime.dylib</code> / <code>libonnxruntime.so</code> version ≥
               1.23. Required by the ALIKED and LightGlue models. The default location on macOS after
@@ -116,16 +97,11 @@
             }
           </div>
           <div class="field-control">
-            <input
-              id="pano-ort-dylib"
-              type="text"
-              class="text-input"
+            <mui-input
+              [(value)]="fOrtDylibPath"
               placeholder="/opt/homebrew/lib/libonnxruntime.dylib"
-              [ngModel]="fOrtDylibPath()"
-              (ngModelChange)="fOrtDylibPath.set($event)"
-              name="ortDylibPath"
-              autocomplete="off"
-              spellcheck="false"
+              ariaLabel="ONNX Runtime dylib (ORT_DYLIB_PATH)"
+              (committed)="save()"
             />
           </div>
         </div>
@@ -156,9 +132,13 @@
           @if (saveState().kind === 'saved') {
             <span class="save-ok">Saved.</span>
           }
-          <button type="submit" class="save-btn" [disabled]="saveState().kind === 'saving'">
-            {{ saveState().kind === 'saving' ? 'Saving…' : 'Save' }}
-          </button>
+          <mui-button
+            variant="primary"
+            [loading]="saveState().kind === 'saving'"
+            (pressed)="save()"
+          >
+            Save
+          </mui-button>
         </div>
       </form>
     }

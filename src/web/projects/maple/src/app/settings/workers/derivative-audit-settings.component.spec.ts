@@ -51,11 +51,11 @@ describe('DerivativeAuditSettingsComponent', () => {
 
   /** Expand the collapsible row so its body renders. */
   const expandRow = (): void => {
-    (fixture.nativeElement.querySelector('.row-summary') as HTMLElement).click();
+    (fixture.nativeElement.querySelector('.header') as HTMLElement).click();
     fixture.detectChanges();
   };
 
-  it('renders the summary status/readout while collapsed, and config once expanded', async () => {
+  it('renders the summary status/readout while collapsed, and opens on expand', async () => {
     const req = http.expectOne(STATUS_URL);
     expect(req.request.method).toBe('GET');
     req.flush(status);
@@ -66,16 +66,19 @@ describe('DerivativeAuditSettingsComponent', () => {
     // Summary is visible while collapsed.
     expect(el.querySelector('[data-testid="audit-status"]')?.textContent).toContain('Enabled');
     expect(el.querySelector('[data-testid="audit-summary"]')?.textContent).toContain('42 scanned');
-    // Body controls are not rendered until expanded.
-    expect(el.querySelector('[data-testid="audit-max-resets"]')).toBeNull();
+    // Body is collapsed (mui-settings-row keeps it mounted, not `@if`-removed).
+    expect(el.querySelector('.content-wrapper')?.className).not.toContain('open');
 
     expandRow();
-    expect((el.querySelector('[data-testid="audit-enabled"]') as HTMLInputElement).checked).toBe(
-      true,
-    );
-    expect((el.querySelector('[data-testid="audit-max-resets"]') as HTMLInputElement).value).toBe(
-      '500',
-    );
+    expect(el.querySelector('.content-wrapper')?.className).toContain('open');
+    expect(
+      (
+        el.querySelector('[data-testid="audit-enabled"] input[type="checkbox"]') as HTMLInputElement
+      ).checked,
+    ).toBe(true);
+    expect(
+      (el.querySelector('[data-testid="audit-max-resets"] input') as HTMLInputElement).value,
+    ).toBe('500');
     expect(el.querySelector('[data-testid="audit-stage-counts"]')?.textContent).toContain(
       'thumb: 2',
     );
@@ -88,7 +91,7 @@ describe('DerivativeAuditSettingsComponent', () => {
     expandRow();
 
     const box = fixture.nativeElement.querySelector(
-      '[data-testid="audit-enabled"]',
+      '[data-testid="audit-enabled"] input[type="checkbox"]',
     ) as HTMLInputElement;
     box.checked = false;
     box.dispatchEvent(new Event('change'));

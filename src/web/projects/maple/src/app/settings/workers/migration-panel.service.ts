@@ -60,8 +60,7 @@ export class MigrationPanelService {
     });
   }
 
-  toggle(m: MigrationInfo, event: Event): void {
-    const enabled = (event.target as HTMLInputElement).checked;
+  toggle(m: MigrationInfo, enabled: boolean): void {
     this.setBusy(m.id, true);
     this.api.setMigrationEnabled(m.id, enabled).subscribe({
       next: () => {

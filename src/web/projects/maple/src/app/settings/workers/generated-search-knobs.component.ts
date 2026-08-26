@@ -10,6 +10,7 @@
 // commits it, so a half-typed number never round-trips.
 
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { MuiButtonComponent, MuiCheckboxComponent, MuiInputComponent } from '@maple-common';
 
 /** Editable copy of the worker's knobs. Mirrors the server's
  * `GeneratedSearchConfig` minus `paused`, which is the panel's own switch. */
@@ -25,6 +26,7 @@ export interface GeneratedSearchDraft {
 @Component({
   selector: 'maple-generated-search-knobs',
   standalone: true,
+  imports: [MuiButtonComponent, MuiCheckboxComponent, MuiInputComponent],
   templateUrl: './generated-search-knobs.component.html',
   styleUrl: './generated-search-knobs.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -43,15 +45,13 @@ export class GeneratedSearchKnobsComponent {
     this.changed.emit({ ...this.draft(), [key]: value });
   }
 
-  protected numberFrom(event: Event): number {
-    return Number((event.target as HTMLInputElement).value);
+  /** mui-input carries every variant's value as a string; numeric knobs patch
+   * back the parsed number on commit. */
+  protected patchNumber<K extends keyof GeneratedSearchDraft & string>(key: K, raw: string): void {
+    this.patch(key, Number(raw) as GeneratedSearchDraft[K]);
   }
 
-  protected textFrom(event: Event): string {
-    return (event.target as HTMLInputElement).value;
-  }
-
-  protected checkedFrom(event: Event): boolean {
-    return (event.target as HTMLInputElement).checked;
+  protected numberToString(value: number): string {
+    return String(value);
   }
 }

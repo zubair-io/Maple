@@ -51,6 +51,24 @@ describe('NetworkSettingsComponent', () => {
 
   const el = (): HTMLElement => fixture.nativeElement as HTMLElement;
 
+  function ipInput(): HTMLInputElement {
+    const found = el().querySelector<HTMLInputElement>('mui-input input[aria-label="LAN address"]');
+    if (!found) throw new Error('missing LAN address input');
+    return found;
+  }
+
+  function portInput(): HTMLInputElement {
+    const found = el().querySelector<HTMLInputElement>('mui-input input[aria-label="Port"]');
+    if (!found) throw new Error('missing port input');
+    return found;
+  }
+
+  function clickSave(): void {
+    const btn = el().querySelector<HTMLButtonElement>('mui-button button');
+    if (!btn) throw new Error('missing save button');
+    btn.click();
+  }
+
   /** Drive past ngOnInit's GET. */
   async function loadWith(
     cfg: NetworkConfigResponse | { error: string },
@@ -83,42 +101,36 @@ describe('NetworkSettingsComponent', () => {
   it('leaves the override fields blank when the resolved address is only auto-detected', async () => {
     await loadWith(AUTO_DETECTED);
 
-    const ipInput = el().querySelectorAll<HTMLInputElement>('.finput')[0];
-    const portInput = el().querySelectorAll<HTMLInputElement>('.finput')[1];
-    expect(ipInput.value).toBe('');
-    expect(portInput.value).toBe('');
+    expect(ipInput().value).toBe('');
+    expect(portInput().value).toBe('');
   });
 
   it('seeds the override fields from a saved db_override', async () => {
     await loadWith(OVERRIDDEN);
 
-    const ipInput = el().querySelectorAll<HTMLInputElement>('.finput')[0];
-    const portInput = el().querySelectorAll<HTMLInputElement>('.finput')[1];
-    expect(ipInput.value).toBe('10.0.0.9');
-    expect(portInput.value).toBe('8080');
+    expect(ipInput().value).toBe('10.0.0.9');
+    expect(portInput().value).toBe('8080');
   });
 
   it('shows the load-error message instead of the form when the GET fails', async () => {
     await loadWith({ error: 'boom' }, 500);
 
     expect(el().querySelector('.error')?.textContent).toContain('Failed to load config');
-    expect(el().querySelector('.finput')).toBeNull();
+    expect(el().querySelector('mui-input input')).toBeNull();
   });
 
   it('PUTs the edited override shape when Save is clicked', async () => {
     await loadWith(AUTO_DETECTED);
 
-    const ipInput = el().querySelectorAll<HTMLInputElement>('.finput')[0];
-    ipInput.value = '10.0.0.9';
-    ipInput.dispatchEvent(new Event('input'));
+    ipInput().value = '10.0.0.9';
+    ipInput().dispatchEvent(new Event('input'));
     fixture.detectChanges();
 
-    const portInput = el().querySelectorAll<HTMLInputElement>('.finput')[1];
-    portInput.value = '8080';
-    portInput.dispatchEvent(new Event('input'));
+    portInput().value = '8080';
+    portInput().dispatchEvent(new Event('input'));
     fixture.detectChanges();
 
-    el().querySelector<HTMLButtonElement>('.btn-primary')!.click();
+    clickSave();
 
     const req = http.expectOne('/api/network/config');
     expect(req.request.method).toBe('PUT');
@@ -137,15 +149,13 @@ describe('NetworkSettingsComponent', () => {
   it('sends null overrides when both fields are cleared (clears back to auto-detect)', async () => {
     await loadWith(OVERRIDDEN);
 
-    const ipInput = el().querySelectorAll<HTMLInputElement>('.finput')[0];
-    ipInput.value = '';
-    ipInput.dispatchEvent(new Event('input'));
-    const portInput = el().querySelectorAll<HTMLInputElement>('.finput')[1];
-    portInput.value = '';
-    portInput.dispatchEvent(new Event('input'));
+    ipInput().value = '';
+    ipInput().dispatchEvent(new Event('input'));
+    portInput().value = '';
+    portInput().dispatchEvent(new Event('input'));
     fixture.detectChanges();
 
-    el().querySelector<HTMLButtonElement>('.btn-primary')!.click();
+    clickSave();
 
     const req = http.expectOne('/api/network/config');
     expect(req.request.body).toEqual({
@@ -161,12 +171,11 @@ describe('NetworkSettingsComponent', () => {
   it('rejects an out-of-range port locally without calling the API', async () => {
     await loadWith(AUTO_DETECTED);
 
-    const portInput = el().querySelectorAll<HTMLInputElement>('.finput')[1];
-    portInput.value = '999999';
-    portInput.dispatchEvent(new Event('input'));
+    portInput().value = '999999';
+    portInput().dispatchEvent(new Event('input'));
     fixture.detectChanges();
 
-    el().querySelector<HTMLButtonElement>('.btn-primary')!.click();
+    clickSave();
     fixture.detectChanges();
 
     expect(el().textContent).toContain('Port must be an integer between 1 and 65535.');
@@ -176,7 +185,7 @@ describe('NetworkSettingsComponent', () => {
   it('shows the save-error message when the PUT fails', async () => {
     await loadWith(AUTO_DETECTED);
 
-    el().querySelector<HTMLButtonElement>('.btn-primary')!.click();
+    clickSave();
     http
       .expectOne('/api/network/config')
       .flush({ error: 'nope' }, { status: 500, statusText: 'Server Error' });

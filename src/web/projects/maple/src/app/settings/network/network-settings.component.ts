@@ -14,13 +14,15 @@
 // service, unlike Observability's heavier IndexedDB-cached SDK wiring).
 
 import { ChangeDetectionStrategy, Component, OnInit, effect, inject, signal } from '@angular/core';
-import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
 import {
   type NetworkConfigPatch,
   type NetworkConfigResponse,
   BunApiBackendService,
   errorMessage,
+  MuiButtonComponent,
+  MuiCheckboxComponent,
+  MuiInputComponent,
 } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
@@ -36,7 +38,13 @@ type SaveState =
 @Component({
   selector: 'maple-network-settings',
   standalone: true,
-  imports: [FormsModule, SettingsShellComponent, SettingsIconComponent],
+  imports: [
+    SettingsShellComponent,
+    SettingsIconComponent,
+    MuiButtonComponent,
+    MuiCheckboxComponent,
+    MuiInputComponent,
+  ],
   templateUrl: './network-settings.component.html',
   styleUrl: './network-settings.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

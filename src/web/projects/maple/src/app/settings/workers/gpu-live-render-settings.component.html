@@ -1,15 +1,12 @@
-<maple-settings-row
-  [expanded]="expanded()"
-  (toggle)="toggleExpanded()"
-  testid="gpu-live-render-row"
+<mui-settings-row
+  [customSummary]="true"
+  label="GPU live render"
+  [open]="expanded()"
+  (openChange)="toggleExpanded()"
+  [showDivider]="false"
+  data-testid="gpu-live-render-row"
 >
-  <div class="wrow-summary" srow-summary>
-    <maple-settings-icon
-      [name]="expanded() ? 'chev-d' : 'chev-r'"
-      [size]="12"
-      [stroke]="2"
-      [color]="'#a8a29e'"
-    />
+  <div class="wrow-summary" summary>
     <span class="wrow-id">
       <maple-settings-icon name="image" [size]="14" [color]="'#a8a29e'" />
       <span class="mono">gpu-live-render</span>
@@ -35,19 +32,16 @@
       <div class="gpu-error" data-testid="gpu-live-error">{{ msg }}</div>
     }
 
-    <label class="gpu-toggle">
-      <input
-        type="checkbox"
-        [checked]="checked()"
-        [disabled]="saving()"
-        data-testid="gpu-live-enabled"
-        (change)="setEnabled($any($event.target).checked)"
-      />
-      <span>Enabled — use the GPU live-render path in the web editor</span>
-    </label>
+    <mui-checkbox
+      label="Enabled — use the GPU live-render path in the web editor"
+      [checked]="checked()"
+      [disabled]="saving()"
+      data-testid="gpu-live-enabled"
+      (checkedChange)="setEnabled($event)"
+    />
 
     <p class="gpu-hint" data-testid="gpu-live-local">
       This browser: {{ localGpuEnabled() ? 'GPU live render' : 'CPU fallback' }}
     </p>
   </div>
-</maple-settings-row>
+</mui-settings-row>

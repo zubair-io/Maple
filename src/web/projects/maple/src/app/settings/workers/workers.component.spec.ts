@@ -184,7 +184,7 @@ describe('WorkersComponent', () => {
       '[data-testid="worker-row"]',
     );
     const hashRow = Array.from(rows).find((r) => r.textContent?.includes('hash'))!;
-    hashRow.querySelector<HTMLButtonElement>('[data-testid="pause-resume-btn"]')?.click();
+    hashRow.querySelector<HTMLButtonElement>('[data-testid="pause-resume-btn"] button')?.click();
 
     http
       .expectOne({ method: 'POST', url: '/api/workers/hash/pause' })
@@ -198,14 +198,15 @@ describe('WorkersComponent', () => {
       '[data-testid="worker-row"]',
     );
     const hashRow = Array.from(rows).find((r) => r.textContent?.includes('hash'))!;
-    // Before click: panel not present.
-    expect(hashRow.querySelector('.expanded')).toBeNull();
+    // Before click: body collapsed (mui-settings-row keeps it mounted, not
+    // `@if`-removed — it toggles `.open` on the content wrapper instead).
+    expect(hashRow.querySelector('.content-wrapper')?.className).not.toContain('open');
     // Click the summary row (not the kebab/pause buttons).
-    hashRow.querySelector<HTMLElement>('.row-summary')?.click();
+    hashRow.querySelector<HTMLElement>('.header')?.click();
     fixture.detectChanges();
-    expect(hashRow.querySelector('.expanded')).toBeTruthy();
+    expect(hashRow.querySelector('.content-wrapper')?.className).toContain('open');
     // Save + Reset buttons exist in the footer.
-    expect(hashRow.querySelector('.btn-primary')?.textContent?.trim()).toContain('Save');
+    expect(hashRow.querySelector('[data-testid="save-changes-btn"]')?.textContent?.trim()).toContain('Save');
   });
 
   it('lets the HTTP fallback win after only an uncounted (registry-only) WS frame', () => {
@@ -257,9 +258,9 @@ describe('WorkersComponent', () => {
       '[data-testid="worker-row"]',
     );
     const row = Array.from(rows).find((r) => r.textContent?.includes(stageName))!;
-    row.querySelector<HTMLElement>('.row-summary')?.click();
+    row.querySelector<HTMLElement>('.header')?.click();
     fixture.detectChanges();
-    row.querySelector<HTMLButtonElement>('[data-testid="open-logs-btn"]')?.click();
+    row.querySelector<HTMLButtonElement>('[data-testid="open-logs-btn"] button')?.click();
     fixture.detectChanges();
   }
 
@@ -301,7 +302,7 @@ describe('WorkersComponent', () => {
     const drawer = fixture.nativeElement.querySelector('[data-testid="log-drawer"]');
     expect(drawer.textContent).toContain('No failed jobs for this stage.');
     // Retry-all is hidden when there are no dead items.
-    expect(drawer.querySelector('.btn-ghost.danger')).toBeNull();
+    expect(drawer.querySelector('[data-testid="retry-all-dead-btn"]')).toBeNull();
   });
 
   it('clicking the backdrop closes the drawer', () => {
@@ -338,7 +339,7 @@ describe('WorkersComponent', () => {
     fixture.detectChanges();
 
     const drawer = fixture.nativeElement.querySelector('[data-testid="log-drawer"]') as HTMLElement;
-    (drawer.querySelector('.btn-ghost.danger') as HTMLButtonElement | null)?.click();
+    (drawer.querySelector('[data-testid="retry-all-dead-btn"] button') as HTMLButtonElement | null)?.click();
     http
       .expectOne({ method: 'POST', url: '/api/workers/face-detect/retry-dead' })
       .flush({ ok: true, reset: 1 });
@@ -354,30 +355,35 @@ describe('WorkersComponent', () => {
       '[data-testid="worker-row"]',
     );
     const previewRow = Array.from(rows).find((r) => r.textContent?.includes('preview'))!;
-    previewRow.querySelector<HTMLElement>('.row-summary')?.click();
+    previewRow.querySelector<HTMLElement>('.header')?.click();
     fixture.detectChanges();
   }
 
   it('renders the RAW decode workers control seeded from the performance config', () => {
     initWithMock();
     expandPreviewRow();
-    const input = fixture.nativeElement.querySelector('#ffi-workers-input') as HTMLInputElement;
+    const input = fixture.nativeElement.querySelector(
+      '[data-testid="ffi-workers-input"] input',
+    ) as HTMLInputElement;
     expect(input).not.toBeNull();
     expect(input.value).toBe('1');
-    // The min/max attributes reflect the server-supplied clamp bounds.
-    expect(input.getAttribute('min')).toBe('1');
-    expect(input.getAttribute('max')).toBe('16');
+    // The server-supplied clamp bounds (min 1 / max 16) are exercised by the
+    // "PATCHes the clamped worker count" case below, via the component's own
+    // clamp on save — mui-input's `min`/`max` only drive its own stepper UI,
+    // not a native attribute on the control.
   });
 
   it('PATCHes the clamped worker count when Apply is clicked', () => {
     initWithMock();
     expandPreviewRow();
-    const input = fixture.nativeElement.querySelector('#ffi-workers-input') as HTMLInputElement;
+    const input = fixture.nativeElement.querySelector(
+      '[data-testid="ffi-workers-input"] input',
+    ) as HTMLInputElement;
     input.value = '99';
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
 
-    const applyBtn = fixture.nativeElement.querySelector('.perf-save') as HTMLButtonElement;
+    const applyBtn = fixture.nativeElement.querySelector('.perf-save button') as HTMLButtonElement;
     applyBtn.click();
 
     const req = http.expectOne('/api/workers/performance');
@@ -394,7 +400,9 @@ describe('WorkersComponent', () => {
 
     // The control reflects the server's clamped value.
     expect(
-      (fixture.nativeElement.querySelector('#ffi-workers-input') as HTMLInputElement).value,
+      (
+        fixture.nativeElement.querySelector('[data-testid="ffi-workers-input"] input') as HTMLInputElement
+      ).value,
     ).toBe('16');
   });
 
@@ -412,7 +420,7 @@ describe('WorkersComponent', () => {
     flushPanelPolls();
     fixture.detectChanges();
     expandPreviewRow();
-    expect(fixture.nativeElement.querySelector('#ffi-workers-input')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-testid="ffi-workers-input"] input')).toBeNull();
   });
 
   function expandFaceDetectRow(): HTMLElement {
@@ -420,7 +428,7 @@ describe('WorkersComponent', () => {
       '[data-testid="worker-row"]',
     );
     const faceRow = Array.from(rows).find((r) => r.textContent?.includes('face-detect'))!;
-    faceRow.querySelector<HTMLElement>('.row-summary')?.click();
+    faceRow.querySelector<HTMLElement>('.header')?.click();
     fixture.detectChanges();
     return faceRow;
   }
@@ -431,14 +439,16 @@ describe('WorkersComponent', () => {
   it('saves face_min_detection_size as null (not 0) when the input is cleared', () => {
     initWithMock();
     const faceRow = expandFaceDetectRow();
-    const input = faceRow.querySelector<HTMLInputElement>('[data-testid="face-min-size-input"]')!;
+    const input = faceRow.querySelector<HTMLInputElement>(
+      '[data-testid="face-min-size-input"] input',
+    )!;
     expect(input).not.toBeNull();
     // Seeded from MOCK_ENRICHMENT (0.06); clear it.
     input.value = '';
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
 
-    faceRow.querySelector<HTMLButtonElement>('.btn-primary')?.click();
+    faceRow.querySelector<HTMLButtonElement>('[data-testid="save-changes-btn"] button')?.click();
 
     // saveStage first PATCHes the stage runtime config, then PUTs enrichment.
     http.expectOne('/api/workers/face-detect/config').flush(null, { status: 204, statusText: '' });
@@ -453,12 +463,14 @@ describe('WorkersComponent', () => {
   it('saves face_min_detection_size as a number when a valid value is entered', () => {
     initWithMock();
     const faceRow = expandFaceDetectRow();
-    const input = faceRow.querySelector<HTMLInputElement>('[data-testid="face-min-size-input"]')!;
+    const input = faceRow.querySelector<HTMLInputElement>(
+      '[data-testid="face-min-size-input"] input',
+    )!;
     input.value = '0.1';
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
 
-    faceRow.querySelector<HTMLButtonElement>('.btn-primary')?.click();
+    faceRow.querySelector<HTMLButtonElement>('[data-testid="save-changes-btn"] button')?.click();
 
     http.expectOne('/api/workers/face-detect/config').flush(null, { status: 204, statusText: '' });
     const put = http.expectOne('/api/enrichment/config');

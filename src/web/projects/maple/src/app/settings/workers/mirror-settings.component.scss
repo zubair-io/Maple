@@ -216,18 +216,9 @@
   }
 }
 
-.mirror-enable {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+mui-checkbox {
+  display: block;
   margin-top: 12px;
-  font-size: 12.5px;
-  color: var(--s-text-mid);
-  cursor: pointer;
-
-  input {
-    accent-color: var(--s-accent);
-  }
 }
 
 .row-footer {
@@ -261,10 +252,9 @@
     .wrow-spacer {
       display: none;
     }
-    .btn-primary,
-    .btn-ghost {
+    mui-button {
       flex: 1;
-      justify-content: center;
+      display: flex;
     }
   }
 
@@ -276,9 +266,9 @@
     .footer-spacer {
       display: none;
     }
-    button {
+    mui-button {
+      display: block;
       width: 100%;
-      justify-content: center;
     }
   }
 }

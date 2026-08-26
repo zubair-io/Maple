@@ -33,3 +33,55 @@
   gap: tok.$maple-spacing-xs;
   padding-top: tok.$maple-spacing-xs;
 }
+
+// Custom-summary mode — mirrors MuiCollapsibleComponent's own header/content
+// classes and animation so the two modes read identically, but the header
+// button wraps `[summary]`-projected content instead of a plain text label.
+.custom-summary {
+  flex: 1;
+  min-width: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: tok.$maple-spacing-sm;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--color-text-main);
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+  text-align: left;
+}
+
+.chevron {
+  display: inline-flex;
+  flex: 0 0 auto;
+  transition: transform tok.$maple-motion-group-swap-ms tok.$maple-motion-group-swap-ease;
+
+  &.open {
+    transform: rotate(90deg);
+  }
+}
+
+.summary-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.content-wrapper {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows tok.$maple-motion-group-swap-ms tok.$maple-motion-group-swap-ease;
+
+  &.open {
+    grid-template-rows: 1fr;
+  }
+}
+
+.content-inner {
+  overflow: hidden;
+  min-height: 0;
+}
