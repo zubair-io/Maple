@@ -382,9 +382,10 @@ export class PeopleComponent extends PeopleGridHost {
       return;
     }
     this.api.renamePerson(personId, next).subscribe({
-      // fallow-ignore-next-line complexity — pre-existing (inherited from
-      // main); suppressing the worst method also hides the component rollup
-      // that pairs it with the template. See the template's ignore note.
+      // Pre-existing complexity inherited from main; suppressing the worst
+      // method also hides the component rollup that pairs it with the
+      // template. See the template's ignore note.
+      // fallow-ignore-next-line complexity
       next: (result) => {
         this.editingId.set(null);
         this.draftName.set('');
